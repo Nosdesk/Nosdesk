@@ -1,8 +1,8 @@
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { useAuthStore } from '@/stores/auth'
 import userService from '@/services/userService'
-import { useSSE } from '@/services/sseService'
+import { useEntity } from '@/sync/composables'
 import { effectiveRole, type DashboardLayout, type UserRole } from '@/types/user'
 import {
   defaultLayoutFor,
@@ -98,31 +98,29 @@ export const useDashboardLayoutStore = defineStore('dashboardLayout', () => {
     )
   }
 
-  // Cross-device sync: listen for user-updated SSE events targeting
-  // the current user's `dashboard_layout` field. The backend emits
-  // these whenever update_user writes a new layout, so a change made
-  // in tab A appears in tab B without a reload. Echoes from this
-  // same client are filtered upstream by the SSE service via
-  // `source_client_id`. SSE updates land on the canonical layout
-  // only; the in-flight working copy stays untouched.
-  const sse = useSSE()
-  sse.addEventListener('user-updated', (raw) => {
-    const data = raw as {
-      user_uuid?: string
-      field?: string
-      value?: unknown
-    }
-    if (!data || data.field !== 'dashboard_layout') return
-    if (!auth.user?.uuid || data.user_uuid !== auth.user.uuid) return
-
-    const next = (data.value ?? null) as DashboardLayout | null
-    const merged = mergeWithRegistry(next, currentRole())
-
-    if (JSON.stringify(merged) === JSON.stringify(canonicalLayout.value)) return
-
-    canonicalLayout.value = merged
-    auth.user.dashboard_layout = next
-  })
+  // Cross-session sync: the current user's pool row carries
+  // `dashboard_layout` (streamed on bootstrap + every `user.updated`
+  // sync action). When a change made in another session lands in the
+  // pool, mirror it onto the canonical layout so it appears here
+  // without a reload. Our own save echoes back through the pool too,
+  // but the equality check below makes that a no-op. Updates land on
+  // canonical only; an in-flight working copy stays untouched and
+  // overwrites whatever canonical drifted to when the user saves.
+  const poolUser = useEntity<{ dashboard_layout?: DashboardLayout | null }>(
+    'user',
+    () => auth.user?.uuid ?? null,
+  )
+  watch(
+    () => poolUser.value?.dashboard_layout,
+    (next) => {
+      if (!auth.user?.uuid) return
+      const layout = (next ?? null) as DashboardLayout | null
+      const merged = mergeWithRegistry(layout, currentRole())
+      if (JSON.stringify(merged) === JSON.stringify(canonicalLayout.value)) return
+      canonicalLayout.value = merged
+      auth.user.dashboard_layout = layout
+    },
+  )
 
   /** Begin an edit session. Snapshots the canonical layout into
    *  the working copy + clears the undo/redo stacks. No-op if a

@@ -38,14 +38,6 @@ fn asset_validation_response(err: AssetValidationError) -> HttpResponse {
     }
 }
 
-/// Extract the SSE client ID from the request header (for echo suppression).
-fn extract_sse_client_id(req: &HttpRequest) -> Option<String> {
-    req.headers()
-        .get("X-SSE-Client-Id")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-}
-
 // Pagination query parameters
 #[derive(Deserialize)]
 pub struct PaginationParams {
@@ -657,9 +649,7 @@ pub async fn update_device(
     auth: AuthContext,
     path: web::Path<i32>,
     device_update: web::Json<AssetUpdate>,
-    sse_state: web::Data<crate::handlers::sse::SseState>,
     search_service: web::Data<Arc<SearchService>>,
-    req: HttpRequest,
 ) -> impl Responder {
     let device_id = path.into_inner();
 
@@ -718,9 +708,6 @@ pub async fn update_device(
         }
     }
 
-    // Convert to JSON before the move for SSE broadcasting
-    let update_json = serde_json::to_value(&update_data).unwrap_or_default();
-
     let result = tc.run(|conn| {
         let device = repository::update_device(conn, device_id, update_data)?;
         let user = device
@@ -738,28 +725,8 @@ pub async fn update_device(
             // Re-index the updated device in search
             indexing_tasks::spawn_index_device(search_service.get_ref().clone(), device);
 
-            // Broadcast SSE events for each field that was updated (with echo suppression)
-            let source_client_id = extract_sse_client_id(&req);
-            let updated_by = auth.user_uuid.to_string();
-            if let Some(update_obj) = update_json.as_object() {
-                for (key, value) in update_obj {
-                    if !value.is_null() {
-                        debug!(device_id, field = %key, value = ?value, "Broadcasting SSE event for device update");
-                        sse_state
-                            .broadcast_event_from(
-                                crate::handlers::sse::SseEvent::AssetUpdated {
-                                    device_id,
-                                    field: key.to_string(),
-                                    value: value.clone(),
-                                    updated_by: updated_by.clone(),
-                                    timestamp: chrono::Utc::now(),
-                                },
-                                source_client_id.clone(),
-                            )
-                            .await;
-                    }
-                }
-            }
+            // The update reaches clients through the sync pool (the
+            // repository write emits `asset.updated`); no discrete SSE.
 
             HttpResponse::Ok().json(device_response)
         }
@@ -775,11 +742,9 @@ pub async fn update_device(
 
 /// Delete a device (admin only)
 pub async fn delete_device(
-    req: HttpRequest,
     mut tc: TenantConn,
     auth: AuthContext,
     search_service: web::Data<Arc<SearchService>>,
-    sse_state: web::Data<crate::handlers::sse::SseState>,
     path: web::Path<i32>,
 ) -> impl Responder {
     if !auth.is_workspace_admin() {
@@ -793,19 +758,10 @@ pub async fn delete_device(
         Ok(rows_affected) => {
             if rows_affected > 0 {
                 // Search index removal is fired by the
-                // AssetDeletedObserver inside `delete_device`.
-
-                // Broadcast SSE event for device deletion (with echo suppression)
-                let source_client_id = extract_sse_client_id(&req);
-                sse_state
-                    .broadcast_event_from(
-                        crate::handlers::sse::SseEvent::AssetDeleted {
-                            device_id,
-                            timestamp: chrono::Utc::now(),
-                        },
-                        source_client_id,
-                    )
-                    .await;
+                // AssetDeletedObserver inside `delete_device`. The
+                // deletion reaches clients through the sync pool (the
+                // repository write emits `asset.deleted`); no discrete
+                // SSE.
 
                 HttpResponse::Ok().json(json!({
                     "message": format!("Asset {} deleted successfully", device_id)
@@ -954,7 +910,6 @@ pub async fn bulk_devices(
     mut tc: TenantConn,
     auth: AuthContext,
     search_service: web::Data<Arc<SearchService>>,
-    sse_state: web::Data<crate::handlers::sse::SseState>,
     body: web::Json<BulkDeviceActionRequest>,
 ) -> impl Responder {
     // Only admins can perform bulk operations
@@ -974,7 +929,6 @@ pub async fn bulk_devices(
     match action {
         "delete" => {
             let mut deleted = 0;
-            let source_client_id = extract_sse_client_id(&req);
             for id in ids {
                 let id = *id;
                 let search = search_service.get_ref().clone();
@@ -982,18 +936,9 @@ pub async fn bulk_devices(
                     Ok(rows) => {
                         deleted += rows;
                         // Search index removal is fired by the
-                        // AssetDeletedObserver inside `delete_device`.
-
-                        // Broadcast SSE event for each deleted device
-                        sse_state
-                            .broadcast_event_from(
-                                crate::handlers::sse::SseEvent::AssetDeleted {
-                                    device_id: id,
-                                    timestamp: chrono::Utc::now(),
-                                },
-                                source_client_id.clone(),
-                            )
-                            .await;
+                        // AssetDeletedObserver inside `delete_device`. The
+                        // deletion reaches clients through the sync pool
+                        // (`asset.deleted`); no discrete SSE.
                     }
                     Err(e) => {
                         error!(device_id = id, error = ?e, "Error deleting device in bulk operation");

@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::extractors::{AuthContext, TenantConn, TicketAccess};
@@ -87,47 +87,6 @@ fn extract_sse_client_id(req: &HttpRequest) -> Option<String> {
         .get("X-SSE-Client-Id")
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string())
-}
-
-// Simple helper to broadcast SSE events without blocking
-async fn broadcast_sse_simple(
-    sse_state: web::Data<crate::handlers::sse::SseState>,
-    ticket_id: i32,
-    event_type: String,
-    data: serde_json::Value,
-    source_client_id: Option<String>,
-) {
-    use crate::handlers::sse::SseEvent;
-
-    tokio::spawn(async move {
-        let event = match event_type.as_str() {
-            "ticket_updated" => {
-                let key = data.get("key").and_then(|v| v.as_str());
-                let value = data.get("value");
-                let user_sub = data.get("user_sub").and_then(|v| v.as_str());
-                match (key, value, user_sub) {
-                    (Some(key), Some(value), Some(user_sub)) => Some(SseEvent::TicketUpdated {
-                        ticket_id,
-                        field: key.to_string(),
-                        value: value.clone(),
-                        updated_by: user_sub.to_string(),
-                        timestamp: chrono::Utc::now(),
-                    }),
-                    _ => None,
-                }
-            }
-            _ => {
-                warn!(event_type = %event_type, "Unknown SSE event type");
-                None
-            }
-        };
-
-        if let Some(event) = event {
-            sse_state
-                .broadcast_event_from(event, source_client_id)
-                .await;
-        }
-    });
 }
 
 // Pagination query parameters
@@ -905,7 +864,6 @@ pub async fn create_empty_ticket(
 // Update ticket partially
 pub async fn update_ticket_partial(
     mut tc: TenantConn,
-    sse_state: web::Data<crate::handlers::sse::SseState>,
     notification_service: web::Data<NotificationService>,
     search_service: web::Data<Arc<SearchService>>,
     req: HttpRequest,
@@ -914,7 +872,6 @@ pub async fn update_ticket_partial(
     body: web::Json<Value>,
 ) -> impl Responder {
     let ticket_id = access.ticket_id;
-    let source_client_id = extract_sse_client_id(&req);
 
     // Notification dispatch downstream wants the raw `Claims`
     // for actor logging; pull from extensions, which the JWT
@@ -1223,38 +1180,12 @@ pub async fn update_ticket_partial(
                                 "Auto-assigned ticket on category change"
                             );
 
-                            // Get user info for the SSE event
+                            // Auto-assignment reaches clients through the
+                            // sync pool (the assignee change emits a
+                            // ticket.assignee_changed sync action).
                             let assignee_user = tc
                                 .run(|conn| repository::get_user_by_uuid(&assigned_uuid, conn))
                                 .ok();
-                            let user_info_for_sse =
-                                assignee_user
-                                    .as_ref()
-                                    .map(|u| crate::models::UserInfoWithAvatar {
-                                        uuid: u.uuid,
-                                        name: u.name.clone(),
-                                        avatar_url: u.avatar_url.clone(),
-                                        avatar_thumb: u.avatar_thumb.clone(),
-                                    });
-
-                            // Broadcast the assignment SSE event with user info
-                            broadcast_sse_simple(
-                                sse_state.clone(),
-                                ticket_id,
-                                "ticket_updated".to_string(),
-                                json!({
-                                    "key": "assignee",
-                                    "value": {
-                                        "uuid": assigned_uuid.to_string(),
-                                        "user_info": user_info_for_sse
-                                    },
-                                    "user_sub": "system",
-                                    "auto_assigned": true,
-                                    "rule_name": result.rule_name
-                                }),
-                                source_client_id.clone(),
-                            )
-                            .await;
 
                             // Send notification to the auto-assigned user
                             if let Some(ref assignee) = assignee_user {
@@ -1291,23 +1222,9 @@ pub async fn update_ticket_partial(
                 }
             }
 
-            // Broadcast SSE events IMMEDIATELY after DB update for low latency
-            // Don't wait for fetching complete ticket data
-            for (key, value) in body.0.as_object().unwrap_or(&serde_json::Map::new()) {
-                debug!(ticket_id = ticket_id, key = %key, value = ?value, "Broadcasting SSE event");
-                broadcast_sse_simple(
-                    sse_state.clone(),
-                    ticket_id,
-                    "ticket_updated".to_string(),
-                    json!({
-                        "key": key,
-                        "value": value,
-                        "user_sub": user_info.sub
-                    }),
-                    source_client_id.clone(),
-                )
-                .await;
-            }
+            // Field changes reach clients through the sync pool (the
+            // repository write emits the matching ticket.* sync action);
+            // no discrete SSE broadcast.
 
             // Now fetch the complete ticket for the response
             // This happens after SSE broadcast so it doesn't delay real-time updates
@@ -1641,13 +1558,12 @@ pub async fn bulk_tickets(
     search_service: web::Data<Arc<SearchService>>,
     body: web::Json<BulkActionRequest>,
 ) -> impl Responder {
+    // Authentication guard.
+    if req.extensions().get::<Claims>().is_none() {
+        return errors::unauthorized("Unauthorized: Authentication required");
+    }
+    // Still needed for the kept TicketDeleted broadcast in the delete arm.
     let source_client_id = extract_sse_client_id(&req);
-
-    // Extract claims and check authentication
-    let claims = match req.extensions().get::<Claims>() {
-        Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Unauthorized: Authentication required"),
-    };
 
     // Bulk mutations are a staff-only affordance. The end-user surface
     // doesn't expose multi-select; gating here keeps Users out of a
@@ -1742,18 +1658,8 @@ pub async fn bulk_tickets(
                     .is_ok()
                 {
                     updated += 1;
-                    sse_state
-                        .broadcast_event_from(
-                            crate::handlers::sse::SseEvent::TicketUpdated {
-                                ticket_id: *id,
-                                field: "priority".to_string(),
-                                value: json!(priority_str),
-                                updated_by: claims.sub.clone(),
-                                timestamp: chrono::Utc::now(),
-                            },
-                            source_client_id.clone(),
-                        )
-                        .await;
+                    // update_ticket_partial emits ticket.priority_changed;
+                    // the pool delivers it. No discrete SSE.
                 }
             }
 
@@ -1795,18 +1701,8 @@ pub async fn bulk_tickets(
                     .is_ok()
                 {
                     updated += 1;
-                    sse_state
-                        .broadcast_event_from(
-                            crate::handlers::sse::SseEvent::TicketUpdated {
-                                ticket_id: *id,
-                                field: "assignee_uuid".to_string(),
-                                value: json!(assignee_str),
-                                updated_by: claims.sub.clone(),
-                                timestamp: chrono::Utc::now(),
-                            },
-                            source_client_id.clone(),
-                        )
-                        .await;
+                    // update_ticket_partial emits ticket.assignee_changed;
+                    // the pool delivers it. No discrete SSE.
                 }
             }
 

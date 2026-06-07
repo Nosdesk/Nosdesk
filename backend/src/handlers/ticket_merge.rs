@@ -13,7 +13,6 @@ use serde::Deserialize;
 
 use crate::db::Pool;
 use crate::handlers::errors;
-use crate::handlers::sse::{SseEvent, SseState};
 use crate::middleware::request_context::RequestContext;
 use crate::models::WorkspaceRole;
 use crate::repository::ticket_merge::{self, ExpectedState, MergeError, MergeInput};
@@ -55,7 +54,6 @@ pub async fn merge_tickets(
     req: HttpRequest,
     body: web::Json<MergeRequest>,
     pool: web::Data<Pool>,
-    sse_state: web::Data<SseState>,
     search_service: web::Data<Arc<SearchService>>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
@@ -102,24 +100,11 @@ pub async fn merge_tickets(
         indexing_tasks::spawn_index_ticket(search_service.get_ref().clone(), source.clone(), None);
     }
 
-    // The merge reaches open viewers through the sync pool: each source
-    // ticket's `ticket.merged_into` emit flips its merged-into banner +
-    // read-only composer, and the merge-marker comment lands on the
-    // destination's timeline. The per-source workflow_state change below
-    // still rides the discrete SSE for surfaces not yet pool-native.
-    let actor_uuid = actor.uuid.map(|u| u.to_string()).unwrap_or_default();
-    let now = chrono::Utc::now();
-    for source in &outcome.merged_sources {
-        sse_state
-            .broadcast_event(SseEvent::TicketUpdated {
-                ticket_id: source.id,
-                field: "workflow_state_id".to_string(),
-                value: serde_json::json!(source.workflow_state_id),
-                updated_by: actor_uuid.clone(),
-                timestamp: now,
-            })
-            .await;
-    }
+    // The merge reaches open viewers entirely through the sync pool:
+    // each source ticket's `ticket.merged_into` emit flips its
+    // merged-into banner + read-only composer (and carries the new
+    // workflow state), and the merge-marker comment lands on the
+    // destination's timeline. No discrete SSE broadcast.
 
     // Step 15: customer notification, opt-in and best-effort. Runs in
     // its own transaction so a send-queue hiccup never unwinds the

@@ -257,6 +257,16 @@ fn stream_bootstrap_inner(
         .load(conn)?;
     let primary_email_by_uuid: std::collections::HashMap<uuid::Uuid, String> =
         primary_email_rows.into_iter().collect();
+    // Personal dashboard layout lives in `user_preferences`; batch-load
+    // it so each user's own sessions warm-start + live-sync the
+    // arrangement from the pool (one query, not N+1).
+    let all_user_uuids: Vec<uuid::Uuid> = user_rows.iter().map(|u| u.uuid).collect();
+    let dashboard_layout_by_uuid: std::collections::HashMap<uuid::Uuid, serde_json::Value> =
+        crate::repository::user_preferences::get_many(conn, &all_user_uuids)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|p| p.dashboard_layout.map(|dl| (p.user_uuid, dl)))
+            .collect();
     for user in user_rows {
         let workspace_role =
             crate::repository::user_helpers::bootstrap_workspace_role(conn, user.uuid)
@@ -273,6 +283,7 @@ fn stream_bootstrap_inner(
                 "pronouns": user.pronouns,
                 "avatar_url": user.avatar_url,
                 "avatar_thumb": user.avatar_thumb,
+                "dashboard_layout": dashboard_layout_by_uuid.get(&user.uuid),
             }),
         )?;
     }

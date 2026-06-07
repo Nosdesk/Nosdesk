@@ -1792,7 +1792,6 @@ fn should_keep_file(
 
 pub async fn update_user_by_uuid(
     mut tc: TenantConn,
-    sse_state: web::Data<crate::handlers::sse::SseState>,
     search_service: web::Data<Arc<SearchService>>,
     req: HttpRequest,
     path: web::Path<String>,
@@ -1965,6 +1964,23 @@ pub async fn update_user_by_uuid(
         || user_data.locale.is_some()
         || user_data.timezone.is_some();
 
+    // Apply preference changes (if any) BEFORE the core-user update so
+    // the `user.updated` sync action that `update_user` emits reads the
+    // fresh dashboard_layout from user_preferences. Best-effort: a
+    // transient prefs-table write failure logs but doesn't fail the
+    // request (the preference fields are independent of the core row).
+    if prefs_changed {
+        if let Err(e) =
+            tc.run(|conn| repository::user_preferences::update(conn, user.uuid, prefs_update))
+        {
+            tracing::error!(
+                error = ?e,
+                user_uuid = %user.uuid,
+                "Failed to update user_preferences before user update",
+            );
+        }
+    }
+
     let update_result = tc.run(|conn| {
         repository::update_user(
             &user.uuid,
@@ -1975,92 +1991,11 @@ pub async fn update_user_by_uuid(
     });
     match update_result {
         Ok(updated_user) => {
-            // Apply preference changes (if any) right after the
-            // core-user update. Best-effort: a transient prefs-table
-            // write failure logs but doesn't fail the whole request,
-            // since the core fields already committed.
-            if prefs_changed {
-                if let Err(e) = tc
-                    .run(|conn| repository::user_preferences::update(conn, user.uuid, prefs_update))
-                {
-                    tracing::error!(
-                        error = ?e,
-                        user_uuid = %user.uuid,
-                        "Failed to update user_preferences after user update",
-                    );
-                }
-            }
-            let updated_prefs = tc
-                .run(|conn| repository::user_preferences::get(conn, user.uuid))
-                .ok();
-            // Broadcast SSE events for changed fields. One event per
-            // field so other tabs/devices can mirror the change at
-            // field granularity. The dashboard_layout payload is the
-            // full object, since it's only delivered to the owning
-            // user's own sessions via the per-user topic.
-            let updated_by = claims.sub.clone();
-            // Mirror the role split (platform_role + the bootstrap
-            // workspace role) for clients tracking the change.
-            let workspace_role_str = tc
-                .run(|conn| {
-                    Ok(crate::repository::user_helpers::bootstrap_workspace_role(
-                        conn,
-                        updated_user.uuid,
-                    ))
-                })
-                .unwrap_or(None)
-                .map(|r| r.as_str().to_string())
-                .unwrap_or_else(|| crate::models::WorkspaceRole::Member.as_str().to_string());
-            let role_changed = user_data.role.is_some();
-            let updates: [(&str, bool, serde_json::Value); 7] = [
-                (
-                    "name",
-                    user_data.name.is_some(),
-                    json!(updated_user.name.clone()),
-                ),
-                (
-                    "platform_role",
-                    role_changed,
-                    json!(updated_user.platform_role.clone()),
-                ),
-                ("workspace_role", role_changed, json!(workspace_role_str)),
-                (
-                    "pronouns",
-                    user_data.pronouns.is_some(),
-                    json!(updated_user.pronouns.clone()),
-                ),
-                (
-                    "avatar_url",
-                    user_data.avatar_url.is_some(),
-                    json!(updated_user.avatar_url.clone()),
-                ),
-                (
-                    "avatar_thumb",
-                    user_data.avatar_thumb.is_some(),
-                    json!(updated_user.avatar_thumb.clone()),
-                ),
-                (
-                    "dashboard_layout",
-                    user_data.dashboard_layout.is_some(),
-                    json!(updated_prefs
-                        .as_ref()
-                        .and_then(|p| p.dashboard_layout.clone())),
-                ),
-            ];
-            for (field, requested, value) in updates {
-                if !requested {
-                    continue;
-                }
-                sse_state
-                    .broadcast_event(crate::handlers::sse::SseEvent::UserUpdated {
-                        user_uuid: user_uuid.clone(),
-                        field: field.to_string(),
-                        value,
-                        updated_by: updated_by.clone(),
-                        timestamp: chrono::Utc::now(),
-                    })
-                    .await;
-            }
+            // Profile + preference changes (name, role, pronouns,
+            // avatar, dashboard_layout) reach clients through the sync
+            // pool: update_user emits a `user.updated` sync action
+            // carrying the full row (incl. dashboard_layout), so a
+            // user's own sessions mirror the change. No discrete SSE.
 
             // Re-index the updated user in search
             let primary_email = tc
@@ -2627,7 +2562,6 @@ pub struct BulkUserActionRequest {
 pub async fn bulk_users(
     req: HttpRequest,
     pool: web::Data<crate::db::Pool>,
-    sse_state: web::Data<crate::handlers::sse::SseState>,
     _search_service: web::Data<Arc<SearchService>>,
     body: web::Json<BulkUserActionRequest>,
 ) -> impl Responder {
@@ -2763,22 +2697,6 @@ pub async fn bulk_users(
 
                 if role_update_ok {
                     updated += 1;
-                    // Broadcast the split-role change so clients mirror
-                    // both halves at field granularity.
-                    for (field, value) in [
-                        ("platform_role", platform_role),
-                        ("workspace_role", workspace_role),
-                    ] {
-                        sse_state
-                            .broadcast_event(crate::handlers::sse::SseEvent::UserUpdated {
-                                user_uuid: id.to_string(),
-                                field: field.to_string(),
-                                value: json!(value),
-                                updated_by: claims.sub.clone(),
-                                timestamp: chrono::Utc::now(),
-                            })
-                            .await;
-                    }
                 }
             }
 

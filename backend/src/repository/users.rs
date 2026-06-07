@@ -49,6 +49,13 @@ fn emit_user_event(
         crate::repository::user_helpers::get_primary_email(&user.uuid, conn).unwrap_or_default();
     let workspace_role = crate::repository::user_helpers::bootstrap_workspace_role(conn, user.uuid)
         .map(|r| r.as_str().to_string());
+    // Personal dashboard layout lives in `user_preferences`; carry it
+    // so a user's own sessions sync the arrangement live through the
+    // pool. Tolerant fetch — on delete the prefs row may have already
+    // cascaded, which is fine (the layout is irrelevant then).
+    let dashboard_layout = crate::repository::user_preferences::get(conn, user.uuid)
+        .ok()
+        .and_then(|p| p.dashboard_layout);
     emit::record(
         conn,
         SyncEmit {
@@ -66,6 +73,7 @@ fn emit_user_event(
                 "avatar_url": user.avatar_url,
                 "avatar_thumb": user.avatar_thumb,
                 "deleted_at": user.deleted_at,
+                "dashboard_layout": dashboard_layout,
             }),
             groups: groups::workspace(),
             causation_id: None,

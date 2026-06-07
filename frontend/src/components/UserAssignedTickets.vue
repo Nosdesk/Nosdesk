@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { useFluent } from 'fluent-vue';
-import { useQuery, useQueryCache } from "@pinia/colada";
+import { useQuery } from "@pinia/colada";
 import { useAuthStore } from "@/stores/auth";
 import { useWorkflowStatesStore } from "@/stores/workflowStates";
 import { TERMINAL_CATEGORIES } from "@/types/workflow";
-import { useSSEListeners } from "@/composables/useSSEListeners";
+import { useSyncActions } from "@/composables/useSyncActions";
 import { useWidgetConfigState } from "@/composables/useWidgetConfigState";
 import TicketRow from "@/components/TicketRow.vue";
 import TicketRowSkeleton from "@/components/TicketRowSkeleton.vue";
@@ -158,8 +158,6 @@ function isHighPriority(ticket: Ticket): boolean {
 // stays as belt-and-braces so the component is correct even if a
 // caller embeds it outside the dashboard (e.g. profile view).
 
-const queryCache = useQueryCache();
-
 const queryKey = computed(
     () => [
         'user-tickets',
@@ -171,7 +169,7 @@ const queryKey = computed(
     ] as const,
 );
 
-const { data, isPending, isLoading, error } = useQuery({
+const { data, isPending, isLoading, error, refetch } = useQuery({
     key: queryKey,
     enabled: () => !!targetUserUuid.value,
     query: async ({ signal }) => {
@@ -260,75 +258,16 @@ if (props.filterStatus) {
 
 onMounted(refreshRecentViews);
 
-// -- SSE live updates ---------------------------------------------------
+// -- Live updates -------------------------------------------------------
 //
-// The cache is the source of truth; SSE patches it via setQueryData so
-// the same query handle re-renders. Mutating a local ref (the old
-// shape) would have left the cache stale, so a subsequent remount
-// would re-fetch and overwrite the SSE-applied changes.
-
-const { on } = useSSEListeners();
-
-function ticketMatchesFilter(t: Ticket): boolean {
-    if (!config.status) return true;
-    if (config.status === 'active') return isActiveTicket(t);
-    return true;
-}
-
-function patchCache(updater: (current: Ticket[]) => Ticket[]): void {
-    queryCache.setQueryData(queryKey.value, updater(rawTickets.value));
-}
-
-on('ticket-updated', (data) => {
-    const event = data as { ticket_id: number; field: string; value: unknown };
-    patchCache((current) => {
-        const idx = current.findIndex((t) => t.id === event.ticket_id);
-        if (idx === -1) return current;
-        const ticket = { ...current[idx] } as Ticket;
-        const field = event.field as keyof Ticket;
-        if (field in ticket) {
-            (ticket as unknown as Record<string, unknown>)[field] = event.value;
-        }
-
-        // Workflow state no longer matches the filter -> drop from view.
-        if (field === 'workflow_state_id' && !ticketMatchesFilter(ticket)) {
-            return current.filter((_, i) => i !== idx);
-        }
-        // Reassigned away -> drop from the "assigned to me" view.
-        if (field === 'assignee' && props.ticketType === 'assigned') {
-            const assigneeVal = event.value as { uuid?: string } | string | null;
-            const assigneeUuid =
-                typeof assigneeVal === 'object' && assigneeVal ? assigneeVal.uuid : assigneeVal;
-            if (assigneeUuid !== targetUserUuid.value) {
-                return current.filter((_, i) => i !== idx);
-            }
-        }
-        return current.map((t, i) => (i === idx ? ticket : t));
-    });
-});
-
-on('ticket-created', (data) => {
-    const event = data as { ticket: Record<string, unknown> };
-    if (!event.ticket) return;
-    // The SSE payload carries the raw DB row (requester_uuid /
-    // assignee_uuid as columns), not the API-facing Ticket shape.
-    const ticket = event.ticket as unknown as Ticket & {
-        assignee_uuid?: string | null;
-        requester_uuid?: string | null;
-    };
-    const matchesUser =
-        props.ticketType === 'assigned'
-            ? ticket.assignee_uuid === targetUserUuid.value
-            : ticket.requester_uuid === targetUserUuid.value;
-    if (!matchesUser) return;
-    if (!ticketMatchesFilter(ticket)) return;
-    patchCache((current) => [ticket, ...current]);
-});
-
-on('ticket-deleted', (data) => {
-    const event = data as { ticket_id: number };
-    patchCache((current) => current.filter((t) => t.id !== event.ticket_id));
-});
+// Refetch when ticket sync actions land (delivered cross-machine via the
+// sync stream). The server query owns the assignee/requester + status/
+// sort filtering, so a refetch correctly handles every case the old
+// discrete handlers did by hand — adds, deletes, reassigns, and
+// workflow-state changes that move a ticket in or out of this view —
+// without re-deriving that logic client-side. Debounced so a burst of
+// changes coalesces into one refetch.
+useSyncActions(() => void refetch(), { aggregates: ['ticket'], debounceMs: 300 });
 </script>
 
 <template>

@@ -822,7 +822,6 @@ pub async fn apply_rule(
     path: web::Path<i32>,
     body: web::Json<ApplyRuleRequest>,
     pool: web::Data<Pool>,
-    sse_state: web::Data<crate::handlers::sse::SseState>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
         return e;
@@ -868,60 +867,10 @@ pub async fn apply_rule(
         }
     }
 
-    // SSE: broadcast field names the frontend's useTicketSSE
-    // composable already handles. workflow_state_id needs to
-    // resolve to the state's category string (the frontend's
-    // ticket.status); assignee_uuid maps to the 'assignee' key.
-    // Tag changes have no matching per-field handler today; the
-    // ticket.rule_applied sync event drives activity-feed refresh,
-    // which is the surface that needs to update for tag changes.
-    let actor_uuid_str = actor.uuid.map(|u| u.to_string()).unwrap_or_default();
-    if let Some(taken) = outcome
-        .application
-        .actions_taken
-        .as_ref()
-        .and_then(|v| v.as_array())
-    {
-        for action in taken {
-            let Some(kind) = action.get("kind").and_then(|k| k.as_str()) else {
-                continue;
-            };
-            let (field, value) = match kind {
-                "set_status" => match action.get("workflow_state_id").and_then(|v| v.as_i64()) {
-                    // The frontend's ticket SSE handler reacts to
-                    // workflow_state_id and re-resolves the state from its
-                    // store; emit the id, not a status string.
-                    Some(id) => ("workflow_state_id", Value::from(id as i32)),
-                    None => continue,
-                },
-                "assign" => (
-                    "assignee",
-                    action
-                        .get("assigned_to_uuid")
-                        .cloned()
-                        .unwrap_or(Value::Null),
-                ),
-                "unassign" => ("assignee", Value::Null),
-                "set_priority" => (
-                    "priority",
-                    action.get("priority").cloned().unwrap_or(Value::Null),
-                ),
-                // add_tags / remove_tags / reply / stop_processing
-                // have no useTicketSSE handler today; activity feed
-                // refresh via ticket.rule_applied covers them.
-                _ => continue,
-            };
-            sse_state
-                .broadcast_event(crate::handlers::sse::SseEvent::TicketUpdated {
-                    ticket_id,
-                    field: field.to_string(),
-                    value,
-                    updated_by: actor_uuid_str.clone(),
-                    timestamp: chrono::Utc::now(),
-                })
-                .await;
-        }
-    }
+    // Rule-applied field changes (status / assignee / priority / tags)
+    // reach clients through the sync pool: each change emits its own
+    // ticket.* sync action, and ticket.rule_applied drives the activity
+    // feed. No discrete SSE broadcast.
 
     HttpResponse::Ok().json(ApplyRuleResponse {
         rule: RuleDto::from(outcome.rule),

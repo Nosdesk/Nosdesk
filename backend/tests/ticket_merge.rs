@@ -11,7 +11,6 @@
 #![allow(clippy::expect_used)]
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use actix_web::dev::Service;
 use actix_web::{web, App, HttpMessage};
@@ -20,7 +19,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use backend::extractors::WorkspaceContext;
-use backend::handlers::sse::{SseEvent, SseState};
+use backend::handlers::sse::SseState;
 use backend::middleware::RequestContext;
 use backend::models::{Claims, NewTicket, NewUser, Ticket, User};
 use backend::services::search::SearchService;
@@ -161,8 +160,7 @@ async fn merge_happy_path_returns_200() {
     let dest = ticket(&mut conn, "Dest", state, agent.uuid);
     let src = ticket(&mut conn, "Source", state, agent.uuid);
 
-    let (srv, sse) = spawn(&pool, &agent);
-    let mut rx = sse.subscribe_global();
+    let (srv, _sse) = spawn(&pool, &agent);
     let client = awc::Client::new();
     let mut resp = client
         .post(srv.url("/api/tickets/merge"))
@@ -181,33 +179,11 @@ async fn merge_happy_path_returns_200() {
     assert_eq!(body["merged_sources"].as_array().unwrap().len(), 1);
     assert_eq!(body["merged_sources"][0]["id"], src.id);
 
-    // The discrete TicketMerged SSE event was retired: the merge now
-    // reaches open viewers through the sync pool (each source's
-    // `ticket.merged_into` emit + the destination's marker comment).
-    // The source's workflow_state change still rides the discrete
-    // TicketUpdated SSE for surfaces not yet pool-native, so assert on
-    // that as the observable broadcast.
-    let mut saw_source_update = false;
-    for _ in 0..5 {
-        match tokio::time::timeout(Duration::from_secs(2), rx.recv()).await {
-            Ok(Ok(env)) => {
-                if let SseEvent::TicketUpdated {
-                    ticket_id, field, ..
-                } = env.event
-                {
-                    if ticket_id == src.id && field == "workflow_state_id" {
-                        saw_source_update = true;
-                        break;
-                    }
-                }
-            }
-            _ => break,
-        }
-    }
-    assert!(
-        saw_source_update,
-        "expected a TicketUpdated SSE event for the merged source"
-    );
+    // The merge emits no discrete SSE any more — it reaches open viewers
+    // entirely through the sync pool (each source's `ticket.merged_into`
+    // emit + the destination's marker comment). The repository unit
+    // tests cover the merge lifecycle; this test covers the handler
+    // wiring + response shape.
 }
 
 #[actix_web::test]

@@ -21,13 +21,6 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum SseEvent {
-    TicketUpdated {
-        ticket_id: i32,
-        field: String,
-        value: serde_json::Value,
-        updated_by: String,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    },
     TicketCreated {
         ticket_id: i32,
         ticket: serde_json::Value,
@@ -35,17 +28,6 @@ pub enum SseEvent {
     },
     TicketDeleted {
         ticket_id: i32,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    },
-    AssetUpdated {
-        device_id: i32,
-        field: String,
-        value: serde_json::Value,
-        updated_by: String,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    },
-    AssetDeleted {
-        device_id: i32,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
     /// Audit-count event. Distinct from AssetUsageRecorded
@@ -107,13 +89,6 @@ pub enum SseEvent {
         value: String,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
-    UserUpdated {
-        user_uuid: String,
-        field: String,
-        value: serde_json::Value,
-        updated_by: String,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    },
     Heartbeat {
         timestamp: chrono::DateTime<chrono::Utc>,
     },
@@ -133,16 +108,12 @@ pub enum SseEvent {
 
 fn event_type_str(event: &SseEvent) -> &'static str {
     match event {
-        SseEvent::TicketUpdated { .. } => "ticket-updated",
         SseEvent::TicketCreated { .. } => "ticket-created",
         SseEvent::TicketDeleted { .. } => "ticket-deleted",
-        SseEvent::AssetUpdated { .. } => "asset-updated",
-        SseEvent::AssetDeleted { .. } => "asset-deleted",
         SseEvent::AssetUsageRecorded { .. } => "asset-usage-recorded",
         SseEvent::AssetAuditRecorded { .. } => "asset-audit-recorded",
         SseEvent::ViewersChanged { .. } => "viewers-changed",
         SseEvent::TicketFieldPreviewed { .. } => "ticket-field-previewed",
-        SseEvent::UserUpdated { .. } => "user-updated",
         SseEvent::Heartbeat { .. } => "heartbeat",
         SseEvent::SyncActions { .. } => "sync-actions",
     }

@@ -22,8 +22,8 @@ import Modal from '@/components/Modal.vue';
 import { getAssetById, updateAsset, createAsset, deleteAsset, unmanageAsset } from '@/services/assetService';
 import { type AssetKind } from '@/services/assetKindsService';
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery';
-import { useSSEListeners } from '@/composables/useSSEListeners';
-import type { DeviceUpdatedEventData, DeviceDeletedEventData } from '@/types/sse';
+import { useSyncActions } from '@/composables/useSyncActions';
+import { useAuthStore } from '@/stores/auth';
 import type { Asset, AssetFormData } from '@/types/asset';
 import DynamicAttributeForm from '@/components/assets/DynamicAttributeForm.vue';
 
@@ -423,29 +423,31 @@ watch(() => route.params.id, () => {
   fetchDeviceData();
 });
 
-// SSE integration for real-time updates
-const { on } = useSSEListeners();
-
-on('asset-updated', (data) => {
-  const event = data as DeviceUpdatedEventData;
-  if (!device.value || event.device_id !== device.value.id) return;
-
-  const field = event.field as keyof typeof editValues.value;
-  if (field in editValues.value) {
-    const val = typeof event.value === 'string' ? event.value : String(event.value ?? '');
-    editValues.value[field] = val;
-  }
-  // Also update the device ref for non-editable display fields
-  if (event.field in device.value) {
-    (device.value as Record<string, unknown>)[event.field] = event.value;
-  }
-});
-
-on('asset-deleted', (data) => {
-  const event = data as DeviceDeletedEventData;
-  if (!device.value || event.device_id !== device.value.id) return;
-  router.push('/assets');
-});
+// Real-time updates via the sync-action stream (cross-machine). The
+// detail view edits the full asset DTO, of which the sync payload is a
+// subset, so on a remote change we refetch the whole row rather than
+// patch fields. Skip actions authored by the current user — their own
+// edits are already applied locally by the save handlers (this is the
+// echo suppression the discrete SSE did via source_client_id).
+const auth = useAuthStore();
+useSyncActions(
+  (actions) => {
+    const id = device.value?.id;
+    if (id == null) return;
+    const mine = auth.user?.uuid ?? null;
+    const relevant = actions.filter(
+      (a) => a.aggregate_id === String(id) && a.actor_uuid !== mine,
+    );
+    if (relevant.length === 0) return;
+    // A delete of the open asset: leave the now-gone detail view.
+    if (relevant.some((a) => a.op === 'D')) {
+      router.push('/assets');
+      return;
+    }
+    void fetchDeviceData();
+  },
+  { aggregates: ['asset'], debounceMs: 300 },
+);
 
 // Lifecycle
 onMounted(() => {

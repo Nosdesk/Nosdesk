@@ -240,7 +240,6 @@ pub async fn add_comment_to_ticket(
     comment_data: web::Json<crate::models::NewCommentWithAttachments>,
     pool: web::Data<crate::db::Pool>,
     mut tc: crate::extractors::TenantConn,
-    sse_state: web::Data<crate::handlers::sse::SseState>,
     storage: web::Data<std::sync::Arc<dyn crate::utils::storage::Storage>>,
     notification_service: web::Data<NotificationService>,
     search_service: web::Data<Arc<SearchService>>,
@@ -249,11 +248,6 @@ pub async fn add_comment_to_ticket(
 ) -> impl Responder {
     let ticket_id = access.ticket_id;
     let user_uuid_parsed = access.auth.user_uuid;
-    let source_client_id = req
-        .headers()
-        .get("X-SSE-Client-Id")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string());
 
     debug!(ticket_id, "Adding comment to ticket");
     debug!(content = %comment_data.content, "Comment content");
@@ -572,38 +566,10 @@ pub async fn add_comment_to_ticket(
                 "user": user
             });
 
-            // Broadcast SSE event for the new comment AFTER all file operations are complete
-            // This prevents stream interruption during file processing
-            debug!(
-                comment_id = comment.id,
-                attachments_count = attachments.len(),
-                "Broadcasting SSE event for comment"
-            );
-
-            // Small delay to ensure stream stability after file operations
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
-            // The comment itself reaches clients through the sync pool
-            // (the repository write emits `comment.created`); only the
-            // ticket's modified-date bump still rides the discrete SSE
-            // (TicketUpdated is consumed by surfaces not yet pool-native).
-            sse_state
-                .broadcast_event_from(
-                    crate::handlers::sse::SseEvent::TicketUpdated {
-                        ticket_id,
-                        field: "modified".to_string(),
-                        value: serde_json::json!(chrono::Utc::now()),
-                        updated_by: claims.sub.clone(),
-                        timestamp: chrono::Utc::now(),
-                    },
-                    source_client_id,
-                )
-                .await;
-
-            debug!(
-                ticket_id,
-                "SSE: Successfully broadcasted comment-added and modified events"
-            );
+            // The comment + the ticket's modified-date bump both reach
+            // clients through the sync pool (the repository write emits
+            // comment.created + the ticket activity bump). No discrete
+            // SSE broadcast.
 
             // Relay the comment back through the originating channel
             // (email today, chat once those adapters exist). Item J
