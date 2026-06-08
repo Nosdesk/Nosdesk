@@ -4,18 +4,18 @@ import { computed, toRef, ref, watch, nextTick, onMounted, onUnmounted } from 'v
 import { useFluent } from 'fluent-vue'
 import { useScrollLock } from '@/composables/useScrollLock'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   show: boolean
   title: string
   contentClass?: string
   headerClass?: string
   removePadding?: boolean
+  scrollContent?: boolean
   size?: 'sm' | 'md' | 'lg' | 'xl'
-  // Optional override for the close-button screen-reader label.
-  // Defaults to the shared `common-modal-close` key so every modal
-  // narrates the same close affordance in the active locale.
   closeAriaLabel?: string
-}>()
+}>(), {
+  scrollContent: true,
+})
 
 const fluent = useFluent()
 const closeLabel = computed(() => props.closeAriaLabel ?? fluent.$t('common-modal-close'))
@@ -195,7 +195,13 @@ watch(
           </div>
 
           <!-- Content -->
-          <div :class="['flex-1 overflow-y-auto min-h-0', removePadding ? '' : 'p-4 sm:p-6']">
+          <div
+            :class="[
+              'flex-1 min-h-0',
+              scrollContent === false ? 'overflow-hidden flex flex-col' : 'overflow-y-auto',
+              removePadding ? '' : 'p-4 sm:p-6',
+            ]"
+          >
             <slot />
           </div>
 

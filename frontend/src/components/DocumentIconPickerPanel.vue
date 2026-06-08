@@ -1,13 +1,11 @@
 <!-- Inline document icon picker grid (search, categories, emoji tiles). -->
 <script setup lang="ts">
-import { ref, watch, onUnmounted, nextTick } from 'vue'
-import { useFluent } from 'fluent-vue'
-import { useHorizontalScroll } from '@/composables/useHorizontalScroll'
+import { ref, watch, toRef } from 'vue'
 import { useDocumentIconPicker } from '@/composables/useDocumentIconPicker'
+import { useDocumentIconPreload } from '@/composables/useDocumentIconPreload'
+import { useCategoryTabScroll } from '@/composables/useCategoryTabScroll'
 import Icon from '@/components/common/Icon.vue'
 import Emoji from '@/components/common/Emoji.vue'
-
-const { $t } = useFluent()
 
 const props = withDefaults(defineProps<{
   modelValue: string
@@ -16,10 +14,16 @@ const props = withDefaults(defineProps<{
   /** Close the surrounding dropdown after a selection (popover mode). */
   closeOnSelect?: boolean
   gridMaxClass?: string
+  /** Drop outer chrome when nested inside another panel (e.g. appearance modal). */
+  embedded?: boolean
+  /** Fill parent height; grid scrolls internally instead of using max-height. */
+  fillHeight?: boolean
 }>(), {
   active: true,
   closeOnSelect: true,
   gridMaxClass: 'max-h-64',
+  embedded: false,
+  fillHeight: false,
 })
 
 const emit = defineEmits<{
@@ -27,75 +31,37 @@ const emit = defineEmits<{
   (e: 'select', value: string): void
 }>()
 
+const active = toRef(props, 'active')
 const searchQuery = ref('')
 const activeCategory = ref('suggested')
 const categoryTabsRef = ref<HTMLElement | null>(null)
-const pickerActive = ref(props.active)
 
-watch(() => props.active, (open) => {
-  pickerActive.value = open
-  if (open) {
-    searchQuery.value = ''
-    activeCategory.value = 'suggested'
-    nextTick(() => {
-      updateScrollState()
-      syncCategoryDotFromScroll()
-    })
-  }
-}, { immediate: true })
-
-const { canScrollLeft, canScrollRight, isOverflowing, updateScrollState } = useHorizontalScroll(categoryTabsRef)
-
-const {
-  iconCategories,
-  categoryKeys,
-  filteredIcons,
-  allIcons,
-} = useDocumentIconPicker({
+const { iconCategories, categoryKeys, filteredIcons, allIcons } = useDocumentIconPicker({
   activeCategory,
   searchQuery,
-  showDropdown: pickerActive,
 })
 
-const activeCategoryDotIndex = ref(0)
+useDocumentIconPreload(active, filteredIcons)
 
-const isDragging = ref(false)
-const startX = ref(0)
-const scrollLeft = ref(0)
-const hasDragged = ref(false)
+const {
+  canScrollLeft,
+  canScrollRight,
+  isOverflowing,
+  activeCategoryDotIndex,
+  hasDragged,
+  onCategoryTabsScroll,
+  handleMouseDown,
+  handleWheel,
+  scrollToCategoryIndex,
+  refreshScrollState,
+} = useCategoryTabScroll(categoryTabsRef, activeCategory, categoryKeys)
 
-function categoryTabButtons(): HTMLElement[] {
-  if (!categoryTabsRef.value) return []
-  return Array.from(categoryTabsRef.value.querySelectorAll('button'))
-}
-
-function syncCategoryDotFromScroll() {
-  const container = categoryTabsRef.value
-  const buttons = categoryTabButtons()
-  if (!container || buttons.length === 0) return
-
-  const scrollLeftPos = container.scrollLeft
-  let index = 0
-  for (let i = 0; i < buttons.length; i++) {
-    const tab = buttons[i]
-    if (tab.offsetLeft + tab.offsetWidth > scrollLeftPos + 4) {
-      index = i
-      break
-    }
-    index = i
-  }
-  activeCategoryDotIndex.value = index
-}
-
-function onCategoryTabsScroll() {
-  updateScrollState()
-  syncCategoryDotFromScroll()
-}
-
-watch(activeCategory, (key) => {
-  const index = categoryKeys.value.indexOf(key)
-  if (index >= 0) activeCategoryDotIndex.value = index
-})
+watch(active, (open) => {
+  if (!open) return
+  searchQuery.value = ''
+  activeCategory.value = 'suggested'
+  refreshScrollState()
+}, { immediate: true })
 
 function selectIcon(icon: string) {
   emit('update:modelValue', icon)
@@ -104,65 +70,16 @@ function selectIcon(icon: string) {
     searchQuery.value = ''
   }
 }
-
-function handleMouseDown(e: MouseEvent) {
-  if (!categoryTabsRef.value) return
-  isDragging.value = true
-  hasDragged.value = false
-  startX.value = e.clientX
-  scrollLeft.value = categoryTabsRef.value.scrollLeft
-  categoryTabsRef.value.style.cursor = 'grabbing'
-  document.addEventListener('mouseup', handleGlobalMouseUp)
-  document.addEventListener('mousemove', handleGlobalMouseMove)
-}
-
-function handleGlobalMouseUp() {
-  if (isDragging.value) {
-    isDragging.value = false
-    if (categoryTabsRef.value) {
-      categoryTabsRef.value.style.cursor = 'grab'
-    }
-  }
-  document.removeEventListener('mouseup', handleGlobalMouseUp)
-  document.removeEventListener('mousemove', handleGlobalMouseMove)
-  setTimeout(() => {
-    hasDragged.value = false
-  }, 0)
-}
-
-function handleGlobalMouseMove(e: MouseEvent) {
-  if (!isDragging.value || !categoryTabsRef.value) return
-  e.preventDefault()
-  const walk = startX.value - e.clientX
-  if (Math.abs(walk) > 3) {
-    hasDragged.value = true
-  }
-  categoryTabsRef.value.scrollLeft = scrollLeft.value + walk
-  syncCategoryDotFromScroll()
-}
-
-function handleWheel(e: WheelEvent) {
-  if (!categoryTabsRef.value || !isOverflowing.value) return
-  e.preventDefault()
-  const delta = e.deltaY !== 0 ? e.deltaY : e.deltaX
-  categoryTabsRef.value.scrollLeft += delta
-}
-
-function scrollToCategoryIndex(index: number) {
-  const button = categoryTabButtons()[index]
-  if (!button) return
-  button.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' })
-  activeCategoryDotIndex.value = index
-}
-
-onUnmounted(() => {
-  document.removeEventListener('mouseup', handleGlobalMouseUp)
-  document.removeEventListener('mousemove', handleGlobalMouseMove)
-})
 </script>
 
 <template>
-  <div class="flex flex-col min-w-0 rounded-xl border border-default bg-surface overflow-hidden">
+  <div
+    class="flex flex-col min-w-0 overflow-hidden"
+    :class="[
+      embedded ? '' : 'rounded-xl border border-default bg-surface',
+      fillHeight ? 'h-full min-h-0' : '',
+    ]"
+  >
     <div class="p-3 border-b border-default">
       <div class="relative">
         <span class="absolute left-3 top-1/2 -translate-y-1/2 text-tertiary inline-flex">
@@ -222,20 +139,23 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <div class="p-3 overflow-y-auto" :class="gridMaxClass">
+    <div
+      class="p-3 overflow-y-auto"
+      :class="fillHeight ? 'flex-1 min-h-0' : gridMaxClass"
+    >
       <div v-if="searchQuery && filteredIcons.length === 0" class="py-8 text-center text-tertiary text-sm">
         {{ $t('doc-icon-selector-empty') }}
       </div>
-      <div v-else class="grid grid-cols-8 gap-1">
+      <div v-else class="icon-picker-grid">
         <button
           v-for="icon in filteredIcons"
           :key="icon"
           type="button"
           @click.stop="selectIcon(icon)"
-          class="flex items-center justify-center w-8 h-8 text-xl rounded-md transition-all duration-100 hover:bg-surface-hover hover:scale-110 active:scale-95"
+          class="icon-picker-cell flex items-center justify-center rounded-md transition-all duration-100 hover:bg-surface-hover hover:scale-110 active:scale-95"
           :class="modelValue === icon ? 'bg-accent/20 ring-2 ring-accent' : ''"
         >
-          <Emoji :emoji="icon" size="xl" eager />
+          <Emoji :emoji="icon" size="lg" eager />
         </button>
       </div>
     </div>
@@ -263,5 +183,30 @@ onUnmounted(() => {
 }
 .category-tabs button {
   cursor: pointer;
+}
+
+/* Fit as many columns as the container allows; cell size scales with width. */
+.icon-picker-grid {
+  container-type: inline-size;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(1.625rem, 1fr));
+  gap: 0.25rem;
+}
+
+.icon-picker-cell {
+  aspect-ratio: 1;
+  width: 100%;
+  max-width: 2rem;
+  justify-self: center;
+}
+
+@container (min-width: 28rem) {
+  .icon-picker-grid {
+    grid-template-columns: repeat(auto-fill, minmax(1.5rem, 1fr));
+  }
+
+  .icon-picker-cell {
+    max-width: 1.875rem;
+  }
 }
 </style>

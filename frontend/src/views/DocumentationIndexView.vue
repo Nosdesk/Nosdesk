@@ -108,16 +108,8 @@ function onCollectionCreated() {
   void collectionBrowserRef.value?.reload()
 }
 
-function pageAuthorName(page: Page): string | undefined {
-  return page.last_edited_by?.name || page.created_by?.name || undefined
-}
-
-function recentlyUpdatedMeta(page: Page): string {
-  const parts: string[] = []
-  const author = pageAuthorName(page)
-  if (author) parts.push(author)
-  if (page.updated_at) parts.push(formatRelativeTime(page.updated_at))
-  return parts.join(' · ')
+function pageAuthor(page: Page) {
+  return page.last_edited_by ?? page.created_by
 }
 
 function gapMeta(gap: KnowledgeGap): string {
@@ -205,7 +197,8 @@ usePageCreateAction(handleCreatePage)
                 <li v-for="page in recentlyUpdated" :key="page.id">
                   <DocumentationHubRow
                     :page="page"
-                    :meta="recentlyUpdatedMeta(page)"
+                    :author="pageAuthor(page)"
+                    :updated-at="page.updated_at"
                   />
                 </li>
               </ul>
@@ -329,7 +322,9 @@ usePageCreateAction(handleCreatePage)
                   :page="page"
                   :meta="page.children?.length
                     ? $t('docs-index-page-children', { count: page.children.length })
-                    : recentlyUpdatedMeta(page)"
+                    : undefined"
+                  :author="page.children?.length ? undefined : pageAuthor(page)"
+                  :updated-at="page.children?.length ? undefined : page.updated_at"
                 />
               </li>
             </ul>

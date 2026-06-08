@@ -4,10 +4,17 @@ import { useFluent } from 'fluent-vue';
 import { useThemeStore } from '@/stores/theme';
 import { ACCENT_LIGHTNESS, ACCENT_SATURATION, hslToHex } from '@/utils/accentColor';
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   modelValue: string;
   label?: string;
-}>();
+  /** Inline = swatch, slider, and hex on one row (sm+). Stacked = hex on its own row. */
+  layout?: 'inline' | 'stacked';
+  /** Hide the swatch when another live preview (e.g. CollectionIcon) is shown nearby. */
+  hideSwatch?: boolean;
+}>(), {
+  layout: 'inline',
+  hideSwatch: false,
+});
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void;
@@ -166,10 +173,14 @@ function endDrag() {
     </div>
 
     <!-- Main row -->
-    <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+    <div
+      class="flex gap-3"
+      :class="layout === 'stacked' ? 'flex-col items-stretch' : 'flex-col sm:flex-row items-stretch sm:items-center'"
+    >
       <div class="flex items-center gap-3 flex-1 min-w-0">
         <!-- Color preview (clickable to expand) -->
         <button
+          v-if="!hideSwatch"
           type="button"
           @click="toggleExpanded"
           class="relative w-10 h-10 rounded-lg border border-default shadow-sm shrink-0 cursor-pointer hover:ring-2 hover:ring-accent hover:ring-offset-1 transition-shadow group"
@@ -226,7 +237,8 @@ function endDrag() {
         type="text"
         maxlength="7"
         placeholder="#6366f1"
-        class="w-full sm:w-24 px-3 py-2 bg-surface-alt border border-default rounded-lg text-primary text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent uppercase text-center sm:text-left"
+        class="w-full px-3 py-2 bg-surface-alt border border-default rounded-lg text-primary text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent uppercase"
+        :class="layout === 'stacked' ? 'text-left' : 'text-center sm:text-left sm:w-24'"
       />
     </div>
 

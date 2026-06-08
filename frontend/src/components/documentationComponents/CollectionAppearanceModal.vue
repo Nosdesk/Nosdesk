@@ -44,32 +44,50 @@ function handleSave() {
     :show="show"
     :title="$t('docs-collection-appearance-title')"
     size="lg"
+    :scroll-content="false"
     @close="emit('close')"
   >
-    <div class="grid grid-cols-1 lg:grid-cols-[12rem_minmax(0,1fr)] gap-4">
-      <div class="flex flex-col gap-4">
-        <div class="flex flex-col items-center gap-2 py-1">
-          <CollectionIcon
-            :icon="draftIcon"
-            :color="draftColor"
-            size="xl"
-          />
-          <span class="text-[11px] text-tertiary text-center">
-            {{ $t('docs-collection-appearance-preview') }}
-          </span>
-        </div>
-        <ColorHueSlider
-          v-model="draftColor"
-          :label="$t('docs-edit-collection-color')"
-        />
-      </div>
+    <div class="flex flex-col flex-1 min-h-0 gap-4">
+      <!-- Preview (left) + colour picker (right) -->
+      <section class="shrink-0 rounded-xl border border-subtle bg-surface-alt/60 p-3">
+        <div class="flex items-center gap-3 sm:gap-4">
+          <div
+            class="shrink-0 flex flex-col items-center gap-1 pt-0.5"
+            :title="$t('docs-collection-appearance-preview')"
+          >
+            <CollectionIcon
+              :icon="draftIcon"
+              :color="draftColor"
+              size="lg"
+            />
+          </div>
 
-      <DocumentIconPickerPanel
-        v-model="draftIcon"
-        :active="show"
-        :close-on-select="false"
-        grid-max-class="max-h-72 lg:max-h-80"
-      />
+          <div class="flex-1 min-w-0">
+            <ColorHueSlider
+              v-model="draftColor"
+              layout="stacked"
+              hide-swatch
+              :label="$t('docs-edit-collection-color')"
+            />
+          </div>
+        </div>
+      </section>
+
+      <!-- Icon picker — sole scroll region -->
+      <section class="flex flex-col flex-1 min-h-0 gap-2">
+        <span class="shrink-0 text-xs font-medium text-secondary px-0.5">
+          {{ $t('docs-edit-collection-icon') }}
+        </span>
+        <div class="flex flex-col flex-1 min-h-0 rounded-xl border border-subtle overflow-hidden bg-surface">
+          <DocumentIconPickerPanel
+            v-model="draftIcon"
+            :active="show"
+            embedded
+            fill-height
+            :close-on-select="false"
+          />
+        </div>
+      </section>
     </div>
 
     <template #footer>

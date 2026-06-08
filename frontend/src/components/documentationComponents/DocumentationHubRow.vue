@@ -1,12 +1,16 @@
 <script setup lang="ts">
 /**
  * Compact documentation hub row — editorial index style.
- * Icon, title, and inline meta (author · time) stay grouped together.
+ * Icon, title, and trailing meta (avatar · name · time).
+ * Name is hidden on small screens to preserve title space.
  */
 import { computed } from 'vue'
 import { RouterLink, type RouteLocationRaw } from 'vue-router'
 import { docUrl } from '@/utils/docUrl'
+import { formatCompactRelativeTime, formatRelativeTime } from '@/utils/dateUtils'
 import type { Page } from '@/services/documentationService'
+import type { UserInfo } from '@/types/user'
+import UserAvatar from '@/components/UserAvatar.vue'
 
 const props = defineProps<{
   page?: Page
@@ -14,7 +18,11 @@ const props = defineProps<{
   href?: string | RouteLocationRaw
   title?: string
   icon?: string | null
-  /** Inline meta after title — author, relative time, child count, etc. */
+  /** Page author — shown as avatar in trailing meta. */
+  author?: UserInfo | null
+  /** Last-updated timestamp for trailing meta. */
+  updatedAt?: string | null
+  /** Plain inline meta — verification labels, child counts, etc. */
   meta?: string
 }>()
 
@@ -26,6 +34,18 @@ const destination = computed(() => {
 
 const label = computed(() => props.title ?? props.page?.title ?? '')
 const glyph = computed(() => props.icon ?? props.page?.icon ?? '📄')
+
+const hasStructuredMeta = computed(
+  () => !!props.author?.name || !!props.updatedAt,
+)
+
+const compactTime = computed(() =>
+  props.updatedAt ? formatCompactRelativeTime(props.updatedAt) : '',
+)
+
+const fullTime = computed(() =>
+  props.updatedAt ? formatRelativeTime(props.updatedAt) : '',
+)
 </script>
 
 <template>
@@ -39,16 +59,56 @@ const glyph = computed(() => props.icon ?? props.page?.icon ?? '📄')
     >
       {{ glyph || '📄' }}
     </span>
-    <div class="flex items-center gap-1.5 min-w-0 flex-1">
-      <span class="truncate text-[13px] leading-snug text-primary group-hover:text-accent transition-colors">
-        {{ label }}
-      </span>
-      <template v-if="meta">
-        <span class="shrink-0 text-[11px] text-tertiary/60" aria-hidden="true">·</span>
-        <span class="shrink-0 text-[11px] leading-none text-tertiary whitespace-nowrap tabular-nums">
-          {{ meta }}
+    <span class="truncate min-w-0 flex-1 text-[13px] leading-snug text-primary group-hover:text-accent transition-colors">
+      {{ label }}
+    </span>
+
+    <!-- Author avatar + updated time -->
+    <span
+      v-if="hasStructuredMeta"
+      class="shrink-0 flex items-center gap-1.5 min-w-0 max-w-[min(14rem,45%)]"
+    >
+      <UserAvatar
+        v-if="author"
+        :uuid="author.uuid"
+        :fallback-name="author.name"
+        :fallback-avatar="author.avatar_thumb ?? author.avatar_url"
+        :show-name="false"
+        size="xxs"
+        :clickable="false"
+      />
+      <template v-if="author?.name">
+        <span class="sr-only sm:hidden">{{ author.name }}</span>
+        <span class="hidden sm:inline truncate max-w-[8rem] text-[11px] leading-none text-tertiary">
+          {{ author.name }}
         </span>
       </template>
-    </div>
+      <span
+        v-if="author?.name && fullTime"
+        class="hidden sm:inline text-[11px] text-tertiary/60 shrink-0"
+        aria-hidden="true"
+      >·</span>
+      <span
+        v-if="compactTime"
+        class="sm:hidden text-[11px] leading-none text-tertiary whitespace-nowrap tabular-nums shrink-0"
+        :title="fullTime"
+      >
+        {{ compactTime }}
+      </span>
+      <span
+        v-if="fullTime"
+        class="hidden sm:inline text-[11px] leading-none text-tertiary whitespace-nowrap tabular-nums shrink-0"
+      >
+        {{ fullTime }}
+      </span>
+    </span>
+
+    <!-- Plain meta string -->
+    <span
+      v-else-if="meta"
+      class="shrink-0 text-[11px] leading-none text-tertiary whitespace-nowrap tabular-nums"
+    >
+      {{ meta }}
+    </span>
   </RouterLink>
 </template>

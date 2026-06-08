@@ -1,10 +1,11 @@
 <!-- DocumentIconSelector.vue - Professional Notion-style icon picker -->
 <script setup lang="ts">
-import { ref, watch, computed, nextTick } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { useFluent } from 'fluent-vue'
 import Emoji from '@/components/common/Emoji.vue'
 import Popover from '@/components/common/Popover.vue'
 import DocumentIconPickerPanel from '@/components/DocumentIconPickerPanel.vue'
+import { preloadDocumentIconCategory } from '@/composables/useDocumentIconPreload'
 
 const { $t } = useFluent()
 
@@ -62,9 +63,10 @@ function onPanelSelect() {
 
 function toggleDropdown() {
   showDropdown.value = !showDropdown.value
-  if (showDropdown.value) {
-    nextTick()
-  }
+}
+
+function warmPicker() {
+  void preloadDocumentIconCategory('suggested')
 }
 
 function closeDropdown() {
@@ -78,6 +80,8 @@ function closeDropdown() {
       ref="triggerRef"
       type="button"
       @click="toggleDropdown"
+      @mouseenter="warmPicker"
+      @focus="warmPicker"
       class="flex items-center justify-center rounded-lg transition-all duration-150 hover:bg-surface-hover active:scale-95 focus:outline-none focus:ring-2 focus:ring-accent/50"
       :class="sizeClasses"
       :aria-label="$t('doc-icon-selector-trigger-aria')"
