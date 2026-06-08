@@ -241,7 +241,7 @@ pub async fn add_comment_to_ticket(
     comment_data: web::Json<crate::models::NewCommentWithAttachments>,
     pool: web::Data<crate::db::Pool>,
     mut tc: crate::extractors::TenantConn,
-    storage: web::Data<std::sync::Arc<dyn crate::utils::storage::Storage>>,
+    storage: crate::extractors::ScopedStorage,
     notification_service: web::Data<NotificationService>,
     search_service: web::Data<Arc<SearchService>>,
     email_service: web::Data<Option<Arc<crate::utils::email::EmailService>>>,
@@ -383,6 +383,7 @@ pub async fn add_comment_to_ticket(
 
                             // Use storage abstraction to move the file
                             match storage
+                                .0
                                 .move_file(&old_storage_path, &new_storage_path)
                                 .await
                             {
@@ -408,7 +409,7 @@ pub async fn add_comment_to_ticket(
                                             (old_thumb_path, new_thumb_path)
                                         {
                                             if let Err(e) =
-                                                storage.move_file(&old_thumb, &new_thumb).await
+                                                storage.0.move_file(&old_thumb, &new_thumb).await
                                             {
                                                 debug!(error = ?e, "PDF thumbnail not found or couldn't be moved (this is OK if no thumbnail was generated)");
                                             } else {
@@ -880,7 +881,7 @@ pub async fn get_comment_raw_eml(
     auth: crate::extractors::AuthContext,
     path: web::Path<i32>,
     mut tc: crate::extractors::TenantConn,
-    storage: web::Data<Arc<dyn crate::utils::storage::Storage>>,
+    storage: crate::extractors::ScopedStorage,
 ) -> impl Responder {
     let comment_id = path.into_inner();
 
@@ -908,7 +909,7 @@ pub async fn get_comment_raw_eml(
         return HttpResponse::NotFound().finish();
     };
 
-    match storage.get_file(&storage_path).await {
+    match storage.0.get_file(&storage_path).await {
         Ok(bytes) => HttpResponse::Ok()
             .insert_header(("Content-Type", "text/plain; charset=utf-8"))
             .insert_header((
@@ -933,7 +934,7 @@ pub async fn delete_attachment(
     req: actix_web::HttpRequest,
     path: web::Path<i32>,
     mut tc: crate::extractors::TenantConn,
-    storage: Arc<dyn crate::utils::storage::Storage>,
+    storage: crate::extractors::ScopedStorage,
 ) -> impl Responder {
     let attachment_id = path.into_inner();
     debug!(attachment_id, "Deleting attachment");
@@ -952,7 +953,7 @@ pub async fn delete_attachment(
             debug!(storage_path = %storage_path, "Attempting to delete file from storage");
 
             // Delete the file using the storage abstraction
-            match storage.delete_file(&storage_path).await {
+            match storage.0.delete_file(&storage_path).await {
                 Ok(_) => {
                     debug!(storage_path = %storage_path, "Successfully deleted file from storage")
                 }

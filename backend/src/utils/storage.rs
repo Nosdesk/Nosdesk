@@ -372,6 +372,105 @@ impl Storage for S3Storage {
     }
 }
 
+/// Workspace-scoped view over a base [`Storage`] backend.
+///
+/// Tenant objects are physically keyed under a `ws/{workspace_id}/`
+/// prefix so a workspace's files are only *addressable* within that
+/// workspace, a structural tenancy boundary on top of the per-request
+/// authorization the file handlers already enforce. The workspace is
+/// never part of the public `/uploads/...` URL (it's derived from the
+/// request's resolved workspace, not the path), so callers pass logical
+/// paths/folders and the wrapper adds the prefix only for the physical
+/// backend op; the URLs it reports stay logical.
+pub struct WorkspaceScopedStorage {
+    inner: Arc<dyn Storage>,
+    workspace_id: i32,
+}
+
+impl WorkspaceScopedStorage {
+    pub fn new(inner: Arc<dyn Storage>, workspace_id: i32) -> Self {
+        Self {
+            inner,
+            workspace_id,
+        }
+    }
+
+    /// Wrap a base storage as a scoped `Arc<dyn Storage>` so it drops
+    /// into every call site that already takes `Arc<dyn Storage>`.
+    pub fn arc(inner: Arc<dyn Storage>, workspace_id: i32) -> Arc<dyn Storage> {
+        Arc::new(Self::new(inner, workspace_id))
+    }
+
+    fn prefix(&self) -> String {
+        format!("ws/{}/", self.workspace_id)
+    }
+
+    /// Map a logical path/folder to its physical, workspace-prefixed key.
+    fn physical(&self, logical: &str) -> String {
+        format!("{}{}", self.prefix(), logical.trim_start_matches('/'))
+    }
+
+    /// Strip the workspace prefix off a physical key to recover the
+    /// logical path (used to keep returned URLs/paths stable).
+    fn logical<'a>(&self, physical: &'a str) -> &'a str {
+        physical
+            .strip_prefix(&self.prefix())
+            .unwrap_or(physical)
+            .trim_start_matches('/')
+    }
+}
+
+#[async_trait]
+impl Storage for WorkspaceScopedStorage {
+    async fn store_file(
+        &self,
+        data: &[u8],
+        filename: &str,
+        content_type: &str,
+        folder: &str,
+    ) -> Result<StoredFile, StorageError> {
+        // Write under the prefixed folder, then report the logical path +
+        // URL so the DB / editor content stays prefix-free and stable.
+        let stored = self
+            .inner
+            .store_file(data, filename, content_type, &self.physical(folder))
+            .await?;
+        let logical_path = self.logical(&stored.path).to_string();
+        let url = self.inner.get_public_url(&logical_path);
+        Ok(StoredFile {
+            id: stored.id,
+            url,
+            path: logical_path,
+            size: stored.size,
+            content_type: stored.content_type,
+        })
+    }
+
+    async fn get_file(&self, path: &str) -> Result<Vec<u8>, StorageError> {
+        self.inner.get_file(&self.physical(path)).await
+    }
+
+    async fn delete_file(&self, path: &str) -> Result<(), StorageError> {
+        self.inner.delete_file(&self.physical(path)).await
+    }
+
+    async fn file_exists(&self, path: &str) -> Result<bool, StorageError> {
+        self.inner.file_exists(&self.physical(path)).await
+    }
+
+    fn get_public_url(&self, path: &str) -> String {
+        // URLs are always logical (unprefixed): the workspace lives in the
+        // request context, not the URL.
+        self.inner.get_public_url(self.logical(path))
+    }
+
+    async fn move_file(&self, from_path: &str, to_path: &str) -> Result<(), StorageError> {
+        self.inner
+            .move_file(&self.physical(from_path), &self.physical(to_path))
+            .await
+    }
+}
+
 /// Storage factory to create storage instances based on configuration
 pub fn create_storage(config: StorageConfig) -> Arc<dyn Storage> {
     match config {
@@ -622,6 +721,163 @@ mod tests {
     // local, that is what keeps the serve routes + frontend URLs identical
     // regardless of backend (the app proxies serving via get_file). new()
     // only builds an aws client config; no network call happens here.
+
+    // ── WorkspaceScopedStorage ───────────────────────────────────
+    // An in-memory backend lets us assert the physical keys the wrapper
+    // writes vs the logical paths/URLs it reports, plus cross-workspace
+    // isolation, without touching disk or S3.
+
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    struct FakeStorage {
+        files: Mutex<HashMap<String, Vec<u8>>>,
+    }
+
+    impl FakeStorage {
+        fn new() -> Self {
+            Self {
+                files: Mutex::new(HashMap::new()),
+            }
+        }
+        fn seed(&self, key: &str, data: &[u8]) {
+            self.files
+                .lock()
+                .unwrap()
+                .insert(key.to_string(), data.to_vec());
+        }
+        fn keys(&self) -> Vec<String> {
+            let mut k: Vec<String> = self.files.lock().unwrap().keys().cloned().collect();
+            k.sort();
+            k
+        }
+    }
+
+    #[async_trait]
+    impl Storage for FakeStorage {
+        async fn store_file(
+            &self,
+            data: &[u8],
+            filename: &str,
+            content_type: &str,
+            folder: &str,
+        ) -> Result<StoredFile, StorageError> {
+            // Deterministic key (no uuid) so tests can assert on it.
+            let key = format!("{}/{}", folder.trim_end_matches('/'), filename);
+            self.files
+                .lock()
+                .unwrap()
+                .insert(key.clone(), data.to_vec());
+            Ok(StoredFile {
+                id: filename.to_string(),
+                url: self.get_public_url(&key),
+                path: key,
+                size: data.len() as u64,
+                content_type: content_type.to_string(),
+            })
+        }
+        async fn get_file(&self, path: &str) -> Result<Vec<u8>, StorageError> {
+            self.files
+                .lock()
+                .unwrap()
+                .get(path)
+                .cloned()
+                .ok_or_else(|| StorageError::NotFound(path.to_string()))
+        }
+        async fn delete_file(&self, path: &str) -> Result<(), StorageError> {
+            self.files.lock().unwrap().remove(path);
+            Ok(())
+        }
+        async fn file_exists(&self, path: &str) -> Result<bool, StorageError> {
+            Ok(self.files.lock().unwrap().contains_key(path))
+        }
+        fn get_public_url(&self, path: &str) -> String {
+            format!("/uploads/{}", path.trim_start_matches('/'))
+        }
+        async fn move_file(&self, from: &str, to: &str) -> Result<(), StorageError> {
+            let mut files = self.files.lock().unwrap();
+            let data = files
+                .remove(from)
+                .ok_or_else(|| StorageError::NotFound(from.to_string()))?;
+            files.insert(to.to_string(), data);
+            Ok(())
+        }
+    }
+
+    #[actix_rt::test]
+    async fn scoped_store_writes_prefixed_key_but_reports_logical_path_and_url() {
+        let fake = Arc::new(FakeStorage::new());
+        let scoped = WorkspaceScopedStorage::new(fake.clone(), 7);
+
+        let stored = scoped
+            .store_file(b"hi", "a.png", "image/png", "tickets/5/notes")
+            .await
+            .unwrap();
+
+        // Physical key is workspace-prefixed...
+        assert_eq!(fake.keys(), vec!["ws/7/tickets/5/notes/a.png"]);
+        // ...but the reported path + URL are logical (stable, unprefixed).
+        assert_eq!(stored.path, "tickets/5/notes/a.png");
+        assert_eq!(stored.url, "/uploads/tickets/5/notes/a.png");
+    }
+
+    #[actix_rt::test]
+    async fn scoped_get_reads_prefixed_key() {
+        let fake = Arc::new(FakeStorage::new());
+        let scoped = WorkspaceScopedStorage::new(fake.clone(), 7);
+
+        fake.seed("ws/7/tickets/5/x.pdf", b"new");
+        assert_eq!(scoped.get_file("tickets/5/x.pdf").await.unwrap(), b"new");
+    }
+
+    #[actix_rt::test]
+    async fn scoped_get_is_isolated_across_workspaces() {
+        let fake = Arc::new(FakeStorage::new());
+        fake.seed("ws/1/tickets/5/secret.pdf", b"ws1-secret");
+
+        // Workspace 2 resolves to ws/2/..., so it cannot read workspace 1's
+        // object.
+        let ws2 = WorkspaceScopedStorage::new(fake.clone(), 2);
+        assert!(matches!(
+            ws2.get_file("tickets/5/secret.pdf").await,
+            Err(StorageError::NotFound(_))
+        ));
+
+        // Workspace 1 reads its own object.
+        let ws1 = WorkspaceScopedStorage::new(fake.clone(), 1);
+        assert_eq!(
+            ws1.get_file("tickets/5/secret.pdf").await.unwrap(),
+            b"ws1-secret"
+        );
+    }
+
+    #[actix_rt::test]
+    async fn scoped_move_prefixes_both_ends() {
+        let fake = Arc::new(FakeStorage::new());
+        let scoped = WorkspaceScopedStorage::new(fake.clone(), 3);
+        fake.seed("ws/3/temp/a.png", b"d");
+        scoped
+            .move_file("temp/a.png", "tickets/5/a.png")
+            .await
+            .unwrap();
+        assert_eq!(fake.keys(), vec!["ws/3/tickets/5/a.png"]);
+    }
+
+    #[actix_rt::test]
+    async fn scoped_public_url_is_always_logical() {
+        let fake = Arc::new(FakeStorage::new());
+        let scoped = WorkspaceScopedStorage::new(fake, 7);
+        // Whether handed a logical or an already-physical path, the URL is
+        // the stable logical /uploads/... form.
+        assert_eq!(
+            scoped.get_public_url("tickets/5/a.png"),
+            "/uploads/tickets/5/a.png"
+        );
+        assert_eq!(
+            scoped.get_public_url("ws/7/tickets/5/a.png"),
+            "/uploads/tickets/5/a.png"
+        );
+    }
 
     #[test]
     fn s3_public_url_matches_local_proxy_path() {

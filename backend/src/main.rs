@@ -1910,12 +1910,7 @@ async fn main() -> std::io::Result<()> {
                     // is derived from JWT_SECRET; see handlers::image_proxy.
                     .route("/image-proxy/{sig}/{encoded_url}", web::get().to(handlers::image_proxy::proxy_image))
                     .route("/comments/{comment_id}/attachments", web::post().to(handlers::add_attachment_to_comment))
-                    .route("/attachments/{id}", web::delete().to({
-                        let storage = storage.clone();
-                        move |req, path, pool| {
-                            handlers::delete_attachment(req, path, pool, storage.clone())
-                        }
-                    }))
+                    .route("/attachments/{id}", web::delete().to(handlers::delete_attachment))
 
                     // ===== PROJECT MANAGEMENT =====
                     .route("/projects", web::get().to(handlers::get_all_projects))

@@ -35,7 +35,7 @@ use crate::utils::file_validation::{
     FileValidator, GUEST_ATTACHMENT_TTL_MINUTES, GUEST_MAX_FILES_PER_TICKET, GUEST_MAX_FILE_SIZE_MB,
 };
 use crate::utils::rate_limit::{self, RateLimiter};
-use crate::utils::storage::Storage;
+use crate::utils::storage::{Storage, WorkspaceScopedStorage};
 
 /// Build a workspace-pinned system actor for guest paths. The
 /// `WorkspaceContextMiddleware` runs ahead of auth and attaches
@@ -548,9 +548,13 @@ pub async fn submit_guest_ticket(
                 .copied()
                 .take(GUEST_MAX_FILES_PER_TICKET)
                 .collect();
+            // Scope storage to this workspace so the temp->ticket move
+            // stays under the ws/{id}/ prefix.
+            let scoped_storage =
+                WorkspaceScopedStorage::arc(storage.get_ref().clone(), ws.workspace_id);
             claim_guest_attachments(
                 &mut conn,
-                storage.get_ref(),
+                &scoped_storage,
                 &ids,
                 ticket.id,
                 comment_id,
@@ -938,7 +942,7 @@ pub async fn search_public_docs(
 ///   ticket-file ACLs.
 pub async fn upload_guest_attachment(
     pool: web::Data<Pool>,
-    storage: web::Data<Arc<dyn Storage>>,
+    storage: crate::extractors::ScopedStorage,
     req: HttpRequest,
     mut payload: Multipart,
 ) -> impl Responder {
@@ -1053,6 +1057,7 @@ pub async fn upload_guest_attachment(
 
     let total_size = file_data.len();
     let stored_file = match storage
+        .0
         .store_file(&file_data, &sanitized_filename, &detected_mime, "temp")
         .await
     {
@@ -1093,7 +1098,7 @@ pub async fn upload_guest_attachment(
         Err(e) => {
             // Best-effort cleanup of the orphaned file. If this fails,
             // the daily temp-cleanup job will pick it up.
-            let _ = storage.delete_file(&stored_file.path).await;
+            let _ = storage.0.delete_file(&stored_file.path).await;
             error!(error = ?e, "Failed to record guest upload");
             errors::internal("Failed to save attachment")
         }

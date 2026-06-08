@@ -49,7 +49,7 @@ use crate::repository::{
 use crate::services::channels::{ChannelAdapter, InboundAttachment, InboundEvent, InboundMessage};
 use crate::sync::actor::ActorContext;
 use crate::sync::session;
-use crate::utils::storage::Storage;
+use crate::utils::storage::{Storage, WorkspaceScopedStorage};
 
 /// Outcome of processing a single inbound event. Returned for logging /
 /// metrics / test assertions — the caller doesn't need to branch on it.
@@ -333,7 +333,7 @@ pub async fn process_event(
     // re-running quote extraction on policy change and powers the
     // "Show original message" affordance, so it's worth a best
     // effort but not worth aborting the comment for.
-    let raw_source_uri = store_raw_eml(ctx, &msg).await;
+    let raw_source_uri = store_raw_eml(ctx, channel.workspace_id, &msg).await;
 
     // Atomically: identity resolve (which may create a guest user row)
     // → get-or-create ticket → insert comment → write the
@@ -442,7 +442,15 @@ pub async fn process_event(
     // the transaction because it may do network fetches (External
     // attachments) and storage writes, which shouldn't hold a DB row
     // lock for seconds at a time.
-    persist_attachments(conn, ctx, comment.id, sender_uuid, &msg.attachments).await;
+    persist_attachments(
+        conn,
+        ctx,
+        channel.workspace_id,
+        comment.id,
+        sender_uuid,
+        &msg.attachments,
+    )
+    .await;
 
     // New tickets + comments both reach clients through the sync pool
     // (the repository writes emit `ticket.created` / `comment.created`);
@@ -793,8 +801,15 @@ fn insert_inbound_comment(
 /// lookup; the storage abstraction also prepends a uuid so
 /// collisions across messages with the same Message-ID are
 /// impossible.
-async fn store_raw_eml(ctx: &PipelineContext, msg: &InboundMessage) -> Option<String> {
-    let storage = ctx.storage.as_ref()?;
+async fn store_raw_eml(
+    ctx: &PipelineContext,
+    workspace_id: i32,
+    msg: &InboundMessage,
+) -> Option<String> {
+    // Scope to the channel's workspace so the archived .eml lands under
+    // ws/{id}/email_raw/... The returned (logical) path is what gets
+    // stored in comments.raw_source_uri and read back via the same scope.
+    let storage = WorkspaceScopedStorage::arc(ctx.storage.as_ref()?.clone(), workspace_id);
     let bytes = msg.raw_bytes.as_ref()?;
 
     let safe_id: String = msg
@@ -824,11 +839,12 @@ async fn store_raw_eml(ctx: &PipelineContext, msg: &InboundMessage) -> Option<St
 async fn persist_attachments(
     conn: &mut DbConnection,
     ctx: &PipelineContext,
+    workspace_id: i32,
     comment_id: i32,
     uploader: uuid::Uuid,
     attachments: &[InboundAttachment],
 ) {
-    let Some(storage) = ctx.storage.as_ref() else {
+    let Some(base_storage) = ctx.storage.as_ref() else {
         if !attachments.is_empty() {
             debug!(
                 count = attachments.len(),
@@ -837,6 +853,9 @@ async fn persist_attachments(
         }
         return;
     };
+    // Scope to the channel's workspace so inbound attachments land under
+    // ws/{id}/tickets/... like every other tenant object.
+    let storage = WorkspaceScopedStorage::arc(base_storage.clone(), workspace_id);
 
     for att in attachments {
         let materialized = match materialize_attachment(att, ctx.http.as_ref()).await {

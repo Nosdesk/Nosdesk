@@ -590,7 +590,7 @@ pub async fn update_ticket(
 pub async fn delete_ticket(
     auth: AuthContext,
     mut tc: TenantConn,
-    storage: web::Data<std::sync::Arc<dyn crate::utils::storage::Storage>>,
+    storage: crate::extractors::ScopedStorage,
     search_service: web::Data<Arc<SearchService>>,
     path: web::Path<i32>,
 ) -> impl Responder {
@@ -610,7 +610,7 @@ pub async fn delete_ticket(
                 repository::tickets::spawn_delete_cleanup(
                     deleted,
                     ticket_id,
-                    storage.as_ref().clone(),
+                    storage.get(),
                     Some(search_service.get_ref()),
                 );
 
@@ -1534,7 +1534,7 @@ pub async fn bulk_tickets(
     req: HttpRequest,
     auth: AuthContext,
     mut tc: TenantConn,
-    storage: web::Data<std::sync::Arc<dyn crate::utils::storage::Storage>>,
+    storage: crate::extractors::ScopedStorage,
     search_service: web::Data<Arc<SearchService>>,
     body: web::Json<BulkActionRequest>,
 ) -> impl Responder {
@@ -1574,7 +1574,7 @@ pub async fn bulk_tickets(
                             repository::tickets::spawn_delete_cleanup(
                                 result,
                                 *id,
-                                storage.as_ref().clone(),
+                                storage.get(),
                                 Some(search_service.get_ref()),
                             );
                             // Remove from search index

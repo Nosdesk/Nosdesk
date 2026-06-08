@@ -7,7 +7,7 @@ use serde_json::json;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
-use crate::extractors::{AuthContext, TenantConn};
+use crate::extractors::{AuthContext, ScopedStorage, TenantConn};
 use crate::models::NewAttachment;
 use crate::repository::ticket_visibility::{self, VisibilityContext};
 use crate::utils::file_validation::FileValidator;
@@ -17,7 +17,7 @@ use crate::utils::storage::Storage;
 pub async fn upload_files(
     mut payload: Multipart,
     pool: web::Data<crate::db::Pool>,
-    storage: web::Data<Arc<dyn Storage>>,
+    storage: ScopedStorage,
 ) -> Result<HttpResponse, actix_web::Error> {
     info!("Received file upload request");
 
@@ -122,6 +122,7 @@ pub async fn upload_files(
 
         // Store the file using the storage abstraction with validated MIME type
         let stored_file = storage
+            .0
             .store_file(&file_data, &sanitized_filename, &detected_mime, "temp")
             .await
             .map_err(|e| {
@@ -210,7 +211,7 @@ pub async fn serve_ticket_file(
     req: actix_web::HttpRequest,
     mut tc: TenantConn,
     auth: AuthContext,
-    storage: web::Data<Arc<dyn Storage>>,
+    storage: ScopedStorage,
 ) -> Result<HttpResponse, actix_web::Error> {
     let filename = path.into_inner();
 
@@ -226,7 +227,7 @@ pub async fn serve_ticket_file(
     authorize_ticket_access(&mut tc, &auth, ticket_id)?;
 
     let file_path = format!("tickets/{filename}");
-    serve_or_not_found(storage, &file_path, &req).await
+    serve_or_not_found(storage.get(), &file_path, &req).await
 }
 
 // Serve temp (pre-attachment staging) files.
@@ -239,7 +240,7 @@ pub async fn serve_temp_file(
     path: web::Path<String>,
     req: actix_web::HttpRequest,
     mut tc: TenantConn,
-    storage: web::Data<Arc<dyn Storage>>,
+    storage: ScopedStorage,
 ) -> Result<HttpResponse, actix_web::Error> {
     let filename = path.into_inner();
 
@@ -263,7 +264,7 @@ pub async fn serve_temp_file(
     }
 
     let file_path = format!("temp/{filename}");
-    serve_or_not_found(storage, &file_path, &req).await
+    serve_or_not_found(storage.get(), &file_path, &req).await
 }
 
 /// Authorize access to a ticket's files: the caller must be able to view the
@@ -292,13 +293,11 @@ fn authorize_ticket_access(
 
 /// Serve a stored object, mapping any storage error to a 404.
 async fn serve_or_not_found(
-    storage: web::Data<Arc<dyn Storage>>,
+    storage: Arc<dyn Storage>,
     file_path: &str,
     req: &actix_web::HttpRequest,
 ) -> Result<HttpResponse, actix_web::Error> {
-    match crate::utils::storage::serve_file_from_storage(storage.as_ref().clone(), file_path, req)
-        .await
-    {
+    match crate::utils::storage::serve_file_from_storage(storage, file_path, req).await {
         Ok(response) => Ok(response),
         Err(e) => {
             warn!(error = ?e, file_path = %file_path, "Error serving file");
@@ -313,7 +312,7 @@ pub async fn upload_ticket_note_image(
     path: web::Path<i32>,
     mut payload: Multipart,
     pool: web::Data<crate::db::Pool>,
-    storage: web::Data<Arc<dyn Storage>>,
+    storage: ScopedStorage,
 ) -> Result<HttpResponse, actix_web::Error> {
     let ticket_id = path.into_inner();
     info!(
@@ -399,6 +398,7 @@ pub async fn upload_ticket_note_image(
         // Store in tickets/{ticket_id}/notes/ folder
         let folder = format!("tickets/{ticket_id}/notes");
         let stored_file = storage
+            .0
             .store_file(&file_data, &sanitized_filename, &detected_mime, &folder)
             .await
             .map_err(|e| {
@@ -430,7 +430,7 @@ pub async fn serve_ticket_note_image(
     req: actix_web::HttpRequest,
     mut tc: TenantConn,
     auth: AuthContext,
-    storage: web::Data<Arc<dyn Storage>>,
+    storage: ScopedStorage,
 ) -> Result<HttpResponse, actix_web::Error> {
     let (ticket_id, filename) = path.into_inner();
 
@@ -440,7 +440,7 @@ pub async fn serve_ticket_note_image(
 
     // Serve from tickets/{ticket_id}/notes/ folder
     let file_path = format!("tickets/{ticket_id}/notes/{filename}");
-    serve_or_not_found(storage, &file_path, &req).await
+    serve_or_not_found(storage.get(), &file_path, &req).await
 }
 
 /// Clean up temp files older than 24 hours (admin endpoint)
