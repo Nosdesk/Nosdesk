@@ -633,9 +633,11 @@ fn stream_bootstrap_inner(
                 "workflow_state": workflow_state_payload,
                 "workflow_state_id": t.workflow_state_id,
                 "priority": match t.priority {
+                    crate::models::TicketPriority::None => "none",
                     crate::models::TicketPriority::Low => "low",
                     crate::models::TicketPriority::Medium => "medium",
                     crate::models::TicketPriority::High => "high",
+                    crate::models::TicketPriority::Urgent => "urgent",
                 },
                 "requester_uuid": t.requester_uuid,
                 "assignee_uuid": t.assignee_uuid,

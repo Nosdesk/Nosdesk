@@ -30,7 +30,7 @@ import ResponsivePanel from '@/components/common/ResponsivePanel.vue'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 import { useUserPicker, type PickerUser, type UserPickerType } from '@/composables/useUserPicker'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   modelValue: string
   placeholder?: string
   type: UserPickerType
@@ -42,7 +42,12 @@ const props = defineProps<{
    *  own clear button outside the picker, so we suppress the inline
    *  one when both would render. */
   hideInlineClear?: boolean
-}>()
+  /** Dense trigger for split-view preview property rows — matches
+   *  `UserCell` typography (11px name, xxs avatar). */
+  compact?: boolean
+}>(), {
+  compact: false,
+})
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void
@@ -382,10 +387,18 @@ const sectionStarts = computed(() => {
          (32px row + 20px avatar); mobile keeps the WCAG 2.5.8
          touch-target floor (44px row + 28px avatar). -->
     <div
-      class="flex items-center gap-2 sm:gap-2.5 px-2.5 sm:px-3 min-h-[44px] sm:min-h-[32px] cursor-text"
+      class="flex items-center cursor-text"
+      :class="
+        compact
+          ? 'gap-1.5 px-1.5 min-h-7'
+          : 'gap-2 sm:gap-2.5 px-2.5 sm:px-3 min-h-[44px] sm:min-h-[32px]'
+      "
       @click="inputRef?.focus()"
     >
-      <div class="flex-shrink-0 w-7 h-7 sm:w-5 sm:h-5 flex items-center justify-center">
+      <div
+        class="flex-shrink-0 flex items-center justify-center"
+        :class="compact ? 'w-4 h-4' : 'w-7 h-7 sm:w-5 sm:h-5'"
+      >
         <button
           v-if="modelValue && picker.selectedDisplayName.value && !isOpen"
           type="button"
@@ -398,14 +411,17 @@ const sectionStarts = computed(() => {
             :fallbackName="picker.selected.value?.name"
             :fallbackAvatar="picker.selected.value?.avatar_thumb || picker.selected.value?.avatar_url || null"
             :showName="false"
-            size="xs"
+            :size="compact ? 'xxs' : 'xs'"
             :clickable="false"
           />
         </button>
         <div
           v-else
-          class="w-7 h-7 sm:w-5 sm:h-5 rounded-full bg-surface border border-subtle flex items-center justify-center transition-colors"
-          :class="{ 'border-accent/50 bg-accent/5': isOpen }"
+          class="rounded-full bg-surface border border-subtle flex items-center justify-center transition-colors"
+          :class="[
+            compact ? 'w-4 h-4' : 'w-7 h-7 sm:w-5 sm:h-5',
+            { 'border-accent/50 bg-accent/5': isOpen },
+          ]"
         >
           <Icon name="user" size="xs" class="text-tertiary" />
         </div>
@@ -426,7 +442,8 @@ const sectionStarts = computed(() => {
           autocapitalize="off"
           spellcheck="false"
           :placeholder="placeholder || (type === 'assignee' ? $t('ticket-picker-user-placeholder-assignee') : $t('ticket-picker-user-placeholder-requester'))"
-          class="w-full bg-transparent text-secondary placeholder-tertiary focus:outline-none text-sm leading-tight py-1"
+          class="w-full bg-transparent text-secondary placeholder-tertiary focus:outline-none leading-tight"
+          :class="compact ? 'text-[11px] py-0' : 'text-sm py-1'"
           @focus="onFocus"
           @keydown="onKeydown"
         />

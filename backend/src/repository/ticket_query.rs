@@ -40,8 +40,10 @@ fn parse_status_filter(status_str: &str) -> Vec<WorkflowStateCategory> {
 /// Parse priority string to enum
 fn parse_priority(priority_str: &str) -> TicketPriority {
     match priority_str.to_lowercase().as_str() {
+        "none" => TicketPriority::None,
         "low" => TicketPriority::Low,
         "high" => TicketPriority::High,
+        "urgent" => TicketPriority::Urgent,
         _ => TicketPriority::Medium,
     }
 }

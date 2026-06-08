@@ -511,9 +511,11 @@ pub fn pick_policy<'a>(
     assignee_group_ids: &[i32],
 ) -> Option<&'a SlaPolicy> {
     let priority_str = match ticket.priority {
+        crate::models::TicketPriority::None => "none",
         crate::models::TicketPriority::Low => "low",
         crate::models::TicketPriority::Medium => "medium",
         crate::models::TicketPriority::High => "high",
+        crate::models::TicketPriority::Urgent => "urgent",
     };
     let mut best: Option<&SlaPolicy> = None;
     for policy in policies {

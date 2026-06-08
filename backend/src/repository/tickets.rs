@@ -32,9 +32,11 @@ pub trait TicketDeletedObserver: Send + Sync {
 /// Parse a priority string into a TicketPriority enum
 fn parse_ticket_priority(priority: &str) -> TicketPriority {
     match priority {
+        "none" => TicketPriority::None,
         "low" => TicketPriority::Low,
         "medium" => TicketPriority::Medium,
         "high" => TicketPriority::High,
+        "urgent" => TicketPriority::Urgent,
         _ => TicketPriority::Medium, // Default to medium if unknown
     }
 }
@@ -979,9 +981,11 @@ mod tests {
 
     #[test]
     fn parse_priority_known_values() {
+        assert_eq!(parse_ticket_priority("none"), TicketPriority::None);
         assert_eq!(parse_ticket_priority("low"), TicketPriority::Low);
         assert_eq!(parse_ticket_priority("medium"), TicketPriority::Medium);
         assert_eq!(parse_ticket_priority("high"), TicketPriority::High);
+        assert_eq!(parse_ticket_priority("urgent"), TicketPriority::Urgent);
     }
 
     #[test]

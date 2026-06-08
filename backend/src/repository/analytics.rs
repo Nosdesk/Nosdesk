@@ -454,9 +454,11 @@ pub fn breakdown(conn: &mut DbConnection, q: BreakdownQuery) -> QueryResult<Brea
 
 fn priority_key(p: TicketPriority) -> String {
     match p {
+        TicketPriority::None => "none".into(),
         TicketPriority::Low => "low".into(),
         TicketPriority::Medium => "medium".into(),
         TicketPriority::High => "high".into(),
+        TicketPriority::Urgent => "urgent".into(),
     }
 }
 

@@ -106,9 +106,11 @@ fn parse_priority(s: Option<&str>) -> Option<TicketPriority> {
     match s {
         None => Some(TicketPriority::Medium),
         Some(v) => match v.to_ascii_lowercase().as_str() {
+            "none" => Some(TicketPriority::None),
             "low" => Some(TicketPriority::Low),
             "medium" => Some(TicketPriority::Medium),
             "high" => Some(TicketPriority::High),
+            "urgent" => Some(TicketPriority::Urgent),
             _ => None,
         },
     }

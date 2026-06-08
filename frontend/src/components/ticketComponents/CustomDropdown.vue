@@ -5,7 +5,8 @@
  * intentionally transparent (it sits in a card-style row) and
  * the StatusIndicator / PriorityIndicator atoms have a
  * color-blind-friendly shape variant that BaseDropdown's
- * generic tone-dot mechanism doesn't express.
+ * generic tone-dot mechanism doesn't express. Status rows
+ * render via `WorkflowStateGlyph` when options carry `category`.
  *
  * What's no longer bespoke: positioning, dismiss, scroll-tracking,
  * focus, breakpoint detection, drag-to-dismiss bottom sheet —
@@ -18,23 +19,16 @@ import { computed, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
+import WorkflowStateGlyph from '@/components/views/WorkflowStateGlyph.vue'
+import type { WorkflowDropdownOption } from '@/types/workflow'
 import { paletteForColor } from '@/utils/workflowColors'
+import { priorityForBadge } from '@/utils/priorityHelpers'
+import type { Priority as CardPriority } from '@/sync/views/types'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
-interface DropdownOption {
-  value: string
-  label: string
-  /** When true, the option renders as a non-selectable group header. */
-  disabled?: boolean
-  /**
-   * Workflow-state design-token color. When present (status type
-   * only), the row renders a colored dot using this token instead of
-   * the legacy three-bucket StatusIndicator shapes.
-   */
-  color?: string
-}
+type DropdownOption = WorkflowDropdownOption
 
 const props = defineProps<{
   value: string
@@ -44,6 +38,10 @@ const props = defineProps<{
    * derived from `type` so existing call sites don't need to
    * pass it. */
   placeholder?: string
+  /** Dense trigger for split-view preview / property rows. */
+  compact?: boolean
+  /** Shrink-wrap the trigger instead of filling the row width. */
+  inline?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -97,38 +95,54 @@ function selectOption(option: DropdownOption) {
   emit('update:value', option.value)
   isOpen.value = false
 }
+
+const glyphSize = computed(() => (props.compact ? 12 : 14))
 </script>
 
 <template>
-  <div class="relative">
+  <div class="relative" :class="inline ? 'inline-flex max-w-full' : 'w-full'">
     <button
       ref="triggerRef"
       type="button"
       @click="toggle"
-      class="group w-full px-3 py-2.5 sm:py-2 min-h-[44px] sm:min-h-[40px] bg-transparent text-primary text-left flex items-center justify-between hover:bg-surface-hover active:bg-surface-alt transition-colors rounded-lg cursor-pointer"
+      class="group bg-transparent text-primary text-left flex items-center justify-between hover:bg-surface-hover active:bg-surface-alt transition-colors cursor-pointer"
+      :class="[
+        inline ? 'w-auto max-w-full' : 'w-full',
+        compact
+          ? 'px-1.5 py-0.5 min-h-0 text-xs rounded-md gap-1.5'
+          : 'px-3 py-2.5 sm:py-2 min-h-[44px] sm:min-h-[40px] rounded-lg',
+      ]"
     >
-      <div class="flex items-center gap-2.5 sm:gap-2">
+      <div class="flex items-center gap-2 min-w-0" :class="compact ? 'gap-1.5' : 'gap-2.5 sm:gap-2'">
         <!-- Indicator only renders when a real value is selected.
              Empty-selection state (including the "" sentinel option
              used by Category) has no chip dot; the placeholder copy
              carries the meaning. Stops the empty-row "shouting in
              primary body weight" pattern flagged in design review. -->
-        <template v-if="!isEmptySelection && type === 'status'">
+        <WorkflowStateGlyph
+          v-if="!isEmptySelection && type === 'status' && selectedOption?.category && selectedOption?.color"
+          :category="selectedOption.category"
+          :color="selectedOption.color"
+          :name="selectedOption.label"
+          :size="glyphSize"
+        />
+        <template v-else-if="!isEmptySelection && type === 'status' && selectedOption?.color">
           <span
-            :class="['inline-block w-2.5 h-2.5 rounded-full', paletteForColor(selectedOption?.color).solid, 'bg-current']"
+            :class="['inline-block w-2.5 h-2.5 rounded-full', paletteForColor(selectedOption.color).solid, 'bg-current']"
             aria-hidden="true"
           />
         </template>
         <PriorityIndicator
-          v-else-if="!isEmptySelection && type === 'priority'"
-          :priority="value as 'low' | 'medium' | 'high'"
-          size="sm"
+          v-else-if="!isEmptySelection && type === 'priority' && priorityForBadge(value as CardPriority)"
+          :priority="priorityForBadge(value as CardPriority)!"
+          :size="compact ? 'xs' : 'sm'"
         />
         <span
-          class="text-sm"
-          :class="isEmptySelection
-            ? 'text-tertiary'
-            : 'text-primary font-medium'"
+          class="truncate"
+          :class="[
+            compact ? 'text-[11px] leading-tight' : 'text-sm',
+            isEmptySelection ? 'text-tertiary' : compact && type === 'priority' ? 'font-medium' : 'text-primary font-medium',
+          ]"
         >{{ selectedOption?.label || placeholder || $t('ticket-chip-dropdown-select') }}</span>
       </div>
       <!-- Chevron hidden at rest, revealed on hover (or whenever the
@@ -137,8 +151,12 @@ function selectOption(option: DropdownOption) {
            state to reveal with. Matches the "display, click to edit"
            register the rest of the sidebar settled on. -->
       <svg
-        class="w-4 h-4 text-tertiary transition-all duration-200 opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100"
-        :class="{ 'rotate-180 opacity-100': isOpen }"
+        class="text-tertiary transition-all duration-200 shrink-0"
+        :class="[
+          compact ? 'w-3 h-3' : 'w-4 h-4',
+          compact ? 'opacity-60 group-hover:opacity-100' : 'opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100',
+          { 'rotate-180 opacity-100': isOpen },
+        ]"
         fill="none"
         stroke="currentColor"
         viewBox="0 0 24 24"
@@ -175,17 +193,31 @@ function selectOption(option: DropdownOption) {
             class="w-full px-3 py-2.5 md:py-2 min-h-[44px] md:min-h-0 text-left text-primary hover:bg-surface-hover active:bg-surface-alt transition-colors flex items-center gap-2.5"
             :class="{ 'bg-accent/10': option.value === value }"
           >
-            <template v-if="type === 'status'">
+            <WorkflowStateGlyph
+              v-if="type === 'status' && option.category && option.color"
+              :category="option.category"
+              :color="option.color"
+              :name="option.label"
+              :size="14"
+            />
+            <template v-else-if="type === 'status' && option.color">
               <span
                 :class="['inline-block w-2.5 h-2.5 rounded-full bg-current', paletteForColor(option.color).solid]"
                 aria-hidden="true"
               />
             </template>
             <PriorityIndicator
-              v-else-if="type === 'priority'"
-              :priority="option.value as 'low' | 'medium' | 'high'"
+              v-else-if="type === 'priority' && priorityForBadge(option.value as CardPriority)"
+              :priority="priorityForBadge(option.value as CardPriority)!"
               size="sm"
             />
+            <span
+              v-else-if="type === 'priority'"
+              class="inline-flex w-3 h-3 items-center justify-center shrink-0"
+              aria-hidden="true"
+            >
+              <span class="w-2 h-2 rounded-full border border-tertiary" />
+            </span>
             <span class="text-sm flex-1" :class="{ 'font-medium': option.value === value }">
               {{ option.label }}
             </span>

@@ -1,0 +1,3 @@
+-- Postgres cannot drop individual enum labels safely; reversing this
+-- migration would require rebuilding the type and rewriting every
+-- column that references it.

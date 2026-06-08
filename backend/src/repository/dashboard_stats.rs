@@ -214,7 +214,7 @@ fn queue_stats(conn: &mut DbConnection) -> QueryResult<QueueStats> {
             // but this widget doesn't surface them in this struct.
             _ => {}
         }
-        if matches!(priority, TicketPriority::High) {
+        if matches!(priority, TicketPriority::High | TicketPriority::Urgent) {
             s.high_priority += count;
         }
     }
@@ -308,7 +308,7 @@ fn aggregate_rows(
             | WorkflowStateCategory::Cancelled
             | WorkflowStateCategory::Merged => s.closed += count,
         }
-        if matches!(priority, TicketPriority::High) {
+        if matches!(priority, TicketPriority::High | TicketPriority::Urgent) {
             s.high_priority += count;
         }
     }

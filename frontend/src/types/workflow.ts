@@ -130,3 +130,40 @@ export function coarseStatusBucket(category: WorkflowStateCategory): StatusBucke
   if (category === 'active' || category === 'in_review') return 'in-progress'
   return 'closed'
 }
+
+/** Flat option row for status pickers (`CustomDropdown`, bulk bar,
+ *  preview pane). Category headers use `disabled: true`; selectable
+ *  state rows carry `category` + `color` so `WorkflowStateGlyph` can
+ *  encode meaning as shape + hue (colour-blind friendly). */
+export interface WorkflowDropdownOption {
+  value: string
+  label: string
+  disabled?: boolean
+  color?: string
+  category?: WorkflowStateCategory
+}
+
+/** Build grouped workflow-state options for ticket status pickers.
+ *  Returns an empty list until the store has loaded. */
+export function buildWorkflowDropdownOptions(
+  byCategory: Record<WorkflowStateCategory, WorkflowState[] | undefined>,
+  loaded: boolean,
+  statesCount: number,
+): WorkflowDropdownOption[] {
+  if (!loaded || statesCount === 0) return []
+  const out: WorkflowDropdownOption[] = []
+  for (const cat of WORKFLOW_CATEGORIES) {
+    const states = byCategory[cat]
+    if (!states || states.length === 0) continue
+    out.push({ value: categoryHeaderValue(cat), label: getCategoryLabel(cat), disabled: true })
+    for (const s of states) {
+      out.push({
+        value: String(s.id),
+        label: s.name,
+        color: s.color,
+        category: s.category,
+      })
+    }
+  }
+  return out
+}

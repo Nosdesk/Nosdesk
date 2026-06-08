@@ -1051,16 +1051,18 @@ fn execute_set_priority(
             index: action_index,
             message: "set_priority missing priority".to_string(),
         })?;
-    // The codebase's TicketPriority enum is Low / Medium / High;
-    // the plan's "urgent" maps onto High since there's no taller
-    // tier. The save linter in the rule editor should validate
-    // against this restricted set; we error here as defence-in-
-    // depth so an editor mismatch surfaces with a clear message
+    // TicketPriority includes distinct `urgent` and `none` tiers
+    // (migration 2025-06-08-120000_add_ticket_priority_urgent_none).
+    // The save linter in the rule editor should validate against
+    // this set; we error here as defence-in-depth so an editor
+    // mismatch surfaces with a clear message
     // rather than a silent demotion.
     let priority = match priority_str {
         "low" => TicketPriority::Low,
         "normal" | "medium" => TicketPriority::Medium,
-        "high" | "urgent" => TicketPriority::High,
+        "high" => TicketPriority::High,
+        "urgent" => TicketPriority::Urgent,
+        "none" => TicketPriority::None,
         other => {
             return Err(ApplyError::ActionFailed {
                 index: action_index,

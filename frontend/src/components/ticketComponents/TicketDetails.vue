@@ -6,9 +6,7 @@ import { stripHtml } from '@/composables/useSanitise';
 import type { TicketPriority } from '@/constants/ticketOptions';
 import { useWorkflowStatesStore } from '@/stores/workflowStates';
 import {
-  getCategoryLabel,
-  WORKFLOW_CATEGORIES,
-  categoryHeaderValue,
+  buildWorkflowDropdownOptions,
   isCategoryHeaderValue,
   coarseStatusBucket,
 } from '@/types/workflow';
@@ -217,23 +215,13 @@ onMounted(() => { void workflowStatesStore.load() });
  * category itself. Empty categories are skipped. Returns an empty list
  * until the store has loaded (the onMounted load above populates it).
  */
-const workflowDropdownOptions = computed<
-  { value: string; label: string; disabled?: boolean; color?: string }[]
->(() => {
-  if (!workflowStatesStore.loaded || workflowStatesStore.states.length === 0) {
-    return [];
-  }
-  const out: { value: string; label: string; disabled?: boolean; color?: string }[] = [];
-  for (const cat of WORKFLOW_CATEGORIES) {
-    const states = workflowStatesStore.byCategory[cat];
-    if (!states || states.length === 0) continue;
-    out.push({ value: categoryHeaderValue(cat), label: getCategoryLabel(cat), disabled: true });
-    for (const s of states) {
-      out.push({ value: String(s.id), label: s.name, color: s.color });
-    }
-  }
-  return out;
-});
+const workflowDropdownOptions = computed(() =>
+  buildWorkflowDropdownOptions(
+    workflowStatesStore.byCategory,
+    workflowStatesStore.loaded,
+    workflowStatesStore.states.length,
+  ),
+);
 
 const workflowDropdownValue = computed(() =>
   props.selectedWorkflowStateId != null ? String(props.selectedWorkflowStateId) : '',

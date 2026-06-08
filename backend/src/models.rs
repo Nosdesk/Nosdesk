@@ -739,6 +739,8 @@ pub struct WorkflowStateUpdate {
 #[diesel(sql_type = crate::schema::sql_types::TicketPriority)]
 #[derive(Default)]
 pub enum TicketPriority {
+    #[serde(rename = "none")]
+    None,
     #[serde(rename = "low")]
     Low,
     #[serde(rename = "medium")]
@@ -746,14 +748,18 @@ pub enum TicketPriority {
     Medium,
     #[serde(rename = "high")]
     High,
+    #[serde(rename = "urgent")]
+    Urgent,
 }
 
 impl TicketPriority {
     pub fn as_str(&self) -> &'static str {
         match self {
+            TicketPriority::None => "none",
             TicketPriority::Low => "low",
             TicketPriority::Medium => "medium",
             TicketPriority::High => "high",
+            TicketPriority::Urgent => "urgent",
         }
     }
 }
@@ -839,9 +845,11 @@ impl FromSql<diesel::sql_types::Text, Pg> for ContentFormat {
 impl FromSql<crate::schema::sql_types::TicketPriority, Pg> for TicketPriority {
     fn from_sql(bytes: PgValue) -> deserialize::Result<Self> {
         match bytes.as_bytes() {
+            b"none" => Ok(TicketPriority::None),
             b"low" => Ok(TicketPriority::Low),
             b"medium" => Ok(TicketPriority::Medium),
             b"high" => Ok(TicketPriority::High),
+            b"urgent" => Ok(TicketPriority::Urgent),
             _ => Err("Unrecognized enum variant".into()),
         }
     }

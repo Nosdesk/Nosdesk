@@ -896,9 +896,11 @@ pub async fn update_ticket_partial(
 
     if let Some(priority_str) = body.get("priority").and_then(|v| v.as_str()) {
         match priority_str {
+            "none" => ticket_update.priority = Some(crate::models::TicketPriority::None),
             "low" => ticket_update.priority = Some(crate::models::TicketPriority::Low),
             "medium" => ticket_update.priority = Some(crate::models::TicketPriority::Medium),
             "high" => ticket_update.priority = Some(crate::models::TicketPriority::High),
+            "urgent" => ticket_update.priority = Some(crate::models::TicketPriority::Urgent),
             _ => {}
         }
     }
@@ -1602,9 +1604,11 @@ pub async fn bulk_tickets(
             };
 
             let priority = match priority_str {
+                "none" => crate::models::TicketPriority::None,
                 "low" => crate::models::TicketPriority::Low,
                 "medium" => crate::models::TicketPriority::Medium,
                 "high" => crate::models::TicketPriority::High,
+                "urgent" => crate::models::TicketPriority::Urgent,
                 _ => return errors::bad_request("Bad Request: Invalid priority value"),
             };
 

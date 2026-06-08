@@ -26,6 +26,20 @@ export function priorityLabel(p: Priority): string {
   return translate('priority-none', undefined, 'No priority')
 }
 
+/** Flat option rows for `CustomDropdown` / bulk pickers. Keeps the
+ * five UI tiers in one place so every surface offers the same set. */
+export function buildPriorityDropdownOptions(
+  t: (key: string) => string,
+): Array<{ value: Priority; label: string }> {
+  return [
+    { value: 'urgent', label: t('priority-urgent') },
+    { value: 'high', label: t('priority-high') },
+    { value: 'medium', label: t('priority-medium') },
+    { value: 'low', label: t('priority-low') },
+    { value: 'none', label: t('priority-none') },
+  ]
+}
+
 /** Subtle inline tint used in the title cell to make urgent /
  * high tickets visually pop in the table. Returns null for
  * everything else (no tint applied). */

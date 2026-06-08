@@ -163,6 +163,15 @@ export const useSyncTicketsStore = defineStore('syncTickets', () => {
     })
   }
 
+  async function patchTitle(ticketId: number, title: string): Promise<void> {
+    const current = useEntity<SyncTicket>('ticket', ticketId).value
+    if (!current || current.title === title) return
+    await dispatchOptimistic<SyncTicket>('ticket', ticketId, {
+      forward: { title, last_activity_at: new Date().toISOString() },
+      inverse: { title: current.title },
+    })
+  }
+
   // Sorted-by-last-activity (desc) — the default kanban order so
   // the most-recent activity floats to the top of each column.
   const byLastActivity = computed(() =>
@@ -211,6 +220,7 @@ export const useSyncTicketsStore = defineStore('syncTickets', () => {
     moveToWorkflowState,
     bulkMoveToWorkflowState,
     patchKanbanFields,
+    patchTitle,
     bulkPatchKanbanFields,
   }
 })

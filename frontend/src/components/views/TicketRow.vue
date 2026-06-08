@@ -25,7 +25,7 @@ import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import UserCell from '@/components/views/UserCell.vue'
 import WorkflowStateGlyph from '@/components/views/WorkflowStateGlyph.vue'
 import Checkbox from '@/components/common/Checkbox.vue'
-import { priorityForBadge } from '@/utils/priorityHelpers'
+import { priorityForBadge, priorityLabel } from '@/utils/priorityHelpers'
 import { deriveSlaState } from '@/composables/useSlaState'
 import {
   formatCompactRelativeTime,
@@ -280,12 +280,21 @@ function recurrenceLabel(rule: string | null | undefined): string {
       </template>
 
       <template v-else-if="col.id === 'priority'">
-        <PriorityIndicator
-          v-if="priorityForBadge(card.priority)"
-          :priority="priorityForBadge(card.priority)!"
-          size="xs"
-        />
-        <span v-else class="text-xs text-tertiary">-</span>
+        <span class="inline-flex items-center gap-1.5 text-xs text-secondary min-w-0">
+          <PriorityIndicator
+            v-if="priorityForBadge(card.priority)"
+            :priority="priorityForBadge(card.priority)!"
+            size="xs"
+          />
+          <span
+            v-else
+            class="inline-flex w-2.5 h-2.5 items-center justify-center shrink-0"
+            aria-hidden="true"
+          >
+            <span class="w-2 h-2 rounded-full border border-tertiary" />
+          </span>
+          <span class="truncate">{{ priorityLabel(card.priority) }}</span>
+        </span>
       </template>
 
       <template v-else-if="col.id === 'assignee'">
