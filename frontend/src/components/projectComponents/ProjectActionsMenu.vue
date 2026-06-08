@@ -12,6 +12,7 @@ import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
 import MenuList, { type MenuItem } from '@/components/common/MenuList.vue'
+import { buildProjectMenuItems } from '@/utils/projectMenuItems'
 
 const props = defineProps<{ status: string }>()
 
@@ -32,18 +33,7 @@ const anchor = computed(() => ({
   element: () => triggerRef.value,
 }))
 
-const STATUSES = ['active', 'completed', 'archived'] as const
-
-const menuItems = computed<MenuItem[]>(() => [
-  { id: 'rename', label: t('project-actions-rename') },
-  ...STATUSES.map((s, i) => ({
-    id: `status:${s}`,
-    label: t(`project-actions-status-${s}`),
-    check: props.status === s,
-    divider: i === 0,
-  })),
-  { id: 'delete', label: t('project-actions-delete'), danger: true, divider: true },
-])
+const menuItems = computed<MenuItem[]>(() => buildProjectMenuItems(props.status, t))
 
 function toggle() {
   isOpen.value = !isOpen.value

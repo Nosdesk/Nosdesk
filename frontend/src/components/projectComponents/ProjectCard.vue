@@ -28,6 +28,7 @@ defineProps<{
 
 const emit = defineEmits<{
   (e: 'open'): void
+  (e: 'contextmenu', event: MouseEvent): void
   (e: 'rename', name: string): void
   (e: 'set-status', status: string): void
   (e: 'delete'): void
@@ -42,6 +43,7 @@ const { editing, draft, inputEl, start, done, cancel } = useInlineRename((name) 
   <div
     class="group flex flex-col gap-3 bg-surface border border-default rounded-lg p-4 cursor-pointer transition-colors hover:border-strong"
     @click="emit('open')"
+    @contextmenu.prevent="emit('contextmenu', $event)"
   >
     <!-- Title + actions -->
     <div class="flex items-start justify-between gap-2">

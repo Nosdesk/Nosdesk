@@ -22,7 +22,6 @@ import { useDataTableColumns } from '@/composables/useDataTableColumns'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
 import { projectStatusDot } from '@/utils/projectStatus'
 import { formatCompactRelativeTime } from '@/utils/dateUtils'
-import { projectService } from '@/services/projectService'
 import { logger } from '@/utils/logger'
 import DataTable from '@/components/common/DataTable.vue'
 import CreateProjectModal from '@/components/projectComponents/CreateProjectModal.vue'
@@ -34,6 +33,10 @@ import ProjectActionsMenu from '@/components/projectComponents/ProjectActionsMen
 import AvatarStack from '@/components/common/AvatarStack.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
+import ContextMenu from '@/components/common/ContextMenu.vue'
+import type { MenuItem } from '@/components/common/ContextMenu.vue'
+import type { Project } from '@/types/project'
+import { buildProjectMenuItems } from '@/utils/projectMenuItems'
 
 const router = useRouter()
 const fluent = useFluent()
@@ -184,20 +187,67 @@ function onSetStatus(id: number, status: string): void {
 
 // Delete.
 const deleting = ref<{ id: number; name: string } | null>(null)
-const deletePending = ref(false)
 function askDelete(p: SyncProject): void {
   deleting.value = { id: p.id, name: p.name }
 }
 async function confirmDelete(): Promise<void> {
   if (!deleting.value) return
-  deletePending.value = true
+  const { id } = deleting.value
+  deleting.value = null
   try {
-    await projectService.deleteProject(deleting.value.id)
-    deleting.value = null
+    await projectsStore.remove(id)
   } catch (e) {
     logger.error('Failed to delete project', e)
-  } finally {
-    deletePending.value = false
+  }
+}
+
+function onProjectCreated(project: Project): void {
+  createOpen.value = false
+  projectsStore.ingestCreated(project)
+  router.push({ name: 'project-detail', params: { id: String(project.id) } })
+}
+
+// Right-click context menu (desktop table + mobile cards).
+const contextMenuProjectId = ref<number | null>(null)
+const contextMenuPos = ref({ x: 0, y: 0 })
+const showContextMenu = ref(false)
+
+const contextMenuProject = computed(() => {
+  const id = contextMenuProjectId.value
+  if (id == null) return null
+  return sortedByName.value.find((p) => p.id === id) ?? null
+})
+
+const projectContextMenuItems = computed<MenuItem[]>(() => {
+  const project = contextMenuProject.value
+  if (!project) return []
+  return buildProjectMenuItems(project.status, t, { forContextMenu: true })
+})
+
+function handleProjectContextMenu(project: SyncProject, event: MouseEvent): void {
+  contextMenuProjectId.value = project.id
+  contextMenuPos.value = { x: event.clientX, y: event.clientY }
+  showContextMenu.value = true
+}
+
+function handleProjectContextMenuSelect(actionId: string): void {
+  const project = contextMenuProject.value
+  if (!project) return
+
+  switch (actionId) {
+    case 'open':
+      open(project.id)
+      break
+    case 'rename':
+      startRename(project)
+      break
+    case 'delete':
+      askDelete(project)
+      break
+    default:
+      if (actionId.startsWith('status:')) {
+        onSetStatus(project.id, actionId.slice('status:'.length))
+      }
   }
 }
 </script>
@@ -279,6 +329,7 @@ async function confirmDelete(): Promise<void> {
           :column-resize="cols.resizeBundle"
           @update:sort="onTableSort"
           @row-click="(p: SyncProject) => open(p.id)"
+          @row-contextmenu="handleProjectContextMenu"
         >
           <template #cell-name="{ item }">
             <div class="flex items-center gap-2 min-w-0 w-full">
@@ -371,6 +422,7 @@ async function confirmDelete(): Promise<void> {
           :rollup="rollupOf(project.id)"
           :cycle="activeCycleOf(project.id)"
           @open="open(project.id)"
+          @contextmenu="handleProjectContextMenu(project, $event)"
           @rename="(name) => onRename(project.id, name)"
           @set-status="(s) => onSetStatus(project.id, s)"
           @delete="askDelete(project)"
@@ -381,7 +433,7 @@ async function confirmDelete(): Promise<void> {
     <CreateProjectModal
       v-if="createOpen"
       @close="createOpen = false"
-      @created="createOpen = false"
+      @created="onProjectCreated"
     />
 
     <ConfirmModal
@@ -390,9 +442,17 @@ async function confirmDelete(): Promise<void> {
       :title="$t('project-delete-confirm-title')"
       :message="$t('project-delete-confirm-message', { name: deleting?.name ?? '' })"
       :confirm-label="$t('project-delete-confirm-button')"
-      :loading="deletePending"
       @confirm="confirmDelete"
       @close="deleting = null"
+    />
+
+    <ContextMenu
+      :open="showContextMenu"
+      :items="projectContextMenuItems"
+      :x="contextMenuPos.x"
+      :y="contextMenuPos.y"
+      @select="handleProjectContextMenuSelect"
+      @close="showContextMenu = false"
     />
   </div>
 </template>

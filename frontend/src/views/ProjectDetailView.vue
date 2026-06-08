@@ -73,7 +73,7 @@ function onGroupByChange(value: string | string[]): void {
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
+  <div class="flex flex-col h-full min-h-0 overflow-hidden">
     <ProjectViewHeader
       :project="project"
       :subtitle="project ? $t('project-detail-ticket-count', { count: cards.length }) : undefined"

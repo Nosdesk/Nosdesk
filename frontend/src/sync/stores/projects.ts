@@ -14,6 +14,9 @@ import { defineStore } from 'pinia'
 import { computed, toValue, type ComputedRef, type MaybeRefOrGetter } from 'vue'
 import { useEntity, useAggregate } from '@/sync/composables'
 import { dispatchOptimistic } from '@/sync/queue'
+import { upsert, remove as poolRemove, patch as poolPatch } from '@/sync/pool'
+import { projectService } from '@/services/projectService'
+import type { Project } from '@/types/project'
 
 export interface SyncProject {
   id: number
@@ -45,9 +48,12 @@ export const useSyncProjectsStore = defineStore('syncProjects', () => {
     const previousName = current.name
     if (previousName === newName) return
     await dispatchOptimistic<SyncProject>('project', projectId, {
-      forward: { name: newName, updated_at: new Date().toISOString() },
-      inverse: { name: previousName, updated_at: current.updated_at },
+      forward: { name: newName },
+      inverse: { name: previousName },
     })
+    // Local-only freshness hint for the Updated column; the server
+    // sets `updated_at` on apply and SSE reconciles the canonical value.
+    poolPatch('project', projectId, { updated_at: new Date().toISOString() })
   }
 
   /**
@@ -59,9 +65,56 @@ export const useSyncProjectsStore = defineStore('syncProjects', () => {
     const previousStatus = current.status
     if (previousStatus === status) return
     await dispatchOptimistic<SyncProject>('project', projectId, {
-      forward: { status, updated_at: new Date().toISOString() },
-      inverse: { status: previousStatus, updated_at: current.updated_at },
+      forward: { status },
+      inverse: { status: previousStatus },
     })
+    poolPatch('project', projectId, { updated_at: new Date().toISOString() })
+  }
+
+  /**
+   * Seed the pool from a REST create response. The backend also emits
+   * `project.created` over SSE, but that can lag; without this the
+   * projects list stays stale until the event lands.
+   */
+  function ingestCreated(project: Project): void {
+    upsert<SyncProject>('project', project.id, {
+      id: project.id,
+      name: project.name,
+      description: project.description ?? null,
+      status: project.status,
+      created_at: project.created_at,
+      updated_at: project.updated_at,
+    })
+  }
+
+  /**
+   * Remove a project from the pool immediately, then confirm via REST.
+   * Restores the row if the server rejects the delete.
+   */
+  async function remove(projectId: number): Promise<void> {
+    const current = useEntity<SyncProject>('project', projectId).value
+    const snapshot = current
+      ? {
+          id: current.id,
+          name: current.name,
+          description: current.description,
+          status: current.status,
+          created_at: current.created_at,
+          updated_at: current.updated_at,
+          created_by: current.created_by,
+        }
+      : null
+
+    poolRemove('project', projectId)
+
+    try {
+      await projectService.deleteProject(projectId)
+    } catch (e) {
+      if (snapshot) {
+        upsert<SyncProject>('project', projectId, snapshot)
+      }
+      throw e
+    }
   }
 
   // Sorted-by-name view; most projects-list UIs want this. Computed
@@ -70,5 +123,5 @@ export const useSyncProjectsStore = defineStore('syncProjects', () => {
     [...all().value].sort((a, b) => a.name.localeCompare(b.name)),
   )
 
-  return { byId, all, sortedByName, rename, setStatus }
+  return { byId, all, sortedByName, rename, setStatus, ingestCreated, remove }
 })

@@ -2235,6 +2235,7 @@ projects-col-updated = Mis à jour
 project-detail-loading-name = Chargement…
 # Gestion de projet : menu d'actions + suppression (machine, à relire par un locuteur natif).
 project-actions-menu-trigger = Actions du projet
+project-context-open = Ouvrir
 project-actions-rename = Renommer
 project-actions-status-active = Actif
 project-actions-status-completed = Terminé

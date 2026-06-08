@@ -2358,6 +2358,7 @@ projects-col-updated = Updated
 # control on the kanban toolbar.
 project-detail-loading-name = Loading…
 project-actions-menu-trigger = Project actions
+project-context-open = Open
 project-actions-rename = Rename
 project-actions-status-active = Active
 project-actions-status-completed = Completed

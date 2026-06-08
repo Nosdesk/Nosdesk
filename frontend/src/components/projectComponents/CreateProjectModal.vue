@@ -1,9 +1,9 @@
 <script setup lang="ts">
 /**
- * Create-project modal. Name (required) + optional description; the
- * project is minted via the REST service, and the backend's
- * `project.created` sync emit (group `workspace:1`) lands the new row
- * in the projects-list pool, so the caller doesn't insert it manually.
+ * Create-project modal. Name (required) + optional description.
+ * On success the caller receives the REST response and should seed
+ * the sync pool immediately (`ingestCreated`) — the SSE
+ * `project.created` event can arrive later.
  */
 import { ref, computed } from 'vue'
 import { useFluent } from 'fluent-vue'

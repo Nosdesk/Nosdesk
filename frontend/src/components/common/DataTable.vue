@@ -88,6 +88,7 @@ const emit = defineEmits<{
   'toggle-selection': [event: Event, itemId: string]
   'toggle-all': [event: Event]
   'row-click': [item: T]
+  'row-contextmenu': [item: T, event: MouseEvent]
   'row-mouseenter': [item: T]
   'toggle-bucket': [bucketKey: string]
 }>()
@@ -265,6 +266,7 @@ const getColumnVisibility = (column: Column) => {
           <div
             class="contents group cursor-pointer"
             @click="emit('row-click', item)"
+            @contextmenu="(e) => { e.preventDefault(); emit('row-contextmenu', item, e) }"
             @mouseenter="emit('row-mouseenter', item)"
           >
             <!-- Checkbox Cell -->

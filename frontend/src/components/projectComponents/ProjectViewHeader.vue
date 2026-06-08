@@ -12,7 +12,6 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useInlineRename } from '@/composables/useInlineRename'
 import { useSyncProjectsStore, type SyncProject } from '@/sync/stores/projects'
-import { projectService } from '@/services/projectService'
 import { logger } from '@/utils/logger'
 import ProjectActionsMenu from '@/components/projectComponents/ProjectActionsMenu.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
@@ -41,7 +40,7 @@ async function confirmDelete(): Promise<void> {
   if (!props.project) return
   deletePending.value = true
   try {
-    await projectService.deleteProject(props.project.id)
+    await projectsStore.remove(props.project.id)
     router.push('/projects')
   } catch (e) {
     logger.error('Failed to delete project', e)

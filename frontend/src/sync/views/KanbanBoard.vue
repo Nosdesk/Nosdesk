@@ -41,6 +41,7 @@ import { formatDateTime } from '@/utils/dateUtils'
 import { useDragDrop } from './drag'
 import type { CardData } from './types'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
+import SectionCard from '@/components/common/SectionCard.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 
 /** Sub-lane keys are derived from the secondary axis value:
@@ -491,92 +492,77 @@ function affectedDevicesTooltip(card: CardData): string {
 </script>
 
 <template>
-  <div class="flex h-full">
+  <div class="flex h-full min-h-0 min-w-0">
     <!-- Lanes -->
     <!-- max-md scroll-snap so lanes swipe one-at-a-time on phones; snap
          is gated to mobile so it can't fight pointer drag-and-drop on
-         desktop. scroll-px-4 keeps the snapped lane clear of the p-4 edge. -->
-    <div class="kanban-board flex gap-4 p-4 h-full overflow-x-auto max-md:snap-x max-md:snap-mandatory max-md:scroll-px-4" @click="clearSelection">
-      <div
+         desktop. Each lane is a SectionCard — header stays fixed,
+         cards scroll in the body. -->
+    <div class="kanban-board flex gap-3 p-3 h-full min-h-0 min-w-0 overflow-x-auto overflow-y-hidden max-md:snap-x max-md:snap-mandatory max-md:scroll-px-3" @click="clearSelection">
+      <SectionCard
         v-for="lane in lanes"
         :key="lane.id"
-        class="w-72 flex-shrink-0 flex flex-col bg-surface rounded-lg border border-default h-full min-h-[300px] overflow-y-auto overflow-x-hidden max-md:snap-start"
+        class="w-72 shrink-0 h-full min-h-0 max-md:snap-start"
+        content-padding="flex-1 min-h-0 overflow-y-auto flex flex-col"
         @click.stop
       >
-        <!-- Column header, built as stacked sections so it collapses on
-             scroll: the padding above/below scrolls away while the title
-             row (sticky top-0) and the hairline border (sticky, just
-             below it) stay pinned, keeping the column name + count over
-             the cards and giving more room to the tickets. The whole
-             column is the scroll container that anchors the sticky parts. -->
-        <div class="bg-surface-alt px-4 pt-2 rounded-t-lg shrink-0" aria-hidden="true"></div>
-        <header
-          class="sticky top-0 z-20 flex h-9 items-center justify-between px-4 bg-surface-alt"
-        >
-          <div class="flex items-center gap-3 min-w-0">
-            <span
-              v-if="lane.defaultState"
-              class="inline-block w-2.5 h-2.5 rounded-full bg-current shrink-0"
-              :class="paletteForColor(lane.defaultState.color).solid"
-              aria-hidden="true"
-            />
-            <h3 class="text-sm font-semibold text-primary truncate">{{ lane.label }}</h3>
-          </div>
-          <div class="flex items-center gap-1.5 shrink-0">
-            <span class="text-xs text-tertiary bg-surface-hover rounded-md px-2 py-1">
-              {{ lane.totalCards }}
-            </span>
-            <button
-              v-if="onQuickAdd && lane.defaultState"
-              type="button"
-              class="text-tertiary hover:text-primary hover:bg-surface-hover rounded-md w-6 h-6 flex items-center justify-center transition-colors text-base leading-none"
-              :title="t('kanban-quick-add-aria', { column: lane.label })"
-              :aria-label="t('kanban-quick-add-aria', { column: lane.label })"
-              @click.stop="openQuickAdd(lane.id)"
-            >
-              +
-            </button>
-          </div>
-        </header>
-        <div class="bg-surface-alt px-4 pb-2 shrink-0" aria-hidden="true"></div>
-        <!-- Sticky hairline: pins right below the title so the column keeps
-             a clean bottom border once the padding has scrolled away. -->
-        <div class="sticky top-9 z-20 h-px shadow-sm bg-(--color-border-default) shrink-0" aria-hidden="true"></div>
+        <template #leading>
+          <span
+            v-if="lane.defaultState"
+            class="inline-block w-2 h-2 rounded-full bg-current shrink-0"
+            :class="paletteForColor(lane.defaultState.color).solid"
+            aria-hidden="true"
+          />
+        </template>
+        <template #title>{{ lane.label }}</template>
+        <template #headerActions>
+          <span class="text-[11px] text-tertiary tabular-nums">{{ lane.totalCards }}</span>
+          <button
+            v-if="onQuickAdd && lane.defaultState"
+            type="button"
+            class="text-tertiary hover:text-primary hover:bg-surface-hover rounded p-0.5 w-5 h-5 flex items-center justify-center transition-colors text-sm leading-none"
+            :title="t('kanban-quick-add-aria', { column: lane.label })"
+            :aria-label="t('kanban-quick-add-aria', { column: lane.label })"
+            @click.stop="openQuickAdd(lane.id)"
+          >
+            +
+          </button>
+        </template>
+
+        <!-- Inline quick-add: a single-line title input at the top
+             of the column. Enter creates a ticket in the column's
+             default workflow state and keeps the input open for the
+             next one; Esc or an empty blur closes it. -->
+        <div v-if="onQuickAdd && quickAddCategory === lane.id" class="px-2 py-1.5 border-b border-subtle shrink-0">
+          <input
+            :ref="(el) => focusQuickAdd(el as Element | null)"
+            v-model="quickAddTitle"
+            type="text"
+            class="w-full text-[13px] rounded-md border border-default bg-surface px-2 py-1 text-primary placeholder:text-tertiary focus:outline-none focus:ring-2 focus:ring-accent"
+            :placeholder="t('kanban-quick-add-placeholder')"
+            @keydown.enter.prevent="submitQuickAdd(lane)"
+            @keydown.esc.prevent="closeQuickAdd"
+            @blur="onQuickAddBlur"
+          />
+        </div>
 
         <!-- Sub-lanes (one when secondary axis is off, many when on) -->
-        <div class="flex flex-col">
-          <!-- Inline quick-add: a single-line title input at the top
-               of the column. Enter creates a ticket in the column's
-               default workflow state and keeps the input open for the
-               next one; Esc or an empty blur closes it. -->
-          <div v-if="onQuickAdd && quickAddCategory === lane.id" class="p-2 border-b border-subtle/50">
-            <input
-              :ref="(el) => focusQuickAdd(el as Element | null)"
-              v-model="quickAddTitle"
-              type="text"
-              class="w-full text-sm rounded-md border border-default bg-surface px-2.5 py-1.5 text-primary placeholder:text-tertiary focus:outline-none focus:ring-2 focus:ring-accent"
-              :placeholder="t('kanban-quick-add-placeholder')"
-              @keydown.enter.prevent="submitQuickAdd(lane)"
-              @keydown.esc.prevent="closeQuickAdd"
-              @blur="onQuickAddBlur"
-            />
-          </div>
-          <section
-            v-for="sublane in lane.sublanes"
-            :key="sublane.id"
-            class="flex flex-col transition-colors"
-            :class="{ 'bg-accent-muted/40': isHoverLane(sublane.id) }"
-            :data-lane-id="sublane.id"
+        <section
+          v-for="sublane in lane.sublanes"
+          :key="sublane.id"
+          class="flex flex-col transition-colors"
+          :class="{ 'bg-accent-muted/40': isHoverLane(sublane.id) }"
+          :data-lane-id="sublane.id"
+        >
+          <header
+            v-if="secondaryGroupBy"
+            class="flex items-center justify-between px-3 py-1 text-[10px] uppercase tracking-wider font-semibold text-tertiary bg-surface border-b border-subtle sticky top-0 z-10 shrink-0"
           >
-            <header
-              v-if="secondaryGroupBy"
-              class="flex items-center justify-between px-3 py-1.5 text-[10px] uppercase tracking-wide font-semibold text-tertiary bg-surface border-b border-subtle/50 sticky top-9 z-10"
-            >
-              <span class="truncate">{{ sublane.label }}</span>
-              <span>{{ sublane.cards.length }}</span>
-            </header>
+            <span class="truncate">{{ sublane.label }}</span>
+            <span class="tabular-nums">{{ sublane.cards.length }}</span>
+          </header>
 
-            <div class="flex flex-col gap-2 p-2">
+          <div class="flex flex-col gap-1.5 p-1.5">
               <!-- Insertion line: a drop into a non-empty lane bumps
                    last_activity_at to NOW so the card lands at the
                    top of the lane. The line points there honestly
@@ -590,7 +576,7 @@ function affectedDevicesTooltip(card: CardData): string {
               <article
                 v-for="card in sublane.cards"
                 :key="card.id"
-                class="bg-surface rounded-lg border border-default hover:border-strong p-3 cursor-grab select-none transition-colors"
+                class="bg-surface rounded-lg border border-default hover:border-strong p-2 cursor-grab select-none transition-colors"
                 :class="{
                   'ring-2 ring-accent': isSelected(card.id),
                   'opacity-50 scale-95': isDraggedCard(card.id),
@@ -602,8 +588,8 @@ function affectedDevicesTooltip(card: CardData): string {
                      status, recurrence). SLA is icon-only with a
                      tooltip — the colour does the talking; full
                      countdown text lives in the detail view. -->
-                <div class="flex items-start justify-between gap-2 mb-2">
-                  <h4 class="text-sm font-medium text-primary line-clamp-2 flex-1 inline-flex items-baseline gap-1.5">
+                <div class="flex items-start justify-between gap-1.5 mb-1">
+                  <h4 class="text-[13px] font-medium text-primary line-clamp-2 flex-1 inline-flex items-baseline gap-1">
                     <span
                       v-if="card.recurrence_rule"
                       class="text-tertiary text-xs shrink-0"
@@ -634,7 +620,7 @@ function affectedDevicesTooltip(card: CardData): string {
                      stays tight. -->
                 <div
                   v-if="hasPills(card)"
-                  class="flex items-center gap-1.5 mb-2"
+                  class="flex items-center gap-1 mb-1"
                 >
                   <span
                     v-if="card.kb_gap_signal && card.kb_gap_signal !== 'none'"
@@ -685,7 +671,7 @@ function affectedDevicesTooltip(card: CardData): string {
                    shown for non-empty lanes. -->
               <div
                 v-if="sublane.cards.length === 0"
-                class="flex items-center justify-center text-tertiary text-xs italic border-2 rounded-lg min-h-[60px] transition-colors"
+                class="flex items-center justify-center text-tertiary text-[11px] italic border-2 rounded-lg min-h-12 transition-colors"
                 :class="
                   isHoverLane(sublane.id)
                     ? 'border-accent bg-accent-muted text-accent font-medium'
@@ -696,8 +682,7 @@ function affectedDevicesTooltip(card: CardData): string {
               </div>
             </div>
           </section>
-        </div>
-      </div>
+      </SectionCard>
     </div>
 
     <!-- Floating drag preview -->

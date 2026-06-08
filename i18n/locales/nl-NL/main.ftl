@@ -2232,6 +2232,7 @@ projects-col-updated = Bijgewerkt
 project-detail-loading-name = Laden…
 # Projectbeheer: actiemenu + verwijderen (machine, nog na te kijken door moedertaalspreker).
 project-actions-menu-trigger = Projectacties
+project-context-open = Openen
 project-actions-rename = Hernoemen
 project-actions-status-active = Actief
 project-actions-status-completed = Voltooid
