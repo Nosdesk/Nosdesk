@@ -240,7 +240,7 @@ onUnmounted(() => {
           {{ $t('onboarding-getting-started') }}
         </p>
         <ul class="flex flex-col gap-7">
-          <li class="flex items-start gap-3.5">
+          <li v-if="!tokenFromUrl" class="flex items-start gap-3.5">
             <Icon name="key" size="md" class="mt-0.5 flex-shrink-0 text-white/40" />
             <div class="flex flex-col gap-2">
               <p class="text-sm font-medium text-white">{{ $t('onboarding-token-help-title') }}</p>

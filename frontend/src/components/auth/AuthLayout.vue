@@ -22,6 +22,15 @@ Slots:
 -->
 <script setup lang="ts">
 import LogoIcon from '@/components/icons/LogoIcon.vue';
+
+withDefaults(
+  defineProps<{
+    /** Widen the form panel for content-heavy flows (e.g. MFA setup,
+     *  whose QR + recovery-code grids need more room than a login form). */
+    wide?: boolean;
+  }>(),
+  { wide: false },
+);
 </script>
 
 <template>
@@ -30,7 +39,10 @@ import LogoIcon from '@/components/icons/LogoIcon.vue';
          min-h-full so short forms centre vertically while tall ones (e.g.
          onboarding with its info cards) flow from the top and scroll, all
          within the panel so the hero stays pinned to the viewport. -->
-    <section class="relative w-full overflow-y-auto lg:max-w-[560px] lg:basis-[45%]">
+    <section
+      class="relative w-full overflow-y-auto"
+      :class="wide ? 'lg:max-w-[760px] lg:basis-[55%]' : 'lg:max-w-[560px] lg:basis-[45%]'"
+    >
       <div
         class="flex min-h-full flex-col gap-10 px-6 py-10 sm:px-10 lg:px-16 lg:py-14"
       >

@@ -22,6 +22,11 @@ const props = defineProps<{
     isLoginSetup?: boolean;
     limitedSessionToken?: string;
     targetUserUuid?: string;
+    /** Drop the SectionCard chrome and render the content directly.
+     *  Used in the full-screen auth flow (MFASetupView), where the
+     *  surrounding panel is already the container and a card-in-a-pane
+     *  reads as redundant. Defaults to the carded look for Settings. */
+    bare?: boolean;
 }>();
 
 // Emits for notifications
@@ -72,6 +77,7 @@ const mfaSetupStore = useMfaSetupStore();
 const verificationCode = ref("");
 const showSecret = ref(false);
 const secretCopied = ref(false);
+const backupCodesCopied = ref(false);
 
 // QR code rendering: Single grid that shows skeleton pattern initially,
 // then smoothly transitions when real data arrives. Cells animate in
@@ -563,6 +569,23 @@ const copySecret = async () => {
     }
 };
 
+// Copy all backup codes (newline-separated) to clipboard
+const copyBackupCodes = async () => {
+    if (!mfa.backupCodes.value.length || backupCodesCopied.value) return;
+
+    try {
+        await navigator.clipboard.writeText(mfa.backupCodes.value.join("\n"));
+        backupCodesCopied.value = true;
+
+        setTimeout(() => {
+            backupCodesCopied.value = false;
+        }, 2000);
+    } catch (err) {
+        logger.error("Failed to copy backup codes:", err);
+        emit("error", t("settings-mfa-copy-error"));
+    }
+};
+
 // Download backup codes as text file
 const downloadBackupCodes = () => {
     if (!mfa.backupCodes.value.length) return;
@@ -672,7 +695,12 @@ defineExpose({
 </style>
 
 <template>
-    <SectionCard content-padding="p-4 sm:p-6">
+    <component
+        :is="bare ? 'div' : SectionCard"
+        :content-padding="bare ? undefined : 'p-4 sm:p-6'"
+    >
+        <!-- Card title only renders under SectionCard; on a plain div the
+             named slot is dropped (the auth page header carries the title). -->
         <template #title>
             {{
                 isManagingOtherUser
@@ -734,38 +762,41 @@ defineExpose({
                     @update:modelValue="toggleMFA"
                 />
 
-                <!-- Main MFA Setup Component - Hidden when verification is successful -->
+                <!-- Main MFA Setup Component - Hidden when verification is successful.
+                     QR + verification sit side-by-side once the panel is wide
+                     enough (container query, not viewport — so it never spills
+                     the narrow auth column), and stack on small screens. -->
                 <div
                     v-if="shouldShowSetupInterface && !mfa.verifying.value"
-                    class="grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-8 items-start"
+                    class="@container"
                 >
+                  <div class="flex flex-col items-center gap-6 @lg:flex-row @lg:items-start @lg:gap-8">
                     <!-- QR Code Section -->
-                    <div class="flex justify-center lg:justify-start">
-                        <div class="bg-white p-4 rounded-lg shadow-lg">
-                            <!-- QR Code container - single grid that handles both states -->
-                            <div class="relative w-48 h-48 lg:w-44 lg:h-44">
+                    <div class="shrink-0 bg-white p-3 rounded-xl shadow-lg">
+                        <!-- QR Code container - single grid that handles both states -->
+                        <div class="relative w-40 h-40 sm:w-44 sm:h-44">
+                            <div
+                                class="absolute inset-0 bg-white rounded-lg overflow-hidden"
+                                :style="{ padding: qrGridPadding }"
+                            >
                                 <div
-                                    class="absolute inset-0 bg-white rounded-lg overflow-hidden"
-                                    :style="{ padding: qrGridPadding }"
+                                    class="w-full h-full grid"
+                                    :style="{ gridTemplateColumns: `repeat(${qrGridSize}, 1fr)` }"
                                 >
-                                    <div
-                                        class="w-full h-full grid"
-                                        :style="{ gridTemplateColumns: `repeat(${qrGridSize}, 1fr)` }"
-                                    >
-                                        <template v-for="i in qrTotalCells" :key="i">
-                                            <div
-                                                :class="getQrCellClass(i)"
-                                                :style="getQrCellStyle(i)"
-                                            ></div>
-                                        </template>
-                                    </div>
+                                    <template v-for="i in qrTotalCells" :key="i">
+                                        <div
+                                            :class="getQrCellClass(i)"
+                                            :style="getQrCellStyle(i)"
+                                        ></div>
+                                    </template>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Verification Components -->
-                    <div class="flex flex-col gap-6">
+                    <!-- Verification column (capped + centred when stacked,
+                         fills the remaining width when side-by-side) -->
+                    <div class="flex w-full min-w-0 max-w-sm @lg:max-w-none @lg:flex-1 flex-col gap-5">
                         <!-- Manual Secret Entry Option -->
                         <div
                             class="bg-surface/50 rounded-lg border border-default/20 p-4"
@@ -832,9 +863,9 @@ defineExpose({
 
                         <!-- Verification Input Section -->
                         <div class="flex flex-col gap-4">
-                            <div class="text-center lg:text-left">
+                            <div class="text-center @lg:text-left">
                                 <h4
-                                    class="text-sm font-medium text-primary mb-2"
+                                    class="text-sm font-medium text-primary mb-1"
                                 >
                                     {{ $t('settings-mfa-verify-heading') }}
                                 </h4>
@@ -843,71 +874,59 @@ defineExpose({
                                 </p>
                             </div>
 
-                            <div
-                                class="flex flex-col lg:flex-row lg:items-center gap-2 lg:gap-3"
-                            >
-                                <!-- OTP input component -->
-                                <div
-                                    class="flex justify-center lg:justify-start"
-                                >
-                                    <OtpInput
-                                        v-model="verificationCode"
-                                        @complete="handleOtpComplete"
-                                        :aria-label="$t('settings-mfa-verify-aria-label')"
-                                    />
-                                </div>
+                            <OtpInput
+                                v-model="verificationCode"
+                                @complete="handleOtpComplete"
+                                :aria-label="$t('settings-mfa-verify-aria-label')"
+                            />
 
-                                <Button
-                                    block
-                                    class="lg:w-auto h-12 lg:h-14"
-                                    :loading="mfa.verifying.value"
-                                    :disabled="verificationCode.length !== 6"
-                                    @click="verifyMFA"
-                                >
-                                    {{ $t('settings-mfa-verify-button') }}
-                                </Button>
-                            </div>
+                            <Button
+                                block
+                                class="h-12"
+                                :loading="mfa.verifying.value"
+                                :disabled="verificationCode.length !== 6"
+                                @click="verifyMFA"
+                            >
+                                {{ $t('settings-mfa-verify-button') }}
+                            </Button>
                         </div>
                     </div>
+                  </div>
                 </div>
 
                 <!-- Verification Loading State - Replaces the setup interface when verifying -->
                 <div
                     v-if="shouldShowSetupInterface && mfa.verifying.value"
-                    class="grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-8 items-start"
+                    class="@container"
                 >
+                  <div class="flex flex-col items-center gap-6 @lg:flex-row @lg:items-start @lg:gap-8">
                     <!-- QR Code Section (keep visible during verification) -->
-                    <div class="flex justify-center lg:justify-start">
-                        <div class="bg-white p-4 rounded-lg shadow-lg">
-                            <img
-                                v-if="mfa.qrCodeUrl.value"
-                                :src="mfa.qrCodeUrl.value"
-                                :alt="$t('settings-mfa-qr-alt')"
-                                class="w-48 h-48 lg:w-44 lg:h-44"
-                            />
-                        </div>
+                    <div class="shrink-0 bg-white p-3 rounded-xl shadow-lg">
+                        <img
+                            v-if="mfa.qrCodeUrl.value"
+                            :src="mfa.qrCodeUrl.value"
+                            :alt="$t('settings-mfa-qr-alt')"
+                            class="w-40 h-40 sm:w-44 sm:h-44"
+                        />
                     </div>
 
                     <!-- Loading State in place of verification components -->
-                    <div class="flex flex-col gap-6 justify-center">
-                        <div class="flex items-center justify-center py-8">
-                            <div class="flex flex-col items-center gap-4">
-                                <div class="bg-accent rounded-full p-4 text-on-accent">
-                                    <Spinner size="lg" />
-                                </div>
-                                <div class="text-center">
-                                    <h3
-                                        class="text-lg font-medium text-primary mb-2"
-                                    >
-                                        {{ $t('settings-mfa-verifying-heading') }}
-                                    </h3>
-                                    <p class="text-sm text-tertiary">
-                                        {{ $t('settings-mfa-verifying-message') }}
-                                    </p>
-                                </div>
-                            </div>
+                    <div class="flex min-w-0 @lg:flex-1 flex-col items-center gap-4 py-4">
+                        <!-- Fixed square so rounded-full is a true circle
+                             (an inline child would let line-height skew it). -->
+                        <div class="flex h-16 w-16 items-center justify-center rounded-full bg-accent text-on-accent">
+                            <Spinner size="lg" />
+                        </div>
+                        <div class="text-center">
+                            <h3 class="text-lg font-medium text-primary mb-1">
+                                {{ $t('settings-mfa-verifying-heading') }}
+                            </h3>
+                            <p class="text-sm text-tertiary">
+                                {{ $t('settings-mfa-verifying-message') }}
+                            </p>
                         </div>
                     </div>
+                  </div>
                 </div>
 
                 <!-- Backup Codes Display: only show after success or enabled -->
@@ -917,77 +936,70 @@ defineExpose({
                         (mfa.mfaStep.value === 'success' ||
                             mfa.mfaEnabled.value)
                     "
-                    class="flex flex-col gap-2 bg-surface border border-default rounded-xl p-6"
+                    class="flex flex-col gap-4 bg-surface border border-default rounded-xl p-5 sm:p-6"
                 >
-                    <div
-                        class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4"
-                    >
-                        <div class="flex-1">
-                            <h2 class="text-lg font-semibold text-primary mb-2">
-                                {{ $t('settings-mfa-backup-codes-heading') }}
-                            </h2>
-                            <p class="text-secondary text-sm">
-                                {{ $t('settings-mfa-backup-codes-description') }}
-                            </p>
-                        </div>
-                        <div class="flex-shrink-0">
-                            <button
-                                @click="downloadBackupCodes"
-                                class="px-4 py-2 bg-surface hover:bg-surface-hover border border-status-warning text-primary rounded-lg transition-colors flex items-center gap-2"
-                                :title="$t('settings-mfa-backup-codes-download-tooltip')"
-                            >
-                                <span class="text-status-warning inline-flex">
-                                    <Icon name="download" />
-                                </span>
-                                {{ $t('settings-mfa-backup-codes-download') }}
-                            </button>
-                        </div>
+                    <div class="flex flex-col gap-1">
+                        <h2 class="text-base font-semibold text-primary">
+                            {{ $t('settings-mfa-backup-codes-heading') }}
+                        </h2>
+                        <p class="text-secondary text-sm">
+                            {{ $t('settings-mfa-backup-codes-description') }}
+                        </p>
                     </div>
-                    <div
-                        class="bg-surface-alt rounded-lg p-4 font-mono text-sm text-primary"
-                    >
-                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                            <div
-                                v-for="code in mfa.backupCodes.value"
-                                :key="code"
-                                class="text-center p-2 bg-surface rounded break-all"
-                            >
-                                {{ code }}
-                            </div>
-                        </div>
+
+                    <!-- Code chips -->
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        <code
+                            v-for="code in mfa.backupCodes.value"
+                            :key="code"
+                            class="rounded-md border border-subtle bg-surface-alt px-2 py-1.5 text-center font-mono text-sm tracking-wider text-primary select-all break-all"
+                        >{{ code }}</code>
+                    </div>
+
+                    <!-- Copy + Download pair -->
+                    <div class="flex gap-2">
+                        <button
+                            @click="copyBackupCodes"
+                            class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-default bg-surface text-sm font-medium text-secondary hover:bg-surface-hover transition-colors"
+                        >
+                            <span v-if="backupCodesCopied" class="text-status-success inline-flex">
+                                <Icon name="check" />
+                            </span>
+                            <Icon v-else name="copy" />
+                            {{ backupCodesCopied ? $t('settings-mfa-copied-button') : $t('settings-mfa-copy-button') }}
+                        </button>
+                        <button
+                            @click="downloadBackupCodes"
+                            class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-default bg-surface text-sm font-medium text-secondary hover:bg-surface-hover transition-colors"
+                            :title="$t('settings-mfa-backup-codes-download-tooltip')"
+                        >
+                            <Icon name="download" />
+                            {{ $t('settings-mfa-backup-codes-download') }}
+                        </button>
                     </div>
                 </div>
 
-                <!-- Success State (for login setup) -->
+                <!-- Success State (for login setup). Body line dropped — it
+                     restated the heading + the page subtitle. -->
                 <div
                     v-if="mfa.showSuccessState.value"
-                    class="bg-status-success-muted border border-status-success/20 rounded-lg p-6"
+                    class="flex flex-col gap-4 bg-status-success-muted border border-status-success/20 rounded-xl p-5 sm:p-6"
                 >
-                    <div class="flex flex-col gap-4">
-                        <div class="flex items-center gap-3">
-                            <div class="bg-status-success rounded-full p-2 text-white">
-                                <Icon name="checkCircle" size="lg" />
-                            </div>
-                            <div>
-                                <h3 class="text-lg font-medium text-status-success">
-                                    {{ $t('settings-mfa-success-heading') }}
-                                </h3>
-                                <p class="text-sm text-secondary">
-                                    {{ $t('settings-mfa-success-message') }}
-                                </p>
-                            </div>
+                    <div class="flex items-center gap-3">
+                        <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-status-success text-white">
+                            <Icon name="check" size="md" />
                         </div>
-
-                        <!-- Action Button -->
-                        <div class="flex justify-center pt-2">
-                            <Button size="lg" class="w-full sm:w-auto min-h-[52px]" @click="completeSetup">
-                                {{ $t('settings-mfa-success-cta') }}
-                            </Button>
-                        </div>
+                        <h3 class="text-base font-semibold text-status-success">
+                            {{ $t('settings-mfa-success-heading') }}
+                        </h3>
                     </div>
+
+                    <Button block size="lg" @click="completeSetup">
+                        {{ $t('settings-mfa-success-cta') }}
+                    </Button>
                 </div>
 
             </div>
         </div>
-    </SectionCard>
+    </component>
 </template>

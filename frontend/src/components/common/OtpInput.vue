@@ -1,11 +1,13 @@
 <template>
   <div class="relative">
-    <!-- Visual digit boxes -->
-    <div class="flex gap-1.5 sm:gap-2">
+    <!-- Visual digit boxes. Boxes flex to share the available width
+         (capped per-box) so the group never overflows a narrow column
+         and never stretches awkwardly in a wide one. -->
+    <div class="flex w-full justify-center gap-1.5 sm:gap-2">
       <div
         v-for="i in length"
         :key="i"
-        class="w-10 sm:w-11 h-12 sm:h-14 bg-surface-alt border rounded-lg flex items-center justify-center text-primary text-lg sm:text-xl font-mono transition-colors"
+        class="flex-1 min-w-0 max-w-[3.25rem] h-12 sm:h-14 bg-surface-alt border rounded-lg flex items-center justify-center text-primary text-lg sm:text-xl font-mono transition-colors"
         :class="[
           isFocused && modelValue.length === i - 1 ? 'border-accent ring-2 ring-accent/50' :
           modelValue.length >= i ? 'border-strong' : 'border-subtle'

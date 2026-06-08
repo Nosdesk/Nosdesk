@@ -1,17 +1,20 @@
 <template>
-  <div class="fixed inset-0 bg-app overflow-y-auto">
-    <div class="min-h-full flex flex-col items-center justify-center py-8 sm:py-12 px-4 sm:px-8">
-      <div class="flex flex-col gap-6 w-full max-w-4xl">
+  <AuthLayout wide>
+    <template #logo>
+      <LogoIcon class="h-9 w-auto text-accent" :aria-label="$t('nav-logo-alt')" />
+    </template>
+    <template #pill>{{ $t('auth-hero-pill') }}</template>
+    <template #hero-title>{{ $t('auth-hero-title') }}</template>
+    <template #hero-subtitle>{{ $t('auth-hero-subtitle') }}</template>
+
+    <div class="flex flex-col gap-6">
       <!-- Header -->
-      <div class="flex flex-col gap-2 items-center">
-        <LogoIcon class="h-12 px-4 text-accent" :aria-label="$t('nav-logo-alt')" />
-        <h1 class="text-2xl font-bold text-primary mt-4 text-center">
+      <header class="flex flex-col gap-1.5">
+        <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight text-primary">
           {{ headerTitle }}
         </h1>
-        <p class="text-secondary text-center">
-          {{ headerSubtitle }}
-        </p>
-      </div>
+        <p class="text-base text-secondary">{{ headerSubtitle }}</p>
+      </header>
 
       <!-- Error Message -->
       <div v-if="errorMessage" class="bg-status-error/50 border border-status-error/70 text-status-error px-4 py-3 rounded-lg text-sm">
@@ -56,40 +59,26 @@
           </div>
           <Icon name="chevronRight" size="md" class="flex-shrink-0 text-tertiary" />
         </button>
-
-        <!-- Info Notice -->
-        <div class="bg-surface border border-default rounded-lg p-3 sm:p-4 text-sm text-secondary">
-          <div class="flex flex-row items-start gap-3">
-            <Icon name="info" size="md" class="text-accent mt-0.5 flex-shrink-0" />
-            <div class="flex-1 min-w-0">
-              <h4 class="font-medium text-primary mb-1 text-sm">{{ $t('mfa-setup-which-title') }}</h4>
-              <p class="text-xs text-tertiary">
-                <strong>{{ $t('mfa-setup-which-passkey-label') }}</strong> {{ $t('mfa-setup-which-passkey-body') }}
-                <strong>{{ $t('mfa-setup-which-totp-label') }}</strong> {{ $t('mfa-setup-which-totp-body') }}
-              </p>
-            </div>
-          </div>
-        </div>
       </div>
 
-      <!-- MFA Settings Component (TOTP) -->
-      <div v-else-if="mfaMethod === 'totp'" class="bg-surface rounded-xl border border-subtle">
-        <MFASettings
-          ref="mfaSettingsRef"
-          :is-login-setup="true"
-          @success="handleMfaSetupSuccess"
-          @error="handleMfaSetupError"
-        />
-      </div>
+      <!-- MFA Settings Component (TOTP). The component owns its own card
+           chrome (SectionCard), so no extra wrapper here. -->
+      <MFASettings
+        v-else-if="mfaMethod === 'totp'"
+        ref="mfaSettingsRef"
+        bare
+        :is-login-setup="true"
+        @success="handleMfaSetupSuccess"
+        @error="handleMfaSetupError"
+      />
 
-      <!-- Passkey Setup -->
-      <div v-else-if="mfaMethod === 'passkey'" class="bg-surface rounded-xl border border-subtle">
-        <PasskeySetup
-          :is-login-setup="true"
-          @success="handlePasskeySetupSuccess"
-          @error="handlePasskeySetupError"
-        />
-      </div>
+      <!-- Passkey Setup (owns its own card chrome) -->
+      <PasskeySetup
+        v-else-if="mfaMethod === 'passkey'"
+        :is-login-setup="true"
+        @success="handlePasskeySetupSuccess"
+        @error="handlePasskeySetupError"
+      />
 
       <!-- Offer Passkey (after TOTP setup) -->
       <div v-else-if="mfaMethod === 'offer-passkey'" class="flex flex-col gap-4">
@@ -123,12 +112,9 @@
           <Icon name="chevronRight" size="md" class="flex-shrink-0 text-tertiary" />
         </button>
 
-        <button
-          @click="finishSetup"
-          class="w-full py-3 px-4 border border-default text-secondary rounded-lg hover:bg-surface-hover transition-colors text-sm"
-        >
+        <Button variant="secondary" block @click="finishSetup">
           {{ $t('mfa-setup-skip-now') }}
-        </button>
+        </Button>
       </div>
 
       <!-- Offer TOTP (after Passkey setup) -->
@@ -163,56 +149,52 @@
           <Icon name="chevronRight" size="md" class="flex-shrink-0 text-tertiary" />
         </button>
 
-        <button
-          @click="finishSetup"
-          class="w-full py-3 px-4 border border-default text-secondary rounded-lg hover:bg-surface-hover transition-colors text-sm"
-        >
+        <Button variant="secondary" block @click="finishSetup">
           {{ $t('mfa-setup-skip-now') }}
-        </button>
+        </Button>
       </div>
 
       <!-- Additional Passkey Setup (after TOTP) -->
-      <div v-else-if="mfaMethod === 'passkey-additional'" class="bg-surface rounded-xl border border-subtle">
-        <PasskeySetup
-          :is-login-setup="false"
-          @success="handleAdditionalSetupSuccess"
-          @error="handlePasskeySetupError"
-        />
-      </div>
+      <PasskeySetup
+        v-else-if="mfaMethod === 'passkey-additional'"
+        :is-login-setup="false"
+        @success="handleAdditionalSetupSuccess"
+        @error="handlePasskeySetupError"
+      />
 
       <!-- Additional TOTP Setup (after Passkey) -->
-      <div v-else-if="mfaMethod === 'totp-additional'" class="bg-surface rounded-xl border border-subtle">
-        <MFASettings
-          ref="mfaSettingsRef"
-          :is-login-setup="false"
-          @success="handleAdditionalSetupSuccess"
-          @error="handleMfaSetupError"
-        />
-      </div>
+      <MFASettings
+        v-else-if="mfaMethod === 'totp-additional'"
+        ref="mfaSettingsRef"
+        bare
+        :is-login-setup="false"
+        @success="handleAdditionalSetupSuccess"
+        @error="handleMfaSetupError"
+      />
 
       <!-- Navigation -->
-      <div class="flex justify-between items-center">
-        <button
+      <div class="flex justify-start items-center">
+        <Button
           v-if="mfaMethod === 'choose'"
+          variant="ghost"
+          size="sm"
+          icon="chevronLeft"
           @click="goBackToLogin"
-          class="flex items-center gap-2 px-4 py-2 text-sm text-tertiary hover:text-primary transition-colors"
         >
-          <Icon name="chevronLeft" />
           {{ $t('mfa-setup-back-to-login') }}
-        </button>
-        <button
+        </Button>
+        <Button
           v-else-if="showBackButton"
+          variant="ghost"
+          size="sm"
+          icon="chevronLeft"
           @click="handleBack"
-          class="flex items-center gap-2 px-4 py-2 text-sm text-tertiary hover:text-primary transition-colors"
         >
-          <Icon name="chevronLeft" />
           {{ backButtonText }}
-        </button>
-        <div v-else></div>
-      </div>
+        </Button>
       </div>
     </div>
-  </div>
+  </AuthLayout>
 </template>
 
 <script setup lang="ts">
@@ -223,6 +205,8 @@ import { useAuthStore } from '@/stores/auth';
 import { useMfaSetupStore } from '@/stores/mfaSetup';
 import MFASettings from '@/components/settings/MFASettings.vue';
 import PasskeySetup from '@/components/auth/PasskeySetup.vue';
+import AuthLayout from '@/components/auth/AuthLayout.vue';
+import Button from '@/components/common/Button.vue';
 import LogoIcon from '@/components/icons/LogoIcon.vue';
 import Icon from '@/components/common/Icon.vue';
 

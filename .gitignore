@@ -81,6 +81,12 @@ Thumbs.db
 nosdesk_backup_*.sql
 nosdesk_pre_*.sql
 docs/
+# Throwaway fly dev/test app config (collab multi-instance validation).
+# Stays local; a production fly.toml, if added later, is not matched here.
+fly.dev.toml
+# v1 release-candidate fly app config (personal-org, throwaway). Local-only
+# like fly.dev.toml: keeps personal deploy config out of the public repo.
+fly.rc.toml
 
 # Signed plugin zips dropped for provisioning. The directory is
 # tracked (README explains the convention) but the artefacts are

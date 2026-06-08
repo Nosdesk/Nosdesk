@@ -180,8 +180,9 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="bg-surface rounded-xl border border-default overflow-hidden">
-    <div class="p-5 sm:p-6">
+  <!-- Chromeless: only used inside the full-screen auth flow (MFASetupView),
+       which already provides the panel container. -->
+  <div>
       <!-- Browser not supported -->
       <div v-if="!isSupported" class="bg-status-warning/10 border border-status-warning/20 rounded-lg p-4">
         <div class="flex items-start gap-3">
@@ -331,6 +332,5 @@ onMounted(() => {
           {{ $t('auth-passkey-setup-success-cta') }}
         </button>
       </div>
-    </div>
   </div>
 </template>
