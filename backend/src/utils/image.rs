@@ -1,7 +1,8 @@
 use image::{ImageFormat, ImageReader};
 use std::io::Cursor;
-use tokio::fs;
-use tracing::{debug, error, warn};
+use tracing::{debug, error};
+
+use crate::utils::storage::process_storage;
 
 /// AUD-010: cap decode-time pixel dimensions so a tiny encoded
 /// image can't expand into a multi-gigabyte raster.
@@ -26,8 +27,35 @@ fn decode_limits() -> image::Limits {
     limits
 }
 
-/// Process and resize an uploaded avatar image to WebP format with fixed dimensions
-/// This ensures consistent sizing and optimal storage
+/// Encode a decoded image as WebP. The `image` crate's `webp` feature
+/// ships a lossless (VP8L) encoder, which `write_to` dispatches to.
+fn encode_webp(img: &image::DynamicImage) -> Result<Vec<u8>, String> {
+    let mut out = Vec::new();
+    img.write_to(&mut Cursor::new(&mut out), ImageFormat::WebP)
+        .map_err(|e| format!("WebP encode failed: {e}"))?;
+    Ok(out)
+}
+
+/// Normalise an avatar/banner reference to the logical key the `Storage`
+/// backend expects. The reference may be a public URL
+/// (`/uploads/users/avatars/x.webp`) coming back from a previous upload
+/// or a bare storage path; both reduce to `users/avatars/x.webp`.
+fn url_to_storage_path(reference: &str) -> String {
+    reference
+        .strip_prefix("/uploads/")
+        .or_else(|| reference.strip_prefix("uploads/"))
+        .unwrap_or(reference)
+        .trim_start_matches('/')
+        .to_string()
+}
+
+/// Process and resize an uploaded avatar image to a square lossless WebP.
+///
+/// Storage-backend agnostic: the processed bytes are written through the
+/// process-wide [`process_storage`] handle, so the same code path works
+/// for local disk and S3/Tigris. The key is deterministic
+/// (`users/avatars/{uuid}_avatar.webp`) so a re-upload overwrites in
+/// place — no directory-scan cleanup, which object stores can't do.
 pub async fn process_avatar_image(
     image_bytes: &[u8],
     user_uuid: &str,
@@ -35,241 +63,102 @@ pub async fn process_avatar_image(
 ) -> Result<Option<String>, String> {
     debug!(user_uuid = %user_uuid, max_size, "Processing avatar image");
 
-    // Process image in a blocking task to avoid blocking the async runtime
-    let user_uuid = user_uuid.to_string();
+    // CPU-bound decode/crop/encode on the blocking pool.
     let image_bytes = image_bytes.to_vec();
-    let avatar_result = tokio::task::spawn_blocking(move || {
-        // Load the image with EXIF orientation support
-        let img = match load_image_with_orientation(&image_bytes) {
-            Ok(img) => img,
-            Err(e) => {
-                error!(error = %e, "Failed to load image");
-                return None;
-            }
-        };
-
-        debug!(
-            width = img.width(),
-            height = img.height(),
-            "Original image dimensions after orientation"
-        );
-
-        // Create a square image by center cropping to 1:1 aspect ratio
+    let render = tokio::task::spawn_blocking(move || {
+        let img = load_image_with_orientation(&image_bytes)?;
         let square_img = create_square_crop(&img, max_size);
-
-        debug!(
-            width = square_img.width(),
-            height = square_img.height(),
-            "Final image dimensions"
-        );
-
-        // Convert to WebP format
-        let mut webp_bytes = Vec::new();
-        match square_img.write_to(
-            &mut std::io::Cursor::new(&mut webp_bytes),
-            ImageFormat::WebP,
-        ) {
-            Ok(_) => {
-                debug!("Successfully converted image to WebP format");
-                Some(webp_bytes)
-            }
-            Err(e) => {
-                error!(error = %e, "Failed to encode image as WebP");
-                None
-            }
-        }
+        encode_webp(&square_img)
     })
     .await;
 
-    let webp_bytes = match avatar_result {
-        Ok(Some(bytes)) => bytes,
-        Ok(None) => return Ok(None),
+    let webp_bytes = match render {
+        Ok(Ok(bytes)) => bytes,
+        Ok(Err(e)) => {
+            error!(user_uuid = %user_uuid, error = %e, "Failed to render avatar");
+            return Ok(None);
+        }
         Err(e) => {
-            error!(error = %e, "Avatar processing task failed");
+            error!(user_uuid = %user_uuid, error = %e, "Avatar processing task panicked");
             return Ok(None);
         }
     };
 
-    // Create avatar directory using storage abstraction
-    let avatar_dir = "users/avatars";
-
-    // Clean up any existing avatars for this user
-    cleanup_old_user_avatars(avatar_dir, &user_uuid).await?;
-
-    // Save the processed avatar using storage abstraction
-    let avatar_filename = format!("{user_uuid}_avatar.webp");
-    let avatar_path = format!("{avatar_dir}/{avatar_filename}");
-
-    // For now, use direct filesystem access since storage abstraction needs to be passed in
-    // TODO: Refactor to accept storage instance as parameter
-    let full_avatar_path = format!("uploads/{avatar_path}");
-    if let Err(e) = fs::create_dir_all(format!("uploads/{avatar_dir}")).await {
-        return Err(format!("Failed to create avatar directory: {e}"));
-    }
-
-    match fs::write(&full_avatar_path, &webp_bytes).await {
-        Ok(_) => {
-            debug!(path = %full_avatar_path, "Successfully saved processed avatar");
-            let avatar_url = format!("/uploads/{avatar_path}");
-            Ok(Some(avatar_url))
+    let path = format!("users/avatars/{user_uuid}_avatar.webp");
+    match process_storage()
+        .put_file(&webp_bytes, &path, "image/webp")
+        .await
+    {
+        Ok(stored) => {
+            debug!(user_uuid = %user_uuid, url = %stored.url, "Stored avatar via storage backend");
+            Ok(Some(stored.url))
         }
         Err(e) => {
-            error!(error = %e, "Failed to save processed avatar");
+            error!(user_uuid = %user_uuid, error = ?e, "Failed to store avatar");
             Ok(None)
         }
     }
 }
 
-/// Generate a 48x48 WebP thumbnail from an existing image file
+/// Generate a 48x48 lossless WebP thumbnail from a user's stored avatar.
+///
+/// `image_ref` is the avatar's public URL or storage path; the source
+/// bytes are read back through the storage backend (works for local and
+/// S3) and the thumbnail is written to the deterministic
+/// `users/thumbs/{uuid}_thumb.webp` key.
 pub async fn generate_user_avatar_thumbnail(
-    image_path: &str,
+    image_ref: &str,
     user_uuid: &str,
 ) -> Result<Option<String>, String> {
-    // Convert URL path to file system path if needed
-    let file_path = if image_path.starts_with('/') {
-        format!(".{image_path}") // Remove leading slash and add current directory
-    } else {
-        image_path.to_string()
-    };
+    let storage = process_storage();
+    let source_path = url_to_storage_path(image_ref);
+    debug!(source_path = %source_path, "Generating thumbnail from stored avatar");
 
-    debug!(file_path = %file_path, "Generating thumbnail");
-
-    // Read the original image
-    let img_bytes = match fs::read(&file_path).await {
+    let img_bytes = match storage.get_file(&source_path).await {
         Ok(bytes) => bytes,
         Err(e) => {
-            error!(file_path = %file_path, error = %e, "Failed to read avatar file");
+            error!(source_path = %source_path, error = ?e, "Failed to read avatar from storage");
             return Ok(None);
         }
     };
 
-    // Process image in a blocking task to avoid blocking the async runtime
-    let user_uuid = user_uuid.to_string();
-    let thumbnail_result = tokio::task::spawn_blocking(move || {
-        // Load the image with EXIF orientation support
-        let img = match load_image_with_orientation(&img_bytes) {
-            Ok(img) => img,
-            Err(e) => {
-                error!(error = %e, "Failed to load image");
-                return None;
-            }
-        };
-
-        // Create a square thumbnail by center cropping to 1:1 aspect ratio
+    let render = tokio::task::spawn_blocking(move || {
+        let img = load_image_with_orientation(&img_bytes)?;
         let thumbnail = create_square_crop(&img, 48);
-
-        // Convert to WebP format
-        let mut webp_bytes = Vec::new();
-        match thumbnail.write_to(
-            &mut std::io::Cursor::new(&mut webp_bytes),
-            ImageFormat::WebP,
-        ) {
-            Ok(_) => Some(webp_bytes),
-            Err(e) => {
-                error!(error = %e, "Failed to encode image as WebP");
-                None
-            }
-        }
+        encode_webp(&thumbnail)
     })
     .await;
 
-    let webp_bytes = match thumbnail_result {
-        Ok(Some(bytes)) => bytes,
-        Ok(None) => return Ok(None),
+    let webp_bytes = match render {
+        Ok(Ok(bytes)) => bytes,
+        Ok(Err(e)) => {
+            error!(error = %e, "Failed to render thumbnail");
+            return Ok(None);
+        }
         Err(e) => {
-            error!(error = %e, "Thumbnail generation task failed");
+            error!(error = %e, "Thumbnail generation task panicked");
             return Ok(None);
         }
     };
 
-    // Create thumbnail directory
-    let thumb_dir = "users/thumbs";
-    let full_thumb_dir = format!("uploads/{thumb_dir}");
-    if let Err(e) = fs::create_dir_all(&full_thumb_dir).await {
-        return Err(format!("Failed to create thumbnail directory: {e}"));
-    }
-
-    // Clean up any existing thumbnails for this user
-    cleanup_old_user_thumbnails(&full_thumb_dir, &user_uuid).await?;
-
-    // Save the thumbnail
-    let thumb_filename = format!("{user_uuid}_thumb.webp");
-    let thumb_path = format!("{thumb_dir}/{thumb_filename}");
-    let full_thumb_path = format!("uploads/{thumb_path}");
-
-    match fs::write(&full_thumb_path, &webp_bytes).await {
-        Ok(_) => {
-            debug!(path = %full_thumb_path, "Successfully saved thumbnail");
-            let thumb_url = format!("/uploads/{thumb_path}");
-            Ok(Some(thumb_url))
+    let path = format!("users/thumbs/{user_uuid}_thumb.webp");
+    match storage.put_file(&webp_bytes, &path, "image/webp").await {
+        Ok(stored) => {
+            debug!(user_uuid = %user_uuid, url = %stored.url, "Stored thumbnail via storage backend");
+            Ok(Some(stored.url))
         }
         Err(e) => {
-            error!(error = %e, "Failed to save thumbnail");
+            error!(user_uuid = %user_uuid, error = ?e, "Failed to store thumbnail");
             Ok(None)
         }
     }
 }
 
-/// Clean up old avatar files for a specific user
-async fn cleanup_old_user_avatars(avatar_dir: &str, user_uuid: &str) -> Result<(), String> {
-    // Read the directory
-    let mut dir = match fs::read_dir(avatar_dir).await {
-        Ok(dir) => dir,
-        Err(_) => return Ok(()), // Directory doesn't exist, nothing to clean
-    };
-
-    // Look for files matching the pattern: {user_uuid}_avatar.{ext}
-    let pattern_prefix = format!("{user_uuid}_avatar");
-
-    while let Ok(Some(entry)) = dir.next_entry().await {
-        if let Some(filename) = entry.file_name().to_str() {
-            // Check if this file matches our pattern (user_uuid_avatar.ext)
-            if filename.starts_with(&pattern_prefix) && filename.contains('.') {
-                let file_path = entry.path();
-                debug!(file_path = ?file_path, "Cleaning up old avatar file");
-
-                if let Err(e) = fs::remove_file(&file_path).await {
-                    warn!(file_path = ?file_path, error = %e, "Failed to remove old avatar file");
-                    // Continue with cleanup even if one file fails
-                }
-            }
-        }
-    }
-
-    Ok(())
-}
-
-/// Clean up old thumbnail files for a specific user
-async fn cleanup_old_user_thumbnails(thumb_dir: &str, user_uuid: &str) -> Result<(), String> {
-    // Read the directory
-    let mut dir = match fs::read_dir(thumb_dir).await {
-        Ok(dir) => dir,
-        Err(_) => return Ok(()), // Directory doesn't exist, nothing to clean
-    };
-
-    // Look for files matching the pattern: {user_uuid}_thumb.{ext}
-    let pattern_prefix = format!("{user_uuid}_thumb");
-
-    while let Ok(Some(entry)) = dir.next_entry().await {
-        if let Some(filename) = entry.file_name().to_str() {
-            // Check if this file matches our pattern (user_uuid_thumb.ext)
-            if filename.starts_with(&pattern_prefix) && filename.contains('.') {
-                let file_path = entry.path();
-                debug!(file_path = ?file_path, "Cleaning up old thumbnail file");
-
-                if let Err(e) = fs::remove_file(&file_path).await {
-                    warn!(file_path = ?file_path, error = %e, "Failed to remove old thumbnail file");
-                    // Continue with cleanup even if one file fails
-                }
-            }
-        }
-    }
-
-    Ok(())
-}
-
-/// Process and resize an uploaded banner image to WebP format with banner dimensions
-/// This ensures consistent sizing and optimal storage for banner/cover images
+/// Process and resize an uploaded banner image to a lossless WebP at
+/// banner dimensions. Storage-backend agnostic (see
+/// [`process_avatar_image`]); the deterministic
+/// `users/banners/{uuid}_banner.webp` key overwrites any previous banner
+/// in place.
 pub async fn process_banner_image(
     image_bytes: &[u8],
     user_uuid: &str,
@@ -278,116 +167,40 @@ pub async fn process_banner_image(
 ) -> Result<Option<String>, String> {
     debug!(user_uuid = %user_uuid, max_width, max_height, "Processing banner image");
 
-    // Process image in a blocking task to avoid blocking the async runtime
-    let user_uuid = user_uuid.to_string();
     let image_bytes = image_bytes.to_vec();
-    let banner_result = tokio::task::spawn_blocking(move || {
-        // Load the image with EXIF orientation support
-        let img = match load_image_with_orientation(&image_bytes) {
-            Ok(img) => img,
-            Err(e) => {
-                error!(error = %e, "Failed to load image");
-                return None;
-            }
-        };
-
-        debug!(
-            width = img.width(),
-            height = img.height(),
-            "Original banner dimensions after orientation"
-        );
-
-        // Create a banner-aspect image by cropping and resizing
+    let render = tokio::task::spawn_blocking(move || {
+        let img = load_image_with_orientation(&image_bytes)?;
         let banner_img = create_banner_crop(&img, max_width, max_height);
-
-        debug!(
-            width = banner_img.width(),
-            height = banner_img.height(),
-            "Final banner dimensions"
-        );
-
-        // Convert to WebP format
-        let mut webp_bytes = Vec::new();
-        match banner_img.write_to(
-            &mut std::io::Cursor::new(&mut webp_bytes),
-            ImageFormat::WebP,
-        ) {
-            Ok(_) => {
-                debug!("Successfully converted banner to WebP format");
-                Some(webp_bytes)
-            }
-            Err(e) => {
-                error!(error = %e, "Failed to encode banner as WebP");
-                None
-            }
-        }
+        encode_webp(&banner_img)
     })
     .await;
 
-    let webp_bytes = match banner_result {
-        Ok(Some(bytes)) => bytes,
-        Ok(None) => return Ok(None),
+    let webp_bytes = match render {
+        Ok(Ok(bytes)) => bytes,
+        Ok(Err(e)) => {
+            error!(user_uuid = %user_uuid, error = %e, "Failed to render banner");
+            return Ok(None);
+        }
         Err(e) => {
-            error!(error = %e, "Banner processing task failed");
+            error!(user_uuid = %user_uuid, error = %e, "Banner processing task panicked");
             return Ok(None);
         }
     };
 
-    // Create banner directory
-    let banner_dir = "users/banners";
-    let full_banner_dir = format!("uploads/{banner_dir}");
-    if let Err(e) = fs::create_dir_all(&full_banner_dir).await {
-        return Err(format!("Failed to create banner directory: {e}"));
-    }
-
-    // Clean up any existing banners for this user
-    cleanup_old_user_banners(&full_banner_dir, &user_uuid).await?;
-
-    // Save the processed banner
-    let banner_filename = format!("{user_uuid}_banner.webp");
-    let banner_path = format!("{banner_dir}/{banner_filename}");
-    let full_banner_path = format!("uploads/{banner_path}");
-
-    match fs::write(&full_banner_path, &webp_bytes).await {
-        Ok(_) => {
-            debug!(path = %full_banner_path, "Successfully saved processed banner");
-            let banner_url = format!("/uploads/{banner_path}");
-            Ok(Some(banner_url))
+    let path = format!("users/banners/{user_uuid}_banner.webp");
+    match process_storage()
+        .put_file(&webp_bytes, &path, "image/webp")
+        .await
+    {
+        Ok(stored) => {
+            debug!(user_uuid = %user_uuid, url = %stored.url, "Stored banner via storage backend");
+            Ok(Some(stored.url))
         }
         Err(e) => {
-            error!(error = %e, "Failed to save processed banner");
+            error!(user_uuid = %user_uuid, error = ?e, "Failed to store banner");
             Ok(None)
         }
     }
-}
-
-/// Clean up old banner files for a specific user
-async fn cleanup_old_user_banners(banner_dir: &str, user_uuid: &str) -> Result<(), String> {
-    // Read the directory
-    let mut dir = match fs::read_dir(banner_dir).await {
-        Ok(dir) => dir,
-        Err(_) => return Ok(()), // Directory doesn't exist, nothing to clean
-    };
-
-    // Look for files matching the pattern: {user_uuid}_banner.{ext}
-    let pattern_prefix = format!("{user_uuid}_banner");
-
-    while let Ok(Some(entry)) = dir.next_entry().await {
-        if let Some(filename) = entry.file_name().to_str() {
-            // Check if this file matches our pattern (user_uuid_banner.ext)
-            if filename.starts_with(&pattern_prefix) && filename.contains('.') {
-                let file_path = entry.path();
-                debug!(file_path = ?file_path, "Cleaning up old banner file");
-
-                if let Err(e) = fs::remove_file(&file_path).await {
-                    warn!(file_path = ?file_path, error = %e, "Failed to remove old banner file");
-                    // Continue with cleanup even if one file fails
-                }
-            }
-        }
-    }
-
-    Ok(())
 }
 
 /// Create a banner-aspect crop of an image optimized for banner/cover images
@@ -555,6 +368,26 @@ mod tests {
         img.write_to(&mut std::io::Cursor::new(&mut buf), ImageFormat::Png)
             .expect("encode test PNG");
         buf
+    }
+
+    #[test]
+    fn encode_webp_roundtrips() {
+        // Regression guard: the `image` crate's WebP *encoder* was
+        // removed in 0.25, so `write_to(.., WebP)` silently fails at
+        // runtime — which 500'd every avatar/banner upload. Assert our
+        // `image-webp`-backed encoder produces bytes the decoder accepts.
+        let png = encode_png(32, 24);
+        let img = load_image_with_orientation(&png).expect("decode source");
+        let webp = encode_webp(&img).expect("encode webp must succeed");
+
+        assert!(
+            webp.starts_with(b"RIFF"),
+            "output must be a RIFF/WebP container"
+        );
+        let decoded = image::load_from_memory_with_format(&webp, ImageFormat::WebP)
+            .expect("encoded webp must decode");
+        assert_eq!(decoded.width(), 32);
+        assert_eq!(decoded.height(), 24);
     }
 
     #[test]

@@ -95,7 +95,9 @@ fastrand = "2.0.0"
 # Add mime crate
 mime = "0.3.17"
 
-# Image processing for thumbnail generation (v0.25+ has native EXIF orientation support)
+# Image processing for thumbnail generation (v0.25+ has native EXIF orientation support).
+# The `webp` feature provides both decode AND lossless (VP8L) encode, so
+# `DynamicImage::write_to(.., ImageFormat::WebP)` is all we need for avatar/banner output.
 image = { version = "0.25", default-features = false, features = ["webp", "jpeg", "png", "rayon"] }
 
 # PDF rendering for thumbnail generation

@@ -80,6 +80,22 @@ pub trait Storage: Send + Sync {
         folder: &str,
     ) -> Result<StoredFile, StorageError>;
 
+    /// Store a file at an exact path (no uuid prefix), overwriting any
+    /// existing object at that key.
+    ///
+    /// Use this when the caller owns a deterministic key — avatars,
+    /// banners, thumbnails — so re-uploading replaces the object in
+    /// place. That keeps the operation idempotent WITHOUT a
+    /// readdir-then-delete cleanup, which can't be expressed on an
+    /// object store (no directory listing) and is exactly why the old
+    /// filesystem-only path didn't work on S3/Tigris.
+    async fn put_file(
+        &self,
+        data: &[u8],
+        path: &str,
+        content_type: &str,
+    ) -> Result<StoredFile, StorageError>;
+
     /// Retrieve a file by path
     async fn get_file(&self, path: &str) -> Result<Vec<u8>, StorageError>;
 
@@ -149,6 +165,29 @@ impl Storage for LocalStorage {
 
         Ok(StoredFile {
             id: unique_filename.clone(),
+            url: self.get_public_url(&relative_path),
+            path: relative_path,
+            size: data.len() as u64,
+            content_type: content_type.to_string(),
+        })
+    }
+
+    async fn put_file(
+        &self,
+        data: &[u8],
+        path: &str,
+        content_type: &str,
+    ) -> Result<StoredFile, StorageError> {
+        let relative_path = path.trim_start_matches('/').to_string();
+        let full_path = self.get_full_path(&relative_path);
+        self.ensure_directory_exists(&full_path)?;
+        std::fs::write(&full_path, data)?;
+        Ok(StoredFile {
+            id: relative_path
+                .rsplit('/')
+                .next()
+                .unwrap_or(&relative_path)
+                .to_string(),
             url: self.get_public_url(&relative_path),
             path: relative_path,
             size: data.len() as u64,
@@ -277,6 +316,31 @@ impl Storage for S3Storage {
         Ok(StoredFile {
             id: unique_filename,
             url,
+            path: key,
+            size: data.len() as u64,
+            content_type: content_type.to_string(),
+        })
+    }
+
+    async fn put_file(
+        &self,
+        data: &[u8],
+        path: &str,
+        content_type: &str,
+    ) -> Result<StoredFile, StorageError> {
+        let key = path.trim_start_matches('/').to_string();
+        self.client
+            .put_object()
+            .bucket(&self.bucket)
+            .key(&key)
+            .body(aws_sdk_s3::primitives::ByteStream::from(data.to_vec()))
+            .content_type(content_type)
+            .send()
+            .await
+            .map_err(|e| StorageError::UploadFailed(format!("S3 put_object failed: {e}")))?;
+        Ok(StoredFile {
+            id: key.rsplit('/').next().unwrap_or(&key).to_string(),
+            url: self.get_public_url(&key),
             path: key,
             size: data.len() as u64,
             content_type: content_type.to_string(),
@@ -446,6 +510,27 @@ impl Storage for WorkspaceScopedStorage {
         })
     }
 
+    async fn put_file(
+        &self,
+        data: &[u8],
+        path: &str,
+        content_type: &str,
+    ) -> Result<StoredFile, StorageError> {
+        let stored = self
+            .inner
+            .put_file(data, &self.physical(path), content_type)
+            .await?;
+        let logical_path = self.logical(&stored.path).to_string();
+        let url = self.inner.get_public_url(&logical_path);
+        Ok(StoredFile {
+            id: stored.id,
+            url,
+            path: logical_path,
+            size: stored.size,
+            content_type: stored.content_type,
+        })
+    }
+
     async fn get_file(&self, path: &str) -> Result<Vec<u8>, StorageError> {
         self.inner.get_file(&self.physical(path)).await
     }
@@ -498,6 +583,39 @@ pub fn create_storage(config: StorageConfig) -> Arc<dyn Storage> {
             "/uploads".to_string(),
         )),
     }
+}
+
+/// Process-wide base storage handle.
+///
+/// User profile images (avatars / banners / thumbnails) are GLOBAL, not
+/// workspace-scoped: they're served from the base storage at logical
+/// `users/...` paths (see `serve_public_file`) and the thumbnail
+/// backfill keys them by user uuid alone. Several call sites that touch
+/// those images aren't request handlers (the scheduled backfill sweep,
+/// the CLI restore, the MS Graph importer) and so can't reach the
+/// request-scoped `ScopedStorage` extractor. Rather than thread a
+/// `Storage` argument through every one of them, the server installs the
+/// configured backend here once at startup via [`set_process_storage`];
+/// [`process_storage`] hands it back so image processing routes through
+/// the same Local/S3 abstraction everywhere.
+static PROCESS_STORAGE: std::sync::OnceLock<Arc<dyn Storage>> = std::sync::OnceLock::new();
+
+/// Install the process-wide base storage. Called once from `main` after
+/// the backend resolves its `StorageConfig`. Idempotent: a second call
+/// is ignored (the first writer wins), which keeps tests that set it
+/// from racing each other.
+pub fn set_process_storage(storage: Arc<dyn Storage>) {
+    let _ = PROCESS_STORAGE.set(storage);
+}
+
+/// The process-wide base storage. Falls back to building a fresh backend
+/// from the environment when nothing was installed (CLI one-shots, unit
+/// tests) so callers never get a None.
+pub fn process_storage() -> Arc<dyn Storage> {
+    PROCESS_STORAGE
+        .get()
+        .cloned()
+        .unwrap_or_else(|| create_storage(get_storage_config()))
 }
 
 /// Get storage configuration from environment variables.
@@ -770,6 +888,25 @@ mod tests {
                 .insert(key.clone(), data.to_vec());
             Ok(StoredFile {
                 id: filename.to_string(),
+                url: self.get_public_url(&key),
+                path: key,
+                size: data.len() as u64,
+                content_type: content_type.to_string(),
+            })
+        }
+        async fn put_file(
+            &self,
+            data: &[u8],
+            path: &str,
+            content_type: &str,
+        ) -> Result<StoredFile, StorageError> {
+            let key = path.trim_start_matches('/').to_string();
+            self.files
+                .lock()
+                .unwrap()
+                .insert(key.clone(), data.to_vec());
+            Ok(StoredFile {
+                id: key.clone(),
                 url: self.get_public_url(&key),
                 path: key,
                 size: data.len() as u64,

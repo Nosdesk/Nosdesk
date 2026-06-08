@@ -1309,17 +1309,12 @@ pub async fn delete_user_auth_identity_by_uuid(
 pub async fn upload_user_image(
     uuid: web::Path<String>,
     mut payload: Multipart,
-    pool: web::Data<crate::db::Pool>,
+    mut tc: TenantConn,
     search_service: web::Data<std::sync::Arc<crate::services::search::SearchService>>,
     type_query: web::Query<UserImageTypeQuery>,
 ) -> impl Responder {
     let user_uuid = uuid.into_inner();
     let image_type = &type_query.type_; // "avatar" or "banner"
-
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
 
     // Validate that the user exists
     let user_uuid_parsed = match utils::parse_uuid(&user_uuid) {
@@ -1327,7 +1322,10 @@ pub async fn upload_user_image(
         Err(_) => return errors::bad_request("Invalid UUID format"),
     };
 
-    let user = match repository::get_user_by_uuid(&user_uuid_parsed, &mut conn) {
+    // All DB work goes through `tc.run`, which pins the actor + workspace
+    // GUCs the audited `users` table requires (the trigger rejects a raw
+    // pooled connection with "audit context missing for users.UPDATE").
+    let user = match tc.run(|conn| repository::get_user_by_uuid(&user_uuid_parsed, conn)) {
         Ok(user) => user,
         Err(_) => {
             return errors::not_found_msg("User not found");
@@ -1384,15 +1382,11 @@ pub async fn upload_user_image(
             }
         };
 
-        // Clean up old files for this user and image type before saving new one
-        cleanup_old_user_images(storage_path, &user_uuid, image_type)
-            .await
-            .map_err(|e| {
-                warn!(error = %e, "Failed to cleanup old images");
-                // Continue even if cleanup fails
-            })
-            .ok();
-
+        // No pre-save cleanup needed: the image processor writes to a
+        // deterministic per-user key via the storage backend, so a new
+        // upload overwrites the previous avatar/banner in place. (The old
+        // readdir-based cleanup was filesystem-only and couldn't work on
+        // S3/Tigris.)
         let filename = format!("{user_uuid}_{image_type}.{file_ext}");
         let _file_path = format!("{storage_path}/{filename}");
 
@@ -1486,12 +1480,14 @@ pub async fn upload_user_image(
             updated_at: Some(chrono::Utc::now().naive_utc()),
         };
 
-        match repository::update_user(
-            &user.uuid,
-            user_update,
-            &mut conn,
-            Some(search_service.get_ref()),
-        ) {
+        match tc.run(|conn| {
+            repository::update_user(
+                &user.uuid,
+                user_update,
+                conn,
+                Some(search_service.get_ref()),
+            )
+        }) {
             Ok(updated_user) => {
                 return HttpResponse::Ok().json(json!({
                     "status": "success",
@@ -1514,41 +1510,6 @@ pub async fn upload_user_image(
 #[derive(serde::Deserialize)]
 pub struct UserImageTypeQuery {
     pub type_: String, // "avatar" or "banner"
-}
-
-/// Clean up old user images for a specific type (avatar or banner)
-async fn cleanup_old_user_images(
-    image_dir: &str,
-    user_uuid: &str,
-    image_type: &str,
-) -> Result<(), String> {
-    use tokio::fs;
-
-    // Read the directory
-    let mut dir = match fs::read_dir(image_dir).await {
-        Ok(dir) => dir,
-        Err(_) => return Ok(()), // Directory doesn't exist, nothing to clean
-    };
-
-    // Look for files matching the pattern: {user_uuid}_{image_type}.{ext}
-    let pattern_prefix = format!("{user_uuid}_{image_type}");
-
-    while let Ok(Some(entry)) = dir.next_entry().await {
-        if let Some(filename) = entry.file_name().to_str() {
-            // Check if this file matches our pattern (user_uuid_type.ext)
-            if filename.starts_with(&pattern_prefix) && filename.contains('.') {
-                let file_path = entry.path();
-                debug!(file_path = ?file_path, "Cleaning up old image file");
-
-                if let Err(e) = fs::remove_file(&file_path).await {
-                    warn!(file_path = ?file_path, error = %e, "Failed to remove old image file");
-                    // Continue with cleanup even if one file fails
-                }
-            }
-        }
-    }
-
-    Ok(())
 }
 
 /// Clean up all stale user images (admin endpoint)

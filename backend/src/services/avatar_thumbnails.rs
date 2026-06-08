@@ -24,6 +24,7 @@ use crate::db::DbConnection;
 use crate::sync::actor::ActorContext;
 use crate::sync::session::with_actor_context;
 use crate::utils::image::generate_user_avatar_thumbnail;
+use crate::utils::storage::process_storage;
 
 /// Whether to regenerate every avatar's thumbnail or only the missing
 /// ones.
@@ -112,7 +113,7 @@ pub async fn backfill_thumbnails(
     let mut stats = BackfillStats::default();
 
     for row in rows {
-        if mode == BackfillMode::MissingOnly && !needs_regeneration(&row) {
+        if mode == BackfillMode::MissingOnly && !needs_regeneration(&row).await {
             continue;
         }
         stats.checked += 1;
@@ -148,19 +149,21 @@ pub async fn backfill_thumbnails(
     stats
 }
 
-/// A row needs regeneration when its column is unset or the file it
+/// A row needs regeneration when its column is unset or the object it
 /// points at is gone. The deterministic thumb path mirrors the one
 /// [`generate_user_avatar_thumbnail`] writes, so a plain existence
-/// check is enough.
-fn needs_regeneration(row: &AvatarRow) -> bool {
+/// check is enough. The check goes through the storage backend so it's
+/// correct for both local disk and S3/Tigris.
+async fn needs_regeneration(row: &AvatarRow) -> bool {
     if row.avatar_thumb.as_deref().is_none_or(str::is_empty) {
         return true;
     }
-    !thumb_file_exists(&row.uuid_str)
+    !thumb_file_exists(&row.uuid_str).await
 }
 
-fn thumb_file_exists(uuid: &str) -> bool {
-    std::path::Path::new(&format!("uploads/users/thumbs/{uuid}_thumb.webp")).exists()
+async fn thumb_file_exists(uuid: &str) -> bool {
+    let path = format!("users/thumbs/{uuid}_thumb.webp");
+    process_storage().file_exists(&path).await.unwrap_or(false)
 }
 
 /// Write `avatar_thumb`, attributing the audited change to the user's

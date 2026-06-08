@@ -986,6 +986,11 @@ async fn main() -> std::io::Result<()> {
     let storage_config = get_storage_config();
     let storage = create_storage(storage_config);
     let storage_data = web::Data::new(storage.clone());
+    // Install the base storage process-wide so non-handler code paths
+    // (avatar/banner image processing, the thumbnail backfill sweep, the
+    // MS Graph importer) route file I/O through the same Local/S3
+    // abstraction instead of writing straight to the local filesystem.
+    utils::storage::set_process_storage(storage.clone());
 
     info!(host = %host, port = %port, environment = %environment, "Server starting");
 
