@@ -233,7 +233,9 @@ pub async fn upsert_projected_user(
     req: HttpRequest,
     _: PlatformScope,
     pool: web::Data<Pool>,
-    search_service: web::Data<Arc<SearchService>>,
+    // Best-effort search reindex: optional so projection doesn't hard-depend
+    // on the search subsystem (and test apps need not wire it).
+    search_service: Option<web::Data<Arc<SearchService>>>,
     path: web::Path<String>,
     body: web::Json<UpsertProjectedUserRequest>,
 ) -> impl Responder {
@@ -330,7 +332,9 @@ pub async fn upsert_projected_user(
             // search observer, so this reindex is what writes the user
             // into the index with the correct multi-valued workspace tags
             // (and refreshes them when an existing user is re-projected).
-            indexing_tasks::spawn_reindex_user(search_service.get_ref().clone(), user.uuid);
+            if let Some(search_service) = &search_service {
+                indexing_tasks::spawn_reindex_user(search_service.get_ref().clone(), user.uuid);
+            }
             let payload = UpsertProjectedUserResponse {
                 user_uuid: user.uuid,
                 workspace_id: workspace.id,

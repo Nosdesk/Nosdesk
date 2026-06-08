@@ -358,7 +358,9 @@ pub async fn add_member(
     mut pc: PlatformConn,
     path: web::Path<i32>,
     body: web::Json<AddMemberRequest>,
-    search_service: web::Data<Arc<SearchService>>,
+    // Best-effort search reindex: optional so the membership op doesn't
+    // hard-depend on the search subsystem (and test apps need not wire it).
+    search_service: Option<web::Data<Arc<SearchService>>>,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_platform_admin(&req) {
         return resp;
@@ -417,7 +419,9 @@ pub async fn add_member(
             // The user's search doc carries one workspace tag per
             // membership; refresh it so the user becomes searchable in
             // this workspace (and stays gated out of others).
-            indexing_tasks::spawn_reindex_user(search_service.get_ref().clone(), user_uuid);
+            if let Some(search_service) = &search_service {
+                indexing_tasks::spawn_reindex_user(search_service.get_ref().clone(), user_uuid);
+            }
             HttpResponse::Created().json(serde_json::json!({
                 "workspace_id": workspace_id,
                 "user_uuid": user_uuid,
@@ -493,7 +497,8 @@ pub async fn remove_member(
     req: HttpRequest,
     mut pc: PlatformConn,
     path: web::Path<(i32, Uuid)>,
-    search_service: web::Data<Arc<SearchService>>,
+    // Best-effort search reindex (see add_member).
+    search_service: Option<web::Data<Arc<SearchService>>>,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_platform_admin(&req) {
         return resp;
@@ -505,7 +510,9 @@ pub async fn remove_member(
             info!(workspace_id, %user_uuid, "admin/workspaces member removed");
             // Refresh the user's search doc so the now-removed workspace
             // tag drops off and they stop matching searches in it.
-            indexing_tasks::spawn_reindex_user(search_service.get_ref().clone(), user_uuid);
+            if let Some(search_service) = &search_service {
+                indexing_tasks::spawn_reindex_user(search_service.get_ref().clone(), user_uuid);
+            }
             HttpResponse::NoContent().finish()
         }
         Ok(0) => {
