@@ -3012,8 +3012,7 @@ settings-profile-pronouns-label = Pronoms
 settings-profile-pronouns-placeholder = Ajouter des pronoms (par ex. il/lui, elle/elle, iel)
 settings-profile-save = Enregistrer
 settings-profile-signature-label = Signature e-mail
-settings-profile-signature-hint-prefix = Ajoutée à vos réponses sortantes sur les tickets issus d'un canal (e-mail). Le séparateur standard est
-settings-profile-signature-hint-suffix = .
+settings-profile-signature-hint = Ajoutée à vos réponses sortantes par e-mail, sous le séparateur de signature standard :
 settings-profile-signature-variables-hint = Variables (remplies à chaque réponse) :
 settings-profile-signature-placeholder = Nom de l'agent
     Support informatique

@@ -3120,8 +3120,7 @@ settings-profile-pronouns-label = Pronouns
 settings-profile-pronouns-placeholder = Add pronouns (e.g., he/him, she/her, they/them)
 settings-profile-save = Save
 settings-profile-signature-label = Email signature
-settings-profile-signature-hint-prefix = Appended to your outbound replies on channel-originated tickets (email). Separator is standard
-settings-profile-signature-hint-suffix = .
+settings-profile-signature-hint = Appended to your outbound email replies, beneath the standard signature separator:
 settings-profile-signature-variables-hint = Variables (filled in per reply):
 settings-profile-signature-placeholder = Agent Name
     IT Support

@@ -3003,8 +3003,7 @@ settings-profile-pronouns-label = Voornaamwoorden
 settings-profile-pronouns-placeholder = Voornaamwoorden toevoegen (bijv. hij/hem, zij/haar, die/hen)
 settings-profile-save = Opslaan
 settings-profile-signature-label = E-mailhandtekening
-settings-profile-signature-hint-prefix = Wordt toegevoegd aan uw uitgaande antwoorden op tickets uit een kanaal (e-mail). Het standaardscheidingsteken is
-settings-profile-signature-hint-suffix = .
+settings-profile-signature-hint = Wordt toegevoegd aan uw uitgaande e-mailantwoorden, onder het standaard handtekeningscheidingsteken:
 settings-profile-signature-variables-hint = Variabelen (per antwoord ingevuld):
 settings-profile-signature-placeholder = Naam van agent
     IT-ondersteuning

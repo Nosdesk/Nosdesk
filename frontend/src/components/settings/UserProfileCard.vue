@@ -89,6 +89,18 @@ const avatarSize = computed(() => isCompact.value ? 'w-20 h-20' : 'w-28 h-28 sm:
 
 const avatarOffset = computed(() => isCompact.value ? '-top-10' : '-top-14 sm:-top-12');
 
+// Layout of the content that sits next to / below the overlapping avatar.
+// Derived from the avatar geometry above so the two stay in sync:
+//   header inset  = avatar left offset + avatar width + a gap, so the
+//                   name/badge row clears the avatar on >=sm.
+//   header min-h  = avatar height − overlap, i.e. how far the avatar
+//                   hangs below the banner, so the full-width fields
+//                   underneath always start past the avatar.
+// Only the header is inset; the editable fields below span the full card
+// width (they're beneath the avatar, not beside it).
+const headerInset = computed(() => isCompact.value ? 'sm:pl-28' : 'sm:pl-38');
+const headerMinHeight = computed(() => isCompact.value ? 'sm:min-h-10' : 'sm:min-h-24');
+
 // Editing states (name editing handled by InlineEdit component)
 const editingPronouns = ref(false);
 
@@ -404,7 +416,10 @@ const getRoleBadgeClass = (role: string) => {
         displayUser.value?.name === "Kyle Phillips" &&
         displayUser.value?.email?.endsWith("@kyle.au")
     ) {
-        return "bg-purple-600/20 text-purple-400 developer-badge";
+        // Colours + shimmer live in the `.developer-badge` rule below,
+        // driven by the brand-purple/brand-pink theme tokens so the
+        // easter egg follows the active theme instead of hardcoded hues.
+        return "developer-badge";
     }
 
     switch (role) {
@@ -620,10 +635,14 @@ const getRoleDisplayName = (role: string) => {
 
             <!-- EDITABLE MODE -->
             <template v-if="isEditable">
-                <!-- Name and role badge - positioned to the right of avatar -->
+                <!-- Header: name + role badge. Sits beside the avatar on
+                     >=sm (inset + min-height clear it); stacks below it on
+                     mobile. -->
                 <div
-                    class="flex flex-wrap items-center gap-3 pb-4 sm:pb-0"
-                    :class="showBanner ? 'pt-16 sm:py-6 sm:pl-[9.5rem]' : 'pt-4'"
+                    class="flex flex-wrap items-center gap-x-3 gap-y-2"
+                    :class="showBanner
+                        ? ['pt-16 pb-2', 'sm:pt-0 sm:pb-0', headerInset, headerMinHeight]
+                        : 'pt-4 pb-2'"
                 >
                     <!-- Left: Name with inline edit -->
                     <div class="min-w-0 flex-1 basis-48 name-input-field">
@@ -647,31 +666,30 @@ const getRoleDisplayName = (role: string) => {
                     </div>
                 </div>
 
-                <!-- Pronouns field - full width below name/badge -->
-                <div v-if="showPronouns" class="pt-2 pb-6" :class="showBanner ? 'sm:pl-[9.5rem]' : ''">
-                    <div class="flex flex-col gap-1.5">
+                <!-- Editable fields: full width below the avatar. -->
+                <div class="flex flex-col gap-6 pt-4 pb-6 sm:pt-6">
+                    <!-- Pronouns -->
+                    <div v-if="showPronouns" class="flex flex-col gap-1.5">
                         <label
                             for="profile-pronouns"
                             class="text-xs font-medium text-tertiary uppercase tracking-wide"
                         >
                             {{ $t('settings-profile-pronouns-label') }}
                         </label>
-                        <div class="flex flex-wrap items-start gap-3">
+                        <div class="flex flex-wrap items-center gap-3">
                             <FormInput
                                 id="profile-pronouns"
                                 v-model="formData.pronouns"
                                 class="flex-1 min-w-48"
                                 :placeholder="$t('settings-profile-pronouns-placeholder')"
                             />
-                            <Button :disabled="!pronounsModified || loading" @click="updatePronouns">
+                            <Button class="shrink-0" :disabled="!pronounsModified || loading" @click="updatePronouns">
                                 {{ $t('settings-profile-save') }}
                             </Button>
                         </div>
                     </div>
-                </div>
 
-                <!-- Email signature — appended to outbound channel replies -->
-                <div class="pt-2 pb-6" :class="showBanner ? 'sm:pl-[9.5rem]' : ''">
+                    <!-- Email signature — appended to outbound channel replies -->
                     <div class="flex flex-col gap-1.5">
                         <label
                             for="user-email-signature"
@@ -679,14 +697,15 @@ const getRoleDisplayName = (role: string) => {
                         >
                             {{ $t('settings-profile-signature-label') }}
                         </label>
-                        <p id="user-email-signature-hint" class="text-xs text-tertiary">
-                            {{ $t('settings-profile-signature-hint-prefix') }} <code class="text-[10px] bg-surface-alt px-1 rounded">-- </code>{{ $t('settings-profile-signature-hint-suffix') }}
+                        <p id="user-email-signature-hint" class="text-xs text-tertiary flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                            <span>{{ $t('settings-profile-signature-hint') }}</span>
+                            <code class="font-mono text-[0.95em] leading-none bg-surface-alt text-secondary px-1.5 py-0.5 rounded">--</code>
                         </p>
-                        <p class="text-xs text-tertiary">
-                            {{ $t('settings-profile-signature-variables-hint') }}
-                            <code class="text-[10px] bg-surface-alt px-1 rounded">&#123;&#123;tech_name&#125;&#125;</code>,
-                            <code class="text-[10px] bg-surface-alt px-1 rounded">&#123;&#123;tech_email&#125;&#125;</code>,
-                            <code class="text-[10px] bg-surface-alt px-1 rounded">&#123;&#123;app_name&#125;&#125;</code>
+                        <p class="text-xs text-tertiary flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                            <span>{{ $t('settings-profile-signature-variables-hint') }}</span>
+                            <code class="font-mono text-[0.95em] leading-none bg-surface-alt text-secondary px-1.5 py-0.5 rounded">&#123;&#123;tech_name&#125;&#125;</code>
+                            <code class="font-mono text-[0.95em] leading-none bg-surface-alt text-secondary px-1.5 py-0.5 rounded">&#123;&#123;tech_email&#125;&#125;</code>
+                            <code class="font-mono text-[0.95em] leading-none bg-surface-alt text-secondary px-1.5 py-0.5 rounded">&#123;&#123;app_name&#125;&#125;</code>
                         </p>
                         <div class="flex flex-col gap-3">
                             <FormTextarea
@@ -709,10 +728,13 @@ const getRoleDisplayName = (role: string) => {
 
             <!-- READ-ONLY MODE -->
             <template v-else>
-                <!-- Content area - uses same padding top as avatar offset to align vertically -->
+                <!-- Header: name/email beside the avatar on >=sm, stacked
+                     below it on mobile. Inset + min-height clear the avatar. -->
                 <div
-                    class="flex flex-wrap items-start gap-3 pb-4"
-                    :class="showBanner ? 'pt-16 sm:pt-6 sm:pl-[9.5rem]' : 'pt-4'"
+                    class="flex flex-wrap items-center gap-x-3 gap-y-2 pb-4"
+                    :class="showBanner
+                        ? ['pt-16', 'sm:pt-0', headerInset, headerMinHeight]
+                        : 'pt-4'"
                 >
                     <!-- Left: Name, email, pronouns -->
                     <div class="flex flex-col gap-1 min-w-0 flex-1 basis-48">
@@ -765,9 +787,16 @@ const getRoleDisplayName = (role: string) => {
     border-color: var(--color-accent);
 }
 
+/* Developer easter-egg badge. Mirrors the muted-bg + token-text shape of
+   the other role badges (`bg-{token}/20 text-{token}`) but with the
+   brand-purple token, plus a sweeping brand-purple→brand-pink sheen. All
+   colours come from theme tokens, so a theme preset that retints the
+   brand palette retints the badge too. */
 .developer-badge {
     position: relative;
     overflow: hidden;
+    color: var(--color-brand-purple);
+    background-color: color-mix(in srgb, var(--color-brand-purple) 20%, transparent);
 }
 
 .developer-badge::before {
@@ -777,9 +806,9 @@ const getRoleDisplayName = (role: string) => {
     background: linear-gradient(
         110deg,
         transparent 20%,
-        rgba(168, 85, 247, 0.3) 40%,
-        rgba(217, 70, 239, 0.5) 50%,
-        rgba(168, 85, 247, 0.3) 60%,
+        color-mix(in srgb, var(--color-brand-purple) 35%, transparent) 40%,
+        color-mix(in srgb, var(--color-brand-pink) 55%, transparent) 50%,
+        color-mix(in srgb, var(--color-brand-purple) 35%, transparent) 60%,
         transparent 80%
     );
     animation: enchant 6s linear infinite;

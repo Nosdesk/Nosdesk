@@ -8,6 +8,8 @@ import { extractErrorMessage } from '@/utils/errors';
 import Spinner from '@/components/common/Spinner.vue';
 import Button from '@/components/common/Button.vue';
 import FormInput from '@/components/common/FormInput.vue';
+import Icon from '@/components/common/Icon.vue';
+import EmptyState from '@/components/common/EmptyState.vue';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -145,98 +147,104 @@ watch(() => props.userUuid, () => {
       </Button>
     </template>
 
-    <!-- Add Email Form -->
-    <div v-if="showAddForm && canEdit" class="mb-4 p-4 bg-surface-alt rounded-lg border border-subtle">
-        <h3 class="text-sm font-medium text-primary mb-3">{{ $t('settings-emails-add-form-title') }}</h3>
-        <div class="flex flex-col sm:flex-row gap-3">
-          <FormInput
-            v-model="newEmailAddress"
-            type="email"
-            class="flex-1"
-            :placeholder="$t('settings-emails-add-placeholder')"
-            @keyup.enter="addEmail"
-          />
-          <div class="flex gap-2">
-            <Button :loading="addingEmail" @click="addEmail">
-              {{ $t('settings-emails-add-submit') }}
-            </Button>
-            <Button variant="secondary" @click="cancelAdd">
-              {{ $t('settings-emails-add-cancel') }}
-            </Button>
+    <!-- Add email form. Sits above the list while open, framed as an
+         input zone so it reads as distinct from the existing rows. -->
+    <div
+      v-if="showAddForm && canEdit"
+      class="mb-3 p-3 bg-surface-alt rounded-lg border border-subtle flex flex-col sm:flex-row gap-2"
+    >
+      <FormInput
+        v-model="newEmailAddress"
+        type="email"
+        class="flex-1"
+        :placeholder="$t('settings-emails-add-placeholder')"
+        @keyup.enter="addEmail"
+      />
+      <div class="flex gap-2 shrink-0">
+        <Button :loading="addingEmail" @click="addEmail">
+          {{ $t('settings-emails-add-submit') }}
+        </Button>
+        <Button variant="secondary" @click="cancelAdd">
+          {{ $t('settings-emails-add-cancel') }}
+        </Button>
+      </div>
+    </div>
+
+    <!-- Loading state -->
+    <div v-if="loading" class="flex justify-center py-8 text-accent">
+      <Spinner size="lg" />
+    </div>
+
+    <!-- Empty state -->
+    <EmptyState
+      v-else-if="userEmails.length === 0"
+      icon="inbox"
+      variant="card"
+      :title="$t('settings-emails-empty')"
+      :action-label="canEdit && !showAddForm ? $t('settings-emails-add-button') : undefined"
+      @action="showAddForm = true"
+    />
+
+    <!-- Email list -->
+    <div v-else class="flex flex-col gap-2">
+      <div
+        v-for="email in userEmails"
+        :key="email.id"
+        class="flex flex-col sm:flex-row sm:items-center gap-3 p-3 bg-surface-alt rounded-lg"
+      >
+        <!-- Identity: envelope tile + address + metadata -->
+        <div class="flex items-center gap-3 min-w-0 flex-1">
+          <div class="w-10 h-10 rounded-lg bg-surface-hover flex items-center justify-center shrink-0">
+            <Icon name="email" size="md" class="text-secondary" />
           </div>
-        </div>
-      </div>
-
-      <!-- Loading state -->
-      <div v-if="loading" class="flex justify-center py-8 text-accent">
-        <Spinner size="lg" />
-      </div>
-
-      <!-- Empty state -->
-      <div v-else-if="userEmails.length === 0" class="text-tertiary text-sm py-4">
-        {{ $t('settings-emails-empty') }}
-      </div>
-
-      <!-- Email list -->
-      <div v-else class="flex flex-col gap-3">
-        <div
-          v-for="email in userEmails"
-          :key="email.id"
-          class="bg-surface-alt p-4 rounded-lg hover:bg-surface-hover/70 transition-colors"
-        >
-          <div class="flex items-start justify-between gap-4">
-            <!-- Email info -->
-            <div class="flex-1 min-w-0">
-              <!-- Email address with badges -->
-              <div class="flex items-center gap-2 flex-wrap mb-2">
-                <span class="font-medium text-primary truncate">
-                  {{ email.email }}
-                </span>
-                <span
-                  v-if="email.is_primary"
-                  class="text-xs px-2 py-0.5 rounded-full bg-accent/20 text-accent flex-shrink-0"
-                >
-                  {{ $t('settings-emails-primary-badge') }}
-                </span>
-              </div>
-
-              <!-- Metadata -->
-              <div class="flex items-center gap-2 text-sm">
-                <span class="text-tertiary capitalize">
-                  {{ email.email_type || $t('settings-emails-type-personal') }}
-                </span>
-                <span v-if="email.source" class="text-border-default">•</span>
-                <span v-if="email.source" class="text-xs text-tertiary capitalize">
-                  {{ email.source }}
-                </span>
-              </div>
-            </div>
-
-            <!-- Verified badge -->
-            <div class="flex-shrink-0">
+          <div class="min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="text-sm font-medium text-primary truncate">{{ email.email }}</span>
               <span
-                class="text-xs px-2 py-1 rounded-full"
-                :class="{
-                  'text-status-success bg-status-success/20': email.is_verified,
-                  'text-status-warning bg-status-warning/20': !email.is_verified
-                }"
+                v-if="email.is_primary"
+                class="px-2 py-0.5 rounded-full text-xs font-medium bg-accent/20 text-accent shrink-0"
               >
-                {{ email.is_verified ? $t('settings-emails-verified-badge') : $t('settings-emails-unverified-badge') }}
+                {{ $t('settings-emails-primary-badge') }}
               </span>
             </div>
+            <div class="flex items-center gap-1.5 text-xs text-tertiary mt-0.5">
+              <span class="capitalize">{{ email.email_type || $t('settings-emails-type-personal') }}</span>
+              <template v-if="email.source">
+                <span class="text-border-default">&middot;</span>
+                <span class="capitalize">{{ email.source }}</span>
+              </template>
+            </div>
           </div>
+        </div>
 
-          <!-- Edit actions (only when canEdit is true) -->
-          <div v-if="canEdit && email.id !== 0 && !email.is_primary" class="mt-3 flex flex-wrap gap-2">
+        <!-- Verification status + row actions -->
+        <div class="flex items-center gap-2 flex-wrap sm:justify-end shrink-0 pl-13 sm:pl-0">
+          <span
+            class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
+            :class="email.is_verified
+              ? 'bg-status-success/20 text-status-success'
+              : 'bg-status-warning/20 text-status-warning'"
+          >
+            <Icon :name="email.is_verified ? 'checkCircle' : 'warning'" size="xs" />
+            {{ email.is_verified ? $t('settings-emails-verified-badge') : $t('settings-emails-unverified-badge') }}
+          </span>
+
+          <template v-if="canEdit && email.id !== 0 && !email.is_primary">
             <Button variant="secondary" size="sm" @click="setAsPrimary(email.id, email.email)">
               {{ $t('settings-emails-set-primary') }}
             </Button>
-            <Button variant="ghost-danger" size="sm" @click="deleteEmail(email.id, email.email)">
+            <Button
+              variant="ghost-danger"
+              size="sm"
+              :aria-label="$t('settings-emails-remove')"
+              @click="deleteEmail(email.id, email.email)"
+            >
               {{ $t('settings-emails-remove') }}
             </Button>
-          </div>
+          </template>
         </div>
       </div>
+    </div>
 
     <ConfirmModal
       :show="pendingDeleteEmail !== null"
