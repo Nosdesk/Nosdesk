@@ -75,6 +75,24 @@ function freshTxId(): string {
 }
 
 /**
+ * Strip a patch to a plain, structured-clone-safe object graph.
+ *
+ * Patch values frequently carry Vue `reactive()` proxies: a status
+ * change copies the denormalised `workflow_state` object straight
+ * out of the workflow-states Pinia store, and the inverse copies it
+ * from the reactive pool row. IndexedDB persists transactions via
+ * the structured-clone algorithm, which throws `DataCloneError` on
+ * those proxies ("could not be cloned"). `toRaw()` only unwraps the
+ * top-level proxy, not the nested objects a patch embeds, so we do a
+ * JSON round-trip: it's lossless for patch payloads (they're POSTed
+ * to /api/sync/push as JSON anyway) and produces a proxy-free graph
+ * that both IndexedDB and the pool accept.
+ */
+function plainSnapshot<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T
+}
+
+/**
  * Apply an optimistic patch to a row, persist the transaction, and
  * schedule a flush. The pool sees the change immediately; the
  * server hears about it on the next flush tick.
@@ -90,14 +108,21 @@ export async function dispatchOptimistic<T extends object>(
   const current = pool.get<T>(aggregate, modelId)
   if (!current) return null
 
+  // Snapshot to proxy-free plain objects before they touch
+  // IndexedDB (see `plainSnapshot`). The forward patch is also what
+  // we apply to the pool below, so using the snapshot keeps the pool
+  // from retaining references back into store-owned reactive state.
+  const forward = plainSnapshot(patch.forward) as Record<string, unknown>
+  const inverse = plainSnapshot(patch.inverse) as Record<string, unknown>
+
   const tx: QueuedTx = {
     tx_id: freshTxId(),
     aggregate,
     model_id: String(modelId),
     op: 'U',
-    patch: patch.forward as Record<string, unknown>,
+    patch: forward,
     base_sync_id: pool.getLastSyncId(),
-    inverse: patch.inverse as Record<string, unknown>,
+    inverse,
     createdAt: Date.now(),
   }
 
@@ -112,7 +137,7 @@ export async function dispatchOptimistic<T extends object>(
       return null
     }
   }
-  pool.patch(aggregate, modelId, patch.forward)
+  pool.patch(aggregate, modelId, forward as Partial<T>)
   void scheduleFlush()
   return tx.tx_id
 }

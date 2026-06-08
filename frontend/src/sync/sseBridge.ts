@@ -10,6 +10,7 @@
  */
 import { logger } from '@/utils/logger'
 import { useSSE } from '@/services/sseService'
+import { unwrapEventData } from '@/types/sse'
 import { applySseFrame } from './lifecycle'
 import type { SyncAction } from './types'
 
@@ -47,13 +48,20 @@ export function detachSseBridge(): void {
 
 function parseFrame(raw: unknown): SyncActionsFrame | null {
   if (!raw || typeof raw !== 'object') return null
-  const r = raw as Record<string, unknown>
+  // `SseEvent` is an adjacently-tagged enum on the Rust side
+  // (`#[serde(tag = "type", content = "data")]`), so the SyncActions
+  // payload arrives wrapped as `{ type, data: { actions, last_sync_id,
+  // timestamp } }`. Unwrap to the inner object (same helper the
+  // viewers-changed / field-preview consumers use); a direct,
+  // unwrapped frame passes through unchanged.
+  const r = unwrapEventData(raw as Record<string, unknown>)
+  if (!r || typeof r !== 'object') return null
   if (!Array.isArray(r.actions) || typeof r.last_sync_id !== 'number') {
     logger.warn('sync-actions SSE frame missing required fields', { frame: r })
     return null
   }
   return {
     actions: r.actions as SyncAction[],
-    last_sync_id: r.last_sync_id,
+    last_sync_id: r.last_sync_id as number,
   }
 }
