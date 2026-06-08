@@ -28,7 +28,9 @@ use crate::middleware::api_token::PlatformScope;
 use crate::models::{NewWorkspace, Workspace};
 use crate::repository::workspaces::{self, CreateWorkspaceError};
 use crate::services::oauth_provisioning::{find_or_create_projected_user, ProjectedUserInput};
+use crate::services::search::{indexing_tasks, SearchService};
 use crate::utils::workspace_slug::validate_slug;
+use std::sync::Arc;
 
 /// Header name the idempotency middleware looks for. Duplicated as a
 /// string here so this handler can produce a useful 400 when callers
@@ -231,6 +233,7 @@ pub async fn upsert_projected_user(
     req: HttpRequest,
     _: PlatformScope,
     pool: web::Data<Pool>,
+    search_service: web::Data<Arc<SearchService>>,
     path: web::Path<String>,
     body: web::Json<UpsertProjectedUserRequest>,
 ) -> impl Responder {
@@ -322,6 +325,12 @@ pub async fn upsert_projected_user(
                 created,
                 "upsert_projected_user: ok"
             );
+            // Eager projection grants the user membership in this
+            // workspace. find_or_create_projected_user mints users with no
+            // search observer, so this reindex is what writes the user
+            // into the index with the correct multi-valued workspace tags
+            // (and refreshes them when an existing user is re-projected).
+            indexing_tasks::spawn_reindex_user(search_service.get_ref().clone(), user.uuid);
             let payload = UpsertProjectedUserResponse {
                 user_uuid: user.uuid,
                 workspace_id: workspace.id,

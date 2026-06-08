@@ -73,6 +73,11 @@ pub struct IndexDocument {
     /// entity types. Drives the result-set badge for staff and
     /// the visibility filter for non-staff callers.
     pub is_internal: bool,
+    /// Workspace(s) this document belongs to. One value for
+    /// workspace-owned entities; one per membership for a user. Every
+    /// query requires a matching value, so an empty set makes the
+    /// document unreachable (fail-closed).
+    pub workspace_ids: Vec<i64>,
 }
 
 impl IndexDocument {
@@ -94,6 +99,7 @@ impl IndexDocument {
             preview: String::new(),
             updated_at: chrono::Utc::now().timestamp(),
             is_internal: false,
+            workspace_ids: Vec::new(),
         }
     }
 
@@ -109,11 +115,26 @@ impl IndexDocument {
             preview: String::new(),
             updated_at: chrono::Utc::now().timestamp(),
             is_internal: false,
+            workspace_ids: Vec::new(),
         }
     }
 
     pub fn is_internal(mut self, is_internal: bool) -> Self {
         self.is_internal = is_internal;
+        self
+    }
+
+    /// Tag the document with a single owning workspace (the common case
+    /// for ticket / comment / doc / asset / project / attachment).
+    pub fn workspace_id(mut self, workspace_id: i64) -> Self {
+        self.workspace_ids = vec![workspace_id];
+        self
+    }
+
+    /// Tag the document with multiple workspaces (a user, one per
+    /// membership).
+    pub fn workspace_ids(mut self, workspace_ids: Vec<i64>) -> Self {
+        self.workspace_ids = workspace_ids;
         self
     }
 

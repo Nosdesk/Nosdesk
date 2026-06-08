@@ -18,6 +18,8 @@ use diesel::prelude::*;
 use crate::config_utils;
 use crate::oidc;
 use crate::repository::user_auth_identities;
+use crate::services::search::{indexing_tasks, SearchService};
+use std::sync::Arc;
 
 // Structure for OAuth logout requests
 #[derive(Deserialize, Debug)]
@@ -343,6 +345,7 @@ fn replace_state_in_url(url: &str, new_state: &str) -> String {
 pub async fn oauth_callback(
     db_pool: web::Data<Pool>,
     query: web::Query<OAuthExchangeRequest>,
+    search_service: web::Data<Arc<SearchService>>,
     request: actix_web::HttpRequest,
 ) -> impl Responder {
     // Get database connection
@@ -618,6 +621,15 @@ pub async fn oauth_callback(
                     match user_result {
                         Ok(user) => {
                             info!(user_uuid = %user.uuid, "OAuth: Completing login");
+                            // OAuth provisioning mints users with no search
+                            // observer, so this reindex both indexes a
+                            // first-login user and refreshes the workspace
+                            // tags when a login grants membership in a new
+                            // workspace.
+                            indexing_tasks::spawn_reindex_user(
+                                search_service.get_ref().clone(),
+                                user.uuid,
+                            );
                             crate::handlers::auth::complete_login(user, &request, &mut conn)
                         }
                         Err(e) => {
@@ -808,6 +820,12 @@ pub async fn oauth_callback(
                     match user_result {
                         Ok(user) => {
                             info!(user_uuid = %user.uuid, "OIDC: Completing login");
+                            // Index / refresh the user's search doc with
+                            // current workspace memberships (see above).
+                            indexing_tasks::spawn_reindex_user(
+                                search_service.get_ref().clone(),
+                                user.uuid,
+                            );
                             crate::handlers::auth::complete_login(user, &request, &mut conn)
                         }
                         Err(e) => {

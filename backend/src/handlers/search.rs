@@ -7,6 +7,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::db::Pool;
 use crate::extractors::AuthContext;
+use crate::extractors::WorkspaceContext;
 use crate::handlers::errors;
 use crate::handlers::helpers;
 use crate::models::Claims;
@@ -24,6 +25,7 @@ pub async fn search(
     search_service: web::Data<Arc<SearchService>>,
     pool: web::Data<Pool>,
     auth: AuthContext,
+    ws: WorkspaceContext,
     req: HttpRequest,
 ) -> impl Responder {
     // Verify authentication
@@ -68,7 +70,7 @@ pub async fn search(
     let is_end_user = !auth.can_handle_tickets();
     let include_internal = !is_end_user;
 
-    match search_service.search(&query, include_internal) {
+    match search_service.search(&query, include_internal, ws.workspace_id as i64) {
         Ok(mut response) => {
             // AUD-011: end-users must not learn about tickets they
             // can't read via search. Staff bypass this filter (their

@@ -38,6 +38,11 @@ pub struct SearchService {
     reader: IndexReader,
     writer: Arc<RwLock<IndexWriter>>,
     is_rebuilding: AtomicBool,
+    /// Pool used by background re-index hooks to resolve a user's
+    /// workspace memberships (the workspace tenancy tags on the user
+    /// doc). Users are a global identity, so the membership set has to
+    /// be looked up at index time rather than read off the model.
+    pool: Pool,
 }
 
 impl SearchService {
@@ -92,6 +97,7 @@ impl SearchService {
             reader,
             writer: Arc::new(RwLock::new(writer)),
             is_rebuilding: AtomicBool::new(false),
+            pool: pool.clone(),
         };
 
         // Auto-populate if the index is empty. The indexer reads
@@ -151,10 +157,15 @@ impl SearchService {
     /// `include_internal` is gated by the caller's role: staff
     /// (Admin / Technician) pass `true`; non-staff pass `false` so
     /// internal-note comments are filtered out of the result set.
+    ///
+    /// `workspace_id` is the caller's workspace; every result is gated,
+    /// fail-closed, to that workspace so a search can never surface
+    /// another tenant's content.
     pub fn search(
         &self,
         query: &SearchQuery,
         include_internal: bool,
+        workspace_id: i64,
     ) -> Result<SearchResponse, Box<dyn std::error::Error + Send + Sync>> {
         let entity_types = query.entity_types();
         let entity_types_ref = entity_types.as_deref();
@@ -166,6 +177,7 @@ impl SearchService {
             query.limit,
             entity_types_ref,
             include_internal,
+            workspace_id,
         )
     }
 
@@ -207,14 +219,97 @@ impl SearchService {
         self.index_document(&doc)
     }
 
-    /// Index a user with optional primary email
+    /// Index a user with optional primary email.
+    ///
+    /// Users are a global identity; their workspace tenancy comes from
+    /// `workspace_members`. The membership set is resolved here (across
+    /// all workspaces, so a platform-level bypass) and indexed as
+    /// multi-valued workspace tags on the one user doc, so the user is
+    /// searchable only inside the workspaces they belong to. A user with
+    /// no memberships is indexed unreachable (fail-closed).
     pub fn index_user(
         &self,
         user: &models::User,
         primary_email: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let doc = indexer::index_document_from_user(user, primary_email);
+        let workspace_ids = self.user_workspace_ids(user.uuid)?;
+        let doc = indexer::index_document_from_user(user, primary_email, &workspace_ids);
         self.index_document(&doc)
+    }
+
+    /// Re-index a single user by uuid from current database state.
+    ///
+    /// Loads the user, their primary email, and their full workspace
+    /// membership set, then re-writes the one user doc with up-to-date
+    /// workspace tags. Used by the membership-change hooks (a user added
+    /// to or removed from a workspace) where the caller has only the
+    /// uuid in hand. A deleted / missing user is a no-op (the delete
+    /// hook owns removal). Reads across workspaces, so platform bypass.
+    pub fn reindex_user(
+        &self,
+        user_uuid: uuid::Uuid,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        use crate::schema::{user_emails, users};
+        use diesel::prelude::*;
+
+        let loaded: Option<(models::User, Option<String>, Vec<i32>)> =
+            crate::sync::session::background_run(
+                &self.pool,
+                "background:search_reindex_user",
+                |conn| {
+                    let user = users::table
+                        .filter(users::uuid.eq(user_uuid))
+                        .filter(users::deleted_at.is_null())
+                        .first::<models::User>(conn)
+                        .optional()?;
+                    let Some(user) = user else {
+                        return Ok(None);
+                    };
+                    let email = user_emails::table
+                        .filter(user_emails::user_uuid.eq(user_uuid))
+                        .filter(user_emails::is_primary.eq(true))
+                        .select(user_emails::email)
+                        .first::<String>(conn)
+                        .optional()?;
+                    let workspace_ids =
+                        crate::repository::workspaces::list_memberships_for_user(conn, user_uuid)?
+                            .into_iter()
+                            .map(|(member, _workspace)| member.workspace_id)
+                            .collect::<Vec<i32>>();
+                    Ok(Some((user, email, workspace_ids)))
+                },
+            )?;
+
+        let Some((user, email, workspace_ids)) = loaded else {
+            return Ok(());
+        };
+        let doc = indexer::index_document_from_user(&user, email.as_deref(), &workspace_ids);
+        self.index_document(&doc)
+    }
+
+    /// Resolve the set of workspace ids a user belongs to, for the
+    /// multi-valued workspace tag on their search doc. Reads
+    /// `workspace_members` across every workspace (a global identity has
+    /// no single owning workspace), so it runs with a platform-level
+    /// bypass.
+    fn user_workspace_ids(
+        &self,
+        user_uuid: uuid::Uuid,
+    ) -> Result<Vec<i32>, Box<dyn std::error::Error + Send + Sync>> {
+        let ids = crate::sync::session::background_run(
+            &self.pool,
+            "background:search_user_memberships",
+            |conn| {
+                crate::repository::workspaces::list_memberships_for_user(conn, user_uuid).map(
+                    |rows| {
+                        rows.into_iter()
+                            .map(|(member, _workspace)| member.workspace_id)
+                            .collect::<Vec<i32>>()
+                    },
+                )
+            },
+        )?;
+        Ok(ids)
     }
 
     /// Index a project

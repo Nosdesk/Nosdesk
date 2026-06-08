@@ -20,10 +20,13 @@ use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
+use std::sync::Arc;
+
 use crate::extractors::PlatformConn;
 use crate::handlers::errors;
 use crate::models::{NewWorkspace, Workspace, WorkspaceMember, WorkspaceRole};
 use crate::repository::workspaces::{self, CreateWorkspaceError, UpdateMembershipRoleResult};
+use crate::services::search::{indexing_tasks, SearchService};
 use crate::utils::rbac;
 use crate::utils::workspace_slug::validate_slug;
 
@@ -355,6 +358,7 @@ pub async fn add_member(
     mut pc: PlatformConn,
     path: web::Path<i32>,
     body: web::Json<AddMemberRequest>,
+    search_service: web::Data<Arc<SearchService>>,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_platform_admin(&req) {
         return resp;
@@ -410,6 +414,10 @@ pub async fn add_member(
     {
         Ok(n) if n > 0 => {
             info!(workspace_id, %user_uuid, role = %parsed_role.as_str(), "admin/workspaces member added");
+            // The user's search doc carries one workspace tag per
+            // membership; refresh it so the user becomes searchable in
+            // this workspace (and stays gated out of others).
+            indexing_tasks::spawn_reindex_user(search_service.get_ref().clone(), user_uuid);
             HttpResponse::Created().json(serde_json::json!({
                 "workspace_id": workspace_id,
                 "user_uuid": user_uuid,
@@ -485,6 +493,7 @@ pub async fn remove_member(
     req: HttpRequest,
     mut pc: PlatformConn,
     path: web::Path<(i32, Uuid)>,
+    search_service: web::Data<Arc<SearchService>>,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_platform_admin(&req) {
         return resp;
@@ -494,6 +503,9 @@ pub async fn remove_member(
     match pc.run(|conn| workspaces::remove_membership(conn, workspace_id, user_uuid)) {
         Ok(1) => {
             info!(workspace_id, %user_uuid, "admin/workspaces member removed");
+            // Refresh the user's search doc so the now-removed workspace
+            // tag drops off and they stop matching searches in it.
+            indexing_tasks::spawn_reindex_user(search_service.get_ref().clone(), user_uuid);
             HttpResponse::NoContent().finish()
         }
         Ok(0) => {

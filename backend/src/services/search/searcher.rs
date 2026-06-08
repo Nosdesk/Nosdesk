@@ -20,6 +20,10 @@ use super::types::{EntityType, SearchResponse, SearchResult};
 /// (internal-note comments) appear in the result set. Staff (Admin
 /// / Technician) callers pass `true`; non-staff callers pass `false`
 /// so they cannot reach internal notes through full-text search.
+///
+/// `workspace_id` is the caller's workspace. Every query is gated,
+/// fail-closed, by a required workspace term so a caller can never
+/// reach documents belonging to a workspace they're not in.
 pub fn execute_search(
     reader: &IndexReader,
     schema: &SearchSchema,
@@ -27,13 +31,20 @@ pub fn execute_search(
     limit: usize,
     entity_types: Option<&[EntityType]>,
     include_internal: bool,
+    workspace_id: i64,
 ) -> Result<SearchResponse, Box<dyn std::error::Error + Send + Sync>> {
     let start_time = std::time::Instant::now();
 
     let searcher = reader.searcher();
 
     // Build the query
-    let query = build_search_query(schema, query_str, entity_types, include_internal);
+    let query = build_search_query(
+        schema,
+        query_str,
+        entity_types,
+        include_internal,
+        workspace_id,
+    );
 
     // Execute the search
     // tantivy 0.26 split TopDocs from the Collector trait; you now pick a
@@ -82,6 +93,7 @@ fn build_search_query(
     query_str: &str,
     entity_types: Option<&[EntityType]>,
     include_internal: bool,
+    workspace_id: i64,
 ) -> Box<dyn Query> {
     // Apply field boosts using BooleanQuery
     // Title gets 3x boost, content 1x, metadata 0.8x
@@ -100,11 +112,21 @@ fn build_search_query(
         0.8,
     ));
 
-    let mut subqueries: Vec<(Occur, Box<dyn Query>)> = vec![
+    // The text match is a required group: a doc must match the query in
+    // at least one of title / content / metadata. Wrapping it in its own
+    // BooleanQuery (whose Should clauses keep min-should-match = 1 because
+    // it has no Must clauses of its own) and adding THAT as an outer Must
+    // keeps the text relevance mandatory even once the filter Must clauses
+    // below (entity type, workspace) are present. A bare Should at the top
+    // level would become optional the moment any Must is added, which would
+    // return every doc passing the filters regardless of the query text.
+    let text_query: Box<dyn Query> = Box::new(BooleanQuery::new(vec![
         (Occur::Should, title_query),
         (Occur::Should, content_query),
         (Occur::Should, metadata_query),
-    ];
+    ]));
+
+    let mut subqueries: Vec<(Occur, Box<dyn Query>)> = vec![(Occur::Must, text_query)];
 
     // Add entity type filter if specified
     if let Some(types) = entity_types {
@@ -125,18 +147,27 @@ fn build_search_query(
     }
 
     // Visibility filter. Internal-note comments are indexed with
-    // is_internal=1; non-staff callers ("user") get an
-    // explicit MustNot clause so those documents drop out of the
-    // result set entirely. The MustNot pairs with a "Must match
-    // anything" all-docs branch so the boolean query still has
-    // something positive to score against; without that, a pure
-    // MustNot search returns zero hits in tantivy.
+    // is_internal=1; non-staff callers ("user") get an explicit MustNot
+    // clause so those documents drop out of the result set entirely. The
+    // required text Must clause above is the positive branch the MustNot
+    // scores against (a query that is only MustNot returns zero hits in
+    // tantivy).
     if !include_internal {
         let internal_term = Term::from_field_i64(schema.is_internal, 1);
         let internal_q: Box<dyn Query> =
             Box::new(TermQuery::new(internal_term, IndexRecordOption::Basic));
         subqueries.push((Occur::MustNot, internal_q));
     }
+
+    // Workspace tenancy gate. Every document carries one or more
+    // workspace_id values; this required term restricts results to the
+    // caller's workspace. It is added centrally here so no query path can
+    // skip it: a document with no matching workspace value (including a
+    // user with zero memberships) is unreachable (fail-closed).
+    let workspace_term = Term::from_field_i64(schema.workspace_id, workspace_id);
+    let workspace_q: Box<dyn Query> =
+        Box::new(TermQuery::new(workspace_term, IndexRecordOption::Basic));
+    subqueries.push((Occur::Must, workspace_q));
 
     Box::new(BooleanQuery::new(subqueries))
 }
@@ -253,5 +284,159 @@ fn document_to_result(doc: &TantivyDocument, schema: &SearchSchema, score: f32) 
         score,
         updated_at: updated_at_str,
         is_internal,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::services::search::indexer::add_document_to_index;
+    use crate::services::search::types::IndexDocument;
+    use tantivy::Index;
+
+    /// Build an in-RAM index, write the given docs, return a reader plus
+    /// the schema so a test can drive `execute_search` directly without a
+    /// database or disk.
+    fn index_docs(docs: &[IndexDocument]) -> (Index, SearchSchema, IndexReader) {
+        let schema = SearchSchema::new();
+        let index = Index::create_in_ram(schema.schema.clone());
+        {
+            let mut writer = index.writer(15_000_000).expect("writer");
+            for doc in docs {
+                add_document_to_index(&writer, &schema, doc).expect("add doc");
+            }
+            writer.commit().expect("commit");
+        }
+        let reader = index.reader().expect("reader");
+        (index, schema, reader)
+    }
+
+    fn ids(resp: &SearchResponse) -> Vec<String> {
+        let mut v: Vec<String> = resp.results.iter().map(|r| r.id.clone()).collect();
+        v.sort();
+        v
+    }
+
+    fn ticket(id: i64, workspace_id: i64) -> IndexDocument {
+        IndexDocument::new(
+            EntityType::Ticket,
+            id,
+            "printer jam",
+            "the printer is jammed",
+        )
+        .workspace_id(workspace_id)
+    }
+
+    #[test]
+    fn search_is_gated_to_caller_workspace() {
+        let docs = vec![ticket(1, 1), ticket(2, 2)];
+        let (_index, schema, reader) = index_docs(&docs);
+
+        let ws1 = execute_search(&reader, &schema, "printer", 10, None, true, 1).expect("ws1");
+        assert_eq!(ids(&ws1), vec!["ticket-1"], "ws1 sees only its own ticket");
+
+        let ws2 = execute_search(&reader, &schema, "printer", 10, None, true, 2).expect("ws2");
+        assert_eq!(ids(&ws2), vec!["ticket-2"], "ws2 sees only its own ticket");
+    }
+
+    #[test]
+    fn doc_with_no_workspace_is_unreachable() {
+        // A doc indexed with an empty workspace set (fail-closed) must not
+        // match any workspace query.
+        let orphan = IndexDocument::new(EntityType::Ticket, 9, "printer jam", "jammed");
+        assert!(orphan.workspace_ids.is_empty());
+        let (_index, schema, reader) = index_docs(&[orphan]);
+
+        for ws in [1i64, 2, 3] {
+            let resp = execute_search(&reader, &schema, "printer", 10, None, true, ws).expect("q");
+            assert!(
+                resp.results.is_empty(),
+                "orphan doc must be unreachable from workspace {ws}"
+            );
+        }
+    }
+
+    #[test]
+    fn multi_valued_user_doc_matches_each_membership_only() {
+        // A user in workspaces [1, 3] is reachable from 1 and 3, never 2.
+        let user = IndexDocument::with_uuid(EntityType::User, "abc-def", "Sebastian")
+            .workspace_ids(vec![1, 3]);
+        let (_index, schema, reader) = index_docs(&[user]);
+
+        let q = |ws: i64| {
+            execute_search(&reader, &schema, "sebastian", 10, None, true, ws)
+                .expect("q")
+                .results
+                .len()
+        };
+        assert_eq!(q(1), 1, "reachable from workspace 1");
+        assert_eq!(q(3), 1, "reachable from workspace 3");
+        assert_eq!(q(2), 0, "not reachable from workspace 2 (no membership)");
+    }
+
+    #[test]
+    fn workspace_gate_does_not_match_text_irrelevant_docs() {
+        // Regression guard: adding the workspace Must clause must not turn
+        // the text Should clauses into a no-op that returns every doc in
+        // the workspace. Two docs in the same workspace, only one matches
+        // the query term.
+        let docs = vec![
+            ticket(1, 1), // "printer jam"
+            IndexDocument::new(
+                EntityType::Ticket,
+                2,
+                "stapler broken",
+                "the stapler is broken",
+            )
+            .workspace_id(1),
+        ];
+        let (_index, schema, reader) = index_docs(&docs);
+
+        let resp = execute_search(&reader, &schema, "printer", 10, None, true, 1).expect("q");
+        assert_eq!(
+            ids(&resp),
+            vec!["ticket-1"],
+            "only the text-matching doc should return, not every doc in the workspace"
+        );
+    }
+
+    #[test]
+    fn workspace_gate_composes_with_entity_type_and_internal_filters() {
+        // Same workspace, two entity types; the type filter still narrows
+        // within the workspace, and the internal-note filter still applies.
+        let docs = vec![
+            ticket(1, 1),
+            IndexDocument::new(
+                EntityType::Comment,
+                5,
+                "printer note",
+                "internal printer note",
+            )
+            .is_internal(true)
+            .workspace_id(1),
+        ];
+        let (_index, schema, reader) = index_docs(&docs);
+
+        // Staff (include_internal=true), restricted to tickets only.
+        let only_tickets = execute_search(
+            &reader,
+            &schema,
+            "printer",
+            10,
+            Some(&[EntityType::Ticket]),
+            true,
+            1,
+        )
+        .expect("tickets");
+        assert_eq!(ids(&only_tickets), vec!["ticket-1"]);
+
+        // Non-staff must not see the internal comment even within their ws.
+        let non_staff =
+            execute_search(&reader, &schema, "printer", 10, None, false, 1).expect("non-staff");
+        assert_eq!(
+            ids(&non_staff),
+            vec!["ticket-1"],
+            "internal comment filtered out for non-staff"
+        );
     }
 }

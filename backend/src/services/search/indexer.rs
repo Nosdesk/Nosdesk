@@ -1,7 +1,7 @@
 //! Indexing logic for each entity type
 
 use diesel::prelude::*;
-use tantivy::{doc, IndexWriter, Term};
+use tantivy::{IndexWriter, TantivyDocument, Term};
 use tracing::{info, warn};
 
 use crate::db::DbConnection;
@@ -44,6 +44,7 @@ pub fn index_document_from_ticket(
         .url(format!("/tickets/{}", ticket.id))
         .preview(preview)
         .updated_at(ticket.updated_at.and_utc().timestamp())
+        .workspace_id(ticket.workspace_id as i64)
 }
 
 /// Create an index document from a comment
@@ -59,6 +60,7 @@ pub fn index_document_from_comment(comment: &models::Comment, ticket_title: &str
         .preview(preview)
         .updated_at(comment.created_at.and_utc().timestamp())
         .is_internal(comment.is_internal)
+        .workspace_id(comment.workspace_id as i64)
 }
 
 /// Create an index document from a documentation page
@@ -87,6 +89,7 @@ pub fn index_document_from_documentation(doc_page: &models::DocumentationPage) -
     .url(url)
     .preview(preview)
     .updated_at(doc_page.updated_at.and_utc().timestamp())
+    .workspace_id(doc_page.workspace_id as i64)
 }
 
 /// Create an index document from an attachment
@@ -116,6 +119,7 @@ pub fn index_document_from_attachment(
         .url(format!("/tickets/{}", ticket_id))
         .preview(preview)
         .updated_at(chrono::Utc::now().timestamp())
+        .workspace_id(attachment.workspace_id as i64)
 }
 
 /// Create an index document from a device
@@ -210,11 +214,24 @@ pub fn index_document_from_device(device: &models::Asset) -> IndexDocument {
         .url(format!("/assets/{}", device.id))
         .preview(preview)
         .updated_at(device.updated_at.and_utc().timestamp())
+        .workspace_id(device.workspace_id as i64)
 }
 
-/// Create an index document from a user
+/// Create an index document from a user.
+///
+/// Users are a global identity (no `users.workspace_id`); tenancy comes
+/// from `workspace_members`. `workspace_ids` is the caller-supplied set of
+/// workspaces the user belongs to, indexed as multiple values on the one
+/// user doc so the user is searchable only within those workspaces. A user
+/// with no memberships is indexed with an empty set and is unreachable
+/// (fail-closed), which is correct.
+///
 /// Note: User doesn't have email/department/title directly - email is in user_emails table
-pub fn index_document_from_user(user: &models::User, primary_email: Option<&str>) -> IndexDocument {
+pub fn index_document_from_user(
+    user: &models::User,
+    primary_email: Option<&str>,
+    workspace_ids: &[i32],
+) -> IndexDocument {
     // Build metadata from available user fields
     let mut metadata_parts = Vec::new();
     if let Some(email) = primary_email {
@@ -228,6 +245,7 @@ pub fn index_document_from_user(user: &models::User, primary_email: Option<&str>
         .url(format!("/users/{}", user.uuid))
         .preview(preview)
         .updated_at(user.updated_at.and_utc().timestamp())
+        .workspace_ids(workspace_ids.iter().map(|&w| w as i64).collect())
 }
 
 /// Create an index document from a project. Title = name, content +
@@ -250,6 +268,7 @@ pub fn index_document_from_project(project: &models::Project) -> IndexDocument {
     .url(format!("/projects/{}", project.id))
     .preview(description)
     .updated_at(project.updated_at.and_utc().timestamp())
+    .workspace_id(project.workspace_id as i64)
 }
 
 /// Add a document to the index
@@ -262,19 +281,27 @@ pub fn add_document_to_index(
     let id_term = Term::from_field_text(schema.id, &doc.id);
     writer.delete_term(id_term);
 
-    // Add the new document
-    writer.add_document(doc!(
-        schema.id => doc.id.clone(),
-        schema.entity_type => doc.entity_type.as_str(),
-        schema.entity_id => doc.entity_id,
-        schema.title => doc.title.clone(),
-        schema.content => doc.content.clone(),
-        schema.metadata => doc.metadata.clone(),
-        schema.url => doc.url.clone(),
-        schema.preview => doc.preview.clone(),
-        schema.updated_at => doc.updated_at,
-        schema.is_internal => if doc.is_internal { 1i64 } else { 0i64 },
-    ))?;
+    // Build the document explicitly (rather than the `doc!` macro) so the
+    // workspace_id field can be added once per membership: Tantivy treats a
+    // field added N times as N values, and a TermQuery matches if any value
+    // equals the term. Entities carry a single workspace_id; a user carries
+    // one per workspace membership.
+    let mut tdoc = TantivyDocument::new();
+    tdoc.add_text(schema.id, &doc.id);
+    tdoc.add_text(schema.entity_type, doc.entity_type.as_str());
+    tdoc.add_i64(schema.entity_id, doc.entity_id);
+    tdoc.add_text(schema.title, &doc.title);
+    tdoc.add_text(schema.content, &doc.content);
+    tdoc.add_text(schema.metadata, &doc.metadata);
+    tdoc.add_text(schema.url, &doc.url);
+    tdoc.add_text(schema.preview, &doc.preview);
+    tdoc.add_i64(schema.updated_at, doc.updated_at);
+    tdoc.add_i64(schema.is_internal, if doc.is_internal { 1 } else { 0 });
+    for &workspace_id in &doc.workspace_ids {
+        tdoc.add_i64(schema.workspace_id, workspace_id);
+    }
+
+    writer.add_document(tdoc)?;
 
     Ok(())
 }
@@ -300,7 +327,7 @@ pub fn rebuild_index(
 ) -> Result<IndexStats, Box<dyn std::error::Error + Send + Sync>> {
     use crate::schema::{
         article_contents, assets, attachments, comments, documentation_pages, projects, tickets,
-        user_emails, users,
+        user_emails, users, workspace_members,
     };
 
     info!("Starting full index rebuild");
@@ -426,10 +453,32 @@ pub fn rebuild_index(
         .map(|ue| (ue.user_uuid, ue.email))
         .collect();
 
+    // Load every membership once and group by user so each user doc carries
+    // its full workspace set as multi-valued workspace_id terms. A user with
+    // no memberships gets an empty set and is unreachable (fail-closed).
+    let all_memberships: Vec<(uuid::Uuid, i32)> = workspace_members::table
+        .select((
+            workspace_members::user_uuid,
+            workspace_members::workspace_id,
+        ))
+        .load(conn)?;
+    let mut membership_map: std::collections::HashMap<uuid::Uuid, Vec<i32>> =
+        std::collections::HashMap::new();
+    for (user_uuid, workspace_id) in all_memberships {
+        membership_map
+            .entry(user_uuid)
+            .or_default()
+            .push(workspace_id);
+    }
+
     info!(count = all_users.len(), "Indexing users");
     for user in &all_users {
         let primary_email = email_map.get(&user.uuid).map(|s| s.as_str());
-        let doc = index_document_from_user(user, primary_email);
+        let workspace_ids = membership_map
+            .get(&user.uuid)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
+        let doc = index_document_from_user(user, primary_email, workspace_ids);
         if let Err(e) = add_document_to_index(writer, schema, &doc) {
             warn!(user_uuid = %user.uuid, error = ?e, "Failed to index user");
         } else {

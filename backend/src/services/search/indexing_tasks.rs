@@ -107,6 +107,19 @@ pub fn spawn_index_user(
     });
 }
 
+/// Re-index a user from current DB state in the background.
+///
+/// Used after a workspace membership change (add / remove): the user's
+/// workspace tags on their search doc are derived from
+/// `workspace_members`, so a membership mutation has to refresh the doc.
+/// Resolves the user, email, and membership set internally from the
+/// uuid, so the caller only needs the uuid.
+pub fn spawn_reindex_user(search_service: Arc<SearchService>, user_uuid: uuid::Uuid) {
+    spawn_indexing_task(search_service, "reindex user", move |svc| {
+        svc.reindex_user(user_uuid)
+    });
+}
+
 /// Delete a user from the index in the background
 pub fn spawn_delete_user(search_service: Arc<SearchService>, user_uuid: String) {
     spawn_indexing_task(search_service, "delete user", move |svc| {

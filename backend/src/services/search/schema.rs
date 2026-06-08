@@ -23,6 +23,12 @@ pub mod fields {
     /// is_internal=1 documents — preventing accidental disclosure
     /// of working notes through full-text search).
     pub const IS_INTERNAL: &str = "is_internal";
+    /// Workspace tenancy dimension. Multi-valued: an entity owned by one
+    /// workspace carries a single value; a user (global identity, member
+    /// of N workspaces) carries one value per membership. Every query
+    /// requires a matching value, so a doc is reachable only from a
+    /// workspace it belongs to.
+    pub const WORKSPACE_ID: &str = "workspace_id";
 }
 
 /// Container for all schema fields
@@ -39,6 +45,7 @@ pub struct SearchSchema {
     pub preview: Field,
     pub updated_at: Field,
     pub is_internal: Field,
+    pub workspace_id: Field,
 }
 
 impl SearchSchema {
@@ -71,6 +78,12 @@ impl SearchSchema {
         let is_internal_options = NumericOptions::default().set_stored().set_indexed();
         let is_internal = builder.add_i64_field(fields::IS_INTERNAL, is_internal_options);
 
+        // Indexed so every query can require a matching workspace term.
+        // Multi-valued in practice (users carry one value per membership);
+        // a field is multi-valued simply by adding it more than once.
+        let workspace_id_options = NumericOptions::default().set_stored().set_indexed();
+        let workspace_id = builder.add_i64_field(fields::WORKSPACE_ID, workspace_id_options);
+
         let text_indexing = TextFieldIndexing::default()
             .set_tokenizer("default")
             .set_index_option(IndexRecordOption::WithFreqsAndPositions);
@@ -100,6 +113,7 @@ impl SearchSchema {
             preview,
             updated_at,
             is_internal,
+            workspace_id,
         }
     }
 
@@ -115,6 +129,7 @@ impl SearchSchema {
         fields::PREVIEW,
         fields::UPDATED_AT,
         fields::IS_INTERNAL,
+        fields::WORKSPACE_ID,
     ];
 
     /// Create a SearchSchema from an existing index by looking up field handles
@@ -138,6 +153,7 @@ impl SearchSchema {
             preview: get(fields::PREVIEW)?,
             updated_at: get(fields::UPDATED_AT)?,
             is_internal: get(fields::IS_INTERNAL)?,
+            workspace_id: get(fields::WORKSPACE_ID)?,
             schema,
         })
     }
