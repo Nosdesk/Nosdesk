@@ -79,6 +79,11 @@ enum Commands {
     /// before any container exists.
     #[command(subcommand)]
     Secrets(SecretsCommand),
+
+    /// Print the first-run setup token and onboarding URL. Handy
+    /// after a detached `docker compose up -d`, where the startup
+    /// banner isn't streamed to your terminal.
+    SetupToken,
 }
 
 #[derive(Subcommand)]
@@ -252,6 +257,7 @@ fn main() -> ExitCode {
         Commands::Admin(cmd) => run_admin(cmd),
         Commands::Db(cmd) => run_db(cmd),
         Commands::Secrets(cmd) => run_secrets(cmd),
+        Commands::SetupToken => run_setup_token(),
     };
 
     match result {
@@ -260,6 +266,24 @@ fn main() -> ExitCode {
             eprintln!("error: {e:#}");
             ExitCode::FAILURE
         }
+    }
+}
+
+// ---------------------------------------------------------------
+// Setup token
+// ---------------------------------------------------------------
+
+fn run_setup_token() -> Result<()> {
+    match backend::utils::bootstrap_token::current_token_and_url() {
+        Some((token, url)) => {
+            println!("Setup token:  {token}");
+            println!("Setup URL:    {url}");
+            Ok(())
+        }
+        None => Err(anyhow::anyhow!(
+            "no active setup token — this instance is already set up, or the token \
+             expired. Restart the backend to mint a fresh one."
+        )),
     }
 }
 

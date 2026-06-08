@@ -200,16 +200,66 @@ fn setup_url(token: &str) -> String {
     format!("{base}/onboarding?token={token}")
 }
 
-/// Emit the operator-facing log line on first boot. One line is
-/// the right answer: Pocketbase, GitLab, ntfy all log exactly
-/// one URL/token line and rely on docs + the API error response
-/// to cover edge cases (proxy hostnames, headless flows).
+/// The current bootstrap token and its setup URL, if an unexpired token
+/// exists on disk. `None` when setup is already complete (no token file)
+/// or the token has expired. Backs the `nosdesk-cli setup-token` command
+/// so an operator can fetch the value on demand (e.g. after a detached
+/// `docker compose up -d`) without grepping the logs.
+pub fn current_token_and_url() -> Option<(String, String)> {
+    let path = token_file_path();
+    if !path.exists() || is_expired(&path) {
+        return None;
+    }
+    let token = read_token_file(&path).ok()?;
+    if token.is_empty() {
+        return None;
+    }
+    let url = setup_url(&token);
+    Some((token, url))
+}
+
+/// Emit the operator-facing first-boot banner.
+///
+/// Printed as a bordered block straight to stderr rather than through
+/// `tracing`, for two reasons: (1) it shows regardless of `RUST_LOG`
+/// (an operator who set `RUST_LOG=error` still needs the setup URL),
+/// and (2) it's free of the per-line log prefix (timestamp / target /
+/// level), so the URL and token are clean to copy-paste. This mirrors
+/// the installer banners PocketBase / Gitea print on first run, and is
+/// far easier to spot in `docker compose logs` than a single log line
+/// lost in the startup noise. A structured `tracing::info!` is also
+/// emitted so log aggregators still capture the event.
 fn log_setup_line(token: &str) {
     let url = setup_url(token);
     let ttl_minutes = ttl().as_secs() / 60;
-    tracing::warn!(
-        "bootstrap: visit {url} to create the initial admin (expires in {ttl_minutes} min)"
-    );
+    let rule = "  ──────────────────────────────────────────────────────────────";
+
+    let banner = [
+        String::new(),
+        rule.to_string(),
+        "  Nosdesk · first-run setup".to_string(),
+        rule.to_string(),
+        String::new(),
+        "  Open this URL to create your administrator account:".to_string(),
+        String::new(),
+        format!("      {url}"),
+        String::new(),
+        "  …or paste this token into the setup form:".to_string(),
+        String::new(),
+        format!("      {token}"),
+        String::new(),
+        format!("  Expires in {ttl_minutes} min. Behind a reverse proxy? Set FRONTEND_URL"),
+        "  and restart, or swap the host in the URL above.".to_string(),
+        String::new(),
+        "  Need it again later? Run:".to_string(),
+        "      docker compose exec backend nosdesk-cli setup-token".to_string(),
+        String::new(),
+    ]
+    .join("\n");
+    eprintln!("{banner}");
+
+    // Structured mirror for log aggregators / non-interactive capture.
+    tracing::info!(%url, expires_in_min = ttl_minutes, "bootstrap setup URL minted");
 }
 
 fn read_token_file(path: &Path) -> Result<String> {

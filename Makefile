@@ -121,8 +121,7 @@ mailpit:
 # Print the bootstrap token used for the initial-admin onboarding.
 # Logged at backend startup, but easy to lose in scrollback.
 token:
-	@$(COMPOSE) exec backend cat /app/uploads/bootstrap.token 2>/dev/null \
-	  || echo "No bootstrap token. Either setup is complete (run psql to confirm) or the backend hasn't booted yet."
+	@$(COMPOSE) exec backend nosdesk-cli setup-token
 
 # Wire up the in-repo git hooks (one-shot per clone). Points git
 # at .githooks/ for hook lookups so `pre-commit` runs rustfmt +
