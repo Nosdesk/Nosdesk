@@ -1,9 +1,12 @@
 <!--
-Shared horizontal KPI rail for stat widgets. Each entry renders as a
-divided column with a large number above a small label, links to a
-drill-down page on click. Layout + typography live here so the three
-stat widgets stay visually locked; their only job is to supply the
-`kpis` array.
+Shared KPI rail for stat widgets (SLA health, etc.). Each cell is a
+drill-down link with a headline number and label. The rail fills the
+shell body (`flex-1 min-h-0 h-full`) and cells stretch to the full
+grid track height so 1-row widgets don't leave dead vertical space.
+
+Layout uses container queries on the rail width: four columns when
+there is room, 2×2 when the widget is narrow. Dividers are gap-px
+tracks so wrapping doesn't fight `divide-x`.
 -->
 <script setup lang="ts">
 export interface Kpi {
@@ -24,25 +27,32 @@ defineProps<{
 </script>
 
 <template>
-  <div class="flex-1 flex items-center divide-x divide-default">
-    <router-link
-      v-for="stat in kpis"
-      :key="stat.id ?? stat.label"
-      :to="stat.to"
-      :title="stat.description"
-      class="flex-1 px-2 py-3 flex flex-col items-center justify-center hover:bg-surface-hover transition-colors group min-w-0"
+  <div class="@container flex-1 min-h-0 h-full w-full">
+    <div
+      class="grid h-full min-h-0 grid-cols-2 @sm:grid-cols-4 auto-rows-fr gap-px bg-default"
     >
-      <span
-        :class="[
-          'text-xl font-semibold tabular-nums leading-none group-hover:text-accent transition-colors',
-          stat.tone ?? 'text-primary',
-        ]"
+      <router-link
+        v-for="stat in kpis"
+        :key="stat.id ?? stat.label"
+        :to="stat.to"
+        :title="stat.description"
+        class="group flex min-h-0 min-w-0 flex-col bg-surface px-2 py-2 sm:px-3 hover:bg-surface-hover transition-colors"
       >
-        {{ stat.value }}
-      </span>
-      <span class="mt-1.5 text-[10px] font-medium uppercase tracking-wider text-tertiary truncate max-w-full">
-        {{ stat.label }}
-      </span>
-    </router-link>
+        <span
+          :class="[
+            'shrink-0 text-xl font-semibold tabular-nums leading-none group-hover:text-accent transition-colors',
+            stat.tone ?? 'text-primary',
+          ]"
+        >
+          {{ stat.value }}
+        </span>
+        <span class="flex-1 min-h-0" aria-hidden="true" />
+        <span
+          class="shrink-0 text-[10px] font-medium uppercase tracking-wider text-tertiary truncate max-w-full"
+        >
+          {{ stat.label }}
+        </span>
+      </router-link>
+    </div>
   </div>
 </template>

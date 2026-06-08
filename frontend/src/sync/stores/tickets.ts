@@ -63,6 +63,7 @@ export interface SyncTicket {
   created_at: string
   updated_at: string
   last_activity_at: string
+  closed_at?: string | null
 }
 
 export const useSyncTicketsStore = defineStore('syncTickets', () => {

@@ -75,21 +75,45 @@ function evalPredicate(p: FilterPredicate, card: CardData): boolean {
       return value != null
     case 'no':
       return value == null
-    // Comparison operators (gt/lt/gte/lte/between) and the time-
-    // window operator (changed_in_last) are spec'd in the
-    // FilterState type but not yet implemented. Returning true is
-    // permissive (rather than excluding cards entirely) so an
-    // unfinished filter doesn't accidentally hide rows the user
-    // expected to see; logging would be too chatty for a
-    // legitimate caller waiting for the operator to ship.
+    // Comparison operators for date and numeric predicates.
     case 'gt':
+      return compareValues(value, p.value) > 0
     case 'lt':
+      return compareValues(value, p.value) < 0
     case 'gte':
+      return compareValues(value, p.value) >= 0
     case 'lte':
+      return compareValues(value, p.value) <= 0
     case 'between':
+      if (!Array.isArray(p.value) || p.value.length < 2) return true
+      return (
+        compareValues(value, p.value[0]) >= 0
+        && compareValues(value, p.value[1]) <= 0
+      )
     case 'changed_in_last':
       return true
   }
+}
+
+function compareValues(a: unknown, b: unknown): number {
+  if (a == null && b == null) return 0
+  if (a == null) return -1
+  if (b == null) return 1
+  const aTime = toComparableNumber(a)
+  const bTime = toComparableNumber(b)
+  if (aTime != null && bTime != null) return aTime - bTime
+  return String(a).localeCompare(String(b))
+}
+
+function toComparableNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value)
+    if (!Number.isNaN(parsed)) return parsed
+    const asNum = Number(value)
+    if (!Number.isNaN(asNum)) return asNum
+  }
+  return null
 }
 
 /**

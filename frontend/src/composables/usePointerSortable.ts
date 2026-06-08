@@ -108,6 +108,15 @@ const EDGE_SCROLL_MAX = 4
  *  doesn't flip mid-gesture on a resize. */
 const MULTI_COLUMN_MIN_WIDTH = 1280
 
+/** Count rendered grid columns from `grid-template-columns`. Falls
+ *  back to 1 when the grid is single-column (mobile) or unavailable. */
+export function snapshotGridColumnCount(el: HTMLElement | null): number {
+  if (!el) return 1
+  const tracks = getComputedStyle(el).gridTemplateColumns.trim()
+  if (!tracks || tracks === 'none') return 1
+  return tracks.split(/\s+/).filter(Boolean).length
+}
+
 export function usePointerSortable(options: PointerSortableOptions) {
   const { enabled, onReorder, onInvalidDrop, getGridEl } = options
   const clickThreshold = options.clickThreshold ?? 5
@@ -156,11 +165,7 @@ export function usePointerSortable(options: PointerSortableOptions) {
   }
 
   function snapshotRenderedColumns(): number {
-    const el = getGridEl?.()
-    if (!el) return 1
-    const tracks = getComputedStyle(el).gridTemplateColumns.trim()
-    if (!tracks || tracks === 'none') return 1
-    return tracks.split(/\s+/).filter(Boolean).length
+    return snapshotGridColumnCount(getGridEl?.() ?? null)
   }
 
   function freezeRects() {

@@ -23,6 +23,7 @@ import {
   type TsTimeField,
   type TimeseriesBucket,
 } from '@/services/analyticsService'
+import { monotonePath } from './seriesPath'
 
 let gradientUidCounter = 0
 function nextGradientUid(): number {
@@ -194,62 +195,6 @@ function niceCeiling(n: number): number {
   if (n <= 10) return 10
   const magnitude = Math.pow(10, Math.floor(Math.log10(n)))
   return Math.ceil(n / magnitude) * magnitude
-}
-
-/**
- * Monotone cubic Hermite path (Fritsch-Carlson). Produces a smooth
- * curve through the points that never overshoots them — so a
- * flat-then-rising ticket series stays pinned to its values and the
- * area fill can't dip below the baseline (which a plain Catmull-Rom
- * spline would do at sharp transitions). 0 / 1 points degrade to a
- * move / no curve.
- */
-function monotonePath(pts: Pt[]): string {
-  const n = pts.length
-  if (n === 0) return ''
-  if (n === 1) return `M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}`
-
-  const dx: number[] = []
-  const slope: number[] = []
-  for (let i = 0; i < n - 1; i++) {
-    const h = pts[i + 1].x - pts[i].x
-    dx.push(h)
-    slope.push(h === 0 ? 0 : (pts[i + 1].y - pts[i].y) / h)
-  }
-
-  const m: number[] = new Array(n)
-  m[0] = slope[0]
-  m[n - 1] = slope[n - 2]
-  for (let i = 1; i < n - 1; i++) {
-    m[i] = slope[i - 1] * slope[i] <= 0 ? 0 : (slope[i - 1] + slope[i]) / 2
-  }
-  // Clamp tangents so each segment stays monotonic (no overshoot).
-  for (let i = 0; i < n - 1; i++) {
-    if (slope[i] === 0) {
-      m[i] = 0
-      m[i + 1] = 0
-      continue
-    }
-    const a = m[i] / slope[i]
-    const b = m[i + 1] / slope[i]
-    const s = a * a + b * b
-    if (s > 9) {
-      const tau = 3 / Math.sqrt(s)
-      m[i] = tau * a * slope[i]
-      m[i + 1] = tau * b * slope[i]
-    }
-  }
-
-  let d = `M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}`
-  for (let i = 0; i < n - 1; i++) {
-    const h = dx[i]
-    const cp1x = pts[i].x + h / 3
-    const cp1y = pts[i].y + (m[i] * h) / 3
-    const cp2x = pts[i + 1].x - h / 3
-    const cp2y = pts[i + 1].y - (m[i + 1] * h) / 3
-    d += ` C${cp1x.toFixed(1)},${cp1y.toFixed(1)} ${cp2x.toFixed(1)},${cp2y.toFixed(1)} ${pts[i + 1].x.toFixed(1)},${pts[i + 1].y.toFixed(1)}`
-  }
-  return d
 }
 
 function tickY(value: number): number {

@@ -314,7 +314,7 @@ function sizeKeyToSpan(key: string): WidgetSpan | null {
     @contextmenu="onContextMenu"
     @keydown="onCardKeydown"
   >
-    <div class="flex flex-col flex-1 min-w-0">
+    <div class="flex flex-col flex-1 min-w-0 min-h-0">
     <!--
       Indeterminate progress bar for background refetches. Positioned
       at the very top of the card, clipped by the shell's rounded
@@ -411,7 +411,7 @@ function sizeKeyToSpan(key: string): WidgetSpan | null {
         <div
           v-if="loading"
           key="skeleton"
-          class="flex-1 flex flex-col"
+          class="flex-1 flex flex-col min-h-0 h-full"
           aria-busy="true"
           :aria-label="t('dashboard-widget-shell-loading-label', { title })"
         >
@@ -456,11 +456,25 @@ function sizeKeyToSpan(key: string): WidgetSpan | null {
             </router-link>
           </slot>
         </div>
-        <div v-else key="content" class="flex-1 flex flex-col">
+        <div v-else key="content" class="flex-1 flex flex-col min-h-0 h-full">
           <slot />
         </div>
       </Transition>
     </div>
+
+    <!-- Optional footer pinned below the body region. Widgets with a
+         plot + caption row (heatmap legend, chart axis notes) use this
+         instead of baking chrome into the default slot so the plot can
+         consume `flex-1 min-h-0` without manual ResizeObserver budgets. -->
+    <footer
+      v-if="$slots.footer"
+      :class="[
+        'shrink-0 flex items-center border-t border-default px-3 py-1.5 min-h-[1.75rem]',
+        dragging ? 'opacity-40 pointer-events-none' : '',
+      ]"
+    >
+      <slot name="footer" />
+    </footer>
     </div>
 
     <ContextMenu

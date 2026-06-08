@@ -21,6 +21,9 @@ export interface BuiltInView {
     | 'overdue'
     | 'triage'
     | 'calendar'
+    | 'dashboard-created'
+    | 'dashboard-resolved'
+    | 'dashboard-open'
   /** English fallback labels, kept for pre-i18n call sites and as
    * the `fallback` argument to `translate()` so the UI never blanks
    * if the Fluent bundle hasn't initialised yet. */
@@ -297,9 +300,100 @@ export const BUILTIN_VIEWS: BuiltInView[] = [
   CALENDAR_VIEW,
 ]
 
+/** Dashboard KPI drill-down views. Not listed in the view switcher;
+ * reached via `/tickets?view=dashboard-*` from dashboard widgets. */
+export const DASHBOARD_BUILTIN_VIEWS: BuiltInView[] = [
+  {
+    id: 'dashboard-created',
+    name: 'Created',
+    description: 'Tickets created in the dashboard time range',
+    nameKey: 'builtin-view-dashboard-created-name',
+    descriptionKey: 'builtin-view-dashboard-created-description',
+    shape: { ...baseListShape, columns: defaultColumns },
+    filter: { ...baseFilter, predicate: { combinator: 'AND', children: [] }, quick_filters: [] },
+  },
+  {
+    id: 'dashboard-resolved',
+    name: 'Resolved',
+    description: 'Tickets resolved in the dashboard time range',
+    nameKey: 'builtin-view-dashboard-resolved-name',
+    descriptionKey: 'builtin-view-dashboard-resolved-description',
+    shape: { ...baseListShape, columns: defaultColumns },
+    filter: { ...baseFilter, predicate: { combinator: 'AND', children: [] }, quick_filters: [] },
+  },
+  {
+    id: 'dashboard-open',
+    name: 'Open',
+    description: 'Tickets that are not yet closed',
+    nameKey: 'builtin-view-dashboard-open-name',
+    descriptionKey: 'builtin-view-dashboard-open-description',
+    shape: { ...baseListShape, columns: defaultColumns },
+    filter: { ...baseFilter, predicate: { combinator: 'AND', children: [] }, quick_filters: [] },
+  },
+]
+
+export function isDashboardBuiltinViewId(id: string): boolean {
+  return DASHBOARD_BUILTIN_VIEWS.some((v) => v.id === id)
+}
+
+/** Apply dashboard time-window params from the URL to a drill-down
+ * view filter so the list matches the KPI the user clicked. */
+export function resolveDashboardViewFilter(
+  viewId: string,
+  from?: string,
+  to?: string,
+): FilterState {
+  switch (viewId) {
+    case 'dashboard-created':
+      if (from && to) {
+        return {
+          ...baseFilter,
+          predicate: {
+            combinator: 'AND',
+            children: [
+              { field: 'created_at', op: 'gte', value: from },
+              { field: 'created_at', op: 'lt', value: to },
+            ],
+          },
+          quick_filters: [],
+        }
+      }
+      return ALL_TICKETS_VIEW.filter
+    case 'dashboard-resolved':
+      if (from && to) {
+        return {
+          ...baseFilter,
+          predicate: {
+            combinator: 'AND',
+            children: [
+              { field: 'closed_at', op: 'is_not_empty', value: null },
+              { field: 'closed_at', op: 'gte', value: from },
+              { field: 'closed_at', op: 'lt', value: to },
+            ],
+          },
+          quick_filters: [],
+        }
+      }
+      return ALL_TICKETS_VIEW.filter
+    case 'dashboard-open':
+      return {
+        ...baseFilter,
+        predicate: {
+          combinator: 'AND',
+          children: [{ field: 'closed_at', op: 'is_empty', value: null }],
+        },
+        quick_filters: [],
+      }
+    default:
+      return ALL_TICKETS_VIEW.filter
+  }
+}
+
 export function findBuiltinView(id: string): BuiltInView | null {
   // Accept the legacy `my-queue` id so bookmarks / shared URLs
   // from before the rename keep working. Resolves to MY_OPEN_VIEW.
   if (id === 'my-queue') return MY_OPEN_VIEW
-  return BUILTIN_VIEWS.find((v) => v.id === id) ?? null
+  return BUILTIN_VIEWS.find((v) => v.id === id)
+    ?? DASHBOARD_BUILTIN_VIEWS.find((v) => v.id === id)
+    ?? null
 }

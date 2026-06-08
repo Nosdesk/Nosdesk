@@ -49,6 +49,9 @@ export interface CardData {
   due_date?: string | null
   created_at: string
   updated_at: string
+  /** Set when the ticket reaches a terminal workflow state. Used by
+   * dashboard open/resolved drill-down views to mirror analytics KPIs. */
+  closed_at?: string | null
   /** Sort key the kanban / list views default to. Driven by any
    * activity touching the row (status change, comment, etc.). */
   last_activity_at: string

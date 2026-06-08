@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { formatDate } from '@/utils/dateUtils';
 import { ref, onMounted, computed, onActivated } from "vue";
 import { useRouter } from "vue-router";
 import { useFluent } from 'fluent-vue';
 import { getTickets } from "@/services/ticketService";
 import { useWorkflowStatesStore } from "@/stores/workflowStates";
 import { TERMINAL_CATEGORIES } from "@/types/workflow";
-import HeatmapTooltip from "@/components/HeatmapTooltip.vue";
 import DashboardWidgetShell from "@/views/dashboard/DashboardWidgetShell.vue";
+import ContributionHeatmapPlot, {
+    type ContributionDay,
+} from "@/views/dashboard/charts/ContributionHeatmapPlot.vue";
 
 const fluent = useFluent();
 const wf = useWorkflowStatesStore();
@@ -28,30 +29,36 @@ const props = withDefaults(defineProps<Props>(), {
     titleKey: "",
 });
 
-interface DayData {
-    date: string;
-    count: number;
-    tickets: { id: number; title: string }[];
-}
-
 const router = useRouter();
-const heatmapData = ref<DayData[]>([]);
+const heatmapData = ref<ContributionDay[]>([]);
 const isLoading = ref(true);
 const error = ref<string | null>(null);
 
+const shellTitle = computed(() =>
+    props.titleKey
+        ? fluent.$t(props.titleKey)
+        : (props.title || (props.mode === 'completed'
+            ? fluent.$t('ticket-heatmap-title-closed')
+            : fluent.$t('ticket-heatmap-title-activity'))),
+);
+
+const daysWithActivity = computed(
+    () => heatmapData.value.filter((d) => d.count > 0).length,
+);
+
+const todayStr = new Date().toISOString().split("T")[0];
+
 // Generate 365 days of data ending today
-const generateDateRange = () => {
-    const dates: DayData[] = [];
+const generateDateRange = (): ContributionDay[] => {
+    const dates: ContributionDay[] = [];
     const today = new Date();
 
-    // Generate 365 days ending today (including today)
     for (let i = 364; i >= 0; i--) {
         const date = new Date(
             today.getFullYear(),
             today.getMonth(),
             today.getDate() - i,
         );
-        // Use local date formatting to avoid timezone issues
         const year = date.getFullYear();
         const month = String(date.getMonth() + 1).padStart(2, "0");
         const day = String(date.getDate()).padStart(2, "0");
@@ -67,10 +74,6 @@ const generateDateRange = () => {
     return dates;
 };
 
-// Generate skeleton grid structure (53 weeks x 7 days)
-const skeletonWeeks = Array.from({ length: 53 }, () => Array(7).fill(null));
-
-// Fetch ticket data and populate the heatmap
 const fetchTicketData = async () => {
     isLoading.value = true;
     error.value = null;
@@ -82,12 +85,10 @@ const fetchTicketData = async () => {
             { count: number; tickets: { id: number; title: string }[] }
         >();
 
-        // Initialize map
         emptyDates.forEach((day) => {
             dateMap.set(day.date, { count: 0, tickets: [] });
         });
 
-        // Fetch and process tickets
         await wf.load();
         const tickets = await getTickets();
 
@@ -108,7 +109,6 @@ const fetchTicketData = async () => {
             }
         });
 
-        // Convert back to array
         heatmapData.value = emptyDates.map((day) => ({
             date: day.date,
             count: dateMap.get(day.date)?.count || 0,
@@ -122,56 +122,15 @@ const fetchTicketData = async () => {
     }
 };
 
-// Get CSS class based on activity count
-const getColorClass = (count: number) => {
-    if (count === 0) return "heatmap-level-0";
-    if (count <= 1) return "heatmap-level-1";
-    if (count <= 2) return "heatmap-level-2";
-    if (count <= 3) return "heatmap-level-3";
-    return "heatmap-level-4";
-};
-
-// Check if date is in the future
-const todayStr = new Date().toISOString().split("T")[0];
-const isFutureDate = (dateStr: string) => dateStr > todayStr;
-
-// Format date for tooltip
-const formatHeatmapDate = (date: string) => {
-    return formatDate(date, "MMM d, yyyy");
-};
-
-// Create tooltip content
-const getTooltipDetails = (day: DayData) => {
-    if (day.count === 0) {
-        return {
-            title: fluent.$t('ticket-heatmap-tooltip-empty'),
-            date: formatHeatmapDate(day.date),
-        };
-    }
-
-    return {
-        title: fluent.$t('ticket-heatmap-tooltip-count', { count: day.count }),
-        date: formatHeatmapDate(day.date),
-        tickets: day.tickets.slice(0, 5).map((ticket) => ({
-            id: ticket.id,
-            title: ticket.title,
-        })),
-        totalTickets: day.tickets.length,
-    };
-};
-
-// Group data into proper weeks (starting Sunday)
 const weeklyData = computed(() => {
     if (heatmapData.value.length === 0) return [];
 
-    const weeks: DayData[][] = [];
+    const weeks: ContributionDay[][] = [];
     const data = [...heatmapData.value];
 
-    // Find the first Sunday to start the calendar properly
     const firstDate = new Date(data[0].date);
-    const firstDayOfWeek = firstDate.getDay(); // 0 = Sunday
+    const firstDayOfWeek = firstDate.getDay();
 
-    // Pad the beginning if we don't start on Sunday
     for (let i = 0; i < firstDayOfWeek; i++) {
         const paddingDate = new Date(firstDate);
         paddingDate.setDate(paddingDate.getDate() - (firstDayOfWeek - i));
@@ -187,12 +146,9 @@ const weeklyData = computed(() => {
         });
     }
 
-    // Group into weeks of 7 days (including incomplete weeks)
     for (let i = 0; i < data.length; i += 7) {
         const week = data.slice(i, i + 7);
-        // Include all weeks, even if incomplete
         if (week.length > 0) {
-            // Pad incomplete weeks to 7 days for consistent display
             while (week.length < 7) {
                 const lastDate = new Date(week[week.length - 1].date);
                 lastDate.setDate(lastDate.getDate() + 1);
@@ -214,10 +170,7 @@ const weeklyData = computed(() => {
     return weeks;
 });
 
-// Handle day click navigation
-const handleDayClick = (day: DayData) => {
-    if (day.count === 0) return;
-
+function handleDayClick(day: ContributionDay) {
     const query: Record<string, string> = {};
     if (props.mode === 'completed') {
         query.closedOn = day.date;
@@ -229,13 +182,20 @@ const handleDayClick = (day: DayData) => {
         path: "/tickets",
         query,
     });
-};
+}
+
+function legendClass(level: number): string {
+    if (level === 0) return "heatmap-level-0";
+    if (level === 1) return "heatmap-level-1";
+    if (level === 2) return "heatmap-level-2";
+    if (level === 3) return "heatmap-level-3";
+    return "heatmap-level-4";
+}
 
 onMounted(() => {
     fetchTicketData();
 });
 
-// Refetch data when component is activated (e.g., navigating back to dashboard)
 onActivated(() => {
     fetchTicketData();
 });
@@ -243,123 +203,61 @@ onActivated(() => {
 
 <template>
     <!--
-      Shares `DashboardWidgetShell` for chrome + error state; the
-      heatmap grid + legend are the body. Passing `flush-body="false"`
-      gives us the inner padding the grid needs without re-implementing
-      it.
+      Plot + footer split follows the dashboard fluid-widget contract:
+      the shell body slot is `flex-1 min-h-0` (see DashboardWidgetShell)
+      and the optional `#footer` slot is pinned chrome. ContributionHeatmapPlot
+      fills the body with relative flex sizing — no pixel budgets.
     -->
     <DashboardWidgetShell
-        :title="props.titleKey ? $t(props.titleKey) : (props.title || (props.mode === 'completed' ? $t('ticket-heatmap-title-closed') : $t('ticket-heatmap-title-activity')))"
+        :title="shellTitle"
+        :loading="isLoading"
         :error="error"
-        :flush-body="false"
     >
-        <!-- Heatmap Container -->
-        <div class="w-full">
-            <div class="flex flex-col gap-2 w-full">
-                <!-- Main heatmap grid -->
-                <div class="flex gap-1.5 w-full">
-                    <!-- Days of week labels -->
-                    <div
-                        class="flex flex-col gap-0.5 text-[10px] text-secondary justify-around flex-shrink-0"
-                    >
-                        <span class="h-2.5 flex items-center">{{ $t('ticket-heatmap-day-sun') }}</span>
-                        <span class="h-2.5 flex items-center">{{ $t('ticket-heatmap-day-mon') }}</span>
-                        <span class="h-2.5 flex items-center">{{ $t('ticket-heatmap-day-tue') }}</span>
-                        <span class="h-2.5 flex items-center">{{ $t('ticket-heatmap-day-wed') }}</span>
-                        <span class="h-2.5 flex items-center">{{ $t('ticket-heatmap-day-thu') }}</span>
-                        <span class="h-2.5 flex items-center">{{ $t('ticket-heatmap-day-fri') }}</span>
-                        <span class="h-2.5 flex items-center">{{ $t('ticket-heatmap-day-sat') }}</span>
-                    </div>
+        <template #skeleton>
+            <ContributionHeatmapPlot
+                :weeks="[]"
+                :today-str="todayStr"
+                loading
+            />
+        </template>
 
-                    <!-- Skeleton grid while loading -->
-                    <div v-if="isLoading" class="flex-1 min-w-0">
+        <ContributionHeatmapPlot
+            :weeks="weeklyData"
+            :today-str="todayStr"
+            @day-click="handleDayClick"
+        />
+
+        <template #footer>
+            <div v-if="isLoading" class="flex flex-1 min-w-0 items-center">
+                <span class="inline-block h-2.5 w-28 rounded bg-surface-alt animate-pulse" />
+            </div>
+            <div v-else class="flex flex-1 min-w-0 items-center justify-between gap-2">
+                <p class="text-[10px] text-tertiary tabular-nums truncate min-w-0">
+                    {{ $t('ticket-heatmap-days-with-activity', { count: daysWithActivity }) }}
+                </p>
+
+                <div class="flex items-center gap-1.5 text-[9px] text-tertiary shrink-0">
+                    <span class="sr-only">{{ $t('ticket-heatmap-legend-less') }}</span>
+                    <div class="flex gap-0.5" aria-hidden="true">
                         <div
-                            class="grid w-full animate-pulse"
-                            :style="{ gridTemplateColumns: `repeat(${skeletonWeeks.length}, minmax(0, 1fr))` }"
-                        >
-                            <div
-                                v-for="(week, weekIndex) in skeletonWeeks"
-                                :key="weekIndex"
-                                class="flex flex-col"
-                            >
-                                <div v-for="dayIndex in 7" :key="dayIndex" class="p-[1px]">
-                                    <div class="w-full h-2.5 rounded-[1px] bg-surface-alt border border-subtle" />
-                                </div>
-                            </div>
-                        </div>
+                            v-for="i in 5"
+                            :key="i"
+                            class="size-2 rounded-sm border border-subtle"
+                            :class="legendClass(i - 1)"
+                        />
                     </div>
-
-                    <!-- Real heatmap data -->
-                    <div v-else class="flex-1 min-w-0">
-                        <div
-                            class="grid w-full"
-                            :style="{ gridTemplateColumns: `repeat(${weeklyData.length}, minmax(0, 1fr))` }"
-                        >
-                            <div
-                                v-for="(week, weekIndex) in weeklyData"
-                                :key="weekIndex"
-                                class="flex flex-col"
-                            >
-                                <HeatmapTooltip
-                                    v-for="(day, dayIndex) in week"
-                                    :key="`${weekIndex}-${dayIndex}`"
-                                    :text="day.count.toString()"
-                                    :details="getTooltipDetails(day)"
-                                    :disabled="isFutureDate(day.date)"
-                                >
-                                    <div class="p-[1px]">
-                                        <div
-                                            class="w-full h-2.5 rounded-[1px] transition-colors duration-300 hover:scale-110 hover:z-10 border"
-                                            :class="[
-                                                isFutureDate(day.date) ? 'invisible' : getColorClass(day.count),
-                                                isFutureDate(day.date) ? 'border-transparent' : 'border-subtle',
-                                                day.count > 0 && !isFutureDate(day.date) ? 'cursor-pointer hover:border-default' : 'cursor-default'
-                                            ]"
-                                            @click="!isFutureDate(day.date) && handleDayClick(day)"
-                                        />
-                                    </div>
-                                </HeatmapTooltip>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Legend and info -->
-                <div class="flex justify-between items-center">
-                    <div class="text-[10px] text-secondary">
-                        <template v-if="!isLoading">
-                            {{ $t('ticket-heatmap-days-with-activity', { count: heatmapData.filter((d) => d.count > 0).length }) }}
-                        </template>
-                        <span v-else class="invisible">{{ $t('ticket-heatmap-days-with-activity', { count: 0 }) }}</span>
-                    </div>
-
-                    <!-- Legend -->
-                    <div class="flex items-center gap-2 text-[10px] text-secondary">
-                        <span>{{ $t('ticket-heatmap-legend-less') }}</span>
-                        <div class="flex gap-0.5">
-                            <div
-                                v-for="i in 5"
-                                :key="i"
-                                class="w-2.5 h-2.5 rounded-[1px] border border-subtle"
-                                :class="getColorClass(i - 1)"
-                            />
-                        </div>
-                        <span>{{ $t('ticket-heatmap-legend-more') }}</span>
-                    </div>
+                    <span class="sr-only">{{ $t('ticket-heatmap-legend-more') }}</span>
                 </div>
             </div>
-        </div>
+        </template>
     </DashboardWidgetShell>
 </template>
 
 <style scoped>
-/* Heatmap color levels using semantic CSS variables */
-/* Level 0: No activity - uses surface-alt for empty state */
 .heatmap-level-0 {
     background-color: var(--color-bg-surface-alt);
 }
 
-/* Levels 1-4: Gradient from muted to full status-success color */
 .heatmap-level-1 {
     background-color: color-mix(in srgb, var(--color-status-success) 25%, var(--color-bg-surface-alt));
 }

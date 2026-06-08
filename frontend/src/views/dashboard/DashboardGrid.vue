@@ -37,6 +37,7 @@ import { useDashboardLayoutStore } from '@/stores/dashboardLayout'
 import {
   packGrid,
   projectedTargetIndex,
+  snapshotGridColumnCount,
   usePointerSortable,
   type ProjectableEntry,
 } from '@/composables/usePointerSortable'
@@ -112,7 +113,7 @@ function captureLayoutSnapshot(): LayoutSnapshot | null {
   const style = getComputedStyle(grid)
   const colGap = parseFloat(style.columnGap || style.gap || '0') || 0
   const rowGap = parseFloat(style.rowGap || style.gap || '0') || 0
-  const cols = Math.max(1, dragState.renderedColumns)
+  const cols = Math.max(1, snapshotGridColumnCount(grid))
   const colWidth = (gridRect.width - (cols - 1) * colGap) / cols
   // The lattice row height comes straight from the resolved
   // `grid-auto-rows` track, which is the same for every row.
@@ -223,7 +224,7 @@ function onResizePointerDown(originalIndex: number, e: PointerEvent) {
     top: rect.top,
     colPitch: snap.colWidth + snap.colGap,
     rowPitch: snap.rowUnit + snap.rowGap,
-    cols: Math.max(1, dragState.renderedColumns),
+    cols: Math.max(1, snapshotGridColumnCount(gridEl.value)),
   }
   resizePreview.value = { id: entry.id, span: effectiveSpanFor(entry), rowSpan: rowSpanFor(entry) }
   resizePointerId = e.pointerId

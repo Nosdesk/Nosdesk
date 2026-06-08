@@ -28,6 +28,11 @@ import {
   type KpiMetric,
   type KpiResult,
 } from '@/services/analyticsService'
+import SparklineChart from './SparklineChart.vue'
+import {
+  buildDashboardMetricDrillDown,
+  buildDashboardTicketDrillDown,
+} from '@/utils/dashboardTicketDrillDown'
 
 const props = defineProps<{
   metric: KpiMetric
@@ -41,8 +46,12 @@ const props = defineProps<{
   label?: string
   /** Saved-view uuid to drill into on click. When set, the tile
    *  becomes a `router-link` to `/tickets?view=<uuid>`; otherwise
-   *  the tile is non-interactive. */
+   *  the tile is non-interactive unless `listViewId` is set. */
   viewUuid?: string
+  /** Built-in ticket-list view id for system KPI drill-down
+   *  (e.g. `dashboard-created`). Includes the dashboard time
+   *  window for created / resolved metrics. */
+  listViewId?: string
 }>()
 
 const fluent = useFluent()
@@ -112,36 +121,33 @@ const deltaPctDisplay = computed<string | null>(() => {
   return `${formatted}%`
 })
 
-/**
- * Spark path: a simple polyline through normalised (x, y) pairs.
- * Tiny scale (24px height), no axes, no labels — the headline
- * number carries the story and the spark only shows shape.
- */
-const sparkPath = computed<string | null>(() => {
-  const values = result.value?.sparkline
-  if (!values || values.length === 0) return null
-  const w = 100
-  const h = 24
-  const max = Math.max(...values, 1)
-  const step = values.length > 1 ? w / (values.length - 1) : 0
-  return values
-    .map((v, i) => {
-      const x = i * step
-      const y = h - (v / max) * h
-      return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`
-    })
-    .join(' ')
+const sparklineValues = computed(() => result.value?.sparkline ?? null)
+const showSparklineStrip = computed(
+  () => props.showSparkline !== false && (sparklineValues.value?.length ?? 0) > 0,
+)
+
+const drillTo = computed(() => {
+  if (props.viewUuid) {
+    return { path: '/tickets', query: { view: props.viewUuid } }
+  }
+  if (props.listViewId) {
+    return buildDashboardTicketDrillDown(props.listViewId, timeWindow.value)
+  }
+  if (props.metric) {
+    return buildDashboardMetricDrillDown(props.metric, timeWindow.value)
+  }
+  return undefined
 })
 </script>
 
 <template>
   <component
-    :is="viewUuid ? 'router-link' : 'div'"
-    :to="viewUuid ? { path: '/tickets', query: { view: viewUuid } } : undefined"
+    :is="drillTo ? 'router-link' : 'div'"
+    :to="drillTo"
     :aria-label="headlineLabel"
     :class="[
       'flex flex-col gap-2 px-4 py-3',
-      viewUuid
+      drillTo
         ? 'transition-colors hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-none'
         : '',
     ]"
@@ -171,17 +177,6 @@ const sparkPath = computed<string | null>(() => {
       <span>{{ deltaPctDisplay }}</span>
     </div>
 
-    <svg
-      v-if="sparkPath"
-      class="w-full h-6"
-      viewBox="0 0 100 24"
-      preserveAspectRatio="none"
-      aria-hidden="true"
-    >
-      <!-- Accent reserved for interaction. Sparkline uses tertiary
-           so its shape carries the story without competing with
-           clickable affordances; the headline number is the figure. -->
-      <path :d="sparkPath" fill="none" stroke="currentColor" stroke-width="1.2" class="text-tertiary" />
-    </svg>
+    <SparklineChart v-if="showSparklineStrip" :values="sparklineValues" :height="28" />
   </component>
 </template>

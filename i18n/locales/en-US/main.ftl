@@ -5196,6 +5196,15 @@ dashboard-widget-stats-queue-description = Unassigned and total ticket counts ac
 # System dashboard widgets (the chart-backed defaults). Titles are
 # shown both in the widget header on the canvas and in the Add
 # Widget picker; descriptions only appear in the picker.
+dashboard-widget-ticket-volume-title = Ticket volume
+dashboard-widget-ticket-volume-description = Created, resolved, and open tickets in one view with trends and compare deltas.
+dashboard-ticket-volume-created = Created
+dashboard-ticket-volume-resolved = Resolved
+dashboard-ticket-volume-open = Open
+dashboard-ticket-volume-created-hint = Tickets created in the selected time range
+dashboard-ticket-volume-resolved-hint = Tickets resolved in the selected time range
+dashboard-ticket-volume-open-hint = Tickets not yet closed
+dashboard-ticket-volume-view-all = View tickets
 dashboard-system-tickets-created-title = Created
 dashboard-system-tickets-created-description = Tickets created in the current time range.
 dashboard-system-tickets-resolved-title = Resolved
@@ -5445,6 +5454,12 @@ builtin-view-triage-name = Triage
 builtin-view-triage-description = Tickets awaiting initial categorization
 builtin-view-calendar-name = Calendar
 builtin-view-calendar-description = Tickets placed on the day they are due
+builtin-view-dashboard-created-name = Created
+builtin-view-dashboard-created-description = Tickets created in the dashboard time range
+builtin-view-dashboard-resolved-name = Resolved
+builtin-view-dashboard-resolved-description = Tickets resolved in the dashboard time range
+builtin-view-dashboard-open-name = Open
+builtin-view-dashboard-open-description = Tickets that are not yet closed
 workflow-category-triage = Triage
 workflow-category-backlog = Backlog
 workflow-category-active = Active

@@ -24,6 +24,7 @@ import MyDevicesWidget from './MyAssetsWidget.vue'
 import ChannelHealthWidget from './ChannelHealthWidget.vue'
 import KnowledgeGapsWidget from './KnowledgeGapsWidget.vue'
 import SlaHealthWidget from './SlaHealthWidget.vue'
+import TicketVolumeWidget from './TicketVolumeWidget.vue'
 import SavedViewWidget from './SavedViewWidget.vue'
 import KpiTile from './charts/KpiTile.vue'
 import LineChart from './charts/LineChart.vue'
@@ -150,40 +151,53 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     roles: ['technician', 'admin'],
   },
   {
+    id: 'ticket-volume',
+    titleKey: 'dashboard-widget-ticket-volume-title',
+    descriptionKey: 'dashboard-widget-ticket-volume-description',
+    component: TicketVolumeWidget,
+    span: 2,
+    roles: ['technician', 'admin'],
+    naturalHeight: true,
+    chromeDependencies: ['time-range', 'compare'],
+  },
+  {
     id: 'tickets-created',
     titleKey: 'dashboard-system-tickets-created-title',
     descriptionKey: 'dashboard-system-tickets-created-description',
     component: KpiTile,
-    props: { metric: 'tickets_created' },
+    props: { metric: 'tickets_created', listViewId: 'dashboard-created' },
     span: 1,
     roles: ['technician', 'admin'],
     naturalHeight: true,
     chromeDependencies: ['time-range', 'compare'],
     frameWraps: true,
+    defaultVisible: false,
   },
   {
     id: 'tickets-resolved',
     titleKey: 'dashboard-system-tickets-resolved-title',
     descriptionKey: 'dashboard-system-tickets-resolved-description',
     component: KpiTile,
-    props: { metric: 'tickets_resolved' },
+    props: { metric: 'tickets_resolved', listViewId: 'dashboard-resolved' },
     span: 1,
     roles: ['technician', 'admin'],
     naturalHeight: true,
     chromeDependencies: ['time-range', 'compare'],
     frameWraps: true,
+    defaultVisible: false,
   },
   {
     id: 'tickets-open',
     titleKey: 'dashboard-system-tickets-open-title',
     descriptionKey: 'dashboard-system-tickets-open-description',
     component: KpiTile,
-    props: { metric: 'tickets_open' },
+    props: { metric: 'tickets_open', listViewId: 'dashboard-open' },
     span: 1,
     roles: ['technician', 'admin'],
     naturalHeight: true,
     chromeDependencies: ['time-range', 'compare'],
     frameWraps: true,
+    defaultVisible: false,
   },
   {
     id: 'tickets-over-time',
@@ -309,8 +323,8 @@ export function widgetsForRole(role: UserRole): WidgetDef[] {
 /**
  * Curated default layout for technicians and admins.
  *
- *   Row 1 — KPI row, four 1-column tiles
- *     [ Tickets Created ] [ Tickets Resolved ] [ Tickets Open ] [ SLA Health ]
+ *   Row 1 — Volume + SLA
+ *     [ Ticket volume (span 2) ] [ SLA Health (span 1) ]
  *   Row 2 — Your work
  *     [ Assigned Tickets (span 2) ] [ Unassigned Queue (span 1) ]
  *   Row 3 — Recently viewed
@@ -329,9 +343,7 @@ export function widgetsForRole(role: UserRole): WidgetDef[] {
  * up in the "Add widget" picker without cluttering the initial view.
  */
 const STAFF_VISIBLE: DashboardLayout['widgets'] = [
-  { id: 'tickets-created', visible: true, span: 1 },
-  { id: 'tickets-resolved', visible: true, span: 1 },
-  { id: 'tickets-open', visible: true, span: 1 },
+  { id: 'ticket-volume', visible: true, span: 2 },
   { id: 'sla-health', visible: true, span: 1 },
   { id: 'assigned-tickets', visible: true, span: 2 },
   { id: 'unassigned-queue', visible: true, span: 1 },
@@ -389,6 +401,33 @@ function isAvailableForRole(id: string, role: UserRole): boolean {
   return def != null && def.roles.includes(role)
 }
 
+const LEGACY_TICKET_KPI_IDS = ['tickets-created', 'tickets-resolved', 'tickets-open'] as const
+
+/** Replace the three legacy single-metric KPI tiles with the grouped
+ *  ticket-volume widget when a stored layout still carries the old
+ *  default row. Users who split them intentionally (only 1–2 present)
+ *  are left alone. */
+function migrateLegacyTicketKpis(
+  widgets: DashboardLayout['widgets'],
+): DashboardLayout['widgets'] {
+  const ids = new Set(widgets.map((w) => w.id))
+  if (ids.has('ticket-volume')) return widgets
+  if (!LEGACY_TICKET_KPI_IDS.every((id) => ids.has(id))) return widgets
+
+  const legacy = new Set<string>(LEGACY_TICKET_KPI_IDS)
+  const firstLegacyIdx = widgets.findIndex((w) => legacy.has(w.id))
+  if (firstLegacyIdx < 0) return widgets
+
+  const hidden = widgets.map((w) =>
+    legacy.has(w.id) ? { ...w, visible: false } : w,
+  )
+  return [
+    ...hidden.slice(0, firstLegacyIdx),
+    { id: 'ticket-volume', visible: true, span: 2 as WidgetSpan },
+    ...hidden.slice(firstLegacyIdx),
+  ]
+}
+
 export function mergeWithRegistry(
   stored: DashboardLayout | null | undefined,
   role: UserRole,
@@ -406,6 +445,7 @@ export function mergeWithRegistry(
         id: string
         visible: boolean
         span?: WidgetSpan
+        rowSpan?: WidgetSpan
         config?: Record<string, unknown>
       } = {
         id: e.id,
@@ -413,6 +453,9 @@ export function mergeWithRegistry(
       }
       if (e.span === 1 || e.span === 2 || e.span === 3) {
         entry.span = e.span
+      }
+      if (e.rowSpan === 1 || e.rowSpan === 2 || e.rowSpan === 3) {
+        entry.rowSpan = e.rowSpan
       }
       if (e.config && typeof e.config === 'object' && !Array.isArray(e.config)) {
         entry.config = e.config as Record<string, unknown>
@@ -422,7 +465,7 @@ export function mergeWithRegistry(
   const missing = widgetsForRole(role)
     .filter((w) => !seen.has(w.id))
     .map((w) => ({ id: w.id, visible: w.defaultVisible ?? true }))
-  return { widgets: [...kept, ...missing] }
+  return { widgets: migrateLegacyTicketKpis([...kept, ...missing]) }
 }
 
 /** Look up a widget def by id. Returns undefined for unknown ids.
@@ -483,7 +526,7 @@ export function rowSpanClass(span: WidgetSpan): string {
  *  (compact widgets 1 unit, lists/charts 2). The `naturalHeight` flag
  *  already partitions short from tall, so widgets need no data change. */
 export function rowSpanFor(entry: { id: string; rowSpan?: WidgetSpan }): WidgetSpan {
-  if (entry.rowSpan) return entry.rowSpan
+  if (entry.rowSpan != null) return entry.rowSpan
   const def = widgetById(entry.id)
   if (def?.rowSpan) return def.rowSpan
   return def?.naturalHeight ? 1 : 2

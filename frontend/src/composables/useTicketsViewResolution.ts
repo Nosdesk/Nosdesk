@@ -26,7 +26,9 @@ import { useSavedViewsStore } from '@/stores/savedViews'
 import {
   BUILTIN_VIEWS,
   findBuiltinView,
+  isDashboardBuiltinViewId,
   MY_OPEN_VIEW,
+  resolveDashboardViewFilter,
   type BuiltInView,
 } from '@/sync/views/builtinViews'
 import type { ViewSwitcherItem } from '@/components/views/ViewSwitcher.vue'
@@ -127,7 +129,17 @@ export function useTicketsViewResolution(): UseTicketsViewResolution {
   const activeView = computed<ResolvedView>(() => {
     const requested = (route.query.view as string | undefined) ?? ''
     const builtin = findBuiltinView(requested)
-    if (builtin) return fromBuiltin(builtin)
+    if (builtin) {
+      const resolved = fromBuiltin(builtin)
+      if (isDashboardBuiltinViewId(builtin.id)) {
+        resolved.filter = resolveDashboardViewFilter(
+          builtin.id,
+          typeof route.query.from === 'string' ? route.query.from : undefined,
+          typeof route.query.to === 'string' ? route.query.to : undefined,
+        )
+      }
+      return resolved
+    }
     const saved = savedViews.value.find((v) => v.uuid === requested)
     if (saved) return fromSaved(saved)
     return fromBuiltin(MY_OPEN_VIEW)
