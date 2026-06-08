@@ -153,7 +153,7 @@ async function apply(): Promise<void> {
 
 <template>
   <Modal :show="show" :title="t('ticket-actions-dialog-title')" @close="emit('close')">
-    <div class="space-y-4 max-w-xl w-full">
+    <div class="flex flex-col gap-4 max-w-xl w-full">
       <input
         v-model="search"
         type="search"
@@ -162,7 +162,7 @@ async function apply(): Promise<void> {
         autofocus
       />
 
-      <Skeleton v-if="isFirstLoad" class="space-y-2">
+      <Skeleton v-if="isFirstLoad" class="flex flex-col gap-2">
         <SkeletonBar v-for="i in 3" :key="i" class="h-12 w-full" />
       </Skeleton>
 
@@ -170,7 +170,7 @@ async function apply(): Promise<void> {
         {{ t('ticket-actions-dialog-empty') }}
       </p>
 
-      <ul v-else class="space-y-1 max-h-64 overflow-y-auto">
+      <ul v-else class="flex flex-col gap-1 max-h-64 overflow-y-auto">
         <li
           v-for="rule in filtered"
           :key="rule.id"
@@ -196,9 +196,9 @@ async function apply(): Promise<void> {
         </li>
       </ul>
 
-      <div v-if="selected" class="border-t pt-3 space-y-2">
+      <div v-if="selected" class="border-t pt-3 flex flex-col gap-2">
         <p class="text-sm font-medium">{{ t('ticket-actions-dialog-action-list-label') }}</p>
-        <ul class="space-y-1 text-sm">
+        <ul class="flex flex-col gap-1 text-sm">
           <li v-for="(chip, i) in actionSummaryChips(selected)" :key="i" class="text-secondary">
             • {{ chip }}
           </li>

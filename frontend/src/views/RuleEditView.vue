@@ -215,7 +215,7 @@ function actionLabel(kind: RuleAction['kind']): string {
 </script>
 
 <template>
-  <div class="space-y-6 max-w-3xl">
+  <div class="flex flex-col gap-6 max-w-3xl">
     <div class="flex items-center gap-3">
       <Button variant="secondary" size="sm" @click="back">
         <Icon name="chevronLeft" class="w-4 h-4" />
@@ -231,7 +231,7 @@ function actionLabel(kind: RuleAction['kind']): string {
 
     <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
 
-    <section class="space-y-3">
+    <section class="flex flex-col gap-3">
       <h2 class="text-sm font-semibold text-secondary uppercase tracking-wide">
         {{ t('admin-rule-editor-section-name') }}
       </h2>
@@ -249,7 +249,7 @@ function actionLabel(kind: RuleAction['kind']): string {
       />
     </section>
 
-    <section class="space-y-3">
+    <section class="flex flex-col gap-3">
       <h2 class="text-sm font-semibold text-secondary uppercase tracking-wide">
         {{ t('admin-rule-editor-section-trigger') }}
       </h2>
@@ -270,7 +270,7 @@ function actionLabel(kind: RuleAction['kind']): string {
       </p>
     </section>
 
-    <section class="space-y-3">
+    <section class="flex flex-col gap-3">
       <div class="flex items-center justify-between">
         <h2 class="text-sm font-semibold text-secondary uppercase tracking-wide">
           {{ t('admin-rule-editor-section-actions') }}
@@ -285,11 +285,11 @@ function actionLabel(kind: RuleAction['kind']): string {
         {{ t('admin-rule-editor-actions-empty') }}
       </p>
 
-      <ol class="space-y-2">
+      <ol class="flex flex-col gap-2">
         <li
           v-for="(action, i) in actions"
           :key="i"
-          class="border rounded-md p-3 space-y-2 bg-surface"
+          class="border rounded-md p-3 flex flex-col gap-2 bg-surface"
         >
           <div class="flex items-center gap-2">
             <span class="text-xs text-secondary font-mono">#{{ i + 1 }}</span>
@@ -372,7 +372,7 @@ function actionLabel(kind: RuleAction['kind']): string {
       </ol>
     </section>
 
-    <section class="space-y-3">
+    <section class="flex flex-col gap-3">
       <h2 class="text-sm font-semibold text-secondary uppercase tracking-wide">
         {{ t('admin-rule-editor-section-state') }}
       </h2>

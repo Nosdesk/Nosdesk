@@ -107,7 +107,7 @@ function back(): void {
 </script>
 
 <template>
-  <div class="space-y-6">
+  <div class="flex flex-col gap-6">
     <div class="flex flex-wrap items-center gap-3">
       <Button variant="secondary" size="sm" @click="back">
         <Icon name="chevronLeft" class="w-4 h-4" />
@@ -145,7 +145,7 @@ function back(): void {
       </select>
     </div>
 
-    <Skeleton v-if="isFirstLoad" class="space-y-2">
+    <Skeleton v-if="isFirstLoad" class="flex flex-col gap-2">
       <SkeletonBar v-for="i in 6" :key="i" class="h-10 w-full" />
     </Skeleton>
 
@@ -155,7 +155,7 @@ function back(): void {
       :hint="t('admin-rules-activity-empty-hint')"
     />
 
-    <ul v-else class="space-y-2">
+    <ul v-else class="flex flex-col gap-2">
       <li
         v-for="app in applications"
         :key="app.id"
