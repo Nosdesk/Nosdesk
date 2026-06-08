@@ -75,6 +75,11 @@ notif-body-text =
 
 # Login + MFA challenge view.
 login-subtitle = Connectez-vous à votre compte
+# Titre et hero d'authentification (machine, à relire par un locuteur natif).
+login-title = Bon retour
+auth-hero-title = Le centre d'assistance que vous méritez.
+auth-hero-subtitle = Ouvert. En temps réel. À vous.
+auth-hero-pill = Auto-hébergé
 login-email-label = E-mail
 login-email-placeholder = Saisissez votre e-mail
 login-password-label = Mot de passe
@@ -357,6 +362,9 @@ password-reset-body-text =
 # Onboarding administrateur (premier démarrage).
 onboarding-welcome-title = Bienvenue dans Nosdesk
 onboarding-welcome-subtitle = Commençons par créer votre compte administrateur
+# Onboarding hero (machine, à relire par un locuteur natif).
+onboarding-getting-started = Pour commencer
+onboarding-token-help-title = Où trouver mon jeton d'installation ?
 onboarding-error-setup-status = Impossible de vérifier l'état de l'installation. Veuillez réessayer.
 onboarding-success-logging-in = Compte administrateur créé. Connexion en cours...
 onboarding-success-fallback = Compte créé avec succès. Veuillez vous connecter avec vos identifiants.
@@ -394,8 +402,9 @@ onboarding-progress-subtitle = Cela ne prendra qu'un instant...
 onboarding-complete-title = Bienvenue dans Nosdesk
 onboarding-complete-subtitle = Votre compte administrateur est prêt.
 onboarding-migration-title = Migrer depuis une autre instance Nosdesk ?
-onboarding-migration-body-prefix = Créez un administrateur ici, puis exécutez
-onboarding-migration-body-suffix = sur l'hôte. La restauration remplace l'administrateur par les utilisateurs importés.
+# Reformulé (machine, à relire) : la restauration ne nécessite pas de créer un compte au préalable.
+onboarding-migration-body-prefix = Pas besoin de créer un compte. Restaurez votre sauvegarde existante sur l'hôte :
+onboarding-migration-body-suffix = puis actualisez et connectez-vous avec vos identifiants existants.
 onboarding-security-title = Avis de sécurité
 onboarding-security-body = Cela crée le premier compte administrateur de votre installation Nosdesk. Choisissez un mot de passe fort ; ce compte aura un accès complet au système.
 

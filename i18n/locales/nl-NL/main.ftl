@@ -72,6 +72,11 @@ notif-body-text =
 
 # Login + MFA challenge view.
 login-subtitle = Log in op uw account
+# Auth-titel en hero (machine, na te kijken door moedertaalspreker).
+login-title = Welkom terug
+auth-hero-title = De helpdesk die je verdient.
+auth-hero-subtitle = Open. Realtime. Van jou.
+auth-hero-pill = Zelf-gehost
 login-email-label = E-mail
 login-email-placeholder = Voer uw e-mailadres in
 login-password-label = Wachtwoord
@@ -354,6 +359,9 @@ password-reset-body-text =
 # Beheerders-onboarding (eerste start).
 onboarding-welcome-title = Welkom bij Nosdesk
 onboarding-welcome-subtitle = Laten we beginnen door uw beheerdersaccount aan te maken
+# Onboarding hero (machine, na te kijken door moedertaalspreker).
+onboarding-getting-started = Aan de slag
+onboarding-token-help-title = Waar vind ik mijn setup-token?
 onboarding-error-setup-status = Kan de installatiestatus niet verifiëren. Probeer het opnieuw.
 onboarding-success-logging-in = Beheerdersaccount aangemaakt. U wordt aangemeld...
 onboarding-success-fallback = Account aangemaakt. Log in met uw gegevens.
@@ -391,8 +399,9 @@ onboarding-progress-subtitle = Dit duurt slechts een moment...
 onboarding-complete-title = Welkom bij Nosdesk
 onboarding-complete-subtitle = Uw beheerdersaccount is klaar.
 onboarding-migration-title = Migreren vanaf een andere Nosdesk-instantie?
-onboarding-migration-body-prefix = Maak hier een beheerder aan en voer dan
-onboarding-migration-body-suffix = uit op de host. De restore vervangt de beheerder door de geïmporteerde gebruikers.
+# Herschreven (machine, na te kijken): voor restore hoeft vooraf geen account te worden aangemaakt.
+onboarding-migration-body-prefix = Geen account nodig. Herstel je bestaande back-up op de host:
+onboarding-migration-body-suffix = vernieuw daarna en log in met je bestaande gegevens.
 onboarding-security-title = Beveiligingsmelding
 onboarding-security-body = Hiermee wordt het eerste beheerdersaccount voor uw Nosdesk-installatie aangemaakt. Kies een sterk wachtwoord; dit account krijgt volledige systeemtoegang.
 

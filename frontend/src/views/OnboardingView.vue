@@ -6,6 +6,11 @@ import { useAutoLogin } from '@/composables/useAutoLogin';
 import LogoIcon from '@/components/icons/LogoIcon.vue';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
+import AuthLayout from '@/components/auth/AuthLayout.vue';
+import Button from '@/components/common/Button.vue';
+import FormInput from '@/components/common/FormInput.vue';
+import PasswordInput from '@/components/common/PasswordInput.vue';
+import CodeBlock from '@/components/common/CodeBlock.vue';
 import authService, {
   type AdminSetupRequest,
 } from '@/services/authService';
@@ -219,16 +224,57 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="min-h-screen w-full flex flex-col items-center justify-center bg-app py-8">
-    <div class="flex flex-col gap-6 w-full max-w-lg px-8">
-      <!-- Logo / Brand -->
-      <div class="flex flex-col gap-2 items-center">
-        <LogoIcon class="h-12 px-4 text-accent" :aria-label="$t('nav-logo-alt')" />
-        <h1 class="text-2xl font-bold text-primary mt-4">{{ $t('onboarding-welcome-title') }}</h1>
-        <p class="text-secondary text-center">
-          {{ $t('onboarding-welcome-subtitle') }}
+  <AuthLayout>
+    <template #logo>
+      <LogoIcon class="h-9 w-auto text-accent" :aria-label="$t('nav-logo-alt')" />
+    </template>
+    <template #pill>{{ $t('auth-hero-pill') }}</template>
+
+    <!-- Onboarding leads with a deliberate "getting started" column in the
+         hero (instead of the brand slogan login uses). Desktop-only — the
+         hero is hidden under lg; the form keeps an inline token hint for
+         mobile. -->
+    <template #hero-content>
+      <div class="flex flex-col gap-8">
+        <p class="text-xs font-semibold uppercase tracking-[0.18em] text-white/40">
+          {{ $t('onboarding-getting-started') }}
         </p>
+        <ul class="flex flex-col gap-7">
+          <li class="flex items-start gap-3.5">
+            <Icon name="key" size="md" class="mt-0.5 flex-shrink-0 text-white/40" />
+            <div class="flex flex-col gap-2">
+              <p class="text-sm font-medium text-white">{{ $t('onboarding-token-help-title') }}</p>
+              <p class="text-sm leading-relaxed text-white/55">{{ $t('onboarding-token-hint') }}</p>
+              <CodeBlock tone="dark" code="docker compose exec backend nosdesk-cli setup-token" />
+            </div>
+          </li>
+          <li class="flex items-start gap-3.5">
+            <Icon name="database" size="md" class="mt-0.5 flex-shrink-0 text-white/40" />
+            <div class="flex flex-col gap-2">
+              <p class="text-sm font-medium text-white">{{ $t('onboarding-migration-title') }}</p>
+              <p class="text-sm leading-relaxed text-white/55">{{ $t('onboarding-migration-body-prefix') }}</p>
+              <CodeBlock tone="dark" code="docker compose exec backend nosdesk-cli db restore /path/to/backup.zip" />
+              <p class="text-sm leading-relaxed text-white/55">{{ $t('onboarding-migration-body-suffix') }}</p>
+            </div>
+          </li>
+          <li class="flex items-start gap-3.5">
+            <Icon name="lock" size="md" class="mt-0.5 flex-shrink-0 text-accent" />
+            <div class="flex flex-col gap-1.5">
+              <p class="text-sm font-medium text-white">{{ $t('onboarding-security-title') }}</p>
+              <p class="text-sm leading-relaxed text-white/55">{{ $t('onboarding-security-body') }}</p>
+            </div>
+          </li>
+        </ul>
       </div>
+    </template>
+
+    <div class="flex flex-col gap-6">
+      <header class="flex flex-col gap-1.5">
+        <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight text-primary">
+          {{ $t('onboarding-welcome-title') }}
+        </h1>
+        <p class="text-base text-secondary">{{ $t('onboarding-welcome-subtitle') }}</p>
+      </header>
 
       <!-- Success Message -->
       <div v-if="successMessage" class="bg-status-success/20 border border-status-success/50 text-status-success px-4 py-3 rounded-lg text-sm">
@@ -247,7 +293,7 @@ onUnmounted(() => {
       </div>
 
       <!-- Setup Form -->
-      <form v-if="isSetupStep" @submit.prevent="handleSetup" class="flex flex-col gap-4">
+      <form v-if="isSetupStep" @submit.prevent="handleSetup" class="flex flex-col gap-5">
         <!--
           Bootstrap token field. Hidden on the happy path where
           the operator arrived via the setup URL from server
@@ -256,93 +302,76 @@ onUnmounted(() => {
           was supplied, or when verification just rejected one
           we did supply.
         -->
-        <div v-if="!tokenFromUrl">
-          <label for="bootstrap-token" class="block text-sm font-medium text-secondary">{{ $t('onboarding-token-label') }}</label>
-          <input
-            id="bootstrap-token"
+        <div v-if="!tokenFromUrl" class="flex flex-col gap-1.5">
+          <FormInput
             v-model="bootstrapToken"
+            :label="$t('onboarding-token-label')"
             type="password"
             required
             autocomplete="off"
             :disabled="isLoading"
-            class="mt-1 block w-full px-3 py-2 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-50 transition-colors font-mono text-sm"
+            class="font-mono"
             :placeholder="$t('onboarding-token-placeholder')"
           />
-          <p class="text-xs text-tertiary mt-1">
-            {{ $t('onboarding-token-hint') }}
-            <code class="text-secondary bg-app rounded px-1 py-0.5">docker compose exec backend cat /app/uploads/bootstrap.token</code>
-          </p>
+          <!-- Desktop gets this guidance in the hero's getting-started
+               column; mobile (hero hidden) keeps it inline by the field. -->
+          <div class="flex flex-col gap-1.5 lg:hidden">
+            <p class="text-xs text-tertiary">{{ $t('onboarding-token-hint') }}</p>
+            <CodeBlock code="docker compose exec backend nosdesk-cli setup-token" />
+          </div>
         </div>
 
-        <div>
-          <label for="admin-name" class="block text-sm font-medium text-secondary">{{ $t('onboarding-name-label') }}</label>
-          <input
-            id="admin-name"
-            v-model="adminData.name"
-            type="text"
-            required
-            autocomplete="name"
-            :disabled="isLoading"
-            class="mt-1 block w-full px-3 py-2 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-50 transition-colors"
-            :placeholder="$t('onboarding-name-placeholder')"
-          />
-        </div>
+        <FormInput
+          v-model="adminData.name"
+          :label="$t('onboarding-name-label')"
+          type="text"
+          required
+          autocomplete="name"
+          :disabled="isLoading"
+          :placeholder="$t('onboarding-name-placeholder')"
+        />
 
-        <div>
-          <label for="admin-email" class="block text-sm font-medium text-secondary">{{ $t('onboarding-email-label') }}</label>
-          <input
-            id="admin-email"
-            v-model="adminData.email"
-            type="email"
-            required
-            autocomplete="email"
-            :disabled="isLoading"
-            class="mt-1 block w-full px-3 py-2 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-50 transition-colors"
-            :placeholder="$t('onboarding-email-placeholder')"
-          />
-        </div>
+        <FormInput
+          v-model="adminData.email"
+          :label="$t('onboarding-email-label')"
+          type="email"
+          required
+          autocomplete="email"
+          :disabled="isLoading"
+          :placeholder="$t('onboarding-email-placeholder')"
+        />
 
-        <div>
-          <label for="admin-password" class="block text-sm font-medium text-secondary">{{ $t('onboarding-password-label') }}</label>
-          <input
+        <div class="flex flex-col gap-1.5">
+          <label for="admin-password" class="text-xs font-medium text-tertiary uppercase tracking-wide">
+            {{ $t('onboarding-password-label') }}
+          </label>
+          <PasswordInput
             id="admin-password"
             v-model="adminData.password"
-            type="password"
             required
             autocomplete="new-password"
             :disabled="isLoading"
-            class="mt-1 block w-full px-3 py-2 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-50 transition-colors"
             :placeholder="$t('onboarding-password-placeholder')"
           />
         </div>
 
-        <div>
-          <label for="confirm-password" class="block text-sm font-medium text-secondary">{{ $t('onboarding-confirm-password-label') }}</label>
-          <input
+        <div class="flex flex-col gap-1.5">
+          <label for="confirm-password" class="text-xs font-medium text-tertiary uppercase tracking-wide">
+            {{ $t('onboarding-confirm-password-label') }}
+          </label>
+          <PasswordInput
             id="confirm-password"
             v-model="confirmPassword"
-            type="password"
             required
             autocomplete="new-password"
             :disabled="isLoading"
-            class="mt-1 block w-full px-3 py-2 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-50 transition-colors"
             :placeholder="$t('onboarding-confirm-password-placeholder')"
           />
         </div>
 
-        <div class="pt-2">
-          <button
-            type="submit"
-            :disabled="!canSubmit"
-            class="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-on-accent bg-accent hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent focus:ring-offset-slate-900 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            <span v-if="isLoading" class="flex items-center gap-2">
-              <Spinner class="-ml-1 mr-2 text-white" />
-              {{ $t('onboarding-submit-loading') }}
-            </span>
-            <span v-else>{{ $t('onboarding-submit') }}</span>
-          </button>
-        </div>
+        <Button type="submit" variant="primary" block :disabled="!canSubmit" :loading="isLoading">
+          {{ isLoading ? $t('onboarding-submit-loading') : $t('onboarding-submit') }}
+        </Button>
       </form>
 
       <!-- Auto-login Progress -->
@@ -367,35 +396,6 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- Migration / Restore Hint -->
-      <div v-if="isSetupStep" class="bg-surface border border-default rounded-lg p-3 sm:p-4 text-sm text-secondary">
-        <div class="flex flex-row items-start gap-3">
-          <Icon name="info" size="md" class="text-tertiary mt-0.5 flex-shrink-0" />
-          <div class="flex-1 min-w-0">
-            <h4 class="font-medium text-primary mb-1 text-sm">{{ $t('onboarding-migration-title') }}</h4>
-            <p class="text-xs text-tertiary">
-              {{ $t('onboarding-migration-body-prefix') }}
-              <code class="text-primary bg-app rounded px-1 py-0.5">docker compose exec backend nosdesk-cli db restore /path/to/backup.zip</code>
-              {{ $t('onboarding-migration-body-suffix') }}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <!-- Security Notice -->
-      <div v-if="isSetupStep" class="bg-surface border border-default rounded-lg p-3 sm:p-4 text-sm text-secondary">
-        <div class="flex flex-row items-start gap-3">
-          <svg class="w-5 h-5 text-accent mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
-          </svg>
-          <div class="flex-1 min-w-0">
-            <h4 class="font-medium text-primary mb-1 text-sm">{{ $t('onboarding-security-title') }}</h4>
-            <p class="text-xs text-tertiary">
-              {{ $t('onboarding-security-body') }}
-            </p>
-          </div>
-        </div>
-      </div>
     </div>
-  </div>
+  </AuthLayout>
 </template>

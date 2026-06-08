@@ -9,11 +9,15 @@ import { useThemeStore } from "@/stores/theme";
 import { useMicrosoftAuth } from "@/composables/useMicrosoftAuth";
 import { usePasskeys } from "@/composables/usePasskeys";
 import ForgotPasswordModal from "@/components/auth/ForgotPasswordModal.vue";
+import AuthLayout from "@/components/auth/AuthLayout.vue";
 import authService from "@/services/authService";
 import apiClient from "@/services/apiConfig";
 import LogoIcon from "@/components/icons/LogoIcon.vue";
 import Icon from "@/components/common/Icon.vue";
 import Spinner from "@/components/common/Spinner.vue";
+import Button from "@/components/common/Button.vue";
+import FormInput from "@/components/common/FormInput.vue";
+import PasswordInput from "@/components/common/PasswordInput.vue";
 import { extractErrorMessage } from "@/utils/errors";
 
 // Get branding and theme stores
@@ -38,7 +42,6 @@ const {
 } = usePasskeys();
 const email = ref("");
 const password = ref("");
-const showPassword = ref(false);
 // Track which specific action is loading (null = nothing loading)
 const loadingAction = ref<'login' | 'mfa' | 'microsoft' | 'oidc' | 'passkey' | null>(null);
 // Computed for convenience - true if any action is loading
@@ -424,20 +427,21 @@ const handleOidcLogoutClick = async () => {
 </script>
 
 <template>
-  <div class="min-h-screen w-full flex flex-col items-center justify-center bg-app py-8">
-    <div class="flex flex-col gap-4 w-full max-w-md px-8">
-      <!-- Logo/Brand -->
-      <div class="flex flex-col gap-2 items-center">
-        <img
-          v-if="customLogoUrl"
-          :src="customLogoUrl"
-          :alt="brandingStore.appName + ' Logo'"
-          class="h-12 max-w-full px-4 object-contain"
-        />
-        <LogoIcon v-else class="h-12 px-4 text-accent" :aria-label="$t('nav-logo-alt')" />
-        <p class="text-secondary mt-2">{{ $t("login-subtitle") }}</p>
-      </div>
+  <AuthLayout>
+    <template #logo>
+      <img
+        v-if="customLogoUrl"
+        :src="customLogoUrl"
+        :alt="brandingStore.appName + ' Logo'"
+        class="h-9 w-auto max-w-[180px] object-contain"
+      />
+      <LogoIcon v-else class="h-9 w-auto text-accent" :aria-label="$t('nav-logo-alt')" />
+    </template>
+    <template #pill>{{ $t('auth-hero-pill') }}</template>
+    <template #hero-title>{{ $t('auth-hero-title') }}</template>
+    <template #hero-subtitle>{{ $t('auth-hero-subtitle') }}</template>
 
+    <div class="flex flex-col gap-8">
       <!-- Success Message -->
       <div
         v-if="successMessage"
@@ -636,7 +640,14 @@ const handleOidcLogoutClick = async () => {
       </div>
 
       <!-- Login Form -->
-      <form v-else @submit.prevent="handleLogin" class="flex flex-col gap-6">
+      <form v-else @submit.prevent="handleLogin" class="flex flex-col gap-5">
+        <header class="flex flex-col gap-1.5">
+          <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight text-primary">
+            {{ $t('login-title') }}
+          </h1>
+          <p class="text-base text-secondary">{{ $t('login-subtitle') }}</p>
+        </header>
+
         <!-- Error Message within login form -->
         <div
           v-if="errorMessage && !authStore.mfaSetupRequired && !authStore.mfaRequired && !authStore.passkeyMfaRequired"
@@ -645,79 +656,60 @@ const handleOidcLogoutClick = async () => {
           {{ errorMessage }}
         </div>
 
-        <div class="flex flex-col gap-1">
-          <label for="email" class="block text-sm font-medium text-secondary">
-            {{ $t("login-email-label") }}
-          </label>
-          <input
-            id="email"
-            v-model="email"
-            type="email"
+        <FormInput
+          v-model="email"
+          :label="$t('login-email-label')"
+          type="email"
+          required
+          autocomplete="email"
+          :placeholder="$t('login-email-placeholder')"
+        />
+
+        <div class="flex flex-col gap-1.5">
+          <div class="flex items-center justify-between">
+            <label for="password" class="text-xs font-medium text-tertiary uppercase tracking-wide">
+              {{ $t('login-password-label') }}
+            </label>
+            <button
+              type="button"
+              @click="showForgotPasswordModal = true"
+              class="text-xs font-medium text-accent hover:opacity-80 transition-opacity"
+            >
+              {{ $t('login-forgot-password') }}
+            </button>
+          </div>
+          <PasswordInput
+            id="password"
+            v-model="password"
             required
-            autocomplete="email"
-            class="mt-1 block w-full px-3 py-2 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-            :placeholder="$t('login-email-placeholder')"
+            autocomplete="current-password"
+            :placeholder="$t('login-password-placeholder')"
           />
         </div>
 
-        <div class="flex flex-col gap-1">
-          <label for="password" class="block text-sm font-medium text-secondary">
-            {{ $t("login-password-label") }}
-          </label>
-          <div class="relative">
-            <input
-              id="password"
-              v-model="password"
-              :type="showPassword ? 'text' : 'password'"
-              required
-              autocomplete="current-password"
-              class="mt-1 block w-full px-3 py-2 pr-10 bg-surface border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-              :placeholder="$t('login-password-placeholder')"
-            />
-            <button
-              type="button"
-              @click="showPassword = !showPassword"
-              class="absolute inset-y-0 right-0 mt-1 px-3 flex items-center text-tertiary hover:text-secondary transition-colors"
-              :aria-label="showPassword ? $t('login-password-hide') : $t('login-password-show')"
-            >
-              <Icon v-if="!showPassword" name="eye" />
-              <Icon v-else name="eyeOff" />
-            </button>
-          </div>
-        </div>
-
-        <div class="flex items-center justify-end">
-          <button
-            type="button"
-            @click="showForgotPasswordModal = true"
-            class="text-sm text-accent hover:text-accent transition-colors"
-          >
-            {{ $t("login-forgot-password") }}
-          </button>
-        </div>
-
-        <button
+        <Button
           type="submit"
+          variant="primary"
+          block
           :disabled="isLoading"
-          class="w-full flex justify-center py-2 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-on-accent bg-accent hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed"
+          :loading="loadingAction === 'login'"
         >
-          <span v-if="loadingAction === 'login'">{{ $t("login-submitting") }}</span>
-          <span v-else>{{ $t("login-submit") }}</span>
-        </button>
+          {{ loadingAction === 'login' ? $t('login-submitting') : $t('login-submit') }}
+        </Button>
 
         <!-- Passkey Login Button -->
-        <button
+        <Button
           v-if="passkeySupported"
           type="button"
-          @click="handlePasskeyLogin"
+          variant="secondary"
+          block
+          icon="key"
           :disabled="isLoading"
-          class="w-full flex justify-center items-center gap-2 py-2 px-4 border border-default rounded-lg shadow-sm text-sm font-medium text-secondary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          :loading="loadingAction === 'passkey'"
+          @click="handlePasskeyLogin"
         >
-          <Spinner v-if="loadingAction === 'passkey'" />
-          <Icon v-else name="key" size="md" />
-          <span v-if="loadingAction === 'passkey'">{{ $t("login-passkey-authenticating") }}</span>
-          <span v-else>{{ $t("login-passkey-cta") }}</span>
-        </button>
+          {{ loadingAction === 'passkey' ? $t('login-passkey-authenticating') : $t('login-passkey-cta') }}
+        </Button>
 
         <div v-if="microsoftAuthEnabled || oidcEnabled" class="relative flex gap-2 items-center justify-center">
           <div class="border-t border-default flex-grow"></div>
@@ -831,5 +823,5 @@ const handleOidcLogoutClick = async () => {
         @close="showForgotPasswordModal = false"
       />
     </div>
-  </div>
+  </AuthLayout>
 </template>

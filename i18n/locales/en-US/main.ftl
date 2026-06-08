@@ -120,6 +120,11 @@ notif-body-text =
 # CTAs, clear field labels, no idioms a translator has to
 # wrestle with.
 login-subtitle = Sign in to your account
+login-title = Welcome back
+# Shared brand hero on the login + onboarding pages.
+auth-hero-title = The helpdesk you deserve.
+auth-hero-subtitle = Open. Real-time. Yours.
+auth-hero-pill = Self-hosted
 login-email-label = Email
 login-email-placeholder = Enter your email
 login-password-label = Password
@@ -410,6 +415,8 @@ inbox-time-weekday = { $day } at { $time }
 # admin form, fallback / completion screens, migration hint.
 onboarding-welcome-title = Welcome to Nosdesk
 onboarding-welcome-subtitle = Let's get started by creating your administrator account
+onboarding-getting-started = Getting started
+onboarding-token-help-title = Where's my setup token?
 onboarding-error-setup-status = Failed to verify setup status. Please try again.
 onboarding-success-logging-in = Admin account created. Logging you in...
 onboarding-success-fallback = Account created successfully. Please log in with your credentials.
@@ -447,8 +454,8 @@ onboarding-progress-subtitle = This will only take a moment...
 onboarding-complete-title = Welcome to Nosdesk
 onboarding-complete-subtitle = Your administrator account is ready.
 onboarding-migration-title = Migrating from another Nosdesk instance?
-onboarding-migration-body-prefix = Create an admin here, then run
-onboarding-migration-body-suffix = on the host. The restore replaces the admin with the imported users.
+onboarding-migration-body-prefix = No need to create an account first. Restore your existing backup on the host:
+onboarding-migration-body-suffix = then refresh and sign in with your existing credentials.
 onboarding-security-title = Security Notice
 onboarding-security-body = This creates the first administrator account for your Nosdesk installation. Choose a strong password; this account will have full system access.
 
