@@ -131,7 +131,9 @@ const grouped = computed<boolean>(() => props.buckets.length > 0)
        its cellPadding, so the trailing "Updated" timestamps don't
        crowd the page edge. The container's overflow-auto still
        handles horizontal scroll on narrow viewports; the padding
-       just sits inside that scroll area. -->
+       just sits inside that scroll area. Dropped in split mode —
+       there the list butts up against the resize divider, so the
+       trailing pad would read as a dead gap before the preview. -->
   <!-- The table is `min-w-full` (not `w-full`) so it can grow PAST
        the container's width when the sum of explicit column widths
        exceeds it — at which point the wrapper's `overflow-auto`
@@ -142,7 +144,10 @@ const grouped = computed<boolean>(() => props.buckets.length > 0)
        broken layout. The user is responsible for the layout when
        they enable many optional columns; we'd rather give them
        a horizontal scrollbar than a squashed title. -->
-  <div class="tickets-table-container flex-1 min-h-0 overflow-auto pr-2">
+  <div
+    class="tickets-table-container flex-1 min-h-0 overflow-auto"
+    :class="{ 'split-active': isSplitMode, 'pr-2': !isSplitMode }"
+  >
     <table class="min-w-full text-sm border-separate border-spacing-0 table-fixed">
       <thead>
         <tr class="sticky top-0 z-10 bg-surface">
@@ -359,6 +364,14 @@ const grouped = computed<boolean>(() => props.buckets.length > 0)
  * over below 768px, so these rules only fire in the
  * tablet / small-desktop range.
  *
+ * Split-view exception (`.split-active`): when the preview pane
+ * is open the list pane is intentionally narrow, but auto-hiding
+ * the user's explicitly-enabled columns down to ~three reads as
+ * "my properties disappeared". So in split mode we opt out of the
+ * priority+ hide and let the table's own `overflow-auto` provide
+ * horizontal scroll instead — the columns the user chose stay
+ * visible. The non-split full-width path keeps the hide behaviour.
+ *
  * NOT scoped: Vue's scoped-style hash would mangle the
  * dynamically-generated `col-${id}` class selectors. The class
  * names here are namespaced enough (`tickets-table-container`,
@@ -372,14 +385,14 @@ const grouped = computed<boolean>(() => props.buckets.length > 0)
 }
 
 @container ticket-table (max-width: 1100px) {
-  .col-last_activity { display: none; }
+  .tickets-table-container:not(.split-active) .col-last_activity { display: none; }
 }
 @container ticket-table (max-width: 960px) {
-  .col-assignee { display: none; }
+  .tickets-table-container:not(.split-active) .col-assignee { display: none; }
 }
 @container ticket-table (max-width: 820px) {
   /* Priority is also encoded as the inline `!` next to the
      title, so dropping the column doesn't lose information. */
-  .col-priority { display: none; }
+  .tickets-table-container:not(.split-active) .col-priority { display: none; }
 }
 </style>
