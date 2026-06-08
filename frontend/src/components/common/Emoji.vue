@@ -5,21 +5,37 @@
  * Renders emojis using Twemoji SVGs for consistent cross-platform display.
  * Supports theme-aware styling (grayscale for e-paper, amber for red-horizon).
  */
-import { computed } from 'vue'
-import { getEmojiUrl } from '@/composables/useTwemoji'
+import { computed, ref, watch } from 'vue'
+import { getEmojiUrl, isTwemojiPreloaded } from '@/composables/useTwemoji'
 
 const props = withDefaults(defineProps<{
   emoji: string
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'inherit'
   alt?: string
+  /** When true, skip lazy-loading so grid/picker icons paint immediately
+   *  once their SVG is in the browser cache (see preloadTwemoji). */
+  eager?: boolean
 }>(), {
-  size: 'md'
+  size: 'md',
+  eager: false,
 })
 
-// Convert emoji to Twemoji SVG URL
 const svgUrl = computed(() => getEmojiUrl(props.emoji))
 
-// Size classes
+const isReady = ref(isTwemojiPreloaded(props.emoji))
+
+watch(
+  () => props.emoji,
+  (emoji) => {
+    isReady.value = isTwemojiPreloaded(emoji)
+  },
+  { immediate: true },
+)
+
+function onLoad() {
+  isReady.value = true
+}
+
 const sizeClass = computed(() => {
   switch (props.size) {
     case 'xs': return 'w-3 h-3'
@@ -37,9 +53,10 @@ const sizeClass = computed(() => {
   <img
     :src="svgUrl"
     :alt="alt || emoji"
-    class="twemoji inline-block align-text-bottom"
-    :class="sizeClass"
+    class="twemoji inline-block align-text-bottom transition-opacity duration-100"
+    :class="[sizeClass, isReady ? 'opacity-100' : 'opacity-0']"
     draggable="false"
-    loading="lazy"
+    :loading="eager ? 'eager' : 'lazy'"
+    @load="onLoad"
   />
 </template>

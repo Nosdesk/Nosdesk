@@ -4,6 +4,7 @@ import { useFluent } from 'fluent-vue'
 import { getCollections, setPageCollections } from '@/services/collectionService'
 import type { CollectionWithDetails } from '@/services/collectionService'
 import Icon from '@/components/common/Icon.vue'
+import CollectionIcon from '@/components/documentationComponents/CollectionIcon.vue'
 import Modal from '@/components/Modal.vue'
 import Button from '@/components/common/Button.vue'
 
@@ -90,7 +91,11 @@ onMounted(async () => {
         </div>
 
         <!-- Collection Info -->
-        <span class="text-lg flex-shrink-0">{{ collection.icon || '📁' }}</span>
+        <CollectionIcon
+          :icon="collection.icon"
+          :color="collection.color"
+          size="md"
+        />
         <div class="flex-1 min-w-0">
           <span class="text-sm text-primary truncate block">{{ collection.name }}</span>
           <span class="text-xs text-tertiary">{{ $t('docs-collection-manager-pages', { count: collection.page_count }) }}</span>

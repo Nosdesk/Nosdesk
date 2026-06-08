@@ -1,5 +1,6 @@
 use crate::db::DbConnection;
 use crate::repository::documentation::get_documentation_page_by_slug;
+use crate::repository::documentation_collections::get_collection_by_slug;
 
 /// Generate a unique slug from a title for documentation pages.
 ///
@@ -32,8 +33,47 @@ pub fn generate_unique_slug(title: &str, conn: &mut DbConnection) -> String {
     format!("{}-{}", base, chrono::Utc::now().timestamp())
 }
 
+/// Generate a unique slug from a title for documentation collections.
+pub fn generate_unique_collection_slug(title: &str, conn: &mut DbConnection) -> String {
+    unique_collection_slug_from_base(&slugify(title), conn)
+}
+
+/// Normalize a user-supplied collection slug and ensure it is unused.
+/// Returns `None` when the slug is already taken.
+pub fn normalize_unique_collection_slug(raw: &str, conn: &mut DbConnection) -> Option<String> {
+    let base = slugify(raw);
+    if base.is_empty() {
+        return None;
+    }
+    if get_collection_by_slug(conn, &base).is_err() {
+        return Some(base);
+    }
+    None
+}
+
+fn unique_collection_slug_from_base(base: &str, conn: &mut DbConnection) -> String {
+    let base = if base.is_empty() {
+        "untitled".to_string()
+    } else {
+        base.to_string()
+    };
+
+    if get_collection_by_slug(conn, &base).is_err() {
+        return base;
+    }
+
+    for n in 2..1000 {
+        let candidate = format!("{}-{}", base, n);
+        if get_collection_by_slug(conn, &candidate).is_err() {
+            return candidate;
+        }
+    }
+
+    format!("{}-{}", base, chrono::Utc::now().timestamp())
+}
+
 /// Convert a title string into a URL-safe slug.
-fn slugify(title: &str) -> String {
+pub fn slugify(title: &str) -> String {
     let slug: String = title
         .to_lowercase()
         .chars()

@@ -18,6 +18,7 @@ import SplitPanelLayout from '@/components/admin/SplitPanelLayout.vue';
 import GroupConfigurationPanel from '@/components/admin/GroupConfigurationPanel.vue';
 import { groupService } from '@/services/groupService';
 import { useColorFilter } from '@/composables/useColorFilter';
+import { GROUPS_QUERY_KEY } from '@/composables/useAssignmentPickerQueries';
 import type { GroupWithMemberCount, CreateGroupRequest } from '@/types/group';
 import { extractErrorMessage } from '@/utils/errors';
 
@@ -47,7 +48,7 @@ const navigateToConfiguration = (group: GroupWithMemberCount) => {
 // away and back renders it instantly from cache and revalidates in the
 // background. A skeleton shows only on the genuine first load (empty
 // cache); see `isFirstLoad`.
-const GROUPS_KEY = ['groups'] as const;
+const GROUPS_KEY = GROUPS_QUERY_KEY;
 const queryCache = useQueryCache();
 const groupsQuery = useQuery({
   key: GROUPS_KEY,

@@ -8,6 +8,7 @@ import AssignmentPicker from '@/components/common/AssignmentPicker.vue'
 import type { SelectedPrincipal } from '@/components/common/AssignmentPicker.vue'
 import Modal from '@/components/Modal.vue'
 import Button from '@/components/common/Button.vue'
+import CollectionIcon from '@/components/documentationComponents/CollectionIcon.vue'
 
 useFluent()
 
@@ -152,7 +153,11 @@ onMounted(async () => {
                 :key="collection.id"
                 class="flex items-center gap-2.5 p-2.5 rounded-lg bg-surface-alt"
               >
-                <span class="text-lg flex-shrink-0">{{ collection.icon || '\uD83D\uDCC1' }}</span>
+                <CollectionIcon
+                  :icon="collection.icon"
+                  :color="collection.color"
+                  size="sm"
+                />
                 <span class="text-sm text-primary truncate">{{ collection.name }}</span>
               </div>
             </div>

@@ -2319,6 +2319,47 @@ cycle-detail-state-completed = Afgerond
 # recently updated, starred, collections, and status chips.
 docs-index-title = Documentatie
 docs-index-new-page = Nieuwe pagina
+
+# Docs: indexwerkbalk (DocumentationIndexToolbar)
+docs-index-toolbar-search = Documentatie doorzoeken
+docs-index-toolbar-search-shortcut = ⌘K
+docs-index-toolbar-new-collection = Nieuwe collectie
+docs-index-toolbar-more = Meer
+docs-index-toolbar-more-aria = Documentatie-acties
+docs-index-toolbar-scan-gaps = Scannen op kennislacunes
+docs-index-toolbar-scan-no-results = Geen nieuwe lacunes gevonden
+docs-index-toolbar-scan-success = { $created } nieuwe lacunes · { $updated } bijgewerkt
+docs-index-toolbar-scan-error = Scan mislukt. Probeer het opnieuw.
+docs-index-toolbar-maintenance-heading = Onderhoud
+docs-index-toolbar-archived = Gearchiveerde pagina's
+docs-index-toolbar-trash = Prullenbak
+docs-index-toolbar-publish-heading = Publicatie
+docs-index-toolbar-admin-heading = Beheer
+docs-index-toolbar-public-site = Publieke site bekijken
+docs-index-toolbar-guest-settings = Gasttoegang
+
+docs-index-stat-collections = { $count ->
+    [one] { $count } collectie
+   *[other] { $count } collecties
+}
+docs-index-stat-pages = { $count ->
+    [one] { $count } pagina
+   *[other] { $count } pagina's
+}
+docs-index-stat-starred = { $count ->
+    [one] { $count } favoriet
+   *[other] { $count } favorieten
+}
+docs-index-collections-subtitle = Blader door documentatie op onderwerp, team of doelgroep. Elke collectie groepeert gerelateerde pagina's.
+docs-index-pages-heading = Pagina's
+docs-index-pages-subtitle = Recent bewerkt, favorieten en pagina's die nog niet in een collectie zitten.
+docs-index-general-pages = Algemene pagina's
+docs-index-general-pages-hint = Actieve pagina's die nog niet aan een collectie zijn toegewezen.
+docs-index-general-pages-view-all = Alles bekijken
+docs-index-page-children = { $count ->
+    [one] 1 subpagina
+   *[other] { $count } subpagina's
+}
 docs-index-recently-updated = Recent bijgewerkt
 docs-index-recently-updated-count = Laatste { $count }
 docs-index-no-recent-activity = Geen recente activiteit.
@@ -2329,6 +2370,34 @@ docs-index-chip-drafts = { $count ->
     [one] { $count } concept
    *[other] { $count } concepten
    }
+docs-index-chip-uncollected = { $count ->
+    [one] { $count } niet toegewezen
+   *[other] { $count } niet toegewezen
+}
+docs-index-chip-gaps = { $count ->
+    [one] { $count } lacune
+   *[other] { $count } lacunes
+}
+docs-index-chip-verification = { $count ->
+    [one] { $count } moet worden gecontroleerd
+   *[other] { $count } moeten worden gecontroleerd
+}
+docs-index-gaps-heading = Kennislacunes
+docs-index-gaps-view-all = Alles bekijken
+docs-index-gaps-loading = Lacunes laden…
+docs-index-gaps-empty = Geen open kennislacunes. Markeer een ticket via de zijbalk om er een toe te voegen.
+docs-index-gap-evidence = { $count ->
+    [one] { $count } signaal
+   *[other] { $count } signalen
+}
+docs-index-gap-impact-searches = { $count } zoekopdrachten
+docs-index-gap-impact-tickets = { $count } tickets
+docs-index-verification-heading = Verificatie vereist
+docs-index-verification-empty = Alle actieve pagina's zijn geverifieerd en actueel.
+docs-index-verification-stale-meta = Verouderd · geverifieerd { $time }
+docs-index-uncollected-heading = Niet toegewezen
+docs-index-uncollected-view-all = Alles bekijken
+docs-index-uncollected-empty = Alle actieve pagina's zijn aan een collectie toegewezen.
 docs-index-chip-archived = { $count } gearchiveerd
 docs-index-chip-trash = { $count } in prullenbak
 
@@ -2527,7 +2596,7 @@ collection-not-found-heading = Collectie niet gevonden
 collection-not-found-description = Deze collectie is mogelijk verplaatst of verwijderd.
 collection-badge-system = Systeem
 collection-badge-restricted = Beperkt
-collection-badge-public = Openbaar
+collection-badge-public = Iedereen
 collection-overview-heading = Overzicht
 collection-overview-placeholder = Schrijf een overzicht voor deze collectie...
 collection-overrides-summary = { $count ->
@@ -3232,6 +3301,15 @@ docs-collection-browser-pages = { $count ->
     [one] { $count } pagina
    *[other] { $count } pagina's
 }
+docs-collection-browser-groups-count = { $count ->
+    [one] { $count } groep
+   *[other] { $count } groepen
+}
+docs-collection-browser-members-count = { $count ->
+    [one] { $count } lid
+   *[other] { $count } leden
+}
+docs-collection-browser-audience-mixed = { $groups } groepen · { $users } leden
 docs-collection-browser-system-badge = Systeem
 docs-collection-browser-restricted-badge = Beperkt
 docs-collection-browser-empty = Nog geen collecties.
@@ -3252,6 +3330,14 @@ docs-collection-visibility-picker-placeholder = Zoek gebruikers en groepen...
 docs-collection-visibility-cancel = Annuleren
 docs-collection-visibility-save = Opslaan
 docs-collection-visibility-saving = Opslaan...
+
+# Gedeelde toewijzingskiezer (AssignmentPicker)
+assignment-picker-loading = Zoeken…
+assignment-picker-no-results = Geen resultaten gevonden
+assignment-picker-all-selected = Iedereen die beschikbaar is, is al geselecteerd. Verwijder iemand om een andere toe te voegen.
+assignment-picker-empty-none = Geen gebruikers of groepen beschikbaar
+assignment-picker-section-groups = Groepen
+assignment-picker-section-users = Gebruikers
 
 # Docs: actiemenu document (DocumentActionsMenu)
 docs-actions-menu-subscribe = Abonneren
@@ -3378,6 +3464,16 @@ docs-insights-relative-years = { $count ->
    *[other] { $count } jaar geleden
 }
 
+# Docs: collectie aanmaken (CreateCollectionModal)
+docs-create-collection-title = Nieuwe collectie
+docs-create-collection-access-heading = Toegang
+docs-create-collection-submit = Collectie aanmaken
+docs-create-collection-creating = Aanmaken…
+docs-create-collection-error = Aanmaken mislukt. Probeer het opnieuw.
+docs-create-collection-slug-auto-help = Gegenereerd op basis van de naam. Bewerk om aan te passen.
+docs-create-collection-slug-required = Verplicht.
+docs-create-collection-slug-taken = Deze URL-slug is al in gebruik. Kies een andere.
+
 # Docs: collectie bewerken (EditCollectionModal)
 docs-edit-collection-title = Collectie bewerken
 docs-edit-collection-name = Naam
@@ -3385,6 +3481,9 @@ docs-edit-collection-slug = Slug
 docs-edit-collection-slug-help = URL-fragment voor deze collectie. Alleen kleine letters, cijfers en streepjes.
 docs-edit-collection-icon = Pictogram
 docs-edit-collection-color = Kleur
+docs-collection-appearance-title = Uiterlijk van collectie
+docs-collection-appearance-preview = Voorbeeld
+docs-collection-appearance-open-aria = Pictogram en kleur van collectie wijzigen
 docs-edit-collection-description = Korte omschrijving
 docs-edit-collection-description-placeholder = Optionele tagline boven het overzicht van de collectie
 docs-edit-collection-description-help = Het volledige overzicht bewerk je rechtstreeks op de landingspagina van de collectie.

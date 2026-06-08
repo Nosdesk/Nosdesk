@@ -2,37 +2,66 @@
 import { computed, ref, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useFluent } from 'fluent-vue'
-import { getCollections, createCollection, reorderCollections } from '@/services/collectionService'
+import { getCollections, reorderCollections } from '@/services/collectionService'
 import type { CollectionWithDetails } from '@/services/collectionService'
 import { useAuthStore } from '@/stores/auth'
-import DocumentIconSelector from '@/components/DocumentIconSelector.vue'
 import Skeleton from '@/components/common/Skeleton.vue'
 import SkeletonBar from '@/components/common/SkeletonBar.vue'
+import Button from '@/components/common/Button.vue'
 import Icon from '@/components/common/Icon.vue'
+import AvatarStack from '@/components/common/AvatarStack.vue'
+import CollectionIcon from '@/components/documentationComponents/CollectionIcon.vue'
 
-useFluent()
+const emit = defineEmits<{
+  (e: 'create'): void
+}>()
+
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
+
 const authStore = useAuthStore()
 const collections = ref<CollectionWithDetails[]>([])
 const loading = ref(true)
-const showCreateForm = ref(false)
-const newCollectionName = ref('')
-const newCollectionIcon = ref('📁')
 
-// Drag state
 const dragIndex = ref<number | null>(null)
 const dropIndex = ref<number | null>(null)
 
 const canReorder = authStore.isTechnician
 
-// Only show the skeleton on the first load; background refetches
-// (e.g. after a create / reorder) keep the existing cards on screen
-// so nothing flashes.
 const showSkeleton = computed(() => loading.value && collections.value.length === 0)
-// Seed the skeleton count from the previous render when we have one,
-// fall back to 3 for the cold first paint.
 const skeletonCount = computed(() =>
   collections.value.length > 0 ? Math.min(collections.value.length, 6) : 3,
 )
+
+function memberUuids(collection: CollectionWithDetails): string[] {
+  return collection.visible_to_users.map((u) => u.uuid)
+}
+
+function audienceLabel(collection: CollectionWithDetails): string {
+  const groups = collection.visible_to_groups.length
+  const users = collection.visible_to_users.length
+
+  if (groups === 0 && users === 0) {
+    return t('docs-collection-browser-restricted-badge')
+  }
+  if (groups === 1 && users === 0) {
+    return collection.visible_to_groups[0].name
+  }
+  if (groups === 0 && users === 1) {
+    return collection.visible_to_users[0].name
+  }
+  if (groups > 0 && users === 0) {
+    return t('docs-collection-browser-groups-count', { count: groups })
+  }
+  if (groups === 0 && users > 0) {
+    return t('docs-collection-browser-members-count', { count: users })
+  }
+  return t('docs-collection-browser-audience-mixed', { groups, users })
+}
+
+function pageCountLabel(count: number): string {
+  return t('docs-collection-browser-pages', { count })
+}
 
 const loadCollections = async () => {
   loading.value = true
@@ -43,23 +72,8 @@ const loadCollections = async () => {
   }
 }
 
-const handleCreate = async () => {
-  if (!newCollectionName.value.trim()) return
+defineExpose({ reload: loadCollections })
 
-  const result = await createCollection({
-    name: newCollectionName.value.trim(),
-    icon: newCollectionIcon.value || '📁',
-  })
-
-  if (result) {
-    showCreateForm.value = false
-    newCollectionName.value = ''
-    newCollectionIcon.value = '📁'
-    await loadCollections()
-  }
-}
-
-// Drag and drop handlers
 const onDragStart = (index: number, event: DragEvent) => {
   dragIndex.value = index
   if (event.dataTransfer) {
@@ -89,7 +103,6 @@ const onDrop = async (targetIndex: number) => {
     return
   }
 
-  // Reorder locally
   const items = [...collections.value]
   const [moved] = items.splice(dragIndex.value, 1)
   items.splice(targetIndex, 0, moved)
@@ -98,7 +111,6 @@ const onDrop = async (targetIndex: number) => {
   dragIndex.value = null
   dropIndex.value = null
 
-  // Persist
   const orders = items.map((c, i) => ({ collection_id: c.id, display_order: i }))
   await reorderCollections(orders)
 }
@@ -112,136 +124,175 @@ onMounted(loadCollections)
 </script>
 
 <template>
-  <div class="flex flex-col gap-4">
-    <!-- Section Header -->
-    <div class="flex items-center justify-between gap-3 pb-4 border-b border-default">
-      <div class="flex items-center gap-2">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-accent flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
-          <path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2 2H4a2 2 0 01-2-2v-4z" />
-        </svg>
-        <h3 class="text-lg font-semibold text-primary">{{ $t('docs-collection-browser-heading') }}</h3>
+  <section class="flex flex-col gap-3">
+    <header class="flex items-center justify-between gap-3 min-h-8">
+      <div class="flex items-center gap-2 min-w-0">
+        <h2 class="text-sm font-semibold text-primary tracking-tight truncate">
+          {{ $t('docs-collection-browser-heading') }}
+        </h2>
+        <span
+          v-if="collections.length > 0"
+          class="shrink-0 inline-flex items-center h-5 px-1.5 rounded-md bg-surface-alt border border-subtle text-[11px] text-tertiary tabular-nums"
+        >
+          {{ collections.length }}
+        </span>
       </div>
-      <button
-        @click="showCreateForm = !showCreateForm"
-        class="flex items-center gap-1 text-xs px-3 py-1.5 rounded-md bg-surface-alt hover:bg-surface-hover text-secondary hover:text-primary transition-colors flex-shrink-0"
+      <Button
+        size="sm"
+        variant="ghost"
+        icon="add"
+        class="shrink-0 -mr-2"
+        @click="emit('create')"
       >
-        <Icon name="add" />
         {{ $t('docs-collection-browser-new') }}
-      </button>
-    </div>
+      </Button>
+    </header>
 
-    <!-- Create Form -->
-    <form
-      v-if="showCreateForm"
-      @submit.prevent="handleCreate"
-      class="flex flex-col gap-3 p-4 bg-surface-alt rounded-lg border border-default"
-    >
-      <div class="flex items-center gap-3">
-        <DocumentIconSelector
-          :initial-icon="newCollectionIcon"
-          size="md"
-          @update:icon="newCollectionIcon = $event"
-        />
-        <input
-          v-model="newCollectionName"
-          :placeholder="$t('docs-collection-browser-name-placeholder')"
-          class="flex-1 min-w-0 h-10 bg-transparent text-sm text-primary placeholder:text-tertiary border border-subtle rounded-md px-3 focus:border-accent focus:outline-none"
-          autofocus
-        />
-      </div>
-      <div class="flex items-center justify-end gap-2">
-        <button
-          type="button"
-          @click="showCreateForm = false"
-          class="px-3 py-1.5 text-xs rounded-md text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
-        >
-          {{ $t('docs-collection-browser-cancel') }}
-        </button>
-        <button
-          type="submit"
-          :disabled="!newCollectionName.trim()"
-          class="px-4 py-1.5 text-xs rounded-md bg-accent text-on-accent hover:opacity-90 transition-opacity disabled:opacity-50"
-        >
-          {{ $t('docs-collection-browser-create') }}
-        </button>
-      </div>
-    </form>
-
-    <!--
-      Loading skeleton — must mirror the real collection-card layout
-      (icon + title + optional description + footer row) so the cards
-      don't reshuffle when the real data lands.
-    -->
     <Skeleton
       v-if="showSkeleton"
       :label="$t('docs-collection-browser-loading-label')"
-      class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
+      class="docs-collection-grid"
     >
       <div
         v-for="i in skeletonCount"
         :key="i"
-        class="flex flex-col gap-3 p-4 rounded-lg bg-surface border border-default"
+        class="flex flex-col gap-2 p-2.5 rounded-xl bg-surface border border-default"
       >
-        <div class="flex items-start gap-3">
-          <SkeletonBar class="w-7 h-7 rounded flex-shrink-0" />
-          <div class="flex-1 flex flex-col gap-2">
-            <SkeletonBar class="h-3.5 w-3/4" />
-            <SkeletonBar class="h-3 w-full" />
+        <div class="flex items-start gap-2">
+          <SkeletonBar class="w-5 h-5 rounded shrink-0" />
+          <div class="flex-1 flex flex-col gap-1.5 min-w-0">
+            <div class="flex items-center gap-2">
+              <SkeletonBar class="h-3 flex-1" />
+              <SkeletonBar class="h-4 w-7 rounded shrink-0" />
+            </div>
+            <SkeletonBar class="h-2.5 w-full" />
           </div>
         </div>
-        <div class="flex items-center justify-between pt-3 border-t border-subtle">
-          <SkeletonBar class="h-3 w-16" />
-          <SkeletonBar class="h-4 w-12 rounded" />
+        <div class="flex items-center gap-2 pl-7">
+          <SkeletonBar class="h-4 w-4 rounded-full shrink-0" />
+          <SkeletonBar class="h-2.5 w-20" />
         </div>
       </div>
     </Skeleton>
 
-    <!-- Collection Cards -->
-    <div v-else-if="collections.length > 0" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-      <RouterLink
-        v-for="(collection, index) in collections"
-        :key="collection.id"
-        :to="`/documentation/collections/${collection.slug}`"
-        :draggable="canReorder"
-        @dragstart="canReorder && onDragStart(index, $event)"
-        @dragover="canReorder && onDragOver(index, $event)"
-        @dragleave="canReorder && onDragLeave()"
-        @drop.prevent="canReorder && onDrop(index)"
-        @dragend="canReorder && onDragEnd()"
-        class="flex flex-col gap-3 p-4 rounded-lg bg-surface border border-default hover:border-accent transition-all"
-        :class="{
-          'opacity-50': dragIndex === index,
-          'ring-2 ring-accent/40': dropIndex === index,
-          'cursor-grab': canReorder,
-          'cursor-pointer': !canReorder,
-        }"
-        :style="collection.color ? { '--card-accent': collection.color } : {}"
-      >
-        <div class="flex items-start gap-3">
-          <span class="text-2xl leading-none flex-shrink-0">{{ collection.icon || '📁' }}</span>
-          <div class="flex-1 min-w-0">
-            <h4 class="font-medium text-primary text-sm truncate">{{ collection.name }}</h4>
-            <p v-if="collection.description" class="text-xs text-tertiary mt-1 line-clamp-2">
-              {{ collection.description }}
-            </p>
+    <ul
+      v-else-if="collections.length > 0"
+      class="docs-collection-grid"
+    >
+      <li v-for="(collection, index) in collections" :key="collection.id">
+        <RouterLink
+          :to="`/documentation/collections/${collection.slug}`"
+          :draggable="canReorder"
+          @dragstart="canReorder && onDragStart(index, $event)"
+          @dragover="canReorder && onDragOver(index, $event)"
+          @dragleave="canReorder && onDragLeave()"
+          @drop.prevent="canReorder && onDrop(index)"
+          @dragend="canReorder && onDragEnd()"
+          class="group flex flex-col gap-1.5 p-2.5 h-full rounded-xl bg-surface border border-default hover:border-accent/50 hover:shadow-sm transition-[border-color,box-shadow,background-color]"
+          :class="{
+            'opacity-50': dragIndex === index,
+            'ring-2 ring-inset ring-accent/40': dropIndex === index,
+            'cursor-grab': canReorder,
+          }"
+        >
+          <div class="flex items-start gap-2 min-w-0">
+            <CollectionIcon
+              :icon="collection.icon"
+              :color="collection.color"
+              size="md"
+            />
+            <div class="min-w-0 flex-1">
+              <div class="flex items-start gap-2 min-w-0">
+                <h3 class="text-[13px] font-medium text-primary truncate leading-snug flex-1 min-w-0 group-hover:text-accent transition-colors">
+                  {{ collection.name }}
+                </h3>
+                <span
+                  class="shrink-0 inline-flex items-center gap-0.5 h-5 px-1.5 rounded-md bg-surface-alt border border-subtle text-[11px] font-medium text-secondary tabular-nums"
+                  :title="pageCountLabel(collection.page_count)"
+                >
+                  <Icon name="document" size="xs" class="opacity-60" aria-hidden="true" />
+                  {{ collection.page_count }}
+                </span>
+              </div>
+              <p
+                v-if="collection.description"
+                class="text-[11px] text-tertiary mt-0.5 line-clamp-1 leading-snug"
+              >
+                {{ collection.description }}
+              </p>
+            </div>
           </div>
-        </div>
-        <div class="flex items-center justify-between pt-3 border-t border-subtle">
-          <span class="text-xs text-tertiary">
-            {{ $t('docs-collection-browser-pages', { count: collection.page_count }) }}
-          </span>
-          <div class="flex items-center gap-1.5">
-            <span v-if="collection.is_system" class="text-[10px] px-1.5 py-0.5 rounded bg-surface-hover text-tertiary">{{ $t('docs-collection-browser-system-badge') }}</span>
-            <span v-if="!collection.is_public" class="text-[10px] px-1.5 py-0.5 rounded bg-status-warning/10 text-status-warning">{{ $t('docs-collection-browser-restricted-badge') }}</span>
+
+          <div class="flex items-center gap-1.5 min-w-0 pl-7 text-[11px] leading-none">
+            <template v-if="collection.is_public">
+              <Icon name="team" size="xs" class="shrink-0 text-tertiary opacity-70" aria-hidden="true" />
+              <span class="truncate text-tertiary">{{ $t('collection-badge-public') }}</span>
+            </template>
+            <template v-else>
+              <AvatarStack
+                v-if="memberUuids(collection).length > 0"
+                :uuids="memberUuids(collection)"
+                :max="3"
+                size="xxs"
+              />
+              <Icon
+                v-else-if="collection.visible_to_groups.length > 0"
+                name="team"
+                size="xs"
+                class="shrink-0 text-tertiary opacity-70"
+                aria-hidden="true"
+              />
+              <Icon
+                v-else
+                name="lock"
+                size="xs"
+                class="shrink-0 text-status-warning/80"
+                aria-hidden="true"
+              />
+              <span class="truncate min-w-0 text-tertiary">{{ audienceLabel(collection) }}</span>
+            </template>
+
+            <span
+              v-if="collection.is_system"
+              class="shrink-0 ml-auto px-1.5 py-0.5 rounded bg-surface-hover text-tertiary"
+            >
+              {{ $t('docs-collection-browser-system-badge') }}
+            </span>
           </div>
-        </div>
-      </RouterLink>
-    </div>
+        </RouterLink>
+      </li>
+    </ul>
 
-    <!-- Empty State -->
-    <div v-else class="text-center py-8 text-tertiary text-sm">
-      <p>{{ $t('docs-collection-browser-empty') }}</p>
-    </div>
-
-  </div>
+    <p v-else class="text-[13px] text-tertiary py-2">
+      {{ $t('docs-collection-browser-empty') }}
+    </p>
+  </section>
 </template>
+
+<style scoped>
+.docs-collection-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 480px) {
+  .docs-collection-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.875rem;
+  }
+}
+
+@media (min-width: 768px) {
+  .docs-collection-grid {
+    grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  }
+}
+
+@media (min-width: 1280px) {
+  .docs-collection-grid {
+    grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+    gap: 1rem;
+  }
+}
+</style>

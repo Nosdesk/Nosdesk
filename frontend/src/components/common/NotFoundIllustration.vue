@@ -763,7 +763,7 @@ const options: NotFoundOption[] = [
  width="600.000000pt" height="600.000000pt" viewBox="0 0 600.000000 600.000000"
  preserveAspectRatio="xMidYMid meet">
 <g transform="translate(0.000000,600.000000) scale(0.066667,-0.066667)"
-fill="#000000" stroke="none">
+fill="currentColor" stroke="none">
 <path d="M8555 8105 c6 -6 15 -6 20 0 6 6 1 10 -10 10 -11 0 -16 -4 -10 -10z"/>
 <path d="M6278 8023 c-484 -69 -980 -426 -1375 -988 -215 -306 -642 -1169
 -754 -1526 -8 -25 -23 -34 -54 -34 -76 0 -125 -86 -92 -159 12 -26 12 -47 2

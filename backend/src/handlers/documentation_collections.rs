@@ -200,24 +200,33 @@ pub async fn create_collection(
     let body = body.into_inner();
     let workspace_uuid = ws.workspace_uuid;
 
-    // Generate slug from name if not provided
-    let slug = body
-        .slug
-        .clone()
-        .unwrap_or_else(|| body.name.to_lowercase().replace(' ', "-"));
-
-    let new_collection = NewDocumentationCollection {
-        uuid: Uuid::now_v7(),
-        name: body.name.clone(),
-        slug,
-        description: body.description.clone(),
-        icon: body.icon.clone(),
-        color: body.color.clone(),
-        is_system: false,
-        created_by,
-    };
-
     let result = tc.run(|conn| {
+        let slug = match body
+            .slug
+            .as_ref()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+        {
+            Some(custom) => {
+                match crate::utils::slug::normalize_unique_collection_slug(custom, conn) {
+                    Some(slug) => slug,
+                    None => return Ok(CreateCollectionOutcome::SlugTaken),
+                }
+            }
+            None => crate::utils::slug::generate_unique_collection_slug(&body.name, conn),
+        };
+
+        let new_collection = NewDocumentationCollection {
+            uuid: Uuid::now_v7(),
+            name: body.name.clone(),
+            slug,
+            description: body.description.clone(),
+            icon: body.icon.clone(),
+            color: body.color.clone(),
+            is_system: false,
+            created_by,
+        };
+
         let collection =
             repository::documentation_collections::create_collection(conn, new_collection)?;
         if let Some(ref group_ids) = body.visible_to_group_ids {
@@ -234,16 +243,24 @@ pub async fn create_collection(
             }
         }
         let payload = collection_response(conn, collection, workspace_uuid);
-        Ok::<_, diesel::result::Error>(payload)
+        Ok(CreateCollectionOutcome::Created(payload))
     });
 
     match result {
-        Ok(payload) => HttpResponse::Created().json(payload),
+        Ok(CreateCollectionOutcome::Created(payload)) => HttpResponse::Created().json(payload),
+        Ok(CreateCollectionOutcome::SlugTaken) => {
+            errors::conflict("Collection slug already exists")
+        }
         Err(e) => {
             error!(error = ?e, "Failed to create collection");
             errors::internal("Failed to create collection")
         }
     }
+}
+
+enum CreateCollectionOutcome {
+    Created(serde_json::Value),
+    SlugTaken,
 }
 
 #[derive(Debug, Deserialize)]

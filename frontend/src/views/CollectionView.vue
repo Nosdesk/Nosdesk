@@ -15,7 +15,8 @@ import BackButton from '@/components/common/BackButton.vue'
 import Icon from '@/components/common/Icon.vue'
 import Spinner from '@/components/common/Spinner.vue'
 import CollectionTreeList from '@/components/documentationComponents/CollectionTreeList.vue'
-import DocumentIconSelector from '@/components/DocumentIconSelector.vue'
+import CollectionIcon from '@/components/documentationComponents/CollectionIcon.vue'
+import CollectionAppearanceModal from '@/components/documentationComponents/CollectionAppearanceModal.vue'
 import CollectionVisibilityModal from '@/components/documentationComponents/CollectionVisibilityModal.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import CollaborativeEditor from '@/components/CollaborativeEditor.vue'
@@ -74,6 +75,7 @@ watchEffect(() => {
     titleManager.setCustomTitle(pc.name)
   }
   if (pc.icon !== collection.value.icon) collection.value.icon = pc.icon
+  if (pc.color !== collection.value.color) collection.value.color = pc.color
 })
 
 // Editor state
@@ -81,6 +83,8 @@ const editContent = ref('')
 
 // Management state
 const showVisibilityModal = ref(false)
+const showAppearanceModal = ref(false)
+const savingAppearance = ref(false)
 const pageOverrides = ref<PageOverrideInfo[]>([])
 const overridesExpanded = ref(false)
 
@@ -120,10 +124,19 @@ const loadCollection = async () => {
   }
 }
 
-const handleIconChange = async (icon: string) => {
+const handleAppearanceSave = async ({ icon, color }: { icon: string; color: string }) => {
   if (!collection.value) return
-  collection.value.icon = icon
-  await updateCollection(collection.value.id, { icon })
+  savingAppearance.value = true
+  try {
+    collection.value.icon = icon
+    collection.value.color = color
+    const updated = await updateCollection(collection.value.id, { icon, color })
+    if (updated) {
+      showAppearanceModal.value = false
+    }
+  } finally {
+    savingAppearance.value = false
+  }
 }
 
 const updateName = async (newName: string) => {
@@ -289,10 +302,25 @@ const deleteModalTitle = computed(() =>
         <!-- Collection Header -->
         <div>
           <div class="flex items-start gap-3 mb-3">
-            <DocumentIconSelector
-              :initial-icon="collection.icon || '📁'"
+            <button
+              v-if="authStore.isTechnician"
+              type="button"
+              class="shrink-0 rounded-lg transition-transform hover:scale-[1.02] active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+              :aria-label="$t('docs-collection-appearance-open-aria')"
+              @click="showAppearanceModal = true"
+            >
+              <CollectionIcon
+                :icon="collection.icon"
+                :color="collection.color"
+                size="lg"
+              />
+            </button>
+            <CollectionIcon
+              v-else
+              :icon="collection.icon"
+              :color="collection.color"
               size="lg"
-              @update:icon="handleIconChange"
+              class="shrink-0"
             />
             <h1
               contenteditable="true"
@@ -408,6 +436,16 @@ const deleteModalTitle = computed(() =>
       :currentUsers="collection.visible_to_users || []"
       @close="showVisibilityModal = false"
       @updated="onVisibilityUpdated"
+    />
+
+    <CollectionAppearanceModal
+      v-if="collection"
+      :show="showAppearanceModal"
+      :icon="collection.icon"
+      :color="collection.color"
+      :saving="savingAppearance"
+      @close="showAppearanceModal = false"
+      @save="handleAppearanceSave"
     />
 
     <ConfirmModal

@@ -2182,6 +2182,47 @@ cycle-detail-state-completed = Completed
 # recently updated, starred, collections, and status chips.
 docs-index-title = Documentation
 docs-index-new-page = New page
+
+# Docs: documentation index toolbar (DocumentationIndexToolbar)
+docs-index-toolbar-search = Search documentation
+docs-index-toolbar-search-shortcut = ⌘K
+docs-index-toolbar-new-collection = New collection
+docs-index-toolbar-more = More
+docs-index-toolbar-more-aria = Documentation actions
+docs-index-toolbar-scan-gaps = Scan for knowledge gaps
+docs-index-toolbar-scan-no-results = No new gaps found
+docs-index-toolbar-scan-success = { $created } new gaps · { $updated } updated
+docs-index-toolbar-scan-error = Gap scan failed. Try again.
+docs-index-toolbar-maintenance-heading = Maintenance
+docs-index-toolbar-archived = Archived pages
+docs-index-toolbar-trash = Trash
+docs-index-toolbar-publish-heading = Publishing
+docs-index-toolbar-admin-heading = Admin
+docs-index-toolbar-public-site = View public site
+docs-index-toolbar-guest-settings = Guest access settings
+
+docs-index-stat-collections = { $count ->
+    [one] { $count } collection
+   *[other] { $count } collections
+}
+docs-index-stat-pages = { $count ->
+    [one] { $count } page
+   *[other] { $count } pages
+}
+docs-index-stat-starred = { $count ->
+    [one] { $count } starred
+   *[other] { $count } starred
+}
+docs-index-collections-subtitle = Browse documentation by topic, team, or audience. Each collection groups related pages.
+docs-index-pages-heading = Pages
+docs-index-pages-subtitle = Recently edited, starred, and pages not yet in a collection.
+docs-index-general-pages = General pages
+docs-index-general-pages-hint = Active pages not assigned to a collection yet.
+docs-index-general-pages-view-all = View all
+docs-index-page-children = { $count ->
+    [one] 1 subpage
+   *[other] { $count } subpages
+}
 docs-index-recently-updated = Recently updated
 docs-index-recently-updated-count = Last { $count }
 docs-index-no-recent-activity = Nothing happening lately.
@@ -2192,6 +2233,34 @@ docs-index-chip-drafts = { $count ->
     [one] { $count } draft
    *[other] { $count } drafts
    }
+docs-index-chip-uncollected = { $count ->
+    [one] { $count } uncollected
+   *[other] { $count } uncollected
+}
+docs-index-chip-gaps = { $count ->
+    [one] { $count } gap
+   *[other] { $count } gaps
+}
+docs-index-chip-verification = { $count ->
+    [one] { $count } needs review
+   *[other] { $count } need review
+}
+docs-index-gaps-heading = Knowledge gaps
+docs-index-gaps-view-all = View all
+docs-index-gaps-loading = Loading gaps…
+docs-index-gaps-empty = No open knowledge gaps. Flag a ticket from its sidebar to add one.
+docs-index-gap-evidence = { $count ->
+    [one] { $count } signal
+   *[other] { $count } signals
+}
+docs-index-gap-impact-searches = { $count } searches
+docs-index-gap-impact-tickets = { $count } tickets
+docs-index-verification-heading = Needs verification
+docs-index-verification-empty = Every active page is verified and up to date.
+docs-index-verification-stale-meta = Stale · verified { $time }
+docs-index-uncollected-heading = Uncollected
+docs-index-uncollected-view-all = View all
+docs-index-uncollected-empty = All active pages are assigned to a collection.
 docs-index-chip-archived = { $count } archived
 docs-index-chip-trash = { $count } in trash
 
@@ -2390,7 +2459,7 @@ collection-not-found-heading = Collection not found
 collection-not-found-description = This collection might have been moved or deleted.
 collection-badge-system = System
 collection-badge-restricted = Restricted
-collection-badge-public = Public
+collection-badge-public = Everyone
 collection-overview-heading = Overview
 collection-overview-placeholder = Jot down an overview for this collection...
 collection-overrides-summary = { $count ->
@@ -3079,6 +3148,15 @@ docs-collection-browser-pages = { $count ->
     [one] { $count } page
    *[other] { $count } pages
 }
+docs-collection-browser-groups-count = { $count ->
+    [one] { $count } group
+   *[other] { $count } groups
+}
+docs-collection-browser-members-count = { $count ->
+    [one] { $count } member
+   *[other] { $count } members
+}
+docs-collection-browser-audience-mixed = { $groups } groups · { $users } members
 docs-collection-browser-system-badge = System
 docs-collection-browser-restricted-badge = Restricted
 docs-collection-browser-empty = No collections yet.
@@ -3099,6 +3177,14 @@ docs-collection-visibility-picker-placeholder = Search users and groups...
 docs-collection-visibility-cancel = Cancel
 docs-collection-visibility-save = Save
 docs-collection-visibility-saving = Saving...
+
+# Shared assignment picker (AssignmentPicker)
+assignment-picker-loading = Searching…
+assignment-picker-no-results = No results found
+assignment-picker-all-selected = Everyone available is already selected. Remove someone to add another.
+assignment-picker-empty-none = No users or groups available
+assignment-picker-section-groups = Groups
+assignment-picker-section-users = Users
 
 # Docs: document actions menu (DocumentActionsMenu)
 docs-actions-menu-subscribe = Subscribe
@@ -3225,6 +3311,16 @@ docs-insights-relative-years = { $count ->
    *[other] { $count } years ago
 }
 
+# Docs: create collection modal (CreateCollectionModal)
+docs-create-collection-title = New collection
+docs-create-collection-access-heading = Access
+docs-create-collection-submit = Create collection
+docs-create-collection-creating = Creating...
+docs-create-collection-error = Failed to create collection. Try again.
+docs-create-collection-slug-auto-help = Generated from the name. Edit to customize.
+docs-create-collection-slug-required = Required.
+docs-create-collection-slug-taken = This URL slug is already in use. Choose another.
+
 # Docs: edit collection modal (EditCollectionModal)
 docs-edit-collection-title = Edit collection
 docs-edit-collection-name = Name
@@ -3232,6 +3328,9 @@ docs-edit-collection-slug = Slug
 docs-edit-collection-slug-help = URL fragment for this collection. Lowercase letters, numbers, and dashes only.
 docs-edit-collection-icon = Icon
 docs-edit-collection-color = Colour
+docs-collection-appearance-title = Collection appearance
+docs-collection-appearance-preview = Preview
+docs-collection-appearance-open-aria = Change collection icon and colour
 docs-edit-collection-description = Short description
 docs-edit-collection-description-placeholder = Optional tagline shown above the collection's overview
 docs-edit-collection-description-help = The full overview is edited in place on the collection landing page.

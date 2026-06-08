@@ -5,6 +5,7 @@ import { useFluent } from 'fluent-vue'
 import { getCollectionsForPage, getCollection } from '@/services/collectionService'
 import { getAncestorChain } from '@/utils/treeUtils'
 import { docUrl } from '@/utils/docUrl'
+import CollectionIcon from '@/components/documentationComponents/CollectionIcon.vue'
 
 const fluent = useFluent()
 const t = (key: string) => fluent.$t(key)
@@ -18,6 +19,8 @@ interface BreadcrumbItem {
   label: string
   to: string | null
   icon?: string | null
+  color?: string | null
+  isCollection?: boolean
 }
 
 const breadcrumbs = ref<BreadcrumbItem[]>([])
@@ -45,6 +48,8 @@ const buildBreadcrumbs = async () => {
         label: collection.name,
         to: `/documentation/collections/${collection.slug}`,
         icon: collection.icon,
+        color: collection.color,
+        isCollection: true,
       })
 
       // Get full collection data to find ancestors
@@ -94,7 +99,13 @@ watch(
           class="flex items-center gap-1 hover:text-accent transition-colors min-w-0 max-w-[200px]"
           :title="item.label"
         >
-          <span v-if="item.icon" class="flex-shrink-0 leading-none">{{ item.icon }}</span>
+          <CollectionIcon
+            v-if="item.isCollection"
+            :icon="item.icon"
+            :color="item.color"
+            size="xs"
+          />
+          <span v-else-if="item.icon" class="flex-shrink-0 leading-none">{{ item.icon }}</span>
           <span class="truncate">{{ item.label }}</span>
         </RouterLink>
         <span v-else class="truncate max-w-[200px]" :title="item.label">{{ item.label }}</span>

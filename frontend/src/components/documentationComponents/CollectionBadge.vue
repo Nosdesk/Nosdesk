@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
+import CollectionIcon from '@/components/documentationComponents/CollectionIcon.vue'
 
 interface Collection {
   id: number
@@ -23,7 +24,11 @@ defineProps<{
       class="collection-badge"
       :style="collection.color ? { '--badge-color': collection.color } : {}"
     >
-      <span v-if="collection.icon" class="text-xs">{{ collection.icon }}</span>
+      <CollectionIcon
+        :icon="collection.icon"
+        :color="collection.color"
+        size="xs"
+      />
       <span class="truncate">{{ collection.name }}</span>
     </RouterLink>
   </div>
@@ -33,8 +38,8 @@ defineProps<{
 .collection-badge {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
-  padding: 0.125rem 0.5rem;
+  gap: 0.375rem;
+  padding: 0.125rem 0.5rem 0.125rem 0.25rem;
   border-radius: 9999px;
   font-size: 0.75rem;
   background: var(--color-surface-alt);

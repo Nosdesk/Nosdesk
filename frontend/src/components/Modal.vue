@@ -42,8 +42,12 @@ useScrollLock(toRef(props, 'show'))
 // Handle escape key globally. Lives on document (not on the modal
 // root) so Esc closes the modal no matter which descendant has
 // focus, including inputs that would normally swallow the event.
+// Nested overlays (Popover teleports, native `[popover]` panels)
+// handle Escape first; skip closing the modal while one is open.
 const onEscape = (e: KeyboardEvent) => {
-  if (e.key === 'Escape' && props.show) emit('close')
+  if (e.key !== 'Escape' || !props.show) return
+  if (document.querySelector('[popover]:popover-open, .popover-inner--visible')) return
+  emit('close')
 }
 
 onMounted(() => {
@@ -166,10 +170,10 @@ watch(
           :aria-labelledby="titleId"
           tabindex="-1"
           :class="[
-            'modal-content relative w-full bg-surface shadow-xl flex flex-col pointer-events-auto',
+            'modal-content relative w-full bg-surface shadow-xl flex flex-col pointer-events-auto overflow-hidden',
             'max-h-[90vh] sm:max-h-[85vh]',
-            'rounded-t-2xl sm:rounded-xl',
-            'mx-0 sm:mx-4',
+            'rounded-2xl sm:rounded-xl',
+            'mx-2 mb-2 sm:mx-4 sm:mb-0',
             sizeClasses,
             contentClass
           ]"
@@ -196,7 +200,7 @@ watch(
           </div>
 
           <!-- Footer -->
-          <div v-if="$slots.footer" class="flex-shrink-0 p-4 border-t border-default bg-surface">
+          <div v-if="$slots.footer" class="flex-shrink-0 p-4 border-t border-default bg-surface rounded-b-2xl sm:rounded-b-xl">
             <slot name="footer" />
           </div>
         </div>

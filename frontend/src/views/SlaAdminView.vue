@@ -53,6 +53,7 @@ import Modal from '@/components/Modal.vue'
 import Icon from '@/components/common/Icon.vue'
 import SearchableDropdown from '@/components/common/SearchableDropdown.vue'
 import { useTimezoneOptions } from '@/composables/useTimezoneOptions'
+import { GROUPS_QUERY_KEY } from '@/composables/useAssignmentPickerQueries'
 import WeekScheduleEditor, {
   type WeekSchedule,
 } from '@/components/admin/WeekScheduleEditor.vue'
@@ -70,7 +71,7 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 const POLICIES_KEY = ['sla', 'policies'] as const
 const CALENDARS_KEY = ['sla', 'calendars'] as const
 const CATEGORIES_KEY = ['categories'] as const
-const GROUPS_KEY = ['groups'] as const
+const GROUPS_KEY = GROUPS_QUERY_KEY
 const MATCH_COUNTS_KEY = ['sla', 'policy-matches'] as const
 
 const MATCH_COUNTS_REFRESH_MS = 30_000

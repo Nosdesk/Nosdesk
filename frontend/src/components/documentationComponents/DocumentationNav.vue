@@ -8,7 +8,8 @@ import { useAuthStore } from '@/stores/auth'
 import type { Page } from '@/services/documentationService'
 import DocumentationNavItem from './DocumentationNavItem.vue'
 import NavRowActions from './NavRowActions.vue'
-import EditCollectionModal from './EditCollectionModal.vue'
+import CollectionModal from './CollectionModal.vue'
+import CollectionIcon from './CollectionIcon.vue'
 import Icon from '@/components/common/Icon.vue'
 import { useLongPress } from '@/composables/useLongPress'
 import { useDocumentPanelState } from '@/composables/useDocumentPanelState'
@@ -1297,9 +1298,19 @@ defineExpose({ reloadSidebar });
                 class="hidden group-hover:block text-tertiary transition-transform duration-200"
                 :class="{ 'rotate-90': collectionExpanded[collection.id] }"
               />
-              <span class="text-sm leading-none group-hover:hidden">{{ collection.icon || '📁' }}</span>
+              <CollectionIcon
+                :icon="collection.icon"
+                :color="collection.color"
+                size="xs"
+                class="group-hover:hidden"
+              />
             </template>
-            <span v-else class="text-sm leading-none">{{ collection.icon || '📁' }}</span>
+            <CollectionIcon
+              v-else
+              :icon="collection.icon"
+              :color="collection.color"
+              size="xs"
+            />
           </span>
 
           <!-- Collection Name (inline rename or static) -->
@@ -1420,7 +1431,9 @@ defineExpose({ reloadSidebar });
     @close="pendingDeleteCollection = null"
   />
 
-  <EditCollectionModal
+  <CollectionModal
+    mode="edit"
+    :show="editingCollection !== null"
     :collection="editingCollection"
     @close="editingCollection = null"
     @saved="handleCollectionEdited"

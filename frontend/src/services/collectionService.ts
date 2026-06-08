@@ -111,13 +111,8 @@ export const createCollection = async (data: {
   color?: string;
   visible_to_group_ids?: number[];
 }): Promise<Collection | null> => {
-  try {
-    const response = await apiClient.post('/documentation/collections', data);
-    return response.data;
-  } catch (error) {
-    logger.error('Error creating collection:', error);
-    return null;
-  }
+  const response = await apiClient.post('/documentation/collections', data);
+  return response.data;
 };
 
 // Update a collection

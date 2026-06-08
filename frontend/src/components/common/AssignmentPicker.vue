@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
-import userService from '@/services/userService'
-import { groupService } from '@/services/groupService'
+import { ref, computed, onBeforeUnmount, nextTick, watch } from 'vue'
+import { useFluent } from 'fluent-vue'
+import { useAssignmentPickerQueries } from '@/composables/useAssignmentPickerQueries'
 import Icon from '@/components/common/Icon.vue'
+
+const { $t } = useFluent()
 
 export interface SelectedPrincipal {
   type: 'group' | 'user'
@@ -22,10 +24,10 @@ const emit = defineEmits<{
   (e: 'update:selectedItems', items: SelectedPrincipal[]): void
 }>()
 
-
 const searchQuery = ref('')
 const showDropdown = ref(false)
-const loading = ref(false)
+
+const { allGroups, searchedUsers, loading } = useAssignmentPickerQueries(searchQuery)
 
 // The dropdown uses the native HTML `popover` attribute + top-layer.
 // Because top-layer paints above all stacking contexts (same layer
@@ -51,14 +53,6 @@ function updateDropdownPosition() {
   }
 }
 
-// Groups loaded once on mount
-const allGroups = ref<Array<{ id: number; name: string }>>([])
-
-// Users fetched per search
-const searchedUsers = ref<Array<{ uuid: string; name: string; email: string; avatar_url?: string | null }>>([])
-
-let searchTimer: ReturnType<typeof setTimeout> | null = null
-
 const selectedSet = computed(() => {
   const set = new Set<string>()
   for (const item of props.selectedItems) {
@@ -76,42 +70,20 @@ const filteredGroups = computed(() => {
   })
 })
 
-const filteredUsers = computed(() => {
-  return searchedUsers.value.filter(u => {
-    return !selectedSet.value.has(`user:${u.uuid}`)
-  })
-})
+const filteredUsers = computed(() =>
+  searchedUsers.value.filter(u => !selectedSet.value.has(`user:${u.uuid}`)),
+)
 
 const hasResults = computed(() => filteredGroups.value.length > 0 || filteredUsers.value.length > 0)
 
-const searchUsers = async (query: string) => {
-  loading.value = true
-  try {
-    const result = await userService.getPaginatedUsers({
-      page: 1,
-      pageSize: 20,
-      search: query || undefined,
-      sortField: 'name',
-      sortDirection: 'asc',
-    })
-    searchedUsers.value = result.data.map(u => ({
-      uuid: u.uuid,
-      name: u.name,
-      email: u.email,
-      avatar_url: u.avatar_url,
-    }))
-  } catch {
-    searchedUsers.value = []
-  } finally {
-    loading.value = false
-  }
-}
+const emptyStateKey = computed<string | null>(() => {
+  if (hasResults.value || loading.value) return null
+  if (searchQuery.value.trim()) return 'assignment-picker-no-results'
+  if (props.selectedItems.length > 0) return 'assignment-picker-all-selected'
+  return 'assignment-picker-empty-none'
+})
 
 const onSearchInput = () => {
-  if (searchTimer) clearTimeout(searchTimer)
-  searchTimer = setTimeout(() => {
-    searchUsers(searchQuery.value)
-  }, 300)
   showDropdown.value = true
 }
 
@@ -142,9 +114,6 @@ const selectUser = (user: { uuid: string; name: string; avatar_url?: string | nu
 
 const onFocus = () => {
   showDropdown.value = true
-  if (searchedUsers.value.length === 0) {
-    searchUsers('')
-  }
 }
 
 const onBlur = () => {
@@ -175,13 +144,6 @@ watch(showDropdown, async (open) => {
 onBeforeUnmount(() => {
   window.removeEventListener('scroll', updateDropdownPosition, true)
   window.removeEventListener('resize', updateDropdownPosition)
-})
-
-onMounted(async () => {
-  const groups = await groupService.getGroups()
-  allGroups.value = groups.map(g => ({ id: g.id, name: g.name }))
-  // Pre-load users
-  searchUsers('')
 })
 </script>
 
@@ -218,19 +180,19 @@ onMounted(async () => {
         bottom: `${dropdownPosition.bottom}px`,
       }"
     >
-        <div v-if="loading && !hasResults" class="p-3 text-xs text-tertiary text-center">
-          Searching...
+        <div v-if="loading && !hasResults" class="px-3 py-4 text-xs text-tertiary text-center">
+          {{ $t('assignment-picker-loading') }}
         </div>
 
-        <div v-else-if="!hasResults && searchQuery" class="p-3 text-xs text-tertiary text-center">
-          No results found
+        <div v-else-if="emptyStateKey" class="px-3 py-4 text-xs text-tertiary text-center">
+          {{ $t(emptyStateKey) }}
         </div>
 
         <template v-else>
           <!-- Groups section -->
           <div v-if="filteredGroups.length > 0">
             <div class="px-3 py-1.5 text-[10px] font-semibold text-tertiary uppercase tracking-wider bg-surface-alt">
-              Groups
+              {{ $t('assignment-picker-section-groups') }}
             </div>
             <button
               v-for="group in filteredGroups"
@@ -246,7 +208,7 @@ onMounted(async () => {
           <!-- Users section -->
           <div v-if="filteredUsers.length > 0">
             <div class="px-3 py-1.5 text-[10px] font-semibold text-tertiary uppercase tracking-wider bg-surface-alt">
-              Users
+              {{ $t('assignment-picker-section-users') }}
             </div>
             <button
               v-for="user in filteredUsers"
@@ -311,6 +273,7 @@ onMounted(async () => {
   padding: 0;
   border-width: 1px;
   inset: auto;
+  min-width: 12rem;
 }
 
 .assignment-picker-popover:popover-open {

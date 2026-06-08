@@ -2322,6 +2322,47 @@ cycle-detail-state-completed = Terminé
 # recently updated, starred, collections, and status chips.
 docs-index-title = Documentation
 docs-index-new-page = Nouvelle page
+
+# Docs : barre d'outils de l'index (DocumentationIndexToolbar)
+docs-index-toolbar-search = Rechercher dans la documentation
+docs-index-toolbar-search-shortcut = ⌘K
+docs-index-toolbar-new-collection = Nouvelle collection
+docs-index-toolbar-more = Plus
+docs-index-toolbar-more-aria = Actions documentation
+docs-index-toolbar-scan-gaps = Analyser les lacunes de connaissances
+docs-index-toolbar-scan-no-results = Aucune nouvelle lacune trouvée
+docs-index-toolbar-scan-success = { $created } nouvelles lacunes · { $updated } mises à jour
+docs-index-toolbar-scan-error = Échec de l'analyse. Réessayez.
+docs-index-toolbar-maintenance-heading = Maintenance
+docs-index-toolbar-archived = Pages archivées
+docs-index-toolbar-trash = Corbeille
+docs-index-toolbar-publish-heading = Publication
+docs-index-toolbar-admin-heading = Administration
+docs-index-toolbar-public-site = Voir le site public
+docs-index-toolbar-guest-settings = Accès invités
+
+docs-index-stat-collections = { $count ->
+    [one] { $count } collection
+   *[other] { $count } collections
+}
+docs-index-stat-pages = { $count ->
+    [one] { $count } page
+   *[other] { $count } pages
+}
+docs-index-stat-starred = { $count ->
+    [one] { $count } favori
+   *[other] { $count } favoris
+}
+docs-index-collections-subtitle = Parcourez la documentation par thème, équipe ou audience. Chaque collection regroupe des pages connexes.
+docs-index-pages-heading = Pages
+docs-index-pages-subtitle = Récemment modifiées, favoris et pages pas encore dans une collection.
+docs-index-general-pages = Pages générales
+docs-index-general-pages-hint = Pages actives non encore assignées à une collection.
+docs-index-general-pages-view-all = Tout voir
+docs-index-page-children = { $count ->
+    [one] 1 sous-page
+   *[other] { $count } sous-pages
+}
 docs-index-recently-updated = Récemment mises à jour
 docs-index-recently-updated-count = Dernières { $count }
 docs-index-no-recent-activity = Aucune activité récente.
@@ -2332,6 +2373,34 @@ docs-index-chip-drafts = { $count ->
     [one] { $count } brouillon
    *[other] { $count } brouillons
    }
+docs-index-chip-uncollected = { $count ->
+    [one] { $count } non classée
+   *[other] { $count } non classées
+}
+docs-index-chip-gaps = { $count ->
+    [one] { $count } lacune
+   *[other] { $count } lacunes
+}
+docs-index-chip-verification = { $count ->
+    [one] { $count } à vérifier
+   *[other] { $count } à vérifier
+}
+docs-index-gaps-heading = Lacunes de connaissance
+docs-index-gaps-view-all = Tout voir
+docs-index-gaps-loading = Chargement des lacunes…
+docs-index-gaps-empty = Aucune lacune ouverte. Signalez un ticket depuis sa barre latérale pour en ajouter une.
+docs-index-gap-evidence = { $count ->
+    [one] { $count } signal
+   *[other] { $count } signaux
+}
+docs-index-gap-impact-searches = { $count } recherches
+docs-index-gap-impact-tickets = { $count } tickets
+docs-index-verification-heading = Vérification requise
+docs-index-verification-empty = Toutes les pages actives sont vérifiées et à jour.
+docs-index-verification-stale-meta = Périmée · vérifiée { $time }
+docs-index-uncollected-heading = Non classées
+docs-index-uncollected-view-all = Tout voir
+docs-index-uncollected-empty = Toutes les pages actives sont assignées à une collection.
 docs-index-chip-archived = { $count ->
     [one] { $count } archivée
    *[other] { $count } archivées
@@ -2536,7 +2605,7 @@ collection-not-found-heading = Collection introuvable
 collection-not-found-description = Cette collection a peut-être été déplacée ou supprimée.
 collection-badge-system = Système
 collection-badge-restricted = Restreinte
-collection-badge-public = Publique
+collection-badge-public = Tout le monde
 collection-overview-heading = Aperçu
 collection-overview-placeholder = Rédigez un aperçu pour cette collection...
 collection-overrides-summary = { $count ->
@@ -3241,6 +3310,15 @@ docs-collection-browser-pages = { $count ->
     [one] { $count } page
    *[other] { $count } pages
 }
+docs-collection-browser-groups-count = { $count ->
+    [one] { $count } groupe
+   *[other] { $count } groupes
+}
+docs-collection-browser-members-count = { $count ->
+    [one] { $count } membre
+   *[other] { $count } membres
+}
+docs-collection-browser-audience-mixed = { $groups } groupes · { $users } membres
 docs-collection-browser-system-badge = Système
 docs-collection-browser-restricted-badge = Restreinte
 docs-collection-browser-empty = Aucune collection pour le moment.
@@ -3261,6 +3339,14 @@ docs-collection-visibility-picker-placeholder = Rechercher des utilisateurs et g
 docs-collection-visibility-cancel = Annuler
 docs-collection-visibility-save = Enregistrer
 docs-collection-visibility-saving = Enregistrement...
+
+# Sélecteur d'affectation partagé (AssignmentPicker)
+assignment-picker-loading = Recherche…
+assignment-picker-no-results = Aucun résultat trouvé
+assignment-picker-all-selected = Tous les utilisateurs et groupes disponibles sont déjà sélectionnés. Retirez quelqu'un pour en ajouter un autre.
+assignment-picker-empty-none = Aucun utilisateur ou groupe disponible
+assignment-picker-section-groups = Groupes
+assignment-picker-section-users = Utilisateurs
 
 # Docs : menu d'actions (DocumentActionsMenu)
 docs-actions-menu-subscribe = S'abonner
@@ -3387,6 +3473,16 @@ docs-insights-relative-years = { $count ->
    *[other] il y a { $count } ans
 }
 
+# Docs : nouvelle collection (CreateCollectionModal)
+docs-create-collection-title = Nouvelle collection
+docs-create-collection-access-heading = Accès
+docs-create-collection-submit = Créer la collection
+docs-create-collection-creating = Création…
+docs-create-collection-error = Échec de la création. Réessayez.
+docs-create-collection-slug-auto-help = Généré à partir du nom. Modifiez pour personnaliser.
+docs-create-collection-slug-required = Obligatoire.
+docs-create-collection-slug-taken = Cet identifiant URL est déjà utilisé. Choisissez-en un autre.
+
 # Docs : édition de collection (EditCollectionModal)
 docs-edit-collection-title = Modifier la collection
 docs-edit-collection-name = Nom
@@ -3394,6 +3490,9 @@ docs-edit-collection-slug = Identifiant URL
 docs-edit-collection-slug-help = Fragment d'URL pour cette collection. Minuscules, chiffres et tirets uniquement.
 docs-edit-collection-icon = Icône
 docs-edit-collection-color = Couleur
+docs-collection-appearance-title = Apparence de la collection
+docs-collection-appearance-preview = Aperçu
+docs-collection-appearance-open-aria = Modifier l'icône et la couleur de la collection
 docs-edit-collection-description = Description courte
 docs-edit-collection-description-placeholder = Slogan facultatif affiché au-dessus de l'aperçu de la collection
 docs-edit-collection-description-help = L'aperçu complet se modifie directement sur la page d'accueil de la collection.

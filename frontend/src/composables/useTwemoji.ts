@@ -47,6 +47,49 @@ export function getEmojiUrl(emoji: string): string {
   return `${TWEMOJI_BASE}${emojiToCodepoint(emoji)}.svg`
 }
 
+/** URLs whose SVG assets have been fetched into the browser cache. */
+const preloadedUrls = new Set<string>()
+const preloadPromises = new Map<string, Promise<void>>()
+
+function preloadTwemojiUrl(url: string): Promise<void> {
+  if (preloadedUrls.has(url)) return Promise.resolve()
+
+  const pending = preloadPromises.get(url)
+  if (pending) return pending
+
+  const promise = new Promise<void>((resolve) => {
+    const img = new Image()
+    img.onload = () => {
+      preloadedUrls.add(url)
+      preloadPromises.delete(url)
+      resolve()
+    }
+    img.onerror = () => {
+      preloadPromises.delete(url)
+      resolve()
+    }
+    img.src = url
+  })
+
+  preloadPromises.set(url, promise)
+  return promise
+}
+
+/** True when the Twemoji SVG for `emoji` is already in the browser cache. */
+export function isTwemojiPreloaded(emoji: string): boolean {
+  return preloadedUrls.has(getEmojiUrl(emoji))
+}
+
+/**
+ * Warm the browser cache for a set of emojis. Duplicate emojis and
+ * URLs are deduped; in-flight requests are shared.
+ */
+export function preloadTwemoji(emojis: Iterable<string>): Promise<void> {
+  const urls = [...new Set(Array.from(emojis, getEmojiUrl))]
+  if (urls.length === 0) return Promise.resolve()
+  return Promise.all(urls.map(preloadTwemojiUrl)).then(() => {})
+}
+
 export function useTwemoji() {
   /**
    * Parse a string and replace emoji characters with Twemoji img elements
@@ -90,7 +133,9 @@ export function useTwemoji() {
     parseElement,
     getEmojiUrl,
     toCodePoint,
-    hasEmoji
+    hasEmoji,
+    preloadTwemoji,
+    isTwemojiPreloaded,
   }
 }
 

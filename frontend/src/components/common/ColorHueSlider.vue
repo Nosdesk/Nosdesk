@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { useThemeStore } from '@/stores/theme';
+import { ACCENT_LIGHTNESS, ACCENT_SATURATION, hslToHex } from '@/utils/accentColor';
 
 const props = defineProps<{
   modelValue: string;
@@ -22,9 +23,8 @@ const isEpaper = computed(() => themeId.value === 'epaper');
 const isRedHorizon = computed(() => themeId.value === 'red-horizon');
 
 // Preset S/L values for accessible, theme-appropriate colors
-// S:70% = vibrant but balanced, L:45% = WCAG AA compliant with white text
-const THEME_SATURATION = 70;
-const THEME_LIGHTNESS = 45;
+const THEME_SATURATION = ACCENT_SATURATION;
+const THEME_LIGHTNESS = ACCENT_LIGHTNESS;
 
 // Show color name label for themes where the gradient doesn't represent actual colors
 const showColorName = computed(() =>
@@ -78,27 +78,6 @@ function hexToHsl(hex: string): { h: number; s: number; l: number } {
   else h = ((r - g) / d + 4) / 6;
 
   return { h: Math.round(h * 360), s: Math.round(s * 100), l: Math.round(l * 100) };
-}
-
-// Convert HSL to hex
-function hslToHex(h: number, s: number, l: number): string {
-  s /= 100;
-  l /= 100;
-
-  const c = (1 - Math.abs(2 * l - 1)) * s;
-  const x = c * (1 - Math.abs((h / 60) % 2 - 1));
-  const m = l - c / 2;
-
-  let r = 0, g = 0, b = 0;
-  if (h < 60) { r = c; g = x; }
-  else if (h < 120) { r = x; g = c; }
-  else if (h < 180) { g = c; b = x; }
-  else if (h < 240) { g = x; b = c; }
-  else if (h < 300) { r = x; b = c; }
-  else { r = c; b = x; }
-
-  const toHex = (n: number) => Math.round((n + m) * 255).toString(16).padStart(2, '0');
-  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
 const hexValue = computed(() => hslToHex(hue.value, saturation.value, lightness.value));
@@ -210,7 +189,7 @@ function endDrag() {
         </button>
 
         <!-- Hue slider track -->
-        <div class="flex-1 relative h-10 slider-container">
+        <div class="flex-1 min-w-[5.5rem] relative h-10 slider-container">
           <div
             class="absolute inset-0 rounded-lg border border-default"
             :style="{ background: hueGradient }"

@@ -150,7 +150,13 @@ function onMousedownOutside(event: MouseEvent): void {
 }
 
 function onKeydown(event: KeyboardEvent): void {
-  if (event.key === 'Escape') emit('close')
+  if (event.key !== 'Escape') return
+  // Capture phase + stopPropagation so a popover nested inside a
+  // modal (which also listens for Escape on document) closes first
+  // without dismissing the modal underneath.
+  event.preventDefault()
+  event.stopPropagation()
+  emit('close')
 }
 
 function onScroll(): void {
@@ -167,7 +173,7 @@ function onResize(): void {
 }
 
 useEventListener(document, 'mousedown', onMousedownOutside, { when: isOpen })
-useEventListener(document, 'keydown', onKeydown, { when: isOpen })
+useEventListener(document, 'keydown', onKeydown, { when: isOpen, capture: true })
 useEventListener(window, 'scroll', onScroll, { when: isOpen, capture: true })
 useEventListener(window, 'resize', onResize, { when: isOpen })
 
