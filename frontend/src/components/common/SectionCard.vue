@@ -23,21 +23,35 @@ interface Props {
   /** Tailwind padding class applied to the body. Defaults to `p-3`;
    *  pass an empty string for flush-edge content (lists, tables). */
   contentPadding?: string
+  /** When false, omits `overflow-hidden` so `position: sticky`
+   *  descendants can stick to an outer scroll container. Default
+   *  true — most cards rely on clipping for rounded corners. */
+  clipContent?: boolean
+  /** Pin the header while an ancestor scroll container moves. Pair
+   *  with `clip-content="false"` when the scrollport is outside
+   *  this card (kanban swimlanes scrolling vertically). */
+  stickyHeader?: boolean
 }
 
 withDefaults(defineProps<Props>(), {
   actionLabel: 'View all',
   contentPadding: 'p-3',
+  clipContent: true,
+  stickyHeader: false,
 })
 </script>
 
 <template>
-  <div class="bg-surface rounded-xl border border-default overflow-hidden flex flex-col">
+  <div
+    class="bg-surface rounded-xl border border-default flex flex-col"
+    :class="{ 'overflow-hidden': clipContent }"
+  >
     <!-- Header. Fixed-height compact pill, mirrors the dashboard
          widget shell so every card with a header reads as the same
          visual primitive across the app. -->
     <header
       class="flex items-center gap-2 px-3 h-9 border-b border-default bg-surface-alt flex-shrink-0"
+      :class="{ 'sticky top-0 z-20': stickyHeader }"
     >
       <!-- Optional leading content (icon, dot indicator). -->
       <slot name="leading" />

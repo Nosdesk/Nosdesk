@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { RouterLink } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { useRecentTicketsStore } from '@/stores/recentTickets'
 import { useWorkflowStatesStore } from '@/stores/workflowStates'
 import { ref, onMounted, computed } from 'vue'
@@ -9,11 +9,15 @@ import StatusIndicator from '@/components/common/StatusIndicator.vue'
 import TicketDragPreview from '@/components/common/TicketDragPreview.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import type { MenuItem } from '@/components/common/ContextMenu.vue'
-import { useTicketDrag, type DraggableTicket } from '@/composables/useTicketDrag'
+import { useTicketDrag, type DraggableTicket, shouldSuppressTicketDrop } from '@/composables/useTicketDrag'
 import { useClipboard } from '@/composables/useClipboard'
+import { useSyncTicketsStore } from '@/sync/stores/tickets'
 import type { RecentTicket } from '@/types/ticket'
+import type { WorkflowStateCategory } from '@/types/workflow'
 
+const router = useRouter()
 const recentTicketsStore = useRecentTicketsStore()
+const ticketsStore = useSyncTicketsStore()
 const wf = useWorkflowStatesStore()
 const fluent = useFluent()
 const {
@@ -76,26 +80,50 @@ const draggedIndex = ref<number | null>(null)
 const dropTargetIndex = ref<number | null>(null)
 const isOutsideList = ref(false)
 const listContainerRef = ref<HTMLElement | null>(null)
+/** Suppress the click that browsers fire after a drag ends. */
+const suppressNextClick = ref(false)
 
 // Convert store ticket to draggable ticket format
-const toDraggableTicket = (ticket: RecentTicket): DraggableTicket => ({
-  id: ticket.id,
-  title: ticket.title,
-})
+const toDraggableTicket = (ticket: RecentTicket): DraggableTicket => {
+  const pooled = ticketsStore.byId(ticket.id).value
+  const category = (wf.findById(ticket.workflow_state_id ?? -1)?.category ?? 'backlog') as WorkflowStateCategory
+  const priority = pooled?.priority
+  return {
+    id: ticket.id,
+    title: ticket.title,
+    category,
+    assigneeUuid: ticket.assignee ?? pooled?.assignee_uuid ?? null,
+    priority: priority === 'urgent' ? 'high' : priority,
+  }
+}
 
-// `isLoading` from the store is already the first-fetch-only signal,
-// so binding it directly skips the skeleton on background refetches.
-const showLoading = computed(() => recentTicketsStore.isLoading)
+const isDragging = computed(() =>
+  dragState.value.isDragging && dragState.value.source === 'recent-tickets',
+)
+
+function openTicket(ticketId: number, event: MouseEvent): void {
+  if (suppressNextClick.value) {
+    event.preventDefault()
+    suppressNextClick.value = false
+    return
+  }
+  router.push(`/tickets/${ticketId}`)
+}
 
 // Custom drag start - track the dragged index
 const handleDragStart = (ticket: RecentTicket, index: number, event: DragEvent) => {
+  suppressNextClick.value = false
   draggedIndex.value = index
   isOutsideList.value = false
+  document.body.classList.add('cursor-grabbing')
   baseDragStart(toDraggableTicket(ticket), 'recent-tickets', event)
 }
 
 // Custom drag handler - check if we're inside or outside the list
 const handleDrag = (event: DragEvent) => {
+  if (event.clientX !== 0 || event.clientY !== 0) {
+    suppressNextClick.value = true
+  }
   baseDrag(event)
 
   if (listContainerRef.value && event.clientX && event.clientY) {
@@ -138,10 +166,15 @@ const handleDragLeave = () => {
 // Handle drop - reorder if inside list
 const handleDrop = (event: DragEvent) => {
   event.preventDefault()
+  event.stopPropagation()
+
+  if (shouldSuppressTicketDrop()) {
+    resetDragState()
+    return
+  }
 
   if (draggedIndex.value !== null && dropTargetIndex.value !== null && !isOutsideList.value) {
     let toIndex = dropTargetIndex.value
-    // Adjust index if dropping after the dragged item
     if (toIndex > draggedIndex.value) {
       toIndex -= 1
     }
@@ -163,6 +196,10 @@ const handleLocalDragEnd = () => {
   resetDragState()
   handleDragEnd()
 }
+
+// `isLoading` from the store is already the first-fetch-only signal,
+// so binding it directly skips the skeleton on background refetches.
+const showLoading = computed(() => recentTicketsStore.isLoading)
 
 onMounted(async () => {
   // Only fetch if no data yet (prevents refetch on every mount)
@@ -189,22 +226,26 @@ onMounted(async () => {
       @dragover.prevent
     >
       <TransitionGroup name="ticket-list" tag="div" class="py-0.5 relative">
-        <RouterLink
+        <div
           v-for="(ticket, index) in recentTicketsStore.recentTickets"
           :key="ticket.id"
-          :to="`/tickets/${ticket.id}`"
-          class="ticket-item group flex items-center gap-1.5 px-2 py-1 mx-0.5 rounded hover:bg-surface-hover transition-colors cursor-grab select-none"
+          role="link"
+          tabindex="0"
+          class="ticket-item group flex items-center gap-1.5 px-2 py-1 mx-0.5 rounded hover:bg-surface-hover transition-[colors,opacity,transform,box-shadow] cursor-grab active:cursor-grabbing select-none"
           :class="{
-            'opacity-50': draggedIndex === index,
+            'ticket-item--source': draggedIndex === index,
             'drop-above': draggedIndex !== null && dropTargetIndex === index && !isOutsideList,
-            'drop-below': draggedIndex !== null && dropTargetIndex === index + 1 && index === recentTicketsStore.recentTickets.length - 1 && !isOutsideList
+            'drop-below': draggedIndex !== null && dropTargetIndex === index + 1 && !isOutsideList
           }"
           draggable="true"
+          @click="openTicket(ticket.id, $event)"
+          @keydown.enter="openTicket(ticket.id, $event as unknown as MouseEvent)"
           @dragstart="handleDragStart(ticket, index, $event)"
           @drag="handleDrag"
           @dragend="handleLocalDragEnd"
           @dragover="handleDragOver(index, $event)"
           @dragleave="handleDragLeave"
+          @drop="handleDrop"
           @contextmenu="handleTicketContextMenu(ticket, $event)"
           @touchstart="handleTouchStart(toDraggableTicket(ticket), 'recent-tickets', $event)"
           @touchmove="handleTouchMove"
@@ -226,7 +267,7 @@ onMounted(async () => {
           <span class="text-[10px] text-tertiary flex-shrink-0">
             {{ formatCompactRelativeTime(ticket.last_viewed_at) }}
           </span>
-        </RouterLink>
+        </div>
       </TransitionGroup>
     </div>
 
@@ -246,9 +287,9 @@ onMounted(async () => {
       @close="showContextMenu = false"
     />
 
-    <!-- Drag Preview - only show when dragging OUTSIDE the list -->
+    <!-- Custom preview follows the cursor for the whole drag. -->
     <TicketDragPreview
-      v-if="dragState.isDragging && dragState.source === 'recent-tickets' && dragState.ticket && dragState.position && isOutsideList"
+      v-if="isDragging && dragState.ticket && dragState.position"
       :ticket="dragState.ticket"
       :position="dragState.position"
     />
@@ -259,6 +300,12 @@ onMounted(async () => {
 /* Drop indicator using pseudo-elements */
 .ticket-item {
   position: relative;
+}
+
+.ticket-item--source {
+  opacity: 0.35;
+  transform: scale(0.98);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 25%, transparent);
 }
 
 .ticket-item.drop-above::before,

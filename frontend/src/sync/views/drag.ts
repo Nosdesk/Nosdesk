@@ -19,6 +19,11 @@
  *   callback runs.
  */
 import { onUnmounted, reactive, type Reactive } from 'vue'
+import {
+  createDragEdgeScroller,
+  getDefaultDragScrollTargets,
+  type DragEdgeScrollTarget,
+} from '@/composables/useDragEdgeScroll'
 
 export interface DragState {
   /** Cards currently being dragged. Single-card drags carry one id;
@@ -52,6 +57,9 @@ export interface UseDragDropOptions {
   /** Pixels of pointer movement before a press becomes a drag.
    * Below this threshold, pointer-up fires `onClick` instead. */
   clickThreshold?: number
+  /** Scroll containers to nudge when the pointer nears viewport edges.
+   * Defaults to kanban board (horizontal) and column/list bodies (vertical). */
+  getEdgeScrollTargets?: (clientX: number, clientY: number) => DragEdgeScrollTarget[]
 }
 
 const CLICK_THRESHOLD_PX = 5
@@ -74,8 +82,18 @@ export function useDragDrop(options: UseDragDropOptions): {
   let startY = 0
   let activeCardId: number | null = null
   const clickThreshold = options.clickThreshold ?? CLICK_THRESHOLD_PX
+  const getEdgeScrollTargets = options.getEdgeScrollTargets ?? getDefaultDragScrollTargets
+  const edgeScroller = createDragEdgeScroller({
+    getTargets: getEdgeScrollTargets,
+    onTick: (clientX, clientY) => {
+      if (state.isDragging) {
+        state.hoverLane = options.resolveLaneAt(clientX, clientY)
+      }
+    },
+  })
 
   function reset(): void {
+    edgeScroller.stop()
     state.draggedCardIds = []
     state.hoverLane = null
     state.dragPosition = null
@@ -96,6 +114,16 @@ export function useDragDrop(options: UseDragDropOptions): {
     window.addEventListener('pointermove', onPointerMove)
     window.addEventListener('pointerup', onPointerUp)
     window.addEventListener('pointercancel', onPointerCancel)
+    window.addEventListener('keydown', onKeyDown)
+  }
+
+  function onKeyDown(event: KeyboardEvent): void {
+    if (event.key !== 'Escape') return
+    if (pointerId === null && activeCardId === null) return
+    event.preventDefault()
+    cleanupListeners()
+    document.body.style.userSelect = ''
+    reset()
   }
 
   function onPointerMove(event: PointerEvent): void {
@@ -117,10 +145,12 @@ export function useDragDrop(options: UseDragDropOptions): {
       state.isDragging = true
       // Suppress text selection during drag.
       document.body.style.userSelect = 'none'
+      edgeScroller.start()
     }
     if (state.isDragging) {
       state.dragPosition = { x: event.clientX, y: event.clientY }
       state.hoverLane = options.resolveLaneAt(event.clientX, event.clientY)
+      edgeScroller.update(event.clientX, event.clientY)
     }
   }
 
@@ -161,6 +191,7 @@ export function useDragDrop(options: UseDragDropOptions): {
     window.removeEventListener('pointermove', onPointerMove)
     window.removeEventListener('pointerup', onPointerUp)
     window.removeEventListener('pointercancel', onPointerCancel)
+    window.removeEventListener('keydown', onKeyDown)
   }
 
   // Belt-and-braces: if the component unmounts mid-drag (route
@@ -168,6 +199,7 @@ export function useDragDrop(options: UseDragDropOptions): {
   // don't leak event subscriptions.
   onUnmounted(() => {
     cleanupListeners()
+    edgeScroller.stop()
     document.body.style.userSelect = ''
   })
 

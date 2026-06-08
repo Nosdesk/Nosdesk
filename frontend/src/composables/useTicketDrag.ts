@@ -1,11 +1,44 @@
 import { ref, readonly } from 'vue'
+import type { WorkflowStateCategory } from '@/types/workflow'
+import { createDragEdgeScroller } from '@/composables/useDragEdgeScroll'
 
 export interface DraggableTicket {
   id: number
   title: string
-  status?: string
-  priority?: 'low' | 'medium' | 'high'
-  assignee?: string | null
+  category?: WorkflowStateCategory
+  assigneeUuid?: string | null
+  priority?: 'low' | 'medium' | 'high' | 'none'
+}
+
+/** Parse a ticket id from an HTML5 drag payload (sidebar, kanban). */
+export function parseTicketDragTransfer(transfer: DataTransfer | null): number | null {
+  if (!transfer) return null
+
+  const jsonData = transfer.getData('application/json')
+  if (jsonData) {
+    try {
+      const data = JSON.parse(jsonData) as { ticketId?: number }
+      if (typeof data.ticketId === 'number') return data.ticketId
+    } catch {
+      // ignore malformed payload
+    }
+  }
+
+  const text = transfer.getData('text/plain')
+  if (text) {
+    const match = text.trim().match(/\/tickets\/(\d+)/)
+    if (match) return Number.parseInt(match[1], 10)
+  }
+
+  return null
+}
+
+/** True when the drag carries in-app ticket data we can drop. */
+export function isTicketDragEvent(event: DragEvent): boolean {
+  const types = event.dataTransfer?.types ?? []
+  return types.includes('application/json')
+    || types.includes('text/uri-list')
+    || types.includes('text/plain')
 }
 
 interface TicketDragState {
@@ -27,8 +60,83 @@ const dragState = ref<TicketDragState>({
 let touchTimeout: ReturnType<typeof setTimeout> | null = null
 let activeTouchId: number | null = null
 let touchStartPos = { x: 0, y: 0 }
+let activeDragSource: HTMLElement | null = null
+/** Set when Escape aborts a drag; drop handlers must ignore the next drop. */
+let dropSuppressed = false
+
+let edgeScrollTickHandler: ((clientX: number, clientY: number) => void) | null = null
+const edgeScroller = createDragEdgeScroller({
+  onTick: (clientX, clientY) => edgeScrollTickHandler?.(clientX, clientY),
+})
+
+/** Called each auto-scroll frame so drop targets can re-resolve under a fixed pointer. */
+export function onDragEdgeScrollTick(
+  handler: ((clientX: number, clientY: number) => void) | null,
+): void {
+  edgeScrollTickHandler = handler
+}
 
 const TOUCH_HOLD_DELAY = 150
+
+function onDocumentDragKeyDown(event: KeyboardEvent): void {
+  if (event.key !== 'Escape' || !dragState.value.isDragging) return
+  event.preventDefault()
+  event.stopPropagation()
+  cancelActiveDrag()
+}
+
+function attachDragSessionListeners(): void {
+  document.addEventListener('keydown', onDocumentDragKeyDown, true)
+}
+
+function detachDragSessionListeners(): void {
+  document.removeEventListener('keydown', onDocumentDragKeyDown, true)
+}
+
+function resetDragState(): void {
+  edgeScroller.stop()
+  dragState.value = {
+    isDragging: false,
+    ticket: null,
+    source: null,
+    position: null
+  }
+  document.body.classList.remove('cursor-grabbing')
+  detachDragSessionListeners()
+  activeDragSource = null
+  if (touchTimeout) {
+    clearTimeout(touchTimeout)
+    touchTimeout = null
+  }
+  activeTouchId = null
+}
+
+/** True once after Escape (or programmatic cancel); clears the flag. */
+export function shouldSuppressTicketDrop(): boolean {
+  if (!dropSuppressed) return false
+  dropSuppressed = false
+  return true
+}
+
+function cancelActiveDrag(): void {
+  if (!dragState.value.isDragging) return
+  dropSuppressed = true
+  const source = activeDragSource
+  resetDragState()
+  if (source) {
+    source.dispatchEvent(new DragEvent('dragend', { bubbles: true, cancelable: true }))
+  }
+}
+
+/** Hide the browser's default drag ghost — callers render TicketDragPreview. */
+function setTransparentDragImage(event: DragEvent): void {
+  if (!event.dataTransfer) return
+  const ghost = document.createElement('div')
+  ghost.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none;'
+  document.body.appendChild(ghost)
+  event.dataTransfer.setDragImage(ghost, 0, 0)
+  requestAnimationFrame(() => ghost.remove())
+}
 
 export function useTicketDrag() {
   const startDrag = (ticket: DraggableTicket, source: 'recent-tickets' | 'kanban', position?: { x: number; y: number }) => {
@@ -43,26 +151,21 @@ export function useTicketDrag() {
   const updatePosition = (x: number, y: number) => {
     if (dragState.value.isDragging) {
       dragState.value.position = { x, y }
+      edgeScroller.update(x, y)
     }
   }
 
   const endDrag = () => {
-    dragState.value = {
-      isDragging: false,
-      ticket: null,
-      source: null,
-      position: null
-    }
-    if (touchTimeout) {
-      clearTimeout(touchTimeout)
-      touchTimeout = null
-    }
-    activeTouchId = null
+    resetDragState()
   }
 
   // HTML5 Drag handlers for desktop
   const handleDragStart = (ticket: DraggableTicket, source: 'recent-tickets' | 'kanban', event: DragEvent) => {
+    dropSuppressed = false
+    activeDragSource = event.currentTarget instanceof HTMLElement ? event.currentTarget : null
+    attachDragSessionListeners()
     startDrag(ticket, source)
+    edgeScroller.start()
     if (event.dataTransfer) {
       // Allow all effects for maximum compatibility with external apps
       event.dataTransfer.effectAllowed = 'all'
@@ -87,20 +190,12 @@ export function useTicketDrag() {
         source
       }))
 
-      // Create a minimal drag ghost to prevent browser from using element text
-      // Using a small element with just the ticket ID
-      const ghost = document.createElement('div')
-      ghost.textContent = `#${ticket.id}`
-      ghost.style.cssText = 'position:absolute;top:-1000px;left:-1000px;padding:4px 8px;background:#333;color:#fff;border-radius:4px;font-size:12px;white-space:nowrap;'
-      document.body.appendChild(ghost)
-      event.dataTransfer.setDragImage(ghost, 0, 0)
-      // Clean up after a frame
-      requestAnimationFrame(() => ghost.remove())
+      setTransparentDragImage(event)
     }
   }
 
   const handleDrag = (event: DragEvent) => {
-    if (event.clientX && event.clientY) {
+    if (event.clientX !== 0 || event.clientY !== 0) {
       updatePosition(event.clientX, event.clientY)
     }
   }
@@ -118,7 +213,10 @@ export function useTicketDrag() {
     activeTouchId = touch.identifier
 
     touchTimeout = setTimeout(() => {
+      dropSuppressed = false
+      attachDragSessionListeners()
       startDrag(ticket, source, { x: touch.clientX, y: touch.clientY })
+      edgeScroller.start()
       // Haptic feedback
       if (navigator.vibrate) {
         navigator.vibrate(50)
@@ -164,6 +262,7 @@ export function useTicketDrag() {
     startDrag,
     updatePosition,
     endDrag,
+    cancelDrag: cancelActiveDrag,
     handleDragStart,
     handleDrag,
     handleDragEnd,

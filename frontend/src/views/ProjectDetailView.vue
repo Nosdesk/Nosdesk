@@ -4,8 +4,8 @@
  *
  * Companion routes own Gantt and Cycles; this view stays focused
  * on the board and delegates view-mode switching to ProjectTabBar.
- * The header carries page identity (project name, status, ticket
- * count); the kanban toolbar carries view-shape controls
+ * The header carries page identity (editable project name, status,
+ * ticket count on the right); the kanban toolbar carries view-shape controls
  * (Group-by axis). Moving Group-by out of the header keeps it
  * close to the surface it affects and lets the header stay short
  * across all three tabs.
@@ -107,6 +107,7 @@ function onGroupByChange(value: string | string[]): void {
     <KanbanBoard
       v-else
       class="flex-1 min-h-0"
+      :project-id="projectId"
       :cards="cards"
       :on-card-click="openCard"
       :on-quick-add="quickAdd"

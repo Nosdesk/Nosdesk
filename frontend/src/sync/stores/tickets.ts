@@ -13,6 +13,10 @@ import { defineStore } from 'pinia'
 import { computed, toValue, type ComputedRef, type MaybeRefOrGetter } from 'vue'
 import { useEntity, useAggregate } from '@/sync/composables'
 import { dispatchOptimistic } from '@/sync/queue'
+import * as pool from '@/sync/pool'
+import ticketService from '@/services/ticketService'
+import { logger } from '@/utils/logger'
+import type { Ticket } from '@/types/ticket'
 import type { CardWorkflowState, Priority } from '@/sync/views/types'
 
 /**
@@ -64,6 +68,31 @@ export interface SyncTicket {
   updated_at: string
   last_activity_at: string
   closed_at?: string | null
+}
+
+function apiTicketToSync(ticket: Ticket): SyncTicket {
+  const ws = ticket.workflow_state
+  const cardWs: CardWorkflowState | null = ws
+    ? { id: ws.id, name: ws.name, category: ws.category, color: ws.color }
+    : null
+  return {
+    id: ticket.id,
+    title: ticket.title,
+    workflow_state: cardWs,
+    workflow_state_id: ticket.workflow_state_id ?? ws?.id ?? 0,
+    priority: ticket.priority,
+    requester_uuid: ticket.requester_user?.uuid ?? ticket.requester ?? null,
+    assignee_uuid: ticket.assignee_user?.uuid ?? ticket.assignee ?? null,
+    category_id: ticket.category_id ?? null,
+    triage_state: null,
+    due_date: ticket.due_date ?? null,
+    created_at: ticket.created,
+    updated_at: ticket.modified,
+    last_activity_at: ticket.modified,
+    closed_at: ticket.closed_at ?? null,
+    recurrence_rule: ticket.recurrence_rule ?? null,
+    recurrence_template_id: ticket.recurrence_template_id ?? null,
+  }
 }
 
 export const useSyncTicketsStore = defineStore('syncTickets', () => {
@@ -214,6 +243,23 @@ export const useSyncTicketsStore = defineStore('syncTickets', () => {
     return dispatched
   }
 
+  /** Load a ticket into the sync pool when it isn't there yet — e.g.
+   * dragging a recent ticket onto a project board before the row has
+   * been bootstrapped into the workspace aggregate. */
+  async function ensureInPool(ticketId: number): Promise<SyncTicket | null> {
+    const existing = useEntity<SyncTicket>('ticket', ticketId).value
+    if (existing) return existing
+    try {
+      const fetched = await ticketService.getTicketById(ticketId)
+      const row = apiTicketToSync(fetched)
+      pool.upsert('ticket', ticketId, row)
+      return row
+    } catch (err) {
+      logger.error('Failed to load ticket into sync pool', { ticketId, error: err })
+      return null
+    }
+  }
+
   return {
     byId,
     all,
@@ -223,5 +269,6 @@ export const useSyncTicketsStore = defineStore('syncTickets', () => {
     patchKanbanFields,
     patchTitle,
     bulkPatchKanbanFields,
+    ensureInPool,
   }
 })

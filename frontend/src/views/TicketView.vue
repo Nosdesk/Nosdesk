@@ -15,7 +15,7 @@ import { subscribe } from "@/sync/lifecycle";
 import { useTicketUiStore } from "@/stores/ticketUi";
 import { useTicketSSE } from "@/composables/useTicketSSE";
 import { useTitleManager } from "@/composables/useTitleManager";
-import { useTicketDrag } from "@/composables/useTicketDrag";
+import { useTicketDrag, shouldSuppressTicketDrop } from "@/composables/useTicketDrag";
 import { parseTicketUrl } from "@/components/editor/ticketLinkPlugin";
 
 // Components
@@ -325,6 +325,10 @@ const resetDropState = () => {
 const handleLinkDrop = async (event: DragEvent) => {
     event.preventDefault();
     resetDropState();
+
+    if (shouldSuppressTicketDrop()) {
+        return;
+    }
 
     // Try to get ticket ID from JSON data first
     let droppedTicketId: number | null = null;

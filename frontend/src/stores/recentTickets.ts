@@ -120,13 +120,13 @@ export const useRecentTicketsStore = defineStore('recentTickets', () => {
   }
 
   function reorderTickets(fromIndex: number, toIndex: number) {
-    if (fromIndex === toIndex) return
     const current = recentTickets.value
     if (fromIndex < 0 || fromIndex >= current.length) return
-    if (toIndex < 0 || toIndex >= current.length) return
     const next = [...current]
     const [moved] = next.splice(fromIndex, 1)
-    next.splice(toIndex, 0, moved)
+    const clamped = Math.max(0, Math.min(toIndex, next.length))
+    if (fromIndex === clamped) return
+    next.splice(clamped, 0, moved)
     orderOverride.value = next.map((t) => t.id)
   }
 

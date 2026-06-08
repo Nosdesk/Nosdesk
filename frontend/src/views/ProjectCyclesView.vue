@@ -175,7 +175,9 @@ function stateLabel(state: string): string {
       :project="project"
       :subtitle="$t('project-cycles-count', { count: cycles.length })"
       :fallback-name="$t('project-cycles-fallback-name')"
-    >
+    />
+
+    <ProjectTabBar :project-id="projectId">
       <template #actions>
         <button
           type="button"
@@ -185,9 +187,7 @@ function stateLabel(state: string): string {
           {{ showCreate ? $t('project-cycles-cancel-button') : $t('project-cycles-new-button') }}
         </button>
       </template>
-    </ProjectViewHeader>
-
-    <ProjectTabBar :project-id="projectId" />
+    </ProjectTabBar>
 
     <div class="flex-1 min-h-0 overflow-y-auto p-6 flex flex-col gap-4">
       <template v-if="activeCycle">

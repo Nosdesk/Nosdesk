@@ -9,7 +9,8 @@
  *   column (assignee or priority for now). Drop targets carry
  *   both axes so the dispatch flips workflow state and the
  *   secondary field in one optimistic transaction.
- * - Pointer-event drag (single + multi-select).
+ * - Pointer-event drag (single + multi-select) on board cards.
+ * - HTML5 drag from the recent-tickets sidebar onto lanes.
  * - Click a card to open the detail (caller-supplied callback).
  *
  * Deferred to later commits:
@@ -28,7 +29,7 @@ import { useFluent } from 'fluent-vue'
 const fluent = useFluent()
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
 
-import { useSyncTicketsStore, type SyncTicket } from '@/sync/stores/tickets'
+import { useSyncTicketsStore } from '@/sync/stores/tickets'
 import { useWorkflowStatesStore } from '@/stores/workflowStates'
 import {
   WORKFLOW_CATEGORIES,
@@ -41,8 +42,18 @@ import { formatDateTime } from '@/utils/dateUtils'
 import { useDragDrop } from './drag'
 import type { CardData } from './types'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
-import SectionCard from '@/components/common/SectionCard.vue'
+import Icon from '@/components/common/Icon.vue'
+import TicketDragPreview from '@/components/common/TicketDragPreview.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
+import type { DraggableTicket } from '@/composables/useTicketDrag'
+import {
+  isTicketDragEvent,
+  parseTicketDragTransfer,
+  shouldSuppressTicketDrop,
+  onDragEdgeScrollTick,
+  useTicketDrag,
+} from '@/composables/useTicketDrag'
+import { useProjectTicketLink } from '@/composables/useProjectTicketLink'
 
 /** Sub-lane keys are derived from the secondary axis value:
  *   - assignee_uuid: the uuid string, or '__none__' if null
@@ -70,14 +81,19 @@ const props = withDefaults(defineProps<{
    * this with the column's default workflow state. The board hides
    * the affordance entirely when this is omitted. */
   onQuickAdd?: (workflowStateId: number, title: string) => Promise<void> | void
+  /** When set, HTML5 drops from the recent-tickets sidebar link the
+   * ticket to this project before moving it into the target column. */
+  projectId?: number
 }>(), {
   onCardClick: undefined,
   secondaryGroupBy: null,
   onQuickAdd: undefined,
+  projectId: undefined,
 })
 
 const ticketsStore = useSyncTicketsStore()
 const workflowStatesStore = useWorkflowStatesStore()
+const { linkToProject } = useProjectTicketLink()
 
 // ---------------------------------------------------------------
 // Selection (multi-select)
@@ -231,7 +247,17 @@ function groupCardsByCategory(
 function resolveLaneAt(clientX: number, clientY: number): string | null {
   const elements = document.elementsFromPoint(clientX, clientY)
   const laneEl = elements.find((el) => el.hasAttribute('data-lane-id'))
-  return laneEl?.getAttribute('data-lane-id') ?? null
+  if (laneEl) return laneEl.getAttribute('data-lane-id')
+
+  // Drops on the column header / chrome still target the column's
+  // default sub-lane when cards haven't scrolled under the pointer.
+  const colEl = elements.find((el) => el.hasAttribute('data-column-id'))
+  const columnId = colEl?.getAttribute('data-column-id')
+  if (columnId) {
+    const lane = lanes.value.find((l) => l.id === columnId)
+    return lane?.sublanes[0]?.id ?? null
+  }
+  return null
 }
 
 /** Single dispatch path used by both pointer drops and keyboard
@@ -269,6 +295,23 @@ function dispatchMove(cardIds: number[], targetLaneId: string): void {
   }
 }
 
+const cardsById = computed(() => {
+  const map = new Map<number, CardData>()
+  for (const card of props.cards) map.set(card.id, card)
+  return map
+})
+
+function cardToDragPreview(card: CardData): DraggableTicket {
+  const priority = card.priority
+  return {
+    id: card.id,
+    title: card.title,
+    category: card.workflow_state.category,
+    assigneeUuid: card.assignee_uuid ?? null,
+    priority: priority === 'urgent' ? 'high' : priority,
+  }
+}
+
 const { state: dragState, onPointerDown, isDraggedCard, isHoverLane } = useDragDrop({
   resolveLaneAt,
   selection: () => selectedIds.value,
@@ -281,6 +324,73 @@ const { state: dragState, onPointerDown, isDraggedCard, isHoverLane } = useDragD
     clearSelection()
   },
 })
+
+const kanbanDragPreview = computed(() => {
+  if (!dragState.isDragging || !dragState.dragPosition) return null
+  const leadId = dragState.draggedCardIds[0]
+  if (leadId == null) return null
+  const card = cardsById.value.get(leadId)
+  if (!card) return null
+  return {
+    ticket: cardToDragPreview(card),
+    position: dragState.dragPosition,
+    extraCount: Math.max(0, dragState.draggedCardIds.length - 1),
+  }
+})
+
+const { endDrag: endExternalTicketDrag } = useTicketDrag()
+const externalDragHoverLane = ref<string | null>(null)
+
+function isLaneHovered(laneId: string): boolean {
+  return isHoverLane(laneId) || externalDragHoverLane.value === laneId
+}
+
+function onExternalDragOver(event: DragEvent): void {
+  if (!isTicketDragEvent(event)) return
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+  externalDragHoverLane.value = resolveLaneAt(event.clientX, event.clientY)
+}
+
+function onExternalDrop(event: DragEvent): void {
+  if (!isTicketDragEvent(event)) return
+  event.preventDefault()
+  event.stopPropagation()
+
+  if (shouldSuppressTicketDrop()) {
+    externalDragHoverLane.value = null
+    endExternalTicketDrag()
+    return
+  }
+
+  void (async () => {
+    const ticketId = parseTicketDragTransfer(event.dataTransfer)
+    const laneId = resolveLaneAt(event.clientX, event.clientY) ?? externalDragHoverLane.value
+    externalDragHoverLane.value = null
+
+    if (ticketId == null || !laneId) {
+      endExternalTicketDrag()
+      return
+    }
+
+    if (props.projectId != null) {
+      const linked = await linkToProject(props.projectId, ticketId)
+      if (!linked) {
+        endExternalTicketDrag()
+        return
+      }
+    }
+
+    await ticketsStore.ensureInPool(ticketId)
+    dispatchMove([ticketId], laneId)
+    endExternalTicketDrag()
+  })()
+}
+
+function onExternalDragEnd(): void {
+  externalDragHoverLane.value = null
+  endExternalTicketDrag()
+}
 
 function parseLaneId(laneId: string): [WorkflowStateCategory, string] {
   const idx = laneId.indexOf(LANE_SEP)
@@ -378,8 +488,18 @@ function onKeyDown(event: KeyboardEvent): void {
   moveSelectionByKey(direction)
 }
 
-onMounted(() => window.addEventListener('keydown', onKeyDown))
-onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
+onMounted(() => {
+  window.addEventListener('keydown', onKeyDown)
+  document.addEventListener('dragend', onExternalDragEnd)
+  onDragEdgeScrollTick((clientX, clientY) => {
+    externalDragHoverLane.value = resolveLaneAt(clientX, clientY)
+  })
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeyDown)
+  document.removeEventListener('dragend', onExternalDragEnd)
+  onDragEdgeScrollTick(null)
+})
 
 // ---------------------------------------------------------------
 // Card visuals
@@ -432,10 +552,6 @@ async function submitQuickAdd(lane: Lane): Promise<void> {
  * column the user is working in. */
 function onQuickAddBlur(): void {
   if (!quickAddTitle.value.trim()) closeQuickAdd()
-}
-
-function ticketRow(cardId: number): SyncTicket | null {
-  return ticketsStore.byId(cardId).value
 }
 
 /** Card-level "is there anything noteworthy?" check that drives
@@ -492,43 +608,62 @@ function affectedDevicesTooltip(card: CardData): string {
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 min-w-0">
-    <!-- Lanes -->
-    <!-- max-md scroll-snap so lanes swipe one-at-a-time on phones; snap
-         is gated to mobile so it can't fight pointer drag-and-drop on
-         desktop. Each lane is a SectionCard — header stays fixed,
-         cards scroll in the body. -->
-    <div class="kanban-board flex gap-3 p-3 h-full min-h-0 min-w-0 overflow-x-auto overflow-y-hidden max-md:snap-x max-md:snap-mandatory max-md:scroll-px-3" @click="clearSelection">
-      <SectionCard
+  <div class="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+    <!-- Single scroll surface for the whole board (horizontal + vertical).
+         Lanes grow with their cards — no nested column scrollports. Column
+         headers use position:sticky against this element so they pin while
+         the board scrolls. -->
+    <div
+      class="kanban-board flex flex-1 min-h-0 min-w-0 overflow-x-auto overflow-y-auto max-md:snap-x max-md:snap-mandatory"
+      @click="clearSelection"
+      @dragover="onExternalDragOver"
+      @drop="onExternalDrop"
+    >
+      <div class="kanban-board-inner flex min-h-full min-w-min gap-3 p-3 items-start max-md:scroll-px-3">
+      <div
         v-for="lane in lanes"
         :key="lane.id"
-        class="w-72 shrink-0 h-full min-h-0 max-md:snap-start"
-        content-padding="flex-1 min-h-0 overflow-y-auto flex flex-col"
+        :data-column-id="lane.id"
+        class="kanban-lane w-72 shrink-0 flex flex-col bg-surface rounded-lg border border-default min-h-[22rem] max-md:snap-start"
         @click.stop
       >
-        <template #leading>
-          <span
-            v-if="lane.defaultState"
-            class="inline-block w-2 h-2 rounded-full bg-current shrink-0"
-            :class="paletteForColor(lane.defaultState.color).solid"
-            aria-hidden="true"
-          />
-        </template>
-        <template #title>{{ lane.label }}</template>
-        <template #headerActions>
-          <span class="text-[11px] text-tertiary tabular-nums">{{ lane.totalCards }}</span>
-          <button
-            v-if="onQuickAdd && lane.defaultState"
-            type="button"
-            class="text-tertiary hover:text-primary hover:bg-surface-hover rounded p-0.5 w-5 h-5 flex items-center justify-center transition-colors text-sm leading-none"
-            :title="t('kanban-quick-add-aria', { column: lane.label })"
-            :aria-label="t('kanban-quick-add-aria', { column: lane.label })"
-            @click.stop="openQuickAdd(lane.id)"
-          >
-            +
-          </button>
-        </template>
+        <!-- Top radius pad — scrolls away; keeps rounded corners without
+             clipping sticky descendants. -->
+        <div class="kanban-lane-cap kanban-lane-cap-top shrink-0" aria-hidden="true" />
+        <header
+          class="kanban-lane-header sticky z-20 flex items-center justify-between gap-1.5 px-2 bg-surface-alt shrink-0"
+        >
+          <div class="flex items-center gap-1.5 min-w-0">
+            <span
+              v-if="lane.defaultState"
+              class="inline-block w-1.5 h-1.5 rounded-full bg-current shrink-0"
+              :class="paletteForColor(lane.defaultState.color).solid"
+              aria-hidden="true"
+            />
+            <h3 class="text-xs font-semibold text-primary truncate leading-none">
+              {{ lane.label }}
+            </h3>
+          </div>
+          <div class="flex items-center gap-1 shrink-0">
+            <span class="text-[10px] text-tertiary tabular-nums leading-none">{{ lane.totalCards }}</span>
+            <button
+              v-if="onQuickAdd && lane.defaultState"
+              type="button"
+              class="text-tertiary hover:text-primary hover:bg-surface-hover rounded w-4 h-4 flex items-center justify-center transition-colors text-xs leading-none"
+              :title="t('kanban-quick-add-aria', { column: lane.label })"
+              :aria-label="t('kanban-quick-add-aria', { column: lane.label })"
+              @click.stop="openQuickAdd(lane.id)"
+            >
+              +
+            </button>
+          </div>
+        </header>
+        <!-- Bottom pad — scrolls away with the top pad. -->
+        <div class="kanban-lane-cap kanban-lane-cap-bottom shrink-0" aria-hidden="true" />
+        <!-- Sticky hairline: pins below the title row once padding has scrolled off. -->
+        <div class="kanban-lane-hairline sticky z-20 shrink-0" aria-hidden="true" />
 
+        <div class="flex flex-col">
         <!-- Inline quick-add: a single-line title input at the top
              of the column. Enter creates a ticket in the column's
              default workflow state and keeps the input open for the
@@ -551,12 +686,12 @@ function affectedDevicesTooltip(card: CardData): string {
           v-for="sublane in lane.sublanes"
           :key="sublane.id"
           class="flex flex-col transition-colors"
-          :class="{ 'bg-accent-muted/40': isHoverLane(sublane.id) }"
+          :class="{ 'bg-accent-muted/40': isLaneHovered(sublane.id) }"
           :data-lane-id="sublane.id"
         >
           <header
             v-if="secondaryGroupBy"
-            class="flex items-center justify-between px-3 py-1 text-[10px] uppercase tracking-wider font-semibold text-tertiary bg-surface border-b border-subtle sticky top-0 z-10 shrink-0"
+            class="kanban-sublane-header flex items-center justify-between px-2 py-0.5 text-[10px] uppercase tracking-wide font-semibold text-tertiary bg-surface border-b border-subtle sticky z-10 shrink-0"
           >
             <span class="truncate">{{ sublane.label }}</span>
             <span class="tabular-nums">{{ sublane.cards.length }}</span>
@@ -569,7 +704,7 @@ function affectedDevicesTooltip(card: CardData): string {
                    instead of pretending to support arbitrary in-lane
                    reorder, which the data model doesn't yet. -->
               <div
-                v-if="isHoverLane(sublane.id) && sublane.cards.length > 0"
+                v-if="isLaneHovered(sublane.id) && sublane.cards.length > 0"
                 class="h-0.5 -my-1 rounded-full bg-accent shadow-[0_0_0_2px_var(--surface-app)] insertion-line"
                 aria-hidden="true"
               />
@@ -601,11 +736,15 @@ function affectedDevicesTooltip(card: CardData): string {
                   <div class="flex items-center gap-1.5 shrink-0">
                     <span
                       v-if="card.sla"
-                      class="text-xs leading-none"
                       :class="slaIconTone(card)"
                       :title="slaTooltip(card)"
-                      :aria-label="t('kanban-sla-aria')"
-                    >⏱</span>
+                    >
+                      <Icon
+                        name="clock"
+                        size="xs"
+                        :label="t('kanban-sla-aria')"
+                      />
+                    </span>
                     <PriorityIndicator
                       v-if="card.priority !== 'none'"
                       :priority="(card.priority === 'urgent' ? 'high' : card.priority) as 'low' | 'medium' | 'high'"
@@ -673,7 +812,7 @@ function affectedDevicesTooltip(card: CardData): string {
                 v-if="sublane.cards.length === 0"
                 class="flex items-center justify-center text-tertiary text-[11px] italic border-2 rounded-lg min-h-12 transition-colors"
                 :class="
-                  isHoverLane(sublane.id)
+                  isLaneHovered(sublane.id)
                     ? 'border-accent bg-accent-muted text-accent font-medium'
                     : 'border-dashed border-subtle'
                 "
@@ -682,36 +821,57 @@ function affectedDevicesTooltip(card: CardData): string {
               </div>
             </div>
           </section>
-      </SectionCard>
+        </div>
+      </div>
+      </div>
     </div>
 
     <!-- Floating drag preview -->
-    <div
-      v-if="dragState.isDragging && dragState.dragPosition"
-      class="fixed pointer-events-none z-50"
-      :style="{
-        left: dragState.dragPosition.x + 'px',
-        top: dragState.dragPosition.y + 'px',
-        transform: 'translate(-40%, -50%)',
-      }"
-    >
-      <div class="bg-surface-alt rounded-md border border-accent shadow-lg px-2.5 py-2 max-w-[16rem]">
-        <div class="text-xs font-medium text-primary line-clamp-2">
-          {{ ticketRow(dragState.draggedCardIds[0])?.title ?? 'Moving cards' }}
-        </div>
-        <div
-          v-if="dragState.draggedCardIds.length > 1"
-          class="text-[10px] text-tertiary mt-0.5"
-        >
-          + {{ dragState.draggedCardIds.length - 1 }} more
-        </div>
-      </div>
-    </div>
+    <TicketDragPreview
+      v-if="kanbanDragPreview"
+      :ticket="kanbanDragPreview.ticket"
+      :position="kanbanDragPreview.position"
+      :extra-count="kanbanDragPreview.extraCount"
+    />
   </div>
 </template>
 
 <style scoped>
-.kanban-board::after {
+.kanban-lane {
+  /* Shared sticky offsets for the title bar + hairline + sub-lane headers. */
+  --kanban-lane-header-h: 1.75rem;
+  --kanban-lane-cap: 0.375rem;
+  min-height: 22rem;
+}
+.kanban-lane-cap {
+  background: var(--color-surface-alt);
+  padding-inline: 0.5rem;
+}
+.kanban-lane-cap-top {
+  padding-top: var(--kanban-lane-cap);
+  border-top-left-radius: 0.5rem;
+  border-top-right-radius: 0.5rem;
+}
+.kanban-lane-cap-bottom {
+  padding-bottom: var(--kanban-lane-cap);
+}
+.kanban-lane-header {
+  position: sticky;
+  top: 0;
+  height: var(--kanban-lane-header-h);
+}
+.kanban-lane-hairline {
+  position: sticky;
+  top: var(--kanban-lane-header-h);
+  height: 1px;
+  background: var(--color-border-default);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+}
+.kanban-sublane-header {
+  position: sticky;
+  top: calc(var(--kanban-lane-header-h) + 1px);
+}
+.kanban-board-inner::after {
   content: '';
   flex-shrink: 0;
   width: 1px;

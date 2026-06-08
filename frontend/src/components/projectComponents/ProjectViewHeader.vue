@@ -1,12 +1,10 @@
 <script setup lang="ts">
 /**
  * Shared header for a project's sub-views (Board / Gantt / Cycles) so
- * all three present an identical identity bar: the project name with
- * inline rename, a status badge, a per-view subtitle, and the project
- * actions menu (rename / set status / delete). Owns the management
- * side effects, so each view drops in the header and passes only its
- * own subtitle. Per-view controls (e.g. the cycles "New cycle" button)
- * go in the #actions slot, left of the actions menu.
+ * all three present an identical identity bar: inline-rename project
+ * title, optional trailing meta (ticket count, etc.), status badge,
+ * and the project actions menu. Per-view controls go in #actions,
+ * left of the meta / status cluster.
  */
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -18,6 +16,7 @@ import ConfirmModal from '@/components/common/ConfirmModal.vue'
 
 const props = defineProps<{
   project: SyncProject | null
+  /** Trailing meta on the right (ticket count, gantt summary, …). */
   subtitle?: string
   fallbackName?: string
 }>()
@@ -51,30 +50,42 @@ async function confirmDelete(): Promise<void> {
 </script>
 
 <template>
-  <header class="flex items-center justify-between gap-3 px-6 py-4 border-b border-subtle bg-app">
-    <div class="min-w-0 flex-1">
+  <header class="flex items-center gap-3 px-3 sm:px-6 h-10 shrink-0 border-b border-subtle bg-app">
+    <div class="min-w-0 flex-1 flex items-center">
       <input
-        v-if="editing"
+        v-if="editing && project"
         ref="inputEl"
         v-model="draft"
         type="text"
-        class="w-full max-w-md text-xl font-semibold text-primary bg-surface-alt border border-default rounded px-2 py-0.5 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
+        class="w-full max-w-md text-sm font-semibold text-primary bg-surface-alt border border-default rounded px-2 py-0.5 leading-none focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
         :aria-label="$t('project-actions-rename')"
         @keyup.enter="done"
         @keyup.esc="cancel"
         @blur="done"
       />
-      <h1 v-else class="text-xl font-semibold text-primary truncate">
-        {{ project?.name ?? fallbackName ?? '' }}
-      </h1>
-      <p v-if="subtitle" class="text-xs text-tertiary mt-0.5">{{ subtitle }}</p>
+      <button
+        v-else-if="project"
+        type="button"
+        class="min-w-0 max-w-full truncate text-sm font-semibold text-primary leading-none rounded px-1 -mx-1 py-0.5 hover:bg-surface-hover transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        :title="$t('project-actions-rename')"
+        @click="start(project.name)"
+      >
+        {{ project.name }}
+      </button>
+      <span v-else class="text-sm font-semibold text-primary truncate leading-none">
+        {{ fallbackName ?? '' }}
+      </span>
     </div>
 
     <div v-if="project" class="flex items-center gap-2 shrink-0">
       <slot name="actions" />
       <span
-        class="text-[10px] uppercase tracking-wide font-semibold rounded px-2 py-0.5 bg-surface-hover text-tertiary"
+        class="text-[10px] uppercase tracking-wide font-semibold rounded px-1.5 py-0.5 bg-surface-hover text-tertiary leading-none"
       >{{ $t(`project-actions-status-${project.status}`) }}</span>
+      <span
+        v-if="subtitle"
+        class="text-xs text-tertiary tabular-nums whitespace-nowrap leading-none"
+      >{{ subtitle }}</span>
       <ProjectActionsMenu
         :status="project.status"
         @rename="start(project.name)"

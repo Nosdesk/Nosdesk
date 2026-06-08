@@ -8,6 +8,7 @@
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { useFluent } from 'fluent-vue'
 import { subscribe } from '@/sync/lifecycle'
 import { useSyncProjectsStore } from '@/sync/stores/projects'
 import { useSyncTicketsStore } from '@/sync/stores/tickets'
@@ -20,6 +21,9 @@ import ProjectTabBar from '@/components/views/ProjectTabBar.vue'
 import ProjectViewHeader from '@/components/projectComponents/ProjectViewHeader.vue'
 
 const props = defineProps<{ id: string }>()
+
+const fluent = useFluent()
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 const router = useRouter()
 const projectId = computed(() => Number(props.id))
@@ -67,13 +71,20 @@ function openCard(cardId: number): void {
 function reschedule(cardId: number, dueDate: string): void {
   void ticketsStore.patchKanbanFields(cardId, { due_date: dueDate })
 }
+
+const headerSubtitle = computed(() =>
+  t('gantt-tickets-of-total-in-view', {
+    count: cards.value.length,
+    visible: viewport.visibleCount.value,
+  }),
+)
 </script>
 
 <template>
   <div class="flex flex-col h-full">
     <ProjectViewHeader
       :project="project"
-      :subtitle="$t('project-gantt-summary', { tickets: cards.length, links: edges.length })"
+      :subtitle="headerSubtitle"
       :fallback-name="$t('project-gantt-fallback-name')"
     />
 
@@ -120,10 +131,6 @@ function reschedule(cardId: number, dueDate: string): void {
             @click="viewport.pan(1)"
           ><span aria-hidden="true">›</span></button>
         </div>
-
-        <p class="hidden sm:block text-[11px] text-tertiary">
-          {{ $t('gantt-tickets-of-total-in-view', { count: cards.length, visible: viewport.visibleCount.value }) }}
-        </p>
       </template>
     </ProjectTabBar>
 

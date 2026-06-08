@@ -1,125 +1,134 @@
-<!-- TicketDragPreview.vue - Shared floating drag preview for tickets -->
+<!-- Floating drag preview for sidebar (and other HTML5) ticket drags. -->
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue'
-import { useFluent } from 'fluent-vue'
-
-const fluent = useFluent()
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import StatusIndicator from '@/components/common/StatusIndicator.vue'
+import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
+import UserAvatar from '@/components/UserAvatar.vue'
+import type { WorkflowStateCategory } from '@/types/workflow'
 
 const props = defineProps<{
   ticket: {
     id: number
     title: string
-    priority?: 'low' | 'medium' | 'high'
-    assignee?: string | null
+    category?: WorkflowStateCategory
+    assigneeUuid?: string | null
+    priority?: 'low' | 'medium' | 'high' | 'none'
   }
   position: { x: number; y: number }
+  /** Additional cards in a multi-select drag (shown as "+ N more"). */
+  extraCount?: number
 }>()
 
-const CURSOR_OFFSET = 12 // Distance from cursor
+/** Keep the preview inside the viewport with a small breathing room. */
 const VIEWPORT_MARGIN = 8
+/** Default cursor anchor within the card (matches kanban grab point). */
+const CURSOR_ANCHOR_X = 0.4
+const CURSOR_ANCHOR_Y = 0.5
+/** Fallback size before the card is measured (w-64 × typical two-line card). */
+const ESTIMATED_WIDTH = 256
+const ESTIMATED_HEIGHT = 80
 
-// Refs for actual element measurement and positioning
-const previewRef = ref<HTMLElement | null>(null)
-const transformX = ref(0)
-const transformY = ref(0)
+const cardRef = ref<HTMLElement | null>(null)
+const measureVersion = ref(0)
 
-// Update position using RAF for smooth cursor following
-let rafId: number | null = null
+function bumpMeasure(): void {
+  measureVersion.value++
+}
 
-const updatePosition = () => {
-  if (!previewRef.value) return
+watch(
+  () => [props.position.x, props.position.y, props.ticket.title, props.extraCount],
+  () => { void nextTick(bumpMeasure) },
+)
+
+onMounted(() => { void nextTick(bumpMeasure) })
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value))
+}
+
+const wrapperStyle = computed(() => {
+  void measureVersion.value
 
   const { x, y } = props.position
-  const rect = previewRef.value.getBoundingClientRect()
-  const width = rect.width || 288
-  const height = rect.height || 100
+  const w = cardRef.value?.offsetWidth ?? ESTIMATED_WIDTH
+  const h = cardRef.value?.offsetHeight ?? ESTIMATED_HEIGHT
+  const vw = window.innerWidth
+  const vh = window.innerHeight
+  const m = VIEWPORT_MARGIN
 
-  const viewportWidth = window.innerWidth
-  const viewportHeight = window.innerHeight
+  const idealLeft = x - CURSOR_ANCHOR_X * w
+  const idealTop = y - CURSOR_ANCHOR_Y * h
 
-  // Check available space
-  const spaceRight = viewportWidth - x
-  const spaceBottom = viewportHeight - y
+  const left = clamp(idealLeft, m, Math.max(m, vw - m - w))
+  const top = clamp(idealTop, m, Math.max(m, vh - m - h))
 
-  // Determine placement (prefer bottom-right)
-  const placeRight = spaceRight >= width + CURSOR_OFFSET
-  const placeBottom = spaceBottom >= height + CURSOR_OFFSET
-
-  let left: number
-  let top: number
-
-  if (placeRight) {
-    left = x + CURSOR_OFFSET
-  } else {
-    left = x - width - CURSOR_OFFSET
+  return {
+    left: `${left}px`,
+    top: `${top}px`,
   }
-
-  if (placeBottom) {
-    top = y + CURSOR_OFFSET
-  } else {
-    top = y - height - CURSOR_OFFSET
-  }
-
-  // Clamp to viewport
-  left = Math.max(VIEWPORT_MARGIN, Math.min(left, viewportWidth - width - VIEWPORT_MARGIN))
-  top = Math.max(VIEWPORT_MARGIN, Math.min(top, viewportHeight - height - VIEWPORT_MARGIN))
-
-  transformX.value = left
-  transformY.value = top
-}
-
-// Watch position changes and update via RAF
-watch(() => props.position, () => {
-  if (rafId) cancelAnimationFrame(rafId)
-  rafId = requestAnimationFrame(updatePosition)
-}, { immediate: true })
-
-onMounted(() => {
-  // Initial position calculation after element is mounted
-  requestAnimationFrame(updatePosition)
 })
 
-onUnmounted(() => {
-  if (rafId) cancelAnimationFrame(rafId)
-})
+const showPriority = computed(() =>
+  props.ticket.priority != null && props.ticket.priority !== 'none',
+)
 
-const getPriorityBorderClass = (priority?: string) => {
-  switch (priority) {
-    case 'high': return 'border-l-priority-high'
-    case 'medium': return 'border-l-priority-medium'
-    case 'low': return 'border-l-priority-low'
-    default: return 'border-l-subtle'
-  }
-}
+const priorityLevel = computed((): 'low' | 'medium' | 'high' | undefined => {
+  const p = props.ticket.priority
+  if (p === 'low' || p === 'medium' || p === 'high') return p
+  return undefined
+})
 </script>
 
 <template>
   <Teleport to="body">
-    <div
-      ref="previewRef"
-      class="fixed top-0 left-0 pointer-events-none z-overlay w-64 md:w-72 will-change-transform"
-      :style="{
-        transform: `translate3d(${transformX}px, ${transformY}px, 0)`
-      }"
-    >
+    <Transition name="ticket-drag-preview" appear>
       <div
-        class="bg-surface rounded-lg border-l-4 border border-accent shadow-lg p-3"
-        :class="getPriorityBorderClass(ticket.priority)"
+        class="fixed top-0 left-0 pointer-events-none z-overlay will-change-[left,top]"
+        :style="wrapperStyle"
       >
-        <span class="text-xs text-tertiary font-mono">#{{ ticket.id }}</span>
-        <h4 class="text-sm font-medium text-primary mt-1 line-clamp-2">
-          {{ ticket.title }}
-        </h4>
-        <div v-if="ticket.assignee || ticket.priority" class="flex items-center justify-between mt-3">
-          <span class="text-xs text-tertiary">
-            {{ ticket.assignee || fluent.$t('filter-assignee-unassigned') }}
-          </span>
-          <span v-if="ticket.priority" class="text-xs text-tertiary capitalize">
-            {{ ticket.priority }}
-          </span>
+        <!-- Mirrors the compact kanban card chrome so a sidebar drag
+             reads as the same object landing on the board. -->
+        <div
+          ref="cardRef"
+          class="w-60 sm:w-64 rounded-lg border border-strong bg-surface p-2 shadow-xl ring-1 ring-accent/20"
+        >
+          <div class="flex items-start gap-1.5 min-w-0">
+            <StatusIndicator
+              v-if="ticket.category"
+              :category="ticket.category"
+              size="xs"
+              class="mt-0.5 shrink-0"
+            />
+            <h4 class="text-[13px] font-medium text-primary line-clamp-2 flex-1 min-w-0">
+              {{ ticket.title }}
+            </h4>
+            <PriorityIndicator
+              v-if="showPriority && priorityLevel"
+              :priority="priorityLevel"
+              size="xs"
+              class="shrink-0 mt-0.5"
+            />
+          </div>
+          <div class="flex items-center justify-between mt-1.5 text-[11px] text-tertiary">
+            <span class="font-mono">#{{ ticket.id }}</span>
+            <UserAvatar
+              v-if="ticket.assigneeUuid"
+              :uuid="ticket.assigneeUuid"
+              size="xxs"
+              :show-name="false"
+              :clickable="false"
+            />
+            <span v-else class="italic text-[10px]">{{ $t('filter-assignee-unassigned') }}</span>
+          </div>
+          <div
+            v-if="extraCount && extraCount > 0"
+            class="text-[10px] text-tertiary mt-1"
+          >
+            + {{ extraCount }} more
+          </div>
         </div>
       </div>
-    </div>
+    </Transition>
   </Teleport>
 </template>
 
@@ -129,5 +138,25 @@ const getPriorityBorderClass = (priority?: string) => {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.ticket-drag-preview-enter-active {
+  transition: opacity 120ms ease-out;
+}
+
+.ticket-drag-preview-leave-active {
+  transition: opacity 80ms ease-in;
+}
+
+.ticket-drag-preview-enter-from,
+.ticket-drag-preview-leave-to {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ticket-drag-preview-enter-active,
+  .ticket-drag-preview-leave-active {
+    transition: none;
+  }
 }
 </style>
