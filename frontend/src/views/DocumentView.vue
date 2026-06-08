@@ -825,28 +825,26 @@ watch(documentObj, (newDocument) => {
               </div>
             </div>
 
-            <!-- Editor. Gated on a non-null docId so the workspace
-                 namespace has resolved before we hand the editor a
-                 string id. -->
-            <CollaborativeEditor
-              v-if="docId"
-              ref="editorRef"
-              v-model="editContent"
-              :doc-id="docId"
-              :hide-revision-history="true"
-              :placeholder="$t('doc-detail-editor-placeholder')"
-              @update:modelValue="updateContent"
-              class="w-full flex-1 flex flex-col"
-            />
+            <!-- Editor + linked tickets share a column gap so the
+                 footer doesn't sit flush against the prose surface. -->
+            <div class="flex flex-col gap-3">
+              <CollaborativeEditor
+                v-if="docId"
+                ref="editorRef"
+                v-model="editContent"
+                :doc-id="docId"
+                :hide-revision-history="true"
+                :placeholder="$t('doc-detail-editor-placeholder')"
+                @update:modelValue="updateContent"
+                class="w-full flex flex-col"
+              />
 
-            <!-- Linked tickets footer: read + manage links to
-                 tickets this doc resolved or references. -->
-            <PageTicketLinksPanel
-              v-if="!isTicketNote && document.id"
-              :page-id="document.id"
-              :can-edit="authStore.isTechnician || authStore.isAdmin"
-              class="mt-8"
-            />
+              <PageTicketLinksPanel
+                v-if="!isTicketNote && document.id"
+                :page-id="document.id"
+                :can-edit="authStore.isTechnician || authStore.isAdmin"
+              />
+            </div>
           </div>
         </div>
 
