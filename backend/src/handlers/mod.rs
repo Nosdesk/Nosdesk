@@ -1040,21 +1040,21 @@ pub async fn serve_public_file(
     }
 }
 
-pub async fn serve_protected_file(
-    path: web::Path<String>,
-    req: actix_web::HttpRequest,
-    storage: web::Data<Arc<dyn crate::utils::storage::Storage>>,
-) -> impl Responder {
-    let file_path = path.into_inner();
-
-    // For protected files, serve using storage abstraction
-    match crate::utils::storage::serve_file_from_storage(storage.as_ref().clone(), &file_path, &req)
-        .await
-    {
-        Ok(response) => response,
-        Err(e) => {
-            error!(file_path = %file_path, error = ?e, "Error serving protected file");
-            HttpResponse::NotFound().finish()
-        }
-    }
+/// Deliberately reject any `/uploads/{path}` that wasn't matched by the
+/// explicit public-asset routes (avatars / banners / thumbs / branding).
+///
+/// This path used to serve **any** object straight from storage with no
+/// authentication, which let `/uploads/tickets/...`, `/uploads/temp/...`,
+/// and even `/uploads/email_raw/...` be read by anyone who had (or
+/// guessed) the URL, bypassing the token-validated `/api/files/*` routes
+/// entirely. Tenant files are now served only through those authenticated,
+/// workspace-scoped handlers; the frontend rewrites `/uploads/tickets|temp`
+/// to `/api/files/...` (see `fileService.ts`). Anything else hitting this
+/// catch-all is either a leaked legacy URL or probing, so it 404s.
+pub async fn reject_legacy_upload_path(path: web::Path<String>) -> impl Responder {
+    warn!(
+        path = %path.into_inner(),
+        "Rejected unauthenticated /uploads/ access; tenant files are served via /api/files"
+    );
+    HttpResponse::NotFound().finish()
 }

@@ -7,8 +7,9 @@ use serde_json::json;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
-use crate::db::DbConnection;
+use crate::extractors::{AuthContext, TenantConn};
 use crate::models::NewAttachment;
+use crate::repository::ticket_visibility::{self, VisibilityContext};
 use crate::utils::file_validation::FileValidator;
 use crate::utils::storage::Storage;
 
@@ -196,140 +197,113 @@ pub async fn upload_files(
     Ok(HttpResponse::Ok().json(uploaded_attachments))
 }
 
-// Serve ticket files with token-based authentication
+// Serve ticket attachment files.
+//
+// Auth + tenancy: the route is wrapped with `dual_auth_middleware`, which
+// authenticates the caller (cookie or Bearer) and enforces that they're a
+// member of the resolved workspace. The path is `tickets/{ticket_id}/...`,
+// so we additionally require that the caller can view that ticket via
+// `authorize_ticket_access` (which runs under `TenantConn`, so RLS scopes
+// the check to the caller's workspace and end-user visibility applies).
 pub async fn serve_ticket_file(
     path: web::Path<String>,
     req: actix_web::HttpRequest,
-    pool: web::Data<crate::db::Pool>,
+    mut tc: TenantConn,
+    auth: AuthContext,
     storage: web::Data<Arc<dyn Storage>>,
 ) -> Result<HttpResponse, actix_web::Error> {
     let filename = path.into_inner();
 
-    // Extract token from query parameter or Authorization header
-    let token = extract_token_from_request(&req)?;
+    // The first path segment is the owning ticket id (moved attachments
+    // live under tickets/{ticket_id}/...). A path without a numeric leading
+    // segment can't be tied to a ticket for authorization, so deny it.
+    let ticket_id = filename
+        .split('/')
+        .next()
+        .and_then(|s| s.parse::<i32>().ok())
+        .ok_or_else(|| actix_web::error::ErrorNotFound("File not found"))?;
 
-    // Validate the token
-    let mut conn = pool.get().map_err(|e| {
-        error!(error = ?e, "Database connection error");
-        actix_web::error::ErrorInternalServerError("Database connection error")
-    })?;
+    authorize_ticket_access(&mut tc, &auth, ticket_id)?;
 
-    // Validate token using existing auth logic
-    validate_file_access_token(&token, &mut conn).await?;
-
-    // Use our centralized storage method instead of hardcoded paths
     let file_path = format!("tickets/{filename}");
-    match crate::utils::storage::serve_file_from_storage(storage.as_ref().clone(), &file_path, &req)
-        .await
-    {
-        Ok(response) => Ok(response),
-        Err(e) => {
-            warn!(error = ?e, file_path = %file_path, "Error serving ticket file");
-            Err(actix_web::error::ErrorNotFound("File not found"))
-        }
-    }
+    serve_or_not_found(storage, &file_path, &req).await
 }
 
-// Serve temp files with token-based authentication
+// Serve temp (pre-attachment staging) files.
+//
+// Temp objects aren't tied to a ticket yet, but the upload created an
+// `attachments` row carrying the workspace_id. We authorize by looking that
+// row up under `TenantConn`, so RLS only matches it for the workspace that
+// uploaded it (a member of another workspace gets a 404).
 pub async fn serve_temp_file(
     path: web::Path<String>,
     req: actix_web::HttpRequest,
-    pool: web::Data<crate::db::Pool>,
+    mut tc: TenantConn,
     storage: web::Data<Arc<dyn Storage>>,
 ) -> Result<HttpResponse, actix_web::Error> {
     let filename = path.into_inner();
 
-    // Extract token from query parameter or Authorization header
-    let token = extract_token_from_request(&req)?;
+    let public_url = format!("/uploads/temp/{filename}");
+    let owned = tc
+        .run(|conn| {
+            use crate::schema::attachments;
+            use diesel::dsl::{exists, select};
+            use diesel::prelude::*;
+            select(exists(
+                attachments::table.filter(attachments::url.eq(&public_url)),
+            ))
+            .get_result::<bool>(conn)
+        })
+        .map_err(|e| {
+            error!(error = ?e, "temp file authorization lookup failed");
+            actix_web::error::ErrorInternalServerError("Authorization check failed")
+        })?;
+    if !owned {
+        return Err(actix_web::error::ErrorNotFound("File not found"));
+    }
 
-    // Validate the token
-    let mut conn = pool.get().map_err(|e| {
-        error!(error = ?e, "Database connection error");
-        actix_web::error::ErrorInternalServerError("Database connection error")
-    })?;
-
-    // Validate token using existing auth logic
-    validate_file_access_token(&token, &mut conn).await?;
-
-    // Use our centralized storage method instead of hardcoded paths
     let file_path = format!("temp/{filename}");
-    match crate::utils::storage::serve_file_from_storage(storage.as_ref().clone(), &file_path, &req)
+    serve_or_not_found(storage, &file_path, &req).await
+}
+
+/// Authorize access to a ticket's files: the caller must be able to view the
+/// ticket. Run under `TenantConn`, `can_view_ticket` is RLS-scoped to the
+/// caller's workspace (so a ticket in another workspace reads as "not
+/// viewable") and applies end-user requester/watcher visibility. A denied
+/// check returns 404 rather than 403 so cross-tenant probes can't tell a
+/// missing ticket from one they simply can't see.
+fn authorize_ticket_access(
+    tc: &mut TenantConn,
+    auth: &AuthContext,
+    ticket_id: i32,
+) -> Result<(), actix_web::Error> {
+    let ctx = VisibilityContext::from_auth(auth);
+    let allowed = tc
+        .run(|conn| ticket_visibility::can_view_ticket(conn, &ctx, ticket_id))
+        .map_err(|e| {
+            error!(error = ?e, ticket_id, "ticket file authorization lookup failed");
+            actix_web::error::ErrorInternalServerError("Authorization check failed")
+        })?;
+    if !allowed {
+        return Err(actix_web::error::ErrorNotFound("File not found"));
+    }
+    Ok(())
+}
+
+/// Serve a stored object, mapping any storage error to a 404.
+async fn serve_or_not_found(
+    storage: web::Data<Arc<dyn Storage>>,
+    file_path: &str,
+    req: &actix_web::HttpRequest,
+) -> Result<HttpResponse, actix_web::Error> {
+    match crate::utils::storage::serve_file_from_storage(storage.as_ref().clone(), file_path, req)
         .await
     {
         Ok(response) => Ok(response),
         Err(e) => {
-            warn!(error = ?e, file_path = %file_path, "Error serving temp file");
+            warn!(error = ?e, file_path = %file_path, "Error serving file");
             Err(actix_web::error::ErrorNotFound("File not found"))
         }
-    }
-}
-
-// Helper function to extract token from request
-// SECURITY: Only accepts tokens via secure channels (cookies or Authorization header)
-// Query parameter tokens are NOT supported to prevent token exposure in URLs/logs
-fn extract_token_from_request(req: &actix_web::HttpRequest) -> Result<String, actix_web::Error> {
-    // First try httpOnly cookie (preferred, most secure method)
-    if let Some(cookie) = req.cookie(crate::utils::cookies::ACCESS_TOKEN_COOKIE) {
-        return Ok(cookie.value().to_string());
-    }
-
-    // Fallback to Authorization header (for API clients)
-    if let Some(auth_header) = req.headers().get("Authorization") {
-        if let Ok(auth_str) = auth_header.to_str() {
-            if let Some(token) = auth_str.strip_prefix("Bearer ") {
-                return Ok(token.to_string());
-            }
-        }
-    }
-
-    Err(actix_web::error::ErrorUnauthorized(
-        "No authentication token provided. Use httpOnly cookie or Authorization header.",
-    ))
-}
-
-// Helper function to validate token for file access
-async fn validate_file_access_token(
-    token: &str,
-    conn: &mut DbConnection,
-) -> Result<(), actix_web::Error> {
-    // Use JWT validation logic directly instead of creating BearerAuth
-    use crate::models::Claims;
-    use crate::utils::jwt::JWT_SECRET;
-    use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
-
-    // Create validation with same requirements as auth handler
-    let mut validation = Validation::new(Algorithm::HS256);
-    validation.validate_exp = true;
-    validation.validate_nbf = true;
-    validation.leeway = 30;
-
-    // Decode the token
-    let token_data = match decode::<Claims>(
-        token,
-        &DecodingKey::from_secret(JWT_SECRET.as_bytes()),
-        &validation,
-    ) {
-        Ok(data) => data,
-        Err(_) => {
-            return Err(actix_web::error::ErrorUnauthorized(
-                "Invalid or expired token",
-            ))
-        }
-    };
-
-    // Verify user still exists in database (same as auth handler)
-    let user_uuid = match crate::utils::parse_uuid(&token_data.claims.sub) {
-        Ok(uuid) => uuid,
-        Err(_) => {
-            return Err(actix_web::error::ErrorUnauthorized(
-                "Invalid user UUID in token",
-            ))
-        }
-    };
-
-    match crate::repository::users::get_user_by_uuid(&user_uuid, conn) {
-        Ok(_) => Ok(()),
-        Err(_) => Err(actix_web::error::ErrorUnauthorized("User not found")),
     }
 }
 
@@ -454,33 +428,19 @@ pub async fn upload_ticket_note_image(
 pub async fn serve_ticket_note_image(
     path: web::Path<(i32, String)>,
     req: actix_web::HttpRequest,
-    pool: web::Data<crate::db::Pool>,
+    mut tc: TenantConn,
+    auth: AuthContext,
     storage: web::Data<Arc<dyn Storage>>,
 ) -> Result<HttpResponse, actix_web::Error> {
     let (ticket_id, filename) = path.into_inner();
 
-    // Extract token from request
-    let token = extract_token_from_request(&req)?;
-
-    // Validate the token
-    let mut conn = pool.get().map_err(|e| {
-        error!(error = ?e, "Database connection error");
-        actix_web::error::ErrorInternalServerError("Database connection error")
-    })?;
-
-    validate_file_access_token(&token, &mut conn).await?;
+    // Same workspace + visibility gate as ticket attachments; the route
+    // carries the ticket id directly.
+    authorize_ticket_access(&mut tc, &auth, ticket_id)?;
 
     // Serve from tickets/{ticket_id}/notes/ folder
     let file_path = format!("tickets/{ticket_id}/notes/{filename}");
-    match crate::utils::storage::serve_file_from_storage(storage.as_ref().clone(), &file_path, &req)
-        .await
-    {
-        Ok(response) => Ok(response),
-        Err(e) => {
-            warn!(error = ?e, file_path = %file_path, "Error serving ticket note image");
-            Err(actix_web::error::ErrorNotFound("File not found"))
-        }
-    }
+    serve_or_not_found(storage, &file_path, &req).await
 }
 
 /// Clean up temp files older than 24 hours (admin endpoint)
