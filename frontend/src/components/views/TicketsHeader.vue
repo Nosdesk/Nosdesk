@@ -64,15 +64,17 @@ import type {
 import type { CardData, Priority } from '@/sync/views/types'
 
 const props = defineProps<{
-  /** Built-in views (My Open / All Active / Triage / Calendar)
-   * rendered as a primary tab strip on tablet+. The same items
-   * also slot into the mobile dropdown so phone users still
-   * reach them. */
+  /** PRIMARY built-in views (My Open / My Active / All Active /
+   * Triage) rendered as a one-click tab strip on lg+. Capped at the
+   * daily drivers so the strip can't sprawl horizontally. */
   tabItems: ViewTabItem[]
-  /** Saved / project / private views — rendered behind a smaller
-   * `Saved ▾` dropdown next to the tabs. Empty array hides the
-   * dropdown. */
-  savedItems: ViewSwitcherItem[]
+  /** Desktop "Views ▾" dropdown contents: the non-primary built-ins
+   * (Queues / Calendar) plus saved views, grouped. Always rendered
+   * at lg+ now — it's the only way to reach the overflow built-ins. */
+  overflowItems: ViewSwitcherItem[]
+  /** The full view catalogue for the single mobile dropdown (every
+   * built-in + saved view), since phones have no tab strip. */
+  allViewItems: ViewSwitcherItem[]
   activeViewId: string
   /** Source set used to derive option lists for status / assignee
    * / cycle pickers — should be the post-view, pre-filter card
@@ -123,15 +125,6 @@ const emit = defineEmits<{
   (e: 'set-filter-text', facet: FilterFacet, value: string): void
   (e: 'toggle-split-view'): void
 }>()
-
-// Mobile fallback: the dropdown carries the full set (built-ins
-// + saved) so phone users still reach every view from one
-// affordance. The desktop split (tabs + saved-only dropdown)
-// would crowd phone-width headers.
-const mobileSwitcherItems = computed<ViewSwitcherItem[]>(() => [
-  ...props.tabItems.map((t) => ({ id: t.id, name: t.name, group: 'Built-in' })),
-  ...props.savedItems,
-])
 
 const { getUserHandle } = useUsersDirectory()
 const addFilterRef = ref<InstanceType<typeof AddFilterMenu> | null>(null)
@@ -283,40 +276,40 @@ defineExpose({ openAddFilter })
          Title + summary + filter pills + New ticket stay across all
          widths. -->
     <div class="flex items-center gap-2 sm:gap-3 flex-wrap">
-      <!-- Desktop (sm:+): primary tab strip for built-in views.
-           Calendar in particular needed first-class access — it's
-           a different shape (CalendarBoard vs the list table) and
-           used often enough that one click should land it. The
-           saved-view dropdown sits alongside as the secondary
-           affordance for user-curated subsets.
-
-           Mobile: collapse to one dropdown carrying the full set
-           (built-ins + saved). Four 90px tabs don't fit on a
-           phone-width header, and the dropdown is the convention
-           every other surface uses there too. -->
+      <!-- Desktop (lg:+): primary tab strip for the daily-driver
+           built-ins (My Open / My Active / All Active / Triage),
+           capped at four so the strip can't sprawl horizontally and
+           crowd the filter / display chrome that shares this row. -->
       <TicketsViewTabs
         :items="tabItems"
         :active-id="activeViewId"
         @select="(id) => emit('select-view', id)"
       />
-      <!-- Single canonical view switcher carrying built-ins +
-           saved + private views together. Always one dropdown
-           affordance for view selection, regardless of viewport.
-           - Below lg: this is the only view affordance, since the
-             tab strip is hidden on narrow viewports.
-           - At lg+: only renders when the workspace has saved or
-             private views — tabs already cover the four built-ins,
-             so the dropdown would be redundant chrome otherwise.
-             When saved views exist, the dropdown stays as the
-             access path to them.
-           Earlier design split this into a saved-only `Saved ▾`
-           dropdown next to the tabs at lg+ and a separate
-           consolidated mobile fallback. Two dropdowns reading as
-           "two ways to switch view" was clutter — collapsed into
-           one. -->
+      <!-- Desktop overflow (lg:+): the "Views ▾" dropdown carries
+           every NON-primary built-in (Queues / Calendar) plus saved
+           views, grouped. Always present at lg+ because it's the
+           only path to the overflow built-ins. Its trigger reads
+           "Views" while a primary tab is lit, and switches to the
+           current view's name when an overflow / saved view is
+           active — so the strip always shows where you are without
+           promoting an eighth tab into the row. -->
       <ViewSwitcher
-        :class="savedItems.length === 0 ? 'lg:hidden' : ''"
-        :items="mobileSwitcherItems"
+        class="hidden lg:inline-flex"
+        :items="overflowItems"
+        :active-id="activeViewId"
+        size="sm"
+        placeholder="Views"
+        @select="(id) => emit('select-view', id)"
+        @edit="(id) => emit('edit-view', id)"
+      />
+      <!-- Mobile (below lg): one dropdown carrying the full
+           catalogue (every built-in + saved view). The four-tab
+           strip doesn't fit a phone-width header, so this is the
+           single canonical view affordance there — the page-title
+           sized button doubles as the current-view label. -->
+      <ViewSwitcher
+        class="lg:hidden"
+        :items="allViewItems"
         :active-id="activeViewId"
         size="lg"
         @select="(id) => emit('select-view', id)"

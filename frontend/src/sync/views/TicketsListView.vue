@@ -82,7 +82,7 @@ onMounted(async () => {
   await savedViewsStore.ensureLoaded(null)
 })
 
-const { activeView, tabItems, savedItems, selectViewById } = useTicketsViewResolution()
+const { activeView, tabItems, overflowItems, allViewItems, selectViewById } = useTicketsViewResolution()
 const { sortField, sortDir, toggleSort, applySort } = useTicketsSort(activeView)
 const {
   visibleColumnIds,
@@ -675,7 +675,8 @@ function startPaneResize(event: PointerEvent): void {
     <TicketsHeader
       ref="headerRef"
       :tab-items="tabItems"
-      :saved-items="savedItems"
+      :overflow-items="overflowItems"
+      :all-view-items="allViewItems"
       :active-view-id="activeView.id"
       :source-cards="afterViewFilter"
       :density="density"

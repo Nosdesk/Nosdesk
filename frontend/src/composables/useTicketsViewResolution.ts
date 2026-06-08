@@ -53,17 +53,37 @@ export interface ResolvedView {
 export interface UseTicketsViewResolution {
   activeView: ComputedRef<ResolvedView>
   savedViews: ComputedRef<SavedView[]>
-  /** Built-in views, surfaced as a tab strip in the header. The
-   * shape-icon hint (`list` / `calendar`) makes the calendar tab
-   * visually distinct so users don't have to learn that "Calendar"
-   * is a different renderer from the list views. */
+  /** The PRIMARY built-in views, surfaced as a one-click tab strip
+   * in the header (My Open / My Active / All Active / Triage — the
+   * daily drivers). The remaining built-ins live behind the
+   * `overflowItems` dropdown so the strip can't sprawl horizontally
+   * past four tabs no matter how many built-ins ship. */
   tabItems: ComputedRef<ViewTabItem[]>
-  /** User-curated saved views (workspace / project / private),
-   * grouped for the secondary `<ViewSwitcher>` dropdown. Empty
-   * when the workspace hasn't created any. */
-  savedItems: ComputedRef<ViewSwitcherItem[]>
+  /** Desktop "Views ▾" dropdown contents at lg+: the NON-primary
+   * built-ins (icon-differentiated, no group heading) plus saved
+   * views grouped by scope (Workspace / Project / Private).
+   * Deliberately excludes the primary built-ins — those are always
+   * visible as tabs, so listing them here too would be redundant and
+   * would make the dropdown trigger read the active view's name even
+   * when a tab is lit. */
+  overflowItems: ComputedRef<ViewSwitcherItem[]>
+  /** The full view set (every built-in, icon-differentiated and
+   * ungrouped, then saved views grouped by scope) for the single
+   * mobile dropdown, where there's no room for a tab strip. */
+  allViewItems: ComputedRef<ViewSwitcherItem[]>
   selectViewById: (id: string) => void
 }
+
+/** The built-ins promoted to one-click tabs. Everything else falls
+ * through to the "Views ▾" overflow dropdown. Kept as a Set so the
+ * tab / overflow split is a single source of truth. */
+const PRIMARY_VIEW_IDS = new Set<string>([
+  'my-open',
+  'my-active',
+  'all-active',
+  'triage',
+])
+
 
 export function useTicketsViewResolution(): UseTicketsViewResolution {
   const route = useRoute()
@@ -138,8 +158,12 @@ export function useTicketsViewResolution(): UseTicketsViewResolution {
     'calendar': 'calendar',
   }
 
+  // Only the primary built-ins become tabs; the rest fall through
+  // to the overflow dropdown (see PRIMARY_VIEW_IDS). Filtering off
+  // BUILTIN_VIEWS keeps the tab order aligned with the canonical
+  // view ordering.
   const tabItems = computed<ViewTabItem[]>(() =>
-    BUILTIN_VIEWS.map((v) => ({
+    BUILTIN_VIEWS.filter((v) => PRIMARY_VIEW_IDS.has(v.id)).map((v) => ({
       id: v.id,
       name: t(v.nameKey, v.name),
       // Fallback to a shape hint for any future built-in that
@@ -148,7 +172,23 @@ export function useTicketsViewResolution(): UseTicketsViewResolution {
     })),
   )
 
-  const savedItems = computed<ViewSwitcherItem[]>(() => {
+  /** Built-ins as switcher rows. No group heading — the per-slice
+   * icon does the differentiating, which avoids lonely one-item
+   * sections (e.g. a "Calendar" heading over a single row).
+   * `include` lets the overflow menu drop the primary views (already
+   * tabs) while the mobile menu keeps the full set. */
+  function builtinSwitcherItems(
+    include: (v: BuiltInView) => boolean,
+  ): ViewSwitcherItem[] {
+    return BUILTIN_VIEWS.filter(include).map((v) => ({
+      id: v.id,
+      name: t(v.nameKey, v.name),
+      icon: TAB_ICON[v.id] ?? (v.shape.type === 'calendar' ? 'calendar' : 'list'),
+      editable: false,
+    }))
+  }
+
+  const savedSwitcherItems = computed<ViewSwitcherItem[]>(() => {
     const items: ViewSwitcherItem[] = []
     const groupLabel = {
       workspace: 'Workspace',
@@ -158,9 +198,13 @@ export function useTicketsViewResolution(): UseTicketsViewResolution {
     for (const scope of ['workspace', 'project', 'private'] as const) {
       const subset = savedViewsRef.value.filter((v) => v.scope === scope)
       for (const v of subset) {
+        // Saved views fall back to a shape-hint icon (list / calendar)
+        // since they have no bespoke slice glyph.
+        const shapeType = (v.shape as ViewShape | null)?.type
         items.push({
           id: v.uuid,
           name: v.name,
+          icon: shapeType === 'calendar' ? 'calendar' : 'list',
           group: groupLabel[scope],
           editable: true,
         })
@@ -168,6 +212,19 @@ export function useTicketsViewResolution(): UseTicketsViewResolution {
     }
     return items
   })
+
+  // Desktop overflow: non-primary built-ins (Queues / Calendar) +
+  // saved views. Excludes primary built-ins by design.
+  const overflowItems = computed<ViewSwitcherItem[]>(() => [
+    ...builtinSwitcherItems((v) => !PRIMARY_VIEW_IDS.has(v.id)),
+    ...savedSwitcherItems.value,
+  ])
+
+  // Mobile: the whole catalogue in one dropdown (no tab strip there).
+  const allViewItems = computed<ViewSwitcherItem[]>(() => [
+    ...builtinSwitcherItems(() => true),
+    ...savedSwitcherItems.value,
+  ])
 
   function selectViewById(id: string): void {
     router.push({ path: route.path, query: { ...route.query, view: id } })
@@ -182,5 +239,12 @@ export function useTicketsViewResolution(): UseTicketsViewResolution {
     }
   })
 
-  return { activeView, savedViews, tabItems, savedItems, selectViewById }
+  return {
+    activeView,
+    savedViews,
+    tabItems,
+    overflowItems,
+    allViewItems,
+    selectViewById,
+  }
 }

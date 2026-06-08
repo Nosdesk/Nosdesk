@@ -18,6 +18,7 @@ import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
 import MenuList, { type MenuItem } from '@/components/common/MenuList.vue'
+import { ICON_REGISTRY, type IconName } from '@/components/common/icons'
 import type { PopoverAnchor } from '@/composables/usePopover'
 
 const fluent = useFluent()
@@ -28,6 +29,11 @@ export interface ViewSwitcherItem {
   /** Optional grouping label; consecutive items with the same
    * group key render under a shared heading. */
   group?: string
+  /** Leading glyph from the central icon registry. Lets the menu
+   * differentiate rows by icon (slice for built-ins, shape hint for
+   * saved views) instead of leaning on a heading per row. Swapped
+   * for a checkmark on the active row by `MenuList`. */
+  icon?: IconName
   /** When true, an "Edit view…" entry surfaces in the menu tail
    * when this row is active. Built-in views set this false. */
   editable?: boolean
@@ -81,6 +87,9 @@ const menuItems = computed<MenuItem[]>(() => {
     out.push({
       id: `select:${item.id}`,
       label: item.name,
+      // The active row swaps its glyph for a checkmark in MenuList,
+      // so passing the icon here is harmless when checked.
+      icon: item.icon ? ICON_REGISTRY[item.icon].d : undefined,
       checked: item.id === props.activeId,
     })
   }

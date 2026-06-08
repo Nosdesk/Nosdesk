@@ -2,22 +2,23 @@
 /**
  * Built-in view tab strip for the tickets header.
  *
- * Surfaces the four built-in views (My Open / All Active / Triage
- * / Calendar) as primary navigation rather than burying them in
- * the saved-view dropdown. Calendar in particular needs first-
- * class access — it's a different shape (CalendarBoard vs the
- * list table) and used often enough that one click should land it.
+ * Surfaces only the PRIMARY built-in views (My Open / My Active /
+ * All Active / Triage — the daily drivers) as one-click tabs. The
+ * set is capped at four on purpose: earlier every built-in was a
+ * tab, and as the built-in count grew to eight the strip sprawled
+ * ~900px wide and crowded the filter / display chrome sharing the
+ * row. The remaining built-ins (All Tickets / Unassigned / Overdue
+ * / Calendar) now live in the sibling `<ViewSwitcher>` "Views ▾"
+ * overflow dropdown.
  *
- * Icons are deliberately minimal: a `list` glyph on the list-
- * shape tabs and a `calendar` glyph on the calendar tab. The
- * icon's job is to make the shape change visually obvious, not
- * to disambiguate between the three list-shape slices (the label
- * does that).
+ * Each tab carries a slice-specific icon (see `TAB_ICON` in
+ * `useTicketsViewResolution`) so the active slice is recognisable
+ * at a glance, not just by label.
  *
- * Saved / project / private views stay behind the smaller
- * `<ViewSwitcher>` dropdown rendered alongside this strip — the
- * tabs are for the well-known set everyone uses; the dropdown is
- * for the tail (user-curated subsets, project-scoped views).
+ * Saved / project / private views also live behind the
+ * `<ViewSwitcher>` dropdown alongside this strip — the tabs are
+ * for the well-known set everyone uses; the dropdown is for the
+ * overflow built-ins plus the tail of user-curated subsets.
  *
  * Visibility: only on `lg:+` (1024px). Tabs are a desktop-class
  * affordance; tablet and narrow-laptop widths (sm-md, 640-1024)
