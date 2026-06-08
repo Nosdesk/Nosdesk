@@ -32,8 +32,8 @@ import ProjectQuickNav from '@/components/projectComponents/ProjectQuickNav.vue'
 import ProjectCycleGlance from '@/components/projectComponents/ProjectCycleGlance.vue'
 import ProjectActionsMenu from '@/components/projectComponents/ProjectActionsMenu.vue'
 import AvatarStack from '@/components/common/AvatarStack.vue'
-import Button from '@/components/common/Button.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
 
 const router = useRouter()
 const fluent = useFluent()
@@ -246,21 +246,15 @@ async function confirmDelete(): Promise<void> {
     </div>
 
     <!-- Empty workspace -->
-    <div
+    <EmptyState
       v-else-if="isEmpty"
-      class="flex-1 flex flex-col items-center justify-center text-center py-16 px-4"
-    >
-      <div class="w-12 h-12 rounded-xl bg-surface-alt border border-subtle flex items-center justify-center mb-4">
-        <svg class="w-6 h-6 text-tertiary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-        </svg>
-      </div>
-      <h2 class="text-base font-medium text-primary">{{ $t('projects-empty-title') }}</h2>
-      <p class="text-sm text-secondary mt-1 max-w-sm">{{ $t('projects-empty-subtitle') }}</p>
-      <Button variant="primary" class="mt-5" @click="createOpen = true">
-        {{ $t('projects-empty-cta') }}
-      </Button>
-    </div>
+      class="flex-1"
+      icon="folder"
+      :title="$t('projects-empty-title')"
+      :description="$t('projects-empty-subtitle')"
+      :action-label="$t('projects-empty-cta')"
+      @action="createOpen = true"
+    />
 
     <!-- Filtered to nothing -->
     <div
