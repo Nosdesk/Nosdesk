@@ -12,7 +12,15 @@ import type { CalendarViewShape, FilterState, ListViewShape } from './types'
 
 export interface BuiltInView {
   /** Stable id used in the URL (`?view=my-open`). */
-  id: 'my-open' | 'all-active' | 'triage' | 'calendar'
+  id:
+    | 'my-open'
+    | 'my-active'
+    | 'all-active'
+    | 'all-tickets'
+    | 'unassigned'
+    | 'overdue'
+    | 'triage'
+    | 'calendar'
   /** English fallback labels, kept for pre-i18n call sites and as
    * the `fallback` argument to `translate()` so the UI never blanks
    * if the Fluent bundle hasn't initialised yet. */
@@ -98,6 +106,31 @@ export const MY_OPEN_VIEW: BuiltInView = {
   },
 }
 
+/** Your in-flight work: tickets assigned to you that aren't done
+ * or cancelled. Where MY_OPEN shows everything that bears your
+ * name (including resolved tickets you're still on the hook to
+ * verify), MY_ACTIVE narrows to the things you're actually
+ * working right now. Mirrors Linear's "My Issues -> Active" and
+ * Jira's "Assigned to me" agile filter. */
+export const MY_ACTIVE_VIEW: BuiltInView = {
+  id: 'my-active',
+  name: 'My Active',
+  description: 'Unresolved tickets assigned to you',
+  nameKey: 'builtin-view-my-active-name',
+  descriptionKey: 'builtin-view-my-active-description',
+  shape: { ...baseListShape, columns: defaultColumns },
+  filter: {
+    ...baseFilter,
+    predicate: {
+      combinator: 'AND',
+      children: [
+        { field: 'workflow_state.category', op: 'not_in', value: ['done', 'cancelled'] },
+      ],
+    },
+    quick_filters: ['mine'],
+  },
+}
+
 /** Workspace-wide active queue: every ticket that isn't done or
  * cancelled. Industry equivalent: GitHub Issues' default
  * `is:open` filter, JSM's "All open queue", HubSpot's pipeline
@@ -120,6 +153,73 @@ export const ALL_ACTIVE_VIEW: BuiltInView = {
       ],
     },
     quick_filters: [],
+  },
+}
+
+/** The unfiltered firehose: every ticket in scope regardless of
+ * status, including done / cancelled / merged. The place you go
+ * to search history, audit an old resolution, or confirm nothing
+ * fell through the cracks. Empty predicate + no quick filters so
+ * the header chip filters operate over the full corpus. */
+export const ALL_TICKETS_VIEW: BuiltInView = {
+  id: 'all-tickets',
+  name: 'All Tickets',
+  description: 'Every ticket, including resolved and cancelled',
+  nameKey: 'builtin-view-all-tickets-name',
+  descriptionKey: 'builtin-view-all-tickets-description',
+  shape: { ...baseListShape, columns: defaultColumns },
+  filter: {
+    ...baseFilter,
+    predicate: { combinator: 'AND', children: [] },
+    quick_filters: [],
+  },
+}
+
+/** Dispatch queue: active tickets that nobody owns yet. The
+ * primary surface for a team lead or rotating dispatcher who
+ * decides who picks up what. Pairs the `unassigned` quick filter
+ * (assignee is null) with the active-status predicate so closed
+ * tickets that were never assigned don't clutter the queue. */
+export const UNASSIGNED_VIEW: BuiltInView = {
+  id: 'unassigned',
+  name: 'Unassigned',
+  description: 'Active tickets with no assignee',
+  nameKey: 'builtin-view-unassigned-name',
+  descriptionKey: 'builtin-view-unassigned-description',
+  shape: { ...baseListShape, columns: defaultColumns },
+  filter: {
+    ...baseFilter,
+    predicate: {
+      combinator: 'AND',
+      children: [
+        { field: 'workflow_state.category', op: 'not_in', value: ['done', 'cancelled'] },
+      ],
+    },
+    quick_filters: ['unassigned'],
+  },
+}
+
+/** Past-due watchlist: active tickets whose due_date has elapsed.
+ * The `overdue` quick filter compares due_date against now; the
+ * active-status predicate keeps resolved-but-late tickets out so
+ * the list is actionable (things that are both late AND still
+ * open) rather than a historical record of every missed date. */
+export const OVERDUE_VIEW: BuiltInView = {
+  id: 'overdue',
+  name: 'Overdue',
+  description: 'Active tickets past their due date',
+  nameKey: 'builtin-view-overdue-name',
+  descriptionKey: 'builtin-view-overdue-description',
+  shape: { ...baseListShape, columns: defaultColumns },
+  filter: {
+    ...baseFilter,
+    predicate: {
+      combinator: 'AND',
+      children: [
+        { field: 'workflow_state.category', op: 'not_in', value: ['done', 'cancelled'] },
+      ],
+    },
+    quick_filters: ['overdue'],
   },
 }
 
@@ -188,7 +288,11 @@ export const CALENDAR_VIEW: BuiltInView = {
  * Re-ordering changes the perceived front door of the product. */
 export const BUILTIN_VIEWS: BuiltInView[] = [
   MY_OPEN_VIEW,
+  MY_ACTIVE_VIEW,
   ALL_ACTIVE_VIEW,
+  ALL_TICKETS_VIEW,
+  UNASSIGNED_VIEW,
+  OVERDUE_VIEW,
   TRIAGE_VIEW,
   CALENDAR_VIEW,
 ]

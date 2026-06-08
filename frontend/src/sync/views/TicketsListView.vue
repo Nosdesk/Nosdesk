@@ -759,9 +759,25 @@ function startPaneResize(event: PointerEvent): void {
         <p class="font-medium text-primary">{{ $t('ticket-list-empty-all-caught-up-title') }}</p>
         <p class="text-xs">{{ $t('ticket-list-empty-all-caught-up-description') }}</p>
       </template>
+      <template v-else-if="activeView.id === 'my-active'">
+        <p class="font-medium text-primary">{{ $t('ticket-list-empty-my-active-title') }}</p>
+        <p class="text-xs">{{ $t('ticket-list-empty-my-active-description') }}</p>
+      </template>
       <template v-else-if="activeView.id === ALL_ACTIVE_VIEW.id">
         <p class="font-medium text-primary">{{ $t('ticket-list-empty-no-active-title') }}</p>
         <p class="text-xs">{{ $t('ticket-list-empty-no-active-description') }}</p>
+      </template>
+      <template v-else-if="activeView.id === 'all-tickets'">
+        <p class="font-medium text-primary">{{ $t('ticket-list-empty-all-tickets-title') }}</p>
+        <p class="text-xs">{{ $t('ticket-list-empty-all-tickets-description') }}</p>
+      </template>
+      <template v-else-if="activeView.id === 'unassigned'">
+        <p class="font-medium text-primary">{{ $t('ticket-list-empty-unassigned-title') }}</p>
+        <p class="text-xs">{{ $t('ticket-list-empty-unassigned-description') }}</p>
+      </template>
+      <template v-else-if="activeView.id === 'overdue'">
+        <p class="font-medium text-primary">{{ $t('ticket-list-empty-overdue-title') }}</p>
+        <p class="text-xs">{{ $t('ticket-list-empty-overdue-description') }}</p>
       </template>
       <template v-else>
         <p class="font-medium text-primary">{{ $t('ticket-list-empty-no-in-view-title') }}</p>
