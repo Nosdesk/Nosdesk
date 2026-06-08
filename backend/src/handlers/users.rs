@@ -11,7 +11,7 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::db::DbConnection;
-use crate::extractors::TenantConn;
+use crate::extractors::{TenantConn, WorkspaceContext};
 use crate::handlers::errors;
 use crate::handlers::helpers;
 use crate::models::{UserResponse, UserUpdate, UserUpdateWithPassword};
@@ -290,7 +290,7 @@ pub struct PaginatedResponse<T> {
 }
 
 // User handlers
-pub async fn get_users(pool: web::Data<crate::db::Pool>) -> impl Responder {
+pub async fn get_users(pool: web::Data<crate::db::Pool>, ws: WorkspaceContext) -> impl Responder {
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
@@ -299,8 +299,11 @@ pub async fn get_users(pool: web::Data<crate::db::Pool>) -> impl Responder {
     match repository::get_users(&mut conn) {
         Ok(users) => {
             // Convert users to UserResponse with emails (batch fetch for efficiency)
-            let user_responses =
-                repository::user_helpers::get_users_with_primary_emails(users, &mut conn);
+            let user_responses = repository::user_helpers::get_users_with_primary_emails(
+                users,
+                &mut conn,
+                ws.workspace_id,
+            );
             HttpResponse::Ok().json(user_responses)
         }
         Err(e) => {
@@ -314,6 +317,7 @@ pub async fn get_users(pool: web::Data<crate::db::Pool>) -> impl Responder {
 pub async fn get_paginated_users(
     pool: web::Data<crate::db::Pool>,
     query: web::Query<PaginationParams>,
+    ws: WorkspaceContext,
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
@@ -381,14 +385,18 @@ pub async fn get_paginated_users(
         search,
         role,
         deleted,
+        ws.workspace_id,
     ) {
         Ok((users, total)) => {
             // Calculate total pages
             let total_pages = (total as f64 / page_size as f64).ceil() as i64;
 
             // Convert users to UserResponse with emails (batch fetch for efficiency)
-            let mut user_responses =
-                repository::user_helpers::get_users_with_primary_emails(users, &mut conn);
+            let mut user_responses = repository::user_helpers::get_users_with_primary_emails(
+                users,
+                &mut conn,
+                ws.workspace_id,
+            );
 
             // Enrich with ticket and device counts
             let user_uuids: Vec<Uuid> = user_responses.iter().map(|u| u.uuid).collect();
@@ -504,6 +512,7 @@ pub struct BatchUsersRequest {
 pub async fn get_users_batch(
     batch_request: web::Json<BatchUsersRequest>,
     pool: web::Data<crate::db::Pool>,
+    ws: WorkspaceContext,
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
@@ -528,8 +537,11 @@ pub async fn get_users_batch(
     match repository::get_users_by_uuids(&uuids_vec, &mut conn) {
         Ok(users) => {
             // Convert users to UserResponse with emails (batch fetch for efficiency)
-            let user_responses =
-                repository::user_helpers::get_users_with_primary_emails(users, &mut conn);
+            let user_responses = repository::user_helpers::get_users_with_primary_emails(
+                users,
+                &mut conn,
+                ws.workspace_id,
+            );
             HttpResponse::Ok().json(user_responses)
         }
         Err(e) => {

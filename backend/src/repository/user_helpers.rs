@@ -451,6 +451,7 @@ pub fn get_primary_emails_batch(
 pub fn get_users_with_primary_emails(
     users: Vec<crate::models::User>,
     conn: &mut DbConnection,
+    workspace_id: i32,
 ) -> Vec<crate::models::UserResponse> {
     let user_uuids: Vec<Uuid> = users.iter().map(|u| u.uuid).collect();
 
@@ -467,11 +468,13 @@ pub fn get_users_with_primary_emails(
             .collect();
 
     // Batch the workspace_members role lookup so the per-row
-    // legacy-role derivation doesn't do N+1 queries.
+    // legacy-role derivation doesn't do N+1 queries. The displayed role
+    // is the caller's role in the request's workspace (passed in), so the
+    // list shows correct per-workspace roles under hosted multi-tenancy.
     let workspace_role_map: std::collections::HashMap<Uuid, String> = {
         use crate::schema::workspace_members;
         workspace_members::table
-            .filter(workspace_members::workspace_id.eq(1))
+            .filter(workspace_members::workspace_id.eq(workspace_id))
             .filter(workspace_members::user_uuid.eq_any(&user_uuids))
             .select((workspace_members::user_uuid, workspace_members::role))
             .load::<(Uuid, String)>(conn)

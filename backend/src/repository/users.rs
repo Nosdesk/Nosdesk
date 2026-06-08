@@ -138,6 +138,7 @@ pub fn get_paginated_users(
     search: Option<String>,
     role: Option<String>,
     deleted: DeletedFilter,
+    workspace_id: i32,
 ) -> Result<(Vec<User>, i64), Error> {
     use crate::schema::user_emails;
 
@@ -178,53 +179,47 @@ pub fn get_paginated_users(
 
     // Build the post-W2 role filter as raw SQL. The legacy
     // `users.role` column is gone; "effective role" derives from
-    // `users.platform_role` + the caller's `workspace_members.role`
-    // in the bootstrap workspace (id=1). One OR-clause per requested
-    // legacy role; an empty result keeps the filter off entirely.
-    // The role filter and sort below derive each user's effective role
-    // from their membership in the bootstrap workspace (workspace_id =
-    // 1). This is correct for single-tenant (the only supported mode
-    // today); the handler has no resolved WorkspaceContext to thread,
-    // so hosted per-workspace role filtering is deferred to the hosted
-    // milestone (it would parameterise these embedded subqueries on the
-    // request's workspace_id).
+    // `users.platform_role` + the caller's `workspace_members.role` in
+    // the request's workspace. One OR-clause per requested legacy role;
+    // an empty result keeps the filter off entirely. `workspace_id` is an
+    // i32, so interpolating it into the subquery is injection-safe.
     let role_sql_filter: Option<String> = if parsed_roles.is_empty() {
         None
     } else {
-        let mut parts: Vec<&'static str> = Vec::new();
+        let mut parts: Vec<String> = Vec::new();
         let mut any = false;
         for r in &parsed_roles {
             match r.as_str() {
                 "admin" => {
-                    parts.push(
+                    parts.push(format!(
                         "(users.platform_role = 'platform_admin' \
                          OR (SELECT role FROM workspace_members \
-                             WHERE workspace_id = 1 AND user_uuid = users.uuid) \
-                            IN ('owner', 'admin'))",
-                    );
+                             WHERE workspace_id = {workspace_id} AND user_uuid = users.uuid) \
+                            IN ('owner', 'admin'))"
+                    ));
                     any = true;
                 }
                 "technician" => {
-                    parts.push(
+                    parts.push(format!(
                         "(users.platform_role <> 'platform_admin' \
                          AND (SELECT role FROM workspace_members \
-                              WHERE workspace_id = 1 AND user_uuid = users.uuid) \
-                             = 'agent')",
-                    );
+                              WHERE workspace_id = {workspace_id} AND user_uuid = users.uuid) \
+                             = 'agent')"
+                    ));
                     any = true;
                 }
                 "user" => {
-                    parts.push(
+                    parts.push(format!(
                         "(users.platform_role <> 'platform_admin' \
                          AND COALESCE((SELECT role FROM workspace_members \
-                                       WHERE workspace_id = 1 AND user_uuid = users.uuid), \
-                                      'member') = 'member')",
-                    );
+                                       WHERE workspace_id = {workspace_id} AND user_uuid = users.uuid), \
+                                      'member') = 'member')"
+                    ));
                     any = true;
                 }
                 // audit_reviewer lives on users.platform_role.
                 "audit_reviewer" => {
-                    parts.push("users.platform_role = 'audit_reviewer'");
+                    parts.push("users.platform_role = 'audit_reviewer'".to_string());
                     any = true;
                 }
                 _ => {}
@@ -240,16 +235,19 @@ pub fn get_paginated_users(
     };
 
     // CASE-rank used by sort-by-role: same tier ordering as the
-    // derived projection (admin < technician < user < other).
-    const ROLE_RANK_SQL: &str = "CASE \
+    // derived projection (admin < technician < user < other), scoped to
+    // the request's workspace.
+    let role_rank_sql: String = format!(
+        "CASE \
         WHEN users.platform_role = 'platform_admin' THEN 0 \
         WHEN (SELECT role FROM workspace_members \
-              WHERE workspace_id = 1 AND user_uuid = users.uuid) \
+              WHERE workspace_id = {workspace_id} AND user_uuid = users.uuid) \
              IN ('owner', 'admin') THEN 1 \
         WHEN (SELECT role FROM workspace_members \
-              WHERE workspace_id = 1 AND user_uuid = users.uuid) \
+              WHERE workspace_id = {workspace_id} AND user_uuid = users.uuid) \
              = 'agent' THEN 2 \
-        ELSE 3 END";
+        ELSE 3 END"
+    );
 
     // Count query with filters
     let mut count_query = users::table.into_boxed();
@@ -283,10 +281,10 @@ pub fn get_paginated_users(
         (Some("name"), Some("asc")) => query.order(users::name.asc()),
         (Some("name"), _) => query.order(users::name.desc()),
         (Some("role"), Some("asc")) => {
-            query.order(diesel::dsl::sql::<diesel::sql_types::Integer>(ROLE_RANK_SQL).asc())
+            query.order(diesel::dsl::sql::<diesel::sql_types::Integer>(&role_rank_sql).asc())
         }
         (Some("role"), _) => {
-            query.order(diesel::dsl::sql::<diesel::sql_types::Integer>(ROLE_RANK_SQL).desc())
+            query.order(diesel::dsl::sql::<diesel::sql_types::Integer>(&role_rank_sql).desc())
         }
         _ => query.order(users::name.asc()),
     };
@@ -795,6 +793,7 @@ mod tests {
             None,
             None,
             DeletedFilter::Active,
+            crate::sync::actor::BOOTSTRAP_WORKSPACE_ID,
         )
         .unwrap();
         let uuids: Vec<Uuid> = rows.iter().map(|u| u.uuid).collect();
@@ -818,6 +817,7 @@ mod tests {
             None,
             None,
             DeletedFilter::Only,
+            crate::sync::actor::BOOTSTRAP_WORKSPACE_ID,
         )
         .unwrap();
         let uuids: Vec<Uuid> = rows.iter().map(|u| u.uuid).collect();

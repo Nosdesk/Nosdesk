@@ -149,7 +149,7 @@ pub fn list_rows(
         let order_clause = build_order_clause(sort_by.as_deref(), sort_order.as_deref());
 
         let query_str = format!(
-            "SELECT id, uuid, plugin_id, schema_id, data, created_by, created_at, updated_at \
+            "SELECT id, uuid, plugin_id, schema_id, data, created_by, created_at, updated_at, workspace_id \
              FROM plugin_collection_rows \
              WHERE schema_id = $1 AND data @> $2::jsonb \
              ORDER BY {} \
@@ -179,7 +179,7 @@ pub fn list_rows(
         let order_clause = build_order_clause(sort_by.as_deref(), sort_order.as_deref());
 
         let query_str = format!(
-            "SELECT id, uuid, plugin_id, schema_id, data, created_by, created_at, updated_at \
+            "SELECT id, uuid, plugin_id, schema_id, data, created_by, created_at, updated_at, workspace_id \
              FROM plugin_collection_rows \
              WHERE schema_id = $1 \
              ORDER BY {} \
@@ -264,6 +264,8 @@ struct PluginCollectionRowRaw {
     created_at: chrono::NaiveDateTime,
     #[diesel(sql_type = diesel::sql_types::Timestamptz)]
     updated_at: chrono::NaiveDateTime,
+    #[diesel(sql_type = diesel::sql_types::Integer)]
+    workspace_id: i32,
 }
 
 impl From<PluginCollectionRowRaw> for PluginCollectionRow {
@@ -277,13 +279,10 @@ impl From<PluginCollectionRowRaw> for PluginCollectionRow {
             created_by: raw.created_by,
             created_at: raw.created_at,
             updated_at: raw.updated_at,
-            // Phase 1: workspace column exists on the schema +
-            // backfilled to the default workspace, but the
-            // raw-row projection above is hand-written and only
-            // selects the original columns. None here keeps the
-            // From conversion compiling; Phase 2 wires the raw
-            // projection to actually carry workspace_id through.
-            workspace_id: 1,
+            // Carried through from the raw projection (the SELECTs below
+            // include workspace_id), so the row reports its real owning
+            // workspace rather than a hardcoded default.
+            workspace_id: raw.workspace_id,
         }
     }
 }
