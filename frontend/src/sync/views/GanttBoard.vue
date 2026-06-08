@@ -345,7 +345,11 @@ function onResizeMove(event: PointerEvent): void {
 function endResize(): void {
   const r = reschedule.value
   reschedule.value = null
-  if (r) props.onReschedule?.(r.cardId, r.newEnd.toISOString())
+  // Naive local-midnight datetime (no tz suffix). due_date round-trips
+  // through the backend's NaiveDateTime model, whose deserialiser
+  // rejects a trailing `Z`; sending the local day also keeps the bar
+  // anchored to the day the user dropped it on.
+  if (r) props.onReschedule?.(r.cardId, `${format(r.newEnd, 'yyyy-MM-dd')}T00:00:00`)
 }
 
 const totalHeight = computed(() => scheduled.value.length * ROW_PX)

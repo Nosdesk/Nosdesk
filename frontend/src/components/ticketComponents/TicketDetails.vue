@@ -295,13 +295,15 @@ const categoryLabel = computed(() => {
   return option?.label || props.ticket.category?.name || null;
 });
 
-/** Backend stores due_date as a TIMESTAMPTZ; the picker speaks
- * `YYYY-MM-DD`. Slicing the ISO string on read is sufficient
- * because the calendar view buckets cards by local-day, so any
- * additional precision would be misleading. On write we anchor at
- * start-of-day in the user's local timezone before serialising to
- * RFC3339 — the backend persists the tz so round-tripping is
- * unambiguous. Empty string from the picker clears the due date. */
+/** The picker speaks `YYYY-MM-DD`; due_date is conceptually a
+ * floating calendar day, not an instant. The backend column is
+ * TIMESTAMPTZ but the model type is `NaiveDateTime` (the app's
+ * store-UTC-as-naive convention), so it serialises without a tz and
+ * its deserialiser rejects a trailing `Z` ("trailing input"). We
+ * therefore write a naive midnight datetime (`<day>T00:00:00`, no
+ * tz suffix) and read it back by slicing the first 10 chars — which
+ * round-trips the exact picked day with no timezone-driven
+ * off-by-one. Empty string from the picker clears the due date. */
 const dueDateValue = computed<string>({
   get: () => (props.ticket.due_date ? props.ticket.due_date.slice(0, 10) : ''),
   set: (value: string) => {
@@ -309,8 +311,7 @@ const dueDateValue = computed<string>({
       emit('update:dueDate', null);
       return;
     }
-    const local = new Date(`${value}T00:00:00`);
-    emit('update:dueDate', local.toISOString());
+    emit('update:dueDate', `${value}T00:00:00`);
   },
 });
 
