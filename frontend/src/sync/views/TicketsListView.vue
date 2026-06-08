@@ -63,6 +63,16 @@ import { useDragGesture } from '@/composables/useDragGesture'
 import { useBulkSelection } from '@/composables/useBulkSelection'
 import { useWorkflowStatesStore } from '@/stores/workflowStates'
 import TicketsBulkBar from '@/components/views/TicketsBulkBar.vue'
+import ContextMenu from '@/components/common/ContextMenu.vue'
+import type { MenuItem } from '@/components/common/ContextMenu.vue'
+import UserSelectionModal from '@/components/UserSelectionModal.vue'
+import MergeTicketsDialog, {
+  type MergeDialogTicket,
+} from '@/components/ticketComponents/MergeTicketsDialog.vue'
+import { ICON_REGISTRY } from '@/components/common/icons'
+import { useClipboard } from '@/composables/useClipboard'
+import { useFlagTicketMutation } from '@/composables/useKnowledgeGaps'
+import { useToastStore } from '@/stores/toast'
 import { onScopeDispose } from 'vue'
 import { useTicketSelection } from '@/composables/useTicketSelection'
 import { useWorkspaceCapabilities } from '@/composables/useWorkspaceCapabilities'
@@ -377,6 +387,205 @@ const isInitiallyLoading = computed(
 
 function open(cardId: number): void {
   router.push(`/tickets/${cardId}`)
+}
+
+// Right-click context menu on list rows (table + mobile cards).
+const { copy } = useClipboard()
+const toast = useToastStore()
+const flagMutation = useFlagTicketMutation()
+const contextMenuTicketId = ref<number | null>(null)
+const contextMenuPos = ref({ x: 0, y: 0 })
+const showContextMenu = ref(false)
+const showContextAssignModal = ref(false)
+const contextAssignTicketIds = ref<number[]>([])
+const showContextMergeDialog = ref(false)
+
+const contextMenuBulkSelected = computed<boolean>(() => {
+  const id = contextMenuTicketId.value
+  if (id == null) return false
+  return bulkSelection.isSelected(String(id))
+})
+
+const contextMenuAssigneeUuid = computed<string | null>(() => {
+  const id = contextMenuTicketId.value
+  if (id == null) return null
+  return sortedCards.value.find((c) => c.id === id)?.assignee_uuid ?? null
+})
+
+const mergeSelectedTickets = computed<MergeDialogTicket[]>(() =>
+  bulkSelection.selectedIds.value
+    .map((s) => Number(s))
+    .filter((n) => Number.isFinite(n))
+    .map((id) => ticketsStore.byId(id).value)
+    .filter((t): t is NonNullable<typeof t> => !!t)
+    .map((t) => ({
+      id: t.id,
+      title: t.title,
+      workflow_state_id: t.workflow_state_id,
+    })),
+)
+
+/** Merge candidates shown in the menu and passed to the dialog.
+ *  When exactly one row is bulk-selected and the user right-clicks
+ *  a different ticket, include that ticket so merge is one click
+ *  away without a second Select. */
+const mergeCandidateTickets = computed<MergeDialogTicket[]>(() => {
+  const selected = mergeSelectedTickets.value
+  const id = contextMenuTicketId.value
+  if (id == null || selected.length !== 1 || selected[0]?.id === id) {
+    return selected
+  }
+  const ticket = ticketsStore.byId(id).value
+  if (!ticket) return selected
+  return [
+    ...selected,
+    {
+      id: ticket.id,
+      title: ticket.title,
+      workflow_state_id: ticket.workflow_state_id,
+    },
+  ]
+})
+
+const ticketContextMenuItems = computed<MenuItem[]>(() => {
+  const items: MenuItem[] = [
+    {
+      id: 'open',
+      label: t('views-ticket-preview-open'),
+      icon: ICON_REGISTRY.chevronRight.d,
+    },
+    {
+      id: 'open-new-tab',
+      label: t('recent-tickets-context-open-new-tab'),
+      icon: ICON_REGISTRY.openExternal.d,
+    },
+    {
+      id: 'copy-link',
+      label: t('recent-tickets-context-copy-link'),
+      icon: ICON_REGISTRY.link.d,
+    },
+    {
+      id: 'copy-number',
+      label: t('ticket-list-context-copy-number'),
+      icon: ICON_REGISTRY.copy.d,
+    },
+  ]
+
+  items.push({
+    id: 'actions-heading',
+    label: t('ticket-list-context-actions-heading'),
+    heading: true,
+    divider: true,
+  })
+
+  const me = authStore.user?.uuid
+  if (me && contextMenuAssigneeUuid.value !== me) {
+    items.push({
+      id: 'assign-to-me',
+      label: t('ticket-list-context-assign-to-me'),
+      icon: ICON_REGISTRY.user.d,
+    })
+  }
+
+  items.push({
+    id: 'assign',
+    label: t('ticket-list-bulk-assign'),
+    icon: ICON_REGISTRY.userPlus.d,
+  })
+
+  items.push({
+    id: 'flag-for-docs',
+    label: t('tickets-menu-flag-for-docs'),
+    icon: 'M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9',
+  })
+
+  items.push({
+    id: 'selection-heading',
+    label: t('ticket-list-context-selection-heading'),
+    heading: true,
+    divider: true,
+  })
+
+  items.push({
+    id: 'toggle-select',
+    label: contextMenuBulkSelected.value
+      ? t('ticket-list-context-deselect')
+      : t('ticket-list-context-select'),
+    checked: contextMenuBulkSelected.value,
+  })
+
+  if (mergeCandidateTickets.value.length >= 2) {
+    items.push({
+      id: 'merge',
+      label: t('ticket-list-context-merge', { count: mergeCandidateTickets.value.length }),
+      icon: ICON_REGISTRY.link.d,
+    })
+  }
+
+  return items
+})
+
+function handleTicketContextMenu(ticketId: number, event: MouseEvent): void {
+  contextMenuTicketId.value = ticketId
+  contextMenuPos.value = { x: event.clientX, y: event.clientY }
+  showContextMenu.value = true
+  if (splitViewActive.value) selection.setSelected(ticketId)
+}
+
+async function handleTicketContextMenuSelect(actionId: string): Promise<void> {
+  const ticketId = contextMenuTicketId.value
+  if (ticketId == null) return
+
+  const ticketUrl = `/tickets/${ticketId}`
+
+  switch (actionId) {
+    case 'open':
+      open(ticketId)
+      break
+    case 'open-new-tab':
+      window.open(ticketUrl, '_blank')
+      break
+    case 'copy-link':
+      await copy(`${window.location.origin}${ticketUrl}`)
+      break
+    case 'copy-number':
+      await copy(String(ticketId))
+      break
+    case 'assign-to-me': {
+      const me = authStore.user?.uuid
+      if (me) await handleBulkSetAssignee(me, [ticketId])
+      break
+    }
+    case 'assign':
+      contextAssignTicketIds.value = [ticketId]
+      showContextAssignModal.value = true
+      break
+    case 'flag-for-docs':
+      await flagMutation.mutateAsync({ ticketId })
+      toast.success(t('ticket-list-context-flagged-toast'))
+      break
+    case 'toggle-select':
+      bulkSelection.toggle(String(ticketId))
+      break
+    case 'merge':
+      if (mergeCandidateTickets.value.length >= 2) {
+        showContextMergeDialog.value = true
+      } else {
+        toast.info(t('ticket-list-context-merge-hint'))
+      }
+      break
+  }
+}
+
+function onContextAssignSelect(user: { uuid: string }): void {
+  showContextAssignModal.value = false
+  if (contextAssignTicketIds.value.length === 0) return
+  void handleBulkSetAssignee(user.uuid, contextAssignTicketIds.value)
+}
+
+function onContextMerged(): void {
+  showContextMergeDialog.value = false
+  bulkSelection.clear()
 }
 
 useCreateTicketAction()
@@ -795,6 +1004,7 @@ function startPaneResize(event: PointerEvent): void {
       :cards="sortedCards"
       class="flex-1 min-h-0"
       @open="open"
+      @contextmenu="handleTicketContextMenu"
     />
 
     <!-- Desktop: split-view layout. Table on the left, divider,
@@ -822,6 +1032,7 @@ function startPaneResize(event: PointerEvent): void {
         class="flex-1 min-w-0"
         @open="open"
         @select="selection.setSelected"
+        @contextmenu="handleTicketContextMenu"
         @toggle-sort="toggleSort"
         @toggle-bucket="grouping.toggleCollapsed"
       />
@@ -882,6 +1093,28 @@ function startPaneResize(event: PointerEvent): void {
       @set-status="handleBulkSetStatus"
       @set-priority="handleBulkSetPriority"
       @set-assignee="handleBulkSetAssignee"
+    />
+
+    <ContextMenu
+      :open="showContextMenu"
+      :items="ticketContextMenuItems"
+      :x="contextMenuPos.x"
+      :y="contextMenuPos.y"
+      @select="handleTicketContextMenuSelect"
+      @close="showContextMenu = false"
+    />
+
+    <UserSelectionModal
+      :show="showContextAssignModal"
+      @close="showContextAssignModal = false"
+      @select-user="onContextAssignSelect"
+    />
+
+    <MergeTicketsDialog
+      :open="showContextMergeDialog"
+      :selected-tickets="mergeCandidateTickets"
+      @close="showContextMergeDialog = false"
+      @merged="onContextMerged"
     />
   </div>
 </template>

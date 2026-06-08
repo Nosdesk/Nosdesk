@@ -9,9 +9,9 @@
  * exactly that reason).
  *
  * Presentational. Holds no state of its own; takes the card and
- * the column definitions, emits a click. The parent decides
- * whether the click should select (split-view) or navigate
- * (single-pane) — see TicketsTable's onRowClick.
+ * the column definitions, emits click / open. The parent decides
+ * whether a click should select (split-view) or navigate
+ * (single-pane); double-click always signals open in split-view.
  *
  * v-memo lives at the parent's <TicketRow> invocation, not
  * inside this component, because v-memo only works on the same
@@ -63,11 +63,19 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'click', id: number): void
+  /** Double-click opens the full ticket (split-view mode). */
+  (e: 'open', id: number): void
+  (e: 'contextmenu', id: number, event: MouseEvent): void
   /** Toggle bulk-selection for this row. The parent handles
    * range-select via shiftKey; we just forward the modifier so
    * the parent knows whether to extend or single-toggle. */
   (e: 'toggle-bulk', id: number, shiftKey: boolean): void
 }>()
+
+function onContextMenu(event: MouseEvent): void {
+  event.preventDefault()
+  emit('contextmenu', props.card.id, event)
+}
 
 function onLeadingClick(event: MouseEvent): void {
   // The leading cell's checkbox handles its own click via the
@@ -133,6 +141,8 @@ function recurrenceLabel(rule: string | null | undefined): string {
           : 'hover:bg-surface-hover',
     ]"
     @click="emit('click', card.id)"
+    @dblclick="emit('open', card.id)"
+    @contextmenu="onContextMenu"
   >
     <!--
       Leading state cell. Always-present 24px-wide indicator that

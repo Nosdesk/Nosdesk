@@ -80,6 +80,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'open', id: number): void
   (e: 'select', id: number): void
+  (e: 'contextmenu', id: number, event: MouseEvent): void
   (e: 'toggle-sort', field: string): void
   (e: 'toggle-bucket', key: string): void
 }>()
@@ -110,9 +111,9 @@ function onRowToggleBulk(id: number, shiftKey: boolean): void {
   props.bulkSelection?.toggle(String(id), { shiftKey })
 }
 
-/** When split-view is on, single-click selects (preview).
- * When off, single-click opens (full route navigation).
- * The shell decides which by binding `selectedId` —
+/** When split-view is on, single-click selects (preview) and
+ * double-click opens (full route navigation). When off, single-
+ * click opens. The shell decides which by binding `selectedId` —
  * presence of the prop signals split-view mode. */
 const isSplitMode = computed<boolean>(
   () => props.selectedId !== undefined,
@@ -121,6 +122,14 @@ const isSplitMode = computed<boolean>(
 function onRowClick(id: number): void {
   if (isSplitMode.value) emit('select', id)
   else emit('open', id)
+}
+
+function onRowOpen(id: number): void {
+  if (isSplitMode.value) emit('open', id)
+}
+
+function onRowContextMenu(id: number, event: MouseEvent): void {
+  emit('contextmenu', id, event)
 }
 
 const grouped = computed<boolean>(() => props.buckets.length > 0)
@@ -293,6 +302,8 @@ const grouped = computed<boolean>(() => props.buckets.length > 0)
             :bulk-active="bulkActive"
             :bulk-selected="bulkSelection?.isSelected(String(card.id)) ?? false"
             @click="onRowClick"
+            @open="onRowOpen"
+            @contextmenu="onRowContextMenu"
             @toggle-bulk="onRowToggleBulk"
           />
         </template>
@@ -332,6 +343,8 @@ const grouped = computed<boolean>(() => props.buckets.length > 0)
               :bulk-active="bulkActive"
               :bulk-selection="bulkSelection"
               @click="onRowClick"
+              @open="onRowOpen"
+              @contextmenu="onRowContextMenu"
               @toggle-bulk="onRowToggleBulk"
             />
           </template>

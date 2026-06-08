@@ -21,6 +21,8 @@
 import { computed, ref } from 'vue'
 import Popover from '@/components/common/Popover.vue'
 import Icon from '@/components/common/Icon.vue'
+import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
+import WorkflowStateGlyph from '@/components/views/WorkflowStateGlyph.vue'
 import UserSelectionModal from '@/components/UserSelectionModal.vue'
 import MergeTicketsDialog, {
   type MergeDialogTicket,
@@ -28,7 +30,8 @@ import MergeTicketsDialog, {
 import type { PopoverAnchor } from '@/composables/usePopover'
 import { useWorkflowStatesStore } from '@/stores/workflowStates'
 import { PRIORITY_OPTIONS } from '@/constants/ticketOptions'
-import { WORKFLOW_CATEGORIES, getCategoryLabel } from '@/types/workflow'
+import type { TicketPriority } from '@/constants/ticketOptions'
+import { WORKFLOW_CATEGORIES, getCategoryLabel, type WorkflowStateCategory } from '@/types/workflow'
 import { useSyncTicketsStore } from '@/sync/stores/tickets'
 
 const props = defineProps<{
@@ -91,19 +94,41 @@ const sharedPriority = computed<string | null>(() => {
   return p
 })
 
-// Status options grouped by workflow category. Mirrors the
-// detail-view's status dropdown — same shape, same labels. The
-// store loads these once at app bootstrap so by the time the
-// bulk bar mounts they're available.
+const sharedWorkflowState = computed(() => {
+  const id = sharedWorkflowStateId.value
+  if (id == null) return null
+  return workflowStatesStore.findById(id) ?? null
+})
+
+function isTicketPriority(value: string | null): value is TicketPriority {
+  return value === 'low' || value === 'medium' || value === 'high'
+}
+
+// Status options grouped by workflow category. Each row carries
+// the category so WorkflowStateGlyph can encode state as shape +
+// hue (colour-blind friendly), matching the tickets table.
 const statusGroups = computed(() => {
-  const out: { label: string; states: { id: number; name: string; color: string | null }[] }[] = []
+  const out: {
+    label: string
+    states: {
+      id: number
+      name: string
+      color: string
+      category: WorkflowStateCategory
+    }[]
+  }[] = []
   const grouped = workflowStatesStore.byCategory
   for (const cat of WORKFLOW_CATEGORIES) {
     const states = grouped[cat]
     if (!states || states.length === 0) continue
     out.push({
       label: getCategoryLabel(cat),
-      states: states.map((s) => ({ id: s.id, name: s.name, color: s.color })),
+      states: states.map((s) => ({
+        id: s.id,
+        name: s.name,
+        color: s.color,
+        category: s.category,
+      })),
     })
   }
   return out
@@ -190,7 +215,14 @@ function onMerged(): void {
         class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
         @click="statusOpen = !statusOpen"
       >
-        <Icon name="circleDot" class="w-3.5 h-3.5" />
+        <WorkflowStateGlyph
+          v-if="sharedWorkflowState"
+          :category="sharedWorkflowState.category"
+          :color="sharedWorkflowState.color"
+          :name="sharedWorkflowState.name"
+          :size="14"
+        />
+        <Icon v-else name="circleDot" class="w-3.5 h-3.5" />
         <span>{{ $t('ticket-list-bulk-status') }}</span>
         <Icon name="chevronDown" class="w-3 h-3 text-tertiary" />
       </button>
@@ -212,20 +244,24 @@ function onMerged(): void {
             v-for="state in group.states"
             :key="state.id"
             type="button"
-            class="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left hover:bg-surface-hover transition-colors"
-            :class="sharedWorkflowStateId === state.id ? 'text-accent' : 'text-primary'"
+            class="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left text-primary hover:bg-surface-hover transition-colors"
+            :class="{ 'bg-accent/10': sharedWorkflowStateId === state.id }"
             @click="pickStatus(state.id)"
           >
-            <span
-              class="inline-block w-2 h-2 rounded-full flex-shrink-0"
-              :style="{ backgroundColor: state.color ?? 'currentColor' }"
-              aria-hidden="true"
+            <WorkflowStateGlyph
+              :category="state.category"
+              :color="state.color"
+              :name="state.name"
+              :size="14"
             />
-            <span class="flex-1 truncate">{{ state.name }}</span>
+            <span
+              class="flex-1 truncate"
+              :class="{ 'font-medium': sharedWorkflowStateId === state.id }"
+            >{{ state.name }}</span>
             <Icon
               v-if="sharedWorkflowStateId === state.id"
               name="check"
-              class="w-3 h-3"
+              class="w-3 h-3 text-accent shrink-0"
             />
           </button>
         </div>
@@ -238,7 +274,18 @@ function onMerged(): void {
         class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
         @click="priorityOpen = !priorityOpen"
       >
-        <Icon name="info" class="w-3.5 h-3.5" />
+        <PriorityIndicator
+          v-if="isTicketPriority(sharedPriority)"
+          :priority="sharedPriority"
+          size="sm"
+        />
+        <span
+          v-else
+          class="inline-flex w-3.5 h-3.5 items-center justify-center text-tertiary"
+          aria-hidden="true"
+        >
+          <span class="w-2 h-2 rounded-full border border-current" />
+        </span>
         <span>{{ $t('ticket-list-bulk-priority') }}</span>
         <Icon name="chevronDown" class="w-3 h-3 text-tertiary" />
       </button>
@@ -256,15 +303,19 @@ function onMerged(): void {
           v-for="opt in PRIORITY_OPTIONS"
           :key="opt.value"
           type="button"
-          class="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left hover:bg-surface-hover transition-colors"
-          :class="sharedPriority === opt.value ? 'text-accent' : 'text-primary'"
+          class="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left text-primary hover:bg-surface-hover transition-colors"
+          :class="{ 'bg-accent/10': sharedPriority === opt.value }"
           @click="pickPriority(opt.value)"
         >
-          <span class="flex-1">{{ $t(opt.labelKey) }}</span>
+          <PriorityIndicator :priority="opt.value" size="sm" />
+          <span
+            class="flex-1"
+            :class="{ 'font-medium': sharedPriority === opt.value }"
+          >{{ $t(opt.labelKey) }}</span>
           <Icon
             v-if="sharedPriority === opt.value"
             name="check"
-            class="w-3 h-3"
+            class="w-3 h-3 text-accent shrink-0"
           />
         </button>
       </Popover>

@@ -48,10 +48,16 @@ defineProps<{
 
 const emit = defineEmits<{
   (e: 'open', id: number): void
+  (e: 'contextmenu', id: number, event: MouseEvent): void
 }>()
 
 function onRowClick(id: number): void {
   emit('open', id)
+}
+
+function onContextMenu(id: number, event: MouseEvent): void {
+  event.preventDefault()
+  emit('contextmenu', id, event)
 }
 </script>
 
@@ -79,6 +85,7 @@ function onRowClick(id: number): void {
           type="button"
           class="w-full text-left flex flex-col gap-1 px-3 py-3 hover:bg-surface-hover active:bg-surface-alt transition-colors"
           @click="onRowClick(card.id)"
+          @contextmenu="onContextMenu(card.id, $event)"
         >
           <!-- Top line: id + title. Title takes whatever width
                remains; truncates on overflow. -->

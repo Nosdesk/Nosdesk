@@ -28,6 +28,8 @@ defineProps<{
 
 defineEmits<{
   (e: 'click', id: number): void
+  (e: 'open', id: number): void
+  (e: 'contextmenu', id: number, event: MouseEvent): void
   (e: 'toggle-bulk', id: number, shiftKey: boolean): void
 }>()
 </script>
@@ -54,6 +56,8 @@ defineEmits<{
     :bulk-active="bulkActive"
     :bulk-selected="bulkSelection?.isSelected(String(card.id)) ?? false"
     @click="(id: number) => $emit('click', id)"
+    @open="(id: number) => $emit('open', id)"
+    @contextmenu="(id: number, event: MouseEvent) => $emit('contextmenu', id, event)"
     @toggle-bulk="(id: number, shiftKey: boolean) => $emit('toggle-bulk', id, shiftKey)"
   />
 </template>

@@ -329,6 +329,18 @@ ticket-list-bulk-assign = Assign
 ticket-list-bulk-merge = Merge
 ticket-list-bulk-clear-title = Clear selection (Esc)
 ticket-list-bulk-clear = Clear
+ticket-list-context-copy-number = Copy ticket number
+ticket-list-context-assign-to-me = Assign to me
+ticket-list-context-actions-heading = Actions
+ticket-list-context-selection-heading = Selection
+ticket-list-context-select = Select
+ticket-list-context-deselect = Deselect
+ticket-list-context-merge = { $count ->
+    [one] Merge ticket…
+   *[other] Merge { $count } tickets…
+}
+ticket-list-context-merge-hint = Select at least 2 tickets to merge
+ticket-list-context-flagged-toast = Flagged for documentation
 ticket-list-row-density-aria = Row density
 ticket-list-save-view-title = Save current state as a private view
 ticket-list-recurring-title = Recurring ticket
