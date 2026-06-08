@@ -27,9 +27,10 @@ use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::{NewTicket, TicketPriority};
+use crate::repository::tickets as ticket_repo;
 
 use super::csv_parser::ParsedCsv;
-use super::types::{ImportSummary, Importer, RowError, MAX_ERRORS};
+use super::types::{ImportSummary, ImportedRecords, Importer, RowError, MAX_ERRORS};
 
 const HEADERS: &[&str] = &[
     "title",
@@ -86,9 +87,7 @@ impl Importer for TicketImporter {
         &self,
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
-    ) -> Result<i32, diesel::result::Error> {
-        use crate::schema::tickets;
-
+    ) -> Result<ImportedRecords, diesel::result::Error> {
         if check_headers(&parsed.headers).is_some() {
             return Err(diesel::result::Error::QueryBuilderError(
                 "header validation should have caught this; refusing to commit".into(),
@@ -96,7 +95,7 @@ impl Importer for TicketImporter {
         }
         let ctx = ImportContext::load(conn)?;
 
-        let mut committed = 0i32;
+        let mut tickets = Vec::new();
         for row in &parsed.rows {
             let resolved = match validate_row(row, &ctx) {
                 Ok(r) => r,
@@ -120,12 +119,13 @@ impl Importer for TicketImporter {
                 recurrence_template_id: None,
                 resolution_notes: None,
             };
-            diesel::insert_into(tickets::table)
-                .values(&new)
-                .execute(conn)?;
-            committed += 1;
+            // create_ticket emits the ticket.created sync event in the
+            // transaction, so imported tickets reach the activity feed,
+            // webhooks, and plugins exactly like API-created ones.
+            let ticket = ticket_repo::create_ticket(conn, new)?;
+            tickets.push(ticket);
         }
-        Ok(committed)
+        Ok(ImportedRecords::Tickets(tickets))
     }
 }
 

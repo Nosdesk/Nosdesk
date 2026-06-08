@@ -21,9 +21,29 @@ fn happy_path_creates_users_and_primary_emails() {
     assert_eq!(summary.would_update, 0);
     assert!(summary.errors.is_empty(), "errors: {:?}", summary.errors);
 
-    let count = imports::commit(&mut conn, ImportType::Users, &parsed).expect("commit");
-    assert_eq!(count, 3);
+    let records = imports::commit(&mut conn, ImportType::Users, &parsed).expect("commit");
+    assert_eq!(records.len(), 3);
     assert_eq!(count_table(&mut conn, "users"), users_before + 3);
+
+    // Imports are first-class: each created user routes through the
+    // canonical create path, so it emits a user.created sync action
+    // (activity feed / webhooks / plugins), not a silent raw INSERT.
+    #[derive(diesel::QueryableByName)]
+    struct CountRow {
+        #[diesel(sql_type = diesel::sql_types::BigInt)]
+        count: i64,
+    }
+    let created_events: i64 = diesel::sql_query(
+        "SELECT COUNT(*)::bigint AS count FROM sync_actions \
+         WHERE event_type = 'user.created'",
+    )
+    .get_result::<CountRow>(&mut *conn)
+    .map(|r| r.count)
+    .expect("count user.created events");
+    assert_eq!(
+        created_events, 3,
+        "each imported user should emit a user.created sync action"
+    );
 
     // Sentinel: Alex's primary email row landed with the
     // right address and source='csv_import'.
@@ -90,7 +110,7 @@ fn second_commit_upserts_by_email() {
     let parsed = csv_parser::parse_file(&fixture_path("imports/users_valid.csv")).expect("parse");
 
     let first = imports::commit(&mut conn, ImportType::Users, &parsed).expect("commit 1");
-    assert_eq!(first, 3);
+    assert_eq!(first.len(), 3);
 
     // Second pass: every primary email matches → 3 updates.
     let summary = imports::dry_run(&mut conn, ImportType::Users, &parsed).expect("dry-run 2");
@@ -99,7 +119,7 @@ fn second_commit_upserts_by_email() {
     assert!(summary.errors.is_empty());
 
     let second = imports::commit(&mut conn, ImportType::Users, &parsed).expect("commit 2");
-    assert_eq!(second, 3);
+    assert_eq!(second.len(), 3);
 
     // No duplicate user_emails rows.
     #[derive(diesel::QueryableByName)]

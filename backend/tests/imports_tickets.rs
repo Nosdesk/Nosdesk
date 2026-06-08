@@ -33,8 +33,8 @@ fn happy_path_creates_tickets_with_resolved_refs() {
     assert_eq!(summary.would_create, 3);
     assert!(summary.errors.is_empty(), "errors: {:?}", summary.errors);
 
-    let count = imports::commit(&mut conn, ImportType::Tickets, &parsed).expect("commit");
-    assert_eq!(count, 3);
+    let records = imports::commit(&mut conn, ImportType::Tickets, &parsed).expect("commit");
+    assert_eq!(records.len(), 3);
     assert_eq!(count_table(&mut conn, "tickets"), tickets_before + 3);
 
     // Sentinel: the onboarding ticket has the right priority,

@@ -44,8 +44,8 @@ fn happy_path_creates_every_row() {
         summary.errors
     );
 
-    let count = imports::commit(&mut conn, ImportType::Assets, &parsed).expect("commit");
-    assert_eq!(count, 4);
+    let records = imports::commit(&mut conn, ImportType::Assets, &parsed).expect("commit");
+    assert_eq!(records.len(), 4);
     assert_eq!(count_table(&mut conn, "assets"), assets_before + 4);
 
     // Sentinel: STOCK-001 landed with the right decimal quantity.
@@ -108,7 +108,7 @@ fn second_commit_upserts_by_tag() {
 
     // First commit: 4 creates.
     let first = imports::commit(&mut conn, ImportType::Assets, &parsed).expect("commit 1");
-    assert_eq!(first, 4);
+    assert_eq!(first.len(), 4);
 
     // Re-run the same CSV: every tag matches → 4 updates, 0 creates.
     let summary = imports::dry_run(&mut conn, ImportType::Assets, &parsed).expect("dry-run 2");
@@ -117,7 +117,7 @@ fn second_commit_upserts_by_tag() {
     assert!(summary.errors.is_empty());
 
     let second = imports::commit(&mut conn, ImportType::Assets, &parsed).expect("commit 2");
-    assert_eq!(second, 4);
+    assert_eq!(second.len(), 4);
 
     // Row count unchanged: upserts, not inserts.
     #[derive(diesel::QueryableByName)]

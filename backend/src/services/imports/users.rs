@@ -20,10 +20,12 @@ use diesel::prelude::*;
 use uuid::Uuid;
 
 use crate::db::DbConnection;
-use crate::models::{NewUser, NewUserEmail};
+use crate::models::{NewUser, UserUpdate};
+use crate::repository::user_helpers::create_user_with_email;
+use crate::repository::users::update_user;
 
 use super::csv_parser::ParsedCsv;
-use super::types::{ImportSummary, Importer, RowError, MAX_ERRORS};
+use super::types::{ImportSummary, ImportedRecords, ImportedUser, Importer, RowError, MAX_ERRORS};
 
 const HEADERS: &[&str] = &["email", "name", "role", "pronouns"];
 
@@ -74,8 +76,8 @@ impl Importer for UserImporter {
         &self,
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
-    ) -> Result<i32, diesel::result::Error> {
-        use crate::schema::{user_emails, users};
+    ) -> Result<ImportedRecords, diesel::result::Error> {
+        use crate::schema::users;
         if check_headers(&parsed.headers).is_some() {
             return Err(diesel::result::Error::QueryBuilderError(
                 "header validation should have caught this; refusing to commit".into(),
@@ -84,7 +86,7 @@ impl Importer for UserImporter {
         let existing_emails = load_existing_primary_emails(conn)?;
         let mut emails_in_file: HashSet<String> = HashSet::new();
 
-        let mut committed = 0i32;
+        let mut imported: Vec<ImportedUser> = Vec::new();
         for row in &parsed.rows {
             let mut local = emails_in_file.clone();
             let action = match validate_row(row, &existing_emails, &mut local) {
@@ -101,63 +103,54 @@ impl Importer for UserImporter {
             let (platform_role_enum, workspace_role_enum) =
                 crate::utils::parse_roles(trimmed(row, "role").as_str()).expect("validated above");
             let pronouns = opt_string(row, "pronouns");
-            let platform_role = Some(platform_role_enum.as_str().to_string());
-            let workspace_role = workspace_role_enum.as_str();
+            let email = trimmed(row, "email");
             match action {
                 RowAction::Create => {
-                    let new_uuid = Uuid::new_v4();
-                    diesel::insert_into(users::table)
-                        .values(&NewUser {
-                            uuid: new_uuid,
-                            name: name.clone(),
-                            pronouns: pronouns.clone(),
-                            avatar_url: None,
-                            banner_url: None,
-                            avatar_thumb: None,
-                            microsoft_uuid: None,
-                            mfa_secret: None,
-                            mfa_secret_kek_id: None,
-                            mfa_enabled: false,
-                            platform_role,
-                        })
-                        .execute(conn)?;
-                    diesel::insert_into(user_emails::table)
-                        .values(&NewUserEmail {
-                            user_uuid: new_uuid,
-                            email: trimmed(row, "email"),
-                            email_type: "primary".to_string(),
-                            is_primary: true,
-                            is_verified: false,
-                            source: Some("csv_import".to_string()),
-                        })
-                        .execute(conn)?;
-                    // Workspace membership in the request's workspace.
-                    // The import commit runs under TenantConn, which
-                    // pins `app.workspace_id`, so the membership lands
-                    // in the importing user's workspace under hosted
-                    // multi-tenancy (the bootstrap workspace in
-                    // single-tenant).
-                    diesel::sql_query(
-                        "INSERT INTO workspace_members (workspace_id, user_uuid, role) \
-                         VALUES (NULLIF(current_setting('app.workspace_id', true), '')::int, $1, $2) \
-                         ON CONFLICT (workspace_id, user_uuid) DO NOTHING",
-                    )
-                    .bind::<diesel::sql_types::Uuid, _>(new_uuid)
-                    .bind::<diesel::sql_types::Text, _>(workspace_role)
-                    .execute(conn)?;
-                    committed += 1;
+                    let new_user = NewUser {
+                        uuid: Uuid::new_v4(),
+                        name,
+                        pronouns,
+                        avatar_url: None,
+                        banner_url: None,
+                        avatar_thumb: None,
+                        microsoft_uuid: None,
+                        mfa_secret: None,
+                        mfa_secret_kek_id: None,
+                        mfa_enabled: false,
+                        platform_role: Some(platform_role_enum.as_str().to_string()),
+                    };
+                    // create_user_with_email writes the user, the primary
+                    // email, and the workspace_members row (workspace from
+                    // app.workspace_id, pinned by TenantConn) and emits
+                    // user.created, the same path the create-user API uses.
+                    // observer = None: the import handler indexes every
+                    // committed entity post-commit, so all three importers
+                    // index uniformly without per-importer observer wiring.
+                    let (user, user_email) = create_user_with_email(
+                        new_user,
+                        workspace_role_enum,
+                        email,
+                        false, // email starts unverified; admin / IdP verifies later
+                        Some("csv_import".to_string()),
+                        conn,
+                        None,
+                    )?;
+                    imported.push(ImportedUser {
+                        user,
+                        primary_email: Some(user_email.email),
+                    });
                 }
                 RowAction::Update(uuid) => {
+                    // Role changes are operator-side and intentionally not
+                    // sync-emitted (mirrors the admin bulk-role handler and
+                    // the workspace_members "sync-audit-only" rule): raw-write
+                    // the platform_role and the membership role.
                     diesel::update(users::table.find(uuid))
                         .set((
-                            users::name.eq(name),
-                            users::pronouns.eq(pronouns),
-                            users::platform_role
-                                .eq(platform_role.clone().unwrap_or_else(|| "user".to_string())),
+                            users::platform_role.eq(platform_role_enum.as_str()),
+                            users::updated_at.eq(chrono::Utc::now().naive_utc()),
                         ))
                         .execute(conn)?;
-                    // Bump the workspace role too so the post-W2
-                    // derivation tracks the imported intent.
                     diesel::sql_query(
                         "UPDATE workspace_members \
                          SET role = $2 \
@@ -165,13 +158,33 @@ impl Importer for UserImporter {
                            AND user_uuid = $1",
                     )
                     .bind::<diesel::sql_types::Uuid, _>(uuid)
-                    .bind::<diesel::sql_types::Text, _>(workspace_role)
+                    .bind::<diesel::sql_types::Text, _>(workspace_role_enum.as_str())
                     .execute(conn)?;
-                    committed += 1;
+                    // The profile-field change goes through update_user, which
+                    // emits user.updated and returns the refreshed model for
+                    // indexing.
+                    let user = update_user(
+                        &uuid,
+                        UserUpdate {
+                            name: Some(name),
+                            pronouns,
+                            avatar_url: None,
+                            banner_url: None,
+                            avatar_thumb: None,
+                            microsoft_uuid: None,
+                            updated_at: None,
+                        },
+                        conn,
+                        None,
+                    )?;
+                    imported.push(ImportedUser {
+                        user,
+                        primary_email: Some(email),
+                    });
                 }
             }
         }
-        Ok(committed)
+        Ok(ImportedRecords::Users(imported))
     }
 }
 

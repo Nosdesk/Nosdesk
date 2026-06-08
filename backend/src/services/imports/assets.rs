@@ -22,7 +22,7 @@ use crate::repository::assets as asset_repo;
 use crate::services::assets::kinds as schema_validator;
 
 use super::csv_parser::ParsedCsv;
-use super::types::{ImportSummary, Importer, RowError, MAX_ERRORS};
+use super::types::{ImportSummary, ImportedRecords, Importer, RowError, MAX_ERRORS};
 
 const HEADERS: &[&str] = &[
     "name",
@@ -95,9 +95,7 @@ impl Importer for AssetImporter {
         &self,
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
-    ) -> Result<i32, diesel::result::Error> {
-        use crate::schema::assets;
-
+    ) -> Result<ImportedRecords, diesel::result::Error> {
         if check_headers(&parsed.headers).is_some() {
             return Err(diesel::result::Error::QueryBuilderError(
                 "header validation should have caught this; refusing to commit".into(),
@@ -107,7 +105,7 @@ impl Importer for AssetImporter {
         let existing_tags = load_existing_tags(conn)?;
         let mut tags_in_file: HashSet<String> = HashSet::new();
 
-        let mut committed = 0i32;
+        let mut assets = Vec::new();
         for row in &parsed.rows {
             // Re-validate; the dry-run was advisory but the
             // commit guards against changes between phases.
@@ -124,8 +122,8 @@ impl Importer for AssetImporter {
             match action {
                 RowAction::Create => {
                     let new = build_new_asset(row);
-                    asset_repo::create_device(conn, new)?;
-                    committed += 1;
+                    let asset = asset_repo::create_device(conn, new)?;
+                    assets.push(asset);
                 }
                 RowAction::Update => {
                     let tag = row.get("asset_tag").map(String::as_str).unwrap_or("");
@@ -134,14 +132,16 @@ impl Importer for AssetImporter {
                         None => continue,
                     };
                     let update = build_asset_update(row);
-                    diesel::update(assets::table.find(asset_id))
-                        .set(&update)
-                        .execute(conn)?;
-                    committed += 1;
+                    // Route updates through update_device so the
+                    // asset.updated sync event fires, matching the
+                    // create path (create_device) and the rest of the
+                    // app instead of a silent raw UPDATE.
+                    let asset = asset_repo::update_device(conn, asset_id, update)?;
+                    assets.push(asset);
                 }
             }
         }
-        Ok(committed)
+        Ok(ImportedRecords::Assets(assets))
     }
 }
 

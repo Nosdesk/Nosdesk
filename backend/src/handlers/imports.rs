@@ -18,11 +18,14 @@ use serde::Deserialize;
 use tracing::{error, info};
 use uuid::Uuid;
 
+use std::sync::Arc;
+
 use crate::extractors::{AuthContext, TenantConn};
 use crate::handlers::errors;
 use crate::models::{ImportJob, ImportJobUpdate, NewImportJob};
 use crate::repository::imports as repo;
-use crate::services::imports::{self, csv_parser, ImportType};
+use crate::services::imports::{self, csv_parser, ImportType, ImportedRecords};
+use crate::services::search::{indexing_tasks, SearchService};
 
 #[derive(Debug, Deserialize)]
 pub struct UploadQuery {
@@ -141,7 +144,7 @@ pub async fn upload(
 
 /// Result variants for the commit flow.
 enum CommitOutcome {
-    Ok(ImportJob),
+    Ok(ImportJob, ImportedRecords),
     AlreadyDone(ImportJob),
     NotFound,
     BadRequest(String),
@@ -152,6 +155,7 @@ enum CommitOutcome {
 pub async fn commit(
     mut tc: TenantConn,
     _auth: AuthContext,
+    search_service: web::Data<Arc<SearchService>>,
     path: web::Path<Uuid>,
 ) -> impl Responder {
     let id = path.into_inner();
@@ -205,8 +209,8 @@ pub async fn commit(
         // The repo + commit imports run inside this transaction.
         // Postgres `SET LOCAL` propagates into the nested savepoint
         // so the workspace GUC is still active for the commit path.
-        let committed = match imports::commit(conn, job_type, &parsed) {
-            Ok(count) => count,
+        let records = match imports::commit(conn, job_type, &parsed) {
+            Ok(records) => records,
             Err(e) => {
                 let msg = format!("commit failed: {e}");
                 mark_failed(conn, job.id, &msg);
@@ -219,23 +223,58 @@ pub async fn commit(
             job.id,
             ImportJobUpdate {
                 status: Some("done".to_string()),
-                records_committed: Some(Some(committed)),
+                records_committed: Some(Some(records.len() as i32)),
                 completed_at: Some(Some(chrono::Utc::now())),
                 ..Default::default()
             },
         )?;
-        Ok(CommitOutcome::Ok(updated))
+        Ok(CommitOutcome::Ok(updated, records))
     });
 
     match result {
-        Ok(CommitOutcome::Ok(job)) | Ok(CommitOutcome::AlreadyDone(job)) => {
+        Ok(CommitOutcome::Ok(job, records)) => {
+            // Index the committed entities the same way the create
+            // handlers do (spawn_index_*). Run post-commit, off the
+            // response path; the repository writers already emitted the
+            // per-row sync events inside the transaction.
+            index_imported_records(search_service.get_ref(), records);
             HttpResponse::Ok().json(job)
         }
+        Ok(CommitOutcome::AlreadyDone(job)) => HttpResponse::Ok().json(job),
         Ok(CommitOutcome::NotFound) => errors::not_found_msg(format!("import job {id} not found")),
         Ok(CommitOutcome::BadRequest(msg)) => errors::bad_request(msg),
         Err(e) => {
             error!(job_id = %id, error = ?e, "commit failed");
             errors::internal("commit failed")
+        }
+    }
+}
+
+/// Index every entity an import committed into the search index, using
+/// the same `spawn_index_*` background tasks the create handlers use, so
+/// imported rows become searchable identically to API-created ones. The
+/// per-row sync events were already emitted in the commit transaction by
+/// the repository writers.
+fn index_imported_records(search_service: &Arc<SearchService>, records: ImportedRecords) {
+    match records {
+        ImportedRecords::Users(users) => {
+            for u in users {
+                indexing_tasks::spawn_index_user(
+                    Arc::clone(search_service),
+                    u.user,
+                    u.primary_email,
+                );
+            }
+        }
+        ImportedRecords::Assets(assets) => {
+            for asset in assets {
+                indexing_tasks::spawn_index_device(Arc::clone(search_service), asset);
+            }
+        }
+        ImportedRecords::Tickets(tickets) => {
+            for ticket in tickets {
+                indexing_tasks::spawn_index_ticket(Arc::clone(search_service), ticket, None);
+            }
         }
     }
 }

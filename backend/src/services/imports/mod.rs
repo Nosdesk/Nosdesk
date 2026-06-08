@@ -15,7 +15,7 @@ pub mod tickets;
 pub mod types;
 pub mod users;
 
-pub use types::{ImportSummary, ImportType, Importer, RowError};
+pub use types::{ImportSummary, ImportType, ImportedRecords, ImportedUser, Importer, RowError};
 
 use diesel::result::Error as DieselError;
 
@@ -43,11 +43,12 @@ pub fn dry_run(
 
 /// Apply the rows in a single transaction. Caller is
 /// responsible for marking the import_jobs row's status
-/// transition.
+/// transition. Returns the written models for post-commit
+/// search indexing.
 pub fn commit(
     conn: &mut DbConnection,
     t: ImportType,
     parsed: &csv_parser::ParsedCsv,
-) -> Result<i32, DieselError> {
+) -> Result<ImportedRecords, DieselError> {
     importer_for(t).commit(conn, parsed)
 }

@@ -3,8 +3,45 @@
 use serde::{Deserialize, Serialize};
 
 use crate::db::DbConnection;
+use crate::models;
 
 use super::csv_parser::ParsedCsv;
+
+/// Entities written by an import commit, grouped by type and carrying
+/// the full models. The repository writers each importer calls have
+/// already emitted the per-row sync events in-transaction; the import
+/// handler uses these to drive the same `spawn_index_*` search-indexing
+/// the create handlers run, so imported rows are indexed identically to
+/// API-created ones without a re-load.
+pub enum ImportedRecords {
+    Users(Vec<ImportedUser>),
+    Assets(Vec<models::Asset>),
+    Tickets(Vec<models::Ticket>),
+}
+
+/// A user written by the import, paired with its primary email so the
+/// search indexer can populate the user doc's email metadata without a
+/// second lookup.
+pub struct ImportedUser {
+    pub user: models::User,
+    pub primary_email: Option<String>,
+}
+
+impl ImportedRecords {
+    /// Number of rows committed, regardless of entity type. Feeds the
+    /// import job's `records_committed`.
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Users(v) => v.len(),
+            Self::Assets(v) => v.len(),
+            Self::Tickets(v) => v.len(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
 
 /// Closed set of importable record types. The string codes
 /// match the `import_jobs.job_type` CHECK and the frontend
@@ -84,11 +121,13 @@ pub trait Importer: Send + Sync {
         parsed: &ParsedCsv,
     ) -> Result<ImportSummary, diesel::result::Error>;
 
-    /// Apply the rows. Returns the count of rows committed.
-    /// Caller wraps in a transaction.
+    /// Apply the rows through the canonical repository writers (which
+    /// emit the per-row sync events + enforce entity invariants in the
+    /// transaction), returning the written models so the caller can
+    /// index them into search. Caller wraps in a transaction.
     fn commit(
         &self,
         conn: &mut DbConnection,
         parsed: &ParsedCsv,
-    ) -> Result<i32, diesel::result::Error>;
+    ) -> Result<ImportedRecords, diesel::result::Error>;
 }
