@@ -1,16 +1,19 @@
 -- Squashed initial schema + seed data.
 --
 -- Generated from a fully-migrated database via `pg_dump` (schema-only
--- + data-only --inserts --disable-triggers), collapsing ~165
--- incremental migrations into one baseline. Single source of truth for
+-- + data-only --inserts --disable-triggers), collapsing every prior
+-- incremental migration into one baseline. Single source of truth for
 -- a fresh database; existing databases keep their history and aren't
 -- re-run.
 --
--- pg_dump emits valid FKs and whole `CREATE TYPE ... AS ENUM`, so the
--- PG18-only forms that broke fresh applies on the Postgres 17 pin
--- (`ALTER TYPE ADD VALUE`, `NOT VALID` FK on a partitioned table) are
--- gone. Seed data loads with per-table `DISABLE TRIGGER ALL` so it
--- doesn't fire audit/sync triggers.
+-- Re-dumped from the Postgres 17 pin, so this file is pg17-native:
+-- pg_dump emits whole `CREATE TYPE ... AS ENUM` and valid FKs, in place
+-- of the `ALTER TYPE ADD VALUE` / `NOT VALID` forms the incremental
+-- migrations used (those broke fresh applies on the 17 pin). The
+-- pg_dump SET preamble and the pg17 `\restrict` / `\unrestrict` markers
+-- (psql-only, invalid through Diesel) are stripped. Seed data loads
+-- with per-table `DISABLE TRIGGER ALL` so it doesn't fire audit/sync
+-- triggers.
 --
 -- Roles + the membership grant are recreated here (pg_dump
 -- --schema-only omits global role objects + memberships), ahead of the
@@ -40,8 +43,8 @@ GRANT nosdesk_admin TO nosdesk_app WITH INHERIT FALSE, SET TRUE;
 --
 
 
--- Dumped from database version 18.4 (Debian 18.4-1.pgdg12+1)
--- Dumped by pg_dump version 18.4 (Debian 18.4-1.pgdg12+1)
+-- Dumped from database version 17.10 (Debian 17.10-1.pgdg12+1)
+-- Dumped by pg_dump version 17.10 (Debian 17.10-1.pgdg12+1)
 
 
 --
@@ -52,10 +55,24 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
 
 
 --
+-- Name: EXTENSION pgcrypto; Type: COMMENT; Schema: -; Owner: 
+--
+
+COMMENT ON EXTENSION pgcrypto IS 'cryptographic functions';
+
+
+--
 -- Name: uuid-ossp; Type: EXTENSION; Schema: -; Owner: -
 --
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA public;
+
+
+--
+-- Name: EXTENSION "uuid-ossp"; Type: COMMENT; Schema: -; Owner: 
+--
+
+COMMENT ON EXTENSION "uuid-ossp" IS 'generate universally unique identifiers (UUIDs)';
 
 
 --
@@ -163,6 +180,8 @@ CREATE TYPE public.sync_aggregate AS ENUM (
     'cycle_ticket',
     'user',
     'asset',
+    'asset_media',
+    'asset_lifecycle_event',
     'webhook',
     'channel',
     'knowledge_gap',
@@ -198,8 +217,10 @@ ALTER TYPE public.sync_op OWNER TO nosdesk;
 --
 
 CREATE TYPE public.ticket_priority AS ENUM (
+    'none',
     'low',
     'medium',
+    'urgent',
     'high'
 );
 
@@ -777,9 +798,9 @@ ALTER SEQUENCE public.asset_audits_id_seq OWNED BY public.asset_audits.id;
 --
 
 CREATE TABLE public.asset_groups (
-    asset_id integer CONSTRAINT device_groups_device_id_not_null NOT NULL,
-    group_id integer CONSTRAINT device_groups_group_id_not_null NOT NULL,
-    created_at timestamp with time zone DEFAULT now() CONSTRAINT device_groups_created_at_not_null NOT NULL,
+    asset_id integer NOT NULL,
+    group_id integer NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
     created_by uuid,
     external_source character varying(50),
     workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL
@@ -808,7 +829,7 @@ CREATE TABLE public.asset_kinds (
     created_by uuid,
     category character varying(16) DEFAULT 'generic'::character varying NOT NULL,
     workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL,
-    CONSTRAINT asset_kinds_category_check CHECK (((category)::text = ANY ((ARRAY['it'::character varying, 'logical'::character varying, 'physical'::character varying, 'bulk'::character varying, 'generic'::character varying])::text[])))
+    CONSTRAINT asset_kinds_category_check CHECK (((category)::text = ANY (ARRAY[('it'::character varying)::text, ('logical'::character varying)::text, ('physical'::character varying)::text, ('bulk'::character varying)::text, ('generic'::character varying)::text])))
 );
 
 ALTER TABLE ONLY public.asset_kinds FORCE ROW LEVEL SECURITY;
@@ -839,6 +860,99 @@ ALTER SEQUENCE public.asset_kinds_id_seq OWNED BY public.asset_kinds.id;
 
 
 --
+-- Name: asset_lifecycle_events; Type: TABLE; Schema: public; Owner: nosdesk_admin
+--
+
+CREATE TABLE public.asset_lifecycle_events (
+    id integer NOT NULL,
+    asset_id integer NOT NULL,
+    from_status character varying(32),
+    to_status character varying(32) NOT NULL,
+    reason text,
+    ticket_id integer,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    actor_uuid uuid,
+    occurred_at timestamp with time zone DEFAULT now() NOT NULL,
+    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL
+);
+
+ALTER TABLE ONLY public.asset_lifecycle_events FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE public.asset_lifecycle_events OWNER TO nosdesk_admin;
+
+--
+-- Name: asset_lifecycle_events_id_seq; Type: SEQUENCE; Schema: public; Owner: nosdesk_admin
+--
+
+CREATE SEQUENCE public.asset_lifecycle_events_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.asset_lifecycle_events_id_seq OWNER TO nosdesk_admin;
+
+--
+-- Name: asset_lifecycle_events_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: nosdesk_admin
+--
+
+ALTER SEQUENCE public.asset_lifecycle_events_id_seq OWNED BY public.asset_lifecycle_events.id;
+
+
+--
+-- Name: asset_media; Type: TABLE; Schema: public; Owner: nosdesk_admin
+--
+
+CREATE TABLE public.asset_media (
+    id integer NOT NULL,
+    asset_id integer NOT NULL,
+    url character varying(2048) NOT NULL,
+    name character varying(255) NOT NULL,
+    file_size bigint,
+    mime_type character varying(100),
+    checksum character varying(64),
+    kind character varying(32) DEFAULT 'photo'::character varying NOT NULL,
+    sort_order integer DEFAULT 0 NOT NULL,
+    caption text,
+    uploaded_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL,
+    thumbnail_url character varying(2048),
+    CONSTRAINT asset_media_kind_check CHECK (((kind)::text = ANY (ARRAY[('photo'::character varying)::text, ('document'::character varying)::text, ('other'::character varying)::text])))
+);
+
+ALTER TABLE ONLY public.asset_media FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE public.asset_media OWNER TO nosdesk_admin;
+
+--
+-- Name: asset_media_id_seq; Type: SEQUENCE; Schema: public; Owner: nosdesk_admin
+--
+
+CREATE SEQUENCE public.asset_media_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.asset_media_id_seq OWNER TO nosdesk_admin;
+
+--
+-- Name: asset_media_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: nosdesk_admin
+--
+
+ALTER SEQUENCE public.asset_media_id_seq OWNED BY public.asset_media.id;
+
+
+--
 -- Name: asset_usage_log; Type: TABLE; Schema: public; Owner: nosdesk_admin
 --
 
@@ -853,7 +967,7 @@ CREATE TABLE public.asset_usage_log (
     notes text,
     event_kind character varying(16) NOT NULL,
     workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL,
-    CONSTRAINT asset_usage_log_event_kind_check CHECK (((event_kind)::text = ANY ((ARRAY['usage'::character varying, 'restock'::character varying])::text[]))),
+    CONSTRAINT asset_usage_log_event_kind_check CHECK (((event_kind)::text = ANY (ARRAY[('usage'::character varying)::text, ('restock'::character varying)::text]))),
     CONSTRAINT asset_usage_log_quantity_used_check CHECK ((quantity_used > (0)::numeric))
 );
 
@@ -888,14 +1002,14 @@ ALTER SEQUENCE public.asset_usage_log_id_seq OWNED BY public.asset_usage_log.id;
 --
 
 CREATE TABLE public.assets (
-    id integer CONSTRAINT devices_id_not_null NOT NULL,
-    name character varying(255) CONSTRAINT devices_name_not_null NOT NULL,
+    id integer NOT NULL,
+    name character varying(255) NOT NULL,
     serial_number character varying(255),
     manufacturer character varying(255),
     model character varying(255),
     location character varying(255),
-    created_at timestamp with time zone DEFAULT now() CONSTRAINT devices_created_at_not_null NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() CONSTRAINT devices_updated_at_not_null NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
     created_by uuid,
     notes text,
     primary_user_uuid uuid,
@@ -908,6 +1022,7 @@ CREATE TABLE public.assets (
     external_sync_source character varying(32),
     low_stock_threshold numeric(12,3),
     workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL,
+    status character varying(32) DEFAULT 'in_service'::character varying NOT NULL,
     CONSTRAINT assets_low_stock_threshold_nonneg CHECK (((low_stock_threshold IS NULL) OR (low_stock_threshold >= (0)::numeric)))
 );
 
@@ -1125,17 +1240,17 @@ ALTER SEQUENCE public.audit_log_id_seq OWNED BY public.audit_log.id;
 --
 
 CREATE TABLE public.audit_log_2026_05 (
-    id bigint DEFAULT nextval('public.audit_log_id_seq'::regclass) CONSTRAINT audit_log_id_not_null NOT NULL,
-    table_name text CONSTRAINT audit_log_table_name_not_null NOT NULL,
-    pk_text text CONSTRAINT audit_log_pk_text_not_null NOT NULL,
-    op character(1) CONSTRAINT audit_log_op_not_null NOT NULL,
+    id bigint DEFAULT nextval('public.audit_log_id_seq'::regclass) NOT NULL,
+    table_name text NOT NULL,
+    pk_text text NOT NULL,
+    op character(1) NOT NULL,
     before_jsonb jsonb,
     after_jsonb jsonb,
     changed_cols text[],
     actor_uuid uuid,
     correlation_id uuid,
-    occurred_at timestamp with time zone DEFAULT clock_timestamp() CONSTRAINT audit_log_occurred_at_not_null NOT NULL,
-    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer CONSTRAINT audit_log_workspace_id_not_null NOT NULL,
+    occurred_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL,
     CONSTRAINT audit_log_op_check CHECK ((op = ANY (ARRAY['I'::bpchar, 'U'::bpchar, 'D'::bpchar])))
 );
 
@@ -1149,17 +1264,17 @@ ALTER TABLE public.audit_log_2026_05 OWNER TO nosdesk_admin;
 --
 
 CREATE TABLE public.audit_log_2026_06 (
-    id bigint DEFAULT nextval('public.audit_log_id_seq'::regclass) CONSTRAINT audit_log_id_not_null NOT NULL,
-    table_name text CONSTRAINT audit_log_table_name_not_null NOT NULL,
-    pk_text text CONSTRAINT audit_log_pk_text_not_null NOT NULL,
-    op character(1) CONSTRAINT audit_log_op_not_null NOT NULL,
+    id bigint DEFAULT nextval('public.audit_log_id_seq'::regclass) NOT NULL,
+    table_name text NOT NULL,
+    pk_text text NOT NULL,
+    op character(1) NOT NULL,
     before_jsonb jsonb,
     after_jsonb jsonb,
     changed_cols text[],
     actor_uuid uuid,
     correlation_id uuid,
-    occurred_at timestamp with time zone DEFAULT clock_timestamp() CONSTRAINT audit_log_occurred_at_not_null NOT NULL,
-    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer CONSTRAINT audit_log_workspace_id_not_null NOT NULL,
+    occurred_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL,
     CONSTRAINT audit_log_op_check CHECK ((op = ANY (ARRAY['I'::bpchar, 'U'::bpchar, 'D'::bpchar])))
 );
 
@@ -1173,17 +1288,17 @@ ALTER TABLE public.audit_log_2026_06 OWNER TO nosdesk_admin;
 --
 
 CREATE TABLE public.audit_log_2026_07 (
-    id bigint DEFAULT nextval('public.audit_log_id_seq'::regclass) CONSTRAINT audit_log_id_not_null NOT NULL,
-    table_name text CONSTRAINT audit_log_table_name_not_null NOT NULL,
-    pk_text text CONSTRAINT audit_log_pk_text_not_null NOT NULL,
-    op character(1) CONSTRAINT audit_log_op_not_null NOT NULL,
+    id bigint DEFAULT nextval('public.audit_log_id_seq'::regclass) NOT NULL,
+    table_name text NOT NULL,
+    pk_text text NOT NULL,
+    op character(1) NOT NULL,
     before_jsonb jsonb,
     after_jsonb jsonb,
     changed_cols text[],
     actor_uuid uuid,
     correlation_id uuid,
-    occurred_at timestamp with time zone DEFAULT clock_timestamp() CONSTRAINT audit_log_occurred_at_not_null NOT NULL,
-    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer CONSTRAINT audit_log_workspace_id_not_null NOT NULL,
+    occurred_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL,
     CONSTRAINT audit_log_op_check CHECK ((op = ANY (ARRAY['I'::bpchar, 'U'::bpchar, 'D'::bpchar])))
 );
 
@@ -1197,17 +1312,17 @@ ALTER TABLE public.audit_log_2026_07 OWNER TO nosdesk_admin;
 --
 
 CREATE TABLE public.audit_log_2026_08 (
-    id bigint DEFAULT nextval('public.audit_log_id_seq'::regclass) CONSTRAINT audit_log_id_not_null NOT NULL,
-    table_name text CONSTRAINT audit_log_table_name_not_null NOT NULL,
-    pk_text text CONSTRAINT audit_log_pk_text_not_null NOT NULL,
-    op character(1) CONSTRAINT audit_log_op_not_null NOT NULL,
+    id bigint DEFAULT nextval('public.audit_log_id_seq'::regclass) NOT NULL,
+    table_name text NOT NULL,
+    pk_text text NOT NULL,
+    op character(1) NOT NULL,
     before_jsonb jsonb,
     after_jsonb jsonb,
     changed_cols text[],
     actor_uuid uuid,
     correlation_id uuid,
-    occurred_at timestamp with time zone DEFAULT clock_timestamp() CONSTRAINT audit_log_occurred_at_not_null NOT NULL,
-    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer CONSTRAINT audit_log_workspace_id_not_null NOT NULL,
+    occurred_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL,
     CONSTRAINT audit_log_op_check CHECK ((op = ANY (ARRAY['I'::bpchar, 'U'::bpchar, 'D'::bpchar])))
 );
 
@@ -1221,17 +1336,17 @@ ALTER TABLE public.audit_log_2026_08 OWNER TO nosdesk_admin;
 --
 
 CREATE TABLE public.audit_log_default (
-    id bigint DEFAULT nextval('public.audit_log_id_seq'::regclass) CONSTRAINT audit_log_id_not_null NOT NULL,
-    table_name text CONSTRAINT audit_log_table_name_not_null NOT NULL,
-    pk_text text CONSTRAINT audit_log_pk_text_not_null NOT NULL,
-    op character(1) CONSTRAINT audit_log_op_not_null NOT NULL,
+    id bigint DEFAULT nextval('public.audit_log_id_seq'::regclass) NOT NULL,
+    table_name text NOT NULL,
+    pk_text text NOT NULL,
+    op character(1) NOT NULL,
     before_jsonb jsonb,
     after_jsonb jsonb,
     changed_cols text[],
     actor_uuid uuid,
     correlation_id uuid,
-    occurred_at timestamp with time zone DEFAULT clock_timestamp() CONSTRAINT audit_log_occurred_at_not_null NOT NULL,
-    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer CONSTRAINT audit_log_workspace_id_not_null NOT NULL,
+    occurred_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL,
     CONSTRAINT audit_log_op_check CHECK ((op = ANY (ARRAY['I'::bpchar, 'U'::bpchar, 'D'::bpchar])))
 );
 
@@ -1466,7 +1581,7 @@ CREATE TABLE public.channel_messages (
     raw_metadata jsonb,
     received_at timestamp with time zone DEFAULT now() NOT NULL,
     workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL,
-    CONSTRAINT channel_messages_direction_check CHECK (((direction)::text = ANY ((ARRAY['inbound'::character varying, 'outbound'::character varying])::text[])))
+    CONSTRAINT channel_messages_direction_check CHECK (((direction)::text = ANY (ARRAY[('inbound'::character varying)::text, ('outbound'::character varying)::text])))
 );
 
 ALTER TABLE ONLY public.channel_messages FORCE ROW LEVEL SECURITY;
@@ -1680,7 +1795,7 @@ CREATE TABLE public.cycles (
     created_by uuid,
     workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL,
     CONSTRAINT cycles_completed_snapshot CHECK (((((state)::text = 'completed'::text) AND (completion_snapshot IS NOT NULL) AND (completed_at IS NOT NULL)) OR (((state)::text <> 'completed'::text) AND (completed_at IS NULL)))),
-    CONSTRAINT cycles_state_check CHECK (((state)::text = ANY ((ARRAY['planned'::character varying, 'active'::character varying, 'completed'::character varying])::text[])))
+    CONSTRAINT cycles_state_check CHECK (((state)::text = ANY (ARRAY[('planned'::character varying)::text, ('active'::character varying)::text, ('completed'::character varying)::text])))
 );
 
 ALTER TABLE ONLY public.cycles FORCE ROW LEVEL SECURITY;
@@ -1870,7 +1985,7 @@ CREATE TABLE public.documentation_page_tickets (
     created_by uuid,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL,
-    CONSTRAINT documentation_page_tickets_link_type_check CHECK (((link_type)::text = ANY ((ARRAY['resolves'::character varying, 'references'::character varying])::text[])))
+    CONSTRAINT documentation_page_tickets_link_type_check CHECK (((link_type)::text = ANY (ARRAY[('resolves'::character varying)::text, ('references'::character varying)::text])))
 );
 
 ALTER TABLE ONLY public.documentation_page_tickets FORCE ROW LEVEL SECURITY;
@@ -2219,8 +2334,8 @@ CREATE TABLE public.import_jobs (
     records_committed integer,
     error_message text,
     workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL,
-    CONSTRAINT import_jobs_job_type_check CHECK (((job_type)::text = ANY ((ARRAY['assets'::character varying, 'users'::character varying, 'tickets'::character varying])::text[]))),
-    CONSTRAINT import_jobs_status_check CHECK (((status)::text = ANY ((ARRAY['parsed'::character varying, 'dry_run_done'::character varying, 'committing'::character varying, 'done'::character varying, 'failed'::character varying])::text[])))
+    CONSTRAINT import_jobs_job_type_check CHECK (((job_type)::text = ANY (ARRAY[('assets'::character varying)::text, ('users'::character varying)::text, ('tickets'::character varying)::text]))),
+    CONSTRAINT import_jobs_status_check CHECK (((status)::text = ANY (ARRAY[('parsed'::character varying)::text, ('dry_run_done'::character varying)::text, ('committing'::character varying)::text, ('done'::character varying)::text, ('failed'::character varying)::text])))
 );
 
 ALTER TABLE ONLY public.import_jobs FORCE ROW LEVEL SECURITY;
@@ -2246,7 +2361,7 @@ CREATE TABLE public.knowledge_gap_signals (
     dismissed_by uuid,
     workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL,
     CONSTRAINT knowledge_gap_signals_confidence_check CHECK (((confidence >= 0) AND (confidence <= 100))),
-    CONSTRAINT knowledge_gap_signals_signal_type_check CHECK (((signal_type)::text = ANY ((ARRAY['manual_flag'::character varying, 'ticket_cluster'::character varying, 'failed_search'::character varying, 'stale_doc'::character varying, 'ai_suggested'::character varying])::text[])))
+    CONSTRAINT knowledge_gap_signals_signal_type_check CHECK (((signal_type)::text = ANY (ARRAY[('manual_flag'::character varying)::text, ('ticket_cluster'::character varying)::text, ('failed_search'::character varying)::text, ('stale_doc'::character varying)::text, ('ai_suggested'::character varying)::text])))
 );
 
 ALTER TABLE ONLY public.knowledge_gap_signals FORCE ROW LEVEL SECURITY;
@@ -2296,7 +2411,7 @@ CREATE TABLE public.knowledge_gaps (
     dismissed_by uuid,
     resolved_at timestamp with time zone,
     workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL,
-    CONSTRAINT knowledge_gaps_status_check CHECK (((status)::text = ANY ((ARRAY['open'::character varying, 'drafting'::character varying, 'resolved'::character varying, 'dismissed'::character varying])::text[])))
+    CONSTRAINT knowledge_gaps_status_check CHECK (((status)::text = ANY (ARRAY[('open'::character varying)::text, ('drafting'::character varying)::text, ('resolved'::character varying)::text, ('dismissed'::character varying)::text])))
 );
 
 ALTER TABLE ONLY public.knowledge_gaps FORCE ROW LEVEL SECURITY;
@@ -2332,12 +2447,12 @@ ALTER SEQUENCE public.knowledge_gaps_id_seq OWNED BY public.knowledge_gaps.id;
 CREATE TABLE public.linked_tickets (
     ticket_id integer NOT NULL,
     linked_ticket_id integer NOT NULL,
-    relation_type character varying(50) DEFAULT 'related'::character varying CONSTRAINT linked_tickets_link_type_not_null NOT NULL,
+    relation_type character varying(50) DEFAULT 'related'::character varying NOT NULL,
     description text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     created_by uuid,
     workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL,
-    CONSTRAINT linked_tickets_relation_type_check CHECK (((relation_type)::text = ANY ((ARRAY['blocks'::character varying, 'blocked_by'::character varying, 'related'::character varying, 'duplicate_of'::character varying])::text[]))),
+    CONSTRAINT linked_tickets_relation_type_check CHECK (((relation_type)::text = ANY (ARRAY[('blocks'::character varying)::text, ('blocked_by'::character varying)::text, ('related'::character varying)::text, ('duplicate_of'::character varying)::text]))),
     CONSTRAINT no_self_link CHECK ((ticket_id <> linked_ticket_id))
 );
 
@@ -2742,7 +2857,7 @@ CREATE TABLE public.plugin_data (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL,
-    CONSTRAINT plugin_data_data_type_check CHECK (((data_type)::text = ANY ((ARRAY['setting'::character varying, 'storage'::character varying])::text[])))
+    CONSTRAINT plugin_data_data_type_check CHECK (((data_type)::text = ANY (ARRAY[('setting'::character varying)::text, ('storage'::character varying)::text])))
 );
 
 ALTER TABLE ONLY public.plugin_data FORCE ROW LEVEL SECURITY;
@@ -2818,7 +2933,7 @@ CREATE TABLE public.plugin_trusted_publishers (
     website text,
     added_at timestamp with time zone DEFAULT now() NOT NULL,
     revoked_at timestamp with time zone,
-    CONSTRAINT plugin_trusted_publishers_tier_check CHECK (((tier)::text = ANY ((ARRAY['verified'::character varying, 'community'::character varying])::text[])))
+    CONSTRAINT plugin_trusted_publishers_tier_check CHECK (((tier)::text = ANY (ARRAY[('verified'::character varying)::text, ('community'::character varying)::text])))
 );
 
 
@@ -2873,7 +2988,7 @@ CREATE TABLE public.plugins (
     state character varying(32) DEFAULT 'installed'::character varying NOT NULL,
     bundle_js bytea,
     workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL,
-    CONSTRAINT plugins_state_check CHECK (((state)::text = ANY ((ARRAY['installed'::character varying, 'disabled'::character varying, 'quarantined'::character varying, 'uninstalled'::character varying])::text[])))
+    CONSTRAINT plugins_state_check CHECK (((state)::text = ANY (ARRAY[('installed'::character varying)::text, ('disabled'::character varying)::text, ('quarantined'::character varying)::text, ('uninstalled'::character varying)::text])))
 );
 
 ALTER TABLE ONLY public.plugins FORCE ROW LEVEL SECURITY;
@@ -3052,7 +3167,7 @@ CREATE TABLE public.rule_applications (
     actions_skipped jsonb,
     failure_reason text,
     applied_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT rule_applications_actor_kind_valid CHECK (((actor_kind)::text = ANY ((ARRAY['user'::character varying, 'system'::character varying])::text[])))
+    CONSTRAINT rule_applications_actor_kind_valid CHECK (((actor_kind)::text = ANY (ARRAY[('user'::character varying)::text, ('system'::character varying)::text])))
 );
 
 ALTER TABLE ONLY public.rule_applications FORCE ROW LEVEL SECURITY;
@@ -3202,9 +3317,9 @@ CREATE TABLE public.saved_views (
     workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL,
     viz_type character varying(32) DEFAULT 'list'::character varying NOT NULL,
     viz_config jsonb DEFAULT '{}'::jsonb NOT NULL,
-    CONSTRAINT saved_views_scope_check CHECK (((scope)::text = ANY ((ARRAY['workspace'::character varying, 'project'::character varying, 'private'::character varying])::text[]))),
-    CONSTRAINT saved_views_scope_id_shape CHECK (((((scope)::text = 'workspace'::text) AND (scope_id IS NULL)) OR (((scope)::text = ANY ((ARRAY['project'::character varying, 'private'::character varying])::text[])) AND (scope_id IS NOT NULL)))),
-    CONSTRAINT saved_views_viz_type_check CHECK (((viz_type)::text = ANY ((ARRAY['list'::character varying, 'kpi_tile'::character varying, 'line'::character varying, 'horizontal_bar'::character varying, 'heatmap'::character varying, 'leaderboard'::character varying, 'table'::character varying])::text[])))
+    CONSTRAINT saved_views_scope_check CHECK (((scope)::text = ANY (ARRAY[('workspace'::character varying)::text, ('project'::character varying)::text, ('private'::character varying)::text]))),
+    CONSTRAINT saved_views_scope_id_shape CHECK (((((scope)::text = 'workspace'::text) AND (scope_id IS NULL)) OR (((scope)::text = ANY (ARRAY[('project'::character varying)::text, ('private'::character varying)::text])) AND (scope_id IS NOT NULL)))),
+    CONSTRAINT saved_views_viz_type_check CHECK (((viz_type)::text = ANY (ARRAY[('list'::character varying)::text, ('kpi_tile'::character varying)::text, ('line'::character varying)::text, ('horizontal_bar'::character varying)::text, ('heatmap'::character varying)::text, ('leaderboard'::character varying)::text, ('table'::character varying)::text])))
 );
 
 ALTER TABLE ONLY public.saved_views FORCE ROW LEVEL SECURITY;
@@ -3499,24 +3614,24 @@ ALTER SEQUENCE public.sync_actions_sync_id_seq OWNED BY public.sync_actions.sync
 --
 
 CREATE TABLE public.sync_actions_2026_05 (
-    sync_id bigint DEFAULT nextval('public.sync_actions_sync_id_seq'::regclass) CONSTRAINT sync_actions_sync_id_not_null NOT NULL,
-    event_uuid uuid DEFAULT public.uuid_generate_v7() CONSTRAINT sync_actions_event_uuid_not_null NOT NULL,
-    aggregate public.sync_aggregate CONSTRAINT sync_actions_aggregate_not_null NOT NULL,
-    aggregate_id text CONSTRAINT sync_actions_aggregate_id_not_null NOT NULL,
-    op public.sync_op CONSTRAINT sync_actions_op_not_null NOT NULL,
-    event_type character varying(64) CONSTRAINT sync_actions_event_type_not_null NOT NULL,
-    schema_version smallint DEFAULT 1 CONSTRAINT sync_actions_schema_version_not_null NOT NULL,
-    data jsonb CONSTRAINT sync_actions_data_not_null NOT NULL,
-    groups text[] CONSTRAINT sync_actions_groups_not_null NOT NULL,
+    sync_id bigint DEFAULT nextval('public.sync_actions_sync_id_seq'::regclass) NOT NULL,
+    event_uuid uuid DEFAULT public.uuid_generate_v7() NOT NULL,
+    aggregate public.sync_aggregate NOT NULL,
+    aggregate_id text NOT NULL,
+    op public.sync_op NOT NULL,
+    event_type character varying(64) NOT NULL,
+    schema_version smallint DEFAULT 1 NOT NULL,
+    data jsonb NOT NULL,
+    groups text[] NOT NULL,
     actor_uuid uuid,
-    actor_kind character varying(16) DEFAULT 'user'::character varying CONSTRAINT sync_actions_actor_kind_not_null NOT NULL,
+    actor_kind character varying(16) DEFAULT 'user'::character varying NOT NULL,
     actor_ref text,
     correlation_id uuid,
     causation_id uuid,
     client_tx_id text,
-    occurred_at timestamp with time zone DEFAULT clock_timestamp() CONSTRAINT sync_actions_occurred_at_not_null NOT NULL,
-    recorded_at timestamp with time zone DEFAULT clock_timestamp() CONSTRAINT sync_actions_recorded_at_not_null NOT NULL,
-    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer CONSTRAINT sync_actions_workspace_id_not_null NOT NULL
+    occurred_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    recorded_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL
 );
 
 ALTER TABLE ONLY public.sync_actions_2026_05 FORCE ROW LEVEL SECURITY;
@@ -3529,24 +3644,24 @@ ALTER TABLE public.sync_actions_2026_05 OWNER TO nosdesk_admin;
 --
 
 CREATE TABLE public.sync_actions_2026_06 (
-    sync_id bigint DEFAULT nextval('public.sync_actions_sync_id_seq'::regclass) CONSTRAINT sync_actions_sync_id_not_null NOT NULL,
-    event_uuid uuid DEFAULT public.uuid_generate_v7() CONSTRAINT sync_actions_event_uuid_not_null NOT NULL,
-    aggregate public.sync_aggregate CONSTRAINT sync_actions_aggregate_not_null NOT NULL,
-    aggregate_id text CONSTRAINT sync_actions_aggregate_id_not_null NOT NULL,
-    op public.sync_op CONSTRAINT sync_actions_op_not_null NOT NULL,
-    event_type character varying(64) CONSTRAINT sync_actions_event_type_not_null NOT NULL,
-    schema_version smallint DEFAULT 1 CONSTRAINT sync_actions_schema_version_not_null NOT NULL,
-    data jsonb CONSTRAINT sync_actions_data_not_null NOT NULL,
-    groups text[] CONSTRAINT sync_actions_groups_not_null NOT NULL,
+    sync_id bigint DEFAULT nextval('public.sync_actions_sync_id_seq'::regclass) NOT NULL,
+    event_uuid uuid DEFAULT public.uuid_generate_v7() NOT NULL,
+    aggregate public.sync_aggregate NOT NULL,
+    aggregate_id text NOT NULL,
+    op public.sync_op NOT NULL,
+    event_type character varying(64) NOT NULL,
+    schema_version smallint DEFAULT 1 NOT NULL,
+    data jsonb NOT NULL,
+    groups text[] NOT NULL,
     actor_uuid uuid,
-    actor_kind character varying(16) DEFAULT 'user'::character varying CONSTRAINT sync_actions_actor_kind_not_null NOT NULL,
+    actor_kind character varying(16) DEFAULT 'user'::character varying NOT NULL,
     actor_ref text,
     correlation_id uuid,
     causation_id uuid,
     client_tx_id text,
-    occurred_at timestamp with time zone DEFAULT clock_timestamp() CONSTRAINT sync_actions_occurred_at_not_null NOT NULL,
-    recorded_at timestamp with time zone DEFAULT clock_timestamp() CONSTRAINT sync_actions_recorded_at_not_null NOT NULL,
-    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer CONSTRAINT sync_actions_workspace_id_not_null NOT NULL
+    occurred_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    recorded_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL
 );
 
 ALTER TABLE ONLY public.sync_actions_2026_06 FORCE ROW LEVEL SECURITY;
@@ -3559,24 +3674,24 @@ ALTER TABLE public.sync_actions_2026_06 OWNER TO nosdesk_admin;
 --
 
 CREATE TABLE public.sync_actions_2026_07 (
-    sync_id bigint DEFAULT nextval('public.sync_actions_sync_id_seq'::regclass) CONSTRAINT sync_actions_sync_id_not_null NOT NULL,
-    event_uuid uuid DEFAULT public.uuid_generate_v7() CONSTRAINT sync_actions_event_uuid_not_null NOT NULL,
-    aggregate public.sync_aggregate CONSTRAINT sync_actions_aggregate_not_null NOT NULL,
-    aggregate_id text CONSTRAINT sync_actions_aggregate_id_not_null NOT NULL,
-    op public.sync_op CONSTRAINT sync_actions_op_not_null NOT NULL,
-    event_type character varying(64) CONSTRAINT sync_actions_event_type_not_null NOT NULL,
-    schema_version smallint DEFAULT 1 CONSTRAINT sync_actions_schema_version_not_null NOT NULL,
-    data jsonb CONSTRAINT sync_actions_data_not_null NOT NULL,
-    groups text[] CONSTRAINT sync_actions_groups_not_null NOT NULL,
+    sync_id bigint DEFAULT nextval('public.sync_actions_sync_id_seq'::regclass) NOT NULL,
+    event_uuid uuid DEFAULT public.uuid_generate_v7() NOT NULL,
+    aggregate public.sync_aggregate NOT NULL,
+    aggregate_id text NOT NULL,
+    op public.sync_op NOT NULL,
+    event_type character varying(64) NOT NULL,
+    schema_version smallint DEFAULT 1 NOT NULL,
+    data jsonb NOT NULL,
+    groups text[] NOT NULL,
     actor_uuid uuid,
-    actor_kind character varying(16) DEFAULT 'user'::character varying CONSTRAINT sync_actions_actor_kind_not_null NOT NULL,
+    actor_kind character varying(16) DEFAULT 'user'::character varying NOT NULL,
     actor_ref text,
     correlation_id uuid,
     causation_id uuid,
     client_tx_id text,
-    occurred_at timestamp with time zone DEFAULT clock_timestamp() CONSTRAINT sync_actions_occurred_at_not_null NOT NULL,
-    recorded_at timestamp with time zone DEFAULT clock_timestamp() CONSTRAINT sync_actions_recorded_at_not_null NOT NULL,
-    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer CONSTRAINT sync_actions_workspace_id_not_null NOT NULL
+    occurred_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    recorded_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL
 );
 
 ALTER TABLE ONLY public.sync_actions_2026_07 FORCE ROW LEVEL SECURITY;
@@ -3589,24 +3704,24 @@ ALTER TABLE public.sync_actions_2026_07 OWNER TO nosdesk_admin;
 --
 
 CREATE TABLE public.sync_actions_2026_08 (
-    sync_id bigint DEFAULT nextval('public.sync_actions_sync_id_seq'::regclass) CONSTRAINT sync_actions_sync_id_not_null NOT NULL,
-    event_uuid uuid DEFAULT public.uuid_generate_v7() CONSTRAINT sync_actions_event_uuid_not_null NOT NULL,
-    aggregate public.sync_aggregate CONSTRAINT sync_actions_aggregate_not_null NOT NULL,
-    aggregate_id text CONSTRAINT sync_actions_aggregate_id_not_null NOT NULL,
-    op public.sync_op CONSTRAINT sync_actions_op_not_null NOT NULL,
-    event_type character varying(64) CONSTRAINT sync_actions_event_type_not_null NOT NULL,
-    schema_version smallint DEFAULT 1 CONSTRAINT sync_actions_schema_version_not_null NOT NULL,
-    data jsonb CONSTRAINT sync_actions_data_not_null NOT NULL,
-    groups text[] CONSTRAINT sync_actions_groups_not_null NOT NULL,
+    sync_id bigint DEFAULT nextval('public.sync_actions_sync_id_seq'::regclass) NOT NULL,
+    event_uuid uuid DEFAULT public.uuid_generate_v7() NOT NULL,
+    aggregate public.sync_aggregate NOT NULL,
+    aggregate_id text NOT NULL,
+    op public.sync_op NOT NULL,
+    event_type character varying(64) NOT NULL,
+    schema_version smallint DEFAULT 1 NOT NULL,
+    data jsonb NOT NULL,
+    groups text[] NOT NULL,
     actor_uuid uuid,
-    actor_kind character varying(16) DEFAULT 'user'::character varying CONSTRAINT sync_actions_actor_kind_not_null NOT NULL,
+    actor_kind character varying(16) DEFAULT 'user'::character varying NOT NULL,
     actor_ref text,
     correlation_id uuid,
     causation_id uuid,
     client_tx_id text,
-    occurred_at timestamp with time zone DEFAULT clock_timestamp() CONSTRAINT sync_actions_occurred_at_not_null NOT NULL,
-    recorded_at timestamp with time zone DEFAULT clock_timestamp() CONSTRAINT sync_actions_recorded_at_not_null NOT NULL,
-    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer CONSTRAINT sync_actions_workspace_id_not_null NOT NULL
+    occurred_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    recorded_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL
 );
 
 ALTER TABLE ONLY public.sync_actions_2026_08 FORCE ROW LEVEL SECURITY;
@@ -3619,24 +3734,24 @@ ALTER TABLE public.sync_actions_2026_08 OWNER TO nosdesk_admin;
 --
 
 CREATE TABLE public.sync_actions_default (
-    sync_id bigint DEFAULT nextval('public.sync_actions_sync_id_seq'::regclass) CONSTRAINT sync_actions_sync_id_not_null NOT NULL,
-    event_uuid uuid DEFAULT public.uuid_generate_v7() CONSTRAINT sync_actions_event_uuid_not_null NOT NULL,
-    aggregate public.sync_aggregate CONSTRAINT sync_actions_aggregate_not_null NOT NULL,
-    aggregate_id text CONSTRAINT sync_actions_aggregate_id_not_null NOT NULL,
-    op public.sync_op CONSTRAINT sync_actions_op_not_null NOT NULL,
-    event_type character varying(64) CONSTRAINT sync_actions_event_type_not_null NOT NULL,
-    schema_version smallint DEFAULT 1 CONSTRAINT sync_actions_schema_version_not_null NOT NULL,
-    data jsonb CONSTRAINT sync_actions_data_not_null NOT NULL,
-    groups text[] CONSTRAINT sync_actions_groups_not_null NOT NULL,
+    sync_id bigint DEFAULT nextval('public.sync_actions_sync_id_seq'::regclass) NOT NULL,
+    event_uuid uuid DEFAULT public.uuid_generate_v7() NOT NULL,
+    aggregate public.sync_aggregate NOT NULL,
+    aggregate_id text NOT NULL,
+    op public.sync_op NOT NULL,
+    event_type character varying(64) NOT NULL,
+    schema_version smallint DEFAULT 1 NOT NULL,
+    data jsonb NOT NULL,
+    groups text[] NOT NULL,
     actor_uuid uuid,
-    actor_kind character varying(16) DEFAULT 'user'::character varying CONSTRAINT sync_actions_actor_kind_not_null NOT NULL,
+    actor_kind character varying(16) DEFAULT 'user'::character varying NOT NULL,
     actor_ref text,
     correlation_id uuid,
     causation_id uuid,
     client_tx_id text,
-    occurred_at timestamp with time zone DEFAULT clock_timestamp() CONSTRAINT sync_actions_occurred_at_not_null NOT NULL,
-    recorded_at timestamp with time zone DEFAULT clock_timestamp() CONSTRAINT sync_actions_recorded_at_not_null NOT NULL,
-    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer CONSTRAINT sync_actions_workspace_id_not_null NOT NULL
+    occurred_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    recorded_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL
 );
 
 ALTER TABLE ONLY public.sync_actions_default FORCE ROW LEVEL SECURITY;
@@ -3793,9 +3908,9 @@ ALTER SEQUENCE public.tags_id_seq OWNED BY public.tags.id;
 --
 
 CREATE TABLE public.ticket_assets (
-    ticket_id integer CONSTRAINT ticket_devices_ticket_id_not_null NOT NULL,
-    asset_id integer CONSTRAINT ticket_devices_device_id_not_null NOT NULL,
-    created_at timestamp with time zone DEFAULT now() CONSTRAINT ticket_devices_created_at_not_null NOT NULL,
+    ticket_id integer NOT NULL,
+    asset_id integer NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
     created_by uuid,
     workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL
 );
@@ -3938,7 +4053,7 @@ CREATE TABLE public.tickets (
     merge_reason text,
     CONSTRAINT tickets_dates_valid CHECK (((closed_at IS NULL) OR (closed_at >= created_at))),
     CONSTRAINT tickets_merge_complete CHECK ((((merged_into_ticket_id IS NULL) AND (merged_at IS NULL) AND (merged_by_user_uuid IS NULL)) OR ((merged_into_ticket_id IS NOT NULL) AND (merged_at IS NOT NULL) AND (merged_by_user_uuid IS NOT NULL)))),
-    CONSTRAINT tickets_triage_state_check CHECK (((triage_state IS NULL) OR ((triage_state)::text = ANY ((ARRAY['untriaged'::character varying, 'triaged'::character varying, 'rejected'::character varying])::text[]))))
+    CONSTRAINT tickets_triage_state_check CHECK (((triage_state IS NULL) OR ((triage_state)::text = ANY (ARRAY[('untriaged'::character varying)::text, ('triaged'::character varying)::text, ('rejected'::character varying)::text]))))
 );
 
 ALTER TABLE ONLY public.tickets FORCE ROW LEVEL SECURITY;
@@ -4187,7 +4302,7 @@ CREATE TABLE public.users (
     mfa_secret_kek_id smallint,
     platform_role character varying(32) DEFAULT 'user'::character varying NOT NULL,
     CONSTRAINT users_mfa_secret_kek_id_present_iff_secret CHECK (((mfa_secret IS NULL) = (mfa_secret_kek_id IS NULL))),
-    CONSTRAINT users_platform_role_check CHECK (((platform_role)::text = ANY ((ARRAY['platform_admin'::character varying, 'audit_reviewer'::character varying, 'user'::character varying])::text[])))
+    CONSTRAINT users_platform_role_check CHECK (((platform_role)::text = ANY (ARRAY[('platform_admin'::character varying)::text, ('audit_reviewer'::character varying)::text, ('user'::character varying)::text])))
 );
 
 
@@ -4442,7 +4557,7 @@ CREATE TABLE public.workspace_members (
     role character varying(32) NOT NULL,
     invited_at timestamp with time zone DEFAULT now() NOT NULL,
     accepted_at timestamp with time zone,
-    CONSTRAINT workspace_members_role_check CHECK (((role)::text = ANY ((ARRAY['owner'::character varying, 'admin'::character varying, 'agent'::character varying, 'member'::character varying])::text[])))
+    CONSTRAINT workspace_members_role_check CHECK (((role)::text = ANY (ARRAY[('owner'::character varying)::text, ('admin'::character varying)::text, ('agent'::character varying)::text, ('member'::character varying)::text])))
 );
 
 
@@ -4464,7 +4579,7 @@ CREATE TABLE public.workspaces (
     organisation_id integer,
     custom_domain text,
     CONSTRAINT workspaces_slug_check CHECK (((slug)::text ~ '^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$'::text)),
-    CONSTRAINT workspaces_slug_not_reserved CHECK (((slug)::text <> ALL ((ARRAY['about'::character varying, 'access'::character varying, 'account'::character varying, 'accounts'::character varying, 'adm'::character varying, 'admin'::character varying, 'administrator'::character varying, 'administrators'::character varying, 'ads'::character varying, 'alpha'::character varying, 'alumni'::character varying, 'api'::character varying, 'api-v1'::character varying, 'api-v2'::character varying, 'api-v3'::character varying, 'app'::character varying, 'apps'::character varying, 'archive'::character varying, 'assets'::character varying, 'auth'::character varying, 'authenticate'::character varying, 'autoconfig'::character varying, 'autodiscover'::character varying, 'backup'::character varying, 'backups'::character varying, 'bbs'::character varying, 'beta'::character varying, 'billing'::character varying, 'blog'::character varying, 'blogs'::character varying, 'bugs'::character varying, 'cache'::character varying, 'cacti'::character varying, 'calendar'::character varying, 'callback'::character varying, 'callbacks'::character varying, 'cart'::character varying, 'catalog'::character varying, 'cdn'::character varying, 'cert'::character varying, 'certs'::character varying, 'changelog'::character varying, 'chat'::character varying, 'checkout'::character varying, 'citrix'::character varying, 'cloud'::character varying, 'cluster'::character varying, 'clusters'::character varying, 'cms'::character varying, 'community'::character varying, 'conference'::character varying, 'connect'::character varying, 'console'::character varying, 'contact'::character varying, 'contacts'::character varying, 'content'::character varying, 'control'::character varying, 'copyright'::character varying, 'correo'::character varying, 'cpanel'::character varying, 'crm'::character varying, 'crypto'::character varying, 'css'::character varying, 'dashboard'::character varying, 'data'::character varying, 'demo'::character varying, 'dev'::character varying, 'dev2'::character varying, 'devel'::character varying, 'develop'::character varying, 'development'::character varying, 'dialin'::character varying, 'dns'::character varying, 'dns1'::character varying, 'dns2'::character varying, 'dns3'::character varying, 'dns4'::character varying, 'doc'::character varying, 'docs'::character varying, 'documentation'::character varying, 'download'::character varying, 'download-now'::character varying, 'downloads'::character varying, 'edge'::character varying, 'edu'::character varying, 'elearning'::character varying, 'email'::character varying, 'english'::character varying, 'error'::character varying, 'events'::character varying, 'exchange'::character varying, 'extranet'::character varying, 'facebook'::character varying, 'faq'::character varying, 'faqs'::character varying, 'feeds'::character varying, 'file'::character varying, 'files'::character varying, 'forum'::character varying, 'forums'::character varying, 'ftp'::character varying, 'ftp1'::character varying, 'ftp2'::character varying, 'ftps'::character varying, 'gallery'::character varying, 'game'::character varying, 'games'::character varying, 'gateway'::character varying, 'get'::character varying, 'git'::character varying, 'gmail'::character varying, 'grafana'::character varying, 'graphql'::character varying, 'grpc'::character varying, 'health'::character varying, 'healthcheck'::character varying, 'healthz'::character varying, 'help'::character varying, 'helpcenter'::character varying, 'helpdesk'::character varying, 'home'::character varying, 'host'::character varying, 'host2'::character varying, 'hosting'::character varying, 'id'::character varying, 'identity'::character varying, 'idp'::character varying, 'image'::character varying, 'images'::character varying, 'images2'::character varying, 'imap'::character varying, 'imaps'::character varying, 'img'::character varying, 'img2'::character varying, 'info'::character varying, 'install'::character varying, 'installer'::character varying, 'internal'::character varying, 'intranet'::character varying, 'invoice'::character varying, 'invoices'::character varying, 'iphone'::character varying, 'ipv4'::character varying, 'irc'::character varying, 'jabber'::character varying, 'jira'::character varying, 'job'::character varying, 'jobs'::character varying, 'jwks'::character varying, 'k8s'::character varying, 'kb'::character varying, 'key'::character varying, 'keys'::character varying, 'kibana'::character varying, 'kubernetes'::character varying, 'ldap'::character varying, 'legacy'::character varying, 'legal'::character varying, 'lib'::character varying, 'library'::character varying, 'list'::character varying, 'lists'::character varying, 'live'::character varying, 'local'::character varying, 'localhost'::character varying, 'log'::character varying, 'login'::character varying, 'logout'::character varying, 'logs'::character varying, 'lyncdiscover'::character varying, 'mail'::character varying, 'mail1'::character varying, 'mail2'::character varying, 'mail3'::character varying, 'mail4'::character varying, 'mailadmin'::character varying, 'mailer'::character varying, 'mailhost'::character varying, 'mailserver'::character varying, 'manage'::character varying, 'marketing'::character varying, 'master'::character varying, 'media'::character varying, 'meet'::character varying, 'member'::character varying, 'members'::character varying, 'metrics'::character varying, 'mfa'::character varying, 'mobile'::character varying, 'monitor'::character varying, 'monitoring'::character varying, 'moodle'::character varying, 'mrtg'::character varying, 'msoid'::character varying, 'mssql'::character varying, 'music'::character varying, 'mx'::character varying, 'mx1'::character varying, 'mx2'::character varying, 'mx3'::character varying, 'mysql'::character varying, 'nagios'::character varying, 'new'::character varying, 'news'::character varying, 'newsletter'::character varying, 'nosdesk'::character varying, 'ns'::character varying, 'ns0'::character varying, 'ns1'::character varying, 'ns2'::character varying, 'ns3'::character varying, 'ns4'::character varying, 'ns5'::character varying, 'ns6'::character varying, 'ntp'::character varying, 'oauth'::character varying, 'oauth2'::character varying, 'office'::character varying, 'oidc'::character varying, 'old'::character varying, 'online'::character varying, 'owa'::character varying, 'panel'::character varying, 'partner'::character varying, 'partners'::character varying, 'passkey'::character varying, 'password'::character varying, 'passwords'::character varying, 'pay'::character varying, 'payment'::character varying, 'payments'::character varying, 'pda'::character varying, 'photo'::character varying, 'photos'::character varying, 'phpmyadmin'::character varying, 'ping'::character varying, 'plan'::character varying, 'plans'::character varying, 'poczta'::character varying, 'policy'::character varying, 'pop'::character varying, 'pop3'::character varying, 'portal'::character varying, 'post'::character varying, 'preprod'::character varying, 'press'::character varying, 'preview'::character varying, 'pricing'::character varying, 'privacy'::character varying, 'private'::character varying, 'prod'::character varying, 'production'::character varying, 'project'::character varying, 'projects'::character varying, 'prometheus'::character varying, 'proxy'::character varying, 'public'::character varying, 'qa'::character varying, 'queue'::character varying, 'queues'::character varying, 'radio'::character varying, 'ready'::character varying, 'redmine'::character varying, 'register'::character varying, 'registration'::character varying, 'relay'::character varying, 'release'::character varying, 'releases'::character varying, 'remote'::character varying, 'reports'::character varying, 'root'::character varying, 'router'::character varying, 'rss'::character varying, 'saml'::character varying, 'sandbox'::character varying, 'search'::character varying, 'secure'::character varying, 'security'::character varying, 'server'::character varying, 'server1'::character varying, 'service'::character varying, 'services'::character varying, 'session'::character varying, 'sessions'::character varying, 'settings'::character varying, 'sftp'::character varying, 'sharepoint'::character varying, 'shop'::character varying, 'signin'::character varying, 'signout'::character varying, 'signup'::character varying, 'sip'::character varying, 'site'::character varying, 'sites'::character varying, 'sms'::character varying, 'smtp'::character varying, 'smtp1'::character varying, 'smtp2'::character varying, 'smtps'::character varying, 'speedtest'::character varying, 'sport'::character varying, 'sql'::character varying, 'ssh'::character varying, 'ssl'::character varying, 'sso'::character varying, 'staff'::character varying, 'stage'::character varying, 'staging'::character varying, 'start'::character varying, 'stat'::character varying, 'static'::character varying, 'stats'::character varying, 'status'::character varying, 'storage'::character varying, 'store'::character varying, 'stream'::character varying, 'streaming'::character varying, 'student'::character varying, 'sub'::character varying, 'subscribe'::character varying, 'subscription'::character varying, 'subscriptions'::character varying, 'sudo'::character varying, 'superuser'::character varying, 'support'::character varying, 'survey'::character varying, 'svn'::character varying, 'terms'::character varying, 'test'::character varying, 'test1'::character varying, 'test2'::character varying, 'testing'::character varying, 'tests'::character varying, 'time'::character varying, 'tls'::character varying, 'token'::character varying, 'tokens'::character varying, 'tools'::character varying, 'totp'::character varying, 'trac'::character varying, 'training'::character varying, 'travel'::character varying, 'uat'::character varying, 'update'::character varying, 'upgrade'::character varying, 'upload'::character varying, 'uploads'::character varying, 'validate'::character varying, 'verify'::character varying, 'video'::character varying, 'videos'::character varying, 'voip'::character varying, 'vpn'::character varying, 'vpn2'::character varying, 'vps'::character varying, 'wallet'::character varying, 'wap'::character varying, 'web'::character varying, 'web1'::character varying, 'web2'::character varying, 'web3'::character varying, 'web4'::character varying, 'web5'::character varying, 'webdisk'::character varying, 'webhook'::character varying, 'webhooks'::character varying, 'webmail'::character varying, 'webmail2'::character varying, 'websocket'::character varying, 'whm'::character varying, 'wiki'::character varying, 'worker'::character varying, 'workers'::character varying, 'ws'::character varying, 'wss'::character varying, 'ww2'::character varying, 'www'::character varying, 'www1'::character varying, 'www2'::character varying, 'www3'::character varying, 'www4'::character varying, 'www5'::character varying, 'www6'::character varying, 'wwww'::character varying])::text[])))
+    CONSTRAINT workspaces_slug_not_reserved CHECK (((slug)::text <> ALL (ARRAY[('about'::character varying)::text, ('access'::character varying)::text, ('account'::character varying)::text, ('accounts'::character varying)::text, ('adm'::character varying)::text, ('admin'::character varying)::text, ('administrator'::character varying)::text, ('administrators'::character varying)::text, ('ads'::character varying)::text, ('alpha'::character varying)::text, ('alumni'::character varying)::text, ('api'::character varying)::text, ('api-v1'::character varying)::text, ('api-v2'::character varying)::text, ('api-v3'::character varying)::text, ('app'::character varying)::text, ('apps'::character varying)::text, ('archive'::character varying)::text, ('assets'::character varying)::text, ('auth'::character varying)::text, ('authenticate'::character varying)::text, ('autoconfig'::character varying)::text, ('autodiscover'::character varying)::text, ('backup'::character varying)::text, ('backups'::character varying)::text, ('bbs'::character varying)::text, ('beta'::character varying)::text, ('billing'::character varying)::text, ('blog'::character varying)::text, ('blogs'::character varying)::text, ('bugs'::character varying)::text, ('cache'::character varying)::text, ('cacti'::character varying)::text, ('calendar'::character varying)::text, ('callback'::character varying)::text, ('callbacks'::character varying)::text, ('cart'::character varying)::text, ('catalog'::character varying)::text, ('cdn'::character varying)::text, ('cert'::character varying)::text, ('certs'::character varying)::text, ('changelog'::character varying)::text, ('chat'::character varying)::text, ('checkout'::character varying)::text, ('citrix'::character varying)::text, ('cloud'::character varying)::text, ('cluster'::character varying)::text, ('clusters'::character varying)::text, ('cms'::character varying)::text, ('community'::character varying)::text, ('conference'::character varying)::text, ('connect'::character varying)::text, ('console'::character varying)::text, ('contact'::character varying)::text, ('contacts'::character varying)::text, ('content'::character varying)::text, ('control'::character varying)::text, ('copyright'::character varying)::text, ('correo'::character varying)::text, ('cpanel'::character varying)::text, ('crm'::character varying)::text, ('crypto'::character varying)::text, ('css'::character varying)::text, ('dashboard'::character varying)::text, ('data'::character varying)::text, ('demo'::character varying)::text, ('dev'::character varying)::text, ('dev2'::character varying)::text, ('devel'::character varying)::text, ('develop'::character varying)::text, ('development'::character varying)::text, ('dialin'::character varying)::text, ('dns'::character varying)::text, ('dns1'::character varying)::text, ('dns2'::character varying)::text, ('dns3'::character varying)::text, ('dns4'::character varying)::text, ('doc'::character varying)::text, ('docs'::character varying)::text, ('documentation'::character varying)::text, ('download'::character varying)::text, ('download-now'::character varying)::text, ('downloads'::character varying)::text, ('edge'::character varying)::text, ('edu'::character varying)::text, ('elearning'::character varying)::text, ('email'::character varying)::text, ('english'::character varying)::text, ('error'::character varying)::text, ('events'::character varying)::text, ('exchange'::character varying)::text, ('extranet'::character varying)::text, ('facebook'::character varying)::text, ('faq'::character varying)::text, ('faqs'::character varying)::text, ('feeds'::character varying)::text, ('file'::character varying)::text, ('files'::character varying)::text, ('forum'::character varying)::text, ('forums'::character varying)::text, ('ftp'::character varying)::text, ('ftp1'::character varying)::text, ('ftp2'::character varying)::text, ('ftps'::character varying)::text, ('gallery'::character varying)::text, ('game'::character varying)::text, ('games'::character varying)::text, ('gateway'::character varying)::text, ('get'::character varying)::text, ('git'::character varying)::text, ('gmail'::character varying)::text, ('grafana'::character varying)::text, ('graphql'::character varying)::text, ('grpc'::character varying)::text, ('health'::character varying)::text, ('healthcheck'::character varying)::text, ('healthz'::character varying)::text, ('help'::character varying)::text, ('helpcenter'::character varying)::text, ('helpdesk'::character varying)::text, ('home'::character varying)::text, ('host'::character varying)::text, ('host2'::character varying)::text, ('hosting'::character varying)::text, ('id'::character varying)::text, ('identity'::character varying)::text, ('idp'::character varying)::text, ('image'::character varying)::text, ('images'::character varying)::text, ('images2'::character varying)::text, ('imap'::character varying)::text, ('imaps'::character varying)::text, ('img'::character varying)::text, ('img2'::character varying)::text, ('info'::character varying)::text, ('install'::character varying)::text, ('installer'::character varying)::text, ('internal'::character varying)::text, ('intranet'::character varying)::text, ('invoice'::character varying)::text, ('invoices'::character varying)::text, ('iphone'::character varying)::text, ('ipv4'::character varying)::text, ('irc'::character varying)::text, ('jabber'::character varying)::text, ('jira'::character varying)::text, ('job'::character varying)::text, ('jobs'::character varying)::text, ('jwks'::character varying)::text, ('k8s'::character varying)::text, ('kb'::character varying)::text, ('key'::character varying)::text, ('keys'::character varying)::text, ('kibana'::character varying)::text, ('kubernetes'::character varying)::text, ('ldap'::character varying)::text, ('legacy'::character varying)::text, ('legal'::character varying)::text, ('lib'::character varying)::text, ('library'::character varying)::text, ('list'::character varying)::text, ('lists'::character varying)::text, ('live'::character varying)::text, ('local'::character varying)::text, ('localhost'::character varying)::text, ('log'::character varying)::text, ('login'::character varying)::text, ('logout'::character varying)::text, ('logs'::character varying)::text, ('lyncdiscover'::character varying)::text, ('mail'::character varying)::text, ('mail1'::character varying)::text, ('mail2'::character varying)::text, ('mail3'::character varying)::text, ('mail4'::character varying)::text, ('mailadmin'::character varying)::text, ('mailer'::character varying)::text, ('mailhost'::character varying)::text, ('mailserver'::character varying)::text, ('manage'::character varying)::text, ('marketing'::character varying)::text, ('master'::character varying)::text, ('media'::character varying)::text, ('meet'::character varying)::text, ('member'::character varying)::text, ('members'::character varying)::text, ('metrics'::character varying)::text, ('mfa'::character varying)::text, ('mobile'::character varying)::text, ('monitor'::character varying)::text, ('monitoring'::character varying)::text, ('moodle'::character varying)::text, ('mrtg'::character varying)::text, ('msoid'::character varying)::text, ('mssql'::character varying)::text, ('music'::character varying)::text, ('mx'::character varying)::text, ('mx1'::character varying)::text, ('mx2'::character varying)::text, ('mx3'::character varying)::text, ('mysql'::character varying)::text, ('nagios'::character varying)::text, ('new'::character varying)::text, ('news'::character varying)::text, ('newsletter'::character varying)::text, ('nosdesk'::character varying)::text, ('ns'::character varying)::text, ('ns0'::character varying)::text, ('ns1'::character varying)::text, ('ns2'::character varying)::text, ('ns3'::character varying)::text, ('ns4'::character varying)::text, ('ns5'::character varying)::text, ('ns6'::character varying)::text, ('ntp'::character varying)::text, ('oauth'::character varying)::text, ('oauth2'::character varying)::text, ('office'::character varying)::text, ('oidc'::character varying)::text, ('old'::character varying)::text, ('online'::character varying)::text, ('owa'::character varying)::text, ('panel'::character varying)::text, ('partner'::character varying)::text, ('partners'::character varying)::text, ('passkey'::character varying)::text, ('password'::character varying)::text, ('passwords'::character varying)::text, ('pay'::character varying)::text, ('payment'::character varying)::text, ('payments'::character varying)::text, ('pda'::character varying)::text, ('photo'::character varying)::text, ('photos'::character varying)::text, ('phpmyadmin'::character varying)::text, ('ping'::character varying)::text, ('plan'::character varying)::text, ('plans'::character varying)::text, ('poczta'::character varying)::text, ('policy'::character varying)::text, ('pop'::character varying)::text, ('pop3'::character varying)::text, ('portal'::character varying)::text, ('post'::character varying)::text, ('preprod'::character varying)::text, ('press'::character varying)::text, ('preview'::character varying)::text, ('pricing'::character varying)::text, ('privacy'::character varying)::text, ('private'::character varying)::text, ('prod'::character varying)::text, ('production'::character varying)::text, ('project'::character varying)::text, ('projects'::character varying)::text, ('prometheus'::character varying)::text, ('proxy'::character varying)::text, ('public'::character varying)::text, ('qa'::character varying)::text, ('queue'::character varying)::text, ('queues'::character varying)::text, ('radio'::character varying)::text, ('ready'::character varying)::text, ('redmine'::character varying)::text, ('register'::character varying)::text, ('registration'::character varying)::text, ('relay'::character varying)::text, ('release'::character varying)::text, ('releases'::character varying)::text, ('remote'::character varying)::text, ('reports'::character varying)::text, ('root'::character varying)::text, ('router'::character varying)::text, ('rss'::character varying)::text, ('saml'::character varying)::text, ('sandbox'::character varying)::text, ('search'::character varying)::text, ('secure'::character varying)::text, ('security'::character varying)::text, ('server'::character varying)::text, ('server1'::character varying)::text, ('service'::character varying)::text, ('services'::character varying)::text, ('session'::character varying)::text, ('sessions'::character varying)::text, ('settings'::character varying)::text, ('sftp'::character varying)::text, ('sharepoint'::character varying)::text, ('shop'::character varying)::text, ('signin'::character varying)::text, ('signout'::character varying)::text, ('signup'::character varying)::text, ('sip'::character varying)::text, ('site'::character varying)::text, ('sites'::character varying)::text, ('sms'::character varying)::text, ('smtp'::character varying)::text, ('smtp1'::character varying)::text, ('smtp2'::character varying)::text, ('smtps'::character varying)::text, ('speedtest'::character varying)::text, ('sport'::character varying)::text, ('sql'::character varying)::text, ('ssh'::character varying)::text, ('ssl'::character varying)::text, ('sso'::character varying)::text, ('staff'::character varying)::text, ('stage'::character varying)::text, ('staging'::character varying)::text, ('start'::character varying)::text, ('stat'::character varying)::text, ('static'::character varying)::text, ('stats'::character varying)::text, ('status'::character varying)::text, ('storage'::character varying)::text, ('store'::character varying)::text, ('stream'::character varying)::text, ('streaming'::character varying)::text, ('student'::character varying)::text, ('sub'::character varying)::text, ('subscribe'::character varying)::text, ('subscription'::character varying)::text, ('subscriptions'::character varying)::text, ('sudo'::character varying)::text, ('superuser'::character varying)::text, ('support'::character varying)::text, ('survey'::character varying)::text, ('svn'::character varying)::text, ('terms'::character varying)::text, ('test'::character varying)::text, ('test1'::character varying)::text, ('test2'::character varying)::text, ('testing'::character varying)::text, ('tests'::character varying)::text, ('time'::character varying)::text, ('tls'::character varying)::text, ('token'::character varying)::text, ('tokens'::character varying)::text, ('tools'::character varying)::text, ('totp'::character varying)::text, ('trac'::character varying)::text, ('training'::character varying)::text, ('travel'::character varying)::text, ('uat'::character varying)::text, ('update'::character varying)::text, ('upgrade'::character varying)::text, ('upload'::character varying)::text, ('uploads'::character varying)::text, ('validate'::character varying)::text, ('verify'::character varying)::text, ('video'::character varying)::text, ('videos'::character varying)::text, ('voip'::character varying)::text, ('vpn'::character varying)::text, ('vpn2'::character varying)::text, ('vps'::character varying)::text, ('wallet'::character varying)::text, ('wap'::character varying)::text, ('web'::character varying)::text, ('web1'::character varying)::text, ('web2'::character varying)::text, ('web3'::character varying)::text, ('web4'::character varying)::text, ('web5'::character varying)::text, ('webdisk'::character varying)::text, ('webhook'::character varying)::text, ('webhooks'::character varying)::text, ('webmail'::character varying)::text, ('webmail2'::character varying)::text, ('websocket'::character varying)::text, ('whm'::character varying)::text, ('wiki'::character varying)::text, ('worker'::character varying)::text, ('workers'::character varying)::text, ('ws'::character varying)::text, ('wss'::character varying)::text, ('ww2'::character varying)::text, ('www'::character varying)::text, ('www1'::character varying)::text, ('www2'::character varying)::text, ('www3'::character varying)::text, ('www4'::character varying)::text, ('www5'::character varying)::text, ('www6'::character varying)::text, ('wwww'::character varying)::text])))
 );
 
 
@@ -4641,6 +4756,20 @@ ALTER TABLE ONLY public.asset_audits ALTER COLUMN id SET DEFAULT nextval('public
 --
 
 ALTER TABLE ONLY public.asset_kinds ALTER COLUMN id SET DEFAULT nextval('public.asset_kinds_id_seq'::regclass);
+
+
+--
+-- Name: asset_lifecycle_events id; Type: DEFAULT; Schema: public; Owner: nosdesk_admin
+--
+
+ALTER TABLE ONLY public.asset_lifecycle_events ALTER COLUMN id SET DEFAULT nextval('public.asset_lifecycle_events_id_seq'::regclass);
+
+
+--
+-- Name: asset_media id; Type: DEFAULT; Schema: public; Owner: nosdesk_admin
+--
+
+ALTER TABLE ONLY public.asset_media ALTER COLUMN id SET DEFAULT nextval('public.asset_media_id_seq'::regclass);
 
 
 --
@@ -5170,6 +5299,22 @@ ALTER TABLE ONLY public.asset_kinds
 
 ALTER TABLE ONLY public.asset_kinds
     ADD CONSTRAINT asset_kinds_workspace_slug_key UNIQUE (workspace_id, slug);
+
+
+--
+-- Name: asset_lifecycle_events asset_lifecycle_events_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
+--
+
+ALTER TABLE ONLY public.asset_lifecycle_events
+    ADD CONSTRAINT asset_lifecycle_events_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: asset_media asset_media_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
+--
+
+ALTER TABLE ONLY public.asset_media
+    ADD CONSTRAINT asset_media_pkey PRIMARY KEY (id);
 
 
 --
@@ -6716,10 +6861,38 @@ CREATE INDEX idx_asset_groups_group ON public.asset_groups USING btree (group_id
 
 
 --
+-- Name: idx_asset_lifecycle_events_asset; Type: INDEX; Schema: public; Owner: nosdesk_admin
+--
+
+CREATE INDEX idx_asset_lifecycle_events_asset ON public.asset_lifecycle_events USING btree (asset_id, occurred_at DESC);
+
+
+--
+-- Name: idx_asset_lifecycle_events_ticket; Type: INDEX; Schema: public; Owner: nosdesk_admin
+--
+
+CREATE INDEX idx_asset_lifecycle_events_ticket ON public.asset_lifecycle_events USING btree (ticket_id) WHERE (ticket_id IS NOT NULL);
+
+
+--
+-- Name: idx_asset_media_asset; Type: INDEX; Schema: public; Owner: nosdesk_admin
+--
+
+CREATE INDEX idx_asset_media_asset ON public.asset_media USING btree (asset_id, sort_order, created_at DESC);
+
+
+--
+-- Name: idx_asset_media_uploaded_by; Type: INDEX; Schema: public; Owner: nosdesk_admin
+--
+
+CREATE INDEX idx_asset_media_uploaded_by ON public.asset_media USING btree (uploaded_by);
+
+
+--
 -- Name: idx_asset_serial_unique; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
-CREATE UNIQUE INDEX idx_asset_serial_unique ON public.assets USING btree (serial_number) WHERE (serial_number IS NOT NULL);
+CREATE UNIQUE INDEX idx_asset_serial_unique ON public.assets USING btree (workspace_id, serial_number) WHERE (serial_number IS NOT NULL);
 
 
 --
@@ -6769,6 +6942,13 @@ CREATE INDEX idx_assets_primary_user ON public.assets USING btree (primary_user_
 --
 
 CREATE INDEX idx_assets_serial_number ON public.assets USING btree (serial_number) WHERE (serial_number IS NOT NULL);
+
+
+--
+-- Name: idx_assets_workspace_status; Type: INDEX; Schema: public; Owner: nosdesk_admin
+--
+
+CREATE INDEX idx_assets_workspace_status ON public.assets USING btree (workspace_id, status);
 
 
 --
@@ -7139,7 +7319,7 @@ CREATE INDEX idx_import_jobs_created_by ON public.import_jobs USING btree (creat
 -- Name: idx_import_jobs_status; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
-CREATE INDEX idx_import_jobs_status ON public.import_jobs USING btree (status) WHERE ((status)::text = ANY ((ARRAY['parsed'::character varying, 'dry_run_done'::character varying, 'committing'::character varying])::text[]));
+CREATE INDEX idx_import_jobs_status ON public.import_jobs USING btree (status) WHERE ((status)::text = ANY (ARRAY[('parsed'::character varying)::text, ('dry_run_done'::character varying)::text, ('committing'::character varying)::text]));
 
 
 --
@@ -7160,7 +7340,7 @@ CREATE INDEX idx_kg_signals_source ON public.knowledge_gap_signals USING btree (
 -- Name: idx_knowledge_gaps_active; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
-CREATE INDEX idx_knowledge_gaps_active ON public.knowledge_gaps USING btree (status, impact_score DESC, last_evidence_at DESC) WHERE ((status)::text = ANY ((ARRAY['open'::character varying, 'drafting'::character varying])::text[]));
+CREATE INDEX idx_knowledge_gaps_active ON public.knowledge_gaps USING btree (status, impact_score DESC, last_evidence_at DESC) WHERE ((status)::text = ANY (ARRAY[('open'::character varying)::text, ('drafting'::character varying)::text]));
 
 
 --
@@ -8714,7 +8894,7 @@ CREATE TRIGGER rules_version_on_insert AFTER INSERT ON public.rules FOR EACH ROW
 -- Name: rules rules_version_on_update; Type: TRIGGER; Schema: public; Owner: nosdesk_admin
 --
 
-CREATE TRIGGER rules_version_on_update BEFORE UPDATE ON public.rules FOR EACH ROW WHEN (((((((((((((old.name)::text IS DISTINCT FROM (new.name)::text) OR (old.description IS DISTINCT FROM new.description)) OR (old.trigger_kind IS DISTINCT FROM new.trigger_kind)) OR (old.trigger_config IS DISTINCT FROM new.trigger_config)) OR (old.conditions IS DISTINCT FROM new.conditions)) OR (old.actions IS DISTINCT FROM new.actions)) OR (old.state IS DISTINCT FROM new.state)) OR (old.priority IS DISTINCT FROM new.priority)) OR (old.archived_at IS DISTINCT FROM new.archived_at)) OR (old.reads_set IS DISTINCT FROM new.reads_set)) OR (old.writes_set IS DISTINCT FROM new.writes_set))) EXECUTE FUNCTION public.rules_write_update_version();
+CREATE TRIGGER rules_version_on_update BEFORE UPDATE ON public.rules FOR EACH ROW WHEN ((((old.name)::text IS DISTINCT FROM (new.name)::text) OR (old.description IS DISTINCT FROM new.description) OR (old.trigger_kind IS DISTINCT FROM new.trigger_kind) OR (old.trigger_config IS DISTINCT FROM new.trigger_config) OR (old.conditions IS DISTINCT FROM new.conditions) OR (old.actions IS DISTINCT FROM new.actions) OR (old.state IS DISTINCT FROM new.state) OR (old.priority IS DISTINCT FROM new.priority) OR (old.archived_at IS DISTINCT FROM new.archived_at) OR (old.reads_set IS DISTINCT FROM new.reads_set) OR (old.writes_set IS DISTINCT FROM new.writes_set))) EXECUTE FUNCTION public.rules_write_update_version();
 
 
 --
@@ -8841,6 +9021,20 @@ CREATE TRIGGER tr_audit_asset_audits AFTER INSERT OR DELETE OR UPDATE ON public.
 --
 
 CREATE TRIGGER tr_audit_asset_kinds AFTER INSERT OR DELETE OR UPDATE ON public.asset_kinds FOR EACH ROW EXECUTE FUNCTION public.audit_log_trigger('id');
+
+
+--
+-- Name: asset_lifecycle_events tr_audit_asset_lifecycle_events; Type: TRIGGER; Schema: public; Owner: nosdesk_admin
+--
+
+CREATE TRIGGER tr_audit_asset_lifecycle_events AFTER INSERT OR DELETE OR UPDATE ON public.asset_lifecycle_events FOR EACH ROW EXECUTE FUNCTION public.audit_log_trigger('id');
+
+
+--
+-- Name: asset_media tr_audit_asset_media; Type: TRIGGER; Schema: public; Owner: nosdesk_admin
+--
+
+CREATE TRIGGER tr_audit_asset_media AFTER INSERT OR DELETE OR UPDATE ON public.asset_media FOR EACH ROW EXECUTE FUNCTION public.audit_log_trigger('id');
 
 
 --
@@ -9186,6 +9380,62 @@ ALTER TABLE ONLY public.asset_kinds
 
 ALTER TABLE ONLY public.asset_kinds
     ADD CONSTRAINT asset_kinds_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
+
+
+--
+-- Name: asset_lifecycle_events asset_lifecycle_events_actor_uuid_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk_admin
+--
+
+ALTER TABLE ONLY public.asset_lifecycle_events
+    ADD CONSTRAINT asset_lifecycle_events_actor_uuid_fkey FOREIGN KEY (actor_uuid) REFERENCES public.users(uuid) ON DELETE SET NULL;
+
+
+--
+-- Name: asset_lifecycle_events asset_lifecycle_events_asset_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk_admin
+--
+
+ALTER TABLE ONLY public.asset_lifecycle_events
+    ADD CONSTRAINT asset_lifecycle_events_asset_id_fkey FOREIGN KEY (asset_id) REFERENCES public.assets(id) ON DELETE CASCADE;
+
+
+--
+-- Name: asset_lifecycle_events asset_lifecycle_events_ticket_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk_admin
+--
+
+ALTER TABLE ONLY public.asset_lifecycle_events
+    ADD CONSTRAINT asset_lifecycle_events_ticket_id_fkey FOREIGN KEY (ticket_id) REFERENCES public.tickets(id) ON DELETE SET NULL;
+
+
+--
+-- Name: asset_lifecycle_events asset_lifecycle_events_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk_admin
+--
+
+ALTER TABLE ONLY public.asset_lifecycle_events
+    ADD CONSTRAINT asset_lifecycle_events_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
+
+
+--
+-- Name: asset_media asset_media_asset_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk_admin
+--
+
+ALTER TABLE ONLY public.asset_media
+    ADD CONSTRAINT asset_media_asset_id_fkey FOREIGN KEY (asset_id) REFERENCES public.assets(id) ON DELETE CASCADE;
+
+
+--
+-- Name: asset_media asset_media_uploaded_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk_admin
+--
+
+ALTER TABLE ONLY public.asset_media
+    ADD CONSTRAINT asset_media_uploaded_by_fkey FOREIGN KEY (uploaded_by) REFERENCES public.users(uuid) ON DELETE SET NULL;
+
+
+--
+-- Name: asset_media asset_media_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk_admin
+--
+
+ALTER TABLE ONLY public.asset_media
+    ADD CONSTRAINT asset_media_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
 
 
 --
@@ -11099,6 +11349,32 @@ CREATE POLICY asset_kinds_workspace_isolation ON public.asset_kinds USING ((work
 
 
 --
+-- Name: asset_lifecycle_events; Type: ROW SECURITY; Schema: public; Owner: nosdesk_admin
+--
+
+ALTER TABLE public.asset_lifecycle_events ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: asset_lifecycle_events asset_lifecycle_events_workspace_isolation; Type: POLICY; Schema: public; Owner: nosdesk_admin
+--
+
+CREATE POLICY asset_lifecycle_events_workspace_isolation ON public.asset_lifecycle_events USING ((workspace_id = (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer)) WITH CHECK ((workspace_id = (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer));
+
+
+--
+-- Name: asset_media; Type: ROW SECURITY; Schema: public; Owner: nosdesk_admin
+--
+
+ALTER TABLE public.asset_media ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: asset_media asset_media_workspace_isolation; Type: POLICY; Schema: public; Owner: nosdesk_admin
+--
+
+CREATE POLICY asset_media_workspace_isolation ON public.asset_media USING ((workspace_id = (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer)) WITH CHECK ((workspace_id = (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer));
+
+
+--
 -- Name: asset_usage_log; Type: ROW SECURITY; Schema: public; Owner: nosdesk_admin
 --
 
@@ -12224,6 +12500,34 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.asset_kinds TO nosdesk_app;
 --
 
 GRANT ALL ON SEQUENCE public.asset_kinds_id_seq TO nosdesk_app;
+
+
+--
+-- Name: TABLE asset_lifecycle_events; Type: ACL; Schema: public; Owner: nosdesk_admin
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.asset_lifecycle_events TO nosdesk_app;
+
+
+--
+-- Name: SEQUENCE asset_lifecycle_events_id_seq; Type: ACL; Schema: public; Owner: nosdesk_admin
+--
+
+GRANT ALL ON SEQUENCE public.asset_lifecycle_events_id_seq TO nosdesk_app;
+
+
+--
+-- Name: TABLE asset_media; Type: ACL; Schema: public; Owner: nosdesk_admin
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.asset_media TO nosdesk_app;
+
+
+--
+-- Name: SEQUENCE asset_media_id_seq; Type: ACL; Schema: public; Owner: nosdesk_admin
+--
+
+GRANT ALL ON SEQUENCE public.asset_media_id_seq TO nosdesk_app;
 
 
 --
@@ -13375,8 +13679,8 @@ ALTER DEFAULT PRIVILEGES FOR ROLE nosdesk IN SCHEMA public GRANT SELECT,INSERT,D
 --
 
 
--- Dumped from database version 18.4 (Debian 18.4-1.pgdg12+1)
--- Dumped by pg_dump version 18.4 (Debian 18.4-1.pgdg12+1)
+-- Dumped from database version 17.10 (Debian 17.10-1.pgdg12+1)
+-- Dumped by pg_dump version 17.10 (Debian 17.10-1.pgdg12+1)
 
 
 --
@@ -13551,6 +13855,26 @@ INSERT INTO public.asset_kinds VALUES (7, 'network_device', 'Network device', 'S
 
 
 ALTER TABLE public.asset_kinds ENABLE TRIGGER ALL;
+
+--
+-- Data for Name: asset_lifecycle_events; Type: TABLE DATA; Schema: public; Owner: nosdesk_admin
+--
+
+ALTER TABLE public.asset_lifecycle_events DISABLE TRIGGER ALL;
+
+
+
+ALTER TABLE public.asset_lifecycle_events ENABLE TRIGGER ALL;
+
+--
+-- Data for Name: asset_media; Type: TABLE DATA; Schema: public; Owner: nosdesk_admin
+--
+
+ALTER TABLE public.asset_media DISABLE TRIGGER ALL;
+
+
+
+ALTER TABLE public.asset_media ENABLE TRIGGER ALL;
 
 --
 -- Data for Name: asset_usage_log; Type: TABLE DATA; Schema: public; Owner: nosdesk_admin
@@ -13800,8 +14124,8 @@ ALTER TABLE public.cycle_tickets ENABLE TRIGGER ALL;
 
 ALTER TABLE public.documentation_collections DISABLE TRIGGER ALL;
 
-INSERT INTO public.documentation_collections VALUES (2, 'd130d0e1-8c8a-4664-86e2-aeca506838ac', 'Getting Started', 'getting-started', 'Introduction and onboarding documentation', '🚀', NULL, true, NULL, '2026-06-06 05:58:59.118175+00', '2026-06-06 05:58:59.118175+00', 0, NULL, NULL, NULL, false, 1);
-INSERT INTO public.documentation_collections VALUES (1, '9744d4a0-4ad0-4940-8c9c-f759a0e7902a', 'Tickets', 'tickets', 'Documentation pages created from ticket notes', '🎫', NULL, true, NULL, '2026-06-06 05:58:59.118175+00', '2026-06-06 05:58:59.118175+00', 1, NULL, NULL, NULL, false, 1);
+INSERT INTO public.documentation_collections VALUES (2, 'd130d0e1-8c8a-4664-86e2-aeca506838ac', 'Getting Started', 'getting-started', 'Introduction and onboarding documentation', '🚀', NULL, true, NULL, '2026-06-06 05:58:59.118175+00', '2026-06-06 05:58:59.118175+00', 0, NULL, NULL, NULL, false, 1, NULL);
+INSERT INTO public.documentation_collections VALUES (1, '9744d4a0-4ad0-4940-8c9c-f759a0e7902a', 'Tickets', 'tickets', 'Documentation pages created from ticket notes', '🎫', NULL, true, NULL, '2026-06-06 05:58:59.118175+00', '2026-06-06 05:58:59.118175+00', 1, NULL, NULL, NULL, false, 1, NULL);
 
 
 ALTER TABLE public.documentation_collections ENABLE TRIGGER ALL;
@@ -14547,6 +14871,20 @@ SELECT pg_catalog.setval('public.asset_audits_id_seq', 1, false);
 --
 
 SELECT pg_catalog.setval('public.asset_kinds_id_seq', 13, true);
+
+
+--
+-- Name: asset_lifecycle_events_id_seq; Type: SEQUENCE SET; Schema: public; Owner: nosdesk_admin
+--
+
+SELECT pg_catalog.setval('public.asset_lifecycle_events_id_seq', 1, false);
+
+
+--
+-- Name: asset_media_id_seq; Type: SEQUENCE SET; Schema: public; Owner: nosdesk_admin
+--
+
+SELECT pg_catalog.setval('public.asset_media_id_seq', 1, false);
 
 
 --
