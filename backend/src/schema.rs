@@ -179,6 +179,29 @@ diesel::table! {
 }
 
 diesel::table! {
+    asset_media (id) {
+        id -> Int4,
+        asset_id -> Int4,
+        #[max_length = 2048]
+        url -> Varchar,
+        #[max_length = 255]
+        name -> Varchar,
+        file_size -> Nullable<Int8>,
+        #[max_length = 100]
+        mime_type -> Nullable<Varchar>,
+        #[max_length = 64]
+        checksum -> Nullable<Varchar>,
+        #[max_length = 32]
+        kind -> Varchar,
+        sort_order -> Int4,
+        caption -> Nullable<Text>,
+        uploaded_by -> Nullable<Uuid>,
+        created_at -> Timestamptz,
+        workspace_id -> Int4,
+    }
+}
+
+diesel::table! {
     assets (id) {
         id -> Int4,
         #[max_length = 255]
@@ -1818,6 +1841,9 @@ diesel::joinable!(asset_groups -> users (created_by));
 diesel::joinable!(asset_groups -> workspaces (workspace_id));
 diesel::joinable!(asset_kinds -> users (created_by));
 diesel::joinable!(asset_kinds -> workspaces (workspace_id));
+diesel::joinable!(asset_media -> assets (asset_id));
+diesel::joinable!(asset_media -> users (uploaded_by));
+diesel::joinable!(asset_media -> workspaces (workspace_id));
 diesel::joinable!(asset_usage_log -> assets (asset_id));
 diesel::joinable!(asset_usage_log -> tickets (ticket_id));
 diesel::joinable!(asset_usage_log -> users (recorded_by));
@@ -2016,6 +2042,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     asset_audits,
     asset_groups,
     asset_kinds,
+    asset_media,
     asset_usage_log,
     assets,
     assignment_log,

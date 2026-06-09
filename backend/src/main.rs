@@ -1413,6 +1413,7 @@ async fn main() -> std::io::Result<()> {
             // for tickets they can see in their own workspace.
             .route("/api/files/tickets/{ticket_id}/notes/{filename:.*}", web::get().to(handlers::serve_ticket_note_image).wrap(actix_web::middleware::from_fn(middleware::dual_auth_middleware)))
             .route("/api/files/tickets/{filename:.*}", web::get().to(handlers::serve_ticket_file).wrap(actix_web::middleware::from_fn(middleware::dual_auth_middleware)))
+            .route("/api/files/assets/{asset_id}/media/{filename:.*}", web::get().to(handlers::asset_media::serve_asset_media_file).wrap(actix_web::middleware::from_fn(middleware::dual_auth_middleware)))
             .route("/api/files/temp/{filename:.*}", web::get().to(handlers::serve_temp_file).wrap(actix_web::middleware::from_fn(middleware::dual_auth_middleware)))
 
             // SSE endpoints (with custom token-based auth)
@@ -2079,6 +2080,10 @@ async fn main() -> std::io::Result<()> {
                     .route("/assets/{id}", web::put().to(handlers::update_device))
                     .route("/assets/{id}", web::delete().to(handlers::delete_device))
                     .route("/assets/{id}/unmanage", web::post().to(handlers::unmanage_device))
+                    .route("/assets/{id}/media", web::get().to(handlers::asset_media::list_for_asset))
+                    .route("/assets/{id}/media", web::post().to(handlers::asset_media::upload_for_asset))
+                    .route("/assets/{id}/media/{media_id}", web::put().to(handlers::asset_media::update_media))
+                    .route("/assets/{id}/media/{media_id}", web::delete().to(handlers::asset_media::delete_media))
                     .route("/assets/{id}/usage", web::post().to(handlers::asset_usage::record))
                     .route("/assets/{id}/usage", web::get().to(handlers::asset_usage::list_for_asset))
                     .route("/assets/{id}/audit", web::post().to(handlers::asset_audits::record))

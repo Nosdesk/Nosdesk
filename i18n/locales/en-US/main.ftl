@@ -2280,6 +2280,9 @@ asset-detail-field-purchase-date = Purchase Date
 asset-detail-field-asset-tag = Asset Tag
 asset-detail-field-asset-tag-placeholder-create = Enter asset tag
 asset-detail-field-asset-tag-placeholder-edit = Enter asset tag...
+asset-detail-field-location = Location
+asset-detail-field-location-placeholder-create = e.g. Store room A, rack 3, Melbourne
+asset-detail-field-location-placeholder-edit = Enter location...
 asset-detail-warranty-active = Active
 asset-detail-warranty-warning = Warning
 asset-detail-warranty-expired = Expired
@@ -3931,6 +3934,11 @@ asset-usage-record-failed = Failed to record usage
 
 # Asset detail: stock tracking section + low-stock indicator (Phase G).
 asset-detail-section-stock = Stock tracking
+asset-detail-stock-not-tracked = Not tracked
+asset-detail-section-physical-context = Physical context
+asset-detail-physical-context-help = Use location, stock fields, and kind-specific attributes to describe where this asset lives and how it is managed.
+asset-detail-photo-placeholder-title = Add photos after creation
+asset-detail-photo-placeholder-description = Save the asset first, then attach photos from the asset detail page.
 asset-detail-field-quantity = On-hand quantity
 asset-detail-field-quantity-placeholder = e.g. 25
 asset-detail-field-unit = Unit
@@ -3950,6 +3958,18 @@ asset-detail-kind-change-failed = Failed to change kind
 asset-detail-low-stock-warning = Low stock: { $quantity } { $unit } remaining (threshold { $threshold }).
 asset-low-stock-toast-title = Low stock: { $name }
 asset-low-stock-toast-body = { $quantity } { $unit } remaining (threshold { $threshold }).
+
+# Asset media panel.
+asset-media-heading = Photos
+asset-media-description = Photos are stored against this asset and visible to workspace members.
+asset-media-add = Add photos
+asset-media-loading = Loading photos…
+asset-media-empty-title = No photos attached
+asset-media-empty-description = Add reference photos for materials, equipment, vehicles, labels, or storage locations.
+asset-media-load-failed = Failed to load asset photos
+asset-media-upload-failed = Failed to upload asset photos
+asset-media-delete-failed = Failed to delete asset photo
+asset-media-delete-aria = Delete { $name }
 
 # Asset list: low-stock badge surfaced on each row.
 assets-list-low-stock-badge = Low stock

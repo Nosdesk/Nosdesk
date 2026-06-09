@@ -3,6 +3,7 @@ pub mod analytics;
 pub mod article_content;
 pub mod asset_audits;
 pub mod asset_kinds;
+pub mod asset_media;
 pub mod asset_usage;
 pub mod assets;
 pub mod assignment_rules;

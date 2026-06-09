@@ -292,7 +292,7 @@ fn authorize_ticket_access(
 }
 
 /// Serve a stored object, mapping any storage error to a 404.
-async fn serve_or_not_found(
+pub(crate) async fn serve_or_not_found(
     storage: Arc<dyn Storage>,
     file_path: &str,
     req: &actix_web::HttpRequest,

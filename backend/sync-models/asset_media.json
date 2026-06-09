@@ -1,0 +1,28 @@
+{
+  "name": "asset_media",
+  "schema_version": 1,
+  "fields": {
+    "id": { "rust": "i32", "ts": "number", "primary": true },
+    "asset_id": { "rust": "i32", "ts": "number" },
+    "url": { "rust": "String", "ts": "string" },
+    "name": { "rust": "String", "ts": "string" },
+    "mime_type": { "rust": "Option<String>", "ts": "string | null" },
+    "file_size": { "rust": "Option<i64>", "ts": "number | null" },
+    "kind": { "rust": "String", "ts": "string" },
+    "sort_order": { "rust": "i32", "ts": "number" },
+    "caption": { "rust": "Option<String>", "ts": "string | null" },
+    "uploaded_by": { "rust": "Option<Uuid>", "ts": "string | null" },
+    "created_at": { "rust": "DateTime<Utc>", "ts": "string" }
+  },
+  "events": [
+    { "type": "asset_media.created", "op": "I" },
+    { "type": "asset_media.updated", "op": "U" },
+    { "type": "asset_media.deleted", "op": "D" }
+  ],
+  "groups": [
+    "workspace:1"
+  ],
+  "references": [
+    { "field": "asset_id", "aggregate": "asset" }
+  ]
+}

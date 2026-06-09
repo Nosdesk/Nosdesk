@@ -14,6 +14,7 @@
     "attributes": { "rust": "serde_json::Value", "ts": "Record<string, unknown>" },
     "quantity": { "rust": "Option<BigDecimal>", "ts": "string | null" },
     "unit": { "rust": "Option<String>", "ts": "string | null" },
+    "low_stock_threshold": { "rust": "Option<BigDecimal>", "ts": "string | null" },
     "external_sync_source": { "rust": "Option<String>", "ts": "string | null" }
   },
   "events": [

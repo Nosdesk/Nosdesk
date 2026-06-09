@@ -5,6 +5,20 @@ export interface AssetGroup {
   color?: string | null;
 }
 
+export interface AssetMedia {
+  id: number;
+  asset_id: number;
+  url: string;
+  name: string;
+  file_size?: number | null;
+  mime_type?: string | null;
+  kind: string;
+  sort_order: number;
+  caption?: string | null;
+  uploaded_by?: string | null;
+  created_at: string;
+}
+
 /** Asset row as the REST + sync surfaces ship it. IT-flavoured
  *  fields (hostname, OS, warranty, Microsoft Graph IDs etc.)
  *  live inside `attributes` after Pass B. The legacy top-level

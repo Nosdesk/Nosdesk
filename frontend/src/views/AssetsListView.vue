@@ -20,6 +20,7 @@ import { useAuthStore } from '@/stores/auth'
 
 import { TextCell, StatusBadgeCell, UserAvatarCell } from '@/components/common/cells'
 import AssetViewTabs from '@/components/assets/AssetViewTabs.vue'
+import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
 import { getPaginatedAssets, bulkAction } from '@/services/assetService'
@@ -36,6 +37,12 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 const toast = useToastStore()
 const auth = useAuthStore()
 const userUuid = computed<string | null>(() => auth.user?.uuid ?? null)
+const { kinds } = useAssetKindsQuery()
+const kindLabelBySlug = computed(() => new Map(kinds.value.map((kind) => [kind.slug, kind.label])))
+
+function assetKindLabel(kind: string): string {
+  return kindLabelBySlug.value.get(kind) ?? kind
+}
 
 const layoutRef = useTemplateRef<ListPageLayoutExpose>('layout')
 const scrollContainerRef = computed<HTMLElement | null>(
@@ -107,7 +114,7 @@ const groupAxes: GroupAxisDef<Asset>[] = [
   {
     key: 'kind',
     labelKey: 'assets-list-grouping-kind',
-    bucketFor: (asset) => ({ key: `kind:${asset.kind}`, label: asset.kind }),
+    bucketFor: (asset) => ({ key: `kind:${asset.kind}`, label: assetKindLabel(asset.kind) }),
   },
   {
     key: 'manufacturer',
@@ -149,6 +156,7 @@ const groupAxes: GroupAxisDef<Asset>[] = [
 // last_sync_time.
 const columns = computed(() => [
   { field: 'name', label: t('assets-list-column-device'), width: '1fr', sortable: true, responsive: 'always' as const },
+  { field: 'kind', label: t('asset-detail-field-kind'), width: 'minmax(120px,auto)', sortable: false, responsive: 'md' as const },
   { field: 'serial_number', label: t('assets-list-column-serial'), width: 'minmax(140px,auto)', sortable: true, responsive: 'md' as const },
   { field: 'hostname', label: t('assets-list-column-hostname'), width: 'minmax(120px,auto)', sortable: true, responsive: 'lg' as const, defaultHidden: true },
   { field: 'model', label: t('assets-list-column-model'), width: 'minmax(120px,auto)', sortable: true, responsive: 'lg' as const },
@@ -316,6 +324,10 @@ async function confirmDelete() {
           <span class="text-xs font-mono text-secondary">{{ item.serial_number || '-' }}</span>
         </template>
 
+        <template #cell-kind="{ item }">
+          <span class="text-xs font-medium text-secondary">{{ assetKindLabel(item.kind) }}</span>
+        </template>
+
         <template #cell-hostname="{ item }">
           <span class="text-xs font-mono text-secondary truncate">{{ (item.attributes?.hostname as string) || '-' }}</span>
         </template>
@@ -375,6 +387,7 @@ async function confirmDelete() {
 
           <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1 text-xs">
             <span v-if="item.model" class="text-secondary">{{ item.model }}</span>
+            <span class="text-tertiary">{{ assetKindLabel(item.kind) }}</span>
             <span v-if="item.serial_number" class="text-tertiary font-mono">{{ item.serial_number }}</span>
           </div>
 

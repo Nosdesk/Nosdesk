@@ -634,6 +634,7 @@ mod tests {
         for agg in [
             SyncAggregate::User,
             SyncAggregate::Asset,
+            SyncAggregate::AssetMedia,
             SyncAggregate::WorkflowState,
             SyncAggregate::Project,
             SyncAggregate::Cycle,

@@ -199,6 +199,7 @@ fn apply_transaction(
         | SyncAggregate::CycleTicket
         | SyncAggregate::User
         | SyncAggregate::Asset
+        | SyncAggregate::AssetMedia
         | SyncAggregate::Webhook
         | SyncAggregate::Channel
         | SyncAggregate::KnowledgeGap

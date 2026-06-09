@@ -475,6 +475,8 @@ pub enum SyncAggregate {
     User,
     #[serde(rename = "asset")]
     Asset,
+    #[serde(rename = "asset_media")]
+    AssetMedia,
     #[serde(rename = "webhook")]
     Webhook,
     #[serde(rename = "channel")]
@@ -532,6 +534,7 @@ impl SyncAggregate {
             Self::CycleTicket => "cycle_ticket",
             Self::User => "user",
             Self::Asset => "asset",
+            Self::AssetMedia => "asset_media",
             Self::Webhook => "webhook",
             Self::Channel => "channel",
             Self::KnowledgeGap => "knowledge_gap",
@@ -570,6 +573,7 @@ impl FromSql<crate::schema::sql_types::SyncAggregate, Pg> for SyncAggregate {
             b"cycle_ticket" => Ok(Self::CycleTicket),
             b"user" => Ok(Self::User),
             b"asset" => Ok(Self::Asset),
+            b"asset_media" => Ok(Self::AssetMedia),
             b"webhook" => Ok(Self::Webhook),
             b"channel" => Ok(Self::Channel),
             b"knowledge_gap" => Ok(Self::KnowledgeGap),
@@ -1249,6 +1253,47 @@ pub struct NewAssetUsage {
     pub recorded_by: Option<Uuid>,
     pub notes: Option<String>,
     pub event_kind: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable, Associations)]
+#[diesel(table_name = crate::schema::asset_media)]
+#[diesel(belongs_to(Asset))]
+pub struct AssetMedia {
+    pub id: i32,
+    pub asset_id: i32,
+    pub url: String,
+    pub name: String,
+    pub file_size: Option<i64>,
+    pub mime_type: Option<String>,
+    pub checksum: Option<String>,
+    pub kind: String,
+    pub sort_order: i32,
+    pub caption: Option<String>,
+    pub uploaded_by: Option<Uuid>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub workspace_id: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Insertable)]
+#[diesel(table_name = crate::schema::asset_media)]
+pub struct NewAssetMedia {
+    pub asset_id: i32,
+    pub url: String,
+    pub name: String,
+    pub file_size: Option<i64>,
+    pub mime_type: Option<String>,
+    pub checksum: Option<String>,
+    pub kind: String,
+    pub sort_order: i32,
+    pub caption: Option<String>,
+    pub uploaded_by: Option<Uuid>,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize, AsChangeset)]
+#[diesel(table_name = crate::schema::asset_media)]
+pub struct AssetMediaUpdate {
+    pub sort_order: Option<i32>,
+    pub caption: Option<Option<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations)]

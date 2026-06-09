@@ -4,7 +4,10 @@ import { useRoute, useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import { formatDateTime } from '@/utils/dateUtils';
 import BackButton from '@/components/common/BackButton.vue';
+import SearchableDropdown, { type DropdownOption } from '@/components/common/SearchableDropdown.vue';
+import Button from '@/components/common/Button.vue';
 import DeleteButton from '@/components/common/DeleteButton.vue';
+import FormInput from '@/components/common/FormInput.vue';
 import InlineEdit from '@/components/common/InlineEdit.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
@@ -12,10 +15,10 @@ import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import DatePicker from '@/components/common/DatePicker.vue';
 import { extractErrorMessage } from '@/utils/errors';
 import Icon from '@/components/common/Icon.vue';
-import Spinner from '@/components/common/Spinner.vue';
 import UserCard from '@/components/UserCard.vue';
 import UserSelectionModal from '@/components/UserSelectionModal.vue';
 import DeviceGroups from '@/components/AssetGroups.vue';
+import AssetMediaPanel from '@/components/assets/AssetMediaPanel.vue';
 import AssetUsageHistory from '@/components/assets/AssetUsageHistory.vue';
 import PluginSlot from '@/plugins/components/PluginSlot.vue';
 import Modal from '@/components/Modal.vue';
@@ -75,6 +78,30 @@ const selectedKind = computed<AssetKind | null>(
   () => kinds.value.find((k) => k.slug === selectedKindSlug.value) ?? null,
 );
 
+const selectedKindCategory = computed(() => selectedKind.value?.category ?? 'generic');
+const canHavePrimaryUser = computed(() =>
+  selectedKindCategory.value === 'it' || selectedKindCategory.value === 'logical',
+);
+const showPrimaryUserPanel = computed(() =>
+  canHavePrimaryUser.value || (!isCreationMode.value && Boolean(device.value?.primary_user)),
+);
+const showCreateInventoryPanel = computed(
+  () =>
+    selectedKindCategory.value === 'bulk' ||
+    editValues.value.quantity.trim() !== '' ||
+    editValues.value.unit.trim() !== '' ||
+    editValues.value.low_stock_threshold.trim() !== '',
+);
+
+const kindOptions = computed<DropdownOption[]>(() =>
+  kinds.value.map((k) => ({
+    value: k.slug,
+    label: k.label,
+    description: k.description ?? undefined,
+    icon: k.icon ?? undefined,
+  })),
+);
+
 const selectedKindSchema = computed(
   () => (selectedKind.value?.attribute_schema as Record<string, unknown>) ?? null,
 );
@@ -97,6 +124,55 @@ const fromTicket = computed(() =>
 );
 
 const isSynced = computed(() => device.value != null && !device.value.is_editable);
+const displayName = computed(() => {
+  if (isCreationMode.value) {
+    return editValues.value.name || (attributeDraft.value.hostname as string | undefined) || '';
+  }
+  if (!device.value) return '';
+  return device.value.name || (device.value.attributes?.hostname as string | undefined) || `#${device.value.id}`;
+});
+
+const displaySubtitle = computed(() => {
+  const parts = [
+    selectedKind.value?.label ?? selectedKindSlug.value,
+    editValues.value.model || device.value?.model,
+    editValues.value.serial_number || device.value?.serial_number,
+  ].filter(Boolean);
+  return parts.join(' · ');
+});
+
+const stockStatus = computed<'none' | 'tracked' | 'low'>(() => {
+  const quantity = isCreationMode.value ? editValues.value.quantity : (device.value?.quantity ?? '');
+  if (!quantity) return 'none';
+  return isLowStock.value ? 'low' : 'tracked';
+});
+
+const stockStatusLabel = computed(() => {
+  if (stockStatus.value === 'low') return t('assets-list-low-stock-badge');
+  if (stockStatus.value === 'tracked') {
+    const quantity = isCreationMode.value ? editValues.value.quantity : (device.value?.quantity ?? '');
+    const unit = isCreationMode.value ? editValues.value.unit : (device.value?.unit ?? '');
+    return unit ? `${quantity} ${unit}` : quantity;
+  }
+  return t('asset-detail-stock-not-tracked');
+});
+
+const managementLabel = computed(() => {
+  if (isCreationMode.value) return t('asset-detail-manually-managed');
+  if (isSynced.value) {
+    return t('asset-detail-external-sync-source', { source: device.value?.external_sync_source || '' });
+  }
+  return t('asset-detail-manually-managed');
+});
+
+watch(
+  canHavePrimaryUser,
+  (canAssign) => {
+    if (isCreationMode.value && !canAssign) {
+      selectedUser.value = null;
+    }
+  },
+);
 
 /** Kind picker + attribute form are editable in creation mode
  *  for any user, and in edit mode only when the row isn't owned
@@ -158,6 +234,12 @@ function discardAttributes() {
   if (!device.value) return;
   attributeDraft.value = { ...(device.value.attributes ?? {}) };
   attributesError.value = null;
+}
+
+function scrollToInventory() {
+  document
+    .getElementById('asset-inventory-panel')
+    ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 /** Kind change is a bigger commit than a single field update:
@@ -317,9 +399,10 @@ const saveStockField = async (field: 'quantity' | 'unit' | 'low_stock_threshold'
  *  comparison since both strings come from the same NUMERIC(12,3)
  *  column. */
 const isLowStock = computed(() => {
-  const q = device.value?.quantity;
-  const t = device.value?.low_stock_threshold;
+  const q = isCreationMode.value ? editValues.value.quantity : device.value?.quantity;
+  const t = isCreationMode.value ? editValues.value.low_stock_threshold : device.value?.low_stock_threshold;
   if (q == null || t == null) return false;
+  if (q === '' || t === '') return false;
   return parseFloat(q) <= parseFloat(t);
 });
 
@@ -341,6 +424,9 @@ const saveDevice = async () => {
       primary_user_uuid: selectedUser.value?.uuid || undefined,
       kind: selectedKindSlug.value,
       attributes: attributeDraft.value,
+      quantity: editValues.value.quantity.trim() || null,
+      unit: editValues.value.unit.trim() || null,
+      low_stock_threshold: editValues.value.low_stock_threshold.trim() || null,
     };
     const newDevice = await createAsset(deviceData);
     router.replace(`/assets/${newDevice.id}`);
@@ -464,33 +550,104 @@ onMounted(() => {
 
     <!-- Main content -->
     <div v-else-if="device || isCreationMode" class="flex flex-col">
-      <!-- Navigation bar -->
-      <div class="pt-4 px-6 flex justify-between items-center">
-        <div class="flex items-center gap-4">
-          <BackButton
-            v-if="fromTicket"
-            :fallbackRoute="`/tickets/${fromTicket}`"
-            :label="$t('asset-detail-back-to-ticket', { id: fromTicket })"
-          />
-          <BackButton v-else fallbackRoute="/assets" :label="$t('asset-detail-back-to-devices')" />
-
-          <div v-if="isSynced" class="flex items-center gap-2 text-sm">
-            <div class="w-2 h-2 rounded-full bg-accent"></div>
-            <span class="text-secondary">{{ $t('asset-detail-readonly') }}</span>
-          </div>
-        </div>
-
-        <DeleteButton
-          v-if="!isCreationMode && device?.is_editable"
-          fallbackRoute="/assets"
-          :itemName="$t('asset-detail-delete-item-name')"
-          @delete="handleDeleteDevice"
-        />
-      </div>
-
       <!-- Content area -->
       <div class="flex flex-col gap-6 px-6 py-4 mx-auto w-full max-w-8xl">
         <AlertMessage v-if="error" type="error" :message="error" />
+
+        <section class="bg-surface rounded-xl border border-default overflow-hidden">
+          <div class="p-4 sm:p-5 flex flex-col gap-4">
+            <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+              <div class="flex flex-col gap-3 min-w-0">
+                <BackButton
+                  v-if="fromTicket"
+                  :fallbackRoute="`/tickets/${fromTicket}`"
+                  :label="$t('asset-detail-back-to-ticket', { id: fromTicket })"
+                  compact
+                />
+                <BackButton v-else fallbackRoute="/assets" :label="$t('asset-detail-back-to-devices')" compact />
+
+                <div class="flex items-start gap-3 min-w-0">
+                  <div class="w-11 h-11 rounded-lg bg-surface-alt border border-default flex items-center justify-center flex-shrink-0">
+                    <Icon name="device" class="text-secondary" />
+                  </div>
+                  <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <h1 v-if="displayName" class="text-xl sm:text-2xl font-semibold text-primary truncate">
+                        {{ displayName }}
+                      </h1>
+                      <span
+                        class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-accent/10 text-accent"
+                      >
+                        {{ selectedKind?.label ?? selectedKindSlug }}
+                      </span>
+                      <span
+                        v-if="isSynced"
+                        class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-surface-alt text-secondary border border-default"
+                      >
+                        <Icon name="lock" size="xs" />
+                        {{ $t('asset-detail-readonly') }}
+                      </span>
+                    </div>
+                    <p v-if="displaySubtitle" class="mt-1 text-sm text-secondary truncate">
+                      {{ displaySubtitle }}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="flex items-center gap-2 self-start">
+                <Button
+                  v-if="!isCreationMode && device?.quantity != null"
+                  variant="secondary"
+                  icon="history"
+                  @click="scrollToInventory"
+                >
+                  {{ $t('asset-usage-history-heading') }}
+                </Button>
+                <DeleteButton
+                  v-if="!isCreationMode && device?.is_editable"
+                  fallbackRoute="/assets"
+                  :itemName="$t('asset-detail-delete-item-name')"
+                  @delete="handleDeleteDevice"
+                />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div class="rounded-lg border border-default bg-surface-alt px-3 py-2">
+                <p class="text-[11px] font-medium uppercase tracking-wide text-tertiary">
+                  {{ canHavePrimaryUser || (!isCreationMode && device?.primary_user) ? $t('asset-detail-section-primary-user') : $t('asset-detail-field-location') }}
+                </p>
+                <p class="mt-1 text-sm font-medium text-primary truncate">
+                  {{
+                    canHavePrimaryUser || (!isCreationMode && device?.primary_user)
+                      ? (isCreationMode ? (selectedUser?.name ?? $t('asset-detail-no-user-assigned')) : (device?.primary_user?.name ?? $t('asset-detail-no-user-assigned')))
+                      : (editValues.location || device?.location || $t('assets-list-grouping-location-none'))
+                  }}
+                </p>
+              </div>
+              <div class="rounded-lg border border-default bg-surface-alt px-3 py-2">
+                <p class="text-[11px] font-medium uppercase tracking-wide text-tertiary">
+                  {{ $t('asset-detail-section-stock') }}
+                </p>
+                <p
+                  class="mt-1 text-sm font-medium truncate"
+                  :class="stockStatus === 'low' ? 'text-status-warning' : 'text-primary'"
+                >
+                  {{ stockStatusLabel }}
+                </p>
+              </div>
+              <div class="rounded-lg border border-default bg-surface-alt px-3 py-2">
+                <p class="text-[11px] font-medium uppercase tracking-wide text-tertiary">
+                  {{ $t('asset-detail-section-device-information') }}
+                </p>
+                <p class="mt-1 text-sm font-medium text-primary truncate">
+                  {{ managementLabel }}
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
 
         <!-- Kind picker + dynamic attribute form. In creation
              mode the admin chooses the kind and fills in any
@@ -503,19 +660,14 @@ onMounted(() => {
           <template #title>{{ $t('asset-detail-section-kind') }}</template>
           <div class="flex flex-col gap-4">
             <div class="flex flex-col gap-1.5">
-              <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">
-                {{ $t('asset-detail-field-kind') }}
-              </h3>
-              <select
+              <SearchableDropdown
                 v-if="isKindOrAttributesEditable"
-                v-model="selectedKindSlug"
-                class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-2.5 text-primary"
-                @change="onKindPickerChange"
-              >
-                <option v-for="k in kinds" :key="k.slug" :value="k.slug">
-                  {{ k.label }}
-                </option>
-              </select>
+                :model-value="selectedKindSlug"
+                :options="kindOptions"
+                :label="$t('asset-detail-field-kind')"
+                size="sm"
+                @update:model-value="(value) => { selectedKindSlug = String(value); onKindPickerChange() }"
+              />
               <p v-else class="text-sm text-primary">
                 {{ selectedKind?.label ?? selectedKindSlug }}
               </p>
@@ -534,22 +686,21 @@ onMounted(() => {
               v-if="!isCreationMode && isKindOrAttributesEditable && attributesDirty"
               class="flex items-center gap-2 pt-2"
             >
-              <button
-                type="button"
-                class="px-3 py-1.5 text-sm rounded-lg bg-accent text-on-accent hover:bg-accent-strong disabled:opacity-50"
+              <Button
+                size="sm"
                 :disabled="isSaving"
                 @click="saveAttributes"
               >
                 {{ $t('asset-detail-attributes-save') }}
-              </button>
-              <button
-                type="button"
-                class="px-3 py-1.5 text-sm rounded-lg border border-default text-secondary hover:text-primary"
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
                 :disabled="isSaving"
                 @click="discardAttributes"
               >
                 {{ $t('asset-detail-attributes-discard') }}
-              </button>
+              </Button>
             </div>
             <AlertMessage v-if="attributesError" type="error" :message="attributesError" />
           </div>
@@ -564,12 +715,10 @@ onMounted(() => {
               <!-- Name -->
               <div class="flex flex-col gap-1.5">
                 <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-name') }}</h3>
-                <input
+                <FormInput
                   v-if="isCreationMode"
                   v-model="editValues.name"
-                  type="text"
                   :placeholder="$t('asset-detail-field-name-placeholder-create')"
-                  class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-accent/50"
                 />
                 <InlineEdit
                   v-else
@@ -590,12 +739,10 @@ onMounted(() => {
               <!-- Serial Number -->
               <div class="flex flex-col gap-1.5">
                 <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-serial') }}</h3>
-                <input
+                <FormInput
                   v-if="isCreationMode"
                   v-model="editValues.serial_number"
-                  type="text"
                   :placeholder="$t('asset-detail-field-serial-placeholder-create')"
-                  class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-accent/50"
                 />
                 <InlineEdit
                   v-else
@@ -611,12 +758,10 @@ onMounted(() => {
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-default">
                 <div class="flex flex-col gap-1.5">
                   <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-manufacturer') }}</h3>
-                  <input
+                  <FormInput
                     v-if="isCreationMode"
                     v-model="editValues.manufacturer"
-                    type="text"
                     :placeholder="$t('asset-detail-field-manufacturer-placeholder-create')"
-                    class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-accent/50"
                   />
                   <InlineEdit
                     v-else
@@ -630,12 +775,10 @@ onMounted(() => {
 
                 <div class="flex flex-col gap-1.5">
                   <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-model') }}</h3>
-                  <input
+                  <FormInput
                     v-if="isCreationMode"
                     v-model="editValues.model"
-                    type="text"
                     :placeholder="$t('asset-detail-field-model-placeholder-create')"
-                    class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-accent/50"
                   />
                   <InlineEdit
                     v-else
@@ -648,8 +791,8 @@ onMounted(() => {
                 </div>
               </div>
 
-              <!-- Purchase Date + Asset Tag -->
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <!-- Purchase date + asset tag + location -->
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div class="flex flex-col gap-1.5">
                   <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-purchase-date') }}</h3>
                   <DatePicker
@@ -664,12 +807,11 @@ onMounted(() => {
                 </div>
                 <div class="flex flex-col gap-1.5">
                   <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-asset-tag') }}</h3>
-                  <input
+                  <FormInput
                     v-if="isCreationMode"
                     v-model="editValues.asset_tag"
-                    type="text"
                     :placeholder="$t('asset-detail-field-asset-tag-placeholder-create')"
-                    class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-2.5 text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-accent/50 text-sm"
+                    size="sm"
                   />
                   <InlineEdit
                     v-else
@@ -680,28 +822,99 @@ onMounted(() => {
                     @update:modelValue="() => saveField('asset_tag')"
                   />
                 </div>
+                <div class="flex flex-col gap-1.5">
+                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-location') }}</h3>
+                  <FormInput
+                    v-if="isCreationMode"
+                    v-model="editValues.location"
+                    :placeholder="$t('asset-detail-field-location-placeholder-create')"
+                    size="sm"
+                  />
+                  <InlineEdit
+                    v-else
+                    v-model="editValues.location"
+                    :placeholder="$t('asset-detail-field-location-placeholder-edit')"
+                    text-size="sm"
+                    :can-edit="device?.is_editable ?? false"
+                    @update:modelValue="() => saveField('location')"
+                  />
+                </div>
               </div>
             </div>
           </SectionCard>
 
           <!-- Right column -->
           <div v-if="isCreationMode || device" class="flex flex-col gap-6">
+            <SectionCard v-if="isCreationMode && showCreateInventoryPanel" id="asset-inventory-panel" content-padding="p-4">
+              <template #title>{{ $t('asset-detail-section-stock') }}</template>
+
+              <div class="flex flex-col gap-4">
+                <div v-if="isLowStock" class="flex items-center gap-2 px-3 py-2 bg-status-warning/10 text-status-warning rounded-lg text-sm">
+                  <Icon name="warning" />
+                  <span>{{ $t('asset-detail-low-stock-warning', { quantity: editValues.quantity, unit: editValues.unit, threshold: editValues.low_stock_threshold }) }}</span>
+                </div>
+
+                <FormInput
+                  v-model="editValues.quantity"
+                  :label="$t('asset-detail-field-quantity')"
+                  :placeholder="$t('asset-detail-field-quantity-placeholder')"
+                  inputmode="decimal"
+                  size="sm"
+                />
+
+                <FormInput
+                  v-model="editValues.unit"
+                  :label="$t('asset-detail-field-unit')"
+                  :placeholder="$t('asset-detail-field-unit-placeholder')"
+                  size="sm"
+                />
+
+                <FormInput
+                  v-model="editValues.low_stock_threshold"
+                  :label="$t('asset-detail-field-low-stock-threshold')"
+                  :placeholder="$t('asset-detail-field-low-stock-threshold-placeholder')"
+                  :description="$t('asset-detail-field-low-stock-threshold-help')"
+                  inputmode="decimal"
+                  size="sm"
+                />
+              </div>
+            </SectionCard>
+
+            <SectionCard v-if="isCreationMode && !canHavePrimaryUser" content-padding="p-4">
+              <template #title>{{ $t('asset-detail-section-physical-context') }}</template>
+
+              <div class="flex flex-col gap-3">
+                <div class="rounded-lg border border-dashed border-default bg-surface-alt p-4 flex items-start gap-3">
+                  <Icon name="paperclip" class="text-tertiary flex-shrink-0 mt-0.5" />
+                  <div class="min-w-0">
+                    <p class="text-sm font-medium text-primary">
+                      {{ $t('asset-detail-photo-placeholder-title') }}
+                    </p>
+                    <p class="text-xs text-tertiary mt-1">
+                      {{ $t('asset-detail-photo-placeholder-description') }}
+                    </p>
+                  </div>
+                </div>
+                <p class="text-xs text-tertiary">
+                  {{ $t('asset-detail-physical-context-help') }}
+                </p>
+              </div>
+            </SectionCard>
+
             <!-- Primary User (create mode) -->
-            <SectionCard v-if="isCreationMode" content-padding="p-4">
+            <SectionCard v-if="isCreationMode && canHavePrimaryUser" content-padding="p-4">
               <template #title>{{ $t('asset-detail-section-primary-user') }}</template>
 
               <div v-if="selectedUser" class="flex flex-col gap-4">
                 <UserCard :user="selectedUser" avatar-size="lg" />
 
-                <button
+                <Button
+                  block
+                  icon="user"
                   @click="showUserSelectionModal = true"
-                  class="w-full px-4 py-2.5 bg-accent text-on-accent rounded-lg hover:bg-accent/80 transition-colors text-sm font-medium flex items-center justify-center gap-2"
                 >
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-                  </svg>
                   {{ $t('asset-detail-action-change-user') }}
-                </button>
+                </Button>
               </div>
 
               <div v-else class="flex flex-col items-center py-8 gap-4">
@@ -710,33 +923,30 @@ onMounted(() => {
                 </div>
                 <p class="text-secondary text-sm">{{ $t('asset-detail-no-user-assigned') }}</p>
 
-                <button
+                <Button
+                  icon="add"
                   @click="showUserSelectionModal = true"
-                  class="px-4 py-2.5 bg-accent text-on-accent rounded-lg hover:bg-accent/80 transition-colors text-sm font-medium flex items-center gap-2"
                 >
-                  <Icon name="add" />
                   {{ $t('asset-detail-action-assign-user') }}
-                </button>
+                </Button>
               </div>
             </SectionCard>
 
             <!-- Primary User (edit mode) -->
-            <SectionCard v-if="!isCreationMode && device" content-padding="p-4">
+            <SectionCard v-if="!isCreationMode && device && showPrimaryUserPanel" content-padding="p-4">
               <template #title>{{ $t('asset-detail-section-primary-user') }}</template>
 
               <div v-if="device.primary_user" class="flex flex-col gap-4">
                 <UserCard :user="device.primary_user" avatar-size="lg" />
 
-                <button
+                <Button
                   v-if="device.is_editable"
+                  block
+                  icon="user"
                   @click="showUserSelectionModal = true"
-                  class="w-full px-4 py-2.5 bg-accent text-on-accent rounded-lg hover:bg-accent/80 transition-colors text-sm font-medium flex items-center justify-center gap-2"
                 >
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-                  </svg>
                   {{ $t('asset-detail-action-change-user') }}
-                </button>
+                </Button>
               </div>
 
               <div v-else class="flex flex-col items-center py-8 gap-4">
@@ -745,25 +955,32 @@ onMounted(() => {
                 </div>
                 <p class="text-secondary text-sm">{{ $t('asset-detail-no-user-assigned') }}</p>
 
-                <button
+                <Button
                   v-if="device.is_editable"
+                  icon="add"
                   @click="showUserSelectionModal = true"
-                  class="px-4 py-2.5 bg-accent text-on-accent rounded-lg hover:bg-accent/80 transition-colors text-sm font-medium flex items-center gap-2"
                 >
-                  <Icon name="add" />
                   {{ $t('asset-detail-action-assign-user') }}
-                </button>
+                </Button>
               </div>
             </SectionCard>
 
             <!-- Groups (edit mode only) -->
             <DeviceGroups v-if="!isCreationMode && device" :groups="device.groups" />
 
+            <SectionCard v-if="!isCreationMode && device" content-padding="p-4">
+              <template #title>{{ $t('asset-media-heading') }}</template>
+              <AssetMediaPanel
+                :asset-id="device.id"
+                :can-edit="device.is_editable"
+              />
+            </SectionCard>
+
             <!-- Stock tracking (editable assets only). Surfaces
                  the three columns that drive consumable usage:
                  quantity (on-hand count), unit (label), and the
                  optional low_stock_threshold. -->
-            <SectionCard v-if="!isCreationMode && device?.is_editable" content-padding="p-4">
+            <SectionCard v-if="!isCreationMode && device?.is_editable" id="asset-inventory-panel" content-padding="p-4">
               <template #title>{{ $t('asset-detail-section-stock') }}</template>
 
               <div class="flex flex-col gap-4">
@@ -772,52 +989,35 @@ onMounted(() => {
                   <span>{{ $t('asset-detail-low-stock-warning', { quantity: device!.quantity!, unit: device!.unit ?? '', threshold: device!.low_stock_threshold! }) }}</span>
                 </div>
 
-                <div class="flex flex-col gap-2">
-                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">
-                    {{ $t('asset-detail-field-quantity') }}
-                  </h3>
-                  <input
-                    v-model="editValues.quantity"
-                    type="text"
-                    inputmode="decimal"
-                    :placeholder="$t('asset-detail-field-quantity-placeholder')"
-                    class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-2 text-primary placeholder-secondary text-sm focus:outline-none focus:ring-2 focus:ring-accent/50"
-                    @blur="saveStockField('quantity')"
-                    @keyup.enter="saveStockField('quantity')"
-                  />
-                </div>
+                <FormInput
+                  v-model="editValues.quantity"
+                  :label="$t('asset-detail-field-quantity')"
+                  :placeholder="$t('asset-detail-field-quantity-placeholder')"
+                  inputmode="decimal"
+                  size="sm"
+                  @blur="saveStockField('quantity')"
+                  @keyup.enter="saveStockField('quantity')"
+                />
 
-                <div class="flex flex-col gap-2">
-                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">
-                    {{ $t('asset-detail-field-unit') }}
-                  </h3>
-                  <input
-                    v-model="editValues.unit"
-                    type="text"
-                    :placeholder="$t('asset-detail-field-unit-placeholder')"
-                    class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-2 text-primary placeholder-secondary text-sm focus:outline-none focus:ring-2 focus:ring-accent/50"
-                    @blur="saveStockField('unit')"
-                    @keyup.enter="saveStockField('unit')"
-                  />
-                </div>
+                <FormInput
+                  v-model="editValues.unit"
+                  :label="$t('asset-detail-field-unit')"
+                  :placeholder="$t('asset-detail-field-unit-placeholder')"
+                  size="sm"
+                  @blur="saveStockField('unit')"
+                  @keyup.enter="saveStockField('unit')"
+                />
 
-                <div class="flex flex-col gap-2">
-                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">
-                    {{ $t('asset-detail-field-low-stock-threshold') }}
-                  </h3>
-                  <input
-                    v-model="editValues.low_stock_threshold"
-                    type="text"
-                    inputmode="decimal"
-                    :placeholder="$t('asset-detail-field-low-stock-threshold-placeholder')"
-                    class="w-full bg-surface-alt rounded-lg border border-default hover:border-strong px-3 py-2 text-primary placeholder-secondary text-sm focus:outline-none focus:ring-2 focus:ring-accent/50"
-                    @blur="saveStockField('low_stock_threshold')"
-                    @keyup.enter="saveStockField('low_stock_threshold')"
-                  />
-                  <p class="text-xs text-tertiary">
-                    {{ $t('asset-detail-field-low-stock-threshold-help') }}
-                  </p>
-                </div>
+                <FormInput
+                  v-model="editValues.low_stock_threshold"
+                  :label="$t('asset-detail-field-low-stock-threshold')"
+                  :placeholder="$t('asset-detail-field-low-stock-threshold-placeholder')"
+                  :description="$t('asset-detail-field-low-stock-threshold-help')"
+                  inputmode="decimal"
+                  size="sm"
+                  @blur="saveStockField('low_stock_threshold')"
+                  @keyup.enter="saveStockField('low_stock_threshold')"
+                />
               </div>
             </SectionCard>
 
@@ -900,19 +1100,16 @@ onMounted(() => {
                   </div>
                 </div>
                 <div class="pt-4 border-t border-default flex flex-col gap-3">
-                  <button
+                  <Button
                     @click="handleUnmanageDevice"
                     :disabled="isSaving"
-                    class="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-status-warning/20 text-status-warning rounded-lg hover:bg-status-warning/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+                    block
+                    variant="secondary"
+                    icon="refresh"
                     :title="$t('asset-detail-action-unmanage-title')"
                   >
-                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M18.84 12.25l1.72-1.71h-.02a5.004 5.004 0 00-.12-7.07 5.006 5.006 0 00-6.95 0l-1.72 1.71" />
-                      <path d="M5.17 11.75l-1.71 1.71a5.004 5.004 0 00.12 7.07 5.006 5.006 0 006.95 0l1.71-1.71" />
-                      <path d="M8 2v3" /><path d="M2 8h3" /><path d="M16 22v-3" /><path d="M22 16h-3" />
-                    </svg>
                     {{ isSaving ? $t('asset-detail-action-unmanage-processing') : $t('asset-detail-action-unmanage') }}
-                  </button>
+                  </Button>
                   <p class="text-xs text-tertiary text-center">{{ $t('asset-detail-unmanage-conversion-note') }}</p>
                 </div>
               </div>
@@ -923,21 +1120,21 @@ onMounted(() => {
         <!-- Create mode action bar -->
         <div v-if="isCreationMode" class="flex justify-end">
           <div class="flex gap-3">
-            <button
+            <Button
+              variant="secondary"
               @click="router.push('/assets')"
               :disabled="isSaving"
-              class="px-6 py-2.5 bg-surface-alt text-primary rounded-lg hover:bg-surface-hover disabled:opacity-50 transition-colors text-sm font-medium"
             >
               {{ $t('asset-detail-action-cancel') }}
-            </button>
-            <button
+            </Button>
+            <Button
               @click="saveDevice"
               :disabled="isSaving || (!editValues.name && !(attributeDraft.hostname as string | undefined))"
-              class="px-6 py-2.5 bg-status-success text-white rounded-lg hover:bg-status-success/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium flex items-center gap-2"
+              :loading="isSaving"
+              icon="add"
             >
-              <Spinner v-if="isSaving" />
               {{ isSaving ? $t('asset-detail-action-create-processing') : $t('asset-detail-action-create') }}
-            </button>
+            </Button>
           </div>
         </div>
       </div>
