@@ -34,6 +34,37 @@ const ERROR_CODE_KEYS: Record<string, string> = {
 
 const router = useRouter();
 
+// Tab-scoped stash for the bootstrap token after we strip it from
+// the URL. Survives refresh within the same tab; cleared on tab
+// close. Not sent in requests (unlike cookies) and not written to
+// disk long-term (unlike localStorage).
+const BOOTSTRAP_TOKEN_SESSION_KEY = 'nosdesk-bootstrap-token';
+
+function persistBootstrapToken(token: string) {
+  try {
+    sessionStorage.setItem(BOOTSTRAP_TOKEN_SESSION_KEY, token.trim());
+  } catch {
+    // Private mode / quota — degrade to in-memory only.
+  }
+}
+
+function loadPersistedBootstrapToken(): string | null {
+  try {
+    const stored = sessionStorage.getItem(BOOTSTRAP_TOKEN_SESSION_KEY);
+    return stored?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function clearPersistedBootstrapToken() {
+  try {
+    sessionStorage.removeItem(BOOTSTRAP_TOKEN_SESSION_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 // Auto-login composable. The onboarding view drives its own step
 // state, so only `attemptLogin` is consumed here.
 const { attemptLogin } = useAutoLogin({ source: 'onboarding' });
@@ -114,11 +145,18 @@ onMounted(async () => {
   const tokenParam = params.get('token');
   if (tokenParam && tokenParam.trim()) {
     bootstrapToken.value = tokenParam.trim();
+    persistBootstrapToken(bootstrapToken.value);
     tokenFromUrl.value = true;
     params.delete('token');
     const cleanQuery = params.toString();
     const cleanUrl = `${window.location.pathname}${cleanQuery ? '?' + cleanQuery : ''}${window.location.hash}`;
     window.history.replaceState({}, '', cleanUrl);
+  } else {
+    const stored = loadPersistedBootstrapToken();
+    if (stored) {
+      bootstrapToken.value = stored;
+      tokenFromUrl.value = true;
+    }
   }
 
   try {
@@ -132,10 +170,14 @@ onMounted(async () => {
   }
 });
 
-const clearSensitiveData = () => {
+const clearFormSecrets = () => {
   adminData.value.password = '';
   confirmPassword.value = '';
+};
+
+const discardBootstrapToken = () => {
   bootstrapToken.value = '';
+  clearPersistedBootstrapToken();
 };
 
 const handleLoginFallback = () => {
@@ -170,6 +212,7 @@ const handleSetup = async () => {
 
     if (response.success) {
       authService.clearSetupStatusCache();
+      discardBootstrapToken();
       currentStep.value = 'logging-in';
       successMessage.value = t('onboarding-success-logging-in');
       autoLoginAttempted.value = true;
@@ -178,7 +221,7 @@ const handleSetup = async () => {
 
       if (loginSuccess) {
         currentStep.value = 'complete';
-        clearSensitiveData();
+        clearFormSecrets();
       } else {
         handleLoginFallback();
       }
@@ -211,7 +254,7 @@ const handleSetup = async () => {
     // problem.
     if (axiosError.response?.status === 401 && tokenFromUrl.value) {
       tokenFromUrl.value = false;
-      bootstrapToken.value = '';
+      discardBootstrapToken();
     }
   } finally {
     isLoading.value = false;
@@ -219,7 +262,10 @@ const handleSetup = async () => {
 };
 
 onUnmounted(() => {
-  clearSensitiveData();
+  // Passwords only — do not clear the sessionStorage token here.
+  // A refresh unmounts this component first; wiping the stash
+  // would defeat the refresh-survival behaviour above.
+  clearFormSecrets();
 });
 </script>
 

@@ -16,6 +16,7 @@
     />
     <button
       type="button"
+      tabindex="-1"
       @click="showPassword = !showPassword"
       class="absolute inset-y-0 right-0 px-3 flex items-center text-tertiary hover:text-secondary transition-colors"
       :aria-label="showPassword ? 'Hide password' : 'Show password'"

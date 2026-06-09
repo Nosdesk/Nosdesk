@@ -207,7 +207,7 @@ class AuthService {
   ): Promise<AdminSetupResponse> {
     try {
       const response = await apiClient.post('/auth/setup/admin', adminData, {
-        headers: { Authorization: `Bearer ${bootstrapToken}` },
+        headers: { 'X-Bootstrap-Token': bootstrapToken },
       });
       return response.data;
     } catch (error) {

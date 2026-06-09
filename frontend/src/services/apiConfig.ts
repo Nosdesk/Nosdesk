@@ -211,10 +211,21 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401) {
       const originalRequest = error.config;
 
+      // First-run setup returns 401 when the bootstrap token is
+      // missing, expired, or wrong — not because the session died.
+      // Skip refresh/redirect so OnboardingView can read the
+      // machine-readable `code` and show a localised message.
+      if (originalRequest.url?.includes('/auth/setup/')) {
+        return Promise.reject(error);
+      }
+
       // A 401 from the refresh endpoint itself means the session
       // genuinely can't be renewed -> send the user to login.
       if (originalRequest.url?.includes('/auth/refresh')) {
-        if (!window.location.pathname.includes('/login') && !sessionStorage.getItem('redirecting-to-login')) {
+        const onPublicAuthPage =
+          window.location.pathname.includes('/login') ||
+          window.location.pathname.includes('/onboarding');
+        if (!onPublicAuthPage && !sessionStorage.getItem('redirecting-to-login')) {
           logger.warn('Session expired (refresh rejected) - redirecting to login', { correlationId });
           redirectToLogin();
         }
@@ -269,8 +280,11 @@ apiClient.interceptors.response.use(
           onRefreshComplete(false);
           isRefreshing = false;
 
-          // Redirect to login
-          if (!window.location.pathname.includes('/login') && !sessionStorage.getItem('redirecting-to-login')) {
+          // Redirect to login (but not from first-run setup)
+          const onPublicAuthPage =
+            window.location.pathname.includes('/login') ||
+            window.location.pathname.includes('/onboarding');
+          if (!onPublicAuthPage && !sessionStorage.getItem('redirecting-to-login')) {
             redirectToLogin();
           }
         }
