@@ -79,6 +79,12 @@ impl TenantConn {
         })?;
         session::with_actor_context(&mut conn, &self.actor, f)
     }
+
+    /// Workspace the request actor is pinned to, if any. Mirrors
+    /// the value set by auth middleware from `WorkspaceContext`.
+    pub fn workspace_id(&self) -> Option<i32> {
+        self.actor.workspace_id
+    }
 }
 
 /// Error type for `TenantConn` extraction failures.

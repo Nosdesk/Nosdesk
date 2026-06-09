@@ -250,6 +250,7 @@ bug-report-success-toast-body = Thanks. An admin can find it in this workspace's
 bug-report-error-toast-title = Couldn't send report
 bug-report-error-toast-body = Try again in a moment.
 
+ticket-list-loading = Loading tickets…
 ticket-list-empty-no-assigned-message = No tickets assigned to you.
 ticket-list-empty-showing-all-active = Showing all active tickets instead.
 ticket-list-empty-no-match-title = No tickets match.

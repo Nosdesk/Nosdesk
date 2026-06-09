@@ -87,9 +87,12 @@ const ticketsStore = useSyncTicketsStore()
 const authStore = useAuthStore()
 const savedViewsStore = useSavedViewsStore()
 
+const bootstrapped = ref(false)
+
 onMounted(async () => {
   await subscribe('workspace:1')
   await savedViewsStore.ensureLoaded(null)
+  bootstrapped.value = true
 })
 
 const { activeView, tabItems, overflowItems, allViewItems, selectViewById } = useTicketsViewResolution()
@@ -381,9 +384,7 @@ watch(sortedCards, () => {
   if (splitViewActive.value) selection.selectFirstIfNone()
 })
 
-const isInitiallyLoading = computed(
-  () => allTickets.value.length === 0 && allCards.value.length === 0,
-)
+const isInitiallyLoading = computed(() => !bootstrapped.value)
 
 function open(cardId: number): void {
   router.push(`/tickets/${cardId}`)
@@ -934,7 +935,7 @@ function startPaneResize(event: PointerEvent): void {
       v-if="isInitiallyLoading"
       class="flex-1 flex items-center justify-center text-tertiary text-sm"
     >
-      Loading tickets…
+      {{ $t('ticket-list-loading') }}
     </div>
 
     <CalendarBoard

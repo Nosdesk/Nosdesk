@@ -63,19 +63,75 @@ export const getAssetLocations = async (): Promise<AssetLocationOption[]> => {
   }
 };
 
-/** Build a URL for CSV export. Anchor navigation lets the browser
- *  handle the download with the same cookie auth as import
- *  templates (`importService.templateUrl`). */
-export function buildAssetExportUrl(
+/** Build query params for CSV export (shared by the download helper). */
+function assetExportParams(
   filters: Pick<AssetPaginationParams, 'search' | 'status' | 'warranty' | 'location' | 'lowStock'>,
-): string {
+): URLSearchParams {
   const params = new URLSearchParams({ format: 'csv' });
   if (filters.search) params.set('search', filters.search);
   if (filters.status) params.set('status', filters.status);
   if (filters.warranty) params.set('warranty', filters.warranty);
   if (filters.location) params.set('location', filters.location);
   if (filters.lowStock) params.set('lowStock', filters.lowStock);
-  return `/api/assets/export?${params.toString()}`;
+  return params;
+}
+
+function filenameFromContentDisposition(
+  header: string | undefined,
+  fallback: string,
+): string {
+  if (!header) return fallback;
+  const match = /filename\*?=(?:UTF-8''|")?([^";]+)/i.exec(header);
+  const raw = match?.[1]?.trim();
+  return raw ? decodeURIComponent(raw.replace(/^"|"$/g, '')) : fallback;
+}
+
+async function messageFromErrorBlob(blob: Blob): Promise<string | null> {
+  const text = (await blob.text()).trim();
+  if (!text) return null;
+  try {
+    const parsed = JSON.parse(text) as { error?: string; message?: string };
+    return parsed.error || parsed.message || text;
+  } catch {
+    return text;
+  }
+}
+
+/** Download workspace assets as CSV, honouring the same filters as
+ *  the paginated list. Uses the authenticated API client so errors
+ *  surface in-app instead of replacing the page with raw text. */
+export async function downloadAssetsCsv(
+  filters: Pick<AssetPaginationParams, 'search' | 'status' | 'warranty' | 'location' | 'lowStock'>,
+): Promise<void> {
+  try {
+    const response = await apiClient.get('/assets/export', {
+      params: assetExportParams(filters),
+      responseType: 'blob',
+    });
+    const blob = response.data as Blob;
+    const filename = filenameFromContentDisposition(
+      response.headers['content-disposition'] as string | undefined,
+      'assets-export.csv',
+    );
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    const err = error as { response?: { data?: Blob } };
+    if (err.response?.data instanceof Blob) {
+      const message = await messageFromErrorBlob(err.response.data);
+      if (message) {
+        throw new Error(message);
+      }
+    }
+    logger.error('Failed to export assets CSV', { error });
+    throw error;
+  }
 }
 
 // Get paginated assets

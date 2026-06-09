@@ -262,6 +262,7 @@ bug-report-error-toast-body = Try again in a moment.
 
 # en-AU keeps the same wording as en-GB for tickets — the
 # empty-state copy is already terse and reads fine in AU register.
+ticket-list-loading = Loading tickets…
 ticket-list-empty-no-assigned-message = No tickets assigned to you.
 ticket-list-empty-showing-all-active = Showing all active tickets instead.
 ticket-list-empty-no-match-title = No tickets match.

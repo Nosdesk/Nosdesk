@@ -254,6 +254,7 @@ bug-report-error-toast-title = Kan rapport niet verzenden
 bug-report-error-toast-body = Probeer het zo opnieuw.
 
 # Tickets — lege staten + bulkactiebalk.
+ticket-list-loading = Tickets laden…
 ticket-list-empty-no-assigned-message = Geen tickets aan u toegewezen.
 ticket-list-empty-showing-all-active = Alle actieve tickets worden weergegeven.
 ticket-list-empty-no-match-title = Geen tickets gevonden.
@@ -2105,6 +2106,8 @@ assets-list-filter-low-stock-all = All stock
 assets-list-filter-low-stock-on = Low stock only
 assets-list-add-action = Activum toevoegen
 assets-list-export-csv = CSV exporteren
+assets-list-export-empty = Geen assets om te exporteren. Voeg assets toe of pas uw filters aan.
+assets-list-export-failed = Exporteren van assets mislukt. Probeer het opnieuw.
 assets-list-unassigned = Niet toegewezen
 assets-list-warranty-unknown = Onbekend
 assets-list-bulk-delete = Verwijderen

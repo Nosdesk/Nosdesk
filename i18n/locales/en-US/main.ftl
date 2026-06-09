@@ -302,6 +302,7 @@ bug-report-error-toast-title = Couldn't send report
 bug-report-error-toast-body = Try again in a moment.
 
 # Tickets list — empty states + bulk-action bar + chrome.
+ticket-list-loading = Loading tickets…
 ticket-list-empty-no-assigned-message = No tickets assigned to you.
 ticket-list-empty-showing-all-active = Showing all active tickets instead.
 ticket-list-empty-no-match-title = No tickets match.
@@ -2239,6 +2240,8 @@ assets-list-filter-low-stock-all = All stock
 assets-list-filter-low-stock-on = Low stock only
 assets-list-add-action = Add asset
 assets-list-export-csv = Export CSV
+assets-list-export-empty = No assets to export. Add assets first, or adjust your filters.
+assets-list-export-failed = Failed to export assets. Please try again.
 assets-list-unassigned = Unassigned
 assets-list-warranty-unknown = Unknown
 assets-list-bulk-delete = Delete
