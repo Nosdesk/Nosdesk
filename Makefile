@@ -117,7 +117,7 @@ shell: ## Shell into the backend container
 # 127.0.0.1:54329, so this also works from your host's psql if you
 # have it installed.
 psql: ## Open psql against the dev DB
-	$(COMPOSE) exec postgres psql -U nosdesk -d helpdesk
+	$(COMPOSE) exec postgres psql -U nosdesk -d nosdesk
 
 # Open the Mailpit web UI in your default browser. Captured
 # outbound mail lives there during dev.

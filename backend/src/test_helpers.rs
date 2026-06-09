@@ -133,7 +133,7 @@ fn ensure_test_keyring() {
 /// sequences are non-transactional, so every fixture insert would burn
 /// an id out of the dev database's `tickets_id_seq` etc., pushing
 /// ticket numbers into the thousands after a handful of `cargo test`
-/// runs. The dev compose file provisions `helpdesk_test` and wires
+/// runs. The dev compose file provisions `nosdesk_test` and wires
 /// this env var; see `init-db.sql`.
 pub fn setup_test_connection() -> DbConnection {
     ensure_test_db_migrated();

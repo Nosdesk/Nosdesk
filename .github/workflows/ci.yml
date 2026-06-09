@@ -15,14 +15,14 @@ jobs:
     runs-on: ubuntu-latest
     # Postgres for DB-backed integration tests. Mirrors the
     # compose.dev.yaml postgres so test_helpers' bootstrap finds
-    # the same `helpdesk_test` database it expects locally.
+    # the same `nosdesk_test` database it expects locally.
     services:
       postgres:
         image: postgres:17-bookworm
         env:
           POSTGRES_USER: nosdesk
           POSTGRES_PASSWORD: nosdesk_password
-          POSTGRES_DB: helpdesk_test
+          POSTGRES_DB: nosdesk_test
         ports:
           - 5432:5432
         options: >-
@@ -88,7 +88,7 @@ jobs:
           # Override backend/.cargo/config.toml's host-port URL
           # (54329 is the compose.dev.yaml publish, irrelevant in
           # CI where the postgres service is on the standard port).
-          TEST_DATABASE_URL: postgres://nosdesk:nosdesk_password@127.0.0.1:5432/helpdesk_test
+          TEST_DATABASE_URL: postgres://nosdesk:nosdesk_password@127.0.0.1:5432/nosdesk_test
           # Override backend/.cargo/config.toml's dev value (port 63799 +
           # password); the CI redis service is open on the standard port.
           TEST_REDIS_URL: redis://127.0.0.1:6379/15
@@ -123,7 +123,7 @@ jobs:
       - name: cargo test (Greenmail email integration)
         working-directory: backend
         env:
-          TEST_DATABASE_URL: postgres://nosdesk:nosdesk_password@127.0.0.1:5432/helpdesk_test
+          TEST_DATABASE_URL: postgres://nosdesk:nosdesk_password@127.0.0.1:5432/nosdesk_test
           MFA_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
           # Greenmail's published ports are on the runner's loopback.
           GREENMAIL_HOST: 127.0.0.1

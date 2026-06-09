@@ -1,7 +1,7 @@
 # Backend-local cargo config.
 #
 # Sets `TEST_DATABASE_URL` so `cargo test` can reach the dedicated
-# `helpdesk_test` database without each developer having to remember
+# `nosdesk_test` database without each developer having to remember
 # to export the variable. The host port (54329) is published by
 # `compose.dev.yaml`'s postgres override; bring the dev stack up
 # with `docker compose -f compose.yaml -f compose.dev.yaml up -d`
@@ -20,7 +20,7 @@
 # the parent shell take precedence over `[env]` here.
 
 [env]
-TEST_DATABASE_URL = "postgres://nosdesk:nosdesk_password@127.0.0.1:54329/helpdesk_test"
+TEST_DATABASE_URL = "postgres://nosdesk:nosdesk_password@127.0.0.1:54329/nosdesk_test"
 # Redis for redis-backed integration tests (the collab ownership-claim
 # suite). Published on host loopback by compose.dev.yaml's redis
 # override; db index 15 isolates test keys from the dev backend's cache

@@ -1,6 +1,6 @@
 services:
   # Postgres — dev override exposes the port on the host loopback so
-  # `cargo test` can reach the `helpdesk_test` database from outside
+  # `cargo test` can reach the `nosdesk_test` database from outside
   # the compose network without a socat bridge dance. Bound to
   # 127.0.0.1 (no LAN exposure) and on a deliberately non-standard
   # port so it doesn't fight a developer's host Postgres on 5432.
@@ -122,7 +122,7 @@ services:
       # burn sequence values out of the dev DB. See `init-db.sql` for
       # the CREATE DATABASE + GRANT, and `backend/src/test_helpers.rs`
       # for the hard-fail when this is unset.
-      - TEST_DATABASE_URL=postgres://${POSTGRES_USER:-nosdesk}:${POSTGRES_PASSWORD:-nosdesk_password}@postgres:5432/helpdesk_test
+      - TEST_DATABASE_URL=postgres://${POSTGRES_USER:-nosdesk}:${POSTGRES_PASSWORD:-nosdesk_password}@postgres:5432/nosdesk_test
       # NOSDESK_ROOT_PUBKEY is loaded from docker.env via env_file. Do
       # not redeclare it here, since environment: would override the
       # docker.env value with whatever the host shell has (typically
