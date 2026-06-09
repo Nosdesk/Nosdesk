@@ -25,6 +25,7 @@ import Modal from '@/components/Modal.vue';
 import { getAssetById, updateAsset, createAsset, deleteAsset, unmanageAsset } from '@/services/assetService';
 import { type AssetKind } from '@/services/assetKindsService';
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery';
+import { useAssetLocationsQuery } from '@/composables/useAssetLocationsQuery';
 import { useSyncActions } from '@/composables/useSyncActions';
 import { useAuthStore } from '@/stores/auth';
 import type { Asset, AssetFormData } from '@/types/asset';
@@ -46,6 +47,7 @@ const showUnmanageModal = ref(false);
 const unmanageError = ref<string | null>(null);
 const hostnameRef = ref<HTMLInputElement | null>(null);
 const selectedUser = ref<{ uuid: string; name: string; email: string; role: string } | null>(null);
+const { locations: knownLocations } = useAssetLocationsQuery();
 
 const editValues = ref({
   name: '',
@@ -155,6 +157,18 @@ const stockStatusLabel = computed(() => {
     return unit ? `${quantity} ${unit}` : quantity;
   }
   return t('asset-detail-stock-not-tracked');
+});
+
+const locationSuggestions = computed(() => {
+  const query = editValues.value.location.trim().toLowerCase();
+  return knownLocations.value
+    .filter((entry) => {
+      const location = entry.location.trim();
+      if (!location) return false;
+      if (!query) return true;
+      return location.toLowerCase().includes(query) && location.toLowerCase() !== query;
+    })
+    .slice(0, 5);
 });
 
 const managementLabel = computed(() => {
@@ -346,6 +360,13 @@ const fetchDeviceData = async () => {
     loading.value = false;
   }
 };
+
+async function selectLocationSuggestion(location: string) {
+  editValues.value.location = location;
+  if (!isCreationMode.value) {
+    await saveField('location');
+  }
+}
 
 // Field saving (edit mode)
 const saveField = async (field: keyof typeof editValues.value) => {
@@ -838,6 +859,24 @@ onMounted(() => {
                     :can-edit="device?.is_editable ?? false"
                     @update:modelValue="() => saveField('location')"
                   />
+                  <div
+                    v-if="(isCreationMode || device?.is_editable) && locationSuggestions.length"
+                    class="flex flex-wrap items-center gap-1.5"
+                  >
+                    <span class="text-[11px] text-tertiary">
+                      {{ $t('asset-detail-location-suggestions') }}
+                    </span>
+                    <Button
+                      v-for="suggestion in locationSuggestions"
+                      :key="suggestion.location"
+                      variant="ghost"
+                      size="sm"
+                      class="!px-2 !py-1 border border-subtle"
+                      @click="selectLocationSuggestion(suggestion.location)"
+                    >
+                      {{ suggestion.location }}
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>

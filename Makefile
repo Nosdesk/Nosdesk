@@ -92,7 +92,7 @@ schema: ## Regenerate backend/src/schema.rs from the live DB
 # libpq is available without a host-side install. `-j 1` keeps the
 # memory footprint within the container's allowance.
 test: ## Run backend tests (inside the container)
-	$(COMPOSE) exec backend cargo test --tests -j 1 --no-fail-fast
+	$(COMPOSE) exec -e TEST_REDIS_URL=redis://:nosdesk_redis_password@redis:6379/15 backend cargo test --tests -j 1 --no-fail-fast
 
 # Frontend type-check (vue-tsc). Runs natively, not in a container,
 # because tsc is the only frontend check that benefits from local

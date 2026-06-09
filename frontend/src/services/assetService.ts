@@ -11,11 +11,20 @@ const requestManager = new RequestManager();
 export interface AssetPaginationParams extends PaginationParams {
   type?: string;
   warranty?: string;
+  location?: string;
   /** Set to `'true'` to restrict the page to stock-tracked
    *  assets at or below their low-stock threshold. Backend
    *  treats anything else as off. */
   lowStock?: string;
 }
+
+export interface AssetLocationOption {
+  location: string;
+  asset_count: number;
+}
+
+/** Shared Pinia Colada cache key for the distinct-locations list. */
+export const ASSET_LOCATIONS_QUERY_KEY = ['asset-locations'] as const;
 
 // Re-export for backwards compatibility
 export type { PaginatedResponse } from '@/types/pagination';
@@ -39,6 +48,16 @@ export const getAssets = async (): Promise<Asset[]> => {
     return response.data.map(transformDeviceResponse);
   } catch (error) {
     logger.error('Failed to fetch devices', { error });
+    throw error;
+  }
+};
+
+export const getAssetLocations = async (): Promise<AssetLocationOption[]> => {
+  try {
+    const response = await apiClient.get<AssetLocationOption[]>(`/assets/locations`);
+    return response.data;
+  } catch (error) {
+    logger.error('Failed to fetch asset locations', { error });
     throw error;
   }
 };

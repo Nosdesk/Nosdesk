@@ -169,6 +169,13 @@ pub async fn update_media(
     }
     let (asset_id, media_id) = path.into_inner();
     let body = body.into_inner();
+    // An all-absent body would compile a column-less UPDATE, which
+    // Diesel rejects at runtime ("There are no changes to save"). A
+    // `caption: null` is still a change (clear it), so only guard the
+    // case where neither field was supplied.
+    if body.sort_order.is_none() && body.caption.is_none() {
+        return errors::bad_request("No asset media fields to update");
+    }
     let update = AssetMediaUpdate {
         sort_order: body.sort_order,
         caption: body.caption,

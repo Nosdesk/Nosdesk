@@ -52,6 +52,7 @@ pub struct PaginationParams {
     #[serde(rename = "type")]
     device_type: Option<String>,
     warranty: Option<String>,
+    location: Option<String>,
     /// Restrict the page to assets whose on-hand quantity is at
     /// or below their `low_stock_threshold`. Accepts the strings
     /// `"true"` / `"1"`; anything else is treated as off so the
@@ -70,6 +71,12 @@ pub struct PaginatedResponse<T> {
     page_size: i64,
     #[serde(rename = "totalPages")]
     total_pages: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AssetLocationResponse {
+    pub location: String,
+    pub asset_count: i64,
 }
 
 // Asset response shipped over the REST API. Carries the
@@ -472,6 +479,25 @@ pub async fn get_all_devices(mut tc: TenantConn, _auth: AuthContext) -> impl Res
     }
 }
 
+/// Get distinct non-empty asset locations for filters and form suggestions.
+pub async fn get_asset_locations(mut tc: TenantConn, _auth: AuthContext) -> impl Responder {
+    match tc.run(crate::repository::assets::list_asset_locations) {
+        Ok(locations) => HttpResponse::Ok().json(
+            locations
+                .into_iter()
+                .map(|row| AssetLocationResponse {
+                    location: row.location,
+                    asset_count: row.asset_count,
+                })
+                .collect::<Vec<_>>(),
+        ),
+        Err(e) => {
+            error!(error = ?e, "Database error getting asset locations");
+            errors::internal("Failed to get asset locations")
+        }
+    }
+}
+
 // Get paginated devices
 pub async fn get_paginated_devices(
     mut tc: TenantConn,
@@ -485,6 +511,7 @@ pub async fn get_paginated_devices(
     let search = query.search.clone();
     let device_type = query.device_type.clone();
     let warranty = query.warranty.clone();
+    let location = query.location.clone();
     let low_stock = matches!(query.low_stock.as_deref(), Some("true") | Some("1"));
 
     let result = tc.run(|conn| {
@@ -497,6 +524,7 @@ pub async fn get_paginated_devices(
             search,
             device_type,
             warranty,
+            location,
             low_stock,
         )?;
         let device_responses = devices_to_responses(conn, devices);

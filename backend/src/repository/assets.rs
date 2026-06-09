@@ -82,6 +82,7 @@ fn apply_device_filters<'a>(
     search: Option<&'a str>,
     warranty: Option<&'a str>,
     manufacturer_filter: Option<&'a str>,
+    location_filter: Option<&'a str>,
     low_stock_only: bool,
 ) -> AssetBoxedQuery<'a> {
     if let Some(search_term) = search {
@@ -147,6 +148,25 @@ fn apply_device_filters<'a>(
             query = query.filter(assets::manufacturer.eq(m));
         }
     }
+    if let Some(l) = location_filter {
+        if l != "all" && !l.is_empty() {
+            let values: Vec<String> = l
+                .split(',')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty() && *s != "all")
+                .map(|s| s.to_lowercase())
+                .collect();
+            if !values.is_empty() {
+                query = query.filter(
+                    diesel::dsl::sql::<diesel::sql_types::Bool>(
+                        "LOWER(COALESCE(location, '')) = ANY(",
+                    )
+                    .bind::<diesel::sql_types::Array<diesel::sql_types::Text>, _>(values)
+                    .sql(")"),
+                );
+            }
+        }
+    }
     if low_stock_only {
         // Both columns must be set, and current quantity must be
         // at or below the threshold. NUMERIC comparison is exact.
@@ -170,6 +190,7 @@ pub fn get_paginated_devices(
     search: Option<String>,
     device_type: Option<String>,
     warranty: Option<String>,
+    location: Option<String>,
     low_stock_only: bool,
 ) -> Result<(Vec<Asset>, i64), Error> {
     let total: i64 = apply_device_filters(
@@ -177,6 +198,7 @@ pub fn get_paginated_devices(
         search.as_deref(),
         warranty.as_deref(),
         device_type.as_deref(),
+        location.as_deref(),
         low_stock_only,
     )
     .count()
@@ -187,6 +209,7 @@ pub fn get_paginated_devices(
         search.as_deref(),
         warranty.as_deref(),
         device_type.as_deref(),
+        location.as_deref(),
         low_stock_only,
     );
 
@@ -200,6 +223,8 @@ pub fn get_paginated_devices(
         (Some("model"), _) => query = query.order(assets::model.desc()),
         (Some("manufacturer"), Some("asc")) => query = query.order(assets::manufacturer.asc()),
         (Some("manufacturer"), _) => query = query.order(assets::manufacturer.desc()),
+        (Some("location"), Some("asc")) => query = query.order(assets::location.asc().nulls_last()),
+        (Some("location"), _) => query = query.order(assets::location.desc().nulls_last()),
         (Some("serial_number"), Some("asc")) => query = query.order(assets::serial_number.asc()),
         (Some("serial_number"), _) => query = query.order(assets::serial_number.desc()),
         (Some("created_at"), Some("asc")) => query = query.order(assets::created_at.asc()),
@@ -218,6 +243,27 @@ pub fn get_paginated_devices(
     let results = query.offset(offset).limit(page_size).load::<Asset>(conn)?;
 
     Ok((results, total))
+}
+
+#[derive(Debug, QueryableByName)]
+pub struct AssetLocationSummary {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub location: String,
+    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    pub asset_count: i64,
+}
+
+// sync-audit-only: read-only SELECT aggregate (distinct locations), no row write to emit
+pub fn list_asset_locations(conn: &mut DbConnection) -> QueryResult<Vec<AssetLocationSummary>> {
+    diesel::sql_query(
+        "SELECT BTRIM(location) AS location, COUNT(*)::bigint AS asset_count \
+         FROM assets \
+         WHERE NULLIF(BTRIM(location), '') IS NOT NULL \
+         GROUP BY BTRIM(location) \
+         ORDER BY LOWER(BTRIM(location)) ASC \
+         LIMIT 200",
+    )
+    .load(conn)
 }
 
 pub fn get_device_by_id(conn: &mut DbConnection, device_id: i32) -> QueryResult<Asset> {
@@ -327,14 +373,14 @@ pub fn get_paginated_devices_excluding_ids(
     exclude_ids: &[i32],
 ) -> QueryResult<(Vec<Asset>, i64)> {
     let mut count_query =
-        apply_device_filters(assets::table.into_boxed(), search, None, None, false);
+        apply_device_filters(assets::table.into_boxed(), search, None, None, None, false);
     if !exclude_ids.is_empty() {
         count_query = count_query.filter(assets::id.ne_all(exclude_ids));
     }
     let total_count = count_query.count().get_result::<i64>(conn)?;
 
     let mut data_query =
-        apply_device_filters(assets::table.into_boxed(), search, None, None, false);
+        apply_device_filters(assets::table.into_boxed(), search, None, None, None, false);
     if !exclude_ids.is_empty() {
         data_query = data_query.filter(assets::id.ne_all(exclude_ids));
     }

@@ -2218,10 +2218,17 @@ assets-list-filter-warranty-all = All Warranties
 assets-list-filter-name-label = Name
 assets-list-filter-warranty-label = Warranty
 assets-list-filter-low-stock-label = Low stock
+assets-list-filter-location-label = Location
+assets-list-filter-location-count =
+    { $count ->
+        [one] 1 asset
+       *[other] { $count } assets
+    }
 assets-list-column-device = Asset
 assets-list-column-serial = Serial
 assets-list-column-hostname = Hostname
 assets-list-column-model = Model
+assets-list-column-location = Location
 assets-list-column-user = User
 assets-list-column-warranty = Warranty
 
@@ -2283,6 +2290,7 @@ asset-detail-field-asset-tag-placeholder-edit = Enter asset tag...
 asset-detail-field-location = Location
 asset-detail-field-location-placeholder-create = e.g. Store room A, rack 3, Melbourne
 asset-detail-field-location-placeholder-edit = Enter location...
+asset-detail-location-suggestions = Known
 asset-detail-warranty-active = Active
 asset-detail-warranty-warning = Warning
 asset-detail-warranty-expired = Expired

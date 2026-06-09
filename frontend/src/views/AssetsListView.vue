@@ -24,6 +24,7 @@ import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
 import { getPaginatedAssets, bulkAction } from '@/services/assetService'
+import { useAssetLocationsQuery } from '@/composables/useAssetLocationsQuery'
 import { assetsKeys } from '@/queries/assets'
 import type { Asset } from '@/types/asset'
 
@@ -39,10 +40,19 @@ const auth = useAuthStore()
 const userUuid = computed<string | null>(() => auth.user?.uuid ?? null)
 const { kinds } = useAssetKindsQuery()
 const kindLabelBySlug = computed(() => new Map(kinds.value.map((kind) => [kind.slug, kind.label])))
+const { locations: knownLocations } = useAssetLocationsQuery()
 
 function assetKindLabel(kind: string): string {
   return kindLabelBySlug.value.get(kind) ?? kind
 }
+
+const locationOptions = computed(() =>
+  knownLocations.value.map((location) => ({
+    value: location.location,
+    label: location.location,
+    description: t('assets-list-filter-location-count', { count: location.asset_count }),
+  })),
+)
 
 const layoutRef = useTemplateRef<ListPageLayoutExpose>('layout')
 const scrollContainerRef = computed<HTMLElement | null>(
@@ -87,6 +97,12 @@ const assetFacets = computed<ChipFacetDef[]>(() => [
     options: () => [
       { value: 'true', label: t('assets-list-filter-low-stock-on'), swatchClass: 'bg-amber-500' },
     ],
+  },
+  {
+    key: 'location',
+    labelKey: 'assets-list-filter-location-label',
+    kind: 'multi',
+    options: () => locationOptions.value,
   },
 ])
 
@@ -160,6 +176,7 @@ const columns = computed(() => [
   { field: 'serial_number', label: t('assets-list-column-serial'), width: 'minmax(140px,auto)', sortable: true, responsive: 'md' as const },
   { field: 'hostname', label: t('assets-list-column-hostname'), width: 'minmax(120px,auto)', sortable: true, responsive: 'lg' as const, defaultHidden: true },
   { field: 'model', label: t('assets-list-column-model'), width: 'minmax(120px,auto)', sortable: true, responsive: 'lg' as const },
+  { field: 'location', label: t('assets-list-column-location'), width: 'minmax(140px,auto)', sortable: true, responsive: 'lg' as const },
   { field: 'primary_user', label: t('assets-list-column-user'), width: 'minmax(140px,auto)', sortable: false, responsive: 'md' as const },
   { field: 'quantity', label: t('assets-list-column-stock'), width: 'minmax(100px,auto)', sortable: true, responsive: 'md' as const },
   { field: 'warranty_status', label: t('assets-list-column-warranty'), width: 'minmax(100px,auto)', sortable: true, responsive: 'always' as const },
@@ -183,7 +200,7 @@ const listView = useListView({
     createIcon: 'device',
     onCreate: navigateToCreateAsset,
   },
-  urlSyncParamKeys: ['warranty', 'lowStock'],
+  urlSyncParamKeys: ['warranty', 'lowStock', 'location'],
   scrollContainerRef,
   facets: assetFacets,
   groupAxes,
@@ -336,6 +353,10 @@ async function confirmDelete() {
           <TextCell :value="item.model || '-'" />
         </template>
 
+        <template #cell-location="{ item }">
+          <TextCell :value="item.location || '-'" />
+        </template>
+
         <template #cell-primary_user="{ item }">
           <UserAvatarCell
             v-if="item.primary_user"
@@ -387,6 +408,7 @@ async function confirmDelete() {
 
           <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1 text-xs">
             <span v-if="item.model" class="text-secondary">{{ item.model }}</span>
+            <span v-if="item.location" class="text-tertiary truncate max-w-[140px]">{{ item.location }}</span>
             <span class="text-tertiary">{{ assetKindLabel(item.kind) }}</span>
             <span v-if="item.serial_number" class="text-tertiary font-mono">{{ item.serial_number }}</span>
           </div>

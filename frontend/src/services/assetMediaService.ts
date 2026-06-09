@@ -1,6 +1,12 @@
 import apiClient from './apiConfig';
 import type { AssetMedia } from '@/types/asset';
 
+/** Pinia Colada cache keys for an asset's media list. */
+export const assetMediaKeys = {
+  root: ['asset-media'] as const,
+  forAsset: (assetId: number) => ['asset-media', assetId] as const,
+};
+
 export const assetMediaService = {
   async list(assetId: number): Promise<AssetMedia[]> {
     const { data } = await apiClient.get<AssetMedia[]>(`/assets/${assetId}/media`);

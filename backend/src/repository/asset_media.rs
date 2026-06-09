@@ -61,6 +61,7 @@ pub fn get_by_id(conn: &mut DbConnection, media_id: i32) -> QueryResult<AssetMed
 }
 
 pub fn create(conn: &mut DbConnection, new_media: NewAssetMedia) -> QueryResult<AssetMedia> {
+    // emit::record fires inside emit_asset_media_event.
     conn.transaction::<AssetMedia, Error, _>(|conn| {
         let row: AssetMedia = diesel::insert_into(asset_media::table)
             .values(&new_media)
@@ -75,6 +76,7 @@ pub fn update(
     media_id: i32,
     update: AssetMediaUpdate,
 ) -> QueryResult<AssetMedia> {
+    // emit::record fires inside emit_asset_media_event.
     conn.transaction::<AssetMedia, Error, _>(|conn| {
         let row: AssetMedia = diesel::update(asset_media::table.find(media_id))
             .set(&update)
