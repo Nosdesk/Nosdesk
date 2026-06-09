@@ -22,7 +22,7 @@ use crate::utils::rate_limit::get_redis_url;
 const REDIS_PING_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub async fn liveness() -> impl Responder {
-    HttpResponse::Ok().body("Helpdesk API is running!")
+    HttpResponse::Ok().body("Nosdesk API is running!")
 }
 
 pub async fn readiness(pool: web::Data<Pool>) -> HttpResponse {
