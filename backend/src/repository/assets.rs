@@ -198,6 +198,35 @@ fn apply_device_filters<'a>(
     query
 }
 
+/// Filter inputs shared by the paginated list and CSV export.
+pub struct AssetListFilters<'a> {
+    pub search: Option<&'a str>,
+    pub warranty: Option<&'a str>,
+    pub location: Option<&'a str>,
+    pub status: Option<&'a str>,
+    pub low_stock_only: bool,
+}
+
+/// Load every asset matching the list filters for CSV export.
+/// RLS on `assets` scopes rows to the workspace; no manual
+/// `workspace_id` predicate.
+pub fn list_for_export(
+    conn: &mut DbConnection,
+    filters: AssetListFilters<'_>,
+) -> QueryResult<Vec<Asset>> {
+    apply_device_filters(
+        assets::table.into_boxed(),
+        filters.search,
+        filters.warranty,
+        None,
+        filters.location,
+        filters.status,
+        filters.low_stock_only,
+    )
+    .order(assets::name.asc())
+    .load(conn)
+}
+
 // Get paginated devices with filtering and sorting
 pub fn get_paginated_devices(
     conn: &mut DbConnection,

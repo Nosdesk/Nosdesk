@@ -275,14 +275,29 @@ branch only.
 
 ---
 
-## 7. Where to look for things
+## 7. Data export vs database backup
+
+**CSV export** (Assets list → Export CSV, or `GET /api/assets/export`)
+is for portability: spreadsheets, migrations, and round-tripping the
+asset importer. It respects the same list filters as the UI and includes
+importer columns plus `status` and a JSON `attributes` column.
+
+**Disaster recovery** is a database-level concern. Take backups with
+`pg_dump` (or your hosting provider's managed backup). Application
+exports are not a substitute for point-in-time recovery: they omit
+tickets, users, attachments, lifecycle history, and the rest of the
+workspace state.
+
+---
+
+## 8. Where to look for things
 
 | Concern | File |
 |---|---|
 | High-level architecture | `CLAUDE.md` |
 | Roadmap and feature priorities | `docs/roadmap.md` |
 | Feature catalog (what's shipped) | `docs/FEATURE_CATALOG.md` |
-| Design plans for in-flight work | `docs/*-plan.md` |
+| Design plans for in-flight work | `docs/plans/` |
 | Backend route registration | `backend/src/main.rs` |
 | Postgres migrations | `backend/migrations/` |
 | Generated schema | `backend/src/schema.rs` (don't edit by hand) |

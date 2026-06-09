@@ -16,7 +16,7 @@ use bigdecimal::BigDecimal;
 use diesel::prelude::*;
 
 use crate::db::DbConnection;
-use crate::models::{AssetUpdate, NewAsset};
+use crate::models::{Asset, AssetUpdate, NewAsset};
 use crate::repository::asset_kinds as kind_repo;
 use crate::repository::assets as asset_repo;
 use crate::services::assets::kinds as schema_validator;
@@ -24,7 +24,10 @@ use crate::services::assets::kinds as schema_validator;
 use super::csv_parser::ParsedCsv;
 use super::types::{ImportSummary, ImportedRecords, Importer, RowError, MAX_ERRORS};
 
-const HEADERS: &[&str] = &[
+/// Universal CSV columns the importer accepts. Export writes
+/// these first (same order/names) so a round-trip upserts on
+/// `asset_tag` without column drift.
+pub const IMPORT_HEADERS: &[&str] = &[
     "name",
     "kind",
     "asset_tag",
@@ -38,11 +41,16 @@ const HEADERS: &[&str] = &[
     "low_stock_threshold",
 ];
 
+/// Columns appended on export only. The importer ignores
+/// extras, so re-importing an unmodified export is a no-op
+/// upsert on the shared columns.
+pub const EXPORT_EXTRA_HEADERS: &[&str] = &["status", "attributes"];
+
 pub struct AssetImporter;
 
 impl Importer for AssetImporter {
     fn template_headers(&self) -> &'static [&'static str] {
-        HEADERS
+        IMPORT_HEADERS
     }
 
     fn dry_run(
@@ -152,7 +160,7 @@ enum RowAction {
 }
 
 fn check_headers(headers: &[String]) -> Option<String> {
-    let expected: HashSet<&str> = HEADERS.iter().copied().collect();
+    let expected: HashSet<&str> = IMPORT_HEADERS.iter().copied().collect();
     let provided: HashSet<&str> = headers.iter().map(String::as_str).collect();
     let missing: Vec<&&str> = expected.difference(&provided).collect();
     if !missing.is_empty() {
@@ -334,5 +342,134 @@ fn build_asset_update(row: &HashMap<String, String>) -> AssetUpdate {
         unit: Some(opt_string(row, "unit")),
         external_sync_source: None,
         low_stock_threshold: Some(opt_decimal(row, "low_stock_threshold")),
+    }
+}
+
+fn opt_decimal_string(value: &Option<bigdecimal::BigDecimal>) -> String {
+    value.as_ref().map(ToString::to_string).unwrap_or_default()
+}
+
+fn opt_string_field(value: &Option<String>) -> String {
+    value.as_deref().unwrap_or("").to_string()
+}
+
+/// Neutralize spreadsheet formula injection. Excel and Sheets treat
+/// cells starting with `=`, `+`, `-`, or `@` as formulas; prefix
+/// with `'` so the value opens as plain text. The `csv` crate
+/// already quotes commas and newlines; this is separate hardening.
+fn csv_formula_safe(value: String) -> String {
+    match value.chars().next() {
+        Some('=' | '+' | '-' | '@') => format!("'{value}"),
+        _ => value,
+    }
+}
+
+/// One CSV data row for an asset. Column order matches
+/// `export_header_row`.
+fn asset_export_row(asset: &Asset) -> Vec<String> {
+    [
+        asset.name.clone(),
+        asset.kind.clone(),
+        opt_string_field(&asset.asset_tag),
+        opt_string_field(&asset.serial_number),
+        opt_string_field(&asset.manufacturer),
+        opt_string_field(&asset.model),
+        opt_string_field(&asset.location),
+        opt_string_field(&asset.notes),
+        opt_decimal_string(&asset.quantity),
+        opt_string_field(&asset.unit),
+        opt_decimal_string(&asset.low_stock_threshold),
+        asset.status.clone(),
+        asset.attributes.to_string(),
+    ]
+    .into_iter()
+    .map(csv_formula_safe)
+    .collect()
+}
+
+fn export_header_row() -> Vec<&'static str> {
+    IMPORT_HEADERS
+        .iter()
+        .chain(EXPORT_EXTRA_HEADERS.iter())
+        .copied()
+        .collect()
+}
+
+/// Serialize workspace assets to CSV bytes. Headers match the
+/// importer columns plus `status` and `attributes`.
+///
+/// v1 buffers the full export in memory (`Vec<u8>`), same tradeoff
+/// as the import pipeline. Streaming can replace this if workspace
+/// asset counts outgrow RAM.
+pub fn write_assets_csv(assets: &[Asset]) -> Result<Vec<u8>, csv::Error> {
+    let mut buf = Vec::new();
+    {
+        let mut wtr = csv::Writer::from_writer(&mut buf);
+        wtr.write_record(export_header_row())?;
+        for asset in assets {
+            wtr.write_record(asset_export_row(asset))?;
+        }
+        wtr.flush()?;
+    }
+    Ok(buf)
+}
+
+#[cfg(test)]
+mod export_tests {
+    use super::*;
+    use bigdecimal::BigDecimal;
+    use chrono::NaiveDateTime;
+    use serde_json::json;
+    use std::str::FromStr;
+
+    fn sample_asset() -> Asset {
+        Asset {
+            id: 1,
+            name: "Laptop".to_string(),
+            serial_number: Some("SN-1".to_string()),
+            manufacturer: Some("Acme".to_string()),
+            model: Some("X1".to_string()),
+            location: Some("Lab".to_string()),
+            created_at: NaiveDateTime::parse_from_str("2024-01-01 00:00:00", "%Y-%m-%d %H:%M:%S")
+                .unwrap(),
+            updated_at: NaiveDateTime::parse_from_str("2024-01-01 00:00:00", "%Y-%m-%d %H:%M:%S")
+                .unwrap(),
+            created_by: None,
+            notes: Some("note".to_string()),
+            primary_user_uuid: None,
+            purchase_date: None,
+            asset_tag: Some("TAG-1".to_string()),
+            kind: "device".to_string(),
+            attributes: json!({"hostname":"pc-1"}),
+            quantity: Some(BigDecimal::from_str("12.5").unwrap()),
+            unit: Some("pcs".to_string()),
+            external_sync_source: None,
+            low_stock_threshold: Some(BigDecimal::from_str("2").unwrap()),
+            workspace_id: 1,
+            status: "in_service".to_string(),
+        }
+    }
+
+    #[test]
+    fn export_csv_headers_match_importer_plus_extras() {
+        let csv = write_assets_csv(&[sample_asset()]).unwrap();
+        let text = String::from_utf8(csv).unwrap();
+        let header = text.lines().next().unwrap();
+        assert_eq!(
+            header,
+            "name,kind,asset_tag,serial_number,manufacturer,model,location,notes,quantity,unit,low_stock_threshold,status,attributes"
+        );
+    }
+
+    #[test]
+    fn export_prefixes_formula_trigger_cells() {
+        let mut asset = sample_asset();
+        asset.name = "=SUM(A1)".to_string();
+        asset.notes = Some("+cmd".to_string());
+        let csv = write_assets_csv(&[asset]).unwrap();
+        let text = String::from_utf8(csv).unwrap();
+        let row = text.lines().nth(1).unwrap();
+        assert!(row.starts_with("'=SUM(A1)"));
+        assert!(row.contains(",'+cmd,"));
     }
 }

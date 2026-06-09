@@ -1,9 +1,9 @@
-use crate::extractors::{AuthContext, TenantConn};
+use crate::extractors::{AuthContext, TenantConn, WorkspaceContext};
 use crate::handlers::errors;
 use crate::utils;
 use crate::utils::i18n;
 use crate::utils::locale::request_locale;
-use actix_web::{web, HttpRequest, HttpResponse, Responder};
+use actix_web::{http::header, web, HttpRequest, HttpResponse, Responder};
 use diesel::result::Error;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -16,6 +16,7 @@ use crate::models::{Asset, AssetUpdate, Group, NewAsset, User};
 use crate::repository;
 use crate::repository::groups as groups_repo;
 use crate::services::assets::{validate_for_kind, AssetValidationError};
+use crate::services::imports::assets::write_assets_csv;
 use crate::services::search::indexing_tasks;
 use crate::services::search::SearchService;
 
@@ -57,6 +58,20 @@ pub struct PaginationParams {
     /// or below their `low_stock_threshold`. Accepts the strings
     /// `"true"` / `"1"`; anything else is treated as off so the
     /// param can be omitted without an explicit `false`.
+    #[serde(rename = "lowStock")]
+    low_stock: Option<String>,
+}
+
+/// Query params for `GET /api/assets/export`. Accepts the same
+/// filter keys as the paginated list so "export what I am
+/// looking at" works without pagination/sort fields.
+#[derive(Deserialize)]
+pub struct AssetExportQuery {
+    format: Option<String>,
+    search: Option<String>,
+    status: Option<String>,
+    warranty: Option<String>,
+    location: Option<String>,
     #[serde(rename = "lowStock")]
     low_stock: Option<String>,
 }
@@ -479,6 +494,61 @@ pub async fn get_all_devices(mut tc: TenantConn, _auth: AuthContext) -> impl Res
             errors::internal("Failed to get devices")
         }
     }
+}
+
+/// `GET /api/assets/export` — CSV download of workspace assets.
+/// Honors the same filters as the paginated list. RLS scopes
+/// rows to the workspace.
+///
+/// Access: any authenticated workspace member, not technician-
+/// gated. Deliberate product choice: assets are workspace-readable
+/// (same gate as the list/detail views), and export is a bulk read
+/// of data the caller can already page through. Tighten here only
+/// if assets later become role-restricted at the list layer.
+pub async fn export_assets(
+    ws: WorkspaceContext,
+    mut tc: TenantConn,
+    _auth: AuthContext,
+    query: web::Query<AssetExportQuery>,
+) -> impl Responder {
+    let format = query.format.as_deref().unwrap_or("csv");
+    if format != "csv" {
+        return errors::bad_request("Only format=csv is supported");
+    }
+
+    let filters = repository::assets::AssetListFilters {
+        search: query.search.as_deref(),
+        status: query.status.as_deref(),
+        warranty: query.warranty.as_deref(),
+        location: query.location.as_deref(),
+        low_stock_only: matches!(query.low_stock.as_deref(), Some("true") | Some("1")),
+    };
+
+    let rows = match tc.run(|conn| repository::assets::list_for_export(conn, filters)) {
+        Ok(rows) => rows,
+        Err(e) => {
+            error!(error = ?e, "Database error exporting assets");
+            return errors::internal("Failed to export assets");
+        }
+    };
+
+    let body = match write_assets_csv(&rows) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            error!(error = ?e, "Failed to serialize asset export CSV");
+            return errors::internal("Failed to build asset export");
+        }
+    };
+
+    let date = chrono::Utc::now().format("%Y%m%d");
+    let filename = format!("assets-{}-{}.csv", ws.slug, date);
+    HttpResponse::Ok()
+        .insert_header((header::CONTENT_TYPE, "text/csv; charset=utf-8"))
+        .insert_header((
+            header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{filename}\""),
+        ))
+        .body(body)
 }
 
 /// Get distinct non-empty asset locations for filters and form suggestions.

@@ -24,7 +24,7 @@ import AssetStatusBadge from '@/components/assets/AssetStatusBadge.vue'
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
-import { getPaginatedAssets, bulkAction } from '@/services/assetService'
+import { buildAssetExportUrl, getPaginatedAssets, bulkAction } from '@/services/assetService'
 import { useAssetLocationsQuery } from '@/composables/useAssetLocationsQuery'
 import { assetsKeys } from '@/queries/assets'
 import type { Asset } from '@/types/asset'
@@ -262,6 +262,22 @@ async function confirmDelete() {
   await bulkDelete.mutateAsync(ids)
   listView.selection.clear()
 }
+
+function filterString(value: string | number | undefined): string | undefined {
+  if (value == null || value === '') return undefined
+  return String(value)
+}
+
+function exportAssetsCsv() {
+  const p = listView.controls.requestParams.value
+  window.location.href = buildAssetExportUrl({
+    search: filterString(p.search),
+    status: filterString(p.status),
+    warranty: filterString(p.warranty),
+    location: filterString(p.location),
+    lowStock: filterString(p.lowStock),
+  })
+}
 </script>
 
 <template>
@@ -303,7 +319,18 @@ async function confirmDelete() {
         :switcher-placeholder="$t('views-asset-switcher-placeholder')"
         @open-editor="listView.openEditor"
         @save-as="listView.showSaveModal.value = true"
-      />
+      >
+        <template #append>
+          <button
+            type="button"
+            class="inline-flex items-center text-[11px] px-2 h-6 rounded-md border border-default text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
+            :title="$t('assets-list-export-csv')"
+            @click="exportAssetsCsv"
+          >
+            {{ $t('assets-list-export-csv') }}
+          </button>
+        </template>
+      </ListViewToolbar>
     </template>
 
     <template #empty-state>

@@ -2104,6 +2104,7 @@ assets-list-column-stock = Stock
 assets-list-filter-low-stock-all = All stock
 assets-list-filter-low-stock-on = Low stock only
 assets-list-add-action = Activum toevoegen
+assets-list-export-csv = CSV exporteren
 assets-list-unassigned = Niet toegewezen
 assets-list-warranty-unknown = Onbekend
 assets-list-bulk-delete = Verwijderen

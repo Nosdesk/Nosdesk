@@ -63,6 +63,21 @@ export const getAssetLocations = async (): Promise<AssetLocationOption[]> => {
   }
 };
 
+/** Build a URL for CSV export. Anchor navigation lets the browser
+ *  handle the download with the same cookie auth as import
+ *  templates (`importService.templateUrl`). */
+export function buildAssetExportUrl(
+  filters: Pick<AssetPaginationParams, 'search' | 'status' | 'warranty' | 'location' | 'lowStock'>,
+): string {
+  const params = new URLSearchParams({ format: 'csv' });
+  if (filters.search) params.set('search', filters.search);
+  if (filters.status) params.set('status', filters.status);
+  if (filters.warranty) params.set('warranty', filters.warranty);
+  if (filters.location) params.set('location', filters.location);
+  if (filters.lowStock) params.set('lowStock', filters.lowStock);
+  return `/api/assets/export?${params.toString()}`;
+}
+
 // Get paginated assets
 export const getPaginatedAssets = async (params: PaginationParams, requestKey: string = 'paginated-assets'): Promise<PaginatedResponse<Asset>> => {
   try {

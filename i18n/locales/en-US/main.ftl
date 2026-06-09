@@ -2238,6 +2238,7 @@ assets-list-column-stock = Stock
 assets-list-filter-low-stock-all = All stock
 assets-list-filter-low-stock-on = Low stock only
 assets-list-add-action = Add asset
+assets-list-export-csv = Export CSV
 assets-list-unassigned = Unassigned
 assets-list-warranty-unknown = Unknown
 assets-list-bulk-delete = Delete
