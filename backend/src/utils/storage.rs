@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use std::io;
 use std::path::Path;
 use std::sync::Arc;
-use tracing::error;
+use tracing::{error, warn};
 use uuid::Uuid;
 
 /// Storage configuration for different backends.
@@ -663,11 +663,35 @@ pub fn get_storage_config() -> StorageConfig {
 }
 
 /// Centralized file serving function that works with any storage backend
+/// Reject logical storage paths that could escape the storage root:
+/// any `.` or `..` path component, Windows separators, NUL bytes, or
+/// empty components (from `//`). Legitimate keys are
+/// `folder/sub/{uuid}_{name.ext}`, where dots only ever appear inside
+/// a segment (e.g. `a.png`), never as a whole component.
+pub(crate) fn is_safe_storage_path(path: &str) -> bool {
+    if path.is_empty() || path.contains('\\') || path.contains('\0') {
+        return false;
+    }
+    path.trim_start_matches('/')
+        .split('/')
+        .all(|seg| !seg.is_empty() && seg != "." && seg != "..")
+}
+
 pub async fn serve_file_from_storage(
     storage: Arc<dyn Storage>,
     path: &str,
     req: &HttpRequest,
 ) -> Result<HttpResponse, actix_web::Error> {
+    // Serve routes use `{filename:.*}`, so the tail segment is fully
+    // caller-controlled and can carry `../` to escape the storage root
+    // (LocalStorage::get_full_path is a plain string join). Every serve
+    // path funnels through here, so rejecting traversal once covers all
+    // of them.
+    if !is_safe_storage_path(path) {
+        warn!(path = %path, "rejected storage path with unsafe segments");
+        return Err(actix_web::error::ErrorNotFound("File not found"));
+    }
+
     // Extract filename from path for content type detection
     let filename = path.split('/').next_back().unwrap_or("file");
 
@@ -794,6 +818,27 @@ mod tests {
     fn content_type_unknown_returns_octet_stream() {
         assert_eq!(get_content_type("file.xyz"), "application/octet-stream");
         assert_eq!(get_content_type("noext"), "application/octet-stream");
+    }
+
+    // ── is_safe_storage_path ─────────────────────────────────────
+
+    #[test]
+    fn safe_storage_paths_accepted() {
+        assert!(is_safe_storage_path("assets/12/media/uuid_photo.png"));
+        assert!(is_safe_storage_path("tickets/5/notes/a.b.c.png"));
+        assert!(is_safe_storage_path("/leading/slash/ok.png"));
+        // A `..` inside a segment is not a parent-dir component.
+        assert!(is_safe_storage_path("assets/1/media/foo..bar.png"));
+    }
+
+    #[test]
+    fn traversal_storage_paths_rejected() {
+        assert!(!is_safe_storage_path("assets/1/media/../../../etc/passwd"));
+        assert!(!is_safe_storage_path("../secret"));
+        assert!(!is_safe_storage_path("a/./b"));
+        assert!(!is_safe_storage_path("a//b"));
+        assert!(!is_safe_storage_path("a\\..\\b"));
+        assert!(!is_safe_storage_path(""));
     }
 
     // ── LocalStorage path handling ───────────────────────────────

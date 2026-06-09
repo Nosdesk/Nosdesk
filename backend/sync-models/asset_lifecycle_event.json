@@ -1,0 +1,25 @@
+{
+  "name": "asset_lifecycle_event",
+  "schema_version": 1,
+  "fields": {
+    "id": { "rust": "i32", "ts": "number", "primary": true },
+    "asset_id": { "rust": "i32", "ts": "number" },
+    "from_status": { "rust": "Option<String>", "ts": "string | null" },
+    "to_status": { "rust": "String", "ts": "string" },
+    "reason": { "rust": "Option<String>", "ts": "string | null" },
+    "ticket_id": { "rust": "Option<i32>", "ts": "number | null" },
+    "metadata": { "rust": "serde_json::Value", "ts": "Record<string, unknown>" },
+    "actor_uuid": { "rust": "Option<Uuid>", "ts": "string | null" },
+    "occurred_at": { "rust": "DateTime<Utc>", "ts": "string" }
+  },
+  "events": [
+    { "type": "asset_lifecycle_event.created", "op": "I" }
+  ],
+  "groups": [
+    "workspace:1"
+  ],
+  "references": [
+    { "field": "asset_id", "aggregate": "asset" },
+    { "field": "ticket_id", "aggregate": "ticket" }
+  ]
+}

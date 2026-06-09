@@ -162,18 +162,18 @@ diesel::table! {
 }
 
 diesel::table! {
-    asset_usage_log (id) {
-        id -> Int8,
+    asset_lifecycle_events (id) {
+        id -> Int4,
         asset_id -> Int4,
-        ticket_id -> Nullable<Int4>,
-        quantity_used -> Numeric,
         #[max_length = 32]
-        unit -> Varchar,
-        recorded_by -> Nullable<Uuid>,
-        recorded_at -> Timestamptz,
-        notes -> Nullable<Text>,
-        #[max_length = 16]
-        event_kind -> Varchar,
+        from_status -> Nullable<Varchar>,
+        #[max_length = 32]
+        to_status -> Varchar,
+        reason -> Nullable<Text>,
+        ticket_id -> Nullable<Int4>,
+        metadata -> Jsonb,
+        actor_uuid -> Nullable<Uuid>,
+        occurred_at -> Timestamptz,
         workspace_id -> Int4,
     }
 }
@@ -197,6 +197,23 @@ diesel::table! {
         caption -> Nullable<Text>,
         uploaded_by -> Nullable<Uuid>,
         created_at -> Timestamptz,
+        workspace_id -> Int4,
+    }
+}
+
+diesel::table! {
+    asset_usage_log (id) {
+        id -> Int8,
+        asset_id -> Int4,
+        ticket_id -> Nullable<Int4>,
+        quantity_used -> Numeric,
+        #[max_length = 32]
+        unit -> Varchar,
+        recorded_by -> Nullable<Uuid>,
+        recorded_at -> Timestamptz,
+        notes -> Nullable<Text>,
+        #[max_length = 16]
+        event_kind -> Varchar,
         workspace_id -> Int4,
     }
 }
@@ -232,6 +249,8 @@ diesel::table! {
         external_sync_source -> Nullable<Varchar>,
         low_stock_threshold -> Nullable<Numeric>,
         workspace_id -> Int4,
+        #[max_length = 32]
+        status -> Varchar,
     }
 }
 
@@ -1841,6 +1860,10 @@ diesel::joinable!(asset_groups -> users (created_by));
 diesel::joinable!(asset_groups -> workspaces (workspace_id));
 diesel::joinable!(asset_kinds -> users (created_by));
 diesel::joinable!(asset_kinds -> workspaces (workspace_id));
+diesel::joinable!(asset_lifecycle_events -> assets (asset_id));
+diesel::joinable!(asset_lifecycle_events -> tickets (ticket_id));
+diesel::joinable!(asset_lifecycle_events -> users (actor_uuid));
+diesel::joinable!(asset_lifecycle_events -> workspaces (workspace_id));
 diesel::joinable!(asset_media -> assets (asset_id));
 diesel::joinable!(asset_media -> users (uploaded_by));
 diesel::joinable!(asset_media -> workspaces (workspace_id));
@@ -2042,6 +2065,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     asset_audits,
     asset_groups,
     asset_kinds,
+    asset_lifecycle_events,
     asset_media,
     asset_usage_log,
     assets,

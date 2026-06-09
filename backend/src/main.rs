@@ -2081,6 +2081,8 @@ async fn main() -> std::io::Result<()> {
                     .route("/assets/{id}", web::put().to(handlers::update_device))
                     .route("/assets/{id}", web::delete().to(handlers::delete_device))
                     .route("/assets/{id}/unmanage", web::post().to(handlers::unmanage_device))
+                    .route("/assets/{id}/lifecycle", web::get().to(handlers::asset_lifecycle::list_for_asset))
+                    .route("/assets/{id}/lifecycle", web::post().to(handlers::asset_lifecycle::create_transition))
                     .route("/assets/{id}/media", web::get().to(handlers::asset_media::list_for_asset))
                     .route("/assets/{id}/media", web::post().to(handlers::asset_media::upload_for_asset))
                     .route("/assets/{id}/media/{media_id}", web::put().to(handlers::asset_media::update_media))

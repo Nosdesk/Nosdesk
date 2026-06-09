@@ -60,6 +60,7 @@ fn all_aggregates() -> Vec<SyncAggregate> {
         User,
         Asset,
         AssetMedia,
+        AssetLifecycleEvent,
         Webhook,
         Channel,
         KnowledgeGap,

@@ -25,6 +25,7 @@ export type SyncAggregate =
   | 'user'
   | 'asset'
   | 'asset_media'
+  | 'asset_lifecycle_event'
   | 'asset_usage'
   | 'asset_audit'
   | 'cycle'

@@ -477,6 +477,8 @@ pub enum SyncAggregate {
     Asset,
     #[serde(rename = "asset_media")]
     AssetMedia,
+    #[serde(rename = "asset_lifecycle_event")]
+    AssetLifecycleEvent,
     #[serde(rename = "webhook")]
     Webhook,
     #[serde(rename = "channel")]
@@ -535,6 +537,7 @@ impl SyncAggregate {
             Self::User => "user",
             Self::Asset => "asset",
             Self::AssetMedia => "asset_media",
+            Self::AssetLifecycleEvent => "asset_lifecycle_event",
             Self::Webhook => "webhook",
             Self::Channel => "channel",
             Self::KnowledgeGap => "knowledge_gap",
@@ -574,6 +577,7 @@ impl FromSql<crate::schema::sql_types::SyncAggregate, Pg> for SyncAggregate {
             b"user" => Ok(Self::User),
             b"asset" => Ok(Self::Asset),
             b"asset_media" => Ok(Self::AssetMedia),
+            b"asset_lifecycle_event" => Ok(Self::AssetLifecycleEvent),
             b"webhook" => Ok(Self::Webhook),
             b"channel" => Ok(Self::Channel),
             b"knowledge_gap" => Ok(Self::KnowledgeGap),
@@ -1069,6 +1073,65 @@ pub struct Asset {
     /// (no alerting).
     pub low_stock_threshold: Option<bigdecimal::BigDecimal>,
     pub workspace_id: i32,
+    /// Lifecycle state, one of the `AssetStatus` values (defaults to
+    /// `in_service`). Status only changes through the lifecycle
+    /// transition flow, which records an `asset_lifecycle_events`
+    /// row, so `AssetUpdate` deliberately omits it.
+    pub status: String,
+}
+
+/// Canonical asset lifecycle states. Stored as snake_case strings in
+/// `assets.status` and validated here rather than by a DB CHECK, so
+/// adding a state is a code change, not a migration. State-specific
+/// data (repair vendor / RMA / offsite, loan recipient / due-back)
+/// lives in `asset_lifecycle_events.metadata`, never in new columns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AssetStatus {
+    InService,
+    InStock,
+    InRepair,
+    OnLoan,
+    Retired,
+    Lost,
+    Disposed,
+}
+
+impl AssetStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::InService => "in_service",
+            Self::InStock => "in_stock",
+            Self::InRepair => "in_repair",
+            Self::OnLoan => "on_loan",
+            Self::Retired => "retired",
+            Self::Lost => "lost",
+            Self::Disposed => "disposed",
+        }
+    }
+
+    pub fn from_str_opt(s: &str) -> Option<Self> {
+        match s {
+            "in_service" => Some(Self::InService),
+            "in_stock" => Some(Self::InStock),
+            "in_repair" => Some(Self::InRepair),
+            "on_loan" => Some(Self::OnLoan),
+            "retired" => Some(Self::Retired),
+            "lost" => Some(Self::Lost),
+            "disposed" => Some(Self::Disposed),
+            _ => None,
+        }
+    }
+
+    /// The canonical default for a freshly created asset. Mirrors the
+    /// DB-level `DEFAULT 'in_service'` on `assets.status`.
+    pub fn default_str() -> &'static str {
+        Self::InService.as_str()
+    }
+
+    pub fn is_valid(s: &str) -> bool {
+        Self::from_str_opt(s).is_some()
+    }
 }
 
 /// Default kind for callers that omit `kind` from the JSON
@@ -1294,6 +1357,38 @@ pub struct NewAssetMedia {
 pub struct AssetMediaUpdate {
     pub sort_order: Option<i32>,
     pub caption: Option<Option<String>>,
+}
+
+/// One entry in an asset's append-only lifecycle log. Each row is a
+/// status transition; `ticket_id` links it to the ticket that
+/// captured the context (e.g. the repair), and `metadata` carries
+/// state-specific fields without dedicated columns.
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable, Associations)]
+#[diesel(table_name = crate::schema::asset_lifecycle_events)]
+#[diesel(belongs_to(Asset))]
+pub struct AssetLifecycleEvent {
+    pub id: i32,
+    pub asset_id: i32,
+    pub from_status: Option<String>,
+    pub to_status: String,
+    pub reason: Option<String>,
+    pub ticket_id: Option<i32>,
+    pub metadata: serde_json::Value,
+    pub actor_uuid: Option<Uuid>,
+    pub occurred_at: chrono::DateTime<chrono::Utc>,
+    pub workspace_id: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Insertable)]
+#[diesel(table_name = crate::schema::asset_lifecycle_events)]
+pub struct NewAssetLifecycleEvent {
+    pub asset_id: i32,
+    pub from_status: Option<String>,
+    pub to_status: String,
+    pub reason: Option<String>,
+    pub ticket_id: Option<i32>,
+    pub metadata: serde_json::Value,
+    pub actor_uuid: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations)]

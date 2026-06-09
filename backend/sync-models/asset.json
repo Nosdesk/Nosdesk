@@ -10,6 +10,7 @@
     "model": { "rust": "Option<String>", "ts": "string | null" },
     "asset_tag": { "rust": "Option<String>", "ts": "string | null" },
     "location": { "rust": "Option<String>", "ts": "string | null" },
+    "status": { "rust": "String", "ts": "string" },
     "primary_user_uuid": { "rust": "Option<Uuid>", "ts": "string | null" },
     "attributes": { "rust": "serde_json::Value", "ts": "Record<string, unknown>" },
     "quantity": { "rust": "Option<BigDecimal>", "ts": "string | null" },

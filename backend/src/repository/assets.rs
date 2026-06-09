@@ -37,6 +37,7 @@ fn asset_sync_payload(device: &Asset) -> serde_json::Value {
         "model": device.model,
         "asset_tag": device.asset_tag,
         "location": device.location,
+        "status": device.status,
         "primary_user_uuid": device.primary_user_uuid,
         "attributes": device.attributes,
         "quantity": device.quantity,
@@ -46,7 +47,7 @@ fn asset_sync_payload(device: &Asset) -> serde_json::Value {
     })
 }
 
-fn emit_asset_event(
+pub(crate) fn emit_asset_event(
     conn: &mut DbConnection,
     device: &Asset,
     op: SyncOp,
@@ -188,16 +189,18 @@ pub fn get_paginated_devices(
     sort_field: Option<String>,
     sort_direction: Option<String>,
     search: Option<String>,
-    device_type: Option<String>,
     warranty: Option<String>,
     location: Option<String>,
     low_stock_only: bool,
 ) -> Result<(Vec<Asset>, i64), Error> {
+    // manufacturer slot is `None`: there is no manufacturer-filter
+    // consumer yet. The former `?type=` param fed this slot, which
+    // silently filtered on `manufacturer`; that dead pathway is gone.
     let total: i64 = apply_device_filters(
         assets::table.into_boxed(),
         search.as_deref(),
         warranty.as_deref(),
-        device_type.as_deref(),
+        None,
         location.as_deref(),
         low_stock_only,
     )
@@ -208,7 +211,7 @@ pub fn get_paginated_devices(
         assets::table.into_boxed(),
         search.as_deref(),
         warranty.as_deref(),
-        device_type.as_deref(),
+        None,
         location.as_deref(),
         low_stock_only,
     );

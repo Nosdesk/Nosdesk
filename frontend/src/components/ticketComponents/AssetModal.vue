@@ -36,6 +36,7 @@ const createEmptyDevice = (): Asset => ({
   attributes: { hostname: '', warranty_status: 'Unknown' },
   serial_number: '',
   model: '',
+  status: 'in_service',
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
   is_editable: true,

@@ -33,6 +33,10 @@ export interface Asset {
   model: string;
   manufacturer?: string | null;
   location?: string | null;
+  /** Lifecycle state. One of `AssetStatus`; defaults to
+   *  `in_service`. Changed via the lifecycle transition endpoint,
+   *  not a plain asset edit. */
+  status: string;
   primary_user_uuid?: string | null;
   created_at: string;
   updated_at: string;
@@ -58,6 +62,43 @@ export interface Asset {
     avatar_thumb?: string | null;
   } | null;
   groups?: AssetGroup[];
+}
+
+/** Canonical asset lifecycle states. Mirrors the backend
+ *  `models::AssetStatus`; the list is fixed in code (statuses carry
+ *  behaviour, so they are not per-workspace config). */
+export type AssetStatus =
+  | 'in_service'
+  | 'in_stock'
+  | 'in_repair'
+  | 'on_loan'
+  | 'retired'
+  | 'lost'
+  | 'disposed';
+
+export const ASSET_STATUSES: AssetStatus[] = [
+  'in_service',
+  'in_stock',
+  'in_repair',
+  'on_loan',
+  'retired',
+  'lost',
+  'disposed',
+];
+
+/** One row of an asset's append-only lifecycle log. `metadata`
+ *  carries state-specific fields (repair vendor/RMA/offsite, loan
+ *  recipient/due-back) so new workflows need no schema change. */
+export interface AssetLifecycleEvent {
+  id: number;
+  asset_id: number;
+  from_status?: string | null;
+  to_status: string;
+  reason?: string | null;
+  ticket_id?: number | null;
+  metadata: Record<string, unknown>;
+  actor_uuid?: string | null;
+  occurred_at: string;
 }
 
 /** Wire shape for POST /assets (create) and the wider parts

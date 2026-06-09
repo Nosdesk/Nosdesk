@@ -200,6 +200,7 @@ fn apply_transaction(
         | SyncAggregate::User
         | SyncAggregate::Asset
         | SyncAggregate::AssetMedia
+        | SyncAggregate::AssetLifecycleEvent
         | SyncAggregate::Webhook
         | SyncAggregate::Channel
         | SyncAggregate::KnowledgeGap

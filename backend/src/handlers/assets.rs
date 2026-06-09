@@ -49,8 +49,6 @@ pub struct PaginationParams {
     #[serde(rename = "sortDirection")]
     sort_direction: Option<String>,
     search: Option<String>,
-    #[serde(rename = "type")]
-    device_type: Option<String>,
     warranty: Option<String>,
     location: Option<String>,
     /// Restrict the page to assets whose on-hand quantity is at
@@ -95,6 +93,7 @@ pub struct AssetResponse {
     pub model: String,
     pub manufacturer: Option<String>,
     pub location: Option<String>,
+    pub status: String,
     pub primary_user_uuid: Option<String>,
     pub created_at: String,
     pub updated_at: String,
@@ -160,6 +159,7 @@ impl AssetResponse {
             model: device.model.unwrap_or_default(),
             manufacturer: device.manufacturer,
             location: device.location,
+            status: device.status,
             primary_user_uuid: device
                 .primary_user_uuid
                 .map(|uuid| utils::uuid_to_string(&uuid)),
@@ -509,7 +509,6 @@ pub async fn get_paginated_devices(
     let sort_field = query.sort_field.clone();
     let sort_direction = query.sort_direction.clone();
     let search = query.search.clone();
-    let device_type = query.device_type.clone();
     let warranty = query.warranty.clone();
     let location = query.location.clone();
     let low_stock = matches!(query.low_stock.as_deref(), Some("true") | Some("1"));
@@ -522,7 +521,6 @@ pub async fn get_paginated_devices(
             sort_field,
             sort_direction,
             search,
-            device_type,
             warranty,
             location,
             low_stock,
