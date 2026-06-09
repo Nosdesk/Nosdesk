@@ -14,6 +14,7 @@ fn asset_media_sync_payload(row: &AssetMedia) -> serde_json::Value {
         "id": row.id,
         "asset_id": row.asset_id,
         "url": row.url,
+        "thumbnail_url": row.thumbnail_url,
         "name": row.name,
         "mime_type": row.mime_type,
         "file_size": row.file_size,

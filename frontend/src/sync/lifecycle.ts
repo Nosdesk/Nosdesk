@@ -70,7 +70,7 @@ const SCHEMA_VERSIONS: Partial<Record<SyncAggregate, number>> = {
   plugin: 1,
   user: 1,
   asset: 1,
-  asset_media: 1,
+  asset_media: 2,
   asset_lifecycle_event: 1,
   cycle: 1,
   documentation_page: 1,

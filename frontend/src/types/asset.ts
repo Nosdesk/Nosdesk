@@ -9,6 +9,7 @@ export interface AssetMedia {
   id: number;
   asset_id: number;
   url: string;
+  thumbnail_url?: string | null;
   name: string;
   file_size?: number | null;
   mime_type?: string | null;

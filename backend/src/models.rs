@@ -1335,6 +1335,9 @@ pub struct AssetMedia {
     pub uploaded_by: Option<Uuid>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub workspace_id: i32,
+    // Field order mirrors `schema.rs`: the column was added by a later
+    // migration, so it lands last. Diesel `Queryable` maps positionally.
+    pub thumbnail_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Insertable)]
@@ -1350,6 +1353,7 @@ pub struct NewAssetMedia {
     pub sort_order: i32,
     pub caption: Option<String>,
     pub uploaded_by: Option<Uuid>,
+    pub thumbnail_url: Option<String>,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, AsChangeset)]

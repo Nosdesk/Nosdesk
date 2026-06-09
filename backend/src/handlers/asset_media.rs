@@ -17,6 +17,9 @@ use crate::handlers::errors;
 use crate::models::{AssetMediaUpdate, NewAssetMedia};
 use crate::repository::{asset_media as repo, assets as assets_repo};
 use crate::utils::file_validation::FileValidator;
+use crate::utils::image::generate_asset_media_thumbnail;
+
+const ASSET_MEDIA_THUMB_SIZE: u32 = 320;
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateAssetMediaBody {
@@ -133,9 +136,31 @@ pub async fn upload_for_asset(
             })?;
 
         let url = format!("/api/files/assets/{asset_id}/media/{}", stored_file.id);
+        let thumb_stem = stored_file
+            .id
+            .split_once('_')
+            .map(|(stem, _)| stem)
+            .unwrap_or(stored_file.id.as_str());
+        let thumbnail_url = if let Some(webp) =
+            generate_asset_media_thumbnail(&file_data, ASSET_MEDIA_THUMB_SIZE).await
+        {
+            let thumb_path = format!("assets/{asset_id}/media/thumb/{thumb_stem}.webp");
+            match storage.0.put_file(&webp, &thumb_path, "image/webp").await {
+                Ok(_) => Some(format!(
+                    "/api/files/assets/{asset_id}/media/thumb/{thumb_stem}.webp"
+                )),
+                Err(e) => {
+                    warn!(asset_id, error = ?e, thumb_path = %thumb_path, "failed to store asset media thumbnail");
+                    None
+                }
+            }
+        } else {
+            None
+        };
         let new_media = NewAssetMedia {
             asset_id,
             url,
+            thumbnail_url,
             name: sanitized_filename,
             file_size: Some(total_size as i64),
             mime_type: Some(detected_mime),
@@ -231,6 +256,15 @@ pub async fn delete_media(
         let path = format!("assets/{}/media/{filename}", deleted.asset_id);
         if let Err(e) = storage.0.delete_file(&path).await {
             warn!(asset_id, media_id, path = %path, error = ?e, "failed to delete asset media object");
+        }
+    }
+    if let Some(thumb_url) = deleted.thumbnail_url.as_deref() {
+        let prefix = format!("/api/files/assets/{}/media/", deleted.asset_id);
+        if let Some(tail) = thumb_url.strip_prefix(&prefix) {
+            let path = format!("assets/{}/media/{tail}", deleted.asset_id);
+            if let Err(e) = storage.0.delete_file(&path).await {
+                warn!(asset_id, media_id, path = %path, error = ?e, "failed to delete asset media thumbnail");
+            }
         }
     }
 

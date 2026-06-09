@@ -3857,6 +3857,15 @@ asset-lifecycle-timeline-expected-return = Verwachte terugkeer: { $date }
 asset-lifecycle-timeline-loaned-to = Uitgeleend aan: { $name }
 asset-lifecycle-timeline-due-back = Terug verwacht: { $date }
 
+asset-media-lightbox-previous = Vorige foto
+asset-media-lightbox-next = Volgende foto
+asset-media-caption-edit-aria = Bijschrift bewerken voor { $name }
+asset-media-caption-placeholder = Bijschrift (optioneel)
+asset-media-caption-save = Opslaan
+asset-media-caption-cancel = Annuleren
+asset-media-caption-failed = Opslaan van bijschrift mislukt
+asset-media-reorder-failed = Herschikken van foto's mislukt
+
 # Asset list: low-stock badge surfaced on each row.
 assets-list-low-stock-badge = Low stock
 assets-list-low-stock-tooltip = { $quantity } { $unit } remaining (threshold { $threshold }).

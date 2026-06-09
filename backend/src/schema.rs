@@ -198,6 +198,8 @@ diesel::table! {
         uploaded_by -> Nullable<Uuid>,
         created_at -> Timestamptz,
         workspace_id -> Int4,
+        #[max_length = 2048]
+        thumbnail_url -> Nullable<Varchar>,
     }
 }
 

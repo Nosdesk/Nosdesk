@@ -3981,6 +3981,14 @@ asset-media-load-failed = Failed to load asset photos
 asset-media-upload-failed = Failed to upload asset photos
 asset-media-delete-failed = Failed to delete asset photo
 asset-media-delete-aria = Delete { $name }
+asset-media-lightbox-previous = Previous photo
+asset-media-lightbox-next = Next photo
+asset-media-caption-edit-aria = Edit caption for { $name }
+asset-media-caption-placeholder = Caption (optional)
+asset-media-caption-save = Save
+asset-media-caption-cancel = Cancel
+asset-media-caption-failed = Failed to save caption
+asset-media-reorder-failed = Failed to reorder photos
 
 # Asset lifecycle status labels.
 asset-status-in-service = In service

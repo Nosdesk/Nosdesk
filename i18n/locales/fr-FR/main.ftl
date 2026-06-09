@@ -3866,6 +3866,15 @@ asset-lifecycle-timeline-expected-return = Retour prévu : { $date }
 asset-lifecycle-timeline-loaned-to = Prêté à : { $name }
 asset-lifecycle-timeline-due-back = Date de retour : { $date }
 
+asset-media-lightbox-previous = Photo précédente
+asset-media-lightbox-next = Photo suivante
+asset-media-caption-edit-aria = Modifier la légende de { $name }
+asset-media-caption-placeholder = Légende (facultatif)
+asset-media-caption-save = Enregistrer
+asset-media-caption-cancel = Annuler
+asset-media-caption-failed = Échec de l'enregistrement de la légende
+asset-media-reorder-failed = Échec du réordonnancement des photos
+
 # Asset list: low-stock badge surfaced on each row.
 assets-list-low-stock-badge = Low stock
 assets-list-low-stock-tooltip = { $quantity } { $unit } remaining (threshold { $threshold }).

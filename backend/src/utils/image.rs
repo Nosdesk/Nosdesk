@@ -100,6 +100,30 @@ pub async fn process_avatar_image(
     }
 }
 
+/// Render a square WebP thumbnail from raw image bytes. Used at
+/// asset-media upload time; `size` is the output edge length in px.
+pub async fn generate_asset_media_thumbnail(image_bytes: &[u8], size: u32) -> Option<Vec<u8>> {
+    let bytes = image_bytes.to_vec();
+    let render = tokio::task::spawn_blocking(move || {
+        let img = load_image_with_orientation(&bytes)?;
+        let square = create_square_crop(&img, size);
+        encode_webp(&square)
+    })
+    .await;
+
+    match render {
+        Ok(Ok(webp)) => Some(webp),
+        Ok(Err(e)) => {
+            error!(error = %e, "Failed to render asset media thumbnail");
+            None
+        }
+        Err(e) => {
+            error!(error = %e, "Asset media thumbnail task panicked");
+            None
+        }
+    }
+}
+
 /// Generate a 48x48 lossless WebP thumbnail from a user's stored avatar.
 ///
 /// `image_ref` is the avatar's public URL or storage path; the source
