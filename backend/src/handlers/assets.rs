@@ -1,4 +1,4 @@
-use crate::extractors::{AuthContext, TenantConn, WorkspaceContext};
+use crate::extractors::{AuthContext, TenantConn};
 use crate::handlers::errors;
 use crate::utils;
 use crate::utils::i18n;
@@ -497,8 +497,19 @@ pub async fn get_all_devices(mut tc: TenantConn, _auth: AuthContext) -> impl Res
 }
 
 /// `GET /api/assets/export` — CSV download of workspace assets.
-/// Honors the same filters as the paginated list. RLS scopes
-/// rows to the workspace.
+/// Honors the same filters as the paginated list.
+///
+/// **Workspace isolation.** Row scoping does NOT come from a
+/// handler-level `WorkspaceContext` parameter — it comes from the
+/// same path as `get_paginated_devices`: auth middleware pins the
+/// request actor to the resolved workspace (`RequestContext.actor
+/// .workspace_id`), `TenantConn::run` sets the `app.workspace_id`
+/// Postgres GUC inside a transaction, and the `assets_workspace_
+/// isolation` RLS policy filters rows. No manual `WHERE workspace_id
+/// = …` in the repository; see `list_for_export`'s doc comment.
+/// If the actor is not workspace-pinned we fail closed (403) rather
+/// than running an unscoped query (RLS would return zero rows, but
+/// an explicit gate makes the contract obvious).
 ///
 /// Access: any authenticated workspace member, not technician-
 /// gated. Deliberate product choice: assets are workspace-readable
@@ -506,11 +517,14 @@ pub async fn get_all_devices(mut tc: TenantConn, _auth: AuthContext) -> impl Res
 /// of data the caller can already page through. Tighten here only
 /// if assets later become role-restricted at the list layer.
 pub async fn export_assets(
-    ws: WorkspaceContext,
     mut tc: TenantConn,
     _auth: AuthContext,
     query: web::Query<AssetExportQuery>,
 ) -> impl Responder {
+    let Some(workspace_id) = tc.workspace_id() else {
+        return errors::forbidden("Export requires a resolved workspace context for this request");
+    };
+
     let format = query.format.as_deref().unwrap_or("csv");
     if format != "csv" {
         return errors::bad_request("Only format=csv is supported");
@@ -524,8 +538,18 @@ pub async fn export_assets(
         low_stock_only: matches!(query.low_stock.as_deref(), Some("true") | Some("1")),
     };
 
-    let rows = match tc.run(|conn| repository::assets::list_for_export(conn, filters)) {
-        Ok(rows) => rows,
+    let export_result = tc.run(|conn| {
+        let rows = repository::assets::list_for_export(conn, filters)?;
+        let slug = repository::workspaces::find_by_id(conn, workspace_id)
+            .ok()
+            .flatten()
+            .map(|w| w.slug)
+            .unwrap_or_else(|| "workspace".to_string());
+        Ok((rows, slug))
+    });
+
+    let (rows, slug) = match export_result {
+        Ok(v) => v,
         Err(e) => {
             error!(error = ?e, "Database error exporting assets");
             return errors::internal("Failed to export assets");
@@ -541,7 +565,7 @@ pub async fn export_assets(
     };
 
     let date = chrono::Utc::now().format("%Y%m%d");
-    let filename = format!("assets-{}-{}.csv", ws.slug, date);
+    let filename = format!("assets-{}-{}.csv", slug, date);
     HttpResponse::Ok()
         .insert_header((header::CONTENT_TYPE, "text/csv; charset=utf-8"))
         .insert_header((

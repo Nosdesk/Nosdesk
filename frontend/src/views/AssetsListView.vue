@@ -24,7 +24,7 @@ import AssetStatusBadge from '@/components/assets/AssetStatusBadge.vue'
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
-import { buildAssetExportUrl, getPaginatedAssets, bulkAction } from '@/services/assetService'
+import { downloadAssetsCsv, getPaginatedAssets, bulkAction } from '@/services/assetService'
 import { useAssetLocationsQuery } from '@/composables/useAssetLocationsQuery'
 import { assetsKeys } from '@/queries/assets'
 import type { Asset } from '@/types/asset'
@@ -268,15 +268,24 @@ function filterString(value: string | number | undefined): string | undefined {
   return String(value)
 }
 
-function exportAssetsCsv() {
+async function exportAssetsCsv() {
+  if (listView.page.totalItems.value === 0) {
+    toast.info(t('assets-list-export-empty'));
+    return;
+  }
+
   const p = listView.controls.requestParams.value
-  window.location.href = buildAssetExportUrl({
-    search: filterString(p.search),
-    status: filterString(p.status),
-    warranty: filterString(p.warranty),
-    location: filterString(p.location),
-    lowStock: filterString(p.lowStock),
-  })
+  try {
+    await downloadAssetsCsv({
+      search: filterString(p.search),
+      status: filterString(p.status),
+      warranty: filterString(p.warranty),
+      location: filterString(p.location),
+      lowStock: filterString(p.lowStock),
+    })
+  } catch (error) {
+    toast.error(extractErrorMessage(error, t('assets-list-export-failed')))
+  }
 }
 </script>
 
@@ -323,8 +332,9 @@ function exportAssetsCsv() {
         <template #append>
           <button
             type="button"
-            class="inline-flex items-center text-[11px] px-2 h-6 rounded-md border border-default text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
-            :title="$t('assets-list-export-csv')"
+            class="inline-flex items-center text-[11px] px-2 h-6 rounded-md border border-default text-secondary hover:text-primary hover:bg-surface-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-secondary"
+            :title="listView.page.totalItems.value === 0 ? $t('assets-list-export-empty') : $t('assets-list-export-csv')"
+            :disabled="listView.page.totalItems.value === 0"
             @click="exportAssetsCsv"
           >
             {{ $t('assets-list-export-csv') }}

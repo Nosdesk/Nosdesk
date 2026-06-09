@@ -257,6 +257,7 @@ bug-report-error-toast-title = Impossible d'envoyer le rapport
 bug-report-error-toast-body = Veuillez réessayer dans un instant.
 
 # Tickets — états vides + barre d'actions groupées.
+ticket-list-loading = Chargement des tickets…
 ticket-list-empty-no-assigned-message = Aucun ticket ne vous est assigné.
 ticket-list-empty-showing-all-active = Affichage de tous les tickets actifs à la place.
 ticket-list-empty-no-match-title = Aucun ticket ne correspond.
@@ -2108,6 +2109,8 @@ assets-list-filter-low-stock-all = All stock
 assets-list-filter-low-stock-on = Low stock only
 assets-list-add-action = Ajouter un actif
 assets-list-export-csv = Exporter en CSV
+assets-list-export-empty = Aucun actif à exporter. Ajoutez des actifs ou ajustez vos filtres.
+assets-list-export-failed = Échec de l'export des actifs. Veuillez réessayer.
 assets-list-unassigned = Non attribué
 assets-list-warranty-unknown = Inconnue
 assets-list-bulk-delete = Supprimer

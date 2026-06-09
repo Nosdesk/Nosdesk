@@ -273,28 +273,35 @@ defineExpose({ openAddFilter })
            current view's name when an overflow / saved view is
            active — so the strip always shows where you are without
            promoting an eighth tab into the row. -->
-      <ViewSwitcher
-        class="hidden lg:inline-flex"
-        :items="overflowItems"
-        :active-id="activeViewId"
-        size="sm"
-        placeholder="Views"
-        @select="(id) => emit('select-view', id)"
-        @edit="(id) => emit('edit-view', id)"
-      />
+      <!-- Wrapper carries responsive visibility — not the
+           ViewSwitcher root, whose internal `inline-flex` class
+           fights Tailwind's `hidden`/`lg:hidden` utilities when
+           merged onto the same element and can leave both
+           switchers visible at once on medium viewports. -->
+      <div class="hidden lg:block">
+        <ViewSwitcher
+          :items="overflowItems"
+          :active-id="activeViewId"
+          size="sm"
+          placeholder="Views"
+          @select="(id) => emit('select-view', id)"
+          @edit="(id) => emit('edit-view', id)"
+        />
+      </div>
       <!-- Mobile (below lg): one dropdown carrying the full
            catalogue (every built-in + saved view). The four-tab
            strip doesn't fit a phone-width header, so this is the
            single canonical view affordance there — the page-title
            sized button doubles as the current-view label. -->
-      <ViewSwitcher
-        class="lg:hidden"
-        :items="allViewItems"
-        :active-id="activeViewId"
-        size="lg"
-        @select="(id) => emit('select-view', id)"
-        @edit="(id) => emit('edit-view', id)"
-      />
+      <div class="lg:hidden">
+        <ViewSwitcher
+          :items="allViewItems"
+          :active-id="activeViewId"
+          size="lg"
+          @select="(id) => emit('select-view', id)"
+          @edit="(id) => emit('edit-view', id)"
+        />
+      </div>
 
       <!-- Summary stats — mobile only on row 1. Desktop has them
            in row 2 right-aligned (see footer block below) so the
