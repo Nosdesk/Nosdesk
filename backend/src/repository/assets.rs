@@ -84,6 +84,7 @@ fn apply_device_filters<'a>(
     warranty: Option<&'a str>,
     manufacturer_filter: Option<&'a str>,
     location_filter: Option<&'a str>,
+    status_filter: Option<&'a str>,
     low_stock_only: bool,
 ) -> AssetBoxedQuery<'a> {
     if let Some(search_term) = search {
@@ -168,6 +169,22 @@ fn apply_device_filters<'a>(
             }
         }
     }
+    if let Some(s) = status_filter {
+        // Lifecycle status is a real column with snake_case values
+        // (`in_service`, `in_repair`, …). CSV multi-select from the
+        // chip UI; no case folding needed unlike warranty/location.
+        if s != "all" && !s.is_empty() {
+            let values: Vec<String> = s
+                .split(',')
+                .map(|v| v.trim())
+                .filter(|v| !v.is_empty() && *v != "all")
+                .map(|v| v.to_string())
+                .collect();
+            if !values.is_empty() {
+                query = query.filter(assets::status.eq_any(values));
+            }
+        }
+    }
     if low_stock_only {
         // Both columns must be set, and current quantity must be
         // at or below the threshold. NUMERIC comparison is exact.
@@ -189,6 +206,7 @@ pub fn get_paginated_devices(
     sort_field: Option<String>,
     sort_direction: Option<String>,
     search: Option<String>,
+    status: Option<String>,
     warranty: Option<String>,
     location: Option<String>,
     low_stock_only: bool,
@@ -202,6 +220,7 @@ pub fn get_paginated_devices(
         warranty.as_deref(),
         None,
         location.as_deref(),
+        status.as_deref(),
         low_stock_only,
     )
     .count()
@@ -213,6 +232,7 @@ pub fn get_paginated_devices(
         warranty.as_deref(),
         None,
         location.as_deref(),
+        status.as_deref(),
         low_stock_only,
     );
 
@@ -228,6 +248,8 @@ pub fn get_paginated_devices(
         (Some("manufacturer"), _) => query = query.order(assets::manufacturer.desc()),
         (Some("location"), Some("asc")) => query = query.order(assets::location.asc().nulls_last()),
         (Some("location"), _) => query = query.order(assets::location.desc().nulls_last()),
+        (Some("status"), Some("asc")) => query = query.order(assets::status.asc()),
+        (Some("status"), _) => query = query.order(assets::status.desc()),
         (Some("serial_number"), Some("asc")) => query = query.order(assets::serial_number.asc()),
         (Some("serial_number"), _) => query = query.order(assets::serial_number.desc()),
         (Some("created_at"), Some("asc")) => query = query.order(assets::created_at.asc()),
@@ -375,15 +397,29 @@ pub fn get_paginated_devices_excluding_ids(
     search: Option<&str>,
     exclude_ids: &[i32],
 ) -> QueryResult<(Vec<Asset>, i64)> {
-    let mut count_query =
-        apply_device_filters(assets::table.into_boxed(), search, None, None, None, false);
+    let mut count_query = apply_device_filters(
+        assets::table.into_boxed(),
+        search,
+        None,
+        None,
+        None,
+        None,
+        false,
+    );
     if !exclude_ids.is_empty() {
         count_query = count_query.filter(assets::id.ne_all(exclude_ids));
     }
     let total_count = count_query.count().get_result::<i64>(conn)?;
 
-    let mut data_query =
-        apply_device_filters(assets::table.into_boxed(), search, None, None, None, false);
+    let mut data_query = apply_device_filters(
+        assets::table.into_boxed(),
+        search,
+        None,
+        None,
+        None,
+        None,
+        false,
+    );
     if !exclude_ids.is_empty() {
         data_query = data_query.filter(assets::id.ne_all(exclude_ids));
     }

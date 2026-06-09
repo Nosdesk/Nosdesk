@@ -9,6 +9,8 @@ const requestManager = new RequestManager();
 
 // Extended pagination params for devices
 export interface AssetPaginationParams extends PaginationParams {
+  /** Comma-separated lifecycle statuses (e.g. `in_service,in_repair`). */
+  status?: string;
   warranty?: string;
   location?: string;
   /** Set to `'true'` to restrict the page to stock-tracked

@@ -19,6 +19,8 @@ import UserCard from '@/components/UserCard.vue';
 import UserSelectionModal from '@/components/UserSelectionModal.vue';
 import DeviceGroups from '@/components/AssetGroups.vue';
 import AssetMediaPanel from '@/components/assets/AssetMediaPanel.vue';
+import AssetLifecyclePanel from '@/components/assets/AssetLifecyclePanel.vue';
+import AssetStatusBadge from '@/components/assets/AssetStatusBadge.vue';
 import AssetUsageHistory from '@/components/assets/AssetUsageHistory.vue';
 import PluginSlot from '@/plugins/components/PluginSlot.vue';
 import Modal from '@/components/Modal.vue';
@@ -537,6 +539,7 @@ watch(() => route.params.id, () => {
 // edits are already applied locally by the save handlers (this is the
 // echo suppression the discrete SSE did via source_client_id).
 const auth = useAuthStore();
+const canChangeLifecycle = computed(() => auth.isTechnician);
 useSyncActions(
   (actions) => {
     const id = device.value?.id;
@@ -662,9 +665,15 @@ onMounted(() => {
                 <p class="text-[11px] font-medium uppercase tracking-wide text-tertiary">
                   {{ $t('asset-detail-section-device-information') }}
                 </p>
-                <p class="mt-1 text-sm font-medium text-primary truncate">
-                  {{ managementLabel }}
-                </p>
+                <div class="mt-1 flex flex-col gap-1.5">
+                  <p class="text-sm font-medium text-primary truncate">
+                    {{ managementLabel }}
+                  </p>
+                  <AssetStatusBadge
+                    v-if="!isCreationMode && device?.status"
+                    :status="device.status"
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -1006,6 +1015,15 @@ onMounted(() => {
 
             <!-- Groups (edit mode only) -->
             <DeviceGroups v-if="!isCreationMode && device" :groups="device.groups" />
+
+            <SectionCard v-if="!isCreationMode && device" content-padding="p-4">
+              <template #title>{{ $t('asset-lifecycle-heading') }}</template>
+              <AssetLifecyclePanel
+                :asset-id="device.id"
+                :current-status="device.status"
+                :can-edit="canChangeLifecycle"
+              />
+            </SectionCard>
 
             <SectionCard v-if="!isCreationMode && device" content-padding="p-4">
               <template #title>{{ $t('asset-media-heading') }}</template>

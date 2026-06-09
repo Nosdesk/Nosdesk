@@ -2216,6 +2216,7 @@ assets-list-filter-warranty-expired = Expired
 assets-list-filter-warranty-unknown = Unknown
 assets-list-filter-warranty-all = All Warranties
 assets-list-filter-name-label = Name
+assets-list-filter-status-label = Status
 assets-list-filter-warranty-label = Warranty
 assets-list-filter-low-stock-label = Low stock
 assets-list-filter-location-label = Location
@@ -2230,6 +2231,7 @@ assets-list-column-hostname = Hostname
 assets-list-column-model = Model
 assets-list-column-location = Location
 assets-list-column-user = User
+assets-list-column-status = Status
 assets-list-column-warranty = Warranty
 
 assets-list-column-stock = Stock
@@ -3979,6 +3981,53 @@ asset-media-upload-failed = Failed to upload asset photos
 asset-media-delete-failed = Failed to delete asset photo
 asset-media-delete-aria = Delete { $name }
 
+# Asset lifecycle status labels.
+asset-status-in-service = In service
+asset-status-in-stock = In stock
+asset-status-in-repair = In repair
+asset-status-on-loan = On loan
+asset-status-retired = Retired
+asset-status-lost = Lost
+asset-status-disposed = Disposed
+asset-status-unknown = Unknown
+
+# Asset lifecycle panel.
+asset-lifecycle-heading = Lifecycle
+asset-lifecycle-description = Track operational status changes such as repairs, loans, and retirement.
+asset-lifecycle-current-label = Current status
+asset-lifecycle-change-status = Change status
+asset-lifecycle-empty-title = No transitions yet
+asset-lifecycle-empty-description = Status changes will appear here once recorded.
+asset-lifecycle-transition-failed = Failed to change asset status
+
+asset-lifecycle-modal-title = Change asset status
+asset-lifecycle-modal-to-status = New status
+asset-lifecycle-modal-reason = Reason
+asset-lifecycle-modal-reason-placeholder = Optional note about this change
+asset-lifecycle-modal-ticket = Linked ticket
+asset-lifecycle-modal-ticket-placeholder = Ticket # (optional)
+asset-lifecycle-modal-submit = Save transition
+asset-lifecycle-modal-cancel = Cancel
+
+asset-lifecycle-meta-vendor = Repair vendor
+asset-lifecycle-meta-rma = RMA number
+asset-lifecycle-meta-offsite = Sent offsite
+asset-lifecycle-meta-expected-return = Expected return
+asset-lifecycle-meta-loaned-to = Loaned to
+asset-lifecycle-meta-due-back = Due back
+
+asset-lifecycle-timeline-transition = { $from } to { $to }
+asset-lifecycle-timeline-initial = Set to { $to }
+asset-lifecycle-timeline-actor = by { $name }
+asset-lifecycle-timeline-unknown-actor = Unknown
+asset-lifecycle-timeline-ticket = Ticket #{ $id }
+asset-lifecycle-timeline-vendor = Vendor: { $vendor }
+asset-lifecycle-timeline-rma = RMA: { $rma }
+asset-lifecycle-timeline-offsite = Sent offsite
+asset-lifecycle-timeline-expected-return = Expected return: { $date }
+asset-lifecycle-timeline-loaned-to = Loaned to: { $name }
+asset-lifecycle-timeline-due-back = Due back: { $date }
+
 # Asset list: low-stock badge surfaced on each row.
 assets-list-low-stock-badge = Low stock
 assets-list-low-stock-tooltip = { $quantity } { $unit } remaining (threshold { $threshold }).
@@ -5520,6 +5569,7 @@ list-grouping-trigger = Group by
 views-column-picker-trigger = Columns
 views-column-picker-reset = Reset columns
 views-column-resize-handle-tooltip = Drag to resize
+assets-list-grouping-status = Status
 assets-list-grouping-warranty = Warranty
 assets-list-grouping-kind = Type
 assets-list-grouping-manufacturer = Manufacturer

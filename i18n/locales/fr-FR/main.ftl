@@ -2092,6 +2092,7 @@ assets-list-filter-warranty-expired = Expirée
 assets-list-filter-warranty-unknown = Inconnue
 assets-list-filter-warranty-all = Toutes les garanties
 assets-list-filter-name-label = Name
+assets-list-filter-status-label = Statut
 assets-list-filter-warranty-label = Warranty
 assets-list-filter-low-stock-label = Low stock
 assets-list-column-device = Actif
@@ -2099,6 +2100,7 @@ assets-list-column-serial = Numéro de série
 assets-list-column-hostname = Nom d'hôte
 assets-list-column-model = Modèle
 assets-list-column-user = Utilisateur
+assets-list-column-status = Statut
 assets-list-column-warranty = Garantie
 
 assets-list-column-stock = Stock
@@ -3817,6 +3819,52 @@ asset-detail-low-stock-warning = Low stock: { $quantity } { $unit } remaining (t
 asset-low-stock-toast-title = Low stock: { $name }
 asset-low-stock-toast-body = { $quantity } { $unit } remaining (threshold { $threshold }).
 
+# Asset lifecycle status labels. DRAFT: machine-translated, pending native review.
+asset-status-in-service = En service
+asset-status-in-stock = En stock
+asset-status-in-repair = En réparation
+asset-status-on-loan = En prêt
+asset-status-retired = Retiré
+asset-status-lost = Perdu
+asset-status-disposed = Éliminé
+asset-status-unknown = Inconnu
+
+asset-lifecycle-heading = Cycle de vie
+asset-lifecycle-description = Suivez les changements de statut opérationnel tels que les réparations, les prêts et la mise hors service.
+asset-lifecycle-current-label = Statut actuel
+asset-lifecycle-change-status = Changer le statut
+asset-lifecycle-empty-title = Aucune transition pour le moment
+asset-lifecycle-empty-description = Les changements de statut apparaîtront ici une fois enregistrés.
+asset-lifecycle-transition-failed = Échec du changement de statut de l'actif
+
+asset-lifecycle-modal-title = Changer le statut de l'actif
+asset-lifecycle-modal-to-status = Nouveau statut
+asset-lifecycle-modal-reason = Motif
+asset-lifecycle-modal-reason-placeholder = Note facultative sur ce changement
+asset-lifecycle-modal-ticket = Ticket lié
+asset-lifecycle-modal-ticket-placeholder = N° de ticket (facultatif)
+asset-lifecycle-modal-submit = Enregistrer la transition
+asset-lifecycle-modal-cancel = Annuler
+
+asset-lifecycle-meta-vendor = Prestataire de réparation
+asset-lifecycle-meta-rma = Numéro RMA
+asset-lifecycle-meta-offsite = Envoyé hors site
+asset-lifecycle-meta-expected-return = Retour prévu
+asset-lifecycle-meta-loaned-to = Prêté à
+asset-lifecycle-meta-due-back = Date de retour
+
+asset-lifecycle-timeline-transition = { $from } vers { $to }
+asset-lifecycle-timeline-initial = Défini sur { $to }
+asset-lifecycle-timeline-actor = par { $name }
+asset-lifecycle-timeline-unknown-actor = Inconnu
+asset-lifecycle-timeline-ticket = Ticket n°{ $id }
+asset-lifecycle-timeline-vendor = Prestataire : { $vendor }
+asset-lifecycle-timeline-rma = RMA : { $rma }
+asset-lifecycle-timeline-offsite = Envoyé hors site
+asset-lifecycle-timeline-expected-return = Retour prévu : { $date }
+asset-lifecycle-timeline-loaned-to = Prêté à : { $name }
+asset-lifecycle-timeline-due-back = Date de retour : { $date }
+
 # Asset list: low-stock badge surfaced on each row.
 assets-list-low-stock-badge = Low stock
 assets-list-low-stock-tooltip = { $quantity } { $unit } remaining (threshold { $threshold }).
@@ -5273,6 +5321,7 @@ list-grouping-trigger = Group by
 views-column-picker-trigger = Columns
 views-column-picker-reset = Reset columns
 views-column-resize-handle-tooltip = Drag to resize
+assets-list-grouping-status = Statut
 assets-list-grouping-warranty = Warranty
 assets-list-grouping-kind = Type
 assets-list-grouping-manufacturer = Manufacturer

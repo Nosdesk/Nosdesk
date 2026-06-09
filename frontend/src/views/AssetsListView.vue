@@ -20,6 +20,7 @@ import { useAuthStore } from '@/stores/auth'
 
 import { TextCell, StatusBadgeCell, UserAvatarCell } from '@/components/common/cells'
 import AssetViewTabs from '@/components/assets/AssetViewTabs.vue'
+import AssetStatusBadge from '@/components/assets/AssetStatusBadge.vue'
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
@@ -27,6 +28,11 @@ import { getPaginatedAssets, bulkAction } from '@/services/assetService'
 import { useAssetLocationsQuery } from '@/composables/useAssetLocationsQuery'
 import { assetsKeys } from '@/queries/assets'
 import type { Asset } from '@/types/asset'
+import {
+  assetStatusChipOptions,
+  assetStatusLabel,
+  assetStatusSortIndex,
+} from '@/utils/assetStatusMeta'
 
 defineOptions({ name: 'AssetsListView' })
 
@@ -69,6 +75,7 @@ usePageCreateAction(navigateToCreateAsset)
 
 // Filter facets (chip UI). Backend encoding:
 //   name      -> controls.searchQuery (chip text-facet)
+//   status    -> CSV under one filter key, backend eq_any
 //   warranty  -> CSV under one filter key, backend ANY-matches
 //   lowStock  -> single 'true' when on, absent when off
 const assetFacets = computed<ChipFacetDef[]>(() => [
@@ -78,6 +85,12 @@ const assetFacets = computed<ChipFacetDef[]>(() => [
     kind: 'text',
     searchInput: true,
     options: () => [],
+  },
+  {
+    key: 'status',
+    labelKey: 'assets-list-filter-status-label',
+    kind: 'multi',
+    options: () => assetStatusChipOptions(t),
   },
   {
     key: 'warranty',
@@ -112,6 +125,15 @@ const assetFacets = computed<ChipFacetDef[]>(() => [
 const WARRANTY_ORDER = ['Expired', 'Warning', 'Active', 'Unknown'] as const
 
 const groupAxes: GroupAxisDef<Asset>[] = [
+  {
+    key: 'status',
+    labelKey: 'assets-list-grouping-status',
+    bucketFor: (asset) => {
+      const status = asset.status || 'in_service'
+      return { key: `status:${status}`, label: assetStatusLabel(t, status) }
+    },
+    sortBy: (bucketKey) => assetStatusSortIndex(bucketKey.replace('status:', '')),
+  },
   {
     key: 'warranty',
     labelKey: 'assets-list-grouping-warranty',
@@ -179,6 +201,7 @@ const columns = computed(() => [
   { field: 'location', label: t('assets-list-column-location'), width: 'minmax(140px,auto)', sortable: true, responsive: 'lg' as const },
   { field: 'primary_user', label: t('assets-list-column-user'), width: 'minmax(140px,auto)', sortable: false, responsive: 'md' as const },
   { field: 'quantity', label: t('assets-list-column-stock'), width: 'minmax(100px,auto)', sortable: true, responsive: 'md' as const },
+  { field: 'status', label: t('assets-list-column-status'), width: 'minmax(110px,auto)', sortable: true, responsive: 'always' as const },
   { field: 'warranty_status', label: t('assets-list-column-warranty'), width: 'minmax(100px,auto)', sortable: true, responsive: 'always' as const },
 ])
 
@@ -200,7 +223,7 @@ const listView = useListView({
     createIcon: 'device',
     onCreate: navigateToCreateAsset,
   },
-  urlSyncParamKeys: ['warranty', 'lowStock', 'location'],
+  urlSyncParamKeys: ['status', 'warranty', 'lowStock', 'location'],
   scrollContainerRef,
   facets: assetFacets,
   groupAxes,
@@ -375,6 +398,10 @@ async function confirmDelete() {
           <span v-else class="text-xs text-tertiary">-</span>
         </template>
 
+        <template #cell-status="{ item }">
+          <AssetStatusBadge :status="item.status || 'in_service'" />
+        </template>
+
         <template #cell-warranty_status="{ item }">
           <StatusBadgeCell type="warranty" :value="(item.attributes?.warranty_status as string | undefined) || ''" />
         </template>
@@ -422,6 +449,7 @@ async function confirmDelete() {
             >
               {{ $t('assets-list-low-stock-badge') }}
             </span>
+            <AssetStatusBadge :status="item.status || 'in_service'" />
             <span
               v-if="item.attributes?.warranty_status"
               class="inline-flex items-center px-1.5 py-0.5 rounded font-medium border"

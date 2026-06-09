@@ -2089,6 +2089,7 @@ assets-list-filter-warranty-expired = Verlopen
 assets-list-filter-warranty-unknown = Onbekend
 assets-list-filter-warranty-all = Alle garanties
 assets-list-filter-name-label = Name
+assets-list-filter-status-label = Status
 assets-list-filter-warranty-label = Warranty
 assets-list-filter-low-stock-label = Low stock
 assets-list-column-device = Activum
@@ -2096,6 +2097,7 @@ assets-list-column-serial = Serienummer
 assets-list-column-hostname = Hostnaam
 assets-list-column-model = Model
 assets-list-column-user = Gebruiker
+assets-list-column-status = Status
 assets-list-column-warranty = Garantie
 
 assets-list-column-stock = Stock
@@ -3808,6 +3810,52 @@ asset-detail-low-stock-warning = Low stock: { $quantity } { $unit } remaining (t
 asset-low-stock-toast-title = Low stock: { $name }
 asset-low-stock-toast-body = { $quantity } { $unit } remaining (threshold { $threshold }).
 
+# Asset lifecycle status labels. DRAFT: machine-translated, pending native review.
+asset-status-in-service = In gebruik
+asset-status-in-stock = Op voorraad
+asset-status-in-repair = In reparatie
+asset-status-on-loan = Uitgeleend
+asset-status-retired = Buiten gebruik
+asset-status-lost = Verloren
+asset-status-disposed = Afgevoerd
+asset-status-unknown = Onbekend
+
+asset-lifecycle-heading = Levenscyclus
+asset-lifecycle-description = Volg operationele statuswijzigingen zoals reparaties, uitleningen en buiten gebruikstelling.
+asset-lifecycle-current-label = Huidige status
+asset-lifecycle-change-status = Status wijzigen
+asset-lifecycle-empty-title = Nog geen overgangen
+asset-lifecycle-empty-description = Statuswijzigingen verschijnen hier zodra ze zijn vastgelegd.
+asset-lifecycle-transition-failed = Wijzigen van activumstatus mislukt
+
+asset-lifecycle-modal-title = Activumstatus wijzigen
+asset-lifecycle-modal-to-status = Nieuwe status
+asset-lifecycle-modal-reason = Reden
+asset-lifecycle-modal-reason-placeholder = Optionele toelichting bij deze wijziging
+asset-lifecycle-modal-ticket = Gekoppeld ticket
+asset-lifecycle-modal-ticket-placeholder = Ticketnummer (optioneel)
+asset-lifecycle-modal-submit = Overgang opslaan
+asset-lifecycle-modal-cancel = Annuleren
+
+asset-lifecycle-meta-vendor = Reparatieleverancier
+asset-lifecycle-meta-rma = RMA-nummer
+asset-lifecycle-meta-offsite = Offsite verzonden
+asset-lifecycle-meta-expected-return = Verwachte terugkeer
+asset-lifecycle-meta-loaned-to = Uitgeleend aan
+asset-lifecycle-meta-due-back = Terug verwacht
+
+asset-lifecycle-timeline-transition = { $from } naar { $to }
+asset-lifecycle-timeline-initial = Ingesteld op { $to }
+asset-lifecycle-timeline-actor = door { $name }
+asset-lifecycle-timeline-unknown-actor = Onbekend
+asset-lifecycle-timeline-ticket = Ticket #{ $id }
+asset-lifecycle-timeline-vendor = Leverancier: { $vendor }
+asset-lifecycle-timeline-rma = RMA: { $rma }
+asset-lifecycle-timeline-offsite = Offsite verzonden
+asset-lifecycle-timeline-expected-return = Verwachte terugkeer: { $date }
+asset-lifecycle-timeline-loaned-to = Uitgeleend aan: { $name }
+asset-lifecycle-timeline-due-back = Terug verwacht: { $date }
+
 # Asset list: low-stock badge surfaced on each row.
 assets-list-low-stock-badge = Low stock
 assets-list-low-stock-tooltip = { $quantity } { $unit } remaining (threshold { $threshold }).
@@ -5264,6 +5312,7 @@ list-grouping-trigger = Group by
 views-column-picker-trigger = Columns
 views-column-picker-reset = Reset columns
 views-column-resize-handle-tooltip = Drag to resize
+assets-list-grouping-status = Status
 assets-list-grouping-warranty = Warranty
 assets-list-grouping-kind = Type
 assets-list-grouping-manufacturer = Manufacturer
