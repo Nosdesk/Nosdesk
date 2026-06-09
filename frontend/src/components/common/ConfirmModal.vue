@@ -16,18 +16,16 @@ Usage:
 -->
 <template>
   <Modal :show="show" :title="title" size="sm" @close="emit('close')">
-    <div class="flex flex-col gap-5">
-      <p class="text-sm text-secondary whitespace-pre-line">{{ message }}</p>
-
-      <!-- Optional extra body content rendered between the message
-           and the action buttons. Used by BulkConfirmDialog for the
-           typed-confirmation input affordance. -->
+    <div class="flex flex-col gap-4">
+      <p class="text-sm text-secondary whitespace-pre-line leading-relaxed">{{ message }}</p>
       <slot name="body" />
+    </div>
 
-      <div class="flex justify-end gap-2">
+    <template #footer>
+      <div class="modal-actions">
         <button
           type="button"
-          class="px-4 py-2 text-sm rounded-lg text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
+          class="text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
           @click="emit('close')"
         >
           {{ cancelLabel }}
@@ -36,7 +34,7 @@ Usage:
           type="button"
           :disabled="confirmDisabled || loading"
           :class="[
-            'px-4 py-2 text-sm rounded-lg text-white transition-colors inline-flex items-center justify-center gap-2',
+            'text-white transition-colors inline-flex items-center justify-center gap-2',
             confirmDisabled && !loading
               ? 'bg-surface-alt text-tertiary cursor-not-allowed'
               : variant === 'danger'
@@ -51,31 +49,24 @@ Usage:
           {{ confirmLabel }}
         </button>
       </div>
-    </div>
+    </template>
   </Modal>
 </template>
 
 <script setup lang="ts">
-import Modal from '@/components/Modal.vue';
-import Spinner from '@/components/common/Spinner.vue';
+import Modal from '@/components/Modal.vue'
+import Spinner from '@/components/common/Spinner.vue'
 
 withDefaults(
   defineProps<{
-    show: boolean;
-    title: string;
-    message: string;
-    confirmLabel?: string;
-    cancelLabel?: string;
-    variant?: 'danger' | 'warning' | 'info';
-    /** When true, the Confirm button is rendered but disabled (greyed
-     *  out, no click handler). Use for typed-confirmation patterns
-     *  where confirm should only be reachable once a precondition
-     *  is met. */
-    confirmDisabled?: boolean;
-    /** When true, the Confirm button shows a spinner and is disabled
-     *  (keeps its variant colour). Use for async confirms so the
-     *  in-flight state is visible. */
-    loading?: boolean;
+    show: boolean
+    title: string
+    message: string
+    confirmLabel?: string
+    cancelLabel?: string
+    variant?: 'danger' | 'warning' | 'info'
+    confirmDisabled?: boolean
+    loading?: boolean
   }>(),
   {
     confirmLabel: 'Confirm',
@@ -84,10 +75,10 @@ withDefaults(
     confirmDisabled: false,
     loading: false,
   },
-);
+)
 
 const emit = defineEmits<{
-  (e: 'confirm'): void;
-  (e: 'close'): void;
-}>();
+  (e: 'confirm'): void
+  (e: 'close'): void
+}>()
 </script>

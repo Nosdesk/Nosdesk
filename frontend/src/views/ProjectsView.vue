@@ -19,11 +19,13 @@ import { useSyncProjectsStore, type SyncProject } from '@/sync/stores/projects'
 import { useProjectRollups } from '@/composables/useProjectRollups'
 import { useActiveCycleSummaries } from '@/composables/useActiveCycleSummaries'
 import { useDataTableColumns } from '@/composables/useDataTableColumns'
+import { useProjectsDensity } from '@/composables/useTicketsDensity'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
 import { projectStatusDot } from '@/utils/projectStatus'
 import { formatCompactRelativeTime } from '@/utils/dateUtils'
 import { logger } from '@/utils/logger'
 import DataTable from '@/components/common/DataTable.vue'
+import ListDensityToggle from '@/components/common/ListDensityToggle.vue'
 import CreateProjectModal from '@/components/projectComponents/CreateProjectModal.vue'
 import ProjectCard from '@/components/projectComponents/ProjectCard.vue'
 import ProjectStatusBar from '@/components/projectComponents/ProjectStatusBar.vue'
@@ -83,6 +85,8 @@ const cols = useDataTableColumns({
   getViewId: () => 'default',
   pinnedIds: ['name'],
 })
+
+const { density, setDensity, rowClass, cellPadding } = useProjectsDensity()
 
 // Status filter (chips) + sort (driven by clicking the column headers).
 // Finding a project by name is the global search's job, so there's no
@@ -278,6 +282,15 @@ function handleProjectContextMenuSelect(actionId: string): void {
           :class="statusFilter === option.value ? 'text-accent/70' : 'text-tertiary'"
         >{{ statusCounts[option.value] ?? 0 }}</span>
       </button>
+
+      <div class="flex-1 min-w-2" />
+
+      <!-- Row density. Desktop table only (lg+). -->
+      <ListDensityToggle
+        class="hidden lg:inline-flex"
+        :density="density"
+        @set-density="setDensity"
+      />
     </div>
 
     <!-- Loading skeleton -->
@@ -325,6 +338,8 @@ function handleProjectContextMenuSelect(actionId: string): void {
           :selectable="false"
           :sort-field="sortField"
           :sort-direction="sortDir"
+          :row-class="rowClass"
+          :cell-padding="cellPadding"
           :column-reorder="cols.reorderBundle"
           :column-resize="cols.resizeBundle"
           @update:sort="onTableSort"

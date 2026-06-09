@@ -44,6 +44,7 @@ import TicketsViewTabs, {
   type ViewTabItem,
 } from '@/components/views/TicketsViewTabs.vue'
 import DisplayMenu from '@/components/views/DisplayMenu.vue'
+import ListDensityToggle from '@/components/common/ListDensityToggle.vue'
 import FilterPill from '@/components/views/FilterPill.vue'
 import AddFilterMenu from '@/components/views/AddFilterMenu.vue'
 import {
@@ -235,27 +236,6 @@ const toneClass = computed<(tone: 'default' | 'amber' | 'red') => string>(() => 
   return 'text-tertiary'
 })
 
-const densityOptions: ReadonlyArray<{ value: Density; title: string; svg: string }> = [
-  {
-    value: 'compact',
-    title: 'Compact',
-    // Four tight horizontal lines.
-    svg: 'M3 5h14M3 9h14M3 13h14M3 17h14',
-  },
-  {
-    value: 'cosy',
-    title: 'Cosy',
-    // Three medium-spaced lines.
-    svg: 'M3 5h14M3 10h14M3 15h14',
-  },
-  {
-    value: 'comfortable',
-    title: 'Comfortable',
-    // Two widely-spaced lines.
-    svg: 'M3 6h14M3 14h14',
-  },
-]
-
 /** Public method exposed on the host element so the shell can
  * trigger the AddFilter popover from a `/` keystroke without
  * mounting the menu's trigger button itself. */
@@ -368,28 +348,11 @@ defineExpose({ openAddFilter })
 
       <!-- Density quick-toggle. Three icon buttons. Hidden below
            md: — phones don't have meaningful row density choices. -->
-      <div
-        class="hidden md:inline-flex items-center rounded-md border border-subtle overflow-hidden h-7"
-        role="group"
-        :aria-label="$t('ticket-list-row-density-aria')"
-      >
-        <button
-          v-for="opt in densityOptions"
-          :key="opt.value"
-          type="button"
-          class="h-full w-7 flex items-center justify-center transition-colors"
-          :class="density === opt.value
-            ? 'bg-accent/15 text-accent'
-            : 'text-tertiary hover:text-primary hover:bg-surface-hover'"
-          :aria-pressed="density === opt.value"
-          :title="opt.title"
-          @click="emit('set-density', opt.value)"
-        >
-          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" class="w-3.5 h-3.5">
-            <path :d="opt.svg" />
-          </svg>
-        </button>
-      </div>
+      <ListDensityToggle
+        class="hidden md:inline-flex"
+        :density="density"
+        @set-density="(v) => emit('set-density', v)"
+      />
 
       <!-- Split-view toggle. Two-pane SVG so the icon reads as
            "list + preview" not just generic 'split'. Hidden below

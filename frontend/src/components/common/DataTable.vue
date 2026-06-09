@@ -76,11 +76,17 @@ const props = withDefaults(defineProps<{
    *  so existing consumers are unchanged; set false for lists that
    *  don't support bulk selection. */
   selectable?: boolean
+  /** Optional fixed row height class (eg. h-7 / h-10 / h-12). */
+  rowClass?: string
+  /** Optional cell padding override for header + data cells. */
+  cellPadding?: string
 }>(), {
   itemIdField: 'id',
   loading: false,
   gridClass: '',
   selectable: true,
+  rowClass: '',
+  cellPadding: '',
 })
 
 const emit = defineEmits<{
@@ -177,6 +183,14 @@ const getColumnVisibility = (column: Column) => {
   if (column.responsive === 'lg') return 'hidden lg:flex'
   return ''
 }
+
+const headerCellPadding = computed(() =>
+  props.cellPadding || 'px-2 py-2',
+)
+
+const dataCellPadding = computed(() =>
+  props.cellPadding || 'px-2 py-3',
+)
 </script>
 
 <template>
@@ -218,7 +232,8 @@ const getColumnVisibility = (column: Column) => {
           :key="column.field"
           :draggable="columnReorder ? columnReorder.isReorderable(column.field) : false"
           :class="[
-            'px-2 py-2 first:pl-4 last:pr-4 flex items-center text-[10px] font-semibold uppercase tracking-wider text-tertiary bg-surface border-b border-subtle sticky top-0 z-10 relative',
+            headerCellPadding,
+            'first:pl-4 last:pr-4 flex items-center text-[10px] font-semibold uppercase tracking-wider text-tertiary bg-surface border-b border-subtle sticky top-0 z-10 relative',
             getColumnVisibility(column),
             column.sortable ? 'cursor-pointer hover:bg-surface-hover hover:text-primary' : '',
             columnReorder?.sourceId.value === column.field ? 'opacity-50' : '',
@@ -272,8 +287,10 @@ const getColumnVisibility = (column: Column) => {
             <!-- Checkbox Cell -->
             <div
               v-if="selectable"
-              class="px-4 py-3 flex items-center bg-app group-hover:bg-surface-hover"
+              class="px-4 flex items-center bg-app group-hover:bg-surface-hover"
               :class="[
+                dataCellPadding,
+                rowClass,
                 loading ? 'opacity-60 pointer-events-none' : 'transition-colors',
                 index > 0 ? 'border-t border-default' : ''
               ]"
@@ -290,7 +307,9 @@ const getColumnVisibility = (column: Column) => {
               v-for="column in columns"
               :key="column.field"
               :class="[
-                'px-2 py-3 first:pl-4 last:pr-4 flex items-center bg-app group-hover:bg-surface-hover text-sm min-w-0',
+                dataCellPadding,
+                'first:pl-4 last:pr-4 flex items-center bg-app group-hover:bg-surface-hover text-sm min-w-0',
+                rowClass,
                 getColumnVisibility(column),
                 loading ? 'opacity-60 pointer-events-none' : 'transition-colors',
                 index > 0 ? 'border-t border-default' : ''
@@ -351,8 +370,10 @@ const getColumnVisibility = (column: Column) => {
               >
                 <div
                   v-if="selectable"
-                  class="px-4 py-3 flex items-center bg-app group-hover:bg-surface-hover"
+                  class="px-4 flex items-center bg-app group-hover:bg-surface-hover"
                   :class="[
+                    dataCellPadding,
+                    rowClass,
                     loading ? 'opacity-60 pointer-events-none' : 'transition-colors',
                     index > 0 ? 'border-t border-default' : ''
                   ]"
@@ -367,7 +388,9 @@ const getColumnVisibility = (column: Column) => {
                   v-for="column in columns"
                   :key="column.field"
                   :class="[
-                    'px-2 py-3 first:pl-4 last:pr-4 flex items-center bg-app group-hover:bg-surface-hover text-sm min-w-0',
+                    dataCellPadding,
+                    'first:pl-4 last:pr-4 flex items-center bg-app group-hover:bg-surface-hover text-sm min-w-0',
+                    rowClass,
                     getColumnVisibility(column),
                     loading ? 'opacity-60 pointer-events-none' : 'transition-colors',
                     index > 0 ? 'border-t border-default' : ''

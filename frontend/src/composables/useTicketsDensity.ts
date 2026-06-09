@@ -7,15 +7,13 @@ import { computed, ref, type ComputedRef, type Ref } from 'vue'
 
 export type Density = 'compact' | 'cosy' | 'comfortable'
 
-const STORAGE_KEY = 'tickets-list-density'
-
-function loadDensity(): Density {
+function loadDensity(storageKey: string): Density {
   // Default to compact for power-user personas (MSP techs,
   // sysadmins) who live in the queue all day and want maximum
-  // tickets per viewport. The toggle to cosy/comfortable is one
-  // click in the Display menu for users who prefer breathing room.
+  // rows per viewport. The toggle to cosy/comfortable is one
+  // click in the toolbar for users who prefer breathing room.
   if (typeof localStorage === 'undefined') return 'compact'
-  const v = localStorage.getItem(STORAGE_KEY)
+  const v = localStorage.getItem(storageKey)
   return v === 'cosy' || v === 'comfortable' ? v : 'compact'
 }
 
@@ -26,13 +24,13 @@ export interface UseTicketsDensity {
   cellPadding: ComputedRef<string>
 }
 
-export function useTicketsDensity(): UseTicketsDensity {
-  const density = ref<Density>(loadDensity())
+export function useListDensity(storageKey: string): UseTicketsDensity {
+  const density = ref<Density>(loadDensity(storageKey))
 
   function setDensity(value: Density): void {
     density.value = value
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(STORAGE_KEY, value)
+      localStorage.setItem(storageKey, value)
     }
   }
 
@@ -51,4 +49,12 @@ export function useTicketsDensity(): UseTicketsDensity {
   )
 
   return { density, setDensity, rowClass, cellPadding }
+}
+
+export function useTicketsDensity(): UseTicketsDensity {
+  return useListDensity('tickets-list-density')
+}
+
+export function useProjectsDensity(): UseTicketsDensity {
+  return useListDensity('projects-list-density')
 }
