@@ -95,8 +95,6 @@ backend on all interfaces:
 BACKEND_BIND=0.0.0.0 docker compose -f compose.yaml -f compose.dev.yaml up -d --build
 ```
 
-For API testing, import `api-insomnia.json` into [Insomnia](https://insomnia.rest/).
-
 ## CLI tools
 
 Nosdesk ships a `nosdesk-cli` binary for plugin authoring, signing, and a
@@ -167,9 +165,7 @@ shasum -a 256 dist/<plugin-name>-<version>.zip
 ```
 
 The `--source` value must match how your signing key is registered with
-the trust chain on the target Nosdesk instance(s). See
-`docs/plugin-registry-plan.md` (this repo) for how trust tiers resolve
-on the install pipeline.
+the trust chain on the target Nosdesk instance(s).
 
 ## License
 
