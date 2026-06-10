@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { formatDate as formatDateUtil } from '@/utils/dateUtils';
 import { effectiveRole, type UserRole } from '@/types/user';
-import { ref, computed, onMounted, watch } from "vue";
+import { ref, computed, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { useQuery, useQueryCache } from '@pinia/colada';
+import { useDelayedFlag } from '@/composables/useDelayedFlag';
 import { useFluent } from 'fluent-vue';
 import { useAuthStore } from "@/stores/auth";
 import BackButton from "@/components/common/BackButton.vue";
@@ -38,15 +40,40 @@ const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 const authStore = useAuthStore();
 const { colorFilterStyle } = useColorFilter();
-const loading = ref(true);
 const error = ref<string | null>(null);
-const userProfile = ref<UserProfile | null>(null);
-const devices = ref<Asset[]>([]);
-const groups = ref<Group[]>([]);
 
-// Creation and editing state
-const isCreationMode = ref(false);
-const isNewUser = ref(false);
+// Cache-first: the existing-user bundle is a Pinia Colada query keyed on
+// the route uuid, so userProfile / devices / groups are derived from it.
+// A revisit renders instantly from cache, then refreshes silently.
+// Creation mode (no uuid, or "new") runs no query: it's a form.
+const userUuid = computed(() => route.params.uuid as string | undefined);
+const isCreationMode = computed(() => !userUuid.value || userUuid.value === 'new');
+const queryCache = useQueryCache();
+
+const profileQuery = useQuery({
+    key: () => ['user-profile', userUuid.value ?? 'new'],
+    query: () => userService.getUserProfileBundle(userUuid.value as string, ['devices', 'groups']),
+    enabled: () => !isCreationMode.value,
+});
+
+const loading = computed(() => profileQuery.asyncStatus.value === 'loading');
+const userProfile = computed<UserProfile | null>(() => {
+    const user = profileQuery.data.value?.user;
+    if (!user) return null;
+    // Department is a placeholder until the backend carries it.
+    return { ...user, department: 'IT Support', joinedDate: user.created_at };
+});
+const devices = computed<Asset[]>(() => profileQuery.data.value?.devices ?? []);
+const groups = computed<Group[]>(() => profileQuery.data.value?.groups ?? []);
+
+// Cold-load spinner only after 300ms with no cached data, so a warm
+// revisit (or a fast load) shows no flash.
+const showLoadingSpinner = useDelayedFlag(
+    () => loading.value && !userProfile.value,
+    300,
+);
+
+// Editing state (creation form + inline edits)
 const editingEmail = ref(false);
 const editingRole = ref(false);
 const editingPronouns = ref(false);
@@ -75,10 +102,11 @@ const roleOptions = computed(() => [
     { value: "admin", label: t('user-profile-role-admin') },
 ]);
 
-// Check permissions
-const canEdit = ref(false);
-const canEditRole = ref(false);
-const isOwnProfile = ref(false);
+// Permissions (derived). Admins can edit any profile; a user can edit
+// their own; only admins can change roles.
+const isOwnProfile = computed(() => authStore.user?.uuid === userUuid.value);
+const canEdit = computed(() => isOwnProfile.value || authStore.isAdmin);
+const canEditRole = computed(() => authStore.isAdmin);
 
 // Check if the profile user can have assigned tickets (technicians and admins only)
 const canHaveAssignedTickets = computed(() => {
@@ -98,123 +126,68 @@ const navigateToGroup = (group: Group) => {
     router.push(`/groups/${group.uuid}`);
 };
 
-const fetchUserData = async () => {
-    try {
-        loading.value = true;
-        error.value = null;
-
-        // Check for creation mode (no UUID parameter)
-        if (!route.params.uuid || route.params.uuid === "new") {
-            isCreationMode.value = true;
-            isNewUser.value = true;
-
-            // Set default values for new user
-            editValues.value = {
-                name: "",
-                email: "",
-                role: "user",
-                pronouns: "",
-            };
-
-            // Enable editing mode for all fields
-            editingEmail.value = true;
-            editingRole.value = true;
-            editingPronouns.value = true;
-
-            // Set permissions for creation
-            canEdit.value =
-                authStore.isAdmin;
-            canEditRole.value =
-                authStore.isAdmin;
-
-            if (!canEdit.value) {
-                error.value = t('user-profile-error-no-create-permission');
-                return;
-            }
-
-            // Check SMTP configuration status
-            try {
-                const emailConfig = await userService.getEmailConfigStatus();
-                smtpConfigured.value = emailConfig.is_configured && emailConfig.enabled;
-                // If SMTP is not configured, default to manual password
-                if (!smtpConfigured.value) {
-                    sendInvitation.value = false;
-                }
-            } catch (err) {
-                console.error("Failed to check email config:", err);
-                smtpConfigured.value = false;
-                sendInvitation.value = false;
-            }
-
-            // Focus on name field after DOM update
-            setTimeout(() => {
-                const nameInput = document.getElementById(
-                    "name-input",
-                ) as HTMLInputElement;
-                if (nameInput) {
-                    nameInput.focus();
-                }
-            }, 100);
-
-            loading.value = false;
-            return;
-        }
-
-        // Get the UUID from the route params
-        const userUuid = route.params.uuid as string;
-
-        if (!userUuid) {
-            error.value = t('user-profile-error-missing-id');
-            return;
-        }
-
-        // One bundled fetch covers user + devices + groups (and counts /
-        // emails when we wire those badges into this view). Replaces the
-        // three sequential round-trips this page used to do.
-        const bundle = await userService.getUserProfileBundle(userUuid, [
-            'devices',
-            'groups',
-        ]);
-        const user = bundle.user;
-
-        // Create the user profile with the fetched data
-        userProfile.value = {
-            ...user,
-            department: "IT Support", // Default department (could be added to backend later)
-            joinedDate: user.created_at, // Use the actual created_at from the database
-        };
-
-        // Set edit values
-        editValues.value = {
-            name: user.name,
-            email: user.email,
-            role: effectiveRole(user),
-            pronouns: user.pronouns || "",
-        };
-
-        // Check if this is a new user (name starts with "New User")
-        isNewUser.value = user.name.startsWith("New User");
-
-        // Set permissions
-        const userIsOwnProfile = authStore.user?.uuid === userUuid;
-        const isAdmin = authStore.isAdmin;
-
-        isOwnProfile.value = userIsOwnProfile;
-        canEdit.value = userIsOwnProfile || isAdmin;
-        canEditRole.value = isAdmin; // Only admins can change roles
-
-        devices.value = bundle.devices ?? [];
-        groups.value = bundle.groups ?? [];
-
-        // User emails are loaded by the UserEmailsCard component, ticket
-        // lists by UserAssignedTickets.
-    } catch (e) {
-        error.value = t('user-profile-error-load');
-        console.error("Error loading user profile:", e);
-    } finally {
-        loading.value = false;
+// Creation mode is a form, not cached data: seed defaults, enable the
+// editable fields, and probe SMTP so we can offer invitation vs manual
+// password. Driven by the isCreationMode watcher below.
+const setupCreationMode = async () => {
+    error.value = null;
+    if (!canEdit.value) {
+        error.value = t('user-profile-error-no-create-permission');
+        return;
     }
+
+    editValues.value = { name: "", email: "", role: "user", pronouns: "" };
+    editingEmail.value = true;
+    editingRole.value = true;
+    editingPronouns.value = true;
+
+    // Check SMTP configuration status
+    try {
+        const emailConfig = await userService.getEmailConfigStatus();
+        smtpConfigured.value = emailConfig.is_configured && emailConfig.enabled;
+        // If SMTP is not configured, default to manual password
+        if (!smtpConfigured.value) {
+            sendInvitation.value = false;
+        }
+    } catch (err) {
+        console.error("Failed to check email config:", err);
+        smtpConfigured.value = false;
+        sendInvitation.value = false;
+    }
+
+    // Focus on name field after DOM update
+    setTimeout(() => {
+        (document.getElementById("name-input") as HTMLInputElement | null)?.focus();
+    }, 100);
 };
+
+// Seed the editable form from the loaded user. (User emails are loaded by
+// UserEmailsCard, ticket lists by UserAssignedTickets.)
+watch(
+    () => profileQuery.data.value,
+    (bundle) => {
+        if (!bundle?.user) return;
+        editValues.value = {
+            name: bundle.user.name,
+            email: bundle.user.email,
+            role: effectiveRole(bundle.user),
+            pronouns: bundle.user.pronouns || "",
+        };
+    },
+    { immediate: true },
+);
+
+// Surface a load failure in the existing error banner (mirrors the old
+// fetch's catch; the not-found block also covers the no-data case).
+watch(
+    () => profileQuery.error.value,
+    (e) => {
+        if (e) {
+            error.value = t('user-profile-error-load');
+            console.error("Error loading user profile:", e);
+        }
+    },
+);
 
 const formatDate = (dateString: string) => {
     try {
@@ -308,14 +281,17 @@ const saveUser = async () => {
                 },
             );
 
-            // Update the user profile data
-            userProfile.value = { ...userProfile.value, ...updatedUser };
+            // Refresh authoritative data from cache (userProfile is now
+            // derived from the query, so re-read rather than reassign).
+            void updatedUser;
+            await queryCache.invalidateQueries({
+                key: ['user-profile', userUuid.value ?? 'new'],
+            });
 
             // Exit edit mode for all fields (name is handled by UserProfileCard)
             editingEmail.value = false;
             editingRole.value = false;
             editingPronouns.value = false;
-            isNewUser.value = false;
         }
     } catch (err) {
         console.error("Error saving user:", err);
@@ -332,24 +308,23 @@ const saveUser = async () => {
 
 // Note: Name editing is now handled by UserProfileCard component
 
-onMounted(() => {
-    fetchUserData();
-});
-
-// Re-fetch user data when route params change (e.g., after creating a new user)
+// View mode refetches automatically: the query key is reactive on the
+// route uuid, so navigating between users re-runs it (and serves any
+// cached entry instantly). Only creation mode needs explicit setup; when
+// we leave it (e.g. after creating a user and routing to it), clear the
+// edit flags so the now-read-only profile view isn't left in edit state.
 watch(
-    () => route.params.uuid,
-    (newUuid, oldUuid) => {
-        if (newUuid !== oldUuid) {
-            // Reset state when navigating to a different user
-            isCreationMode.value = false;
-            isNewUser.value = false;
+    isCreationMode,
+    (creating) => {
+        if (creating) {
+            void setupCreationMode();
+        } else {
             editingEmail.value = false;
             editingRole.value = false;
             editingPronouns.value = false;
-            fetchUserData();
         }
-    }
+    },
+    { immediate: true },
 );
 </script>
 
@@ -796,7 +771,7 @@ watch(
         </div>
 
         <div
-            v-else-if="loading"
+            v-else-if="showLoadingSpinner"
             class="flex justify-center items-center min-h-[200px]"
         >
             <div
@@ -804,7 +779,9 @@ watch(
             ></div>
         </div>
 
-        <div v-else class="p-6 text-center text-secondary">{{ $t('user-profile-not-found') }}</div>
+        <!-- Settled with no user (and not mid-load): genuine not-found. The
+             sub-300ms loading window renders nothing, avoiding a flash. -->
+        <div v-else-if="!loading" class="p-6 text-center text-secondary">{{ $t('user-profile-not-found') }}</div>
     </div>
 </template>
 
