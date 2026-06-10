@@ -540,7 +540,19 @@ admin-audit-col-time = Tijd
 # machine, na te kijken door moedertaalspreker
 admin-audit-source-field = Bron
 # machine, na te kijken door moedertaalspreker
+admin-audit-col-details = Details
+# machine, na te kijken door moedertaalspreker
 admin-audit-copy = Kopiëren
+# machine, na te kijken door moedertaalspreker
+admin-audit-live-count = { $count ->
+    [one] { $count } gebeurtenis
+   *[other] { $count } gebeurtenissen
+}
+# machine, na te kijken door moedertaalspreker
+admin-audit-live-loaded = { $count ->
+    [one] { $count } gebeurtenis meer geladen
+   *[other] { $count } gebeurtenissen meer geladen
+}
 # machine, na te kijken door moedertaalspreker
 admin-audit-day-today = Vandaag
 # machine, na te kijken door moedertaalspreker

@@ -603,7 +603,16 @@ admin-audit-col-actor = Actor
 admin-audit-col-target = Target
 admin-audit-col-time = Time
 admin-audit-source-field = Source
+admin-audit-col-details = Details
 admin-audit-copy = Copy
+admin-audit-live-count = { $count ->
+    [one] { $count } event
+   *[other] { $count } events
+}
+admin-audit-live-loaded = { $count ->
+    [one] { $count } more event loaded
+   *[other] { $count } more events loaded
+}
 admin-audit-day-today = Today
 admin-audit-day-yesterday = Yesterday
 admin-audit-empty-filtered-title = No matching events

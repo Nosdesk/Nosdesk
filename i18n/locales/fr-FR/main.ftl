@@ -543,7 +543,19 @@ admin-audit-col-time = Heure
 # machine, à relire par un locuteur natif
 admin-audit-source-field = Source
 # machine, à relire par un locuteur natif
+admin-audit-col-details = Détails
+# machine, à relire par un locuteur natif
 admin-audit-copy = Copier
+# machine, à relire par un locuteur natif
+admin-audit-live-count = { $count ->
+    [one] { $count } événement
+   *[other] { $count } événements
+}
+# machine, à relire par un locuteur natif
+admin-audit-live-loaded = { $count ->
+    [one] { $count } événement supplémentaire chargé
+   *[other] { $count } événements supplémentaires chargés
+}
 # machine, à relire par un locuteur natif
 admin-audit-day-today = Aujourd'hui
 # machine, à relire par un locuteur natif

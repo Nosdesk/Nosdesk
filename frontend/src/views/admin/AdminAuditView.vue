@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useFluent } from 'fluent-vue';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
@@ -13,7 +13,12 @@ import { auditService, type AuditEntry, type AuditQuery } from '@/services/audit
 import { extractErrorMessage } from '@/utils/errors';
 
 const fluent = useFluent();
-const t = (key: string) => fluent.$t(key);
+const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
+
+// Polite live-region message: announces the result count after a
+// filter/first-load and how many rows were appended on "Load more", so
+// non-sighted users learn the outcome of an auto-applied filter.
+const liveMessage = ref('');
 
 // Tier chips. `undefined` = all sources.
 const TIERS = [
@@ -55,6 +60,7 @@ async function loadFirstPage() {
     const page = await auditService.list(buildQuery());
     entries.value = page.entries;
     nextCursor.value = page.next_cursor;
+    liveMessage.value = t('admin-audit-live-count', { count: entries.value.length });
   } catch (err) {
     errorMessage.value = readError(err, 'admin-audit-error-load');
     entries.value = [];
@@ -67,10 +73,17 @@ async function loadFirstPage() {
 async function loadMore() {
   if (!nextCursor.value || isLoadingMore.value) return;
   isLoadingMore.value = true;
+  const prevLen = entries.value.length;
   try {
     const page = await auditService.list(buildQuery(nextCursor.value));
     entries.value.push(...page.entries);
     nextCursor.value = page.next_cursor;
+    liveMessage.value = t('admin-audit-live-loaded', { count: page.entries.length });
+    // Move focus to the first newly-appended row so a keyboard user lands
+    // on the new content instead of a button that just shifted down.
+    await nextTick();
+    const firstNew = entries.value[prevLen];
+    if (firstNew) document.getElementById(`audit-toggle-${firstNew.id}`)?.focus();
   } catch (err) {
     errorMessage.value = readError(err, 'admin-audit-error-load-more');
   } finally {
@@ -271,7 +284,8 @@ onMounted(loadFirstPage);
 </script>
 
 <template>
-  <div class="flex flex-col gap-6 p-6">
+  <div class="flex flex-col gap-6 p-6" :aria-busy="isLoading || isLoadingMore">
+    <p role="status" aria-live="polite" class="sr-only">{{ liveMessage }}</p>
     <header class="flex flex-wrap items-start justify-between gap-3">
       <div class="flex flex-col gap-2">
         <h1 class="text-2xl font-semibold">{{ $t('admin-audit-title') }}</h1>
@@ -301,6 +315,7 @@ onMounted(loadFirstPage);
               ? 'bg-accent/10 border-accent text-accent font-medium'
               : 'border-default text-secondary hover:bg-surface-hover'
           "
+          :aria-pressed="tierFilter === tier.value"
           @click="tierFilter = tier.value"
         >
           {{ $t(tier.labelKey) }}
@@ -365,17 +380,18 @@ onMounted(loadFirstPage);
     <table v-else class="w-full text-sm border-separate border-spacing-0">
       <thead>
         <tr class="text-left text-xs text-tertiary">
-          <th class="w-8 pb-2 pl-2 font-medium"></th>
-          <th class="pb-2 font-medium">{{ $t('admin-audit-col-event') }}</th>
-          <th class="pb-2 font-medium">{{ $t('admin-audit-col-actor') }}</th>
-          <th class="hidden pb-2 font-medium md:table-cell">{{ $t('admin-audit-col-target') }}</th>
-          <th class="pb-2 pr-2 text-right font-medium">{{ $t('admin-audit-col-time') }}</th>
+          <th scope="col" class="w-8 pb-2 pl-2 font-medium"><span class="sr-only">{{ $t('admin-audit-col-details') }}</span></th>
+          <th scope="col" class="pb-2 font-medium">{{ $t('admin-audit-col-event') }}</th>
+          <th scope="col" class="pb-2 font-medium">{{ $t('admin-audit-col-actor') }}</th>
+          <th scope="col" class="hidden pb-2 font-medium md:table-cell">{{ $t('admin-audit-col-target') }}</th>
+          <th scope="col" class="pb-2 pr-2 text-right font-medium">{{ $t('admin-audit-col-time') }}</th>
         </tr>
       </thead>
 
       <tbody v-for="group in groupedEntries" :key="group.key">
         <tr>
           <th
+            scope="colgroup"
             colspan="5"
             class="pt-4 pb-1 pl-2 text-left text-[10px] font-semibold uppercase tracking-wide text-tertiary"
           >
@@ -390,11 +406,12 @@ onMounted(loadFirstPage);
           >
             <td class="py-2 pl-2 align-top">
               <button
+                :id="`audit-toggle-${entry.id}`"
                 type="button"
                 class="flex h-6 w-6 items-center justify-center rounded text-tertiary hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 :aria-expanded="!!expanded[entry.id]"
                 :aria-controls="`audit-detail-${entry.id}`"
-                :aria-label="humanizeEvent(entry.event_type)"
+                :aria-label="`${humanizeEvent(entry.event_type)}, ${formatRelativeTime(entry.occurred_at)}`"
                 @click.stop="toggleExpanded(entry.id)"
               >
                 <Icon :name="eventIcon(entry.event_type)" size="sm" />
@@ -437,8 +454,9 @@ onMounted(loadFirstPage);
             </td>
           </tr>
 
-          <tr v-if="expanded[entry.id]" :id="`audit-detail-${entry.id}`">
+          <tr :id="`audit-detail-${entry.id}`" :hidden="!expanded[entry.id]">
             <td colspan="5" class="bg-surface-alt/40 px-3 pb-3 pt-1">
+              <template v-if="expanded[entry.id]">
               <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
                 <dt class="text-secondary">{{ $t('admin-audit-source-field') }}</dt>
                 <dd class="text-primary">{{ sourceLabel(entry.source) }}</dd>
@@ -513,6 +531,7 @@ onMounted(loadFirstPage);
               </div>
 
               <p v-else class="mt-2 text-xs text-secondary">{{ $t('admin-audit-no-diff') }}</p>
+              </template>
             </td>
           </tr>
         </template>
