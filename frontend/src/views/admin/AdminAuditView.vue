@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { useInfiniteQuery } from '@pinia/colada';
 import { useFluent } from 'fluent-vue';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
@@ -9,7 +11,8 @@ import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 import type { IconName } from '@/components/common/icons';
 import { formatDate, formatDateTime, formatRelativeTime } from '@/utils/dateUtils';
-import { auditService, type AuditEntry, type AuditQuery } from '@/services/auditService';
+import { auditService, type AuditEntry, type AuditPage, type AuditQuery } from '@/services/auditService';
+import { auditKeys } from '@/queries/audit';
 import { extractErrorMessage } from '@/utils/errors';
 
 const fluent = useFluent();
@@ -33,14 +36,33 @@ const eventPrefix = ref('');
 const actorFilter = ref('');
 const severityFilter = ref('');
 
-const entries = ref<AuditEntry[]>([]);
-const nextCursor = ref<string | null>(null);
 const expanded = ref<Record<string, boolean>>({});
-
-const isLoading = ref(false);
-const isLoadingMore = ref(false);
 const isExporting = ref(false);
 const errorMessage = ref('');
+
+const route = useRoute();
+const router = useRouter();
+
+// Hydrate filters from the URL so a shared/bookmarked audit view restores
+// its filter set, then mirror changes back (replace, not push, so typing a
+// filter doesn't stack history entries).
+tierFilter.value = route.query.tier ? Number(route.query.tier) : undefined;
+eventPrefix.value = typeof route.query.event === 'string' ? route.query.event : '';
+actorFilter.value = typeof route.query.actor === 'string' ? route.query.actor : '';
+severityFilter.value = typeof route.query.severity === 'string' ? route.query.severity : '';
+
+watch(
+  [tierFilter, eventPrefix, actorFilter, severityFilter],
+  () => {
+    const query: Record<string, string> = {};
+    if (tierFilter.value !== undefined) query.tier = String(tierFilter.value);
+    if (eventPrefix.value.trim()) query.event = eventPrefix.value.trim();
+    if (actorFilter.value.trim()) query.actor = actorFilter.value.trim();
+    if (severityFilter.value) query.severity = severityFilter.value;
+    void router.replace({ query });
+  },
+  { flush: 'post' },
+);
 
 function buildQuery(cursor?: string): AuditQuery {
   const q: AuditQuery = { limit: 50 };
@@ -52,43 +74,59 @@ function buildQuery(cursor?: string): AuditQuery {
   return q;
 }
 
-async function loadFirstPage() {
-  isLoading.value = true;
-  errorMessage.value = '';
+// The filter set IS the cache key, so a change swaps to a cached page
+// (instant) or fetches fresh — no manual reload wiring. Cursor pagination
+// rides `pageParam`; the cursor is excluded from the key.
+const cacheKey = computed(() =>
+  JSON.stringify({
+    tier: tierFilter.value,
+    event: eventPrefix.value.trim(),
+    actor: actorFilter.value.trim(),
+    severity: severityFilter.value,
+  }),
+);
+
+const auditList = useInfiniteQuery(() => ({
+  key: auditKeys.list('infinite', cacheKey.value),
+  initialPageParam: null as string | null,
+  query: ({ pageParam }): Promise<AuditPage> =>
+    auditService.list(buildQuery((pageParam as string | null) ?? undefined)),
+  getNextPageParam: (lastPage: AuditPage) => lastPage.next_cursor,
+  enabled: true,
+}));
+
+const entries = computed<AuditEntry[]>(
+  () => (auditList.data.value?.pages as AuditPage[] | undefined)?.flatMap((p) => p.entries) ?? [],
+);
+const hasMore = computed(() => auditList.hasNextPage.value);
+const isFetching = computed(() => auditList.asyncStatus.value === 'loading');
+const isFirstLoad = computed(() => isFetching.value && entries.value.length === 0);
+const isLoadingMore = computed(() => isFetching.value && entries.value.length > 0);
+const displayError = computed(() => {
+  if (errorMessage.value) return errorMessage.value;
+  return auditList.error.value
+    ? extractErrorMessage(auditList.error.value, t('admin-audit-error-load'))
+    : '';
+});
+
+// Announce the result count once a fetch settles (first load, filter
+// change, or load-more); clear stale expanded rows when the filter changes.
+watch(isFetching, (now, was) => {
+  if (was && !now) liveMessage.value = t('admin-audit-live-count', { count: entries.value.length });
+});
+watch(cacheKey, () => {
   expanded.value = {};
-  try {
-    const page = await auditService.list(buildQuery());
-    entries.value = page.entries;
-    nextCursor.value = page.next_cursor;
-    liveMessage.value = t('admin-audit-live-count', { count: entries.value.length });
-  } catch (err) {
-    errorMessage.value = readError(err, 'admin-audit-error-load');
-    entries.value = [];
-    nextCursor.value = null;
-  } finally {
-    isLoading.value = false;
-  }
-}
+});
 
 async function loadMore() {
-  if (!nextCursor.value || isLoadingMore.value) return;
-  isLoadingMore.value = true;
+  if (!hasMore.value || isLoadingMore.value) return;
   const prevLen = entries.value.length;
-  try {
-    const page = await auditService.list(buildQuery(nextCursor.value));
-    entries.value.push(...page.entries);
-    nextCursor.value = page.next_cursor;
-    liveMessage.value = t('admin-audit-live-loaded', { count: page.entries.length });
-    // Move focus to the first newly-appended row so a keyboard user lands
-    // on the new content instead of a button that just shifted down.
-    await nextTick();
-    const firstNew = entries.value[prevLen];
-    if (firstNew) document.getElementById(`audit-toggle-${firstNew.id}`)?.focus();
-  } catch (err) {
-    errorMessage.value = readError(err, 'admin-audit-error-load-more');
-  } finally {
-    isLoadingMore.value = false;
-  }
+  await auditList.loadNextPage();
+  // Move focus to the first newly-appended row so a keyboard user lands
+  // on the new content instead of a button that just shifted down.
+  await nextTick();
+  const firstNew = entries.value[prevLen];
+  if (firstNew) document.getElementById(`audit-toggle-${firstNew.id}`)?.focus();
 }
 
 async function exportJson() {
@@ -275,16 +313,10 @@ function clearFilters() {
   actorFilter.value = '';
   severityFilter.value = '';
 }
-
-watch([tierFilter, eventPrefix, actorFilter, severityFilter], () => void loadFirstPage(), {
-  flush: 'post',
-});
-
-onMounted(loadFirstPage);
 </script>
 
 <template>
-  <div class="flex flex-col gap-6 p-6" :aria-busy="isLoading || isLoadingMore">
+  <div class="flex flex-col gap-6 p-6" :aria-busy="isFetching">
     <p role="status" aria-live="polite" class="sr-only">{{ liveMessage }}</p>
     <header class="flex flex-wrap items-start justify-between gap-3">
       <div class="flex flex-col gap-2">
@@ -364,9 +396,9 @@ onMounted(loadFirstPage);
       </div>
     </section>
 
-    <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
+    <AlertMessage v-if="displayError" type="error" :message="displayError" />
 
-    <div v-if="isLoading" class="py-12 flex justify-center">
+    <div v-if="isFirstLoad" class="py-12 flex justify-center">
       <LoadingSpinner />
     </div>
 
@@ -434,7 +466,12 @@ onMounted(loadFirstPage);
             </td>
 
             <td class="py-2 align-top">
-              <UserAvatar v-if="entry.actor_uuid" :uuid="entry.actor_uuid" size="xxs" />
+              <UserAvatar
+                v-if="entry.actor_uuid"
+                :uuid="entry.actor_uuid"
+                :fallback-name="entry.actor_name ?? undefined"
+                size="xxs"
+              />
               <span v-else class="inline-flex items-center gap-1 text-xs text-secondary">
                 <Icon :name="actorKindIcon(entry.actor_kind)" size="xs" aria-hidden="true" />
                 {{ actorKindLabel(entry.actor_kind) }}
@@ -538,7 +575,7 @@ onMounted(loadFirstPage);
       </tbody>
     </table>
 
-    <div v-if="nextCursor" class="flex justify-center pt-2">
+    <div v-if="hasMore" class="flex justify-center pt-2">
       <button
         type="button"
         class="h-9 px-4 rounded border border-default text-sm hover:bg-surface-hover disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"

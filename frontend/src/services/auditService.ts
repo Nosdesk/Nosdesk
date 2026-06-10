@@ -23,6 +23,9 @@ export interface AuditEntry {
   occurred_at: string;
   actor_kind: string;
   actor_uuid: string | null;
+  /** Server-resolved display name for a user actor; null for
+   *  system/anonymous/token actors or when the user can't be resolved. */
+  actor_name: string | null;
   event_type: string;
   target: AuditTargetRef | null;
   payload: unknown | null;
