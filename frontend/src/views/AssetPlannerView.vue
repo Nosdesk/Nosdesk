@@ -16,10 +16,12 @@
  * plus two server-side derived buckets (os_family,
  * warranty_bucket).
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
+import { useQuery } from '@pinia/colada'
 import AssetViewTabs from '@/components/assets/AssetViewTabs.vue'
+import AsyncBoundary from '@/components/common/AsyncBoundary.vue'
 import {
   assetsService,
   type AssetPlannerRow,
@@ -31,23 +33,22 @@ const router = useRouter()
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
-const rows = ref<AssetPlannerRow[]>([])
-const loading = ref(false)
-const error = ref<string | null>(null)
-
-async function load(): Promise<void> {
-  loading.value = true
-  error.value = null
-  try {
-    rows.value = await assetsService.planner()
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : t('asset-planner-load-error')
-  } finally {
-    loading.value = false
-  }
-}
-
-onMounted(load)
+// Cache-first: the planner dataset is fetched once and filtered/grouped
+// client-side, so a revisit renders instantly from cache then refreshes
+// silently (SWR). Not a synced aggregate, so this is the source of truth.
+const plannerQuery = useQuery({
+  key: () => ['assets', 'planner'],
+  query: () => assetsService.planner(),
+})
+const rows = computed<AssetPlannerRow[]>(() => plannerQuery.data.value ?? [])
+const loadOp = computed(() => ({
+  isPending: plannerQuery.asyncStatus.value === 'loading',
+  isError: plannerQuery.state.value.status === 'error',
+  error: plannerQuery.error.value,
+}))
+// True once the fetch resolves (even to an empty set), so the body's own
+// empty state shows instead of the pending slot.
+const hasData = computed(() => plannerQuery.data.value !== undefined)
 
 // ---------------------------------------------------------------
 // Group-by axis. The three axes cover the three planning lenses:
@@ -254,12 +255,17 @@ const activeFilterCount = computed<number>(() =>
       </div>
     </header>
 
-    <div v-if="loading" class="flex-1 flex items-center justify-center text-tertiary text-sm">
-      {{ $t('asset-planner-loading') }}
-    </div>
-    <div v-else-if="error" class="flex-1 flex items-center justify-center text-status-error text-sm">
-      {{ error }}
-    </div>
+    <AsyncBoundary :op="loadOp" :has-data="hasData">
+      <template #pending>
+        <div class="flex-1 flex items-center justify-center text-tertiary text-sm">
+          {{ $t('asset-planner-loading') }}
+        </div>
+      </template>
+      <template #error="{ error: boundaryError }">
+        <div class="flex-1 flex items-center justify-center text-status-error text-sm">
+          {{ (boundaryError as Error)?.message ?? $t('asset-planner-load-error') }}
+        </div>
+      </template>
     <!-- Body. md+ uses the side-by-side grid (filter sidebar then
          planner). Below md the sidebar stacks above the planner
          with a capped height so it doesn't dominate the viewport.
@@ -267,7 +273,6 @@ const activeFilterCount = computed<number>(() =>
          column space is left, which is what we want: kanban
          columns stay readable rather than crushing. -->
     <div
-      v-else
       class="flex-1 min-h-0 flex flex-col md:grid"
       style="grid-template-columns: 14rem 1fr"
     >
@@ -401,5 +406,6 @@ const activeFilterCount = computed<number>(() =>
         </div>
       </div>
     </div>
+    </AsyncBoundary>
   </div>
 </template>
