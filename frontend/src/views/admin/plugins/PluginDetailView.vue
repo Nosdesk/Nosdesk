@@ -14,7 +14,8 @@
  * transmitted. Secrets keep the "Configured" / "Update" affordance
  * because the backend never sends the value back to the client.
  */
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
+import { useQuery, useQueryCache } from '@pinia/colada';
 import { useRoute, useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 
@@ -24,6 +25,7 @@ import Button from '@/components/common/Button.vue';
 import Checkbox from '@/components/common/Checkbox.vue';
 import FormNumber from '@/components/common/FormNumber.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
+import AsyncBoundary from '@/components/common/AsyncBoundary.vue';
 import PluginIcon from '@/components/plugins/PluginIcon.vue';
 import PluginStateBadge from '@/components/plugins/PluginStateBadge.vue';
 import PluginTrustBadge from '@/components/plugins/PluginTrustBadge.vue';
@@ -38,8 +40,6 @@ const router = useRouter();
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
-const plugin = ref<Plugin | null>(null);
-const loading = ref(true);
 const errorMessage = ref('');
 const successMessage = ref('');
 
@@ -55,22 +55,28 @@ const saveError = ref('');
 
 const uuid = computed(() => route.params.uuid as string);
 
-watch(uuid, () => void load(), { immediate: false });
-onMounted(load);
-
-async function load() {
-  loading.value = true;
-  errorMessage.value = '';
-  try {
-    plugin.value = await pluginService.getPlugin(uuid.value);
-    await loadSettings();
-  } catch (e) {
-    errorMessage.value = t('plugin-detail-error-load');
-    logger.error('Failed to load plugin', { error: e });
-  } finally {
-    loading.value = false;
-  }
-}
+const queryCache = useQueryCache();
+// Cache-first: the plugin detail is keyed by uuid, so a revisit renders
+// instantly from cache then refreshes silently (SWR). Settings load
+// reactively once the plugin (and its manifest) resolves.
+const pluginQuery = useQuery({
+  key: () => ['plugin', uuid.value],
+  query: () => pluginService.getPlugin(uuid.value),
+  enabled: () => !!uuid.value,
+});
+const plugin = computed<Plugin | null>(() => pluginQuery.data.value ?? null);
+const loadOp = computed(() => ({
+  isPending: pluginQuery.asyncStatus.value === 'loading',
+  isError: pluginQuery.state.value.status === 'error',
+  error: pluginQuery.error.value,
+}));
+watch(
+  () => pluginQuery.data.value,
+  (p) => {
+    if (p) void loadSettings();
+  },
+  { immediate: true },
+);
 
 async function loadSettings() {
   if (!plugin.value || plugin.value.manifest.settings.length === 0) {
@@ -216,10 +222,11 @@ async function toggle() {
   if (plugin.value.state !== 'installed' && plugin.value.state !== 'disabled') return;
   const enable = plugin.value.state === 'disabled';
   try {
-    plugin.value = await pluginService.updatePlugin(plugin.value.uuid, { enabled: enable });
-    if (plugin.value.state !== 'installed') unloadPlugin(plugin.value.uuid);
+    const updated = await pluginService.updatePlugin(plugin.value.uuid, { enabled: enable });
+    await queryCache.invalidateQueries({ key: ['plugin', uuid.value] });
+    if (updated.state !== 'installed') unloadPlugin(updated.uuid);
     announce(
-      plugin.value.state === 'installed'
+      updated.state === 'installed'
         ? t('plugin-detail-toast-enabled')
         : t('plugin-detail-toast-disabled'),
     );
@@ -280,9 +287,15 @@ const saveButtonLabel = computed(() =>
     <AlertMessage v-if="successMessage" type="success" :message="successMessage" />
     <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
 
-    <LoadingSpinner v-if="loading" :text="t('plugin-detail-loading')" />
+    <AsyncBoundary :op="loadOp" :has-data="!!plugin">
+      <template #pending>
+        <LoadingSpinner :text="t('plugin-detail-loading')" />
+      </template>
+      <template #error>
+        <AlertMessage type="error" :message="t('plugin-detail-error-load')" />
+      </template>
 
-    <template v-else-if="plugin">
+    <template v-if="plugin">
       <!-- Header card -->
       <header class="flex flex-col gap-4 rounded-xl border border-default bg-surface p-5 sm:flex-row sm:items-start">
         <PluginIcon :uuid="plugin.uuid" :alt="plugin.display_name" size="lg" />
@@ -516,6 +529,7 @@ const saveButtonLabel = computed(() =>
         </dl>
       </section>
     </template>
+    </AsyncBoundary>
 
     <!-- Uninstall confirmation -->
     <Modal

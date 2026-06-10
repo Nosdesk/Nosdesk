@@ -14,12 +14,14 @@
  *   - local: not surfaced in the registry (CLI-only path)
  */
 import { computed, onMounted, ref } from 'vue';
+import { useQuery, useQueryCache } from '@pinia/colada';
 import { useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import Checkbox from '@/components/common/Checkbox.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
+import AsyncBoundary from '@/components/common/AsyncBoundary.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import Button from '@/components/common/Button.vue';
 import FormInput from '@/components/common/FormInput.vue';
@@ -42,9 +44,6 @@ const router = useRouter();
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
-const state = ref<RegistryState | null>(null);
-const installedPlugins = ref<Plugin[]>([]);
-const isLoading = ref(true);
 const isRefreshing = ref(false);
 const errorMessage = ref('');
 const successMessage = ref('');
@@ -59,36 +58,36 @@ const pendingFingerprint = ref('');
 
 const { config: adminConfig, load: loadAdminConfig } = usePluginAdminConfig();
 
-onMounted(async () => {
-  await Promise.all([loadRegistry(), loadInstalled(), loadAdminConfig()]);
+const queryCache = useQueryCache();
+// Cache-first: the registry snapshot and the installed-plugins list are
+// fetched via useQuery, so a revisit renders instantly from cache then
+// refreshes silently (SWR). Mutations (refresh, install) invalidate the
+// relevant key.
+const registryQuery = useQuery({
+  key: () => ['plugins', 'registry'],
+  query: () => pluginService.getRegistry(),
 });
+const installedQuery = useQuery({
+  key: () => ['plugins', 'installed'],
+  query: () => pluginService.listPlugins(),
+});
+const state = computed<RegistryState | null>(() => registryQuery.data.value ?? null);
+const installedPlugins = computed<Plugin[]>(() => installedQuery.data.value ?? []);
+const loadOp = computed(() => ({
+  isPending: registryQuery.asyncStatus.value === 'loading',
+  isError: registryQuery.state.value.status === 'error',
+  error: registryQuery.error.value,
+}));
+const hasRegistry = computed(() => registryQuery.data.value !== undefined);
 
-async function loadRegistry() {
-  isLoading.value = true;
-  errorMessage.value = '';
-  try {
-    state.value = await pluginService.getRegistry();
-  } catch (err: unknown) {
-    errorMessage.value = t('admin-plugins-registry-error-load');
-    logger.error('Failed to load registry', { error: err });
-  } finally {
-    isLoading.value = false;
-  }
-}
-
-async function loadInstalled() {
-  try {
-    installedPlugins.value = await pluginService.listPlugins();
-  } catch (err: unknown) {
-    logger.error('Failed to load installed plugins', { error: err });
-  }
-}
+onMounted(loadAdminConfig);
 
 async function retryRegistrySync() {
   isRefreshing.value = true;
   errorMessage.value = '';
   try {
-    state.value = await pluginService.refreshRegistry();
+    await pluginService.refreshRegistry();
+    await queryCache.invalidateQueries({ key: ['plugins', 'registry'] });
   } catch (err: unknown) {
     errorMessage.value = t('admin-plugins-registry-error-refresh');
     logger.error('Failed to refresh registry', { error: err });
@@ -219,7 +218,7 @@ async function confirmInstall() {
     const installed = await pluginService.installFromRegistry({
       plugin_name: plugin.name,
     });
-    installedPlugins.value = [...installedPlugins.value, installed];
+    await queryCache.invalidateQueries({ key: ['plugins', 'installed'] });
     successMessage.value = t('admin-plugins-registry-success-installed', {
       name: installed.display_name,
       version: installed.version,
@@ -306,11 +305,17 @@ function formatRelative(iso: string): string {
     <AlertMessage v-if="successMessage" type="success" :message="successMessage" />
     <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
 
-    <LoadingSpinner v-if="isLoading" :text="$t('admin-plugins-registry-loading')" />
+    <AsyncBoundary :op="loadOp" :has-data="hasRegistry">
+      <template #pending>
+        <LoadingSpinner :text="$t('admin-plugins-registry-loading')" />
+      </template>
+      <template #error>
+        <AlertMessage type="error" :message="$t('admin-plugins-registry-error-load')" />
+      </template>
 
     <!-- Sync disabled: operator opted out via NOSDESK_REGISTRY_URL=. -->
     <EmptyState
-      v-else-if="state?.status === 'disabled'"
+      v-if="state?.status === 'disabled'"
       icon="plugin"
       :title="$t('admin-plugins-registry-disabled-title')"
       :description="
@@ -546,6 +551,7 @@ function formatRelative(iso: string): string {
         </ul>
       </section>
     </div>
+    </AsyncBoundary>
 
     <Modal
       v-if="pendingInstall && pendingInstall.tier !== 'official'"
