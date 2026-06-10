@@ -5413,6 +5413,7 @@ gantt-zoom-quarter = Quarter
 gantt-fit = Fit
 gantt-pan-previous = Pan earlier
 gantt-pan-next = Pan later
+gantt-more-controls = More controls
 gantt-unscheduled = Unscheduled ({ $count })
 gantt-empty-window = No tickets fall inside this window. Use Fit, Today, or the pan arrows to step the timeline.
 gantt-reschedule-handle = Drag to change due date

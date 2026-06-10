@@ -14,9 +14,10 @@ import { useSyncProjectsStore } from '@/sync/stores/projects'
 import { useSyncTicketsStore } from '@/sync/stores/tickets'
 import { useCyclesStore } from '@/stores/cycles'
 import { useProjectTickets } from '@/composables/useProjectTickets'
-import { useGanttViewport, GANTT_ZOOMS, ganttZoomLabel } from '@/composables/useGanttViewport'
+import { useGanttViewport } from '@/composables/useGanttViewport'
 import { dependenciesService, type DependencyEdge } from '@/services/dependenciesService'
 import GanttBoard from '@/sync/views/GanttBoard.vue'
+import GanttToolbar from '@/components/views/GanttToolbar.vue'
 import ProjectTabBar from '@/components/views/ProjectTabBar.vue'
 import ProjectViewHeader from '@/components/projectComponents/ProjectViewHeader.vue'
 
@@ -81,7 +82,10 @@ const headerSubtitle = computed(() =>
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
+  <!-- @container: the toolbar + board responsiveness key off this
+       panel's width (correct regardless of nav sidebar state), matching
+       the @container convention used elsewhere in the app. -->
+  <div class="@container flex flex-col h-full">
     <ProjectViewHeader
       :project="project"
       :subtitle="headerSubtitle"
@@ -90,47 +94,7 @@ const headerSubtitle = computed(() =>
 
     <ProjectTabBar :project-id="projectId">
       <template #actions>
-        <!-- Zoom segmented control -->
-        <div class="flex items-center rounded-md border border-subtle overflow-hidden">
-          <button
-            v-for="z in GANTT_ZOOMS"
-            :key="z"
-            type="button"
-            class="text-xs px-2.5 py-1 transition-colors"
-            :class="viewport.zoom.value === z
-              ? 'bg-accent text-on-accent font-medium'
-              : 'text-secondary hover:bg-surface-hover'"
-            @click="viewport.setZoom(z)"
-          >{{ $t(ganttZoomLabel[z]) }}</button>
-        </div>
-
-        <button
-          type="button"
-          class="text-xs text-secondary hover:bg-surface-hover rounded-md px-2 py-1 border border-subtle"
-          @click="viewport.fitToProject()"
-        >{{ $t('gantt-fit') }}</button>
-        <button
-          type="button"
-          class="text-xs text-secondary hover:bg-surface-hover rounded-md px-2 py-1 border border-subtle"
-          @click="viewport.centerOnToday()"
-        >{{ $t('gantt-today') }}</button>
-
-        <div class="flex items-center gap-1">
-          <button
-            type="button"
-            class="text-xs text-secondary hover:bg-surface-hover rounded-md px-2 py-1"
-            :aria-label="$t('gantt-pan-previous')"
-            :title="$t('gantt-pan-previous')"
-            @click="viewport.pan(-1)"
-          ><span aria-hidden="true">‹</span></button>
-          <button
-            type="button"
-            class="text-xs text-secondary hover:bg-surface-hover rounded-md px-2 py-1"
-            :aria-label="$t('gantt-pan-next')"
-            :title="$t('gantt-pan-next')"
-            @click="viewport.pan(1)"
-          ><span aria-hidden="true">›</span></button>
-        </div>
+        <GanttToolbar :viewport="viewport" />
       </template>
     </ProjectTabBar>
 

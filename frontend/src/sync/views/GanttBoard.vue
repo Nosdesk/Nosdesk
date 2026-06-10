@@ -12,7 +12,7 @@
  * with no due date land in an Unscheduled tray instead. Dragging
  * bars / tray items to reschedule is a follow-up.
  */
-import { computed, onMounted, ref, watchEffect } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watchEffect } from 'vue'
 import { useFluent } from 'fluent-vue'
 import {
   addDays,
@@ -26,7 +26,7 @@ import {
 import type { CardData } from './types'
 import type { DependencyEdge } from '@/services/dependenciesService'
 import type { Cycle } from '@/services/cyclesService'
-import { TERMINAL_CATEGORIES } from '@/types/workflow'
+import { TERMINAL_CATEGORIES, coarseStatusBucket } from '@/types/workflow'
 import { startOfDay, type GanttViewport } from '@/composables/useGanttViewport'
 
 const fluent = useFluent()
@@ -63,7 +63,9 @@ const props = withDefaults(defineProps<{
 const vp = props.viewport
 const { zoom, pxPerDay, rangeStart, rangeEnd, xOf, totalWidth } = vp
 
-const ROW_PX = 30
+// Comfortable density default (Phase 1 of the gantt/cycle design
+// overhaul). A density toggle to a compact ~28px row is a follow-up.
+const ROW_PX = 40
 const LEFT_PX = 240
 
 // ===================== Scheduled / unscheduled split =====================
@@ -132,8 +134,33 @@ watchEffect(() => {
   vp.setContentBounds({ min, max })
 })
 
-// Frame the project once the content extent is known.
-onMounted(() => vp.fitToProject())
+// Scroll container, measured so the viewport's visible window always
+// fills the available width (timeline = container width minus the left
+// title panel). Reported to the viewport, which derives its day-span
+// from it, so the chart never leaves dead space and shows more range on
+// wider displays.
+const scrollEl = ref<HTMLElement | null>(null)
+let resizeObserver: ResizeObserver | null = null
+
+function measureViewport(): void {
+  if (scrollEl.value) {
+    vp.setViewportWidth(scrollEl.value.clientWidth - LEFT_PX)
+  }
+}
+
+// Frame the project once the content extent is known, then keep the
+// timeline width in sync with the container.
+onMounted(() => {
+  vp.fitToProject()
+  measureViewport()
+  resizeObserver = new ResizeObserver(measureViewport)
+  if (scrollEl.value) resizeObserver.observe(scrollEl.value)
+})
+
+onUnmounted(() => {
+  resizeObserver?.disconnect()
+  resizeObserver = null
+})
 
 // ===================== Axis: primary ticks + secondary band =====================
 
@@ -275,6 +302,8 @@ interface BarRow {
   left: number
   width: number
   terminal: boolean
+  /** Non-terminal and past its due date: an at-risk (overdue) bar. */
+  atRisk: boolean
   /** Clamped right edge / left edge for arrow anchoring. */
   rightX: number
   /** Effective span (with any live reschedule preview applied), so
@@ -305,12 +334,14 @@ const bars = computed<BarRow[]>(() => {
     const left = Math.max(0, rawLeft)
     const right = Math.min(max, rawRight)
     const width = Math.max(pxPerDay.value, right - left)
+    const terminal = TERMINAL_CATEGORIES.has(it.card.workflow_state.category)
     out.push({
       card: it.card,
       rowIndex: out.length,
       left,
       width,
-      terminal: TERMINAL_CATEGORIES.has(it.card.workflow_state.category),
+      terminal,
+      atRisk: !terminal && today.value.getTime() > end.getTime(),
       rightX: right,
       start: it.start,
       end,
@@ -354,11 +385,35 @@ function endResize(): void {
 
 const totalHeight = computed(() => scheduled.value.length * ROW_PX)
 
-function priorityClass(p: CardData['priority']): string {
-  if (p === 'urgent' || p === 'high') return 'bg-priority-high/30 border-priority-high/60'
-  if (p === 'medium') return 'bg-priority-medium/30 border-priority-medium/60'
-  if (p === 'low') return 'bg-priority-low/30 border-priority-low/60'
-  return 'bg-surface-hover border-default'
+/** Soft status fill: the coarse open / in-progress / done bucket as a
+ *  muted tint + matching subtle border. Status drives the fill (not
+ *  priority) so a bar reads its state at a glance. */
+function barStatusClass(card: CardData): string {
+  switch (coarseStatusBucket(card.workflow_state.category)) {
+    case 'open':
+      return 'bg-status-open-muted border-status-open/40'
+    case 'in-progress':
+      return 'bg-status-in-progress-muted border-status-in-progress/40'
+    default:
+      return 'bg-status-closed-muted border-status-closed/40'
+  }
+}
+
+/** Priority as a thin left accent edge, not the whole fill, so priority
+ *  and status stay separable signals. 'none' gets no edge. */
+function priorityEdgeClass(p: CardData['priority']): string {
+  if (p === 'urgent' || p === 'high') return 'border-l-[3px] border-l-priority-high'
+  if (p === 'medium') return 'border-l-[3px] border-l-priority-medium'
+  if (p === 'low') return 'border-l-[3px] border-l-priority-low'
+  return ''
+}
+
+/** Elapsed-time ("consumed") width inside a bar: from its left edge to
+ *  today, clamped to the bar. A desaturated shade on non-terminal bars,
+ *  so it reads as schedule pressure, not work-done. */
+function scheduleFillWidth(row: BarRow): number {
+  if (row.terminal) return 0
+  return Math.max(0, Math.min(row.width, todayX.value - row.left))
 }
 
 function barTooltip(b: BarRow): string {
@@ -416,7 +471,7 @@ function open(card: CardData): void {
     <!-- Scroll container. The viewport toolbar (zoom / fit / today /
          pan) lives in the project tab bar, rendered by the route shell
          that owns the shared viewport. -->
-    <div class="flex-1 min-h-0 overflow-auto">
+    <div ref="scrollEl" class="flex-1 min-h-0 overflow-auto">
       <div class="relative" :style="{ width: `${totalWidth + LEFT_PX}px` }">
         <!-- Sticky left panel: titles + tray -->
         <div
@@ -467,19 +522,19 @@ function open(card: CardData): void {
         <div class="relative" :style="{ marginLeft: `${LEFT_PX}px` }">
           <!-- Secondary band -->
           <div
-            class="relative bg-surface border-b border-subtle text-[10px] uppercase tracking-wide font-semibold text-tertiary"
+            class="relative bg-surface border-b border-subtle text-[11px] uppercase tracking-wide font-semibold text-tertiary"
             style="height: 24px"
           >
             <div
               v-for="b in secondaryBands"
               :key="b.key"
               class="absolute top-0 bottom-0 flex items-center px-2 border-r border-subtle/50 overflow-hidden whitespace-nowrap"
-              :style="{ left: `${b.x}px`, width: `${b.width}px` }"
+              :style="{ left: `${Math.max(0, b.x)}px`, width: `${b.width + Math.min(0, b.x)}px` }"
             >{{ b.label }}</div>
           </div>
           <!-- Primary tick row -->
           <div
-            class="relative bg-surface border-b border-subtle text-[10px] tabular-nums text-tertiary"
+            class="relative bg-surface border-b border-subtle text-[11px] tabular-nums text-tertiary"
             style="height: 24px"
           >
             <div
@@ -531,12 +586,18 @@ function open(card: CardData): void {
               :style="{ left: `${band.left}px`, width: `${band.width}px` }"
             ></div>
 
-            <!-- Today line -->
+            <!-- Today marker: accent line + a small diamond flag at the
+                 top. (A labelled 'Today' pill arrives with the axis pass,
+                 which needs an i18n string.) -->
             <div
               v-if="todayInRange"
-              class="absolute top-0 bottom-0 w-px bg-accent"
+              class="absolute top-0 bottom-0 w-px bg-accent z-[5] pointer-events-none"
               :style="{ left: `${todayX}px` }"
-            ></div>
+            >
+              <span
+                class="absolute -top-px left-1/2 -translate-x-1/2 h-2 w-2 rotate-45 rounded-[1px] bg-accent shadow-sm"
+              ></span>
+            </div>
 
             <!-- Arrows -->
             <svg
@@ -571,11 +632,17 @@ function open(card: CardData): void {
             </svg>
 
             <!-- Bars -->
-            <div
+            <button
               v-for="row in bars"
               :key="row.card.id"
-              class="absolute rounded border cursor-pointer hover:brightness-110 transition-all overflow-hidden"
-              :class="[priorityClass(row.card.priority), row.terminal ? 'gantt-bar-terminal' : '']"
+              type="button"
+              class="motion-safe:transition-[transform,box-shadow,filter] motion-safe:duration-150 absolute flex items-center rounded-md border overflow-hidden text-left cursor-pointer hover:-translate-y-px hover:shadow-sm hover:brightness-[1.03] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:z-10"
+              :class="[
+                barStatusClass(row.card),
+                priorityEdgeClass(row.card.priority),
+                row.atRisk ? 'ring-1 ring-status-error/60' : '',
+                row.terminal ? 'gantt-bar-terminal' : '',
+              ]"
               :style="{
                 left: `${row.left}px`,
                 width: `${Math.max(pxPerDay, row.width - 4)}px`,
@@ -585,21 +652,29 @@ function open(card: CardData): void {
               :title="barTooltip(row)"
               @click="open(row.card)"
             >
-              <span class="px-2 text-[11px] text-primary line-clamp-1 leading-[22px]">
+              <!-- Schedule (elapsed-time) fill: a desaturated 'consumed'
+                   shade from the bar's start to today. Reads as schedule
+                   pressure, not work done. -->
+              <span
+                v-if="scheduleFillWidth(row) > 0"
+                class="absolute inset-y-0 left-0 bg-black/[0.06] dark:bg-white/[0.07] pointer-events-none"
+                :style="{ width: `${scheduleFillWidth(row)}px` }"
+              ></span>
+              <span class="relative z-[1] px-2 text-[11px] text-primary truncate">
                 {{ row.card.title }}
               </span>
               <!-- Due-date resize handle (open bars only; created_at is
                    immutable so there's no left handle). -->
-              <div
+              <span
                 v-if="onReschedule && !row.terminal"
-                class="absolute top-0 bottom-0 right-0 w-2 cursor-ew-resize hover:bg-accent/40"
+                class="absolute top-0 bottom-0 right-0 w-2.5 cursor-ew-resize hover:bg-accent/40 z-[2]"
                 :title="t('gantt-reschedule-handle')"
                 @pointerdown="startResize(row, $event)"
                 @pointermove="onResizeMove"
                 @pointerup="endResize"
                 @click.stop
-              ></div>
-            </div>
+              ></span>
+            </button>
           </div>
         </div>
       </div>
@@ -615,21 +690,10 @@ function open(card: CardData): void {
 </template>
 
 <style scoped>
-.line-clamp-1 {
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-/* Terminal-category bars read as finished: muted, with a subtle
-   diagonal stripe overlay. */
+/* Terminal-category bars read as finished: muted + slightly
+   desaturated, dropping the busy diagonal stripe for a cleaner look. */
 .gantt-bar-terminal {
-  opacity: 0.55;
-  background-image: repeating-linear-gradient(
-    45deg,
-    transparent 0 5px,
-    rgba(0, 0, 0, 0.12) 5px 7px
-  );
+  opacity: 0.6;
+  filter: saturate(0.7);
 }
 </style>

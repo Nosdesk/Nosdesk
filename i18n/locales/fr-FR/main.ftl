@@ -5169,6 +5169,8 @@ gantt-zoom-quarter = Trimestre
 gantt-fit = Ajuster
 gantt-pan-previous = Décaler vers la gauche
 gantt-pan-next = Décaler vers la droite
+# Bouton de débordement de la barre d'outils (machine, à relire par un locuteur natif).
+gantt-more-controls = Plus de commandes
 gantt-unscheduled = Non planifiés ({ $count })
 gantt-empty-window = Aucun ticket dans cette fenêtre. Utilisez Ajuster, Aujourd'hui ou les flèches pour déplacer la chronologie.
 gantt-reschedule-handle = Glisser pour changer la date d'échéance

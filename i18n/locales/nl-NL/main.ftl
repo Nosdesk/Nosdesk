@@ -5160,6 +5160,8 @@ gantt-zoom-quarter = Kwartaal
 gantt-fit = Passend
 gantt-pan-previous = Naar links schuiven
 gantt-pan-next = Naar rechts schuiven
+# Overloopknop werkbalk (machine, na te kijken door moedertaalspreker).
+gantt-more-controls = Meer instellingen
 gantt-unscheduled = Niet gepland ({ $count })
 gantt-empty-window = Geen tickets in dit venster. Gebruik Passend, Vandaag of de pijlen om de tijdlijn te verschuiven.
 gantt-reschedule-handle = Sleep om de vervaldatum te wijzigen
