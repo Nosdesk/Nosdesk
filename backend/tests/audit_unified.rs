@@ -135,6 +135,50 @@ fn unified_list_spans_all_three_tiers() {
 }
 
 #[test]
+fn actor_name_resolves_to_acting_user() {
+    let db = TestDb::new();
+    let mut conn = db.conn();
+
+    // Seed the actor under a bootstrap context so the users row exists,
+    // then act AS that user and emit a tier-1 event.
+    let bootstrap = ActorContext::user(uuid::Uuid::now_v7(), None);
+    let user = with_actor_context::<_, diesel::result::Error>(&mut conn, &bootstrap, |conn| {
+        Ok(insert_user(conn, "Ada Lovelace"))
+    })
+    .expect("seed user");
+
+    let actor = ActorContext::user(user.uuid, None);
+    with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |conn| {
+        backend::sync::emit::record(
+            conn,
+            backend::sync::emit::SyncEmit {
+                aggregate: SyncAggregate::Data,
+                aggregate_id: "audit".to_string(),
+                op: SyncOp::Insert,
+                event_type: "data.audit.read",
+                data: serde_json::json!({ "rows_returned": 0 }),
+                groups: backend::sync::groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+
+        let page = audit::list(conn, &AuditFilter::default(), None, 100)?;
+        let entry = page
+            .entries
+            .iter()
+            .find(|e| e.actor_uuid == Some(user.uuid))
+            .expect("an entry attributed to the acting user");
+        assert_eq!(
+            entry.actor_name.as_deref(),
+            Some("Ada Lovelace"),
+            "the actor uuid should resolve to the user's display name"
+        );
+        Ok(())
+    })
+    .expect("with_actor_context");
+}
+
+#[test]
 fn keyset_pagination_is_gap_free() {
     let db = TestDb::new();
     let mut conn = db.conn();

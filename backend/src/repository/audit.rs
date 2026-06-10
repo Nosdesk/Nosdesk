@@ -65,6 +65,10 @@ pub struct AuditEntry {
     pub occurred_at: DateTime<Utc>,
     pub actor_kind: String,
     pub actor_uuid: Option<Uuid>,
+    /// Resolved display name of the actor, when the actor is a user and
+    /// the name is visible. `None` for system / anonymous / token actors
+    /// or when RLS hides the user; the client falls back to the kind.
+    pub actor_name: Option<String>,
     pub event_type: String,
     pub target: Option<TargetRef>,
     /// Tier-1 `data` / tier-2 `details`. Null for tier-3 (use `diff`).
@@ -120,6 +124,8 @@ struct UnifiedRow {
     actor_uuid: Option<Uuid>,
     #[diesel(sql_type = Text)]
     actor_kind: String,
+    #[diesel(sql_type = Nullable<Text>)]
+    actor_name: Option<String>,
     #[diesel(sql_type = Text)]
     event_type: String,
     #[diesel(sql_type = Nullable<Text>)]
@@ -149,7 +155,7 @@ struct UnifiedRow {
 /// keyset predicate are applied in the outer query so Postgres can push
 /// the time bound down into each partition-pruned branch.
 const UNION_SQL: &str = "\
-SELECT * FROM ( \
+SELECT u.*, usr.name AS actor_name FROM ( \
   SELECT 1::smallint AS tier, sync_id::bigint AS row_id, occurred_at, \
          actor_uuid, actor_kind, event_type, \
          aggregate::text AS target_type, aggregate_id AS target_id, \
@@ -175,6 +181,7 @@ SELECT * FROM ( \
          NULL::text, 'info'::text, NULL::uuid \
   FROM audit_log \
 ) u \
+LEFT JOIN users usr ON usr.uuid = u.actor_uuid \
 WHERE ($1::timestamptz IS NULL OR u.occurred_at >= $1) \
   AND ($2::timestamptz IS NULL OR u.occurred_at <  $2) \
   AND ($3::uuid        IS NULL OR u.actor_uuid = $3) \
@@ -269,6 +276,7 @@ fn into_entry(r: UnifiedRow) -> AuditEntry {
         occurred_at: r.occurred_at,
         actor_kind: r.actor_kind,
         actor_uuid: r.actor_uuid,
+        actor_name: r.actor_name,
         event_type: r.event_type,
         target,
         payload: r.payload,
