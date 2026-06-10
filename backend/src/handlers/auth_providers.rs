@@ -535,8 +535,11 @@ pub async fn oauth_callback(
                         }
                     }
 
-                    // Extract user UUID from the redirect URL params if present
-                    // For added security, we get the UUID from the query string in redirect_uri if provided
+                    // The connecting user's UUID is carried in the
+                    // signed state's redirect_uri. oauth_connect sets it
+                    // authoritatively from the authenticated session and
+                    // strips any caller-supplied value, and the state JWT
+                    // is integrity-protected, so this value is trusted.
                     let user_uuid_param = if state_data.redirect_uri.contains('?') {
                         let query_params = state_data.redirect_uri.split('?').nth(1).unwrap_or("");
                         let params = querystring::querify(query_params);
@@ -548,11 +551,6 @@ pub async fn oauth_callback(
                         None
                     };
 
-                    // Get user UUID from SessionStorage on client side if not in URL
-                    // SessionStorage on the frontend should contain the authRedirect with the user's path
-
-                    // Add the identity to the user - for now we use a hardcoded false value
-                    // but in a real implementation you'd get the UUID from auth token
                     let user_uuid = match user_uuid_param {
                         Some(uuid) => uuid,
                         None => {
@@ -1319,6 +1317,30 @@ async fn add_oauth_identity_to_user(
     Ok(())
 }
 
+/// Remove every occurrence of `key` from the query string of a
+/// (possibly relative) URI, preserving the path and any other params.
+/// Used to strip a caller-supplied `user_uuid` from an OAuth connect
+/// redirect before we set it authoritatively from the authenticated
+/// session. Trusting a client-provided `user_uuid` is an account-
+/// linking takeover vector. See security-audit-2026-06.
+fn strip_query_param(uri: &str, key: &str) -> String {
+    match uri.split_once('?') {
+        None => uri.to_string(),
+        Some((path, query)) => {
+            let kept: Vec<&str> = query
+                .split('&')
+                .filter(|pair| !pair.is_empty())
+                .filter(|pair| pair.split('=').next().unwrap_or("") != key)
+                .collect();
+            if kept.is_empty() {
+                path.to_string()
+            } else {
+                format!("{path}?{}", kept.join("&"))
+            }
+        }
+    }
+}
+
 // Direct endpoint for connecting a new authentication method to an existing user
 pub async fn oauth_connect(
     db_pool: web::Data<Pool>,
@@ -1410,22 +1432,28 @@ pub async fn oauth_connect(
             }
         };
 
-        // Prepare redirect URI with user UUID
-        let mut actual_redirect_uri = oauth_request
-            .redirect_uri
-            .clone()
-            .unwrap_or_else(|| "/profile/settings".to_string());
-        if !actual_redirect_uri.contains("user_uuid=") {
-            let separator = if actual_redirect_uri.contains('?') {
-                "&"
-            } else {
-                "?"
-            };
-            actual_redirect_uri = format!(
-                "{}{}user_uuid={}",
-                actual_redirect_uri, separator, user.uuid
-            );
-        }
+        // Prepare the redirect URI. The connecting user's UUID is set
+        // authoritatively from the authenticated session; any caller-
+        // supplied user_uuid is stripped first. The callback links the
+        // IdP identity to whatever UUID the signed state carries, so
+        // trusting a client-provided value here would let an attacker
+        // link their own IdP account to a victim's UUID (account
+        // takeover). The state JWT is signed, so a server-set UUID
+        // cannot be tampered with at the callback. See
+        // security-audit-2026-06.
+        let base_redirect_uri = strip_query_param(
+            &oauth_request
+                .redirect_uri
+                .clone()
+                .unwrap_or_else(|| "/profile/settings".to_string()),
+            "user_uuid",
+        );
+        let separator = if base_redirect_uri.contains('?') {
+            "&"
+        } else {
+            "?"
+        };
+        let actual_redirect_uri = format!("{base_redirect_uri}{separator}user_uuid={}", user.uuid);
 
         // Generate a JWT state token with user_connection=true
         let state = match create_oauth_state(
@@ -1454,5 +1482,37 @@ pub async fn oauth_connect(
             "{} authentication is not implemented",
             provider.name
         ))
+    }
+}
+
+#[cfg(test)]
+mod connect_redirect_tests {
+    use super::strip_query_param;
+
+    #[test]
+    fn strips_caller_supplied_user_uuid() {
+        // No query: untouched.
+        assert_eq!(
+            strip_query_param("/profile/settings", "user_uuid"),
+            "/profile/settings"
+        );
+        // Sole param: query removed entirely.
+        assert_eq!(strip_query_param("/p?user_uuid=victim", "user_uuid"), "/p");
+        // Mixed params: only user_uuid dropped, order preserved.
+        assert_eq!(
+            strip_query_param("/p?foo=1&user_uuid=victim", "user_uuid"),
+            "/p?foo=1"
+        );
+        assert_eq!(
+            strip_query_param("/p?user_uuid=victim&foo=1", "user_uuid"),
+            "/p?foo=1"
+        );
+        // Repeated keys: all removed.
+        assert_eq!(
+            strip_query_param("/p?user_uuid=a&user_uuid=b", "user_uuid"),
+            "/p"
+        );
+        // Unrelated query: preserved.
+        assert_eq!(strip_query_param("/p?foo=1", "user_uuid"), "/p?foo=1");
     }
 }

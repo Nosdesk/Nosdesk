@@ -11,6 +11,7 @@
 import { computed, ref, watch, nextTick } from 'vue';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
+import { isAllowedImageSrc } from '@/composables/useSanitise';
 import { enhanceMentions } from '@/plugins/prosemirror-mention-view';
 import { enhanceTicketLinks } from '@/components/editor/ticketLinkPlugin';
 
@@ -47,6 +48,15 @@ const renderedHtml = computed(() => {
   // Parse markdown
   const html = marked.parse(withMentions) as string;
 
+  // Block off-origin <img src> (tracking-pixel exfiltration) while
+  // allowing same-origin / relative / data: images. See
+  // security-audit-2026-06.
+  DOMPurify.addHook('uponSanitizeAttribute', (node, data) => {
+    if (node.nodeName === 'IMG' && data.attrName === 'src' && !isAllowedImageSrc(data.attrValue)) {
+      data.keepAttr = false;
+    }
+  });
+
   // Sanitize HTML but allow our mention spans
   const clean = DOMPurify.sanitize(html, {
     ALLOWED_TAGS: [
@@ -66,6 +76,8 @@ const renderedHtml = computed(() => {
       'data-ticket-link', 'data-ticket-id', 'data-href',
     ],
   });
+
+  DOMPurify.removeHook('uponSanitizeAttribute');
 
   return clean;
 });

@@ -229,22 +229,23 @@ pub async fn upload_branding_image(
         debug!(content_type = %content_type, "Received file upload");
 
         // Validate content type based on image type
+        // SVG is intentionally excluded. An attacker-uploaded SVG is a
+        // stored-XSS vector when served inline (it can carry <script> /
+        // event handlers), and branding renders on the unauthenticated
+        // login screen. The global CSP + nosniff already blunt this, but
+        // not accepting SVG at all removes the vector outright. See
+        // security-audit-2026-06.
         let valid_types: &[&str] = if image_type == "favicon" {
-            &[
-                "image/x-icon",
-                "image/vnd.microsoft.icon",
-                "image/png",
-                "image/svg+xml",
-            ]
+            &["image/x-icon", "image/vnd.microsoft.icon", "image/png"]
         } else {
-            &["image/png", "image/svg+xml", "image/jpeg", "image/webp"]
+            &["image/png", "image/jpeg", "image/webp"]
         };
 
         if !valid_types.iter().any(|t| content_type.starts_with(t)) {
             let allowed = if image_type == "favicon" {
-                "ICO, PNG, or SVG"
+                "ICO or PNG"
             } else {
-                "PNG, SVG, JPEG, or WebP"
+                "PNG, JPEG, or WebP"
             };
             return errors::bad_request(format!(
                 "Invalid file type for {}. Allowed: {}",
@@ -448,18 +449,45 @@ async fn cleanup_old_branding_images(dir: &str, image_type: &str) {
     }
 }
 
+/// Validate a branding filename against the exact shape the upload
+/// handler writes: `{type}[_{timestamp}].{ext}` (e.g.
+/// `logo_1699999999.png`). A `starts_with` prefix check is not enough
+/// here because this handler reads from the filesystem directly: a
+/// value like `logo/../../../proc/self/environ` starts with an allowed
+/// prefix yet escapes the branding directory. Pairs with the
+/// `is_safe_storage_path` traversal guard in the caller.
+fn is_allowed_branding_filename(filename: &str) -> bool {
+    let (stem, ext) = match filename.rsplit_once('.') {
+        Some(parts) => parts,
+        None => return false,
+    };
+    if !matches!(ext, "png" | "ico" | "jpg" | "jpeg" | "webp" | "svg") {
+        return false;
+    }
+    // stem is exactly an allowed base, or base + "_" + all-digits.
+    ["logo_light", "logo", "favicon"].iter().any(|base| {
+        if stem == *base {
+            return true;
+        }
+        match stem.strip_prefix(base).and_then(|r| r.strip_prefix('_')) {
+            Some(rest) => !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()),
+            None => false,
+        }
+    })
+}
+
 // Serve branding files publicly (no auth required)
 pub async fn serve_branding_file(filename: web::Path<String>, _req: HttpRequest) -> impl Responder {
     let filename = filename.into_inner();
 
-    // Only allow specific branding files
-    let allowed_prefixes = ["logo", "logo_light", "favicon"];
-    let is_allowed = allowed_prefixes
-        .iter()
-        .any(|prefix| filename.starts_with(prefix));
-
-    if !is_allowed {
-        return errors::forbidden("Access denied");
+    // Defence in depth: reject any path traversal before the
+    // exact-shape allowlist. `{filename:.*}` captures `/` and `..`,
+    // and there is no NormalizePath middleware, so an unsanitised
+    // `fs::read` here is an arbitrary-file-read sink.
+    if !crate::utils::storage::is_safe_storage_path(&filename)
+        || !is_allowed_branding_filename(&filename)
+    {
+        return HttpResponse::NotFound().finish();
     }
 
     let file_path = format!("uploads/branding/{filename}");
@@ -487,5 +515,37 @@ pub async fn serve_branding_file(filename: web::Path<String>, _req: HttpRequest)
                 .body(content)
         }
         Err(_) => HttpResponse::NotFound().finish(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_allowed_branding_filename;
+
+    #[test]
+    fn rejects_traversal_and_unexpected_shapes() {
+        // Traversal payloads that start with an allowed prefix.
+        assert!(!is_allowed_branding_filename(
+            "logo/../../../proc/self/environ"
+        ));
+        assert!(!is_allowed_branding_filename("logo/../secret.png"));
+        assert!(!is_allowed_branding_filename("../favicon.ico"));
+        // Subdirectories and missing separators.
+        assert!(!is_allowed_branding_filename("logo/foo.png"));
+        assert!(!is_allowed_branding_filename("logolight.png"));
+        // No extension / disallowed extension / non-numeric suffix.
+        assert!(!is_allowed_branding_filename("logo"));
+        assert!(!is_allowed_branding_filename("logo_123.exe"));
+        assert!(!is_allowed_branding_filename("logo_abc.png"));
+        assert!(!is_allowed_branding_filename("evil.png"));
+    }
+
+    #[test]
+    fn accepts_filenames_the_upload_handler_writes() {
+        assert!(is_allowed_branding_filename("logo.png"));
+        assert!(is_allowed_branding_filename("logo_1699999999.png"));
+        assert!(is_allowed_branding_filename("logo_light_1699999999.webp"));
+        assert!(is_allowed_branding_filename("favicon_123.ico"));
+        assert!(is_allowed_branding_filename("favicon.ico"));
     }
 }

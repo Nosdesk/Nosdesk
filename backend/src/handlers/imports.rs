@@ -46,6 +46,12 @@ pub async fn upload(
     query: web::Query<UploadQuery>,
     mut payload: Multipart,
 ) -> impl Responder {
+    // Bulk import can create/update users (including their roles),
+    // assets, and tickets. Restrict to workspace admins. See
+    // security-audit-2026-06.
+    if !auth.is_workspace_admin() {
+        return errors::forbidden("Import requires workspace admin");
+    }
     let user_uuid = auth.user_uuid;
 
     let job_type = match ImportType::from_str(query.job_type.as_str()) {
@@ -154,10 +160,15 @@ enum CommitOutcome {
 /// job already in `done` returns the existing row unchanged.
 pub async fn commit(
     mut tc: TenantConn,
-    _auth: AuthContext,
+    auth: AuthContext,
     search_service: web::Data<Arc<SearchService>>,
     path: web::Path<Uuid>,
 ) -> impl Responder {
+    // Committing an import applies row writes (roles included).
+    // Workspace-admin only. See security-audit-2026-06.
+    if !auth.is_workspace_admin() {
+        return errors::forbidden("Import requires workspace admin");
+    }
     let id = path.into_inner();
 
     let result = tc.run(|conn| {
@@ -281,9 +292,14 @@ fn index_imported_records(search_service: &Arc<SearchService>, records: Imported
 
 pub async fn get_job(
     mut tc: TenantConn,
-    _auth: AuthContext,
+    auth: AuthContext,
     path: web::Path<Uuid>,
 ) -> impl Responder {
+    // Job rows carry import previews that can include other users'
+    // PII. Workspace-admin only. See security-audit-2026-06.
+    if !auth.is_workspace_admin() {
+        return errors::forbidden("Import requires workspace admin");
+    }
     let id = path.into_inner();
     match tc.run(|conn| repo::get(conn, id)) {
         Ok(j) => HttpResponse::Ok().json(j),

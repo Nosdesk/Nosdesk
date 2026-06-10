@@ -131,15 +131,22 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # pdfium for PDF thumbnails. https://github.com/bblanchon/pdfium-binaries
+# Pinned to a specific release and sha256-verified: `latest` plus no
+# checksum meant a compromised or republished upstream release would
+# land silently in the image, and builds were non-reproducible. To bump:
+# choose a new tag, then update PDFIUM_VERSION and both checksums from
+# that release's asset digests. See security-audit-2026-06.
 ARG TARGETARCH
+ARG PDFIUM_VERSION=chromium/7881
 RUN case "$TARGETARCH" in \
-      arm64) PDFIUM_PKG=pdfium-linux-arm64.tgz ;; \
-      amd64) PDFIUM_PKG=pdfium-linux-x64.tgz ;; \
+      arm64) PDFIUM_PKG=pdfium-linux-arm64.tgz; PDFIUM_SHA256=ee7f7b7d5468958336a818c1cd580bdd20972846b7377b13f9a923d92d1d4674 ;; \
+      amd64) PDFIUM_PKG=pdfium-linux-x64.tgz;   PDFIUM_SHA256=1470e21b8b4a3b4ad7f85684e2da11d94f3b69a86d81dee11b9b6709d927ac1d ;; \
       *) echo "Unsupported TARGETARCH: $TARGETARCH" >&2 && exit 1 ;; \
     esac && \
     mkdir -p /tmp/pdfium && \
     cd /tmp/pdfium && \
-    wget -q "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/$PDFIUM_PKG" && \
+    wget -q "https://github.com/bblanchon/pdfium-binaries/releases/download/${PDFIUM_VERSION}/$PDFIUM_PKG" && \
+    echo "${PDFIUM_SHA256}  ${PDFIUM_PKG}" | sha256sum -c - && \
     tar -xzf "$PDFIUM_PKG" && \
     cp lib/libpdfium.so /usr/local/lib/ && \
     ldconfig && \

@@ -137,6 +137,31 @@ impl PluginProxyService {
                 client_id_secret,
                 client_secret_secret,
             } => {
+                // The token endpoint is manifest-controlled and may
+                // differ from the request host, so it must clear the
+                // same gates as request.url: the network allowlist (or
+                // a plugin could exfil the admin-configured client_secret
+                // to any host) and the IP-literal SSRF guard (a literal
+                // token_url host bypasses the resolver). See
+                // security-audit-2026-06.
+                if !self.has_permission(manifest, token_url) {
+                    warn!(
+                        plugin = plugin_name,
+                        token_url = token_url,
+                        "OAuth2 token_url is not in the plugin's network permissions"
+                    );
+                    return None;
+                }
+                if let Err(e) = crate::utils::safe_http::reject_unsafe_ip_literal(token_url) {
+                    warn!(
+                        plugin = plugin_name,
+                        token_url = token_url,
+                        error = %e,
+                        "OAuth2 token_url blocked by SSRF guard"
+                    );
+                    return None;
+                }
+
                 let client_id = secrets.get(client_id_secret)?;
                 let client_secret = secrets.get(client_secret_secret)?;
 

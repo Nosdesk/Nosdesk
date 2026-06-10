@@ -22,7 +22,13 @@ use crate::repository::backup as backup_repo;
 // same primitives the MFA encryption path uses; reusing them keeps
 // the crypto surface area small.
 const SALT_LENGTH: usize = 32;
-const PBKDF2_ITERATIONS: u32 = 100_000;
+// OWASP's current floor for PBKDF2-HMAC-SHA256. Bumped from 100_000;
+// the decrypt path hard-rejects any format-version mismatch (there is
+// no cross-version restore), so BACKUP_FORMAT_VERSION is bumped in
+// lockstep below — an older backup encrypted at the previous iteration
+// count gets a clean "unsupported version" error instead of a cryptic
+// GCM auth failure. See security-audit-2026-06.
+const PBKDF2_ITERATIONS: u32 = 600_000;
 
 /// Outer wrapper magic — 4 bytes prepended to encrypted backups so
 /// the reader can tell at a glance whether to decrypt before
@@ -35,9 +41,10 @@ const ENCRYPTED_HEADER_LEN: usize = 4 + 4 + SALT_LENGTH + NONCE_LEN;
 
 /// Current on-disk backup format. Bumped only on breaking changes
 /// to the wire shape (manifest schema, encryption envelope, etc.).
-/// Pre-launch we start at 1; the field exists so future bumps can
-/// refuse archives they can't parse.
-const BACKUP_FORMAT_VERSION: u32 = 1;
+/// v2 raised the PBKDF2 iteration count (see PBKDF2_ITERATIONS); the
+/// field lets the reader refuse archives it can't parse rather than
+/// fail cryptically.
+const BACKUP_FORMAT_VERSION: u32 = 2;
 
 /// Server schema hash baked in at compile time from the migrations
 /// directory (see `build.rs`). Restore refuses backups whose
@@ -56,6 +63,15 @@ const SENSITIVE_FIELDS: &[(&str, &[&str])] = &[
     ("user_auth_identities", &["password_hash", "metadata"]),
     ("refresh_tokens", &["token_hash"]),
     ("reset_tokens", &["token_hash", "metadata"]),
+    // The webhook secret is the plaintext HMAC signing key, and the
+    // custom headers commonly carry an Authorization value for the
+    // receiver. Both would let a reader of a plaintext backup forge
+    // signed deliveries / harvest receiver credentials. See
+    // security-audit-2026-06.
+    ("webhooks", &["secret", "headers"]),
+    // SHA-256 of a 128-bit random token: low impact, but stripping it
+    // keeps parity with refresh_tokens.token_hash above.
+    ("api_tokens", &["token_hash"]),
 ];
 
 /// Tables to export in backup
@@ -695,6 +711,20 @@ pub fn preview_restore(
 }
 
 /// Restore files from a backup archive. For encrypted backups
+/// True when `rel` is a plain relative path safe to join under the
+/// uploads root: every component is a normal name (or `.`), with no
+/// `..`, no absolute/root/prefix component, and no NUL/backslash. Used
+/// as the zip-slip guard in [`restore_backup_files`].
+fn is_safe_backup_relative_path(rel: &str) -> bool {
+    use std::path::Component;
+    if rel.is_empty() || rel.contains('\0') || rel.contains('\\') {
+        return false;
+    }
+    Path::new(rel)
+        .components()
+        .all(|c| matches!(c, Component::Normal(_) | Component::CurDir))
+}
+
 /// the password is required to unwrap the outer envelope.
 pub fn restore_backup_files(
     backup_path: &Path,
@@ -713,6 +743,17 @@ pub fn restore_backup_files(
 
         if name.starts_with("files/") && !name.ends_with('/') {
             let relative_path = name.strip_prefix("files/").unwrap();
+
+            // Zip-slip guard: a crafted backup with an entry like
+            // `files/../../../etc/cron.d/x` (or an absolute path, which
+            // would replace uploads_dir entirely in `join`) must not
+            // escape the uploads root. Reject anything that isn't a
+            // plain relative path before touching the filesystem. See
+            // security-audit-2026-06.
+            if !is_safe_backup_relative_path(relative_path) {
+                log::warn!("restore: skipping backup file entry with unsafe path '{name}'");
+                continue;
+            }
             let dest_path = uploads_dir.join(relative_path);
 
             if let Some(parent) = dest_path.parent() {
@@ -1106,6 +1147,21 @@ fn restore_table_data(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── zip-slip guard ───────────────────────────────────────────
+
+    #[test]
+    fn backup_relative_path_guard_blocks_traversal_and_absolute() {
+        assert!(is_safe_backup_relative_path("avatars/u1.png"));
+        assert!(is_safe_backup_relative_path("a/b/c.bin"));
+        // Traversal and absolute paths must be rejected (the latter
+        // would replace uploads_dir in PathBuf::join).
+        assert!(!is_safe_backup_relative_path("../../etc/passwd"));
+        assert!(!is_safe_backup_relative_path("a/../../b"));
+        assert!(!is_safe_backup_relative_path("/etc/passwd"));
+        assert!(!is_safe_backup_relative_path("a\\b"));
+        assert!(!is_safe_backup_relative_path(""));
+    }
 
     // ── derive_key ───────────────────────────────────────────────
 

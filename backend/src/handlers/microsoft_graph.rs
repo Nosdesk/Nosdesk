@@ -1,4 +1,4 @@
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use serde::Deserialize;
 use serde_json::json;
 use tracing::error;
@@ -172,11 +172,15 @@ pub async fn process_graph_request(
         Err(e) => return e,
     };
 
-    // Extract claims from cookie auth middleware
-    let _claims = match req.extensions().get::<crate::models::Claims>() {
-        Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Authentication required"),
-    };
+    // Proxying arbitrary Microsoft Graph requests runs through the
+    // org's privileged app credentials, so restrict to workspace
+    // admins. See security-audit-2026-06.
+    let _claims =
+        match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
+        {
+            Ok(c) => c,
+            Err(resp) => return resp,
+        };
 
     // Get the provider_id from the request or use the default Microsoft provider
     let provider_id_val = match request_data.provider_id {

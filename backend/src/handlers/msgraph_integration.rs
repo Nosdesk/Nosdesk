@@ -1002,11 +1002,15 @@ pub async fn sync_data(
         Ok(c) => c,
         Err(e) => return e,
     };
-    // Extract claims from cookie auth middleware
-    let _claims = match req.extensions().get::<crate::models::Claims>() {
-        Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Authentication required"),
-    };
+    // Triggering a full Entra/Intune directory sync (mass record
+    // create/update via the integration's credentials) is workspace-
+    // admin only. See security-audit-2026-06.
+    let _claims =
+        match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
+        {
+            Ok(c) => c,
+            Err(resp) => return resp,
+        };
 
     // Get Microsoft provider
     let provider = match get_default_microsoft_provider() {

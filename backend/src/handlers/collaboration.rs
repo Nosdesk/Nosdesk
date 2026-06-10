@@ -16,7 +16,7 @@ use yrs::updates::decoder::Decode;
 use yrs::updates::encoder::Encode;
 use yrs::{Doc, GetString, ReadTxn, StateVector, Transact, Update, WriteTxn, XmlFragment};
 
-use crate::extractors::TenantConn;
+use crate::extractors::{AuthContext, TenantConn};
 use crate::handlers::errors;
 use crate::repository;
 use crate::sync::actor::ActorContext as DbActor;
@@ -162,16 +162,13 @@ enum DocumentType {
 /// against the request's WorkspaceContext.workspace_uuid and
 /// fail-fast on a cross-workspace request before opening the doc.
 ///
-/// `document` is parsed today but unused by the WS handler that
-/// currently consumes the type — it's surfaced for the future
-/// "verify the row exists before opening the doc" check, and
-/// dropping it would force every caller to re-parse the resource
-/// half of the doc_id. The `#[allow(dead_code)]` is a deliberate
-/// reservation, not an unused-field oversight.
+/// `document` is consumed by the WS handler's per-document visibility
+/// gate (and could back a future "verify the row exists" check);
+/// keeping it on the parse result avoids re-parsing the resource half
+/// of the doc_id at the call site.
 #[derive(Debug, Clone)]
 struct ParsedDocId {
     workspace_uuid: Uuid,
-    #[allow(dead_code)]
     document: DocumentType,
 }
 
@@ -361,8 +358,125 @@ mod doc_id_tests {
     }
 }
 
+/// Identity resolved enough to authorize collaborative-document
+/// access. Tickets gate on visibility (requester/watcher vs staff);
+/// documentation pages and collections gate on their ACL with a
+/// workspace-admin override. Reuses the same primitives as the REST
+/// ticket/documentation read paths and the SSE topic gate so the
+/// three can't drift. See security-audit-2026-06.
+struct DocAccessor {
+    vis: crate::repository::ticket_visibility::VisibilityContext,
+    is_workspace_admin: bool,
+}
+
+impl DocAccessor {
+    /// Build from the `AuthContext` extractor the REST handlers
+    /// already destructure (uses the request-resolved workspace role).
+    fn from_auth(auth: &AuthContext) -> Self {
+        Self {
+            vis: crate::repository::ticket_visibility::VisibilityContext::from_auth(auth),
+            is_workspace_admin: auth.is_workspace_admin(),
+        }
+    }
+
+    /// Build from JWT claims when no `AuthContext` is in scope (the
+    /// WebSocket handshake validates the token by hand). Resolves the
+    /// workspace role from the bootstrap workspace, matching
+    /// `VisibilityContext::resolve` and the SSE `SyncViewer`.
+    fn from_claims(
+        claims: &crate::models::Claims,
+        conn: &mut crate::db::DbConnection,
+    ) -> Option<Self> {
+        let user_uuid = Uuid::parse_str(&claims.sub).ok()?;
+        let platform_role = crate::models::PlatformRole::from_db(&claims.platform_role);
+        let workspace_role =
+            crate::repository::user_helpers::bootstrap_workspace_role(conn, user_uuid);
+        let vis = crate::repository::ticket_visibility::VisibilityContext::new(
+            user_uuid,
+            platform_role,
+            workspace_role,
+        );
+        let is_workspace_admin = platform_role.is_platform_admin()
+            || workspace_role.is_some_and(|r| r.meets(crate::models::WorkspaceRole::Admin));
+        Some(Self {
+            vis,
+            is_workspace_admin,
+        })
+    }
+}
+
+/// True when `accessor` may read/edit `document`. The error type is
+/// Diesel's so callers can map a DB failure to a 500 and a `false`
+/// to a 404 (never 403: a 403 leaks existence, per OWASP IDOR).
+fn can_access_document(
+    conn: &mut crate::db::DbConnection,
+    accessor: &DocAccessor,
+    document: &DocumentType,
+) -> Result<bool, diesel::result::Error> {
+    match document {
+        DocumentType::Ticket(id) => {
+            crate::repository::ticket_visibility::can_view_ticket(conn, &accessor.vis, *id)
+        }
+        DocumentType::Documentation(id) => repository::can_user_access_page(
+            conn,
+            *id,
+            &accessor.vis.user_uuid,
+            accessor.is_workspace_admin,
+        ),
+        DocumentType::Collection(id) => {
+            repository::documentation_collections::can_user_access_collection(
+                conn,
+                *id,
+                &accessor.vis.user_uuid,
+                accessor.is_workspace_admin,
+            )
+        }
+    }
+}
+
+/// Gate a ticket-scoped REST handler on visibility: `Ok(())` when the
+/// caller may read the ticket, else a ready 404 (404 not 403 so we
+/// don't leak existence), or 500 on a check failure.
+fn gate_ticket(
+    tc: &mut TenantConn,
+    auth: &AuthContext,
+    ticket_id: i32,
+) -> Result<(), HttpResponse> {
+    let accessor = DocAccessor::from_auth(auth);
+    match tc.run(|conn| can_access_document(conn, &accessor, &DocumentType::Ticket(ticket_id))) {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(errors::not_found_msg("Ticket not found")),
+        Err(e) => {
+            error!(ticket_id, error = ?e, "ticket access check failed");
+            Err(errors::internal("Failed to check ticket access"))
+        }
+    }
+}
+
+/// Documentation-page equivalent of [`gate_ticket`].
+fn gate_doc_page(
+    tc: &mut TenantConn,
+    auth: &AuthContext,
+    page_id: i32,
+) -> Result<(), HttpResponse> {
+    let accessor = DocAccessor::from_auth(auth);
+    match tc.run(|conn| can_access_document(conn, &accessor, &DocumentType::Documentation(page_id)))
+    {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(errors::not_found_msg("Page not found")),
+        Err(e) => {
+            error!(page_id, error = ?e, "page access check failed");
+            Err(errors::internal("Failed to check page access"))
+        }
+    }
+}
+
 // Simple handler to get article content by ticket ID or documentation page ID
-pub async fn get_article_content(mut tc: TenantConn, doc_id: web::Path<String>) -> impl Responder {
+pub async fn get_article_content(
+    mut tc: TenantConn,
+    doc_id: web::Path<String>,
+    auth: AuthContext,
+) -> impl Responder {
     let doc_id = doc_id.into_inner();
     let clean_doc_id = doc_id.replace("/", "_");
 
@@ -376,6 +490,20 @@ pub async fn get_article_content(mut tc: TenantConn, doc_id: web::Path<String>) 
             );
         }
     };
+
+    // Per-document visibility gate. Without it a restricted member who
+    // cannot read ticket N via the REST API could still pull its note
+    // body (and revision history) here. Reuses the REST/SSE primitives.
+    // See security-audit-2026-06.
+    let accessor = DocAccessor::from_auth(&auth);
+    match tc.run(|conn| can_access_document(conn, &accessor, &doc_type)) {
+        Ok(true) => {}
+        Ok(false) => return errors::not_found_msg("Document not found"),
+        Err(e) => {
+            error!(doc_id = %clean_doc_id, error = ?e, "Document access check failed");
+            return errors::internal("Failed to check document access");
+        }
+    }
 
     match doc_type {
         DocumentType::Ticket(ticket_id) => {
@@ -2108,8 +2236,9 @@ pub async fn ws_handler(
         .cookie(crate::utils::cookies::ACCESS_TOKEN_COOKIE)
         .ok_or_else(|| actix_web::error::ErrorUnauthorized("No authentication cookie"))?;
 
-    // Validate the token and extract user UUID
-    let user_uuid = if let Some(pool) = req.app_data::<web::Data<crate::db::Pool>>() {
+    // Validate the token, extract the user UUID, and resolve the
+    // visibility context used to gate per-document access below.
+    let (user_uuid, accessor) = if let Some(pool) = req.app_data::<web::Data<crate::db::Pool>>() {
         let mut conn = pool.get().map_err(|_| {
             actix_web::error::ErrorInternalServerError("Database connection failed")
         })?;
@@ -2118,7 +2247,11 @@ pub async fn ws_handler(
         use crate::utils::jwt::JwtUtils;
 
         match JwtUtils::validate_token_with_user_check(token.value(), &mut conn).await {
-            Ok((_claims, user)) => user.uuid,
+            Ok((claims, user)) => {
+                let accessor = DocAccessor::from_claims(&claims, &mut conn)
+                    .ok_or_else(|| actix_web::error::ErrorUnauthorized("Invalid token subject"))?;
+                (user.uuid, accessor)
+            }
             Err(_) => {
                 return Err(actix_web::error::ErrorUnauthorized(
                     "Invalid or expired token",
@@ -2171,6 +2304,35 @@ pub async fn ws_handler(
         workspace_id = ws.workspace_id,
         "WebSocket authentication + workspace check successful"
     );
+
+    // Per-document visibility gate. The workspace check above bounds
+    // the tenant; this bounds which documents *within* the workspace
+    // the caller may open. Without it a restricted member who cannot
+    // read ticket N via REST/SSE could still read and write its Yjs
+    // note here. See security-audit-2026-06.
+    {
+        let pool = req
+            .app_data::<web::Data<crate::db::Pool>>()
+            .ok_or_else(|| {
+                actix_web::error::ErrorInternalServerError("Database pool not available")
+            })?;
+        let mut conn = pool.get().map_err(|_| {
+            actix_web::error::ErrorInternalServerError("Database connection failed")
+        })?;
+        match can_access_document(&mut conn, &accessor, &parsed.document) {
+            Ok(true) => {}
+            Ok(false) => {
+                warn!(doc_id = %doc_id, user_uuid = %user_uuid, "WebSocket document access denied");
+                return Err(actix_web::error::ErrorNotFound("Document not found"));
+            }
+            Err(e) => {
+                error!(doc_id = %doc_id, error = ?e, "WebSocket document visibility check failed");
+                return Err(actix_web::error::ErrorInternalServerError(
+                    "Access check failed",
+                ));
+            }
+        }
+    }
 
     // Per-document affinity routing (Phase 2). In single-instance mode
     // this is always `Local`. Under multi-instance routing, if another
@@ -2658,8 +2820,15 @@ async fn process_inbound_binary(
 // ============= Revision History API Endpoints =============
 
 /// GET /tickets/:id/revisions - List all revisions for a ticket
-pub async fn get_ticket_revisions(ticket_id: web::Path<i32>, mut tc: TenantConn) -> HttpResponse {
+pub async fn get_ticket_revisions(
+    ticket_id: web::Path<i32>,
+    mut tc: TenantConn,
+    auth: AuthContext,
+) -> HttpResponse {
     let ticket_id = ticket_id.into_inner();
+    if let Err(resp) = gate_ticket(&mut tc, &auth, ticket_id) {
+        return resp;
+    }
 
     // Get article content for this ticket
     let article_content = match tc.run(|conn| {
@@ -2683,8 +2852,15 @@ pub async fn get_ticket_revisions(ticket_id: web::Path<i32>, mut tc: TenantConn)
 }
 
 /// GET /tickets/:id/revisions/:revision_number - Get a specific revision
-pub async fn get_ticket_revision(path: web::Path<(i32, i32)>, mut tc: TenantConn) -> HttpResponse {
+pub async fn get_ticket_revision(
+    path: web::Path<(i32, i32)>,
+    mut tc: TenantConn,
+    auth: AuthContext,
+) -> HttpResponse {
     let (ticket_id, revision_number) = path.into_inner();
+    if let Err(resp) = gate_ticket(&mut tc, &auth, ticket_id) {
+        return resp;
+    }
 
     // Get article content for this ticket
     let article_content = match tc.run(|conn| {
@@ -2725,8 +2901,12 @@ pub async fn restore_ticket_revision(
     mut tc: TenantConn,
     ws: crate::extractors::WorkspaceContext,
     app_state: web::Data<YjsAppState>,
+    auth: AuthContext,
 ) -> HttpResponse {
     let (ticket_id, revision_number) = path.into_inner();
+    if let Err(resp) = gate_ticket(&mut tc, &auth, ticket_id) {
+        return resp;
+    }
 
     // Get article content for this ticket
     let article_content = match tc.run(|conn| {
@@ -2825,8 +3005,15 @@ pub async fn restore_ticket_revision(
 // ============= Documentation Revision History API Endpoints =============
 
 /// GET /docs/:id/revisions - List all revisions for a documentation page
-pub async fn get_doc_revisions(doc_id: web::Path<i32>, mut tc: TenantConn) -> HttpResponse {
+pub async fn get_doc_revisions(
+    doc_id: web::Path<i32>,
+    mut tc: TenantConn,
+    auth: AuthContext,
+) -> HttpResponse {
     let doc_id = doc_id.into_inner();
+    if let Err(resp) = gate_doc_page(&mut tc, &auth, doc_id) {
+        return resp;
+    }
 
     // Get all revisions
     match tc.run(|conn| crate::repository::documentation::get_documentation_revisions(conn, doc_id))
@@ -2837,8 +3024,15 @@ pub async fn get_doc_revisions(doc_id: web::Path<i32>, mut tc: TenantConn) -> Ht
 }
 
 /// GET /docs/:id/revisions/:revision_number - Get a specific revision
-pub async fn get_doc_revision(path: web::Path<(i32, i32)>, mut tc: TenantConn) -> HttpResponse {
+pub async fn get_doc_revision(
+    path: web::Path<(i32, i32)>,
+    mut tc: TenantConn,
+    auth: AuthContext,
+) -> HttpResponse {
     let (doc_id, revision_number) = path.into_inner();
+    if let Err(resp) = gate_doc_page(&mut tc, &auth, doc_id) {
+        return resp;
+    }
 
     // Get the specific revision
     match tc.run(|conn| {
@@ -2869,8 +3063,12 @@ pub async fn restore_doc_revision(
     mut tc: TenantConn,
     ws: crate::extractors::WorkspaceContext,
     app_state: web::Data<YjsAppState>,
+    auth: AuthContext,
 ) -> HttpResponse {
     let (doc_id, revision_number) = path.into_inner();
+    if let Err(resp) = gate_doc_page(&mut tc, &auth, doc_id) {
+        return resp;
+    }
 
     // Get the revision to restore
     let revision = match tc.run(|conn| {

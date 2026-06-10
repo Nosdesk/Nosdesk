@@ -78,8 +78,12 @@ impl ResetTokenUtils {
     #[allow(dead_code)]
     pub fn validate_token_hash(raw_token: &str, stored_hash: &str) -> bool {
         let computed_hash = Self::hash_token(raw_token);
-        // Use constant-time comparison to prevent timing attacks
-        computed_hash == stored_hash
+        // Constant-time comparison so a future caller can't introduce a
+        // timing oracle on the token hash. (The live path looks tokens
+        // up by hash in the DB, which has no such oracle; this keeps the
+        // helper honest with its own doc comment.) See
+        // security-audit-2026-06.
+        constant_time_eq::constant_time_eq(computed_hash.as_bytes(), stored_hash.as_bytes())
     }
 
     /// Check if a token is expired

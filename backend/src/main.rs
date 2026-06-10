@@ -1326,7 +1326,15 @@ async fn main() -> std::io::Result<()> {
             .wrap(crate::middleware::WorkspaceContextMiddleware::new(
                 workspace_config.clone(),
             ))
-            .app_data(public_limiter_data.clone())
+            // The authenticated limiter is the app-level default that
+            // `RateLimiter::default()` resolves by type (it looks up
+            // `web::Data<Limiter>`). The stricter public limiter is
+            // registered at the scope level on each public / auth
+            // surface below so it shadows this one there. Registering
+            // both app-level would make the second silently win for
+            // every scope (both are the same `web::Data<Limiter>`
+            // type), which is the bug that left the public limit
+            // unused. See security-audit-2026-06.
             .app_data(auth_limiter_data.clone())
             .app_data(web::Data::new(pool.clone()))
             .app_data(yjs_app_state.clone())
@@ -1354,6 +1362,7 @@ async fn main() -> std::io::Result<()> {
             .service(
                 web::resource("/api/debug/frontend-logs")
                     .app_data(web::JsonConfig::default().limit(512 * 1024))
+                    .app_data(public_limiter_data.clone())
                     .wrap(RateLimiter::default())
                     .route(web::post().to(handlers::debug::receive_frontend_logs)),
             )
@@ -1374,6 +1383,7 @@ async fn main() -> std::io::Result<()> {
             .service(
                 web::scope("/api/public")
                     .app_data(web::JsonConfig::default().limit(32 * 1024))
+                    .app_data(public_limiter_data.clone())
                     .wrap(RateLimiter::default())
                     .route("/settings", web::get().to(handlers::guest::get_public_settings))
                     .route("/tickets", web::post().to(handlers::guest::submit_guest_ticket))
@@ -1401,6 +1411,7 @@ async fn main() -> std::io::Result<()> {
             .service(
                 web::resource("/api/csp-report")
                     .app_data(web::PayloadConfig::new(16 * 1024))
+                    .app_data(public_limiter_data.clone())
                     .wrap(RateLimiter::default())
                     .route(web::post().to(handlers::csp_reports::report_violation))
             )
@@ -1430,6 +1441,10 @@ async fn main() -> std::io::Result<()> {
             // Authentication routes (public by design)
             .service(
                 web::scope("/api/auth")
+                    // Brute-force defence: auth endpoints get the
+                    // stricter public limit (shadows the app-level auth
+                    // limiter for this scope). See security-audit-2026-06.
+                    .app_data(public_limiter_data.clone())
                     .wrap(RateLimiter::default())
                     .service({
                         // Restore moved to `nosdesk-cli db restore` (AUD-005).
@@ -1532,6 +1547,16 @@ async fn main() -> std::io::Result<()> {
             // Supports both cookie-based auth (browser) and Bearer token auth (API clients)
             .service(
                 web::scope("/api")
+                    // Throttle authenticated traffic (per-IP, 600/min via
+                    // the auth limiter) so expensive endpoints
+                    // (/search/rebuild, /sync/bootstrap, /admin/backup/export)
+                    // can't be hammered unthrottled. Registered after the
+                    // auth wrap so it runs first and rejects before the
+                    // auth/DB work. SSE (/api/events/stream) and the
+                    // collaboration WS are separate top-level services, so
+                    // this does not throttle long-lived connections. See
+                    // security-audit-2026-06.
+                    .wrap(RateLimiter::default())
                     .wrap(actix_web::middleware::from_fn(middleware::dual_auth_middleware))
 
                     // Authentication Provider management (admin only) - simplified for environment-based config

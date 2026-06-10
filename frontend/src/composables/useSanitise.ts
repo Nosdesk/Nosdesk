@@ -63,6 +63,37 @@ const MARKDOWN_CONFIG: Config = {
 export type SanitiseProfile = 'default' | 'svg' | 'markdown' | 'strict';
 
 /**
+ * Whether an <img> src is safe to load without leaking a request to a
+ * third party. Allows same-origin / relative URLs and inline data:
+ * images; blocks off-origin http(s) and protocol-relative URLs.
+ *
+ * User-authored markdown and ticket comments are rendered through this
+ * sanitiser. An off-origin `<img src>` is a tracking pixel: when an
+ * agent opens the ticket the browser fetches the remote URL, leaking
+ * their IP, approximate location, and a precise read-receipt timestamp
+ * to an attacker-controlled host. The email-body path already blocks
+ * this via a server-side proxy + CSP img-src; this closes the same gap
+ * for the client-rendered markdown/comment paths. See
+ * security-audit-2026-06.
+ */
+export function isAllowedImageSrc(src: string): boolean {
+  const value = (src || '').trim();
+  if (!value) return false;
+  // Relative, same-origin URLs (/uploads/*, /api/*, ...). Exclude
+  // protocol-relative `//host` which is off-origin.
+  if (value.startsWith('/') && !value.startsWith('//')) return true;
+  // Inline images carry no network beacon. (SVG loaded via <img> does
+  // not execute script, so data:image/svg+xml is safe here too.)
+  if (/^data:image\//i.test(value)) return true;
+  // Absolute URLs: same-origin only.
+  try {
+    return new URL(value, window.location.origin).origin === window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Composable for HTML sanitisation
  */
 export function useSanitise() {
@@ -99,10 +130,18 @@ export function useSanitise() {
       }
     });
 
+    // Block off-origin image sources (tracking-pixel exfiltration).
+    DOMPurify.addHook('uponSanitizeAttribute', (node, data) => {
+      if (node.nodeName === 'IMG' && data.attrName === 'src' && !isAllowedImageSrc(data.attrValue)) {
+        data.keepAttr = false;
+      }
+    });
+
     const clean = DOMPurify.sanitize(dirty, { ...config, RETURN_TRUSTED_TYPE: false });
 
-    // Remove the hook to avoid affecting other sanitisations
+    // Remove the hooks to avoid affecting other sanitisations
     DOMPurify.removeHook('afterSanitizeAttributes');
+    DOMPurify.removeHook('uponSanitizeAttribute');
 
     return clean as string;
   }

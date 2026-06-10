@@ -109,6 +109,13 @@ services:
       # zips produced by `nosdesk-plugin sign --dev`.
       - ./plugins:/app/plugins:ro
     environment:
+      # Pin the dev stack to the development posture regardless of what
+      # docker.env carries. docker.env.example now defaults
+      # ENVIRONMENT=production so a self-hoster copying it for a real
+      # deployment gets the production secret gates; this override (which
+      # takes precedence over env_file) keeps `make dev` in dev mode
+      # (HTTP cookies, lenient secret checks). See security-audit-2026-06.
+      - ENVIRONMENT=development
       # Per-crate caps for chatty third-party crates: tantivy logs every
       # segment open and commit at INFO+DEBUG (saw ~90% of stdout); the
       # connection plumbing crates (h2, hyper, rustls, mio, want) emit
