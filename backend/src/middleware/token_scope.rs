@@ -15,9 +15,15 @@
 //!   * Scope is a second, orthogonal layer: the handler's existing role
 //!     gate still runs. A request must pass both.
 
+use actix_web::body::MessageBody;
+use actix_web::dev::{ServiceRequest, ServiceResponse};
 use actix_web::http::Method;
+use actix_web::middleware::Next;
+use actix_web::{Error, HttpMessage};
 
-use crate::utils::scopes::{Action, Domain};
+use crate::middleware::api_token::ApiTokenAuth;
+use crate::models::Claims;
+use crate::utils::scopes::{Action, Domain, ScopeSet};
 
 /// What a request requires of a narrowed token.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -145,6 +151,57 @@ fn action_for(method: &Method, rest: &str) -> Action {
         }
     }
     Action::Write
+}
+
+/// Enforce API-token scopes on the protected `/api` scope. Runs after
+/// `dual_auth_middleware` (so `Claims` are in extensions). Cookie
+/// sessions and un-narrowed tokens carry `full` and short-circuit;
+/// platform-scoped tokens are a separate trust tier and are exempt; a
+/// narrowed token must satisfy the route's `required_scope`. Denials are
+/// a 403. The handler's existing role gate still runs, so a request must
+/// pass both layers.
+pub async fn token_scope_middleware(
+    req: ServiceRequest,
+    next: Next<impl MessageBody>,
+) -> Result<ServiceResponse<impl MessageBody>, Error> {
+    if scope_allows(&req) {
+        next.call(req).await
+    } else {
+        Err(actix_web::error::ErrorForbidden(
+            "API token scope does not permit this request",
+        ))
+    }
+}
+
+/// Whether the request's credential scope permits it. Borrow-scoped so
+/// the extensions borrow is dropped before the async `next.call`.
+fn scope_allows(req: &ServiceRequest) -> bool {
+    let ext = req.extensions();
+    let claims = match ext.get::<Claims>() {
+        // No claims: the auth layer already rejected, or this isn't an
+        // authenticated scope. Nothing for us to enforce.
+        None => return true,
+        Some(c) => c,
+    };
+    // Cookie sessions and un-narrowed tokens carry `full`.
+    if claims.scope == "full" {
+        return true;
+    }
+    // Platform-scoped (control-plane) tokens are gated by the
+    // PlatformScope extractor, not user scopes.
+    if ext
+        .get::<ApiTokenAuth>()
+        .is_some_and(|t| t.is_platform_scoped)
+    {
+        return true;
+    }
+    match required_scope(req.method(), req.path()) {
+        ScopeRequirement::Any => true,
+        ScopeRequirement::Full => false,
+        ScopeRequirement::Capability(domain, action) => {
+            ScopeSet::parse(&claims.scope).grants(domain, action)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -359,5 +416,219 @@ mod tests {
     #[test]
     fn non_api_path_requires_full() {
         assert_eq!(req(Method::GET, "/health"), ScopeRequirement::Full);
+    }
+}
+
+#[cfg(test)]
+mod enforcement_tests {
+    //! Exercises the middleware's allow/deny decisions in isolation
+    //! (no dual_auth, no role gate): we insert `Claims`/`ApiTokenAuth`
+    //! directly, the way dual_auth would, and assert the status. The
+    //! handler role gate is a separate, unchanged layer; a real request
+    //! must pass both.
+    use super::*;
+    use crate::models::Claims;
+    use actix_web::http::StatusCode;
+    use actix_web::middleware::from_fn;
+    use actix_web::{test as actix_test, web, App, HttpMessage, HttpResponse};
+
+    fn claims(scope: &str) -> Claims {
+        Claims {
+            sub: "11111111-1111-1111-1111-111111111111".into(),
+            name: "t".into(),
+            email: "t@example.com".into(),
+            platform_role: "user".into(),
+            scope: scope.into(),
+            sid: None,
+            exp: 0,
+            iat: 0,
+        }
+    }
+
+    /// Drive a request through an app wrapped only in the scope
+    /// middleware; the default handler returns 200, so the status is the
+    /// middleware's decision (200 allow / 403 deny).
+    async fn status_for(
+        scope: Option<&str>,
+        platform: bool,
+        method: Method,
+        path: &str,
+    ) -> StatusCode {
+        let app = actix_test::init_service(
+            App::new()
+                .wrap(from_fn(token_scope_middleware))
+                .default_service(web::to(|| async { HttpResponse::Ok().finish() })),
+        )
+        .await;
+        let req = actix_test::TestRequest::default()
+            .method(method)
+            .uri(path)
+            .to_request();
+        if let Some(s) = scope {
+            req.extensions_mut().insert(claims(s));
+        }
+        if platform {
+            req.extensions_mut().insert(ApiTokenAuth {
+                token_uuid: uuid::Uuid::nil(),
+                is_platform_scoped: true,
+            });
+        }
+        // try_call_service (not call_service): a denied request returns
+        // Err(ErrorForbidden), which actix renders as a 403 in
+        // production but which call_service treats as a test panic.
+        match actix_test::try_call_service(&app, req).await {
+            Ok(resp) => resp.status(),
+            Err(e) => e.error_response().status(),
+        }
+    }
+
+    #[actix_web::test]
+    async fn full_token_allowed_everywhere() {
+        assert_eq!(
+            status_for(Some("full"), false, Method::POST, "/api/admin/channels").await,
+            StatusCode::OK
+        );
+        assert_eq!(
+            status_for(Some("full"), false, Method::GET, "/api/admin/audit-log").await,
+            StatusCode::OK
+        );
+    }
+
+    #[actix_web::test]
+    async fn session_with_no_claims_passes_through() {
+        // Defensive: if dual_auth didn't insert claims, we don't block.
+        assert_eq!(
+            status_for(None, false, Method::POST, "/api/tickets").await,
+            StatusCode::OK
+        );
+    }
+
+    #[actix_web::test]
+    async fn tickets_read_token_matrix() {
+        assert_eq!(
+            status_for(Some("tickets:read"), false, Method::GET, "/api/tickets/5").await,
+            StatusCode::OK
+        );
+        // write denied
+        assert_eq!(
+            status_for(Some("tickets:read"), false, Method::POST, "/api/tickets").await,
+            StatusCode::FORBIDDEN
+        );
+        // other domain denied
+        assert_eq!(
+            status_for(Some("tickets:read"), false, Method::GET, "/api/assets/1").await,
+            StatusCode::FORBIDDEN
+        );
+        // admin denied
+        assert_eq!(
+            status_for(
+                Some("tickets:read"),
+                false,
+                Method::GET,
+                "/api/admin/channels"
+            )
+            .await,
+            StatusCode::FORBIDDEN
+        );
+    }
+
+    #[actix_web::test]
+    async fn tickets_write_implies_read() {
+        assert_eq!(
+            status_for(Some("tickets:write"), false, Method::POST, "/api/tickets").await,
+            StatusCode::OK
+        );
+        assert_eq!(
+            status_for(Some("tickets:write"), false, Method::GET, "/api/tickets/5").await,
+            StatusCode::OK
+        );
+        // ...but cannot manage admin-owned metadata (write is admin scope)
+        assert_eq!(
+            status_for(
+                Some("tickets:write"),
+                false,
+                Method::POST,
+                "/api/categories"
+            )
+            .await,
+            StatusCode::FORBIDDEN
+        );
+    }
+
+    #[actix_web::test]
+    async fn star_read_reads_everything_except_audit() {
+        assert_eq!(
+            status_for(Some("*:read"), false, Method::GET, "/api/assets/1").await,
+            StatusCode::OK
+        );
+        assert_eq!(
+            status_for(Some("*:read"), false, Method::GET, "/api/admin/channels").await,
+            StatusCode::OK
+        );
+        // no writes
+        assert_eq!(
+            status_for(Some("*:read"), false, Method::POST, "/api/tickets").await,
+            StatusCode::FORBIDDEN
+        );
+        // and not the security audit log
+        assert_eq!(
+            status_for(Some("*:read"), false, Method::GET, "/api/admin/audit-log").await,
+            StatusCode::FORBIDDEN
+        );
+    }
+
+    #[actix_web::test]
+    async fn audit_read_token_reaches_only_the_audit_log() {
+        assert_eq!(
+            status_for(
+                Some("audit:read"),
+                false,
+                Method::GET,
+                "/api/admin/audit-log"
+            )
+            .await,
+            StatusCode::OK
+        );
+        assert_eq!(
+            status_for(Some("audit:read"), false, Method::GET, "/api/tickets/5").await,
+            StatusCode::FORBIDDEN
+        );
+    }
+
+    #[actix_web::test]
+    async fn identity_route_allowed_for_any_narrowed_token() {
+        assert_eq!(
+            status_for(Some("tickets:read"), false, Method::GET, "/api/me").await,
+            StatusCode::OK
+        );
+    }
+
+    #[actix_web::test]
+    async fn full_requirement_denies_narrowed_token() {
+        // sync data-plane (and anything unmapped) requires full
+        assert_eq!(
+            status_for(
+                Some("tickets:write"),
+                false,
+                Method::POST,
+                "/api/sync/bootstrap"
+            )
+            .await,
+            StatusCode::FORBIDDEN
+        );
+    }
+
+    #[actix_web::test]
+    async fn platform_scoped_token_is_exempt() {
+        assert_eq!(
+            status_for(
+                Some("tickets:read"),
+                true,
+                Method::POST,
+                "/api/admin/channels"
+            )
+            .await,
+            StatusCode::OK
+        );
     }
 }

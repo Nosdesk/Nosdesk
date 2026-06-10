@@ -1557,6 +1557,15 @@ async fn main() -> std::io::Result<()> {
                     // this does not throttle long-lived connections. See
                     // security-audit-2026-06.
                     .wrap(RateLimiter::default())
+                    // Enforce API-token scopes. Registered before (so it
+                    // runs after) dual_auth, which puts Claims in
+                    // extensions. Cookie sessions and un-narrowed tokens
+                    // carry `full` and short-circuit; platform tokens are
+                    // exempt; a narrowed token must satisfy the route's
+                    // required scope. See docs/plans/api-token-scopes-plan.md.
+                    .wrap(actix_web::middleware::from_fn(
+                        middleware::token_scope::token_scope_middleware,
+                    ))
                     .wrap(actix_web::middleware::from_fn(middleware::dual_auth_middleware))
 
                     // Authentication Provider management (admin only) - simplified for environment-based config
