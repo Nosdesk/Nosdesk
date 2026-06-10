@@ -2,15 +2,16 @@
 //! (M5 product-side handoff Task 3).
 //!
 //! Spins up an actix-test server with the same middleware stack
-//! the real route uses (dual_auth -> idempotency -> handler) and
-//! drives it through awc to verify:
+//! the real route uses (idempotency -> handler, with the handler
+//! gated by the `PlatformAuth` EdDSA-JWT extractor) and drives it
+//! through awc to verify:
 //!
-//!   1. Happy path: platform-scoped token + Idempotency-Key creates
-//!      a workspace and returns 201 with the product-minted UUID.
+//!   1. Happy path: platform provisioning JWT + Idempotency-Key
+//!      creates a workspace and returns 201 with the minted UUID.
 //!   2. Missing Idempotency-Key -> 400 (the handler's explicit
 //!      contract check, distinct from the middleware's no-op
 //!      pass-through for non-keyed requests).
-//!   3. User-scoped token -> 403 (PlatformScope extractor rejects).
+//!   3. Wrong-scope token -> 401 (PlatformAuth rejects).
 //!   4. Slug collision -> 409 with the non-enumerable wording.
 //!   5. Idempotent retry: second call with the same key returns the
 //!      byte-identical 201 response, even if the payload differs;
@@ -23,7 +24,7 @@ use diesel::prelude::*;
 use serde_json::json;
 
 use backend::handlers::internal_workspaces;
-use backend::middleware::{dual_auth_middleware, idempotency_middleware};
+use backend::middleware::idempotency_middleware;
 
 mod common;
 
@@ -40,12 +41,12 @@ fn count_workspaces_with_slug(pool: &backend::db::Pool, slug: &str) -> i64 {
 #[actix_web::test]
 async fn workspaces_create_full_contract() {
     common::ensure_test_keyring();
+    common::enable_platform_auth();
     let test_db = common::TestDb::new();
     let pool = test_db.pool_with_size(4);
     let owner = common::insert_user(&mut pool.get().expect("conn"), "M5Owner");
-    let platform_token =
-        common::mint_api_token(&mut pool.get().expect("conn"), &owner, "ctrl-plane", true);
-    let user_token = common::mint_api_token(&mut pool.get().expect("conn"), &owner, "user", false);
+    let platform_token = common::mint_platform_jwt("platform:provision", 300);
+    let wrong_scope_token = common::mint_platform_jwt("platform:other", 300);
 
     let pool_for_app = pool.clone();
     let srv = actix_test::start(move || {
@@ -54,7 +55,9 @@ async fn workspaces_create_full_contract() {
             .service(
                 web::scope("/api/internal/v1")
                     .wrap(actix_web::middleware::from_fn(idempotency_middleware))
-                    .wrap(actix_web::middleware::from_fn(dual_auth_middleware))
+                    .wrap(actix_web::middleware::from_fn(
+                        backend::extractors::platform_auth_middleware,
+                    ))
                     .route(
                         "/workspaces/create",
                         web::post().to(internal_workspaces::create_workspace),
@@ -108,19 +111,19 @@ async fn workspaces_create_full_contract() {
         resp.status()
     );
 
-    // --- 3: user-scoped token -> 403 ---
+    // --- 3: wrong-scope token -> 401 ---
     let resp = client
         .post(&url)
-        .insert_header(("Authorization", format!("Bearer {user_token}")))
-        .insert_header(("Idempotency-Key", "provision-user-attempt"))
+        .insert_header(("Authorization", format!("Bearer {wrong_scope_token}")))
+        .insert_header(("Idempotency-Key", "provision-wrong-scope-attempt"))
         .insert_header(("Content-Type", "application/json"))
         .send_json(&body)
         .await
-        .expect("send user-token");
+        .expect("send wrong-scope-token");
     assert_eq!(
         resp.status(),
-        403,
-        "user-bound token must 403 (got {:?})",
+        401,
+        "wrong-scope token must 401 (got {:?})",
         resp.status()
     );
 
@@ -157,8 +160,8 @@ async fn workspaces_create_full_contract() {
         .insert_header(("Idempotency-Key", key_a))
         .insert_header(("Content-Type", "application/json"))
         .send_json(&json!({
-            // Intentionally different payload — Stripe-style: cached
-            // response wins regardless of what the retry sends.
+            // Intentionally different payload (Stripe-style): the
+            // cached response wins regardless of what the retry sends.
             "slug": "different-slug-ignored",
             "name": "Different Name Ignored",
             "owner_user_uuid": owner.uuid,

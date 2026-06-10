@@ -79,7 +79,6 @@ diesel::table! {
         last_used_at -> Nullable<Timestamptz>,
         last_used_ip -> Nullable<Inet>,
         workspace_id -> Int4,
-        is_platform_scoped -> Bool,
     }
 }
 

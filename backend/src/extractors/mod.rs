@@ -3,6 +3,7 @@
 //! Provides type-safe extractors that automatically handle auth context.
 
 pub mod auth_context;
+mod platform_auth;
 mod platform_conn;
 mod scoped_storage;
 mod sync_context;
@@ -11,6 +12,7 @@ mod ticket_access;
 pub mod workspace_context;
 
 pub use auth_context::AuthContext;
+pub use platform_auth::{platform_auth_middleware, PlatformAuth};
 #[allow(unused_imports)]
 pub use platform_conn::PlatformConn;
 pub use scoped_storage::ScopedStorage;

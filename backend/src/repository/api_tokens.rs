@@ -74,9 +74,6 @@ pub fn create_api_token(
         scopes: db_scopes,
         created_by,
         expires_at,
-        // Operator-CLI mint path will set this true via a dedicated
-        // constructor; default user-token path stays false.
-        is_platform_scoped: false,
     };
 
     let created: ApiToken = diesel::insert_into(api_tokens::table)

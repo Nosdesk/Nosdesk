@@ -10,7 +10,7 @@
 //!   3. PATCH with `null` clears the hostname.
 //!   4. Unknown workspace slug -> 404.
 //!   5. Invalid hostname shape -> 400.
-//!   6. User-scoped token -> 403; missing Idempotency-Key -> 400.
+//!   6. Wrong-scope token -> 401; missing Idempotency-Key -> 400.
 
 #![allow(clippy::expect_used)]
 
@@ -19,7 +19,7 @@ use diesel::prelude::*;
 use serde_json::json;
 
 use backend::handlers::internal_workspaces;
-use backend::middleware::{dual_auth_middleware, idempotency_middleware};
+use backend::middleware::idempotency_middleware;
 
 mod common;
 
@@ -36,13 +36,13 @@ fn read_custom_domain(pool: &backend::db::Pool, slug: &str) -> Option<String> {
 #[actix_web::test]
 async fn custom_domain_set_clear_collide() {
     common::ensure_test_keyring();
+    common::enable_platform_auth();
     let test_db = common::TestDb::new();
     let pool = test_db.pool_with_size(4);
 
-    let admin = common::insert_user(&mut pool.get().expect("conn"), "M5DomainAdmin");
-    let platform_token =
-        common::mint_api_token(&mut pool.get().expect("conn"), &admin, "ctrl-plane", true);
-    let user_token = common::mint_api_token(&mut pool.get().expect("conn"), &admin, "user", false);
+    let _admin = common::insert_user(&mut pool.get().expect("conn"), "M5DomainAdmin");
+    let platform_token = common::mint_platform_jwt("platform:provision", 300);
+    let wrong_scope_token = common::mint_platform_jwt("platform:other", 300);
     common::mint_workspace(&mut pool.get().expect("conn"), "acme", "Acme");
     // Non-reserved slug: `beta` is on the workspaces_slug_not_reserved
     // denylist (Phase 4 W4), so minting it trips the CHECK constraint.
@@ -55,7 +55,9 @@ async fn custom_domain_set_clear_collide() {
             .service(
                 web::scope("/api/internal/v1")
                     .wrap(actix_web::middleware::from_fn(idempotency_middleware))
-                    .wrap(actix_web::middleware::from_fn(dual_auth_middleware))
+                    .wrap(actix_web::middleware::from_fn(
+                        backend::extractors::platform_auth_middleware,
+                    ))
                     .route(
                         "/workspaces/{slug}/custom-domain",
                         web::patch().to(internal_workspaces::set_custom_domain),
@@ -143,16 +145,16 @@ async fn custom_domain_set_clear_collide() {
         );
     }
 
-    // --- 6: user-scoped token -> 403 ---
+    // --- 6: wrong-scope token -> 401 ---
     let resp = client
         .patch(srv.url("/api/internal/v1/workspaces/acme/custom-domain"))
-        .insert_header(("Authorization", format!("Bearer {user_token}")))
+        .insert_header(("Authorization", format!("Bearer {wrong_scope_token}")))
         .insert_header(("Idempotency-Key", format!("cd-{}", uuid::Uuid::new_v4())))
         .insert_header(("Content-Type", "application/json"))
         .send_json(&json!({ "hostname": "x.example.com" }))
         .await
-        .expect("send user-token");
-    assert_eq!(resp.status(), 403);
+        .expect("send wrong-scope-token");
+    assert_eq!(resp.status(), 401);
 
     // --- 7: missing Idempotency-Key -> 400 ---
     let resp = client

@@ -3408,19 +3408,11 @@ pub struct ApiToken {
     pub last_used_at: Option<chrono::NaiveDateTime>,
     pub last_used_ip: Option<ipnetwork::IpNetwork>,
     pub workspace_id: i32,
-    /// True for tokens minted operator-side for control-plane → product
-    /// callbacks (workspace provisioning, eager owner projection,
-    /// custom-domain updates). Handlers that need cross-workspace
-    /// reach gate on `require_platform_scope()` and run their writes
-    /// through `with_actor_bypass_context`. User-bound tokens
-    /// (the default) row as `false`.
-    pub is_platform_scoped: bool,
 }
 
-/// New API token for insertion. Set `is_platform_scoped = true` only
-/// from the operator-CLI mint path (future control-plane callback
-/// support); every existing user-bound call site keeps `false`,
-/// matching the column default.
+/// New API token for insertion. All tokens are user-bound; the
+/// control-plane provisioning surface authenticates with an EdDSA JWT
+/// (see `extractors::PlatformAuth`), not an api_token.
 #[derive(Debug, Insertable)]
 #[diesel(table_name = crate::schema::api_tokens)]
 pub struct NewApiToken {
@@ -3431,7 +3423,6 @@ pub struct NewApiToken {
     pub scopes: Option<Vec<Option<String>>>,
     pub created_by: Uuid,
     pub expires_at: Option<chrono::NaiveDateTime>,
-    pub is_platform_scoped: bool,
 }
 
 /// Request to create a new API token

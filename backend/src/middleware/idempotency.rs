@@ -10,9 +10,12 @@
 //!     invoking the inner handler. Retries are byte-identical to the
 //!     first call's response.
 //!   * On MISS, runs the inner handler, then caches the response
-//!     before returning it to the caller. A best-effort cache write
-//!     (non-fatal if the row already exists from a concurrent racer
-//!     — see `repository::idempotency_keys` for the race note).
+//!     before returning it to the caller — but only when the response
+//!     is a success (2xx). Errors are safe to retry and may yet
+//!     succeed, so they're never pinned under the key. A best-effort
+//!     cache write (non-fatal if the row already exists from a
+//!     concurrent racer — see `repository::idempotency_keys` for the
+//!     race note).
 //!
 //! Non-mutating methods and missing-header requests pass through
 //! unchanged so this middleware is safe to wrap broadly; it only
@@ -116,7 +119,27 @@ pub async fn idempotency_middleware(
         .await
         .map_err(|_| actix_web::error::ErrorInternalServerError("read response body"))?;
 
-    if body_bytes.len() <= MAX_CACHED_BODY_BYTES {
+    // Only successful (2xx) responses are cached. An idempotency key
+    // exists to keep a request that already *succeeded* from running
+    // twice; an error response (validation, conflict, auth failure,
+    // transient 5xx) is safe to retry and may yet succeed, so caching it
+    // would wrongly pin a stale failure under the key. Auth failures
+    // don't reach this middleware anymore (auth runs ahead of it on the
+    // provisioning scope), but gating on success keeps the policy
+    // correct for every caller, present and future.
+    if !status.is_success() {
+        debug!(
+            key = %scoped_key,
+            status = status.as_u16(),
+            "non-success response; not cached (retry is safe)"
+        );
+    } else if body_bytes.len() > MAX_CACHED_BODY_BYTES {
+        warn!(
+            key = %scoped_key,
+            bytes = body_bytes.len(),
+            "response body exceeds idempotency cache limit; not cached"
+        );
+    } else {
         // Only cache JSON responses — they're the only thing the
         // M5 internal callbacks return, and JSONB storage forces
         // the assumption. Non-JSON bodies (HTML error pages,
@@ -157,12 +180,6 @@ pub async fn idempotency_middleware(
         } else {
             debug!(key = %scoped_key, "non-JSON Content-Type; skipped idempotency cache");
         }
-    } else {
-        warn!(
-            key = %scoped_key,
-            bytes = body_bytes.len(),
-            "response body exceeds idempotency cache limit; not cached"
-        );
     }
 
     // Rebuild the response so the caller sees the body even though

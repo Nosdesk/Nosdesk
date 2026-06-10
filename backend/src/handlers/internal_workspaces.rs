@@ -1,11 +1,11 @@
 //! Internal provisioning endpoints under `/api/internal/v1/...`
 //! consumed by the control plane (`~/dev/nosdesk-com`).
 //!
-//! These are platform-scoped: the caller must hold an api_token
-//! flagged `is_platform_scoped = true` (minted operator-side, NOT
-//! workspace-bound). The middleware-level auth + the per-handler
-//! `PlatformScope` extractor double-guard the surface so a
-//! user-bound token can't reach these endpoints even on accident.
+//! These are platform-only: the caller (the control plane) presents a
+//! short-lived EdDSA JWT signed with the platform key, verified by the
+//! per-handler `PlatformAuth` extractor against `PLATFORM_PUBLIC_KEY` /
+//! `PLATFORM_ISSUER`. Self-hosted instances 404 the surface entirely.
+//! No api_token / cookie auth is involved.
 //!
 //! Idempotency: every mutating endpoint here is wrapped by the
 //! `idempotency_middleware`. Callers MUST supply `Idempotency-Key`
@@ -23,8 +23,8 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::db::{DbConnection, Pool};
+use crate::extractors::PlatformAuth;
 use crate::handlers::errors;
-use crate::middleware::api_token::PlatformScope;
 use crate::models::{NewWorkspace, Workspace};
 use crate::repository::workspaces::{self, CreateWorkspaceError};
 use crate::services::oauth_provisioning::{find_or_create_projected_user, ProjectedUserInput};
@@ -113,7 +113,7 @@ struct CreateWorkspaceResponse {
 /// missing Idempotency-Key or malformed slug.
 pub async fn create_workspace(
     req: HttpRequest,
-    _: PlatformScope,
+    _: PlatformAuth,
     pool: web::Data<Pool>,
     body: web::Json<CreateWorkspaceRequest>,
 ) -> impl Responder {
@@ -231,7 +231,7 @@ fn valid_role(role: &str) -> bool {
 
 pub async fn upsert_projected_user(
     req: HttpRequest,
-    _: PlatformScope,
+    _: PlatformAuth,
     pool: web::Data<Pool>,
     // Best-effort search reindex: optional so projection doesn't hard-depend
     // on the search subsystem (and test apps need not wire it).
@@ -395,7 +395,7 @@ fn looks_like_fqdn(s: &str) -> bool {
 
 pub async fn set_custom_domain(
     req: HttpRequest,
-    _: PlatformScope,
+    _: PlatformAuth,
     pool: web::Data<Pool>,
     path: web::Path<String>,
     body: web::Json<CustomDomainRequest>,

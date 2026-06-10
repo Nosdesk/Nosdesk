@@ -1520,15 +1520,23 @@ async fn main() -> std::io::Result<()> {
 
             // === INTERNAL PROVISIONING SURFACE (M5) ===
             // /api/internal/v1/* is reachable only by the control plane
-            // (`~/dev/nosdesk-com`) holding a platform-scoped api_token.
-            // Cookie auth is irrelevant here; PlatformScope extractor on
-            // each handler enforces the token kind. Idempotency middleware
-            // sits inside dual-auth so cache writes happen after the
-            // request is authenticated.
+            // (`~/dev/nosdesk-com`), which presents a short-lived EdDSA
+            // JWT. `platform_auth_middleware` verifies it against
+            // PLATFORM_PUBLIC_KEY / PLATFORM_ISSUER and 404s the surface
+            // on self-hosted instances. No api_token / cookie auth runs
+            // here (an EdDSA JWT isn't an `nsk_` token, so dual_auth would
+            // reject it).
+            //
+            // Wrap order matters: actix runs the last-registered wrap
+            // first, so platform_auth sits OUTSIDE idempotency and
+            // authenticates before any idempotency-cache work. An
+            // unauthenticated request is rejected before it can touch the
+            // cache. The per-handler `PlatformAuth` extractor then reads
+            // the verified marker (defense-in-depth, fails closed).
             .service(
                 web::scope("/api/internal/v1")
                     .wrap(actix_web::middleware::from_fn(middleware::idempotency_middleware))
-                    .wrap(actix_web::middleware::from_fn(middleware::dual_auth_middleware))
+                    .wrap(actix_web::middleware::from_fn(backend::extractors::platform_auth_middleware))
                     .route(
                         "/workspaces/create",
                         web::post().to(handlers::internal_workspaces::create_workspace),

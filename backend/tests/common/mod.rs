@@ -300,15 +300,9 @@ pub fn insert_user(conn: &mut PgConnection, name: &str) -> backend::models::User
         .expect("insert user")
 }
 
-/// Mint an `api_tokens` row directly so the test can choose
-/// `is_platform_scoped` (the repo helper is user-scope-only).
-/// Returns the raw token string for use in the Authorization header.
-pub fn mint_api_token(
-    conn: &mut PgConnection,
-    user: &backend::models::User,
-    name: &str,
-    is_platform_scoped: bool,
-) -> String {
+/// Mint a user-bound `api_tokens` row directly. Returns the raw token
+/// string for use in the Authorization header.
+pub fn mint_api_token(conn: &mut PgConnection, user: &backend::models::User, name: &str) -> String {
     use backend::models::NewApiToken;
     use backend::repository::api_tokens::{get_token_prefix, hash_token};
     use backend::schema::api_tokens;
@@ -321,13 +315,61 @@ pub fn mint_api_token(
         scopes: Some(vec![Some("full".to_string())]),
         created_by: user.uuid,
         expires_at: None,
-        is_platform_scoped,
     };
     diesel::insert_into(api_tokens::table)
         .values(&new_token)
         .execute(conn)
         .expect("insert api_token");
     raw
+}
+
+// --- Platform provisioning (EdDSA JWT) test helpers --------------------
+//
+// The `/api/internal/v1/*` surface authenticates with an EdDSA JWT
+// verified by `extractors::PlatformAuth`. These helpers configure the
+// process env to trust a throwaway keypair and mint signed tokens, so
+// the provisioning integration tests don't need the control plane.
+
+/// Throwaway Ed25519 keypair, for tests only. NOT a production key.
+pub const PLATFORM_TEST_PRIV: &str = "-----BEGIN PRIVATE KEY-----\n\
+    MC4CAQAwBQYDK2VwBCIEIO6Su/YmjzEi0murpwXB/YjsQHnYIjRqJDJaxagBTQ88\n\
+    -----END PRIVATE KEY-----\n";
+pub const PLATFORM_TEST_PUB: &str = "-----BEGIN PUBLIC KEY-----\n\
+    MCowBQYDK2VwAyEAbQxmQHWB+LZXvtyh54SrZM41ptz/WroW9djdAx1HPZQ=\n\
+    -----END PUBLIC KEY-----\n";
+pub const PLATFORM_TEST_ISS: &str = "https://control.test";
+
+/// Put the process in hosted mode and configure platform verification
+/// against the test keypair. Idempotent (every caller sets the same
+/// values), so concurrent tests in one binary don't race on the value.
+pub fn enable_platform_auth() {
+    std::env::set_var("NOSDESK_DEPLOYMENT_MODE", "hosted");
+    std::env::set_var("PLATFORM_PUBLIC_KEY", PLATFORM_TEST_PUB);
+    std::env::set_var("PLATFORM_ISSUER", PLATFORM_TEST_ISS);
+}
+
+/// Sign a platform JWT with the test private key. `scope` /
+/// `exp_offset` (seconds from now; negative = expired) are explicit so
+/// tests can exercise the reject paths.
+pub fn mint_platform_jwt(scope: &str, exp_offset: i64) -> String {
+    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+    #[derive(serde::Serialize)]
+    struct Claims<'a> {
+        iss: &'a str,
+        scope: &'a str,
+        exp: usize,
+    }
+    let exp = (chrono::Utc::now().timestamp() + exp_offset).max(0) as usize;
+    encode(
+        &Header::new(Algorithm::EdDSA),
+        &Claims {
+            iss: PLATFORM_TEST_ISS,
+            scope,
+            exp,
+        },
+        &EncodingKey::from_ed_pem(PLATFORM_TEST_PRIV.as_bytes()).expect("encode key"),
+    )
+    .expect("mint platform jwt")
 }
 
 /// Insert a workspaces row with a freshly-generated UUID. Returns

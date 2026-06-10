@@ -631,8 +631,7 @@ CREATE TABLE public.api_tokens (
     revoked_at timestamp with time zone,
     last_used_at timestamp with time zone,
     last_used_ip inet,
-    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL,
-    is_platform_scoped boolean DEFAULT false NOT NULL
+    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL
 );
 
 ALTER TABLE ONLY public.api_tokens FORCE ROW LEVEL SECURITY;
@@ -6515,13 +6514,6 @@ ALTER TABLE ONLY public.workspaces
 
 ALTER TABLE ONLY public.yjs_snapshots
     ADD CONSTRAINT yjs_snapshots_pkey PRIMARY KEY (id);
-
-
---
--- Name: api_tokens_platform_scoped_idx; Type: INDEX; Schema: public; Owner: nosdesk_admin
---
-
-CREATE INDEX api_tokens_platform_scoped_idx ON public.api_tokens USING btree (id) WHERE (is_platform_scoped = true);
 
 
 --

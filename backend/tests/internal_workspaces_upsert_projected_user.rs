@@ -3,10 +3,10 @@
 //! (M5 product-side handoff Task 4).
 //!
 //! Drives the eager owner-projection endpoint through the same
-//! middleware stack production uses (dual_auth -> idempotency ->
-//! handler). Verifies:
+//! middleware stack production uses (idempotency -> handler, with the
+//! handler gated by the `PlatformAuth` EdDSA-JWT extractor). Verifies:
 //!
-//!   1. Happy path: platform token + Idempotency-Key + valid body
+//!   1. Happy path: platform JWT + Idempotency-Key + valid body
 //!      mints a user, creates a workspace_members row, returns 201
 //!      with `created: true`.
 //!   2. Re-projection (same iss/sub, different Idempotency-Key):
@@ -15,7 +15,7 @@
 //!   3. Role first-write-wins: re-projecting with a different role
 //!      does NOT update the existing membership row.
 //!   4. Unknown workspace -> 404.
-//!   5. User-scoped token -> 403.
+//!   5. Wrong-scope token -> 401.
 //!   6. Missing Idempotency-Key -> 400.
 //!   7. Bad role -> 400.
 
@@ -26,7 +26,7 @@ use diesel::prelude::*;
 use serde_json::json;
 
 use backend::handlers::internal_workspaces;
-use backend::middleware::{dual_auth_middleware, idempotency_middleware};
+use backend::middleware::idempotency_middleware;
 
 mod common;
 
@@ -55,13 +55,13 @@ fn membership_role(pool: &backend::db::Pool, workspace_id: i32, user_uuid: uuid:
 #[actix_web::test]
 async fn upsert_projected_user_full_contract() {
     common::ensure_test_keyring();
+    common::enable_platform_auth();
     let test_db = common::TestDb::new();
     let pool = test_db.pool_with_size(4);
 
-    let admin = common::insert_user(&mut pool.get().expect("conn"), "M5Admin");
-    let platform_token =
-        common::mint_api_token(&mut pool.get().expect("conn"), &admin, "ctrl-plane", true);
-    let user_token = common::mint_api_token(&mut pool.get().expect("conn"), &admin, "user", false);
+    let _admin = common::insert_user(&mut pool.get().expect("conn"), "M5Admin");
+    let platform_token = common::mint_platform_jwt("platform:provision", 300);
+    let wrong_scope_token = common::mint_platform_jwt("platform:other", 300);
     let acme_id = common::mint_workspace(&mut pool.get().expect("conn"), "acme", "Acme");
 
     let pool_for_app = pool.clone();
@@ -71,7 +71,9 @@ async fn upsert_projected_user_full_contract() {
             .service(
                 web::scope("/api/internal/v1")
                     .wrap(actix_web::middleware::from_fn(idempotency_middleware))
-                    .wrap(actix_web::middleware::from_fn(dual_auth_middleware))
+                    .wrap(actix_web::middleware::from_fn(
+                        backend::extractors::platform_auth_middleware,
+                    ))
                     .route(
                         "/workspaces/{slug}/upsert_projected_user",
                         web::post().to(internal_workspaces::upsert_projected_user),
@@ -178,10 +180,10 @@ async fn upsert_projected_user_full_contract() {
         .expect("send 404");
     assert_eq!(resp.status(), 404, "unknown workspace must 404");
 
-    // --- 5: user-scoped token -> 403 ---
+    // --- 5: wrong-scope token -> 401 ---
     let resp = client
         .post(&url)
-        .insert_header(("Authorization", format!("Bearer {user_token}")))
+        .insert_header(("Authorization", format!("Bearer {wrong_scope_token}")))
         .insert_header(("Idempotency-Key", format!("prov-{}", uuid::Uuid::new_v4())))
         .insert_header(("Content-Type", "application/json"))
         .send_json(&json!({
@@ -191,8 +193,8 @@ async fn upsert_projected_user_full_contract() {
             "role": "member",
         }))
         .await
-        .expect("send user-token");
-    assert_eq!(resp.status(), 403);
+        .expect("send wrong-scope-token");
+    assert_eq!(resp.status(), 401);
 
     // --- 6: missing Idempotency-Key -> 400 ---
     let resp = client
