@@ -1587,6 +1587,21 @@ pub struct NewArticleContent {
     pub yjs_client_id: Option<i64>,
 }
 
+/// Append-only crash-recovery checkpoint for a collaborative document.
+/// Written by the collaboration checkpoint loop between the heavier
+/// `article_contents` saves so a hard crash loses seconds, not the whole
+/// save interval. `document_id` is the namespaced doc id (the same key
+/// used for the Redis cache); `snapshot` is a full Yjs v1 update,
+/// `state_vector` its encoded state vector. Workspace-scoped via RLS.
+#[derive(Debug, Insertable)]
+#[diesel(table_name = crate::schema::yjs_snapshots)]
+pub struct NewYjsSnapshot<'a> {
+    pub workspace_id: i32,
+    pub document_id: &'a str,
+    pub snapshot: &'a [u8],
+    pub state_vector: &'a [u8],
+}
+
 // Article Content Revision models for version history
 // Simplified: removed redundant yjs_document_snapshot field (DRY principle)
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations)]

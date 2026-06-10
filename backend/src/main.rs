@@ -139,6 +139,34 @@ async fn serve_spa(_req: HttpRequest) -> HttpResponse {
 // usage in route registration below.
 use middleware::cookie_auth_middleware;
 
+/// Resolve when the process receives a termination signal: SIGTERM (Fly
+/// deploy / `docker stop`) or SIGINT (Ctrl-C in dev). We `disable_signals()`
+/// on the server and drive shutdown ourselves so our own graceful work
+/// (flushing collaborative documents) runs before the server stops;
+/// actix's built-in handling would stop the server without that flush. If
+/// the handlers can't be installed, this never resolves, leaving today's
+/// behaviour (the OS kills the process, no flush).
+async fn await_shutdown_signal() {
+    use tokio::signal::unix::{signal, SignalKind};
+    let (mut term, mut interrupt) = match (
+        signal(SignalKind::terminate()),
+        signal(SignalKind::interrupt()),
+    ) {
+        (Ok(t), Ok(i)) => (t, i),
+        _ => {
+            error!(
+                "Failed to install termination signal handlers; graceful shutdown flush disabled"
+            );
+            std::future::pending::<()>().await;
+            return;
+        }
+    };
+    tokio::select! {
+        _ = term.recv() => info!("Received SIGTERM"),
+        _ = interrupt.recv() => info!("Received SIGINT"),
+    }
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     // Early startup logging before tracing is initialized
@@ -1280,7 +1308,12 @@ async fn main() -> std::io::Result<()> {
         "CORS allowlist initialised"
     );
 
-    let server_result = HttpServer::new(move || {
+    // Cloned out before the factory closure moves `yjs_app_state` in, so
+    // the shutdown handler below can flush collab docs on SIGTERM.
+    let yjs_for_shutdown = yjs_app_state.clone();
+    let collab_shutdown_token = scheduler_shutdown.clone();
+
+    let server = HttpServer::new(move || {
         let cors_allowlist = cors_allowlist.clone();
         let cors = Cors::default()
             .allowed_origin_fn(move |origin, _req_head| {
@@ -2291,8 +2324,25 @@ async fn main() -> std::io::Result<()> {
             )
     })
     .bind((host, port))?
-    .run()
-    .await;
+    .disable_signals()
+    .run();
 
-    server_result
+    // Graceful shutdown. We own the signals (`disable_signals` above) so
+    // the collab flush completes before the server tears down: on SIGTERM
+    // (Fly deploy / `docker stop`) or SIGINT (Ctrl-C), flush in-memory
+    // documents to durable storage, cancel background jobs, then stop the
+    // server gracefully. Without this, a deploy drops every edit made
+    // since the last periodic save.
+    let server_handle = server.handle();
+    actix_web::rt::spawn(async move {
+        await_shutdown_signal().await;
+        info!("Shutdown signal received; flushing collaborative documents before stop");
+        yjs_for_shutdown
+            .flush_all_dirty(std::time::Duration::from_secs(4))
+            .await;
+        collab_shutdown_token.cancel();
+        server_handle.stop(true).await;
+    });
+
+    server.await
 }

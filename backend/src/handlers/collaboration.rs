@@ -33,6 +33,85 @@ fn yjs_session_actor(workspace_id: i32) -> DbActor {
     DbActor::system("yjs-collab").with_workspace(workspace_id)
 }
 
+/// Encode a document's full state as a Yjs v1 update. The single place
+/// the on-the-wire encoding for durable saves is defined.
+fn encode_doc_update(awareness: &Awareness) -> Vec<u8> {
+    awareness
+        .doc()
+        .transact()
+        .encode_state_as_update_v1(&StateVector::default())
+}
+
+/// Encode both the full v1 update and the encoded state vector in one
+/// transaction. Used by the crash-recovery checkpoint write, whose table
+/// stores both columns.
+fn encode_doc_full(awareness: &Awareness) -> (Vec<u8>, Vec<u8>) {
+    let doc = awareness.doc();
+    let txn = doc.transact();
+    (
+        txn.encode_state_as_update_v1(&StateVector::default()),
+        txn.state_vector().encode_v1(),
+    )
+}
+
+/// Persist an encoded Yjs update to its backing table. Awaitable, so it
+/// serves two callers with one workspace-pinned, RLS-enforced,
+/// fence-gated write path (DRY): the periodic / on-disconnect save
+/// (`save_document_internal`) spawns it fire-and-forget; the
+/// graceful-shutdown flush (`flush_all_dirty`) awaits it so the write
+/// lands before the process exits. Errors are logged, not propagated: a
+/// failed save must not abort a maintenance tick or a shutdown.
+async fn write_yjs_state(
+    pool: web::Data<crate::db::Pool>,
+    search: Arc<crate::services::search::SearchService>,
+    doc_type: DocumentType,
+    content: Vec<u8>,
+    workspace_id: i32,
+    fence: Option<i64>,
+) {
+    let mut conn = match pool.get() {
+        Ok(c) => c,
+        Err(e) => {
+            error!(?doc_type, error = ?e, "DB connection error saving Yjs state");
+            return;
+        }
+    };
+    let actor = yjs_session_actor(workspace_id);
+    let result: Result<(), diesel::result::Error> = match doc_type {
+        DocumentType::Ticket(ticket_id) => session::with_actor_context(&mut conn, &actor, |conn| {
+            repository::update_article_yjs_state(conn, ticket_id, content, fence, Some(&search))
+                .map(|_| ())
+        }),
+        DocumentType::Documentation(page_id) => {
+            session::with_actor_context(&mut conn, &actor, |conn| {
+                repository::update_documentation_yjs_state(
+                    conn,
+                    page_id,
+                    content,
+                    fence,
+                    Some(&search),
+                )
+                .map(|_| ())
+            })
+        }
+        DocumentType::Collection(collection_id) => {
+            session::with_actor_context(&mut conn, &actor, |conn| {
+                repository::documentation_collections::update_collection_description_yjs(
+                    conn,
+                    collection_id,
+                    content,
+                    fence,
+                )
+                .map(|_| ())
+            })
+        }
+    };
+    match result {
+        Ok(()) => debug!(?doc_type, "Saved Yjs state"),
+        Err(e) => error!(?doc_type, error = ?e, "Failed to save Yjs state"),
+    }
+}
+
 /// Safely get string content from a Yjs XmlFragment
 /// Returns None if the fragment contains invalid UTF-8 data (which can cause yrs to panic)
 fn safe_get_fragment_string(
@@ -613,6 +692,12 @@ struct DocumentState {
     update_counter: u32,   // Total updates since document creation
     last_snapshot_at: u32, // Update count when last snapshot created
     contributors: std::collections::HashSet<Uuid>, // Contributors since last snapshot (only added on actual content changes)
+    /// `update_counter` when the last crash-recovery checkpoint was
+    /// written to `yjs_snapshots`. The checkpoint loop only writes when
+    /// `update_counter > last_checkpoint_at`, so an idle document never
+    /// re-checkpoints. Distinct from `last_snapshot_at` (version-history
+    /// revisions), which is session-based.
+    last_checkpoint_at: u32,
     /// Workspace that owns this document. Set at session open
     /// from the requesting user's `WorkspaceContext` (subdomain
     /// routing). The background save / snapshot loop reads this
@@ -642,6 +727,7 @@ impl DocumentState {
             update_counter: 0,
             last_snapshot_at: 0,
             contributors: std::collections::HashSet::new(),
+            last_checkpoint_at: 0,
             workspace_id,
             fence,
         }
@@ -885,6 +971,25 @@ impl YjsAppState {
                 if let Some(ownership) = &state_clone.ownership {
                     ownership.register_self().await;
                 }
+            }
+        });
+
+        // Crash-recovery checkpoint loop (Phase 2). Cheap binary
+        // checkpoints to `yjs_snapshots` on a faster cadence than the 30s
+        // save above, so a hard crash (SIGKILL / OOM) loses seconds rather
+        // than the whole save interval. Graceful shutdown is covered
+        // separately by `flush_all_dirty`.
+        let checkpoint_state = state.clone();
+        actix_web::rt::spawn(async move {
+            let secs = std::env::var("NOSDESK_COLLAB_CHECKPOINT_SECS")
+                .ok()
+                .and_then(|s| s.parse::<u64>().ok())
+                .filter(|s| *s > 0)
+                .unwrap_or(10);
+            let mut interval = tokio::time::interval(Duration::from_secs(secs));
+            loop {
+                interval.tick().await;
+                checkpoint_state.checkpoint_all_active_documents().await;
             }
         });
         state
@@ -1397,9 +1502,50 @@ impl YjsAppState {
                 }
             }
 
+            // STEP 3: Merge the latest crash-recovery checkpoint (Phase 2).
+            // Cheap binary checkpoints land in `yjs_snapshots` between the
+            // heavier article_contents saves, so a hard crash loses
+            // seconds. Yjs merges are conflict-free + idempotent, so
+            // applying the checkpoint on top of whatever loaded above can
+            // only add missing ops, never regress (no newest-wins
+            // comparison needed). Skipped on a Redis hit: Redis is written
+            // on every save, so it is already at least as fresh as any
+            // checkpoint.
+            let mut loaded_from_checkpoint = false;
+            if !loaded_from_redis {
+                if let Ok(mut conn) = self.pool.get() {
+                    let session_actor = yjs_session_actor(workspace_id);
+                    let latest = session::with_actor_context(&mut conn, &session_actor, |conn| {
+                        repository::yjs_snapshots::latest_for_document(conn, workspace_id, doc_id)
+                    });
+                    if let Ok(Some(bytes)) = latest {
+                        match Update::decode_v1(&bytes) {
+                            Ok(update) => {
+                                let apply_result = {
+                                    let mut txn = awareness.doc_mut().transact_mut();
+                                    txn.apply_update(update)
+                                };
+                                match apply_result {
+                                    Ok(()) => {
+                                        loaded_from_checkpoint = true;
+                                        debug!(doc_id = %doc_id, bytes = bytes.len(), "Merged crash-recovery checkpoint");
+                                    }
+                                    Err(e) => {
+                                        error!(doc_id = %doc_id, error = ?e, "Error applying crash-recovery checkpoint")
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                error!(doc_id = %doc_id, error = ?e, "Failed to decode crash-recovery checkpoint")
+                            }
+                        }
+                    }
+                }
+            }
+
             // For NEW documents only (no existing data), initialize the prosemirror XmlFragment
             // This ensures new documents have the proper root type structure for ProseMirror
-            if !loaded_from_redis && !loaded_from_postgres {
+            if !loaded_from_redis && !loaded_from_postgres && !loaded_from_checkpoint {
                 let mut txn = awareness.doc_mut().transact_mut();
                 let _ = txn.get_or_insert_xml_fragment("prosemirror");
                 debug!(doc_id = %doc_id, "Initialized 'prosemirror' XmlFragment for NEW document");
@@ -1407,7 +1553,7 @@ impl YjsAppState {
 
             // Log final state after loading attempts
             let preview = get_content_preview(&awareness, 100);
-            if loaded_from_redis || loaded_from_postgres {
+            if loaded_from_redis || loaded_from_postgres || loaded_from_checkpoint {
                 debug!(doc_id = %doc_id, preview = %preview, "Document loaded");
                 log_document_root_types(&awareness, doc_id);
             } else {
@@ -1789,6 +1935,123 @@ impl YjsAppState {
         }
     }
 
+    /// Flush every document with pending changes to its backing table,
+    /// awaiting the writes so they land before the process exits. Bounded
+    /// concurrency + an overall `deadline` keep us inside the platform's
+    /// shutdown grace window; whatever doesn't finish in time falls back
+    /// to the pre-existing best-effort behaviour (the next start reloads
+    /// the last durable save). Wired to the SIGTERM/SIGINT handler in
+    /// `main.rs` so a Fly deploy no longer drops in-flight edits.
+    pub async fn flush_all_dirty(&self, deadline: Duration) {
+        // Snapshot the work under the read lock (encode is synchronous),
+        // then release the lock before awaiting any DB write.
+        let work: Vec<(DocumentType, Vec<u8>, i32, Option<i64>)> = {
+            let documents = self.documents.read().await;
+            documents
+                .iter()
+                .filter(|(_, s)| s.has_pending_changes)
+                .filter_map(|(doc_id, s)| {
+                    DocumentType::from_doc_id(doc_id)
+                        .map(|dt| (dt, encode_doc_update(&s.awareness), s.workspace_id, s.fence))
+                })
+                .collect()
+        };
+        if work.is_empty() {
+            return;
+        }
+        let count = work.len();
+        info!(
+            documents = count,
+            "Flushing collaborative documents before shutdown"
+        );
+
+        let pool = self.pool.clone();
+        let search = self.search_service.clone();
+        let flush = futures::stream::iter(work.into_iter().map(
+            |(doc_type, content, workspace_id, fence)| {
+                let pool = pool.clone();
+                let search = search.clone();
+                async move {
+                    write_yjs_state(pool, search, doc_type, content, workspace_id, fence).await;
+                }
+            },
+        ))
+        .buffer_unordered(8)
+        .collect::<Vec<()>>();
+
+        match tokio::time::timeout(deadline, flush).await {
+            Ok(_) => info!(documents = count, "Shutdown flush complete"),
+            Err(_) => warn!(
+                deadline_ms = deadline.as_millis() as u64,
+                "Shutdown flush hit its deadline; some documents may not have persisted"
+            ),
+        }
+    }
+
+    /// Write a crash-recovery checkpoint for every document that changed
+    /// since its last checkpoint. A cheap binary append to `yjs_snapshots`
+    /// (no markdown / search / revision work) on a faster cadence than the
+    /// heavy `article_contents` save, so a hard crash (SIGKILL / OOM /
+    /// panic) loses seconds rather than the whole save interval. The
+    /// owning machine is the only one holding a doc in memory, so only it
+    /// checkpoints; merge-on-resume makes a stale append harmless, so
+    /// (unlike the canonical article_contents save) the append needs no
+    /// fence (the table has no fence column by design).
+    async fn checkpoint_all_active_documents(&self) {
+        // Collect changed docs under the write lock (encode is sync) and
+        // advance last_checkpoint_at optimistically; a failed write just
+        // means the next edit re-checkpoints. Release the lock before the
+        // DB writes.
+        let work: Vec<(String, i32, Vec<u8>, Vec<u8>)> = {
+            let mut documents = self.documents.write().await;
+            documents
+                .iter_mut()
+                .filter(|(_, s)| s.update_counter > s.last_checkpoint_at)
+                .map(|(doc_id, s)| {
+                    let (snapshot, state_vector) = encode_doc_full(&s.awareness);
+                    s.last_checkpoint_at = s.update_counter;
+                    (doc_id.clone(), s.workspace_id, snapshot, state_vector)
+                })
+                .collect()
+        };
+        if work.is_empty() {
+            return;
+        }
+        let count = work.len();
+        let pool = self.pool.clone();
+        futures::stream::iter(work.into_iter().map(
+            |(doc_id, workspace_id, snapshot, state_vector)| {
+                let pool = pool.clone();
+                async move {
+                    let mut conn = match pool.get() {
+                        Ok(c) => c,
+                        Err(e) => {
+                            error!(doc_id = %doc_id, error = ?e, "DB conn error writing checkpoint");
+                            return;
+                        }
+                    };
+                    let actor = yjs_session_actor(workspace_id);
+                    let res = session::with_actor_context(&mut conn, &actor, |conn| {
+                        repository::yjs_snapshots::insert_and_prune(
+                            conn,
+                            workspace_id,
+                            &doc_id,
+                            &snapshot,
+                            &state_vector,
+                        )
+                    });
+                    if let Err(e) = res {
+                        error!(doc_id = %doc_id, error = ?e, "Failed to write crash-recovery checkpoint");
+                    }
+                }
+            },
+        ))
+        .buffer_unordered(8)
+        .collect::<Vec<()>>()
+        .await;
+        debug!(documents = count, "Wrote crash-recovery checkpoints");
+    }
+
     // Broadcast update to all sessions in a room except sender
     async fn broadcast(&self, doc_id: &str, sender_id: &str, msg: &[u8]) {
         if msg.is_empty() {
@@ -1882,103 +2145,19 @@ impl YjsAppState {
             redis_cache.refresh_ttl(&doc_id_clone).await;
         });
 
-        // Save to database in a separate thread (cold storage - permanent backup)
-        let pool = self.pool.clone();
-        let content = binary_content.clone(); // Already Vec<u8>
-
-        let search = self.search_service.clone();
-        match doc_type {
-            DocumentType::Ticket(ticket_id) => {
-                // Save ticket article content Yjs snapshot to PostgreSQL (snapshot-based persistence)
-                // Note: This does NOT update the ticket's modified timestamp - that only happens
-                // when revisions are created (indicating actual content changes)
-                actix_web::rt::spawn(async move {
-                    match pool.get() {
-                        Ok(mut conn) => {
-                            let actor = yjs_session_actor(workspace_id);
-                            match session::with_actor_context(&mut conn, &actor, |conn| {
-                                repository::update_article_yjs_state(
-                                    conn,
-                                    ticket_id,
-                                    content,
-                                    fence,
-                                    Some(&search),
-                                )
-                            }) {
-                                Ok(_) => {
-                                    debug!(ticket_id, "Successfully saved Yjs snapshot for ticket");
-                                }
-                                Err(e) => {
-                                    error!(ticket_id, error = ?e, "Failed to save Yjs snapshot for ticket")
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            error!(ticket_id, error = ?e, "Database connection error when saving ticket")
-                        }
-                    }
-                });
-            }
-            DocumentType::Documentation(doc_page_id) => {
-                // Save documentation page Yjs state
-                actix_web::rt::spawn(async move {
-                    match pool.get() {
-                        Ok(mut conn) => {
-                            let actor = yjs_session_actor(workspace_id);
-                            match session::with_actor_context(&mut conn, &actor, |conn| {
-                                repository::update_documentation_yjs_state(
-                                    conn,
-                                    doc_page_id,
-                                    content,
-                                    fence,
-                                    Some(&search),
-                                )
-                            }) {
-                                Ok(_) => debug!(
-                                    doc_page_id,
-                                    "Successfully saved Yjs state for documentation page"
-                                ),
-                                Err(e) => {
-                                    error!(doc_page_id, error = ?e, "Failed to save Yjs state for documentation page")
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            error!(doc_page_id, error = ?e, "Database connection error when saving documentation")
-                        }
-                    }
-                });
-            }
-            DocumentType::Collection(collection_id) => {
-                // Save collection description Yjs state
-                actix_web::rt::spawn(async move {
-                    match pool.get() {
-                        Ok(mut conn) => {
-                            let actor = yjs_session_actor(workspace_id);
-                            match session::with_actor_context(&mut conn, &actor, |conn| {
-                                repository::documentation_collections::update_collection_description_yjs(
-                                    conn,
-                                    collection_id,
-                                    content,
-                                    fence,
-                                )
-                            }) {
-                                Ok(_) => debug!(
-                                    collection_id,
-                                    "Saved Yjs state for collection description"
-                                ),
-                                Err(e) => {
-                                    error!(collection_id, error = ?e, "Failed to save Yjs state for collection description")
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            error!(collection_id, error = ?e, "Database connection error when saving collection")
-                        }
-                    }
-                });
-            }
-        }
+        // Persist to the backing table via the shared awaitable writer.
+        // Spawned here (fire-and-forget) so the periodic / on-disconnect
+        // save never blocks the maintenance loop; `flush_all_dirty` awaits
+        // the same writer on shutdown. One write path, one fence + RLS
+        // contract (DRY).
+        actix_web::rt::spawn(write_yjs_state(
+            self.pool.clone(),
+            self.search_service.clone(),
+            doc_type,
+            binary_content,
+            workspace_id,
+            fence,
+        ));
     }
 
     // Create a snapshot revision for version history using native Yrs encoding

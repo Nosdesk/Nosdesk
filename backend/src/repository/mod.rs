@@ -54,6 +54,7 @@ pub mod user_recovery_codes;
 pub mod users;
 pub mod workflow_states;
 pub mod workspaces;
+pub mod yjs_snapshots;
 
 // Security and session management repositories
 pub mod active_sessions;
