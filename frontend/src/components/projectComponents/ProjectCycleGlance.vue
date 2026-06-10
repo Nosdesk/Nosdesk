@@ -78,7 +78,10 @@ const healthDotClass = computed(() => {
     </span>
 
     <div v-if="!compact" class="flex-1 min-w-8 h-1.5 rounded-full bg-surface-alt overflow-hidden">
-      <div class="h-full rounded-full bg-accent transition-all" :style="{ width: `${pct}%` }" />
+      <div
+        class="h-full rounded-full bg-accent transition-all motion-reduce:transition-none"
+        :style="{ width: `${pct}%` }"
+      />
     </div>
 
     <span

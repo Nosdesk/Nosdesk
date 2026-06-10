@@ -189,7 +189,7 @@ function stateTone(state: string): StatusPillTone {
       <template #actions>
         <button
           type="button"
-          class="text-xs font-medium rounded-md px-3 py-1.5 bg-accent text-on-accent hover:opacity-90"
+          class="text-xs font-medium rounded-md px-3 py-1.5 bg-accent text-on-accent hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           @click="showCreate = !showCreate"
         >
           {{ showCreate ? $t('project-cycles-cancel-button') : $t('project-cycles-new-button') }}
@@ -208,7 +208,7 @@ function stateTone(state: string): StatusPillTone {
           </span>
           <button
             type="button"
-            class="text-xs font-medium rounded-md px-3 py-1.5 border border-status-warning/50 hover:bg-status-warning/10"
+            class="text-xs font-medium rounded-md px-3 py-1.5 border border-status-warning/50 hover:bg-status-warning/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-status-warning"
             @click="requestCompleteCycle(activeCycle.uuid)"
           >{{ $t('project-cycles-action-complete') }}</button>
         </div>
@@ -226,7 +226,7 @@ function stateTone(state: string): StatusPillTone {
                 v-for="ticket in group.tickets"
                 :key="ticket.id"
                 type="button"
-                class="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-surface-hover transition-colors border-b border-subtle/30"
+                class="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-surface-hover transition-colors motion-reduce:transition-none border-b border-subtle/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
                 @click="router.push(`/tickets/${ticket.id}`)"
               >
                 <span class="font-mono text-tertiary text-xs shrink-0">#{{ ticket.id }}</span>
@@ -249,7 +249,7 @@ function stateTone(state: string): StatusPillTone {
               v-model="newCycleName"
               type="text"
               :placeholder="$t('project-cycles-name-placeholder')"
-              class="bg-app border border-subtle rounded-md text-sm px-2 py-1.5 text-primary"
+              class="bg-app border border-subtle rounded-md text-sm px-2 py-1.5 text-primary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
             />
           </label>
           <label class="flex flex-col gap-1 text-[11px] text-tertiary">
@@ -272,7 +272,7 @@ function stateTone(state: string): StatusPillTone {
           </label>
           <button
             type="submit"
-            class="text-xs font-medium rounded-md px-3 py-1.5 bg-accent text-on-accent hover:opacity-90 disabled:opacity-50"
+            class="text-xs font-medium rounded-md px-3 py-1.5 bg-accent text-on-accent hover:opacity-90 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             :disabled="!newCycleName.trim()"
           >{{ $t('project-cycles-create-submit') }}</button>
         </form>
@@ -295,7 +295,7 @@ function stateTone(state: string): StatusPillTone {
           <li
             v-for="cycle in cycles"
             :key="cycle.uuid"
-            class="flex items-center gap-3 px-3 py-2 hover:bg-surface-hover transition-colors"
+            class="flex items-center gap-3 px-3 py-2 hover:bg-surface-hover transition-colors motion-reduce:transition-none"
           >
             <StatusPill
               :tone="stateTone(cycle.state)"
@@ -305,29 +305,29 @@ function stateTone(state: string): StatusPillTone {
             />
             <button
               type="button"
-              class="text-sm text-primary flex-1 truncate text-left hover:text-accent"
+              class="text-sm text-primary flex-1 truncate text-left rounded hover:text-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               @click="router.push(`/cycles/${cycle.uuid}`)"
             >{{ cycle.name }}</button>
-            <span class="text-[11px] text-tertiary tabular-nums shrink-0">
+            <span class="hidden sm:inline text-[11px] text-tertiary tabular-nums shrink-0">
               {{ formatCycleDate(cycle.start_at) }} → {{ formatCycleDate(cycle.end_at) }}
             </span>
             <div class="flex items-center gap-0.5 shrink-0">
               <button
                 v-if="cycle.state === 'planned'"
                 type="button"
-                class="text-[11px] text-secondary hover:text-primary px-2 py-1 rounded hover:bg-surface-hover"
+                class="text-[11px] text-secondary hover:text-primary px-2 py-1 rounded hover:bg-surface-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 @click="promoteToActive(cycle.uuid)"
               >{{ $t('project-cycles-action-promote') }}</button>
               <button
                 v-if="cycle.state === 'active'"
                 type="button"
-                class="text-[11px] text-secondary hover:text-primary px-2 py-1 rounded hover:bg-surface-hover"
+                class="text-[11px] text-secondary hover:text-primary px-2 py-1 rounded hover:bg-surface-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 @click="requestCompleteCycle(cycle.uuid)"
               >{{ $t('project-cycles-action-complete') }}</button>
               <button
                 v-if="cycle.state !== 'completed'"
                 type="button"
-                class="text-[11px] text-tertiary hover:text-status-error px-2 py-1 rounded hover:bg-surface-hover"
+                class="text-[11px] text-tertiary hover:text-status-error px-2 py-1 rounded hover:bg-surface-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-status-error"
                 @click="requestArchiveCycle(cycle.uuid)"
               >{{ $t('project-cycles-action-archive') }}</button>
             </div>

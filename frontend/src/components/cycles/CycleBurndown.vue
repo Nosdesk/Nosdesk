@@ -170,7 +170,7 @@ function categoryPct(count: number): number {
       <!-- Progress bar -->
       <div class="h-1.5 rounded-full bg-surface-hover overflow-hidden">
         <div
-          class="h-full bg-accent transition-all"
+          class="h-full bg-accent transition-all motion-reduce:transition-none"
           :style="{ width: `${completionPct}%` }"
         />
       </div>
@@ -211,7 +211,7 @@ function categoryPct(count: number): number {
           <span class="text-secondary w-20 shrink-0 truncate">{{ categoryLabels[cat] ?? cat }}</span>
           <div class="flex-1 h-1.5 rounded-full bg-surface-hover overflow-hidden">
             <div
-              class="h-full rounded-full transition-all"
+              class="h-full rounded-full transition-all motion-reduce:transition-none"
               :class="categoryBarClass(cat)"
               :style="{ width: `${categoryPct(count)}%` }"
             />
