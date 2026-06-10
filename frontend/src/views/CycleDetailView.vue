@@ -22,6 +22,9 @@ import { useSyncTicketsStore } from '@/sync/stores/tickets'
 import { cyclesService, type Cycle } from '@/services/cyclesService'
 import CycleBurndown from '@/components/cycles/CycleBurndown.vue'
 import KanbanBoard from '@/sync/views/KanbanBoard.vue'
+import AsyncBoundary from '@/components/common/AsyncBoundary.vue'
+import BaseDropdown from '@/components/common/BaseDropdown.vue'
+import Icon from '@/components/common/Icon.vue'
 import { toCardData } from '@/sync/views/cardData'
 import type { CardData } from '@/sync/views/types'
 
@@ -80,6 +83,20 @@ function setSecondaryAxis(axis: SecondaryAxis | null): void {
   secondaryAxis.value = axis
 }
 
+function onGroupByChange(value: string | string[]): void {
+  const v = Array.isArray(value) ? value[0] : value
+  setSecondaryAxis(v === '' ? null : (v as SecondaryAxis))
+}
+
+// First-load state machine for the content area; the header chrome
+// renders immediately regardless (cache-first principle).
+const loadOp = computed(() => ({
+  isPending: isLoading.value,
+  isError: error.value !== null,
+  error: error.value,
+}))
+const hasCycle = computed(() => cycle.value !== null)
+
 function openCard(cardId: number): void {
   router.push(`/tickets/${cardId}`)
 }
@@ -119,9 +136,13 @@ const groupByOptions = computed(() => [
       <div class="flex items-center gap-3 min-w-0">
         <button
           type="button"
-          class="text-xs text-tertiary hover:text-primary"
+          class="p-1.5 -ml-1.5 rounded-md text-tertiary hover:text-primary hover:bg-surface-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent transition-colors shrink-0"
+          :title="$t('cycle-detail-back')"
+          :aria-label="$t('cycle-detail-back')"
           @click="backToCycles"
-        >{{ $t('cycle-detail-back') }}</button>
+        >
+          <Icon name="chevronLeft" size="md" />
+        </button>
         <div class="min-w-0">
           <h1 class="text-xl font-semibold text-primary truncate">
             {{ cycle?.name ?? $t('cycle-detail-loading-name') }}
@@ -131,32 +152,34 @@ const groupByOptions = computed(() => [
           </p>
         </div>
       </div>
-      <label class="flex items-center gap-2 text-xs text-secondary">
-        <span>{{ $t('cycle-detail-group-by-label') }}</span>
-        <select
-          class="bg-surface border border-subtle rounded-md text-xs px-2 py-1 text-primary"
-          :value="secondaryAxis ?? ''"
-          @change="setSecondaryAxis(($event.target as HTMLSelectElement).value as 'assignee_uuid' | 'priority' | '' || null)"
-        >
-          <option
-            v-for="opt in groupByOptions"
-            :key="opt.value"
-            :value="opt.value"
-          >{{ opt.label }}</option>
-        </select>
-      </label>
+      <div class="flex items-center gap-2 text-xs text-secondary shrink-0">
+        <span class="hidden sm:inline">{{ $t('cycle-detail-group-by-label') }}</span>
+        <div class="w-40">
+          <BaseDropdown
+            :model-value="secondaryAxis ?? ''"
+            :options="groupByOptions"
+            size="sm"
+            @update:model-value="onGroupByChange"
+          />
+        </div>
+      </div>
     </header>
 
-    <div v-if="isLoading" class="flex-1 flex items-center justify-center text-tertiary text-sm">
-      {{ $t('cycle-detail-loading') }}
-    </div>
-    <div v-else-if="error" class="flex-1 flex items-center justify-center text-status-error text-sm">
-      {{ error }}
-    </div>
-    <template v-else-if="cycle">
+    <AsyncBoundary :op="loadOp" :has-data="hasCycle">
+      <template #pending>
+        <div class="flex-1 flex items-center justify-center text-tertiary text-sm">
+          {{ $t('cycle-detail-loading') }}
+        </div>
+      </template>
+      <template #error="{ error: boundaryError }">
+        <div class="flex-1 flex items-center justify-center text-status-error text-sm">
+          {{ (boundaryError as Error)?.message ?? error }}
+        </div>
+      </template>
+
       <!-- Burndown is pinned above the board so it stays visible
            as the user scrolls horizontally through swimlanes. -->
-      <section class="px-6 py-4 border-b border-subtle bg-surface">
+      <section v-if="cycle" class="px-6 py-4 border-b border-subtle bg-surface">
         <CycleBurndown :cycle="cycle" />
       </section>
 
@@ -166,6 +189,6 @@ const groupByOptions = computed(() => [
         :on-card-click="openCard"
         :secondary-group-by="secondaryAxis"
       />
-    </template>
+    </AsyncBoundary>
   </div>
 </template>
