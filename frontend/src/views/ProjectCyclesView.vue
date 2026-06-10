@@ -21,6 +21,8 @@ import { useCyclesStore } from '@/stores/cycles'
 import { useProjectTickets } from '@/composables/useProjectTickets'
 import { WORKFLOW_CATEGORIES, getCategoryLabel, type WorkflowStateCategory } from '@/types/workflow'
 import CycleBurndown from '@/components/cycles/CycleBurndown.vue'
+import StatusPill from '@/components/common/StatusPill.vue'
+import type { StatusPillTone } from '@/components/common/statusPillTone'
 import ProjectTabBar from '@/components/views/ProjectTabBar.vue'
 import ProjectViewHeader from '@/components/projectComponents/ProjectViewHeader.vue'
 import SectionCard from '@/components/common/SectionCard.vue'
@@ -167,6 +169,12 @@ function stateLabel(state: string): string {
     default: return state
   }
 }
+
+// Active is the figure (accent); planned and completed recede to neutral
+// so the eye lands on the cycle in flight.
+function stateTone(state: string): StatusPillTone {
+  return state === 'active' ? 'accent' : 'neutral'
+}
 </script>
 
 <template>
@@ -289,14 +297,12 @@ function stateLabel(state: string): string {
             :key="cycle.uuid"
             class="flex items-center gap-3 px-3 py-2 hover:bg-surface-hover transition-colors"
           >
-            <span
-              class="text-[10px] uppercase tracking-wide font-semibold rounded px-1.5 py-0.5 shrink-0"
-              :class="{
-                'bg-accent text-on-accent': cycle.state === 'active',
-                'bg-surface-hover text-tertiary': cycle.state === 'planned',
-                'bg-surface text-tertiary opacity-70': cycle.state === 'completed',
-              }"
-            >{{ stateLabel(cycle.state) }}</span>
+            <StatusPill
+              :tone="stateTone(cycle.state)"
+              :label="stateLabel(cycle.state)"
+              class="shrink-0"
+              :class="{ 'opacity-70': cycle.state === 'completed' }"
+            />
             <button
               type="button"
               class="text-sm text-primary flex-1 truncate text-left hover:text-accent"

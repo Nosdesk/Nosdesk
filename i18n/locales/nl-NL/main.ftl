@@ -2332,6 +2332,16 @@ project-cycles-state-completed = afgerond
 project-cycles-action-promote = Activeren
 project-cycles-action-complete = Afronden
 project-cycles-action-archive = Archiveren
+# machine, na te kijken door moedertaalspreker
+project-cycles-health-on-track = Op schema
+# machine, na te kijken door moedertaalspreker
+project-cycles-health-at-risk = Risico
+# machine, na te kijken door moedertaalspreker
+project-cycles-health-behind = Achter
+# machine, na te kijken door moedertaalspreker
+project-cycles-health-complete = Voltooid
+# machine, na te kijken door moedertaalspreker
+project-cycles-health-not-started = Niet gestart
 
 # Cycle detail (CycleDetailView): Scrum board scoped to one
 # cycle, with a burndown pinned above the kanban toolbar.

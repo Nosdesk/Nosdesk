@@ -2335,6 +2335,16 @@ project-cycles-state-completed = terminé
 project-cycles-action-promote = Activer
 project-cycles-action-complete = Terminer
 project-cycles-action-archive = Archiver
+# machine, à relire par un locuteur natif
+project-cycles-health-on-track = Dans les temps
+# machine, à relire par un locuteur natif
+project-cycles-health-at-risk = À risque
+# machine, à relire par un locuteur natif
+project-cycles-health-behind = En retard
+# machine, à relire par un locuteur natif
+project-cycles-health-complete = Terminé
+# machine, à relire par un locuteur natif
+project-cycles-health-not-started = Non commencé
 
 # Cycle detail (CycleDetailView): Scrum board scoped to one
 # cycle, with a burndown pinned above the kanban toolbar.

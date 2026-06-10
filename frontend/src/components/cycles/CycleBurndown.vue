@@ -16,6 +16,8 @@ import { cyclesService, type CycleStats, type BurnupSeries } from '@/services/cy
 import type { Cycle } from '@/services/cyclesService'
 import { formatDateTime } from '@/utils/dateUtils'
 import { WORKFLOW_CATEGORIES } from '@/types/workflow'
+import { cycleHealth, cycleHealthPresentation } from '@/utils/cycleHealth'
+import StatusPill from '@/components/common/StatusPill.vue'
 import CycleBurnupChart from './CycleBurnupChart.vue'
 
 const fluent = useFluent()
@@ -63,6 +65,22 @@ const daysRemaining = computed<number | null>(() => {
   return Math.max(0, Math.ceil(ms / 86_400_000))
 })
 
+// On-track / at-risk / behind, from completed-vs-elapsed pace. The frozen
+// snapshot of a completed cycle reads as "complete"; we only surface the
+// pill once stats have loaded so it doesn't flash a misleading state.
+const health = computed(() => {
+  const s = stats.value
+  if (!s) return null
+  const h = cycleHealth({
+    total: s.tickets,
+    completed: s.completed,
+    startAt: props.cycle.start_at,
+    endAt: props.cycle.end_at,
+  })
+  const { tone, labelKey } = cycleHealthPresentation(h)
+  return { tone, label: t(labelKey) }
+})
+
 const sortedCategories = computed<[string, number][]>(() => {
   if (!stats.value) return []
   // Order by the canonical workflow progression (triage → done), not
@@ -86,13 +104,21 @@ const categoryLabels = computed<Record<string, string>>(() => ({
 </script>
 
 <template>
-  <div class="rounded-md border border-subtle bg-app p-4">
-    <header class="flex items-baseline justify-between mb-3">
-      <h3 class="text-sm font-semibold text-primary">{{ cycle.name }}</h3>
+  <div class="rounded-md border border-subtle bg-surface p-4">
+    <header class="flex items-center justify-between gap-2 mb-3">
+      <h3 class="text-sm font-semibold text-primary truncate">{{ cycle.name }}</h3>
+      <!-- Frozen cycles show their archival state; live cycles show the
+           on-track / at-risk / behind pace pill instead. -->
       <span
-        class="text-[10px] uppercase tracking-wide font-semibold"
-        :class="isFrozen ? 'text-tertiary' : 'text-accent'"
-      >{{ isFrozen ? t('tickets-cycle-burndown-frozen') : t('tickets-cycle-burndown-live') }}</span>
+        v-if="isFrozen"
+        class="shrink-0 text-[10px] uppercase tracking-wide font-semibold text-tertiary"
+      >{{ t('tickets-cycle-burndown-frozen') }}</span>
+      <StatusPill
+        v-else-if="health"
+        :tone="health.tone"
+        :label="health.label"
+        class="shrink-0"
+      />
     </header>
 
     <div v-if="isLoading" class="text-xs text-tertiary italic">{{ t('tickets-cycle-burndown-loading') }}</div>

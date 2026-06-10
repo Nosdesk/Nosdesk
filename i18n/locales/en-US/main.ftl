@@ -2466,6 +2466,12 @@ project-cycles-state-completed = completed
 project-cycles-action-promote = Promote
 project-cycles-action-complete = Complete
 project-cycles-action-archive = Archive
+# Cycle health: completed-vs-elapsed pace of an in-flight cycle.
+project-cycles-health-on-track = On track
+project-cycles-health-at-risk = At risk
+project-cycles-health-behind = Behind
+project-cycles-health-complete = Complete
+project-cycles-health-not-started = Not started
 
 # Cycle detail (CycleDetailView): Scrum board scoped to one
 # cycle, with a burndown pinned above the kanban toolbar.
