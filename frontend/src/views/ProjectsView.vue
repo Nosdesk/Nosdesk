@@ -137,7 +137,14 @@ const displayed = computed(() => {
   return arr
 })
 
-const isInitiallyLoading = computed(() => !bootstrapped.value)
+// Cache-first: the projects pool persists across view mounts, so a warm
+// revisit already has data even while this mount re-subscribes
+// (`bootstrapped` starts false again). Gate the skeleton on "no data yet",
+// not on the bootstrap flag, so a revisit renders instantly with no
+// skeleton flash; a genuine cold load (empty pool) still shows it.
+const isInitiallyLoading = computed(
+  () => !bootstrapped.value && sortedByName.value.length === 0,
+)
 const isEmpty = computed(() => bootstrapped.value && sortedByName.value.length === 0)
 const noMatches = computed(
   () => bootstrapped.value && sortedByName.value.length > 0 && filtered.value.length === 0,
@@ -263,7 +270,7 @@ function handleProjectContextMenuSelect(actionId: string): void {
          column headers; finding a project by name is the global
          search's job. -->
     <div
-      v-if="bootstrapped && sortedByName.length > 0"
+      v-if="sortedByName.length > 0"
       class="shrink-0 flex items-center gap-1 px-4 sm:px-6 py-2.5 border-b border-subtle"
     >
       <button
