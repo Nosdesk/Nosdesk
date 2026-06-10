@@ -81,6 +81,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { RouterLink } from 'vue-router';
+import { useQuery } from '@pinia/colada';
 import { useFluent } from 'fluent-vue';
 import PublicLayout from './PublicLayout.vue';
 import SkeletonBlock from './SkeletonBlock.vue';
@@ -94,9 +95,23 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 const props = defineProps<{ slug: string }>();
 
 const store = usePublicSettingsStore();
-const loading = ref(true);
-const doc = ref<PublicDoc | null>(null);
+const settingsLoaded = ref(false);
 const enabled = computed(() => store.settings?.guest_public_docs_enabled === true);
+
+// Cache-first: the doc is keyed by slug, so a revisit renders instantly
+// then refreshes silently. Gated on the public-docs feature being on (and
+// settings having loaded) so we never fetch when the surface is disabled.
+const docQuery = useQuery({
+  key: () => ['public-doc', props.slug],
+  query: () => publicService.getDoc(props.slug),
+  enabled: () => settingsLoaded.value && enabled.value,
+});
+const doc = computed<PublicDoc | null>(() => docQuery.data.value ?? null);
+const loading = computed(
+  () =>
+    !settingsLoaded.value ||
+    (enabled.value && docQuery.asyncStatus.value === 'loading' && !doc.value),
+);
 
 function formatDate(iso: string) {
   try {
@@ -107,14 +122,10 @@ function formatDate(iso: string) {
 }
 
 onMounted(async () => {
-  await store.load();
-  if (enabled.value) {
-    try {
-      doc.value = await publicService.getDoc(props.slug);
-    } catch {
-      doc.value = null;
-    }
+  try {
+    await store.load();
+  } finally {
+    settingsLoaded.value = true;
   }
-  loading.value = false;
 });
 </script>

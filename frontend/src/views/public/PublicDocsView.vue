@@ -95,6 +95,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { RouterLink } from 'vue-router';
+import { useQuery } from '@pinia/colada';
 import { useFluent } from 'fluent-vue';
 import PublicLayout from './PublicLayout.vue';
 import SkeletonBlock from './SkeletonBlock.vue';
@@ -106,13 +107,27 @@ const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 const store = usePublicSettingsStore();
-const loading = ref(true);
-const docs = ref<PublicDocSummary[]>([]);
+const settingsLoaded = ref(false);
 const searchResults = ref<PublicDocSummary[] | null>(null);
 const query = ref('');
 
 const enabled = computed(() => store.settings?.guest_public_docs_enabled === true);
 const searchEnabled = computed(() => store.settings?.guest_kb_search_enabled === true);
+
+// Cache-first: the doc index renders instantly on revisit then refreshes
+// silently. Live search stays a debounced manual fetch (it's transient,
+// not revisit-cacheable content).
+const docsQuery = useQuery({
+  key: () => ['public-docs'],
+  query: () => publicService.listDocs(),
+  enabled: () => settingsLoaded.value && enabled.value,
+});
+const docs = computed<PublicDocSummary[]>(() => docsQuery.data.value ?? []);
+const loading = computed(
+  () =>
+    !settingsLoaded.value ||
+    (enabled.value && docsQuery.asyncStatus.value === 'loading' && docs.value.length === 0),
+);
 const visible = computed(() => searchResults.value ?? docs.value);
 
 function formatDate(iso: string) {
@@ -141,14 +156,10 @@ function runSearch() {
 }
 
 onMounted(async () => {
-  await store.load();
-  if (enabled.value) {
-    try {
-      docs.value = await publicService.listDocs();
-    } catch {
-      docs.value = [];
-    }
+  try {
+    await store.load();
+  } finally {
+    settingsLoaded.value = true;
   }
-  loading.value = false;
 });
 </script>

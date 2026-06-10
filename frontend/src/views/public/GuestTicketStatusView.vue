@@ -94,6 +94,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { RouterLink } from 'vue-router';
+import { useQuery } from '@pinia/colada';
 import { useFluent } from 'fluent-vue';
 import PublicLayout from './PublicLayout.vue';
 import SkeletonBlock from './SkeletonBlock.vue';
@@ -108,9 +109,23 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 const props = defineProps<{ token: string }>();
 
 const store = usePublicSettingsStore();
-const loading = ref(true);
-const ticket = ref<GuestTicketStatus | null>(null);
+const settingsLoaded = ref(false);
 const enabled = computed(() => store.settings?.guest_ticket_lookup_enabled === true);
+
+// Cache-first: the status is keyed by the lookup token, so a revisit
+// renders instantly then refreshes silently. Gated on the lookup feature
+// being on (and settings having loaded).
+const ticketQuery = useQuery({
+  key: () => ['guest-ticket-status', props.token],
+  query: () => publicService.getTicketStatus(props.token),
+  enabled: () => settingsLoaded.value && enabled.value,
+});
+const ticket = computed<GuestTicketStatus | null>(() => ticketQuery.data.value ?? null);
+const loading = computed(
+  () =>
+    !settingsLoaded.value ||
+    (enabled.value && ticketQuery.asyncStatus.value === 'loading' && !ticket.value),
+);
 
 const statusBadge = computed(() => {
   const c = ticket.value?.category;
@@ -144,14 +159,10 @@ function formatDate(iso: string) {
 }
 
 onMounted(async () => {
-  await store.load();
-  if (enabled.value) {
-    try {
-      ticket.value = await publicService.getTicketStatus(props.token);
-    } catch {
-      ticket.value = null;
-    }
+  try {
+    await store.load();
+  } finally {
+    settingsLoaded.value = true;
   }
-  loading.value = false;
 });
 </script>
