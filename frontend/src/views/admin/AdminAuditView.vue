@@ -6,7 +6,9 @@ import AlertMessage from '@/components/common/AlertMessage.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import Icon from '@/components/common/Icon.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
-import { formatDateTime } from '@/utils/dateUtils';
+import UserAvatar from '@/components/UserAvatar.vue';
+import type { IconName } from '@/components/common/icons';
+import { formatDate, formatDateTime, formatRelativeTime } from '@/utils/dateUtils';
 import { auditService, type AuditEntry, type AuditQuery } from '@/services/auditService';
 import { extractErrorMessage } from '@/utils/errors';
 
@@ -106,6 +108,15 @@ function toggleExpanded(id: string) {
   expanded.value[id] = !expanded.value[id];
 }
 
+async function copyId(value: string | null | undefined) {
+  if (!value) return;
+  try {
+    await navigator.clipboard.writeText(value);
+  } catch {
+    // Clipboard can be unavailable (insecure context); fail quietly.
+  }
+}
+
 function sourceLabel(source: string): string {
   switch (source) {
     case 'tier1':
@@ -117,32 +128,77 @@ function sourceLabel(source: string): string {
   }
 }
 
-function sourceTone(source: string): string {
-  switch (source) {
-    case 'tier1':
-      return 'bg-blue-500/10 text-blue-700 dark:text-blue-400';
-    case 'tier2':
-      return 'bg-purple-500/10 text-purple-700 dark:text-purple-400';
-    default:
-      return 'bg-amber-500/10 text-amber-700 dark:text-amber-400';
-  }
-}
-
+// Severity uses semantic status tokens (themed + dark-mode aware) and is
+// always paired with an icon, so the signal never rests on colour alone.
 function severityTone(severity: string): string {
   switch (severity) {
-    case 'warning':
-      return 'bg-amber-500/10 text-amber-700 dark:text-amber-400';
     case 'error':
-      return 'bg-red-500/10 text-red-700 dark:text-red-400';
+      return 'bg-status-error-muted text-status-error';
+    case 'warning':
+      return 'bg-status-warning-muted text-status-warning';
     default:
-      return 'bg-default text-secondary';
+      return 'bg-surface-alt text-secondary';
+  }
+}
+function severityIcon(severity: string): IconName {
+  return severity === 'error' ? 'xCircle' : 'warning';
+}
+
+// Humanise the machine event token (`ticket.workflow_state_changed`)
+// into a readable label. The raw token is still rendered beneath it as a
+// monospace badge so it stays the stable filter / debug key.
+function humanizeEvent(eventType: string): string {
+  const dot = eventType.indexOf('.');
+  const resource = (dot === -1 ? eventType : eventType.slice(0, dot)).replace(/_/g, ' ');
+  const action = dot === -1 ? '' : eventType.slice(dot + 1).replace(/[._]/g, ' ');
+  const phrase = action ? `${resource} ${action}` : resource;
+  return phrase.charAt(0).toUpperCase() + phrase.slice(1);
+}
+
+// One icon per event shape, derived from the verb, so a reviewer can
+// pre-sort the stream by glyph before reading.
+function eventIcon(eventType: string): IconName {
+  const e = eventType.toLowerCase();
+  if (/(delete|removed|uninstall|revoke)/.test(e)) return 'trash';
+  if (/(create|added|install|invite)/.test(e)) return 'add';
+  if (/(login|logout|auth|mfa|password|session|token)/.test(e)) return 'key';
+  if (/archive/.test(e)) return 'archive';
+  if (/(complete|merged|approve)/.test(e)) return 'check';
+  if (/(update|changed|renamed|edit|moved)/.test(e)) return 'documentEdit';
+  return 'info';
+}
+
+function actorKindLabel(kind: string): string {
+  switch (kind) {
+    case 'token':
+    case 'api_token':
+    case 'api':
+      return t('admin-audit-actor-token');
+    case 'anonymous':
+    case 'guest':
+      return t('admin-audit-actor-anonymous');
+    case 'system':
+      return t('admin-audit-actor-system');
+    default:
+      return kind || t('admin-audit-actor-system');
+  }
+}
+function actorKindIcon(kind: string): IconName {
+  switch (kind) {
+    case 'token':
+    case 'api_token':
+    case 'api':
+      return 'key';
+    case 'system':
+      return 'settings';
+    default:
+      return 'user';
   }
 }
 
-function actorLabel(entry: AuditEntry): string {
-  if (entry.actor_uuid) return entry.actor_uuid.slice(0, 8);
-  // No actor uuid: surface the kind (system / anonymous).
-  return entry.actor_kind || t('admin-audit-actor-system');
+function targetLabel(entry: AuditEntry): string {
+  if (!entry.target) return '';
+  return `${entry.target.kind}${entry.target.id ? '.' + entry.target.id : ''}`;
 }
 
 function previewValue(value: unknown): string {
@@ -164,6 +220,33 @@ function prettyJson(value: unknown): string {
     return String(value);
   }
 }
+
+// Day label for the group header: Today / Yesterday / absolute date.
+function dayLabel(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const startOf = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diffDays = Math.round((startOf(now) - startOf(d)) / 86_400_000);
+  if (diffDays === 0) return t('admin-audit-day-today');
+  if (diffDays === 1) return t('admin-audit-day-yesterday');
+  return formatDate(iso);
+}
+
+// Group the (already newest-first) entries under day headers, preserving
+// order. Consecutive entries on the same calendar day share a group.
+const groupedEntries = computed(() => {
+  const groups: { key: string; label: string; items: AuditEntry[] }[] = [];
+  let current: { key: string; label: string; items: AuditEntry[] } | null = null;
+  for (const entry of entries.value) {
+    const key = entry.occurred_at.slice(0, 10);
+    if (!current || current.key !== key) {
+      current = { key, label: dayLabel(entry.occurred_at), items: [] };
+      groups.push(current);
+    }
+    current.items.push(entry);
+  }
+  return groups;
+});
 
 const hasFilters = computed(
   () =>
@@ -196,7 +279,7 @@ onMounted(loadFirstPage);
       </div>
       <button
         type="button"
-        class="h-9 px-4 rounded border border-default text-sm hover:bg-hover disabled:opacity-50 inline-flex items-center gap-2"
+        class="h-9 px-4 rounded border border-default text-sm hover:bg-surface-hover disabled:opacity-50 inline-flex items-center gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         :disabled="isExporting || entries.length === 0"
         @click="exportJson"
       >
@@ -212,11 +295,11 @@ onMounted(loadFirstPage);
           v-for="tier in TIERS"
           :key="tier.labelKey"
           type="button"
-          class="h-8 px-3 rounded-full text-sm border transition-colors"
+          class="h-8 px-3 rounded-full text-sm border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           :class="
             tierFilter === tier.value
               ? 'bg-accent/10 border-accent text-accent font-medium'
-              : 'border-default text-secondary hover:bg-hover'
+              : 'border-default text-secondary hover:bg-surface-hover'
           "
           @click="tierFilter = tier.value"
         >
@@ -231,14 +314,14 @@ onMounted(loadFirstPage);
             v-model="eventPrefix"
             type="text"
             :placeholder="$t('admin-audit-filter-event-placeholder')"
-            class="h-9 px-2 rounded border border-default bg-input text-primary text-sm w-full sm:w-44 font-mono"
+            class="h-9 px-2 rounded border border-default bg-surface-alt text-primary text-sm w-full sm:w-44 font-mono focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
           />
         </label>
         <label class="flex flex-col gap-1 text-xs text-secondary">
           <span>{{ $t('admin-audit-filter-severity') }}</span>
           <select
             v-model="severityFilter"
-            class="h-9 px-2 rounded border border-default bg-input text-primary text-sm"
+            class="h-9 px-2 rounded border border-default bg-surface-alt text-primary text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
           >
             <option value="">{{ $t('admin-audit-severity-any') }}</option>
             <option value="info">info</option>
@@ -252,13 +335,13 @@ onMounted(loadFirstPage);
             v-model="actorFilter"
             type="text"
             :placeholder="$t('admin-audit-filter-actor-placeholder')"
-            class="h-9 px-2 rounded border border-default bg-input text-primary text-sm w-full sm:w-72 font-mono"
+            class="h-9 px-2 rounded border border-default bg-surface-alt text-primary text-sm w-full sm:w-72 font-mono focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
           />
         </label>
         <button
           v-if="hasFilters"
           type="button"
-          class="h-9 px-3 rounded border border-default text-sm hover:bg-hover"
+          class="h-9 px-3 rounded border border-default text-sm hover:bg-surface-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           @click="clearFilters"
         >
           {{ $t('admin-audit-clear-filters') }}
@@ -275,98 +358,171 @@ onMounted(loadFirstPage);
     <EmptyState
       v-else-if="entries.length === 0"
       icon="inbox"
-      :title="$t('admin-audit-empty-title')"
-      :description="$t('admin-audit-empty-description')"
+      :title="hasFilters ? $t('admin-audit-empty-filtered-title') : $t('admin-audit-empty-title')"
+      :description="hasFilters ? $t('admin-audit-empty-filtered-description') : $t('admin-audit-empty-description')"
     />
 
-    <ul v-else class="flex flex-col gap-1">
-      <li v-for="entry in entries" :key="entry.id" class="rounded border border-default bg-surface">
-        <button
-          type="button"
-          class="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-hover"
-          @click="toggleExpanded(entry.id)"
-        >
-          <span class="text-xs font-medium px-2 py-0.5 rounded" :class="sourceTone(entry.source)">
-            {{ sourceLabel(entry.source) }}
-          </span>
-          <span class="text-sm font-mono text-primary truncate max-w-[16rem]">
-            {{ entry.event_type }}
-          </span>
-          <span
-            v-if="entry.severity && entry.severity !== 'info'"
-            class="text-xs px-2 py-0.5 rounded"
-            :class="severityTone(entry.severity)"
+    <table v-else class="w-full text-sm border-separate border-spacing-0">
+      <thead>
+        <tr class="text-left text-xs text-tertiary">
+          <th class="w-8 pb-2 pl-2 font-medium"></th>
+          <th class="pb-2 font-medium">{{ $t('admin-audit-col-event') }}</th>
+          <th class="pb-2 font-medium">{{ $t('admin-audit-col-actor') }}</th>
+          <th class="hidden pb-2 font-medium md:table-cell">{{ $t('admin-audit-col-target') }}</th>
+          <th class="pb-2 pr-2 text-right font-medium">{{ $t('admin-audit-col-time') }}</th>
+        </tr>
+      </thead>
+
+      <tbody v-for="group in groupedEntries" :key="group.key">
+        <tr>
+          <th
+            colspan="5"
+            class="pt-4 pb-1 pl-2 text-left text-[10px] font-semibold uppercase tracking-wide text-tertiary"
           >
-            {{ entry.severity }}
-          </span>
-          <span class="text-sm text-secondary flex-1 truncate">
-            {{ $t('admin-audit-by') }}
-            <span class="font-mono">{{ actorLabel(entry) }}</span>
-            <template v-if="entry.target">
-              · <span class="font-mono">{{ entry.target.kind }}{{ entry.target.id ? '.' + entry.target.id : '' }}</span>
-            </template>
-          </span>
-          <span class="text-xs text-secondary whitespace-nowrap">
-            {{ formatDateTime(entry.occurred_at) }}
-          </span>
-          <Icon :name="expanded[entry.id] ? 'chevronUp' : 'chevronDown'" size="sm" class="text-secondary" />
-        </button>
+            {{ group.label }}
+          </th>
+        </tr>
 
-        <div v-if="expanded[entry.id]" class="px-3 pb-3 flex flex-col gap-2">
-          <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
-            <template v-if="entry.target">
-              <dt class="text-secondary">{{ $t('admin-audit-target') }}</dt>
-              <dd class="font-mono text-primary">
-                {{ entry.target.kind }}{{ entry.target.id ? '.' + entry.target.id : '' }}
-              </dd>
-            </template>
-            <template v-if="entry.source_ip">
-              <dt class="text-secondary">{{ $t('admin-audit-source-ip') }}</dt>
-              <dd class="font-mono text-primary">{{ entry.source_ip }}</dd>
-            </template>
-            <template v-if="entry.correlation_id">
-              <dt class="text-secondary">{{ $t('admin-audit-corr') }}</dt>
-              <dd class="font-mono text-primary">{{ entry.correlation_id.slice(0, 8) }}</dd>
-            </template>
-          </dl>
+        <template v-for="entry in group.items" :key="entry.id">
+          <tr
+            class="border-t border-subtle hover:bg-surface-hover cursor-pointer"
+            @click="toggleExpanded(entry.id)"
+          >
+            <td class="py-2 pl-2 align-top">
+              <button
+                type="button"
+                class="flex h-6 w-6 items-center justify-center rounded text-tertiary hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                :aria-expanded="!!expanded[entry.id]"
+                :aria-controls="`audit-detail-${entry.id}`"
+                :aria-label="humanizeEvent(entry.event_type)"
+                @click.stop="toggleExpanded(entry.id)"
+              >
+                <Icon :name="eventIcon(entry.event_type)" size="sm" />
+              </button>
+            </td>
 
-          <!-- Tier-3 row diff -->
-          <table v-if="entry.diff.length" class="w-full text-sm">
-            <thead>
-              <tr class="text-xs text-secondary">
-                <th class="text-left font-medium pb-1 pr-4">{{ $t('admin-audit-diff-field') }}</th>
-                <th class="text-left font-medium pb-1 pr-4">{{ $t('admin-audit-diff-old') }}</th>
-                <th class="text-left font-medium pb-1">{{ $t('admin-audit-diff-new') }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="d in entry.diff" :key="d.field" class="border-t border-default">
-                <td class="py-1 pr-4 font-mono text-primary">{{ d.field }}</td>
-                <td class="py-1 pr-4 text-secondary truncate max-w-xs" :title="previewValue(d.old)">
-                  {{ previewValue(d.old) }}
-                </td>
-                <td class="py-1 text-primary truncate max-w-xs" :title="previewValue(d.new)">
-                  {{ previewValue(d.new) }}
-                </td>
-              </tr>
-            </tbody>
-          </table>
+            <td class="py-2 align-top">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="text-primary">{{ humanizeEvent(entry.event_type) }}</span>
+                <span
+                  v-if="entry.severity && entry.severity !== 'info'"
+                  class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs"
+                  :class="severityTone(entry.severity)"
+                >
+                  <Icon :name="severityIcon(entry.severity)" size="xs" aria-hidden="true" />
+                  {{ entry.severity }}
+                </span>
+              </div>
+              <code class="font-mono text-[11px] text-tertiary">{{ entry.event_type }}</code>
+            </td>
 
-          <!-- Tier-1 / tier-2 payload -->
-          <div v-else-if="entry.payload">
-            <p class="text-xs text-secondary mb-1">{{ $t('admin-audit-payload') }}</p>
-            <pre class="font-mono text-xs overflow-auto bg-input p-2 rounded text-primary">{{ prettyJson(entry.payload) }}</pre>
-          </div>
+            <td class="py-2 align-top">
+              <UserAvatar v-if="entry.actor_uuid" :uuid="entry.actor_uuid" size="xxs" />
+              <span v-else class="inline-flex items-center gap-1 text-xs text-secondary">
+                <Icon :name="actorKindIcon(entry.actor_kind)" size="xs" aria-hidden="true" />
+                {{ actorKindLabel(entry.actor_kind) }}
+              </span>
+            </td>
 
-          <p v-else class="text-xs text-secondary">{{ $t('admin-audit-no-diff') }}</p>
-        </div>
-      </li>
-    </ul>
+            <td class="hidden py-2 align-top text-secondary md:table-cell">
+              <span v-if="entry.target" class="font-mono text-xs">{{ targetLabel(entry) }}</span>
+              <span v-else class="text-tertiary">-</span>
+            </td>
+
+            <td
+              class="whitespace-nowrap py-2 pr-2 text-right align-top text-xs text-secondary"
+              :title="formatDateTime(entry.occurred_at)"
+            >
+              {{ formatRelativeTime(entry.occurred_at) }}
+            </td>
+          </tr>
+
+          <tr v-if="expanded[entry.id]" :id="`audit-detail-${entry.id}`">
+            <td colspan="5" class="bg-surface-alt/40 px-3 pb-3 pt-1">
+              <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
+                <dt class="text-secondary">{{ $t('admin-audit-source-field') }}</dt>
+                <dd class="text-primary">{{ sourceLabel(entry.source) }}</dd>
+
+                <template v-if="entry.actor_uuid">
+                  <dt class="text-secondary">{{ $t('admin-audit-col-actor') }}</dt>
+                  <dd class="flex items-center gap-1">
+                    <span class="font-mono text-primary">{{ entry.actor_uuid }}</span>
+                    <button
+                      type="button"
+                      class="text-tertiary hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
+                      :aria-label="$t('admin-audit-copy')"
+                      @click="copyId(entry.actor_uuid)"
+                    >
+                      <Icon name="copy" size="xs" />
+                    </button>
+                  </dd>
+                </template>
+
+                <template v-if="entry.target">
+                  <dt class="text-secondary">{{ $t('admin-audit-target') }}</dt>
+                  <dd class="font-mono text-primary">{{ targetLabel(entry) }}</dd>
+                </template>
+
+                <template v-if="entry.source_ip">
+                  <dt class="text-secondary">{{ $t('admin-audit-source-ip') }}</dt>
+                  <dd class="font-mono text-primary">{{ entry.source_ip }}</dd>
+                </template>
+
+                <template v-if="entry.correlation_id">
+                  <dt class="text-secondary">{{ $t('admin-audit-corr') }}</dt>
+                  <dd class="flex items-center gap-1">
+                    <span class="font-mono text-primary">{{ entry.correlation_id }}</span>
+                    <button
+                      type="button"
+                      class="text-tertiary hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
+                      :aria-label="$t('admin-audit-copy')"
+                      @click="copyId(entry.correlation_id)"
+                    >
+                      <Icon name="copy" size="xs" />
+                    </button>
+                  </dd>
+                </template>
+              </dl>
+
+              <!-- Tier-3 row diff -->
+              <table v-if="entry.diff.length" class="mt-2 w-full text-sm">
+                <thead>
+                  <tr class="text-xs text-secondary">
+                    <th class="pb-1 pr-4 text-left font-medium">{{ $t('admin-audit-diff-field') }}</th>
+                    <th class="pb-1 pr-4 text-left font-medium">{{ $t('admin-audit-diff-old') }}</th>
+                    <th class="pb-1 text-left font-medium">{{ $t('admin-audit-diff-new') }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="d in entry.diff" :key="d.field" class="border-t border-default">
+                    <td class="py-1 pr-4 font-mono text-primary">{{ d.field }}</td>
+                    <td class="max-w-xs truncate py-1 pr-4 text-secondary" :title="previewValue(d.old)">
+                      {{ previewValue(d.old) }}
+                    </td>
+                    <td class="max-w-xs truncate py-1 text-primary" :title="previewValue(d.new)">
+                      {{ previewValue(d.new) }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <!-- Tier-1 / tier-2 payload -->
+              <div v-else-if="entry.payload" class="mt-2">
+                <p class="mb-1 text-xs text-secondary">{{ $t('admin-audit-payload') }}</p>
+                <pre class="overflow-auto rounded bg-surface-alt p-2 font-mono text-xs text-primary">{{ prettyJson(entry.payload) }}</pre>
+              </div>
+
+              <p v-else class="mt-2 text-xs text-secondary">{{ $t('admin-audit-no-diff') }}</p>
+            </td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
 
     <div v-if="nextCursor" class="flex justify-center pt-2">
       <button
         type="button"
-        class="h-9 px-4 rounded border border-default text-sm hover:bg-hover disabled:opacity-50"
+        class="h-9 px-4 rounded border border-default text-sm hover:bg-surface-hover disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         :disabled="isLoadingMore"
         @click="loadMore"
       >

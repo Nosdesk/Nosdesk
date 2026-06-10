@@ -524,7 +524,31 @@ admin-audit-no-diff = Geen veldniveau-diff voor deze vermelding.
 admin-audit-op-created = Aangemaakt
 admin-audit-op-updated = Bijgewerkt
 admin-audit-op-deleted = Verwijderd
-admin-audit-actor-system = systeem
+admin-audit-actor-system = Systeem
+# machine, na te kijken door moedertaalspreker
+admin-audit-actor-token = API-token
+# machine, na te kijken door moedertaalspreker
+admin-audit-actor-anonymous = Anoniem
+# machine, na te kijken door moedertaalspreker
+admin-audit-col-event = Gebeurtenis
+# machine, na te kijken door moedertaalspreker
+admin-audit-col-actor = Actor
+# machine, na te kijken door moedertaalspreker
+admin-audit-col-target = Doel
+# machine, na te kijken door moedertaalspreker
+admin-audit-col-time = Tijd
+# machine, na te kijken door moedertaalspreker
+admin-audit-source-field = Bron
+# machine, na te kijken door moedertaalspreker
+admin-audit-copy = Kopiëren
+# machine, na te kijken door moedertaalspreker
+admin-audit-day-today = Vandaag
+# machine, na te kijken door moedertaalspreker
+admin-audit-day-yesterday = Gisteren
+# machine, na te kijken door moedertaalspreker
+admin-audit-empty-filtered-title = Geen overeenkomende gebeurtenissen
+# machine, na te kijken door moedertaalspreker
+admin-audit-empty-filtered-description = Geen gebeurtenissen komen overeen met deze filters. Wis ze of verbreed ze.
 admin-audit-load-more = Meer laden
 admin-audit-loading-more = Laden…
 admin-audit-error-load = Kon auditlogboek niet laden

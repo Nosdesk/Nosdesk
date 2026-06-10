@@ -527,7 +527,31 @@ admin-audit-no-diff = Pas de diff au niveau du champ pour cette entrée.
 admin-audit-op-created = Créé
 admin-audit-op-updated = Mis à jour
 admin-audit-op-deleted = Supprimé
-admin-audit-actor-system = système
+admin-audit-actor-system = Système
+# machine, à relire par un locuteur natif
+admin-audit-actor-token = Jeton d'API
+# machine, à relire par un locuteur natif
+admin-audit-actor-anonymous = Anonyme
+# machine, à relire par un locuteur natif
+admin-audit-col-event = Événement
+# machine, à relire par un locuteur natif
+admin-audit-col-actor = Acteur
+# machine, à relire par un locuteur natif
+admin-audit-col-target = Cible
+# machine, à relire par un locuteur natif
+admin-audit-col-time = Heure
+# machine, à relire par un locuteur natif
+admin-audit-source-field = Source
+# machine, à relire par un locuteur natif
+admin-audit-copy = Copier
+# machine, à relire par un locuteur natif
+admin-audit-day-today = Aujourd'hui
+# machine, à relire par un locuteur natif
+admin-audit-day-yesterday = Hier
+# machine, à relire par un locuteur natif
+admin-audit-empty-filtered-title = Aucun événement correspondant
+# machine, à relire par un locuteur natif
+admin-audit-empty-filtered-description = Aucun événement ne correspond à ces filtres. Essayez de les effacer ou de les élargir.
 admin-audit-load-more = Charger plus
 admin-audit-loading-more = Chargement…
 admin-audit-error-load = Échec du chargement du journal d'audit
