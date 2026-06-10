@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { ref, computed, watchEffect, onMounted, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useQuery, useQueryCache } from '@pinia/colada'
+import { useDelayedFlag } from '@/composables/useDelayedFlag'
 import { useFluent } from 'fluent-vue'
 import { useTitleManager } from '@/composables/useTitleManager'
 import { getCollectionBySlug, addPageToCollection, updateCollection, deleteCollection, getPageOverridesInCollection } from '@/services/collectionService'
@@ -29,15 +31,38 @@ const router = useRouter()
 const titleManager = useTitleManager()
 const authStore = useAuthStore()
 const docNavStore = useDocumentationNavStore()
-const collection = ref<CollectionWithPages | null>(null)
-const loading = ref(true)
-const creating = ref(false)
+const slug = computed(() => route.params.slug as string | undefined)
+const queryCache = useQueryCache()
 
 // Pages + page count derive from the sync pool, so add / remove / rename
 // / reorder reflect live without a refetch or discrete SSE listeners.
 // The collection's own metadata (visibility, description_doc_id) stays on
 // the REST fetch since it isn't part of the sync model.
 const docs = useSyncDocsStore()
+
+// Cache-first: the collection metadata is a Pinia Colada query keyed on
+// the slug, so a revisit renders instantly from cache then refreshes
+// silently. The pool overlays the live name / icon / color (which sync
+// independently of this REST shape), which replaces the old watchEffect.
+const collectionQuery = useQuery({
+  key: () => ['collection', slug.value ?? ''],
+  query: () => getCollectionBySlug(slug.value as string),
+  enabled: () => !!slug.value,
+})
+const collection = computed<CollectionWithPages | null>(() => {
+  const base = collectionQuery.data.value
+  if (!base) return null
+  const pooled = docs.allCollections.find((c) => c.id === base.id)
+  return pooled
+    ? { ...base, name: pooled.name, icon: pooled.icon, color: pooled.color }
+    : base
+})
+const loading = computed(() => collectionQuery.asyncStatus.value === 'loading')
+// Skeleton only after 300ms with no cached data, so a warm revisit (or a
+// fast load) shows no flash.
+const showSkeleton = useDelayedFlag(() => loading.value && !collection.value, 300)
+const creating = ref(false)
+
 const collectionId = computed(() => collection.value?.id ?? null)
 // Flat CollectionPage list for this collection from the pool;
 // CollectionTreeList builds (and filters/sorts) the tree itself.
@@ -63,20 +88,17 @@ const pageCount = computed(
   () => pages.value.filter((p) => p.status !== 'deleted' && p.status !== 'archived').length,
 )
 
-// Keep the collection's name + icon live from the pool (the rest of its
-// metadata is REST-sourced); replaces the collection-updated listener.
-watchEffect(() => {
-  const id = collection.value?.id
-  if (id == null) return
-  const pc = docs.allCollections.find((c) => c.id === id)
-  if (!pc || !collection.value) return
-  if (pc.name !== collection.value.name) {
-    collection.value.name = pc.name
-    titleManager.setCustomTitle(pc.name)
-  }
-  if (pc.icon !== collection.value.icon) collection.value.icon = pc.icon
-  if (pc.color !== collection.value.color) collection.value.color = pc.color
-})
+// Title follows the live collection name (now pool-overlaid in the
+// `collection` computed); falls back to a not-found title once the query
+// settles with no collection.
+watch(
+  collection,
+  (c) => {
+    if (c) titleManager.setCustomTitle(c.name)
+    else if (!loading.value) titleManager.setCustomTitle(t('collection-not-found-title'))
+  },
+  { immediate: true },
+)
 
 // Editor state
 const editContent = ref('')
@@ -98,41 +120,39 @@ const overridePageIds = computed(() => {
   return new Set(pageOverrides.value.map(o => o.page_id))
 })
 
-const loadCollection = async () => {
-  const slug = route.params.slug as string
-  if (!slug) return
-
-  loading.value = true
-  collection.value = await getCollectionBySlug(slug)
-
-  if (collection.value) {
-    titleManager.setCustomTitle(collection.value.name)
-
-    // Load page overrides for technician+ users
+// Side effects that used to live in loadCollection. The collection
+// itself is now the reactive query above (refetches on slug change,
+// serves cache instantly); these fire when it resolves: load the
+// technician-only page overrides, and honour a ?permissions=true deep
+// link once the collection is available.
+watch(
+  collection,
+  async (c) => {
+    if (!c) return
     if (authStore.isTechnician) {
-      pageOverrides.value = await getPageOverridesInCollection(collection.value.id)
+      pageOverrides.value = await getPageOverridesInCollection(c.id)
     }
-  } else {
-    titleManager.setCustomTitle(t('collection-not-found-title'))
-  }
+    if (route.query.permissions === 'true' && authStore.isAdmin) {
+      showVisibilityModal.value = true
+    }
+  },
+  { immediate: true },
+)
 
-  loading.value = false
-
-  // Open permissions modal if navigated with ?permissions=true
-  if (route.query.permissions === 'true' && collection.value && authStore.isAdmin) {
-    showVisibilityModal.value = true
-  }
+function refetchCollection() {
+  return queryCache.invalidateQueries({ key: ['collection', slug.value ?? ''] })
 }
 
 const handleAppearanceSave = async ({ icon, color }: { icon: string; color: string }) => {
   if (!collection.value) return
   savingAppearance.value = true
   try {
-    collection.value.icon = icon
-    collection.value.color = color
+    // Don't mutate `collection` (it's a computed now); the pool overlays
+    // icon/color live and refetch reconciles the REST shape.
     const updated = await updateCollection(collection.value.id, { icon, color })
     if (updated) {
       showAppearanceModal.value = false
+      await refetchCollection()
     }
   } finally {
     savingAppearance.value = false
@@ -143,9 +163,10 @@ const updateName = async (newName: string) => {
   if (!collection.value) return
   const name = newName.trim()
   if (!name || name === collection.value.name) return
-  collection.value.name = name
+  // Optimistic title; the pool-overlaid name + refetch update the rest.
   titleManager.setCustomTitle(name)
   await updateCollection(collection.value.id, { name })
+  await refetchCollection()
 }
 
 const createPageInCollection = async () => {
@@ -174,8 +195,8 @@ const createPageInCollection = async () => {
 }
 
 const onVisibilityUpdated = async () => {
-  // Reload collection to get updated visibility
-  await loadCollection()
+  // Refetch to pick up updated visibility (REST-sourced, not pooled).
+  await refetchCollection()
 }
 
 const showDeleteConfirm = ref(false)
@@ -194,10 +215,6 @@ const doDelete = async () => {
     router.push('/documentation')
   }
 }
-
-onMounted(loadCollection)
-
-watch(() => route.params.slug, loadCollection)
 
 // Open permissions modal when query param is added while already on the page
 watch(() => route.query.permissions, (val) => {
@@ -258,7 +275,7 @@ const deleteModalTitle = computed(() =>
     <!-- Main Content -->
     <div class="flex flex-col flex-1 overflow-auto bg-gradient-to-b from-bg-app to-bg-surface items-center">
       <!-- Loading skeleton -->
-      <div v-if="loading" class="w-full max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+      <div v-if="showSkeleton" class="w-full max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
         <div class="flex items-start gap-3 mb-6">
           <div class="w-10 h-10 rounded-lg bg-surface-alt animate-pulse flex-shrink-0"></div>
           <div class="flex-1 min-w-0">
@@ -286,7 +303,7 @@ const deleteModalTitle = computed(() =>
       </div>
 
       <!-- Not found -->
-      <div v-else-if="!collection" class="text-center py-16 px-4">
+      <div v-else-if="!collection && !loading" class="text-center py-16 px-4">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-tertiary mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
         </svg>
@@ -298,7 +315,7 @@ const deleteModalTitle = computed(() =>
       </div>
 
       <!-- Collection content -->
-      <div v-else class="w-full max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 flex flex-col gap-6">
+      <div v-else-if="collection" class="w-full max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 flex flex-col gap-6">
         <!-- Collection Header -->
         <div>
           <div class="flex items-start gap-3 mb-3">
