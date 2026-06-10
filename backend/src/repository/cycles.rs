@@ -342,22 +342,17 @@ pub fn cycle_ids_for_tickets(
     Ok(rows.into_iter().collect())
 }
 
-/// A cycle's member tickets with the fields the snapshot, carryover,
-/// and burnup builders all read. One join, three consumers.
+/// A cycle's member tickets with the fields the snapshot and carryover
+/// builders read. (The burnup builds its own membership view from the
+/// event log, so it doesn't go through here.)
 struct CycleMember {
     ticket_id: i32,
     category: WorkflowStateCategory,
     added_at: DateTime<Utc>,
-    closed_at: Option<NaiveDateTime>,
 }
 
 fn cycle_members(conn: &mut DbConnection, cycle_id: i32) -> QueryResult<Vec<CycleMember>> {
-    let rows: Vec<(
-        i32,
-        WorkflowStateCategory,
-        DateTime<Utc>,
-        Option<NaiveDateTime>,
-    )> = cycle_tickets::table
+    let rows: Vec<(i32, WorkflowStateCategory, DateTime<Utc>)> = cycle_tickets::table
         .inner_join(tickets::table.on(tickets::id.eq(cycle_tickets::ticket_id)))
         .inner_join(workflow_states::table.on(workflow_states::id.eq(tickets::workflow_state_id)))
         .filter(cycle_tickets::cycle_id.eq(cycle_id))
@@ -365,16 +360,14 @@ fn cycle_members(conn: &mut DbConnection, cycle_id: i32) -> QueryResult<Vec<Cycl
             cycle_tickets::ticket_id,
             workflow_states::category,
             cycle_tickets::added_at,
-            tickets::closed_at,
         ))
         .load(conn)?;
     Ok(rows
         .into_iter()
-        .map(|(ticket_id, category, added_at, closed_at)| CycleMember {
+        .map(|(ticket_id, category, added_at)| CycleMember {
             ticket_id,
             category,
             added_at,
-            closed_at,
         })
         .collect())
 }
@@ -488,9 +481,103 @@ pub fn carry_over_incomplete(conn: &mut DbConnection, cycle: &Cycle) -> QueryRes
     Ok(incomplete.len() as i64)
 }
 
-/// Reconstruct a count-based burnup series for a cycle from member
-/// add times (scope) and ticket close times (completed). Returns JSON:
-/// { start, end, final_scope, points: [{ day: "YYYY-MM-DD", scope, completed }] }.
+/// A span during which a ticket belonged to the cycle. `end == None`
+/// means it is still a member.
+struct Interval {
+    start: DateTime<Utc>,
+    end: Option<DateTime<Utc>>,
+}
+
+/// Reconstruct each ticket's cycle-membership intervals by replaying the
+/// `cycle_ticket.added` / `cycle_ticket.removed` events, seeded by the
+/// current members. The seed covers tickets whose `added` event predates
+/// the event log (or was pruned): they're treated as joined at their
+/// recorded `added_at` and still present. The replay adds back tickets
+/// that were removed mid-cycle, which the current-members snapshot alone
+/// can't see. With no events, this degrades exactly to the snapshot
+/// (current members from their `added_at`, no removals).
+fn membership_intervals(
+    conn: &mut DbConnection,
+    cycle: &Cycle,
+    fallback_start: DateTime<Utc>,
+) -> QueryResult<std::collections::HashMap<i32, Vec<Interval>>> {
+    use crate::schema::sync_actions;
+    use std::collections::HashMap;
+
+    // aggregate_id is "{cycle_id}:{ticket_id}"; the trailing colon keeps
+    // the prefix from matching e.g. cycle 120 when filtering cycle 12.
+    let events: Vec<(String, String, DateTime<Utc>)> = sync_actions::table
+        .filter(sync_actions::aggregate.eq(SyncAggregate::CycleTicket))
+        .filter(sync_actions::aggregate_id.like(format!("{}:%", cycle.id)))
+        .filter(
+            sync_actions::event_type
+                .eq("cycle_ticket.added")
+                .or(sync_actions::event_type.eq("cycle_ticket.removed")),
+        )
+        .order((sync_actions::occurred_at.asc(), sync_actions::sync_id.asc()))
+        .select((
+            sync_actions::aggregate_id,
+            sync_actions::event_type,
+            sync_actions::occurred_at,
+        ))
+        .load(conn)?;
+
+    let mut intervals: HashMap<i32, Vec<Interval>> = HashMap::new();
+    let mut open: HashMap<i32, DateTime<Utc>> = HashMap::new();
+    for (agg_id, event_type, ts) in events {
+        let ticket_id = match agg_id.split(':').nth(1).and_then(|s| s.parse::<i32>().ok()) {
+            Some(t) => t,
+            None => continue,
+        };
+        match event_type.as_str() {
+            "cycle_ticket.added" => {
+                open.entry(ticket_id).or_insert(ts);
+            }
+            "cycle_ticket.removed" => {
+                // A removal with no matching open span means the join
+                // predates the log; treat it as present since the cycle
+                // start so its pre-removal scope isn't lost.
+                let start = open.remove(&ticket_id).unwrap_or(fallback_start);
+                intervals.entry(ticket_id).or_default().push(Interval {
+                    start,
+                    end: Some(ts),
+                });
+            }
+            _ => {}
+        }
+    }
+    for (ticket_id, start) in open {
+        intervals
+            .entry(ticket_id)
+            .or_default()
+            .push(Interval { start, end: None });
+    }
+
+    // Seed current members the replay didn't leave open.
+    let current: Vec<(i32, DateTime<Utc>)> = cycle_tickets::table
+        .filter(cycle_tickets::cycle_id.eq(cycle.id))
+        .select((cycle_tickets::ticket_id, cycle_tickets::added_at))
+        .load(conn)?;
+    for (ticket_id, added_at) in current {
+        let has_open = intervals
+            .get(&ticket_id)
+            .is_some_and(|v| v.iter().any(|iv| iv.end.is_none()));
+        if !has_open {
+            intervals.entry(ticket_id).or_default().push(Interval {
+                start: added_at,
+                end: None,
+            });
+        }
+    }
+
+    Ok(intervals)
+}
+
+/// Reconstruct a count-based burnup series for a cycle. Scope is the
+/// number of tickets that were members on each day (replayed across
+/// mid-cycle removals, see membership_intervals); completed is the
+/// members whose ticket had closed by that day. Returns JSON:
+/// { start, end, final_scope, start_scope, points: [{ day, scope, completed }] }.
 /// Empty points when the cycle has no start_at (can't place a timeline).
 ///
 /// Burnup (not burndown) because cycles allow mid-cycle scope changes:
@@ -508,20 +595,41 @@ pub fn build_burnup(conn: &mut DbConnection, cycle: &Cycle) -> QueryResult<serde
         }
     };
 
-    // added_at compares in UTC; closed_at is naive-UTC.
-    let members = cycle_members(conn, cycle.id)?;
-
     let now = Utc::now();
+
+    // added_at compares in UTC; closed_at is naive-UTC.
+    let intervals = membership_intervals(conn, cycle, start_at)?;
+
+    // closed_at for every ticket that was ever a member. Completion is
+    // gated on membership, so a removed ticket leaves both the scope and
+    // completed lines together (honest under removals).
+    let ticket_ids: Vec<i32> = intervals.keys().copied().collect();
+    let closed_map: std::collections::HashMap<i32, Option<NaiveDateTime>> = tickets::table
+        .filter(tickets::id.eq_any(&ticket_ids))
+        .select((tickets::id, tickets::closed_at))
+        .load::<(i32, Option<NaiveDateTime>)>(conn)?
+        .into_iter()
+        .collect();
+
+    let member_at = |at: DateTime<Utc>, ivs: &[Interval]| {
+        ivs.iter()
+            .any(|iv| iv.start <= at && iv.end.map_or(true, |e| at < e))
+    };
+
     let start_day = start_at.date_naive();
     let raw_end = cycle.end_at.unwrap_or(now).min(now).date_naive();
     // Cap the span to 120 days so the series stays bounded.
     let max_end = start_day + chrono::Duration::days(120);
     let end_day = raw_end.max(start_day).min(max_end);
 
-    let final_scope = members.len();
-    // Scope committed by the cycle's start; the gap up to final_scope is
-    // mid-cycle creep, drawn as a baseline on the chart.
-    let start_scope = members.iter().filter(|m| m.added_at <= start_at).count();
+    // Current scope = members open now; start scope = members at the
+    // cycle's start (the gap up to final_scope is mid-cycle creep).
+    let final_scope = intervals.values().filter(|ivs| member_at(now, ivs)).count();
+    let start_scope = intervals
+        .values()
+        .filter(|ivs| member_at(start_at, ivs))
+        .count();
+
     let mut points = Vec::new();
     let mut day = start_day;
     while day <= end_day {
@@ -532,11 +640,21 @@ pub fn build_burnup(conn: &mut DbConnection, cycle: &Cycle) -> QueryResult<serde
             .expect("23:59:59 is a valid time");
         let day_end_utc = DateTime::<Utc>::from_naive_utc_and_offset(day_end, Utc);
 
-        let scope = members.iter().filter(|m| m.added_at <= day_end_utc).count();
-        let completed = members
-            .iter()
-            .filter(|m| m.closed_at.is_some_and(|c| c <= day_end))
-            .count();
+        let mut scope = 0usize;
+        let mut completed = 0usize;
+        for (ticket_id, ivs) in &intervals {
+            if !member_at(day_end_utc, ivs) {
+                continue;
+            }
+            scope += 1;
+            if closed_map
+                .get(ticket_id)
+                .and_then(|c| *c)
+                .is_some_and(|c| c <= day_end)
+            {
+                completed += 1;
+            }
+        }
 
         points.push(json!({
             "day": day.format("%Y-%m-%d").to_string(),
@@ -747,6 +865,66 @@ mod tests {
             prev = c;
         }
         assert_eq!(last["completed"], 1, "t1 closed within the window");
+    }
+
+    #[test]
+    fn burnup_scope_counts_removed_tickets_historically() {
+        // The current-members snapshot would understate past scope after
+        // a mid-cycle removal; the event replay should keep the removed
+        // ticket on the scope line for the days it was a member.
+        let mut conn = setup_test_connection();
+        let (user, pid) = _seed_user_and_project(&mut conn, "cyc_burnup_rm");
+
+        let now = Utc::now();
+        let mut def = make_cycle(pid, "burnup_rm", "active");
+        def.start_at = Some(now - chrono::Duration::days(3));
+        def.end_at = Some(now + chrono::Duration::days(3));
+        let cycle = create(&mut conn, def).unwrap();
+
+        let t1 = TestFixtures::create_ticket(&mut conn, "rm1", Some(user), None);
+        let t2 = TestFixtures::create_ticket(&mut conn, "rm2", Some(user), None);
+        add_ticket(&mut conn, cycle.id, t1.id, Some(user)).unwrap();
+        add_ticket(&mut conn, cycle.id, t2.id, Some(user)).unwrap();
+
+        // Backdate both joins to two days ago, then remove t1 a day ago.
+        // (Membership is replayed from the events' occurred_at.)
+        diesel::update(
+            crate::schema::sync_actions::table
+                .filter(crate::schema::sync_actions::event_type.eq("cycle_ticket.added"))
+                .filter(crate::schema::sync_actions::aggregate_id.like(format!("{}:%", cycle.id))),
+        )
+        .set(crate::schema::sync_actions::occurred_at.eq(now - chrono::Duration::days(2)))
+        .execute(&mut conn)
+        .unwrap();
+
+        remove_ticket(&mut conn, t1.id).unwrap();
+        diesel::update(
+            crate::schema::sync_actions::table
+                .filter(crate::schema::sync_actions::event_type.eq("cycle_ticket.removed"))
+                .filter(
+                    crate::schema::sync_actions::aggregate_id.eq(format!("{}:{}", cycle.id, t1.id)),
+                ),
+        )
+        .set(crate::schema::sync_actions::occurred_at.eq(now - chrono::Duration::days(1)))
+        .execute(&mut conn)
+        .unwrap();
+
+        let series = build_burnup(&mut conn, &cycle).unwrap();
+        let points = series["points"].as_array().unwrap();
+
+        // t1 left the cycle, so current scope is just t2 ...
+        assert_eq!(series["final_scope"], 1);
+        assert_eq!(points.last().unwrap()["scope"], 1);
+        // ... but on the days both were members, scope reached 2.
+        let max_scope = points
+            .iter()
+            .map(|p| p["scope"].as_i64().unwrap())
+            .max()
+            .unwrap();
+        assert_eq!(
+            max_scope, 2,
+            "removed ticket should count while it was a member"
+        );
     }
 
     #[test]
