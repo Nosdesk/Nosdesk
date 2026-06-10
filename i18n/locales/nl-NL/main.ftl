@@ -540,6 +540,10 @@ admin-audit-col-time = Tijd
 # machine, na te kijken door moedertaalspreker
 admin-audit-source-field = Bron
 # machine, na te kijken door moedertaalspreker
+admin-audit-actor-any = Elke actor
+# machine, na te kijken door moedertaalspreker
+admin-audit-redacted = [geredigeerd]
+# machine, na te kijken door moedertaalspreker
 admin-audit-col-details = Details
 # machine, na te kijken door moedertaalspreker
 admin-audit-copy = Kopiëren

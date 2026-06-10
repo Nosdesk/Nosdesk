@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useInfiniteQuery } from '@pinia/colada';
 import { useFluent } from 'fluent-vue';
@@ -8,6 +8,7 @@ import AlertMessage from '@/components/common/AlertMessage.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import Icon from '@/components/common/Icon.vue';
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
+import BaseDropdown, { type DropdownOption } from '@/components/common/BaseDropdown.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 import type { IconName } from '@/components/common/icons';
 import { formatDate, formatDateTime, formatRelativeTime } from '@/utils/dateUtils';
@@ -98,6 +99,35 @@ const auditList = useInfiniteQuery(() => ({
 const entries = computed<AuditEntry[]>(
   () => (auditList.data.value?.pages as AuditPage[] | undefined)?.flatMap((p) => p.entries) ?? [],
 );
+
+// Actor filter picker, populated from the actors seen this session (their
+// server-resolved names) so an admin filters by a person, not a raw UUID.
+// Accumulates across pages/filters so the current actor stays selectable
+// even once the results are narrowed to it, and includes a URL-supplied
+// actor that hasn't been loaded yet.
+const seenActors = reactive(new Map<string, string | null>());
+watch(
+  entries,
+  (list) => {
+    for (const e of list) {
+      if (e.actor_uuid && !seenActors.has(e.actor_uuid)) seenActors.set(e.actor_uuid, e.actor_name);
+    }
+  },
+  { immediate: true },
+);
+const actorOptions = computed<DropdownOption[]>(() => {
+  const opts: DropdownOption[] = [{ value: '', label: t('admin-audit-actor-any') }];
+  if (actorFilter.value && !seenActors.has(actorFilter.value)) {
+    opts.push({ value: actorFilter.value, label: actorFilter.value.slice(0, 8) });
+  }
+  for (const [uuid, name] of seenActors) {
+    opts.push({ value: uuid, label: name ?? uuid.slice(0, 8), description: name ? uuid.slice(0, 8) : undefined });
+  }
+  return opts;
+});
+function onActorChange(value: string | string[]): void {
+  actorFilter.value = Array.isArray(value) ? (value[0] ?? '') : value;
+}
 const hasMore = computed(() => auditList.hasNextPage.value);
 const isFetching = computed(() => auditList.asyncStatus.value === 'loading');
 const isFirstLoad = computed(() => isFetching.value && entries.value.length === 0);
@@ -272,6 +302,51 @@ function prettyJson(value: unknown): string {
   }
 }
 
+type DiffKind = 'added' | 'removed' | 'changed' | 'redacted';
+interface DiffRow {
+  field: string;
+  kind: DiffKind;
+  old: string;
+  new: string;
+}
+
+// Classify each field change for the inline old -> new diff. Redaction is
+// server-side: an updated-but-hidden value arrives as both sides null,
+// and an insert/delete surfaces redacted columns as a `{col}_changed`
+// boolean marker. The op (from the event suffix) disambiguates a
+// genuinely-null field on insert from a redacted update.
+function classifiedDiff(entry: AuditEntry): DiffRow[] {
+  const op = entry.event_type.endsWith('.created')
+    ? 'created'
+    : entry.event_type.endsWith('.deleted')
+      ? 'deleted'
+      : 'updated';
+  const rows: DiffRow[] = [];
+  for (const d of entry.diff) {
+    if (d.field.endsWith('_changed')) {
+      const marker = d.new ?? d.old;
+      if (typeof marker === 'boolean') {
+        if (marker) rows.push({ field: d.field.slice(0, -8), kind: 'redacted', old: '', new: '' });
+        continue;
+      }
+    }
+    const oldMissing = d.old === null || d.old === undefined;
+    const newMissing = d.new === null || d.new === undefined;
+    if (oldMissing && newMissing) {
+      if (op === 'updated') rows.push({ field: d.field, kind: 'redacted', old: '', new: '' });
+      else if (op === 'created') rows.push({ field: d.field, kind: 'added', old: '', new: 'null' });
+      else rows.push({ field: d.field, kind: 'removed', old: 'null', new: '' });
+    } else if (oldMissing) {
+      rows.push({ field: d.field, kind: 'added', old: '', new: previewValue(d.new) });
+    } else if (newMissing) {
+      rows.push({ field: d.field, kind: 'removed', old: previewValue(d.old), new: '' });
+    } else {
+      rows.push({ field: d.field, kind: 'changed', old: previewValue(d.old), new: previewValue(d.new) });
+    }
+  }
+  return rows;
+}
+
 // Day label for the group header: Today / Yesterday / absolute date.
 function dayLabel(iso: string): string {
   const d = new Date(iso);
@@ -376,13 +451,14 @@ function clearFilters() {
             <option value="error">error</option>
           </select>
         </label>
-        <label class="flex flex-col gap-1 text-xs text-secondary w-full sm:w-auto">
+        <label class="flex flex-col gap-1 text-xs text-secondary w-full sm:w-56">
           <span>{{ $t('admin-audit-filter-actor') }}</span>
-          <input
-            v-model="actorFilter"
-            type="text"
-            :placeholder="$t('admin-audit-filter-actor-placeholder')"
-            class="h-9 px-2 rounded border border-default bg-surface-alt text-primary text-sm w-full sm:w-72 font-mono focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+          <BaseDropdown
+            :model-value="actorFilter"
+            :options="actorOptions"
+            size="sm"
+            :placeholder="$t('admin-audit-actor-any')"
+            @update:model-value="onActorChange"
           />
         </label>
         <button
@@ -539,23 +615,39 @@ function clearFilters() {
                 </template>
               </dl>
 
-              <!-- Tier-3 row diff -->
+              <!-- Tier-3 row diff: field + inline old -> new, with a sign
+                   and colour per change kind (never colour alone). -->
               <table v-if="entry.diff.length" class="mt-2 w-full text-sm">
-                <thead>
-                  <tr class="text-xs text-secondary">
-                    <th class="pb-1 pr-4 text-left font-medium">{{ $t('admin-audit-diff-field') }}</th>
-                    <th class="pb-1 pr-4 text-left font-medium">{{ $t('admin-audit-diff-old') }}</th>
-                    <th class="pb-1 text-left font-medium">{{ $t('admin-audit-diff-new') }}</th>
-                  </tr>
-                </thead>
                 <tbody>
-                  <tr v-for="d in entry.diff" :key="d.field" class="border-t border-default">
-                    <td class="py-1 pr-4 font-mono text-primary">{{ d.field }}</td>
-                    <td class="max-w-xs truncate py-1 pr-4 text-secondary" :title="previewValue(d.old)">
-                      {{ previewValue(d.old) }}
-                    </td>
-                    <td class="max-w-xs truncate py-1 text-primary" :title="previewValue(d.new)">
-                      {{ previewValue(d.new) }}
+                  <tr
+                    v-for="d in classifiedDiff(entry)"
+                    :key="d.field"
+                    class="border-t border-default align-top"
+                  >
+                    <td class="py-1 pr-4 font-mono text-primary whitespace-nowrap">{{ d.field }}</td>
+                    <td class="py-1">
+                      <span v-if="d.kind === 'redacted'" class="text-tertiary italic">
+                        {{ $t('admin-audit-redacted') }}
+                      </span>
+                      <span v-else class="inline-flex flex-wrap items-baseline gap-1">
+                        <span
+                          v-if="d.old"
+                          class="text-status-error line-through max-w-xs truncate"
+                          :title="d.old"
+                        ><span aria-hidden="true">−</span> {{ d.old }}</span>
+                        <Icon
+                          v-if="d.old && d.new"
+                          name="chevronRight"
+                          size="xs"
+                          class="text-tertiary"
+                          aria-hidden="true"
+                        />
+                        <span
+                          v-if="d.new"
+                          class="text-status-success max-w-xs truncate"
+                          :title="d.new"
+                        ><span aria-hidden="true">+</span> {{ d.new }}</span>
+                      </span>
                     </td>
                   </tr>
                 </tbody>

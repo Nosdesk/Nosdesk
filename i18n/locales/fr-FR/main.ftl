@@ -543,6 +543,10 @@ admin-audit-col-time = Heure
 # machine, à relire par un locuteur natif
 admin-audit-source-field = Source
 # machine, à relire par un locuteur natif
+admin-audit-actor-any = Tout acteur
+# machine, à relire par un locuteur natif
+admin-audit-redacted = [masqué]
+# machine, à relire par un locuteur natif
 admin-audit-col-details = Détails
 # machine, à relire par un locuteur natif
 admin-audit-copy = Copier
