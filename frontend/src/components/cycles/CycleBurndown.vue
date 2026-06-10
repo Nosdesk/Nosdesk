@@ -19,6 +19,7 @@ import { WORKFLOW_CATEGORIES, coarseStatusBucket, type WorkflowStateCategory } f
 import { cycleHealth, cycleHealthPresentation } from '@/utils/cycleHealth'
 import StatusPill from '@/components/common/StatusPill.vue'
 import StatusIndicator from '@/components/common/StatusIndicator.vue'
+import Icon from '@/components/common/Icon.vue'
 import CycleBurnupChart from './CycleBurnupChart.vue'
 
 const fluent = useFluent()
@@ -174,6 +175,28 @@ function categoryPct(count: number): number {
         />
       </div>
 
+      <!-- Cycle signals: scope creep + carryover, promoted from fine
+           print so they read alongside the headline, not as a footnote. -->
+      <div
+        v-if="(stats.scope_added ?? 0) > 0 || (isFrozen && (stats.carried_over ?? 0) > 0)"
+        class="flex flex-wrap items-center gap-2"
+      >
+        <span
+          v-if="(stats.scope_added ?? 0) > 0"
+          class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium bg-status-warning-muted text-status-warning"
+        >
+          <Icon name="add" size="xs" />
+          {{ t('tickets-cycle-scope-added', { count: stats.scope_added ?? 0 }) }}
+        </span>
+        <span
+          v-if="isFrozen && (stats.carried_over ?? 0) > 0"
+          class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium bg-surface-hover text-secondary"
+        >
+          <Icon name="move" size="xs" />
+          {{ t('tickets-cycle-burndown-carried-over', { count: stats.carried_over ?? 0 }) }}
+        </span>
+      </div>
+
       <!-- Burnup chart (live cycles with start + end dates only) -->
       <CycleBurnupChart v-if="showBurnup && burnup" :series="burnup" />
 
@@ -196,22 +219,6 @@ function categoryPct(count: number): number {
           <span class="text-tertiary tabular-nums w-6 text-right shrink-0">{{ count }}</span>
         </div>
       </div>
-
-      <!-- Scope added after start (creep); live and frozen both carry it -->
-      <p
-        v-if="(stats.scope_added ?? 0) > 0"
-        class="text-xs text-tertiary"
-      >
-        {{ t('tickets-cycle-scope-added', { count: stats.scope_added ?? 0 }) }}
-      </p>
-
-      <!-- Carried-over count (frozen snapshots only) -->
-      <p
-        v-if="isFrozen && (stats.carried_over ?? 0) > 0"
-        class="text-xs text-tertiary"
-      >
-        {{ t('tickets-cycle-burndown-carried-over', { count: stats.carried_over ?? 0 }) }}
-      </p>
 
       <!-- Frozen-snapshot timestamp -->
       <p v-if="isFrozen" class="text-[10px] text-tertiary italic">
