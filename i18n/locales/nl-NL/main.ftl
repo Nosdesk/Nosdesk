@@ -1122,6 +1122,33 @@ admin-api-tokens-revoke-modal-title = Token intrekken
 admin-api-tokens-revoke-confirm-message = Weet u zeker dat u het token "{ $name }" wilt intrekken?
 admin-api-tokens-revoke-warning = Deze actie kan niet ongedaan worden gemaakt. Systemen die dit token gebruiken verliezen toegang.
 admin-api-tokens-revoking = Intrekken...
+# API-token-scopes (machine, na te kijken door moedertaalspreker).
+admin-api-tokens-modal-scopes-label = Machtigingen
+admin-api-tokens-scope-access-full = Volledige toegang
+admin-api-tokens-scope-access-full-desc = Alles wat de geselecteerde gebruiker kan doen.
+admin-api-tokens-scope-access-read = Alleen-lezen
+admin-api-tokens-scope-access-read-desc = Lees elk gebied behalve het auditlogboek.
+admin-api-tokens-scope-access-custom = Aangepast
+admin-api-tokens-scope-access-custom-desc = Verleen alleen specifieke gebieden.
+admin-api-tokens-scope-level-none = Geen
+admin-api-tokens-scope-level-read = Lezen
+admin-api-tokens-scope-level-write = Schrijven
+admin-api-tokens-scope-level-manage = Beheren
+admin-api-tokens-scope-domain-tickets = Tickets
+admin-api-tokens-scope-domain-assets = Activa
+admin-api-tokens-scope-domain-docs = Documentatie
+admin-api-tokens-scope-domain-projects = Projecten
+admin-api-tokens-scope-domain-users = Gebruikers
+admin-api-tokens-scope-domain-notifications = Meldingen
+admin-api-tokens-scope-domain-analytics = Analyse
+admin-api-tokens-scope-domain-admin = Beheerinstellingen
+admin-api-tokens-scope-domain-audit = Auditlogboek
+admin-api-tokens-scope-custom-empty = Selecteer ten minste één machtiging.
+admin-api-tokens-scope-chip-full = Volledige toegang
+admin-api-tokens-scope-chip-readonly = Alleen-lezen
+admin-api-tokens-error-scopes-required = Selecteer ten minste één machtiging voor een aangepast token.
+admin-api-tokens-modal-expires-preset-days = { $days } dagen
+admin-api-tokens-modal-expires-preset-custom = Aangepast
 
 # Admin: Standaardantwoorden (CannedResponsesView). Herbruikbare
 # antwoordsjablonen die de samensteller-selector op aanvraag

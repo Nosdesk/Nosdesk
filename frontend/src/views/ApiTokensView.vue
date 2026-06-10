@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, computed } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { useQuery, useQueryCache } from '@pinia/colada';
 
@@ -8,14 +8,13 @@ import EmptyState from '@/components/common/EmptyState.vue';
 import Skeleton from '@/components/common/Skeleton.vue';
 import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import Icon from '@/components/common/Icon.vue';
-import Checkbox from '@/components/common/Checkbox.vue';
 import FormNumber from '@/components/common/FormNumber.vue';
+import BaseDropdown, { type DropdownOption } from '@/components/common/BaseDropdown.vue';
+import UserPicker from '@/components/ticketComponents/UserPicker.vue';
 import Modal from '@/components/Modal.vue';
 import apiTokenService from '@/services/apiTokenService';
-import userService from '@/services/userService';
-import { formatDistanceToNow } from 'date-fns';
+import { formatRelativeTime } from '@/utils/dateUtils';
 import type { ApiToken, ApiTokenCreated, CreateApiTokenRequest } from '@/types/apiToken';
-import { effectiveRole, type User } from '@/types/user';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -46,7 +45,6 @@ const loadError = computed(() =>
 const isSaving = ref(false);
 const errorMessage = ref('');
 const successMessage = ref('');
-const users = ref<User[]>([]);
 
 // Modal states
 const showCreateModal = ref(false);
@@ -60,10 +58,96 @@ const copiedToken = ref(false);
 const tokenForm = ref<CreateApiTokenRequest>({
   name: '',
   user_uuid: '',
-  expires_in_days: 90,
-  scopes: ['full']
 });
-const noExpiration = ref(false);
+
+// --- Expiration --------------------------------------------------------
+// A preset dropdown is the primary control; the day-count input only
+// appears for "Custom". `expires_in_days` is derived from this on submit
+// (null = never).
+type ExpiryPreset = '30' | '60' | '90' | '365' | 'custom' | 'none';
+const EXPIRY_PRESETS: ExpiryPreset[] = ['30', '60', '90', '365', 'custom', 'none'];
+const expiryPreset = ref<ExpiryPreset>('90');
+const customDays = ref<number | null>(90);
+const expiryOptions = computed<DropdownOption[]>(() =>
+  EXPIRY_PRESETS.map(p => {
+    if (p === 'none') return { value: p, label: t('admin-api-tokens-modal-no-expiration-label') };
+    if (p === 'custom') return { value: p, label: t('admin-api-tokens-modal-expires-preset-custom') };
+    return { value: p, label: t('admin-api-tokens-modal-expires-preset-days', { days: Number(p) }) };
+  }),
+);
+const onExpiryPresetChange = (v: string | string[]) => {
+  expiryPreset.value = (Array.isArray(v) ? v[0] : v) as ExpiryPreset;
+};
+const resolvedExpiryDays = (): number | null => {
+  if (expiryPreset.value === 'none') return null;
+  if (expiryPreset.value === 'custom') return customDays.value ?? 90;
+  return Number(expiryPreset.value);
+};
+
+// --- Scope picker -------------------------------------------------------
+// Three access levels map to the backend scope strings: Full access ->
+// ['full'], Read-only -> ['*:read'], Custom -> a per-area selection. The
+// matrix levels map to `<domain>:<read|write>` (write implies read), with
+// admin -> the single `admin` scope and audit -> `audit:read`. Mirrors
+// utils/scopes.rs VALID_TOKEN_SCOPES.
+type ScopeLevel = 'none' | 'read' | 'write' | 'manage';
+interface ScopeDomainCfg {
+  key: string;
+  options: ScopeLevel[];
+}
+const SCOPE_DOMAINS: ScopeDomainCfg[] = [
+  { key: 'tickets', options: ['none', 'read', 'write'] },
+  { key: 'assets', options: ['none', 'read', 'write'] },
+  { key: 'docs', options: ['none', 'read', 'write'] },
+  { key: 'projects', options: ['none', 'read', 'write'] },
+  { key: 'users', options: ['none', 'read', 'write'] },
+  { key: 'notifications', options: ['none', 'read', 'write'] },
+  { key: 'analytics', options: ['none', 'read'] },
+  { key: 'audit', options: ['none', 'read'] },
+  { key: 'admin', options: ['none', 'manage'] },
+];
+const ACCESS_LEVELS = ['full', 'read', 'custom'] as const;
+type AccessLevel = (typeof ACCESS_LEVELS)[number];
+
+const accessLevel = ref<AccessLevel>('full');
+const blankMatrix = (): Record<string, ScopeLevel> =>
+  Object.fromEntries(SCOPE_DOMAINS.map(d => [d.key, 'none'] as const));
+const scopeMatrix = ref<Record<string, ScopeLevel>>(blankMatrix());
+
+// Custom selection projected to scope strings (e.g. tickets:write, admin).
+const customScopes = computed<string[]>(() => {
+  const out: string[] = [];
+  for (const d of SCOPE_DOMAINS) {
+    const level = scopeMatrix.value[d.key] ?? 'none';
+    if (level === 'none') continue;
+    out.push(level === 'manage' ? 'admin' : `${d.key}:${level}`);
+  }
+  return out;
+});
+const customEmpty = computed(
+  () => accessLevel.value === 'custom' && customScopes.value.length === 0,
+);
+const selectedScopes = (): string[] => {
+  if (accessLevel.value === 'full') return ['full'];
+  if (accessLevel.value === 'read') return ['*:read'];
+  return customScopes.value;
+};
+const resetScopes = () => {
+  accessLevel.value = 'full';
+  scopeMatrix.value = blankMatrix();
+};
+
+// Humanise a token's stored scopes for the list. Full and read-only get a
+// friendly badge; custom scopes show as the precise scope strings.
+const scopeChips = (scopes: string[]): { label: string; mono: boolean }[] => {
+  if (!scopes || scopes.length === 0 || (scopes.length === 1 && scopes[0] === 'full')) {
+    return [{ label: t('admin-api-tokens-scope-chip-full'), mono: false }];
+  }
+  if (scopes.length === 1 && scopes[0] === '*:read') {
+    return [{ label: t('admin-api-tokens-scope-chip-readonly'), mono: false }];
+  }
+  return scopes.map(s => ({ label: s, mono: true }));
+};
 
 // Computed - active (non-revoked) tokens
 const activeTokens = computed(() =>
@@ -74,58 +158,55 @@ const revokedTokens = computed(() =>
   tokens.value.filter(t => t.revoked_at)
 );
 
-// Format date helper
+// Relative time via the shared dateUtils helper, which interprets the
+// backend's naive (UTC) timestamps correctly. A raw `new Date(str)`
+// parses them as local time, so a just-created token read as "X hours
+// ago" off by the viewer's UTC offset.
 const formatDate = (dateStr: string | null) => {
   if (!dateStr) return t('admin-api-tokens-last-used-never');
-  try {
-    return formatDistanceToNow(new Date(dateStr), { addSuffix: true });
-  } catch {
-    return dateStr;
-  }
+  return formatRelativeTime(dateStr);
 };
 
-// Load users for the dropdown
-const loadUsers = async () => {
-  try {
-    const result = await userService.getAllUsers();
-    users.value = result;
-  } catch (error) {
-    console.error('Failed to load users:', error);
-  }
-};
+// Inline modal validation. Errors render inside the modal (the
+// page-level banner would sit behind it) and only after a submit
+// attempt, so the form doesn't nag before the user is finished.
+const submitAttempted = ref(false);
+const createError = ref('');
+const nameInvalid = computed(() => submitAttempted.value && !tokenForm.value.name.trim());
+const userInvalid = computed(() => submitAttempted.value && !tokenForm.value.user_uuid);
+const scopesInvalid = computed(() => submitAttempted.value && customEmpty.value);
 
 // Open create token modal
 const openCreateModal = () => {
   tokenForm.value = {
     name: '',
     user_uuid: '',
-    expires_in_days: 90,
-    scopes: ['full']
   };
-  noExpiration.value = false;
+  expiryPreset.value = '90';
+  customDays.value = 90;
+  resetScopes();
+  submitAttempted.value = false;
+  createError.value = '';
   showCreateModal.value = true;
 };
 
 // Create token
 const createToken = async () => {
-  if (!tokenForm.value.name.trim()) {
-    errorMessage.value = t('admin-api-tokens-error-name-required');
-    return;
-  }
-  if (!tokenForm.value.user_uuid) {
-    errorMessage.value = t('admin-api-tokens-error-user-required');
+  submitAttempted.value = true;
+  createError.value = '';
+  // Field-level validation renders inline next to each field.
+  if (!tokenForm.value.name.trim() || !tokenForm.value.user_uuid || customEmpty.value) {
     return;
   }
 
   isSaving.value = true;
-  errorMessage.value = '';
 
   try {
     const request: CreateApiTokenRequest = {
       name: tokenForm.value.name.trim(),
       user_uuid: tokenForm.value.user_uuid,
-      expires_in_days: noExpiration.value ? null : tokenForm.value.expires_in_days,
-      scopes: ['full']
+      expires_in_days: resolvedExpiryDays(),
+      scopes: selectedScopes(),
     };
 
     const result = await apiTokenService.createToken(request);
@@ -136,7 +217,7 @@ const createToken = async () => {
     await queryCache.invalidateQueries({ key: API_TOKENS_KEY });
   } catch (error) {
     const axiosError = error as { response?: { data?: string } };
-    errorMessage.value = axiosError.response?.data || t('admin-api-tokens-error-create');
+    createError.value = axiosError.response?.data || t('admin-api-tokens-error-create');
   } finally {
     isSaving.value = false;
   }
@@ -183,12 +264,6 @@ const revokeToken = async () => {
     isSaving.value = false;
   }
 };
-
-onMounted(() => {
-  // The token list auto-fetches via useQuery; only the dropdown's
-  // user list needs an explicit load.
-  loadUsers();
-});
 </script>
 
 <template>
@@ -274,6 +349,18 @@ onMounted(() => {
                 <div class="text-xs text-tertiary mt-1">
                   {{ $t('admin-api-tokens-last-used-label') }} {{ token.last_used_at ? formatDate(token.last_used_at) : $t('admin-api-tokens-last-used-never') }}
                 </div>
+                <div class="flex flex-wrap items-center gap-1 mt-1.5">
+                  <span
+                    v-for="(chip, i) in scopeChips(token.scopes)"
+                    :key="i"
+                    :class="[
+                      'px-1.5 py-0.5 text-xs rounded',
+                      chip.mono ? 'font-mono bg-surface-alt text-secondary' : 'bg-accent/10 text-accent',
+                    ]"
+                  >
+                    {{ chip.label }}
+                  </span>
+                </div>
               </div>
 
               <!-- Actions -->
@@ -340,60 +427,114 @@ onMounted(() => {
       size="sm"
       @close="showCreateModal = false"
     >
-      <form @submit.prevent="createToken" class="flex flex-col gap-4">
+      <form @submit.prevent="createToken" class="flex flex-col gap-4" novalidate>
+        <!-- Create failure shown inside the modal (the page-level banner
+             would sit behind it). -->
+        <AlertMessage v-if="createError" type="error" :message="createError" />
+
         <!-- Name -->
-        <div>
-          <label class="block text-sm font-medium text-primary mb-1">{{ $t('admin-api-tokens-modal-name-label') }}</label>
+        <div class="flex flex-col gap-1.5">
+          <label class="text-sm font-medium text-primary">{{ $t('admin-api-tokens-modal-name-label') }}</label>
           <input
             v-model="tokenForm.name"
             type="text"
             :placeholder="$t('admin-api-tokens-modal-name-placeholder')"
-            class="w-full px-3 py-2 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent"
-            required
+            class="w-full px-3 py-2 bg-surface-alt border rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:border-transparent"
+            :class="nameInvalid ? 'border-status-error focus:ring-status-error' : 'border-default focus:ring-accent'"
           />
-          <p class="text-xs text-tertiary mt-1">{{ $t('admin-api-tokens-modal-name-hint') }}</p>
+          <p v-if="nameInvalid" class="text-xs text-status-error">{{ $t('admin-api-tokens-error-name-required') }}</p>
+          <p v-else class="text-xs text-tertiary">{{ $t('admin-api-tokens-modal-name-hint') }}</p>
         </div>
 
         <!-- User selection -->
-        <div>
-          <label class="block text-sm font-medium text-primary mb-1">{{ $t('admin-api-tokens-modal-user-label') }}</label>
-          <select
-            v-model="tokenForm.user_uuid"
-            class="w-full px-3 py-2 bg-surface-alt border border-default rounded-lg text-primary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent"
-            required
+        <div class="flex flex-col gap-1.5">
+          <label class="text-sm font-medium text-primary">{{ $t('admin-api-tokens-modal-user-label') }}</label>
+          <div :class="userInvalid ? 'rounded-lg ring-1 ring-status-error' : ''">
+            <UserPicker
+              v-model="tokenForm.user_uuid"
+              type="requester"
+              :placeholder="$t('admin-api-tokens-modal-user-placeholder')"
+            />
+          </div>
+          <p v-if="userInvalid" class="text-xs text-status-error">{{ $t('admin-api-tokens-error-user-required') }}</p>
+          <p v-else class="text-xs text-tertiary">{{ $t('admin-api-tokens-modal-user-hint') }}</p>
+        </div>
+
+        <!-- Permissions / scopes -->
+        <div class="flex flex-col gap-1.5">
+          <label class="text-sm font-medium text-primary">{{ $t('admin-api-tokens-modal-scopes-label') }}</label>
+          <div class="flex gap-1 p-0.5 bg-surface-alt border border-default rounded-lg">
+            <button
+              v-for="lvl in ACCESS_LEVELS"
+              :key="lvl"
+              type="button"
+              @click="accessLevel = lvl"
+              :class="[
+                'flex-1 px-2 py-1.5 text-xs font-medium rounded-md transition-colors',
+                accessLevel === lvl ? 'bg-accent text-on-accent' : 'text-secondary hover:text-primary',
+              ]"
+            >
+              {{ t(`admin-api-tokens-scope-access-${lvl}`) }}
+            </button>
+          </div>
+          <p class="text-xs text-tertiary">{{ t(`admin-api-tokens-scope-access-${accessLevel}-desc`) }}</p>
+
+          <!-- Custom per-area matrix -->
+          <div
+            v-if="accessLevel === 'custom'"
+            class="flex flex-col gap-1.5 border border-default rounded-lg p-2.5 bg-surface-alt/50"
           >
-            <option value="" disabled>{{ $t('admin-api-tokens-modal-user-placeholder') }}</option>
-            <option v-for="user in users" :key="user.uuid" :value="user.uuid">
-              {{ user.name }} ({{ effectiveRole(user) }})
-            </option>
-          </select>
-          <p class="text-xs text-tertiary mt-1">{{ $t('admin-api-tokens-modal-user-hint') }}</p>
+            <div
+              v-for="d in SCOPE_DOMAINS"
+              :key="d.key"
+              class="flex items-center justify-between gap-3"
+            >
+              <span class="text-sm text-primary">{{ t(`admin-api-tokens-scope-domain-${d.key}`) }}</span>
+              <div class="flex gap-1 p-0.5 bg-surface border border-default rounded-lg w-48 shrink-0">
+                <button
+                  v-for="opt in d.options"
+                  :key="opt"
+                  type="button"
+                  @click="scopeMatrix[d.key] = opt"
+                  :class="[
+                    'flex-1 px-2 py-1 text-xs font-medium rounded-md transition-colors',
+                    scopeMatrix[d.key] === opt ? 'bg-accent text-on-accent' : 'text-secondary hover:text-primary',
+                  ]"
+                >
+                  {{ t(`admin-api-tokens-scope-level-${opt}`) }}
+                </button>
+              </div>
+            </div>
+            <p v-if="scopesInvalid" class="text-xs text-status-error">
+              {{ $t('admin-api-tokens-scope-custom-empty') }}
+            </p>
+          </div>
         </div>
 
         <!-- Expiration -->
-        <div>
-          <label class="block text-sm font-medium text-primary mb-1">{{ $t('admin-api-tokens-modal-expiration-label') }}</label>
-          <Checkbox
-            v-model="noExpiration"
-            id="no-expiration"
+        <div class="flex flex-col gap-1.5">
+          <label class="text-sm font-medium text-primary">{{ $t('admin-api-tokens-modal-expiration-label') }}</label>
+          <BaseDropdown
+            :model-value="expiryPreset"
+            :options="expiryOptions"
             size="sm"
-            :label="$t('admin-api-tokens-modal-no-expiration-label')"
-            class="mb-2"
+            @update:model-value="onExpiryPresetChange"
           />
-          <div v-if="!noExpiration" class="flex items-center gap-2">
+          <div v-if="expiryPreset === 'custom'" class="flex items-center gap-2">
             <FormNumber
-              :model-value="tokenForm.expires_in_days ?? null"
+              :model-value="customDays"
               size="sm"
               integer
               :min="1"
               :max="365"
-              class="w-40 shrink-0"
-              @update:model-value="(v) => (tokenForm.expires_in_days = v ?? 90)"
+              class="w-36 shrink-0"
+              @update:model-value="(v) => (customDays = v ?? 90)"
             />
             <span class="text-sm text-secondary">{{ $t('admin-api-tokens-modal-expires-days-suffix') }}</span>
           </div>
-          <p v-if="!noExpiration" class="text-xs text-tertiary mt-1">{{ t('admin-api-tokens-modal-expires-hint', { days: tokenForm.expires_in_days ?? 0 }) }}</p>
-          <p v-else class="text-xs text-status-warning mt-1">{{ $t('admin-api-tokens-modal-no-expiration-warning') }}</p>
+          <p v-if="expiryPreset === 'none'" class="text-xs text-status-warning">
+            {{ $t('admin-api-tokens-modal-no-expiration-warning') }}
+          </p>
         </div>
 
         <!-- Actions -->

@@ -60,7 +60,11 @@ const { dialogRef, onTrapKeydown } = useModalDialog(showRef, () => emit('close')
   <Teleport to="body">
     <Transition name="modal" appear>
       <div v-if="show" class="modal-root">
-        <div class="modal-backdrop" aria-hidden="true" @click="emit('close')" />
+        <div
+          class="absolute inset-0 bg-black/40 dark:bg-black/60 backdrop-blur-sm"
+          aria-hidden="true"
+          @click="emit('close')"
+        />
 
         <div
           ref="dialogRef"
@@ -135,16 +139,14 @@ const { dialogRef, onTrapKeydown } = useModalDialog(showRef, () => emit('close')
   justify-content: stretch;
 }
 
-.modal-backdrop {
-  position: absolute;
-  inset: 0;
-  background: rgb(0 0 0 / 0.4);
-  backdrop-filter: blur(4px);
-}
-
-:global(.dark) .modal-backdrop {
-  background: rgb(0 0 0 / 0.6);
-}
+/* Backdrop styling lives on the element as Tailwind utilities
+   (absolute inset-0 bg-black/40 dark:bg-black/60 backdrop-blur-sm),
+   matching GlobalSearchModal. It used to be scoped CSS with
+   `:global(.dark) .modal-backdrop`, but that selector mis-compiled to a
+   bare global `.dark { background }` that leaked onto every .dark
+   element (notably <html class="dark">). Tailwind's dark: variant
+   compiles to a correctly-scoped `.dark .selector`, so the bug class
+   can't recur. */
 
 @media (min-width: 640px) {
   .modal-root {

@@ -1125,6 +1125,33 @@ admin-api-tokens-revoke-modal-title = Révoquer le jeton
 admin-api-tokens-revoke-confirm-message = Confirmez-vous la révocation du jeton « { $name } » ?
 admin-api-tokens-revoke-warning = Cette action est irréversible. Les systèmes utilisant ce jeton perdront l'accès.
 admin-api-tokens-revoking = Révocation...
+# Portées des jetons API (machine, à relire par un locuteur natif).
+admin-api-tokens-modal-scopes-label = Autorisations
+admin-api-tokens-scope-access-full = Accès complet
+admin-api-tokens-scope-access-full-desc = Tout ce que l'utilisateur sélectionné peut faire.
+admin-api-tokens-scope-access-read = Lecture seule
+admin-api-tokens-scope-access-read-desc = Lire tous les domaines sauf le journal d'audit.
+admin-api-tokens-scope-access-custom = Personnalisé
+admin-api-tokens-scope-access-custom-desc = N'accorder que des domaines précis.
+admin-api-tokens-scope-level-none = Aucun
+admin-api-tokens-scope-level-read = Lecture
+admin-api-tokens-scope-level-write = Écriture
+admin-api-tokens-scope-level-manage = Gérer
+admin-api-tokens-scope-domain-tickets = Tickets
+admin-api-tokens-scope-domain-assets = Actifs
+admin-api-tokens-scope-domain-docs = Documentation
+admin-api-tokens-scope-domain-projects = Projets
+admin-api-tokens-scope-domain-users = Utilisateurs
+admin-api-tokens-scope-domain-notifications = Notifications
+admin-api-tokens-scope-domain-analytics = Analytique
+admin-api-tokens-scope-domain-admin = Paramètres d'administration
+admin-api-tokens-scope-domain-audit = Journal d'audit
+admin-api-tokens-scope-custom-empty = Sélectionnez au moins une autorisation.
+admin-api-tokens-scope-chip-full = Accès complet
+admin-api-tokens-scope-chip-readonly = Lecture seule
+admin-api-tokens-error-scopes-required = Sélectionnez au moins une autorisation pour un jeton personnalisé.
+admin-api-tokens-modal-expires-preset-days = { $days } jours
+admin-api-tokens-modal-expires-preset-custom = Personnalisé
 
 # Admin : Réponses prédéfinies (CannedResponsesView). Modèles de
 # réponse réutilisables que le sélecteur du composeur insère à la

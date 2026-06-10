@@ -447,6 +447,11 @@
 
 html, body {
   height: 100%;
+  /* Paint the root with the themed app background so the html element
+     is never a transparent layer showing through (e.g. overscroll /
+     rubber-band areas, or any gap a fixed layout leaves around body).
+     Follows the theme via the same var body uses. */
+  background-color: var(--background-color);
   /* Note: overflow is NOT set here globally.
      - Default layout uses overflow-hidden on its container (App.vue)
      - Blank layouts (login, onboarding) can scroll naturally */

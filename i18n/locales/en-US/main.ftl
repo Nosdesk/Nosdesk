@@ -1239,6 +1239,32 @@ admin-api-tokens-revoke-modal-title = Revoke Token
 admin-api-tokens-revoke-confirm-message = Are you sure you want to revoke the token "{ $name }"?
 admin-api-tokens-revoke-warning = This action cannot be undone. Any systems using this token will lose access.
 admin-api-tokens-revoking = Revoking...
+admin-api-tokens-modal-scopes-label = Permissions
+admin-api-tokens-scope-access-full = Full access
+admin-api-tokens-scope-access-full-desc = Everything the selected user can do.
+admin-api-tokens-scope-access-read = Read-only
+admin-api-tokens-scope-access-read-desc = Read every area except the audit log.
+admin-api-tokens-scope-access-custom = Custom
+admin-api-tokens-scope-access-custom-desc = Grant specific areas only.
+admin-api-tokens-scope-level-none = None
+admin-api-tokens-scope-level-read = Read
+admin-api-tokens-scope-level-write = Write
+admin-api-tokens-scope-level-manage = Manage
+admin-api-tokens-scope-domain-tickets = Tickets
+admin-api-tokens-scope-domain-assets = Assets
+admin-api-tokens-scope-domain-docs = Documentation
+admin-api-tokens-scope-domain-projects = Projects
+admin-api-tokens-scope-domain-users = Users
+admin-api-tokens-scope-domain-notifications = Notifications
+admin-api-tokens-scope-domain-analytics = Analytics
+admin-api-tokens-scope-domain-admin = Admin settings
+admin-api-tokens-scope-domain-audit = Audit log
+admin-api-tokens-scope-custom-empty = Select at least one permission.
+admin-api-tokens-scope-chip-full = Full access
+admin-api-tokens-scope-chip-readonly = Read-only
+admin-api-tokens-error-scopes-required = Select at least one permission for a custom token.
+admin-api-tokens-modal-expires-preset-days = { $days } days
+admin-api-tokens-modal-expires-preset-custom = Custom
 
 # Admin: Canned Responses (CannedResponsesView). Reusable reply
 # templates the composer picker inserts on demand. Workspace-wide
