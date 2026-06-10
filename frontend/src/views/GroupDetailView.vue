@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
+import { useQuery } from '@pinia/colada';
 import BackButton from '@/components/common/BackButton.vue';
 import Icon from '@/components/common/Icon.vue';
+import Spinner from '@/components/common/Spinner.vue';
+import AsyncBoundary from '@/components/common/AsyncBoundary.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 import { groupService } from '@/services/groupService';
@@ -18,30 +21,21 @@ const authStore = useAuthStore();
 const { colorFilterStyle } = useColorFilter();
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
-const group = ref<GroupDetails | null>(null);
-const loading = ref(true);
-const error = ref<string | null>(null);
-
-const fetchGroupData = async () => {
-  try {
-    loading.value = true;
-    error.value = null;
-
-    const uuid = route.params.uuid as string;
-    if (!uuid) {
-      error.value = t('group-detail-error-invalid-id');
-      loading.value = false;
-      return;
-    }
-
-    group.value = await groupService.getGroupDetails(uuid);
-  } catch (e) {
-    error.value = t('group-detail-error-load');
-    console.error('Error loading group:', e);
-  } finally {
-    loading.value = false;
-  }
-};
+// Cache-first: the group detail (with members + devices) is keyed on the
+// uuid, so a revisit renders instantly from cache then refreshes silently
+// (SWR). Group details aren't a synced aggregate, so this is the single
+// source of truth (pattern 2).
+const groupQuery = useQuery({
+  key: () => ['group', (route.params.uuid as string) ?? ''],
+  query: () => groupService.getGroupDetails(route.params.uuid as string),
+  enabled: () => !!route.params.uuid,
+});
+const group = computed<GroupDetails | null>(() => groupQuery.data.value ?? null);
+const loadOp = computed(() => ({
+  isPending: groupQuery.asyncStatus.value === 'loading',
+  isError: groupQuery.state.value.status === 'error',
+  error: groupQuery.error.value,
+}));
 
 // Navigate to device detail
 const navigateToAsset = (deviceId: number) => {
@@ -80,91 +74,24 @@ const groupTypeDisplay = computed(() => {
   return types.length > 0 ? types.join(', ') : t('group-detail-type-standard');
 });
 
-onMounted(() => {
-  fetchGroupData();
-});
 </script>
 
 <template>
   <div class="flex-1">
-    <!-- Loading State with Skeleton -->
-    <div v-if="loading" class="flex flex-col">
-      <!-- Skeleton Navigation bar -->
-      <div class="pt-4 px-4 sm:px-6 flex items-center gap-4">
-        <div class="h-8 w-24 bg-surface-alt rounded-lg animate-pulse"></div>
-      </div>
-
-      <!-- Skeleton Main Content -->
-      <div class="flex flex-col gap-4 sm:gap-6 px-4 sm:px-6 py-4 mx-auto w-full max-w-7xl">
-        <!-- Skeleton Header -->
-        <div class="flex items-center gap-3 sm:gap-4">
-          <div class="w-10 h-10 sm:w-12 sm:h-12 rounded-lg bg-surface-alt animate-pulse"></div>
-          <div class="flex-1">
-            <div class="h-6 sm:h-7 w-48 bg-surface-alt rounded animate-pulse"></div>
-            <div class="h-4 w-64 bg-surface-alt rounded animate-pulse mt-2"></div>
+    <AsyncBoundary :op="loadOp" :has-data="!!group">
+      <template #pending>
+        <div class="flex items-center justify-center py-16"><Spinner size="md" /></div>
+      </template>
+      <template #error>
+        <div class="p-4 sm:p-6">
+          <div class="bg-status-error/10 border border-status-error/30 rounded-lg p-4 text-status-error text-sm">
+            {{ $t('group-detail-error-load') }}
           </div>
         </div>
-
-        <!-- Skeleton Cards Grid -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-          <!-- Skeleton Card 1 -->
-          <div class="bg-surface border border-default rounded-xl overflow-hidden">
-            <div class="px-4 py-3 bg-surface-alt border-b border-default">
-              <div class="h-5 w-32 bg-surface rounded animate-pulse"></div>
-            </div>
-            <div class="flex flex-col gap-4 p-4">
-              <div class="flex flex-col gap-2">
-                <div class="h-3 w-16 bg-surface-alt rounded animate-pulse"></div>
-                <div class="h-4 w-24 bg-surface-alt rounded animate-pulse"></div>
-              </div>
-              <div class="flex flex-col gap-2">
-                <div class="h-3 w-20 bg-surface-alt rounded animate-pulse"></div>
-                <div class="h-4 w-32 bg-surface-alt rounded animate-pulse"></div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Skeleton Card 2 -->
-          <div class="bg-surface border border-default rounded-xl overflow-hidden">
-            <div class="px-4 py-3 bg-surface-alt border-b border-default">
-              <div class="h-5 w-24 bg-surface rounded animate-pulse"></div>
-            </div>
-            <div class="divide-y divide-default">
-              <div v-for="i in 3" :key="i" class="p-3 flex items-center gap-3">
-                <div class="w-8 h-8 rounded-full bg-surface-alt animate-pulse"></div>
-                <div class="h-4 w-28 bg-surface-alt rounded animate-pulse"></div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Skeleton Card 3 -->
-          <div class="bg-surface border border-default rounded-xl overflow-hidden">
-            <div class="px-4 py-3 bg-surface-alt border-b border-default">
-              <div class="h-5 w-20 bg-surface rounded animate-pulse"></div>
-            </div>
-            <div class="divide-y divide-default">
-              <div v-for="i in 3" :key="i" class="p-3 flex items-center gap-3">
-                <div class="w-8 h-8 rounded-lg bg-surface-alt animate-pulse"></div>
-                <div class="flex-1">
-                  <div class="h-4 w-32 bg-surface-alt rounded animate-pulse"></div>
-                  <div class="h-3 w-24 bg-surface-alt rounded animate-pulse mt-1"></div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Error State -->
-    <div v-else-if="error" class="p-4 sm:p-6">
-      <div class="bg-status-error/10 border border-status-error/30 rounded-lg p-4 text-status-error text-sm">
-        {{ error }}
-      </div>
-    </div>
+      </template>
 
     <!-- Group Details -->
-    <div v-else-if="group" class="flex flex-col">
+    <div v-if="group" class="flex flex-col">
       <!-- Navigation bar -->
       <div class="pt-4 px-4 sm:px-6 flex flex-row justify-between items-center gap-3 sm:gap-4">
         <div class="flex items-center gap-3 sm:gap-4">
@@ -341,5 +268,6 @@ onMounted(() => {
       </div>
       <p class="text-secondary">{{ $t('group-detail-not-found') }}</p>
     </div>
+    </AsyncBoundary>
   </div>
 </template>
