@@ -77,6 +77,27 @@ pub enum SafeHttpError {
 /// fixed by the factory: divergent client configs are a common
 /// way for "I added one more safe client" to drift away from
 /// "actually safe."
+/// Redirect policy that re-applies the IP-literal SSRF guard to every
+/// hop, capped at 5 redirects. `Policy::limited` only bounds the count:
+/// hyper-util bypasses our custom resolver when a redirect `Location`
+/// host is already an IP literal, and the per-call
+/// `reject_unsafe_ip_literal` only sees the *initial* URL. Without this,
+/// a public host can answer `302 Location: http://169.254.169.254/...`
+/// and the client follows it into the private network. Hostname
+/// redirects are still re-resolved (and filtered) by `SafeResolver` on
+/// each hop. See security-audit-2026-06.
+fn ssrf_safe_redirect_policy() -> reqwest::redirect::Policy {
+    reqwest::redirect::Policy::custom(|attempt| {
+        if attempt.previous().len() >= 5 {
+            return attempt.stop();
+        }
+        match reject_unsafe_ip_literal(attempt.url().as_str()) {
+            Ok(()) => attempt.follow(),
+            Err(e) => attempt.error(e),
+        }
+    })
+}
+
 pub fn client(timeout: Duration) -> reqwest::Result<reqwest::Client> {
     reqwest::Client::builder()
         .user_agent(concat!("nosdesk/", env!("CARGO_PKG_VERSION")))
@@ -87,7 +108,7 @@ pub fn client(timeout: Duration) -> reqwest::Result<reqwest::Client> {
         // scheme check and the resolver, not just one of them.
         // Defence-in-depth, not redundancy.
         .https_only(false) // see below — some webhook receivers are still http://
-        .redirect(reqwest::redirect::Policy::limited(5))
+        .redirect(ssrf_safe_redirect_policy())
         .dns_resolver(Arc::new(SafeResolver))
         .build()
 }
@@ -101,7 +122,7 @@ pub fn https_only_client(timeout: Duration) -> reqwest::Result<reqwest::Client> 
         .user_agent(concat!("nosdesk/", env!("CARGO_PKG_VERSION")))
         .timeout(timeout)
         .https_only(true)
-        .redirect(reqwest::redirect::Policy::limited(5))
+        .redirect(ssrf_safe_redirect_policy())
         .dns_resolver(Arc::new(SafeResolver))
         .build()
 }

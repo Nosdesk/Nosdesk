@@ -8,7 +8,12 @@ import twemoji from '@twemoji/api'
 
 // Use CDN when VITE_TWEMOJI_CDN=true, otherwise serve locally from public/twemoji/
 const useCdn = import.meta.env.VITE_TWEMOJI_CDN === 'true'
-const CDN_BASE = 'https://cdn.jsdelivr.net/gh/jdecked/twemoji@latest/assets/svg/'
+// Pin the CDN to an immutable version tag. `@latest` is mutable: a
+// hijacked or republished upstream release would serve attacker assets
+// to clients. See security-audit-2026-06. (The CDN path is off by
+// default; local serving from public/twemoji/ is the default.)
+const TWEMOJI_VERSION = '15.1.0'
+const CDN_BASE = `https://cdn.jsdelivr.net/gh/jdecked/twemoji@${TWEMOJI_VERSION}/assets/svg/`
 const LOCAL_BASE = '/twemoji/'
 
 export const TWEMOJI_BASE = useCdn ? CDN_BASE : LOCAL_BASE
@@ -17,7 +22,7 @@ export const TWEMOJI_BASE = useCdn ? CDN_BASE : LOCAL_BASE
 const defaultOptions: Parameters<typeof twemoji.parse>[1] = {
   folder: useCdn ? 'svg' : '',
   ext: '.svg',
-  base: useCdn ? 'https://cdn.jsdelivr.net/gh/jdecked/twemoji@latest/assets/' : LOCAL_BASE,
+  base: useCdn ? `https://cdn.jsdelivr.net/gh/jdecked/twemoji@${TWEMOJI_VERSION}/assets/` : LOCAL_BASE,
   className: 'twemoji'
 }
 

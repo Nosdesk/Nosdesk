@@ -152,11 +152,16 @@ where
             .cookie(crate::utils::cookies::CSRF_TOKEN_COOKIE)
             .map(|c| c.value().to_string());
 
+        // Log only a short prefix, taken char-wise so an attacker-
+        // supplied header shorter than 10 bytes (or with a multi-byte
+        // char straddling the boundary) can't panic the middleware via
+        // a byte-index slice. See security-audit-2026-06.
+        let prefix = |t: &String| t.chars().take(8).collect::<String>();
         tracing::debug!(
             "🔒 CSRF Check for {}: header={:?}, cookie={:?}",
             path,
-            header_token.as_ref().map(|t| &t[..10]),
-            cookie_token.as_ref().map(|t| &t[..10])
+            header_token.as_ref().map(prefix),
+            cookie_token.as_ref().map(prefix)
         );
 
         // Validate CSRF token

@@ -353,12 +353,17 @@ fn opt_string_field(value: &Option<String>) -> String {
     value.as_deref().unwrap_or("").to_string()
 }
 
-/// Neutralize spreadsheet formula injection. Excel and Sheets treat
-/// cells starting with `=`, `+`, `-`, or `@` as formulas; prefix
-/// with `'` so the value opens as plain text. The `csv` crate
-/// already quotes commas and newlines; this is separate hardening.
+/// Neutralize spreadsheet formula injection. Excel and Sheets treat a
+/// cell as a formula when its first non-whitespace character is `=`,
+/// `+`, `-`, or `@`. Some importers strip leading whitespace (space,
+/// tab, CR, LF, NUL) before evaluating, so a payload like "\t=cmd"
+/// would slip past a first-byte-only check; look past the leading
+/// whitespace before deciding. Prefix with `'` so the value opens as
+/// plain text. The `csv` crate already quotes commas and newlines;
+/// this is separate hardening. See security-audit-2026-06.
 fn csv_formula_safe(value: String) -> String {
-    match value.chars().next() {
+    let leading = value.trim_start_matches(|c: char| c.is_whitespace() || c == '\u{0}');
+    match leading.chars().next() {
         Some('=' | '+' | '-' | '@') => format!("'{value}"),
         _ => value,
     }
@@ -471,5 +476,21 @@ mod export_tests {
         let row = text.lines().nth(1).unwrap();
         assert!(row.starts_with("'=SUM(A1)"));
         assert!(row.contains(",'+cmd,"));
+    }
+
+    #[test]
+    fn formula_guard_handles_leading_whitespace_and_controls() {
+        // Direct triggers.
+        assert_eq!(csv_formula_safe("=cmd".into()), "'=cmd");
+        assert_eq!(csv_formula_safe("@SUM".into()), "'@SUM");
+        // Leading whitespace / control chars before the trigger must
+        // still be neutralised (some importers strip them first).
+        assert_eq!(csv_formula_safe(" =cmd".into()), "' =cmd");
+        assert_eq!(csv_formula_safe("\t=cmd".into()), "'\t=cmd");
+        assert_eq!(csv_formula_safe("\r-cmd".into()), "'\r-cmd");
+        // Benign values are untouched.
+        assert_eq!(csv_formula_safe("Laptop".into()), "Laptop");
+        assert_eq!(csv_formula_safe("  hello".into()), "  hello");
+        assert_eq!(csv_formula_safe(String::new()), "");
     }
 }

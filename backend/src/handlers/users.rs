@@ -581,21 +581,27 @@ pub async fn create_user(
     user_data: web::Json<CreateUserRequest>,
     req: HttpRequest,
 ) -> impl Responder {
+    // Authorization: creating a user (and assigning its role) is a
+    // workspace-admin operation. Without this gate any authenticated
+    // user could POST role:"admin" / "audit_reviewer" plus a password
+    // and mint a privileged account. See security-audit-2026-06.
+    let actor_claims =
+        match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
+        {
+            Ok(c) => c,
+            Err(resp) => return resp,
+        };
+
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
 
-    // Get the admin user who is creating this user (for invitation email)
-    let admin_name = req
-        .extensions()
-        .get::<crate::models::Claims>()
-        .and_then(|claims| {
-            uuid::Uuid::parse_str(&claims.sub)
-                .ok()
-                .and_then(|uuid| repository::get_user_by_uuid(&uuid, &mut conn).ok())
-                .map(|u| u.name)
-        })
+    // Resolve the inviter's display name for the invitation email.
+    let admin_name = uuid::Uuid::parse_str(&actor_claims.sub)
+        .ok()
+        .and_then(|uuid| repository::get_user_by_uuid(&uuid, &mut conn).ok())
+        .map(|u| u.name)
         .unwrap_or_else(|| "An administrator".to_string());
 
     // Check email configuration. Provider-aware (SMTP or Resend):
