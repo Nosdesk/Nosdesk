@@ -7,26 +7,12 @@ use actix_web::{HttpMessage, HttpRequest, HttpResponse};
 use serde_json::json;
 
 use crate::models::{Claims, PlatformRole};
+use crate::utils::scopes::{Action, Domain, ScopeSet};
 
-/// API-token scope strings the server recognises. `full` is the
-/// implicit superscope every session token carries; the rest are
-/// narrowing scopes a token can be minted with. Adding a scope here
-/// is what makes it accepted at token-creation time.
-pub const VALID_TOKEN_SCOPES: &[&str] = &["full", "audit:read"];
-
-/// True if `scope` is a recognised token scope (used to validate
-/// requested scopes when minting a token).
-pub fn is_valid_token_scope(scope: &str) -> bool {
-    VALID_TOKEN_SCOPES.contains(&scope)
-}
-
-/// Whether the principal's scope set grants `wanted`. The scope claim
-/// is a space-separated set (OAuth convention) for API tokens, or the
-/// literal `full` superscope for interactive sessions. `full` grants
-/// everything; otherwise an exact member match is required.
-pub fn has_scope(claims: &Claims, wanted: &str) -> bool {
-    claims.scope == "full" || claims.scope.split_whitespace().any(|s| s == wanted)
-}
+// The scope taxonomy and the `ScopeSet` matcher live in
+// `utils::scopes`. Re-exported here so existing `rbac::` call sites
+// (e.g. mint-time validation in handlers/api_tokens.rs) keep resolving.
+pub use crate::utils::scopes::{is_valid_token_scope, VALID_TOKEN_SCOPES};
 
 /// Whether the principal's *platform role* may read the audit
 /// surface: `platform_admin` (full operator) or `audit_reviewer` (the
@@ -45,7 +31,8 @@ pub fn role_can_read_audit(claims: &Claims) -> bool {
 pub fn require_audit_read(req: &HttpRequest) -> Result<Claims, HttpResponse> {
     let claims = require_auth(req)?;
 
-    if !(role_can_read_audit(&claims) && has_scope(&claims, "audit:read")) {
+    let scope_ok = ScopeSet::parse(&claims.scope).grants(Domain::Audit, Action::Read);
+    if !(role_can_read_audit(&claims) && scope_ok) {
         return Err(HttpResponse::Forbidden().json(json!({
             "error": "Forbidden",
             "message": "This action requires the audit:read scope and an admin or audit-reviewer role"
@@ -298,26 +285,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn has_scope_treats_full_as_superscope() {
-        assert!(has_scope(&claims_role_scope("admin", "full"), "audit:read"));
-        assert!(has_scope(
-            &claims_role_scope("admin", "audit:read other"),
-            "audit:read"
-        ));
-        assert!(!has_scope(
-            &claims_role_scope("admin", "other"),
-            "audit:read"
-        ));
-    }
-
-    #[test]
-    fn valid_token_scopes_allowlist() {
-        assert!(is_valid_token_scope("full"));
-        assert!(is_valid_token_scope("audit:read"));
-        assert!(!is_valid_token_scope("audit:write"));
-        assert!(!is_valid_token_scope("admin"));
-    }
+    // Scope parsing / validity is covered in `utils::scopes`; here we
+    // only exercise the audit gate's role-AND-scope intersection below.
 
     #[test]
     fn require_audit_read_allows_admin_session() {

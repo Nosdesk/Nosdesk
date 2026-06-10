@@ -26,6 +26,7 @@ pub mod redis_yjs_cache;
 pub mod reserved_slugs;
 pub mod reset_tokens;
 pub mod safe_http;
+pub mod scopes;
 pub mod security_events;
 pub mod slug;
 pub mod storage;
