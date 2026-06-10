@@ -14,12 +14,13 @@
  * axis can be flipped from the toolbar (status x assignee, etc.)
  * the same way it works on project detail.
  */
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
+import { useQuery } from '@pinia/colada'
 import { subscribe } from '@/sync/lifecycle'
 import { useSyncTicketsStore } from '@/sync/stores/tickets'
-import { cyclesService, type Cycle } from '@/services/cyclesService'
+import { cyclesService } from '@/services/cyclesService'
 import CycleBurndown from '@/components/cycles/CycleBurndown.vue'
 import KanbanBoard from '@/sync/views/KanbanBoard.vue'
 import AsyncBoundary from '@/components/common/AsyncBoundary.vue'
@@ -36,30 +37,34 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 const router = useRouter()
 const ticketsStore = useSyncTicketsStore()
 
-const cycle = ref<Cycle | null>(null)
-const ticketIds = ref<number[]>([])
-const isLoading = ref(false)
-const error = ref<string | null>(null)
+// Cache-first: the cycle metadata and its membership list are keyed on
+// the uuid, so a revisit renders instantly from cache then refreshes
+// silently (SWR). The kanban cards themselves come from the synced
+// ticket pool below, so only these two REST shapes are cached here.
+const cycleQuery = useQuery({
+  key: () => ['cycle', props.uuid],
+  query: () => cyclesService.get(props.uuid),
+  enabled: () => !!props.uuid,
+})
+const ticketsQuery = useQuery({
+  key: () => ['cycle', props.uuid, 'tickets'],
+  query: () => cyclesService.tickets(props.uuid),
+  enabled: () => !!props.uuid,
+})
 
-async function load(): Promise<void> {
-  isLoading.value = true
-  error.value = null
-  try {
-    cycle.value = await cyclesService.get(props.uuid)
-    ticketIds.value = await cyclesService.tickets(props.uuid)
-    // Subscribe to the cycle's project so the ticket pool is populated.
-    if (cycle.value) {
-      await subscribe(`project:${cycle.value.project_id}`)
-    }
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : t('cycle-detail-error-fallback')
-  } finally {
-    isLoading.value = false
-  }
-}
+const cycle = computed(() => cycleQuery.data.value ?? null)
+const ticketIds = computed<number[]>(() => ticketsQuery.data.value ?? [])
 
-onMounted(load)
-watch(() => props.uuid, load)
+// Subscribe to the cycle's project so the ticket pool is populated for
+// the kanban cards. Fires once the cycle resolves (we only know its
+// project from the fetched metadata).
+watch(
+  () => cycle.value?.project_id,
+  (projectId) => {
+    if (projectId != null) void subscribe(`project:${projectId}`)
+  },
+  { immediate: true },
+)
 
 // Reserved for an upcoming "drag from outside cycle" affordance.
 // The underscore prefix marks it as intentionally-unused for now.
@@ -89,11 +94,12 @@ function onGroupByChange(value: string | string[]): void {
 }
 
 // First-load state machine for the content area; the header chrome
-// renders immediately regardless (cache-first principle).
+// renders immediately regardless (cache-first principle). A warm cache
+// makes hasCycle true on entry, so the boundary never shows pending.
 const loadOp = computed(() => ({
-  isPending: isLoading.value,
-  isError: error.value !== null,
-  error: error.value,
+  isPending: cycleQuery.asyncStatus.value === 'loading',
+  isError: cycleQuery.state.value.status === 'error',
+  error: cycleQuery.error.value,
 }))
 const hasCycle = computed(() => cycle.value !== null)
 
@@ -173,7 +179,7 @@ const groupByOptions = computed(() => [
       </template>
       <template #error="{ error: boundaryError }">
         <div class="flex-1 flex items-center justify-center text-status-error text-sm">
-          {{ (boundaryError as Error)?.message ?? error }}
+          {{ (boundaryError as Error)?.message ?? $t('cycle-detail-error-fallback') }}
         </div>
       </template>
 
