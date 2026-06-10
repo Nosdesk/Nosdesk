@@ -1,17 +1,22 @@
 <script setup lang="ts">
 /**
- * Shared header for a project's sub-views (Board / Gantt / Cycles) so
- * all three present an identical identity bar: inline-rename project
- * title, optional trailing meta (ticket count, etc.), status badge,
- * and the project actions menu. Per-view controls go in #actions,
- * left of the meta / status cluster.
+ * Shared controls bar for a project's sub-views (Board / Gantt / Cycles).
+ * The project name itself lives in the main site header (PageHeader),
+ * inline-editable there the same way a ticket title is (see the
+ * useTitleManager wiring below); this bar carries the project meta
+ * (status, ticket count), the add-tickets action, per-view #actions, and
+ * the project actions menu.
  */
-import { ref } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { useInlineRename } from '@/composables/useInlineRename'
+import { useTitleManager } from '@/composables/useTitleManager'
 import { useSyncProjectsStore, type SyncProject } from '@/sync/stores/projects'
+import { useProjectTickets } from '@/composables/useProjectTickets'
+import projectService from '@/services/projectService'
 import { logger } from '@/utils/logger'
+import Icon from '@/components/common/Icon.vue'
 import ProjectActionsMenu from '@/components/projectComponents/ProjectActionsMenu.vue'
+import LinkedTicketModal from '@/components/ticketComponents/LinkedTicketModal.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 
 const props = defineProps<{
@@ -24,13 +29,48 @@ const props = defineProps<{
 const router = useRouter()
 const projectsStore = useSyncProjectsStore()
 
-const { editing, draft, inputEl, start, done, cancel } = useInlineRename((name) => {
+// Surface the project name in the main site header (PageHeader) and make
+// it inline-editable there, exactly like the ticket view. Custom title
+// wins over the route title in useTitleManager, so it shows on Board /
+// Gantt / Cycles alike; the save handler renames the project. Both are
+// cleared on leave so they don't linger onto the next route.
+const titleManager = useTitleManager()
+watch(
+  () => props.project?.name,
+  (name) => {
+    if (name) titleManager.setCustomTitle(name)
+  },
+  { immediate: true },
+)
+titleManager.onCustomTitleSave(async (name: string) => {
   const p = props.project
-  if (p && name && name !== p.name) void projectsStore.rename(p.id, name)
+  if (p && name && name !== p.name) await projectsStore.rename(p.id, name)
+})
+onUnmounted(() => {
+  titleManager.setCustomTitle(null)
+  titleManager.onCustomTitleSave(null)
 })
 
 function onSetStatus(status: string): void {
   if (props.project) void projectsStore.setStatus(props.project.id, status)
+}
+
+// Search-and-add existing tickets into this project. Lives in the shared
+// header so it's available identically on all three views (Board / Gantt
+// / Cycles). Reuses the workspace ticket picker; the add emits a
+// ProjectTicket sync event, so the ticket appears live in every view
+// without a refetch. The picker stays open for adding several at once.
+const showTicketPicker = ref(false)
+const { cards: projectCards } = useProjectTickets(() => props.project?.id ?? 0)
+const projectTicketIds = computed(() => projectCards.value.map((c) => c.id))
+
+async function onAddTicket(ticketId: number): Promise<void> {
+  if (!props.project) return
+  try {
+    await projectService.addTicketToProject(props.project.id, ticketId)
+  } catch (e) {
+    logger.error('Failed to add ticket to project', e)
+  }
 }
 
 const confirmingDelete = ref(false)
@@ -50,45 +90,33 @@ async function confirmDelete(): Promise<void> {
 </script>
 
 <template>
-  <header class="flex items-center gap-3 px-3 sm:px-6 h-10 shrink-0 border-b border-subtle bg-app">
-    <div class="min-w-0 flex-1 flex items-center">
-      <input
-        v-if="editing && project"
-        ref="inputEl"
-        v-model="draft"
-        type="text"
-        class="w-full max-w-md text-sm font-semibold text-primary bg-surface-alt border border-default rounded px-2 py-0.5 leading-none focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
-        :aria-label="$t('project-actions-rename')"
-        @keyup.enter="done"
-        @keyup.esc="cancel"
-        @blur="done"
-      />
-      <button
-        v-else-if="project"
-        type="button"
-        class="min-w-0 max-w-full truncate text-sm font-semibold text-primary leading-none rounded px-1 -mx-1 py-0.5 hover:bg-surface-hover transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        :title="$t('project-actions-rename')"
-        @click="start(project.name)"
-      >
-        {{ project.name }}
-      </button>
-      <span v-else class="text-sm font-semibold text-primary truncate leading-none">
-        {{ fallbackName ?? '' }}
-      </span>
-    </div>
-
-    <div v-if="project" class="flex items-center gap-2 shrink-0">
-      <slot name="actions" />
+  <header class="flex items-center justify-between gap-3 px-3 sm:px-6 h-10 shrink-0 border-b border-subtle bg-app">
+    <!-- Left: project meta. The project name itself lives in the main
+         site header (PageHeader), inline-editable there. -->
+    <div v-if="project" class="flex items-center gap-2 min-w-0">
       <span
-        class="text-[10px] uppercase tracking-wide font-semibold rounded px-1.5 py-0.5 bg-surface-hover text-tertiary leading-none"
+        class="shrink-0 text-[10px] uppercase tracking-wide font-semibold rounded px-1.5 py-0.5 bg-surface-hover text-tertiary leading-none"
       >{{ $t(`project-actions-status-${project.status}`) }}</span>
       <span
         v-if="subtitle"
-        class="text-xs text-tertiary tabular-nums whitespace-nowrap leading-none"
+        class="text-xs text-tertiary tabular-nums whitespace-nowrap leading-none truncate"
       >{{ subtitle }}</span>
+    </div>
+
+    <!-- Right: project actions. -->
+    <div v-if="project" class="flex items-center gap-2 shrink-0">
+      <!-- Search + add existing tickets into this project (all 3 views). -->
+      <button
+        type="button"
+        class="inline-flex items-center gap-1 text-xs font-medium text-secondary hover:text-primary hover:bg-surface-hover rounded-md px-2 py-1 border border-subtle focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        @click="showTicketPicker = true"
+      >
+        <Icon name="add" />
+        <span class="hidden sm:inline">{{ $t('project-add-tickets') }}</span>
+      </button>
+      <slot name="actions" />
       <ProjectActionsMenu
         :status="project.status"
-        @rename="start(project.name)"
         @set-status="onSetStatus"
         @delete="confirmingDelete = true"
       />
@@ -103,6 +131,17 @@ async function confirmDelete(): Promise<void> {
       :loading="deletePending"
       @confirm="confirmDelete"
       @close="confirmingDelete = false"
+    />
+
+    <!-- Workspace ticket picker. Stays open after each pick so several
+         tickets can be added in one go; tickets already in the project
+         are filtered out. -->
+    <LinkedTicketModal
+      :show="showTicketPicker"
+      :current-ticket-id="0"
+      :existing-linked-tickets="projectTicketIds"
+      @close="showTicketPicker = false"
+      @select-ticket="onAddTicket"
     />
   </header>
 </template>

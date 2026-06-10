@@ -35,6 +35,9 @@ interface Props {
   isTransitioning?: boolean;
   pageUrl?: string;
   navbarCollapsed?: boolean;
+  /** When true, the (custom) title is rendered inline-editable, the same
+   *  way a ticket title is. Used by project views to rename in-header. */
+  customTitleEditable?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -47,9 +50,10 @@ const props = withDefaults(defineProps<Props>(), {
   isTransitioning: false,
   pageUrl: undefined,
   navbarCollapsed: false,
+  customTitleEditable: false,
 });
 
-const emit = defineEmits(["updateDocumentTitle", "updateDocumentIcon", "previewDocumentTitle", "updateTicketTitle", "create"]);
+const emit = defineEmits(["updateDocumentTitle", "updateDocumentIcon", "previewDocumentTitle", "updateTicketTitle", "updateCustomTitle", "create"]);
 
 const resolvedCreateButtonText = computed(() => props.createButtonText ?? t('header-create-ticket'));
 
@@ -118,6 +122,10 @@ const handleUpdateTicketTitle = (newTitle: string) => {
     }
     emit("updateTicketTitle", newTitle);
   }
+};
+
+const handleUpdateCustomTitle = (newTitle: string) => {
+  emit("updateCustomTitle", newTitle);
 };
 
 const showUserMenu = ref(false);
@@ -213,6 +221,18 @@ const handleCreateClick = () => {
               class="min-w-0 flex-1"
             />
           </div>
+        </template>
+        <template v-else-if="props.customTitleEditable">
+          <!-- Inline-editable custom title (e.g. a project name). Same
+               affordance as the ticket title; the parent persists via
+               the updateCustomTitle handler. -->
+          <HeaderTitle
+            :initialTitle="displayTitle"
+            :placeholder-text="t('ui-site-header-untitled')"
+            :max-lines="2"
+            @update-title="handleUpdateCustomTitle"
+            class="min-w-0 flex-1"
+          />
         </template>
         <template v-else>
           <div class="flex items-center gap-2 min-w-0">

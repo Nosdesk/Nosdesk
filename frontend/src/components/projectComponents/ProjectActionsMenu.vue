@@ -17,7 +17,6 @@ import { buildProjectMenuItems } from '@/utils/projectMenuItems'
 const props = defineProps<{ status: string }>()
 
 const emit = defineEmits<{
-  (e: 'rename'): void
   (e: 'set-status', status: string): void
   (e: 'delete'): void
 }>()
@@ -33,15 +32,19 @@ const anchor = computed(() => ({
   element: () => triggerRef.value,
 }))
 
-const menuItems = computed<MenuItem[]>(() => buildProjectMenuItems(props.status, t))
+// Rename is omitted here: in the project header the title is edited
+// directly in the main site header. (The projects list keeps rename via
+// its own context menu.)
+const menuItems = computed<MenuItem[]>(() =>
+  buildProjectMenuItems(props.status, t).filter((i) => i.id !== 'rename'),
+)
 
 function toggle() {
   isOpen.value = !isOpen.value
 }
 
 function handleSelect(id: string) {
-  if (id === 'rename') emit('rename')
-  else if (id === 'delete') emit('delete')
+  if (id === 'delete') emit('delete')
   else if (id.startsWith('status:')) emit('set-status', id.slice('status:'.length))
   isOpen.value = false
 }

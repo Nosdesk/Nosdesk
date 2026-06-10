@@ -41,11 +41,18 @@ const isTransitioning = ref(false);
 const ticketTitleSaveHandler = ref<TicketTitleSaveHandler | null>(null);
 const documentTitleSaveHandler = ref<DocumentTitleSaveHandler | null>(null);
 const documentIconSaveHandler = ref<DocumentIconSaveHandler | null>(null);
+// Editable custom title (e.g. a project name): when a save handler is
+// registered, the site header renders the custom title inline-editable,
+// the same way ticket titles are edited there.
+const customTitleSaveHandler = ref<TicketTitleSaveHandler | null>(null);
 
 // Module-level computeds (no route/component dependency)
 const isTicketView = computed(() => currentTicket.value !== null);
 const isDeviceView = computed(() => currentDevice.value !== null);
 const isDocumentView = computed(() => currentDocument.value !== null);
+const isCustomTitleEditable = computed(
+  () => customTitle.value !== null && customTitleSaveHandler.value !== null,
+);
 
 // Module-level watcher for recent tickets store (no route dependency)
 watch(
@@ -114,6 +121,7 @@ export function useTitleManager() {
           currentDocument.value = null;
           documentationTitle.value = null;
           customTitle.value = null;
+          customTitleSaveHandler.value = null;
         }
       }
     );
@@ -122,6 +130,17 @@ export function useTitleManager() {
   // Methods
   const setCustomTitle = (title: string | null) => {
     customTitle.value = title;
+  };
+
+  // Register a save handler to make the custom title inline-editable in
+  // the site header (e.g. renaming a project). Pass null to clear.
+  const onCustomTitleSave = (handler: TicketTitleSaveHandler | null) => {
+    customTitleSaveHandler.value = handler;
+  };
+
+  const updateCustomTitle = async (newTitle: string) => {
+    customTitle.value = newTitle;
+    await customTitleSaveHandler.value?.(newTitle);
   };
 
   const setTicket = (ticketData: TitleableTicket | null) => {
@@ -208,6 +227,7 @@ export function useTitleManager() {
     currentDocument.value = null;
     documentationTitle.value = null;
     customTitle.value = null;
+    customTitleSaveHandler.value = null;
   };
 
   return {
@@ -223,9 +243,12 @@ export function useTitleManager() {
     isTicketView,
     isDeviceView,
     isDocumentView,
+    isCustomTitleEditable,
 
     // Methods
     setCustomTitle,
+    onCustomTitleSave,
+    updateCustomTitle,
     setTicket,
     setDevice,
     setDocument,

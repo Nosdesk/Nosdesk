@@ -213,6 +213,7 @@ onMounted(async () => {
         :ticket="titleManager.currentTicket.value"
         :device="titleManager.currentDevice.value"
         :document="titleManager.currentDocument.value"
+        :custom-title-editable="titleManager.isCustomTitleEditable.value"
         :is-transitioning="titleManager.isTransitioning.value"
         :pageUrl="currentPageUrl"
         :navbarCollapsed="navbarCollapsed"
@@ -220,6 +221,7 @@ onMounted(async () => {
         @preview-document-title="titleManager.previewDocumentTitle"
         @update-document-icon="titleManager.updateDocumentIcon"
         @update-ticket-title="titleManager.updateTicketTitle"
+        @update-custom-title="titleManager.updateCustomTitle"
         @create="handleCreateClick"
       />
 
