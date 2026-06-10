@@ -12,7 +12,7 @@
  * with no due date land in an Unscheduled tray instead. Dragging
  * bars / tray items to reschedule is a follow-up.
  */
-import { computed, onMounted, onUnmounted, ref, watchEffect } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch, watchEffect } from 'vue'
 import { useFluent } from 'fluent-vue'
 import {
   addDays,
@@ -28,6 +28,7 @@ import type { DependencyEdge } from '@/services/dependenciesService'
 import type { Cycle } from '@/services/cyclesService'
 import { TERMINAL_CATEGORIES, coarseStatusBucket } from '@/types/workflow'
 import { startOfDay, type GanttViewport } from '@/composables/useGanttViewport'
+import EmptyState from '@/components/common/EmptyState.vue'
 
 const fluent = useFluent()
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
@@ -65,8 +66,9 @@ const { zoom, pxPerDay, rangeStart, rangeEnd, xOf, totalWidth } = vp
 
 // Comfortable density default (Phase 1 of the gantt/cycle design
 // overhaul). A density toggle to a compact ~28px row is a follow-up.
+// The lane column width is a CSS var (--lane-w) on the grid, not a JS
+// constant, so the layout owns it.
 const ROW_PX = 40
-const LEFT_PX = 240
 
 // ===================== Scheduled / unscheduled split =====================
 
@@ -115,6 +117,11 @@ const unscheduled = computed<CardData[]>(() =>
   props.cards.filter(isUnscheduled),
 )
 
+// Truly-empty project (no tickets at all) gets a centered empty state;
+// distinct from "tickets exist but none land in the current window"
+// (the pan/fit hint below the board).
+const projectHasNoCards = computed(() => props.cards.length === 0)
+
 // ===================== Viewport reporting =====================
 // Feed the renderer's content extent and visible-bar count back to the
 // shared viewport so the toolbar's Fit button and in-view label work
@@ -139,28 +146,9 @@ watchEffect(() => {
 // title panel). Reported to the viewport, which derives its day-span
 // from it, so the chart never leaves dead space and shows more range on
 // wider displays.
-const scrollEl = ref<HTMLElement | null>(null)
-let resizeObserver: ResizeObserver | null = null
-
-function measureViewport(): void {
-  if (scrollEl.value) {
-    vp.setViewportWidth(scrollEl.value.clientWidth - LEFT_PX)
-  }
-}
-
-// Frame the project once the content extent is known, then keep the
-// timeline width in sync with the container.
-onMounted(() => {
-  vp.fitToProject()
-  measureViewport()
-  resizeObserver = new ResizeObserver(measureViewport)
-  if (scrollEl.value) resizeObserver.observe(scrollEl.value)
-})
-
-onUnmounted(() => {
-  resizeObserver?.disconnect()
-  resizeObserver = null
-})
+// Frame the project once the content extent is known. The timeline
+// width is measured separately (see the bodyEl watch below).
+onMounted(() => vp.fitToProject())
 
 // ===================== Axis: primary ticks + secondary band =====================
 
@@ -316,7 +304,35 @@ interface BarRow {
 // its end is overridden so the bar resizes under the cursor before the
 // write commits on pointerup.
 const reschedule = ref<{ cardId: number; start: Date; newEnd: Date } | null>(null)
+// The timeline body grid cell. Doubles as the geometry origin for the
+// resize drag and the measured surface for the viewport's width-fill.
 const bodyEl = ref<HTMLElement | null>(null)
+
+// Keep the viewport's day-span synced to the timeline cell's measured
+// width so it always fills the panel. A watch (not a one-shot onMounted)
+// re-attaches when the body remounts, e.g. an empty project gets its
+// first ticket; ResizeObserver then tracks panel / sidebar resizes.
+function measureViewport(): void {
+  if (bodyEl.value) vp.setViewportWidth(bodyEl.value.clientWidth)
+}
+let resizeObserver: ResizeObserver | null = null
+watch(
+  bodyEl,
+  (el) => {
+    resizeObserver?.disconnect()
+    resizeObserver = null
+    if (el) {
+      measureViewport()
+      resizeObserver = new ResizeObserver(measureViewport)
+      resizeObserver.observe(el)
+    }
+  },
+  { immediate: true },
+)
+onUnmounted(() => {
+  resizeObserver?.disconnect()
+  resizeObserver = null
+})
 
 const bars = computed<BarRow[]>(() => {
   const out: BarRow[] = []
@@ -383,7 +399,10 @@ function endResize(): void {
   if (r) props.onReschedule?.(r.cardId, `${format(r.newEnd, 'yyyy-MM-dd')}T00:00:00`)
 }
 
-const totalHeight = computed(() => scheduled.value.length * ROW_PX)
+// Height of the rendered rows. Driven by the in-window bars (which the
+// lane column also iterates), so lane and timeline stay the same height
+// in the frozen-pane grid.
+const totalHeight = computed(() => bars.value.length * ROW_PX)
 
 /** Soft status fill: the coarse open / in-progress / done bucket as a
  *  muted tint + matching subtle border. Status drives the fill (not
@@ -468,223 +487,238 @@ function open(card: CardData): void {
 
 <template>
   <div class="flex flex-col h-full">
-    <!-- Scroll container. The viewport toolbar (zoom / fit / today /
-         pan) lives in the project tab bar, rendered by the route shell
-         that owns the shared viewport. -->
-    <div ref="scrollEl" class="flex-1 min-h-0 overflow-auto">
-      <div class="relative" :style="{ width: `${totalWidth + LEFT_PX}px` }">
-        <!-- Sticky left panel: titles + tray -->
+    <!-- Truly-empty project: one centered state, no grid scaffold to
+         leak through. (Distinct from "tickets exist but none in this
+         window", which is the in-body hint.) -->
+    <EmptyState
+      v-if="projectHasNoCards"
+      class="flex-1"
+      icon="calendar"
+      :title="t('gantt-empty-title')"
+      :description="t('gantt-empty-description')"
+    />
+
+    <!-- Frozen-pane grid: a real two-column layout (lane | timeline) with
+         a sticky axis header. No absolute overlay panel, no LEFT_PX
+         margin offset; lane rows and timeline bars are the SAME grid
+         rows, so they align by construction. Vertical scroll only; the
+         timeline fills its 1fr column (the viewport derives its day-span
+         from that measured width). Lane width is the --lane-w CSS var. -->
+    <div
+      v-else
+      class="grid flex-1 min-h-0 overflow-y-auto overflow-x-hidden [--lane-w:200px] @3xl:[--lane-w:240px]"
+      style="grid-template-columns: var(--lane-w) 1fr"
+    >
+      <!-- Corner: the lane's header cell, pinned. -->
+      <div class="sticky top-0 z-20 bg-surface border-b border-r border-subtle"></div>
+
+      <!-- Axis header (months / days / cycles), pinned on vertical scroll. -->
+      <div class="sticky top-0 z-20 bg-surface border-b border-subtle">
+        <!-- Secondary band (month / quarter spans). -->
         <div
-          class="absolute left-0 top-0 z-20 bg-app border-r border-subtle flex flex-col"
-          :style="{ width: `${LEFT_PX}px` }"
+          class="relative h-6 text-[11px] uppercase tracking-wide font-semibold text-tertiary border-b border-subtle/60"
         >
-          <div class="border-b border-subtle bg-surface" style="height: 48px"></div>
-          <button
-            v-for="row in bars"
-            :key="row.card.id"
-            type="button"
-            class="w-full flex items-center px-3 text-xs text-left text-primary border-b border-subtle/50 hover:bg-surface-hover focus:outline-none focus-visible:bg-surface-hover truncate"
-            :style="{ height: `${ROW_PX}px` }"
-            :title="row.card.title"
-            @click="open(row.card)"
-          >
-            <span class="font-mono text-tertiary mr-2">#{{ row.card.id }}</span>
-            <span class="truncate">{{ row.card.title }}</span>
-          </button>
-
-          <!-- Unscheduled tray -->
-          <div v-if="unscheduled.length > 0" class="border-t border-subtle mt-auto">
-            <button
-              type="button"
-              class="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-secondary hover:bg-surface-hover"
-              @click="trayOpen = !trayOpen"
-            >
-              <span class="text-tertiary transition-transform" :class="trayOpen ? 'rotate-90' : ''">›</span>
-              {{ t('gantt-unscheduled', { count: unscheduled.length }) }}
-            </button>
-            <div v-if="trayOpen" class="max-h-48 overflow-auto">
-              <button
-                v-for="card in unscheduled"
-                :key="card.id"
-                type="button"
-                class="w-full flex items-center px-3 py-1.5 text-xs text-left text-primary border-t border-subtle/40 hover:bg-surface-hover focus:outline-none focus-visible:bg-surface-hover truncate"
-                :title="card.title"
-                @click="open(card)"
-              >
-                <span class="font-mono text-tertiary mr-2">#{{ card.id }}</span>
-                <span class="truncate">{{ card.title }}</span>
-              </button>
-            </div>
-          </div>
+          <div
+            v-for="b in secondaryBands"
+            :key="b.key"
+            class="absolute top-0 bottom-0 flex items-center px-2 border-r border-subtle/50 overflow-hidden whitespace-nowrap"
+            :style="{ left: `${Math.max(0, b.x)}px`, width: `${b.width + Math.min(0, b.x)}px` }"
+          >{{ b.label }}</div>
         </div>
-
-        <!-- Axis + body -->
-        <div class="relative" :style="{ marginLeft: `${LEFT_PX}px` }">
-          <!-- Secondary band -->
+        <!-- Primary tick row (day / week). -->
+        <div
+          class="relative h-6 text-[11px] tabular-nums text-tertiary"
+          :class="cycleBands.length > 0 ? 'border-b border-subtle/60' : ''"
+        >
           <div
-            class="relative bg-surface border-b border-subtle text-[11px] uppercase tracking-wide font-semibold text-tertiary"
-            style="height: 24px"
-          >
-            <div
-              v-for="b in secondaryBands"
-              :key="b.key"
-              class="absolute top-0 bottom-0 flex items-center px-2 border-r border-subtle/50 overflow-hidden whitespace-nowrap"
-              :style="{ left: `${Math.max(0, b.x)}px`, width: `${b.width + Math.min(0, b.x)}px` }"
-            >{{ b.label }}</div>
-          </div>
-          <!-- Primary tick row -->
+            v-for="tick in primaryTicks"
+            :key="tick.key"
+            class="absolute top-0 bottom-0 flex items-center pl-1 border-l border-subtle/30 whitespace-nowrap"
+            :style="{ left: `${tick.x}px` }"
+          >{{ tick.label }}</div>
+        </div>
+        <!-- Cycle strip: one labelled segment per dated cycle. -->
+        <div v-if="cycleBands.length > 0" class="relative" style="height: 22px">
           <div
-            class="relative bg-surface border-b border-subtle text-[11px] tabular-nums text-tertiary"
-            style="height: 24px"
+            v-for="band in cycleBands"
+            :key="band.key"
+            class="absolute top-0 bottom-0 flex items-center px-2 border-l border-r text-[10px] font-medium truncate"
+            :class="cycleStripClass(band.state)"
+            :style="{ left: `${band.left}px`, width: `${band.width}px` }"
+            :title="band.label"
+          >{{ band.label }}</div>
+        </div>
+      </div>
+
+      <!-- Lane column: ticket titles (one per visible bar) + the
+           unscheduled tray. Same rows as the timeline body. -->
+      <div class="self-start border-r border-subtle bg-app">
+        <button
+          v-for="row in bars"
+          :key="row.card.id"
+          type="button"
+          class="w-full flex items-center px-3 text-xs text-left text-primary border-b border-subtle/50 hover:bg-surface-hover focus:outline-none focus-visible:bg-surface-hover truncate"
+          :style="{ height: `${ROW_PX}px` }"
+          :title="row.card.title"
+          @click="open(row.card)"
+        >
+          <span class="font-mono text-tertiary mr-2">#{{ row.card.id }}</span>
+          <span class="truncate">{{ row.card.title }}</span>
+        </button>
+
+        <!-- Unscheduled tray -->
+        <div v-if="unscheduled.length > 0" class="border-t border-subtle">
+          <button
+            type="button"
+            class="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-secondary hover:bg-surface-hover"
+            @click="trayOpen = !trayOpen"
           >
-            <div
-              v-for="tick in primaryTicks"
-              :key="tick.key"
-              class="absolute top-0 bottom-0 flex items-center pl-1 border-l border-subtle/30 whitespace-nowrap"
-              :style="{ left: `${tick.x}px` }"
-            >{{ tick.label }}</div>
-          </div>
-
-          <!-- Cycle bands strip: one labelled segment per cycle that
-               has a date range, aligned to the same scale as the bars. -->
-          <div
-            v-if="cycleBands.length > 0"
-            class="relative bg-app border-b border-subtle"
-            style="height: 22px"
-          >
-            <div
-              v-for="band in cycleBands"
-              :key="band.key"
-              class="absolute top-0 bottom-0 flex items-center px-2 border-l border-r text-[10px] font-medium truncate"
-              :class="cycleStripClass(band.state)"
-              :style="{ left: `${band.left}px`, width: `${band.width}px` }"
-              :title="band.label"
-            >{{ band.label }}</div>
-          </div>
-
-          <!-- Timeline body -->
-          <div
-            ref="bodyEl"
-            class="relative"
-            :style="{ height: `${Math.max(totalHeight, 100)}px`, width: `${totalWidth}px` }"
-          >
-            <!-- Primary gridlines via repeating gradient keyed to the
-                 primary tick step (1 day at week zoom, 7 days otherwise). -->
-            <div
-              class="absolute inset-0"
-              :style="{
-                backgroundImage: `repeating-linear-gradient(to right, transparent 0 ${(zoom === 'week' ? 1 : 7) * pxPerDay - 1}px, var(--border-subtle, #e5e7eb33) ${(zoom === 'week' ? 1 : 7) * pxPerDay - 1}px ${(zoom === 'week' ? 1 : 7) * pxPerDay}px)`,
-              }"
-            ></div>
-
-            <!-- Cycle band shading (behind bars) -->
-            <div
-              v-for="band in cycleBands"
-              :key="`shade-${band.key}`"
-              class="absolute top-0 bottom-0 border-l border-r border-dashed border-subtle/40"
-              :class="cycleBodyClass(band.state)"
-              :style="{ left: `${band.left}px`, width: `${band.width}px` }"
-            ></div>
-
-            <!-- Today marker: accent line + a small diamond flag at the
-                 top. (A labelled 'Today' pill arrives with the axis pass,
-                 which needs an i18n string.) -->
-            <div
-              v-if="todayInRange"
-              class="absolute top-0 bottom-0 w-px bg-accent z-[5] pointer-events-none"
-              :style="{ left: `${todayX}px` }"
-            >
-              <span
-                class="absolute -top-px left-1/2 -translate-x-1/2 h-2 w-2 rotate-45 rounded-[1px] bg-accent shadow-sm"
-              ></span>
-            </div>
-
-            <!-- Arrows -->
-            <svg
-              :width="totalWidth"
-              :height="Math.max(totalHeight, 100)"
-              class="absolute inset-0 pointer-events-none"
-            >
-              <defs>
-                <marker
-                  id="gantt-arrowhead"
-                  viewBox="0 0 8 8"
-                  refX="7"
-                  refY="4"
-                  markerWidth="8"
-                  markerHeight="8"
-                  orient="auto"
-                >
-                  <path d="M0,0 L8,4 L0,8 z" fill="currentColor" />
-                </marker>
-              </defs>
-              <g class="text-accent">
-                <path
-                  v-for="a in arrows"
-                  :key="a.key"
-                  :d="arrowPath(a)"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                  marker-end="url(#gantt-arrowhead)"
-                />
-              </g>
-            </svg>
-
-            <!-- Bars -->
+            <span class="text-tertiary transition-transform" :class="trayOpen ? 'rotate-90' : ''">›</span>
+            {{ t('gantt-unscheduled', { count: unscheduled.length }) }}
+          </button>
+          <div v-if="trayOpen" class="max-h-48 overflow-auto">
             <button
-              v-for="row in bars"
-              :key="row.card.id"
+              v-for="card in unscheduled"
+              :key="card.id"
               type="button"
-              class="motion-safe:transition-[transform,box-shadow,filter] motion-safe:duration-150 absolute flex items-center rounded-md border overflow-hidden text-left cursor-pointer hover:-translate-y-px hover:shadow-sm hover:brightness-[1.03] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:z-10"
-              :class="[
-                barStatusClass(row.card),
-                priorityEdgeClass(row.card.priority),
-                row.atRisk ? 'ring-1 ring-status-error/60' : '',
-                row.terminal ? 'gantt-bar-terminal' : '',
-              ]"
-              :style="{
-                left: `${row.left}px`,
-                width: `${Math.max(pxPerDay, row.width - 4)}px`,
-                top: `${row.rowIndex * ROW_PX + 4}px`,
-                height: `${ROW_PX - 8}px`,
-              }"
-              :title="barTooltip(row)"
-              @click="open(row.card)"
+              class="w-full flex items-center px-3 py-1.5 text-xs text-left text-primary border-t border-subtle/40 hover:bg-surface-hover focus:outline-none focus-visible:bg-surface-hover truncate"
+              :title="card.title"
+              @click="open(card)"
             >
-              <!-- Schedule (elapsed-time) fill: a desaturated 'consumed'
-                   shade from the bar's start to today. Reads as schedule
-                   pressure, not work done. -->
-              <span
-                v-if="scheduleFillWidth(row) > 0"
-                class="absolute inset-y-0 left-0 bg-black/[0.06] dark:bg-white/[0.07] pointer-events-none"
-                :style="{ width: `${scheduleFillWidth(row)}px` }"
-              ></span>
-              <span class="relative z-[1] px-2 text-[11px] text-primary truncate">
-                {{ row.card.title }}
-              </span>
-              <!-- Due-date resize handle (open bars only; created_at is
-                   immutable so there's no left handle). -->
-              <span
-                v-if="onReschedule && !row.terminal"
-                class="absolute top-0 bottom-0 right-0 w-2.5 cursor-ew-resize hover:bg-accent/40 z-[2]"
-                :title="t('gantt-reschedule-handle')"
-                @pointerdown="startResize(row, $event)"
-                @pointermove="onResizeMove"
-                @pointerup="endResize"
-                @click.stop
-              ></span>
+              <span class="font-mono text-tertiary mr-2">#{{ card.id }}</span>
+              <span class="truncate">{{ card.title }}</span>
             </button>
           </div>
         </div>
       </div>
-    </div>
 
-    <div
-      v-if="bars.length === 0"
-      class="px-6 py-4 text-xs text-tertiary italic"
-    >
-      {{ t('gantt-empty-window') }}
+      <!-- Timeline body: the only absolutely-positioned surface, and only
+           within its own grid cell (no global offset). Measured for the
+           width-fill viewport. -->
+      <div
+        ref="bodyEl"
+        class="self-start relative overflow-hidden"
+        :style="{ height: `${Math.max(totalHeight, 100)}px` }"
+      >
+        <!-- Primary gridlines via repeating gradient keyed to the primary
+             tick step (1 day at week zoom, 7 days otherwise). -->
+        <div
+          class="absolute inset-0"
+          :style="{
+            backgroundImage: `repeating-linear-gradient(to right, transparent 0 ${(zoom === 'week' ? 1 : 7) * pxPerDay - 1}px, var(--border-subtle, #e5e7eb33) ${(zoom === 'week' ? 1 : 7) * pxPerDay - 1}px ${(zoom === 'week' ? 1 : 7) * pxPerDay}px)`,
+          }"
+        ></div>
+
+        <!-- Cycle band shading (behind bars) -->
+        <div
+          v-for="band in cycleBands"
+          :key="`shade-${band.key}`"
+          class="absolute top-0 bottom-0 border-l border-r border-dashed border-subtle/40"
+          :class="cycleBodyClass(band.state)"
+          :style="{ left: `${band.left}px`, width: `${band.width}px` }"
+        ></div>
+
+        <!-- Today marker: accent line + a small diamond flag at the top. -->
+        <div
+          v-if="todayInRange"
+          class="absolute top-0 bottom-0 w-px bg-accent z-[5] pointer-events-none"
+          :style="{ left: `${todayX}px` }"
+        >
+          <span
+            class="absolute -top-px left-1/2 -translate-x-1/2 h-2 w-2 rotate-45 rounded-[1px] bg-accent shadow-sm"
+          ></span>
+        </div>
+
+        <!-- Dependency arrows -->
+        <svg
+          :width="totalWidth"
+          :height="Math.max(totalHeight, 100)"
+          class="absolute inset-0 pointer-events-none"
+        >
+          <defs>
+            <marker
+              id="gantt-arrowhead"
+              viewBox="0 0 8 8"
+              refX="7"
+              refY="4"
+              markerWidth="8"
+              markerHeight="8"
+              orient="auto"
+            >
+              <path d="M0,0 L8,4 L0,8 z" fill="currentColor" />
+            </marker>
+          </defs>
+          <g class="text-accent">
+            <path
+              v-for="a in arrows"
+              :key="a.key"
+              :d="arrowPath(a)"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              marker-end="url(#gantt-arrowhead)"
+            />
+          </g>
+        </svg>
+
+        <!-- Bars -->
+        <button
+          v-for="row in bars"
+          :key="row.card.id"
+          type="button"
+          class="motion-safe:transition-[transform,box-shadow,filter] motion-safe:duration-150 absolute flex items-center rounded-md border overflow-hidden text-left cursor-pointer hover:-translate-y-px hover:shadow-sm hover:brightness-[1.03] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:z-10"
+          :class="[
+            barStatusClass(row.card),
+            priorityEdgeClass(row.card.priority),
+            row.atRisk ? 'ring-1 ring-status-error/60' : '',
+            row.terminal ? 'gantt-bar-terminal' : '',
+          ]"
+          :style="{
+            left: `${row.left}px`,
+            width: `${Math.max(pxPerDay, row.width - 4)}px`,
+            top: `${row.rowIndex * ROW_PX + 4}px`,
+            height: `${ROW_PX - 8}px`,
+          }"
+          :title="barTooltip(row)"
+          @click="open(row.card)"
+        >
+          <!-- Schedule (elapsed-time) fill: a desaturated 'consumed' shade
+               from the bar's start to today. Reads as schedule pressure,
+               not work done. -->
+          <span
+            v-if="scheduleFillWidth(row) > 0"
+            class="absolute inset-y-0 left-0 bg-black/[0.06] dark:bg-white/[0.07] pointer-events-none"
+            :style="{ width: `${scheduleFillWidth(row)}px` }"
+          ></span>
+          <span class="relative z-[1] px-2 text-[11px] text-primary truncate">
+            {{ row.card.title }}
+          </span>
+          <!-- Due-date resize handle (open bars only; created_at is
+               immutable so there's no left handle). -->
+          <span
+            v-if="onReschedule && !row.terminal"
+            class="absolute top-0 bottom-0 right-0 w-2.5 cursor-ew-resize hover:bg-accent/40 z-[2]"
+            :title="t('gantt-reschedule-handle')"
+            @pointerdown="startResize(row, $event)"
+            @pointermove="onResizeMove"
+            @pointerup="endResize"
+            @click.stop
+          ></span>
+        </button>
+
+        <!-- Tickets exist, but none land in the current window. -->
+        <div
+          v-if="bars.length === 0"
+          class="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center"
+        >
+          <p class="text-sm text-tertiary max-w-sm">{{ t('gantt-empty-window') }}</p>
+          <button
+            type="button"
+            class="text-xs font-medium text-secondary hover:bg-surface-hover rounded-md px-3 py-1.5 border border-subtle"
+            @click="vp.fitToProject()"
+          >{{ t('gantt-fit') }}</button>
+        </div>
+      </div>
     </div>
   </div>
 </template>

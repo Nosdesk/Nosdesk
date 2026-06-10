@@ -2287,6 +2287,8 @@ project-detail-loading = Project laden…
 # Project Gantt (ProjectGanttView): per-project Gantt timeline
 # with a header summary of ticket and dependency-link counts.
 project-gantt-fallback-name = Project
+# Knop om tickets aan het project toe te voegen (machine, na te kijken door moedertaalspreker).
+project-add-tickets = Tickets toevoegen
 project-gantt-summary = { $tickets ->
     [one] { $tickets } ticket
    *[other] { $tickets } tickets
@@ -4685,6 +4687,7 @@ dashboard-unassigned-queue-empty-description = Niets staat in de wachtrij.
 
 # Basis-UI-laag
 ui-site-header-untitled-ticket = Ticket zonder titel
+ui-site-header-untitled = Zonder titel
 ui-site-header-unknown-device = Onbekend apparaat
 ui-site-header-ticket-title-placeholder = Tickettitel invoeren...
 ui-site-header-document-title-placeholder = Documenttitel invoeren...
@@ -5164,6 +5167,9 @@ gantt-pan-next = Naar rechts schuiven
 gantt-more-controls = Meer instellingen
 gantt-unscheduled = Niet gepland ({ $count })
 gantt-empty-window = Geen tickets in dit venster. Gebruik Passend, Vandaag of de pijlen om de tijdlijn te verschuiven.
+# Lege staat van de tijdlijn (machine, na te kijken door moedertaalspreker).
+gantt-empty-title = Nog geen tickets op de tijdlijn
+gantt-empty-description = Tickets met een vervaldatum verschijnen hier, uitgezet in de tijd. Voeg er een toe vanuit het bord om te beginnen.
 gantt-reschedule-handle = Sleep om de vervaldatum te wijzigen
 user-cell-missing-tooltip = Deze gebruiker bestaat niet meer
 user-cell-unknown = Onbekend

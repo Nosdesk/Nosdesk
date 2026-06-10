@@ -2423,6 +2423,7 @@ project-detail-loading = Loading project…
 # Project Gantt (ProjectGanttView): per-project Gantt timeline
 # with a header summary of ticket and dependency-link counts.
 project-gantt-fallback-name = Project
+project-add-tickets = Add tickets
 project-gantt-summary = { $tickets ->
     [one] { $tickets } ticket
    *[other] { $tickets } tickets
@@ -4934,6 +4935,7 @@ dashboard-unassigned-queue-empty-description = Nothing waiting in the queue.
 
 # Core UI layer
 ui-site-header-untitled-ticket = Untitled Ticket
+ui-site-header-untitled = Untitled
 ui-site-header-unknown-device = Unknown Device
 ui-site-header-ticket-title-placeholder = Enter ticket title...
 ui-site-header-document-title-placeholder = Enter document title...
@@ -5416,6 +5418,8 @@ gantt-pan-next = Pan later
 gantt-more-controls = More controls
 gantt-unscheduled = Unscheduled ({ $count })
 gantt-empty-window = No tickets fall inside this window. Use Fit, Today, or the pan arrows to step the timeline.
+gantt-empty-title = No tickets on the timeline yet
+gantt-empty-description = Tickets with a due date show up here, laid out across time. Add one from the board to get started.
 gantt-reschedule-handle = Drag to change due date
 user-cell-missing-tooltip = This user no longer exists
 user-cell-unknown = Unknown

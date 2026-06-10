@@ -2290,6 +2290,8 @@ project-detail-loading = Chargement du projet…
 # Project Gantt (ProjectGanttView): per-project Gantt timeline
 # with a header summary of ticket and dependency-link counts.
 project-gantt-fallback-name = Projet
+# Bouton d'ajout de tickets au projet (machine, à relire par un locuteur natif).
+project-add-tickets = Ajouter des tickets
 project-gantt-summary = { $tickets ->
     [one] { $tickets } ticket
    *[other] { $tickets } tickets
@@ -4694,6 +4696,7 @@ dashboard-unassigned-queue-empty-description = Rien n'attend dans la file.
 
 # Couche UI de base
 ui-site-header-untitled-ticket = Ticket sans titre
+ui-site-header-untitled = Sans titre
 ui-site-header-unknown-device = Appareil inconnu
 ui-site-header-ticket-title-placeholder = Saisir le titre du ticket...
 ui-site-header-document-title-placeholder = Saisir le titre du document...
@@ -5173,6 +5176,9 @@ gantt-pan-next = Décaler vers la droite
 gantt-more-controls = Plus de commandes
 gantt-unscheduled = Non planifiés ({ $count })
 gantt-empty-window = Aucun ticket dans cette fenêtre. Utilisez Ajuster, Aujourd'hui ou les flèches pour déplacer la chronologie.
+# État vide de la chronologie (machine, à relire par un locuteur natif).
+gantt-empty-title = Aucun ticket sur la chronologie pour l'instant
+gantt-empty-description = Les tickets avec une date d'échéance apparaissent ici, répartis dans le temps. Ajoutez-en un depuis le tableau pour commencer.
 gantt-reschedule-handle = Glisser pour changer la date d'échéance
 user-cell-missing-tooltip = Cet utilisateur n'existe plus
 user-cell-unknown = Inconnu
