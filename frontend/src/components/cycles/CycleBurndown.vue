@@ -15,9 +15,10 @@ import { useFluent } from 'fluent-vue'
 import { cyclesService, type CycleStats, type BurnupSeries } from '@/services/cyclesService'
 import type { Cycle } from '@/services/cyclesService'
 import { formatDateTime } from '@/utils/dateUtils'
-import { WORKFLOW_CATEGORIES } from '@/types/workflow'
+import { WORKFLOW_CATEGORIES, coarseStatusBucket, type WorkflowStateCategory } from '@/types/workflow'
 import { cycleHealth, cycleHealthPresentation } from '@/utils/cycleHealth'
 import StatusPill from '@/components/common/StatusPill.vue'
+import StatusIndicator from '@/components/common/StatusIndicator.vue'
 import CycleBurnupChart from './CycleBurnupChart.vue'
 
 const fluent = useFluent()
@@ -101,6 +102,26 @@ const categoryLabels = computed<Record<string, string>>(() => ({
   done: t('tickets-cycle-burndown-cat-done'),
   cancelled: t('tickets-cycle-burndown-cat-cancelled'),
 }))
+
+// Color-code the breakdown by the category's coarse bucket (the same
+// amber / blue / green the status dots use), with a proportion bar so
+// the distribution reads at a glance. Paired with the StatusIndicator
+// dot, which falls back to shapes in colour-blind mode, so colour is
+// never the only signal.
+function categoryBarClass(cat: string): string {
+  switch (coarseStatusBucket(cat as WorkflowStateCategory)) {
+    case 'open':
+      return 'bg-status-open'
+    case 'in-progress':
+      return 'bg-status-in-progress'
+    default:
+      return 'bg-status-closed'
+  }
+}
+function categoryPct(count: number): number {
+  const total = stats.value?.tickets ?? 0
+  return total > 0 ? Math.round((count / total) * 100) : 0
+}
 </script>
 
 <template>
@@ -156,15 +177,23 @@ const categoryLabels = computed<Record<string, string>>(() => ({
       <!-- Burnup chart (live cycles with start + end dates only) -->
       <CycleBurnupChart v-if="showBurnup && burnup" :series="burnup" />
 
-      <!-- By category -->
-      <div v-if="sortedCategories.length" class="flex flex-col gap-1">
+      <!-- By category: colour-coded dot + proportion bar + count -->
+      <div v-if="sortedCategories.length" class="flex flex-col gap-1.5">
         <div
           v-for="[cat, count] in sortedCategories"
           :key="cat"
-          class="flex items-center justify-between text-xs"
+          class="flex items-center gap-2 text-xs"
         >
-          <span class="text-secondary">{{ categoryLabels[cat] ?? cat }}</span>
-          <span class="text-tertiary tabular-nums">{{ count }}</span>
+          <StatusIndicator :category="(cat as WorkflowStateCategory)" size="sm" />
+          <span class="text-secondary w-20 shrink-0 truncate">{{ categoryLabels[cat] ?? cat }}</span>
+          <div class="flex-1 h-1.5 rounded-full bg-surface-hover overflow-hidden">
+            <div
+              class="h-full rounded-full transition-all"
+              :class="categoryBarClass(cat)"
+              :style="{ width: `${categoryPct(count)}%` }"
+            />
+          </div>
+          <span class="text-tertiary tabular-nums w-6 text-right shrink-0">{{ count }}</span>
         </div>
       </div>
 
