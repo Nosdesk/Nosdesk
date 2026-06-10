@@ -3,6 +3,7 @@ pub mod cookie_auth;
 pub mod idempotency;
 pub mod request_context;
 pub mod security_headers;
+pub mod token_scope;
 pub mod workspace_context;
 
 pub use api_token::dual_auth_middleware;
