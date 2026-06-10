@@ -1,13 +1,20 @@
 /**
  * Cycle health: classifies an in-flight cycle as on-track / at-risk /
- * behind by comparing how much work is done against how much of the
- * scheduled window has elapsed (a pace check, not a deadline check).
+ * behind from a FORECAST, not from distance to a straight ideal line.
  *
- * Derivable entirely from data we already have (ticket counts + the
- * cycle's start/end dates), so it works both in the burndown card (which
- * has real stats) and anywhere a per-cycle completed/total count is on
- * hand. No backend signal required.
+ * Per the agile-metrics research (see docs/plans/gantt-cycle-design-
+ * overhaul.md), "distance from the day-zero ideal" is the rejected
+ * approach: it assumes linear work and punishes a team that simply
+ * front-loads discovery. Instead we project the team's observed
+ * throughput (completed so far / working days elapsed) forward and ask
+ * whether the projected finish lands before the cycle end. This is the
+ * count-based analogue of Cohn's velocity forecast.
+ *
+ * Inputs are intentionally the same coarse counts + dates the burndown
+ * card already has, so callers don't need the daily series to get a
+ * health read.
  */
+import { countWorkingDays, dayMsOf } from '@/utils/burnupModel'
 import type { StatusPillTone } from '@/components/common/statusPillTone'
 
 export type CycleHealth =
@@ -27,11 +34,18 @@ export interface CycleHealthInput {
 }
 
 /**
- * Slack between ideal and actual completion fraction that still counts as
- * on-pace. Below ideal but within this band reads as "at-risk"; further
- * behind reads as "behind".
+ * Slack, as a fraction of the cycle's total working days, that still
+ * counts as on-pace. A projected finish later than the end but within
+ * this band reads as "at-risk"; further past reads as "behind".
  */
-const AT_RISK_BAND = 0.15
+const AT_RISK_BAND = 0.2
+
+/**
+ * Too little of the cycle elapsed to forecast meaningfully: below this
+ * fraction we give the benefit of the doubt rather than crying wolf on
+ * day one (the empty-data caveat from the ideal-line critique).
+ */
+const MIN_ELAPSED_FRACTION = 0.15
 
 export function cycleHealth(input: CycleHealthInput): CycleHealth {
   const { total, completed, startAt, endAt } = input
@@ -40,26 +54,38 @@ export function cycleHealth(input: CycleHealthInput): CycleHealth {
   if (total === 0) return 'not-started'
   if (completed >= total) return 'complete'
 
-  // No end date means no schedule to fall behind against. Without a
-  // deadline a cycle can't be "behind", so treat any in-progress work as
-  // on-track until it's done.
+  // No end date means no schedule to fall behind against.
   if (!endAt) return 'on-track'
 
-  const end = new Date(endAt).getTime()
-  const start = startAt ? new Date(startAt).getTime() : end - 14 * 86_400_000
+  const end = dayMsOf(new Date(endAt).getTime())
+  const start = dayMsOf(startAt ? new Date(startAt).getTime() : end - 14 * 86_400_000)
+  const today = dayMsOf(now)
 
   // Past the end date with work still open is unambiguously behind.
-  if (now >= end) return 'behind'
+  if (today >= end) return 'behind'
 
-  const span = end - start
-  if (span <= 0) return 'on-track'
+  const totalWorking = countWorkingDays(start, end)
+  if (totalWorking <= 0) return 'on-track'
 
-  const elapsedFraction = Math.min(1, Math.max(0, (now - start) / span))
-  const doneFraction = completed / total
-  const gap = elapsedFraction - doneFraction
+  const elapsedWorking = countWorkingDays(start, today)
+  const elapsedFraction = elapsedWorking / totalWorking
 
-  if (gap <= 0) return 'on-track'
-  if (gap <= AT_RISK_BAND) return 'at-risk'
+  // Too early to judge: don't flag risk before there's signal.
+  if (elapsedFraction < MIN_ELAPSED_FRACTION) return 'on-track'
+
+  // Nothing done well into the cycle is the clearest behind signal.
+  if (completed === 0) return 'behind'
+
+  // Project throughput forward: working days the remaining work needs at
+  // the observed rate, added to what's already elapsed, versus the
+  // cycle's working-day budget.
+  const rate = completed / Math.max(1, elapsedWorking)
+  const remaining = total - completed
+  const neededWorking = elapsedWorking + remaining / rate
+  const slackFraction = (totalWorking - neededWorking) / totalWorking
+
+  if (slackFraction >= 0) return 'on-track'
+  if (slackFraction >= -AT_RISK_BAND) return 'at-risk'
   return 'behind'
 }
 

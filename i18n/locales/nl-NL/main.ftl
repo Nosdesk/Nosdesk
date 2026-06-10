@@ -4815,6 +4815,18 @@ cycle-burnup-legend-ideal = Ideaal
 # Cyclusomvang (machine, nog na te kijken door moedertaalspreker).
 cycle-burnup-legend-start-scope = Beginomvang
 cycle-burnup-needs-dates = Voeg start- en einddatums toe om de burnup te zien.
+# machine, na te kijken door moedertaalspreker
+cycle-burnup-today = Vandaag
+# machine, na te kijken door moedertaalspreker
+cycle-burnup-label-pace = Tempo
+# machine, na te kijken door moedertaalspreker
+cycle-burnup-label-forecast = Prognose
+# machine, na te kijken door moedertaalspreker
+cycle-burnup-summary = Cyclus-burnup: { $completed } van { $scope } items voltooid.
+# machine, na te kijken door moedertaalspreker
+cycle-burnup-table-caption = Cyclus-burnupgegevens per dag
+# machine, na te kijken door moedertaalspreker
+cycle-burnup-col-day = Dag
 tickets-cycle-scope-added = +{ $count } toegevoegd na de start
 tickets-collaborative-article-title = Ticketnotities
 tickets-collaborative-article-doc-title = Documentatie: ticket #{ $id }

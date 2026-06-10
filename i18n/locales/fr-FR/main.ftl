@@ -4824,6 +4824,18 @@ cycle-burnup-legend-ideal = Idéal
 # Portée de cycle (machine, à relire par un locuteur natif).
 cycle-burnup-legend-start-scope = Portée initiale
 cycle-burnup-needs-dates = Ajoutez des dates de début et de fin pour voir le burnup.
+# machine, à relire par un locuteur natif
+cycle-burnup-today = Aujourd'hui
+# machine, à relire par un locuteur natif
+cycle-burnup-label-pace = Rythme
+# machine, à relire par un locuteur natif
+cycle-burnup-label-forecast = Prévision
+# machine, à relire par un locuteur natif
+cycle-burnup-summary = Burnup du cycle : { $completed } sur { $scope } éléments terminés.
+# machine, à relire par un locuteur natif
+cycle-burnup-table-caption = Données du burnup du cycle par jour
+# machine, à relire par un locuteur natif
+cycle-burnup-col-day = Jour
 tickets-cycle-scope-added = +{ $count } ajoutés après le début
 tickets-collaborative-article-title = Notes du ticket
 tickets-collaborative-article-doc-title = Documentation : Ticket n°{ $id }
