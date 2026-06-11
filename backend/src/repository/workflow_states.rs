@@ -12,6 +12,7 @@ use chrono::Utc;
 use diesel::prelude::*;
 use once_cell::sync::Lazy;
 use serde_json::json;
+use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::{
@@ -123,6 +124,99 @@ pub fn first_in_category(
             .cloned()
     })?
     .ok_or(diesel::result::Error::NotFound)
+}
+
+/// First-run seeder: insert the default workflow-state catalogue for a
+/// freshly-provisioned workspace so ticket creation and triage have
+/// states to route through. No-ops when the workspace already holds any
+/// workflow state, so re-running provisioning never doubles up or trashes
+/// admin edits. Mirrors the rows the initial migration hardcodes for the
+/// bootstrap workspace.
+///
+/// Caller must run inside an actor context pinned to the target workspace;
+/// `workspace_id` is supplied by the column default reading
+/// `app.workspace_id`. Exactly one default (Backlog); `In Progress` is the
+/// only state that doesn't pause the SLA clock.
+// sync-audit-only: provisioning seed, not a user-driven write
+pub fn seed_defaults_if_empty(
+    conn: &mut DbConnection,
+    created_by: Option<Uuid>,
+) -> QueryResult<usize> {
+    use diesel::dsl::count_star;
+
+    let existing: i64 = workflow_states::table.select(count_star()).first(conn)?;
+    if existing > 0 {
+        return Ok(0);
+    }
+
+    // (name, category, color, is_default, pauses_sla) in catalogue order.
+    let defaults = [
+        (
+            "Triage",
+            WorkflowStateCategory::Triage,
+            "slate",
+            false,
+            true,
+        ),
+        (
+            "Backlog",
+            WorkflowStateCategory::Backlog,
+            "gray",
+            true,
+            true,
+        ),
+        (
+            "In Progress",
+            WorkflowStateCategory::Active,
+            "blue",
+            false,
+            false,
+        ),
+        (
+            "In Review",
+            WorkflowStateCategory::InReview,
+            "purple",
+            false,
+            true,
+        ),
+        ("Done", WorkflowStateCategory::Done, "green", false, true),
+        (
+            "Cancelled",
+            WorkflowStateCategory::Cancelled,
+            "subtle",
+            false,
+            true,
+        ),
+        (
+            "Merged",
+            WorkflowStateCategory::Merged,
+            "subtle",
+            false,
+            true,
+        ),
+    ];
+
+    let rows: Vec<NewWorkflowState> = defaults
+        .into_iter()
+        .enumerate()
+        .map(
+            |(i, (name, category, color, is_default, pauses_sla))| NewWorkflowState {
+                name: name.to_string(),
+                category,
+                color: color.to_string(),
+                position: i as i32,
+                is_default,
+                created_by,
+                pauses_sla,
+            },
+        )
+        .collect();
+
+    let inserted = diesel::insert_into(workflow_states::table)
+        .values(&rows)
+        .execute(conn)?;
+    invalidate_cache();
+    Ok(inserted)
 }
 
 pub fn create(conn: &mut DbConnection, new: NewWorkflowState) -> QueryResult<WorkflowState> {

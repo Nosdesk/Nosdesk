@@ -2795,6 +2795,19 @@ pub struct OAuthState {
     pub pkce_verifier: Option<String>,
     /// Nonce for ID token validation (for OIDC providers)
     pub nonce: Option<String>,
+    /// Workspace this login was initiated against, captured at
+    /// initiation from the authoritative request context (the user is on
+    /// their own workspace subdomain) and carried through the IdP
+    /// round-trip inside this signed, tamper-proof token. The callback
+    /// provisions membership into THIS workspace rather than re-deriving
+    /// the tenant from the callback's `Host` header, binding the
+    /// workspace into the integrity-protected login transaction instead
+    /// of trusting attacker-influenceable ambient state. `None` for
+    /// user-connection flows (which don't provision membership) and for
+    /// legacy in-flight tokens minted before this field existed (a
+    /// <=10-minute transition window).
+    #[serde(default)]
+    pub workspace_id: Option<i32>,
 }
 
 // OAuth Authentication request

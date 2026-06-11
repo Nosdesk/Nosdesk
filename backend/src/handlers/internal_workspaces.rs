@@ -155,13 +155,40 @@ pub async fn create_workspace(
         name: name.clone(),
     };
 
-    match workspaces::create_workspace(&mut conn, &record) {
+    // Insert the workspace and seed its default content in one
+    // transaction, so a seed failure rolls the new workspace row back too:
+    // the control plane then retries `create` cleanly rather than
+    // inheriting a reachable but unusable (state-less) workspace.
+    //
+    // The two writes need different roles. The `workspaces` parent is a
+    // BYPASSRLS-only table (`nosdesk_app` has SELECT only), so the insert
+    // runs under `nosdesk_admin` via `with_actor_bypass_context`. The seed
+    // then drops to `nosdesk_app` with `app.workspace_id` pinned to the
+    // freshly-minted id (a second `set_actor`), so every seeded row's
+    // workspace_id default and audit trigger resolves to this workspace and
+    // RLS applies fail-closed. The owner doesn't exist yet (projected by a
+    // separate call), so seed rows are authored as NULL.
+    let provision_actor = crate::sync::actor::ActorContext::system("workspace:provision");
+    let result = crate::sync::session::with_actor_bypass_context::<Workspace, CreateWorkspaceError>(
+        &mut conn,
+        &provision_actor,
+        |c| {
+            let ws = workspaces::create_workspace(c, &record)?;
+            let seed_actor = crate::sync::actor::ActorContext::system("workspace:provision")
+                .with_workspace(ws.id);
+            crate::sync::session::set_actor(c, &seed_actor)?;
+            crate::services::seed::seed_workspace_defaults(c, None)?;
+            Ok(ws)
+        },
+    );
+
+    match result {
         Ok(ws) => {
             info!(
                 workspace_uuid = %ws.uuid,
                 workspace_id = ws.id,
                 slug = %ws.slug,
-                "workspaces/create: provisioned"
+                "workspaces/create: provisioned + seeded"
             );
             HttpResponse::Created().json(CreateWorkspaceResponse {
                 workspace_uuid: ws.uuid,
@@ -332,6 +359,24 @@ pub async fn upsert_projected_user(
             // search observer, so this reindex is what writes the user
             // into the index with the correct multi-valued workspace tags
             // (and refreshes them when an existing user is re-projected).
+            // Best-effort: seed the workspace's Getting Started docs now
+            // that a real user exists to author the welcome page (its
+            // author columns are NOT NULL with an FK to `users`, so the
+            // create-time functional seed couldn't write it). Idempotent —
+            // a no-op once the collection has a page, so re-projection and
+            // subsequent member projections don't duplicate it. Runs in its
+            // own actor-context txn so a docs hiccup never fails the
+            // projection the control plane is retrying.
+            let docs_actor = crate::sync::actor::ActorContext::system("workspace:seed-docs")
+                .with_workspace(workspace.id);
+            if let Err(e) = crate::sync::session::with_actor_context::<_, diesel::result::Error>(
+                &mut conn,
+                &docs_actor,
+                |c| crate::services::seed::seed_getting_started(c, user.uuid),
+            ) {
+                warn!(error = %e, workspace_id = workspace.id, "seed-docs: failed (non-fatal)");
+            }
+
             if let Some(search_service) = &search_service {
                 indexing_tasks::spawn_reindex_user(search_service.get_ref().clone(), user.uuid);
             }

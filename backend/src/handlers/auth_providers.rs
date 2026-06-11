@@ -210,6 +210,28 @@ pub async fn oauth_authorize(
         }
     };
 
+    // Bind the workspace into the signed state NOW, while the request
+    // context authoritatively identifies the tenant (the user is on their
+    // own workspace subdomain). The callback reads this back rather than
+    // re-deriving the tenant from its own `Host`, so a first-login user is
+    // provisioned into the workspace they actually started from. Hosted
+    // mode fails closed when initiation didn't resolve to a tenant.
+    // User-connection flows don't provision membership, so they carry no
+    // workspace.
+    let initiation_workspace = if is_user_connection {
+        None
+    } else {
+        match resolve_request_workspace(&req) {
+            Some(id) => Some(id),
+            None => {
+                warn!(
+                    "OAuth initiation rejected: request did not resolve to a workspace (hosted mode)"
+                );
+                return errors::bad_request("Could not determine the workspace for this sign-in");
+            }
+        }
+    };
+
     // For Microsoft Entra, generate the authorization URL
     if provider.provider_type == "microsoft" {
         // Get the provider configuration from environment variables
@@ -251,6 +273,7 @@ pub async fn oauth_authorize(
             "microsoft",
             oauth_request.redirect_uri.clone(),
             oauth_request.user_connection,
+            initiation_workspace,
         ) {
             Ok(token) => token,
             Err(e) => {
@@ -284,6 +307,7 @@ pub async fn oauth_authorize(
                     oauth_request.user_connection,
                     Some(auth_data.pkce_verifier),
                     Some(auth_data.nonce),
+                    initiation_workspace,
                 ) {
                     Ok(token) => token,
                     Err(e) => {
@@ -609,11 +633,10 @@ pub async fn oauth_callback(
                 } else {
                     // Regular login/signup flow
                     // Find or create user based on OAuth identity
-                    let workspace_id = request
-                        .extensions()
-                        .get::<crate::extractors::WorkspaceContext>()
-                        .map(|w| w.workspace_id)
-                        .unwrap_or(1);
+                    let workspace_id = match resolve_callback_workspace(&state_data, &request) {
+                        Ok(id) => id,
+                        Err(resp) => return resp,
+                    };
                     let user_result =
                         find_or_create_oauth_user(&user_info, &provider, &mut conn, workspace_id)
                             .await;
@@ -806,11 +829,10 @@ pub async fn oauth_callback(
                         "surname": user_info.family_name,
                     });
 
-                    let workspace_id = request
-                        .extensions()
-                        .get::<crate::extractors::WorkspaceContext>()
-                        .map(|w| w.workspace_id)
-                        .unwrap_or(1);
+                    let workspace_id = match resolve_callback_workspace(&state_data, &request) {
+                        Ok(id) => id,
+                        Err(resp) => return resp,
+                    };
                     let user_result = find_or_create_oauth_user(
                         &oidc_user_info,
                         &provider,
@@ -946,8 +968,16 @@ fn create_oauth_state(
     provider_type: &str,
     redirect_uri: Option<String>,
     user_connection: Option<bool>,
+    workspace_id: Option<i32>,
 ) -> Result<String, String> {
-    create_oauth_state_with_oidc(provider_type, redirect_uri, user_connection, None, None)
+    create_oauth_state_with_oidc(
+        provider_type,
+        redirect_uri,
+        user_connection,
+        None,
+        None,
+        workspace_id,
+    )
 }
 
 // Create a signed state JWT for OAuth/OIDC flow with optional PKCE and nonce
@@ -957,6 +987,7 @@ fn create_oauth_state_with_oidc(
     user_connection: Option<bool>,
     pkce_verifier: Option<String>,
     nonce: Option<String>,
+    workspace_id: Option<i32>,
 ) -> Result<String, String> {
     // Get the JWT secret from environment or configuration
     let secret = JWT_SECRET.clone();
@@ -978,6 +1009,7 @@ fn create_oauth_state_with_oidc(
         user_connection,
         pkce_verifier,
         nonce,
+        workspace_id,
     };
 
     // Create the token
@@ -1135,6 +1167,133 @@ async fn get_microsoft_user_info(access_token: &str) -> Result<serde_json::Value
         Ok(json) => Ok(json),
         Err(e) => Err(format!("Failed to parse user info response: {e}")),
     }
+}
+
+/// Resolve the workspace an OAuth/OIDC login is being INITIATED for,
+/// from the `WorkspaceContext` the workspace middleware attaches to the
+/// request. The result is bound into the signed state so the callback
+/// can trust it; see [`OAuthState::workspace_id`].
+///
+/// In HOSTED mode a missing context means the request didn't resolve to
+/// a tenant (apex domain, unknown subdomain, or a transient resolve
+/// failure). We MUST fail closed: returning `None` rejects initiation
+/// rather than starting a login that would later have to guess a
+/// workspace. In SELF-HOSTED mode there is exactly one workspace, so the
+/// bootstrap workspace is the correct and only answer.
+fn resolve_request_workspace(request: &HttpRequest) -> Option<i32> {
+    let ctx = request
+        .extensions()
+        .get::<crate::extractors::WorkspaceContext>()
+        .map(|w| w.workspace_id);
+    workspace_for_login(ctx, crate::middleware::DeploymentMode::current())
+}
+
+/// Pure decision behind [`resolve_request_workspace`], split out so the
+/// fail-closed rule is unit-testable without an `HttpRequest` or the
+/// process-wide deployment-mode `OnceLock`.
+fn workspace_for_login(
+    resolved: Option<i32>,
+    mode: crate::middleware::DeploymentMode,
+) -> Option<i32> {
+    use crate::middleware::DeploymentMode;
+    match resolved {
+        Some(id) => Some(id),
+        None => match mode {
+            DeploymentMode::SelfHosted => Some(crate::sync::actor::BOOTSTRAP_WORKSPACE_ID),
+            DeploymentMode::Hosted => None,
+        },
+    }
+}
+
+/// Why a callback couldn't settle on a workspace to provision into.
+#[derive(Debug, PartialEq, Eq)]
+enum WorkspaceBindingError {
+    /// The workspace bound into the (signed) state at initiation
+    /// disagrees with the one the callback request resolved to. That
+    /// means a state minted for one tenant is being completed against
+    /// another (replay / cross-tenant), so we refuse.
+    Mismatch { state_ws: i32, ctx_ws: i32 },
+    /// Neither the state nor the request yields a workspace: a legacy
+    /// in-flight token (minted before workspace binding) completing on an
+    /// unresolved host. Fail closed.
+    Unresolved,
+}
+
+/// Pure decision for the CALLBACK: which workspace to provision a
+/// first-login user into.
+///
+/// The workspace bound into the signed state at initiation
+/// (`state_ws`) is authoritative — it was captured where the tenant was
+/// unambiguous and is integrity-protected by the state's signature. The
+/// callback request's own resolved context (`ctx_ws`) is used only as a
+/// defense-in-depth cross-check, never as the primary source, so the
+/// callback's `Host` header can't redirect a login into another tenant.
+///
+/// `state_ws == None` is the transitional path for tokens minted before
+/// this field existed; it falls back to the same fail-closed request
+/// resolution as initiation and goes dead once those tokens expire.
+fn callback_workspace_decision(
+    state_ws: Option<i32>,
+    ctx_ws: Option<i32>,
+    mode: crate::middleware::DeploymentMode,
+) -> Result<i32, WorkspaceBindingError> {
+    match state_ws {
+        Some(state_ws) => match ctx_ws {
+            Some(ctx_ws) if ctx_ws != state_ws => {
+                Err(WorkspaceBindingError::Mismatch { state_ws, ctx_ws })
+            }
+            _ => Ok(state_ws),
+        },
+        None => workspace_for_login(ctx_ws, mode).ok_or(WorkspaceBindingError::Unresolved),
+    }
+}
+
+/// Resolve the workspace to provision a first-login user into at the
+/// OAuth/OIDC callback, authoritatively from the signed state with a
+/// defense-in-depth cross-check against the callback request's context.
+/// On any failure returns the same auth-error redirect the rest of the
+/// callback uses, so the caller can `return` it directly.
+fn resolve_callback_workspace(
+    state: &OAuthState,
+    request: &HttpRequest,
+) -> Result<i32, HttpResponse> {
+    let ctx_ws = request
+        .extensions()
+        .get::<crate::extractors::WorkspaceContext>()
+        .map(|w| w.workspace_id);
+    match callback_workspace_decision(
+        state.workspace_id,
+        ctx_ws,
+        crate::middleware::DeploymentMode::current(),
+    ) {
+        Ok(id) => Ok(id),
+        Err(WorkspaceBindingError::Mismatch { state_ws, ctx_ws }) => {
+            warn!(
+                state_ws,
+                ctx_ws, "OAuth callback rejected: state/context workspace mismatch (replay?)"
+            );
+            Err(workspace_unresolved_redirect(&state.redirect_uri))
+        }
+        Err(WorkspaceBindingError::Unresolved) => {
+            warn!("OAuth callback rejected: no workspace bound in state and request did not resolve one");
+            Err(workspace_unresolved_redirect(&state.redirect_uri))
+        }
+    }
+}
+
+/// Redirect response for a login that couldn't be tied to a workspace
+/// (hosted mode, unresolved tenant). Mirrors the existing auth-error
+/// redirect shape so the frontend surfaces it the same way.
+fn workspace_unresolved_redirect(redirect_uri: &str) -> HttpResponse {
+    let redirect_path = redirect_uri.split('?').next().unwrap_or("/");
+    let error_url = format!(
+        "{}?auth_error={}",
+        redirect_path,
+        urlencoding::encode("Could not determine the workspace for this sign-in")
+    );
+    HttpResponse::Found()
+        .append_header(("Location", error_url))
+        .finish()
 }
 
 // Helper function to find or create a user from OAuth profile
@@ -1455,11 +1614,14 @@ pub async fn oauth_connect(
         };
         let actual_redirect_uri = format!("{base_redirect_uri}{separator}user_uuid={}", user.uuid);
 
-        // Generate a JWT state token with user_connection=true
+        // Generate a JWT state token with user_connection=true. Connecting
+        // an identity to an already-authenticated account doesn't
+        // provision workspace membership, so no workspace is bound.
         let state = match create_oauth_state(
             &provider.provider_type,
             Some(actual_redirect_uri),
             Some(true),
+            None,
         ) {
             Ok(token) => token,
             Err(e) => {
@@ -1514,5 +1676,92 @@ mod connect_redirect_tests {
         );
         // Unrelated query: preserved.
         assert_eq!(strip_query_param("/p?foo=1", "user_uuid"), "/p?foo=1");
+    }
+}
+
+#[cfg(test)]
+mod workspace_for_login_tests {
+    use super::{callback_workspace_decision, workspace_for_login, WorkspaceBindingError};
+    use crate::middleware::DeploymentMode;
+    use crate::sync::actor::BOOTSTRAP_WORKSPACE_ID;
+
+    // --- initiation-side resolution (bound into the signed state) ---
+
+    #[test]
+    fn resolved_context_is_used_in_either_mode() {
+        assert_eq!(
+            workspace_for_login(Some(7), DeploymentMode::Hosted),
+            Some(7)
+        );
+        assert_eq!(
+            workspace_for_login(Some(7), DeploymentMode::SelfHosted),
+            Some(7)
+        );
+    }
+
+    #[test]
+    fn missing_context_fails_closed_in_hosted_mode() {
+        // P0.3: no silent fallback to the bootstrap workspace in hosted
+        // mode — initiation must be rejected.
+        assert_eq!(workspace_for_login(None, DeploymentMode::Hosted), None);
+    }
+
+    #[test]
+    fn missing_context_falls_back_to_bootstrap_in_self_hosted() {
+        // Self-hosted has exactly one workspace, so the bootstrap
+        // workspace is the correct answer.
+        assert_eq!(
+            workspace_for_login(None, DeploymentMode::SelfHosted),
+            Some(BOOTSTRAP_WORKSPACE_ID)
+        );
+    }
+
+    // --- callback-side resolution (state is authoritative) ---
+
+    #[test]
+    fn callback_trusts_the_state_bound_workspace() {
+        // No callback context at all: the signed state still decides,
+        // regardless of mode. This is the whole point — the callback
+        // Host can't override the tenant bound at initiation.
+        assert_eq!(
+            callback_workspace_decision(Some(42), None, DeploymentMode::Hosted),
+            Ok(42)
+        );
+        // Context agrees with the state: fine.
+        assert_eq!(
+            callback_workspace_decision(Some(42), Some(42), DeploymentMode::Hosted),
+            Ok(42)
+        );
+    }
+
+    #[test]
+    fn callback_rejects_state_context_mismatch() {
+        // State minted for workspace 42, but the callback resolved to 7:
+        // a replayed / cross-tenant state. Refuse.
+        assert_eq!(
+            callback_workspace_decision(Some(42), Some(7), DeploymentMode::Hosted),
+            Err(WorkspaceBindingError::Mismatch {
+                state_ws: 42,
+                ctx_ws: 7
+            })
+        );
+    }
+
+    #[test]
+    fn callback_legacy_token_falls_back_fail_closed() {
+        // Legacy token without a bound workspace (pre-deploy): falls back
+        // to the same fail-closed request resolution.
+        assert_eq!(
+            callback_workspace_decision(None, Some(7), DeploymentMode::Hosted),
+            Ok(7)
+        );
+        assert_eq!(
+            callback_workspace_decision(None, None, DeploymentMode::Hosted),
+            Err(WorkspaceBindingError::Unresolved)
+        );
+        assert_eq!(
+            callback_workspace_decision(None, None, DeploymentMode::SelfHosted),
+            Ok(BOOTSTRAP_WORKSPACE_ID)
+        );
     }
 }

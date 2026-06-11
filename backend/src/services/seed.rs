@@ -7,46 +7,124 @@ use yrs::types::Delta;
 use yrs::{Any, Doc, ReadTxn, Transact, WriteTxn, XmlElementPrelim, XmlFragment};
 
 use crate::db::DbConnection;
-use crate::models::{DocumentationStatus, NewDocumentationCollectionPage, NewDocumentationPage};
+use crate::models::{
+    DocumentationCollection, DocumentationStatus, NewDocumentationCollection,
+    NewDocumentationCollectionPage, NewDocumentationPage,
+};
 use crate::repository;
 use crate::repository::documentation_collections;
 use crate::utils::i18n;
 use crate::utils::locale::DEFAULT_LOCALE;
+use diesel::QueryResult;
 use std::str::FromStr;
 use unic_langid::LanguageIdentifier;
 
-/// Run all seed checks on startup.
+/// Run all seed checks on startup. Targets the bootstrap workspace (the
+/// caller pins the actor context to workspace 1), whose workflow states /
+/// SLA / categories / Getting Started collection already exist from the
+/// initial migration, so only the welcome page needs seeding here.
 /// Each seed is idempotent - it only creates content if it doesn't already exist.
 pub fn run_seeds(conn: &mut DbConnection) {
-    seed_getting_started(conn);
+    // The welcome page's author columns are NOT NULL with an FK to
+    // `users`, so the docs seed only runs when a platform admin exists to
+    // author it. On a clean install the bootstrap admin is created first,
+    // so this is satisfied by the time startup seeding runs.
+    match first_platform_admin(conn) {
+        Some(author) => {
+            if let Err(e) = seed_getting_started(conn, author) {
+                warn!(error = %e, "Failed to seed Getting Started welcome page");
+            }
+        }
+        None => debug!("No platform admin yet; skipping Getting Started welcome-page seed"),
+    }
 }
 
-/// Seed the "Getting Started" collection with a welcome page if it's empty.
-fn seed_getting_started(conn: &mut DbConnection) {
-    // Find the "Getting Started" system collection
-    let collection =
-        match documentation_collections::get_collection_by_slug(conn, "getting-started") {
-            Ok(c) => c,
-            Err(_) => {
-                debug!("Getting Started collection not found, skipping seed");
-                return;
-            }
-        };
+/// Seed the functional defaults a freshly-provisioned workspace needs to be
+/// usable: workflow states (the ticket-creation blocker), a working
+/// calendar + SLA policy, and ticket categories. Idempotent per workspace;
+/// each sub-seed no-ops when its rows already exist.
+///
+/// Starter docs are deliberately NOT seeded here: the welcome page's author
+/// columns are NOT NULL with an FK to `users`, and at hosted create time no
+/// user exists yet (`created_by` is `None`). The Getting Started docs are
+/// seeded later, at owner projection, via [`seed_getting_started`].
+///
+/// The caller MUST run this inside an actor context pinned to the target
+/// workspace (`ActorContext::system(...).with_workspace(id)`), so the
+/// `app.workspace_id` GUC drives the per-row workspace_id defaults and the
+/// audit triggers attribute the writes to that workspace.
+pub fn seed_workspace_defaults(
+    conn: &mut DbConnection,
+    created_by: Option<Uuid>,
+) -> QueryResult<()> {
+    repository::workflow_states::seed_defaults_if_empty(conn, created_by)?;
+    repository::sla_admin::seed_defaults_if_empty(conn, created_by)?;
+    repository::categories::seed_defaults_if_empty(conn, created_by)?;
+    Ok(())
+}
+
+/// Resolve the system user to credit seed content to: the first platform
+/// admin, or `None` when no admin exists yet (e.g. a hosted workspace
+/// seeded before its owner is projected).
+fn first_platform_admin(conn: &mut DbConnection) -> Option<Uuid> {
+    use crate::schema::users;
+    use diesel::prelude::*;
+    users::table
+        .filter(users::platform_role.eq("platform_admin"))
+        .filter(users::deleted_at.is_null())
+        .select(users::uuid)
+        .first::<Uuid>(conn)
+        .ok()
+}
+
+/// Get-or-create the workspace's "Getting Started" system collection. A
+/// freshly-provisioned workspace has none (the slug is unique per
+/// workspace, so this never collides with the bootstrap workspace's row).
+fn ensure_getting_started_collection(
+    conn: &mut DbConnection,
+    author: Uuid,
+) -> QueryResult<DocumentationCollection> {
+    match documentation_collections::get_collection_by_slug(conn, "getting-started") {
+        Ok(c) => Ok(c),
+        Err(diesel::result::Error::NotFound) => documentation_collections::create_collection(
+            conn,
+            NewDocumentationCollection {
+                uuid: Uuid::new_v4(),
+                name: "Getting Started".to_string(),
+                slug: "getting-started".to_string(),
+                description: Some("Introduction and onboarding documentation".to_string()),
+                icon: Some("\u{1F680}".to_string()),
+                color: None,
+                is_system: true,
+                created_by: Some(author),
+            },
+        ),
+        Err(e) => Err(e),
+    }
+}
+
+/// Seed the workspace's "Getting Started" collection with a welcome page if
+/// it's empty, authored by `author`. Idempotent: a no-op once the
+/// collection has any page. `author` is required (not optional) because the
+/// page's author columns are NOT NULL with an FK to `users`, so this can
+/// only run once a real user exists for the workspace (the owner, at
+/// projection time; or the bootstrap admin, at install).
+///
+/// Returns `Ok` (a no-op) when the page can't be built from the embedded
+/// markdown — a Yjs-conversion hiccup must never block provisioning — and
+/// only propagates genuine DB errors. Caller must run inside an actor
+/// context pinned to the target workspace.
+pub fn seed_getting_started(conn: &mut DbConnection, author: Uuid) -> QueryResult<()> {
+    let collection = ensure_getting_started_collection(conn, author)?;
 
     // Check if it already has pages
-    match documentation_collections::get_pages_in_collection(conn, collection.id) {
-        Ok(pages) if !pages.is_empty() => {
-            debug!(
-                "Getting Started collection already has {} pages, skipping seed",
-                pages.len()
-            );
-            return;
-        }
-        Err(e) => {
-            warn!(error = %e, "Failed to check Getting Started collection pages");
-            return;
-        }
-        _ => {}
+    let pages = documentation_collections::get_pages_in_collection(conn, collection.id)?;
+    if !pages.is_empty() {
+        debug!(
+            "Getting Started collection already has {} pages, skipping seed",
+            pages.len()
+        );
+        return Ok(());
     }
 
     // The seed markdown is embedded at compile time via include_str!().
@@ -59,35 +137,19 @@ fn seed_getting_started(conn: &mut DbConnection) {
     // binary runs, the content is in it.
     let markdown = include_str!("../../seeds/getting-started.md");
 
-    // Convert markdown to a Yjs document
+    // Convert markdown to a Yjs document. A conversion failure is
+    // non-fatal: skip the page rather than abort provisioning.
     let yjs_document = match markdown_to_yjs(markdown) {
         Some(doc) => doc,
         None => {
             warn!("Failed to convert getting-started.md to Yjs document");
-            return;
+            return Ok(());
         }
     };
 
-    // We need a system user UUID for created_by. Use the first admin, or a nil UUID.
-    // Find the first platform admin to credit the seed content.
-    // Post-W2: platform_role = 'platform_admin' is the source of
-    // truth (workspace owner/admin in workspace 1 would also count
-    // but bootstrap always seeds a platform admin first).
-    let created_by = {
-        use crate::schema::users;
-        use diesel::prelude::*;
-        users::table
-            .filter(users::platform_role.eq("platform_admin"))
-            .filter(users::deleted_at.is_null())
-            .select(users::uuid)
-            .first::<Uuid>(conn)
-            .ok()
-            .unwrap_or_else(Uuid::nil)
-    };
-
-    // Create the welcome page. The seed runs once at install with no
-    // user context, so resolve the title against DEFAULT_LOCALE; admin
-    // can rename it afterwards via the documentation editor.
+    // Create the welcome page. The seed runs with no per-user locale
+    // context, so resolve the title against DEFAULT_LOCALE; admin can
+    // rename it afterwards via the documentation editor.
     let seed_locale = LanguageIdentifier::from_str(DEFAULT_LOCALE).expect("DEFAULT_LOCALE parses");
     let new_page = NewDocumentationPage {
         uuid: Uuid::new_v4(),
@@ -96,8 +158,8 @@ fn seed_getting_started(conn: &mut DbConnection) {
         icon: Some("\u{1F44B}".to_string()),
         cover_image: None,
         status: DocumentationStatus::Published,
-        created_by,
-        last_edited_by: created_by,
+        created_by: author,
+        last_edited_by: author,
         parent_id: None,
         display_order: Some(0),
         is_public: true,
@@ -108,23 +170,15 @@ fn seed_getting_started(conn: &mut DbConnection) {
         has_unsaved_changes: false,
     };
 
-    match repository::create_documentation_page(new_page, conn) {
-        Ok(page) => {
-            // Add it to the Getting Started collection
-            let entry = NewDocumentationCollectionPage {
-                collection_id: collection.id,
-                page_id: page.id,
-                created_by: Some(created_by),
-            };
-            if let Err(e) = documentation_collections::add_page_to_collection(conn, entry) {
-                warn!(error = %e, "Failed to add welcome page to Getting Started collection");
-            }
-            info!("Seeded welcome page in Getting Started collection");
-        }
-        Err(e) => {
-            warn!(error = %e, "Failed to create welcome page");
-        }
-    }
+    let page = repository::create_documentation_page(new_page, conn)?;
+    let entry = NewDocumentationCollectionPage {
+        collection_id: collection.id,
+        page_id: page.id,
+        created_by: Some(author),
+    };
+    documentation_collections::add_page_to_collection(conn, entry)?;
+    info!("Seeded welcome page in Getting Started collection");
+    Ok(())
 }
 
 /// Convert a simple markdown string to a Yjs document binary (V1 encoded).
@@ -383,4 +437,91 @@ fn parse_inline_spans(text: &str) -> Vec<InlineSpan<'_>> {
     }
 
     spans
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::NewWorkspace;
+    use crate::repository::workspaces::{self, CreateWorkspaceError};
+    use crate::sync::actor::ActorContext;
+    use crate::sync::session::{set_actor, with_actor_bypass_context};
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
+    use diesel::dsl::count_star;
+    use diesel::prelude::*;
+
+    /// Provision a fresh workspace the way the handler does (admin role for
+    /// the `workspaces` insert, then drop to the app role with the new
+    /// workspace pinned) and assert the functional defaults land, the docs
+    /// seed is deferred, and re-running is idempotent.
+    #[test]
+    fn seed_workspace_defaults_populates_a_fresh_workspace() {
+        let mut conn = setup_test_connection();
+        // A real user to author the welcome page (its author columns are a
+        // NOT NULL FK to the global `users` table). Created in the ambient
+        // context; only its uuid matters here.
+        let author = TestFixtures::create_user(&mut conn, "seed_author", "admin");
+
+        let provision = ActorContext::system("test:seed");
+        with_actor_bypass_context::<(), CreateWorkspaceError>(&mut conn, &provision, |c| {
+            let record = NewWorkspace {
+                uuid: Uuid::now_v7(),
+                slug: "seedtest".to_string(),
+                name: "Seed Test".to_string(),
+            };
+            let ws = workspaces::create_workspace(c, &record)?;
+
+            // Drop to the app role + pin the new workspace, so the
+            // RLS-scoped counts below see only this workspace's rows.
+            set_actor(c, &ActorContext::system("test:seed").with_workspace(ws.id))?;
+            seed_workspace_defaults(c, None)?;
+
+            use crate::schema::{
+                sla_policies, ticket_categories, workflow_states, working_calendars,
+            };
+
+            let states: i64 = workflow_states::table.select(count_star()).first(c)?;
+            assert_eq!(states, 7, "7 default workflow states");
+            let defaults: i64 = workflow_states::table
+                .filter(workflow_states::is_default.eq(true))
+                .select(count_star())
+                .first(c)?;
+            assert_eq!(defaults, 1, "exactly one default state");
+
+            let calendars: i64 = working_calendars::table.select(count_star()).first(c)?;
+            assert_eq!(calendars, 1, "one default working calendar");
+            let policies: i64 = sla_policies::table.select(count_star()).first(c)?;
+            assert_eq!(policies, 1, "one default SLA policy");
+
+            let categories: i64 = ticket_categories::table.select(count_star()).first(c)?;
+            assert_eq!(categories, 3, "three default categories");
+
+            // Docs are NOT part of the functional create-time seed.
+            assert!(
+                documentation_collections::get_collection_by_slug(c, "getting-started").is_err(),
+                "getting-started collection should not exist before owner projection"
+            );
+
+            // The owner-projection docs seed: authored welcome page.
+            seed_getting_started(c, author.uuid)?;
+            let coll = documentation_collections::get_collection_by_slug(c, "getting-started")?;
+            let pages = documentation_collections::get_pages_in_collection(c, coll.id)?;
+            assert_eq!(pages.len(), 1, "one welcome page after docs seed");
+
+            // Idempotent: re-running both seeds adds nothing.
+            seed_workspace_defaults(c, None)?;
+            seed_getting_started(c, author.uuid)?;
+            let states_again: i64 = workflow_states::table.select(count_star()).first(c)?;
+            assert_eq!(states_again, 7, "workflow states not duplicated on re-seed");
+            let pages_again = documentation_collections::get_pages_in_collection(c, coll.id)?;
+            assert_eq!(
+                pages_again.len(),
+                1,
+                "welcome page not duplicated on re-seed"
+            );
+
+            Ok(())
+        })
+        .expect("provision + seed fresh workspace");
+    }
 }

@@ -144,6 +144,47 @@ pub fn is_initialized() -> bool {
     INITIALIZED.load(Ordering::Acquire)
 }
 
+/// The login role's RLS posture, as seen by the app's pool.
+pub struct RoleRlsPosture {
+    /// The role the connection authenticates as (`current_user`).
+    pub role_name: String,
+    /// True when the role bypasses row-level security — either a
+    /// superuser (`rolsuper`) or an explicit `BYPASSRLS`
+    /// (`rolbypassrls`). Such a role sees and writes every tenant's
+    /// rows even with `FORCE` RLS on the table, so it must never back
+    /// a hosted multi-tenant deployment.
+    pub bypasses_rls: bool,
+}
+
+/// Inspect the role the pool authenticates as. Used by the hosted-mode
+/// startup guard (P0.2) to refuse booting on a role that bypasses RLS,
+/// which would silently disable tenant isolation.
+pub fn inspect_role_rls_posture(pool: &Pool) -> Result<RoleRlsPosture, String> {
+    use diesel::sql_types::{Bool, Text};
+
+    #[derive(diesel::QueryableByName)]
+    struct Row {
+        #[diesel(sql_type = Text)]
+        role_name: String,
+        #[diesel(sql_type = Bool)]
+        bypasses_rls: bool,
+    }
+
+    let mut conn = pool.get().map_err(|e| format!("pool acquire: {e}"))?;
+    let row: Row = diesel::sql_query(
+        "SELECT current_user::text AS role_name, \
+         (rolsuper OR rolbypassrls) AS bypasses_rls \
+         FROM pg_roles WHERE rolname = current_user",
+    )
+    .get_result(&mut conn)
+    .map_err(|e| format!("role inspection query: {e}"))?;
+
+    Ok(RoleRlsPosture {
+        role_name: row.role_name,
+        bypasses_rls: row.bypasses_rls,
+    })
+}
+
 pub fn establish_connection_pool() -> Pool {
     dotenv().ok();
 
@@ -176,5 +217,33 @@ pub fn establish_connection_pool() -> Pool {
             );
             std::process::exit(1);
         }
+    }
+}
+
+#[cfg(test)]
+mod role_posture_tests {
+    use super::*;
+    use crate::test_helpers::setup_test_pool;
+
+    /// The test pool drops to `nosdesk_app` (NOBYPASSRLS) on acquire,
+    /// mirroring production, so the posture query should report it as NOT
+    /// bypassing RLS — the case where the hosted-mode startup guard allows
+    /// boot. This exercises the query end-to-end (a `QueryableByName` /
+    /// column-alias mistake fails here, not just at runtime in prod) and
+    /// proves the guard won't false-block a correctly-configured role. The
+    /// inverse (a superuser → `bypasses_rls = true`, which the guard refuses
+    /// in production) is verified out-of-band via psql against the same DB.
+    #[test]
+    fn inspect_role_rls_posture_clears_the_app_role() {
+        let pool = setup_test_pool();
+        let posture = inspect_role_rls_posture(&pool).expect("role posture query");
+        assert_eq!(
+            posture.role_name, "nosdesk_app",
+            "test pool should authenticate as nosdesk_app"
+        );
+        assert!(
+            !posture.bypasses_rls,
+            "nosdesk_app is NOBYPASSRLS and must not be flagged as bypassing"
+        );
     }
 }

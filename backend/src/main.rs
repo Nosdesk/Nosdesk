@@ -610,6 +610,49 @@ async fn main() -> std::io::Result<()> {
         ));
     }
 
+    // === DATABASE ROLE / RLS POSTURE (P0.2) ===
+    // In hosted (multi-tenant) mode, tenant isolation rests entirely on
+    // row-level security. A login role that bypasses RLS (a superuser or
+    // BYPASSRLS role) sees and writes every tenant's rows even with FORCE
+    // RLS on the table, so the production DATABASE_URL must authenticate as
+    // the NOBYPASSRLS `nosdesk_app` role. Refuse to boot a production
+    // hosted deployment on a bypass role; warn loudly elsewhere so dev /
+    // staging stacks on the superuser keep working. Self-hosted is single
+    // tenant, where RLS is moot, so this check doesn't apply there.
+    if crate::middleware::DeploymentMode::current() == crate::middleware::DeploymentMode::Hosted {
+        match db::inspect_role_rls_posture(&pool) {
+            Ok(posture) if posture.bypasses_rls => {
+                if environment == "production" {
+                    error!(
+                        role = %posture.role_name,
+                        "Hosted mode is connected to Postgres as a role that BYPASSES RLS; tenant isolation is disabled. Pin DATABASE_URL to the NOBYPASSRLS 'nosdesk_app' role."
+                    );
+                    std::process::exit(1);
+                } else {
+                    warn!(
+                        role = %posture.role_name,
+                        "Hosted mode connected as an RLS-bypassing role (superuser/BYPASSRLS); acceptable outside production only. Pin DATABASE_URL to 'nosdesk_app' before going live."
+                    );
+                }
+            }
+            Ok(posture) => {
+                info!(
+                    role = %posture.role_name,
+                    "DB role enforces RLS (NOBYPASSRLS); hosted tenant isolation active"
+                );
+            }
+            Err(e) => {
+                // Don't fail open on an inconclusive check in production.
+                if environment == "production" {
+                    error!(error = %e, "Could not verify DB role RLS posture in hosted production mode");
+                    std::process::exit(1);
+                } else {
+                    warn!(error = %e, "Could not verify DB role RLS posture");
+                }
+            }
+        }
+    }
+
     // W6c: eagerly provision sync_actions / audit_log partitions
     // at startup, before binding the listener. The daily scheduler
     // job below keeps the runway rolling forward, but a deployment

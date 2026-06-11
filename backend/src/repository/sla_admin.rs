@@ -158,6 +158,66 @@ pub fn create_policy(
         .get_result(conn)
 }
 
+/// First-run seeder: a default working calendar (Mon-Fri 09:00-17:00 UTC)
+/// and a default SLA policy (4h response / 24h resolution) for a freshly-
+/// provisioned workspace, so SLA tracking works out of the box. The policy
+/// references the calendar just created (not a hardcoded id). No-ops when
+/// the workspace already has a working calendar. Caller must run inside an
+/// actor context pinned to the target workspace.
+///
+/// The UTC 9-5 calendar is a neutral placeholder; the owner-facing
+/// timezone/language setup phase (tracked separately) is the intended path
+/// to a workspace-correct calendar.
+// sync-pending-wire: SLA config; needs a future SLA aggregate to surface changes
+pub fn seed_defaults_if_empty(
+    conn: &mut DbConnection,
+    created_by: Option<Uuid>,
+) -> QueryResult<()> {
+    use diesel::dsl::count_star;
+
+    let existing: i64 = working_calendars::table.select(count_star()).first(conn)?;
+    if existing > 0 {
+        return Ok(());
+    }
+
+    let schedule = serde_json::json!({
+        "mon": [["09:00", "17:00"]],
+        "tue": [["09:00", "17:00"]],
+        "wed": [["09:00", "17:00"]],
+        "thu": [["09:00", "17:00"]],
+        "fri": [["09:00", "17:00"]],
+        "sat": [],
+        "sun": [],
+    });
+    let calendar = create_calendar(
+        conn,
+        WorkingCalendarBody {
+            name: "Default 9-5".to_string(),
+            timezone: Some("UTC".to_string()),
+            schedule,
+            is_default: Some(true),
+        },
+        created_by,
+    )?;
+
+    create_policy(
+        conn,
+        SlaPolicyBody {
+            name: "Default".to_string(),
+            target_response_minutes: Some(240),
+            target_resolution_minutes: Some(1440),
+            working_calendar_id: Some(calendar.id),
+            priority_filter: None,
+            category_id_filter: None,
+            assignee_group_id_filter: None,
+            is_default: Some(true),
+        },
+        created_by,
+    )?;
+
+    Ok(())
+}
+
 // sync-pending-wire: SLA config; needs a future SLA aggregate to surface changes
 pub fn update_policy(
     conn: &mut DbConnection,
