@@ -145,7 +145,7 @@ fn collection_response(
         "slug": collection.slug,
         "description": collection.description,
         "description_text": collection.description_text,
-        "description_doc_id": format!("ws-{workspace_uuid}_collection-{}", collection.id),
+        "description_doc_id": format!("ws-{workspace_uuid}_collection-{}", collection.uuid),
         "hide_titles_from_non_members": collection.hide_titles_from_non_members,
         "icon": collection.icon,
         "color": collection.color,
