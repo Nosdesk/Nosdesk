@@ -54,6 +54,85 @@ fn encode_doc_full(awareness: &Awareness) -> (Vec<u8>, Vec<u8>) {
     )
 }
 
+/// Construct a fresh server-side Yjs document for `doc_id`, applying the
+/// conventions every collaborative doc on this server shares. The single
+/// place that decision lives, so cold-load and revision-restore build
+/// byte-identical documents:
+///
+/// * GC disabled, so the server can always emit a complete state as a
+///   v1 update (durable saves and revision snapshots depend on it).
+/// * A deterministic 53-bit client id derived from `doc_id`: stable
+///   across restarts (no state-vector churn) and inside JS's safe
+///   integer range, since yrs 0.26 ClientIDs are 53-bit to match Yjs.
+/// * The `"prosemirror"` root XmlFragment declared up front, per the
+///   yrs guidance to define all root types during document creation.
+///   Later `apply_update` calls merge stored state into this structure.
+fn new_server_doc(doc_id: &str) -> Doc {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = DefaultHasher::new();
+    doc_id.hash(&mut hasher);
+    // Mask the 64-bit hash into 53 bits; OR with 1 to stay non-zero.
+    let client_id = (hasher.finish() & ((1u64 << 53) - 1)) | 1;
+
+    let doc = Doc::with_options(yrs::Options {
+        client_id: yrs::ClientID::new(client_id),
+        skip_gc: true,
+        ..yrs::Options::default()
+    });
+    {
+        let mut txn = doc.transact_mut();
+        let _ = txn.get_or_insert_xml_fragment("prosemirror");
+    }
+    doc
+}
+
+/// Rebuild a collaborative document from a stored revision snapshot and
+/// make it the live document: swap it into `app_state`, flag it for
+/// persistence, and broadcast the restored state to connected clients.
+///
+/// yrs updates merge (a union of operations, never a delete), so a
+/// revision can't be reverted in place. The idiomatic restore is to
+/// rebuild a fresh doc from the revision's full-state snapshot
+/// (`encode_state_as_update_v1(&StateVector::default())`, the format
+/// every revision stores) and replace the live one. Already-open
+/// editors merge the broadcast like any update; a hard revert there
+/// relies on the client reloading after a restore.
+async fn restore_revision_snapshot(
+    app_state: &YjsAppState,
+    doc_id: &str,
+    workspace_id: i32,
+    snapshot: &[u8],
+) -> Result<(), HttpResponse> {
+    let update = Update::decode_v1(snapshot).map_err(|e| {
+        error!(doc_id, error = ?e, "Error decoding revision snapshot");
+        errors::internal("Error decoding revision")
+    })?;
+
+    let doc = new_server_doc(doc_id);
+    {
+        let mut txn = doc.transact_mut();
+        txn.apply_update(update).map_err(|e| {
+            error!(doc_id, error = ?e, "Error applying revision snapshot");
+            errors::internal("Error applying revision")
+        })?;
+    }
+
+    let full_state = doc
+        .transact()
+        .encode_state_as_update_v1(&StateVector::default());
+
+    app_state.replace_document(doc_id, doc, workspace_id).await;
+    app_state.mark_document_changed(doc_id).await;
+
+    use yrs::sync::{Message, SyncMessage};
+    let restored = Message::Sync(SyncMessage::Update(full_state)).encode_v1();
+    app_state.broadcast(doc_id, "", &restored).await;
+
+    Ok(())
+}
+
 /// Persist an encoded Yjs update to its backing table. Awaitable, so it
 /// serves two callers with one workspace-pinned, RLS-enforced,
 /// fence-gated write path (DRY): the periodic / on-disconnect save
@@ -1239,39 +1318,11 @@ impl YjsAppState {
         } else {
             debug!(doc_id = %doc_id, "Document not in memory - checking Redis cache");
 
-            // Create Doc with GC disabled and a consistent server-side client ID
-            // CRITICAL: Use a deterministic client ID based on the document ID to ensure
-            // consistency across backend restarts. This prevents state vector mismatches.
-            let mut options = yrs::Options::default();
-            options.skip_gc = true; // CRITICAL: Disable garbage collection
-
-            // Generate a consistent client ID from the document ID hash
-            // This ensures the same document always gets the same server client ID
-            use std::collections::hash_map::DefaultHasher;
-            use std::hash::{Hash, Hasher};
-            let mut hasher = DefaultHasher::new();
-            doc_id.hash(&mut hasher);
-            // yrs 0.26 ClientID is 53-bit (matches yjs JS). Mask the
-            // 64-bit hash down to fit, OR with 1 to stay non-zero.
-            let client_id = (hasher.finish() & ((1u64 << 53) - 1)) | 1;
-
-            options.client_id = yrs::ClientID::new(client_id);
-            debug!(doc_id = %doc_id, client_id, "Creating document with consistent client ID");
-
-            let doc = Doc::with_options(options);
-
-            // CRITICAL: Initialize the "prosemirror" XmlFragment root type BEFORE creating Awareness
-            // This MUST be done before any sync operations to ensure the backend and frontend
-            // are working with the same document structure. The yrs documentation says:
-            // "It's highly recommended for all collaborating clients to define all root level types
-            // they are going to use up front, during document creation."
-            // When data is loaded later via apply_update(), it will be merged into this structure.
-            {
-                let mut txn = doc.transact_mut();
-                let _ = txn.get_or_insert_xml_fragment("prosemirror");
-                debug!(doc_id = %doc_id, "Pre-initialized 'prosemirror' XmlFragment");
-            }
-
+            // Build the document with the shared server conventions (GC
+            // off, a deterministic 53-bit client id stable across
+            // restarts, and the "prosemirror" root declared up front).
+            // apply_update() below merges the loaded state into it.
+            let doc = new_server_doc(doc_id);
             let mut awareness = Awareness::new(doc);
 
             let mut loaded_from_redis = false;
@@ -2998,6 +3049,27 @@ async fn process_inbound_binary(
 
 // ============= Revision History API Endpoints =============
 
+/// Fetch the `article_content` row backing a ticket's collaborative
+/// document. `gate_ticket` must have passed first, so a missing row is
+/// not an access failure: it just means the ticket's editor was never
+/// saved, which is zero revisions (`Ok(None)`). A real query failure
+/// maps to a 500 response the caller can return directly.
+fn ticket_article_content(
+    tc: &mut TenantConn,
+    ticket_id: i32,
+) -> Result<Option<crate::models::ArticleContent>, HttpResponse> {
+    match tc.run(|conn| {
+        crate::repository::article_content::get_article_content_by_ticket_id(conn, ticket_id)
+    }) {
+        Ok(content) => Ok(Some(content)),
+        Err(diesel::result::Error::NotFound) => Ok(None),
+        Err(e) => {
+            error!(ticket_id, error = ?e, "Error loading article content");
+            Err(errors::internal("Error retrieving revisions"))
+        }
+    }
+}
+
 /// GET /tickets/:id/revisions - List all revisions for a ticket
 pub async fn get_ticket_revisions(
     ticket_id: web::Path<i32>,
@@ -3009,12 +3081,16 @@ pub async fn get_ticket_revisions(
         return resp;
     }
 
-    // Get article content for this ticket
-    let article_content = match tc.run(|conn| {
-        crate::repository::article_content::get_article_content_by_ticket_id(conn, ticket_id)
-    }) {
-        Ok(content) => content,
-        Err(_) => return errors::not_found_msg("No article content found for this ticket"),
+    // A ticket with no saved collaborative content yet simply has no
+    // revisions: return an empty list so the version-history panel shows
+    // its empty state instead of erroring.
+    let article_content = match ticket_article_content(&mut tc, ticket_id) {
+        Ok(Some(content)) => content,
+        Ok(None) => {
+            return HttpResponse::Ok()
+                .json(Vec::<crate::models::ArticleContentRevisionResponse>::new());
+        }
+        Err(resp) => return resp,
     };
 
     // Get all revisions
@@ -3041,12 +3117,11 @@ pub async fn get_ticket_revision(
         return resp;
     }
 
-    // Get article content for this ticket
-    let article_content = match tc.run(|conn| {
-        crate::repository::article_content::get_article_content_by_ticket_id(conn, ticket_id)
-    }) {
-        Ok(content) => content,
-        Err(_) => return errors::not_found_msg("No article content found for this ticket"),
+    // No saved content means this revision can't exist.
+    let article_content = match ticket_article_content(&mut tc, ticket_id) {
+        Ok(Some(content)) => content,
+        Ok(None) => return errors::not_found_msg("Revision not found"),
+        Err(resp) => return resp,
     };
 
     // Get the specific revision
@@ -3087,12 +3162,11 @@ pub async fn restore_ticket_revision(
         return resp;
     }
 
-    // Get article content for this ticket
-    let article_content = match tc.run(|conn| {
-        crate::repository::article_content::get_article_content_by_ticket_id(conn, ticket_id)
-    }) {
-        Ok(content) => content,
-        Err(_) => return errors::not_found_msg("No article content found for this ticket"),
+    // No saved content means this revision can't exist.
+    let article_content = match ticket_article_content(&mut tc, ticket_id) {
+        Ok(Some(content)) => content,
+        Ok(None) => return errors::not_found_msg("Revision not found"),
+        Err(resp) => return resp,
     };
 
     // Get the revision to restore
@@ -3107,77 +3181,22 @@ pub async fn restore_ticket_revision(
         Err(_) => return errors::not_found_msg("Revision not found"),
     };
 
-    // Get the document ID
     let doc_id = format!("ticket-{ticket_id}");
-
-    // Decode the stored Yjs update (this is the full document state at that revision)
-    use yrs::updates::decoder::Decode;
-    let update = match Update::decode_v1(&revision.yjs_document_content) {
-        Ok(upd) => upd,
-        Err(e) => {
-            error!(ticket_id, revision_number, error = ?e, "Error decoding revision update");
-            return errors::internal("Error decoding revision");
-        }
-    };
-
-    // Restore requires replacing document entirely - Yjs CRDTs merge updates, don't support reverting.
-    // Steps: create new doc with revision content, replace existing, broadcast to clients.
-    let new_doc = {
-        use yrs::{Doc, Options};
-
-        let options = Options {
-            // yrs 0.26 ClientID is 53-bit; mask the random u64 to fit.
-            client_id: yrs::ClientID::new(rand::random::<u64>() & ((1u64 << 53) - 1)),
-            skip_gc: false,
-            ..Options::default()
-        };
-
-        let doc = Doc::with_options(options);
-
-        // Initialize the prosemirror fragment first
-        {
-            let mut txn = doc.transact_mut();
-            let _ = txn.get_or_insert_xml_fragment("prosemirror");
-        }
-
-        // Apply the revision update
-        {
-            let mut txn = doc.transact_mut();
-            if let Err(e) = txn.apply_update(update) {
-                error!(ticket_id, revision_number, error = ?e, "Error applying revision update to new doc");
-                return errors::internal("Error applying revision");
-            }
-        }
-
-        doc
-    };
-
-    // Get the full state from the new document
-    let full_state = {
-        let txn = new_doc.transact();
-        txn.encode_state_as_update_v1(&StateVector::default())
-    };
-
-    // Replace the document in app_state with the new one
-    // This creates a new Awareness with the restored document
-    app_state
-        .replace_document(&doc_id, new_doc, ws.workspace_id)
-        .await;
-
-    // Mark document as changed to trigger save
-    app_state.mark_document_changed(&doc_id).await;
-
-    // Broadcast the full restored state to all connected clients
-    use yrs::sync::Message;
-    let sync_message = Message::Sync(yrs::sync::SyncMessage::Update(full_state));
-    let encoded = sync_message.encode_v1();
-    app_state.broadcast(&doc_id, "", &encoded).await;
+    if let Err(resp) = restore_revision_snapshot(
+        &app_state,
+        &doc_id,
+        ws.workspace_id,
+        &revision.yjs_document_content,
+    )
+    .await
+    {
+        return resp;
+    }
 
     info!(ticket_id, revision_number, "Restored ticket to revision");
-
-    HttpResponse::Ok().json(serde_json::json!({
+    HttpResponse::Ok().json(json!({
         "success": true,
-        "message": format!("Restored to revision {}", revision_number),
+        "message": format!("Restored to revision {revision_number}"),
     }))
 }
 
@@ -3257,79 +3276,25 @@ pub async fn restore_doc_revision(
         Err(_) => return errors::not_found_msg("Revision not found"),
     };
 
-    // Get the document ID string
     let doc_id_str = format!("doc-{doc_id}");
-
-    // Decode the stored Yjs update (this is the full document state at that revision)
-    use yrs::updates::decoder::Decode;
-    let update = match Update::decode_v1(&revision.yjs_document_snapshot) {
-        Ok(upd) => upd,
-        Err(e) => {
-            error!(doc_id, revision_number, error = ?e, "Error decoding revision update");
-            return errors::internal("Error decoding revision");
-        }
-    };
-
-    // Restore requires replacing document entirely - Yjs CRDTs merge updates, don't support reverting.
-    // Steps: create new doc with revision content, replace existing, broadcast to clients.
-    let new_doc = {
-        use yrs::{Doc, Options};
-
-        let options = Options {
-            // yrs 0.26 ClientID is 53-bit; mask the random u64 to fit.
-            client_id: yrs::ClientID::new(rand::random::<u64>() & ((1u64 << 53) - 1)),
-            skip_gc: false,
-            ..Options::default()
-        };
-
-        let doc = Doc::with_options(options);
-
-        // Initialize the prosemirror fragment first
-        {
-            let mut txn = doc.transact_mut();
-            let _ = txn.get_or_insert_xml_fragment("prosemirror");
-        }
-
-        // Apply the revision update
-        {
-            let mut txn = doc.transact_mut();
-            if let Err(e) = txn.apply_update(update) {
-                error!(doc_id, revision_number, error = ?e, "Error applying revision update to new doc");
-                return errors::internal("Error applying revision");
-            }
-        }
-
-        doc
-    };
-
-    // Get the full state from the new document
-    let full_state = {
-        let txn = new_doc.transact();
-        txn.encode_state_as_update_v1(&StateVector::default())
-    };
-
-    // Replace the document in app_state with the new one
-    app_state
-        .replace_document(&doc_id_str, new_doc, ws.workspace_id)
-        .await;
-
-    // Mark document as changed to trigger save
-    app_state.mark_document_changed(&doc_id_str).await;
-
-    // Broadcast the full restored state to all connected clients
-    use yrs::sync::Message;
-    let sync_message = Message::Sync(yrs::sync::SyncMessage::Update(full_state));
-    let encoded = sync_message.encode_v1();
-    app_state.broadcast(&doc_id_str, "", &encoded).await;
+    if let Err(resp) = restore_revision_snapshot(
+        &app_state,
+        &doc_id_str,
+        ws.workspace_id,
+        &revision.yjs_document_snapshot,
+    )
+    .await
+    {
+        return resp;
+    }
 
     info!(
         doc_id,
         revision_number, "Restored documentation page to revision"
     );
-
-    HttpResponse::Ok().json(serde_json::json!({
+    HttpResponse::Ok().json(json!({
         "success": true,
-        "message": format!("Restored to revision {}", revision_number),
+        "message": format!("Restored to revision {revision_number}"),
     }))
 }
 
