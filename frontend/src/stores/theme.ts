@@ -248,6 +248,32 @@ export const useThemeStore = defineStore('theme', () => {
     }
   }
 
+  /**
+   * Reset session-level appearance (theme + accent) to the application
+   * default, so the unauthenticated/login page shows the brand default
+   * rather than the signed-out user's personalisation. Called from the
+   * auth store on sign-out.
+   *
+   * Removing the `theme` key also lets the NEXT user's profile theme
+   * reseed correctly via `loadThemeFromUser`, which deliberately skips
+   * while a local `theme` choice is present.
+   *
+   * Device-level settings are intentionally preserved, not reset:
+   *  - `deviceLocalTheme`: an explicit per-device pin whose whole purpose
+   *    is to hold regardless of who is signed in, so this is a no-op when
+   *    it is enabled.
+   *  - `colorBlindMode`: an accessibility need of whoever is at the
+   *    device, not a per-user preference, so it stays.
+   */
+  function resetToDefault(): void {
+    if (deviceLocalTheme.value) return
+    currentTheme.value = 'system'
+    accentColorOverride.value = null
+    localStorage.removeItem('theme')
+    localStorage.removeItem('accentColor')
+    applyCurrentTheme()
+  }
+
   // Initialize theme on store creation
   applyCurrentTheme()
 
@@ -280,5 +306,6 @@ export const useThemeStore = defineStore('theme', () => {
     toggleTheme,
     syncThemeToBackend,
     loadThemeFromUser,
+    resetToDefault,
   }
 })

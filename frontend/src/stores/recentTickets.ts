@@ -74,6 +74,11 @@ export const useRecentTicketsStore = defineStore('recentTickets', () => {
   const query = useQuery({
     key: RECENT_TICKETS_KEY,
     query: () => ticketService.getRecentTickets(),
+    // Don't fetch while signed out: on logout `auth.user` clears and the
+    // sidebar/widget are still mounted during the route transition, so an
+    // unguarded query fires a 401 (and a pointless token refresh). Mirrors
+    // the myWorkspaces query.
+    enabled: () => auth.isAuthenticated,
   })
 
   const baseTickets = computed<RecentTicket[]>(() => query.data.value ?? [])

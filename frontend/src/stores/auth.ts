@@ -2,7 +2,7 @@ import { defineStore } from 'pinia';
 import { logger } from '@/utils/logger';
 import { ref, computed } from 'vue';
 import axios from 'axios';
-import apiClient from '@/services/apiConfig';
+import apiClient, { setLoggingOut } from '@/services/apiConfig';
 import authService from '@/services/authService';
 import router from '@/router';
 import type { User, LoginCredentials } from '@/types';
@@ -100,6 +100,8 @@ export const useAuthStore = defineStore('auth', () => {
         }
 
         const userData = await authService.getCurrentUser();
+        // A confirmed authenticated session ends any prior teardown window.
+        setLoggingOut(false);
         user.value = userData;
 
         // Load theme from user profile
@@ -309,6 +311,9 @@ export const useAuthStore = defineStore('auth', () => {
 
     // Helper function to set authentication data (tokens are in httpOnly cookies)
     function setAuthData(userData: User) {
+      // A fresh authenticated session ends any prior sign-out teardown
+      // window, so 401-suppression no longer applies.
+      setLoggingOut(false);
       user.value = userData;
       authProvider.value = 'local';
       localStorage.setItem('authProvider', 'local');
@@ -402,6 +407,12 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function logout() {
+    // Mark the session as intentionally tearing down so the API layer
+    // treats the 401s from any in-flight / settling requests as expected
+    // teardown noise rather than failures to log + refresh. Cleared on the
+    // next successful sign-in (setAuthData / fetchUserData).
+    setLoggingOut(true);
+
     // Check if user logged in via OIDC provider
     const currentProvider = authProvider.value;
     const isOidcUser = currentProvider === 'oidc';
@@ -452,6 +463,17 @@ export const useAuthStore = defineStore('auth', () => {
       resetWorkspaceCapabilities();
     } catch (e) {
       logger.error('Failed to reset workspace capabilities on logout', e);
+    }
+
+    // Reset appearance to the application default so the login page shows
+    // the brand theme rather than the signed-out user's personal
+    // theme/accent. Device-level settings (device-local theme pin,
+    // colour-blind mode) are deliberately kept.
+    try {
+      const { useThemeStore } = await import('@/stores/theme');
+      useThemeStore().resetToDefault();
+    } catch (e) {
+      logger.error('Failed to reset theme on logout', e);
     }
 
     // Tear down the sync runtime so a different user signing in

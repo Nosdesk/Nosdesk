@@ -459,7 +459,13 @@ pub mod helpers {
             passkey_mfa_required: None,
             user_uuid: Some(user.uuid.to_string()),
             csrf_token: Some(tokens.csrf_token.clone()),
-            user: Some(user.into()),
+            // Build the full UserResponse (the `/auth/me` shape) rather
+            // than `user.into()`, whose `From<User>` can't read
+            // `user_preferences` and so leaves `theme: None`. Carrying the
+            // saved theme in the login response lets the client apply it
+            // immediately on sign-in instead of only after the first
+            // `/auth/me` (i.e. a page refresh).
+            user: Some(crate::repository::user_helpers::get_user_with_primary_email(user, conn)),
             message: Some("Login successful".to_string()),
             mfa_backup_code_used: None,
             requires_backup_code_regeneration: None,
@@ -552,7 +558,8 @@ pub mod helpers {
             passkey_mfa_required: None,
             user_uuid: Some(user.uuid.to_string()),
             csrf_token: Some(tokens.csrf_token.clone()),
-            user: Some(user.into()),
+            // Carry the saved theme (see create_login_response).
+            user: Some(crate::repository::user_helpers::get_user_with_primary_email(user, conn)),
             message: Some(message.to_string()),
             mfa_backup_code_used: Some(backup_code_used),
             requires_backup_code_regeneration: Some(requires_regeneration),

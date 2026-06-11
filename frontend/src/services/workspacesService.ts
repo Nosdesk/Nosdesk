@@ -1,4 +1,4 @@
-import apiClient from './apiConfig';
+import apiClient, { isLoggingOut } from './apiConfig';
 import { logger } from '@/utils/logger';
 import type {
   Workspace,
@@ -162,7 +162,12 @@ const workspacesService = {
       const response = await apiClient.get('/me/workspaces');
       return response.data || [];
     } catch (error) {
-      logger.error('Failed to load own workspaces', { error });
+      // A 401 here during an intentional sign-out is expected teardown,
+      // already handled by the auth interceptor; don't add error noise.
+      const status = (error as { statusCode?: number })?.statusCode;
+      if (!(isLoggingOut() && status === 401)) {
+        logger.error('Failed to load own workspaces', { error });
+      }
       throw error;
     }
   },

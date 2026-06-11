@@ -46,6 +46,28 @@ const apiClient = axios.create({
 let isRefreshing = false;
 let refreshSubscribers: ((success: boolean) => void)[] = [];
 
+// Set while an intentional sign-out is in progress, and kept set until the
+// next successful sign-in. During this window the session is gone on
+// purpose, so any 401s from requests still settling (or from an
+// unauthenticated page) are expected teardown noise: the interceptor skips
+// the token-refresh dance and the error-level logging for them. The auth
+// store flips this via `setLoggingOut`.
+let loggingOut = false;
+export function setLoggingOut(value: boolean): void {
+  loggingOut = value;
+}
+export function isLoggingOut(): boolean {
+  return loggingOut;
+}
+
+/** True on the unauthenticated shell pages, where a 401 is expected. */
+function onPublicAuthPage(): boolean {
+  return (
+    window.location.pathname.includes('/login') ||
+    window.location.pathname.includes('/onboarding')
+  );
+}
+
 function subscribeTokenRefresh(callback: (success: boolean) => void) {
   refreshSubscribers.push(callback);
 }
@@ -176,6 +198,16 @@ apiClient.interceptors.response.use(
     // refresh path below should also skip cancellations.
     if (axios.isCancel(error)) {
       return Promise.reject(error);
+    }
+
+    // Expected auth teardown. An intentional sign-out (or any request that
+    // 401s while we're on a public auth page) must not trigger the
+    // token-refresh dance or log error-level noise: the session is gone on
+    // purpose. Treat the 401 as expected and reject quietly so a deliberate
+    // logout doesn't spam the console.
+    if (error.response?.status === 401 && (loggingOut || onPublicAuthPage())) {
+      currentCorrelationId = null;
+      return Promise.reject(createErrorFromResponse(error));
     }
 
     const correlationId = error.response?.headers['x-correlation-id'] || currentCorrelationId;
