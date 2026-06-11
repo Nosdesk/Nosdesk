@@ -166,7 +166,7 @@ const handleConvertToDocumentation = async () => {
          chrome) so it shares the SectionCard's frame instead of
          stacking a second card on top. The toggle in the header
          opens / closes; no separate close affordance needed. -->
-    <div class="flex-grow flex items-stretch w-full min-h-[300px]">
+    <div class="flex-grow flex flex-col md:flex-row md:items-stretch w-full min-h-[300px]">
       <CollaborativeEditor
         v-if="docId"
         ref="editorRef"
@@ -181,7 +181,7 @@ const handleConvertToDocumentation = async () => {
 
       <aside
         v-if="showRevisionHistory"
-        class="w-72 flex-shrink-0 flex flex-col border-l border-default bg-surface-alt/30"
+        class="w-full md:w-72 flex-shrink-0 flex flex-col border-t md:border-t-0 md:border-l border-default bg-surface-alt/30"
         :aria-label="t('tickets-collaborative-article-revision-history')"
       >
         <RevisionList
