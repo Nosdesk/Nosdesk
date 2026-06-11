@@ -150,6 +150,14 @@ async fn write_yjs_state(
     content: Vec<u8>,
     workspace_id: i32,
     fence: Option<i64>,
+    // True only for a save that ends an editing session which had real
+    // changes (room emptied / last editor disconnected, contributors
+    // non-empty). On such a save, also emit a search-only
+    // `*.content_saved` sync_action — atomic with the body write — so the
+    // index replicator re-indexes the collaborative body on every machine.
+    // Collaborative saves are otherwise off the sync stream, so without
+    // this a finished edit is only searchable on the owning machine.
+    emit_saved: bool,
 ) {
     let mut conn = match pool.get() {
         Ok(c) => c,
@@ -161,8 +169,16 @@ async fn write_yjs_state(
     let actor = yjs_session_actor(workspace_id);
     let result: Result<(), diesel::result::Error> = match doc_type {
         DocumentType::Ticket(ticket_id) => session::with_actor_context(&mut conn, &actor, |conn| {
-            repository::update_article_yjs_state(conn, ticket_id, content, fence, Some(&search))
-                .map(|_| ())
+            repository::update_article_yjs_state(conn, ticket_id, content, fence, Some(&search))?;
+            if emit_saved {
+                emit_content_saved(
+                    conn,
+                    crate::models::SyncAggregate::Ticket,
+                    ticket_id,
+                    "ticket.content_saved",
+                )?;
+            }
+            Ok(())
         }),
         DocumentType::Documentation(page_id) => {
             session::with_actor_context(&mut conn, &actor, |conn| {
@@ -172,11 +188,21 @@ async fn write_yjs_state(
                     content,
                     fence,
                     Some(&search),
-                )
-                .map(|_| ())
+                )?;
+                if emit_saved {
+                    emit_content_saved(
+                        conn,
+                        crate::models::SyncAggregate::DocumentationPage,
+                        page_id,
+                        "documentation.content_saved",
+                    )?;
+                }
+                Ok(())
             })
         }
         DocumentType::Collection(collection_id) => {
+            // Collection descriptions aren't body-searchable, so no
+            // content-saved emit.
             session::with_actor_context(&mut conn, &actor, |conn| {
                 repository::documentation_collections::update_collection_description_yjs(
                     conn,
@@ -192,6 +218,37 @@ async fn write_yjs_state(
         Ok(()) => debug!(?doc_type, "Saved Yjs state"),
         Err(e) => error!(?doc_type, error = ?e, "Failed to save Yjs state"),
     }
+}
+
+/// Emit a search-only `*.content_saved` sync_action for a finished
+/// collaborative editing session, so the search-index replicator re-indexes
+/// the document body on every machine (see `services::search_replicator`).
+///
+/// Deliberately invisible to everything else: emitted with EMPTY groups so
+/// it reaches no live SSE subscriber (editors already have the content via
+/// Yjs), and the `*.content_saved` event type maps to no `WebhookEventType`
+/// and no activity-feed entry, so it fires no webhook and shows nothing in
+/// the UI. The replicator drains the `sync_actions` table directly,
+/// independent of groups, so it still sees the row.
+fn emit_content_saved(
+    conn: &mut crate::db::DbConnection,
+    aggregate: crate::models::SyncAggregate,
+    entity_id: i32,
+    event_type: &'static str,
+) -> Result<(), diesel::result::Error> {
+    crate::sync::emit::record(
+        conn,
+        crate::sync::emit::SyncEmit {
+            aggregate,
+            aggregate_id: entity_id.to_string(),
+            op: crate::models::SyncOp::Update,
+            event_type,
+            data: serde_json::json!({ "id": entity_id }),
+            groups: Vec::new(),
+            causation_id: None,
+        },
+    )
+    .map(|_| ())
 }
 
 /// Safely get string content from a Yjs XmlFragment
@@ -1203,12 +1260,15 @@ impl YjsAppState {
             // Regular saves for active documents
             if doc_state.should_save() {
                 debug!(doc_id = %doc_id, "Saving document with pending changes");
+                // Mid-session save: not the end of editing, so no
+                // content-saved emit yet.
                 self.save_document_internal(
                     doc_id,
                     &doc_state.awareness,
                     workspace_id,
                     doc_state.fence,
                     doc_state.doc_type,
+                    false,
                 );
                 doc_state.mark_saved();
                 saved_count += 1;
@@ -1235,12 +1295,16 @@ impl YjsAppState {
             // Final save for empty rooms
             if doc_state.should_do_final_save() {
                 debug!(doc_id = %doc_id, "Performing final save for empty room");
+                // End-of-session save: emit content-saved when the session
+                // actually changed content (contributors are added only on
+                // real change), so the search replicator re-indexes.
                 self.save_document_internal(
                     doc_id,
                     &doc_state.awareness,
                     workspace_id,
                     doc_state.fence,
                     doc_state.doc_type,
+                    !doc_state.contributors.is_empty(),
                 );
                 doc_state.mark_saved();
                 doc_state.mark_final_save_completed();
@@ -1980,12 +2044,16 @@ impl YjsAppState {
         if let Some(doc_state) = documents.get_mut(doc_id) {
             let workspace_id = doc_state.workspace_id;
             debug!(doc_id = %doc_id, "Force saving document on disconnect");
+            // End-of-session save (last editor left): emit content-saved
+            // when the session changed content, so the search replicator
+            // re-indexes the body on every machine.
             self.save_document_internal(
                 doc_id,
                 &doc_state.awareness,
                 workspace_id,
                 doc_state.fence,
                 doc_state.doc_type,
+                !doc_state.contributors.is_empty(),
             );
             doc_state.mark_saved();
 
@@ -2053,7 +2121,11 @@ impl YjsAppState {
                 let pool = pool.clone();
                 let search = search.clone();
                 async move {
-                    write_yjs_state(pool, search, doc_type, content, workspace_id, fence).await;
+                    // Shutdown flush: persist the body, but skip the
+                    // content-saved emit — a restart rebuilds the index from
+                    // Postgres anyway, and the owner is going away.
+                    write_yjs_state(pool, search, doc_type, content, workspace_id, fence, false)
+                        .await;
                 }
             },
         ))
@@ -2174,6 +2246,10 @@ impl YjsAppState {
         workspace_id: i32,
         fence: Option<i64>,
         doc_type: DocumentType,
+        // True only when this is the end-of-session save and the session
+        // had real content changes; threaded to `write_yjs_state` to drive
+        // the search-only content-saved emit.
+        emit_saved: bool,
     ) {
         // Get binary content from the document
         let binary_content = {
@@ -2230,6 +2306,7 @@ impl YjsAppState {
             binary_content,
             workspace_id,
             fence,
+            emit_saved,
         ));
     }
 
@@ -3472,4 +3549,52 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             ))
             .configure(rest_routes),
     );
+}
+
+#[cfg(test)]
+mod content_saved_emit_tests {
+    use super::*;
+    use crate::schema::sync_actions;
+    use crate::sync::actor::ActorContext;
+    use crate::sync::session::with_actor_context;
+    use crate::test_helpers::setup_test_connection;
+    use diesel::prelude::*;
+
+    // The content-saved emit must be a search-only signal: a real
+    // sync_actions row (so the replicator, which drains the table, sees it)
+    // but with EMPTY groups (so it fans out to no SSE subscriber / activity
+    // feed) and a `*.content_saved` event type (which maps to no webhook).
+    #[test]
+    fn emit_content_saved_is_a_silent_sync_action() {
+        let mut conn = setup_test_connection();
+        let actor = ActorContext::system("test:content_saved").with_workspace(1);
+        with_actor_context(&mut conn, &actor, |conn| {
+            emit_content_saved(
+                conn,
+                crate::models::SyncAggregate::Ticket,
+                42,
+                "ticket.content_saved",
+            )?;
+
+            let (aggregate_id, event_type, groups): (String, String, Vec<Option<String>>) =
+                sync_actions::table
+                    .filter(sync_actions::event_type.eq("ticket.content_saved"))
+                    .order(sync_actions::sync_id.desc())
+                    .select((
+                        sync_actions::aggregate_id,
+                        sync_actions::event_type,
+                        sync_actions::groups,
+                    ))
+                    .first(conn)?;
+
+            assert_eq!(aggregate_id, "42");
+            assert_eq!(event_type, "ticket.content_saved");
+            assert!(
+                groups.is_empty(),
+                "content-saved must carry no groups so it stays search-only"
+            );
+            Ok::<_, diesel::result::Error>(())
+        })
+        .expect("emit + read back");
+    }
 }
