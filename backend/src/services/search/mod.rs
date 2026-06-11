@@ -321,6 +321,190 @@ impl SearchService {
         self.index_document(&doc)
     }
 
+    /// Re-index a ticket by id from current database state (loads the
+    /// ticket and its collaborative article body). A missing ticket is a
+    /// no-op — the delete path owns removal. Used by [`apply_sync_action`].
+    pub fn reindex_ticket(
+        &self,
+        ticket_id: i32,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        use diesel::OptionalExtension;
+        let loaded: Option<(models::Ticket, Option<models::ArticleContent>)> =
+            crate::sync::session::background_run(
+                &self.pool,
+                "background:search_reindex_ticket",
+                |conn| {
+                    let Some(ticket) =
+                        crate::repository::tickets::get_ticket_by_id(conn, ticket_id).optional()?
+                    else {
+                        return Ok(None);
+                    };
+                    let article =
+                        crate::repository::article_content::get_article_content_by_ticket_id(
+                            conn, ticket_id,
+                        )
+                        .optional()?;
+                    Ok(Some((ticket, article)))
+                },
+            )?;
+        match loaded {
+            Some((ticket, article)) => self.index_ticket(&ticket, article.as_ref()),
+            None => Ok(()),
+        }
+    }
+
+    /// Re-index a comment by id (loads the comment and its parent ticket's
+    /// title, the way `spawn_index_comment` is called). No-op if missing.
+    pub fn reindex_comment(
+        &self,
+        comment_id: i32,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        use diesel::OptionalExtension;
+        let loaded: Option<(models::Comment, String)> = crate::sync::session::background_run(
+            &self.pool,
+            "background:search_reindex_comment",
+            |conn| {
+                let Some(comment) =
+                    crate::repository::comments::get_comment_by_id(conn, comment_id).optional()?
+                else {
+                    return Ok(None);
+                };
+                let title = crate::repository::tickets::get_ticket_by_id(conn, comment.ticket_id)
+                    .optional()?
+                    .map(|t| t.title)
+                    .unwrap_or_default();
+                Ok(Some((comment, title)))
+            },
+        )?;
+        match loaded {
+            Some((comment, title)) => self.index_comment(&comment, &title),
+            None => Ok(()),
+        }
+    }
+
+    /// Re-index a documentation page by id. No-op if missing.
+    pub fn reindex_documentation(
+        &self,
+        page_id: i32,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        use diesel::OptionalExtension;
+        let page: Option<models::DocumentationPage> = crate::sync::session::background_run(
+            &self.pool,
+            "background:search_reindex_documentation",
+            |conn| {
+                crate::repository::documentation::get_documentation_page(page_id, conn).optional()
+            },
+        )?;
+        match page {
+            Some(page) => self.index_documentation(&page),
+            None => Ok(()),
+        }
+    }
+
+    /// Re-index a device/asset by id. No-op if missing.
+    pub fn reindex_device(
+        &self,
+        device_id: i32,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        use diesel::OptionalExtension;
+        let device: Option<models::Asset> = crate::sync::session::background_run(
+            &self.pool,
+            "background:search_reindex_device",
+            |conn| crate::repository::assets::get_device_by_id(conn, device_id).optional(),
+        )?;
+        match device {
+            Some(device) => self.index_device(&device),
+            None => Ok(()),
+        }
+    }
+
+    /// Re-index a project by id. No-op if missing.
+    pub fn reindex_project(
+        &self,
+        project_id: i32,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        use crate::schema::projects;
+        use diesel::prelude::*;
+        let project: Option<models::Project> = crate::sync::session::background_run(
+            &self.pool,
+            "background:search_reindex_project",
+            |conn| projects::table.find(project_id).first(conn).optional(),
+        )?;
+        match project {
+            Some(project) => self.index_project(&project),
+            None => Ok(()),
+        }
+    }
+
+    /// Apply one `sync_actions` row to the local index: delete-by-id for
+    /// `Delete`, otherwise reload current state from Postgres and
+    /// upsert-by-id. This is the projection the search replicator drives so
+    /// every machine maintains its own index off the shared change stream;
+    /// the same operation is idempotent with the write-time observer path,
+    /// so a writer machine applying both does no harm. Aggregates that
+    /// aren't searchable are a no-op.
+    pub fn apply_sync_action(
+        &self,
+        aggregate: models::SyncAggregate,
+        op: models::SyncOp,
+        aggregate_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        use models::SyncAggregate as A;
+        let delete = matches!(op, models::SyncOp::Delete);
+        match aggregate {
+            A::Ticket => {
+                let id: i32 = aggregate_id.parse()?;
+                if delete {
+                    self.delete_ticket(id)
+                } else {
+                    self.reindex_ticket(id)
+                }
+            }
+            A::Comment => {
+                let id: i32 = aggregate_id.parse()?;
+                if delete {
+                    self.delete_comment(id)
+                } else {
+                    self.reindex_comment(id)
+                }
+            }
+            A::DocumentationPage => {
+                let id: i32 = aggregate_id.parse()?;
+                if delete {
+                    self.delete_documentation(id)
+                } else {
+                    self.reindex_documentation(id)
+                }
+            }
+            A::Asset => {
+                let id: i32 = aggregate_id.parse()?;
+                if delete {
+                    self.delete_device(id)
+                } else {
+                    self.reindex_device(id)
+                }
+            }
+            A::Project => {
+                let id: i32 = aggregate_id.parse()?;
+                if delete {
+                    self.delete_project(id)
+                } else {
+                    self.reindex_project(id)
+                }
+            }
+            A::User => {
+                if delete {
+                    self.delete_user(aggregate_id)
+                } else {
+                    self.reindex_user(uuid::Uuid::parse_str(aggregate_id)?)
+                }
+            }
+            // Not directly searchable; their searchable parents re-index
+            // via their own aggregates.
+            _ => Ok(()),
+        }
+    }
+
     /// Delete a ticket from the index
     pub fn delete_ticket(
         &self,
@@ -568,5 +752,42 @@ impl crate::repository::assets::AssetDeletedObserver for Arc<SearchService> {
 impl crate::repository::documentation::DocumentationDeletedObserver for Arc<SearchService> {
     fn documentation_deleted(&self, page_id: i32) {
         indexing_tasks::spawn_delete_documentation(Arc::clone(self), page_id);
+    }
+}
+
+#[cfg(test)]
+mod apply_sync_action_tests {
+    use super::*;
+    use crate::models::{SyncAggregate, SyncOp};
+    use crate::test_helpers::setup_test_pool;
+    use std::sync::Arc;
+
+    fn service() -> Arc<SearchService> {
+        let dir = std::env::temp_dir().join(format!("nosdesk_search_apply_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let pool = setup_test_pool();
+        Arc::new(SearchService::new(&dir, &pool).expect("build search service"))
+    }
+
+    // Covers the dispatch without DB fixtures: a non-searchable aggregate
+    // is a no-op, a delete of a missing doc is a no-op (Tantivy
+    // delete-by-term tolerates absence), and a non-numeric id for an
+    // int-keyed aggregate surfaces as an error rather than a panic.
+    #[test]
+    fn apply_sync_action_dispatch() {
+        let svc = service();
+
+        assert!(svc
+            .apply_sync_action(SyncAggregate::Notification, SyncOp::Update, "1")
+            .is_ok());
+        assert!(svc
+            .apply_sync_action(SyncAggregate::Ticket, SyncOp::Delete, "999999")
+            .is_ok());
+        assert!(svc
+            .apply_sync_action(SyncAggregate::Ticket, SyncOp::Update, "not-an-int")
+            .is_err());
+        assert!(svc
+            .apply_sync_action(SyncAggregate::User, SyncOp::Update, "not-a-uuid")
+            .is_err());
     }
 }

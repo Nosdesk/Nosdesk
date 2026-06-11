@@ -1014,6 +1014,32 @@ async fn main() -> std::io::Result<()> {
         }
     };
 
+    // Search-index replicator (S1). On >1 machine the Tantivy index is
+    // per-machine local disk, so an entity indexed on one machine is
+    // invisible to a search on another. When enabled, each machine tails
+    // the `sync_actions` change stream and projects structured changes into
+    // its own index. Off by default: a single machine (self-hosted, or the
+    // single-machine first deploy) is served fully by the write-time
+    // observer, so this adds nothing there. Flip it on in the hosted config
+    // when running more than one machine.
+    if env::var("NOSDESK_SEARCH_REPLICATION")
+        .map(|v| v.trim().eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+    {
+        if let Ok(database_url) = env::var("DATABASE_URL") {
+            services::search_replicator::spawn(
+                database_url,
+                pool.clone(),
+                search_service.get_ref().clone(),
+            );
+            info!("Search replication enabled (NOSDESK_SEARCH_REPLICATION=true)");
+        } else {
+            warn!(
+                "NOSDESK_SEARCH_REPLICATION set but DATABASE_URL missing; replicator not spawned"
+            );
+        }
+    }
+
     // Per-document affinity routing for multi-instance collab (Phase 2).
     // Default is single-instance: no ownership manager, routing inert,
     // behaviour identical to before. `NOSDESK_COLLAB_ROUTING` opts into
