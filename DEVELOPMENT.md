@@ -104,6 +104,13 @@ make watch &                  # source sync in background
 make logs                     # follow backend output
 ```
 
+### Serving on the LAN
+
+`make dev-lan` / `make dev-bg-lan` mirror `make dev` / `make dev-bg` but
+publish the backend on `0.0.0.0` so other devices can reach it at
+`http://<lan-ip>:8080` (`ipconfig getifaddr en0`). Only the backend is
+exposed; everything else stays on `127.0.0.1`. Trusted networks only.
+
 ### Common operations
 
 | Task | Command |
