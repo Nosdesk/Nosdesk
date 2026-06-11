@@ -50,16 +50,13 @@ export const useRecentTicketsStore = defineStore('recentTickets', () => {
   const auth = useAuthStore()
   const accountKey = () => auth.user?.uuid ?? null
 
-  // Seed the Colada cache from localStorage *before* the query is
-  // created so a hard refresh renders the last-known list instantly:
-  // `query.data` is already defined, `isLoading` stays false, and the
-  // sidebar never flashes a skeleton or jumps height. The query below
-  // attaches to this same cache entry and refetches in the background
-  // to bring it up to date.
-  const seeded = loadFromStorage(accountKey())
-  if (seeded.length > 0) {
-    queryCache.setQueryData<RecentTicket[]>(RECENT_TICKETS_KEY, seeded)
-  }
+  // Account-scoped query key: the signed-in user's uuid is part of the
+  // key, so switching accounts (sign-in / sign-out / switch) selects a
+  // different cache entry. Each account's recents stay separate, the new
+  // account's load happens automatically, and there's nothing to reset on
+  // sign-out. `RECENT_TICKETS_KEY` stays the prefix so external
+  // prefix-match invalidations (useTicketDeletionCleanup) still hit it.
+  const recentKey = () => [...RECENT_TICKETS_KEY, accountKey() ?? 'anon']
 
   // Recently-removed ids stay suppressed until the next refetch
   // so a quick `recordTicketView` after `removeTicket` doesn't
@@ -72,13 +69,17 @@ export const useRecentTicketsStore = defineStore('recentTickets', () => {
   const orderOverride = ref<number[] | null>(null)
 
   const query = useQuery({
-    key: RECENT_TICKETS_KEY,
+    key: recentKey,
     query: () => ticketService.getRecentTickets(),
-    // Don't fetch while signed out: on logout `auth.user` clears and the
-    // sidebar/widget are still mounted during the route transition, so an
-    // unguarded query fires a 401 (and a pointless token refresh). Mirrors
-    // the myWorkspaces query.
     enabled: () => auth.isAuthenticated,
+    // Hydrate instantly from this account's last-persisted list so a hard
+    // refresh doesn't flash a skeleton; `undefined` when nothing is stored
+    // keeps `isLoading` true for a genuine cold load. `enabled` keeps the
+    // signed-out (`anon`) key from fetching, so sign-out never 401s.
+    initialData: () => {
+      const stored = loadFromStorage(accountKey())
+      return stored.length > 0 ? stored : undefined
+    },
   })
 
   const baseTickets = computed<RecentTicket[]>(() => query.data.value ?? [])
@@ -98,17 +99,6 @@ export const useRecentTicketsStore = defineStore('recentTickets', () => {
       // cache still drives the UI for this session.
     }
   })
-
-  // Re-hydrate and refetch whenever the signed-in account changes so we
-  // never show one account's recents to another. Seeding with the new
-  // account's list (or [] when it has none) first clears any stale rows.
-  watch(
-    () => accountKey(),
-    (uuid) => {
-      queryCache.setQueryData<RecentTicket[]>(RECENT_TICKETS_KEY, loadFromStorage(uuid))
-      queryCache.invalidateQueries({ key: RECENT_TICKETS_KEY })
-    },
-  )
 
   const recentTickets = computed<RecentTicket[]>(() => {
     let list = removedTicketIds.value.size > 0
@@ -167,7 +157,7 @@ export const useRecentTicketsStore = defineStore('recentTickets', () => {
   }
 
   function updateTicketData(ticketId: number, updatedData: Partial<RecentTicket>) {
-    queryCache.setQueryData<RecentTicket[]>(RECENT_TICKETS_KEY, (old) => {
+    queryCache.setQueryData<RecentTicket[]>(recentKey(), (old) => {
       if (!old) return old as never
       return old.map((t) => (t.id === ticketId ? { ...t, ...updatedData } : t))
     })
@@ -176,7 +166,7 @@ export const useRecentTicketsStore = defineStore('recentTickets', () => {
   async function removeTicket(ticketId: number) {
     removedTicketIds.value.add(ticketId)
     // Optimistic remove from cache so both consumers update.
-    queryCache.setQueryData<RecentTicket[]>(RECENT_TICKETS_KEY, (old) =>
+    queryCache.setQueryData<RecentTicket[]>(recentKey(), (old) =>
       (old ?? []).filter((t) => t.id !== ticketId),
     )
     try {

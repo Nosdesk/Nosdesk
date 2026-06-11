@@ -451,12 +451,9 @@ export const useAuthStore = defineStore('auth', () => {
       logger.error('Failed to reset workflow states on logout', e);
     }
 
-    try {
-      const { useMyWorkspacesStore } = await import('@/stores/myWorkspaces');
-      useMyWorkspacesStore().reset();
-    } catch (e) {
-      logger.error('Failed to reset workspace memberships on logout', e);
-    }
+    // myWorkspaces no longer needs an explicit reset: its query key is
+    // scoped to the signed-in account, so clearing `user` switches it to
+    // the empty `anon` key automatically.
 
     try {
       const { resetWorkspaceCapabilities } = await import('@/composables/useWorkspaceCapabilities');

@@ -4,7 +4,7 @@
  */
 import { defineStore } from 'pinia';
 import { computed } from 'vue';
-import { useQuery, useQueryCache } from '@pinia/colada';
+import { useQuery } from '@pinia/colada';
 import workspacesService from '@/services/workspacesService';
 import type { MyWorkspaceEntry } from '@/types/workspace';
 import {
@@ -17,10 +17,14 @@ export const MY_WORKSPACES_KEY = ['my-workspaces'] as const;
 
 export const useMyWorkspacesStore = defineStore('myWorkspaces', () => {
   const auth = useAuthStore();
-  const queryCache = useQueryCache();
 
   const query = useQuery({
-    key: MY_WORKSPACES_KEY,
+    // Account-scoped key: when the signed-in user changes (sign-in,
+    // sign-out, account switch) the key changes, so Colada fetches the new
+    // account's memberships and caches each account separately — no
+    // cross-account leak and no manual reset. `enabled` keeps the
+    // signed-out (`anon`) key from fetching, so sign-out never fires a 401.
+    key: () => [...MY_WORKSPACES_KEY, auth.user?.uuid ?? 'anon'],
     query: () => workspacesService.listMyWorkspaces(),
     enabled: () => auth.isAuthenticated,
     staleTime: 60_000,
@@ -49,10 +53,6 @@ export const useMyWorkspacesStore = defineStore('myWorkspaces', () => {
     navigateToWorkspace(entry);
   }
 
-  function reset(): void {
-    void queryCache.invalidateQueries({ key: MY_WORKSPACES_KEY });
-  }
-
   return {
     workspaces,
     activeWorkspace,
@@ -60,7 +60,6 @@ export const useMyWorkspacesStore = defineStore('myWorkspaces', () => {
     showSwitcher,
     isLoading,
     switchTo,
-    reset,
     refetch: query.refetch,
   };
 });
