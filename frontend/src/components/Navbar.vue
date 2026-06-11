@@ -917,23 +917,43 @@ const isOverflowRouteActive = computed(() =>
     padding-right: env(safe-area-inset-right);
 }
 
-/* Slide-up entry, fade-out exit. Animations gated on motion-safe so
-   users with prefers-reduced-motion get the dialog instantly. */
+/* Symmetric slide-up-in / slide-down-out. Transitioning the <dialog>
+   itself (not the inner panel) with `@starting-style` + discrete
+   `overlay`/`display` transitions lets the native element animate on
+   BOTH open and close, instead of the panel-only entry that popped
+   away instantly on close. Gated on motion-safe; reduced-motion users
+   and engines without @starting-style just snap open/closed. */
 @media (prefers-reduced-motion: no-preference) {
-    .mobile-nav-sheet[open] .mobile-nav-sheet-panel {
-        animation: mobile-nav-sheet-slide-up 240ms cubic-bezier(0.2, 0, 0, 1);
+    .mobile-nav-sheet {
+        transform: translateY(100%);
+        transition:
+            transform 260ms cubic-bezier(0.32, 0.72, 0, 1),
+            overlay 260ms allow-discrete,
+            display 260ms allow-discrete;
+    }
+    .mobile-nav-sheet[open] {
+        transform: translateY(0);
+    }
+    @starting-style {
+        .mobile-nav-sheet[open] {
+            transform: translateY(100%);
+        }
+    }
+
+    .mobile-nav-sheet::backdrop {
+        opacity: 0;
+        transition:
+            opacity 260ms ease,
+            overlay 260ms allow-discrete,
+            display 260ms allow-discrete;
     }
     .mobile-nav-sheet[open]::backdrop {
-        animation: mobile-nav-sheet-backdrop-fade 180ms ease-out;
+        opacity: 1;
     }
-}
-
-@keyframes mobile-nav-sheet-slide-up {
-    from { transform: translateY(100%); }
-    to   { transform: translateY(0); }
-}
-@keyframes mobile-nav-sheet-backdrop-fade {
-    from { background-color: rgba(0, 0, 0, 0); }
-    to   { background-color: rgba(0, 0, 0, 0.4); }
+    @starting-style {
+        .mobile-nav-sheet[open]::backdrop {
+            opacity: 0;
+        }
+    }
 }
 </style>

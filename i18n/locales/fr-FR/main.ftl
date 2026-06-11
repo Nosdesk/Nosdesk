@@ -228,10 +228,7 @@ nav-secondary = Navigation secondaire
 nav-pins-edit = Modifier
 nav-pins-done = Terminé
 nav-pins-reset = Réinitialiser
-nav-pins-edit-hint = { $remaining ->
-    [one] Touchez les étoiles pour choisir jusqu'à { $max } tuiles ({ $remaining } emplacement restant)
-   *[other] Touchez les étoiles pour choisir jusqu'à { $max } tuiles ({ $remaining } emplacements restants)
-  }
+nav-pins-edit-hint = { $remaining } sur { $max } emplacements libres
 nav-pins-pin = Épingler { $name } à la barre du bas
 nav-pins-unpin = Désépingler { $name } de la barre du bas
 user-menu-aria = Menu utilisateur
