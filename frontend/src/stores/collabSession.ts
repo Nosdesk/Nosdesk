@@ -94,10 +94,28 @@ function isLocalPersistenceEnabled(): boolean {
   }
 }
 
+/** User-facing connection state for the editor's status indicator. */
+export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected'
+
+/**
+ * Derive the connection state from the provider's live socket flags.
+ * This is the single source of truth: recomputed on every `status`
+ * event rather than reconstructed from a history of transitions, so it
+ * can never drift (the old per-editor event juggling could latch
+ * `disconnected` on a reused, actually-connected provider).
+ */
+function deriveConnectionStatus(provider: WebsocketProvider): ConnectionStatus {
+  if (provider.wsconnected) return 'connected'
+  if (provider.wsconnecting) return 'connecting'
+  return 'disconnected'
+}
+
 interface SessionEntry {
   docId: string
   ydoc: Y.Doc
   provider: WebsocketProvider
+  /** Bound `status` listener, kept so `evict` can `off()` it. */
+  statusListener: () => void
   /** PermanentUserData has no destroy and registers cumulative
    *  observers per construction (Y source: `PermanentUserData.js`).
    *  Living once per `Y.Doc` lifetime here is the only safe shape;
@@ -237,6 +255,15 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
    */
   const sessionSnapshot = ref<Array<{ docId: string; refCount: number }>>([])
 
+  /**
+   * Reactive per-doc connection status. Owned here because the
+   * provider lives here and outlives the editor's mount cycle; one
+   * subscription per provider keeps it correct across remounts and
+   * shared between editors on the same doc. Editors read it; they
+   * don't compute it.
+   */
+  const connectionStatus = ref<Record<string, ConnectionStatus>>({})
+
   function refreshSnapshot(): void {
     sessionSnapshot.value = [...sessions.values()].map((s) => ({
       docId: s.docId,
@@ -289,6 +316,12 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
         logger.warn('Collab session: idb.destroy() threw', { docId, err })
       }
     }
+    try {
+      entry.provider.off('status', entry.statusListener)
+    } catch {
+      // Provider may already be torn down; nothing to do.
+    }
+    delete connectionStatus.value[docId]
     try {
       entry.provider.destroy()
     } catch (err) {
@@ -346,6 +379,10 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
       // hygiene — `lastReleasedAt` is only meaningful when the
       // session is actually released.
       existing.lastReleasedAt = null
+      // Re-seed in case the provider settled while no listener-driven
+      // event fired (the listener persists, but this guards the
+      // already-connected-during-grace case).
+      connectionStatus.value[docId] = deriveConnectionStatus(existing.provider)
       refreshSnapshot()
       return {
         ydoc: existing.ydoc,
@@ -386,10 +423,19 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
       options.providerParams,
     )
     const permanentUserData = new SafePermanentUserData(ydoc)
+    // One subscription per provider. Derives status from live socket
+    // flags on every transition; seeded synchronously so a provider
+    // that's already mid-connect reads correctly.
+    const onStatus = () => {
+      connectionStatus.value[docId] = deriveConnectionStatus(provider)
+    }
+    provider.on('status', onStatus)
+    onStatus()
     const entry: SessionEntry = {
       docId,
       ydoc,
       provider,
+      statusListener: onStatus,
       permanentUserData,
       idb,
       refCount: 1,
@@ -486,6 +532,7 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
 
   return {
     sessionSnapshot,
+    connectionStatus,
     acquire,
     release,
     destroy,

@@ -3,24 +3,19 @@ import documentationService from '@/services/documentationService'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
 import { docUrl } from '@/utils/docUrl'
 import { docsEmitter } from '@/services/docsEmitter'
-import { useSSE } from '@/services/sseService'
 
 /**
  * Documentation mutations + shared nav store access.
  *
  * Reads (page lists, trees, collections) now derive from the sync pool
  * via `useDocPages` / `useSyncDocsStore`; this composable is only the
- * create / delete mutations plus the SSE connection-status passthrough
- * the document view shows. There is no `documentation-updated` listener
- * here anymore — live metadata flows through the pool.
+ * create / delete mutations. Live metadata flows through the pool; the
+ * document view's live-connection indicator reads the collab session
+ * store directly (the Yjs WS), not SSE.
  */
 export function useDocumentation() {
   const router = useRouter()
   const documentationNavStore = useDocumentationNavStore()
-
-  // Shared EventSource connection status (the sync engine owns the
-  // connection); surfaced for the document view's presence indicator.
-  const { isConnected, isConnecting } = useSSE()
 
   /**
    * Create a new documentation page and navigate to it. The page lands
@@ -74,10 +69,6 @@ export function useDocumentation() {
   }
 
   return {
-    // SSE connection status
-    isConnected,
-    isConnecting,
-
     // Actions
     createNewPage,
     deletePage,

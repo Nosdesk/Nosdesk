@@ -31,6 +31,7 @@ import PageTicketLinksPanel from '@/components/documentationComponents/PageTicke
 import apiClient from '@/services/apiConfig'
 import { useAuthStore } from '@/stores/auth'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
+import { useCollabSessionStore, type ConnectionStatus } from '@/stores/collabSession'
 
 const route = useRoute()
 const router = useRouter()
@@ -45,10 +46,18 @@ const { copied: copiedLink, copy: copyToClipboard } = useClipboard()
 const {
   deletePage,
   documentationNavStore,
-  isConnected,
-  isConnecting,
 } = useDocumentation()
 const docs = useSyncDocsStore()
+
+// Live-collaboration connection for this doc. The real-time mechanism on
+// a document is the Yjs WebSocket the editor opens (owned, per-doc, by
+// the collab session store), not SSE — SSE presence is being retired for
+// the WS ephemeral plane (docs/realtime-ephemeral-plane-design.md). When
+// per-doc viewer presence lands there, this indicator grows into it.
+const collabStore = useCollabSessionStore()
+const liveStatus = computed<ConnectionStatus>(() =>
+  docId.value ? collabStore.connectionStatus[docId.value] ?? 'connecting' : 'disconnected',
+)
 
 // Document state — use preloaded data from route guard when available
 const preloaded = route.meta.preloadedDocument as Page | undefined
@@ -801,15 +810,15 @@ watch(documentObj, (newDocument) => {
                     @changed="fetchContent"
                   />
 
-                  <!-- SSE Connection Status -->
+                  <!-- Live-collaboration connection (Yjs WebSocket) -->
                   <div
                     class="w-2 h-2 rounded-full flex-shrink-0"
                     :class="{
-                      'bg-status-success animate-pulse': isConnected,
-                      'bg-status-warning animate-pulse': isConnecting && !isConnected,
-                      'bg-status-error': !isConnected && !isConnecting,
+                      'bg-status-success animate-pulse': liveStatus === 'connected',
+                      'bg-status-warning animate-pulse': liveStatus === 'connecting',
+                      'bg-status-error': liveStatus === 'disconnected',
                     }"
-                    :title="isConnected ? $t('doc-detail-sse-live') : isConnecting ? $t('doc-detail-sse-connecting') : $t('doc-detail-sse-disconnected')"
+                    :title="liveStatus === 'connected' ? $t('doc-detail-live-active') : liveStatus === 'connecting' ? $t('doc-detail-live-connecting') : $t('doc-detail-live-disconnected')"
                   ></div>
 
                   <!-- Last updated -->

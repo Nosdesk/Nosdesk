@@ -14,7 +14,7 @@ import Spinner from "@/components/common/Spinner.vue";
 import * as Y from "yjs";
 import { PermanentUserData } from "yjs";
 import { WebsocketProvider } from "y-websocket";
-import { useCollabSessionStore } from "@/stores/collabSession";
+import { useCollabSessionStore, type ConnectionStatus } from "@/stores/collabSession";
 import { SafePermanentUserData } from "@/utils/safePermanentUserData";
 import { getCollabWsUrl } from "@/utils/collabWsUrl";
 import { EditorView } from "prosemirror-view";
@@ -179,12 +179,18 @@ const syncEmbeddings = async () => {
 
 // Refs for template
 const editorElement = ref<HTMLElement | null>(null);
-const isConnected = ref(false);
-
-// Connection status for UI display: 'connecting' | 'connected' | 'disconnected'
-const connectionStatus = ref<'connecting' | 'connected' | 'disconnected'>('connecting');
-const hasBeenConnected = ref(false);
-let connectionTimeout: ReturnType<typeof setTimeout> | null = null;
+// Connection status is owned by the collab session store: it lives with
+// the provider, which outlives this component's mount cycle, so the
+// editor reads it rather than reconstructing it from socket events.
+// `connectionError` is the one local override — a hard editor-construction
+// failure surfaces as disconnected even when the socket itself is fine.
+const collab = useCollabSessionStore();
+const connectionError = ref(false);
+const connectionStatus = computed<ConnectionStatus>(() =>
+  connectionError.value
+    ? 'disconnected'
+    : collab.connectionStatus[props.docId] ?? 'connecting',
+);
 
 // State for connected users
 const connectedUsers = ref<{ id: string; user: AwarenessUser }[]>([]);
@@ -237,7 +243,6 @@ interface WebSocketCloseEvent {
 }
 
 // Provider event handler references for proper cleanup
-let statusHandler: ((event: { status: 'connected' | 'disconnected' | 'connecting' }) => void) | null = null;
 let connectionErrorHandler: ((error: Event) => void) | null = null;
 let connectionCloseHandler: ((event: WebSocketCloseEvent | null) => void) | null = null;
 let syncedHandler: ((isSynced: boolean) => void) | null = null;
@@ -546,6 +551,10 @@ const createListKeymap = (schema: Schema) => {
 const initEditor = async () => {
     if (!editorElement.value) return;
 
+    // Clear any prior construction error so a re-init starts neutral;
+    // the connection status itself comes from the store.
+    connectionError.value = false;
+
     try {
         log.info("Initializing collaborative editor with docId:", props.docId);
 
@@ -575,7 +584,6 @@ const initEditor = async () => {
         // awareness setLocalStateField, editor view) re-runs on
         // every mount, the previous editor instance's listeners
         // were torn off in `cleanup()`.
-        const collab = useCollabSessionStore();
         const session = collab.acquire(props.docId, {
             baseWsUrl,
             providerParams: {
@@ -854,75 +862,12 @@ const initEditor = async () => {
         // Initial mention users pre-warm via the composable's
         // `immediate: true` watcher; no explicit prefetch needed.
 
-        // 7. Set up connection status handler with enhanced logging
-        // Store handler reference for proper cleanup
-        statusHandler = (event: {
-            status: "connected" | "disconnected" | "connecting";
-        }) => {
-            const previousStatus = isConnected.value
-                ? "connected"
-                : "disconnected";
-            isConnected.value = event.status === "connected";
-
-            // Only log status changes, not every status event
-            if (previousStatus !== event.status) {
-                log.info(`Connection status: ${event.status}`);
-            }
-
-            // Update connectionStatus for UI display
-            if (event.status === "connected") {
-                connectionStatus.value = 'connected';
-                hasBeenConnected.value = true;
-                // Clear the connection timeout now that connection is established
-                if (connectionTimeout) {
-                    clearTimeout(connectionTimeout);
-                    connectionTimeout = null;
-                }
-                log.info("WebSocket connected successfully");
-            } else if (event.status === "disconnected") {
-                // Only show disconnected if previously connected
-                // Otherwise keep showing "connecting" until the 10-second timeout
-                if (hasBeenConnected.value) {
-                    connectionStatus.value = 'disconnected';
-                }
-                log.warn(
-                    "WebSocket disconnected - will attempt to reconnect automatically",
-                );
-
-                // Only run diagnostics in debug mode or when explicitly enabled
-                if (
-                    import.meta.env.DEV ||
-                    window.localStorage.getItem(
-                        "editor-verbose-logging",
-                    ) === "true"
-                ) {
-                    diagnoseConnectionIssue();
-                }
-            } else if (event.status === "connecting") {
-                // If previously connected and now reconnecting, show connecting
-                if (hasBeenConnected.value) {
-                    connectionStatus.value = 'connecting';
-                }
-            }
-        };
-        provider.on("status", statusHandler);
-
-        // Seed local status from the provider's current state. The
-        // session store reuses a single WebsocketProvider across
-        // editor remounts, so on a re-acquire the provider is often
-        // already connected. y-websocket only emits `status` on
-        // transitions, not steady state, so without this the new
-        // editor would sit in `connecting` until the 10s timeout
-        // fired and flipped it to `disconnected` — a hang the user
-        // sees as "tries to connect and fails" after navigating
-        // back to a ticket.
-        if (provider.wsconnected) {
-            connectionStatus.value = 'connected';
-            hasBeenConnected.value = true;
-            isConnected.value = true;
-        } else if (provider.wsconnecting) {
-            connectionStatus.value = 'connecting';
-        }
+        // 7. Connection status is owned by the collab session store: it
+        // subscribes once per provider and derives the status from the
+        // live socket state, so it stays correct across this component's
+        // remounts (and the reused-provider case that used to latch
+        // "disconnected"). `connectionStatus` here is just a computed
+        // over it; nothing to wire, seed, or time out.
 
         // Add error event handler for more detailed error information
         // Store handler reference for proper cleanup
@@ -1169,7 +1114,7 @@ const initEditor = async () => {
         // 2s later wouldn't have helped anyway. Surface the
         // failure as a disconnected status and let the user
         // navigate away or refresh manually.
-        connectionStatus.value = 'disconnected';
+        connectionError.value = true;
     }
 };
 
@@ -1498,12 +1443,6 @@ const cleanup = () => {
         visibilityTimeout = null;
     }
 
-    // Clear connection timeout
-    if (connectionTimeout) {
-        clearTimeout(connectionTimeout);
-        connectionTimeout = null;
-    }
-
     // CRITICAL: cleanup order matters now that the doc + provider
     // are owned by `useCollabSessionStore` and outlive the
     // component. We tear off only the listeners THIS mount
@@ -1531,10 +1470,6 @@ const cleanup = () => {
     //    re-acquires of the same docId.
     if (provider) {
         try {
-            if (statusHandler) {
-                provider.off("status", statusHandler);
-                statusHandler = null;
-            }
             if (statusReconnectHandler) {
                 provider.off("status", statusReconnectHandler);
                 statusReconnectHandler = null;
@@ -1590,7 +1525,6 @@ const cleanup = () => {
     //    quick nav-back reuses the same connection) and
     //    eventually destroy the doc + provider on LRU eviction.
     if (props.docId) {
-        const collab = useCollabSessionStore();
         collab.release(props.docId);
     }
 
@@ -1599,10 +1533,10 @@ const cleanup = () => {
     ydoc = null;
     permanentUserData = null;
 
-    isConnected.value = false;
     isInitialized.value = false;
-    connectionStatus.value = 'connecting';
-    hasBeenConnected.value = false;
+    // connectionStatus is owned by the store and tied to the provider's
+    // lifetime, so there's nothing to reset here — the computed simply
+    // stops being read once this editor unmounts.
 };
 
 // Page-unload handling is owned by useCollabSessionStore (it
@@ -1756,15 +1690,6 @@ onMounted(() => {
     document.addEventListener("mousedown", handleClickOutside);
     document.addEventListener("keydown", handleKeydown);
     window.addEventListener("beforeunload", handleBeforeUnload);
-
-    // Set 10-second timeout for initial connection
-    // If not connected within 10 seconds, show "Disconnected" instead of "Connecting"
-    connectionTimeout = setTimeout(() => {
-        if (connectionStatus.value === 'connecting') {
-            connectionStatus.value = 'disconnected';
-            log.warn('Connection timeout - failed to connect within 10 seconds');
-        }
-    }, 10000);
 
     // Add network status monitoring with stored handler references for proper cleanup
     onlineHandler = () => {
@@ -2562,6 +2487,11 @@ defineExpose({
     height: 100%;
     width: 100%;
     position: relative;
+    /* Query container for the toolbar density tiers below. Safe: the
+       editor is already a positioned containing block, and the toolbar
+       dropdowns teleport to <body> so containment can't reach them. */
+    container-type: inline-size;
+    container-name: editor;
 }
 
 .toolbar {
@@ -2604,6 +2534,38 @@ defineExpose({
     flex-shrink: 0;
     background-color: var(--color-default);
     margin: 0 0.5rem;
+}
+
+/* Density tiers: as the editor narrows, tighten the toolbar's gaps,
+   button padding, and divider margins so the whole row fits a smaller
+   container before the overflow-x scroll becomes the fallback. Driven
+   by the editor's own width (container-name: editor), so the toolbar
+   adapts wherever the editor is embedded, not by the viewport. */
+@container editor (max-width: 620px) {
+    .toolbar {
+        padding: 0.375rem;
+        gap: 0.125rem;
+    }
+    .toolbar-button {
+        padding: 0.25rem 0.375rem;
+    }
+    .toolbar-divider {
+        height: 1.25rem;
+        margin: 0 0.25rem;
+    }
+}
+
+@container editor (max-width: 460px) {
+    .toolbar {
+        padding: 0.25rem;
+        gap: 0.0625rem;
+    }
+    .toolbar-button {
+        padding: 0.25rem 0.3125rem;
+    }
+    .toolbar-divider {
+        margin: 0 0.125rem;
+    }
 }
 
 .dropdown-menu {
