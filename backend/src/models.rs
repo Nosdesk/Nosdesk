@@ -967,6 +967,12 @@ pub struct Ticket {
     /// Optional free-text note captured in the merge dialog. NULL when
     /// the merging agent left the reason field empty.
     pub merge_reason: Option<String>,
+    /// Stable, never-recycled identity. Unlike the integer `id` (which
+    /// a DB reset recycles), this UUID is minted once at creation, so
+    /// it's the safe key for collaborative-document caches keyed
+    /// `ws-{workspaceUuid}_ticket-{uuid}`. Must stay the LAST field to
+    /// match the column order in `schema.rs` (positional Queryable).
+    pub uuid: Uuid,
 }
 
 // Ticket implementation removed - serialization now handled by serde attributes

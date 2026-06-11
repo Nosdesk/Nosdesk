@@ -629,6 +629,7 @@ fn stream_bootstrap_inner(
             json!({
                 "__model__": "ticket",
                 "id": t.id,
+                "uuid": t.uuid,
                 "title": t.title,
                 "workflow_state": workflow_state_payload,
                 "workflow_state_id": t.workflow_state_id,

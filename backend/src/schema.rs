@@ -1592,6 +1592,7 @@ diesel::table! {
         merged_at -> Nullable<Timestamptz>,
         merged_by_user_uuid -> Nullable<Uuid>,
         merge_reason -> Nullable<Text>,
+        uuid -> Uuid,
     }
 }
 

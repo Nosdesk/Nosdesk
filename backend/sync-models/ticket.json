@@ -3,6 +3,7 @@
   "schema_version": 1,
   "fields": {
     "id": { "rust": "i32", "ts": "number", "primary": true },
+    "uuid": { "rust": "Uuid", "ts": "string" },
     "title": { "rust": "String", "ts": "string" },
     "workflow_state_id": { "rust": "i32", "ts": "number" },
     "priority": { "rust": "TicketPriority", "ts": "TicketPriority" },

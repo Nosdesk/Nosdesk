@@ -169,6 +169,7 @@ pub fn create_ticket_with_annotation(
                 event_type: "ticket.created",
                 data: json!({
                     "id": ticket.id,
+                    "uuid": ticket.uuid,
                     "title": ticket.title,
                     "workflow_state_id": ticket.workflow_state_id,
                     "priority": ticket.priority.as_str(),
