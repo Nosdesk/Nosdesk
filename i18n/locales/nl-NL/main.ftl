@@ -74,8 +74,6 @@ notif-body-text =
 login-subtitle = Log in op uw account
 # Auth-titel en hero (machine, na te kijken door moedertaalspreker).
 login-title = Welkom terug
-auth-hero-title = De helpdesk die je verdient.
-auth-hero-subtitle = Open. Realtime. Van jou.
 auth-hero-pill = Zelf-gehost
 login-email-label = E-mail
 login-email-placeholder = Voer uw e-mailadres in

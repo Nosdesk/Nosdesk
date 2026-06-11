@@ -77,8 +77,6 @@ notif-body-text =
 login-subtitle = Connectez-vous à votre compte
 # Titre et hero d'authentification (machine, à relire par un locuteur natif).
 login-title = Bon retour
-auth-hero-title = Le centre d'assistance que vous méritez.
-auth-hero-subtitle = Ouvert. En temps réel. À vous.
 auth-hero-pill = Auto-hébergé
 login-email-label = E-mail
 login-email-placeholder = Saisissez votre e-mail

@@ -121,9 +121,7 @@ notif-body-text =
 # wrestle with.
 login-subtitle = Sign in to your account
 login-title = Welcome back
-# Shared brand hero on the login + onboarding pages.
-auth-hero-title = The helpdesk you deserve.
-auth-hero-subtitle = Open. Real-time. Yours.
+# Brand hero pill on the onboarding page.
 auth-hero-pill = Self-hosted
 login-email-label = Email
 login-email-placeholder = Enter your email

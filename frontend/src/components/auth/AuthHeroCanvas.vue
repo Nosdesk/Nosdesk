@@ -729,7 +729,7 @@ onMounted(() => {
     gl.uniform2f(u.mouse, remappedX, 1.0 - remappedY);
     // Slab orientation: resting pose ~-12deg yaw / ~6deg pitch, swaying
     // with the smoothed cursor (and the idle drift through it).
-    gl.uniform2f(u.tilt, 0.07 + (0.5 - smoothY) * 0.2, -0.26 + (smoothX - 0.5) * 0.32);
+    gl.uniform2f(u.tilt, 0.07 + (smoothY - 0.5) * 0.2, -0.26 + (smoothX - 0.5) * 0.32);
     gl.uniform1f(u.aspect, h / w);
     gl.uniform2f(u.resolution, pw, ph);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
