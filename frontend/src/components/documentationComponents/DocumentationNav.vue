@@ -23,6 +23,8 @@ import { updateCollection, deleteCollection } from '@/services/collectionService
 import type { CollectionWithDetails } from '@/services/collectionService'
 import { findInTree } from '@/utils/treeUtils'
 import { docUrl } from '@/utils/docUrl'
+import { subscribe } from '@/sync/lifecycle'
+import { useDelayedFlag } from '@/composables/useDelayedFlag'
 import { useClipboard } from '@/composables/useClipboard'
 import { docsEmitter } from '@/services/docsEmitter'
 import type { NavPage } from '@/stores/documentationNav'
@@ -725,15 +727,27 @@ const collectionExpanded = reactive<Record<number, boolean>>({})
 const collectionPages = reactive<Record<number, Page[]>>({})
 // Track which collections have been loaded
 const collectionLoaded = reactive<Record<number, boolean>>({})
-// Loading state per collection
-const collectionLoading = reactive<Record<number, boolean>>({})
 // Map from page ID -> collection ID (for auto-expand on navigate)
 const pageToCollectionMap = ref<Record<string, number>>({})
 // Parent map for page hierarchy within collections
 const pageParentMap = ref<Record<string, string | null>>({})
 
-// Initial loading state
-const initialLoading = ref(true)
+// True once the workspace bootstrap that carries documentation
+// collections + pages has settled (see onMounted). Until then an empty
+// `collections` list is ambiguous ("still loading" vs "genuinely no
+// docs"), so we hold off on the empty state. The pool is cache-first
+// (IndexedDB), so on a warm refresh the rows are already here and this
+// flips true without the user ever seeing a loading state.
+const docsReady = ref(false)
+
+// Show the skeleton only when a cold bootstrap is genuinely slow
+// (>300ms with nothing cached yet). Warm refreshes hydrate from the
+// pool instantly and never flash it; fast cold loads stay quiet and
+// let the tree fill in. Mirrors AsyncBoundary's pendingDelay.
+const showSkeleton = useDelayedFlag(
+  () => !docsReady.value && collections.value.length === 0,
+  300,
+)
 
 // ============================================================================
 // Collection loading
@@ -812,7 +826,6 @@ watchEffect(() => {
     const tree = buildPageTree(activeRows).map(nodeToPage)
     collectionPages[c.id] = tree
     collectionLoaded[c.id] = true
-    collectionLoading[c.id] = false
     for (const r of rows) newPageToCollection[String(r.id)] = c.id
     buildParentMapInto(tree, null, newParent)
     allTreePages.push(...tree)
@@ -1163,11 +1176,18 @@ onMounted(async () => {
     }
   } finally {
     docNavStore.setLoading(false);
-    initialLoading.value = false;
   }
 
   docNavStore.updateSidebarForScreenSize()
   window.addEventListener('resize', handleResize)
+
+  // Mark docs ready once the workspace bootstrap (which streams the
+  // documentation collections + pages into the pool) settles. Idempotent
+  // and cache-first: resolves immediately on a warm refresh, so the empty
+  // state only ever appears when there genuinely are no collections.
+  // `.finally` so a bootstrap error still releases the loading gate
+  // rather than leaving the nav stuck blank.
+  subscribe('workspace:1').finally(() => { docsReady.value = true });
 })
 
 onUnmounted(() => {
@@ -1198,8 +1218,10 @@ defineExpose({ reloadSidebar });
       <div class="drop-indicator-dot"></div>
     </div>
 
-    <!-- Loading State -->
-    <div v-if="initialLoading" class="py-1 px-2">
+    <!-- Loading skeleton — only on a genuinely slow cold load (>300ms
+         with nothing cached). Warm refreshes hydrate from the pool
+         instantly and never flash it. -->
+    <div v-if="showSkeleton" class="py-1 px-2">
       <div v-for="i in 3" :key="i" class="flex items-center gap-1.5 py-1">
         <div class="flex-shrink-0" style="width: 8px"></div>
         <div class="w-4 h-4 rounded bg-surface-hover/50 animate-pulse flex-shrink-0"></div>
@@ -1208,7 +1230,7 @@ defineExpose({ reloadSidebar });
     </div>
 
     <!-- Starred Pages Section -->
-    <div v-if="!initialLoading && starredPages.length > 0" class="py-1">
+    <div v-if="!showSkeleton && starredPages.length > 0" class="py-1">
       <!-- Starred Header -->
       <div
         class="group relative flex items-center py-1 pr-2 rounded text-xs cursor-pointer transition-all duration-150 text-secondary hover:text-primary hover:bg-surface-hover"
@@ -1258,7 +1280,7 @@ defineExpose({ reloadSidebar });
     </div>
 
     <!-- Collection Folders -->
-    <div v-if="!initialLoading" class="py-1">
+    <div v-if="!showSkeleton" class="py-1">
       <!-- Each collection as an expandable folder -->
       <div v-for="collection in collections" :key="collection.id" class="collection-folder">
         <!-- Collection Header — same interaction pattern as DocumentationNavItem -->
@@ -1288,7 +1310,7 @@ defineExpose({ reloadSidebar });
                sits behind it. The icon stays as a static glyph in
                that case. -->
           <span
-            class="flex-shrink-0 w-5 flex items-center justify-center"
+            class="flex-shrink-0 w-5 h-5 flex items-center justify-center"
             @click.stop="(collection.page_count ?? 0) > 0 ? toggleCollectionExpanded(collection.id) : null"
           >
             <template v-if="(collection.page_count ?? 0) > 0">
@@ -1345,17 +1367,10 @@ defineExpose({ reloadSidebar });
         >
           <div class="collapse-content">
             <template v-if="collectionExpanded[collection.id] || collectionLoaded[collection.id]">
-              <!-- Loading state for this collection (first load only, sized to page_count) -->
-              <div v-if="collectionLoading[collection.id]" class="py-0.5 ml-2">
-                <div v-for="i in Math.max(1, Math.min(collection.page_count ?? 3, 8))" :key="i" class="flex items-center gap-1.5 py-1">
-                  <div class="flex-shrink-0" :style="{ width: '20px' }"></div>
-                  <div class="w-4 h-3.5 rounded bg-surface-hover/40 animate-pulse flex-shrink-0"></div>
-                  <div class="flex-1 h-3 rounded bg-surface-hover/40 animate-pulse" :style="{ maxWidth: `${50 + (i % 3) * 15}%` }"></div>
-                </div>
-              </div>
-
-              <!-- Pages tree (filtered by sidebar search) -->
-              <ul v-else-if="visiblePagesIn(collection.id).length > 0" class="flex flex-col">
+              <!-- Pages tree (filtered by sidebar search). Pages stream
+                   in from the pool, so there's no per-collection fetch to
+                   show a loading state for. -->
+              <ul v-if="visiblePagesIn(collection.id).length > 0" class="flex flex-col">
                 <DocumentationNavItem
                   v-for="page in visiblePagesIn(collection.id)"
                   :key="page.id"
@@ -1380,8 +1395,10 @@ defineExpose({ reloadSidebar });
         </div>
       </div>
 
-      <!-- Empty State -->
-      <div v-if="collections.length === 0" class="px-4 py-8 text-center">
+      <!-- Empty State — only once the bootstrap has settled, so a
+           cold load doesn't flash "no documentation" before the pool
+           populates. -->
+      <div v-if="docsReady && collections.length === 0" class="px-4 py-8 text-center">
         <div class="text-tertiary text-sm">{{ $t('docs-nav-empty') }}</div>
       </div>
     </div>
