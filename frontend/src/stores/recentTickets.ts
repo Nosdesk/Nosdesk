@@ -10,17 +10,56 @@
  * client-only, not server-authoritative state.
  */
 import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useQuery, useQueryCache } from '@pinia/colada'
 import ticketService from '@/services/ticketService'
 import type { RecentTicket } from '@/types/ticket'
 import { logger } from '@/utils/logger'
 import { translate } from '@/i18n'
+import { useAuthStore } from '@/stores/auth'
 
 export const RECENT_TICKETS_KEY = ['tickets', 'recent'] as const
 
+// Cap on how many rows we persist. The list never shows more than a
+// handful, so a small cap keeps the localStorage payload tiny.
+const MAX_PERSISTED = 25
+const STORAGE_KEY_PREFIX = 'nosdesk:recent-tickets'
+
+/** Per-account storage key so switching accounts on the same browser
+ *  doesn't hydrate the previous account's list. */
+function storageKey(accountUuid: string | null): string {
+  return accountUuid
+    ? `${STORAGE_KEY_PREFIX}:${accountUuid}`
+    : `${STORAGE_KEY_PREFIX}:anon`
+}
+
+function loadFromStorage(accountUuid: string | null): RecentTicket[] {
+  if (typeof localStorage === 'undefined') return []
+  try {
+    const raw = localStorage.getItem(storageKey(accountUuid))
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? (parsed as RecentTicket[]) : []
+  } catch {
+    return []
+  }
+}
+
 export const useRecentTicketsStore = defineStore('recentTickets', () => {
   const queryCache = useQueryCache()
+  const auth = useAuthStore()
+  const accountKey = () => auth.user?.uuid ?? null
+
+  // Seed the Colada cache from localStorage *before* the query is
+  // created so a hard refresh renders the last-known list instantly:
+  // `query.data` is already defined, `isLoading` stays false, and the
+  // sidebar never flashes a skeleton or jumps height. The query below
+  // attaches to this same cache entry and refetches in the background
+  // to bring it up to date.
+  const seeded = loadFromStorage(accountKey())
+  if (seeded.length > 0) {
+    queryCache.setQueryData<RecentTicket[]>(RECENT_TICKETS_KEY, seeded)
+  }
 
   // Recently-removed ids stay suppressed until the next refetch
   // so a quick `recordTicketView` after `removeTicket` doesn't
@@ -38,6 +77,33 @@ export const useRecentTicketsStore = defineStore('recentTickets', () => {
   })
 
   const baseTickets = computed<RecentTicket[]>(() => query.data.value ?? [])
+
+  // Persist the server list so the next page load can hydrate from it
+  // instantly. We persist server order (not the local drag override),
+  // since that override resets on the next refetch anyway.
+  watch(baseTickets, (next) => {
+    if (typeof localStorage === 'undefined') return
+    try {
+      localStorage.setItem(
+        storageKey(accountKey()),
+        JSON.stringify(next.slice(0, MAX_PERSISTED)),
+      )
+    } catch {
+      // Quota exceeded or storage disabled. Best-effort; the in-memory
+      // cache still drives the UI for this session.
+    }
+  })
+
+  // Re-hydrate and refetch whenever the signed-in account changes so we
+  // never show one account's recents to another. Seeding with the new
+  // account's list (or [] when it has none) first clears any stale rows.
+  watch(
+    () => accountKey(),
+    (uuid) => {
+      queryCache.setQueryData<RecentTicket[]>(RECENT_TICKETS_KEY, loadFromStorage(uuid))
+      queryCache.invalidateQueries({ key: RECENT_TICKETS_KEY })
+    },
+  )
 
   const recentTickets = computed<RecentTicket[]>(() => {
     let list = removedTicketIds.value.size > 0

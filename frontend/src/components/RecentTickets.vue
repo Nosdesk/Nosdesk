@@ -197,29 +197,27 @@ const handleLocalDragEnd = () => {
   handleDragEnd()
 }
 
-// `isLoading` from the store is already the first-fetch-only signal,
-// so binding it directly skips the skeleton on background refetches.
+// `isLoading` from the store is the first-fetch-only signal (no cached
+// or persisted data yet). With localStorage hydration this is rarely
+// true for a returning user; we use it only to stay quiet during a
+// genuine cold load instead of flashing the "empty" message.
 const showLoading = computed(() => recentTicketsStore.isLoading)
 
-onMounted(async () => {
-  // Only fetch if no data yet (prevents refetch on every mount)
-  if (recentTicketsStore.recentTickets.length === 0) {
-    await recentTicketsStore.fetchRecentTickets()
-  }
+onMounted(() => {
+  // Always refresh in the background. When the store hydrated from
+  // localStorage the cached rows render instantly and this refetch
+  // updates them silently (isLoading stays false because data is
+  // already defined), so there's no skeleton and no height jump.
+  recentTicketsStore.fetchRecentTickets()
 })
 
 </script>
 
 <template>
   <div class="h-full flex flex-col">
-    <!-- Loading (only on initial load) -->
-    <div v-if="showLoading" class="flex flex-col gap-0.5 p-1">
-      <div v-for="i in 8" :key="i" class="h-7 bg-surface-hover rounded animate-pulse"></div>
-    </div>
-
-    <!-- List -->
+    <!-- List (cache-first: hydrated from localStorage, renders instantly) -->
     <div
-      v-else-if="recentTicketsStore.recentTickets.length > 0"
+      v-if="recentTicketsStore.recentTickets.length > 0"
       ref="listContainerRef"
       class="flex-1 min-h-0 overflow-y-auto"
       @drop="handleDrop"
@@ -270,6 +268,10 @@ onMounted(async () => {
         </div>
       </TransitionGroup>
     </div>
+
+    <!-- Cold load with no cached data: stay quiet and let the data fill
+         in, rather than flashing the "empty" message before it lands. -->
+    <div v-else-if="showLoading" class="flex-1"></div>
 
     <!-- Empty -->
     <div v-else class="flex-1 flex items-center justify-center p-2">
