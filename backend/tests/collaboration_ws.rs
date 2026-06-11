@@ -152,13 +152,15 @@ fn test_workspace() -> WorkspaceContext {
     }
 }
 
-/// Seed a ticket in the bootstrap workspace and return its id. The
+/// Seed a ticket in the bootstrap workspace and return its uuid. The
 /// collaboration handshake's per-document visibility gate
 /// (security-audit-2026-06) calls `can_view_ticket`, which requires the
 /// ticket to exist; pointing the doc_id at a real ticket lets the
 /// transport smoke test exercise the handshake. The caller (WSAlice) is
-/// a platform admin, so any existing ticket is visible to her.
-fn seed_ticket(conn: &mut diesel::pg::PgConnection) -> i32 {
+/// a platform admin, so any existing ticket is visible to her. Collab
+/// doc_ids are keyed by the immutable ticket uuid (the backend resolves
+/// it to the integer id), so we return the uuid, not the id.
+fn seed_ticket(conn: &mut diesel::pg::PgConnection) -> uuid::Uuid {
     use backend::schema::{tickets, workflow_states};
     use diesel::prelude::*;
     let state_id: i32 = workflow_states::table
@@ -175,7 +177,7 @@ fn seed_ticket(conn: &mut diesel::pg::PgConnection) -> i32 {
         })
         .get_result(conn)
         .expect("insert ticket");
-    t.id
+    t.uuid
 }
 
 #[actix_web::test]
@@ -210,7 +212,7 @@ async fn handshake_broadcast_and_clean_disconnect() {
 
     // Seed a ticket so the WS visibility gate admits the handshake
     // (see the doc_id construction below).
-    let ticket_id = seed_ticket(&mut pool.get().expect("conn"));
+    let ticket_uuid = seed_ticket(&mut pool.get().expect("conn"));
 
     let state_pool_inner = pool.clone();
 
@@ -237,13 +239,16 @@ async fn handshake_broadcast_and_clean_disconnect() {
     });
 
     // doc_id must be in the workspace-namespaced format
-    // `ws-{uuid}_{kind}-{id}`; ws_handler rejects bare ids with a 400
-    // and rejects a uuid that doesn't match the request's
-    // WorkspaceContext with a 403. Build it from test_workspace()'s
-    // uuid (nil) so both checks pass. The per-document visibility gate
-    // (security-audit-2026-06) requires the ticket to exist and be
-    // visible, so point the doc at the seeded ticket above.
-    let doc_id = format!("ws-{}_ticket-{ticket_id}", test_workspace().workspace_uuid);
+    // `ws-{workspace_uuid}_{kind}-{resource_uuid}`; ws_handler rejects
+    // bare/integer ids with a 400 and rejects a workspace uuid that
+    // doesn't match the request's WorkspaceContext with a 403. Build it
+    // from test_workspace()'s uuid (nil) and the seeded ticket's uuid so
+    // both checks pass and the backend resolves the uuid to the ticket
+    // the per-document visibility gate (security-audit-2026-06) admits.
+    let doc_id = format!(
+        "ws-{}_ticket-{ticket_uuid}",
+        test_workspace().workspace_uuid
+    );
     let url = srv.url(&format!("/ws/{doc_id}"));
 
     // Own our own awc::Client so we can attach the auth cookie.
