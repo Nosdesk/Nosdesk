@@ -437,9 +437,6 @@ const handleOidcLogoutClick = async () => {
       />
       <LogoIcon v-else class="h-9 w-auto text-accent" :aria-label="$t('nav-logo-alt')" />
     </template>
-    <template #pill>{{ $t('auth-hero-pill') }}</template>
-    <template #hero-title>{{ $t('auth-hero-title') }}</template>
-    <template #hero-subtitle>{{ $t('auth-hero-subtitle') }}</template>
 
     <div class="flex flex-col gap-8">
       <!-- Success Message -->

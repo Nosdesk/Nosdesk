@@ -2,13 +2,13 @@
 Full-page split-screen shell for the unauthenticated pages (login,
 onboarding). Left panel holds the brand logo, the form (vertically
 centred), and an optional legal/footer line; the right panel is a fixed
-dark brand hero with a slow animated gradient mesh, a status pill, and a
-bottom tagline. The hero is hidden under `lg`, so on mobile the form
-panel is a normal single column.
+dark brand hero with a WebGL liquid-glass backdrop (AuthHeroCanvas), a
+status pill, and a bottom tagline. The hero is hidden under `lg`, so on
+mobile the form panel is a normal single column.
 
 The hero is intentionally dark in every theme (a deliberate brand panel),
 so its text uses explicit light colours rather than the theme tokens
-(which flip in light mode). The mesh blobs are tinted with the accent
+(which flip in light mode). The canvas palette is driven by the accent
 token, so workspace branding carries through. Motion is gated behind
 `prefers-reduced-motion`.
 
@@ -22,6 +22,7 @@ Slots:
 -->
 <script setup lang="ts">
 import LogoIcon from '@/components/icons/LogoIcon.vue';
+import AuthHeroCanvas from '@/components/auth/AuthHeroCanvas.vue';
 
 withDefaults(
   defineProps<{
@@ -66,26 +67,22 @@ withDefaults(
 
     <!-- Brand hero (desktop only) -->
     <aside class="auth-hero relative hidden flex-1 overflow-hidden lg:block">
-      <div class="auth-mesh" aria-hidden="true">
-        <span class="blob blob-1"></span>
-        <span class="blob blob-2"></span>
-        <span class="blob blob-3"></span>
-      </div>
+      <AuthHeroCanvas />
 
-      <!-- Brand radial accent + edge fades for legibility -->
-      <div class="hero-radial pointer-events-none absolute inset-0"></div>
+      <!-- Edge fades for legibility -->
       <div class="hero-fade-left pointer-events-none absolute inset-y-0 left-0 w-40"></div>
       <div class="hero-fade-bottom pointer-events-none absolute inset-x-0 bottom-0 h-1/2"></div>
 
-      <!-- Status pill -->
+      <!-- Status pill (only when a view supplies a label) -->
       <div
+        v-if="$slots.pill"
         class="absolute right-12 top-12 z-10 flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-white/70 backdrop-blur-sm xl:right-16 xl:top-16"
       >
         <span class="relative flex h-2 w-2">
           <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-60"></span>
           <span class="relative inline-flex h-2 w-2 rounded-full bg-accent"></span>
         </span>
-        <slot name="pill">Self-hosted</slot>
+        <slot name="pill" />
       </div>
 
       <!-- Vertically-centred hero content (e.g. onboarding's
@@ -122,103 +119,13 @@ withDefaults(
   background-color: #08090a;
 }
 
-.auth-mesh {
-  position: absolute;
-  inset: 0;
-}
-
-.blob {
-  position: absolute;
-  border-radius: 9999px;
-  filter: blur(70px);
-  will-change: transform;
-}
-
-.blob-1 {
-  width: 32rem;
-  height: 32rem;
-  top: -8rem;
-  right: -5rem;
-  background: var(--color-accent);
-  opacity: 0.22;
-}
-
-.blob-2 {
-  width: 28rem;
-  height: 28rem;
-  bottom: -6rem;
-  left: -4rem;
-  background: var(--color-accent);
-  opacity: 0.12;
-}
-
-.blob-3 {
-  width: 24rem;
-  height: 24rem;
-  top: 38%;
-  left: 32%;
-  background: #ffffff;
-  opacity: 0.04;
-}
-
-/* Brand radial glow from the top-right, mirroring the dashboard hero. */
-.hero-radial {
-  background: radial-gradient(
-    ellipse 900px 600px at 82% -10%,
-    color-mix(in srgb, var(--color-accent) 18%, transparent),
-    transparent 70%
-  );
-}
-
 /* Seam fade so the panel edge melts into the form column. */
 .hero-fade-left {
   background: linear-gradient(to right, #08090a, transparent);
 }
 
-/* Bottom fade keeps the tagline readable over the mesh. */
+/* Bottom fade keeps the tagline readable over the canvas. */
 .hero-fade-bottom {
   background: linear-gradient(to top, #08090a, rgba(8, 9, 10, 0.4), transparent);
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .blob-1 {
-    animation: auth-drift-1 26s ease-in-out infinite;
-  }
-  .blob-2 {
-    animation: auth-drift-2 32s ease-in-out infinite;
-  }
-  .blob-3 {
-    animation: auth-drift-3 38s ease-in-out infinite;
-  }
-}
-
-@keyframes auth-drift-1 {
-  0%,
-  100% {
-    transform: translate(0, 0) scale(1);
-  }
-  50% {
-    transform: translate(-3.5rem, 2.5rem) scale(1.12);
-  }
-}
-
-@keyframes auth-drift-2 {
-  0%,
-  100% {
-    transform: translate(0, 0) scale(1);
-  }
-  50% {
-    transform: translate(3rem, -2rem) scale(1.08);
-  }
-}
-
-@keyframes auth-drift-3 {
-  0%,
-  100% {
-    transform: translate(0, 0) scale(1);
-  }
-  50% {
-    transform: translate(2.5rem, 3rem) scale(1.15);
-  }
 }
 </style>
