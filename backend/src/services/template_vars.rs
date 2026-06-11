@@ -158,6 +158,7 @@ mod tests {
         let now = Utc::now().naive_utc();
         Ticket {
             id,
+            uuid: uuid::Uuid::nil(),
             title: title.to_string(),
             priority: TicketPriority::Medium,
             requester_uuid: None,

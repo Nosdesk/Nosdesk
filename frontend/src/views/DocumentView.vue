@@ -100,6 +100,9 @@ watch(showInsights, (open) => {
 // Ticket note mode
 const isTicketNote = ref(false)
 const ticketId = ref<string | null>(null)
+// The ticket's immutable UUID, used to key the collab doc so a recycled
+// integer id can't inherit a previous ticket's cached note.
+const ticketUuid = ref<string | null>(null)
 
 // Subscription state
 const isSubscribed = ref(false)
@@ -149,11 +152,15 @@ const workspaces = useMyWorkspacesStore()
 const docId = computed(() => {
   const uuid = workspaces.activeWorkspace?.workspace_uuid
   if (!uuid) return null
-  if (isTicketNote.value && ticketId.value) {
-    return buildCollabDocId(uuid, 'ticket', ticketId.value)
+  // Collab docs are keyed by the resource's immutable UUID, never the
+  // recyclable integer id (see utils/collabDocId.ts). Return null until
+  // the UUID is known so the editor waits rather than connecting under
+  // a wrong/temporary key.
+  if (isTicketNote.value) {
+    return ticketUuid.value ? buildCollabDocId(uuid, 'ticket', ticketUuid.value) : null
   }
-  if (document.value) {
-    return buildCollabDocId(uuid, 'doc', document.value.id)
+  if (document.value && 'uuid' in document.value && document.value.uuid) {
+    return buildCollabDocId(uuid, 'doc', document.value.uuid)
   }
   // Brand-new page wizard: no server doc yet, no IDB collision
   // possible. The literal sentinel is fine because the editor
@@ -416,6 +423,7 @@ const fetchContent = async () => {
 
         isTicketNote.value = true
         ticketId.value = ticketIdParam
+        ticketUuid.value = ticket.uuid ?? null
         editContent.value = document.value.content || ''
         editTitle.value = document.value.title
         documentIcon.value = document.value.icon || 'mdi-text-box-outline'

@@ -105,6 +105,28 @@ pub fn get_documentation_page_by_uuid(
         .first::<DocumentationPage>(conn)
 }
 
+/// Resolve a page's immutable UUID to its integer id, or `None` if no
+/// live page has it. Used by the collab layer to map a UUID-keyed
+/// doc_id to the integer id the persistence layer uses.
+pub fn page_id_by_uuid(conn: &mut DbConnection, uuid: uuid::Uuid) -> QueryResult<Option<i32>> {
+    documentation_pages::table
+        .filter(documentation_pages::uuid.eq(uuid))
+        .select(documentation_pages::id)
+        .first::<i32>(conn)
+        .optional()
+}
+
+/// Inverse of [`page_id_by_uuid`]: the immutable UUID for an integer
+/// page id, or `None` if no live page has it. Used when building a
+/// UUID-keyed collab doc_id from an integer id (revision restore).
+pub fn page_uuid_by_id(conn: &mut DbConnection, id: i32) -> QueryResult<Option<uuid::Uuid>> {
+    documentation_pages::table
+        .filter(documentation_pages::id.eq(id))
+        .select(documentation_pages::uuid)
+        .first::<uuid::Uuid>(conn)
+        .optional()
+}
+
 // Get a documentation page by its slug
 pub fn get_documentation_page_by_slug(
     slug: &str,

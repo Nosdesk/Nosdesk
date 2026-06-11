@@ -27,6 +27,9 @@ import type { CardWorkflowState, Priority } from '@/sync/views/types'
  */
 export interface SyncTicket {
   id: number
+  /** Immutable identity, used to key the collaborative note doc so a
+   *  recycled integer id can't inherit a prior ticket's cached note. */
+  uuid: string
   title: string
   workflow_state: CardWorkflowState | null
   workflow_state_id: number
@@ -77,6 +80,7 @@ function apiTicketToSync(ticket: Ticket): SyncTicket {
     : null
   return {
     id: ticket.id,
+    uuid: ticket.uuid ?? '',
     title: ticket.title,
     workflow_state: cardWs,
     workflow_state_id: ticket.workflow_state_id ?? ws?.id ?? 0,

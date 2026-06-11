@@ -10,6 +10,7 @@ import Icon from '@/components/common/Icon.vue';
 import apiClient from '@/services/apiConfig';
 import { docUrl } from '@/utils/docUrl';
 import { useCollabDocId } from '@/composables/useCollabDocId';
+import { useSyncTicketsStore } from '@/sync/stores/tickets';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -36,10 +37,13 @@ const content = ref('');
 const router = useRouter();
 const isLoading = ref(false); // Editor syncs via WebSocket, no need to wait for HTTP load
 
-// Workspace-namespaced docId. Resolves to `null` until the
-// my-workspaces query lands; the editor is gated on a non-null
-// value below so we never hand a half-formed id to Yjs.
-const docId = useCollabDocId('ticket', () => props.ticketId);
+// Workspace-namespaced docId keyed by the ticket's immutable UUID (not
+// the recyclable integer id), resolved from the sync pool. Resolves to
+// `null` until both the my-workspaces query and the pool row land; the
+// editor is gated on a non-null value below so we never hand a
+// half-formed id to Yjs.
+const ticketsStore = useSyncTicketsStore();
+const docId = useCollabDocId('ticket', () => ticketsStore.byId(props.ticketId).value?.uuid ?? null);
 
 // Revision history state
 const showRevisionHistory = ref(false);

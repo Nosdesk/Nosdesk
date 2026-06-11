@@ -359,6 +359,7 @@ mod tests {
         let now = Utc::now().naive_utc();
         let mut ticket = Ticket {
             id: 1,
+            uuid: uuid::Uuid::nil(),
             title: "Test ticket".into(),
             workflow_state_id: 2,
             priority: TicketPriority::Medium,

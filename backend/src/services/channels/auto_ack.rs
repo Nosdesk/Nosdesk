@@ -290,6 +290,7 @@ mod tests {
     fn sample_ticket() -> Ticket {
         Ticket {
             id: 42,
+            uuid: uuid::Uuid::nil(),
             title: "Printer on fire".into(),
             workflow_state_id: 2, // seeded Backlog row
             priority: crate::models::TicketPriority::Medium,

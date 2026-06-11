@@ -16,6 +16,11 @@ export type { Asset, Comment, Attachment, Project }
 
 export interface Ticket {
   id: number
+  /** Immutable per-ticket identity (never recycled like the integer
+   *  id). Used to key the collaborative note doc. Optional on the type
+   *  until every create/input flow carries it; always present on
+   *  backend read responses. */
+  uuid?: string
   title: string
   /**
    * Always present on backend responses post-Phase-1; optional on the

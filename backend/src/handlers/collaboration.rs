@@ -103,6 +103,7 @@ async fn restore_revision_snapshot(
     app_state: &YjsAppState,
     doc_id: &str,
     workspace_id: i32,
+    doc_type: DocumentType,
     snapshot: &[u8],
 ) -> Result<(), HttpResponse> {
     let update = Update::decode_v1(snapshot).map_err(|e| {
@@ -123,7 +124,9 @@ async fn restore_revision_snapshot(
         .transact()
         .encode_state_as_update_v1(&StateVector::default());
 
-    app_state.replace_document(doc_id, doc, workspace_id).await;
+    app_state
+        .replace_document(doc_id, doc, workspace_id, doc_type)
+        .await;
     app_state.mark_document_changed(doc_id).await;
 
     use yrs::sync::{Message, SyncMessage};
@@ -314,20 +317,57 @@ enum DocumentType {
     Collection(i32),
 }
 
-/// Result of parsing a workspace-namespaced doc_id. Carries both
-/// the resolved DocumentType AND the workspace UUID the caller
-/// claimed in the namespace prefix, so the caller can compare it
-/// against the request's WorkspaceContext.workspace_uuid and
-/// fail-fast on a cross-workspace request before opening the doc.
-///
-/// `document` is consumed by the WS handler's per-document visibility
-/// gate (and could back a future "verify the row exists" check);
-/// keeping it on the parse result avoids re-parsing the resource half
-/// of the doc_id at the call site.
+/// Which kind of collaborative resource a doc_id names. The doc_id
+/// carries the resource's immutable UUID; the integer id used by the
+/// persistence layer is resolved from it (see [`ParsedDocId::resolve`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum DocKind {
+    Ticket,
+    Documentation,
+    Collection,
+}
+
+/// Result of parsing a workspace-namespaced doc_id
+/// (`ws-{workspace_uuid}_{kind}-{resource_uuid}`). Carries the
+/// workspace UUID (so the caller can fail-fast on a cross-workspace
+/// request) plus the resource kind + its immutable UUID. The integer
+/// [`DocumentType`] the persistence layer needs is produced by
+/// [`ParsedDocId::resolve`], which looks the UUID up in the DB — the
+/// UUID never recycles, so the resulting doc identity is stable across
+/// an integer-id reset.
 #[derive(Debug, Clone)]
 struct ParsedDocId {
     workspace_uuid: Uuid,
-    document: DocumentType,
+    kind: DocKind,
+    resource_uuid: Uuid,
+}
+
+impl ParsedDocId {
+    /// Resolve the immutable resource UUID to the integer-keyed
+    /// [`DocumentType`] used by the persistence + access layers.
+    /// Returns `Ok(None)` when no live row has that UUID (resource
+    /// deleted, or a stale client holding a recycled-but-different
+    /// doc), which the WS handler turns into a clean rejection.
+    fn resolve(
+        &self,
+        conn: &mut crate::db::DbConnection,
+    ) -> diesel::QueryResult<Option<DocumentType>> {
+        Ok(match self.kind {
+            DocKind::Ticket => crate::repository::tickets::id_by_uuid(conn, self.resource_uuid)?
+                .map(DocumentType::Ticket),
+            DocKind::Documentation => {
+                crate::repository::documentation::page_id_by_uuid(conn, self.resource_uuid)?
+                    .map(DocumentType::Documentation)
+            }
+            DocKind::Collection => {
+                crate::repository::documentation_collections::collection_id_by_uuid(
+                    conn,
+                    self.resource_uuid,
+                )?
+                .map(DocumentType::Collection)
+            }
+        })
+    }
 }
 
 /// Errors from parsing the workspace-namespaced doc_id. Each
@@ -362,11 +402,10 @@ impl DocumentType {
         let after_ws = doc_id
             .strip_prefix("ws-")
             .ok_or(DocIdParseError::MissingNamespace)?;
-        // UUID is fixed-width 36 characters in canonical hyphenated
-        // form; the resource handle follows after a literal `_`.
-        // Split there rather than searching for any underscore so a
-        // hypothetical resource-handle change to `doc-foo_bar` would
-        // still parse the prefix correctly.
+        // The workspace UUID is canonical hyphenated form; the resource
+        // handle follows after a literal `_`. Split on that `_` (UUIDs
+        // never contain one) so the resource UUID's own hyphens don't
+        // confuse the split.
         let separator = after_ws
             .find('_')
             .ok_or(DocIdParseError::MissingNamespace)?;
@@ -374,87 +413,41 @@ impl DocumentType {
         let workspace_uuid =
             Uuid::parse_str(uuid_part).map_err(|_| DocIdParseError::InvalidWorkspaceUuid)?;
         // `rest` starts with the `_`; drop it before parsing the
-        // resource handle.
+        // `{kind}-{resource_uuid}` handle.
         let resource = &rest[1..];
-        let document = if let Some(id_str) = resource.strip_prefix("ticket-") {
-            id_str
-                .parse::<i32>()
-                .map(DocumentType::Ticket)
-                .map_err(|_| DocIdParseError::InvalidResource)?
-        } else if let Some(id_str) = resource.strip_prefix("doc-") {
-            id_str
-                .parse::<i32>()
-                .map(DocumentType::Documentation)
-                .map_err(|_| DocIdParseError::InvalidResource)?
-        } else if let Some(id_str) = resource.strip_prefix("collection-") {
-            id_str
-                .parse::<i32>()
-                .map(DocumentType::Collection)
-                .map_err(|_| DocIdParseError::InvalidResource)?
+        let (kind, uuid_str) = if let Some(rest) = resource.strip_prefix("ticket-") {
+            (DocKind::Ticket, rest)
+        } else if let Some(rest) = resource.strip_prefix("doc-") {
+            (DocKind::Documentation, rest)
+        } else if let Some(rest) = resource.strip_prefix("collection-") {
+            (DocKind::Collection, rest)
         } else {
             return Err(DocIdParseError::InvalidResource);
         };
+        let resource_uuid =
+            Uuid::parse_str(uuid_str).map_err(|_| DocIdParseError::InvalidResource)?;
         Ok(ParsedDocId {
             workspace_uuid,
-            document,
+            kind,
+            resource_uuid,
         })
     }
-
-    /// Extract just the DocumentType from a doc_id, accepting
-    /// either the namespaced form (`ws-{uuid}_{kind}-{id}`) or the
-    /// bare form (`{kind}-{id}`).
-    ///
-    /// The WS handler already validates the namespace at the
-    /// connection boundary; the internal callers (save, snapshot,
-    /// awareness, room tracking) just need to dispatch on the kind
-    /// + id and don't need to re-validate the workspace. Accepting
-    /// both forms here means a single change to the WS-handler-side
-    /// builder doesn't have to ripple through eight internal call
-    /// sites every time. The bare form is also still consumed by
-    /// the REST `get_article_content` endpoint at line 311 below.
-    fn from_doc_id(doc_id: &str) -> Option<Self> {
-        // Strip the workspace namespace prefix if present. The
-        // `ws-{uuid}_` shape is rejected by `from_namespaced_doc_id`
-        // at the WS handler boundary on invalid UUIDs, so by the
-        // time the doc_id reaches an internal caller the prefix is
-        // either well-formed or absent.
-        let resource = strip_workspace_namespace(doc_id).unwrap_or(doc_id);
-        if let Some(id_str) = resource.strip_prefix("ticket-") {
-            id_str.parse::<i32>().ok().map(DocumentType::Ticket)
-        } else if let Some(id_str) = resource.strip_prefix("doc-") {
-            id_str.parse::<i32>().ok().map(DocumentType::Documentation)
-        } else if let Some(id_str) = resource.strip_prefix("collection-") {
-            id_str.parse::<i32>().ok().map(DocumentType::Collection)
-        } else {
-            None
-        }
-    }
-}
-
-/// Strip the `ws-{uuid}_` prefix from a doc_id and return the
-/// resource handle suffix, or `None` if the prefix isn't present.
-/// Used by `DocumentType::from_doc_id` so internal call sites
-/// don't have to know whether their doc_id arrived in the
-/// namespaced or bare form.
-fn strip_workspace_namespace(doc_id: &str) -> Option<&str> {
-    let after_ws = doc_id.strip_prefix("ws-")?;
-    let separator = after_ws.find('_')?;
-    Some(&after_ws[separator + 1..])
 }
 
 #[cfg(test)]
 mod doc_id_tests {
     use super::*;
 
+    const TICKET_UUID: &str = "019eb4e2-dbaa-75e5-9eb2-aa3dc7d8a7cb";
+    const WS_UUID: &str = "3f8e9d4c-1234-5678-9abc-def012345678";
+
     #[test]
     fn parses_ticket_doc_id() {
-        let docid = "ws-3f8e9d4c-1234-5678-9abc-def012345678_ticket-42";
-        let parsed = DocumentType::from_namespaced_doc_id(docid).expect("should parse");
-        assert_eq!(parsed.document, DocumentType::Ticket(42));
-        assert_eq!(
-            parsed.workspace_uuid,
-            Uuid::parse_str("3f8e9d4c-1234-5678-9abc-def012345678").unwrap()
-        );
+        let docid = format!("ws-{WS_UUID}_ticket-{TICKET_UUID}");
+        let parsed = DocumentType::from_namespaced_doc_id(&docid).expect("should parse");
+        assert_eq!(parsed.kind, DocKind::Ticket);
+        assert_eq!(parsed.resource_uuid, Uuid::parse_str(TICKET_UUID).unwrap());
+        assert_eq!(parsed.workspace_uuid, Uuid::parse_str(WS_UUID).unwrap());
     }
 
     #[test]
@@ -464,55 +457,44 @@ mod doc_id_tests {
     }
 
     #[test]
-    fn rejects_malformed_uuid() {
-        let err = DocumentType::from_namespaced_doc_id("ws-not-a-uuid_ticket-42").unwrap_err();
+    fn rejects_malformed_workspace_uuid() {
+        let err =
+            DocumentType::from_namespaced_doc_id(&format!("ws-not-a-uuid_ticket-{TICKET_UUID}"))
+                .unwrap_err();
         assert_eq!(err, DocIdParseError::InvalidWorkspaceUuid);
     }
 
     #[test]
-    fn rejects_unknown_resource_kind() {
-        let err = DocumentType::from_namespaced_doc_id(
-            "ws-3f8e9d4c-1234-5678-9abc-def012345678_widget-1",
-        )
-        .unwrap_err();
+    fn rejects_legacy_integer_resource_id() {
+        // A bare integer where the resource UUID is expected (a stale
+        // client that didn't upgrade) is rejected, not silently parsed.
+        let err =
+            DocumentType::from_namespaced_doc_id(&format!("ws-{WS_UUID}_ticket-42")).unwrap_err();
         assert_eq!(err, DocIdParseError::InvalidResource);
     }
 
     #[test]
-    fn parses_collection_doc_id() {
-        let parsed = DocumentType::from_namespaced_doc_id(
-            "ws-3f8e9d4c-1234-5678-9abc-def012345678_collection-7",
-        )
-        .unwrap();
-        assert_eq!(parsed.document, DocumentType::Collection(7));
+    fn rejects_unknown_resource_kind() {
+        let err =
+            DocumentType::from_namespaced_doc_id(&format!("ws-{WS_UUID}_widget-{TICKET_UUID}"))
+                .unwrap_err();
+        assert_eq!(err, DocIdParseError::InvalidResource);
     }
 
-    /// Regression guard: every internal collab call site (save /
-    /// snapshot / awareness / room tracking) reads its doc_id
-    /// through `from_doc_id`; if that parser stopped accepting the
-    /// namespaced form, ticket-note saves would silently fail with
-    /// a "Cannot save - invalid document ID format" log line for
-    /// every save attempt. This test pins the contract that both
-    /// the namespaced and the bare forms resolve to the same
-    /// DocumentType.
     #[test]
-    fn from_doc_id_accepts_both_namespaced_and_bare_forms() {
-        let bare = DocumentType::from_doc_id("ticket-42").unwrap();
-        let namespaced =
-            DocumentType::from_doc_id("ws-3f8e9d4c-1234-5678-9abc-def012345678_ticket-42").unwrap();
-        assert_eq!(bare, DocumentType::Ticket(42));
-        assert_eq!(namespaced, DocumentType::Ticket(42));
-        assert_eq!(bare, namespaced);
-
-        // Same coverage for the other two kinds.
-        assert_eq!(
-            DocumentType::from_doc_id("ws-3f8e9d4c-1234-5678-9abc-def012345678_doc-7"),
-            Some(DocumentType::Documentation(7))
-        );
-        assert_eq!(
-            DocumentType::from_doc_id("ws-3f8e9d4c-1234-5678-9abc-def012345678_collection-3"),
-            Some(DocumentType::Collection(3))
-        );
+    fn parses_each_kind() {
+        for (prefix, kind) in [
+            ("ticket", DocKind::Ticket),
+            ("doc", DocKind::Documentation),
+            ("collection", DocKind::Collection),
+        ] {
+            let parsed = DocumentType::from_namespaced_doc_id(&format!(
+                "ws-{WS_UUID}_{prefix}-{TICKET_UUID}"
+            ))
+            .unwrap();
+            assert_eq!(parsed.kind, kind);
+            assert_eq!(parsed.resource_uuid, Uuid::parse_str(TICKET_UUID).unwrap());
+        }
     }
 }
 
@@ -638,14 +620,25 @@ pub async fn get_article_content(
     let doc_id = doc_id.into_inner();
     let clean_doc_id = doc_id.replace("/", "_");
 
-    // Parse document type and ID
-    let doc_type = match DocumentType::from_doc_id(&clean_doc_id) {
-        Some(dt) => dt,
-        None => {
-            warn!(doc_id = %clean_doc_id, "Invalid document ID format");
+    // Parse the workspace-namespaced doc_id and resolve its immutable
+    // resource UUID to the integer-keyed document type. The lookup runs
+    // on the RLS-scoped connection, so a UUID belonging to another
+    // workspace simply doesn't resolve.
+    let parsed = match DocumentType::from_namespaced_doc_id(&clean_doc_id) {
+        Ok(p) => p,
+        Err(e) => {
+            warn!(doc_id = %clean_doc_id, error = ?e, "Invalid document ID format");
             return errors::bad_request(
-                "Invalid document ID format (expected 'ticket-N' or 'doc-N')",
+                "doc_id must be in the workspace-namespaced format ws-{uuid}_{kind}-{uuid}",
             );
+        }
+    };
+    let doc_type = match tc.run(|conn| parsed.resolve(conn)) {
+        Ok(Some(dt)) => dt,
+        Ok(None) => return errors::not_found_msg("Document not found"),
+        Err(e) => {
+            error!(doc_id = %clean_doc_id, error = ?e, "Failed to resolve document id");
+            return errors::internal("Failed to resolve document");
         }
     };
 
@@ -790,10 +783,20 @@ struct DocumentState {
     /// case, where writes are unconditional (today's behaviour). See
     /// `docs/realtime-collab-affinity-design.md`.
     fence: Option<i64>,
+    /// Integer-keyed document type, resolved once from the doc_id's
+    /// immutable resource UUID at open. The save / snapshot loops read
+    /// this instead of re-parsing the doc_id, so they never need a DB
+    /// round-trip to learn which table to persist to.
+    doc_type: DocumentType,
 }
 
 impl DocumentState {
-    fn new(awareness: Arc<Awareness>, workspace_id: i32, fence: Option<i64>) -> Self {
+    fn new(
+        awareness: Arc<Awareness>,
+        workspace_id: i32,
+        fence: Option<i64>,
+        doc_type: DocumentType,
+    ) -> Self {
         Self {
             awareness,
             last_saved: Instant::now(),
@@ -809,6 +812,7 @@ impl DocumentState {
             last_checkpoint_at: 0,
             workspace_id,
             fence,
+            doc_type,
         }
     }
 
@@ -946,6 +950,13 @@ struct SessionInfo {
     /// session in the room so they tear down and the client reconnects,
     /// re-routing to the new owner. Unused in single-instance mode.
     cancel: Arc<Notify>,
+    /// Integer-keyed document type resolved from the doc_id's immutable
+    /// resource UUID at session open. The presence sites
+    /// (`update_session_activity`, `remove_session`,
+    /// `cleanup_stale_sessions`) read this instead of re-parsing the
+    /// doc_id, so they need no DB round-trip and presence stays keyed on
+    /// the stable ticket id.
+    doc_type: DocumentType,
 }
 
 type RoomSessions = HashMap<DocumentId, HashMap<SessionId, SessionInfo>>;
@@ -1197,6 +1208,7 @@ impl YjsAppState {
                     &doc_state.awareness,
                     workspace_id,
                     doc_state.fence,
+                    doc_state.doc_type,
                 );
                 doc_state.mark_saved();
                 saved_count += 1;
@@ -1214,6 +1226,7 @@ impl YjsAppState {
                     &doc_state.awareness,
                     contributors,
                     workspace_id,
+                    doc_state.doc_type,
                 );
                 doc_state.reset_snapshot_tracking();
                 snapshot_count += 1;
@@ -1227,6 +1240,7 @@ impl YjsAppState {
                     &doc_state.awareness,
                     workspace_id,
                     doc_state.fence,
+                    doc_state.doc_type,
                 );
                 doc_state.mark_saved();
                 doc_state.mark_final_save_completed();
@@ -1241,6 +1255,7 @@ impl YjsAppState {
                         &doc_state.awareness,
                         contributors,
                         workspace_id,
+                        doc_state.doc_type,
                     );
                     doc_state.reset_snapshot_tracking();
                     snapshot_count += 1;
@@ -1307,6 +1322,7 @@ impl YjsAppState {
         doc_id: &str,
         workspace_id: i32,
         fence: Option<i64>,
+        doc_type: DocumentType,
     ) -> Arc<Awareness> {
         let mut documents = self.documents.write().await;
 
@@ -1363,9 +1379,9 @@ impl YjsAppState {
             if !loaded_from_redis {
                 debug!(doc_id = %doc_id, "Redis cache miss - checking PostgreSQL");
 
-                // Parse document type
-                if let Some(doc_type) = DocumentType::from_doc_id(doc_id) {
-                    trace!(doc_id = %doc_id, "Parsed doc_type successfully");
+                // doc_type was resolved from the doc_id's resource UUID
+                // at the connection boundary and threaded in here.
+                {
                     match self.pool.get() {
                         Ok(mut conn) => {
                             // Per-doc reads run RLS-enforced under the
@@ -1548,8 +1564,6 @@ impl YjsAppState {
                             error!(doc_id = %doc_id, error = ?e, "Database connection error");
                         }
                     }
-                } else {
-                    warn!(doc_id = %doc_id, "Could not parse doc_id format (expected 'ticket-N' or 'doc-N')");
                 }
             }
 
@@ -1612,7 +1626,8 @@ impl YjsAppState {
             }
 
             let awareness_arc = Arc::new(awareness);
-            let doc_state = DocumentState::new(Arc::clone(&awareness_arc), workspace_id, fence);
+            let doc_state =
+                DocumentState::new(Arc::clone(&awareness_arc), workspace_id, fence, doc_type);
             documents.insert(doc_id.to_string(), doc_state);
             awareness_arc
         }
@@ -1641,7 +1656,13 @@ impl YjsAppState {
 
     /// Replace the document with a new one (used for restoring revisions)
     /// This creates a new Awareness with the new Doc and replaces the existing one
-    async fn replace_document(&self, doc_id: &str, new_doc: Doc, workspace_id: i32) {
+    async fn replace_document(
+        &self,
+        doc_id: &str,
+        new_doc: Doc,
+        workspace_id: i32,
+        doc_type: DocumentType,
+    ) {
         let mut documents = self.documents.write().await;
 
         // Create new Awareness with the new Doc
@@ -1664,7 +1685,8 @@ impl YjsAppState {
             // here, so the snapshot writes unconditionally (None); the
             // explicit admin restore is not the stale-owner case fencing
             // guards against.
-            let doc_state = DocumentState::new(Arc::clone(&awareness), workspace_id, None);
+            let doc_state =
+                DocumentState::new(Arc::clone(&awareness), workspace_id, None, doc_type);
             documents.insert(doc_id.to_string(), doc_state);
             info!(doc_id = %doc_id, "Created new document from restored revision");
         }
@@ -1701,6 +1723,7 @@ impl YjsAppState {
         tx: mpsc::UnboundedSender<Bytes>,
         user_uuid: Uuid,
         cancel: Arc<Notify>,
+        doc_type: DocumentType,
     ) {
         let mut sessions = self.sessions.write().await;
 
@@ -1722,6 +1745,7 @@ impl YjsAppState {
                 user_uuid,
                 yjs_client_id: None,
                 cancel,
+                doc_type,
             },
         );
         let room_size = room.len();
@@ -1741,7 +1765,7 @@ impl YjsAppState {
         // Feed the presence registry. The registry deduplicates
         // multi-tab from the same user, so the SSE event only fires
         // on a real "user joined" delta.
-        if let Some(DocumentType::Ticket(ticket_id)) = DocumentType::from_doc_id(doc_id) {
+        if let DocumentType::Ticket(ticket_id) = doc_type {
             let delta = self
                 .presence
                 .add_session(user_uuid, ticket_id, session_id.to_string());
@@ -1753,12 +1777,12 @@ impl YjsAppState {
 
     // Update session activity timestamp
     async fn update_session_activity(&self, doc_id: &str, session_id: &str) {
-        let touched_user: Option<Uuid> = {
+        let touched: Option<(Uuid, DocumentType)> = {
             let mut sessions = self.sessions.write().await;
             sessions.get_mut(doc_id).and_then(|room| {
                 room.get_mut(session_id).map(|info| {
                     info.last_active = Instant::now();
-                    info.user_uuid
+                    (info.user_uuid, info.doc_type)
                 })
             })
         };
@@ -1766,9 +1790,7 @@ impl YjsAppState {
         // Keep presence's last-active in sync so the avatar stack's
         // recency ordering reflects what the transport sees. No SSE
         // emission: touches never change the viewer set.
-        if let (Some(user_uuid), Some(DocumentType::Ticket(ticket_id))) =
-            (touched_user, DocumentType::from_doc_id(doc_id))
-        {
+        if let Some((user_uuid, DocumentType::Ticket(ticket_id))) = touched {
             self.presence.touch_session(user_uuid, ticket_id);
         }
     }
@@ -1793,7 +1815,9 @@ impl YjsAppState {
         let mut sessions = self.sessions.write().await;
 
         if let Some(room) = sessions.get_mut(doc_id) {
-            let removed_user = room.remove(session_id).map(|info| info.user_uuid);
+            let removed = room
+                .remove(session_id)
+                .map(|info| (info.user_uuid, info.doc_type));
             let room_size = room.len();
             let is_empty = room.is_empty();
             debug!(session_id = %session_id, doc_id = %doc_id, room_size, "Session left document");
@@ -1805,9 +1829,7 @@ impl YjsAppState {
             // registry only reports `changed = true` when this was
             // the user's last tab on the ticket, so multi-tab close
             // doesn't spam the wire.
-            if let (Some(user_uuid), Some(DocumentType::Ticket(ticket_id))) =
-                (removed_user, DocumentType::from_doc_id(doc_id))
-            {
+            if let Some((user_uuid, DocumentType::Ticket(ticket_id))) = removed {
                 let delta = self
                     .presence
                     .remove_session(user_uuid, ticket_id, session_id);
@@ -1848,7 +1870,9 @@ impl YjsAppState {
         for (doc_id, room) in sessions.iter_mut() {
             let mut stale_sessions = Vec::new();
             let was_empty = room.is_empty();
-            let ticket_id = match DocumentType::from_doc_id(doc_id) {
+            // All sessions in a room share the doc, so any one carries
+            // the resolved doc_type. Presence is ticket-only.
+            let ticket_id = match room.values().next().map(|i| i.doc_type) {
                 Some(DocumentType::Ticket(id)) => Some(id),
                 _ => None,
             };
@@ -1961,6 +1985,7 @@ impl YjsAppState {
                 &doc_state.awareness,
                 workspace_id,
                 doc_state.fence,
+                doc_state.doc_type,
             );
             doc_state.mark_saved();
 
@@ -1975,6 +2000,7 @@ impl YjsAppState {
                     &doc_state.awareness,
                     contributors,
                     workspace_id,
+                    doc_state.doc_type,
                 );
                 doc_state.reset_snapshot_tracking();
             } else {
@@ -2001,9 +2027,13 @@ impl YjsAppState {
             documents
                 .iter()
                 .filter(|(_, s)| s.has_pending_changes)
-                .filter_map(|(doc_id, s)| {
-                    DocumentType::from_doc_id(doc_id)
-                        .map(|dt| (dt, encode_doc_update(&s.awareness), s.workspace_id, s.fence))
+                .map(|(_, s)| {
+                    (
+                        s.doc_type,
+                        encode_doc_update(&s.awareness),
+                        s.workspace_id,
+                        s.fence,
+                    )
                 })
                 .collect()
         };
@@ -2143,16 +2173,8 @@ impl YjsAppState {
         awareness: &Awareness,
         workspace_id: i32,
         fence: Option<i64>,
+        doc_type: DocumentType,
     ) {
-        // Parse document type
-        let doc_type = match DocumentType::from_doc_id(doc_id) {
-            Some(dt) => dt,
-            None => {
-                warn!(doc_id = %doc_id, "Cannot save - invalid document ID format");
-                return;
-            }
-        };
-
         // Get binary content from the document
         let binary_content = {
             let doc = awareness.doc();
@@ -2218,16 +2240,8 @@ impl YjsAppState {
         awareness: &Awareness,
         contributors: HashSet<Uuid>,
         workspace_id: i32,
+        doc_type: DocumentType,
     ) {
-        // Parse document type
-        let doc_type = match DocumentType::from_doc_id(doc_id) {
-            Some(dt) => dt,
-            None => {
-                warn!(doc_id = %doc_id, "Skipping snapshot - invalid document ID format");
-                return;
-            }
-        };
-
         // Encode document state using native Yrs functions
         let (state_vector_bytes, full_update_bytes) = {
             let doc = awareness.doc();
@@ -2535,12 +2549,15 @@ pub async fn ws_handler(
         "WebSocket authentication + workspace check successful"
     );
 
-    // Per-document visibility gate. The workspace check above bounds
-    // the tenant; this bounds which documents *within* the workspace
-    // the caller may open. Without it a restricted member who cannot
-    // read ticket N via REST/SSE could still read and write its Yjs
-    // note here. See security-audit-2026-06.
-    {
+    // Resolve the doc_id's immutable resource UUID to the integer-keyed
+    // document type, then run the per-document visibility gate. The
+    // workspace check above bounds the tenant; this bounds which
+    // documents *within* the workspace the caller may open. Without it a
+    // restricted member who cannot read ticket N via REST/SSE could
+    // still read and write its Yjs note here. See security-audit-2026-06.
+    // The resolved doc_type is threaded into the session so the save /
+    // presence paths never re-parse the doc_id.
+    let doc_type = {
         let pool = req
             .app_data::<web::Data<crate::db::Pool>>()
             .ok_or_else(|| {
@@ -2549,7 +2566,20 @@ pub async fn ws_handler(
         let mut conn = pool.get().map_err(|_| {
             actix_web::error::ErrorInternalServerError("Database connection failed")
         })?;
-        match can_access_document(&mut conn, &accessor, &parsed.document) {
+        let doc_type = match parsed.resolve(&mut conn) {
+            Ok(Some(dt)) => dt,
+            Ok(None) => {
+                warn!(doc_id = %doc_id, "WebSocket doc_id resolves to no live resource");
+                return Err(actix_web::error::ErrorNotFound("Document not found"));
+            }
+            Err(e) => {
+                error!(doc_id = %doc_id, error = ?e, "WebSocket doc_id resolution failed");
+                return Err(actix_web::error::ErrorInternalServerError(
+                    "Access check failed",
+                ));
+            }
+        };
+        match can_access_document(&mut conn, &accessor, &doc_type) {
             Ok(true) => {}
             Ok(false) => {
                 warn!(doc_id = %doc_id, user_uuid = %user_uuid, "WebSocket document access denied");
@@ -2562,7 +2592,8 @@ pub async fn ws_handler(
                 ));
             }
         }
-    }
+        doc_type
+    };
 
     // Per-document affinity routing (Phase 2). In single-instance mode
     // this is always `Local`. Under multi-instance routing, if another
@@ -2618,6 +2649,7 @@ pub async fn ws_handler(
         user_uuid,
         workspace_id,
         fence,
+        doc_type,
         session,
         msg_stream,
     ));
@@ -2634,6 +2666,7 @@ async fn session_task(
     user_uuid: Uuid,
     workspace_id: i32,
     fence: Option<i64>,
+    doc_type: DocumentType,
     mut session: actix_ws::Session,
     mut msg_stream: actix_ws::AggregatedMessageStream,
 ) {
@@ -2664,7 +2697,14 @@ async fn session_task(
     // tears down and the client reconnects to the new owner.
     let cancel = Arc::new(Notify::new());
     app_state
-        .register_session(&doc_id, &session_id, tx.clone(), user_uuid, cancel.clone())
+        .register_session(
+            &doc_id,
+            &session_id,
+            tx.clone(),
+            user_uuid,
+            cancel.clone(),
+            doc_type,
+        )
         .await;
 
     // Per the yjs sync protocol spec, the server proactively sends
@@ -2674,7 +2714,7 @@ async fn session_task(
     // packing them would lose all but the first.
     {
         let awareness = app_state
-            .get_or_create_awareness(&doc_id, workspace_id, fence)
+            .get_or_create_awareness(&doc_id, workspace_id, fence, doc_type)
             .await;
         use yrs::sync::{Message, SyncMessage};
 
@@ -3181,11 +3221,18 @@ pub async fn restore_ticket_revision(
         Err(_) => return errors::not_found_msg("Revision not found"),
     };
 
-    let doc_id = format!("ticket-{ticket_id}");
+    // Build the same workspace-namespaced, UUID-keyed doc_id the clients
+    // connect with, so the restore targets the live room (not a phantom
+    // integer-keyed doc no session is attached to).
+    let doc_id = match tc.run(|conn| crate::repository::tickets::uuid_by_id(conn, ticket_id)) {
+        Ok(Some(uuid)) => format!("ws-{}_ticket-{}", ws.workspace_uuid, uuid),
+        _ => return errors::not_found_msg("Ticket not found"),
+    };
     if let Err(resp) = restore_revision_snapshot(
         &app_state,
         &doc_id,
         ws.workspace_id,
+        DocumentType::Ticket(ticket_id),
         &revision.yjs_document_content,
     )
     .await
@@ -3276,11 +3323,18 @@ pub async fn restore_doc_revision(
         Err(_) => return errors::not_found_msg("Revision not found"),
     };
 
-    let doc_id_str = format!("doc-{doc_id}");
+    // Build the same workspace-namespaced, UUID-keyed doc_id the clients
+    // connect with, so the restore targets the live room.
+    let doc_id_str =
+        match tc.run(|conn| crate::repository::documentation::page_uuid_by_id(conn, doc_id)) {
+            Ok(Some(uuid)) => format!("ws-{}_doc-{}", ws.workspace_uuid, uuid),
+            _ => return errors::not_found_msg("Page not found"),
+        };
     if let Err(resp) = restore_revision_snapshot(
         &app_state,
         &doc_id_str,
         ws.workspace_id,
+        DocumentType::Documentation(doc_id),
         &revision.yjs_document_snapshot,
     )
     .await

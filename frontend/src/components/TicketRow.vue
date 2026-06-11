@@ -18,6 +18,7 @@ import TicketStatusIcon from './TicketStatusIcon.vue'
 import { useCollabSessionStore } from '@/stores/collabSession'
 import { useMyWorkspacesStore } from '@/stores/myWorkspaces'
 import { useWorkflowStatesStore } from '@/stores/workflowStates'
+import { useSyncTicketsStore } from '@/sync/stores/tickets'
 import { buildCollabDocId } from '@/utils/collabDocId'
 import { TERMINAL_CATEGORIES } from '@/types/workflow'
 import type { UserInfo } from '@/types/user'
@@ -28,6 +29,7 @@ const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, ar
 const collab = useCollabSessionStore()
 const workspaces = useMyWorkspacesStore()
 const workflowStates = useWorkflowStatesStore()
+const ticketsStore = useSyncTicketsStore()
 
 /**
  * Hover-prefetch the ticket's collaborative session: opens the
@@ -44,7 +46,12 @@ const workflowStates = useWorkflowStatesStore()
 function prewarmTicket() {
   const uuid = workspaces.activeWorkspace?.workspace_uuid
   if (!uuid) return
-  collab.warm(buildCollabDocId(uuid, 'ticket', props.id))
+  // Keyed by the ticket's immutable UUID (from the pool) so prewarm
+  // warms the same doc the editor opens. Best-effort: skip if the pool
+  // doesn't have the row yet.
+  const ticketUuid = ticketsStore.byId(props.id).value?.uuid
+  if (!ticketUuid) return
+  collab.warm(buildCollabDocId(uuid, 'ticket', ticketUuid))
 }
 
 const props = defineProps<{

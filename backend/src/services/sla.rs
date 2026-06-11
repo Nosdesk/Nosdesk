@@ -754,6 +754,7 @@ mod tests {
     fn ticket(assignee: Option<Uuid>) -> Ticket {
         Ticket {
             id: 1,
+            uuid: uuid::Uuid::nil(),
             title: "t".into(),
             workflow_state_id: 2,
             priority: crate::models::TicketPriority::Medium,

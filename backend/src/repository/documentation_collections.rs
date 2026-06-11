@@ -13,6 +13,17 @@ use crate::sync::emit::{self, SyncEmit};
 // `crate::sync::groups::workspace()` because `use crate::schema::*`
 // already brings the `groups` Diesel table into scope under that name.
 
+/// Resolve a collection's immutable UUID to its integer id, or `None`
+/// if no live collection has it. Used by the collab layer to map a
+/// UUID-keyed doc_id to the integer id the persistence layer uses.
+pub fn collection_id_by_uuid(conn: &mut DbConnection, uuid: Uuid) -> QueryResult<Option<i32>> {
+    documentation_collections::table
+        .filter(documentation_collections::uuid.eq(uuid))
+        .select(documentation_collections::id)
+        .first::<i32>(conn)
+        .optional()
+}
+
 /// Sync-event payload for a documentation collection. Excludes the
 /// Yjs binary columns (`description_yjs` / `description_state_vector`).
 /// The rich description body flows through the collaborative-editor

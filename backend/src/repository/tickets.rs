@@ -13,6 +13,28 @@ use crate::sync::emit::{self, SyncEmit};
 use crate::sync::groups;
 use crate::utils::storage::Storage;
 
+/// Resolve a ticket's immutable UUID to its integer id, or `None` if
+/// no live ticket has it. Used by the collab layer to map a UUID-keyed
+/// doc_id to the integer id the persistence layer uses.
+pub fn id_by_uuid(conn: &mut DbConnection, uuid: Uuid) -> QueryResult<Option<i32>> {
+    tickets::table
+        .filter(tickets::uuid.eq(uuid))
+        .select(tickets::id)
+        .first::<i32>(conn)
+        .optional()
+}
+
+/// Inverse of [`id_by_uuid`]: the immutable UUID for an integer id, or
+/// `None` if no live ticket has it. Used when building a UUID-keyed
+/// collab doc_id from an integer id (e.g. revision restore).
+pub fn uuid_by_id(conn: &mut DbConnection, id: i32) -> QueryResult<Option<Uuid>> {
+    tickets::table
+        .filter(tickets::id.eq(id))
+        .select(tickets::uuid)
+        .first::<Uuid>(conn)
+        .optional()
+}
+
 /// Observer fired after `update_ticket_partial` commits a change.
 /// Implementor reindexes so title / status / priority / requester
 /// changes land in search regardless of which handler made them.

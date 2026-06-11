@@ -38,6 +38,7 @@ import { useCollabSessionStore } from '@/stores/collabSession'
 import { useTicketDraftsStore } from '@/stores/ticketDrafts'
 import { useTicketUiStore } from '@/stores/ticketUi'
 import { useMyWorkspacesStore } from '@/stores/myWorkspaces'
+import { useSyncTicketsStore } from '@/sync/stores/tickets'
 import { RECENT_TICKETS_KEY } from '@/stores/recentTickets'
 import { ticketDetailKey } from '@/loaders/ticketDetailLoader'
 import { buildCollabDocId } from '@/utils/collabDocId'
@@ -50,17 +51,18 @@ export function useTicketDeletionCleanup(): void {
   const router = useRouter()
   const route = useRoute()
   const workspaces = useMyWorkspacesStore()
+  const ticketsStore = useSyncTicketsStore()
 
   const cleanupTicket = (id: number) => {
-    // Fire-and-forget; purgeData awaits IDB but we don't gate
-    // anything on it. Errors are logged inside the store. The
-    // docId is workspace-namespaced (see utils/collabDocId.ts)
-    // so the purge targets the same IDB key the live editor
-    // would have constructed — without the prefix this wipe would
-    // miss the cached doc entirely.
+    // Fire-and-forget; purgeData awaits IDB but we don't gate anything
+    // on it. The docId is keyed by the ticket's immutable UUID (see
+    // utils/collabDocId.ts), so we resolve it from the pool. Best-effort:
+    // if the pool row is already gone the orphaned cache is harmless (its
+    // UUID never recycles) and the LRU prune reclaims it.
     const uuid = workspaces.activeWorkspace?.workspace_uuid
-    if (uuid) {
-      void collab.purgeData(buildCollabDocId(uuid, 'ticket', id))
+    const ticketUuid = ticketsStore.byId(id).value?.uuid
+    if (uuid && ticketUuid) {
+      void collab.purgeData(buildCollabDocId(uuid, 'ticket', ticketUuid))
     }
     drafts.clearDraft(id)
     ui.clearAttachments(id)
