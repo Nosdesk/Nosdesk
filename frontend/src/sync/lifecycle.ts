@@ -19,6 +19,7 @@ import { setReferenceFetcher } from './composables'
 import { notifySyncActions } from './observers'
 import { applyWorkspaceCapabilities } from '@/composables/useWorkspaceCapabilities'
 import { purgeAllCollabDocs } from '@/utils/collabLocalCache'
+import { refreshAccessToken } from '@/services/authRefresh'
 import type {
   BootstrapLine,
   BootstrapMeta,
@@ -219,12 +220,30 @@ export async function hydrate(
  * The schema hash names the IndexedDB; the instance id is the epoch
  * fence (a change means a different database generation). `instanceId`
  * falls back to `''` so a fetch/DB hiccup never triggers a wipe. */
+/**
+ * `fetch` with credentials that survives an expired (15 min) access
+ * token. The sync runtime uses raw fetch (streaming bootstrap, no
+ * axios), so it doesn't inherit the axios client's refresh-on-401. On a
+ * 401 we run the shared, deduplicated refresh once and retry; that
+ * single refresh is coordinated with the axios client so the
+ * token-rotating endpoint is never hit twice concurrently. On refresh
+ * failure the original 401 response is returned and the caller backs
+ * off (the axios client owns redirect-to-login for a dead session).
+ */
+async function syncFetch(url: string): Promise<Response> {
+  const res = await fetch(url, { credentials: 'include' })
+  if (res.status !== 401) return res
+  const refreshed = await refreshAccessToken()
+  if (!refreshed) return res
+  return fetch(url, { credentials: 'include' })
+}
+
 export async function fetchServerIdentity(): Promise<{
   schemaHash: string
   instanceId: string
 }> {
   try {
-    const res = await fetch('/api/sync/schema', { credentials: 'include' })
+    const res = await syncFetch('/api/sync/schema')
     if (!res.ok) return { schemaHash: 'unknown', instanceId: '' }
     const body = (await res.json()) as { server_schema?: string; instance_id?: string }
     return {
@@ -265,7 +284,7 @@ export async function pullDelta(): Promise<void> {
   const url =
     `/api/sync/delta?from=${from}&groups=${encodeURIComponent(groups.join(','))}`
   try {
-    const res = await fetch(url, { credentials: 'include' })
+    const res = await syncFetch(url)
     if (!res.ok) {
       logger.warn('sync delta failed', { status: res.status })
       return
@@ -293,7 +312,7 @@ async function runBootstrap(groups: string[]): Promise<void> {
   const url = `/api/sync/bootstrap?groups=${encodeURIComponent(groups.join(','))}&schema=${encodeURIComponent(state.schemaHash)}`
   let res: Response
   try {
-    res = await fetch(url, { credentials: 'include' })
+    res = await syncFetch(url)
   } catch (e) {
     logger.error('sync bootstrap network error', { error: e })
     return

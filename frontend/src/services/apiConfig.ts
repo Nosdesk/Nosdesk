@@ -6,6 +6,10 @@ import { getSSEClientId } from '@/services/sseService';
 import { getSessionId as getDiagnosticsSessionId } from '@/services/diagnostics/session';
 import { pushApi as pushApiBreadcrumb } from '@/services/diagnostics/breadcrumbs';
 import { getCsrfToken } from '@/utils/csrf';
+// Shared, in-flight-deduplicated access-token refresh, used by both this
+// axios client and the raw-fetch sync runtime so the two never fire two
+// concurrent (token-rotating) refreshes against each other.
+import { refreshAccessToken } from './authRefresh';
 
 // API Configuration with Structured Logging and Error Handling
 //
@@ -51,16 +55,6 @@ function onRefreshComplete(success: boolean) {
   refreshSubscribers = [];
 }
 
-async function refreshAccessToken(): Promise<boolean> {
-  try {
-    const response = await axios.post(`${API_URL}/auth/refresh`, {}, {
-      withCredentials: true,
-    });
-    return response.status === 200;
-  } catch {
-    return false;
-  }
-}
 
 // Redirect to login using Vue Router to preserve SPA history stack.
 //
