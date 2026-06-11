@@ -617,6 +617,7 @@ diesel::table! {
         hide_titles_from_non_members -> Bool,
         workspace_id -> Int4,
         fence_token -> Nullable<Int8>,
+        require_verification -> Bool,
     }
 }
 

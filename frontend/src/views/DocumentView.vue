@@ -760,13 +760,15 @@ watch(documentObj, (newDocument) => {
                     Verification status chip — sits next to the
                     Draft/Archived badges so trust state reads as a
                     property of the document rather than a property
-                    of the author. Only renders for the two states
-                    that need attention (never verified, stale);
-                    the fresh case is conveyed by the inline check
-                    on the author badge.
+                    of the author. The never-verified prompt only
+                    shows when the page's collection opts into
+                    required verification; otherwise an unverified
+                    page is neutral (no chip). Stale always shows.
+                    The fresh case is conveyed by the inline check on
+                    the author badge.
                   -->
                   <button
-                    v-if="!isTicketNote && document.created_by && !document.verified_at"
+                    v-if="!isTicketNote && document.created_by && document.requires_verification && !document.verified_at"
                     type="button"
                     class="text-[10px] px-1.5 py-0.5 rounded font-medium bg-accent/10 text-accent hover:bg-accent/20 transition-colors flex items-center gap-1"
                     :title="$t('doc-detail-needs-verification-title')"

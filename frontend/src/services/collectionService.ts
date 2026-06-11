@@ -22,6 +22,13 @@ export interface Collection {
    * page title). Opt-in per collection for sensitive content.
    */
   hide_titles_from_non_members: boolean;
+  /**
+   * When true, pages in this collection that have never been verified
+   * show a "needs verification" prompt. Off by default: an unverified
+   * page is neutral, not unchecked. Opt-in per collection for
+   * compliance content (SOPs, policies).
+   */
+  require_verification: boolean;
   icon: string | null;
   color: string | null;
   is_system: boolean;
@@ -123,6 +130,7 @@ export const updateCollection = async (id: number, data: {
   icon?: string;
   color?: string;
   hide_titles_from_non_members?: boolean;
+  require_verification?: boolean;
 }): Promise<Collection | null> => {
   try {
     const response = await apiClient.put(`/documentation/collections/${id}`, data);

@@ -56,6 +56,7 @@ export interface DocCollectionRow {
   display_order: number
   description_text: string | null
   hide_titles_from_non_members: boolean
+  require_verification: boolean
   created_at: string
   updated_at: string
 }

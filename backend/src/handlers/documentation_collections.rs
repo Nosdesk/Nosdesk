@@ -147,6 +147,7 @@ fn collection_response(
         "description_text": collection.description_text,
         "description_doc_id": format!("ws-{workspace_uuid}_collection-{}", collection.uuid),
         "hide_titles_from_non_members": collection.hide_titles_from_non_members,
+        "require_verification": collection.require_verification,
         "icon": collection.icon,
         "color": collection.color,
         "is_system": collection.is_system,
@@ -271,6 +272,7 @@ pub struct UpdateCollectionRequest {
     pub icon: Option<String>,
     pub color: Option<String>,
     pub hide_titles_from_non_members: Option<bool>,
+    pub require_verification: Option<bool>,
 }
 
 /// Outcome of the update_collection transaction.
@@ -315,6 +317,7 @@ pub async fn update_collection(
             color: body.color.clone(),
             updated_at: Some(Utc::now().naive_utc()),
             hide_titles_from_non_members: body.hide_titles_from_non_members,
+            require_verification: body.require_verification,
             ..Default::default()
         };
 

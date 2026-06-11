@@ -769,6 +769,7 @@ function toCollectionWithDetails(c: DocCollectionRow, pageCount: number): Collec
     description_text: c.description_text,
     description_doc_id: '',
     hide_titles_from_non_members: c.hide_titles_from_non_members,
+    require_verification: c.require_verification,
     icon: c.icon,
     color: c.color,
     is_system: c.is_system,

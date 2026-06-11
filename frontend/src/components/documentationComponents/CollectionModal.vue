@@ -52,6 +52,7 @@ const description = ref('')
 const icon = ref('📁')
 const color = ref(randomAccentColor())
 const hideTitles = ref(false)
+const requireVerification = ref(false)
 const selectedItems = ref<SelectedPrincipal[]>([])
 const saving = ref(false)
 const saveError = ref('')
@@ -162,6 +163,7 @@ function resetCreateForm() {
   icon.value = '📁'
   color.value = randomAccentColor()
   hideTitles.value = false
+  requireVerification.value = false
   selectedItems.value = []
   saveError.value = ''
 }
@@ -174,6 +176,7 @@ function seedEditForm(collection: CollectionWithDetails) {
   icon.value = collection.icon || '📁'
   color.value = collection.color || '#6366f1'
   hideTitles.value = collection.hide_titles_from_non_members ?? false
+  requireVerification.value = collection.require_verification ?? false
   selectedItems.value = principalsFromCollection(collection)
   saveError.value = ''
 }
@@ -262,9 +265,10 @@ async function handleCreate() {
       }
     }
 
-    if (hideTitles.value) {
+    if (hideTitles.value || requireVerification.value) {
       const updated = await updateCollection(created.id, {
-        hide_titles_from_non_members: true,
+        hide_titles_from_non_members: hideTitles.value,
+        require_verification: requireVerification.value,
       })
       if (!updated) {
         saveError.value = t('docs-create-collection-error')
@@ -317,6 +321,7 @@ async function handleEdit() {
       icon: icon.value.trim() || undefined,
       color: color.value.trim() || undefined,
       hide_titles_from_non_members: hideTitles.value,
+      require_verification: requireVerification.value,
     })
     if (!updated) {
       saveError.value = t('docs-edit-collection-save-error')
@@ -446,6 +451,29 @@ function handleSubmit() {
           </label>
           <p class="text-[11px] leading-snug text-tertiary">
             {{ $t('docs-edit-collection-hide-titles-help') }}
+          </p>
+        </div>
+      </div>
+
+      <!-- Verification policy -->
+      <div class="flex gap-2.5">
+        <div class="flex h-[18px] shrink-0 items-center">
+          <Checkbox
+            :id="`${mode}-collection-require-verification`"
+            v-model="requireVerification"
+            size="sm"
+            :aria-label="$t('docs-edit-collection-require-verification-aria')"
+          />
+        </div>
+        <div class="min-w-0 flex flex-col gap-0.5">
+          <label
+            :for="`${mode}-collection-require-verification`"
+            class="cursor-pointer text-xs font-medium leading-snug text-primary"
+          >
+            {{ $t('docs-edit-collection-require-verification-label') }}
+          </label>
+          <p class="text-[11px] leading-snug text-tertiary">
+            {{ $t('docs-edit-collection-require-verification-help') }}
           </p>
         </div>
       </div>

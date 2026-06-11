@@ -2966,6 +2966,11 @@ pub struct DocumentationPageResponse {
     /// has been verified, has an interval set, and the verification
     /// has expired. Pages with no interval are never stale.
     pub is_stale: bool,
+    /// True when any collection containing this page has
+    /// `require_verification` set. Gates the "needs verification"
+    /// prompt for never-verified pages; false by default so an
+    /// unverified page reads as neutral, not unchecked.
+    pub requires_verification: bool,
     /// Embedded ticket links, populated when the caller passes
     /// `?embed=tickets`. None means the field wasn't requested
     /// (which is different from "no links" — that's `Some(vec![])`).
@@ -4492,6 +4497,10 @@ pub struct DocumentationCollection {
     /// Fencing token from the per-document ownership claim (Phase 2
     /// affinity); see the note on `ArticleContent::fence_token`.
     pub fence_token: Option<i64>,
+    /// When true, pages in this collection that have never been
+    /// verified surface a "needs verification" prompt. Off by
+    /// default: an unverified page is neutral, not unchecked.
+    pub require_verification: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -4517,6 +4526,7 @@ pub struct DocumentationCollectionUpdate {
     pub color: Option<String>,
     pub updated_at: Option<NaiveDateTime>,
     pub hide_titles_from_non_members: Option<bool>,
+    pub require_verification: Option<bool>,
     pub description_text: Option<Option<String>>,
 }
 

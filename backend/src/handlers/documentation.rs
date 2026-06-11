@@ -244,6 +244,10 @@ fn to_page_response(
         verified_at: page.verified_at,
         verify_interval_days: page.verify_interval_days,
         is_stale,
+        // Default false here so list builders stay cheap; the
+        // single-page detail handlers enrich this with a per-page
+        // collection lookup.
+        requires_verification: false,
         linked_tickets: None,
     })
 }
@@ -386,6 +390,8 @@ pub async fn get_documentation_page(
             Ok(r) => r,
             Err(e) => return Ok(PageLoadOutcome::ResponseBuildFailed(e)),
         };
+        response.requires_verification =
+            repository::page_requires_verification(conn, response.id).unwrap_or(false);
         if want_tickets {
             if let Err(e) = embed_page_tickets(&mut response, conn) {
                 return Ok(PageLoadOutcome::EmbedFailed(e));
@@ -434,6 +440,8 @@ pub async fn get_documentation_page_by_slug(
             Ok(r) => r,
             Err(e) => return Ok(PageLoadOutcome::ResponseBuildFailed(e)),
         };
+        response.requires_verification =
+            repository::page_requires_verification(conn, response.id).unwrap_or(false);
         if want_tickets {
             if let Err(e) = embed_page_tickets(&mut response, conn) {
                 return Ok(PageLoadOutcome::EmbedFailed(e));

@@ -36,6 +36,9 @@ export interface Page {
   verified_at?: string | null;
   verify_interval_days?: number | null;
   is_stale?: boolean;
+  /** True when the page's collection has require_verification set.
+   *  Gates the never-verified prompt; absent/false reads as neutral. */
+  requires_verification?: boolean;
 }
 
 /**
@@ -196,6 +199,7 @@ export const convertToPage = (data: unknown): Page => {
       verified_at: (pageData.verified_at as string | null) ?? null,
       verify_interval_days: (pageData.verify_interval_days as number | null) ?? null,
       is_stale: Boolean(pageData.is_stale),
+      requires_verification: Boolean(pageData.requires_verification),
     };
   } catch (error) {
     logger.error('Error converting backend page data', { error, data });

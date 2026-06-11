@@ -44,6 +44,7 @@ fn collection_sync_payload(c: &DocumentationCollection) -> serde_json::Value {
         "display_order": c.display_order,
         "description_text": c.description_text,
         "hide_titles_from_non_members": c.hide_titles_from_non_members,
+        "require_verification": c.require_verification,
         "created_at": c.created_at,
         "updated_at": c.updated_at,
     })

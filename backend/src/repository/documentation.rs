@@ -32,6 +32,25 @@ pub fn collection_id_for_page(conn: &mut DbConnection, page_id: i32) -> Result<O
         .optional()
 }
 
+/// True when the page's collection has `require_verification` set.
+/// A page belongs to at most one collection (UNIQUE(page_id) on the
+/// junction), so this gates the never-verified prompt on that one
+/// collection's compliance opt-in. False (neutral) by default.
+pub fn page_requires_verification(conn: &mut DbConnection, page_id: i32) -> QueryResult<bool> {
+    use crate::schema::documentation_collections as dc;
+
+    let collection_ids = documentation_collection_pages::table
+        .filter(documentation_collection_pages::page_id.eq(page_id))
+        .select(documentation_collection_pages::collection_id);
+
+    diesel::select(diesel::dsl::exists(
+        dc::table
+            .filter(dc::id.eq_any(collection_ids))
+            .filter(dc::require_verification.eq(true)),
+    ))
+    .get_result(conn)
+}
+
 fn page_sync_payload(p: &DocumentationPage, collection_id: Option<i32>) -> serde_json::Value {
     json!({
         "id": p.id,

@@ -1927,7 +1927,8 @@ CREATE TABLE public.documentation_collections (
     description_text text,
     hide_titles_from_non_members boolean DEFAULT false NOT NULL,
     workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL,
-    fence_token bigint
+    fence_token bigint,
+    require_verification boolean DEFAULT false NOT NULL
 );
 
 ALTER TABLE ONLY public.documentation_collections FORCE ROW LEVEL SECURITY;
