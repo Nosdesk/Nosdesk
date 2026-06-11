@@ -125,6 +125,14 @@ services:
       - RUST_BACKTRACE=1
       - CARGO_MESSAGE_FORMAT=short
       - CARGO_TERM_COLOR=always
+      # Keep incremental compilation ON in the dev container — bacon's
+      # edit/rebuild loop benefits from it, and its target/ is a bounded
+      # named volume reset by `make clean`. backend/.cargo/config.toml
+      # sets `incremental = false` to stop HOST builds piling up orphaned
+      # session dirs (they reached 146 GB). The container doesn't read
+      # that config today, but this env guarantees incremental stays on
+      # even if it's ever baked into the image.
+      - CARGO_INCREMENTAL=1
       # Tests run against a dedicated database so test fixtures don't
       # burn sequence values out of the dev DB. See `init-db.sql` for
       # the CREATE DATABASE + GRANT, and `backend/src/test_helpers.rs`

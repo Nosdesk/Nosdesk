@@ -19,6 +19,18 @@
 # by exporting `TEST_DATABASE_URL` in your shell — env vars set in
 # the parent shell take precedence over `[env]` here.
 
+# Incremental compilation is OFF here because development is
+# container-based: the real edit/rebuild loop runs in the `backend` dev
+# container (bacon), which doesn't read this file and keeps incremental
+# ON (see CARGO_INCREMENTAL=1 in compose.dev.yaml). This file is read by
+# HOST cargo invocations, which are only occasional one-off verification
+# builds — incremental barely helps there but its session directories
+# pile up: an interrupted/OOM-killed build leaves its ~3 GB session
+# behind and cargo never GCs it, so they accumulated to 146 GB across
+# 572 orphaned sessions. Off on the host keeps that from recurring.
+[build]
+incremental = false
+
 [env]
 TEST_DATABASE_URL = "postgres://nosdesk:nosdesk_password@127.0.0.1:54329/nosdesk_test"
 # Redis for redis-backed integration tests (the collab ownership-claim
