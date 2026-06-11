@@ -17,11 +17,64 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use diesel::sql_types::BigInt;
+use diesel::{sql_query, QueryableByName, RunQueryDsl};
 use tracing::{info, warn};
 
-use crate::db::Pool;
+use crate::db::{DbConnection, Pool};
 use crate::repository::{active_sessions, refresh_tokens};
 use crate::services::search::SearchService;
+
+// Advisory-lock keys for scheduler jobs that must run on a single machine
+// per tick. The scheduler has no leader election, so it ticks on every
+// machine; jobs with a cross-machine hazard guard their tick via
+// `try_job_lock`. Keys are distinct from each other and from
+// `PROVISION_LOCK_KEY` in `services::plugins::provisioning`.
+const MSGRAPH_DELTA_SYNC_LOCK: i64 = 0x004e_6f73_4d53_4744;
+const THUMBNAIL_BACKFILL_LOCK: i64 = 0x004e_6f73_5448_4d42;
+
+/// Holds a per-job Postgres advisory lock for the duration of one
+/// scheduler tick, releasing it on drop — including on an unwinding panic,
+/// so the lock can never strand a job across the whole fleet. Parks a
+/// dedicated pooled connection for the tick; the job pulls its own for
+/// work.
+pub struct JobLock {
+    conn: DbConnection,
+    key: i64,
+    name: &'static str,
+}
+
+impl Drop for JobLock {
+    fn drop(&mut self) {
+        // Session-scoped lock: explicit unlock here, because the pooled
+        // connection is returned to the pool (reused) rather than closed.
+        if let Err(e) = sql_query("SELECT pg_advisory_unlock($1)")
+            .bind::<BigInt, _>(self.key)
+            .execute(&mut self.conn)
+        {
+            warn!(job = self.name, error = %e, "scheduler: failed to release advisory lock");
+        }
+    }
+}
+
+/// Try to take job `name`'s advisory lock without blocking.
+/// `Ok(Some(guard))` — acquired; hold the guard for the tick.
+/// `Ok(None)` — another machine holds it; skip this tick.
+/// `Err` — couldn't reach Postgres to ask.
+pub fn try_job_lock(pool: &Pool, key: i64, name: &'static str) -> Result<Option<JobLock>> {
+    #[derive(QueryableByName)]
+    struct Acquired {
+        #[diesel(sql_type = diesel::sql_types::Bool)]
+        pg_try_advisory_lock: bool,
+    }
+    let mut conn = pool.get().context("advisory-lock conn")?;
+    let acquired = sql_query("SELECT pg_try_advisory_lock($1)")
+        .bind::<BigInt, _>(key)
+        .get_result::<Acquired>(&mut conn)
+        .context("pg_try_advisory_lock")?
+        .pg_try_advisory_lock;
+    Ok(acquired.then_some(JobLock { conn, key, name }))
+}
 
 /// Delete rows from `active_sessions` whose `expires_at` is in the
 /// past. One-liner today; kept here (rather than being a closure in
@@ -57,6 +110,16 @@ pub async fn cleanup_expired_refresh_tokens(pool: Pool) -> Result<()> {
 /// any drift and does no work once everything is in place.
 pub async fn backfill_user_thumbnails(pool: Pool) -> Result<()> {
     use crate::services::avatar_thumbnails::{backfill_thumbnails, BackfillMode};
+    // Single-machine guard: the sweep re-encodes and re-uploads every
+    // avatar to S3, so running it on each machine duplicates the upload
+    // traffic for no benefit (the result is identical).
+    let _lock = match try_job_lock(&pool, THUMBNAIL_BACKFILL_LOCK, "users.backfill_thumbnails")? {
+        Some(lock) => lock,
+        None => {
+            info!("scheduler: users.backfill_thumbnails skipped — another machine holds the lock");
+            return Ok(());
+        }
+    };
     let mut conn = pool.get().context("db pool")?;
     let stats = backfill_thumbnails(
         &mut conn,
@@ -96,6 +159,16 @@ pub async fn ensure_sync_partitions(pool: Pool) -> Result<()> {
 /// [`crate::handlers::msgraph_integration::run_scheduled_delta_sync`]
 /// for the details.
 pub async fn msgraph_delta_sync(pool: Pool) -> Result<()> {
+    // Single-machine guard: concurrent runs race the per-entity delta
+    // token in `sync_history` (last writer wins, silently dropping the
+    // other machine's progress until those records change again).
+    let _lock = match try_job_lock(&pool, MSGRAPH_DELTA_SYNC_LOCK, "msgraph.delta_sync")? {
+        Some(lock) => lock,
+        None => {
+            info!("scheduler: msgraph.delta_sync skipped — another machine holds the lock");
+            return Ok(());
+        }
+    };
     crate::handlers::msgraph_integration::run_scheduled_delta_sync(&pool).await
 }
 
@@ -732,5 +805,50 @@ impl SlaBreachKind {
             SlaBreachKind::Response => "Response",
             SlaBreachKind::Resolution => "Resolution",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use diesel::pg::PgConnection;
+    use diesel::r2d2::{self, ConnectionManager};
+
+    // A real 2-connection pool (no test-transaction wrapper) so two
+    // sessions can be held at once to observe advisory-lock contention.
+    fn real_pool() -> Pool {
+        let url = std::env::var("TEST_DATABASE_URL")
+            .expect("TEST_DATABASE_URL must be set for the advisory-lock test");
+        let manager = ConnectionManager::<PgConnection>::new(url);
+        r2d2::Pool::builder()
+            .max_size(2)
+            .build(manager)
+            .expect("build advisory-lock test pool")
+    }
+
+    // A test-only key so a stray lock (app running, or a prior crashed run)
+    // can't collide with the assertion.
+    const TEST_LOCK: i64 = 0x7465_7374_4c4f_434b; // "testLOCK"
+
+    #[test]
+    fn advisory_lock_serialises_then_releases() {
+        let pool = real_pool();
+
+        let first = try_job_lock(&pool, TEST_LOCK, "test").expect("acquire");
+        assert!(first.is_some(), "first caller takes the lock");
+
+        let contended = try_job_lock(&pool, TEST_LOCK, "test").expect("try while held");
+        assert!(
+            contended.is_none(),
+            "a second caller is locked out while the lock is held"
+        );
+
+        drop(first); // releases on drop (Drop runs pg_advisory_unlock)
+
+        let reacquired = try_job_lock(&pool, TEST_LOCK, "test").expect("re-acquire");
+        assert!(
+            reacquired.is_some(),
+            "the lock is free again once the guard drops"
+        );
     }
 }
