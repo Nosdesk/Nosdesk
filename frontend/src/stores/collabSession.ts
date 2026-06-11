@@ -30,6 +30,7 @@
 import * as Y from 'yjs'
 import { WebsocketProvider } from 'y-websocket'
 import { IndexeddbPersistence, clearDocument as clearIdbDocument } from 'y-indexeddb'
+import { COLLAB_IDB_TOUCH_KEY } from '@/utils/collabLocalCache'
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
@@ -70,9 +71,10 @@ const MAX_IDB_DOCS = 50
 /**
  * localStorage key for the "last touched" timestamp per docId.
  * Persistent across reloads so the prune is meaningful across
- * sessions, not just within one tab's lifetime.
+ * sessions, not just within one tab's lifetime. Defined in the shared
+ * cache util so the epoch wipe (sync lifecycle) reads the same map.
  */
-const IDB_TOUCH_KEY = 'nosdesk:collab-idb-touched'
+const IDB_TOUCH_KEY = COLLAB_IDB_TOUCH_KEY
 
 /**
  * Feature flag: set `localStorage['nosdesk:disable-idb-collab'] = '1'`

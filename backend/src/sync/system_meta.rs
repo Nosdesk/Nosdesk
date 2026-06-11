@@ -21,6 +21,7 @@ use crate::schema::system_meta;
 pub const KEY_SCHEMA_HASH: &str = "schema_hash";
 pub const KEY_SYNC_ID_HIGH_WATER: &str = "sync_id_high_water";
 pub const KEY_PARTITION_MAX_PROVISIONED: &str = "partition_max_provisioned";
+pub const KEY_INSTANCE_ID: &str = "instance_id";
 
 pub fn get(conn: &mut DbConnection, key: &str) -> QueryResult<Option<Value>> {
     system_meta::table
@@ -54,4 +55,35 @@ pub fn schema_hash(conn: &mut DbConnection) -> QueryResult<String> {
 /// Write the binary's compiled schema hash. Call once during boot.
 pub fn set_schema_hash(conn: &mut DbConnection, hash: &str) -> QueryResult<()> {
     put(conn, KEY_SCHEMA_HASH, &Value::String(hash.to_string()))
+}
+
+/// Read the database's instance id (empty string when unset).
+///
+/// This is a random UUID minted once per database by
+/// [`ensure_instance_id`]. It is stable for the life of the database
+/// and only changes when the database is freshly initialised (the row
+/// is gone), so clients use it as an "epoch" fence: a change means the
+/// cached local data belongs to a different database generation and
+/// must be wiped. See `docs/plans/collab-stale-cache-fence.md`.
+pub fn instance_id(conn: &mut DbConnection) -> QueryResult<String> {
+    Ok(get(conn, KEY_INSTANCE_ID)?
+        .and_then(|v| v.as_str().map(|s| s.to_string()))
+        .unwrap_or_default())
+}
+
+/// Mint the database instance id if it isn't set yet, then return it.
+/// Insert-if-absent (never overwrites), so the value is stable across
+/// boots and is only regenerated when the database is recreated. Call
+/// once during boot, after migrations.
+pub fn ensure_instance_id(conn: &mut DbConnection) -> QueryResult<String> {
+    let new_id = uuid::Uuid::new_v4().to_string();
+    diesel::sql_query(
+        "INSERT INTO system_meta (key, value, updated_at) \
+         VALUES ($1, $2, NOW()) \
+         ON CONFLICT (key) DO NOTHING",
+    )
+    .bind::<Text, _>(KEY_INSTANCE_ID)
+    .bind::<Jsonb, _>(Value::String(new_id))
+    .execute(conn)?;
+    instance_id(conn)
 }

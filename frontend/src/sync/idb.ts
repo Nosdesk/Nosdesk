@@ -38,6 +38,7 @@ const STORE_META = 'meta'
 const META_KEY_LAST_SYNC_ID = 'last_sync_id'
 const META_KEY_SCHEMA_HASH = 'schema_hash'
 const META_KEY_SUBSCRIBED_GROUPS = 'subscribed_groups'
+const META_KEY_INSTANCE_ID = 'instance_id'
 
 export interface IdbHandle {
   db: IDBDatabase
@@ -219,6 +220,14 @@ export function setSchemaHash(handle: IdbHandle, hash: string): Promise<void> {
 
 export function getSchemaHash(handle: IdbHandle): Promise<string | undefined> {
   return getMeta<string>(handle, META_KEY_SCHEMA_HASH)
+}
+
+export function setInstanceId(handle: IdbHandle, id: string): Promise<void> {
+  return putMeta(handle, META_KEY_INSTANCE_ID, id)
+}
+
+export function getInstanceId(handle: IdbHandle): Promise<string | undefined> {
+  return getMeta<string>(handle, META_KEY_INSTANCE_ID)
 }
 
 export function setSubscribedGroups(handle: IdbHandle, groups: string[]): Promise<void> {

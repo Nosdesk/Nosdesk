@@ -112,6 +112,15 @@ pub async fn initialize_database(
         warn!(error = %e, "Failed to write schema_hash to system_meta");
     }
 
+    // Mint the per-database instance id if absent. Stable for the life
+    // of the database, regenerated only on a fresh init; clients use it
+    // as an epoch fence to wipe local caches that belong to a different
+    // database generation (see docs/plans/collab-stale-cache-fence.md).
+    match crate::sync::system_meta::ensure_instance_id(&mut conn) {
+        Ok(id) => info!(instance_id = %id, "Database instance id ready"),
+        Err(e) => warn!(error = %e, "Failed to ensure instance_id in system_meta"),
+    }
+
     // Check if this is the first run
     match crate::repository::count_users(&mut conn) {
         Ok(count) => {

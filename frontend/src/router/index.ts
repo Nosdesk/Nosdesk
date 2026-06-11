@@ -1009,12 +1009,12 @@ async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLoca
     // a tab restart and lose live SSE updates.
     if (authStore.user?.uuid) {
       try {
-        const [{ hydrate, fetchServerSchemaHash }, { attachSseBridge }] = await Promise.all([
+        const [{ hydrate, fetchServerIdentity }, { attachSseBridge }] = await Promise.all([
           import('@/sync/lifecycle'),
           import('@/sync/sseBridge'),
         ]);
-        const schemaHash = await fetchServerSchemaHash();
-        await hydrate(authStore.user.uuid, schemaHash);
+        const { schemaHash, instanceId } = await fetchServerIdentity();
+        await hydrate(authStore.user.uuid, schemaHash, instanceId);
         attachSseBridge();
       } catch (e) {
          

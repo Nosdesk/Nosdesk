@@ -459,12 +459,17 @@ export const useAuthStore = defineStore('auth', () => {
     // IDB handle is closed here; per-user database scoping means a
     // re-login under a different account opens a different DB.
     try {
-      const [{ tearDown }, { detachSseBridge }] = await Promise.all([
+      const [{ tearDown }, { detachSseBridge }, { purgeAllCollabDocs }] = await Promise.all([
         import('@/sync/lifecycle'),
         import('@/sync/sseBridge'),
+        import('@/utils/collabLocalCache'),
       ]);
       detachSseBridge();
       await tearDown();
+      // Collab caches are keyed by workspace, not user, so unlike the
+      // sync pool they'd otherwise outlive the session and be readable
+      // by the next account on a shared machine. Purge them on logout.
+      await purgeAllCollabDocs();
     } catch (e) {
       logger.error('Failed to tear down sync runtime on logout', e);
     }

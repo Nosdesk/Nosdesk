@@ -18,6 +18,7 @@ import * as queue from './queue'
 import { setReferenceFetcher } from './composables'
 import { notifySyncActions } from './observers'
 import { applyWorkspaceCapabilities } from '@/composables/useWorkspaceCapabilities'
+import { purgeAllCollabDocs } from '@/utils/collabLocalCache'
 import type {
   BootstrapLine,
   BootstrapMeta,
@@ -122,7 +123,11 @@ function rowKey(aggregate: SyncAggregate, data: Record<string, unknown>): string
 /** Warm the engine for an authenticated user. Idempotent —
  * subsequent calls are no-ops while the handle is live (or while
  * memory-only mode is active). */
-export async function hydrate(userUuid: string, schemaHash: string): Promise<void> {
+export async function hydrate(
+  userUuid: string,
+  schemaHash: string,
+  instanceId = '',
+): Promise<void> {
   if (state.handle || state.memoryOnly) return
   pool.setSchemaHash(schemaHash)
   state.schemaHash = schemaHash
@@ -146,20 +151,39 @@ export async function hydrate(userUuid: string, schemaHash: string): Promise<voi
   queue.setIdbHandle(state.handle)
 
   const persistedHash = await idb.getSchemaHash(state.handle)
-  if (persistedHash && persistedHash !== schemaHash) {
-    // Schema mismatch — wipe and reopen at the new hash. The
-    // bootstrap below replays the snapshot; nothing user-visible
-    // is lost beyond pending-but-unflushed optimistic writes,
-    // which we can't replay safely against a different schema.
-    logger.info('Sync schema hash changed; wiping local cache and rebootstrapping', {
-      previous: persistedHash,
-      current: schemaHash,
+  const persistedInstance = await idb.getInstanceId(state.handle)
+
+  // Two reasons to throw away the local cache and re-bootstrap clean:
+  //   - schema mismatch: cached rows may not fit the new schema.
+  //   - instance mismatch (epoch fence): the cached data belongs to a
+  //     different database generation. We only trust an instance id the
+  //     server actually reported (non-empty), and an absent persisted
+  //     id counts as a mismatch so the first load after this ships
+  //     clears caches written before instance ids existed. See
+  //     docs/plans/collab-stale-cache-fence.md.
+  const schemaChanged = !!persistedHash && persistedHash !== schemaHash
+  const instanceChanged = instanceId !== '' && persistedInstance !== instanceId
+
+  if (schemaChanged || instanceChanged) {
+    logger.info('Sync cache stale; wiping local cache and rebootstrapping', {
+      schemaChanged,
+      instanceChanged,
+      previousInstance: persistedInstance,
+      currentInstance: instanceId,
     })
     const oldName = state.handle.name
     state.handle.db.close()
     await idb.wipe(oldName)
     state.handle = await idb.open(userUuid, schemaHash)
     queue.setIdbHandle(state.handle)
+
+    // The collaborative-document caches (separate y-indexeddb
+    // databases) aren't covered by the sync-pool wipe above, and on an
+    // instance change they're exactly the stale data that resurrects
+    // notes onto recycled ids. Purge them too.
+    if (instanceChanged) {
+      await purgeAllCollabDocs()
+    }
   }
 
   // Rehydrate the in-memory pool from cached rows. Rows whose
@@ -172,9 +196,12 @@ export async function hydrate(userUuid: string, schemaHash: string): Promise<voi
   const lastCachedSyncId = (await idb.getLastSyncId(state.handle)) ?? 0
   pool.setLastSyncId(lastCachedSyncId)
 
-  // Persist hash for the next warm start; if this is a fresh
-  // database the put is a no-op replacement.
+  // Persist hash + instance id for the next warm start so the next
+  // boot can detect a schema or database-generation change.
   await idb.setSchemaHash(state.handle, schemaHash)
+  if (instanceId !== '') {
+    await idb.setInstanceId(state.handle, instanceId)
+  }
 
   // Replay any persisted optimistic transactions (a previous tab
   // crash between persist and flush would have left them in the
@@ -188,18 +215,25 @@ export async function hydrate(userUuid: string, schemaHash: string): Promise<voi
   startDeltaPollFallback()
 }
 
-/** Fetch the server's compiled schema hash. Cheap (no DB
- * round-trip on the server). Cache the result on the lifecycle
- * state so warm-start doesn't re-fetch. */
-export async function fetchServerSchemaHash(): Promise<string> {
+/** Fetch the server's compiled schema hash and database instance id.
+ * The schema hash names the IndexedDB; the instance id is the epoch
+ * fence (a change means a different database generation). `instanceId`
+ * falls back to `''` so a fetch/DB hiccup never triggers a wipe. */
+export async function fetchServerIdentity(): Promise<{
+  schemaHash: string
+  instanceId: string
+}> {
   try {
     const res = await fetch('/api/sync/schema', { credentials: 'include' })
-    if (!res.ok) return 'unknown'
-    const body = (await res.json()) as { server_schema?: string }
-    return body.server_schema ?? 'unknown'
+    if (!res.ok) return { schemaHash: 'unknown', instanceId: '' }
+    const body = (await res.json()) as { server_schema?: string; instance_id?: string }
+    return {
+      schemaHash: body.server_schema ?? 'unknown',
+      instanceId: body.instance_id ?? '',
+    }
   } catch (e) {
     logger.warn('Failed to fetch /api/sync/schema; falling back to "unknown"', { error: e })
-    return 'unknown'
+    return { schemaHash: 'unknown', instanceId: '' }
   }
 }
 
