@@ -2363,6 +2363,14 @@ project-cycles-name-placeholder = par ex. Sprint 14
 project-cycles-create-submit = Créer
 project-cycles-velocity-hint = Vélocité récente : ~{ $count } tickets par cycle
 project-cycles-all-title = Tous les cycles
+# machine, à relire par un locuteur natif
+project-cycles-col-state = État
+# machine, à relire par un locuteur natif
+project-cycles-col-name = Cycle
+# machine, à relire par un locuteur natif
+project-cycles-col-dates = Dates
+# machine, à relire par un locuteur natif
+project-cycles-col-progress = Progression
 # Vue cycle actif (machine, à relire par un locuteur natif).
 project-cycles-active-work-title = Travail de ce cycle
 project-cycles-ended-warning = Ce cycle s'est terminé le { $date } mais n'est pas encore clôturé.
@@ -2396,6 +2404,12 @@ cycle-detail-summary = { $state } · { $count ->
     [one] { $count } ticket
    *[other] { $count } tickets
    }
+# machine, à relire par un locuteur natif
+cycle-detail-edit = Modifier le cycle
+# machine, à relire par un locuteur natif
+cycle-detail-edit-save = Enregistrer
+# machine, à relire par un locuteur natif
+cycle-detail-edit-saving = Enregistrement…
 cycle-detail-group-by-label = Grouper par
 cycle-detail-group-by-status = Statut uniquement
 cycle-detail-group-by-assignee = Statut x Assigné

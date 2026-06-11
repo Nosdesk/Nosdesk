@@ -19,10 +19,18 @@ import { useSyncProjectsStore } from '@/sync/stores/projects'
 import { type SyncTicket } from '@/sync/stores/tickets'
 import { useCyclesStore } from '@/stores/cycles'
 import { useProjectTickets } from '@/composables/useProjectTickets'
-import { WORKFLOW_CATEGORIES, getCategoryLabel, type WorkflowStateCategory } from '@/types/workflow'
+import {
+  WORKFLOW_CATEGORIES,
+  TERMINAL_CATEGORIES,
+  getCategoryLabel,
+  type WorkflowStateCategory,
+} from '@/types/workflow'
 import CycleBurndown from '@/components/cycles/CycleBurndown.vue'
+import CycleCard from '@/components/cycles/CycleCard.vue'
+import DataTable from '@/components/common/DataTable.vue'
 import StatusPill from '@/components/common/StatusPill.vue'
 import type { StatusPillTone } from '@/components/common/statusPillTone'
+import type { Cycle } from '@/services/cyclesService'
 import ProjectTabBar from '@/components/views/ProjectTabBar.vue'
 import ProjectViewHeader from '@/components/projectComponents/ProjectViewHeader.vue'
 import SectionCard from '@/components/common/SectionCard.vue'
@@ -43,7 +51,7 @@ const cyclesStore = useCyclesStore()
 const project = projectsStore.byId(projectId)
 // Wrapped so they track projectId across route changes (consistent with
 // the gantt view), not bound to the id at first render.
-const cycles = computed(() => cyclesStore.cyclesForProject(projectId.value).value)
+const cycles = computed<Cycle[]>(() => cyclesStore.cyclesForProject(projectId.value).value)
 const activeCycle = computed(() => cyclesStore.activeCycle(projectId.value).value)
 
 const { tickets: projectTickets } = useProjectTickets(projectId)
@@ -161,6 +169,44 @@ function formatCycleDate(iso: string | null): string {
   return formatDate(iso)
 }
 
+// Per-cycle completed/total, derived from the project's ticket pool by
+// cycle_id (the pool carries every ticket, denormalised with cycle_id).
+// Completed cycles read from their frozen snapshot so post-completion
+// edits don't move the numbers.
+const cycleStats = computed(() => {
+  const map = new Map<number, { completed: number; total: number }>()
+  for (const ticket of projectTickets.value) {
+    if (ticket.cycle_id == null) continue
+    const s = map.get(ticket.cycle_id) ?? { completed: 0, total: 0 }
+    s.total++
+    if (ticket.workflow_state && TERMINAL_CATEGORIES.has(ticket.workflow_state.category)) s.completed++
+    map.set(ticket.cycle_id, s)
+  }
+  return map
+})
+function statsFor(cycle: { id: number; state: string; completion_snapshot?: unknown }): {
+  completed: number
+  total: number
+} {
+  if (cycle.state === 'completed' && cycle.completion_snapshot) {
+    const snap = cycle.completion_snapshot as Record<string, unknown>
+    return { completed: Number(snap.completed ?? 0), total: Number(snap.tickets ?? 0) }
+  }
+  return cycleStats.value.get(cycle.id) ?? { completed: 0, total: 0 }
+}
+function pctFor(cycle: Cycle): number {
+  const s = statsFor(cycle)
+  return s.total > 0 ? Math.round((s.completed / s.total) * 100) : 0
+}
+
+// DataTable is generic, but its dynamic cell slots don't reliably flow
+// the row type through vue-tsc, so the slot `item` lands as `object`.
+// This narrows it back to Cycle at the call site.
+const asCycle = (item: object): Cycle => item as Cycle
+
+// Shared state-pill mapping for the desktop table's state cell (the
+// mobile CycleCard computes its own). Active is the figure (accent);
+// planned + completed recede to neutral.
 function stateLabel(state: string): string {
   switch (state) {
     case 'active': return t('project-cycles-state-active')
@@ -169,12 +215,18 @@ function stateLabel(state: string): string {
     default: return state
   }
 }
-
-// Active is the figure (accent); planned and completed recede to neutral
-// so the eye lands on the cycle in flight.
 function stateTone(state: string): StatusPillTone {
   return state === 'active' ? 'accent' : 'neutral'
 }
+
+// Desktop list columns, mirroring the projects table.
+const cycleColumns = computed(() => [
+  { field: 'state', label: t('project-cycles-col-state'), width: '150px' },
+  { field: 'name', label: t('project-cycles-col-name'), width: 'minmax(180px, 1fr)' },
+  { field: 'dates', label: t('project-cycles-col-dates'), width: 'minmax(150px, 230px)' },
+  { field: 'progress', label: t('project-cycles-col-progress'), width: 'minmax(140px, 220px)' },
+  { field: 'actions', label: '', width: '132px' },
+])
 </script>
 
 <template>
@@ -213,7 +265,7 @@ function stateTone(state: string): StatusPillTone {
           >{{ $t('project-cycles-action-complete') }}</button>
         </div>
 
-        <CycleBurndown :cycle="activeCycle" />
+        <CycleBurndown :cycle="activeCycle" :to="`/cycles/${activeCycle.uuid}`" />
 
         <SectionCard v-if="activeCycleGroups.length > 0" content-padding="">
           <template #title>{{ $t('project-cycles-active-work-title') }}</template>
@@ -278,62 +330,100 @@ function stateTone(state: string): StatusPillTone {
         </form>
       </SectionCard>
 
-      <SectionCard content-padding="">
-        <template #title>{{ $t('project-cycles-all-title') }}</template>
-        <template #headerActions>
+      <section class="flex flex-col gap-3">
+        <div class="flex items-center gap-2 px-0.5">
+          <h2 class="text-sm font-semibold text-primary">{{ $t('project-cycles-all-title') }}</h2>
           <span class="text-[11px] text-tertiary tabular-nums">{{ cycles.length }}</span>
-        </template>
+        </div>
 
         <div
           v-if="cycles.length === 0"
-          class="text-tertiary text-xs italic text-center py-8 px-4"
+          class="text-tertiary text-xs italic text-center py-10 px-4 bg-surface border border-default rounded-lg"
         >
           {{ $t('project-cycles-empty-prefix') }} <strong class="text-secondary">{{ $t('project-cycles-empty-cta') }}</strong> {{ $t('project-cycles-empty-suffix') }}
         </div>
 
-        <ul v-else class="divide-y divide-subtle">
-          <li
-            v-for="cycle in cycles"
-            :key="cycle.uuid"
-            class="flex items-center gap-3 px-3 py-2 hover:bg-surface-hover transition-colors motion-reduce:transition-none"
-          >
-            <StatusPill
-              :tone="stateTone(cycle.state)"
-              :label="stateLabel(cycle.state)"
-              class="shrink-0"
-              :class="{ 'opacity-70': cycle.state === 'completed' }"
+        <template v-else>
+          <!-- Desktop: full list view (shared DataTable), like projects. -->
+          <div class="hidden lg:block bg-surface border border-default rounded-lg overflow-hidden">
+            <DataTable
+              :columns="cycleColumns"
+              :data="cycles"
+              :selected-items="[]"
+              :selectable="false"
+              item-id-field="uuid"
+              @row-click="(c) => router.push(`/cycles/${asCycle(c).uuid}`)"
+            >
+              <template #cell-state="{ item }">
+                <StatusPill
+                  :tone="stateTone(asCycle(item).state)"
+                  :label="stateLabel(asCycle(item).state)"
+                  :class="{ 'opacity-70': asCycle(item).state === 'completed' }"
+                />
+              </template>
+              <template #cell-name="{ item }">
+                <button
+                  type="button"
+                  class="block max-w-full truncate text-left text-sm font-medium text-primary rounded transition-colors hover:text-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  @click.stop="router.push(`/cycles/${asCycle(item).uuid}`)"
+                >{{ asCycle(item).name }}</button>
+              </template>
+              <template #cell-dates="{ item }">
+                <span class="text-xs text-tertiary tabular-nums">
+                  {{ formatCycleDate(asCycle(item).start_at) }} → {{ formatCycleDate(asCycle(item).end_at) }}
+                </span>
+              </template>
+              <template #cell-progress="{ item }">
+                <div class="flex items-center gap-2 w-full">
+                  <div class="flex-1 h-1.5 rounded-full bg-surface-hover overflow-hidden">
+                    <div class="h-full rounded-full bg-accent" :style="{ width: `${pctFor(asCycle(item))}%` }" />
+                  </div>
+                  <span class="shrink-0 text-xs tabular-nums text-tertiary">
+                    {{ statsFor(asCycle(item)).completed }}/{{ statsFor(asCycle(item)).total }}
+                  </span>
+                </div>
+              </template>
+              <template #cell-actions="{ item }">
+                <div class="flex items-center gap-0.5" @click.stop>
+                  <button
+                    v-if="asCycle(item).state === 'planned'"
+                    type="button"
+                    class="text-[11px] text-secondary hover:text-primary px-2 py-1 rounded hover:bg-surface-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    @click="promoteToActive(asCycle(item).uuid)"
+                  >{{ $t('project-cycles-action-promote') }}</button>
+                  <button
+                    v-if="asCycle(item).state === 'active'"
+                    type="button"
+                    class="text-[11px] text-secondary hover:text-primary px-2 py-1 rounded hover:bg-surface-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    @click="requestCompleteCycle(asCycle(item).uuid)"
+                  >{{ $t('project-cycles-action-complete') }}</button>
+                  <button
+                    v-if="asCycle(item).state !== 'completed'"
+                    type="button"
+                    class="text-[11px] text-tertiary hover:text-status-error px-2 py-1 rounded hover:bg-surface-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-status-error"
+                    @click="requestArchiveCycle(asCycle(item).uuid)"
+                  >{{ $t('project-cycles-action-archive') }}</button>
+                </div>
+              </template>
+            </DataTable>
+          </div>
+
+          <!-- Tablet / mobile: enriched cards. -->
+          <div class="lg:hidden grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <CycleCard
+              v-for="cycle in cycles"
+              :key="cycle.uuid"
+              :cycle="cycle"
+              :completed="statsFor(cycle).completed"
+              :total="statsFor(cycle).total"
+              @open="router.push(`/cycles/${cycle.uuid}`)"
+              @promote="promoteToActive(cycle.uuid)"
+              @complete="requestCompleteCycle(cycle.uuid)"
+              @archive="requestArchiveCycle(cycle.uuid)"
             />
-            <button
-              type="button"
-              class="text-sm text-primary flex-1 truncate text-left rounded hover:text-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-              @click="router.push(`/cycles/${cycle.uuid}`)"
-            >{{ cycle.name }}</button>
-            <span class="hidden sm:inline text-[11px] text-tertiary tabular-nums shrink-0">
-              {{ formatCycleDate(cycle.start_at) }} → {{ formatCycleDate(cycle.end_at) }}
-            </span>
-            <div class="flex items-center gap-0.5 shrink-0">
-              <button
-                v-if="cycle.state === 'planned'"
-                type="button"
-                class="text-[11px] text-secondary hover:text-primary px-2 py-1 rounded hover:bg-surface-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                @click="promoteToActive(cycle.uuid)"
-              >{{ $t('project-cycles-action-promote') }}</button>
-              <button
-                v-if="cycle.state === 'active'"
-                type="button"
-                class="text-[11px] text-secondary hover:text-primary px-2 py-1 rounded hover:bg-surface-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                @click="requestCompleteCycle(cycle.uuid)"
-              >{{ $t('project-cycles-action-complete') }}</button>
-              <button
-                v-if="cycle.state !== 'completed'"
-                type="button"
-                class="text-[11px] text-tertiary hover:text-status-error px-2 py-1 rounded hover:bg-surface-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-status-error"
-                @click="requestArchiveCycle(cycle.uuid)"
-              >{{ $t('project-cycles-action-archive') }}</button>
-            </div>
-          </li>
-        </ul>
-      </SectionCard>
+          </div>
+        </template>
+      </section>
     </div>
 
     <ConfirmModal

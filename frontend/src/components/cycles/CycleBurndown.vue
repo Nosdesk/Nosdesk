@@ -11,6 +11,7 @@
  * representation of what we can derive.
  */
 import { computed, ref, watch } from 'vue'
+import { RouterLink } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import { cyclesService, type CycleStats, type BurnupSeries } from '@/services/cyclesService'
 import type { Cycle } from '@/services/cyclesService'
@@ -25,7 +26,12 @@ import CycleBurnupChart from './CycleBurnupChart.vue'
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
-const props = defineProps<{ cycle: Cycle }>()
+const props = defineProps<{
+  cycle: Cycle
+  /** When set, the card header becomes a link to this route (e.g. the
+   *  cycle's board), so the featured active cycle is tappable. */
+  to?: string
+}>()
 
 const stats = ref<CycleStats | null>(null)
 const burnup = ref<BurnupSeries | null>(null)
@@ -127,54 +133,76 @@ function categoryPct(count: number): number {
 
 <template>
   <div class="rounded-md border border-subtle bg-surface p-4">
-    <header class="flex items-center justify-between gap-2 mb-3">
-      <h3 class="text-sm font-semibold text-primary truncate">{{ cycle.name }}</h3>
-      <!-- Frozen cycles show their archival state; live cycles show the
-           on-track / at-risk / behind pace pill instead. -->
-      <span
-        v-if="isFrozen"
-        class="shrink-0 text-[10px] uppercase tracking-wide font-semibold text-tertiary"
-      >{{ t('tickets-cycle-burndown-frozen') }}</span>
-      <StatusPill
-        v-else-if="health"
-        :tone="health.tone"
-        :label="health.label"
-        class="shrink-0"
-      />
-    </header>
+    <!-- Clickable top summary (header + headline metrics + progress): a
+         link to the cycle's board when `to` is set, static otherwise.
+         The burnup chart and breakdown below stay non-navigating. -->
+    <component
+      :is="to ? RouterLink : 'div'"
+      :to="to || undefined"
+      class="block rounded"
+      :class="
+        to
+          ? 'group -mx-1 px-1 py-1 cursor-pointer transition-colors hover:bg-accent/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent'
+          : ''
+      "
+    >
+      <div class="flex items-center justify-between gap-2">
+        <h3
+          class="text-sm font-semibold text-primary truncate"
+          :class="to ? 'transition-colors group-hover:text-accent' : ''"
+        >{{ cycle.name }}</h3>
+        <!-- Frozen cycles show their archival state; live cycles show the
+             on-track / at-risk / behind pace pill instead. -->
+        <div class="flex items-center gap-1.5 shrink-0">
+          <span
+            v-if="isFrozen"
+            class="text-[10px] uppercase tracking-wide font-semibold text-tertiary"
+          >{{ t('tickets-cycle-burndown-frozen') }}</span>
+          <StatusPill v-else-if="health" :tone="health.tone" :label="health.label" />
+          <Icon
+            v-if="to"
+            name="chevronRight"
+            size="xs"
+            class="text-tertiary transition-colors group-hover:text-accent"
+          />
+        </div>
+      </div>
+
+      <template v-if="stats && !isLoading && !error">
+        <!-- Headline numbers -->
+        <div class="mt-3 flex items-baseline gap-4">
+          <div>
+            <div class="text-2xl font-semibold text-primary tabular-nums">
+              {{ stats.completed }}<span class="text-tertiary">/{{ stats.tickets }}</span>
+            </div>
+            <div class="text-[10px] uppercase tracking-wide text-tertiary">{{ t('tickets-cycle-burndown-tickets-done') }}</div>
+          </div>
+          <div>
+            <div class="text-2xl font-semibold text-primary tabular-nums">{{ completionPct }}%</div>
+            <div class="text-[10px] uppercase tracking-wide text-tertiary">{{ t('tickets-cycle-burndown-complete') }}</div>
+          </div>
+          <div v-if="daysRemaining != null">
+            <div class="text-2xl font-semibold text-primary tabular-nums">{{ daysRemaining }}</div>
+            <div class="text-[10px] uppercase tracking-wide text-tertiary">
+              {{ t('tickets-cycle-burndown-days-remaining', { count: daysRemaining }) }}
+            </div>
+          </div>
+        </div>
+
+        <!-- Progress bar -->
+        <div class="mt-3 h-1.5 rounded-full bg-surface-hover overflow-hidden">
+          <div
+            class="h-full bg-accent transition-all motion-reduce:transition-none"
+            :style="{ width: `${completionPct}%` }"
+          />
+        </div>
+      </template>
+    </component>
 
     <div v-if="isLoading" class="text-xs text-tertiary italic">{{ t('tickets-cycle-burndown-loading') }}</div>
     <div v-else-if="error" class="text-xs text-status-error">{{ error }}</div>
 
-    <div v-else-if="stats" class="flex flex-col gap-3">
-      <!-- Headline numbers -->
-      <div class="flex items-baseline gap-4">
-        <div>
-          <div class="text-2xl font-semibold text-primary tabular-nums">
-            {{ stats.completed }}<span class="text-tertiary">/{{ stats.tickets }}</span>
-          </div>
-          <div class="text-[10px] uppercase tracking-wide text-tertiary">{{ t('tickets-cycle-burndown-tickets-done') }}</div>
-        </div>
-        <div>
-          <div class="text-2xl font-semibold text-primary tabular-nums">{{ completionPct }}%</div>
-          <div class="text-[10px] uppercase tracking-wide text-tertiary">{{ t('tickets-cycle-burndown-complete') }}</div>
-        </div>
-        <div v-if="daysRemaining != null">
-          <div class="text-2xl font-semibold text-primary tabular-nums">{{ daysRemaining }}</div>
-          <div class="text-[10px] uppercase tracking-wide text-tertiary">
-            {{ t('tickets-cycle-burndown-days-remaining', { count: daysRemaining }) }}
-          </div>
-        </div>
-      </div>
-
-      <!-- Progress bar -->
-      <div class="h-1.5 rounded-full bg-surface-hover overflow-hidden">
-        <div
-          class="h-full bg-accent transition-all motion-reduce:transition-none"
-          :style="{ width: `${completionPct}%` }"
-        />
-      </div>
-
+    <div v-else-if="stats" class="mt-3 flex flex-col gap-3">
       <!-- Cycle signals: scope creep + carryover, promoted from fine
            print so they read alongside the headline, not as a footnote. -->
       <div

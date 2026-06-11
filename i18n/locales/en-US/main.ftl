@@ -2478,6 +2478,10 @@ project-cycles-name-placeholder = e.g. Sprint 14
 project-cycles-create-submit = Create
 project-cycles-velocity-hint = Recent velocity: ~{ $count } tickets per cycle
 project-cycles-all-title = All cycles
+project-cycles-col-state = State
+project-cycles-col-name = Cycle
+project-cycles-col-dates = Dates
+project-cycles-col-progress = Progress
 project-cycles-active-work-title = This cycle's work
 project-cycles-ended-warning = This cycle ended on { $date } but hasn't been completed yet.
 project-cycles-empty-prefix = No cycles yet. Click
@@ -2506,6 +2510,9 @@ cycle-detail-summary = { $state } · { $count ->
     [one] { $count } ticket
    *[other] { $count } tickets
    }
+cycle-detail-edit = Edit cycle
+cycle-detail-edit-save = Save
+cycle-detail-edit-saving = Saving…
 cycle-detail-group-by-label = Group by
 cycle-detail-group-by-status = Status only
 cycle-detail-group-by-assignee = Status x Assignee

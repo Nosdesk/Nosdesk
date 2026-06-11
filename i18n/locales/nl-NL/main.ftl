@@ -2360,6 +2360,14 @@ project-cycles-name-placeholder = bijv. Sprint 14
 project-cycles-create-submit = Aanmaken
 project-cycles-velocity-hint = Recente snelheid: ~{ $count } tickets per cyclus
 project-cycles-all-title = Alle cycli
+# machine, na te kijken door moedertaalspreker
+project-cycles-col-state = Status
+# machine, na te kijken door moedertaalspreker
+project-cycles-col-name = Cyclus
+# machine, na te kijken door moedertaalspreker
+project-cycles-col-dates = Datums
+# machine, na te kijken door moedertaalspreker
+project-cycles-col-progress = Voortgang
 # Actieve-cyclusweergave (machine, nog na te kijken door moedertaalspreker).
 project-cycles-active-work-title = Werk in deze cyclus
 project-cycles-ended-warning = Deze cyclus eindigde op { $date } maar is nog niet afgerond.
@@ -2393,6 +2401,12 @@ cycle-detail-summary = { $state } · { $count ->
     [one] { $count } ticket
    *[other] { $count } tickets
    }
+# machine, na te kijken door moedertaalspreker
+cycle-detail-edit = Cyclus bewerken
+# machine, na te kijken door moedertaalspreker
+cycle-detail-edit-save = Opslaan
+# machine, na te kijken door moedertaalspreker
+cycle-detail-edit-saving = Opslaan…
 cycle-detail-group-by-label = Groeperen op
 cycle-detail-group-by-status = Alleen status
 cycle-detail-group-by-assignee = Status x Toegewezene
