@@ -3379,8 +3379,14 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     // The WebSocket upgrade authenticates itself (it validates the JWT
     // cookie inside ws_handler), so it stays OUT of the dual-auth
     // middleware, which would otherwise intercept the upgrade request.
-    // This is the one collaboration route that isn't behind dual_auth.
-    cfg.service(web::scope("").route("/ws/{doc_id}", web::get().to(ws_handler)));
+    //
+    // It must be a plain route, NOT its own `web::scope("")`: an
+    // empty-prefix scope matches every path, so a `scope("")` here would
+    // greedily claim all requests, fail to match `/ws/...` for the REST
+    // paths, and 404 them before the authed scope below was ever tried.
+    // A specific resource registered first matches `/ws/...` and lets
+    // everything else fall through to the single authed scope.
+    cfg.route("/ws/{doc_id}", web::get().to(ws_handler));
 
     // Everything else is authenticated REST: one auth wrap on one
     // sub-scope is the single boundary that covers every route in
