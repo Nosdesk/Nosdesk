@@ -8,19 +8,19 @@
  * - ONE focal series: the accent line is "completed", drawn solid over
  *   the elapsed days and continuing as a dotted FORECAST (projected from
  *   the team's actual throughput) into the remaining days. Scope is the
- *   grey context line, solid to today then a dashed adaptive PACE line
- *   (remaining scope spread over remaining working days). Two hues only
- *   (accent + grey) with past/future shown by solid/dashed, which is
- *   inherently colour-blind-safe. The naive day-zero "ideal" diagonal is
- *   gone.
+ *   grey context line, solid to today then a dashed adaptive PACE line.
+ *   Two hues only (accent + grey), past/future shown by solid/dashed.
  * - Lines are DIRECTLY LABELLED at their ends; no legend round-trip.
  * - The shaded band between scope and completed is the outstanding work.
- * - Accessible: role/aria summary, a visually-hidden data table, and a
- *   keyboard-reachable crosshair (focus + arrow keys, Esc to dismiss).
  *
- * The backend emits daily points only up to today (scope + completed);
- * the x-axis is extended by date to the cycle end so the pace/forecast
- * lines have room to run.
+ * Responsiveness is declarative, not micromanaged. The frame is a fixed
+ * responsive HEIGHT that fills the available WIDTH; the SVG stretches to
+ * it with `preserveAspectRatio="none"` and every stroke uses
+ * `vector-effect: non-scaling-stroke`, so lines stay crisp at any width
+ * with no JS measurement. Geometry (lines, band, gridlines) lives in the
+ * SVG; all TEXT and point-markers live in an HTML overlay positioned by
+ * percentage, so type stays a fixed legible size and dots never distort
+ * into ellipses. The browser does the layout; we just declare intent.
  */
 import { computed, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
@@ -33,13 +33,14 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 
 const props = defineProps<{ series: BurnupSeries }>()
 
-// Plot geometry. viewBox is 640x200; insets leave room for left axis
-// labels, bottom date labels, and right-hand direct line labels.
+// Abstract coordinate space. preserveAspectRatio="none" maps it linearly
+// onto the frame, so these units are arbitrary; insets just reserve room
+// for the overlaid axis labels.
 const VB_W = 640
 const VB_H = 200
-const left = 34
-const right = 62
-const top = 10
+const left = 30
+const right = 30
+const top = 12
 const bottom = 22
 const plotW = VB_W - left - right
 const plotH = VB_H - top - bottom
@@ -54,9 +55,7 @@ const scopeNow = computed(() => lastPoint.value?.scope ?? props.series.final_sco
 
 // Date domain spans the whole cycle window so the future (pace/forecast)
 // region is visible, even though actual points stop at today.
-const domainStartMs = computed(() =>
-  hasData.value ? parseDayMs(points.value[0].day) : 0,
-)
+const domainStartMs = computed(() => (hasData.value ? parseDayMs(points.value[0].day) : 0))
 const domainEndMs = computed(() => {
   const endMs = props.series.end ? parseDayMs(props.series.end) : 0
   const lastMs = lastPoint.value ? parseDayMs(lastPoint.value.day) : 0
@@ -106,6 +105,16 @@ function yFor(v: number): number {
   return top + plotH - (v / maxY.value) * plotH
 }
 
+// Coordinate-space -> frame percentage. Exact because the SVG stretches
+// linearly (preserveAspectRatio="none"), so the HTML overlay lands on the
+// same points as the SVG geometry at any size.
+function xPct(vx: number): number {
+  return (vx / VB_W) * 100
+}
+function yPct(vy: number): number {
+  return (vy / VB_H) * 100
+}
+
 const todayX = computed(() => xForMs(todayMs.value))
 
 function polyFromDayValue(arr: { day: string; value: number }[]): string {
@@ -120,14 +129,12 @@ const completedLine = computed(() =>
 const paceLine = computed(() => polyFromDayValue(paceSeries.value))
 const forecastLine = computed(() => polyFromDayValue(forecastSeries.value))
 
-// Outstanding-work band: between the scope line (upper) and the
-// completed line (lower), over the elapsed days only.
+// Outstanding-work band: between the scope line (upper) and the completed
+// line (lower), over the elapsed days only.
 const remainingBand = computed(() => {
   if (!hasData.value) return ''
   const scopePts = points.value.map((p) => `${xForDay(p.day)},${yFor(p.scope)}`)
-  const completedPts = points.value
-    .map((p) => `${xForDay(p.day)},${yFor(p.completed)}`)
-    .reverse()
+  const completedPts = points.value.map((p) => `${xForDay(p.day)},${yFor(p.completed)}`).reverse()
   return [...scopePts, ...completedPts].join(' ')
 })
 
@@ -140,27 +147,27 @@ const showBaseline = computed(
 const scopeAdded = computed(() => Math.max(0, props.series.final_scope - props.series.start_scope))
 
 const firstDay = computed(() => (hasData.value ? formatCompactDate(points.value[0].day) : ''))
-const endDay = computed(() =>
-  props.series.end ? formatCompactDate(props.series.end) : '',
-)
+const endDay = computed(() => (props.series.end ? formatCompactDate(props.series.end) : ''))
 const hasFuture = computed(() => domainEndMs.value > todayMs.value && paceSeries.value.length > 0)
 
-// Direct end-of-line labels: two only (one per series), each at the
-// rightmost point of that series. The grey label tracks scope/pace; the
-// accent label tracks completed/forecast. The dashed/dotted style past
-// the Today marker is what signals "projection", so the labels name the
-// series rather than the segment. Nudged apart when they'd collide (the
-// on-track case, where forecast meets pace near scope).
+// Direct end-of-line labels: two only (one per series), at the rightmost
+// point of that series, nudged apart when they'd collide (the on-track
+// case, where forecast meets pace near scope).
 const completedLabelY = computed(() => yFor(completedToday.value))
 const scopeLabelY = computed(() => yFor(scopeNow.value))
 const labelYs = computed(() => {
-  let accent = hasFuture.value && forecastSeries.value.length
-    ? yFor(forecastSeries.value[forecastSeries.value.length - 1].value)
-    : completedLabelY.value
-  let grey = hasFuture.value && paceSeries.value.length
-    ? yFor(paceSeries.value[paceSeries.value.length - 1].value)
-    : scopeLabelY.value
-  const MIN_GAP = 11
+  let accent =
+    hasFuture.value && forecastSeries.value.length
+      ? yFor(forecastSeries.value[forecastSeries.value.length - 1].value)
+      : completedLabelY.value
+  let grey =
+    hasFuture.value && paceSeries.value.length
+      ? yFor(paceSeries.value[paceSeries.value.length - 1].value)
+      : scopeLabelY.value
+  // In viewBox-Y units (0-200), which map to ~0.9px each at the frame's
+  // height. The labels are ~10px tall, so this keeps a clear gap between
+  // them when the two series end close together.
+  const MIN_GAP = 22
   if (Math.abs(accent - grey) < MIN_GAP) {
     const mid = (accent + grey) / 2
     grey = mid - MIN_GAP / 2
@@ -172,23 +179,19 @@ const labelYs = computed(() => {
 
 // Accessible summary + data table.
 const summary = computed(() =>
-  t('cycle-burnup-summary', {
-    completed: completedToday.value,
-    scope: scopeNow.value,
-  }),
+  t('cycle-burnup-summary', { completed: completedToday.value, scope: scopeNow.value }),
 )
 
 // ---- Hover / focus crosshair + readout -----------------------------
-const svgEl = ref<SVGSVGElement | null>(null)
+const frameEl = ref<HTMLElement | null>(null)
 const hoverIndex = ref<number | null>(null)
 
 function indexFromClientX(clientX: number): number | null {
-  const svg = svgEl.value
-  if (!svg || points.value.length === 0) return null
-  const rect = svg.getBoundingClientRect()
+  const frame = frameEl.value
+  if (!frame || points.value.length === 0) return null
+  const rect = frame.getBoundingClientRect()
   if (rect.width === 0) return null
   const vbX = ((clientX - rect.left) / rect.width) * VB_W
-  // Snap to the nearest actual data point by x.
   let best = 0
   let bestDist = Infinity
   points.value.forEach((p, i) => {
@@ -208,9 +211,7 @@ function onLeave(): void {
   hoverIndex.value = null
 }
 function onFocus(): void {
-  if (hoverIndex.value === null && points.value.length) {
-    hoverIndex.value = points.value.length - 1
-  }
+  if (hoverIndex.value === null && points.value.length) hoverIndex.value = points.value.length - 1
 }
 function onKeydown(e: KeyboardEvent): void {
   if (points.value.length === 0) return
@@ -226,18 +227,12 @@ function onKeydown(e: KeyboardEvent): void {
   }
 }
 
-const hoverPoint = computed(() =>
-  hoverIndex.value == null ? null : points.value[hoverIndex.value],
-)
+const hoverPoint = computed(() => (hoverIndex.value == null ? null : points.value[hoverIndex.value]))
 const hoverX = computed(() => (hoverPoint.value ? xForDay(hoverPoint.value.day) : 0))
-const READOUT_W = 116
-const READOUT_H = 46
-const readoutX = computed(() =>
-  Math.min(VB_W - READOUT_W - 6, Math.max(left, hoverX.value + 8)),
-)
-const hoverDay = computed(() =>
-  hoverPoint.value ? formatCompactDate(hoverPoint.value.day) : '',
-)
+const hoverDay = computed(() => (hoverPoint.value ? formatCompactDate(hoverPoint.value.day) : ''))
+// Flip the readout to the left of the crosshair once it's past 55% so it
+// never spills off the right edge.
+const readoutLeft = computed(() => xPct(hoverX.value) <= 55)
 </script>
 
 <template>
@@ -251,10 +246,9 @@ const hoverDay = computed(() =>
     </p>
 
     <template v-else>
-      <svg
-        ref="svgEl"
-        :viewBox="`0 0 ${VB_W} ${VB_H}`"
-        class="w-full h-auto burnup focus:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-sm"
+      <div
+        ref="frameEl"
+        class="burnup-frame relative w-full h-44 sm:h-52 rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         role="img"
         tabindex="0"
         :aria-label="summary"
@@ -264,45 +258,42 @@ const hoverDay = computed(() =>
         @blur="onLeave"
         @keydown="onKeydown"
       >
-        <title>{{ t('cycle-burnup-title') }}</title>
-        <desc>{{ summary }}</desc>
-
-        <!-- Axes -->
-        <line :x1="left" :y1="top" :x2="left" :y2="top + plotH" class="stroke-subtle" stroke-width="1" />
-        <line
-          :x1="left"
-          :y1="top + plotH"
-          :x2="VB_W - right"
-          :y2="top + plotH"
-          class="stroke-subtle"
-          stroke-width="1"
-        />
-
-        <!-- Gridlines -->
-        <line
-          v-for="(gy, i) in gridYs"
-          :key="i"
-          :x1="left"
-          :y1="gy"
-          :x2="VB_W - right"
-          :y2="gy"
-          class="stroke-subtle"
-          stroke-width="1"
-          stroke-opacity="0.35"
-        />
-
-        <!-- Y ticks: 0 and final scope -->
-        <text :x="left - 4" :y="yFor(0) + 3" text-anchor="end" class="fill-tertiary text-[10px]">0</text>
-        <text
-          :x="left - 4"
-          :y="yFor(series.final_scope) + 3"
-          text-anchor="end"
-          class="fill-tertiary text-[10px]"
-        >{{ series.final_scope }}</text>
-
-        <!-- Start-scope baseline (creep reference) -->
-        <template v-if="showBaseline">
+        <!-- Geometry layer. Stretches to fill; strokes stay crisp via
+             non-scaling-stroke (see <style>). Decorative: the frame
+             carries the role/label and the sr-only table the data. -->
+        <svg
+          class="absolute inset-0 h-full w-full overflow-visible"
+          :viewBox="`0 0 ${VB_W} ${VB_H}`"
+          preserveAspectRatio="none"
+          aria-hidden="true"
+        >
+          <!-- Axes -->
+          <line :x1="left" :y1="top" :x2="left" :y2="top + plotH" class="stroke-subtle" stroke-width="1" />
           <line
+            :x1="left"
+            :y1="top + plotH"
+            :x2="VB_W - right"
+            :y2="top + plotH"
+            class="stroke-subtle"
+            stroke-width="1"
+          />
+
+          <!-- Gridlines -->
+          <line
+            v-for="(gy, i) in gridYs"
+            :key="i"
+            :x1="left"
+            :y1="gy"
+            :x2="VB_W - right"
+            :y2="gy"
+            class="stroke-subtle"
+            stroke-width="1"
+            stroke-opacity="0.35"
+          />
+
+          <!-- Start-scope baseline (creep reference) -->
+          <line
+            v-if="showBaseline"
             :x1="left"
             :y1="yFor(series.start_scope)"
             :x2="VB_W - right"
@@ -311,20 +302,13 @@ const hoverDay = computed(() =>
             stroke-width="1"
             stroke-dasharray="3 3"
           />
-          <text
-            :x="left - 4"
-            :y="yFor(series.start_scope) + 3"
-            text-anchor="end"
-            class="fill-tertiary text-[10px]"
-          >{{ series.start_scope }}</text>
-        </template>
 
-        <!-- Outstanding-work band (scope - completed, elapsed days) -->
-        <polygon :points="remainingBand" class="fill-secondary burnup-band" />
+          <!-- Outstanding-work band (scope - completed, elapsed days) -->
+          <polygon :points="remainingBand" class="fill-secondary burnup-band" />
 
-        <!-- Today marker -->
-        <template v-if="hasFuture">
+          <!-- Today marker line -->
           <line
+            v-if="hasFuture"
             :x1="todayX"
             :y1="top"
             :x2="todayX"
@@ -334,75 +318,34 @@ const hoverDay = computed(() =>
             stroke-dasharray="2 3"
             stroke-opacity="0.6"
           />
-          <text
-            :x="todayX"
-            :y="top - 1"
-            text-anchor="middle"
-            class="fill-tertiary text-[9px] uppercase tracking-wide"
-          >{{ t('cycle-burnup-today') }}</text>
-        </template>
 
-        <!-- Future: adaptive pace (grey dashed) + forecast (accent dotted) -->
-        <polyline
-          v-if="paceLine"
-          :points="paceLine"
-          fill="none"
-          class="stroke-tertiary"
-          stroke-width="1.5"
-          stroke-dasharray="5 4"
-        />
-        <polyline
-          v-if="forecastLine"
-          :points="forecastLine"
-          fill="none"
-          class="stroke-accent"
-          stroke-width="1.5"
-          stroke-dasharray="1.5 4"
-          stroke-linecap="round"
-          stroke-opacity="0.85"
-        />
+          <!-- Future: adaptive pace (grey dashed) + forecast (accent dotted) -->
+          <polyline
+            v-if="paceLine"
+            :points="paceLine"
+            fill="none"
+            class="stroke-tertiary"
+            stroke-width="1.5"
+            stroke-dasharray="5 4"
+          />
+          <polyline
+            v-if="forecastLine"
+            :points="forecastLine"
+            fill="none"
+            class="stroke-accent"
+            stroke-width="1.5"
+            stroke-dasharray="1.5 4"
+            stroke-linecap="round"
+            stroke-opacity="0.85"
+          />
 
-        <!-- Elapsed: scope (grey context) + completed (accent focal) -->
-        <polyline
-          :points="scopeLine"
-          fill="none"
-          path-length="1"
-          class="stroke-secondary burnup-line"
-          stroke-width="1.5"
-        />
-        <polyline
-          :points="completedLine"
-          fill="none"
-          path-length="1"
-          class="stroke-accent burnup-line"
-          stroke-width="2.5"
-        />
-        <!-- Latest completed marker -->
-        <circle :cx="todayX" :cy="completedLabelY" r="3" class="fill-accent" />
+          <!-- Elapsed: scope (grey context) + completed (accent focal) -->
+          <polyline :points="scopeLine" fill="none" class="stroke-secondary" stroke-width="1.5" />
+          <polyline :points="completedLine" fill="none" class="stroke-accent" stroke-width="2" />
 
-        <!-- Direct end-of-line labels (one per series) -->
-        <text
-          :x="VB_W - right + 4"
-          :y="labelYs.grey + 3"
-          class="fill-secondary text-[9px] font-medium"
-        >{{ hasFuture ? t('cycle-burnup-label-pace') : t('cycle-burnup-legend-scope') }}</text>
-        <text
-          :x="VB_W - right + 4"
-          :y="labelYs.accent + 3"
-          class="fill-accent text-[9px] font-semibold"
-        >{{ hasFuture ? t('cycle-burnup-label-forecast') : t('cycle-burnup-legend-completed') }}</text>
-
-        <!-- X date labels -->
-        <text :x="left" :y="VB_H - 6" text-anchor="start" class="fill-tertiary text-[10px]">
-          {{ firstDay }}
-        </text>
-        <text :x="VB_W - right" :y="VB_H - 6" text-anchor="end" class="fill-tertiary text-[10px]">
-          {{ endDay }}
-        </text>
-
-        <!-- Hover / focus crosshair + readout -->
-        <template v-if="hoverPoint">
+          <!-- Hover crosshair line -->
           <line
+            v-if="hoverPoint"
             :x1="hoverX"
             :y1="top"
             :x2="hoverX"
@@ -410,30 +353,92 @@ const hoverDay = computed(() =>
             class="stroke-strong"
             stroke-width="1"
           />
-          <circle :cx="hoverX" :cy="yFor(hoverPoint.scope)" r="3" class="fill-secondary" />
-          <circle :cx="hoverX" :cy="yFor(hoverPoint.completed)" r="3.5" class="fill-accent" />
-          <g class="burnup-readout">
-            <rect
-              :x="readoutX"
-              :y="top"
-              :width="READOUT_W"
-              :height="READOUT_H"
-              rx="4"
-              class="fill-surface stroke-default"
-              stroke-width="1"
+        </svg>
+
+        <!-- Text + marker overlay. Fixed-size type, dots that stay round,
+             all positioned by percentage so they track the geometry at
+             any width. Non-interactive so pointer events reach the frame. -->
+        <div class="pointer-events-none absolute inset-0 text-[10px] leading-none">
+          <!-- Y ticks -->
+          <span
+            class="absolute -translate-y-1/2 text-tertiary tabular-nums"
+            :style="{ left: '0', top: `${yPct(yFor(0))}%` }"
+            >0</span
+          >
+          <span
+            class="absolute -translate-y-1/2 text-tertiary tabular-nums"
+            :style="{ left: '0', top: `${yPct(yFor(series.final_scope))}%` }"
+            >{{ series.final_scope }}</span
+          >
+          <span
+            v-if="showBaseline"
+            class="absolute -translate-y-1/2 text-tertiary tabular-nums"
+            :style="{ left: '0', top: `${yPct(yFor(series.start_scope))}%` }"
+            >{{ series.start_scope }}</span
+          >
+
+          <!-- Today label -->
+          <span
+            v-if="hasFuture"
+            class="absolute -translate-x-1/2 text-[9px] uppercase tracking-wide text-tertiary"
+            :style="{ left: `${xPct(todayX)}%`, top: '0' }"
+            >{{ t('cycle-burnup-today') }}</span
+          >
+
+          <!-- Direct end-of-line labels (one per series), anchored to the
+               right edge so they never overflow. -->
+          <span
+            class="absolute right-0 -translate-y-1/2 font-medium text-secondary"
+            :style="{ top: `${yPct(labelYs.grey)}%` }"
+            >{{ hasFuture ? t('cycle-burnup-label-pace') : t('cycle-burnup-legend-scope') }}</span
+          >
+          <span
+            class="absolute right-0 -translate-y-1/2 font-semibold text-accent"
+            :style="{ top: `${yPct(labelYs.accent)}%` }"
+            >{{ hasFuture ? t('cycle-burnup-label-forecast') : t('cycle-burnup-legend-completed') }}</span
+          >
+
+          <!-- Latest-completed marker -->
+          <span
+            class="absolute h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent"
+            :style="{ left: `${xPct(todayX)}%`, top: `${yPct(completedLabelY)}%` }"
+          />
+
+          <!-- X date labels -->
+          <span class="absolute bottom-0 text-tertiary" :style="{ left: `${xPct(left)}%` }">{{
+            firstDay
+          }}</span>
+          <span class="absolute bottom-0 right-0 text-tertiary">{{ endDay }}</span>
+
+          <!-- Hover markers + readout -->
+          <template v-if="hoverPoint">
+            <span
+              class="absolute h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-secondary"
+              :style="{ left: `${xPct(hoverX)}%`, top: `${yPct(yFor(hoverPoint.scope))}%` }"
             />
-            <text :x="readoutX + 8" :y="top + 15" class="fill-secondary text-[10px] font-medium">
-              {{ hoverDay }}
-            </text>
-            <text :x="readoutX + 8" :y="top + 28" class="fill-accent text-[10px]">
-              {{ t('cycle-burnup-legend-completed') }}: {{ hoverPoint.completed }}
-            </text>
-            <text :x="readoutX + 8" :y="top + 40" class="fill-secondary text-[10px]">
-              {{ t('cycle-burnup-legend-scope') }}: {{ hoverPoint.scope }}
-            </text>
-          </g>
-        </template>
-      </svg>
+            <span
+              class="absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent"
+              :style="{ left: `${xPct(hoverX)}%`, top: `${yPct(yFor(hoverPoint.completed))}%` }"
+            />
+            <div
+              class="absolute top-1.5 z-10 whitespace-nowrap rounded-md border border-default bg-surface px-2 py-1.5 shadow-sm"
+              :style="
+                readoutLeft
+                  ? { left: `${xPct(hoverX)}%`, marginLeft: '10px' }
+                  : { right: `${100 - xPct(hoverX)}%`, marginRight: '10px' }
+              "
+            >
+              <div class="font-medium text-secondary">{{ hoverDay }}</div>
+              <div class="text-accent">
+                {{ t('cycle-burnup-legend-completed') }}: {{ hoverPoint.completed }}
+              </div>
+              <div class="text-secondary">
+                {{ t('cycle-burnup-legend-scope') }}: {{ hoverPoint.scope }}
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
 
       <!-- Scope-creep callout, promoted from fine print -->
       <p v-if="scopeAdded > 0" class="text-[11px] text-tertiary">
@@ -442,7 +447,11 @@ const hoverDay = computed(() =>
 
       <!-- Visually-hidden data table: full screen-reader + keyboard access. -->
       <table class="sr-only">
-        <caption>{{ t('cycle-burnup-table-caption') }}</caption>
+        <caption>
+          {{
+            t('cycle-burnup-table-caption')
+          }}
+        </caption>
         <thead>
           <tr>
             <th scope="col">{{ t('cycle-burnup-col-day') }}</th>
@@ -463,30 +472,33 @@ const hoverDay = computed(() =>
 </template>
 
 <style scoped>
+/* Crisp lines at any width: the browser keeps stroke widths (and dash
+   patterns) in screen pixels rather than scaling them with the SVG. */
+.burnup-frame svg :where(line, polyline) {
+  vector-effect: non-scaling-stroke;
+}
+
 .burnup-band {
   opacity: 0.07;
 }
 
-.burnup-line {
-  stroke-dasharray: 1;
-  stroke-dashoffset: 1;
-  animation: burnup-draw 0.6s ease-out forwards;
+/* Gentle settle-in; degrades to instant under reduced motion. */
+.burnup-frame {
+  animation: burnup-fade 0.35s ease-out;
 }
 
-.burnup-readout {
-  pointer-events: none;
-}
-
-@keyframes burnup-draw {
+@keyframes burnup-fade {
+  from {
+    opacity: 0;
+  }
   to {
-    stroke-dashoffset: 0;
+    opacity: 1;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .burnup-line {
+  .burnup-frame {
     animation: none;
-    stroke-dashoffset: 0;
   }
 }
 </style>
