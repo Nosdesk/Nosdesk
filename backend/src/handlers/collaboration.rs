@@ -2459,7 +2459,27 @@ pub async fn ws_handler(
         Some(origin) => {
             let origin_str = origin.to_str().unwrap_or("");
             let origin_normalized = origin_str.trim_end_matches('/');
-            if origin_normalized != allowed_origin {
+            // A same-origin WebSocket (the Origin's authority equals the
+            // Host this request was sent to) is by definition not a
+            // cross-site request, so it can't be CSWSH. In development we
+            // accept it, which lets the dev stack be reached over any host
+            // (e.g. the machine's LAN IP when testing from another device)
+            // rather than only the configured FRONTEND_URL/localhost.
+            // Production keeps the strict FRONTEND_URL allowlist so a
+            // reverse-proxied deployment still pins the public origin.
+            let same_origin = !is_production && {
+                let host = req
+                    .headers()
+                    .get("Host")
+                    .and_then(|h| h.to_str().ok())
+                    .unwrap_or("");
+                let origin_authority = origin_normalized
+                    .split_once("://")
+                    .map(|(_, authority)| authority)
+                    .unwrap_or("");
+                !host.is_empty() && origin_authority == host
+            };
+            if origin_normalized != allowed_origin && !same_origin {
                 warn!(origin = %origin_str, expected = %allowed_origin, "WebSocket origin mismatch");
                 return Err(actix_web::error::ErrorForbidden("Invalid origin"));
             }

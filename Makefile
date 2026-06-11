@@ -12,7 +12,7 @@ COMPOSE := docker compose -f compose.yaml -f compose.dev.yaml
 
 .DEFAULT_GOAL := help
 
-.PHONY: help dev dev-bg watch down clean clean-db restart restart-frontend migrate schema \
+.PHONY: help dev dev-bg dev-lan dev-bg-lan watch down clean clean-db restart restart-frontend migrate schema \
         test test-frontend logs logs-frontend shell psql mailpit token \
         install-hooks
 
@@ -30,6 +30,19 @@ dev: ## Start the dev stack in the foreground (--watch; Ctrl-C to stop)
 # `make watch` in another terminal.
 dev-bg: ## Start the dev stack detached (pair with `make watch`)
 	$(COMPOSE) up -d --build
+
+# Same as `dev` / `dev-bg` but publishes the backend on 0.0.0.0 so
+# other devices on your LAN can reach http://<this-machine-ip>:8080.
+# Dev auth cookies are already non-Secure (ENVIRONMENT=development in
+# compose.dev.yaml), so plain-HTTP access from a LAN IP works; the SPA,
+# API, and collab WebSocket are all same-origin so nothing else needs
+# changing. Only the backend is exposed: postgres / redis / mailpit
+# stay bound to 127.0.0.1.
+dev-lan: ## Start the dev stack exposed on the LAN (foreground)
+	BACKEND_BIND=0.0.0.0 $(COMPOSE) up --watch --build
+
+dev-bg-lan: ## Start the dev stack exposed on the LAN, detached (pair with `make watch`)
+	BACKEND_BIND=0.0.0.0 $(COMPOSE) up -d --build
 
 # Run only the file-sync watcher. Use after `make dev-bg` if you
 # need source edits to reach the containers without restarting them.
