@@ -526,3 +526,109 @@ pub async fn set_custom_domain(
         custom_domain: updated.custom_domain,
     })
 }
+
+// =====================================================================
+// GET /api/internal/v1/workspaces/{slug}/provisioning
+// =====================================================================
+//
+// Provisioning-readiness check for the control plane. After the
+// create + upsert_projected_user sequence the control plane polls this
+// to confirm the tenant is actually usable — seeded (workflow states /
+// SLA / categories) AND owned — rather than assuming the multi-call
+// sequence completed. Also feeds the stuck-provisioning reconciliation
+// sweeper. Named for the domain (provisioning), not "readiness", to keep
+// it distinct from the instance-level `/readiness` orchestrator probe;
+// the `ready` field carries the verdict. Read-only, so no Idempotency-Key.
+
+#[derive(Debug, Serialize)]
+struct ProvisioningChecks {
+    /// Default workflow states exist — without them a workspace can't
+    /// create or triage a ticket (the P0.1 usability blocker).
+    workflow_states: bool,
+    /// A default SLA policy exists.
+    default_sla_policy: bool,
+    /// Default ticket categories exist.
+    ticket_categories: bool,
+    /// At least one `owner` membership (eager-projected, or granted on
+    /// first login).
+    owner: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct ProvisioningStatus {
+    workspace_uuid: Uuid,
+    slug: String,
+    /// True only when every check passes — the tenant is fully usable.
+    ready: bool,
+    checks: ProvisioningChecks,
+}
+
+pub async fn workspace_provisioning(
+    _: PlatformAuth,
+    pool: web::Data<Pool>,
+    path: web::Path<String>,
+) -> impl Responder {
+    let slug = path.into_inner();
+    let mut conn = match pool_conn(&pool, "workspace_provisioning") {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+    let workspace = match resolve_workspace_or_respond(&mut conn, &slug, "workspace_provisioning") {
+        Ok(ws) => ws,
+        Err(resp) => return resp,
+    };
+
+    // Owner membership: workspace_members is a meta-table (no RLS), so a
+    // direct workspace-id-filtered count is correct without pinning context.
+    let owners = workspaces::count_workspace_owners(&mut conn, workspace.id).unwrap_or_else(|e| {
+        warn!(error = ?e, slug = %slug, "workspace_provisioning: owner count failed");
+        0
+    });
+
+    // Seeded functional defaults live on FORCE-RLS tenant tables, so count
+    // them with the workspace pinned in the actor context — the same scope
+    // the create-time seed wrote them under.
+    let actor = crate::sync::actor::ActorContext::system("workspace:provisioning")
+        .with_workspace(workspace.id);
+    let counts = crate::sync::session::with_actor_context::<_, diesel::result::Error>(
+        &mut conn,
+        &actor,
+        |conn| {
+            use crate::schema::{sla_policies, ticket_categories, workflow_states};
+            use diesel::dsl::count_star;
+            use diesel::prelude::*;
+            let wf: i64 = workflow_states::table.select(count_star()).first(conn)?;
+            let sla: i64 = sla_policies::table
+                .filter(sla_policies::is_default.eq(true))
+                .select(count_star())
+                .first(conn)?;
+            let cat: i64 = ticket_categories::table.select(count_star()).first(conn)?;
+            Ok((wf, sla, cat))
+        },
+    );
+    let (wf, sla, cat) = match counts {
+        Ok(c) => c,
+        Err(e) => {
+            error!(error = ?e, slug = %slug, "workspace_provisioning: seeded-defaults count failed");
+            return errors::internal("Workspace provisioning check failed");
+        }
+    };
+
+    let checks = ProvisioningChecks {
+        workflow_states: wf > 0,
+        default_sla_policy: sla > 0,
+        ticket_categories: cat > 0,
+        owner: owners > 0,
+    };
+    let ready = checks.workflow_states
+        && checks.default_sla_policy
+        && checks.ticket_categories
+        && checks.owner;
+
+    HttpResponse::Ok().json(ProvisioningStatus {
+        workspace_uuid: workspace.uuid,
+        slug: workspace.slug,
+        ready,
+        checks,
+    })
+}

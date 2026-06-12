@@ -1617,6 +1617,10 @@ async fn main() -> std::io::Result<()> {
                         "/workspaces/{slug}/custom-domain",
                         web::patch().to(handlers::internal_workspaces::set_custom_domain),
                     )
+                    .route(
+                        "/workspaces/{slug}/provisioning",
+                        web::get().to(handlers::internal_workspaces::workspace_provisioning),
+                    )
             )
 
             // === PROTECTED ROUTES (AUTHENTICATION REQUIRED) ===
