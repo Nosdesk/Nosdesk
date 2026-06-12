@@ -323,34 +323,29 @@ export function widgetsForRole(role: UserRole): WidgetDef[] {
 /**
  * Curated default layout for technicians and admins.
  *
- *   Row 1 — Volume + SLA
- *     [ Ticket volume (span 2) ] [ SLA Health (span 1) ]
- *   Row 2 — Your work
- *     [ Assigned Tickets (span 2) ] [ Unassigned Queue (span 1) ]
- *   Row 3 — Recently viewed
- *     [ Recently Viewed (span 1) ]
- *   Row 4 — Workspace pulse
- *     [ Tickets Over Time (span 2) ] [ Volume by Priority (span 1) ]
- *     [ Volume by Category (span 1) ]
+ * Every widget keeps a single column so the grid auto-flows into a
+ * dense three-column mosaic. Heights carry the structure: Assigned
+ * Tickets is a tall column (3 row units) on the left; the time chart
+ * and Recently Viewed run 2 units; the activity heatmap spans 2
+ * columns as a wide band; everything else is a compact 1-unit tile.
  *
- * KPI tiles read the global time range so the headline numbers
- * track whatever window the user has selected via the chip cluster.
- * The chart-backed tiles + line chart declare `chromeDependencies`
- * so the DashboardView only renders the time-range chrome when at
- * least one of them is in the visible set.
+ * KPI / chart widgets read the global time range and declare
+ * `chromeDependencies`, so the DashboardView only renders the
+ * time-range chrome when one of them is in the visible set.
  *
  * Widgets not listed are appended at the tail hidden, so they show
  * up in the "Add widget" picker without cluttering the initial view.
  */
 const STAFF_VISIBLE: DashboardLayout['widgets'] = [
-  { id: 'ticket-volume', visible: true, span: 2 },
+  { id: 'assigned-tickets', visible: true, span: 1, rowSpan: 3 },
+  { id: 'ticket-volume', visible: true, span: 1, rowSpan: 1 },
   { id: 'sla-health', visible: true, span: 1 },
-  { id: 'assigned-tickets', visible: true, span: 2 },
   { id: 'unassigned-queue', visible: true, span: 1 },
-  { id: 'recently-viewed', visible: true, span: 1 },
-  { id: 'tickets-over-time', visible: true, span: 2 },
-  { id: 'volume-by-priority', visible: true, span: 1 },
-  { id: 'volume-by-category', visible: true, span: 1 },
+  { id: 'tickets-over-time', visible: true, span: 1, rowSpan: 2 },
+  { id: 'recently-viewed', visible: true, span: 1, rowSpan: 2 },
+  { id: 'activity-heatmap', visible: true, span: 2, rowSpan: 1 },
+  { id: 'volume-by-priority', visible: true, span: 1, rowSpan: 1 },
+  { id: 'volume-by-category', visible: true, span: 1, rowSpan: 1 },
 ]
 
 /** The default layout for a role. Staff roles (technician / admin)
