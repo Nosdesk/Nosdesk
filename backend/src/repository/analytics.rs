@@ -200,6 +200,7 @@ struct KpiCountsRow {
     prior_resolved: i64,
 }
 
+// sync-audit-only: read-only dashboard aggregation (COUNT FILTER), no writes
 /// Compute the created / resolved / open KPIs (with prior-period
 /// deltas and optional sparklines) in one connection/transaction.
 ///
