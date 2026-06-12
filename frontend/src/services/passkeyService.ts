@@ -281,6 +281,28 @@ class PasskeyService {
   }
 
   /**
+   * Conditional-UI (autofill) login. Requests a usernameless discoverable
+   * challenge and arms browser autofill: the promise resolves only when the
+   * user picks a passkey from the login field's autofill suggestions, and
+   * rejects (AbortError) otherwise — navigation, a competing ceremony, or
+   * dismissal. Requires an input carrying `autocomplete="...webauthn"` in
+   * the DOM. Callers should treat a rejection as "no passkey chosen".
+   */
+  async loginWithPasskeyAutofill(): Promise<PasskeyLoginResult> {
+    const options = await this.startLogin();
+    const { options: publicKeyOptions, sessionId } = unwrapRequestOptions(options);
+
+    const credential = await startAuthentication({
+      optionsJSON: publicKeyOptions,
+      useBrowserAutofill: true,
+    });
+
+    const result = await this.finishLogin(credential, sessionId);
+    logger.info('Passkey autofill login successful', { userUuid: result.user.uuid });
+    return result;
+  }
+
+  /**
    * Rename a passkey
    */
   async renamePasskey(credentialId: string, name: string): Promise<boolean> {

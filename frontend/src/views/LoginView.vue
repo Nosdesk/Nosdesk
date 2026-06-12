@@ -8,6 +8,7 @@ import { useBrandingStore } from "@/stores/branding";
 import { useThemeStore } from "@/stores/theme";
 import { useMicrosoftAuth } from "@/composables/useMicrosoftAuth";
 import { usePasskeys } from "@/composables/usePasskeys";
+import type { PasskeyLoginResult } from "@/services/passkeyService";
 import ForgotPasswordModal from "@/components/auth/ForgotPasswordModal.vue";
 import AuthLayout from "@/components/auth/AuthLayout.vue";
 import authService from "@/services/authService";
@@ -37,6 +38,7 @@ const { handleMicrosoftLogin, handleMicrosoftLogout, error: microsoftError } = u
 const {
   isSupported: passkeySupported,
   loginWithPasskey,
+  loginWithPasskeyConditional,
   error: passkeyError,
   checkSupport: checkPasskeySupport,
 } = usePasskeys();
@@ -95,6 +97,9 @@ onMounted(async () => {
   if (route.query.message || route.query.email) {
     router.replace({ name: "login" });
   }
+
+  // Arm passkey autofill on the login form (no-op if unsupported).
+  void startConditionalPasskeyLogin();
 });
 
 const handleLogin = async () => {
@@ -223,6 +228,16 @@ const handleMfaPaste = (event: ClipboardEvent) => {
   }
 };
 
+// Apply a successful passkey login and redirect. The passkey response
+// carries a slimmer user shape than the canonical User type; the auth
+// store hydrates the rest from /me on its first authenticated fetch.
+const completePasskeyLogin = (result: PasskeyLoginResult) => {
+  authStore.user = result.user as unknown as typeof authStore.user;
+  authStore.setAuthProvider('local');
+  const redirectPath = router.currentRoute.value.query.redirect?.toString() || "/";
+  router.push(redirectPath);
+};
+
 const handlePasskeyLogin = async () => {
   loadingAction.value = 'passkey';
   errorMessage.value = "";
@@ -235,16 +250,7 @@ const handlePasskeyLogin = async () => {
     const result = await loginWithPasskey(emailToUse);
 
     if (result) {
-      // Update auth store with the logged in user. The passkey
-      // response carries a slimmer user shape than the canonical
-      // User type; the auth store hydrates the rest from /me on
-      // its first authenticated fetch.
-      authStore.user = result.user as unknown as typeof authStore.user;
-      authStore.setAuthProvider('local');
-
-      // Redirect to dashboard or intended page
-      const redirectPath = router.currentRoute.value.query.redirect?.toString() || "/";
-      router.push(redirectPath);
+      completePasskeyLogin(result);
     } else if (passkeyError.value) {
       errorMessage.value = passkeyError.value;
     }
@@ -254,6 +260,15 @@ const handlePasskeyLogin = async () => {
   } finally {
     loadingAction.value = null;
   }
+};
+
+// Arm passkey autofill (conditional UI) in the background. If the user
+// picks a passkey from the email field's autofill, log them straight in;
+// otherwise it stays silent and the password / manual-passkey paths are
+// unaffected. Started once the login form is confirmed to be showing.
+const startConditionalPasskeyLogin = async () => {
+  const result = await loginWithPasskeyConditional();
+  if (result) completePasskeyLogin(result);
 };
 
 // Handle passkey MFA verification (after password login, passkey is the second factor)
@@ -658,7 +673,7 @@ const handleOidcLogoutClick = async () => {
           :label="$t('login-email-label')"
           type="email"
           required
-          autocomplete="email"
+          autocomplete="username webauthn"
           :placeholder="$t('login-email-placeholder')"
         />
 

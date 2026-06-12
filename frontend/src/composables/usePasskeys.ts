@@ -182,6 +182,26 @@ export function usePasskeys() {
   }
 
   /**
+   * Conditional-UI login: arms passkey autofill in the login field's
+   * dropdown. Resolves the login result if the user picks a passkey, or
+   * null otherwise. Runs in the background, so unlike `loginWithPasskey`
+   * it never sets `error` or the loading flags — an aborted/ignored
+   * autofill ceremony is normal, and the password and manual-passkey
+   * paths stay clean. No-op when conditional UI isn't supported.
+   */
+  async function loginWithPasskeyConditional(): Promise<PasskeyLoginResult | null> {
+    if (!isSupported.value || !isConditionalUISupported.value) return null;
+
+    try {
+      const result = await passkeyService.loginWithPasskeyAutofill();
+      return result.success ? result : null;
+    } catch (err) {
+      logger.debug('Conditional passkey login ended without authentication', { error: err });
+      return null;
+    }
+  }
+
+  /**
    * Rename a passkey
    */
   async function renamePasskey(credentialId: string, name: string): Promise<boolean> {
@@ -307,6 +327,7 @@ export function usePasskeys() {
     loadPasskeys,
     registerPasskey,
     loginWithPasskey,
+    loginWithPasskeyConditional,
     renamePasskey,
     deletePasskey,
     clearMessages,
