@@ -194,6 +194,8 @@ pub async fn dual_auth_middleware(
                 actix_web::error::ErrorInternalServerError("Database connection failed")
             })?;
             crate::middleware::cookie_auth::enforce_workspace_membership(&req, &mut conn, &claims)?;
+            // Release before the handler — see the cookie-fallback path below.
+            drop(conn);
             request_context::populate(&req, &claims);
             req.extensions_mut().insert(claims);
             return next.call(req).await;
@@ -227,6 +229,11 @@ pub async fn dual_auth_middleware(
     info!(user = %claims.sub, "Cookie auth: user authenticated successfully");
 
     crate::middleware::cookie_auth::enforce_workspace_membership(&req, &mut conn, &claims)?;
+
+    // Release the pooled connection before the handler runs. Holding it
+    // across next.call() pins one per request; since handlers acquire their
+    // own, a concurrent burst near the pool size deadlocks.
+    drop(conn);
 
     request_context::populate(&req, &claims);
     req.extensions_mut().insert(claims);

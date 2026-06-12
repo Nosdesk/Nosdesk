@@ -115,6 +115,13 @@ pub async fn cookie_auth_middleware(
 
     enforce_workspace_membership(&req, &mut conn, &claims)?;
 
+    // Release the pooled connection BEFORE running the handler. Held across
+    // next.call() it would pin a connection for the whole request, and since
+    // handlers acquire their own, a burst of concurrent requests near the
+    // pool size deadlocks (every connection held by a waiting middleware
+    // while its handler blocks for a second one).
+    drop(conn);
+
     request_context::populate(&req, &claims);
     req.extensions_mut().insert(claims);
 
