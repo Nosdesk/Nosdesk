@@ -12,7 +12,9 @@ services:
     restart: unless-stopped
     env_file: .env
     volumes:
-      - postgres_data:/var/lib/postgresql
+      # Must be PGDATA itself; the image VOLUMEs /data, so mounting the
+      # parent leaves data on an anonymous volume that `down` discards.
+      - postgres_data:/var/lib/postgresql/data
       - ./init-db.sh:/docker-entrypoint-initdb.d/01-init-db.sh:ro
     networks:
       - nosdesk-network
