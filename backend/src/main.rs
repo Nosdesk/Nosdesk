@@ -1709,6 +1709,15 @@ async fn main() -> std::io::Result<()> {
                     // no admin gate. Phase 4 W3.
                     .route("/me/workspaces", web::get().to(handlers::admin_workspaces::list_my_workspaces))
 
+                    // Tenant self-serve member management for the caller's
+                    // OWN workspace (context-scoped, no id in the path).
+                    // Workspace-admin gated; distinct from the platform-
+                    // admin operator console at /admin/workspaces/{id}/members.
+                    // Phase 4 W3 / P1.3.
+                    .route("/workspace/members", web::get().to(handlers::workspace_members::list_members))
+                    .route("/workspace/members/{user_uuid}", web::patch().to(handlers::workspace_members::update_member_role))
+                    .route("/workspace/members/{user_uuid}", web::delete().to(handlers::workspace_members::remove_member))
+
                     // Guest access controls (admin only)
                     .route("/admin/guest-settings", web::get().to(handlers::guest_settings::get_guest_settings))
                     .route("/admin/guest-settings", web::patch().to(handlers::guest_settings::update_guest_settings))

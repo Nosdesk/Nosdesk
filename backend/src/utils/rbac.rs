@@ -104,6 +104,17 @@ pub fn require_workspace_role(
     req: &HttpRequest,
     min: crate::models::WorkspaceRole,
 ) -> Result<Claims, HttpResponse> {
+    require_workspace_role_detailed(req, min).map(|(claims, _)| claims)
+}
+
+/// Like [`require_workspace_role`] but also returns the caller's
+/// resolved [`WorkspaceRole`] in the context workspace, so a handler
+/// can apply a finer authorization tier (e.g. "only owners may manage
+/// admins") without a second membership lookup.
+pub fn require_workspace_role_detailed(
+    req: &HttpRequest,
+    min: crate::models::WorkspaceRole,
+) -> Result<(Claims, crate::models::WorkspaceRole), HttpResponse> {
     use actix_web::web;
     use diesel::result::Error as DieselError;
     use uuid::Uuid;
@@ -200,7 +211,7 @@ pub fn require_workspace_role(
         })));
     }
 
-    Ok(claims)
+    Ok((claims, actual))
 }
 
 #[cfg(test)]
