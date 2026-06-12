@@ -449,87 +449,56 @@ async fn main() -> std::io::Result<()> {
         .unwrap_or(600)
         .clamp(120, 5000); // Higher limits for authenticated users: 120-5000 requests per minute
 
-    // Create rate limiter with Redis backend (fallback to in-memory for development)
-    let redis_url = env::var("REDIS_URL").unwrap_or_else(|_| {
-        if environment == "production" {
-            warn!("REDIS_URL not configured in production - using in-memory rate limiting");
+    // Redis is a hard dependency: HTTP + auth/MFA rate limiting, the Yjs
+    // collab cache, and the `/readiness` probe all require it. Resolve ONE
+    // URL for all of them (the same shape as `utils::rate_limit::get_redis_url`).
+    // Production requires it explicitly — in-memory rate limiting would be
+    // per-machine, an N× silent bypass across the fleet — while dev defaults
+    // to localhost. There is no `memory://` fallback: it only ever masked a
+    // misconfigured single dev box where readiness and auth lockout were
+    // already broken anyway.
+    let redis_url = match env::var("REDIS_URL") {
+        Ok(url) => url,
+        Err(_) => {
+            if environment == "production" {
+                error!(
+                    "REDIS_URL is required in production: rate limiting, the collab cache, and the readiness probe all depend on Redis, and in-memory limiting is a per-machine (N×) silent bypass. Configure Redis."
+                );
+                std::process::exit(1);
+            }
+            "redis://localhost:6379".to_string()
         }
-        "memory://".to_string()
-    });
+    };
 
-    // Rate-limit keying goes through the trusted-proxy-aware
-    // client_ip helper. Behind a reverse proxy (the standard
-    // production shape) per-IP limits track the real client; on
-    // a direct connection X-Forwarded-For is ignored so an
-    // attacker can't rotate spoofed headers to bypass the limit.
+    // Rate-limit keying goes through the trusted-proxy-aware client_ip
+    // helper. Behind a reverse proxy (the standard production shape) per-IP
+    // limits track the real client; on a direct connection X-Forwarded-For
+    // is ignored so an attacker can't rotate spoofed headers to bypass the
+    // limit. A build failure (a malformed REDIS_URL) is fatal everywhere —
+    // there's no in-memory fallback to silently degrade to.
     let public_limiter = Limiter::builder(&redis_url)
         .key_by(|req: &actix_web::dev::ServiceRequest| {
             crate::utils::client_ip::from_service_request(req).map(|ip| format!("public:{ip}"))
         })
         .limit(rate_limit_per_minute as usize)
-        .period(Duration::from_secs(60)) // 1 minute window
-        .build();
+        .period(Duration::from_secs(60))
+        .build()
+        .map_err(|e| {
+            error!(error = %e, "Failed to build the public rate limiter (check REDIS_URL)");
+            std::io::Error::other("Public rate limiter initialization failed")
+        })?;
 
-    // Build the authenticated limiter (for authenticated requests)
     let auth_limiter = Limiter::builder(&redis_url)
         .key_by(|req: &actix_web::dev::ServiceRequest| {
             crate::utils::client_ip::from_service_request(req).map(|ip| format!("auth:{ip}"))
         })
         .limit(auth_rate_limit_per_minute as usize)
-        .period(Duration::from_secs(60)) // 1 minute window
-        .build();
-
-    let public_limiter = match public_limiter {
-        Ok(limiter) => limiter,
-        Err(e) => {
-            warn!(error = %e, "Rate limiter fallback to in-memory");
-
-            // Fallback to memory limiter
-            let fallback = Limiter::builder("memory://")
-                .key_by(|req: &actix_web::dev::ServiceRequest| {
-                    crate::utils::client_ip::from_service_request(req)
-                        .map(|ip| format!("public:{ip}"))
-                })
-                .limit(rate_limit_per_minute as usize)
-                .period(Duration::from_secs(60))
-                .build();
-
-            match fallback {
-                Ok(limiter) => limiter,
-                Err(fallback_err) => {
-                    error!(error = %fallback_err, "Failed to initialize fallback rate limiter");
-                    return Err(std::io::Error::other("Rate limiter initialization failed"));
-                }
-            }
-        }
-    };
-
-    let auth_limiter = match auth_limiter {
-        Ok(limiter) => limiter,
-        Err(e) => {
-            warn!(error = %e, "Auth rate limiter fallback to in-memory");
-
-            // Fallback to memory limiter
-            let fallback = Limiter::builder("memory://")
-                .key_by(|req: &actix_web::dev::ServiceRequest| {
-                    crate::utils::client_ip::from_service_request(req)
-                        .map(|ip| format!("auth:{ip}"))
-                })
-                .limit(auth_rate_limit_per_minute as usize)
-                .period(Duration::from_secs(60))
-                .build();
-
-            match fallback {
-                Ok(limiter) => limiter,
-                Err(fallback_err) => {
-                    error!(error = %fallback_err, "Failed to initialize fallback auth rate limiter");
-                    return Err(std::io::Error::other(
-                        "Auth rate limiter initialization failed",
-                    ));
-                }
-            }
-        }
-    };
+        .period(Duration::from_secs(60))
+        .build()
+        .map_err(|e| {
+            error!(error = %e, "Failed to build the auth rate limiter (check REDIS_URL)");
+            std::io::Error::other("Auth rate limiter initialization failed")
+        })?;
 
     // Get host and port from environment variables
     let host = env::var("HOST").unwrap_or("127.0.0.1".to_string());
@@ -846,14 +815,11 @@ async fn main() -> std::io::Result<()> {
         );
     }
 
-    // Initialize Redis cache for Yjs documents (survives backend restarts)
-    // Use the same Redis URL as rate limiting, but fall back to localhost if using memory://
-    let yjs_redis_url = if redis_url.starts_with("redis://") {
-        redis_url.clone()
-    } else {
-        warn!("Using in-memory rate limiting - Yjs cache will use localhost Redis");
-        env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string())
-    };
+    // Yjs document cache (survives backend restarts) shares the single
+    // Redis URL resolved above. Used directly — no scheme rewrite — so a
+    // TLS managed Redis (`rediss://`) is honoured rather than silently
+    // falling back to localhost.
+    let yjs_redis_url = redis_url.clone();
 
     let redis_cache = match create_redis_cache(&yjs_redis_url) {
         Ok(cache) => {
