@@ -39,6 +39,25 @@ export interface KpiParams {
   tz?: string
 }
 
+/** Consolidated ticket-volume KPIs. Backs the dashboard KPI rail with
+ *  a single request instead of three parallel `/kpi` calls. */
+export interface KpiSummaryResult {
+  created: KpiResult
+  resolved: KpiResult
+  open: KpiResult
+}
+
+export interface KpiSummaryParams {
+  from: string
+  to: string
+  prior_from?: string
+  prior_to?: string
+  /** Default true; the rail's created/resolved tiles show a sparkline,
+   *  open never does. */
+  sparkline?: boolean
+  tz?: string
+}
+
 export type TsMeasure = 'count'
 export type TsTimeField = 'created_at' | 'closed_at' | 'resolved_at'
 
@@ -125,6 +144,10 @@ export interface LeaderboardParams {
 export const analyticsService = {
   async kpi(params: KpiParams): Promise<KpiResult> {
     const { data } = await apiClient.get<KpiResult>('/dashboard/kpi', { params })
+    return data
+  },
+  async kpiSummary(params: KpiSummaryParams): Promise<KpiSummaryResult> {
+    const { data } = await apiClient.get<KpiSummaryResult>('/dashboard/kpi-summary', { params })
     return data
   },
   async timeseries(params: TimeseriesParams): Promise<TimeseriesResult> {

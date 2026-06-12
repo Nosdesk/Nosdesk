@@ -159,6 +159,159 @@ fn kpi_count(
     }
 }
 
+/// Parameters for the consolidated ticket-volume KPI summary. Mirrors
+/// `KpiQuery` but drops `metric`: the summary computes created,
+/// resolved, and open together so the dashboard's KPI rail costs one
+/// request (and one pooled connection) instead of three.
+#[derive(Debug)]
+pub struct KpiSummaryQuery {
+    pub from: DateTime<Utc>,
+    pub to: DateTime<Utc>,
+    pub prior: Option<(DateTime<Utc>, DateTime<Utc>)>,
+    pub include_sparkline: bool,
+    pub tz: String,
+}
+
+/// The three ticket-volume KPIs in one payload. Each field is the
+/// same `KpiResult` the per-metric endpoint returns, so the frontend
+/// types are unchanged.
+#[derive(Debug, Clone, Serialize)]
+pub struct KpiSummaryResult {
+    pub created: KpiResult,
+    pub resolved: KpiResult,
+    pub open: KpiResult,
+}
+
+/// Scalar counts for the summary, computed in a single pass over
+/// `tickets` via conditional aggregation. `prior_*` are 0 when no
+/// prior window was supplied (the caller binds an empty window so the
+/// FILTERs match nothing, keeping the SQL static).
+#[derive(QueryableByName)]
+struct KpiCountsRow {
+    #[diesel(sql_type = BigInt)]
+    created: i64,
+    #[diesel(sql_type = BigInt)]
+    resolved: i64,
+    #[diesel(sql_type = BigInt)]
+    open: i64,
+    #[diesel(sql_type = BigInt)]
+    prior_created: i64,
+    #[diesel(sql_type = BigInt)]
+    prior_resolved: i64,
+}
+
+/// Compute the created / resolved / open KPIs (with prior-period
+/// deltas and optional sparklines) in one connection/transaction.
+///
+/// The four scalar counts come from a single `COUNT(*) FILTER (...)`
+/// pass: created/resolved are windowed, open is a snapshot, and the
+/// prior-period counts share the same scan. The `WHERE` narrows the
+/// scan to rows that feed at least one aggregate so the right indexes
+/// can drive it (a BitmapOr over the created/closed indexes plus the
+/// open-snapshot rows). Sparklines, when requested, reuse
+/// `bucketed_counts` on the same connection — open never has one.
+pub fn kpi_summary(conn: &mut DbConnection, q: KpiSummaryQuery) -> QueryResult<KpiSummaryResult> {
+    use diesel::sql_types::Timestamptz as Tz;
+
+    // Bind an empty window for the absent prior so the prior FILTERs
+    // count nothing without branching the SQL. `from >= from` is never
+    // true, so both prior aggregates resolve to 0.
+    let (prior_from, prior_to) = q.prior.unwrap_or((q.from, q.from));
+
+    let counts: KpiCountsRow = diesel::sql_query(
+        "SELECT \
+            COUNT(*) FILTER (WHERE created_at >= $1 AND created_at < $2)::bigint AS created, \
+            COUNT(*) FILTER (WHERE closed_at >= $1 AND closed_at < $2)::bigint AS resolved, \
+            COUNT(*) FILTER (WHERE closed_at IS NULL)::bigint AS open, \
+            COUNT(*) FILTER (WHERE created_at >= $3 AND created_at < $4)::bigint AS prior_created, \
+            COUNT(*) FILTER (WHERE closed_at >= $3 AND closed_at < $4)::bigint AS prior_resolved \
+         FROM tickets \
+         WHERE (created_at >= $1 AND created_at < $2) \
+            OR (closed_at >= $1 AND closed_at < $2) \
+            OR closed_at IS NULL \
+            OR (created_at >= $3 AND created_at < $4) \
+            OR (closed_at >= $3 AND closed_at < $4)",
+    )
+    .bind::<Tz, _>(q.from)
+    .bind::<Tz, _>(q.to)
+    .bind::<Tz, _>(prior_from)
+    .bind::<Tz, _>(prior_to)
+    .get_result(conn)?;
+
+    // Sparklines are per-day series over the primary window, aligned
+    // to the user's zone. Computed on the same connection so the whole
+    // summary is one checkout.
+    let (created_spark, resolved_spark) = if q.include_sparkline {
+        let c = bucketed_counts(
+            conn,
+            KpiMetric::TicketsCreated,
+            q.from,
+            q.to,
+            Grain::Day,
+            &q.tz,
+        )?
+        .into_iter()
+        .map(|(_, v)| v)
+        .collect();
+        let r = bucketed_counts(
+            conn,
+            KpiMetric::TicketsResolved,
+            q.from,
+            q.to,
+            Grain::Day,
+            &q.tz,
+        )?
+        .into_iter()
+        .map(|(_, v)| v)
+        .collect();
+        (Some(c), Some(r))
+    } else {
+        (None, None)
+    };
+
+    let prior_present = q.prior.is_some();
+    Ok(KpiSummaryResult {
+        created: kpi_result(
+            counts.created,
+            prior_present.then_some(counts.prior_created),
+            created_spark,
+        ),
+        resolved: kpi_result(
+            counts.resolved,
+            prior_present.then_some(counts.prior_resolved),
+            resolved_spark,
+        ),
+        // Open is a snapshot: no period to compare against, no sparkline.
+        open: kpi_result(counts.open, None, None),
+    })
+}
+
+/// Assemble a `KpiResult` from a headline value, optional prior count,
+/// and optional sparkline. Centralises the delta math so the summary
+/// and the per-metric `kpi` path agree to the digit.
+fn kpi_result(value: i64, prior: Option<i64>, sparkline: Option<Vec<i64>>) -> KpiResult {
+    let (delta_value, delta_pct) = match prior {
+        None => (None, None),
+        Some(p) => {
+            let delta = value - p;
+            // Percent is undefined against a zero baseline; the
+            // frontend renders "new" rather than an infinity arrow.
+            let pct = if p == 0 {
+                None
+            } else {
+                Some(((delta as f64) / (p as f64) * 1000.0).round() / 10.0)
+            };
+            (Some(delta), pct)
+        }
+    };
+    KpiResult {
+        value,
+        delta_value,
+        delta_pct,
+        sparkline,
+    }
+}
+
 /// One bucket of the timeseries: a UTC instant (the local bucket
 /// start, converted back from the user's zone) and its count.
 #[derive(QueryableByName)]

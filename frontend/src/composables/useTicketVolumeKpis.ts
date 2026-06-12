@@ -1,7 +1,9 @@
 /**
- * Batched fetch for the ticket-volume dashboard widget. One query
- * loads created / resolved / open in parallel so the grouped widget
- * costs a single round-trip instead of three separate KpiTile mounts.
+ * Batched fetch for the ticket-volume dashboard widget. The grouped
+ * widget costs one request: the backend's `/dashboard/kpi-summary`
+ * computes created / resolved / open in a single conditional-
+ * aggregation pass on one pooled connection, rather than three
+ * parallel `/kpi` calls each taking their own connection.
  */
 import { computed } from 'vue'
 import { useQuery } from '@pinia/colada'
@@ -9,17 +11,10 @@ import { useTimeRange } from '@/composables/useTimeRange'
 import { useDateStore } from '@/stores/dateStore'
 import {
   analyticsService,
-  type KpiMetric,
-  type KpiResult,
+  type KpiSummaryResult,
 } from '@/services/analyticsService'
 
-export interface TicketVolumeKpis {
-  created: KpiResult
-  resolved: KpiResult
-  open: KpiResult
-}
-
-const METRICS: KpiMetric[] = ['tickets_created', 'tickets_resolved', 'tickets_open']
+export type TicketVolumeKpis = KpiSummaryResult
 
 export function useTicketVolumeKpis() {
   const { window: timeWindow, priorWindow, compare } = useTimeRange()
@@ -49,18 +44,6 @@ export function useTicketVolumeKpis() {
       params.value.prior_to ?? 'no-prior',
       params.value.tz,
     ],
-    query: async (): Promise<TicketVolumeKpis> => {
-      const base = params.value
-      const [created, resolved, open] = await Promise.all(
-        METRICS.map((metric) =>
-          analyticsService.kpi({
-            ...base,
-            metric,
-            sparkline: metric !== 'tickets_open',
-          }),
-        ),
-      )
-      return { created, resolved, open }
-    },
+    query: (): Promise<TicketVolumeKpis> => analyticsService.kpiSummary(params.value),
   })
 }

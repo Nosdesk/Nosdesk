@@ -16,7 +16,7 @@ use crate::extractors::{AuthContext, TenantConn};
 use crate::handlers::errors;
 use crate::repository::analytics::{
     self, AnnotationQuery, BreakdownGroupBy, BreakdownQuery, HeatmapQuery, KpiMetric, KpiQuery,
-    LeaderboardActor, LeaderboardQuery, TimeseriesQuery, TsMeasure, TsTimeField,
+    KpiSummaryQuery, LeaderboardActor, LeaderboardQuery, TimeseriesQuery, TsMeasure, TsTimeField,
 };
 
 /// Per-plan cap on top_n; chosen to keep the chart legible. The
@@ -129,6 +129,79 @@ pub async fn get_kpi(mut tc: TenantConn, query: web::Query<KpiParams>) -> impl R
         Err(e) => {
             error!(error = %e, "kpi query failed");
             errors::internal("kpi unavailable")
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct KpiSummaryParams {
+    pub from: DateTime<Utc>,
+    pub to: DateTime<Utc>,
+    /// Optional prior-period window for deltas. Both present together
+    /// or both omitted; a half-set window is a 400.
+    pub prior_from: Option<DateTime<Utc>>,
+    pub prior_to: Option<DateTime<Utc>>,
+    /// Default `true`. Suppress with `?sparkline=false` on dense
+    /// renders that don't show the trend line.
+    #[serde(default = "default_true")]
+    pub sparkline: bool,
+    /// IANA timezone the sparkline buckets align to. Absent / invalid
+    /// falls back to UTC.
+    #[serde(default)]
+    pub tz: Option<String>,
+}
+
+/// `GET /api/dashboard/kpi-summary` — created, resolved, and open in
+/// one response. Collapses the KPI rail's three parallel `/kpi` calls
+/// (three pooled connections, three scans of `tickets`) into a single
+/// request whose scalar counts come from one conditional-aggregation
+/// pass. Same per-metric `KpiResult` shape, so the frontend types are
+/// unchanged.
+pub async fn get_kpi_summary(
+    mut tc: TenantConn,
+    query: web::Query<KpiSummaryParams>,
+) -> impl Responder {
+    let params = query.into_inner();
+
+    if params.from >= params.to {
+        return errors::bad_request("`from` must be earlier than `to`");
+    }
+
+    let prior = match (params.prior_from, params.prior_to) {
+        (Some(pf), Some(pt)) => {
+            if pf >= pt {
+                return errors::bad_request("`prior_from` must be earlier than `prior_to`");
+            }
+            Some((pf, pt))
+        }
+        (None, None) => None,
+        _ => {
+            return errors::bad_request(
+                "prior_from and prior_to must be supplied together or omitted together",
+            )
+        }
+    };
+
+    let tz = params
+        .tz
+        .as_deref()
+        .and_then(|s| crate::utils::locale::parse_timezone(s).ok())
+        .map(|z| z.name().to_string())
+        .unwrap_or_else(|| "UTC".to_string());
+
+    let q = KpiSummaryQuery {
+        from: params.from,
+        to: params.to,
+        prior,
+        include_sparkline: params.sparkline,
+        tz,
+    };
+
+    match tc.run(|conn| analytics::kpi_summary(conn, q)) {
+        Ok(result) => HttpResponse::Ok().json(result),
+        Err(e) => {
+            error!(error = %e, "kpi summary query failed");
+            errors::internal("kpi summary unavailable")
         }
     }
 }

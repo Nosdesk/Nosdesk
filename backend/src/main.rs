@@ -1757,6 +1757,10 @@ async fn main() -> std::io::Result<()> {
                     // client-side.
                     .route("/dashboard/kpi", web::get().to(handlers::analytics::get_kpi))
                     .route(
+                        "/dashboard/kpi-summary",
+                        web::get().to(handlers::analytics::get_kpi_summary),
+                    )
+                    .route(
                         "/dashboard/timeseries",
                         web::get().to(handlers::analytics::get_timeseries),
                     )
