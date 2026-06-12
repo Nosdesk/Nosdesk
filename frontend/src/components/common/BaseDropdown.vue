@@ -26,6 +26,10 @@ export interface DropdownOption {
    * render as a chip-stack of smaller 4px dots in sequence.
    */
   tones?: string[]
+  /** Renders the option muted and non-selectable (click + keyboard
+   * skip it). Use for choices the current actor isn't allowed to
+   * pick while still showing them in context. */
+  disabled?: boolean
 }
 
 const props = withDefaults(
@@ -170,6 +174,7 @@ const toggleDropdown = () => {
 }
 
 const selectOption = (option: DropdownOption) => {
+  if (option.disabled) return
   if (props.multiple) {
     if (option.value === 'all') {
       if (allSelected.value) {
@@ -197,6 +202,19 @@ const selectOption = (option: DropdownOption) => {
 // focuses the first option. Once open, the popover root has focus
 // and we route arrow / Enter / Escape through the same handler.
 
+// Step the highlight in `dir` (+1/-1), skipping disabled options and
+// clamping at the ends so the highlight never lands on an unselectable
+// row.
+const nextEnabledIndex = (from: number, dir: 1 | -1): number => {
+  let i = from
+  while (true) {
+    const next = i + dir
+    if (next < 0 || next >= props.options.length) return i
+    i = next
+    if (!props.options[i].disabled) return i
+  }
+}
+
 const handleKeydown = (event: KeyboardEvent) => {
   if (!isOpen.value) {
     if (event.key === 'Enter' || event.key === ' ' || event.key === 'ArrowDown') {
@@ -208,11 +226,11 @@ const handleKeydown = (event: KeyboardEvent) => {
   switch (event.key) {
     case 'ArrowDown':
       event.preventDefault()
-      highlightedIndex.value = Math.min(highlightedIndex.value + 1, props.options.length - 1)
+      highlightedIndex.value = nextEnabledIndex(highlightedIndex.value, 1)
       break
     case 'ArrowUp':
       event.preventDefault()
-      highlightedIndex.value = Math.max(highlightedIndex.value - 1, 0)
+      highlightedIndex.value = nextEnabledIndex(highlightedIndex.value, -1)
       break
     case 'Enter':
     case ' ':
@@ -330,16 +348,20 @@ watch(highlightedIndex, async (index) => {
           :key="option.value"
           role="option"
           :aria-selected="isSelected(option.value)"
+          :aria-disabled="option.disabled || undefined"
+          :disabled="option.disabled"
           @click="selectOption(option)"
-          @mouseenter="highlightedIndex = index"
+          @mouseenter="!option.disabled && (highlightedIndex = index)"
           class="w-full text-left text-primary transition-colors flex items-center gap-3"
           :class="[
             sizeClasses.option,
-            (option.value === 'all' ? allSelected : isSelected(option.value))
-              ? 'bg-accent/10 text-accent'
-              : highlightedIndex === index
-                ? 'bg-surface-hover'
-                : 'hover:bg-surface-hover',
+            option.disabled
+              ? 'opacity-40 cursor-not-allowed'
+              : (option.value === 'all' ? allSelected : isSelected(option.value))
+                ? 'bg-accent/10 text-accent'
+                : highlightedIndex === index
+                  ? 'bg-surface-hover'
+                  : 'hover:bg-surface-hover',
           ]"
         >
           <template v-if="multiple">
