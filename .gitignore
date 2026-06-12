@@ -35,11 +35,12 @@ claude.md
 *.tsbuildinfo
 
 # Environment variables
+# .env is the single compose env file (interpolation + container env_file).
+# Real secrets live here and stay untracked; .env.example is the template.
 .env
 .env.*
 !.env.example
 /backend/.env
-docker.env
 
 # Rust / Backend
 /backend/target/

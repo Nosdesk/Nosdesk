@@ -47,7 +47,7 @@ services:
     platform: ${BACKEND_PLATFORM:-}
     stdin_open: true
     tty: true
-    env_file: docker.env
+    env_file: .env
     # 8 GB memory ceiling. The Rust debug-link step on a workspace
     # this size peaks past 6 GB once the multi-tenant work landed;
     # bumping the cap unblocks bacon-driven rebuilds. Docker Desktop
@@ -105,12 +105,12 @@ services:
       # Seed data — read-only and rarely changes; bind mount is fine.
       - ./backend/seeds:/app/seeds:ro
       # Signed plugin zips (*.zip) picked up at startup. In dev, set
-      # NOSDESK_DEV_MODE=1 in docker.env to also accept unsigned
+      # NOSDESK_DEV_MODE=1 in .env to also accept unsigned
       # zips produced by `nosdesk-plugin sign --dev`.
       - ./plugins:/app/plugins:ro
     environment:
       # Pin the dev stack to the development posture regardless of what
-      # docker.env carries. docker.env.example now defaults
+      # .env carries. .env.example now defaults
       # ENVIRONMENT=production so a self-hoster copying it for a real
       # deployment gets the production secret gates; this override (which
       # takes precedence over env_file) keeps `make dev` in dev mode
@@ -120,7 +120,7 @@ services:
       # segment open and commit at INFO+DEBUG (saw ~90% of stdout); the
       # connection plumbing crates (h2, hyper, rustls, mio, want) emit
       # similar lifecycle chatter at debug. Operators bump any of these
-      # by editing this var. Mirrored in docker.env and .env.
+      # by editing this var. Mirrored in .env.
       - RUST_LOG=debug,actix_web=debug,actix_server=info,diesel=debug,tantivy=warn,h2=info,hyper=info,hyper_util=info,rustls=info,mio=info,want=info
       - RUST_BACKTRACE=1
       - CARGO_MESSAGE_FORMAT=short
@@ -138,9 +138,9 @@ services:
       # the CREATE DATABASE + GRANT, and `backend/src/test_helpers.rs`
       # for the hard-fail when this is unset.
       - TEST_DATABASE_URL=postgres://${POSTGRES_USER:-nosdesk}:${POSTGRES_PASSWORD:-nosdesk_password}@postgres:5432/nosdesk_test
-      # NOSDESK_ROOT_PUBKEY is loaded from docker.env via env_file. Do
+      # NOSDESK_ROOT_PUBKEY is loaded from .env via env_file. Do
       # not redeclare it here, since environment: would override the
-      # docker.env value with whatever the host shell has (typically
+      # .env value with whatever the host shell has (typically
       # empty) and break option_env! at compile time inside bacon.
       # Default the dev backend to the production registry so the
       # admin /plugins/registry view shows real data without
@@ -149,7 +149,7 @@ services:
       - NOSDESK_REGISTRY_URL=${NOSDESK_REGISTRY_URL:-https://nosdesk.com/registry}
       # Route outbound mail through the Mailpit sidecar (web UI on
       # http://localhost:8025) instead of a real SMTP relay. These
-      # vars OVERRIDE whatever's in docker.env so dev never burns
+      # vars OVERRIDE whatever's in .env so dev never burns
       # real customer email on a stray test invitation. Plaintext
       # SMTP is fine: the link only exists inside the compose
       # network. Username / password are placeholders — Mailpit
@@ -176,7 +176,7 @@ services:
   # Backend env override below points SMTP_HOST/PORT/SECURITY at
   # this service. Operators running the production compose (without
   # `-f compose.dev.yaml`) keep their real SMTP credentials from
-  # `docker.env` and never see this service.
+  # `.env` and never see this service.
   mailpit:
     image: axllent/mailpit:v1.20
     networks:

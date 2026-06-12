@@ -10,7 +10,7 @@ services:
   postgres:
     image: postgres:17-bookworm
     restart: unless-stopped
-    env_file: docker.env
+    env_file: .env
     volumes:
       - postgres_data:/var/lib/postgresql
       - ./init-db.sh:/docker-entrypoint-initdb.d/01-init-db.sh:ro
@@ -35,7 +35,7 @@ services:
   redis:
     image: redis:8-alpine
     restart: unless-stopped
-    env_file: docker.env
+    env_file: .env
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-nosdesk_redis_password}
     volumes:
       - redis_data:/data
@@ -55,13 +55,13 @@ services:
       args:
         # Passed through to the Rust build so option_env!() picks up
         # the real Nosdesk root pubkey. Operators can override by
-        # setting NOSDESK_ROOT_PUBKEY in docker.env (or their shell)
+        # setting NOSDESK_ROOT_PUBKEY in .env (or their shell)
         # before running `docker compose build`. Unset = empty =
         # official/verified installs fail closed until configured.
         NOSDESK_ROOT_PUBKEY: ${NOSDESK_ROOT_PUBKEY:-}
     platform: linux/amd64
     restart: unless-stopped
-    env_file: docker.env
+    env_file: .env
     volumes:
       - backend_uploads:/app/uploads
       # Drop signed plugin zips (*.zip) into ./plugins/ to provision

@@ -40,10 +40,10 @@ git clone https://github.com/Nosdesk/Nosdesk.git
 cd Nosdesk
 
 # Create your environment file
-cp docker.env.example docker.env
+cp .env.example .env
 ```
 
-Open `docker.env` and set the required values:
+Open `.env` and set the required values:
 
 ```bash
 # Generate these with: openssl rand -base64 32
@@ -150,7 +150,7 @@ nosdesk-cli admin clear-mfa      <email>
 `plugin sign` and friends are pure file-IO; they don't need a running
 Nosdesk. `plugin install` and the `admin` subcommands talk to the
 configured database directly, so they need `DATABASE_URL` set (the
-backend's `docker.env` already exports it for the Docker workflow).
+backend's `.env` already exports it for the Docker workflow).
 
 ### Signing a plugin
 

@@ -48,7 +48,7 @@ containers.
 From the repo root:
 
 ```bash
-cp docker.env.example docker.env  # if you haven't already
+cp .env.example .env  # if you haven't already
 make install-hooks                # one-shot per clone
 make dev
 ```
@@ -227,7 +227,7 @@ real-SMTP delivery, stop the dev stack and run:
 docker compose up -d --build  # production-mode, no `-f compose.dev.yaml`
 ```
 
-This honors the `SMTP_*` settings in `docker.env`. Useful for
+This honors the `SMTP_*` settings in `.env`. Useful for
 debugging "does Mailgun accept our message-id format?" kinds of
 issues.
 

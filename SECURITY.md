@@ -10,7 +10,7 @@ within 72 hours.
 
 ### Secrets that must be rotated for production
 
-The dev `docker.env` (gitignored, not in the repo) ships a
+The dev `.env` (gitignored, not in the repo) ships a
 working set of secrets for local development. Production
 deployments must generate fresh values. At minimum:
 

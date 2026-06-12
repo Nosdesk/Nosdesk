@@ -20,7 +20,7 @@ Use the `nosdesk-plugin` CLI from your plugin source directory:
         --key ~/.nosdesk/signing.key
 
 Or for local development (debug builds only) set
-`NOSDESK_DEV_MODE=1` in `docker.env` and use
+`NOSDESK_DEV_MODE=1` in `.env` and use
 `nosdesk-plugin sign --dev` to produce an unsigned zip.
 
 Zip layout
