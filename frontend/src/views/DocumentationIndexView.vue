@@ -81,10 +81,21 @@ const visibleUncollected = computed<Page[]>(() =>
     .slice(0, 12),
 )
 
+/** Collection ids whose pages require verification. Used to gate the
+ *  never-verified case so unverified pages in neutral collections
+ *  don't show up as needing attention. */
+const requireVerificationCollectionIds = computed(
+  () => new Set(docs.allCollections.filter((c) => c.require_verification).map((c) => c.id)),
+)
+
+function pageNeedsAttention(p: (typeof docs.allPages)[number]): boolean {
+  const requires =
+    p.collection_id != null && requireVerificationCollectionIds.value.has(p.collection_id)
+  return isActivePage(p) && pageNeedsVerificationAttention(p, requires)
+}
+
 const verificationAttention = computed<Page[]>(() => {
-  const rows = docs.allPages.filter(
-    (p) => isActivePage(p) && pageNeedsVerificationAttention(p),
-  )
+  const rows = docs.allPages.filter(pageNeedsAttention)
   rows.sort((a, b) => {
     const sa = pageVerificationState(a)
     const sb = pageVerificationState(b)
@@ -97,9 +108,7 @@ const verificationAttention = computed<Page[]>(() => {
   return rows.slice(0, 10).map((r) => toPage(r))
 })
 
-const verificationCount = computed(() =>
-  docs.allPages.filter((p) => isActivePage(p) && pageNeedsVerificationAttention(p)).length,
-)
+const verificationCount = computed(() => docs.allPages.filter(pageNeedsAttention).length)
 
 const totalPages = computed(() => flattenTree(pages.value).length)
 
