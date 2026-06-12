@@ -32,7 +32,7 @@ use uuid::Uuid;
 use crate::db::Pool;
 use crate::extractors::WorkspaceContext;
 use crate::handlers::errors;
-use crate::models::{WorkspaceMember, WorkspaceRole};
+use crate::models::{Claims, WorkspaceMember, WorkspaceRole};
 use crate::repository::workspaces::{self, UpdateMembershipRoleResult};
 use crate::services::search::{indexing_tasks, SearchService};
 use crate::sync::actor::ActorContext;
@@ -96,6 +96,18 @@ fn forbidden_tier() -> HttpResponse {
     )
 }
 
+/// Actor context for a membership write, attributed to the calling
+/// admin + their workspace. The `tr_audit_workspace_members` trigger
+/// reads `app.actor_uuid` from this, so the audit_log row records WHO
+/// changed the membership. Post-auth `claims.sub` is always a valid
+/// uuid; the fallback keeps the workspace pinned if it somehow isn't.
+fn caller_actor(claims: &Claims, workspace_id: i32) -> ActorContext {
+    match Uuid::parse_str(&claims.sub) {
+        Ok(uuid) => ActorContext::user_at_workspace(uuid, workspace_id),
+        Err(_) => ActorContext::system("workspace:members").with_workspace(workspace_id),
+    }
+}
+
 /// `GET /api/workspace/members` — list members of the caller's workspace.
 pub async fn list_members(
     req: HttpRequest,
@@ -152,7 +164,7 @@ pub async fn update_member_role(
     path: web::Path<Uuid>,
     body: web::Json<UpdateRoleRequest>,
 ) -> impl Responder {
-    let (_caller, caller_role) =
+    let (caller, caller_role) =
         match rbac::require_workspace_role_detailed(&req, WorkspaceRole::Admin) {
             Ok(v) => v,
             Err(resp) => return resp,
@@ -176,7 +188,7 @@ pub async fn update_member_role(
             return errors::internal("Database connection failed");
         }
     };
-    let actor = ActorContext::system("workspace:members:update").with_workspace(ctx.workspace_id);
+    let actor = caller_actor(&caller, ctx.workspace_id);
     let outcome =
         with_actor_bypass_context::<_, diesel::result::Error>(&mut conn, &actor, |conn| {
             let Some(existing) = workspaces::membership(conn, ctx.workspace_id, target)? else {
@@ -233,7 +245,7 @@ pub async fn remove_member(
     // the user's search doc; optional so tests need not wire it.
     search_service: Option<web::Data<Arc<SearchService>>>,
 ) -> impl Responder {
-    let (_caller, caller_role) =
+    let (caller, caller_role) =
         match rbac::require_workspace_role_detailed(&req, WorkspaceRole::Admin) {
             Ok(v) => v,
             Err(resp) => return resp,
@@ -247,7 +259,7 @@ pub async fn remove_member(
             return errors::internal("Database connection failed");
         }
     };
-    let actor = ActorContext::system("workspace:members:remove").with_workspace(ctx.workspace_id);
+    let actor = caller_actor(&caller, ctx.workspace_id);
     let outcome =
         with_actor_bypass_context::<_, diesel::result::Error>(&mut conn, &actor, |conn| {
             let Some(existing) = workspaces::membership(conn, ctx.workspace_id, target)? else {

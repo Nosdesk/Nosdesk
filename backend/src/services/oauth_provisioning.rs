@@ -246,7 +246,12 @@ pub fn find_or_create_projected_user(
     // email) it grants membership in this workspace if they lacked
     // one. Either way `add_membership` uses ON CONFLICT DO NOTHING, so
     // re-projection never silently escalates or downgrades an existing
-    // role: the handoff doc's "first-write-wins on role" gotcha.
+    // role: the handoff doc's "first-write-wins on role" gotcha. The
+    // sanctioned way to CORRECT a wrong role afterwards is the W3
+    // role-change endpoint (`PATCH /api/workspace/members/{uuid}` or the
+    // operator console), which updates the row and is audit-logged by the
+    // tr_audit_workspace_members trigger; re-projection is not a
+    // correction path by design.
     let user_uuid = match &outcome {
         ProjectionOutcome::Created(u) | ProjectionOutcome::Existed(u) => u.uuid,
     };

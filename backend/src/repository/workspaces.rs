@@ -154,7 +154,7 @@ pub fn membership(
         .optional()
 }
 
-// sync-pending-wire: emit a WorkspaceMember sync_action when that aggregate + the Phase 4 W3 membership lifecycle handlers land; today no aggregate variant exists and workspace_members has no audit_log trigger, so the grant rides along with the user.created emit in the same create_user_with_email txn
+// sync-audit-only: membership changes are recorded by the tr_audit_workspace_members audit_log trigger (P1.4); no sync_actions aggregate, since workspace_members isn't on the tenant live-sync stream
 /// Add a user to the given workspace. Called from every user-
 /// creation flow (admin invite, guest portal, channels ingest,
 /// OAuth provisioning, setup_initial_admin bootstrap) so newly-
@@ -409,7 +409,7 @@ pub fn count_workspace_owners(conn: &mut DbConnection, workspace_id: i32) -> Que
         .get_result(conn)
 }
 
-// sync-audit-only: workspace_members lifecycle is operator-side; emit comes in Phase 4 W3 once the WorkspaceMember aggregate ships
+// sync-audit-only: removals are recorded by the tr_audit_workspace_members audit_log trigger (P1.4); no sync_actions aggregate
 /// Remove a user's membership in a workspace. Refuses to remove
 /// the last `owner` row by returning `Ok(0)` with no rows deleted
 /// (the handler maps this to 409). Returns the number of rows
@@ -459,7 +459,7 @@ pub enum UpdateMembershipRoleResult {
     LastOwner,
 }
 
-// sync-audit-only: workspace_members lifecycle is operator-side
+// sync-audit-only: role changes are recorded by the tr_audit_workspace_members audit_log trigger (P1.4); no sync_actions aggregate. This is the sanctioned path to CORRECT a wrong role (projection grants are first-write-wins / immutable, see oauth_provisioning::add_membership)
 /// Change a member's role. Refuses to demote the last `owner` for
 /// the same reason [`remove_membership`] refuses to delete it.
 /// `new_role` is the validated string form
@@ -899,5 +899,73 @@ mod tests {
         })
         .expect("update ghost");
         assert!(matches!(outcome, UpdateMembershipRoleResult::NotFound));
+    }
+
+    #[test]
+    fn membership_changes_are_audit_logged() {
+        use diesel::sql_types::{Integer, Nullable, Text, Uuid as SqlUuid};
+
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+        let ws = fresh_workspace(&mut conn, "auditws").id;
+        let target = fresh_user(&mut conn, "AuditTarget");
+        let actor = Uuid::new_v4();
+
+        // Run add / role-change / remove attributed to `actor` in `ws`,
+        // the way the W3 handlers do (a user actor pinned to the
+        // workspace). The tr_audit_workspace_members trigger should
+        // capture one audit_log row per mutation.
+        let act = ActorContext::user_at_workspace(actor, ws);
+        with_actor_bypass_context::<_, diesel::result::Error>(&mut conn, &act, |c| {
+            add_membership(c, ws, target, "member")?;
+            update_membership_role(c, ws, target, "admin")?;
+            remove_membership(c, ws, target)?;
+            Ok(())
+        })
+        .expect("membership mutations");
+
+        #[derive(QueryableByName, Debug)]
+        struct AuditRow {
+            #[diesel(sql_type = Text)]
+            op: String,
+            #[diesel(sql_type = Text)]
+            pk_text: String,
+            #[diesel(sql_type = Integer)]
+            workspace_id: i32,
+            #[diesel(sql_type = Nullable<SqlUuid>)]
+            actor_uuid: Option<Uuid>,
+            #[diesel(sql_type = Nullable<Text>)]
+            changed: Option<String>,
+        }
+
+        let rows: Vec<AuditRow> = as_admin(&mut conn, |c| {
+            diesel::sql_query(
+                "SELECT op::text AS op, pk_text, workspace_id, actor_uuid, \
+                 array_to_string(changed_cols, ',') AS changed \
+                 FROM audit_log WHERE table_name = 'workspace_members' AND pk_text = $1 \
+                 ORDER BY id",
+            )
+            .bind::<Text, _>(target.to_string())
+            .load(c)
+        })
+        .expect("load audit rows");
+
+        let ops: Vec<&str> = rows.iter().map(|r| r.op.as_str()).collect();
+        assert_eq!(
+            ops,
+            vec!["I", "U", "D"],
+            "one audit row per mutation, in order"
+        );
+        for r in &rows {
+            assert_eq!(r.pk_text, target.to_string(), "pk is the member uuid");
+            assert_eq!(r.workspace_id, ws, "audit row carries the row's workspace");
+            assert_eq!(r.actor_uuid, Some(actor), "attributed to the acting admin");
+        }
+        // The update names the column that changed.
+        assert!(
+            rows[1].changed.as_deref().unwrap_or("").contains("role"),
+            "role-change row should list role in changed_cols: {:?}",
+            rows[1].changed
+        );
     }
 }
