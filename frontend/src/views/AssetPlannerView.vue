@@ -22,6 +22,8 @@ import { useFluent } from 'fluent-vue'
 import { useQuery } from '@pinia/colada'
 import AssetViewTabs from '@/components/assets/AssetViewTabs.vue'
 import AsyncBoundary from '@/components/common/AsyncBoundary.vue'
+import DebouncedSearchInput from '@/components/common/DebouncedSearchInput.vue'
+import SegmentedControl from '@/components/common/SegmentedControl.vue'
 import {
   assetsService,
   type AssetPlannerRow,
@@ -73,6 +75,11 @@ const osFilter = ref<Set<OsFamily>>(new Set())
 const warrantyFilter = ref<Set<WarrantyBucket>>(new Set())
 const complianceFilter = ref<Set<string>>(new Set())
 const search = ref('')
+
+// Mobile only: the filter sidebar collapses into a disclosure so it doesn't
+// eat vertical space above the columns. Always shown at md+ (the persistent
+// sidebar column), so this flag is irrelevant there.
+const filtersOpen = ref(false)
 
 function toggleSetMember<T>(s: Set<T>, value: T): void {
   if (s.has(value)) s.delete(value)
@@ -189,6 +196,26 @@ const knownComplianceStates = computed<string[]>(() => {
   return Array.from(set).sort()
 })
 
+// Per-facet totals across the full dataset, surfaced on each filter chip so
+// capacity reads at a glance ("Windows 42") without applying the filter.
+const osCounts = computed<Record<string, number>>(() => {
+  const m: Record<string, number> = {}
+  for (const r of rows.value) m[r.os_family] = (m[r.os_family] ?? 0) + 1
+  return m
+})
+const warrantyCounts = computed<Record<string, number>>(() => {
+  const m: Record<string, number> = {}
+  for (const r of rows.value) m[r.warranty_bucket] = (m[r.warranty_bucket] ?? 0) + 1
+  return m
+})
+const complianceCounts = computed<Record<string, number>>(() => {
+  const m: Record<string, number> = {}
+  for (const r of rows.value) {
+    if (r.compliance_state) m[r.compliance_state] = (m[r.compliance_state] ?? 0) + 1
+  }
+  return m
+})
+
 function warrantyClass(b: WarrantyBucket): string {
   if (b === 'expired') return 'bg-rose-500/20 text-rose-700 dark:text-rose-300'
   if (b === 'expiring_30d') return 'bg-amber-500/30 text-amber-800 dark:text-amber-200'
@@ -222,36 +249,45 @@ const activeFilterCount = computed<number>(() =>
 <template>
   <div class="flex flex-col h-full">
     <AssetViewTabs />
-    <!-- Header. On md+ everything sits on one row; below md the
-         title stacks above the controls and the search expands to
-         full width so it's tappable on a phone. -->
+    <!-- Header: title + live search + segmented group-by. One row at md+; below
+         md the title stacks above full-width controls so they stay tappable. -->
     <header
-      class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 px-4 md:px-6 py-3 md:py-4 border-b border-subtle bg-app"
+      class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between px-4 md:px-6 py-3 md:py-4 border-b border-subtle"
     >
-      <div>
-        <h1 class="text-xl font-semibold text-primary">{{ $t('asset-planner-title') }}</h1>
-        <p class="text-xs text-tertiary mt-0.5">
-          {{ $t('asset-planner-subtitle') }}
-        </p>
+      <div class="min-w-0">
+        <h1 class="text-lg font-semibold text-primary">{{ $t('asset-planner-title') }}</h1>
+        <p class="text-xs text-tertiary mt-0.5">{{ $t('asset-planner-subtitle') }}</p>
       </div>
-      <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
-        <input
+
+      <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3 md:shrink-0">
+        <DebouncedSearchInput
           v-model="search"
-          type="text"
           :placeholder="$t('asset-planner-search-placeholder')"
-          class="bg-surface border border-subtle rounded-md text-sm px-3 py-1.5 text-primary w-full sm:w-64"
+          class="w-full sm:w-64 sm:grow-0"
         />
-        <label class="flex items-center gap-2 text-xs text-secondary">
-          <span class="shrink-0">{{ $t('asset-planner-group-by') }}</span>
-          <select
+        <div class="flex items-center gap-2">
+          <span class="hidden text-xs text-secondary shrink-0 sm:inline">
+            {{ $t('asset-planner-group-by') }}
+          </span>
+          <SegmentedControl
             v-model="axis"
-            class="bg-surface border border-subtle rounded-md text-xs px-2 py-1 text-primary flex-1 sm:flex-initial"
+            :options="axisOptions"
+            :aria-label="$t('asset-planner-group-by')"
+            size="sm"
+            class="grow sm:grow-0"
+          />
+          <!-- Mobile-only: collapse/expand the filter sidebar. -->
+          <button
+            type="button"
+            class="md:hidden inline-flex items-center gap-1 h-7 px-2.5 rounded-md text-xs font-medium border border-default text-secondary transition-colors hover:bg-surface-hover hover:text-primary shrink-0"
+            :class="filtersOpen ? 'bg-surface-hover text-primary' : ''"
+            :aria-expanded="filtersOpen"
+            @click="filtersOpen = !filtersOpen"
           >
-            <option v-for="opt in axisOptions" :key="opt.value" :value="opt.value">
-              {{ opt.label }}
-            </option>
-          </select>
-        </label>
+            {{ $t('asset-planner-filters-heading') }}
+            <span v-if="activeFilterCount > 0" class="tabular-nums">({{ activeFilterCount }})</span>
+          </button>
+        </div>
       </div>
     </header>
 
@@ -266,83 +302,99 @@ const activeFilterCount = computed<number>(() =>
           {{ (boundaryError as Error)?.message ?? $t('asset-planner-load-error') }}
         </div>
       </template>
-    <!-- Body. md+ uses the side-by-side grid (filter sidebar then
-         planner). Below md the sidebar stacks above the planner
-         with a capped height so it doesn't dominate the viewport.
-         The planner itself horizontally-scrolls within whatever
-         column space is left, which is what we want: kanban
-         columns stay readable rather than crushing. -->
-    <div
-      class="flex-1 min-h-0 flex flex-col md:grid"
-      style="grid-template-columns: 14rem 1fr"
-    >
-      <!-- Filter sidebar -->
-      <aside
-        class="border-b md:border-b-0 md:border-r border-subtle bg-surface overflow-y-auto p-4 flex flex-col gap-5 md:flex-col max-h-48 md:max-h-none"
+      <!-- Body: side-by-side grid at md+ (filter sidebar + planner); below md the
+           sidebar is a collapsible disclosure and the columns take the rest. The
+           planner scrolls horizontally so kanban columns stay readable. -->
+      <div
+        class="flex-1 min-h-0 flex flex-col md:grid"
+        style="grid-template-columns: 15rem 1fr"
       >
-        <div class="flex items-center justify-between">
-          <h2 class="text-[10px] uppercase tracking-wide font-semibold text-tertiary">{{ $t('asset-planner-filters-heading') }}</h2>
-          <button
-            v-if="activeFilterCount > 0"
-            type="button"
-            class="text-[11px] text-tertiary hover:text-primary"
-            @click="clearAllFilters"
-          >{{ $t('asset-planner-filters-clear', { count: activeFilterCount }) }}</button>
-        </div>
+        <!-- Filter sidebar: persistent at md+, collapsible below. -->
+        <aside
+          class="md:flex flex-col gap-4 border-b md:border-b-0 md:border-r border-subtle bg-surface overflow-y-auto p-4 max-h-[55vh] md:max-h-none"
+          :class="filtersOpen ? 'flex' : 'hidden'"
+        >
+          <div class="flex items-center justify-between">
+            <h2 class="text-[10px] uppercase tracking-wide font-semibold text-tertiary">
+              {{ $t('asset-planner-filters-heading') }}
+            </h2>
+            <button
+              v-if="activeFilterCount > 0"
+              type="button"
+              class="text-[11px] text-tertiary transition-colors hover:text-primary"
+              @click="clearAllFilters"
+            >
+              {{ $t('asset-planner-filters-clear', { count: activeFilterCount }) }}
+            </button>
+          </div>
 
-        <section v-if="knownOsFamilies.length > 0" class="flex flex-col gap-1">
-          <h3 class="text-[10px] uppercase tracking-wide font-semibold text-tertiary">{{ $t('asset-planner-section-os') }}</h3>
-          <button
-            v-for="os in knownOsFamilies"
-            :key="os"
-            type="button"
-            class="text-xs text-left px-2 py-1 rounded-md hover:bg-surface-hover transition-colors"
-            :class="osFilter.has(os) ? 'bg-accent/10 text-accent font-medium' : 'text-secondary'"
-            @click="toggleSetMember(osFilter, os)"
-          >
-            {{ osLabels[os] }}
-          </button>
-        </section>
+          <section v-if="knownOsFamilies.length > 0" class="flex flex-col gap-0.5">
+            <h3 class="mb-1 text-[10px] uppercase tracking-wide font-semibold text-tertiary">
+              {{ $t('asset-planner-section-os') }}
+            </h3>
+            <button
+              v-for="os in knownOsFamilies"
+              :key="os"
+              type="button"
+              :aria-pressed="osFilter.has(os)"
+              class="flex items-center gap-2 px-2 py-1 rounded-md text-xs text-left transition-colors"
+              :class="osFilter.has(os) ? 'bg-accent/10 text-accent font-medium' : 'text-secondary hover:bg-surface-hover'"
+              @click="toggleSetMember(osFilter, os)"
+            >
+              <span class="truncate">{{ osLabels[os] }}</span>
+              <span class="ml-auto tabular-nums text-[11px] text-tertiary">{{ osCounts[os] ?? 0 }}</span>
+            </button>
+          </section>
 
-        <section v-if="knownWarrantyBuckets.length > 0" class="flex flex-col gap-1">
-          <h3 class="text-[10px] uppercase tracking-wide font-semibold text-tertiary">{{ $t('asset-planner-section-warranty') }}</h3>
-          <button
-            v-for="b in knownWarrantyBuckets"
-            :key="b"
-            type="button"
-            class="text-xs text-left px-2 py-1 rounded-md hover:bg-surface-hover transition-colors"
-            :class="warrantyFilter.has(b) ? 'bg-accent/10 text-accent font-medium' : 'text-secondary'"
-            @click="toggleSetMember(warrantyFilter, b)"
-          >
-            {{ warrantyLabels[b] }}
-          </button>
-        </section>
+          <section v-if="knownWarrantyBuckets.length > 0" class="flex flex-col gap-0.5">
+            <h3 class="mb-1 text-[10px] uppercase tracking-wide font-semibold text-tertiary">
+              {{ $t('asset-planner-section-warranty') }}
+            </h3>
+            <button
+              v-for="b in knownWarrantyBuckets"
+              :key="b"
+              type="button"
+              :aria-pressed="warrantyFilter.has(b)"
+              class="flex items-center gap-2 px-2 py-1 rounded-md text-xs text-left transition-colors"
+              :class="warrantyFilter.has(b) ? 'bg-accent/10 text-accent font-medium' : 'text-secondary hover:bg-surface-hover'"
+              @click="toggleSetMember(warrantyFilter, b)"
+            >
+              <span class="truncate">{{ warrantyLabels[b] }}</span>
+              <span class="ml-auto tabular-nums text-[11px] text-tertiary">{{ warrantyCounts[b] ?? 0 }}</span>
+            </button>
+          </section>
 
-        <section v-if="knownComplianceStates.length > 0" class="flex flex-col gap-1">
-          <h3 class="text-[10px] uppercase tracking-wide font-semibold text-tertiary">{{ $t('asset-planner-section-compliance') }}</h3>
-          <button
-            v-for="c in knownComplianceStates"
-            :key="c"
-            type="button"
-            class="text-xs text-left px-2 py-1 rounded-md hover:bg-surface-hover transition-colors"
-            :class="complianceFilter.has(c) ? 'bg-accent/10 text-accent font-medium' : 'text-secondary'"
-            @click="toggleSetMember(complianceFilter, c)"
-          >
-            {{ c }}
-          </button>
-        </section>
+          <section v-if="knownComplianceStates.length > 0" class="flex flex-col gap-0.5">
+            <h3 class="mb-1 text-[10px] uppercase tracking-wide font-semibold text-tertiary">
+              {{ $t('asset-planner-section-compliance') }}
+            </h3>
+            <button
+              v-for="c in knownComplianceStates"
+              :key="c"
+              type="button"
+              :aria-pressed="complianceFilter.has(c)"
+              class="flex items-center gap-2 px-2 py-1 rounded-md text-xs text-left transition-colors"
+              :class="complianceFilter.has(c) ? 'bg-accent/10 text-accent font-medium' : 'text-secondary hover:bg-surface-hover'"
+              @click="toggleSetMember(complianceFilter, c)"
+            >
+              <span class="truncate">{{ c }}</span>
+              <span class="ml-auto tabular-nums text-[11px] text-tertiary">{{ complianceCounts[c] ?? 0 }}</span>
+            </button>
+          </section>
 
-        <p class="text-[11px] text-tertiary mt-2">
-          {{ $t('asset-planner-count', { visible: filteredRows.length, total: rows.length }) }}
-        </p>
-      </aside>
+          <p class="mt-auto pt-2 text-[11px] text-tertiary">
+            {{ $t('asset-planner-count', { visible: filteredRows.length, total: rows.length }) }}
+          </p>
+        </aside>
 
       <!-- Group columns -->
       <div class="overflow-auto p-4">
         <div
           v-if="buckets.length === 0"
-          class="text-tertiary text-sm italic p-8 text-center"
-        >{{ $t('asset-planner-empty') }}</div>
+          class="flex h-full items-center justify-center p-8 text-center text-sm italic text-tertiary"
+        >
+          {{ $t('asset-planner-empty') }}
+        </div>
 
         <div v-else class="flex gap-4 min-h-full">
           <section
@@ -350,9 +402,9 @@ const activeFilterCount = computed<number>(() =>
             :key="b.key"
             class="w-72 flex-shrink-0 flex flex-col bg-surface rounded-lg border border-default"
           >
-            <header class="flex items-center justify-between px-4 py-3 bg-surface-alt border-b border-subtle">
+            <header class="flex items-center justify-between gap-2 px-3 py-2.5 bg-surface-alt border-b border-subtle rounded-t-lg">
               <h3 class="text-sm font-semibold text-primary truncate">{{ b.label }}</h3>
-              <span class="text-xs text-tertiary bg-surface-hover rounded-md px-2 py-1 tabular-nums">
+              <span class="shrink-0 text-xs text-secondary bg-surface-hover rounded-md px-1.5 py-0.5 tabular-nums">
                 {{ b.rows.length }}
               </span>
             </header>
@@ -361,7 +413,7 @@ const activeFilterCount = computed<number>(() =>
               <article
                 v-for="d in b.rows"
                 :key="d.id"
-                class="bg-app rounded-md border border-subtle hover:border-default p-3 cursor-pointer transition-colors"
+                class="bg-app rounded-md border border-subtle hover:border-strong hover:bg-surface-hover/40 p-3 cursor-pointer transition-colors"
                 @click="openDevice(d.id)"
               >
                 <header class="flex items-start justify-between gap-2 mb-1">
