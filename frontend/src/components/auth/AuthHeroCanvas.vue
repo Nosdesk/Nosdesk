@@ -19,6 +19,15 @@ unavailable or the GPU still can't keep up.
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, ref, useTemplateRef } from 'vue';
 
+const props = withDefaults(
+  defineProps<{
+    /** When false, the N mask is left blank so the lit backdrop (beams,
+     *  fog, glow) renders without the brand glyph or its refraction. */
+    showLogo?: boolean;
+  }>(),
+  { showLogo: true },
+);
+
 const parentRef = useTemplateRef<HTMLDivElement>('parent');
 const canvasRef = useTemplateRef<HTMLCanvasElement>('canvas');
 const fallback = ref(false);
@@ -483,7 +492,7 @@ function palette(): { dark: Rgb; warm: Rgb; hot: Rgb; corona: Rgb } {
 const LOGO_TEX_MAX = 2048;
 
 // Rasterise the "N" glyph to a mask canvas, centred on the panel.
-function createLogoTexture(w: number, h: number): HTMLCanvasElement {
+function createLogoTexture(w: number, h: number, drawLogo: boolean): HTMLCanvasElement {
   const texScale = Math.min(LOGO_TEX_SCALE, LOGO_TEX_MAX / Math.max(w, h, 1));
   const c = document.createElement('canvas');
   c.width = Math.max(1, Math.round(w * texScale));
@@ -496,7 +505,9 @@ function createLogoTexture(w: number, h: number): HTMLCanvasElement {
   ctx.translate(w * 0.52 - drawn / 2, h * 0.48 - drawn / 2);
   ctx.scale(scale, scale);
   ctx.fillStyle = 'white';
-  ctx.fill(new Path2D(LOGO_PATH));
+  // Skip the glyph to keep the lit backdrop without the N (blank mask =
+  // all the logo-derived god rays / corona / refraction fall to zero).
+  if (drawLogo) ctx.fill(new Path2D(LOGO_PATH));
   return c;
 }
 
@@ -595,7 +606,7 @@ onMounted(() => {
 
   const w0 = parent.offsetWidth || 1200;
   const h0 = parent.offsetHeight || 800;
-  const webgl = initWebGL(canvas, createLogoTexture(w0, h0));
+  const webgl = initWebGL(canvas, createLogoTexture(w0, h0, props.showLogo));
   if (!webgl) {
     fallback.value = true;
     return;
@@ -715,7 +726,7 @@ onMounted(() => {
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, tex);
       gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, createLogoTexture(w, h));
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, createLogoTexture(w, h, props.showLogo));
     }
 
     gl.uniform1f(u.time, eased);

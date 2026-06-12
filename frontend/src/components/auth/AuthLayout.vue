@@ -67,7 +67,10 @@ withDefaults(
 
     <!-- Brand hero (desktop only) -->
     <aside class="auth-hero relative hidden flex-1 overflow-hidden lg:block">
-      <AuthHeroCanvas />
+      <!-- Drop the N when a view fills the hero itself (onboarding's
+           getting-started column), keeping the lit backdrop; show it
+           otherwise (login, MFA setup). -->
+      <AuthHeroCanvas :show-logo="!$slots['hero-content']" />
 
       <!-- Edge fades for legibility -->
       <div class="hero-fade-left pointer-events-none absolute inset-y-0 left-0 w-40"></div>
