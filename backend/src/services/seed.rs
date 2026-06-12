@@ -468,6 +468,7 @@ mod tests {
                 uuid: Uuid::now_v7(),
                 slug: "seedtest".to_string(),
                 name: "Seed Test".to_string(),
+                seat_limit: None,
             };
             let ws = workspaces::create_workspace(c, &record)?;
 

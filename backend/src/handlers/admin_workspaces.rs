@@ -111,6 +111,9 @@ pub async fn create_workspace(
         uuid: Uuid::now_v7(),
         slug: slug.clone(),
         name: name.clone(),
+        // Operator-provisioned workspaces are uncapped; the seat cap is a
+        // self-serve-trial guardrail set by the control plane.
+        seat_limit: None,
     };
 
     match pc.run(|conn| match workspaces::create_workspace(conn, &record) {

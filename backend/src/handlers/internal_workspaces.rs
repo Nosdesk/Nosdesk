@@ -99,6 +99,11 @@ pub struct CreateWorkspaceRequest {
     pub owner_email: String,
     #[serde(default)]
     pub owner_name: Option<String>,
+    /// Staff-seat cap for the new workspace (NULL/absent = unlimited). The
+    /// control plane sets this to 5 for self-serve trials; operator and
+    /// self-hosted provisions omit it.
+    #[serde(default)]
+    pub seat_limit: Option<i32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -132,6 +137,7 @@ pub async fn create_workspace(
         owner_user_uuid: _,
         owner_email: _,
         owner_name: _,
+        seat_limit,
     } = body.into_inner();
 
     if let Err(e) = validate_slug(&slug) {
@@ -153,6 +159,7 @@ pub async fn create_workspace(
         uuid: workspace_uuid,
         slug: slug.clone(),
         name: name.clone(),
+        seat_limit,
     };
 
     // Insert the workspace and seed its default content in one
@@ -209,6 +216,60 @@ pub async fn create_workspace(
         Err(CreateWorkspaceError::Db(e)) => {
             error!(error = ?e, "workspaces/create: db insert failed");
             errors::internal("Failed to create workspace")
+        }
+    }
+}
+
+/// Request body for `POST /api/internal/v1/workspaces/{slug}/seat_limit`.
+/// `seat_limit: null` clears the cap (unlimited).
+#[derive(Debug, Deserialize)]
+pub struct SetSeatLimitRequest {
+    pub seat_limit: Option<i32>,
+}
+
+/// `POST /api/internal/v1/workspaces/{slug}/seat_limit` — set or clear the
+/// workspace's staff seat cap. Idempotent (setting the same value is a no-op),
+/// so unlike `create` it doesn't require an Idempotency-Key. The control plane
+/// calls this with `seat_limit: null` to lift the trial cap on subscription
+/// activation. Returns 200 on success, 404 if the slug is unknown.
+pub async fn set_seat_limit(
+    _: PlatformAuth,
+    pool: web::Data<Pool>,
+    path: web::Path<String>,
+    body: web::Json<SetSeatLimitRequest>,
+) -> impl Responder {
+    let slug = path.into_inner();
+    let seat_limit = body.into_inner().seat_limit;
+
+    let mut conn = match pool_conn(&pool, "workspaces/seat_limit") {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+
+    // `workspaces` is BYPASSRLS-only (`nosdesk_app` has SELECT only), so the
+    // UPDATE runs under `nosdesk_admin` like the create insert.
+    let actor = crate::sync::actor::ActorContext::system("workspace:seat_limit");
+    let result = crate::sync::session::with_actor_bypass_context::<usize, diesel::result::Error>(
+        &mut conn,
+        &actor,
+        |c| workspaces::set_seat_limit(c, &slug, seat_limit),
+    );
+
+    match result {
+        Ok(0) => {
+            warn!(slug = %slug, "workspaces/seat_limit: unknown workspace");
+            HttpResponse::NotFound().json(json!({
+                "error": "workspace_not_found",
+                "message": format!("workspace '{slug}' not found"),
+            }))
+        }
+        Ok(_) => {
+            info!(slug = %slug, seat_limit = ?seat_limit, "workspaces/seat_limit: updated");
+            HttpResponse::Ok().json(json!({ "slug": slug, "seat_limit": seat_limit }))
+        }
+        Err(e) => {
+            error!(error = ?e, slug = %slug, "workspaces/seat_limit: update failed");
+            errors::internal("Failed to update seat limit")
         }
     }
 }

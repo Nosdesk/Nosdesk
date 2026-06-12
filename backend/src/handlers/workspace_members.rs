@@ -26,7 +26,7 @@ use std::sync::Arc;
 
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::db::Pool;
@@ -227,6 +227,13 @@ pub async fn update_member_role(
         Ok(ManageOutcome::Removed) => {
             // Unreachable in the update path.
             errors::internal("Inconsistent membership state")
+        }
+        Err(e) if workspaces::is_seat_limit_violation(&e) => {
+            warn!(workspace_id = ctx.workspace_id, %target, "promotion blocked by workspace seat limit");
+            HttpResponse::Forbidden().json(serde_json::json!({
+                "error": "seat_limit_reached",
+                "message": "This workspace has reached its seat limit. Contact support to add more seats.",
+            }))
         }
         Err(e) => {
             error!(error = ?e, workspace_id = ctx.workspace_id, %target, "workspace member role update failed");

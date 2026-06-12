@@ -17,6 +17,11 @@ use crate::db::DbConnection;
 use crate::models::{NewWorkspace, Workspace, WorkspaceMember};
 use crate::schema::{retired_slugs, workspace_members, workspaces};
 
+/// Staff roles that count toward a workspace's `seat_limit`. Mirrors
+/// [`crate::models::WorkspaceRole::is_staff`]; kept as a literal array for the
+/// SQL filter and the enforcement trigger.
+const STAFF_ROLES: [&str; 3] = ["owner", "admin", "agent"];
+
 /// Returned by [`create_workspace`] so the caller can distinguish a
 /// slug-collision from other DB failures without parsing error
 /// strings.
@@ -187,6 +192,46 @@ pub fn add_membership(
     .bind::<diesel::sql_types::Uuid, _>(user_uuid)
     .bind::<diesel::sql_types::Text, _>(role)
     .execute(conn)
+}
+
+/// Count the workspace's staff members (role IN owner/admin/agent) — the seats
+/// that count against `seat_limit`. End-user `member` rows are excluded.
+///
+/// The cap itself is enforced by the `tr_enforce_workspace_seat_limit` DB
+/// trigger (added in the `workspace_seat_limit` migration) so it holds across
+/// every membership-insert path, not just this repo. This helper backs reads +
+/// tests; [`is_seat_limit_violation`] maps the trigger's error to a 403.
+pub fn count_staff_members(conn: &mut DbConnection, workspace_id: i32) -> QueryResult<i64> {
+    workspace_members::table
+        .filter(workspace_members::workspace_id.eq(workspace_id))
+        .filter(workspace_members::role.eq_any(STAFF_ROLES))
+        .count()
+        .get_result(conn)
+}
+
+/// True when a Diesel error is the seat-limit trigger firing (a
+/// `check_violation` carrying the `workspace_seat_limit` constraint name).
+/// Handlers that grant staff memberships use this to return 403 instead of 500.
+pub fn is_seat_limit_violation(err: &DieselError) -> bool {
+    matches!(
+        err,
+        DieselError::DatabaseError(DatabaseErrorKind::CheckViolation, info)
+            if info.constraint_name() == Some("workspace_seat_limit")
+    )
+}
+
+// sync-audit-only: control-plane-driven staff-seat cap update; `workspaces` is a global meta-table, not on any tenant's live-sync stream
+/// Set (or clear) a workspace's staff `seat_limit` by slug. The control plane
+/// calls this to lift the trial cap (`None` = unlimited) when the subscription
+/// activates. Returns the number of rows updated (0 if the slug is unknown).
+pub fn set_seat_limit(
+    conn: &mut DbConnection,
+    slug: &str,
+    seat_limit: Option<i32>,
+) -> QueryResult<usize> {
+    diesel::update(workspaces::table.filter(workspaces::slug.eq(slug)))
+        .set(workspaces::seat_limit.eq(seat_limit))
+        .execute(conn)
 }
 
 /// Resolve the workspace that should be the audit-context root for a
@@ -530,6 +575,7 @@ mod tests {
             uuid: Uuid::now_v7(),
             slug: slug.to_string(),
             name: format!("Workspace {slug}"),
+            seat_limit: None,
         };
         as_admin(conn, |c| create_workspace(c, &record)).expect("create workspace")
     }
@@ -650,6 +696,7 @@ mod tests {
             uuid: Uuid::now_v7(),
             slug: "reuseme".to_string(),
             name: "Reuse Attempt".to_string(),
+            seat_limit: None,
         };
         let err = as_admin(&mut conn, |c| create_workspace(c, &record))
             .expect_err("retired slug must not be reusable");
@@ -966,6 +1013,115 @@ mod tests {
             rows[1].changed.as_deref().unwrap_or("").contains("role"),
             "role-change row should list role in changed_cols: {:?}",
             rows[1].changed
+        );
+    }
+
+    // ── Staff seat cap (workspace_seat_limit migration + trigger) ──────────
+
+    #[test]
+    fn seat_limit_caps_staff_but_not_members() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+        let ws = fresh_workspace(&mut conn, "seatcap");
+        as_admin(&mut conn, |c| set_seat_limit(c, &ws.slug, Some(2))).expect("set cap");
+
+        let (s1, s2, s3) = (
+            fresh_user(&mut conn, "seat-s1"),
+            fresh_user(&mut conn, "seat-s2"),
+            fresh_user(&mut conn, "seat-s3"),
+        );
+        let m1 = fresh_user(&mut conn, "seat-m1");
+
+        // Two staff fit the cap of 2.
+        as_admin(&mut conn, |c| add_membership(c, ws.id, s1, "owner")).expect("owner");
+        as_admin(&mut conn, |c| add_membership(c, ws.id, s2, "agent")).expect("agent");
+        assert_eq!(
+            as_admin(&mut conn, |c| count_staff_members(c, ws.id)).unwrap(),
+            2
+        );
+
+        // End-user members don't count against the cap.
+        as_admin(&mut conn, |c| add_membership(c, ws.id, m1, "member"))
+            .expect("member is uncapped");
+
+        // The third staff member trips the trigger.
+        let err = as_admin(&mut conn, |c| add_membership(c, ws.id, s3, "agent")).unwrap_err();
+        assert!(
+            is_seat_limit_violation(&err),
+            "expected seat-limit, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn null_seat_limit_is_uncapped() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+        let ws = fresh_workspace(&mut conn, "uncapped"); // seat_limit None
+        for i in 0..6 {
+            let u = fresh_user(&mut conn, &format!("unc-{i}"));
+            as_admin(&mut conn, |c| add_membership(c, ws.id, u, "agent")).expect("uncapped add");
+        }
+        assert_eq!(
+            as_admin(&mut conn, |c| count_staff_members(c, ws.id)).unwrap(),
+            6
+        );
+    }
+
+    #[test]
+    fn promotion_to_staff_respects_seat_limit() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+        let ws = fresh_workspace(&mut conn, "promote");
+        as_admin(&mut conn, |c| set_seat_limit(c, &ws.slug, Some(1))).expect("set cap");
+        let owner = fresh_user(&mut conn, "promo-owner");
+        let member = fresh_user(&mut conn, "promo-member");
+        as_admin(&mut conn, |c| add_membership(c, ws.id, owner, "owner")).expect("owner"); // 1 staff
+        as_admin(&mut conn, |c| add_membership(c, ws.id, member, "member")).expect("member");
+
+        // Promoting the member to a staff role would exceed the cap of 1.
+        let err = as_admin(&mut conn, |c| {
+            update_membership_role(c, ws.id, member, "agent")
+        })
+        .unwrap_err();
+        assert!(
+            is_seat_limit_violation(&err),
+            "expected seat-limit, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn set_seat_limit_sets_and_clears() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+        let ws = fresh_workspace(&mut conn, "setcap");
+
+        assert_eq!(
+            as_admin(&mut conn, |c| set_seat_limit(c, &ws.slug, Some(5))).unwrap(),
+            1
+        );
+        let lim: Option<i32> = as_admin(&mut conn, |c| {
+            workspaces::table
+                .find(ws.id)
+                .select(workspaces::seat_limit)
+                .first(c)
+        })
+        .unwrap();
+        assert_eq!(lim, Some(5));
+
+        as_admin(&mut conn, |c| set_seat_limit(c, &ws.slug, None)).unwrap();
+        let lifted: Option<i32> = as_admin(&mut conn, |c| {
+            workspaces::table
+                .find(ws.id)
+                .select(workspaces::seat_limit)
+                .first(c)
+        })
+        .unwrap();
+        assert_eq!(lifted, None, "lift clears the cap");
+
+        // Unknown slug → no rows updated.
+        assert_eq!(
+            as_admin(&mut conn, |c| set_seat_limit(c, "no-such-slug", Some(1))).unwrap(),
+            0
         );
     }
 }

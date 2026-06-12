@@ -153,6 +153,10 @@ pub struct Workspace {
     /// `PATCH /api/internal/v1/workspaces/{slug}/custom-domain`
     /// endpoint (M5 Task 5).
     pub custom_domain: Option<String>,
+    /// Staff-seat cap (NULL = unlimited). Set on a self-serve trial provision
+    /// (to 5) and lifted to NULL on subscription activation. Only staff roles
+    /// (owner/admin/agent) count against it. See `add_staff_membership_capped`.
+    pub seat_limit: Option<i32>,
 }
 
 /// Insertable for a new workspace row. The product owns workspace
@@ -167,6 +171,10 @@ pub struct NewWorkspace {
     pub uuid: Uuid,
     pub slug: String,
     pub name: String,
+    /// Staff-seat cap (NULL = unlimited). Set by the control plane on a
+    /// self-serve trial provision (to 5) and lifted to NULL on activation;
+    /// self-hosted / operator-provisioned workspaces leave it None.
+    pub seat_limit: Option<i32>,
 }
 
 /// Per-workspace membership for a global user. A user can be a
@@ -1999,6 +2007,13 @@ impl WorkspaceRole {
     /// (Owner > Admin > Agent > Member).
     pub fn meets(&self, min: WorkspaceRole) -> bool {
         *self >= min
+    }
+
+    /// True for staff roles (Owner / Admin / Agent) — the seats that count
+    /// toward a workspace's `seat_limit`. End-user `Member` (ticket
+    /// requesters) are uncapped.
+    pub fn is_staff(&self) -> bool {
+        self.meets(WorkspaceRole::Agent)
     }
 }
 

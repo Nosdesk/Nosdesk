@@ -381,6 +381,7 @@ pub fn mint_workspace(conn: &mut PgConnection, slug: &str, name: &str) -> i32 {
         uuid: Uuid::now_v7(),
         slug: slug.to_string(),
         name: name.to_string(),
+        seat_limit: None,
     };
     diesel::insert_into(workspaces::table)
         .values(&new_ws)
