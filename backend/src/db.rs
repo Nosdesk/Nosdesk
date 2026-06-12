@@ -37,6 +37,13 @@ impl r2d2::CustomizeConnection<PgConnection, r2d2::Error> for ResetAppGucs {
             "app.actor_ref",
             "app.correlation_id",
             "app.client_tx_id",
+            // Defense-in-depth for a retired isolation switch: no RLS
+            // policy reads `app.bypass_workspace_check` anymore (the
+            // 2026-06-12 migration dropped the last five), so this is
+            // inert today. Clearing it on every checkout guarantees the
+            // switch can never carry a stale `true` across pooled
+            // connections even if a future change reintroduces a reader.
+            "app.bypass_workspace_check",
         ] {
             diesel::sql_query("SELECT set_config($1, '', false)")
                 .bind::<diesel::sql_types::Text, _>(key)
