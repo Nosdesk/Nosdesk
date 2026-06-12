@@ -19,6 +19,7 @@ import { useQuery } from '@pinia/colada';
 import { formatDistanceToNow } from 'date-fns';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
+import BaseDropdown from '@/components/common/BaseDropdown.vue';
 import Button from '@/components/common/Button.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import Icon from '@/components/common/Icon.vue';
@@ -63,6 +64,27 @@ const loadError = computed(() =>
 function statusLabel(status: RuleApplicationStatus): string {
   return t(`admin-rules-activity-status-${status.replace(/_/g, '-')}`);
 }
+
+const statusFilterOptions = computed(() => [
+  { value: 'all', label: t('admin-rules-activity-filter-all') },
+  { value: 'succeeded', label: statusLabel('succeeded') },
+  { value: 'dry_run', label: statusLabel('dry_run') },
+  { value: 'failed', label: statusLabel('failed') },
+  { value: 'suppressed_recursion_budget', label: statusLabel('suppressed_recursion_budget') },
+  { value: 'suppressed_loop_guard', label: statusLabel('suppressed_loop_guard') },
+  { value: 'skipped_condition_unmet', label: statusLabel('skipped_condition_unmet') },
+  { value: 'skipped_preflight', label: statusLabel('skipped_preflight') },
+]);
+const limitOptions = computed(() =>
+  [25, 50, 100, 500].map((n) => ({ value: String(n), label: t('admin-rules-activity-limit', { n }) })),
+);
+// limit is numeric; BaseDropdown is string-valued, so bridge it.
+const limitModel = computed<string>({
+  get: () => String(limit.value),
+  set: (v) => {
+    limit.value = Number(v);
+  },
+});
 
 function statusVariant(status: RuleApplicationStatus): string {
   if (status === 'succeeded') return 'bg-success/10 text-success';
@@ -125,24 +147,18 @@ function back(): void {
     <AlertMessage v-if="loadError" type="error" :message="loadError" />
 
     <div class="flex flex-wrap items-center gap-3">
-      <select v-model="statusFilter" class="border rounded-md px-3 py-2 text-sm bg-surface">
-        <option value="all">{{ t('admin-rules-activity-filter-all') }}</option>
-        <option value="succeeded">{{ statusLabel('succeeded') }}</option>
-        <option value="dry_run">{{ statusLabel('dry_run') }}</option>
-        <option value="failed">{{ statusLabel('failed') }}</option>
-        <option value="suppressed_recursion_budget">
-          {{ statusLabel('suppressed_recursion_budget') }}
-        </option>
-        <option value="suppressed_loop_guard">{{ statusLabel('suppressed_loop_guard') }}</option>
-        <option value="skipped_condition_unmet">{{ statusLabel('skipped_condition_unmet') }}</option>
-        <option value="skipped_preflight">{{ statusLabel('skipped_preflight') }}</option>
-      </select>
-      <select v-model.number="limit" class="border rounded-md px-3 py-2 text-sm bg-surface">
-        <option :value="25">{{ t('admin-rules-activity-limit', { n: 25 }) }}</option>
-        <option :value="50">{{ t('admin-rules-activity-limit', { n: 50 }) }}</option>
-        <option :value="100">{{ t('admin-rules-activity-limit', { n: 100 }) }}</option>
-        <option :value="500">{{ t('admin-rules-activity-limit', { n: 500 }) }}</option>
-      </select>
+      <BaseDropdown
+        :model-value="statusFilter"
+        :options="statusFilterOptions"
+        size="sm"
+        @update:model-value="statusFilter = String($event) as RuleApplicationStatus | 'all'"
+      />
+      <BaseDropdown
+        :model-value="limitModel"
+        :options="limitOptions"
+        size="sm"
+        @update:model-value="limitModel = String($event)"
+      />
     </div>
 
     <Skeleton v-if="isFirstLoad" class="flex flex-col gap-2">
