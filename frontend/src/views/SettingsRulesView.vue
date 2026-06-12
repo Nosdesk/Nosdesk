@@ -16,6 +16,7 @@ import { useQuery, useQueryCache } from '@pinia/colada';
 import { formatDistanceToNow } from 'date-fns';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
+import BaseDropdown from '@/components/common/BaseDropdown.vue';
 import Button from '@/components/common/Button.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
@@ -89,6 +90,21 @@ function stateLabel(state: RuleState): string {
   return t(`admin-rules-state-${state.replace(/_/g, '-')}`);
 }
 
+const triggerFilterOptions = computed(() => [
+  { value: 'all', label: t('admin-rules-filter-trigger-all') },
+  { value: 'manual', label: triggerLabel('manual') },
+  { value: 'ticket_created', label: triggerLabel('ticket_created') },
+  { value: 'ticket_updated', label: triggerLabel('ticket_updated') },
+  { value: 'ticket_replied', label: triggerLabel('ticket_replied') },
+  { value: 'time_elapsed', label: triggerLabel('time_elapsed') },
+]);
+const stateFilterOptions = computed(() => [
+  { value: 'all', label: t('admin-rules-filter-state-all') },
+  { value: 'draft', label: stateLabel('draft') },
+  { value: 'dry_run', label: stateLabel('dry_run') },
+  { value: 'live', label: stateLabel('live') },
+]);
+
 const errorMessage = ref('');
 const archiveTarget = ref<Rule | null>(null);
 
@@ -158,26 +174,18 @@ async function toggleLive(rule: Rule): Promise<void> {
         :placeholder="t('admin-rules-search-placeholder')"
         class="flex-1 min-w-[12rem]"
       />
-      <select
-        v-model="triggerFilter"
-        class="border rounded-md px-3 py-2 text-sm bg-surface"
-      >
-        <option value="all">{{ t('admin-rules-filter-trigger-all') }}</option>
-        <option value="manual">{{ triggerLabel('manual') }}</option>
-        <option value="ticket_created">{{ triggerLabel('ticket_created') }}</option>
-        <option value="ticket_updated">{{ triggerLabel('ticket_updated') }}</option>
-        <option value="ticket_replied">{{ triggerLabel('ticket_replied') }}</option>
-        <option value="time_elapsed">{{ triggerLabel('time_elapsed') }}</option>
-      </select>
-      <select
-        v-model="stateFilter"
-        class="border rounded-md px-3 py-2 text-sm bg-surface"
-      >
-        <option value="all">{{ t('admin-rules-filter-state-all') }}</option>
-        <option value="draft">{{ stateLabel('draft') }}</option>
-        <option value="dry_run">{{ stateLabel('dry_run') }}</option>
-        <option value="live">{{ stateLabel('live') }}</option>
-      </select>
+      <BaseDropdown
+        :model-value="triggerFilter"
+        :options="triggerFilterOptions"
+        size="sm"
+        @update:model-value="triggerFilter = String($event) as RuleTriggerKind | 'all'"
+      />
+      <BaseDropdown
+        :model-value="stateFilter"
+        :options="stateFilterOptions"
+        size="sm"
+        @update:model-value="stateFilter = String($event) as RuleState | 'all'"
+      />
     </div>
 
     <Skeleton v-if="isFirstLoad" class="flex flex-col gap-2">
