@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
 import AlertMessage from '@/components/common/AlertMessage.vue'
+import BaseDropdown from '@/components/common/BaseDropdown.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import Icon from '@/components/common/Icon.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
@@ -31,6 +32,14 @@ const successMessage = ref('')
 // see workflowColors.ts. Adding `slate` / `purple` back is purely a
 // design-system change (distinct CSS vars) once they earn their keep.
 const COLOR_TOKENS = SUPPORTED_COLOR_TOKENS
+
+// BaseDropdown options for the palette, each carrying its swatch as a
+// leading tone dot so the menu previews the colour.
+const colorOptions = COLOR_TOKENS.map((c) => ({
+  value: c,
+  label: c,
+  tones: [paletteForColor(c).solid],
+}))
 
 interface DraftState {
   name: string
@@ -73,6 +82,13 @@ function flash(message: string) {
   setTimeout(() => {
     if (successMessage.value === message) successMessage.value = ''
   }, 2500)
+}
+
+function onDraftColor(state: WorkflowState, value: string) {
+  const draft = drafts.value[state.id]
+  if (!draft) return
+  draft.color = value
+  void saveDraft(state)
 }
 
 async function saveDraft(state: WorkflowState) {
@@ -229,14 +245,14 @@ onMounted(() => {
               @blur="saveDraft(state)"
               @keydown.enter.prevent="saveDraft(state)"
             />
-            <select
+            <BaseDropdown
               v-if="drafts[state.id]"
-              v-model="drafts[state.id].color"
-              class="bg-surface border border-subtle rounded px-2 py-1 text-sm text-primary"
-              @change="saveDraft(state)"
-            >
-              <option v-for="c in COLOR_TOKENS" :key="c" :value="c">{{ c }}</option>
-            </select>
+              :model-value="drafts[state.id].color"
+              :options="colorOptions"
+              size="xs"
+              class="w-32"
+              @update:model-value="onDraftColor(state, String($event))"
+            />
             <span
               v-if="state.is_default"
               class="text-[10px] uppercase tracking-wide font-semibold text-accent border border-accent/40 bg-accent/10 rounded px-1.5 py-0.5"
@@ -285,12 +301,13 @@ onMounted(() => {
             class="flex-1 min-w-[150px] bg-surface border border-subtle rounded px-2 py-1 text-sm text-primary focus:border-accent focus:outline-none"
             @keydown.enter.prevent="createInCategory(cat)"
           />
-          <select
-            v-model="newStateInputs[cat].color"
-            class="bg-surface border border-subtle rounded px-2 py-1 text-sm text-primary"
-          >
-            <option v-for="c in COLOR_TOKENS" :key="c" :value="c">{{ c }}</option>
-          </select>
+          <BaseDropdown
+            :model-value="newStateInputs[cat].color"
+            :options="colorOptions"
+            size="xs"
+            class="w-32"
+            @update:model-value="newStateInputs[cat].color = String($event)"
+          />
           <button
             type="button"
             class="text-sm text-accent hover:underline"

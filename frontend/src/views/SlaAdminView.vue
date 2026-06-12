@@ -547,10 +547,9 @@ function fmtMinutes(m: number | null): string {
   return `${(m / (24 * 60)).toFixed(m % (24 * 60) === 0 ? 0 : 1)}d`
 }
 
-// Mirrors FormInput's size="sm" field styling so the bare <select>
-// and the bare number-input read as the same control. If a
-// FormSelect / FormNumberInput primitive lands later this constant
-// disappears.
+// Mirrors FormInput's size="sm" field styling so the bare
+// number-inputs read as the same control. If a FormNumberInput
+// primitive lands later this constant disappears.
 const FIELD_CLASS_SM =
   'w-full bg-surface-alt border border-subtle rounded-lg text-primary px-3 py-1.5 text-sm ' +
   'placeholder-tertiary transition-colors ' +

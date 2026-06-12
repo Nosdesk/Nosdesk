@@ -21,6 +21,7 @@
 import { computed, ref, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
 import type { CardData } from './types'
+import BaseDropdown from '@/components/common/BaseDropdown.vue'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import { priorityForBadge } from '@/utils/priorityHelpers'
 
@@ -28,6 +29,15 @@ const fluent = useFluent()
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
 
 type DateField = 'due_date' | 'created_at' | 'last_activity_at'
+
+// The anchor picker is a locked indicator today (changing the anchor
+// is a future feature); the options exist so the trigger reads the
+// current field's label.
+const anchorOptions = computed(() => [
+  { value: 'due_date', label: t('calendar-anchor-due-date') },
+  { value: 'created_at', label: t('calendar-anchor-created') },
+  { value: 'last_activity_at', label: t('calendar-anchor-last-activity') },
+])
 
 /** Overlay item rendered on a day cell. The parent fetches these
  * (e.g. device warranty expiries) and passes them in pre-bucketed.
@@ -256,16 +266,13 @@ watch(grid, (cells) => {
       </div>
       <div class="flex items-center gap-3">
         <span class="text-[10px] uppercase tracking-wide text-tertiary">{{ t('calendar-anchor-label') }}</span>
-        <select
-          class="bg-surface border border-subtle rounded-md text-xs px-2 py-1 text-primary"
-          :value="dateField"
+        <BaseDropdown
+          :model-value="dateField"
+          :options="anchorOptions"
+          size="xs"
           disabled
           :title="t('calendar-anchor-tooltip')"
-        >
-          <option value="due_date">{{ t('calendar-anchor-due-date') }}</option>
-          <option value="created_at">{{ t('calendar-anchor-created') }}</option>
-          <option value="last_activity_at">{{ t('calendar-anchor-last-activity') }}</option>
-        </select>
+        />
       </div>
     </header>
 

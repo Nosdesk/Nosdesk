@@ -21,6 +21,7 @@ import { useFluent } from 'fluent-vue';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import Modal from '@/components/Modal.vue';
+import BaseDropdown from '@/components/common/BaseDropdown.vue';
 import Button from '@/components/common/Button.vue';
 import Checkbox from '@/components/common/Checkbox.vue';
 import FormNumber from '@/components/common/FormNumber.vue';
@@ -448,16 +449,13 @@ const saveButtonLabel = computed(() =>
               @update:model-value="(v: boolean) => (settingValues[def.key] = v)"
             />
 
-            <select
+            <BaseDropdown
               v-else-if="def.type === 'select' && def.options"
-              :id="`setting-${def.key}`"
-              v-model="settingValues[def.key]"
-              class="w-full rounded-lg border border-default bg-surface-alt px-3 py-2 text-primary focus:border-transparent focus:ring-2 focus:ring-accent focus:outline-none"
-            >
-              <option v-for="opt in def.options" :key="opt.value" :value="opt.value">
-                {{ opt.label }}
-              </option>
-            </select>
+              :model-value="String(settingValues[def.key] ?? '')"
+              :options="def.options"
+              size="sm"
+              @update:model-value="(v) => (settingValues[def.key] = String(v))"
+            />
           </div>
 
           <p v-if="saveError" class="text-sm text-status-error" role="alert">

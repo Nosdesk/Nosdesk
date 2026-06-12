@@ -19,6 +19,7 @@ import { useQuery, useQueryCache } from '@pinia/colada';
 import { formatDistanceToNow } from 'date-fns';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
+import BaseDropdown from '@/components/common/BaseDropdown.vue';
 import Button from '@/components/common/Button.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
@@ -113,6 +114,17 @@ function memberDisplayName(uuid: string): string {
 function roleLabel(role: WorkspaceRole): string {
   return t(`admin-workspace-members-role-${role}`);
 }
+
+/** Per-row role options. Roles the caller can't grant are disabled,
+ *  except the member's current role (always shown so the value reads
+ *  correctly). */
+function roleOptionsFor(member: WorkspaceMember) {
+  return WORKSPACE_ROLES.map((role) => ({
+    value: role,
+    label: roleLabel(role),
+    disabled: !canAssign(role) && role !== member.role,
+  }));
+}
 function formatWhen(iso: string | null): string {
   if (!iso) return t('admin-workspace-members-accepted-pending');
   try {
@@ -149,8 +161,8 @@ async function removeMember(userUuid: string) {
   }
 }
 
-function onRoleChange(member: WorkspaceMember, event: Event) {
-  const newRole = (event.target as HTMLSelectElement).value as WorkspaceRole;
+function onRoleChange(member: WorkspaceMember, value: string) {
+  const newRole = value as WorkspaceRole;
   if (newRole === member.role || !canEditRow(member)) return;
   void changeRole(member.user_uuid, newRole);
 }
@@ -263,22 +275,14 @@ function confirmRemove() {
                     </div>
                   </td>
                   <td class="px-3 py-2">
-                    <select
+                    <BaseDropdown
                       v-if="canEditRow(member)"
-                      :value="member.role"
-                      class="px-2 py-1.5 bg-surface-alt border border-default rounded-md text-sm text-primary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent disabled:opacity-50"
+                      :model-value="member.role"
+                      :options="roleOptionsFor(member)"
+                      size="sm"
                       :disabled="isSaving"
-                      @change="onRoleChange(member, $event)"
-                    >
-                      <option
-                        v-for="role in WORKSPACE_ROLES"
-                        :key="role"
-                        :value="role"
-                        :disabled="!canAssign(role) && role !== member.role"
-                      >
-                        {{ roleLabel(role) }}
-                      </option>
-                    </select>
+                      @update:model-value="onRoleChange(member, String($event))"
+                    />
                     <span
                       v-else
                       class="inline-flex items-center px-2 py-1 rounded-md bg-surface-alt text-secondary text-xs"

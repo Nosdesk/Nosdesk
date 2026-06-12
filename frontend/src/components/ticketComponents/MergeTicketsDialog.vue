@@ -11,6 +11,7 @@ import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import Modal from '@/components/Modal.vue'
+import BaseDropdown from '@/components/common/BaseDropdown.vue'
 import Button from '@/components/common/Button.vue'
 import FormTextarea from '@/components/common/FormTextarea.vue'
 import FormInput from '@/components/common/FormInput.vue'
@@ -61,6 +62,17 @@ const canSubmit = computed(() => count.value >= 2 && destinationId.value !== nul
 
 const sources = computed(() =>
   props.selectedTickets.filter((t) => t.id !== destinationId.value),
+)
+
+// BaseDropdown is string-valued; bridge the numeric destination id.
+const destinationModel = computed<string>({
+  get: () => (destinationId.value == null ? '' : String(destinationId.value)),
+  set: (v) => {
+    destinationId.value = v === '' ? null : Number(v)
+  },
+})
+const destinationOptions = computed(() =>
+  props.selectedTickets.map((t) => ({ value: String(t.id), label: `#${t.id} ${t.title}` })),
 )
 
 /** Oldest selected ticket: by created timestamp when present (ISO
@@ -166,14 +178,12 @@ async function submit() {
       <!-- Destination picker -->
       <label class="flex flex-col gap-1.5 text-sm">
         <span class="text-tertiary">{{ $t('ticket-merge-destination-label') }}</span>
-        <select
-          v-model.number="destinationId"
-          class="w-full px-3 py-2 text-sm rounded border border-default bg-surface focus:outline-none focus:border-accent"
-        >
-          <option v-for="t in selectedTickets" :key="t.id" :value="t.id">
-            #{{ t.id }} {{ t.title }}
-          </option>
-        </select>
+        <BaseDropdown
+          :model-value="destinationModel"
+          :options="destinationOptions"
+          size="sm"
+          @update:model-value="destinationModel = String($event)"
+        />
       </label>
 
       <!-- Source list (the non-destination selected tickets) -->

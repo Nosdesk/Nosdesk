@@ -14,6 +14,7 @@ import { formatDistanceToNow } from 'date-fns';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import BackButton from '@/components/common/BackButton.vue';
+import BaseDropdown from '@/components/common/BaseDropdown.vue';
 import Button from '@/components/common/Button.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
@@ -120,6 +121,22 @@ function roleLabel(role: WorkspaceRole): string {
   return t(`admin-workspace-members-role-${role}`);
 }
 
+const inviteRoleOptions = computed(() =>
+  WORKSPACE_ROLES.map((role) => ({ value: role, label: roleLabel(role) })),
+);
+
+/** Per-row role options. The sole owner can't be demoted, so every
+ *  non-owner option is disabled in that row (the whole control is also
+ *  disabled, but this keeps the menu honest). */
+function roleOptionsFor(member: WorkspaceMember) {
+  const sole = isSoleOwner(member);
+  return WORKSPACE_ROLES.map((role) => ({
+    value: role,
+    label: roleLabel(role),
+    disabled: sole && role !== 'owner',
+  }));
+}
+
 function formatWhen(iso: string | null): string {
   if (!iso) return t('admin-workspace-members-accepted-pending');
   try {
@@ -200,9 +217,8 @@ function submitInvite() {
   void addMember(uuid, inviteRole.value);
 }
 
-function onRoleChange(member: WorkspaceMember, event: Event) {
-  const select = event.target as HTMLSelectElement;
-  const newRole = select.value as WorkspaceRole;
+function onRoleChange(member: WorkspaceMember, value: string) {
+  const newRole = value as WorkspaceRole;
   if (newRole === member.role || isSoleOwner(member)) return;
   void changeRole(member.user_uuid, newRole);
 }
@@ -303,22 +319,14 @@ function confirmRemove() {
               </div>
             </div>
             <div class="sm:w-40">
-              <label
-                for="invite-role"
-                class="block text-xs font-medium text-secondary mb-1"
-              >
-                {{ $t('admin-workspace-members-invite-role-label') }}
-              </label>
-              <select
-                id="invite-role"
-                v-model="inviteRole"
-                class="w-full px-3 py-2 bg-surface-alt border border-default rounded-lg text-sm text-primary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent"
+              <BaseDropdown
+                :model-value="inviteRole"
+                :options="inviteRoleOptions"
+                :label="$t('admin-workspace-members-invite-role-label')"
+                size="sm"
                 :disabled="isSaving"
-              >
-                <option v-for="role in WORKSPACE_ROLES" :key="role" :value="role">
-                  {{ roleLabel(role) }}
-                </option>
-              </select>
+                @update:model-value="inviteRole = String($event) as WorkspaceRole"
+              />
             </div>
             <Button
               class="sm:self-end shrink-0"
@@ -384,26 +392,13 @@ function confirmRemove() {
                     </div>
                   </td>
                   <td class="px-3 py-2">
-                    <select
-                      :value="member.role"
-                      class="px-2 py-1.5 bg-surface-alt border border-default rounded-md text-sm text-primary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+                    <BaseDropdown
+                      :model-value="member.role"
+                      :options="roleOptionsFor(member)"
+                      size="sm"
                       :disabled="isSaving || isSoleOwner(member)"
-                      :title="
-                        isSoleOwner(member)
-                          ? $t('admin-workspace-members-last-owner-hint')
-                          : undefined
-                      "
-                      @change="onRoleChange(member, $event)"
-                    >
-                      <option
-                        v-for="role in WORKSPACE_ROLES"
-                        :key="role"
-                        :value="role"
-                        :disabled="isSoleOwner(member) && role !== 'owner'"
-                      >
-                        {{ roleLabel(role) }}
-                      </option>
-                    </select>
+                      @update:model-value="onRoleChange(member, String($event))"
+                    />
                   </td>
                   <td class="px-3 py-2 text-secondary whitespace-nowrap">
                     {{ formatWhen(member.invited_at) }}

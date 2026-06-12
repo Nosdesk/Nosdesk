@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import { useQuery, useQueryCache } from '@pinia/colada';
+import BaseDropdown from '@/components/common/BaseDropdown.vue';
 import Button from '@/components/common/Button.vue';
 import FormInput from '@/components/common/FormInput.vue';
 import FormTextarea from '@/components/common/FormTextarea.vue';
@@ -76,6 +77,12 @@ const loanDueBack = ref('');
 
 const statusOptions = computed(() =>
   ASSET_STATUSES.filter((s) => s !== props.currentStatus),
+);
+const statusDropdownOptions = computed(() =>
+  statusOptions.value.map((status) => ({
+    value: status,
+    label: t(metaForAssetStatus(status).labelKey),
+  })),
 );
 
 function resetForm() {
@@ -256,20 +263,13 @@ function metadataLines(event: AssetLifecycleEvent): string[] {
       @close="closeModal"
     >
       <div class="flex flex-col gap-4">
-        <div class="flex flex-col gap-1.5">
-          <label class="text-sm font-medium text-primary" for="lifecycle-to-status">
-            {{ $t('asset-lifecycle-modal-to-status') }}
-          </label>
-          <select
-            id="lifecycle-to-status"
-            v-model="toStatus"
-            class="bg-surface-alt rounded-lg border border-default px-3 py-2 text-primary text-sm w-full"
-          >
-            <option v-for="status in statusOptions" :key="status" :value="status">
-              {{ $t(metaForAssetStatus(status).labelKey) }}
-            </option>
-          </select>
-        </div>
+        <BaseDropdown
+          :model-value="toStatus"
+          :options="statusDropdownOptions"
+          :label="$t('asset-lifecycle-modal-to-status')"
+          size="sm"
+          @update:model-value="toStatus = String($event) as AssetStatus"
+        />
 
         <FormTextarea
           v-model="reason"

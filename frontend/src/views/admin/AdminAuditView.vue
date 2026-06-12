@@ -128,6 +128,12 @@ const actorOptions = computed<DropdownOption[]>(() => {
 function onActorChange(value: string | string[]): void {
   actorFilter.value = Array.isArray(value) ? (value[0] ?? '') : value;
 }
+const severityOptions = computed<DropdownOption[]>(() => [
+  { value: '', label: t('admin-audit-severity-any') },
+  { value: 'info', label: 'info' },
+  { value: 'warning', label: 'warning' },
+  { value: 'error', label: 'error' },
+]);
 const hasMore = computed(() => auditList.hasNextPage.value);
 const isFetching = computed(() => auditList.asyncStatus.value === 'loading');
 const isFirstLoad = computed(() => isFetching.value && entries.value.length === 0);
@@ -439,17 +445,14 @@ function clearFilters() {
             class="h-9 px-2 rounded border border-default bg-surface-alt text-primary text-sm w-full sm:w-44 font-mono focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
           />
         </label>
-        <label class="flex flex-col gap-1 text-xs text-secondary">
+        <label class="flex flex-col gap-1 text-xs text-secondary w-full sm:w-40">
           <span>{{ $t('admin-audit-filter-severity') }}</span>
-          <select
-            v-model="severityFilter"
-            class="h-9 px-2 rounded border border-default bg-surface-alt text-primary text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-          >
-            <option value="">{{ $t('admin-audit-severity-any') }}</option>
-            <option value="info">info</option>
-            <option value="warning">warning</option>
-            <option value="error">error</option>
-          </select>
+          <BaseDropdown
+            :model-value="severityFilter"
+            :options="severityOptions"
+            size="sm"
+            @update:model-value="severityFilter = String($event)"
+          />
         </label>
         <label class="flex flex-col gap-1 text-xs text-secondary w-full sm:w-56">
           <span>{{ $t('admin-audit-filter-actor') }}</span>

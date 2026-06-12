@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import BaseDropdown from '@/components/common/BaseDropdown.vue';
 import UserAttributePicker from '@/components/assets/UserAttributePicker.vue';
 import AssetAttributePicker from '@/components/assets/AssetAttributePicker.vue';
 
@@ -124,6 +125,15 @@ function stringValue(key: string): string {
 function boolValue(key: string): boolean {
   return Boolean(props.modelValue[key]);
 }
+
+/** BaseDropdown options for an enum property, with a leading blank
+ *  choice so the field can be cleared. */
+function enumOptions(prop: SchemaProperty): { value: string; label: string }[] {
+  return [
+    { value: '', label: '--' },
+    ...(prop.enum ?? []).map((opt) => ({ value: String(opt), label: String(opt) })),
+  ];
+}
 </script>
 
 <template>
@@ -160,18 +170,14 @@ function boolValue(key: string): boolean {
       />
 
       <!-- enum -> select -->
-      <select
+      <BaseDropdown
         v-else-if="Array.isArray(prop.enum) && prop.enum.length > 0"
         :disabled="disabled"
-        :value="stringValue(key)"
-        class="bg-surface-alt rounded-lg border border-default px-3 py-2 text-primary text-sm"
-        @change="(e) => updateField(key, (e.target as HTMLSelectElement).value)"
-      >
-        <option value="">--</option>
-        <option v-for="opt in prop.enum" :key="String(opt)" :value="String(opt)">
-          {{ String(opt) }}
-        </option>
-      </select>
+        :model-value="stringValue(key)"
+        :options="enumOptions(prop)"
+        size="sm"
+        @update:model-value="(v) => updateField(key, String(v))"
+      />
 
       <!-- boolean -> checkbox -->
       <label
