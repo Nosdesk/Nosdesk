@@ -185,6 +185,23 @@ pub fn inspect_role_rls_posture(pool: &Pool) -> Result<RoleRlsPosture, String> {
     })
 }
 
+/// Resolve `(max_size, min_idle)` for the pool from the env strings,
+/// applying the same defaults and clamps as the live pool. Split out as a
+/// pure fn so the bounds are unit-testable without touching process env or
+/// a database: `max_size` defaults to 10 and is clamped to `2..=100`;
+/// `min_idle` defaults to 1 and can never exceed `max_size`.
+fn resolve_pool_sizing(max_size_env: Option<String>, min_idle_env: Option<String>) -> (u32, u32) {
+    let max_size = max_size_env
+        .and_then(|v| v.trim().parse::<u32>().ok())
+        .unwrap_or(10)
+        .clamp(2, 100);
+    let min_idle = min_idle_env
+        .and_then(|v| v.trim().parse::<u32>().ok())
+        .unwrap_or(1)
+        .min(max_size);
+    (max_size, min_idle)
+}
+
 pub fn establish_connection_pool() -> Pool {
     dotenv().ok();
 
@@ -199,10 +216,54 @@ pub fn establish_connection_pool() -> Pool {
         }
     };
 
+    // Pool sizing. `DB_MAX_CONNECTIONS` is the per-machine connection cap to
+    // budget against Postgres `max_connections`: across N machines the peak
+    // is `N × (max_size + dedicated LISTEN connections)` plus headroom for
+    // migrations / psql / monitoring / the control plane.
+    //
+    // `DB_MIN_CONNECTIONS` (min_idle) is kept low on purpose. r2d2 treats an
+    // unset `min_idle` as `= max_size`, so the default behaviour is to
+    // eagerly open and then pin the full cap on every machine, even when
+    // idle. A low min_idle makes the footprint elastic: an idle machine
+    // holds only a couple of connections and grows to `max_size` under load,
+    // releasing the slack again via `idle_timeout`.
+    let (max_size, min_idle) = resolve_pool_sizing(
+        env::var("DB_MAX_CONNECTIONS").ok(),
+        env::var("DB_MIN_CONNECTIONS").ok(),
+    );
+    // How long a checkout waits for a free connection before erroring (pool
+    // exhausted). Defaults to r2d2's 30s; clamped to a sane band.
+    let connection_timeout = env::var("DB_CONNECTION_TIMEOUT")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .unwrap_or(30)
+        .clamp(1, 120);
+
+    // Dedicated (non-pool) LISTEN connections each machine also holds, so
+    // the logged budget reflects the true peak. Keep in sync with the
+    // listener spawns in `main.rs`.
+    let listen_conns = 2 // sync_outbox + email_queue (always spawned)
+        + u32::from(
+            env::var("NOSDESK_SEARCH_REPLICATION")
+                .map(|v| v.trim().eq_ignore_ascii_case("true"))
+                .unwrap_or(false), // search_replicator (opt-in)
+        );
+    info!(
+        max_size,
+        min_idle,
+        connection_timeout_secs = connection_timeout,
+        dedicated_listen = listen_conns,
+        peak_per_machine = max_size + listen_conns,
+        "DB pool sizing — budget: N_machines × peak_per_machine + headroom ≤ Postgres max_connections"
+    );
+
     info!("Attempting to create database connection pool");
     let manager = ConnectionManager::<PgConnection>::new(database_url);
 
     match r2d2::Pool::builder()
+        .max_size(max_size)
+        .min_idle(Some(min_idle))
+        .connection_timeout(Duration::from_secs(connection_timeout))
         .connection_customizer(Box::new(ResetAppGucs))
         .build(manager)
     {
@@ -245,5 +306,42 @@ mod role_posture_tests {
             !posture.bypasses_rls,
             "nosdesk_app is NOBYPASSRLS and must not be flagged as bypassing"
         );
+    }
+}
+
+#[cfg(test)]
+mod pool_sizing_tests {
+    use super::resolve_pool_sizing;
+
+    fn sz(max: Option<&str>, min: Option<&str>) -> (u32, u32) {
+        resolve_pool_sizing(max.map(String::from), min.map(String::from))
+    }
+
+    #[test]
+    fn defaults_when_unset() {
+        assert_eq!(sz(None, None), (10, 1));
+    }
+
+    #[test]
+    fn max_size_clamped_and_garbage_falls_back() {
+        assert_eq!(sz(Some("1"), None).0, 2, "floor");
+        assert_eq!(sz(Some("500"), None).0, 100, "ceiling");
+        assert_eq!(sz(Some("not-a-number"), None).0, 10, "garbage -> default");
+        assert_eq!(sz(Some(" 25 "), None).0, 25, "trimmed");
+    }
+
+    #[test]
+    fn min_idle_never_exceeds_max_size() {
+        assert_eq!(
+            sz(Some("3"), Some("5")),
+            (3, 3),
+            "min_idle clamped to max_size"
+        );
+        assert_eq!(
+            sz(Some("10"), Some("0")),
+            (10, 0),
+            "zero allowed (fully lazy)"
+        );
+        assert_eq!(sz(Some("10"), Some("4")), (10, 4));
     }
 }
