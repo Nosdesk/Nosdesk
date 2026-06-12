@@ -10,6 +10,7 @@
 use actix_web::{web, HttpResponse, Responder};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
+use std::sync::Arc;
 use tracing::error;
 
 use crate::extractors::{AuthContext, TenantConn};
@@ -18,6 +19,7 @@ use crate::repository::analytics::{
     self, AnnotationQuery, BreakdownGroupBy, BreakdownQuery, HeatmapQuery, KpiMetric, KpiQuery,
     KpiSummaryQuery, LeaderboardActor, LeaderboardQuery, TimeseriesQuery, TsMeasure, TsTimeField,
 };
+use crate::utils::analytics_cache::{self, AnalyticsCache};
 
 /// Per-plan cap on top_n; chosen to keep the chart legible. The
 /// handler clamps incoming values so a too-large request degrades
@@ -157,9 +159,15 @@ pub struct KpiSummaryParams {
 /// request whose scalar counts come from one conditional-aggregation
 /// pass. Same per-metric `KpiResult` shape, so the frontend types are
 /// unchanged.
+///
+/// The payload is cached in Redis under a workspace-scoped key with a
+/// short TTL, so repeated loads of the same window (every viewer, every
+/// refresh) skip the DB entirely. The cache is best-effort: any Redis
+/// error falls through to the live query.
 pub async fn get_kpi_summary(
     mut tc: TenantConn,
     query: web::Query<KpiSummaryParams>,
+    cache: web::Data<Option<Arc<AnalyticsCache>>>,
 ) -> impl Responder {
     let params = query.into_inner();
 
@@ -189,6 +197,28 @@ pub async fn get_kpi_summary(
         .map(|z| z.name().to_string())
         .unwrap_or_else(|| "UTC".to_string());
 
+    // Cache key is workspace-scoped: serving one tenant's aggregate to
+    // another would be a tenancy violation. Skip the cache entirely if
+    // the request somehow lacks a workspace (it shouldn't on this route).
+    let cache = cache.get_ref().as_ref();
+    let cache_key = tc.workspace_id().map(|ws| {
+        analytics_cache::kpi_summary_key(
+            ws,
+            &params.from.to_rfc3339(),
+            &params.to.to_rfc3339(),
+            prior.map(|(pf, _)| pf.to_rfc3339()).as_deref(),
+            prior.map(|(_, pt)| pt.to_rfc3339()).as_deref(),
+            params.sparkline,
+            &tz,
+        )
+    });
+
+    if let (Some(c), Some(key)) = (cache, &cache_key) {
+        if let Some(hit) = c.get_json::<analytics::KpiSummaryResult>(key).await {
+            return HttpResponse::Ok().json(hit);
+        }
+    }
+
     let q = KpiSummaryQuery {
         from: params.from,
         to: params.to,
@@ -198,7 +228,13 @@ pub async fn get_kpi_summary(
     };
 
     match tc.run(|conn| analytics::kpi_summary(conn, q)) {
-        Ok(result) => HttpResponse::Ok().json(result),
+        Ok(result) => {
+            if let (Some(c), Some(key)) = (cache, &cache_key) {
+                c.set_json(key, &result, analytics_cache::DEFAULT_TTL_SECS)
+                    .await;
+            }
+            HttpResponse::Ok().json(result)
+        }
         Err(e) => {
             error!(error = %e, "kpi summary query failed");
             errors::internal("kpi summary unavailable")

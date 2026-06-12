@@ -74,7 +74,7 @@ pub struct KpiQuery {
     pub tz: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KpiResult {
     pub value: i64,
     /// `Some(prior - value? no, value - prior)` when a prior window
@@ -175,7 +175,7 @@ pub struct KpiSummaryQuery {
 /// The three ticket-volume KPIs in one payload. Each field is the
 /// same `KpiResult` the per-metric endpoint returns, so the frontend
 /// types are unchanged.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KpiSummaryResult {
     pub created: KpiResult,
     pub resolved: KpiResult,

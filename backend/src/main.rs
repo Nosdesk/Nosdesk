@@ -836,6 +836,25 @@ async fn main() -> std::io::Result<()> {
         }
     };
 
+    // Short-TTL cache for dashboard analytics payloads. Best-effort:
+    // a build failure here is non-fatal (the handlers fall through to
+    // the live query), so unlike the Yjs cache it doesn't abort boot.
+    // Always registered as `Data<Option<..>>` so the handler extractor
+    // is present even when the cache itself couldn't be built.
+    let analytics_cache: web::Data<Option<std::sync::Arc<utils::analytics_cache::AnalyticsCache>>> =
+        web::Data::new(
+            match utils::analytics_cache::AnalyticsCache::new(&redis_url) {
+                Ok(c) => {
+                    info!("Analytics cache initialized");
+                    Some(std::sync::Arc::new(c))
+                }
+                Err(e) => {
+                    warn!(error = ?e, "Analytics cache unavailable; dashboard queries will not be cached");
+                    None
+                }
+            },
+        );
+
     // Initialize SSE state for real-time ticket updates (must be created before YjsAppState)
     let sse_state = web::Data::new(handlers::sse::SseState::new());
 
@@ -1417,6 +1436,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(plugin_proxy_service.clone())
             .app_data(registry_cache.clone())
             .app_data(search_service.clone())
+            .app_data(analytics_cache.clone())
             .app_data(json_config)
             .app_data(multipart_config)
 

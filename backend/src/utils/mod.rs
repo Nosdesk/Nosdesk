@@ -1,3 +1,4 @@
+pub mod analytics_cache;
 pub mod auth;
 pub mod bootstrap_token;
 pub mod client_ip;
