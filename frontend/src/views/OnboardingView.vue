@@ -14,6 +14,7 @@ import CodeBlock from '@/components/common/CodeBlock.vue';
 import authService, {
   type AdminSetupRequest,
 } from '@/services/authService';
+import { useThemeStore } from '@/stores/theme';
 
 const fluent = useFluent();
 const t = (key: string) => fluent.$t(key);
@@ -163,6 +164,12 @@ onMounted(async () => {
     const status = await authService.checkSetupStatus();
     if (!status.requires_setup) {
       router.push('/login');
+    } else {
+      // Fresh install: clear any theme a prior install left in this
+      // browser so onboarding renders in the default appearance rather
+      // than inheriting someone else's persisted theme. Mirrors the
+      // logout reset; respects a deliberate device-local pin.
+      useThemeStore().resetToDefault();
     }
   } catch (error) {
     console.error('Error checking setup status:', error);
