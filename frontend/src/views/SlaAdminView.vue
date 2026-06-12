@@ -41,6 +41,7 @@ import { categoryService } from '@/services/categoryService'
 import type { TicketCategory } from '@/types/category'
 import { groupService } from '@/services/groupService'
 import type { GroupWithMemberCount } from '@/types/group'
+import BaseDropdown from '@/components/common/BaseDropdown.vue'
 import Checkbox from '@/components/common/Checkbox.vue'
 import Button from '@/components/common/Button.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
@@ -557,6 +558,67 @@ const FIELD_CLASS_SM =
   'disabled:opacity-50 disabled:cursor-not-allowed'
 
 const FIELD_LABEL_CLASS = 'text-xs font-medium text-tertiary uppercase tracking-wide'
+
+// ---------------- BaseDropdown adapters ----------------
+// BaseDropdown is string-valued; these bridge the nullable enum / numeric
+// policy filters to a '' sentinel for the "any" option (and back to
+// null / Number on set). The calendar field uses '' = no calendar.
+const priorityFilterModel = computed<string>({
+  get: () => policyDraft.value.priority_filter ?? '',
+  set: (v) => {
+    policyDraft.value.priority_filter = v || null
+  },
+})
+const categoryFilterModel = computed<string>({
+  get: () =>
+    policyDraft.value.category_id_filter == null
+      ? ''
+      : String(policyDraft.value.category_id_filter),
+  set: (v) => {
+    policyDraft.value.category_id_filter = v === '' ? null : Number(v)
+  },
+})
+const assigneeGroupFilterModel = computed<string>({
+  get: () =>
+    policyDraft.value.assignee_group_id_filter == null
+      ? ''
+      : String(policyDraft.value.assignee_group_id_filter),
+  set: (v) => {
+    policyDraft.value.assignee_group_id_filter = v === '' ? null : Number(v)
+  },
+})
+const calendarModel = computed<string>({
+  get: () =>
+    policyDraft.value.working_calendar_id == null
+      ? ''
+      : String(policyDraft.value.working_calendar_id),
+  set: (v) => {
+    policyDraft.value.working_calendar_id = v === '' ? null : Number(v)
+  },
+})
+
+const priorityFilterDropdownOptions = computed(() => [
+  { value: '', label: t('admin-sla-priority-any') },
+  { value: 'low', label: t('admin-sla-priority-low') },
+  { value: 'medium', label: t('admin-sla-priority-medium') },
+  { value: 'high', label: t('admin-sla-priority-high') },
+])
+const categoryDropdownOptions = computed(() => [
+  { value: '', label: t('admin-sla-category-any') },
+  ...categoryOptions.value.map((o) => ({ value: String(o.value), label: o.label })),
+])
+const groupDropdownOptions = computed(() => [
+  { value: '', label: t('admin-sla-assignee-group-any') },
+  ...groupOptions.value.map((o) => ({ value: String(o.value), label: o.label })),
+])
+const calendarDropdownOptions = computed(() => [
+  { value: '', label: '-' },
+  ...calendarOptions.value.map((o) => ({ value: String(o.value), label: o.label })),
+])
+const holidayImportOptions = computed(() => [
+  { value: '', label: t('admin-sla-holiday-import-placeholder') },
+  ...HOLIDAY_TEMPLATE_LIST.map((tpl) => ({ value: tpl.code, label: tpl.name })),
+])
 </script>
 
 <template>
@@ -864,20 +926,16 @@ const FIELD_LABEL_CLASS = 'text-xs font-medium text-tertiary uppercase tracking-
         <div v-if="editingCalendar" class="flex flex-col gap-2 pt-2 border-t border-subtle">
           <div class="flex items-center justify-between gap-3">
             <span :class="FIELD_LABEL_CLASS">{{ $t('admin-sla-field-holidays') }}</span>
-            <label class="flex items-center gap-2 text-[11px] text-tertiary">
+            <div class="flex items-center gap-2 text-[11px] text-tertiary">
               <span>{{ $t('admin-sla-holiday-import-label') }}</span>
-              <select
-                :value="importChoice"
-                :class="FIELD_CLASS_SM"
-                class="!w-auto"
-                @change="(e) => handleImportChoice((e.target as HTMLSelectElement).value as CountryCode | '')"
-              >
-                <option value="">{{ $t('admin-sla-holiday-import-placeholder') }}</option>
-                <option v-for="tpl in HOLIDAY_TEMPLATE_LIST" :key="tpl.code" :value="tpl.code">
-                  {{ tpl.name }}
-                </option>
-              </select>
-            </label>
+              <BaseDropdown
+                :model-value="importChoice"
+                :options="holidayImportOptions"
+                size="xs"
+                class="w-44"
+                @update:model-value="handleImportChoice(String($event) as CountryCode | '')"
+              />
+            </div>
           </div>
           <p
             v-if="importSummary"
@@ -997,41 +1055,27 @@ const FIELD_LABEL_CLASS = 'text-xs font-medium text-tertiary uppercase tracking-
             {{ $t('admin-sla-form-conditions-heading') }}
           </legend>
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <label class="flex flex-col gap-1.5">
-              <span :class="FIELD_LABEL_CLASS">{{ $t('admin-sla-field-priority') }}</span>
-              <select v-model="policyDraft.priority_filter" :class="FIELD_CLASS_SM">
-                <option :value="null">{{ $t('admin-sla-priority-any') }}</option>
-                <option value="low">{{ $t('admin-sla-priority-low') }}</option>
-                <option value="medium">{{ $t('admin-sla-priority-medium') }}</option>
-                <option value="high">{{ $t('admin-sla-priority-high') }}</option>
-              </select>
-            </label>
-            <label class="flex flex-col gap-1.5">
-              <span :class="FIELD_LABEL_CLASS">{{ $t('admin-sla-field-category') }}</span>
-              <select
-                v-model.number="policyDraft.category_id_filter"
-                :class="FIELD_CLASS_SM"
-              >
-                <option :value="null">{{ $t('admin-sla-category-any') }}</option>
-                <option v-for="opt in categoryOptions" :key="opt.value" :value="opt.value">
-                  {{ opt.label }}
-                </option>
-              </select>
-            </label>
-            <label class="flex flex-col gap-1.5">
-              <span :class="FIELD_LABEL_CLASS">
-                {{ $t('admin-sla-field-assignee-group') }}
-              </span>
-              <select
-                v-model.number="policyDraft.assignee_group_id_filter"
-                :class="FIELD_CLASS_SM"
-              >
-                <option :value="null">{{ $t('admin-sla-assignee-group-any') }}</option>
-                <option v-for="opt in groupOptions" :key="opt.value" :value="opt.value">
-                  {{ opt.label }}
-                </option>
-              </select>
-            </label>
+            <BaseDropdown
+              :label="$t('admin-sla-field-priority')"
+              :model-value="priorityFilterModel"
+              :options="priorityFilterDropdownOptions"
+              size="sm"
+              @update:model-value="priorityFilterModel = String($event)"
+            />
+            <BaseDropdown
+              :label="$t('admin-sla-field-category')"
+              :model-value="categoryFilterModel"
+              :options="categoryDropdownOptions"
+              size="sm"
+              @update:model-value="categoryFilterModel = String($event)"
+            />
+            <BaseDropdown
+              :label="$t('admin-sla-field-assignee-group')"
+              :model-value="assigneeGroupFilterModel"
+              :options="groupDropdownOptions"
+              size="sm"
+              @update:model-value="assigneeGroupFilterModel = String($event)"
+            />
           </div>
         </fieldset>
 
@@ -1043,18 +1087,13 @@ const FIELD_LABEL_CLASS = 'text-xs font-medium text-tertiary uppercase tracking-
             {{ $t('admin-sla-form-targets-heading') }}
           </legend>
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <label class="flex flex-col gap-1.5">
-              <span :class="FIELD_LABEL_CLASS">{{ $t('admin-sla-field-calendar') }}</span>
-              <select
-                v-model.number="policyDraft.working_calendar_id"
-                :class="FIELD_CLASS_SM"
-              >
-                <option :value="null">-</option>
-                <option v-for="opt in calendarOptions" :key="opt.value" :value="opt.value">
-                  {{ opt.label }}
-                </option>
-              </select>
-            </label>
+            <BaseDropdown
+              :label="$t('admin-sla-field-calendar')"
+              :model-value="calendarModel"
+              :options="calendarDropdownOptions"
+              size="sm"
+              @update:model-value="calendarModel = String($event)"
+            />
             <FormNumber
               :model-value="policyDraft.target_response_minutes ?? null"
               :label="$t('admin-sla-field-response')"
