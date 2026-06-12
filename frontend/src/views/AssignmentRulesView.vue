@@ -9,6 +9,7 @@ import SkeletonBar from '@/components/common/SkeletonBar.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Icon from '@/components/common/Icon.vue'
 import Checkbox from '@/components/common/Checkbox.vue'
+import BaseDropdown from '@/components/common/BaseDropdown.vue'
 import Modal from '@/components/Modal.vue'
 import { assignmentRuleService } from '@/services/assignmentRuleService'
 import { groupService } from '@/services/groupService'
@@ -93,6 +94,42 @@ const isGroupMethod = computed(() => {
 const isDirectUserMethod = computed(() => {
   return ruleForm.value.method === 'direct_user'
 })
+
+// BaseDropdown is string-valued; bridge the optional uuid / numeric-id
+// targets to a '' sentinel ("none"/"all") and back to undefined / Number.
+const targetUserModel = computed<string>({
+  get: () => ruleForm.value.target_user_uuid ?? '',
+  set: (v) => {
+    ruleForm.value.target_user_uuid = v || undefined
+  },
+})
+const targetGroupModel = computed<string>({
+  get: () =>
+    ruleForm.value.target_group_id == null ? '' : String(ruleForm.value.target_group_id),
+  set: (v) => {
+    ruleForm.value.target_group_id = v === '' ? undefined : Number(v)
+  },
+})
+const categoryFilterModel = computed<string>({
+  get: () => (ruleForm.value.category_id == null ? '' : String(ruleForm.value.category_id)),
+  set: (v) => {
+    ruleForm.value.category_id = v === '' ? undefined : Number(v)
+  },
+})
+
+const userDropdownOptions = computed(() =>
+  users.value.map((u) => ({ value: u.uuid, label: u.name })),
+)
+const groupDropdownOptions = computed(() =>
+  groups.value.map((g) => ({
+    value: String(g.id),
+    label: `${g.name} (${t('admin-assignment-rules-modal-group-members', { count: g.member_count })})`,
+  })),
+)
+const categoryDropdownOptions = computed(() => [
+  { value: '', label: t('admin-assignment-rules-modal-category-all') },
+  ...categories.value.map((c) => ({ value: String(c.id), label: c.name })),
+])
 
 // Load supporting data
 const loadSupportingData = async () => {
@@ -499,43 +536,33 @@ onMounted(() => {
         <!-- Target User (for direct_user method) -->
         <div v-if="isDirectUserMethod">
           <label class="block text-sm font-medium text-primary mb-1">{{ $t('admin-assignment-rules-modal-user-label') }}</label>
-          <select
-            v-model="ruleForm.target_user_uuid"
-            class="w-full px-3 py-2 bg-surface border border-default rounded-lg text-primary focus:outline-none focus:ring-2 focus:ring-accent"
-          >
-            <option :value="undefined">{{ $t('admin-assignment-rules-modal-user-placeholder') }}</option>
-            <option v-for="user in users" :key="user.uuid" :value="user.uuid">
-              {{ user.name }}
-            </option>
-          </select>
+          <BaseDropdown
+            :model-value="targetUserModel"
+            :options="userDropdownOptions"
+            :placeholder="$t('admin-assignment-rules-modal-user-placeholder')"
+            @update:model-value="targetUserModel = String($event)"
+          />
         </div>
 
         <!-- Target Group (for group methods) -->
         <div v-if="isGroupMethod">
           <label class="block text-sm font-medium text-primary mb-1">{{ $t('admin-assignment-rules-modal-group-label') }}</label>
-          <select
-            v-model="ruleForm.target_group_id"
-            class="w-full px-3 py-2 bg-surface border border-default rounded-lg text-primary focus:outline-none focus:ring-2 focus:ring-accent"
-          >
-            <option :value="undefined">{{ $t('admin-assignment-rules-modal-group-placeholder') }}</option>
-            <option v-for="group in groups" :key="group.id" :value="group.id">
-              {{ group.name }} ({{ t('admin-assignment-rules-modal-group-members', { count: group.member_count }) }})
-            </option>
-          </select>
+          <BaseDropdown
+            :model-value="targetGroupModel"
+            :options="groupDropdownOptions"
+            :placeholder="$t('admin-assignment-rules-modal-group-placeholder')"
+            @update:model-value="targetGroupModel = String($event)"
+          />
         </div>
 
         <!-- Category Filter -->
         <div>
           <label class="block text-sm font-medium text-primary mb-1">{{ $t('admin-assignment-rules-modal-category-label') }}</label>
-          <select
-            v-model="ruleForm.category_id"
-            class="w-full px-3 py-2 bg-surface border border-default rounded-lg text-primary focus:outline-none focus:ring-2 focus:ring-accent"
-          >
-            <option :value="undefined">{{ $t('admin-assignment-rules-modal-category-all') }}</option>
-            <option v-for="category in categories" :key="category.id" :value="category.id">
-              {{ category.name }}
-            </option>
-          </select>
+          <BaseDropdown
+            :model-value="categoryFilterModel"
+            :options="categoryDropdownOptions"
+            @update:model-value="categoryFilterModel = String($event)"
+          />
           <p class="text-xs text-tertiary mt-1">{{ $t('admin-assignment-rules-modal-category-hint') }}</p>
         </div>
 
