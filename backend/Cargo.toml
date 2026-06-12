@@ -212,3 +212,10 @@ awc = "3"
 futures-util = "0.3"
 mockall = "0.13.0"
 tempfile = "3"
+
+# Trim debuginfo to line tables only. Full debug symbols are the
+# bulk of the target dir and the main driver of CI's "No space left
+# on device" link failures; line tables keep panic line numbers
+# (the only debug info CI uses) while shrinking target and cache.
+[profile.dev]
+debug = "line-tables-only"
