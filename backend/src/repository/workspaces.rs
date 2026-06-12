@@ -15,16 +15,16 @@ use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::{NewWorkspace, Workspace, WorkspaceMember};
-use crate::schema::{workspace_members, workspaces};
+use crate::schema::{retired_slugs, workspace_members, workspaces};
 
 /// Returned by [`create_workspace`] so the caller can distinguish a
 /// slug-collision from other DB failures without parsing error
 /// strings.
 #[derive(Debug)]
 pub enum CreateWorkspaceError {
-    /// The requested slug is already taken by another (active OR
-    /// tombstoned) workspace row. UNIQUE on `workspaces.slug`
-    /// enforces this at the DB layer; we surface it as a typed
+    /// The requested slug is unavailable: either an active workspace
+    /// holds it (UNIQUE on `workspaces.slug`) or it was retired by a
+    /// prior hard delete (`retired_slugs`). We surface it as a typed
     /// outcome so the handler can return a 409 with non-enumerable
     /// wording instead of a 500.
     SlugTaken,
@@ -56,10 +56,25 @@ impl std::error::Error for CreateWorkspaceError {}
 /// per the locked-decision in `docs/m5-product-side-handoff.md` (the
 /// product owns workspace identity; the control plane mirrors).
 /// `plan` is omitted so the DB default (`'free'`) applies.
+///
+/// Rejects a slug retired by a prior hard delete (P1.2 never-reuse):
+/// the `retired_slugs` check and the `workspaces.slug` UNIQUE
+/// constraint together guarantee a slug maps to one identity for all
+/// time. Both an active collision and a retired slug surface as the
+/// same `SlugTaken`, so the caller's 409 stays non-enumerable.
 pub fn create_workspace(
     conn: &mut DbConnection,
     record: &NewWorkspace,
 ) -> Result<Workspace, CreateWorkspaceError> {
+    let retired: bool = diesel::select(diesel::dsl::exists(
+        retired_slugs::table.filter(retired_slugs::slug.eq(&record.slug)),
+    ))
+    .get_result(conn)
+    .map_err(CreateWorkspaceError::Db)?;
+    if retired {
+        return Err(CreateWorkspaceError::SlugTaken);
+    }
+
     diesel::insert_into(workspaces::table)
         .values(record)
         .get_result::<Workspace>(conn)
@@ -301,11 +316,43 @@ pub fn list_workspaces_pending_purge(
 /// cascade logic here. Returns the number of rows deleted (0 if
 /// the workspace was never archived, never existed, or the
 /// archived_at predates the cutoff).
+///
+/// Before the cascade frees the slug, the slug is recorded in
+/// `retired_slugs` so it can never be reused (P1.2). Both callers run
+/// this inside a BYPASSRLS transaction, so the tombstone and the
+/// delete commit atomically: a purged workspace's slug is always
+/// reserved, never half-freed.
 pub fn hard_delete_workspace(
     conn: &mut DbConnection,
     id: i32,
     cutoff: DateTime<Utc>,
 ) -> QueryResult<usize> {
+    // Resolve the eligible row first, under the same archived+cutoff
+    // guard the DELETE uses, so a race against restore can't tombstone
+    // a workspace that's about to be active again. No eligible row =>
+    // nothing to purge (preserves the 0-rows contract).
+    let eligible: Option<(String, Uuid)> = workspaces::table
+        .filter(workspaces::id.eq(id))
+        .filter(workspaces::archived_at.is_not_null())
+        .filter(workspaces::archived_at.le(Some(cutoff)))
+        .select((workspaces::slug, workspaces::uuid))
+        .first(conn)
+        .optional()?;
+    let Some((slug, workspace_uuid)) = eligible else {
+        return Ok(0);
+    };
+
+    // Reserve the slug. ON CONFLICT keeps it idempotent (a retried
+    // purge, or the unreachable case of a slug already retired).
+    diesel::insert_into(retired_slugs::table)
+        .values((
+            retired_slugs::slug.eq(&slug),
+            retired_slugs::workspace_uuid.eq(workspace_uuid),
+        ))
+        .on_conflict(retired_slugs::slug)
+        .do_nothing()
+        .execute(conn)?;
+
     diesel::delete(
         workspaces::table
             .filter(workspaces::id.eq(id))
@@ -582,6 +629,56 @@ mod tests {
             .expect("hard-delete query");
         assert_eq!(n, 1);
         assert!(find_by_id(&mut conn, ws.id).expect("find").is_none());
+    }
+
+    #[test]
+    fn hard_delete_tombstones_slug_so_it_cannot_be_reused() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+
+        let ws = fresh_workspace(&mut conn, "reuseme");
+        as_admin(&mut conn, |c| archive_workspace(c, ws.id)).expect("archive");
+        let cutoff = Utc::now() + chrono::Duration::hours(1);
+        let n = as_admin(&mut conn, |c| hard_delete_workspace(c, ws.id, cutoff))
+            .expect("hard-delete query");
+        assert_eq!(n, 1);
+
+        // The cascade freed the slug from `workspaces`, but the tombstone
+        // reserves it: recreating must fail as SlugTaken (P1.2), the same
+        // outcome as an active collision, never a fresh resurrection.
+        let record = NewWorkspace {
+            uuid: Uuid::now_v7(),
+            slug: "reuseme".to_string(),
+            name: "Reuse Attempt".to_string(),
+        };
+        let err = as_admin(&mut conn, |c| create_workspace(c, &record))
+            .expect_err("retired slug must not be reusable");
+        assert!(
+            matches!(err, CreateWorkspaceError::SlugTaken),
+            "expected SlugTaken, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn refused_hard_delete_does_not_tombstone_the_slug() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+
+        // Archived but inside the grace window: the delete refuses, so
+        // the slug must NOT be tombstoned (a later restore keeps it live).
+        let ws = fresh_workspace(&mut conn, "stillmine");
+        as_admin(&mut conn, |c| archive_workspace(c, ws.id)).expect("archive");
+        let cutoff = Utc::now() - chrono::Duration::hours(1);
+        let n = as_admin(&mut conn, |c| hard_delete_workspace(c, ws.id, cutoff))
+            .expect("hard-delete query");
+        assert_eq!(n, 0, "in-grace delete must refuse");
+
+        let retired: i64 = retired_slugs::table
+            .filter(retired_slugs::slug.eq("stillmine"))
+            .count()
+            .get_result(&mut conn)
+            .expect("count retired");
+        assert_eq!(retired, 0, "a refused delete must not reserve the slug");
     }
 
     #[test]

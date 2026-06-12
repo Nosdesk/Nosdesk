@@ -1175,6 +1175,15 @@ diesel::table! {
 }
 
 diesel::table! {
+    retired_slugs (slug) {
+        #[max_length = 64]
+        slug -> Varchar,
+        workspace_uuid -> Uuid,
+        retired_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::RuleApplicationStatus;
 
@@ -2126,6 +2135,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     projects,
     refresh_tokens,
     reset_tokens,
+    retired_slugs,
     rule_applications,
     rule_versions,
     rules,
