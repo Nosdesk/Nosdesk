@@ -19,6 +19,7 @@ import { useFluent } from 'fluent-vue';
 import { useQueryCache } from '@pinia/colada';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
+import BaseDropdown from '@/components/common/BaseDropdown.vue';
 import Button from '@/components/common/Button.vue';
 import Checkbox from '@/components/common/Checkbox.vue';
 import FormInput from '@/components/common/FormInput.vue';
@@ -212,6 +213,24 @@ function actionLabel(kind: RuleAction['kind']): string {
   };
   return map[kind] ?? kind;
 }
+
+// BaseDropdown option lists (value/label) for the enum selects.
+const triggerOptions = computed(() =>
+  triggerKinds.map((k) => ({ value: k, label: triggerLabel(k) })),
+);
+const actionOptions = computed(() =>
+  actionKinds.map((k) => ({ value: k, label: actionLabel(k) })),
+);
+const replyVisibilityOptions = computed(() => [
+  { value: 'public', label: t('admin-rules-action-chip-reply-public') },
+  { value: 'internal', label: t('admin-rules-action-chip-reply-internal') },
+]);
+const priorityOptions = [
+  { value: 'low', label: 'Low' },
+  { value: 'normal', label: 'Normal' },
+  { value: 'high', label: 'High' },
+  { value: 'urgent', label: 'Urgent' },
+];
 </script>
 
 <template>
@@ -254,14 +273,12 @@ function actionLabel(kind: RuleAction['kind']): string {
         {{ t('admin-rule-editor-section-trigger') }}
       </h2>
       <label class="block text-sm font-medium">{{ t('admin-rule-editor-trigger-label') }}</label>
-      <select
-        v-model="triggerKind"
-        class="w-full border rounded-md px-3 py-2 text-sm bg-surface"
-      >
-        <option v-for="k in triggerKinds" :key="k" :value="k">
-          {{ triggerLabel(k) }}
-        </option>
-      </select>
+      <BaseDropdown
+        :model-value="triggerKind"
+        :options="triggerOptions"
+        size="sm"
+        @update:model-value="triggerKind = String($event) as RuleTriggerKind"
+      />
       <p v-if="triggerKind === 'manual'" class="text-xs text-secondary">
         {{ t('admin-rule-editor-trigger-manual-note') }}
       </p>
@@ -293,15 +310,13 @@ function actionLabel(kind: RuleAction['kind']): string {
         >
           <div class="flex items-center gap-2">
             <span class="text-xs text-secondary font-mono">#{{ i + 1 }}</span>
-            <select
-              :value="action.kind"
-              @change="setActionKind(i, ($event.target as HTMLSelectElement).value as RuleAction['kind'])"
-              class="flex-1 border rounded-md px-2 py-1 text-sm bg-surface"
-            >
-              <option v-for="k in actionKinds" :key="k" :value="k">
-                {{ actionLabel(k) }}
-              </option>
-            </select>
+            <BaseDropdown
+              :model-value="action.kind"
+              :options="actionOptions"
+              size="sm"
+              class="flex-1"
+              @update:model-value="setActionKind(i, String($event) as RuleAction['kind'])"
+            />
             <Button variant="ghost" size="sm" @click="removeAction(i)">
               <Icon name="trash" class="w-3.5 h-3.5" />
               <span class="sr-only">{{ t('admin-rule-editor-action-remove') }}</span>
@@ -312,14 +327,12 @@ function actionLabel(kind: RuleAction['kind']): string {
                a single component for the Phase 1 surface; if it
                grows past a screen each kind gets its own card. -->
           <template v-if="action.kind === 'reply'">
-            <select
-              :value="(action.config as any)?.visibility ?? 'public'"
-              @change="updateConfigField(i, 'visibility', ($event.target as HTMLSelectElement).value)"
-              class="border rounded-md px-2 py-1 text-sm bg-surface"
-            >
-              <option value="public">{{ t('admin-rules-action-chip-reply-public') }}</option>
-              <option value="internal">{{ t('admin-rules-action-chip-reply-internal') }}</option>
-            </select>
+            <BaseDropdown
+              :model-value="(action.config as any)?.visibility ?? 'public'"
+              :options="replyVisibilityOptions"
+              size="sm"
+              @update:model-value="updateConfigField(i, 'visibility', String($event))"
+            />
             <FormTextarea
               :model-value="(action.config as any)?.body ?? ''"
               @update:model-value="updateConfigField(i, 'body', $event)"
@@ -347,16 +360,12 @@ function actionLabel(kind: RuleAction['kind']): string {
           </template>
 
           <template v-else-if="action.kind === 'set_priority'">
-            <select
-              :value="(action.config as any)?.priority ?? 'normal'"
-              @change="updateConfigField(i, 'priority', ($event.target as HTMLSelectElement).value)"
-              class="border rounded-md px-2 py-1 text-sm bg-surface"
-            >
-              <option value="low">Low</option>
-              <option value="normal">Normal</option>
-              <option value="high">High</option>
-              <option value="urgent">Urgent</option>
-            </select>
+            <BaseDropdown
+              :model-value="(action.config as any)?.priority ?? 'normal'"
+              :options="priorityOptions"
+              size="sm"
+              @update:model-value="updateConfigField(i, 'priority', String($event))"
+            />
           </template>
 
           <template v-else-if="action.kind === 'add_tags' || action.kind === 'remove_tags'">
