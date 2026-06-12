@@ -155,6 +155,44 @@ const workspacesService = {
     }
   },
 
+  // ---------- tenant self-serve membership (caller's own workspace) --
+  //
+  // These act on the request's workspace context (no id in the path),
+  // gated on workspace-admin. Distinct from the platform-admin operator
+  // methods above, which target an arbitrary workspace by id.
+
+  async listWorkspaceMembers(): Promise<WorkspaceMember[]> {
+    try {
+      const response = await apiClient.get('/workspace/members');
+      return response.data || [];
+    } catch (error) {
+      logger.error('Failed to list workspace members', { error });
+      throw error;
+    }
+  },
+
+  async updateWorkspaceMemberRole(
+    userUuid: string,
+    request: UpdateMemberRoleRequest,
+  ): Promise<WorkspaceMember> {
+    try {
+      const response = await apiClient.patch(`/workspace/members/${userUuid}`, request);
+      return response.data;
+    } catch (error) {
+      logger.error('Failed to update workspace member role', { error, userUuid });
+      throw error;
+    }
+  },
+
+  async removeWorkspaceMember(userUuid: string): Promise<void> {
+    try {
+      await apiClient.delete(`/workspace/members/${userUuid}`);
+    } catch (error) {
+      logger.error('Failed to remove workspace member', { error, userUuid });
+      throw error;
+    }
+  },
+
   // ---------- /api/me/workspaces (caller's own memberships) ----------
 
   async listMyWorkspaces(): Promise<MyWorkspaceEntry[]> {

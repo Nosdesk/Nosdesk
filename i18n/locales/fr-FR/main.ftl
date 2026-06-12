@@ -235,6 +235,8 @@ user-menu-aria = Menu utilisateur
 user-menu-view-profile = Voir le profil
 user-menu-account = Compte
 user-menu-administration = Administration
+# MACHINE TRANSLATION, pending native review
+user-menu-team = Équipe
 user-menu-report-problem = Signaler un problème
 user-menu-sign-out = Se déconnecter
 user-menu-guest-name = Invité
@@ -945,6 +947,15 @@ admin-workspace-members-error-remove = Échec du retrait du membre
 
 empty-workspace-members-title = No members yet
 empty-workspace-members-description = Use the form above to add the first member.
+
+# MACHINE TRANSLATION, pending native review (P1.3 workspace members)
+route-title-workspace-members = Équipe
+workspace-members-title = Équipe
+workspace-members-subtitle = Gérez qui peut accéder à cet espace de travail et ce que les membres peuvent faire.
+workspace-members-invite = Inviter un coéquipier
+workspace-members-empty-description = Invitez des coéquipiers à collaborer dans cet espace de travail.
+workspace-members-error-forbidden = Vous ne pouvez gérer que les agents et les membres. La gestion des administrateurs ou des propriétaires nécessite le rôle de propriétaire.
+workspace-members-you = (vous)
 
 admin-nav-guest-access-title = Accès invité
 admin-nav-guest-access-description = Contrôlez ce que les visiteurs non authentifiés peuvent voir et soumettre

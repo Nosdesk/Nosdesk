@@ -39,6 +39,10 @@ declare module 'vue-router' {
     titleKeyArgs?: Record<string, string | number>;
     layout?: string;
     adminRequired?: boolean;
+    /** Gate to owners/admins of the CURRENT workspace (tenant self-serve),
+     * as opposed to `adminRequired` which also admits platform admins.
+     * Used by the workspace member-management page. */
+    workspaceAdminRequired?: boolean;
     /** Within an adminRequired subtree, also allow the standalone
      * audit_reviewer role to reach this route (Item C/D4). */
     auditReviewerAllowed?: boolean;
@@ -327,6 +331,16 @@ const router = createRouter({
         titleKey: 'route-title-users',
         createButtonTextKey: 'header-create-user',
         createButtonIcon: 'user',
+      }
+    },
+    {
+      path: '/workspace/members',
+      name: 'workspace-members',
+      component: () => import('../views/workspace/WorkspaceMembersView.vue'),
+      meta: {
+        requiresAuth: true,
+        workspaceAdminRequired: true,
+        titleKey: 'route-title-workspace-members',
       }
     },
     // Assets (formerly /devices). The list / create / detail
@@ -1046,10 +1060,24 @@ async function checkAdminAccess(to: RouteLocationNormalized, _from: RouteLocatio
   }
 }
 
+// Gate tenant self-serve workspace-admin routes to owners/admins of the
+// CURRENT workspace. Unlike `checkAdminAccess`, a platform admin who is
+// not a member of this workspace does NOT pass — those operators use the
+// /admin console instead.
+async function checkWorkspaceAdminAccess(to: RouteLocationNormalized) {
+  const needs = to.matched.some((record) => record.meta.workspaceAdminRequired);
+  if (!needs) return;
+  const { useAuthStore } = await import('@/stores/auth');
+  const role = useAuthStore().user?.workspace_role;
+  if (role === 'owner' || role === 'admin') return;
+  return { name: 'home' };
+}
+
 // Register middleware in order of execution
 router.beforeEach(checkOnboarding);
 router.beforeEach(checkAuthentication);
 router.beforeEach(checkAdminAccess);
+router.beforeEach(checkWorkspaceAdminAccess);
 
 // Diagnostic breadcrumb on every successful navigation. Uses
 // `to.path` (no query/fragment) and scrubUrl masks UUID segments

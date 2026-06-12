@@ -234,6 +234,7 @@ user-menu-aria = User menu
 user-menu-view-profile = View Profile
 user-menu-account = Account
 user-menu-administration = Administration
+user-menu-team = Team
 user-menu-report-problem = Report a problem
 user-menu-sign-out = Sign out
 user-menu-guest-name = Guest
@@ -877,6 +878,15 @@ admin-workspace-members-error-remove = Failed to remove member
 
 empty-workspace-members-title = No members yet
 empty-workspace-members-description = Use the form above to add the first member.
+
+# Tenant self-serve workspace member management (P1.3)
+route-title-workspace-members = Team
+workspace-members-title = Team
+workspace-members-subtitle = Manage who can access this workspace and what they can do.
+workspace-members-invite = Invite teammate
+workspace-members-empty-description = Invite teammates to collaborate in this workspace.
+workspace-members-error-forbidden = You can only manage agents and members. Managing admins or owners requires the owner role.
+workspace-members-you = (you)
 
 admin-nav-guest-access-title = Guest Access
 admin-nav-guest-access-description = Control what unauthenticated visitors can see and submit

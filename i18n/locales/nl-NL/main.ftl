@@ -232,6 +232,8 @@ user-menu-aria = Gebruikersmenu
 user-menu-view-profile = Profiel bekijken
 user-menu-account = Account
 user-menu-administration = Beheer
+# MACHINE TRANSLATION, pending native review
+user-menu-team = Team
 user-menu-report-problem = Probleem melden
 user-menu-sign-out = Afmelden
 user-menu-guest-name = Gast
@@ -942,6 +944,15 @@ admin-workspace-members-error-remove = Lid kon niet worden verwijderd
 
 empty-workspace-members-title = No members yet
 empty-workspace-members-description = Use the form above to add the first member.
+
+# MACHINE TRANSLATION, pending native review (P1.3 workspace members)
+route-title-workspace-members = Team
+workspace-members-title = Team
+workspace-members-subtitle = Beheer wie toegang heeft tot deze werkruimte en wat ze kunnen doen.
+workspace-members-invite = Teamlid uitnodigen
+workspace-members-empty-description = Nodig teamleden uit om samen te werken in deze werkruimte.
+workspace-members-error-forbidden = Je kunt alleen agents en leden beheren. Het beheren van beheerders of eigenaren vereist de eigenaarsrol.
+workspace-members-you = (jij)
 
 admin-nav-guest-access-title = Gasttoegang
 admin-nav-guest-access-description = Bepaal wat niet-geauthenticeerde bezoekers kunnen zien en indienen

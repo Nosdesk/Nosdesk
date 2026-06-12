@@ -57,6 +57,12 @@ const items = computed<MenuItem[]>(() => {
   const out: MenuItem[] = [
     { id: 'settings', label: fluent.$t('user-menu-account'), icon: ICON_REGISTRY.account.d },
   ]
+  // Tenant self-serve: owners/admins of the current workspace get a
+  // Team entry. Distinct from the platform-admin console below.
+  const wsRole = authStore.user?.workspace_role
+  if (wsRole === 'owner' || wsRole === 'admin') {
+    out.push({ id: 'team', label: fluent.$t('user-menu-team'), icon: ICON_REGISTRY.team.d })
+  }
   if (authStore.isAdmin) {
     out.push({ id: 'admin', label: fluent.$t('user-menu-administration'), icon: ICON_REGISTRY.admin.d })
   }
@@ -77,6 +83,9 @@ function handleSelect(id: string) {
   switch (id) {
     case 'settings':
       router.push('/profile/settings')
+      break
+    case 'team':
+      router.push('/workspace/members')
       break
     case 'admin':
       router.push('/admin')
