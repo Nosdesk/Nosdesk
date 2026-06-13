@@ -725,6 +725,10 @@ fn stream_ticket_detail_extras(
                 "content": c.content,
                 "is_internal": c.is_internal,
                 "content_format": c.content_format,
+                // Mirrors the `comment.created` emit: the render tier
+                // must travel with the bootstrap so the pool-native view
+                // picks inline vs iframe correctly without a REST fetch.
+                "render_kind": c.render_kind,
                 "created_at": c.created_at,
             }),
         )?;

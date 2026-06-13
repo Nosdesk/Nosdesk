@@ -83,6 +83,10 @@ interface PoolComment {
   content: string
   is_internal: boolean
   content_format?: string
+  // Render tier (see CommentRenderKind). Carried through the pool so
+  // CommentContent picks inline vs iframe without a REST round-trip;
+  // absent on legacy rows, where the renderer falls back to format.
+  render_kind?: string | null
   created_at: string
 }
 
@@ -249,6 +253,7 @@ export function useTicketDetail(
           id: c.id,
           content: c.content,
           content_format: c.content_format as CommentWithAttachments['content_format'],
+          render_kind: c.render_kind as CommentWithAttachments['render_kind'],
           user_uuid: c.user_uuid,
           created_at: c.created_at,
           createdAt: c.created_at,
@@ -435,6 +440,10 @@ export function useTicketDetail(
       user_uuid: data.user_uuid,
       content: data.content,
       is_internal: data.is_internal === true,
+      // Match the tier the backend stamps on UI-authored comments so the
+      // optimistic bubble renders inline, identical to the reconciled row.
+      content_format: 'html',
+      render_kind: 'simple',
       created_at: nowIso,
     })
 
@@ -476,6 +485,8 @@ export function useTicketDetail(
         user_uuid: newComment.user_uuid,
         content: newComment.content,
         is_internal: data.is_internal === true,
+        content_format: newComment.content_format,
+        render_kind: newComment.render_kind,
         created_at: newComment.created_at,
       })
       for (const a of newComment.attachments ?? []) {
@@ -549,6 +560,7 @@ export function useTicketDetail(
           content: c.content,
           is_internal: c.is_internal === true,
           content_format: c.content_format,
+          render_kind: c.render_kind,
           created_at: c.created_at,
         })
         for (const a of c.attachments ?? []) {

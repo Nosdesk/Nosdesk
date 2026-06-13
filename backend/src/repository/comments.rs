@@ -169,6 +169,11 @@ pub fn create_comment_with_annotation(
                     "user_uuid": comment.user_uuid,
                     "is_internal": comment.is_internal,
                     "content_format": comment.content_format,
+                    // Render tier travels with the change log so a live
+                    // comment renders the same as one rehydrated on
+                    // refresh (no render_kind here meant a live HTML
+                    // comment fell back to the legacy-html iframe path).
+                    "render_kind": comment.render_kind,
                     // Render essentials so the detail view can show a
                     // comment from the pool alone (Phase 2 pool-native
                     // ticket view). Heavy email-only fields

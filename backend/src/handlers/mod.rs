@@ -322,6 +322,14 @@ pub async fn add_comment_to_ticket(
         // `ContentFormat`, which is also HTML, so the wire shape is
         // backward-compatible.
         content_format: comment_data.content_format,
+        // A UI-authored comment is the editor's own semantic-inline
+        // HTML: it renders inline (like an agent's reply), never in the
+        // sandboxed email iframe reserved for rich inbound mail. Stamp
+        // the tier explicitly here so the renderer never has to guess
+        // it from `content_format` (which would wrongly pick the
+        // legacy-html iframe path). `render_kind` is otherwise set only
+        // by the inbound email pipeline.
+        render_kind: Some("simple".to_string()),
         // Email body parts only apply to inbound channel comments,
         // not UI-authored ones.
         ..Default::default()
@@ -567,6 +575,14 @@ pub async fn add_comment_to_ticket(
                 "created_at": created_at,
                 "createdAt": created_at,
                 "ticket_id": comment.ticket_id,
+                // Render-determining fields, so the value the client
+                // upserts into the pool from this response renders
+                // identically to the same row rehydrated on refresh
+                // (GET /comments serializes the full row). Omitting them
+                // is what made a fresh comment flip from inline text to
+                // an email iframe across a reload.
+                "content_format": comment.content_format,
+                "render_kind": comment.render_kind,
                 "attachments": attachments,
                 "user": user
             });
