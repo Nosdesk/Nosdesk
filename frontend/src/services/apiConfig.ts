@@ -231,14 +231,19 @@ apiClient.interceptors.response.use(
     // Create typed error
     const appError = createErrorFromResponse(error);
 
-    // Log error with appropriate level
-    logger.error(`API Error: ${appError.message}`, {
-      correlationId,
-      endpoint: error.config?.url,
-      method: error.config?.method,
-      status: error.response?.status,
-      data: error.response?.data
-    });
+    // Log error with appropriate level. Skip the log-forwarding endpoint
+    // itself: logging its failure would be re-captured by the remote
+    // logger's console interceptor and re-queued, creating a ~1Hz POST loop
+    // that exhausts the shared rate limit and can 429 auth / MFA setup.
+    if (!error.config?.url?.includes('/debug/frontend-logs')) {
+      logger.error(`API Error: ${appError.message}`, {
+        correlationId,
+        endpoint: error.config?.url,
+        method: error.config?.method,
+        status: error.response?.status,
+        data: error.response?.data
+      });
+    }
 
     // Handle authentication errors (401)
     if (error.response?.status === 401) {

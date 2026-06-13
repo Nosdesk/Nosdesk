@@ -500,6 +500,25 @@ async fn main() -> std::io::Result<()> {
             std::io::Error::other("Auth rate limiter initialization failed")
         })?;
 
+    // Forwarded browser-console logs get their OWN per-IP bucket
+    // (`felogs:{ip}`), separate from the `public:`/`auth:` quotas that
+    // gate login and MFA. A chatty or looping client (e.g. the frontend
+    // remote logger retrying against a disabled endpoint) can then only
+    // exhaust this bucket, never lock a user out of auth. See the MFA-429
+    // incident where a log storm on the shared public limiter 429'd
+    // /api/auth/mfa-setup-login.
+    let frontend_logs_limiter = Limiter::builder(&redis_url)
+        .key_by(|req: &actix_web::dev::ServiceRequest| {
+            crate::utils::client_ip::from_service_request(req).map(|ip| format!("felogs:{ip}"))
+        })
+        .limit(rate_limit_per_minute as usize)
+        .period(Duration::from_secs(60))
+        .build()
+        .map_err(|e| {
+            error!(error = %e, "Failed to build the frontend-logs rate limiter (check REDIS_URL)");
+            std::io::Error::other("Frontend-logs rate limiter initialization failed")
+        })?;
+
     // Get host and port from environment variables
     let host = env::var("HOST").unwrap_or("127.0.0.1".to_string());
     let port = env::var("PORT")
@@ -1059,6 +1078,7 @@ async fn main() -> std::io::Result<()> {
     // Share the limiters across all app instances
     let public_limiter_data = web::Data::new(public_limiter);
     let auth_limiter_data = web::Data::new(auth_limiter);
+    let frontend_logs_limiter_data = web::Data::new(frontend_logs_limiter);
 
     if host == "0.0.0.0" {
         warn!("Server bound to all interfaces (0.0.0.0)");
@@ -1459,7 +1479,10 @@ async fn main() -> std::io::Result<()> {
             .service(
                 web::resource("/api/debug/frontend-logs")
                     .app_data(web::JsonConfig::default().limit(512 * 1024))
-                    .app_data(public_limiter_data.clone())
+                    // Own bucket (felogs:{ip}); shadows the app-level limiter
+                    // for this resource so a log flood can't drain the public
+                    // / auth quotas that gate login and MFA.
+                    .app_data(frontend_logs_limiter_data.clone())
                     .wrap(RateLimiter::default())
                     .route(web::post().to(handlers::debug::receive_frontend_logs)),
             )

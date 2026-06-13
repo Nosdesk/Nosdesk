@@ -22,26 +22,44 @@ let flushTimeout: ReturnType<typeof setTimeout> | null = null;
 const FLUSH_INTERVAL = 1000; // Send logs every 1 second
 const MAX_QUEUE_SIZE = 50; // Force flush if queue gets too large
 
-// Check if remote logging is enabled
+// Set once the backend signals the endpoint isn't there (404). Stops all
+// further queueing/flushing for the session so we don't retry every second
+// against a disabled endpoint and burn the per-IP rate limit.
+let remoteLoggingDisabled = false;
+
+// Check if remote logging is enabled. Default OFF in production and ON in
+// development; either can be overridden via localStorage('remote-logging').
+// This mirrors the backend, whose /api/debug/frontend-logs endpoint 404s in
+// production unless NOSDESK_ALLOW_FRONTEND_DEBUG_LOGS=1. Shipping it on by
+// default caused a log-forwarding storm that 429'd auth/MFA.
 const isRemoteLoggingEnabled = () => {
-  // TEMPORARY: Always enabled for debugging sync issues
-  // In production, disable with: localStorage.setItem('remote-logging', 'false')
-  const explicitDisable = localStorage.getItem('remote-logging') === 'false';
-  return !explicitDisable;
+  if (remoteLoggingDisabled) return false;
+  const setting = localStorage.getItem('remote-logging');
+  if (setting === 'false') return false;
+  if (setting === 'true') return true;
+  return import.meta.env.DEV;
 };
 
 // Send logs to backend
 const flushLogs = async () => {
-  if (logQueue.length === 0) return;
+  if (remoteLoggingDisabled || logQueue.length === 0) return;
 
   const logsToSend = [...logQueue];
   logQueue = [];
 
   try {
     await apiClient.post('/debug/frontend-logs', { logs: logsToSend });
-  } catch {
-    // Don't log errors about logging - that could cause infinite loops
-    // Just silently fail
+  } catch (err) {
+    // The endpoint is disabled in production and returns 404. Stop for the
+    // rest of the session rather than retrying every second (a chatty page
+    // would otherwise drain the rate limit and 429 login / MFA setup).
+    // Never re-queue here: a failure must not feed back into the queue.
+    const status =
+      (err as { status?: number; response?: { status?: number } } | undefined)?.status ??
+      (err as { response?: { status?: number } } | undefined)?.response?.status;
+    if (status === 404) {
+      remoteLoggingDisabled = true;
+    }
   }
 };
 
