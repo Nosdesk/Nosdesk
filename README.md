@@ -68,28 +68,26 @@ Open [http://localhost:8080](http://localhost:8080) in your browser. On first la
 
 ## Deploying on managed Postgres
 
-The bundled Compose stack needs nothing extra: its Postgres superuser runs
-the migrations, which create the two row-level-security roles
-(`nosdesk_app`, the RLS-enforced tenant role, and `nosdesk_admin`, the
-`BYPASSRLS` owner) idempotently and own every object as `nosdesk_admin`,
-so the schema applies regardless of what your connecting role is named.
+The schema is **role-name-agnostic**: the migration creates the two
+row-level-security roles (`nosdesk_app`, the RLS-enforced tenant role, and
+`nosdesk_admin`, the `BYPASSRLS` owner) idempotently and owns every object
+as `nosdesk_admin`, so it applies no matter what your connecting role is
+named (a Fly `pg attach` user, a changed `POSTGRES_USER`, etc.).
 
-On a **managed/hosted Postgres** (Fly Managed Postgres, RDS, Cloud SQL,
-etc.) where the role you connect as is **not** a superuser, create those
-two roles once as a cluster admin **before the first migration**. Creating
-a `BYPASSRLS` role requires superuser, so a plain `CREATEROLE` migrator
-can't do it; the migration's role setup is idempotent and will skip them
-once they exist:
+Run the migrations with a **superuser-capable role**. A fresh install mints
+a `BYPASSRLS` role and loads seed data with triggers disabled
+(`DISABLE TRIGGER ALL`), both of which require superuser, so a restricted
+role can't apply the migration even with the roles pre-created. The bundled
+Compose stack already does this (its Postgres superuser runs migrations),
+so it needs nothing extra. On managed/hosted Postgres (Fly Managed
+Postgres, RDS, Cloud SQL, etc.), run migrations with the cluster's admin
+role.
 
-```sql
-CREATE ROLE nosdesk_app   NOLOGIN NOBYPASSRLS NOINHERIT;
-CREATE ROLE nosdesk_admin NOLOGIN BYPASSRLS;
-GRANT nosdesk_admin TO nosdesk_app WITH INHERIT FALSE, SET TRUE;
-```
-
-After that, point `DATABASE_URL` at the managed instance and run as normal.
-The app's connecting role only needs ownership/DML on its database; it does
-not need to stay a superuser past this one-time setup.
+At runtime, point the running app at a restricted, non-superuser role: it
+connects as `nosdesk_app` for tenant-isolated queries and elevates to
+`nosdesk_admin` only for operations that must cross tenant boundaries. A
+startup guard refuses to boot in multi-tenant mode on a connection role
+that bypasses RLS.
 
 ## Technology
 
