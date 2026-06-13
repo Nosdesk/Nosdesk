@@ -138,14 +138,13 @@ mailpit: ## Open the Mailpit web UI
 	@open http://localhost:8025
 
 # Print the bootstrap token used for the initial-admin onboarding.
-# Logged at backend startup, but easy to lose in scrollback.
-# Print the first-run setup token + onboarding URL. The dev image runs
-# bacon (the `backend` bin only) and has no prebuilt `nosdesk-cli` on
-# PATH, so compile + run it on the fly. First run compiles nosdesk-cli
-# (cached after). In production the image ships `nosdesk-cli` on PATH, so
-# operators run `docker compose exec nosdesk nosdesk-cli setup-token`.
+# Logged at backend startup, but easy to lose in scrollback. The dev
+# image ships a `nosdesk-cli` shim on PATH that compiles + runs the CLI
+# from the watch-synced source (first call compiles, cached after),
+# matching production's `docker compose exec nosdesk nosdesk-cli
+# setup-token`.
 token: ## Print the first-run setup token + onboarding URL
-	@$(COMPOSE) exec nosdesk cargo run --quiet --bin nosdesk-cli -- setup-token
+	@$(COMPOSE) exec nosdesk nosdesk-cli setup-token
 
 # Wire up the in-repo git hooks (one-shot per clone). Points git
 # at .githooks/ for hook lookups so `pre-commit` runs rustfmt +

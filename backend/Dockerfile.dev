@@ -41,6 +41,17 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo install diesel_cli --no-default-features --features postgres --locked && \
     cargo install bacon --locked
 
+# Dev shim for `nosdesk-cli`. The production image ships a compiled
+# binary (backend/Dockerfile); the dev image builds the app at runtime
+# via bacon against watch-synced source, so a baked binary would go
+# stale immediately. This wrapper compiles-and-runs the CLI from the
+# current source on demand (cached in the target volume after first
+# use), so `docker compose exec nosdesk nosdesk-cli ...` works and
+# always matches the running code.
+RUN printf '#!/bin/sh\ncd /app\nexec cargo run --quiet --bin nosdesk-cli -- "$@"\n' \
+      > /usr/local/bin/nosdesk-cli \
+    && chmod +x /usr/local/bin/nosdesk-cli
+
 WORKDIR /app
 
 # Bake the source into the image so the container is bootable on
