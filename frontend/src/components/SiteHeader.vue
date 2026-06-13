@@ -53,7 +53,7 @@ const props = withDefaults(defineProps<Props>(), {
   customTitleEditable: false,
 });
 
-const emit = defineEmits(["updateDocumentTitle", "updateDocumentIcon", "previewDocumentTitle", "updateTicketTitle", "updateCustomTitle", "create"]);
+const emit = defineEmits(["updateDocumentTitle", "updateDocumentIcon", "previewDocumentTitle", "updateTicketTitle", "previewTicketTitle", "updateCustomTitle", "create"]);
 
 const resolvedCreateButtonText = computed(() => props.createButtonText ?? t('header-create-ticket'));
 
@@ -124,6 +124,12 @@ const handleUpdateTicketTitle = (newTitle: string) => {
   }
 };
 
+const handlePreviewTicketTitle = (newTitle: string) => {
+  if (props.ticket) {
+    emit("previewTicketTitle", newTitle);
+  }
+};
+
 const handleUpdateCustomTitle = (newTitle: string) => {
   emit("updateCustomTitle", newTitle);
 };
@@ -187,6 +193,7 @@ const handleCreateClick = () => {
               :placeholder-text="t('ui-site-header-ticket-title-placeholder')"
               :max-lines="2"
               @update-title="handleUpdateTicketTitle"
+              @update-title-preview="handlePreviewTicketTitle"
               class="min-w-0 flex-1"
             />
           </div>

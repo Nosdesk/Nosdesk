@@ -27,7 +27,12 @@ const props = withDefaults(defineProps<Props>(), {
 });
 
 const emit = defineEmits<{
+  // Committed once per edit session (blur / Enter), only when the value
+  // actually changed. This is the one that should write/audit.
   'update:modelValue': [value: string];
+  // Transient draft on every keystroke. For live display and optional
+  // SSE field-preview broadcast; never commits.
+  'preview': [value: string];
 }>();
 
 const isEditing = ref(false);
@@ -38,19 +43,22 @@ const inputRef = ref<HTMLInputElement | null>(null);
 // This is the Vue best practice for controlled inputs
 const localValue = ref(props.modelValue);
 
-// Update original value when modelValue changes from parent (but not during editing)
+// Sync from the parent only when NOT editing. Mid-edit we must leave both
+// refs alone: originalValue has to stay the pre-edit snapshot so commit-on-
+// blur can tell a real change from a no-op, and localValue must keep the
+// user's in-progress text (our own per-keystroke `preview` echoes back
+// through modelValue, and so can a remote SSE update).
 watch(() => props.modelValue, (newValue) => {
-  originalValue.value = newValue;
-  // Only sync local value if not currently editing to preserve cursor position
   if (!isEditing.value) {
+    originalValue.value = newValue;
     localValue.value = newValue;
   }
 });
 
-// Auto-focus input and initialize local value when entering edit mode
+// Auto-focus and snapshot the starting value when entering edit mode.
 watch(isEditing, async (newValue) => {
   if (newValue) {
-    // Sync local value with current model value when starting to edit
+    originalValue.value = props.modelValue;
     localValue.value = props.modelValue;
     await nextTick();
     inputRef.value?.focus();
@@ -67,15 +75,18 @@ const handleClick = () => {
 const handleInput = (event: Event) => {
   const target = event.target as HTMLInputElement;
   localValue.value = target.value;
-  // Emit on input for real-time updates (some parents may need immediate feedback)
-  emit('update:modelValue', localValue.value);
+  // Per-keystroke draft only: drives live display / SSE preview, never commits.
+  emit('preview', localValue.value);
 };
 
 const handleBlur = () => {
   if (isEditing.value) {
     isEditing.value = false;
-    // Emit final value on blur to ensure parent has the latest
-    emit('update:modelValue', localValue.value);
+    // Commit once at the end of the edit session, and only if it changed,
+    // so an open-then-close with no edit (or an unchanged value) is a no-op.
+    if (localValue.value !== originalValue.value) {
+      emit('update:modelValue', localValue.value);
+    }
   }
 };
 
@@ -84,9 +95,11 @@ const handleKeydown = (event: KeyboardEvent) => {
     event.preventDefault();
     (event.target as HTMLInputElement).blur();
   } else if (event.key === 'Escape') {
-    // Restore original value and exit edit mode
+    // Cancel: restore original value, exit, and reset any transient
+    // preview state the parent built up from keystrokes.
     localValue.value = originalValue.value;
     isEditing.value = false;
+    emit('preview', originalValue.value);
   }
 };
 

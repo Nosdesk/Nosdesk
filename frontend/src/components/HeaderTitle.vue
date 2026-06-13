@@ -30,11 +30,18 @@ watch(() => props.initialTitle, (newTitle) => {
   displayTitle.value = newTitle;
 }, { immediate: true });
 
-// Handle title updates
+// Commit (blur / Enter): persist the new title.
 const handleTitleUpdate = (newValue: string) => {
   if (newValue !== props.initialTitle) {
     emit('updateTitle', newValue);
   }
+};
+
+// Transient draft (per keystroke): live display + optional SSE preview,
+// no persistence.
+const handleTitlePreview = (newValue: string) => {
+  displayTitle.value = newValue;
+  emit('updateTitlePreview', newValue);
 };
 </script>
 
@@ -47,5 +54,6 @@ const handleTitleUpdate = (newValue: string) => {
     :truncate="truncate"
     :max-lines="maxLines"
     @update:modelValue="handleTitleUpdate"
+    @preview="handleTitlePreview"
   />
 </template>

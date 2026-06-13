@@ -3,6 +3,7 @@ import { useRoute } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import { useRecentTicketsStore } from '@/stores/recentTickets';
 import { useBrandingStore } from '@/stores/branding';
+import { previewTicketField } from '@/services/ticketService';
 
 export interface TitleableDocument {
   id: string;
@@ -162,6 +163,11 @@ export function useTitleManager() {
   const previewTicketTitle = (newTitle: string) => {
     if (currentTicket.value) {
       currentTicket.value.title = newTitle;
+      // Best-effort live broadcast so other viewers watch the title being
+      // typed. The field-preview endpoint is a no-op against the DB (no
+      // write, no audit event) and our own echo is dropped via the
+      // X-SSE-Client-Id source match, so this is safe to fire per keystroke.
+      void previewTicketField(currentTicket.value.id, 'title', newTitle).catch(() => {});
     }
   };
 

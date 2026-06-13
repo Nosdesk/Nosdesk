@@ -305,9 +305,21 @@ pub fn update_ticket(
 pub fn update_ticket_partial(
     conn: &mut DbConnection,
     ticket_id: i32,
-    ticket_update: crate::models::TicketUpdate,
+    mut ticket_update: crate::models::TicketUpdate,
     observer: Option<&dyn TicketUpdatedObserver>,
 ) -> QueryResult<Ticket> {
+    // Defense in depth against no-op title commits. The InlineEdit header
+    // now commits once per edit session rather than per keystroke, but a
+    // blur with the value unchanged (or a stale client) can still PATCH the
+    // same title back. Drop a title that matches what's stored so it neither
+    // writes nor emits a spurious `ticket.title_changed` audit event.
+    if let Some(ref new_title) = ticket_update.title {
+        let current = get_ticket_by_id(conn, ticket_id)?;
+        if &current.title == new_title {
+            ticket_update.title = None;
+        }
+    }
+
     // Log the cardinality of the change set, not its values. `title`
     // and `resolution_notes` carry user-typed customer text;
     // value-level reconstruction belongs in audit_log, not in
@@ -332,6 +344,14 @@ pub fn update_ticket_partial(
     .filter(|b| *b)
     .count();
     debug!(ticket_id, count, "Updating ticket");
+
+    // Nothing left to change (e.g. a title-only commit that matched the
+    // stored value was dropped above). Return the current row untouched:
+    // no UPDATE, no sync_action, no audit event. Also avoids Diesel's
+    // empty-changeset error on a `.set()` with all-None fields.
+    if count == 0 {
+        return get_ticket_by_id(conn, ticket_id);
+    }
 
     let result = conn.transaction::<Ticket, diesel::result::Error, _>(|conn| {
         let result: Ticket = diesel::update(tickets::table.find(ticket_id))

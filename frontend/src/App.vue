@@ -221,6 +221,7 @@ onMounted(async () => {
         @preview-document-title="titleManager.previewDocumentTitle"
         @update-document-icon="titleManager.updateDocumentIcon"
         @update-ticket-title="titleManager.updateTicketTitle"
+        @preview-ticket-title="titleManager.previewTicketTitle"
         @update-custom-title="titleManager.updateCustomTitle"
         @create="handleCreateClick"
       />
