@@ -183,9 +183,15 @@ pub fn add_membership(
     user_uuid: Uuid,
     role: &str,
 ) -> QueryResult<usize> {
+    // accepted_at is stamped at insert: every caller of this helper
+    // grants an immediately-active membership (bootstrap admin, admin
+    // direct-add of an existing user, OAuth provisioning), none of
+    // which has a pending-invite step. The email-invite path creates
+    // its membership via create_user_with_email and leaves accepted_at
+    // NULL until accept_invitation stamps it.
     diesel::sql_query(
-        "INSERT INTO workspace_members (workspace_id, user_uuid, role) \
-         VALUES ($1, $2, $3) \
+        "INSERT INTO workspace_members (workspace_id, user_uuid, role, accepted_at) \
+         VALUES ($1, $2, $3, now()) \
          ON CONFLICT (workspace_id, user_uuid) DO NOTHING",
     )
     .bind::<diesel::sql_types::Integer, _>(workspace_id)

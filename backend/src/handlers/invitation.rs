@@ -265,6 +265,25 @@ pub async fn accept_invitation(
         // Don't fail the request for this
     }
 
+    // Stamp the user's membership(s) as accepted so the workspace
+    // members list stops showing them as a pending invite. accepted_at
+    // is display-only (the 403 membership gate checks row existence,
+    // not this column), so a best-effort failure here doesn't block the
+    // accept. Audited table, so route through with_actor_context.
+    if let Err(e) = crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
+        use crate::schema::workspace_members;
+        diesel::update(
+            workspace_members::table
+                .filter(workspace_members::user_uuid.eq(&user.uuid))
+                .filter(workspace_members::accepted_at.is_null()),
+        )
+        .set(workspace_members::accepted_at.eq(Utc::now()))
+        .execute(c)
+    }) {
+        warn!("Failed to stamp workspace membership accepted_at: {:?}", e);
+        // Don't fail the request for this
+    }
+
     // Mark user's primary email as verified (they proved ownership by receiving the invitation)
     use crate::schema::user_emails;
     if let Err(e) = diesel::update(
