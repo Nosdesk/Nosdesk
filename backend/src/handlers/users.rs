@@ -1904,10 +1904,99 @@ pub async fn update_user_by_uuid(
         }
     }
 
-    // Update user (core identity fields only — preferences land
-    // separately in user_preferences below).
-    // Role changes go through the bulk action / workspace_members
-    // endpoints now; the per-user PATCH no longer mutates role.
+    // Role change (W2 two-axis model). A platform admin editing another
+    // user may change their role; the request role string is re-derived
+    // into (platform_role, workspace_role) and both are rewritten, scoped
+    // to the request's workspace, mirroring the bulk set-role path.
+    //
+    // A role field on a self-update is ignored rather than applied: you
+    // can't change your own role here (that would be a self-lockout
+    // footgun), and ignoring it keeps a normal profile edit working even
+    // when the client includes the field. Non-admins only ever reach this
+    // handler for their own UUID (the auth check above), so the guard
+    // below covers both cases.
+    if let Some(role_str) = user_data
+        .role
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        if claims.sub != user_uuid && is_platform_admin(&claims) {
+            let (platform_role_enum, workspace_role_enum) = match utils::parse_roles(role_str) {
+                Ok(roles) => roles,
+                Err(_) => return errors::bad_request("Invalid role value"),
+            };
+            let platform_role = platform_role_enum.as_str();
+            let workspace_role = workspace_role_enum.as_str();
+
+            // Last-admin guard: refuse to move the workspace's only admin
+            // off the admin role, so a workspace can't be left with nobody
+            // able to manage it.
+            if workspace_role != "admin" {
+                #[derive(diesel::QueryableByName)]
+                struct AdminGuard {
+                    #[diesel(sql_type = diesel::sql_types::BigInt)]
+                    admin_count: i64,
+                    #[diesel(sql_type = diesel::sql_types::Bool)]
+                    target_is_admin: bool,
+                }
+                let guard = tc.run(|conn| {
+                    diesel::sql_query(
+                        "SELECT \
+                           (SELECT COUNT(*) FROM workspace_members \
+                              WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::int \
+                                AND role = 'admin') AS admin_count, \
+                           EXISTS(SELECT 1 FROM workspace_members \
+                              WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::int \
+                                AND user_uuid = $1 AND role = 'admin') AS target_is_admin",
+                    )
+                    .bind::<diesel::sql_types::Uuid, _>(user_uuid_parsed)
+                    .get_result::<AdminGuard>(conn)
+                });
+                match guard {
+                    Ok(g) if g.target_is_admin && g.admin_count <= 1 => {
+                        return errors::bad_request(
+                            "Cannot remove the last administrator from this workspace",
+                        );
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        error!(error = ?e, "Failed to evaluate last-admin guard");
+                        return errors::internal("Error updating user role");
+                    }
+                }
+            }
+
+            // Rewrite platform_role on the audited users row and the
+            // workspace_members role for the request's workspace, both
+            // inside the actor + workspace-scoped transaction.
+            let role_result = tc.run(|conn| {
+                diesel::update(crate::schema::users::table.find(user_uuid_parsed))
+                    .set((
+                        crate::schema::users::platform_role.eq(platform_role),
+                        crate::schema::users::updated_at.eq(chrono::Utc::now().naive_utc()),
+                    ))
+                    .execute(conn)?;
+                diesel::sql_query(
+                    "UPDATE workspace_members \
+                     SET role = $2 \
+                     WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::int \
+                       AND user_uuid = $1",
+                )
+                .bind::<diesel::sql_types::Uuid, _>(user_uuid_parsed)
+                .bind::<diesel::sql_types::Text, _>(workspace_role)
+                .execute(conn)?;
+                Ok(())
+            });
+            if let Err(e) = role_result {
+                error!(error = ?e, user_uuid = %user_uuid_parsed, "Failed to update user role");
+                return errors::internal("Error updating user role");
+            }
+        }
+    }
+
+    // Update user (core identity fields only; preferences land
+    // separately in user_preferences below). Role was handled above.
     let user_update = UserUpdate {
         name: user_data.name.clone(),
         pronouns: user_data.pronouns.clone(),
