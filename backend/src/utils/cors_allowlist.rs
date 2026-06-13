@@ -18,6 +18,7 @@
 //! slip in.
 
 use std::collections::HashSet;
+use std::sync::OnceLock;
 
 use regex::Regex;
 use tracing::warn;
@@ -102,6 +103,54 @@ impl CorsAllowlist {
         }
         false
     }
+
+    /// Build the allowlist from the process environment: `FRONTEND_URL`
+    /// (the canonical origin), comma-separated `ADDITIONAL_CORS_ORIGINS`,
+    /// and the optional `NOSDESK_TENANT_DOMAIN` subdomain suffix. This is
+    /// the lazy fallback for [`global`] when `main` hasn't installed one
+    /// (tests, CLI tooling); `main` builds the authoritative instance
+    /// (which also enforces the production FRONTEND_URL requirement) and
+    /// installs it via [`set_global`].
+    pub fn from_env() -> Self {
+        let frontend_url =
+            std::env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:3000".to_string());
+        let additional: Vec<String> = std::env::var("ADDITIONAL_CORS_ORIGINS")
+            .unwrap_or_default()
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        let tenant = std::env::var("NOSDESK_TENANT_DOMAIN")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        Self::new(
+            std::iter::once(frontend_url.as_str()).chain(additional.iter().map(String::as_str)),
+            tenant.as_deref(),
+        )
+    }
+}
+
+// Process-wide CORS allowlist. CORS config is constant for the process
+// lifetime (env-derived), so it lives in a global rather than per-App
+// `web::Data` — both the HTTP CORS layer and the collab WebSocket origin
+// guard read it via `global()`, with no app_data to wire (or forget) in
+// every test. Mirrors how the rest of the backend holds env config:
+// JWT_SECRET (utils::jwt), the MFA keyring (utils::encryption), OIDC
+// clients (oidc), etc.
+static GLOBAL: OnceLock<CorsAllowlist> = OnceLock::new();
+
+/// Install the authoritative allowlist. Called once from `main` at
+/// startup; a no-op if one is already set.
+pub fn set_global(allowlist: CorsAllowlist) {
+    let _ = GLOBAL.set(allowlist);
+}
+
+/// The process CORS allowlist. Lazily built from the environment if `main`
+/// has not installed one (tests, tooling), so request handlers never
+/// depend on app_data being registered.
+pub fn global() -> &'static CorsAllowlist {
+    GLOBAL.get_or_init(CorsAllowlist::from_env)
 }
 
 #[cfg(test)]

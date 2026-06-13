@@ -2518,7 +2518,6 @@ pub async fn ws_handler(
     req: HttpRequest,
     body: web::Payload,
     app_state: web::Data<YjsAppState>,
-    cors_allowlist: web::Data<crate::utils::cors_allowlist::CorsAllowlist>,
     ws: crate::extractors::WorkspaceContext,
     path: web::Path<String>,
 ) -> Result<HttpResponse, Error> {
@@ -2562,7 +2561,7 @@ pub async fn ws_handler(
                     .unwrap_or("");
                 !host.is_empty() && origin_authority == host
             };
-            if !cors_allowlist.allows(origin_normalized) && !same_origin {
+            if !crate::utils::cors_allowlist::global().allows(origin_normalized) && !same_origin {
                 warn!(origin = %origin_str, "WebSocket origin not in CORS allowlist");
                 return Err(actix_web::error::ErrorForbidden("Invalid origin"));
             }

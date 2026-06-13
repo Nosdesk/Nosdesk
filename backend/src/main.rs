@@ -1372,23 +1372,20 @@ async fn main() -> std::io::Result<()> {
     // every tenant subdomain preflight failed. `CorsAllowlist`
     // adds an anchored tenant-subdomain regex; substring bypasses
     // (`https://acme.nosdesk.app.attacker.com`) can't slip in.
-    let cors_allowlist = std::sync::Arc::new(crate::utils::cors_allowlist::CorsAllowlist::new(
+    let cors_allowlist = crate::utils::cors_allowlist::CorsAllowlist::new(
         std::iter::once(frontend_url.as_str()).chain(additional_origins.iter().map(|s| s.as_str())),
         tenant_domain.as_deref(),
-    ));
+    );
     info!(
         host_count = cors_allowlist.exact_count(),
         tenant_domain = ?tenant_domain,
         "CORS allowlist initialised"
     );
-
-    // Shared handle so request handlers can reuse the same trusted-
-    // origin set the CORS layer enforces. The collab WebSocket guard
-    // (handlers::collaboration) checks its Origin against this rather
-    // than FRONTEND_URL alone, so an operator-allowed origin works for
-    // realtime editing too. `Data::from` rewraps the existing Arc
-    // instead of double-wrapping it.
-    let cors_data = web::Data::from(cors_allowlist.clone());
+    // Install as the process-wide allowlist. Both the CORS layer below and
+    // the collab WebSocket origin guard (handlers::collaboration) read it
+    // via `cors_allowlist::global()` — no per-App `web::Data` to wire (or
+    // forget in tests). The set runs before any worker starts.
+    crate::utils::cors_allowlist::set_global(cors_allowlist);
 
     // Cloned out before the factory closure moves `yjs_app_state` in, so
     // the shutdown handler below can flush collab docs on SIGTERM.
@@ -1396,10 +1393,12 @@ async fn main() -> std::io::Result<()> {
     let collab_shutdown_token = scheduler_shutdown.clone();
 
     let server = HttpServer::new(move || {
-        let cors_allowlist = cors_allowlist.clone();
         let cors = Cors::default()
-            .allowed_origin_fn(move |origin, _req_head| {
-                origin.to_str().ok().is_some_and(|o| cors_allowlist.allows(o))
+            .allowed_origin_fn(|origin, _req_head| {
+                origin
+                    .to_str()
+                    .ok()
+                    .is_some_and(|o| crate::utils::cors_allowlist::global().allows(o))
             })
             .allowed_methods(vec!["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
             .allowed_headers(vec![
@@ -1452,7 +1451,6 @@ async fn main() -> std::io::Result<()> {
             // unused. See security-audit-2026-06.
             .app_data(auth_limiter_data.clone())
             .app_data(web::Data::new(pool.clone()))
-            .app_data(cors_data.clone())
             .app_data(yjs_app_state.clone())
             .app_data(sse_state.clone())
             .app_data(system_state.clone())
