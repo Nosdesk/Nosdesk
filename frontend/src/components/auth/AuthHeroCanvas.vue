@@ -61,15 +61,23 @@ uniform vec2 u_tilt;       // glyph slab orientation (pitch, yaw) radians
 uniform float u_aspect;    // h/w
 uniform vec2 u_resolution; // canvas pixel dimensions
 uniform sampler2D u_logo;  // logo mask texture (white = logo)
-uniform vec3 u_dark;       // panel background
+uniform vec3 u_dark;       // accumulation base (near-black in both themes)
 uniform vec3 u_warm;       // primary accent light
 uniform vec3 u_hot;        // accent-tinted highlight
 uniform vec3 u_corona;     // edge corona tint
+uniform float u_lightMode; // 1.0 in light themes: re-composite at the end
+uniform vec3 u_lightBase;  // panel base used in light themes
 
 const int NUM_SAMPLES = 80;
 const float DENSITY = 0.75;
 const float DECAY = 0.96;
 const float EXPOSURE = 0.06;
+
+// Light-theme gain for the atmospheric ray glow (ambient wash, god rays,
+// beams, lit fog, dust, flare, corona, edge rim). 0.0 = off, 1.0 = full.
+// Kept off so the light panel reads clean and only the glyph treatment
+// carries the accent; dark mode is unaffected (gated by u_lightMode).
+const float RAY_GAIN_LIGHT = 0.0;
 
 float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 vec2 hash2(vec2 p){ return fract(sin(vec2(dot(p,vec2(127.1,311.7)), dot(p,vec2(269.5,183.3)))) * 43758.5453); }
@@ -264,6 +272,13 @@ void main(){
   col += warmGold * flare * coneMask;
   col += hotWhite * flare * 0.2 * coneMask;
 
+  // Light theme: tone the panel-filling ray glow (everything added above:
+  // ambient wash, god rays, beams, lit fog, dust, flare) right down so the
+  // light panel stays clean. The glyph's own refraction/edge treatment is
+  // computed after this point and is preserved, becoming the only accent
+  // carrier in light mode. Dark mode is unaffected (u_lightMode == 0).
+  col = mix(col, darkBg, u_lightMode * (1.0 - RAY_GAIN_LIGHT));
+
   // -- Crystal slab walls --
   // March the view ray from the slab's front face to its back face; the
   // first covered step is a side wall, its index the distance behind the
@@ -437,6 +452,11 @@ void main(){
     col = mix(col, glassCol, smoothstep(0.0, 0.15, logo));
   }
 
+  // Snapshot before the ambient corona/edge glow so light mode can drop
+  // those (they're panel glow, not glyph treatment) while keeping the
+  // glyph composited above.
+  vec3 preGlow = col;
+
   // -- Corona - ambient base + directional boost --
   col += warmGold * corona * u_breath * 0.15;
   col += warmGold * corona * u_breath * 0.2 * coneMask;
@@ -445,6 +465,21 @@ void main(){
   // -- Edge rim light --
   col += warmGold * edge * t * 0.03 * u_breath;
   col += warmGold * edge * t * 0.03 * u_breath * coneMask;
+
+  // Light theme: revert the corona/edge ambient glow (keep the glyph).
+  col = mix(col, preGlow, u_lightMode * (1.0 - RAY_GAIN_LIGHT));
+
+  // -- Light-theme re-composite --
+  // Everything above paints accent light additively onto the near-black
+  // base, which only reads on a dark panel. In light themes, take that
+  // accumulated energy (how far col rose above the base) and instead paint
+  // it as accent ink on a light panel, so the same animated beams, corona,
+  // and refraction read as soft accent streaks rather than a glow on black.
+  if (u_lightMode > 0.5) {
+    float energy = clamp(dot(col - darkBg, vec3(0.299, 0.587, 0.114)) * 1.4, 0.0, 1.0);
+    vec3 ink = mix(u_lightBase, u_warm, 0.85);
+    col = mix(u_lightBase, ink, energy);
+  }
 
   // Animated +-1 LSB grain dissolves 8-bit banding in the dark falloffs.
   col += (hash(gl_FragCoord.xy + fract(u_anim) * 100.0) - 0.5) / 255.0 * 2.0;
@@ -471,17 +506,34 @@ const mix = (a: Rgb, b: Rgb, t: number): Rgb => [
   a[2] + (b[2] - a[2]) * t,
 ];
 
-// Derive the shader palette from the live accent token.
-function palette(): { dark: Rgb; warm: Rgb; hot: Rgb; corona: Rgb } {
-  const raw = getComputedStyle(document.documentElement)
-    .getPropertyValue('--color-accent');
-  const accent = hexToRgb01(raw) ?? [1.0, 0.42, 0.1];
+// Derive the shader palette from the live theme tokens. The accent drives
+// the lit colours (so workspace branding carries through); the page-bg
+// token's luminance tells us whether we're in a light theme, in which case
+// the shader re-composites onto `lightBase` (see the fragment shader).
+function palette(): {
+  dark: Rgb;
+  warm: Rgb;
+  hot: Rgb;
+  corona: Rgb;
+  lightMode: boolean;
+  lightBase: Rgb;
+} {
+  const styles = getComputedStyle(document.documentElement);
+  const accent = hexToRgb01(styles.getPropertyValue('--color-accent')) ?? [1.0, 0.42, 0.1];
   const white: Rgb = [1, 1, 1];
+  // Theme polarity from the app background token: light themes have a light
+  // page background, dark themes a dark one.
+  const appBg = hexToRgb01(styles.getPropertyValue('--color-app')) ?? [0.04, 0.04, 0.04];
+  const lum = appBg[0] * 0.299 + appBg[1] * 0.587 + appBg[2] * 0.114;
   return {
-    dark: [0.031, 0.035, 0.039], // #08090a - matches the panel base
+    // Accumulation base stays near-black in both themes; light mode discards
+    // it in the re-composite and uses lightBase instead.
+    dark: [0.031, 0.035, 0.039],
     warm: accent,
     hot: mix(accent, white, 0.72),
     corona: mix(accent, white, 0.25),
+    lightMode: lum > 0.5,
+    lightBase: [0.961, 0.965, 0.973], // #f5f6f8 - shared with AuthLayout
   };
 }
 
@@ -588,6 +640,8 @@ function initWebGL(canvas: HTMLCanvasElement, logoCanvas: HTMLCanvasElement) {
       warm: loc('u_warm'),
       hot: loc('u_hot'),
       corona: loc('u_corona'),
+      lightMode: loc('u_lightMode'),
+      lightBase: loc('u_lightBase'),
     },
   };
 }
@@ -619,6 +673,8 @@ onMounted(() => {
     gl.uniform3fv(u.warm, p.warm);
     gl.uniform3fv(u.hot, p.hot);
     gl.uniform3fv(u.corona, p.corona);
+    gl.uniform1f(u.lightMode, p.lightMode ? 1 : 0);
+    gl.uniform3fv(u.lightBase, p.lightBase);
   };
   applyColors();
 

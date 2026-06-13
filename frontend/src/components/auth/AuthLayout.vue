@@ -6,11 +6,14 @@ dark brand hero with a WebGL liquid-glass backdrop (AuthHeroCanvas), a
 status pill, and a bottom tagline. The hero is hidden under `lg`, so on
 mobile the form panel is a normal single column.
 
-The hero is intentionally dark in every theme (a deliberate brand panel),
-so its text uses explicit light colours rather than the theme tokens
-(which flip in light mode). The canvas palette is driven by the accent
-token, so workspace branding carries through. Motion is gated behind
-`prefers-reduced-motion`.
+The hero follows the active theme: a dark brand panel in dark mode, a
+light panel in light mode. Its base colour is shared with the WebGL canvas
+via the `--hero-base` custom property so the CSS edge fades and the shader
+panel match; the canvas re-composites its accent beams for a light base
+(see AuthHeroCanvas). Text and the status pill use theme tokens, which now
+read correctly because the panel polarity tracks the theme. The canvas
+palette is driven by the accent token, so workspace branding carries
+through. Motion is gated behind `prefers-reduced-motion`.
 
 Slots:
   - default      the form column (header + form + secondary links)
@@ -21,6 +24,8 @@ Slots:
   - hero-subtitle hero supporting line
 -->
 <script setup lang="ts">
+import { computed } from 'vue';
+import { useThemeStore } from '@/stores/theme';
 import LogoIcon from '@/components/icons/LogoIcon.vue';
 import AuthHeroCanvas from '@/components/auth/AuthHeroCanvas.vue';
 
@@ -32,6 +37,14 @@ withDefaults(
   }>(),
   { wide: false },
 );
+
+// Hero panel base, shared with the canvas (which uses the same #f5f6f8 in
+// its light-mode re-composite) and the CSS edge fades below. Dark mode
+// keeps the near-black brand panel; light mode uses a light panel.
+const themeStore = useThemeStore();
+const heroStyle = computed(() => ({
+  '--hero-base': themeStore.isDarkMode ? '#08090a' : '#f5f6f8',
+}));
 </script>
 
 <template>
@@ -66,7 +79,7 @@ withDefaults(
     </section>
 
     <!-- Brand hero (desktop only) -->
-    <aside class="auth-hero relative hidden flex-1 overflow-hidden lg:block">
+    <aside class="auth-hero relative hidden flex-1 overflow-hidden lg:block" :style="heroStyle">
       <!-- Drop the N when a view fills the hero itself (onboarding's
            getting-started column), keeping the lit backdrop; show it
            otherwise (login, MFA setup). -->
@@ -79,7 +92,7 @@ withDefaults(
       <!-- Status pill (only when a view supplies a label) -->
       <div
         v-if="$slots.pill"
-        class="absolute right-12 top-12 z-10 flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-white/70 backdrop-blur-sm xl:right-16 xl:top-16"
+        class="absolute right-12 top-12 z-10 flex items-center gap-2 rounded-full border border-default bg-surface/60 px-3 py-1.5 text-xs font-medium text-secondary backdrop-blur-sm xl:right-16 xl:top-16"
       >
         <span class="relative flex h-2 w-2">
           <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-60"></span>
@@ -105,10 +118,10 @@ withDefaults(
         v-if="$slots['hero-title']"
         class="absolute inset-x-0 bottom-0 z-10 flex flex-col gap-3 p-12 xl:p-16"
       >
-        <h2 class="text-3xl font-semibold tracking-tight text-white">
+        <h2 class="text-3xl font-semibold tracking-tight text-primary">
           <slot name="hero-title" />
         </h2>
-        <p class="text-base font-medium tracking-tight text-white/60">
+        <p class="text-base font-medium tracking-tight text-secondary">
           <slot name="hero-subtitle" />
         </p>
       </div>
@@ -117,18 +130,25 @@ withDefaults(
 </template>
 
 <style scoped>
-/* Fixed dark brand panel regardless of the active theme. */
+/* Brand panel base, theme-driven via --hero-base (set inline in script) and
+   shared with the WebGL canvas so the CSS fades and the shader panel match.
+   Falls back to the dark brand colour if the variable is ever missing. */
 .auth-hero {
-  background-color: #08090a;
+  background-color: var(--hero-base, #08090a);
 }
 
 /* Seam fade so the panel edge melts into the form column. */
 .hero-fade-left {
-  background: linear-gradient(to right, #08090a, transparent);
+  background: linear-gradient(to right, var(--hero-base, #08090a), transparent);
 }
 
 /* Bottom fade keeps the tagline readable over the canvas. */
 .hero-fade-bottom {
-  background: linear-gradient(to top, #08090a, rgba(8, 9, 10, 0.4), transparent);
+  background: linear-gradient(
+    to top,
+    var(--hero-base, #08090a),
+    color-mix(in srgb, var(--hero-base, #08090a) 40%, transparent),
+    transparent
+  );
 }
 </style>
