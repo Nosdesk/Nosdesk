@@ -84,7 +84,7 @@ docker compose -f compose.yaml -f compose.dev.yaml up -d --build
 docker compose -f compose.yaml -f compose.dev.yaml logs -f
 
 # Run database migrations
-docker compose -f compose.yaml -f compose.dev.yaml exec backend diesel migration run
+docker compose -f compose.yaml -f compose.dev.yaml exec nosdesk diesel migration run
 ```
 
 By default the dev backend is reachable only from `localhost` to avoid LAN
@@ -132,7 +132,7 @@ If you don't want a local toolchain, the same binary ships in the
 production Docker image at `/usr/local/bin/nosdesk-cli`:
 
 ```bash
-docker compose run --rm --no-deps --entrypoint nosdesk-cli backend --help
+docker compose run --rm --no-deps --entrypoint nosdesk-cli nosdesk --help
 ```
 
 ### Subcommands

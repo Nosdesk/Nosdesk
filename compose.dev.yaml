@@ -20,7 +20,7 @@ services:
     ports:
       - "127.0.0.1:63799:6379"
 
-  # Backend - Development override.
+  # nosdesk — development override.
   #
   # Source files reach the container via `docker compose watch`,
   # not bind mounts. The watch sync action *copies* changed files
@@ -38,7 +38,7 @@ services:
   # ./backend/public because that directory is bidirectional
   # (frontend writes, backend reads) and therefore can't use the
   # one-way watch sync model.
-  backend:
+  nosdesk:
     build:
       context: .
       dockerfile: backend/Dockerfile.dev

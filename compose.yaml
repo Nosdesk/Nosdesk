@@ -1,76 +1,17 @@
 name: nosdesk
 
 services:
-  # PostgreSQL Database. Pinned to 17 to match Fly Managed Postgres
-  # (the deployment target); the stack uses the custom
-  # uuid_generate_v7() function rather than the PG18 uuidv7() builtin.
-  # The data volume mounts the broad `/var/lib/postgresql` (rather than
-  # the version-specific `.../<major>/docker` subdir) so the on-disk
-  # layout survives a future major bump without re-rooting the mount.
-  postgres:
-    image: postgres:17-bookworm
-    restart: unless-stopped
-    env_file: .env
-    volumes:
-      # Must be PGDATA itself; the image VOLUMEs /data, so mounting the
-      # parent leaves data on an anonymous volume that `down` discards.
-      - postgres_data:/var/lib/postgresql/data
-      - ./init-db.sh:/docker-entrypoint-initdb.d/01-init-db.sh:ro
-    networks:
-      - nosdesk-network
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "pg_isready -U ${POSTGRES_USER:-nosdesk} -d ${POSTGRES_DB:-nosdesk}",
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      # `start_period` is a grace window: failures during it don't
-      # count toward `retries`. Postgres cold-start with `initdb` +
-      # the seed script can take ~15s on slower disks; 30s covers it
-      # with margin.
-      start_period: 30s
-
-  # Redis Cache
-  redis:
-    image: redis:8-alpine
-    restart: unless-stopped
-    env_file: .env
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-nosdesk_redis_password}
-    volumes:
-      - redis_data:/data
-    networks:
-      - nosdesk-network
-    healthcheck:
-      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-
-  # Backend - Production
-  backend:
+  nosdesk:
     build:
       context: .
       dockerfile: backend/Dockerfile
       args:
-        # Passed through to the Rust build so option_env!() picks up
-        # the real Nosdesk root pubkey. Operators can override by
-        # setting NOSDESK_ROOT_PUBKEY in .env (or their shell)
-        # before running `docker compose build`. Unset = empty =
-        # official/verified installs fail closed until configured.
         NOSDESK_ROOT_PUBKEY: ${NOSDESK_ROOT_PUBKEY:-}
     platform: linux/amd64
     restart: unless-stopped
     env_file: .env
     volumes:
       - backend_uploads:/app/uploads
-      # Drop signed plugin zips (*.zip) into ./plugins/ to provision
-      # them on startup. The file's presence IS the declaration; the
-      # backend verifies each zip's signature against the trust chain
-      # (baked-in root, registered publishers, or local signing key)
-      # and refuses anything unsigned.
       - ./plugins:/app/plugins:ro
     ports:
       - "127.0.0.1:8080:8080"
@@ -86,6 +27,41 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+
+  postgres:
+    image: postgres:17-bookworm
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/01-init-db.sh:ro
+    networks:
+      - nosdesk-network
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-nosdesk} -d ${POSTGRES_DB:-nosdesk}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    env_file: .env
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-nosdesk_redis_password}
+    volumes:
+      - redis_data:/data
+    networks:
+      - nosdesk-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
 volumes:
   postgres_data:

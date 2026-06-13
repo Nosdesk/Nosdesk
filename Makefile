@@ -79,8 +79,8 @@ clean-db: ## Wipe only the postgres data volume (keeps caches)
 # Restart just the backend container. Common when bacon stops
 # rebuilding cleanly (it happens) or when you change something
 # outside the source watch path (env vars, cargo config).
-restart: ## Restart the backend container
-	$(COMPOSE) restart backend
+restart: ## Restart the nosdesk container
+	$(COMPOSE) restart nosdesk
 
 # Same for the frontend-watch service. Use when vite stops
 # rebuilding (rarer but seen).
@@ -91,21 +91,21 @@ restart-frontend: ## Restart the frontend-watch container
 # happens via `make schema` (separate step because it touches a
 # tracked file).
 migrate: ## Run pending diesel migrations
-	$(COMPOSE) exec backend diesel migration run
+	$(COMPOSE) exec nosdesk diesel migration run
 
 # Regenerate backend/src/schema.rs from the live DB. Run after
 # every successful `make migrate` if the migration touched table
 # structure. RUST_LOG=off prevents stdout pollution corrupting the
 # file.
 schema: ## Regenerate backend/src/schema.rs from the live DB
-	$(COMPOSE) exec backend sh -c 'RUST_LOG=off diesel print-schema 2>/dev/null' > backend/src/schema.rs
+	$(COMPOSE) exec nosdesk sh -c 'RUST_LOG=off diesel print-schema 2>/dev/null' > backend/src/schema.rs
 	@echo "Regenerated backend/src/schema.rs"
 
 # Backend unit + integration tests. Runs inside the container so
 # libpq is available without a host-side install. `-j 1` keeps the
 # memory footprint within the container's allowance.
 test: ## Run backend tests (inside the container)
-	$(COMPOSE) exec -e TEST_REDIS_URL=redis://:nosdesk_redis_password@redis:6379/15 backend cargo test --tests -j 1 --no-fail-fast
+	$(COMPOSE) exec -e TEST_REDIS_URL=redis://:nosdesk_redis_password@redis:6379/15 nosdesk cargo test --tests -j 1 --no-fail-fast
 
 # Frontend type-check (vue-tsc). Runs natively, not in a container,
 # because tsc is the only frontend check that benefits from local
@@ -113,18 +113,18 @@ test: ## Run backend tests (inside the container)
 test-frontend: ## Run the frontend type-check (vue-tsc)
 	cd frontend && npm run type-check
 
-# Follow backend logs in the current terminal.
-logs: ## Follow backend logs
-	$(COMPOSE) logs -f backend
+# Follow nosdesk logs in the current terminal.
+logs: ## Follow nosdesk logs
+	$(COMPOSE) logs -f nosdesk
 
 # Follow frontend-watch logs (vite build output).
 logs-frontend: ## Follow frontend-watch logs (vite output)
 	$(COMPOSE) logs -f frontend-watch
 
-# Shell into the backend container. Useful for ad-hoc diesel-cli
+# Shell into the nosdesk container. Useful for ad-hoc diesel-cli
 # invocations or environment inspection.
-shell: ## Shell into the backend container
-	$(COMPOSE) exec backend sh
+shell: ## Shell into the nosdesk container
+	$(COMPOSE) exec nosdesk sh
 
 # psql against the dev DB. The compose stack publishes postgres on
 # 127.0.0.1:54329, so this also works from your host's psql if you
@@ -143,9 +143,9 @@ mailpit: ## Open the Mailpit web UI
 # bacon (the `backend` bin only) and has no prebuilt `nosdesk-cli` on
 # PATH, so compile + run it on the fly. First run compiles nosdesk-cli
 # (cached after). In production the image ships `nosdesk-cli` on PATH, so
-# operators run `docker compose exec backend nosdesk-cli setup-token`.
+# operators run `docker compose exec nosdesk nosdesk-cli setup-token`.
 token: ## Print the first-run setup token + onboarding URL
-	@$(COMPOSE) exec backend cargo run --quiet --bin nosdesk-cli -- setup-token
+	@$(COMPOSE) exec nosdesk cargo run --quiet --bin nosdesk-cli -- setup-token
 
 # Wire up the in-repo git hooks (one-shot per clone). Points git
 # at .githooks/ for hook lookups so `pre-commit` runs rustfmt +
