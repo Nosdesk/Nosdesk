@@ -66,6 +66,31 @@ docker compose up -d --build
 
 Open [http://localhost:8080](http://localhost:8080) in your browser. On first launch, you'll be guided through creating your admin account.
 
+## Deploying on managed Postgres
+
+The bundled Compose stack needs nothing extra: its Postgres superuser runs
+the migrations, which create the two row-level-security roles
+(`nosdesk_app`, the RLS-enforced tenant role, and `nosdesk_admin`, the
+`BYPASSRLS` owner) idempotently and own every object as `nosdesk_admin`,
+so the schema applies regardless of what your connecting role is named.
+
+On a **managed/hosted Postgres** (Fly Managed Postgres, RDS, Cloud SQL,
+etc.) where the role you connect as is **not** a superuser, create those
+two roles once as a cluster admin **before the first migration**. Creating
+a `BYPASSRLS` role requires superuser, so a plain `CREATEROLE` migrator
+can't do it; the migration's role setup is idempotent and will skip them
+once they exist:
+
+```sql
+CREATE ROLE nosdesk_app   NOLOGIN NOBYPASSRLS NOINHERIT;
+CREATE ROLE nosdesk_admin NOLOGIN BYPASSRLS;
+GRANT nosdesk_admin TO nosdesk_app WITH INHERIT FALSE, SET TRUE;
+```
+
+After that, point `DATABASE_URL` at the managed instance and run as normal.
+The app's connecting role only needs ownership/DML on its database; it does
+not need to stay a superuser past this one-time setup.
+
 ## Technology
 
 | Component | Stack |
