@@ -7,6 +7,7 @@ import { extractErrorMessage } from '@/utils/errors'
 import { useToastStore } from '@/stores/toast'
 
 import DataTable from '@/components/common/DataTable.vue'
+import Icon from '@/components/common/Icon.vue'
 import PaginationControls from '@/components/common/PaginationControls.vue'
 import BulkConfirmDialog from '@/components/common/BulkConfirmDialog.vue'
 import ListPageLayout, { type ListPageLayoutExpose } from '@/components/common/ListPageLayout.vue'
@@ -451,9 +452,7 @@ async function exportAssetsCsv() {
         @click="navigateToAsset(item)"
       >
         <div class="w-10 h-10 rounded-lg bg-surface-alt flex items-center justify-center flex-shrink-0">
-          <svg class="w-5 h-5 text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-          </svg>
+          <Icon name="device" size="md" class="text-secondary" />
         </div>
 
         <div class="flex-1 min-w-0">
@@ -502,9 +501,7 @@ async function exportAssetsCsv() {
           </div>
         </div>
 
-        <svg class="w-4 h-4 text-tertiary flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-        </svg>
+        <Icon name="chevronRight" size="sm" class="text-tertiary flex-shrink-0" />
       </div>
     </template>
 
@@ -515,9 +512,7 @@ async function exportAssetsCsv() {
         :disabled="bulkDelete.asyncStatus.value === 'loading'"
         @click="showDeleteConfirm = true"
       >
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-        </svg>
+        <Icon name="trash" size="sm" />
         {{ selectedCount > 0 ? $t('assets-list-bulk-delete-count', { count: selectedCount }) : $t('assets-list-bulk-delete') }}
       </button>
     </template>

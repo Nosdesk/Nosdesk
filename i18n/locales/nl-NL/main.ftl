@@ -2240,6 +2240,8 @@ asset-detail-section-primary-user = Primaire gebruiker
 asset-detail-no-user-assigned = Geen gebruiker toegewezen aan dit activum
 asset-detail-action-assign-user = Gebruiker toewijzen
 asset-detail-action-change-user = Gebruiker wijzigen
+# asset-detail-action-track-stock (machine translation, pending native review).
+asset-detail-action-track-stock = Voorraad bijhouden
 asset-detail-section-device-information = Apparaatinformatie
 asset-detail-field-device-id = Apparaat-ID
 asset-detail-field-created = Aangemaakt

@@ -2359,6 +2359,7 @@ asset-detail-section-primary-user = Primary User
 asset-detail-no-user-assigned = No user assigned to this asset
 asset-detail-action-assign-user = Assign User
 asset-detail-action-change-user = Change User
+asset-detail-action-track-stock = Track stock
 asset-detail-section-device-information = Device Information
 asset-detail-field-device-id = Device ID
 asset-detail-field-created = Created

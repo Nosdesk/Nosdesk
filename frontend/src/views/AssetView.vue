@@ -97,6 +97,14 @@ const showCreateInventoryPanel = computed(
     editValues.value.low_stock_threshold.trim() !== '',
 );
 
+// Create-mode rail reveals the optional stock-tracking inputs for
+// kinds that aren't inherently bulk. Once any value is typed,
+// showCreateInventoryPanel keeps them visible on its own.
+const stockManuallyShown = ref(false);
+const showCreateStock = computed(
+  () => showCreateInventoryPanel.value || stockManuallyShown.value,
+);
+
 const kindOptions = computed<DropdownOption[]>(() =>
   kinds.value.map((k) => ({
     value: k.slug,
@@ -128,6 +136,16 @@ const fromTicket = computed(() =>
 );
 
 const isSynced = computed(() => device.value != null && !device.value.is_editable);
+
+// Primary-user rail block. Create mode stages the selection
+// locally (selectedUser); edit mode reads the persisted join and
+// only allows changes on editable rows.
+const primaryUserDisplay = computed(() =>
+  isCreationMode.value ? selectedUser.value : (device.value?.primary_user ?? null),
+);
+const canEditPrimaryUser = computed(() =>
+  isCreationMode.value ? true : (device.value?.is_editable ?? false),
+);
 const displayName = computed(() => {
   if (isCreationMode.value) {
     return editValues.value.name || (attributeDraft.value.hostname as string | undefined) || '';
@@ -143,22 +161,6 @@ const displaySubtitle = computed(() => {
     editValues.value.serial_number || device.value?.serial_number,
   ].filter(Boolean);
   return parts.join(' · ');
-});
-
-const stockStatus = computed<'none' | 'tracked' | 'low'>(() => {
-  const quantity = isCreationMode.value ? editValues.value.quantity : (device.value?.quantity ?? '');
-  if (!quantity) return 'none';
-  return isLowStock.value ? 'low' : 'tracked';
-});
-
-const stockStatusLabel = computed(() => {
-  if (stockStatus.value === 'low') return t('assets-list-low-stock-badge');
-  if (stockStatus.value === 'tracked') {
-    const quantity = isCreationMode.value ? editValues.value.quantity : (device.value?.quantity ?? '');
-    const unit = isCreationMode.value ? editValues.value.unit : (device.value?.unit ?? '');
-    return unit ? `${quantity} ${unit}` : quantity;
-  }
-  return t('asset-detail-stock-not-tracked');
 });
 
 const locationSuggestions = computed(() => {
@@ -574,329 +576,125 @@ onMounted(() => {
 
     <!-- Main content -->
     <div v-else-if="device || isCreationMode" class="flex flex-col">
+      <!-- Top bar: back navigation on the left, record-level
+           actions (edit mode) on the right. -->
+      <div class="pt-4 px-4 sm:px-6 flex items-center justify-between gap-3">
+        <BackButton
+          v-if="fromTicket"
+          :fallbackRoute="`/tickets/${fromTicket}`"
+          :label="$t('asset-detail-back-to-ticket', { id: fromTicket })"
+          compact
+        />
+        <BackButton v-else fallbackRoute="/assets" :label="$t('asset-detail-back-to-devices')" compact />
+
+        <div v-if="!isCreationMode" class="flex items-center gap-2">
+          <Button
+            v-if="device?.quantity != null"
+            variant="secondary"
+            size="sm"
+            icon="history"
+            @click="scrollToInventory"
+          >
+            {{ $t('asset-usage-history-heading') }}
+          </Button>
+          <DeleteButton
+            v-if="device?.is_editable"
+            fallbackRoute="/assets"
+            :itemName="$t('asset-detail-delete-item-name')"
+            @delete="handleDeleteDevice"
+          />
+        </div>
+      </div>
+
       <!-- Content area -->
-      <div class="flex flex-col gap-6 px-6 py-4 mx-auto w-full max-w-8xl">
+      <div class="flex flex-col gap-4 px-4 py-4 sm:px-6 mx-auto w-full max-w-8xl">
         <AlertMessage v-if="error" type="error" :message="error" />
 
-        <section class="bg-surface rounded-xl border border-default overflow-hidden">
-          <div class="p-4 sm:p-5 flex flex-col gap-4">
-            <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-              <div class="flex flex-col gap-3 min-w-0">
-                <BackButton
-                  v-if="fromTicket"
-                  :fallbackRoute="`/tickets/${fromTicket}`"
-                  :label="$t('asset-detail-back-to-ticket', { id: fromTicket })"
-                  compact
-                />
-                <BackButton v-else fallbackRoute="/assets" :label="$t('asset-detail-back-to-devices')" compact />
-
-                <div class="flex items-start gap-3 min-w-0">
-                  <div class="w-11 h-11 rounded-lg bg-surface-alt border border-default flex items-center justify-center flex-shrink-0">
-                    <Icon name="device" class="text-secondary" />
-                  </div>
-                  <div class="min-w-0">
-                    <div class="flex flex-wrap items-center gap-2">
-                      <h1 v-if="displayName" class="text-xl sm:text-2xl font-semibold text-primary truncate">
-                        {{ displayName }}
-                      </h1>
-                      <span
-                        class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-accent/10 text-accent"
-                      >
-                        {{ selectedKind?.label ?? selectedKindSlug }}
-                      </span>
-                      <span
-                        v-if="isSynced"
-                        class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-surface-alt text-secondary border border-default"
-                      >
-                        <Icon name="lock" size="xs" />
-                        {{ $t('asset-detail-readonly') }}
-                      </span>
-                    </div>
-                    <p v-if="displaySubtitle" class="mt-1 text-sm text-secondary truncate">
-                      {{ displaySubtitle }}
-                    </p>
-                  </div>
+        <div
+          class="asset-grid items-start"
+          :class="isCreationMode ? 'asset-grid--create' : 'asset-grid--detail'"
+        >
+          <!-- Rail: sticky sidebar in edit mode (identity, status,
+               assignment, record metadata); sticky summary + action
+               rail in creation mode. -->
+          <aside class="asset-rail">
+            <!-- Identity / summary card -->
+            <div class="bg-surface rounded-xl border border-default p-4 flex flex-col gap-3">
+              <div class="flex items-start gap-3 min-w-0">
+                <div class="w-11 h-11 rounded-lg bg-surface-alt border border-default flex items-center justify-center flex-shrink-0">
+                  <Icon name="device" class="text-secondary" />
                 </div>
-              </div>
-
-              <div class="flex items-center gap-2 self-start">
-                <Button
-                  v-if="!isCreationMode && device?.quantity != null"
-                  variant="secondary"
-                  icon="history"
-                  @click="scrollToInventory"
-                >
-                  {{ $t('asset-usage-history-heading') }}
-                </Button>
-                <DeleteButton
-                  v-if="!isCreationMode && device?.is_editable"
-                  fallbackRoute="/assets"
-                  :itemName="$t('asset-detail-delete-item-name')"
-                  @delete="handleDeleteDevice"
-                />
-              </div>
-            </div>
-
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div class="rounded-lg border border-default bg-surface-alt px-3 py-2">
-                <p class="text-[11px] font-medium uppercase tracking-wide text-tertiary">
-                  {{ canHavePrimaryUser || (!isCreationMode && device?.primary_user) ? $t('asset-detail-section-primary-user') : $t('asset-detail-field-location') }}
-                </p>
-                <p class="mt-1 text-sm font-medium text-primary truncate">
-                  {{
-                    canHavePrimaryUser || (!isCreationMode && device?.primary_user)
-                      ? (isCreationMode ? (selectedUser?.name ?? $t('asset-detail-no-user-assigned')) : (device?.primary_user?.name ?? $t('asset-detail-no-user-assigned')))
-                      : (editValues.location || device?.location || $t('assets-list-grouping-location-none'))
-                  }}
-                </p>
-              </div>
-              <div class="rounded-lg border border-default bg-surface-alt px-3 py-2">
-                <p class="text-[11px] font-medium uppercase tracking-wide text-tertiary">
-                  {{ $t('asset-detail-section-stock') }}
-                </p>
-                <p
-                  class="mt-1 text-sm font-medium truncate"
-                  :class="stockStatus === 'low' ? 'text-status-warning' : 'text-primary'"
-                >
-                  {{ stockStatusLabel }}
-                </p>
-              </div>
-              <div class="rounded-lg border border-default bg-surface-alt px-3 py-2">
-                <p class="text-[11px] font-medium uppercase tracking-wide text-tertiary">
-                  {{ $t('asset-detail-section-device-information') }}
-                </p>
-                <div class="mt-1 flex flex-col gap-1.5">
-                  <p class="text-sm font-medium text-primary truncate">
-                    {{ managementLabel }}
+                <div class="min-w-0">
+                  <p v-if="isCreationMode" class="text-[11px] font-medium uppercase tracking-wide text-tertiary">
+                    {{ $t('asset-detail-action-create') }}
                   </p>
-                  <AssetStatusBadge
-                    v-if="!isCreationMode && device?.status"
-                    :status="device.status"
-                  />
+                  <h1 class="text-lg font-semibold text-primary truncate">
+                    {{ displayName || $t('asset-detail-field-name-placeholder-create') }}
+                  </h1>
+                  <p v-if="displaySubtitle" class="text-xs text-secondary truncate mt-0.5">
+                    {{ displaySubtitle }}
+                  </p>
                 </div>
               </div>
-            </div>
-          </div>
-        </section>
 
-        <!-- Kind picker + dynamic attribute form. In creation
-             mode the admin chooses the kind and fills in any
-             per-kind attributes; in edit mode for editable
-             rows, both the picker and the attribute form remain
-             writable. Externally synced rows (Intune, Entra)
-             stay read-only because the next sync would
-             overwrite manual edits anyway. -->
-        <SectionCard v-if="kinds.length > 0" content-padding="p-4">
-          <template #title>{{ $t('asset-detail-section-kind') }}</template>
-          <div class="flex flex-col gap-4">
-            <div class="flex flex-col gap-1.5">
-              <SearchableDropdown
-                v-if="isKindOrAttributesEditable"
-                :model-value="selectedKindSlug"
-                :options="kindOptions"
-                :label="$t('asset-detail-field-kind')"
-                size="sm"
-                @update:model-value="(value) => { selectedKindSlug = String(value); onKindPickerChange() }"
-              />
-              <p v-else class="text-sm text-primary">
-                {{ selectedKind?.label ?? selectedKindSlug }}
-              </p>
-              <p v-if="selectedKind?.description" class="text-xs text-tertiary">
-                {{ selectedKind.description }}
-              </p>
-              <AlertMessage v-if="kindChangeError" type="error" :message="kindChangeError" />
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-accent/10 text-accent">
+                  {{ selectedKind?.label ?? selectedKindSlug }}
+                </span>
+                <AssetStatusBadge v-if="!isCreationMode && device?.status" :status="device.status" />
+                <span
+                  v-if="isSynced"
+                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-surface-alt text-secondary border border-default"
+                >
+                  <Icon name="lock" size="xs" />
+                  {{ $t('asset-detail-readonly') }}
+                </span>
+              </div>
             </div>
-            <DynamicAttributeForm
-              v-if="selectedKindSchema"
-              :schema="selectedKindSchema"
-              v-model="attributeDraft"
-              :disabled="!isKindOrAttributesEditable"
-            />
-            <div
-              v-if="!isCreationMode && isKindOrAttributesEditable && attributesDirty"
-              class="flex items-center gap-2 pt-2"
+
+            <!-- Primary user. Create mode stages the selection
+                 locally; edit mode persists it on change. -->
+            <SectionCard
+              v-if="(isCreationMode && canHavePrimaryUser) || (!isCreationMode && device && showPrimaryUserPanel)"
+              content-padding="p-4"
             >
-              <Button
-                size="sm"
-                :disabled="isSaving"
-                @click="saveAttributes"
-              >
-                {{ $t('asset-detail-attributes-save') }}
-              </Button>
-              <Button
-                size="sm"
-                variant="secondary"
-                :disabled="isSaving"
-                @click="discardAttributes"
-              >
-                {{ $t('asset-detail-attributes-discard') }}
-              </Button>
-            </div>
-            <AlertMessage v-if="attributesError" type="error" :message="attributesError" />
-          </div>
-        </SectionCard>
+              <template #title>{{ $t('asset-detail-section-primary-user') }}</template>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
-          <!-- Left column: Asset Details -->
-          <SectionCard content-padding="p-4">
-            <template #title>{{ $t('asset-detail-section-details') }}</template>
-
-            <div class="flex flex-col gap-4">
-              <!-- Name -->
-              <div class="flex flex-col gap-1.5">
-                <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-name') }}</h3>
-                <FormInput
-                  v-if="isCreationMode"
-                  v-model="editValues.name"
-                  :placeholder="$t('asset-detail-field-name-placeholder-create')"
-                />
-                <InlineEdit
-                  v-else
-                  v-model="editValues.name"
-                  :placeholder="$t('asset-detail-field-name-placeholder-edit')"
-                  text-size="sm"
-                  :can-edit="device?.is_editable ?? false"
-                  @update:modelValue="() => saveField('name')"
-                />
+              <div v-if="primaryUserDisplay" class="flex flex-col gap-3">
+                <UserCard :user="primaryUserDisplay" avatar-size="md" />
+                <Button
+                  v-if="canEditPrimaryUser"
+                  block
+                  variant="secondary"
+                  size="sm"
+                  icon="user"
+                  @click="showUserSelectionModal = true"
+                >
+                  {{ $t('asset-detail-action-change-user') }}
+                </Button>
               </div>
 
-              <!-- Hostname / OS / warranty / Microsoft Graph
-                   IDs now live as per-kind attributes; the
-                   DynamicAttributeForm in the Kind section above
-                   renders them through the kind's
-                   attribute_schema. -->
-
-              <!-- Serial Number -->
-              <div class="flex flex-col gap-1.5">
-                <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-serial') }}</h3>
-                <FormInput
-                  v-if="isCreationMode"
-                  v-model="editValues.serial_number"
-                  :placeholder="$t('asset-detail-field-serial-placeholder-create')"
-                />
-                <InlineEdit
-                  v-else
-                  v-model="editValues.serial_number"
-                  :placeholder="device?.serial_number || $t('asset-detail-field-serial-placeholder-edit')"
-                  text-size="sm"
-                  :can-edit="device?.is_editable ?? false"
-                  @update:modelValue="() => saveField('serial_number')"
-                />
+              <div v-else class="flex flex-col items-start gap-3">
+                <p class="text-sm text-secondary">{{ $t('asset-detail-no-user-assigned') }}</p>
+                <Button
+                  v-if="canEditPrimaryUser"
+                  block
+                  variant="secondary"
+                  size="sm"
+                  icon="add"
+                  @click="showUserSelectionModal = true"
+                >
+                  {{ $t('asset-detail-action-assign-user') }}
+                </Button>
               </div>
+            </SectionCard>
 
-              <!-- Manufacturer + Model side-by-side -->
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-default">
-                <div class="flex flex-col gap-1.5">
-                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-manufacturer') }}</h3>
-                  <FormInput
-                    v-if="isCreationMode"
-                    v-model="editValues.manufacturer"
-                    :placeholder="$t('asset-detail-field-manufacturer-placeholder-create')"
-                  />
-                  <InlineEdit
-                    v-else
-                    v-model="editValues.manufacturer"
-                    :placeholder="device?.manufacturer || $t('asset-detail-field-manufacturer-placeholder-edit')"
-                    text-size="sm"
-                    :can-edit="device?.is_editable ?? false"
-                    @update:modelValue="() => saveField('manufacturer')"
-                  />
-                </div>
-
-                <div class="flex flex-col gap-1.5">
-                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-model') }}</h3>
-                  <FormInput
-                    v-if="isCreationMode"
-                    v-model="editValues.model"
-                    :placeholder="$t('asset-detail-field-model-placeholder-create')"
-                  />
-                  <InlineEdit
-                    v-else
-                    v-model="editValues.model"
-                    :placeholder="device?.model || $t('asset-detail-field-model-placeholder-edit')"
-                    text-size="sm"
-                    :can-edit="device?.is_editable ?? false"
-                    @update:modelValue="() => saveField('model')"
-                  />
-                </div>
-              </div>
-
-              <!-- Purchase date + asset tag + location -->
-              <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div class="flex flex-col gap-1.5">
-                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-purchase-date') }}</h3>
-                  <DatePicker
-                    v-if="isCreationMode || device?.is_editable"
-                    v-model="editValues.purchase_date"
-                    size="md"
-                    block
-                    :aria-label="$t('asset-detail-field-purchase-date')"
-                    @update:model-value="() => { if (!isCreationMode) saveField('purchase_date') }"
-                  />
-                  <p v-else class="text-primary text-sm">{{ device?.purchase_date || '-' }}</p>
-                </div>
-                <div class="flex flex-col gap-1.5">
-                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-asset-tag') }}</h3>
-                  <FormInput
-                    v-if="isCreationMode"
-                    v-model="editValues.asset_tag"
-                    :placeholder="$t('asset-detail-field-asset-tag-placeholder-create')"
-                    size="sm"
-                  />
-                  <InlineEdit
-                    v-else
-                    v-model="editValues.asset_tag"
-                    :placeholder="$t('asset-detail-field-asset-tag-placeholder-edit')"
-                    text-size="sm"
-                    :can-edit="device?.is_editable ?? false"
-                    @update:modelValue="() => saveField('asset_tag')"
-                  />
-                </div>
-                <div class="flex flex-col gap-1.5">
-                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-location') }}</h3>
-                  <FormInput
-                    v-if="isCreationMode"
-                    v-model="editValues.location"
-                    :placeholder="$t('asset-detail-field-location-placeholder-create')"
-                    size="sm"
-                  />
-                  <InlineEdit
-                    v-else
-                    v-model="editValues.location"
-                    :placeholder="$t('asset-detail-field-location-placeholder-edit')"
-                    text-size="sm"
-                    :can-edit="device?.is_editable ?? false"
-                    @update:modelValue="() => saveField('location')"
-                  />
-                  <div
-                    v-if="(isCreationMode || device?.is_editable) && locationSuggestions.length"
-                    class="flex flex-wrap items-center gap-1.5"
-                  >
-                    <span class="text-[11px] text-tertiary">
-                      {{ $t('asset-detail-location-suggestions') }}
-                    </span>
-                    <Button
-                      v-for="suggestion in locationSuggestions"
-                      :key="suggestion.location"
-                      variant="ghost"
-                      size="sm"
-                      class="!px-2 !py-1 border border-subtle"
-                      @click="selectLocationSuggestion(suggestion.location)"
-                    >
-                      {{ suggestion.location }}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </SectionCard>
-
-          <!-- Right column -->
-          <div v-if="isCreationMode || device" class="flex flex-col gap-6">
-            <SectionCard v-if="isCreationMode && showCreateInventoryPanel" id="asset-inventory-panel" content-padding="p-4">
+            <!-- Stock tracking (create mode). Optional for non-bulk
+                 kinds, revealed on demand to keep the rail compact. -->
+            <SectionCard v-if="isCreationMode" content-padding="p-4">
               <template #title>{{ $t('asset-detail-section-stock') }}</template>
 
-              <div class="flex flex-col gap-4">
+              <div v-if="showCreateStock" class="flex flex-col gap-3">
                 <div v-if="isLowStock" class="flex items-center gap-2 px-3 py-2 bg-status-warning/10 text-status-warning rounded-lg text-sm">
                   <Icon name="warning" />
                   <span>{{ $t('asset-detail-low-stock-warning', { quantity: editValues.quantity, unit: editValues.unit, threshold: editValues.low_stock_threshold }) }}</span>
@@ -909,14 +707,12 @@ onMounted(() => {
                   inputmode="decimal"
                   size="sm"
                 />
-
                 <FormInput
                   v-model="editValues.unit"
                   :label="$t('asset-detail-field-unit')"
                   :placeholder="$t('asset-detail-field-unit-placeholder')"
                   size="sm"
                 />
-
                 <FormInput
                   v-model="editValues.low_stock_threshold"
                   :label="$t('asset-detail-field-low-stock-threshold')"
@@ -926,96 +722,296 @@ onMounted(() => {
                   size="sm"
                 />
               </div>
-            </SectionCard>
 
-            <SectionCard v-if="isCreationMode && !canHavePrimaryUser" content-padding="p-4">
-              <template #title>{{ $t('asset-detail-section-physical-context') }}</template>
-
-              <div class="flex flex-col gap-3">
-                <div class="rounded-lg border border-dashed border-default bg-surface-alt p-4 flex items-start gap-3">
-                  <Icon name="paperclip" class="text-tertiary flex-shrink-0 mt-0.5" />
-                  <div class="min-w-0">
-                    <p class="text-sm font-medium text-primary">
-                      {{ $t('asset-detail-photo-placeholder-title') }}
-                    </p>
-                    <p class="text-xs text-tertiary mt-1">
-                      {{ $t('asset-detail-photo-placeholder-description') }}
-                    </p>
-                  </div>
-                </div>
-                <p class="text-xs text-tertiary">
-                  {{ $t('asset-detail-physical-context-help') }}
-                </p>
-              </div>
-            </SectionCard>
-
-            <!-- Primary User (create mode) -->
-            <SectionCard v-if="isCreationMode && canHavePrimaryUser" content-padding="p-4">
-              <template #title>{{ $t('asset-detail-section-primary-user') }}</template>
-
-              <div v-if="selectedUser" class="flex flex-col gap-4">
-                <UserCard :user="selectedUser" avatar-size="lg" />
-
-                <Button
-                  block
-                  icon="user"
-                  @click="showUserSelectionModal = true"
-                >
-                  {{ $t('asset-detail-action-change-user') }}
-                </Button>
-              </div>
-
-              <div v-else class="flex flex-col items-center py-8 gap-4">
-                <div class="inline-flex items-center justify-center w-12 h-12 bg-surface-alt rounded-full">
-                  <Icon name="user" size="md" class="text-secondary" />
-                </div>
-                <p class="text-secondary text-sm">{{ $t('asset-detail-no-user-assigned') }}</p>
-
-                <Button
-                  icon="add"
-                  @click="showUserSelectionModal = true"
-                >
-                  {{ $t('asset-detail-action-assign-user') }}
-                </Button>
-              </div>
-            </SectionCard>
-
-            <!-- Primary User (edit mode) -->
-            <SectionCard v-if="!isCreationMode && device && showPrimaryUserPanel" content-padding="p-4">
-              <template #title>{{ $t('asset-detail-section-primary-user') }}</template>
-
-              <div v-if="device.primary_user" class="flex flex-col gap-4">
-                <UserCard :user="device.primary_user" avatar-size="lg" />
-
-                <Button
-                  v-if="device.is_editable"
-                  block
-                  icon="user"
-                  @click="showUserSelectionModal = true"
-                >
-                  {{ $t('asset-detail-action-change-user') }}
-                </Button>
-              </div>
-
-              <div v-else class="flex flex-col items-center py-8 gap-4">
-                <div class="inline-flex items-center justify-center w-12 h-12 bg-surface-alt rounded-full">
-                  <Icon name="user" size="md" class="text-secondary" />
-                </div>
-                <p class="text-secondary text-sm">{{ $t('asset-detail-no-user-assigned') }}</p>
-
-                <Button
-                  v-if="device.is_editable"
-                  icon="add"
-                  @click="showUserSelectionModal = true"
-                >
-                  {{ $t('asset-detail-action-assign-user') }}
-                </Button>
-              </div>
+              <Button
+                v-else
+                block
+                variant="ghost"
+                size="sm"
+                icon="add"
+                class="border border-dashed border-default"
+                @click="stockManuallyShown = true"
+              >
+                {{ $t('asset-detail-action-track-stock') }}
+              </Button>
             </SectionCard>
 
             <!-- Groups (edit mode only) -->
-            <DeviceGroups v-if="!isCreationMode && device" :groups="device.groups" />
+            <DeviceGroups v-if="!isCreationMode && device?.groups?.length" :groups="device.groups" />
 
+            <!-- Record metadata (edit mode). Folds the former
+                 Asset-Information / External-sync cards into a
+                 single compact panel; synced rows surface the
+                 sync source and the unmanage action here. -->
+            <SectionCard v-if="!isCreationMode && device" content-padding="p-4">
+              <template #title>{{ $t('asset-detail-section-device-information') }}</template>
+
+              <div class="flex flex-col gap-3 text-sm">
+                <div class="flex items-center justify-between gap-3">
+                  <span class="text-xs font-medium uppercase tracking-wide text-tertiary">{{ $t('asset-detail-field-device-id') }}</span>
+                  <span class="font-mono text-primary">{{ device.id }}</span>
+                </div>
+                <div class="flex items-center justify-between gap-3">
+                  <span class="text-xs font-medium uppercase tracking-wide text-tertiary">{{ $t('asset-detail-field-created') }}</span>
+                  <span class="text-primary text-right">{{ formatDateTime(device.created_at) }}</span>
+                </div>
+                <div class="flex items-center justify-between gap-3">
+                  <span class="text-xs font-medium uppercase tracking-wide text-tertiary">{{ $t('asset-detail-field-last-updated') }}</span>
+                  <span class="text-primary text-right">{{ formatDateTime(device.updated_at) }}</span>
+                </div>
+
+                <div class="pt-3 border-t border-default flex items-start gap-2">
+                  <Icon :name="isSynced ? 'refresh' : 'device'" size="sm" class="text-secondary flex-shrink-0 mt-0.5" />
+                  <div class="min-w-0">
+                    <p class="font-medium text-primary">{{ managementLabel }}</p>
+                    <p class="text-xs text-tertiary mt-0.5">
+                      {{ isSynced ? $t('asset-detail-external-sync-note') : $t('asset-detail-manually-managed-description') }}
+                    </p>
+                  </div>
+                </div>
+
+                <template v-if="isSynced">
+                  <Button
+                    @click="handleUnmanageDevice"
+                    :disabled="isSaving"
+                    block
+                    variant="secondary"
+                    size="sm"
+                    icon="refresh"
+                    :title="$t('asset-detail-action-unmanage-title')"
+                  >
+                    {{ isSaving ? $t('asset-detail-action-unmanage-processing') : $t('asset-detail-action-unmanage') }}
+                  </Button>
+                  <p class="text-xs text-tertiary">{{ $t('asset-detail-unmanage-conversion-note') }}</p>
+                </template>
+              </div>
+            </SectionCard>
+
+            <!-- Create-mode actions. Stay in view via the sticky
+                 rail so the primary CTA is always reachable. -->
+            <div v-if="isCreationMode" class="flex flex-col gap-2">
+              <Button
+                block
+                icon="add"
+                :disabled="isSaving || (!editValues.name && !(attributeDraft.hostname as string | undefined))"
+                :loading="isSaving"
+                @click="saveDevice"
+              >
+                {{ isSaving ? $t('asset-detail-action-create-processing') : $t('asset-detail-action-create') }}
+              </Button>
+              <Button
+                block
+                variant="secondary"
+                :disabled="isSaving"
+                @click="router.push('/assets')"
+              >
+                {{ $t('asset-detail-action-cancel') }}
+              </Button>
+            </div>
+          </aside>
+
+          <!-- Main column: type/attributes, core details, and (edit
+               mode) lifecycle, stock, usage, media, plugin panels. -->
+          <div class="asset-main">
+            <!-- Kind picker + dynamic attribute form. Editable in
+                 creation mode and for editable rows in edit mode;
+                 externally synced rows stay read-only because the
+                 next sync would overwrite manual edits anyway. -->
+            <SectionCard v-if="kinds.length > 0" content-padding="p-4">
+              <template #title>{{ $t('asset-detail-section-kind') }}</template>
+              <div class="flex flex-col gap-4">
+                <div class="flex flex-col gap-1.5">
+                  <SearchableDropdown
+                    v-if="isKindOrAttributesEditable"
+                    :model-value="selectedKindSlug"
+                    :options="kindOptions"
+                    :label="$t('asset-detail-field-kind')"
+                    size="sm"
+                    @update:model-value="(value) => { selectedKindSlug = String(value); onKindPickerChange() }"
+                  />
+                  <p v-else class="text-sm text-primary">
+                    {{ selectedKind?.label ?? selectedKindSlug }}
+                  </p>
+                  <p v-if="selectedKind?.description" class="text-xs text-tertiary">
+                    {{ selectedKind.description }}
+                  </p>
+                  <AlertMessage v-if="kindChangeError" type="error" :message="kindChangeError" />
+                </div>
+                <DynamicAttributeForm
+                  v-if="selectedKindSchema"
+                  :schema="selectedKindSchema"
+                  v-model="attributeDraft"
+                  :disabled="!isKindOrAttributesEditable"
+                />
+                <div
+                  v-if="!isCreationMode && isKindOrAttributesEditable && attributesDirty"
+                  class="flex items-center gap-2 pt-2"
+                >
+                  <Button size="sm" :disabled="isSaving" @click="saveAttributes">
+                    {{ $t('asset-detail-attributes-save') }}
+                  </Button>
+                  <Button size="sm" variant="secondary" :disabled="isSaving" @click="discardAttributes">
+                    {{ $t('asset-detail-attributes-discard') }}
+                  </Button>
+                </div>
+                <AlertMessage v-if="attributesError" type="error" :message="attributesError" />
+              </div>
+            </SectionCard>
+
+            <!-- Core details -->
+            <SectionCard content-padding="p-4">
+              <template #title>{{ $t('asset-detail-section-details') }}</template>
+
+              <div class="flex flex-col gap-4">
+                <!-- Name + serial side-by-side -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div class="flex flex-col gap-1.5">
+                    <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-name') }}</h3>
+                    <FormInput
+                      v-if="isCreationMode"
+                      v-model="editValues.name"
+                      :placeholder="$t('asset-detail-field-name-placeholder-create')"
+                      size="sm"
+                    />
+                    <InlineEdit
+                      v-else
+                      v-model="editValues.name"
+                      :placeholder="$t('asset-detail-field-name-placeholder-edit')"
+                      text-size="sm"
+                      :can-edit="device?.is_editable ?? false"
+                      @update:modelValue="() => saveField('name')"
+                    />
+                  </div>
+
+                  <div class="flex flex-col gap-1.5">
+                    <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-serial') }}</h3>
+                    <FormInput
+                      v-if="isCreationMode"
+                      v-model="editValues.serial_number"
+                      :placeholder="$t('asset-detail-field-serial-placeholder-create')"
+                      size="sm"
+                    />
+                    <InlineEdit
+                      v-else
+                      v-model="editValues.serial_number"
+                      :placeholder="device?.serial_number || $t('asset-detail-field-serial-placeholder-edit')"
+                      text-size="sm"
+                      :can-edit="device?.is_editable ?? false"
+                      @update:modelValue="() => saveField('serial_number')"
+                    />
+                  </div>
+                </div>
+
+                <!-- Manufacturer + Model side-by-side -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-default">
+                  <div class="flex flex-col gap-1.5">
+                    <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-manufacturer') }}</h3>
+                    <FormInput
+                      v-if="isCreationMode"
+                      v-model="editValues.manufacturer"
+                      :placeholder="$t('asset-detail-field-manufacturer-placeholder-create')"
+                      size="sm"
+                    />
+                    <InlineEdit
+                      v-else
+                      v-model="editValues.manufacturer"
+                      :placeholder="device?.manufacturer || $t('asset-detail-field-manufacturer-placeholder-edit')"
+                      text-size="sm"
+                      :can-edit="device?.is_editable ?? false"
+                      @update:modelValue="() => saveField('manufacturer')"
+                    />
+                  </div>
+
+                  <div class="flex flex-col gap-1.5">
+                    <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-model') }}</h3>
+                    <FormInput
+                      v-if="isCreationMode"
+                      v-model="editValues.model"
+                      :placeholder="$t('asset-detail-field-model-placeholder-create')"
+                      size="sm"
+                    />
+                    <InlineEdit
+                      v-else
+                      v-model="editValues.model"
+                      :placeholder="device?.model || $t('asset-detail-field-model-placeholder-edit')"
+                      text-size="sm"
+                      :can-edit="device?.is_editable ?? false"
+                      @update:modelValue="() => saveField('model')"
+                    />
+                  </div>
+                </div>
+
+                <!-- Purchase date + asset tag + location -->
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 border-t border-default">
+                  <div class="flex flex-col gap-1.5">
+                    <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-purchase-date') }}</h3>
+                    <DatePicker
+                      v-if="isCreationMode || device?.is_editable"
+                      v-model="editValues.purchase_date"
+                      size="sm"
+                      block
+                      :aria-label="$t('asset-detail-field-purchase-date')"
+                      @update:model-value="() => { if (!isCreationMode) saveField('purchase_date') }"
+                    />
+                    <p v-else class="text-primary text-sm">{{ device?.purchase_date || '-' }}</p>
+                  </div>
+                  <div class="flex flex-col gap-1.5">
+                    <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-asset-tag') }}</h3>
+                    <FormInput
+                      v-if="isCreationMode"
+                      v-model="editValues.asset_tag"
+                      :placeholder="$t('asset-detail-field-asset-tag-placeholder-create')"
+                      size="sm"
+                    />
+                    <InlineEdit
+                      v-else
+                      v-model="editValues.asset_tag"
+                      :placeholder="$t('asset-detail-field-asset-tag-placeholder-edit')"
+                      text-size="sm"
+                      :can-edit="device?.is_editable ?? false"
+                      @update:modelValue="() => saveField('asset_tag')"
+                    />
+                  </div>
+                  <div class="flex flex-col gap-1.5">
+                    <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-location') }}</h3>
+                    <FormInput
+                      v-if="isCreationMode"
+                      v-model="editValues.location"
+                      :placeholder="$t('asset-detail-field-location-placeholder-create')"
+                      size="sm"
+                    />
+                    <InlineEdit
+                      v-else
+                      v-model="editValues.location"
+                      :placeholder="$t('asset-detail-field-location-placeholder-edit')"
+                      text-size="sm"
+                      :can-edit="device?.is_editable ?? false"
+                      @update:modelValue="() => saveField('location')"
+                    />
+                    <div
+                      v-if="(isCreationMode || device?.is_editable) && locationSuggestions.length"
+                      class="flex flex-wrap items-center gap-1.5"
+                    >
+                      <span class="text-[11px] text-tertiary">
+                        {{ $t('asset-detail-location-suggestions') }}
+                      </span>
+                      <Button
+                        v-for="suggestion in locationSuggestions"
+                        :key="suggestion.location"
+                        variant="ghost"
+                        size="sm"
+                        class="!px-2 !py-1 border border-subtle"
+                        @click="selectLocationSuggestion(suggestion.location)"
+                      >
+                        {{ suggestion.location }}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </SectionCard>
+
+            <!-- Lifecycle (edit mode only) -->
             <SectionCard v-if="!isCreationMode && device" content-padding="p-4">
               <template #title>{{ $t('asset-lifecycle-heading') }}</template>
               <AssetLifecyclePanel
@@ -1025,18 +1021,10 @@ onMounted(() => {
               />
             </SectionCard>
 
-            <SectionCard v-if="!isCreationMode && device" content-padding="p-4">
-              <template #title>{{ $t('asset-media-heading') }}</template>
-              <AssetMediaPanel
-                :asset-id="device.id"
-                :can-edit="device.is_editable"
-              />
-            </SectionCard>
-
-            <!-- Stock tracking (editable assets only). Surfaces
-                 the three columns that drive consumable usage:
-                 quantity (on-hand count), unit (label), and the
-                 optional low_stock_threshold. -->
+            <!-- Stock tracking (editable assets only, edit mode).
+                 Surfaces the three columns that drive consumable
+                 usage: quantity (on-hand count), unit (label), and
+                 the optional low_stock_threshold. -->
             <SectionCard v-if="!isCreationMode && device?.is_editable" id="asset-inventory-panel" content-padding="p-4">
               <template #title>{{ $t('asset-detail-section-stock') }}</template>
 
@@ -1046,35 +1034,35 @@ onMounted(() => {
                   <span>{{ $t('asset-detail-low-stock-warning', { quantity: device!.quantity!, unit: device!.unit ?? '', threshold: device!.low_stock_threshold! }) }}</span>
                 </div>
 
-                <FormInput
-                  v-model="editValues.quantity"
-                  :label="$t('asset-detail-field-quantity')"
-                  :placeholder="$t('asset-detail-field-quantity-placeholder')"
-                  inputmode="decimal"
-                  size="sm"
-                  @blur="saveStockField('quantity')"
-                  @keyup.enter="saveStockField('quantity')"
-                />
-
-                <FormInput
-                  v-model="editValues.unit"
-                  :label="$t('asset-detail-field-unit')"
-                  :placeholder="$t('asset-detail-field-unit-placeholder')"
-                  size="sm"
-                  @blur="saveStockField('unit')"
-                  @keyup.enter="saveStockField('unit')"
-                />
-
-                <FormInput
-                  v-model="editValues.low_stock_threshold"
-                  :label="$t('asset-detail-field-low-stock-threshold')"
-                  :placeholder="$t('asset-detail-field-low-stock-threshold-placeholder')"
-                  :description="$t('asset-detail-field-low-stock-threshold-help')"
-                  inputmode="decimal"
-                  size="sm"
-                  @blur="saveStockField('low_stock_threshold')"
-                  @keyup.enter="saveStockField('low_stock_threshold')"
-                />
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <FormInput
+                    v-model="editValues.quantity"
+                    :label="$t('asset-detail-field-quantity')"
+                    :placeholder="$t('asset-detail-field-quantity-placeholder')"
+                    inputmode="decimal"
+                    size="sm"
+                    @blur="saveStockField('quantity')"
+                    @keyup.enter="saveStockField('quantity')"
+                  />
+                  <FormInput
+                    v-model="editValues.unit"
+                    :label="$t('asset-detail-field-unit')"
+                    :placeholder="$t('asset-detail-field-unit-placeholder')"
+                    size="sm"
+                    @blur="saveStockField('unit')"
+                    @keyup.enter="saveStockField('unit')"
+                  />
+                  <FormInput
+                    v-model="editValues.low_stock_threshold"
+                    :label="$t('asset-detail-field-low-stock-threshold')"
+                    :placeholder="$t('asset-detail-field-low-stock-threshold-placeholder')"
+                    :description="$t('asset-detail-field-low-stock-threshold-help')"
+                    inputmode="decimal"
+                    size="sm"
+                    @blur="saveStockField('low_stock_threshold')"
+                    @keyup.enter="saveStockField('low_stock_threshold')"
+                  />
+                </div>
               </div>
             </SectionCard>
 
@@ -1089,109 +1077,17 @@ onMounted(() => {
               />
             </SectionCard>
 
+            <!-- Media (edit mode only) -->
+            <SectionCard v-if="!isCreationMode && device" content-padding="p-4">
+              <template #title>{{ $t('asset-media-heading') }}</template>
+              <AssetMediaPanel
+                :asset-id="device.id"
+                :can-edit="device.is_editable"
+              />
+            </SectionCard>
+
             <!-- Plugin panels for device info -->
             <PluginSlot v-if="!isCreationMode && device" slot-name="asset-info-panels" :device="device" />
-
-            <!-- Asset Information (manual devices, edit mode only) -->
-            <SectionCard v-if="!isCreationMode && device?.is_editable" content-padding="p-4">
-              <template #title>{{ $t('asset-detail-section-device-information') }}</template>
-
-              <div class="flex flex-col gap-4">
-                <div class="flex flex-col gap-2">
-                  <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-device-id') }}</h3>
-                  <div class="bg-surface-alt rounded-lg p-3 border border-default">
-                    <span class="text-primary font-mono text-sm">{{ device.id }}</span>
-                  </div>
-                </div>
-
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div class="flex flex-col gap-1.5">
-                    <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-created') }}</h4>
-                    <p class="text-primary text-sm">{{ formatDateTime(device.created_at) }}</p>
-                  </div>
-                  <div class="flex flex-col gap-1.5">
-                    <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-last-updated') }}</h4>
-                    <p class="text-primary text-sm">{{ formatDateTime(device.updated_at) }}</p>
-                  </div>
-                </div>
-
-                <div class="pt-4 border-t border-default">
-                  <div class="flex items-center gap-2 text-sm">
-                    <Icon name="copyMd" size="md" class="text-secondary flex-shrink-0" />
-                    <div>
-                      <p class="font-medium text-primary">{{ $t('asset-detail-manually-managed') }}</p>
-                      <p class="text-xs text-tertiary mt-0.5">{{ $t('asset-detail-manually-managed-description') }}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </SectionCard>
-
-            <!-- Externally-synced asset (Intune / Entra). The
-                 ID fields and last-sync-time now render through
-                 DynamicAttributeForm against the IT baseline
-                 attribute schema; this card surfaces the sync
-                 source + the unmanage action only. -->
-            <SectionCard v-else-if="!isCreationMode && device" content-padding="p-4">
-              <template #title>{{ $t('asset-detail-section-external-sync') }}</template>
-              <div class="flex flex-col gap-4">
-                <div class="flex items-center gap-2 text-sm">
-                  <Icon name="refresh" class="text-accent flex-shrink-0" />
-                  <div>
-                    <p class="font-medium text-primary">
-                      {{ $t('asset-detail-external-sync-source', { source: device.external_sync_source || '' }) }}
-                    </p>
-                    <p class="text-xs text-tertiary mt-0.5">
-                      {{ $t('asset-detail-external-sync-note') }}
-                    </p>
-                  </div>
-                </div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div class="flex flex-col gap-1.5">
-                    <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-created') }}</h4>
-                    <p class="text-primary text-sm">{{ formatDateTime(device.created_at) }}</p>
-                  </div>
-                  <div class="flex flex-col gap-1.5">
-                    <h4 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-last-updated') }}</h4>
-                    <p class="text-primary text-sm">{{ formatDateTime(device.updated_at) }}</p>
-                  </div>
-                </div>
-                <div class="pt-4 border-t border-default flex flex-col gap-3">
-                  <Button
-                    @click="handleUnmanageDevice"
-                    :disabled="isSaving"
-                    block
-                    variant="secondary"
-                    icon="refresh"
-                    :title="$t('asset-detail-action-unmanage-title')"
-                  >
-                    {{ isSaving ? $t('asset-detail-action-unmanage-processing') : $t('asset-detail-action-unmanage') }}
-                  </Button>
-                  <p class="text-xs text-tertiary text-center">{{ $t('asset-detail-unmanage-conversion-note') }}</p>
-                </div>
-              </div>
-            </SectionCard>
-          </div>
-        </div>
-
-        <!-- Create mode action bar -->
-        <div v-if="isCreationMode" class="flex justify-end">
-          <div class="flex gap-3">
-            <Button
-              variant="secondary"
-              @click="router.push('/assets')"
-              :disabled="isSaving"
-            >
-              {{ $t('asset-detail-action-cancel') }}
-            </Button>
-            <Button
-              @click="saveDevice"
-              :disabled="isSaving || (!editValues.name && !(attributeDraft.hostname as string | undefined))"
-              :loading="isSaving"
-              icon="add"
-            >
-              {{ isSaving ? $t('asset-detail-action-create-processing') : $t('asset-detail-action-create') }}
-            </Button>
           </div>
         </div>
       </div>
@@ -1237,19 +1133,18 @@ onMounted(() => {
         <AlertMessage v-if="unmanageError" type="error" :message="unmanageError" />
 
         <div class="flex justify-center gap-3 mt-2 w-full">
-          <button
-            @click="showUnmanageModal = false"
-            class="flex-1 px-4 py-2.5 bg-surface text-primary rounded-lg hover:bg-surface-hover transition-colors border border-default"
-          >
+          <Button block variant="secondary" @click="showUnmanageModal = false">
             {{ $t('asset-detail-action-cancel') }}
-          </button>
-          <button
-            @click="confirmUnmanageDevice"
+          </Button>
+          <Button
+            block
+            variant="danger"
             :disabled="isSaving"
-            class="flex-1 px-4 py-2.5 bg-status-warning text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-50"
+            :loading="isSaving"
+            @click="confirmUnmanageDevice"
           >
             {{ isSaving ? $t('asset-detail-action-unmanage-processing') : $t('asset-detail-unmanage-action-confirm') }}
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>
@@ -1266,3 +1161,68 @@ onMounted(() => {
     />
   </div>
 </template>
+
+<style scoped>
+/*
+ * Two-pane shell shared by both modes. Mobile stacks to a single
+ * column; from lg the rail becomes a fixed-width sticky column and
+ * the main content takes the remaining width.
+ *
+ *   Edit mode    (.asset-grid--detail) — rail on the LEFT: identity,
+ *                 status, assignment, record metadata.
+ *   Create mode  (.asset-grid--create) — rail on the RIGHT: live
+ *                 summary, assignment, stock, and the Create/Cancel
+ *                 actions, kept in view as the form scrolls.
+ */
+.asset-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  width: 100%;
+}
+
+.asset-rail,
+.asset-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+  width: 100%;
+}
+
+/* Mobile order: form/details first, rail (summary + actions) after. */
+.asset-main { order: 1; }
+.asset-rail { order: 2; }
+
+@media (min-width: 1024px) {
+  .asset-grid {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 1.5rem;
+  }
+
+  /* Fixed-width rail. position: sticky keeps it (and the create
+   * actions) in view while the main column scrolls. top offset
+   * leaves a small gap below the top bar. */
+  .asset-rail {
+    flex: 0 0 320px;
+    max-width: 320px;
+    min-width: 300px;
+    position: sticky;
+    top: 1rem;
+  }
+
+  .asset-main {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  /* Edit mode: rail left, main right. */
+  .asset-grid--detail .asset-rail { order: 1; }
+  .asset-grid--detail .asset-main { order: 2; }
+
+  /* Create mode: main left, rail right. */
+  .asset-grid--create .asset-main { order: 1; }
+  .asset-grid--create .asset-rail { order: 2; }
+}
+</style>

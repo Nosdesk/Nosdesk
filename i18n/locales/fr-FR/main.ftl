@@ -2243,6 +2243,8 @@ asset-detail-section-primary-user = Utilisateur principal
 asset-detail-no-user-assigned = Aucun utilisateur assigné à cet actif
 asset-detail-action-assign-user = Attribuer un utilisateur
 asset-detail-action-change-user = Changer d'utilisateur
+# asset-detail-action-track-stock (machine, à relire par un locuteur natif).
+asset-detail-action-track-stock = Suivre le stock
 asset-detail-section-device-information = Informations sur l'appareil
 asset-detail-field-device-id = ID de l'appareil
 asset-detail-field-created = Créé
