@@ -6,14 +6,17 @@
 -- a fresh database; existing databases keep their history and aren't
 -- re-run.
 --
--- Re-dumped from the Postgres 17 pin, so this file is pg17-native:
--- pg_dump emits whole `CREATE TYPE ... AS ENUM` and valid FKs, in place
--- of the `ALTER TYPE ADD VALUE` / `NOT VALID` forms the incremental
--- migrations used (those broke fresh applies on the 17 pin). The
--- pg_dump SET preamble and the pg17 `\restrict` / `\unrestrict` markers
--- (psql-only, invalid through Diesel) are stripped. Seed data loads
--- with per-table `DISABLE TRIGGER ALL` so it doesn't fire audit/sync
--- triggers.
+-- Re-dumped from the Postgres 17 pin, so this file is pg17-native.
+-- The pg_dump SET preamble and the pg17 `\restrict` / `\unrestrict`
+-- markers (psql-only, invalid through Diesel) are stripped. Seed data
+-- loads with per-table `DISABLE TRIGGER ALL` so it doesn't fire
+-- audit/sync triggers.
+--
+-- Role-name-agnostic: the only roles referenced are `nosdesk_app`
+-- (RLS-enforced tenant role) and `nosdesk_admin` (BYPASSRLS owner),
+-- both created idempotently below. Every object is owned by
+-- `nosdesk_admin`, so the migration does not depend on the connecting
+-- role's name (a Fly `pg attach` user, a changed POSTGRES_USER, etc.).
 --
 -- Roles + the membership grant are recreated here (pg_dump
 -- --schema-only omits global role objects + memberships), ahead of the
@@ -76,7 +79,7 @@ COMMENT ON EXTENSION "uuid-ossp" IS 'generate universally unique identifiers (UU
 
 
 --
--- Name: assignment_method; Type: TYPE; Schema: public; Owner: nosdesk
+-- Name: assignment_method; Type: TYPE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TYPE public.assignment_method AS ENUM (
@@ -87,10 +90,10 @@ CREATE TYPE public.assignment_method AS ENUM (
 );
 
 
-ALTER TYPE public.assignment_method OWNER TO nosdesk;
+ALTER TYPE public.assignment_method OWNER TO nosdesk_admin;
 
 --
--- Name: documentation_status; Type: TYPE; Schema: public; Owner: nosdesk
+-- Name: documentation_status; Type: TYPE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TYPE public.documentation_status AS ENUM (
@@ -101,10 +104,10 @@ CREATE TYPE public.documentation_status AS ENUM (
 );
 
 
-ALTER TYPE public.documentation_status OWNER TO nosdesk;
+ALTER TYPE public.documentation_status OWNER TO nosdesk_admin;
 
 --
--- Name: project_status; Type: TYPE; Schema: public; Owner: nosdesk
+-- Name: project_status; Type: TYPE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TYPE public.project_status AS ENUM (
@@ -114,10 +117,10 @@ CREATE TYPE public.project_status AS ENUM (
 );
 
 
-ALTER TYPE public.project_status OWNER TO nosdesk;
+ALTER TYPE public.project_status OWNER TO nosdesk_admin;
 
 --
--- Name: rule_application_status; Type: TYPE; Schema: public; Owner: nosdesk
+-- Name: rule_application_status; Type: TYPE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TYPE public.rule_application_status AS ENUM (
@@ -131,10 +134,10 @@ CREATE TYPE public.rule_application_status AS ENUM (
 );
 
 
-ALTER TYPE public.rule_application_status OWNER TO nosdesk;
+ALTER TYPE public.rule_application_status OWNER TO nosdesk_admin;
 
 --
--- Name: rule_state; Type: TYPE; Schema: public; Owner: nosdesk
+-- Name: rule_state; Type: TYPE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TYPE public.rule_state AS ENUM (
@@ -145,10 +148,10 @@ CREATE TYPE public.rule_state AS ENUM (
 );
 
 
-ALTER TYPE public.rule_state OWNER TO nosdesk;
+ALTER TYPE public.rule_state OWNER TO nosdesk_admin;
 
 --
--- Name: rule_trigger_kind; Type: TYPE; Schema: public; Owner: nosdesk
+-- Name: rule_trigger_kind; Type: TYPE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TYPE public.rule_trigger_kind AS ENUM (
@@ -160,10 +163,10 @@ CREATE TYPE public.rule_trigger_kind AS ENUM (
 );
 
 
-ALTER TYPE public.rule_trigger_kind OWNER TO nosdesk;
+ALTER TYPE public.rule_trigger_kind OWNER TO nosdesk_admin;
 
 --
--- Name: sync_aggregate; Type: TYPE; Schema: public; Owner: nosdesk
+-- Name: sync_aggregate; Type: TYPE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TYPE public.sync_aggregate AS ENUM (
@@ -196,10 +199,10 @@ CREATE TYPE public.sync_aggregate AS ENUM (
 );
 
 
-ALTER TYPE public.sync_aggregate OWNER TO nosdesk;
+ALTER TYPE public.sync_aggregate OWNER TO nosdesk_admin;
 
 --
--- Name: sync_op; Type: TYPE; Schema: public; Owner: nosdesk
+-- Name: sync_op; Type: TYPE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TYPE public.sync_op AS ENUM (
@@ -210,10 +213,10 @@ CREATE TYPE public.sync_op AS ENUM (
 );
 
 
-ALTER TYPE public.sync_op OWNER TO nosdesk;
+ALTER TYPE public.sync_op OWNER TO nosdesk_admin;
 
 --
--- Name: ticket_priority; Type: TYPE; Schema: public; Owner: nosdesk
+-- Name: ticket_priority; Type: TYPE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TYPE public.ticket_priority AS ENUM (
@@ -225,10 +228,10 @@ CREATE TYPE public.ticket_priority AS ENUM (
 );
 
 
-ALTER TYPE public.ticket_priority OWNER TO nosdesk;
+ALTER TYPE public.ticket_priority OWNER TO nosdesk_admin;
 
 --
--- Name: user_role; Type: TYPE; Schema: public; Owner: nosdesk
+-- Name: user_role; Type: TYPE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TYPE public.user_role AS ENUM (
@@ -239,10 +242,10 @@ CREATE TYPE public.user_role AS ENUM (
 );
 
 
-ALTER TYPE public.user_role OWNER TO nosdesk;
+ALTER TYPE public.user_role OWNER TO nosdesk_admin;
 
 --
--- Name: workflow_state_category; Type: TYPE; Schema: public; Owner: nosdesk
+-- Name: workflow_state_category; Type: TYPE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TYPE public.workflow_state_category AS ENUM (
@@ -256,10 +259,10 @@ CREATE TYPE public.workflow_state_category AS ENUM (
 );
 
 
-ALTER TYPE public.workflow_state_category OWNER TO nosdesk;
+ALTER TYPE public.workflow_state_category OWNER TO nosdesk_admin;
 
 --
--- Name: audit_log_trigger(); Type: FUNCTION; Schema: public; Owner: nosdesk
+-- Name: audit_log_trigger(); Type: FUNCTION; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE FUNCTION public.audit_log_trigger() RETURNS trigger
@@ -364,10 +367,58 @@ END;
 $_$;
 
 
-ALTER FUNCTION public.audit_log_trigger() OWNER TO nosdesk;
+ALTER FUNCTION public.audit_log_trigger() OWNER TO nosdesk_admin;
 
 --
--- Name: auto_create_user_preferences(); Type: FUNCTION; Schema: public; Owner: nosdesk
+-- Name: audit_workspace_members(); Type: FUNCTION; Schema: public; Owner: nosdesk_admin
+--
+
+CREATE FUNCTION public.audit_workspace_members() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+    actor UUID := NULLIF(current_setting('app.actor_uuid', true), '')::UUID;
+    corr  UUID := NULLIF(current_setting('app.correlation_id', true), '')::UUID;
+BEGIN
+    -- Mirror the generic trigger: suppress capture inside an audit-read txn.
+    IF current_setting('nosdesk.in_audit_read', true) = 'true' THEN
+        RETURN COALESCE(NEW, OLD);
+    END IF;
+
+    IF TG_OP = 'INSERT' THEN
+        INSERT INTO audit_log (table_name, pk_text, op, after_jsonb, actor_uuid, correlation_id, workspace_id)
+        VALUES ('workspace_members', NEW.user_uuid::text, 'I', to_jsonb(NEW), actor, corr, NEW.workspace_id);
+        RETURN NEW;
+    ELSIF TG_OP = 'UPDATE' THEN
+        INSERT INTO audit_log (table_name, pk_text, op, before_jsonb, after_jsonb, changed_cols, actor_uuid, correlation_id, workspace_id)
+        VALUES (
+            'workspace_members',
+            NEW.user_uuid::text,
+            'U',
+            to_jsonb(OLD),
+            to_jsonb(NEW),
+            ARRAY(
+                SELECT k FROM jsonb_each(to_jsonb(NEW)) e(k, v)
+                WHERE to_jsonb(NEW) -> e.k IS DISTINCT FROM to_jsonb(OLD) -> e.k
+            ),
+            actor,
+            corr,
+            NEW.workspace_id
+        );
+        RETURN NEW;
+    ELSE
+        INSERT INTO audit_log (table_name, pk_text, op, before_jsonb, actor_uuid, correlation_id, workspace_id)
+        VALUES ('workspace_members', OLD.user_uuid::text, 'D', to_jsonb(OLD), actor, corr, OLD.workspace_id);
+        RETURN OLD;
+    END IF;
+END;
+$$;
+
+
+ALTER FUNCTION public.audit_workspace_members() OWNER TO nosdesk_admin;
+
+--
+-- Name: auto_create_user_preferences(); Type: FUNCTION; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE FUNCTION public.auto_create_user_preferences() RETURNS trigger
@@ -382,10 +433,10 @@ END;
 $$;
 
 
-ALTER FUNCTION public.auto_create_user_preferences() OWNER TO nosdesk;
+ALTER FUNCTION public.auto_create_user_preferences() OWNER TO nosdesk_admin;
 
 --
--- Name: diesel_manage_updated_at(regclass); Type: FUNCTION; Schema: public; Owner: nosdesk
+-- Name: diesel_manage_updated_at(regclass); Type: FUNCTION; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE FUNCTION public.diesel_manage_updated_at(_tbl regclass) RETURNS void
@@ -398,10 +449,10 @@ END;
 $$;
 
 
-ALTER FUNCTION public.diesel_manage_updated_at(_tbl regclass) OWNER TO nosdesk;
+ALTER FUNCTION public.diesel_manage_updated_at(_tbl regclass) OWNER TO nosdesk_admin;
 
 --
--- Name: diesel_set_updated_at(); Type: FUNCTION; Schema: public; Owner: nosdesk
+-- Name: diesel_set_updated_at(); Type: FUNCTION; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE FUNCTION public.diesel_set_updated_at() RETURNS trigger
@@ -419,10 +470,49 @@ END;
 $$;
 
 
-ALTER FUNCTION public.diesel_set_updated_at() OWNER TO nosdesk;
+ALTER FUNCTION public.diesel_set_updated_at() OWNER TO nosdesk_admin;
 
 --
--- Name: outbound_emails_notify_trigger(); Type: FUNCTION; Schema: public; Owner: nosdesk
+-- Name: enforce_workspace_seat_limit(); Type: FUNCTION; Schema: public; Owner: nosdesk_admin
+--
+
+CREATE FUNCTION public.enforce_workspace_seat_limit() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+DECLARE
+    lim INTEGER;
+    staff_count INTEGER;
+BEGIN
+    IF NEW.role NOT IN ('owner', 'admin', 'agent') THEN
+        RETURN NEW;
+    END IF;
+    -- An UPDATE that keeps a staff role consumes no new seat.
+    IF TG_OP = 'UPDATE' AND OLD.role IN ('owner', 'admin', 'agent') THEN
+        RETURN NEW;
+    END IF;
+    SELECT seat_limit INTO lim FROM workspaces WHERE id = NEW.workspace_id;
+    IF lim IS NULL THEN
+        RETURN NEW;
+    END IF;
+    SELECT count(*) INTO staff_count
+        FROM workspace_members
+        WHERE workspace_id = NEW.workspace_id
+          AND role IN ('owner', 'admin', 'agent')
+          AND user_uuid <> NEW.user_uuid;
+    IF staff_count >= lim THEN
+        RAISE EXCEPTION 'workspace % staff seat limit (%) reached', NEW.workspace_id, lim
+            USING ERRCODE = 'check_violation', CONSTRAINT = 'workspace_seat_limit';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION public.enforce_workspace_seat_limit() OWNER TO nosdesk_admin;
+
+--
+-- Name: outbound_emails_notify_trigger(); Type: FUNCTION; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE FUNCTION public.outbound_emails_notify_trigger() RETURNS trigger
@@ -435,7 +525,7 @@ END;
 $$;
 
 
-ALTER FUNCTION public.outbound_emails_notify_trigger() OWNER TO nosdesk;
+ALTER FUNCTION public.outbound_emails_notify_trigger() OWNER TO nosdesk_admin;
 
 --
 -- Name: rules_write_initial_version(); Type: FUNCTION; Schema: public; Owner: nosdesk_admin
@@ -500,7 +590,7 @@ $$;
 ALTER FUNCTION public.rules_write_update_version() OWNER TO nosdesk_admin;
 
 --
--- Name: sync_actions_notify(); Type: FUNCTION; Schema: public; Owner: nosdesk
+-- Name: sync_actions_notify(); Type: FUNCTION; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE FUNCTION public.sync_actions_notify() RETURNS trigger
@@ -513,10 +603,10 @@ END;
 $$;
 
 
-ALTER FUNCTION public.sync_actions_notify() OWNER TO nosdesk;
+ALTER FUNCTION public.sync_actions_notify() OWNER TO nosdesk_admin;
 
 --
--- Name: uuid_generate_v7(); Type: FUNCTION; Schema: public; Owner: nosdesk
+-- Name: uuid_generate_v7(); Type: FUNCTION; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE FUNCTION public.uuid_generate_v7() RETURNS uuid
@@ -547,7 +637,7 @@ END;
 $$;
 
 
-ALTER FUNCTION public.uuid_generate_v7() OWNER TO nosdesk;
+ALTER FUNCTION public.uuid_generate_v7() OWNER TO nosdesk_admin;
 
 --
 -- Name: webhook_outbox_enqueue(); Type: FUNCTION; Schema: public; Owner: nosdesk_admin
@@ -570,7 +660,7 @@ SET default_tablespace = '';
 SET default_table_access_method = heap;
 
 --
--- Name: active_sessions; Type: TABLE; Schema: public; Owner: nosdesk
+-- Name: active_sessions; Type: TABLE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TABLE public.active_sessions (
@@ -589,10 +679,10 @@ CREATE TABLE public.active_sessions (
 );
 
 
-ALTER TABLE public.active_sessions OWNER TO nosdesk;
+ALTER TABLE public.active_sessions OWNER TO nosdesk_admin;
 
 --
--- Name: active_sessions_id_seq; Type: SEQUENCE; Schema: public; Owner: nosdesk
+-- Name: active_sessions_id_seq; Type: SEQUENCE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE SEQUENCE public.active_sessions_id_seq
@@ -604,10 +694,10 @@ CREATE SEQUENCE public.active_sessions_id_seq
     CACHE 1;
 
 
-ALTER SEQUENCE public.active_sessions_id_seq OWNER TO nosdesk;
+ALTER SEQUENCE public.active_sessions_id_seq OWNER TO nosdesk_admin;
 
 --
--- Name: active_sessions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: nosdesk
+-- Name: active_sessions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER SEQUENCE public.active_sessions_id_seq OWNED BY public.active_sessions.id;
@@ -2218,7 +2308,7 @@ ALTER SEQUENCE public.documentation_subscriptions_id_seq OWNED BY public.documen
 
 
 --
--- Name: email_suppressions; Type: TABLE; Schema: public; Owner: nosdesk
+-- Name: email_suppressions; Type: TABLE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TABLE public.email_suppressions (
@@ -2232,7 +2322,7 @@ CREATE TABLE public.email_suppressions (
 );
 
 
-ALTER TABLE public.email_suppressions OWNER TO nosdesk;
+ALTER TABLE public.email_suppressions OWNER TO nosdesk_admin;
 
 --
 -- Name: group_includes; Type: TABLE; Schema: public; Owner: nosdesk_admin
@@ -2303,7 +2393,7 @@ ALTER SEQUENCE public.groups_id_seq OWNED BY public.groups.id;
 
 
 --
--- Name: idempotency_keys; Type: TABLE; Schema: public; Owner: nosdesk
+-- Name: idempotency_keys; Type: TABLE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TABLE public.idempotency_keys (
@@ -2314,7 +2404,7 @@ CREATE TABLE public.idempotency_keys (
 );
 
 
-ALTER TABLE public.idempotency_keys OWNER TO nosdesk;
+ALTER TABLE public.idempotency_keys OWNER TO nosdesk_admin;
 
 --
 -- Name: import_jobs; Type: TABLE; Schema: public; Owner: nosdesk_admin
@@ -2504,7 +2594,7 @@ ALTER SEQUENCE public.notification_preferences_id_seq OWNED BY public.notificati
 
 
 --
--- Name: notification_rate_limits; Type: TABLE; Schema: public; Owner: nosdesk
+-- Name: notification_rate_limits; Type: TABLE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TABLE public.notification_rate_limits (
@@ -2517,10 +2607,10 @@ CREATE TABLE public.notification_rate_limits (
 );
 
 
-ALTER TABLE public.notification_rate_limits OWNER TO nosdesk;
+ALTER TABLE public.notification_rate_limits OWNER TO nosdesk_admin;
 
 --
--- Name: notification_rate_limits_id_seq; Type: SEQUENCE; Schema: public; Owner: nosdesk
+-- Name: notification_rate_limits_id_seq; Type: SEQUENCE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE SEQUENCE public.notification_rate_limits_id_seq
@@ -2532,17 +2622,17 @@ CREATE SEQUENCE public.notification_rate_limits_id_seq
     CACHE 1;
 
 
-ALTER SEQUENCE public.notification_rate_limits_id_seq OWNER TO nosdesk;
+ALTER SEQUENCE public.notification_rate_limits_id_seq OWNER TO nosdesk_admin;
 
 --
--- Name: notification_rate_limits_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: nosdesk
+-- Name: notification_rate_limits_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER SEQUENCE public.notification_rate_limits_id_seq OWNED BY public.notification_rate_limits.id;
 
 
 --
--- Name: notification_types; Type: TABLE; Schema: public; Owner: nosdesk
+-- Name: notification_types; Type: TABLE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TABLE public.notification_types (
@@ -2556,10 +2646,10 @@ CREATE TABLE public.notification_types (
 );
 
 
-ALTER TABLE public.notification_types OWNER TO nosdesk;
+ALTER TABLE public.notification_types OWNER TO nosdesk_admin;
 
 --
--- Name: notification_types_id_seq; Type: SEQUENCE; Schema: public; Owner: nosdesk
+-- Name: notification_types_id_seq; Type: SEQUENCE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE SEQUENCE public.notification_types_id_seq
@@ -2571,10 +2661,10 @@ CREATE SEQUENCE public.notification_types_id_seq
     CACHE 1;
 
 
-ALTER SEQUENCE public.notification_types_id_seq OWNER TO nosdesk;
+ALTER SEQUENCE public.notification_types_id_seq OWNER TO nosdesk_admin;
 
 --
--- Name: notification_types_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: nosdesk
+-- Name: notification_types_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER SEQUENCE public.notification_types_id_seq OWNED BY public.notification_types.id;
@@ -2693,7 +2783,7 @@ ALTER SEQUENCE public.outbound_emails_id_seq OWNED BY public.outbound_emails.id;
 
 
 --
--- Name: passkey_credentials; Type: TABLE; Schema: public; Owner: nosdesk
+-- Name: passkey_credentials; Type: TABLE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TABLE public.passkey_credentials (
@@ -2712,7 +2802,7 @@ CREATE TABLE public.passkey_credentials (
 );
 
 
-ALTER TABLE public.passkey_credentials OWNER TO nosdesk;
+ALTER TABLE public.passkey_credentials OWNER TO nosdesk_admin;
 
 --
 -- Name: plugin_activity; Type: TABLE; Schema: public; Owner: nosdesk_admin
@@ -2888,7 +2978,7 @@ ALTER SEQUENCE public.plugin_data_id_seq OWNED BY public.plugin_data.id;
 
 
 --
--- Name: plugin_local_signing_key; Type: TABLE; Schema: public; Owner: nosdesk
+-- Name: plugin_local_signing_key; Type: TABLE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TABLE public.plugin_local_signing_key (
@@ -2902,10 +2992,10 @@ CREATE TABLE public.plugin_local_signing_key (
 );
 
 
-ALTER TABLE public.plugin_local_signing_key OWNER TO nosdesk;
+ALTER TABLE public.plugin_local_signing_key OWNER TO nosdesk_admin;
 
 --
--- Name: plugin_registry_state; Type: TABLE; Schema: public; Owner: nosdesk
+-- Name: plugin_registry_state; Type: TABLE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TABLE public.plugin_registry_state (
@@ -2919,10 +3009,10 @@ CREATE TABLE public.plugin_registry_state (
 );
 
 
-ALTER TABLE public.plugin_registry_state OWNER TO nosdesk;
+ALTER TABLE public.plugin_registry_state OWNER TO nosdesk_admin;
 
 --
--- Name: plugin_trusted_publishers; Type: TABLE; Schema: public; Owner: nosdesk
+-- Name: plugin_trusted_publishers; Type: TABLE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TABLE public.plugin_trusted_publishers (
@@ -2937,10 +3027,10 @@ CREATE TABLE public.plugin_trusted_publishers (
 );
 
 
-ALTER TABLE public.plugin_trusted_publishers OWNER TO nosdesk;
+ALTER TABLE public.plugin_trusted_publishers OWNER TO nosdesk_admin;
 
 --
--- Name: plugin_trusted_publishers_id_seq; Type: SEQUENCE; Schema: public; Owner: nosdesk
+-- Name: plugin_trusted_publishers_id_seq; Type: SEQUENCE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE SEQUENCE public.plugin_trusted_publishers_id_seq
@@ -2952,10 +3042,10 @@ CREATE SEQUENCE public.plugin_trusted_publishers_id_seq
     CACHE 1;
 
 
-ALTER SEQUENCE public.plugin_trusted_publishers_id_seq OWNER TO nosdesk;
+ALTER SEQUENCE public.plugin_trusted_publishers_id_seq OWNER TO nosdesk_admin;
 
 --
--- Name: plugin_trusted_publishers_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: nosdesk
+-- Name: plugin_trusted_publishers_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER SEQUENCE public.plugin_trusted_publishers_id_seq OWNED BY public.plugin_trusted_publishers.id;
@@ -3083,7 +3173,7 @@ ALTER SEQUENCE public.projects_id_seq OWNED BY public.projects.id;
 
 
 --
--- Name: refresh_tokens; Type: TABLE; Schema: public; Owner: nosdesk
+-- Name: refresh_tokens; Type: TABLE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TABLE public.refresh_tokens (
@@ -3102,10 +3192,10 @@ CREATE TABLE public.refresh_tokens (
 );
 
 
-ALTER TABLE public.refresh_tokens OWNER TO nosdesk;
+ALTER TABLE public.refresh_tokens OWNER TO nosdesk_admin;
 
 --
--- Name: refresh_tokens_id_seq; Type: SEQUENCE; Schema: public; Owner: nosdesk
+-- Name: refresh_tokens_id_seq; Type: SEQUENCE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE SEQUENCE public.refresh_tokens_id_seq
@@ -3117,17 +3207,17 @@ CREATE SEQUENCE public.refresh_tokens_id_seq
     CACHE 1;
 
 
-ALTER SEQUENCE public.refresh_tokens_id_seq OWNER TO nosdesk;
+ALTER SEQUENCE public.refresh_tokens_id_seq OWNER TO nosdesk_admin;
 
 --
--- Name: refresh_tokens_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: nosdesk
+-- Name: refresh_tokens_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER SEQUENCE public.refresh_tokens_id_seq OWNED BY public.refresh_tokens.id;
 
 
 --
--- Name: reset_tokens; Type: TABLE; Schema: public; Owner: nosdesk
+-- Name: reset_tokens; Type: TABLE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TABLE public.reset_tokens (
@@ -3144,7 +3234,20 @@ CREATE TABLE public.reset_tokens (
 );
 
 
-ALTER TABLE public.reset_tokens OWNER TO nosdesk;
+ALTER TABLE public.reset_tokens OWNER TO nosdesk_admin;
+
+--
+-- Name: retired_slugs; Type: TABLE; Schema: public; Owner: nosdesk_admin
+--
+
+CREATE TABLE public.retired_slugs (
+    slug character varying(64) NOT NULL,
+    workspace_uuid uuid NOT NULL,
+    retired_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+ALTER TABLE public.retired_slugs OWNER TO nosdesk_admin;
 
 --
 -- Name: rule_applications; Type: TABLE; Schema: public; Owner: nosdesk_admin
@@ -3350,7 +3453,7 @@ ALTER SEQUENCE public.saved_views_id_seq OWNED BY public.saved_views.id;
 
 
 --
--- Name: search_index_state; Type: TABLE; Schema: public; Owner: nosdesk
+-- Name: search_index_state; Type: TABLE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TABLE public.search_index_state (
@@ -3366,10 +3469,10 @@ CREATE TABLE public.search_index_state (
 );
 
 
-ALTER TABLE public.search_index_state OWNER TO nosdesk;
+ALTER TABLE public.search_index_state OWNER TO nosdesk_admin;
 
 --
--- Name: search_index_state_id_seq; Type: SEQUENCE; Schema: public; Owner: nosdesk
+-- Name: search_index_state_id_seq; Type: SEQUENCE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE SEQUENCE public.search_index_state_id_seq
@@ -3381,10 +3484,10 @@ CREATE SEQUENCE public.search_index_state_id_seq
     CACHE 1;
 
 
-ALTER SEQUENCE public.search_index_state_id_seq OWNER TO nosdesk;
+ALTER SEQUENCE public.search_index_state_id_seq OWNER TO nosdesk_admin;
 
 --
--- Name: search_index_state_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: nosdesk
+-- Name: search_index_state_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER SEQUENCE public.search_index_state_id_seq OWNED BY public.search_index_state.id;
@@ -3430,7 +3533,7 @@ ALTER SEQUENCE public.search_query_log_id_seq OWNED BY public.search_query_log.i
 
 
 --
--- Name: security_events; Type: TABLE; Schema: public; Owner: nosdesk
+-- Name: security_events; Type: TABLE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TABLE public.security_events (
@@ -3447,10 +3550,10 @@ CREATE TABLE public.security_events (
 );
 
 
-ALTER TABLE public.security_events OWNER TO nosdesk;
+ALTER TABLE public.security_events OWNER TO nosdesk_admin;
 
 --
--- Name: security_events_id_seq; Type: SEQUENCE; Schema: public; Owner: nosdesk
+-- Name: security_events_id_seq; Type: SEQUENCE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE SEQUENCE public.security_events_id_seq
@@ -3462,10 +3565,10 @@ CREATE SEQUENCE public.security_events_id_seq
     CACHE 1;
 
 
-ALTER SEQUENCE public.security_events_id_seq OWNER TO nosdesk;
+ALTER SEQUENCE public.security_events_id_seq OWNER TO nosdesk_admin;
 
 --
--- Name: security_events_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: nosdesk
+-- Name: security_events_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER SEQUENCE public.security_events_id_seq OWNED BY public.security_events.id;
@@ -3849,7 +3952,7 @@ ALTER SEQUENCE public.sync_history_id_seq OWNED BY public.sync_history.id;
 
 
 --
--- Name: system_meta; Type: TABLE; Schema: public; Owner: nosdesk
+-- Name: system_meta; Type: TABLE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TABLE public.system_meta (
@@ -3859,7 +3962,7 @@ CREATE TABLE public.system_meta (
 );
 
 
-ALTER TABLE public.system_meta OWNER TO nosdesk;
+ALTER TABLE public.system_meta OWNER TO nosdesk_admin;
 
 --
 -- Name: tags; Type: TABLE; Schema: public; Owner: nosdesk_admin
@@ -4051,6 +4154,7 @@ CREATE TABLE public.tickets (
     merged_at timestamp with time zone,
     merged_by_user_uuid uuid,
     merge_reason text,
+    uuid uuid DEFAULT public.uuid_generate_v7() NOT NULL,
     CONSTRAINT tickets_dates_valid CHECK (((closed_at IS NULL) OR (closed_at >= created_at))),
     CONSTRAINT tickets_merge_complete CHECK ((((merged_into_ticket_id IS NULL) AND (merged_at IS NULL) AND (merged_by_user_uuid IS NULL)) OR ((merged_into_ticket_id IS NOT NULL) AND (merged_at IS NOT NULL) AND (merged_by_user_uuid IS NOT NULL)))),
     CONSTRAINT tickets_triage_state_check CHECK (((triage_state IS NULL) OR ((triage_state)::text = ANY (ARRAY[('untriaged'::character varying)::text, ('triaged'::character varying)::text, ('rejected'::character varying)::text]))))
@@ -4084,7 +4188,7 @@ ALTER SEQUENCE public.tickets_id_seq OWNED BY public.tickets.id;
 
 
 --
--- Name: user_auth_identities; Type: TABLE; Schema: public; Owner: nosdesk
+-- Name: user_auth_identities; Type: TABLE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TABLE public.user_auth_identities (
@@ -4101,10 +4205,10 @@ CREATE TABLE public.user_auth_identities (
 );
 
 
-ALTER TABLE public.user_auth_identities OWNER TO nosdesk;
+ALTER TABLE public.user_auth_identities OWNER TO nosdesk_admin;
 
 --
--- Name: user_auth_identities_id_seq; Type: SEQUENCE; Schema: public; Owner: nosdesk
+-- Name: user_auth_identities_id_seq; Type: SEQUENCE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE SEQUENCE public.user_auth_identities_id_seq
@@ -4116,17 +4220,17 @@ CREATE SEQUENCE public.user_auth_identities_id_seq
     CACHE 1;
 
 
-ALTER SEQUENCE public.user_auth_identities_id_seq OWNER TO nosdesk;
+ALTER SEQUENCE public.user_auth_identities_id_seq OWNER TO nosdesk_admin;
 
 --
--- Name: user_auth_identities_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: nosdesk
+-- Name: user_auth_identities_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER SEQUENCE public.user_auth_identities_id_seq OWNED BY public.user_auth_identities.id;
 
 
 --
--- Name: user_emails; Type: TABLE; Schema: public; Owner: nosdesk
+-- Name: user_emails; Type: TABLE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TABLE public.user_emails (
@@ -4144,10 +4248,10 @@ CREATE TABLE public.user_emails (
 );
 
 
-ALTER TABLE public.user_emails OWNER TO nosdesk;
+ALTER TABLE public.user_emails OWNER TO nosdesk_admin;
 
 --
--- Name: user_emails_id_seq; Type: SEQUENCE; Schema: public; Owner: nosdesk
+-- Name: user_emails_id_seq; Type: SEQUENCE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE SEQUENCE public.user_emails_id_seq
@@ -4159,10 +4263,10 @@ CREATE SEQUENCE public.user_emails_id_seq
     CACHE 1;
 
 
-ALTER SEQUENCE public.user_emails_id_seq OWNER TO nosdesk;
+ALTER SEQUENCE public.user_emails_id_seq OWNER TO nosdesk_admin;
 
 --
--- Name: user_emails_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: nosdesk
+-- Name: user_emails_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER SEQUENCE public.user_emails_id_seq OWNED BY public.user_emails.id;
@@ -4186,7 +4290,7 @@ ALTER TABLE ONLY public.user_groups FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.user_groups OWNER TO nosdesk_admin;
 
 --
--- Name: user_preferences; Type: TABLE; Schema: public; Owner: nosdesk
+-- Name: user_preferences; Type: TABLE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TABLE public.user_preferences (
@@ -4201,10 +4305,10 @@ CREATE TABLE public.user_preferences (
 );
 
 
-ALTER TABLE public.user_preferences OWNER TO nosdesk;
+ALTER TABLE public.user_preferences OWNER TO nosdesk_admin;
 
 --
--- Name: user_recovery_codes; Type: TABLE; Schema: public; Owner: nosdesk
+-- Name: user_recovery_codes; Type: TABLE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TABLE public.user_recovery_codes (
@@ -4216,10 +4320,10 @@ CREATE TABLE public.user_recovery_codes (
 );
 
 
-ALTER TABLE public.user_recovery_codes OWNER TO nosdesk;
+ALTER TABLE public.user_recovery_codes OWNER TO nosdesk_admin;
 
 --
--- Name: user_recovery_codes_id_seq; Type: SEQUENCE; Schema: public; Owner: nosdesk
+-- Name: user_recovery_codes_id_seq; Type: SEQUENCE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE SEQUENCE public.user_recovery_codes_id_seq
@@ -4230,10 +4334,10 @@ CREATE SEQUENCE public.user_recovery_codes_id_seq
     CACHE 1;
 
 
-ALTER SEQUENCE public.user_recovery_codes_id_seq OWNER TO nosdesk;
+ALTER SEQUENCE public.user_recovery_codes_id_seq OWNER TO nosdesk_admin;
 
 --
--- Name: user_recovery_codes_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: nosdesk
+-- Name: user_recovery_codes_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER SEQUENCE public.user_recovery_codes_id_seq OWNED BY public.user_recovery_codes.id;
@@ -4281,7 +4385,7 @@ ALTER SEQUENCE public.user_ticket_views_id_seq OWNED BY public.user_ticket_views
 
 
 --
--- Name: users; Type: TABLE; Schema: public; Owner: nosdesk
+-- Name: users; Type: TABLE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TABLE public.users (
@@ -4306,7 +4410,7 @@ CREATE TABLE public.users (
 );
 
 
-ALTER TABLE public.users OWNER TO nosdesk;
+ALTER TABLE public.users OWNER TO nosdesk_admin;
 
 --
 -- Name: webhook_deliveries; Type: TABLE; Schema: public; Owner: nosdesk_admin
@@ -4564,7 +4668,7 @@ CREATE TABLE public.workspace_members (
 ALTER TABLE public.workspace_members OWNER TO nosdesk_admin;
 
 --
--- Name: workspaces; Type: TABLE; Schema: public; Owner: nosdesk
+-- Name: workspaces; Type: TABLE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TABLE public.workspaces (
@@ -4578,15 +4682,16 @@ CREATE TABLE public.workspaces (
     archived_at timestamp with time zone,
     organisation_id integer,
     custom_domain text,
+    seat_limit integer,
     CONSTRAINT workspaces_slug_check CHECK (((slug)::text ~ '^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$'::text)),
     CONSTRAINT workspaces_slug_not_reserved CHECK (((slug)::text <> ALL (ARRAY[('about'::character varying)::text, ('access'::character varying)::text, ('account'::character varying)::text, ('accounts'::character varying)::text, ('adm'::character varying)::text, ('admin'::character varying)::text, ('administrator'::character varying)::text, ('administrators'::character varying)::text, ('ads'::character varying)::text, ('alpha'::character varying)::text, ('alumni'::character varying)::text, ('api'::character varying)::text, ('api-v1'::character varying)::text, ('api-v2'::character varying)::text, ('api-v3'::character varying)::text, ('app'::character varying)::text, ('apps'::character varying)::text, ('archive'::character varying)::text, ('assets'::character varying)::text, ('auth'::character varying)::text, ('authenticate'::character varying)::text, ('autoconfig'::character varying)::text, ('autodiscover'::character varying)::text, ('backup'::character varying)::text, ('backups'::character varying)::text, ('bbs'::character varying)::text, ('beta'::character varying)::text, ('billing'::character varying)::text, ('blog'::character varying)::text, ('blogs'::character varying)::text, ('bugs'::character varying)::text, ('cache'::character varying)::text, ('cacti'::character varying)::text, ('calendar'::character varying)::text, ('callback'::character varying)::text, ('callbacks'::character varying)::text, ('cart'::character varying)::text, ('catalog'::character varying)::text, ('cdn'::character varying)::text, ('cert'::character varying)::text, ('certs'::character varying)::text, ('changelog'::character varying)::text, ('chat'::character varying)::text, ('checkout'::character varying)::text, ('citrix'::character varying)::text, ('cloud'::character varying)::text, ('cluster'::character varying)::text, ('clusters'::character varying)::text, ('cms'::character varying)::text, ('community'::character varying)::text, ('conference'::character varying)::text, ('connect'::character varying)::text, ('console'::character varying)::text, ('contact'::character varying)::text, ('contacts'::character varying)::text, ('content'::character varying)::text, ('control'::character varying)::text, ('copyright'::character varying)::text, ('correo'::character varying)::text, ('cpanel'::character varying)::text, ('crm'::character varying)::text, ('crypto'::character varying)::text, ('css'::character varying)::text, ('dashboard'::character varying)::text, ('data'::character varying)::text, ('demo'::character varying)::text, ('dev'::character varying)::text, ('dev2'::character varying)::text, ('devel'::character varying)::text, ('develop'::character varying)::text, ('development'::character varying)::text, ('dialin'::character varying)::text, ('dns'::character varying)::text, ('dns1'::character varying)::text, ('dns2'::character varying)::text, ('dns3'::character varying)::text, ('dns4'::character varying)::text, ('doc'::character varying)::text, ('docs'::character varying)::text, ('documentation'::character varying)::text, ('download'::character varying)::text, ('download-now'::character varying)::text, ('downloads'::character varying)::text, ('edge'::character varying)::text, ('edu'::character varying)::text, ('elearning'::character varying)::text, ('email'::character varying)::text, ('english'::character varying)::text, ('error'::character varying)::text, ('events'::character varying)::text, ('exchange'::character varying)::text, ('extranet'::character varying)::text, ('facebook'::character varying)::text, ('faq'::character varying)::text, ('faqs'::character varying)::text, ('feeds'::character varying)::text, ('file'::character varying)::text, ('files'::character varying)::text, ('forum'::character varying)::text, ('forums'::character varying)::text, ('ftp'::character varying)::text, ('ftp1'::character varying)::text, ('ftp2'::character varying)::text, ('ftps'::character varying)::text, ('gallery'::character varying)::text, ('game'::character varying)::text, ('games'::character varying)::text, ('gateway'::character varying)::text, ('get'::character varying)::text, ('git'::character varying)::text, ('gmail'::character varying)::text, ('grafana'::character varying)::text, ('graphql'::character varying)::text, ('grpc'::character varying)::text, ('health'::character varying)::text, ('healthcheck'::character varying)::text, ('healthz'::character varying)::text, ('help'::character varying)::text, ('helpcenter'::character varying)::text, ('helpdesk'::character varying)::text, ('home'::character varying)::text, ('host'::character varying)::text, ('host2'::character varying)::text, ('hosting'::character varying)::text, ('id'::character varying)::text, ('identity'::character varying)::text, ('idp'::character varying)::text, ('image'::character varying)::text, ('images'::character varying)::text, ('images2'::character varying)::text, ('imap'::character varying)::text, ('imaps'::character varying)::text, ('img'::character varying)::text, ('img2'::character varying)::text, ('info'::character varying)::text, ('install'::character varying)::text, ('installer'::character varying)::text, ('internal'::character varying)::text, ('intranet'::character varying)::text, ('invoice'::character varying)::text, ('invoices'::character varying)::text, ('iphone'::character varying)::text, ('ipv4'::character varying)::text, ('irc'::character varying)::text, ('jabber'::character varying)::text, ('jira'::character varying)::text, ('job'::character varying)::text, ('jobs'::character varying)::text, ('jwks'::character varying)::text, ('k8s'::character varying)::text, ('kb'::character varying)::text, ('key'::character varying)::text, ('keys'::character varying)::text, ('kibana'::character varying)::text, ('kubernetes'::character varying)::text, ('ldap'::character varying)::text, ('legacy'::character varying)::text, ('legal'::character varying)::text, ('lib'::character varying)::text, ('library'::character varying)::text, ('list'::character varying)::text, ('lists'::character varying)::text, ('live'::character varying)::text, ('local'::character varying)::text, ('localhost'::character varying)::text, ('log'::character varying)::text, ('login'::character varying)::text, ('logout'::character varying)::text, ('logs'::character varying)::text, ('lyncdiscover'::character varying)::text, ('mail'::character varying)::text, ('mail1'::character varying)::text, ('mail2'::character varying)::text, ('mail3'::character varying)::text, ('mail4'::character varying)::text, ('mailadmin'::character varying)::text, ('mailer'::character varying)::text, ('mailhost'::character varying)::text, ('mailserver'::character varying)::text, ('manage'::character varying)::text, ('marketing'::character varying)::text, ('master'::character varying)::text, ('media'::character varying)::text, ('meet'::character varying)::text, ('member'::character varying)::text, ('members'::character varying)::text, ('metrics'::character varying)::text, ('mfa'::character varying)::text, ('mobile'::character varying)::text, ('monitor'::character varying)::text, ('monitoring'::character varying)::text, ('moodle'::character varying)::text, ('mrtg'::character varying)::text, ('msoid'::character varying)::text, ('mssql'::character varying)::text, ('music'::character varying)::text, ('mx'::character varying)::text, ('mx1'::character varying)::text, ('mx2'::character varying)::text, ('mx3'::character varying)::text, ('mysql'::character varying)::text, ('nagios'::character varying)::text, ('new'::character varying)::text, ('news'::character varying)::text, ('newsletter'::character varying)::text, ('nosdesk'::character varying)::text, ('ns'::character varying)::text, ('ns0'::character varying)::text, ('ns1'::character varying)::text, ('ns2'::character varying)::text, ('ns3'::character varying)::text, ('ns4'::character varying)::text, ('ns5'::character varying)::text, ('ns6'::character varying)::text, ('ntp'::character varying)::text, ('oauth'::character varying)::text, ('oauth2'::character varying)::text, ('office'::character varying)::text, ('oidc'::character varying)::text, ('old'::character varying)::text, ('online'::character varying)::text, ('owa'::character varying)::text, ('panel'::character varying)::text, ('partner'::character varying)::text, ('partners'::character varying)::text, ('passkey'::character varying)::text, ('password'::character varying)::text, ('passwords'::character varying)::text, ('pay'::character varying)::text, ('payment'::character varying)::text, ('payments'::character varying)::text, ('pda'::character varying)::text, ('photo'::character varying)::text, ('photos'::character varying)::text, ('phpmyadmin'::character varying)::text, ('ping'::character varying)::text, ('plan'::character varying)::text, ('plans'::character varying)::text, ('poczta'::character varying)::text, ('policy'::character varying)::text, ('pop'::character varying)::text, ('pop3'::character varying)::text, ('portal'::character varying)::text, ('post'::character varying)::text, ('preprod'::character varying)::text, ('press'::character varying)::text, ('preview'::character varying)::text, ('pricing'::character varying)::text, ('privacy'::character varying)::text, ('private'::character varying)::text, ('prod'::character varying)::text, ('production'::character varying)::text, ('project'::character varying)::text, ('projects'::character varying)::text, ('prometheus'::character varying)::text, ('proxy'::character varying)::text, ('public'::character varying)::text, ('qa'::character varying)::text, ('queue'::character varying)::text, ('queues'::character varying)::text, ('radio'::character varying)::text, ('ready'::character varying)::text, ('redmine'::character varying)::text, ('register'::character varying)::text, ('registration'::character varying)::text, ('relay'::character varying)::text, ('release'::character varying)::text, ('releases'::character varying)::text, ('remote'::character varying)::text, ('reports'::character varying)::text, ('root'::character varying)::text, ('router'::character varying)::text, ('rss'::character varying)::text, ('saml'::character varying)::text, ('sandbox'::character varying)::text, ('search'::character varying)::text, ('secure'::character varying)::text, ('security'::character varying)::text, ('server'::character varying)::text, ('server1'::character varying)::text, ('service'::character varying)::text, ('services'::character varying)::text, ('session'::character varying)::text, ('sessions'::character varying)::text, ('settings'::character varying)::text, ('sftp'::character varying)::text, ('sharepoint'::character varying)::text, ('shop'::character varying)::text, ('signin'::character varying)::text, ('signout'::character varying)::text, ('signup'::character varying)::text, ('sip'::character varying)::text, ('site'::character varying)::text, ('sites'::character varying)::text, ('sms'::character varying)::text, ('smtp'::character varying)::text, ('smtp1'::character varying)::text, ('smtp2'::character varying)::text, ('smtps'::character varying)::text, ('speedtest'::character varying)::text, ('sport'::character varying)::text, ('sql'::character varying)::text, ('ssh'::character varying)::text, ('ssl'::character varying)::text, ('sso'::character varying)::text, ('staff'::character varying)::text, ('stage'::character varying)::text, ('staging'::character varying)::text, ('start'::character varying)::text, ('stat'::character varying)::text, ('static'::character varying)::text, ('stats'::character varying)::text, ('status'::character varying)::text, ('storage'::character varying)::text, ('store'::character varying)::text, ('stream'::character varying)::text, ('streaming'::character varying)::text, ('student'::character varying)::text, ('sub'::character varying)::text, ('subscribe'::character varying)::text, ('subscription'::character varying)::text, ('subscriptions'::character varying)::text, ('sudo'::character varying)::text, ('superuser'::character varying)::text, ('support'::character varying)::text, ('survey'::character varying)::text, ('svn'::character varying)::text, ('terms'::character varying)::text, ('test'::character varying)::text, ('test1'::character varying)::text, ('test2'::character varying)::text, ('testing'::character varying)::text, ('tests'::character varying)::text, ('time'::character varying)::text, ('tls'::character varying)::text, ('token'::character varying)::text, ('tokens'::character varying)::text, ('tools'::character varying)::text, ('totp'::character varying)::text, ('trac'::character varying)::text, ('training'::character varying)::text, ('travel'::character varying)::text, ('uat'::character varying)::text, ('update'::character varying)::text, ('upgrade'::character varying)::text, ('upload'::character varying)::text, ('uploads'::character varying)::text, ('validate'::character varying)::text, ('verify'::character varying)::text, ('video'::character varying)::text, ('videos'::character varying)::text, ('voip'::character varying)::text, ('vpn'::character varying)::text, ('vpn2'::character varying)::text, ('vps'::character varying)::text, ('wallet'::character varying)::text, ('wap'::character varying)::text, ('web'::character varying)::text, ('web1'::character varying)::text, ('web2'::character varying)::text, ('web3'::character varying)::text, ('web4'::character varying)::text, ('web5'::character varying)::text, ('webdisk'::character varying)::text, ('webhook'::character varying)::text, ('webhooks'::character varying)::text, ('webmail'::character varying)::text, ('webmail2'::character varying)::text, ('websocket'::character varying)::text, ('whm'::character varying)::text, ('wiki'::character varying)::text, ('worker'::character varying)::text, ('workers'::character varying)::text, ('ws'::character varying)::text, ('wss'::character varying)::text, ('ww2'::character varying)::text, ('www'::character varying)::text, ('www1'::character varying)::text, ('www2'::character varying)::text, ('www3'::character varying)::text, ('www4'::character varying)::text, ('www5'::character varying)::text, ('www6'::character varying)::text, ('wwww'::character varying)::text])))
 );
 
 
-ALTER TABLE public.workspaces OWNER TO nosdesk;
+ALTER TABLE public.workspaces OWNER TO nosdesk_admin;
 
 --
--- Name: workspaces_id_seq; Type: SEQUENCE; Schema: public; Owner: nosdesk
+-- Name: workspaces_id_seq; Type: SEQUENCE; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE SEQUENCE public.workspaces_id_seq
@@ -4598,10 +4703,10 @@ CREATE SEQUENCE public.workspaces_id_seq
     CACHE 1;
 
 
-ALTER SEQUENCE public.workspaces_id_seq OWNER TO nosdesk;
+ALTER SEQUENCE public.workspaces_id_seq OWNER TO nosdesk_admin;
 
 --
--- Name: workspaces_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: nosdesk
+-- Name: workspaces_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER SEQUENCE public.workspaces_id_seq OWNED BY public.workspaces.id;
@@ -4717,7 +4822,7 @@ ALTER TABLE ONLY public.sync_actions ATTACH PARTITION public.sync_actions_defaul
 
 
 --
--- Name: active_sessions id; Type: DEFAULT; Schema: public; Owner: nosdesk
+-- Name: active_sessions id; Type: DEFAULT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.active_sessions ALTER COLUMN id SET DEFAULT nextval('public.active_sessions_id_seq'::regclass);
@@ -4955,14 +5060,14 @@ ALTER TABLE ONLY public.notification_preferences ALTER COLUMN id SET DEFAULT nex
 
 
 --
--- Name: notification_rate_limits id; Type: DEFAULT; Schema: public; Owner: nosdesk
+-- Name: notification_rate_limits id; Type: DEFAULT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.notification_rate_limits ALTER COLUMN id SET DEFAULT nextval('public.notification_rate_limits_id_seq'::regclass);
 
 
 --
--- Name: notification_types id; Type: DEFAULT; Schema: public; Owner: nosdesk
+-- Name: notification_types id; Type: DEFAULT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.notification_types ALTER COLUMN id SET DEFAULT nextval('public.notification_types_id_seq'::regclass);
@@ -5011,7 +5116,7 @@ ALTER TABLE ONLY public.plugin_data ALTER COLUMN id SET DEFAULT nextval('public.
 
 
 --
--- Name: plugin_trusted_publishers id; Type: DEFAULT; Schema: public; Owner: nosdesk
+-- Name: plugin_trusted_publishers id; Type: DEFAULT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.plugin_trusted_publishers ALTER COLUMN id SET DEFAULT nextval('public.plugin_trusted_publishers_id_seq'::regclass);
@@ -5032,7 +5137,7 @@ ALTER TABLE ONLY public.projects ALTER COLUMN id SET DEFAULT nextval('public.pro
 
 
 --
--- Name: refresh_tokens id; Type: DEFAULT; Schema: public; Owner: nosdesk
+-- Name: refresh_tokens id; Type: DEFAULT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.refresh_tokens ALTER COLUMN id SET DEFAULT nextval('public.refresh_tokens_id_seq'::regclass);
@@ -5067,7 +5172,7 @@ ALTER TABLE ONLY public.saved_views ALTER COLUMN id SET DEFAULT nextval('public.
 
 
 --
--- Name: search_index_state id; Type: DEFAULT; Schema: public; Owner: nosdesk
+-- Name: search_index_state id; Type: DEFAULT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.search_index_state ALTER COLUMN id SET DEFAULT nextval('public.search_index_state_id_seq'::regclass);
@@ -5081,7 +5186,7 @@ ALTER TABLE ONLY public.search_query_log ALTER COLUMN id SET DEFAULT nextval('pu
 
 
 --
--- Name: security_events id; Type: DEFAULT; Schema: public; Owner: nosdesk
+-- Name: security_events id; Type: DEFAULT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.security_events ALTER COLUMN id SET DEFAULT nextval('public.security_events_id_seq'::regclass);
@@ -5137,21 +5242,21 @@ ALTER TABLE ONLY public.tickets ALTER COLUMN id SET DEFAULT nextval('public.tick
 
 
 --
--- Name: user_auth_identities id; Type: DEFAULT; Schema: public; Owner: nosdesk
+-- Name: user_auth_identities id; Type: DEFAULT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.user_auth_identities ALTER COLUMN id SET DEFAULT nextval('public.user_auth_identities_id_seq'::regclass);
 
 
 --
--- Name: user_emails id; Type: DEFAULT; Schema: public; Owner: nosdesk
+-- Name: user_emails id; Type: DEFAULT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.user_emails ALTER COLUMN id SET DEFAULT nextval('public.user_emails_id_seq'::regclass);
 
 
 --
--- Name: user_recovery_codes id; Type: DEFAULT; Schema: public; Owner: nosdesk
+-- Name: user_recovery_codes id; Type: DEFAULT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.user_recovery_codes ALTER COLUMN id SET DEFAULT nextval('public.user_recovery_codes_id_seq'::regclass);
@@ -5200,7 +5305,7 @@ ALTER TABLE ONLY public.working_calendars ALTER COLUMN id SET DEFAULT nextval('p
 
 
 --
--- Name: workspaces id; Type: DEFAULT; Schema: public; Owner: nosdesk
+-- Name: workspaces id; Type: DEFAULT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.workspaces ALTER COLUMN id SET DEFAULT nextval('public.workspaces_id_seq'::regclass);
@@ -5214,7 +5319,7 @@ ALTER TABLE ONLY public.yjs_snapshots ALTER COLUMN id SET DEFAULT nextval('publi
 
 
 --
--- Name: active_sessions active_sessions_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: active_sessions active_sessions_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.active_sessions
@@ -5222,7 +5327,7 @@ ALTER TABLE ONLY public.active_sessions
 
 
 --
--- Name: active_sessions active_sessions_session_id_key; Type: CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: active_sessions active_sessions_session_id_key; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.active_sessions
@@ -5694,7 +5799,7 @@ ALTER TABLE ONLY public.documentation_subscriptions
 
 
 --
--- Name: email_suppressions email_suppressions_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: email_suppressions email_suppressions_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.email_suppressions
@@ -5726,7 +5831,7 @@ ALTER TABLE ONLY public.groups
 
 
 --
--- Name: idempotency_keys idempotency_keys_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: idempotency_keys idempotency_keys_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.idempotency_keys
@@ -5790,7 +5895,7 @@ ALTER TABLE ONLY public.notification_preferences
 
 
 --
--- Name: notification_rate_limits notification_rate_limits_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: notification_rate_limits notification_rate_limits_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.notification_rate_limits
@@ -5798,7 +5903,7 @@ ALTER TABLE ONLY public.notification_rate_limits
 
 
 --
--- Name: notification_rate_limits notification_rate_limits_user_uuid_notification_type_id_ent_key; Type: CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: notification_rate_limits notification_rate_limits_user_uuid_notification_type_id_ent_key; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.notification_rate_limits
@@ -5806,7 +5911,7 @@ ALTER TABLE ONLY public.notification_rate_limits
 
 
 --
--- Name: notification_types notification_types_code_key; Type: CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: notification_types notification_types_code_key; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.notification_types
@@ -5814,7 +5919,7 @@ ALTER TABLE ONLY public.notification_types
 
 
 --
--- Name: notification_types notification_types_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: notification_types notification_types_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.notification_types
@@ -5862,7 +5967,7 @@ ALTER TABLE ONLY public.outbound_emails
 
 
 --
--- Name: passkey_credentials passkey_credentials_credential_id_key; Type: CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: passkey_credentials passkey_credentials_credential_id_key; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.passkey_credentials
@@ -5870,7 +5975,7 @@ ALTER TABLE ONLY public.passkey_credentials
 
 
 --
--- Name: passkey_credentials passkey_credentials_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: passkey_credentials passkey_credentials_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.passkey_credentials
@@ -5958,7 +6063,7 @@ ALTER TABLE ONLY public.plugin_data
 
 
 --
--- Name: plugin_local_signing_key plugin_local_signing_key_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: plugin_local_signing_key plugin_local_signing_key_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.plugin_local_signing_key
@@ -5966,7 +6071,7 @@ ALTER TABLE ONLY public.plugin_local_signing_key
 
 
 --
--- Name: plugin_registry_state plugin_registry_state_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: plugin_registry_state plugin_registry_state_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.plugin_registry_state
@@ -5974,7 +6079,7 @@ ALTER TABLE ONLY public.plugin_registry_state
 
 
 --
--- Name: plugin_trusted_publishers plugin_trusted_publishers_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: plugin_trusted_publishers plugin_trusted_publishers_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.plugin_trusted_publishers
@@ -5982,7 +6087,7 @@ ALTER TABLE ONLY public.plugin_trusted_publishers
 
 
 --
--- Name: plugin_trusted_publishers plugin_trusted_publishers_pubkey_key; Type: CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: plugin_trusted_publishers plugin_trusted_publishers_pubkey_key; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.plugin_trusted_publishers
@@ -6030,7 +6135,7 @@ ALTER TABLE ONLY public.projects
 
 
 --
--- Name: refresh_tokens refresh_tokens_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: refresh_tokens refresh_tokens_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.refresh_tokens
@@ -6038,7 +6143,7 @@ ALTER TABLE ONLY public.refresh_tokens
 
 
 --
--- Name: refresh_tokens refresh_tokens_token_hash_key; Type: CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: refresh_tokens refresh_tokens_token_hash_key; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.refresh_tokens
@@ -6046,11 +6151,19 @@ ALTER TABLE ONLY public.refresh_tokens
 
 
 --
--- Name: reset_tokens reset_tokens_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: reset_tokens reset_tokens_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.reset_tokens
     ADD CONSTRAINT reset_tokens_pkey PRIMARY KEY (token_hash);
+
+
+--
+-- Name: retired_slugs retired_slugs_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
+--
+
+ALTER TABLE ONLY public.retired_slugs
+    ADD CONSTRAINT retired_slugs_pkey PRIMARY KEY (slug);
 
 
 --
@@ -6102,7 +6215,7 @@ ALTER TABLE ONLY public.saved_views
 
 
 --
--- Name: search_index_state search_index_state_entity_type_key; Type: CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: search_index_state search_index_state_entity_type_key; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.search_index_state
@@ -6110,7 +6223,7 @@ ALTER TABLE ONLY public.search_index_state
 
 
 --
--- Name: search_index_state search_index_state_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: search_index_state search_index_state_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.search_index_state
@@ -6126,7 +6239,7 @@ ALTER TABLE ONLY public.search_query_log
 
 
 --
--- Name: security_events security_events_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: security_events security_events_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.security_events
@@ -6222,7 +6335,7 @@ ALTER TABLE ONLY public.sync_history
 
 
 --
--- Name: system_meta system_meta_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: system_meta system_meta_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.system_meta
@@ -6318,7 +6431,15 @@ ALTER TABLE ONLY public.tickets
 
 
 --
--- Name: user_auth_identities user_auth_identities_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: tickets tickets_uuid_key; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
+--
+
+ALTER TABLE ONLY public.tickets
+    ADD CONSTRAINT tickets_uuid_key UNIQUE (uuid);
+
+
+--
+-- Name: user_auth_identities user_auth_identities_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.user_auth_identities
@@ -6326,7 +6447,7 @@ ALTER TABLE ONLY public.user_auth_identities
 
 
 --
--- Name: user_auth_identities user_auth_identities_provider_type_external_id_key; Type: CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: user_auth_identities user_auth_identities_provider_type_external_id_key; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.user_auth_identities
@@ -6334,7 +6455,7 @@ ALTER TABLE ONLY public.user_auth_identities
 
 
 --
--- Name: user_emails user_emails_email_key; Type: CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: user_emails user_emails_email_key; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.user_emails
@@ -6342,7 +6463,7 @@ ALTER TABLE ONLY public.user_emails
 
 
 --
--- Name: user_emails user_emails_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: user_emails user_emails_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.user_emails
@@ -6358,7 +6479,7 @@ ALTER TABLE ONLY public.user_groups
 
 
 --
--- Name: user_preferences user_preferences_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: user_preferences user_preferences_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.user_preferences
@@ -6366,7 +6487,7 @@ ALTER TABLE ONLY public.user_preferences
 
 
 --
--- Name: user_recovery_codes user_recovery_codes_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: user_recovery_codes user_recovery_codes_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.user_recovery_codes
@@ -6390,7 +6511,7 @@ ALTER TABLE ONLY public.user_ticket_views
 
 
 --
--- Name: users users_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: users users_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.users
@@ -6478,7 +6599,7 @@ ALTER TABLE ONLY public.workspace_members
 
 
 --
--- Name: workspaces workspaces_custom_domain_key; Type: CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: workspaces workspaces_custom_domain_key; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.workspaces
@@ -6486,7 +6607,7 @@ ALTER TABLE ONLY public.workspaces
 
 
 --
--- Name: workspaces workspaces_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: workspaces workspaces_pkey; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.workspaces
@@ -6494,7 +6615,7 @@ ALTER TABLE ONLY public.workspaces
 
 
 --
--- Name: workspaces workspaces_slug_key; Type: CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: workspaces workspaces_slug_key; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.workspaces
@@ -6502,7 +6623,7 @@ ALTER TABLE ONLY public.workspaces
 
 
 --
--- Name: workspaces workspaces_uuid_key; Type: CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: workspaces workspaces_uuid_key; Type: CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.workspaces
@@ -6742,49 +6863,49 @@ CREATE INDEX cycles_span_idx ON public.cycles USING btree (start_at, end_at);
 
 
 --
--- Name: email_suppressions_created_idx; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: email_suppressions_created_idx; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX email_suppressions_created_idx ON public.email_suppressions USING btree (created_at DESC);
 
 
 --
--- Name: idempotency_keys_created_at_idx; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idempotency_keys_created_at_idx; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idempotency_keys_created_at_idx ON public.idempotency_keys USING btree (created_at);
 
 
 --
--- Name: idx_active_sessions_expires_at; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_active_sessions_expires_at; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_active_sessions_expires_at ON public.active_sessions USING btree (expires_at);
 
 
 --
--- Name: idx_active_sessions_ip_address; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_active_sessions_ip_address; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_active_sessions_ip_address ON public.active_sessions USING btree (ip_address);
 
 
 --
--- Name: idx_active_sessions_last_active; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_active_sessions_last_active; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_active_sessions_last_active ON public.active_sessions USING btree (last_active);
 
 
 --
--- Name: idx_active_sessions_session_id; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_active_sessions_session_id; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_active_sessions_session_id ON public.active_sessions USING btree (session_id);
 
 
 --
--- Name: idx_active_sessions_user_uuid; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_active_sessions_user_uuid; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_active_sessions_user_uuid ON public.active_sessions USING btree (user_uuid);
@@ -7372,7 +7493,7 @@ CREATE INDEX idx_notification_preferences_user ON public.notification_preference
 
 
 --
--- Name: idx_notification_rate_limits_lookup; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_notification_rate_limits_lookup; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_notification_rate_limits_lookup ON public.notification_rate_limits USING btree (user_uuid, notification_type_id, entity_type, entity_id);
@@ -7428,7 +7549,7 @@ CREATE INDEX idx_page_visibility_page ON public.documentation_page_visibility US
 
 
 --
--- Name: idx_passkey_credentials_user_uuid; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_passkey_credentials_user_uuid; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_passkey_credentials_user_uuid ON public.passkey_credentials USING btree (user_uuid);
@@ -7498,7 +7619,7 @@ CREATE INDEX idx_plugin_data_type ON public.plugin_data USING btree (data_type);
 
 
 --
--- Name: idx_plugin_trusted_publishers_pubkey; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_plugin_trusted_publishers_pubkey; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_plugin_trusted_publishers_pubkey ON public.plugin_trusted_publishers USING btree (pubkey);
@@ -7568,77 +7689,77 @@ CREATE INDEX idx_projects_status ON public.projects USING btree (status);
 
 
 --
--- Name: idx_refresh_tokens_expires_at; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_refresh_tokens_expires_at; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_refresh_tokens_expires_at ON public.refresh_tokens USING btree (expires_at);
 
 
 --
--- Name: idx_refresh_tokens_family_id; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_refresh_tokens_family_id; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_refresh_tokens_family_id ON public.refresh_tokens USING btree (family_id);
 
 
 --
--- Name: idx_refresh_tokens_session_id; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_refresh_tokens_session_id; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_refresh_tokens_session_id ON public.refresh_tokens USING btree (session_id);
 
 
 --
--- Name: idx_refresh_tokens_token_hash; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_refresh_tokens_token_hash; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_refresh_tokens_token_hash ON public.refresh_tokens USING btree (token_hash);
 
 
 --
--- Name: idx_refresh_tokens_user_uuid; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_refresh_tokens_user_uuid; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_refresh_tokens_user_uuid ON public.refresh_tokens USING btree (user_uuid);
 
 
 --
--- Name: idx_reset_tokens_created_at; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_reset_tokens_created_at; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_reset_tokens_created_at ON public.reset_tokens USING btree (created_at);
 
 
 --
--- Name: idx_reset_tokens_expires_at; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_reset_tokens_expires_at; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_reset_tokens_expires_at ON public.reset_tokens USING btree (expires_at);
 
 
 --
--- Name: idx_reset_tokens_is_used; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_reset_tokens_is_used; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_reset_tokens_is_used ON public.reset_tokens USING btree (is_used);
 
 
 --
--- Name: idx_reset_tokens_token_type; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_reset_tokens_token_type; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_reset_tokens_token_type ON public.reset_tokens USING btree (token_type);
 
 
 --
--- Name: idx_reset_tokens_user_type; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_reset_tokens_user_type; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_reset_tokens_user_type ON public.reset_tokens USING btree (user_uuid, token_type);
 
 
 --
--- Name: idx_reset_tokens_user_uuid; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_reset_tokens_user_uuid; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_reset_tokens_user_uuid ON public.reset_tokens USING btree (user_uuid);
@@ -7652,7 +7773,7 @@ CREATE INDEX idx_saved_views_user_dataset ON public.saved_views USING btree (cre
 
 
 --
--- Name: idx_search_index_state_entity_type; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_search_index_state_entity_type; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_search_index_state_entity_type ON public.search_index_state USING btree (entity_type);
@@ -7673,49 +7794,49 @@ CREATE INDEX idx_search_query_log_searched_at ON public.search_query_log USING b
 
 
 --
--- Name: idx_security_events_created_at; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_security_events_created_at; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_security_events_created_at ON public.security_events USING btree (created_at);
 
 
 --
--- Name: idx_security_events_event_type; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_security_events_event_type; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_security_events_event_type ON public.security_events USING btree (event_type);
 
 
 --
--- Name: idx_security_events_ip_address; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_security_events_ip_address; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_security_events_ip_address ON public.security_events USING btree (ip_address);
 
 
 --
--- Name: idx_security_events_session_id; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_security_events_session_id; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_security_events_session_id ON public.security_events USING btree (session_id);
 
 
 --
--- Name: idx_security_events_severity; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_security_events_severity; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_security_events_severity ON public.security_events USING btree (severity);
 
 
 --
--- Name: idx_security_events_user_created; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_security_events_user_created; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_security_events_user_created ON public.security_events USING btree (user_uuid, created_at DESC);
 
 
 --
--- Name: idx_security_events_user_uuid; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_security_events_user_uuid; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_security_events_user_uuid ON public.security_events USING btree (user_uuid);
@@ -7813,49 +7934,98 @@ CREATE INDEX idx_tickets_verification_state_pending ON public.tickets USING btre
 
 
 --
--- Name: idx_user_auth_identities_external_id; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_tickets_ws_closed_at; Type: INDEX; Schema: public; Owner: nosdesk_admin
+--
+
+CREATE INDEX idx_tickets_ws_closed_at ON public.tickets USING btree (workspace_id, closed_at) WHERE (closed_at IS NOT NULL);
+
+
+--
+-- Name: idx_tickets_ws_created_assignee; Type: INDEX; Schema: public; Owner: nosdesk_admin
+--
+
+CREATE INDEX idx_tickets_ws_created_assignee ON public.tickets USING btree (workspace_id, created_at, assignee_uuid);
+
+
+--
+-- Name: idx_tickets_ws_created_at; Type: INDEX; Schema: public; Owner: nosdesk_admin
+--
+
+CREATE INDEX idx_tickets_ws_created_at ON public.tickets USING btree (workspace_id, created_at);
+
+
+--
+-- Name: idx_tickets_ws_created_category; Type: INDEX; Schema: public; Owner: nosdesk_admin
+--
+
+CREATE INDEX idx_tickets_ws_created_category ON public.tickets USING btree (workspace_id, created_at, category_id);
+
+
+--
+-- Name: idx_tickets_ws_created_priority; Type: INDEX; Schema: public; Owner: nosdesk_admin
+--
+
+CREATE INDEX idx_tickets_ws_created_priority ON public.tickets USING btree (workspace_id, created_at, priority);
+
+
+--
+-- Name: idx_tickets_ws_created_requester; Type: INDEX; Schema: public; Owner: nosdesk_admin
+--
+
+CREATE INDEX idx_tickets_ws_created_requester ON public.tickets USING btree (workspace_id, created_at, requester_uuid) WHERE (requester_uuid IS NOT NULL);
+
+
+--
+-- Name: idx_tickets_ws_open; Type: INDEX; Schema: public; Owner: nosdesk_admin
+--
+
+CREATE INDEX idx_tickets_ws_open ON public.tickets USING btree (workspace_id) WHERE (closed_at IS NULL);
+
+
+--
+-- Name: idx_user_auth_identities_external_id; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_user_auth_identities_external_id ON public.user_auth_identities USING btree (external_id);
 
 
 --
--- Name: idx_user_auth_identities_provider_type; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_user_auth_identities_provider_type; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_user_auth_identities_provider_type ON public.user_auth_identities USING btree (provider_type);
 
 
 --
--- Name: idx_user_auth_identities_user_uuid; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_user_auth_identities_user_uuid; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_user_auth_identities_user_uuid ON public.user_auth_identities USING btree (user_uuid);
 
 
 --
--- Name: idx_user_emails_email; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_user_emails_email; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_user_emails_email ON public.user_emails USING btree (email);
 
 
 --
--- Name: idx_user_emails_is_primary; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_user_emails_is_primary; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_user_emails_is_primary ON public.user_emails USING btree (user_uuid, is_primary);
 
 
 --
--- Name: idx_user_emails_user_uuid; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_user_emails_user_uuid; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_user_emails_user_uuid ON public.user_emails USING btree (user_uuid);
 
 
 --
--- Name: idx_user_emails_verified; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_user_emails_verified; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_user_emails_verified ON public.user_emails USING btree (email) WHERE (is_verified = true);
@@ -7904,21 +8074,21 @@ CREATE INDEX idx_user_ticket_views_user_uuid ON public.user_ticket_views USING b
 
 
 --
--- Name: idx_users_created_at; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_users_created_at; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_users_created_at ON public.users USING btree (created_at DESC);
 
 
 --
--- Name: idx_users_deleted_at_pending; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_users_deleted_at_pending; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_users_deleted_at_pending ON public.users USING btree (deleted_at) WHERE (deleted_at IS NOT NULL);
 
 
 --
--- Name: idx_users_uuid; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: idx_users_uuid; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX idx_users_uuid ON public.users USING btree (uuid);
@@ -8009,7 +8179,7 @@ CREATE INDEX outbound_emails_ticket_idx ON public.outbound_emails USING btree (t
 
 
 --
--- Name: plugin_local_signing_key_kek_id_idx; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: plugin_local_signing_key_kek_id_idx; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX plugin_local_signing_key_kek_id_idx ON public.plugin_local_signing_key USING btree (encrypted_sk_kek_id);
@@ -8429,21 +8599,21 @@ CREATE INDEX tickets_workflow_state ON public.tickets USING btree (workflow_stat
 
 
 --
--- Name: user_emails_one_primary_per_user; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: user_emails_one_primary_per_user; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE UNIQUE INDEX user_emails_one_primary_per_user ON public.user_emails USING btree (user_uuid) WHERE (is_primary = true);
 
 
 --
--- Name: user_recovery_codes_unused_by_user; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: user_recovery_codes_unused_by_user; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX user_recovery_codes_unused_by_user ON public.user_recovery_codes USING btree (user_uuid) WHERE (used_at IS NULL);
 
 
 --
--- Name: users_mfa_secret_kek_id_idx; Type: INDEX; Schema: public; Owner: nosdesk
+-- Name: users_mfa_secret_kek_id_idx; Type: INDEX; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE INDEX users_mfa_secret_kek_id_idx ON public.users USING btree (mfa_secret_kek_id) WHERE (mfa_secret IS NOT NULL);
@@ -8968,21 +9138,21 @@ CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.tickets FOR EACH ROW EXECU
 
 
 --
--- Name: user_auth_identities set_updated_at; Type: TRIGGER; Schema: public; Owner: nosdesk
+-- Name: user_auth_identities set_updated_at; Type: TRIGGER; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.user_auth_identities FOR EACH ROW EXECUTE FUNCTION public.diesel_set_updated_at();
 
 
 --
--- Name: user_emails set_updated_at; Type: TRIGGER; Schema: public; Owner: nosdesk
+-- Name: user_emails set_updated_at; Type: TRIGGER; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.user_emails FOR EACH ROW EXECUTE FUNCTION public.diesel_set_updated_at();
 
 
 --
--- Name: users set_updated_at; Type: TRIGGER; Schema: public; Owner: nosdesk
+-- Name: users set_updated_at; Type: TRIGGER; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.users FOR EACH ROW EXECUTE FUNCTION public.diesel_set_updated_at();
@@ -9122,35 +9292,35 @@ CREATE TRIGGER tr_audit_plugin_data AFTER INSERT OR DELETE OR UPDATE ON public.p
 
 
 --
--- Name: plugin_local_signing_key tr_audit_plugin_local_signing_key; Type: TRIGGER; Schema: public; Owner: nosdesk
+-- Name: plugin_local_signing_key tr_audit_plugin_local_signing_key; Type: TRIGGER; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TRIGGER tr_audit_plugin_local_signing_key AFTER INSERT OR DELETE OR UPDATE ON public.plugin_local_signing_key FOR EACH ROW EXECUTE FUNCTION public.audit_log_trigger('id');
 
 
 --
--- Name: plugin_registry_state tr_audit_plugin_registry_state; Type: TRIGGER; Schema: public; Owner: nosdesk
+-- Name: plugin_registry_state tr_audit_plugin_registry_state; Type: TRIGGER; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TRIGGER tr_audit_plugin_registry_state AFTER INSERT OR DELETE OR UPDATE ON public.plugin_registry_state FOR EACH ROW EXECUTE FUNCTION public.audit_log_trigger('id');
 
 
 --
--- Name: plugin_trusted_publishers tr_audit_plugin_trusted_publishers_del; Type: TRIGGER; Schema: public; Owner: nosdesk
+-- Name: plugin_trusted_publishers tr_audit_plugin_trusted_publishers_del; Type: TRIGGER; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TRIGGER tr_audit_plugin_trusted_publishers_del AFTER DELETE ON public.plugin_trusted_publishers FOR EACH ROW EXECUTE FUNCTION public.audit_log_trigger('id');
 
 
 --
--- Name: plugin_trusted_publishers tr_audit_plugin_trusted_publishers_ins; Type: TRIGGER; Schema: public; Owner: nosdesk
+-- Name: plugin_trusted_publishers tr_audit_plugin_trusted_publishers_ins; Type: TRIGGER; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TRIGGER tr_audit_plugin_trusted_publishers_ins AFTER INSERT ON public.plugin_trusted_publishers FOR EACH ROW EXECUTE FUNCTION public.audit_log_trigger('id');
 
 
 --
--- Name: plugin_trusted_publishers tr_audit_plugin_trusted_publishers_upd; Type: TRIGGER; Schema: public; Owner: nosdesk
+-- Name: plugin_trusted_publishers tr_audit_plugin_trusted_publishers_upd; Type: TRIGGER; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TRIGGER tr_audit_plugin_trusted_publishers_upd AFTER UPDATE ON public.plugin_trusted_publishers FOR EACH ROW WHEN ((old.* IS DISTINCT FROM new.*)) EXECUTE FUNCTION public.audit_log_trigger('id');
@@ -9199,7 +9369,7 @@ CREATE TRIGGER tr_audit_user_ticket_views AFTER INSERT OR DELETE OR UPDATE ON pu
 
 
 --
--- Name: users tr_audit_users; Type: TRIGGER; Schema: public; Owner: nosdesk
+-- Name: users tr_audit_users; Type: TRIGGER; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TRIGGER tr_audit_users AFTER INSERT OR DELETE OR UPDATE ON public.users FOR EACH ROW EXECUTE FUNCTION public.audit_log_trigger('uuid', 'name', 'mfa_secret', 'mfa_backup_codes');
@@ -9227,6 +9397,20 @@ CREATE TRIGGER tr_audit_workflow_states AFTER INSERT OR DELETE OR UPDATE ON publ
 
 
 --
+-- Name: workspace_members tr_audit_workspace_members; Type: TRIGGER; Schema: public; Owner: nosdesk_admin
+--
+
+CREATE TRIGGER tr_audit_workspace_members AFTER INSERT OR DELETE OR UPDATE ON public.workspace_members FOR EACH ROW EXECUTE FUNCTION public.audit_workspace_members();
+
+
+--
+-- Name: workspace_members tr_enforce_workspace_seat_limit; Type: TRIGGER; Schema: public; Owner: nosdesk_admin
+--
+
+CREATE TRIGGER tr_enforce_workspace_seat_limit BEFORE INSERT OR UPDATE ON public.workspace_members FOR EACH ROW EXECUTE FUNCTION public.enforce_workspace_seat_limit();
+
+
+--
 -- Name: outbound_emails tr_outbound_emails_notify; Type: TRIGGER; Schema: public; Owner: nosdesk_admin
 --
 
@@ -9241,14 +9425,14 @@ CREATE TRIGGER tr_sync_actions_webhook_outbox AFTER INSERT ON public.sync_action
 
 
 --
--- Name: users trg_users_auto_create_preferences; Type: TRIGGER; Schema: public; Owner: nosdesk
+-- Name: users trg_users_auto_create_preferences; Type: TRIGGER; Schema: public; Owner: nosdesk_admin
 --
 
 CREATE TRIGGER trg_users_auto_create_preferences AFTER INSERT ON public.users FOR EACH ROW EXECUTE FUNCTION public.auto_create_user_preferences();
 
 
 --
--- Name: active_sessions active_sessions_user_uuid_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: active_sessions active_sessions_user_uuid_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.active_sessions
@@ -10392,7 +10576,7 @@ ALTER TABLE ONLY public.notification_preferences
 
 
 --
--- Name: notification_rate_limits notification_rate_limits_notification_type_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: notification_rate_limits notification_rate_limits_notification_type_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.notification_rate_limits
@@ -10400,7 +10584,7 @@ ALTER TABLE ONLY public.notification_rate_limits
 
 
 --
--- Name: notification_rate_limits notification_rate_limits_user_uuid_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: notification_rate_limits notification_rate_limits_user_uuid_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.notification_rate_limits
@@ -10464,7 +10648,7 @@ ALTER TABLE ONLY public.outbound_emails
 
 
 --
--- Name: passkey_credentials passkey_credentials_user_uuid_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: passkey_credentials passkey_credentials_user_uuid_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.passkey_credentials
@@ -10632,7 +10816,7 @@ ALTER TABLE ONLY public.projects
 
 
 --
--- Name: refresh_tokens refresh_tokens_session_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: refresh_tokens refresh_tokens_session_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.refresh_tokens
@@ -10640,7 +10824,7 @@ ALTER TABLE ONLY public.refresh_tokens
 
 
 --
--- Name: refresh_tokens refresh_tokens_user_uuid_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: refresh_tokens refresh_tokens_user_uuid_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.refresh_tokens
@@ -10648,7 +10832,7 @@ ALTER TABLE ONLY public.refresh_tokens
 
 
 --
--- Name: reset_tokens reset_tokens_user_uuid_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: reset_tokens reset_tokens_user_uuid_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.reset_tokens
@@ -10752,7 +10936,7 @@ ALTER TABLE ONLY public.search_query_log
 
 
 --
--- Name: security_events security_events_session_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: security_events security_events_session_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.security_events
@@ -10760,7 +10944,7 @@ ALTER TABLE ONLY public.security_events
 
 
 --
--- Name: security_events security_events_user_uuid_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: security_events security_events_user_uuid_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.security_events
@@ -11056,7 +11240,7 @@ ALTER TABLE ONLY public.tickets
 
 
 --
--- Name: user_auth_identities user_auth_identities_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: user_auth_identities user_auth_identities_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.user_auth_identities
@@ -11064,7 +11248,7 @@ ALTER TABLE ONLY public.user_auth_identities
 
 
 --
--- Name: user_auth_identities user_auth_identities_user_uuid_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: user_auth_identities user_auth_identities_user_uuid_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.user_auth_identities
@@ -11072,7 +11256,7 @@ ALTER TABLE ONLY public.user_auth_identities
 
 
 --
--- Name: user_emails user_emails_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: user_emails user_emails_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.user_emails
@@ -11080,7 +11264,7 @@ ALTER TABLE ONLY public.user_emails
 
 
 --
--- Name: user_emails user_emails_user_uuid_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: user_emails user_emails_user_uuid_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.user_emails
@@ -11120,7 +11304,7 @@ ALTER TABLE ONLY public.user_groups
 
 
 --
--- Name: user_preferences user_preferences_user_uuid_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: user_preferences user_preferences_user_uuid_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.user_preferences
@@ -11128,7 +11312,7 @@ ALTER TABLE ONLY public.user_preferences
 
 
 --
--- Name: user_recovery_codes user_recovery_codes_user_uuid_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk
+-- Name: user_recovery_codes user_recovery_codes_user_uuid_fkey; Type: FK CONSTRAINT; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE ONLY public.user_recovery_codes
@@ -11546,7 +11730,7 @@ ALTER TABLE public.bug_reports ENABLE ROW LEVEL SECURITY;
 -- Name: bug_reports bug_reports_workspace_isolation; Type: POLICY; Schema: public; Owner: nosdesk_admin
 --
 
-CREATE POLICY bug_reports_workspace_isolation ON public.bug_reports USING (((workspace_id = (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer) OR (NULLIF(current_setting('app.bypass_workspace_check'::text, true), ''::text) = 'true'::text))) WITH CHECK (((workspace_id = (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer) OR (NULLIF(current_setting('app.bypass_workspace_check'::text, true), ''::text) = 'true'::text)));
+CREATE POLICY bug_reports_workspace_isolation ON public.bug_reports USING ((workspace_id = (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer)) WITH CHECK ((workspace_id = (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer));
 
 
 --
@@ -11559,7 +11743,7 @@ ALTER TABLE public.canned_response_insertions ENABLE ROW LEVEL SECURITY;
 -- Name: canned_response_insertions canned_response_insertions_workspace_isolation; Type: POLICY; Schema: public; Owner: nosdesk_admin
 --
 
-CREATE POLICY canned_response_insertions_workspace_isolation ON public.canned_response_insertions USING (((workspace_id = (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer) OR (NULLIF(current_setting('app.bypass_workspace_check'::text, true), ''::text) = 'true'::text))) WITH CHECK (((workspace_id = (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer) OR (NULLIF(current_setting('app.bypass_workspace_check'::text, true), ''::text) = 'true'::text)));
+CREATE POLICY canned_response_insertions_workspace_isolation ON public.canned_response_insertions USING ((workspace_id = (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer)) WITH CHECK ((workspace_id = (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer));
 
 
 --
@@ -12027,7 +12211,7 @@ ALTER TABLE public.rule_applications ENABLE ROW LEVEL SECURITY;
 -- Name: rule_applications rule_applications_workspace_isolation; Type: POLICY; Schema: public; Owner: nosdesk_admin
 --
 
-CREATE POLICY rule_applications_workspace_isolation ON public.rule_applications USING (((workspace_id = (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer) OR (NULLIF(current_setting('app.bypass_workspace_check'::text, true), ''::text) = 'true'::text))) WITH CHECK (((workspace_id = (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer) OR (NULLIF(current_setting('app.bypass_workspace_check'::text, true), ''::text) = 'true'::text)));
+CREATE POLICY rule_applications_workspace_isolation ON public.rule_applications USING ((workspace_id = (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer)) WITH CHECK ((workspace_id = (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer));
 
 
 --
@@ -12040,7 +12224,7 @@ ALTER TABLE public.rule_versions ENABLE ROW LEVEL SECURITY;
 -- Name: rule_versions rule_versions_workspace_isolation; Type: POLICY; Schema: public; Owner: nosdesk_admin
 --
 
-CREATE POLICY rule_versions_workspace_isolation ON public.rule_versions USING (((workspace_id = (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer) OR (NULLIF(current_setting('app.bypass_workspace_check'::text, true), ''::text) = 'true'::text))) WITH CHECK (((workspace_id = (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer) OR (NULLIF(current_setting('app.bypass_workspace_check'::text, true), ''::text) = 'true'::text)));
+CREATE POLICY rule_versions_workspace_isolation ON public.rule_versions USING ((workspace_id = (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer)) WITH CHECK ((workspace_id = (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer));
 
 
 --
@@ -12053,7 +12237,7 @@ ALTER TABLE public.rules ENABLE ROW LEVEL SECURITY;
 -- Name: rules rules_workspace_isolation; Type: POLICY; Schema: public; Owner: nosdesk_admin
 --
 
-CREATE POLICY rules_workspace_isolation ON public.rules USING (((workspace_id = (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer) OR (NULLIF(current_setting('app.bypass_workspace_check'::text, true), ''::text) = 'true'::text))) WITH CHECK (((workspace_id = (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer) OR (NULLIF(current_setting('app.bypass_workspace_check'::text, true), ''::text) = 'true'::text)));
+CREATE POLICY rules_workspace_isolation ON public.rules USING ((workspace_id = (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer)) WITH CHECK ((workspace_id = (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer));
 
 
 --
@@ -12403,19 +12587,17 @@ GRANT USAGE ON SCHEMA public TO nosdesk_admin;
 
 
 --
--- Name: TABLE active_sessions; Type: ACL; Schema: public; Owner: nosdesk
+-- Name: TABLE active_sessions; Type: ACL; Schema: public; Owner: nosdesk_admin
 --
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.active_sessions TO nosdesk_app;
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.active_sessions TO nosdesk_admin;
 
 
 --
--- Name: SEQUENCE active_sessions_id_seq; Type: ACL; Schema: public; Owner: nosdesk
+-- Name: SEQUENCE active_sessions_id_seq; Type: ACL; Schema: public; Owner: nosdesk_admin
 --
 
 GRANT ALL ON SEQUENCE public.active_sessions_id_seq TO nosdesk_app;
-GRANT ALL ON SEQUENCE public.active_sessions_id_seq TO nosdesk_admin;
 
 
 --
@@ -12888,11 +13070,10 @@ GRANT ALL ON SEQUENCE public.documentation_subscriptions_id_seq TO nosdesk_app;
 
 
 --
--- Name: TABLE email_suppressions; Type: ACL; Schema: public; Owner: nosdesk
+-- Name: TABLE email_suppressions; Type: ACL; Schema: public; Owner: nosdesk_admin
 --
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.email_suppressions TO nosdesk_app;
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.email_suppressions TO nosdesk_admin;
 
 
 --
@@ -12917,11 +13098,10 @@ GRANT ALL ON SEQUENCE public.groups_id_seq TO nosdesk_app;
 
 
 --
--- Name: TABLE idempotency_keys; Type: ACL; Schema: public; Owner: nosdesk
+-- Name: TABLE idempotency_keys; Type: ACL; Schema: public; Owner: nosdesk_admin
 --
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.idempotency_keys TO nosdesk_app;
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.idempotency_keys TO nosdesk_admin;
 
 
 --
@@ -12981,35 +13161,31 @@ GRANT ALL ON SEQUENCE public.notification_preferences_id_seq TO nosdesk_app;
 
 
 --
--- Name: TABLE notification_rate_limits; Type: ACL; Schema: public; Owner: nosdesk
+-- Name: TABLE notification_rate_limits; Type: ACL; Schema: public; Owner: nosdesk_admin
 --
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.notification_rate_limits TO nosdesk_app;
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.notification_rate_limits TO nosdesk_admin;
 
 
 --
--- Name: SEQUENCE notification_rate_limits_id_seq; Type: ACL; Schema: public; Owner: nosdesk
+-- Name: SEQUENCE notification_rate_limits_id_seq; Type: ACL; Schema: public; Owner: nosdesk_admin
 --
 
 GRANT ALL ON SEQUENCE public.notification_rate_limits_id_seq TO nosdesk_app;
-GRANT ALL ON SEQUENCE public.notification_rate_limits_id_seq TO nosdesk_admin;
 
 
 --
--- Name: TABLE notification_types; Type: ACL; Schema: public; Owner: nosdesk
+-- Name: TABLE notification_types; Type: ACL; Schema: public; Owner: nosdesk_admin
 --
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.notification_types TO nosdesk_app;
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.notification_types TO nosdesk_admin;
 
 
 --
--- Name: SEQUENCE notification_types_id_seq; Type: ACL; Schema: public; Owner: nosdesk
+-- Name: SEQUENCE notification_types_id_seq; Type: ACL; Schema: public; Owner: nosdesk_admin
 --
 
 GRANT ALL ON SEQUENCE public.notification_types_id_seq TO nosdesk_app;
-GRANT ALL ON SEQUENCE public.notification_types_id_seq TO nosdesk_admin;
 
 
 --
@@ -13041,11 +13217,10 @@ GRANT ALL ON SEQUENCE public.outbound_emails_id_seq TO nosdesk_app;
 
 
 --
--- Name: TABLE passkey_credentials; Type: ACL; Schema: public; Owner: nosdesk
+-- Name: TABLE passkey_credentials; Type: ACL; Schema: public; Owner: nosdesk_admin
 --
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.passkey_credentials TO nosdesk_app;
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.passkey_credentials TO nosdesk_admin;
 
 
 --
@@ -13105,35 +13280,31 @@ GRANT ALL ON SEQUENCE public.plugin_data_id_seq TO nosdesk_app;
 
 
 --
--- Name: TABLE plugin_local_signing_key; Type: ACL; Schema: public; Owner: nosdesk
+-- Name: TABLE plugin_local_signing_key; Type: ACL; Schema: public; Owner: nosdesk_admin
 --
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.plugin_local_signing_key TO nosdesk_app;
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.plugin_local_signing_key TO nosdesk_admin;
 
 
 --
--- Name: TABLE plugin_registry_state; Type: ACL; Schema: public; Owner: nosdesk
+-- Name: TABLE plugin_registry_state; Type: ACL; Schema: public; Owner: nosdesk_admin
 --
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.plugin_registry_state TO nosdesk_app;
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.plugin_registry_state TO nosdesk_admin;
 
 
 --
--- Name: TABLE plugin_trusted_publishers; Type: ACL; Schema: public; Owner: nosdesk
+-- Name: TABLE plugin_trusted_publishers; Type: ACL; Schema: public; Owner: nosdesk_admin
 --
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.plugin_trusted_publishers TO nosdesk_app;
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.plugin_trusted_publishers TO nosdesk_admin;
 
 
 --
--- Name: SEQUENCE plugin_trusted_publishers_id_seq; Type: ACL; Schema: public; Owner: nosdesk
+-- Name: SEQUENCE plugin_trusted_publishers_id_seq; Type: ACL; Schema: public; Owner: nosdesk_admin
 --
 
 GRANT ALL ON SEQUENCE public.plugin_trusted_publishers_id_seq TO nosdesk_app;
-GRANT ALL ON SEQUENCE public.plugin_trusted_publishers_id_seq TO nosdesk_admin;
 
 
 --
@@ -13172,27 +13343,31 @@ GRANT ALL ON SEQUENCE public.projects_id_seq TO nosdesk_app;
 
 
 --
--- Name: TABLE refresh_tokens; Type: ACL; Schema: public; Owner: nosdesk
+-- Name: TABLE refresh_tokens; Type: ACL; Schema: public; Owner: nosdesk_admin
 --
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.refresh_tokens TO nosdesk_app;
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.refresh_tokens TO nosdesk_admin;
 
 
 --
--- Name: SEQUENCE refresh_tokens_id_seq; Type: ACL; Schema: public; Owner: nosdesk
+-- Name: SEQUENCE refresh_tokens_id_seq; Type: ACL; Schema: public; Owner: nosdesk_admin
 --
 
 GRANT ALL ON SEQUENCE public.refresh_tokens_id_seq TO nosdesk_app;
-GRANT ALL ON SEQUENCE public.refresh_tokens_id_seq TO nosdesk_admin;
 
 
 --
--- Name: TABLE reset_tokens; Type: ACL; Schema: public; Owner: nosdesk
+-- Name: TABLE reset_tokens; Type: ACL; Schema: public; Owner: nosdesk_admin
 --
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reset_tokens TO nosdesk_app;
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reset_tokens TO nosdesk_admin;
+
+
+--
+-- Name: TABLE retired_slugs; Type: ACL; Schema: public; Owner: nosdesk_admin
+--
+
+GRANT SELECT ON TABLE public.retired_slugs TO nosdesk_app;
 
 
 --
@@ -13252,19 +13427,17 @@ GRANT ALL ON SEQUENCE public.saved_views_id_seq TO nosdesk_app;
 
 
 --
--- Name: TABLE search_index_state; Type: ACL; Schema: public; Owner: nosdesk
+-- Name: TABLE search_index_state; Type: ACL; Schema: public; Owner: nosdesk_admin
 --
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.search_index_state TO nosdesk_app;
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.search_index_state TO nosdesk_admin;
 
 
 --
--- Name: SEQUENCE search_index_state_id_seq; Type: ACL; Schema: public; Owner: nosdesk
+-- Name: SEQUENCE search_index_state_id_seq; Type: ACL; Schema: public; Owner: nosdesk_admin
 --
 
 GRANT ALL ON SEQUENCE public.search_index_state_id_seq TO nosdesk_app;
-GRANT ALL ON SEQUENCE public.search_index_state_id_seq TO nosdesk_admin;
 
 
 --
@@ -13282,19 +13455,17 @@ GRANT ALL ON SEQUENCE public.search_query_log_id_seq TO nosdesk_app;
 
 
 --
--- Name: TABLE security_events; Type: ACL; Schema: public; Owner: nosdesk
+-- Name: TABLE security_events; Type: ACL; Schema: public; Owner: nosdesk_admin
 --
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.security_events TO nosdesk_app;
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.security_events TO nosdesk_admin;
 
 
 --
--- Name: SEQUENCE security_events_id_seq; Type: ACL; Schema: public; Owner: nosdesk
+-- Name: SEQUENCE security_events_id_seq; Type: ACL; Schema: public; Owner: nosdesk_admin
 --
 
 GRANT ALL ON SEQUENCE public.security_events_id_seq TO nosdesk_app;
-GRANT ALL ON SEQUENCE public.security_events_id_seq TO nosdesk_admin;
 
 
 --
@@ -13368,11 +13539,10 @@ GRANT ALL ON SEQUENCE public.sync_history_id_seq TO nosdesk_app;
 
 
 --
--- Name: TABLE system_meta; Type: ACL; Schema: public; Owner: nosdesk
+-- Name: TABLE system_meta; Type: ACL; Schema: public; Owner: nosdesk_admin
 --
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.system_meta TO nosdesk_app;
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.system_meta TO nosdesk_admin;
 
 
 --
@@ -13446,35 +13616,31 @@ GRANT ALL ON SEQUENCE public.tickets_id_seq TO nosdesk_app;
 
 
 --
--- Name: TABLE user_auth_identities; Type: ACL; Schema: public; Owner: nosdesk
+-- Name: TABLE user_auth_identities; Type: ACL; Schema: public; Owner: nosdesk_admin
 --
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.user_auth_identities TO nosdesk_app;
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.user_auth_identities TO nosdesk_admin;
 
 
 --
--- Name: SEQUENCE user_auth_identities_id_seq; Type: ACL; Schema: public; Owner: nosdesk
+-- Name: SEQUENCE user_auth_identities_id_seq; Type: ACL; Schema: public; Owner: nosdesk_admin
 --
 
 GRANT ALL ON SEQUENCE public.user_auth_identities_id_seq TO nosdesk_app;
-GRANT ALL ON SEQUENCE public.user_auth_identities_id_seq TO nosdesk_admin;
 
 
 --
--- Name: TABLE user_emails; Type: ACL; Schema: public; Owner: nosdesk
+-- Name: TABLE user_emails; Type: ACL; Schema: public; Owner: nosdesk_admin
 --
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.user_emails TO nosdesk_app;
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.user_emails TO nosdesk_admin;
 
 
 --
--- Name: SEQUENCE user_emails_id_seq; Type: ACL; Schema: public; Owner: nosdesk
+-- Name: SEQUENCE user_emails_id_seq; Type: ACL; Schema: public; Owner: nosdesk_admin
 --
 
 GRANT ALL ON SEQUENCE public.user_emails_id_seq TO nosdesk_app;
-GRANT ALL ON SEQUENCE public.user_emails_id_seq TO nosdesk_admin;
 
 
 --
@@ -13485,27 +13651,24 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.user_groups TO nosdesk_app;
 
 
 --
--- Name: TABLE user_preferences; Type: ACL; Schema: public; Owner: nosdesk
+-- Name: TABLE user_preferences; Type: ACL; Schema: public; Owner: nosdesk_admin
 --
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.user_preferences TO nosdesk_app;
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.user_preferences TO nosdesk_admin;
 
 
 --
--- Name: TABLE user_recovery_codes; Type: ACL; Schema: public; Owner: nosdesk
+-- Name: TABLE user_recovery_codes; Type: ACL; Schema: public; Owner: nosdesk_admin
 --
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.user_recovery_codes TO nosdesk_app;
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.user_recovery_codes TO nosdesk_admin;
 
 
 --
--- Name: SEQUENCE user_recovery_codes_id_seq; Type: ACL; Schema: public; Owner: nosdesk
+-- Name: SEQUENCE user_recovery_codes_id_seq; Type: ACL; Schema: public; Owner: nosdesk_admin
 --
 
 GRANT ALL ON SEQUENCE public.user_recovery_codes_id_seq TO nosdesk_app;
-GRANT ALL ON SEQUENCE public.user_recovery_codes_id_seq TO nosdesk_admin;
 
 
 --
@@ -13523,11 +13686,10 @@ GRANT ALL ON SEQUENCE public.user_ticket_views_id_seq TO nosdesk_app;
 
 
 --
--- Name: TABLE users; Type: ACL; Schema: public; Owner: nosdesk
+-- Name: TABLE users; Type: ACL; Schema: public; Owner: nosdesk_admin
 --
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.users TO nosdesk_app;
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.users TO nosdesk_admin;
 
 
 --
@@ -13615,19 +13777,17 @@ GRANT SELECT,INSERT ON TABLE public.workspace_members TO nosdesk_app;
 
 
 --
--- Name: TABLE workspaces; Type: ACL; Schema: public; Owner: nosdesk
+-- Name: TABLE workspaces; Type: ACL; Schema: public; Owner: nosdesk_admin
 --
 
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.workspaces TO nosdesk_admin;
 GRANT SELECT ON TABLE public.workspaces TO nosdesk_app;
 
 
 --
--- Name: SEQUENCE workspaces_id_seq; Type: ACL; Schema: public; Owner: nosdesk
+-- Name: SEQUENCE workspaces_id_seq; Type: ACL; Schema: public; Owner: nosdesk_admin
 --
 
 GRANT ALL ON SEQUENCE public.workspaces_id_seq TO nosdesk_app;
-GRANT ALL ON SEQUENCE public.workspaces_id_seq TO nosdesk_admin;
 
 
 --
@@ -13645,24 +13805,25 @@ GRANT ALL ON SEQUENCE public.yjs_snapshots_id_seq TO nosdesk_app;
 
 
 --
--- Name: DEFAULT PRIVILEGES FOR SEQUENCES; Type: DEFAULT ACL; Schema: public; Owner: nosdesk
+-- Name: DEFAULT PRIVILEGES FOR SEQUENCES; Type: DEFAULT ACL; Schema: public; Owner: nosdesk_admin
 --
 
-ALTER DEFAULT PRIVILEGES FOR ROLE nosdesk IN SCHEMA public GRANT ALL ON SEQUENCES TO nosdesk_app;
-ALTER DEFAULT PRIVILEGES FOR ROLE nosdesk IN SCHEMA public GRANT ALL ON SEQUENCES TO nosdesk_admin;
+ALTER DEFAULT PRIVILEGES FOR ROLE nosdesk_admin IN SCHEMA public GRANT ALL ON SEQUENCES TO nosdesk_admin;
+ALTER DEFAULT PRIVILEGES FOR ROLE nosdesk_admin IN SCHEMA public GRANT ALL ON SEQUENCES TO nosdesk_app;
 
 
 --
--- Name: DEFAULT PRIVILEGES FOR TABLES; Type: DEFAULT ACL; Schema: public; Owner: nosdesk
+-- Name: DEFAULT PRIVILEGES FOR TABLES; Type: DEFAULT ACL; Schema: public; Owner: nosdesk_admin
 --
 
-ALTER DEFAULT PRIVILEGES FOR ROLE nosdesk IN SCHEMA public GRANT SELECT,INSERT,DELETE,UPDATE ON TABLES TO nosdesk_app;
-ALTER DEFAULT PRIVILEGES FOR ROLE nosdesk IN SCHEMA public GRANT SELECT,INSERT,DELETE,UPDATE ON TABLES TO nosdesk_admin;
+ALTER DEFAULT PRIVILEGES FOR ROLE nosdesk_admin IN SCHEMA public GRANT SELECT,INSERT,DELETE,UPDATE ON TABLES TO nosdesk_admin;
+ALTER DEFAULT PRIVILEGES FOR ROLE nosdesk_admin IN SCHEMA public GRANT SELECT,INSERT,DELETE,UPDATE ON TABLES TO nosdesk_app;
 
 
 --
 -- PostgreSQL database dump complete
 --
+
 
 
 
@@ -13677,7 +13838,7 @@ ALTER DEFAULT PRIVILEGES FOR ROLE nosdesk IN SCHEMA public GRANT SELECT,INSERT,D
 
 
 --
--- Data for Name: users; Type: TABLE DATA; Schema: public; Owner: nosdesk
+-- Data for Name: users; Type: TABLE DATA; Schema: public; Owner: nosdesk_admin
 --
 
 SET SESSION AUTHORIZATION DEFAULT;
@@ -13689,7 +13850,7 @@ ALTER TABLE public.users DISABLE TRIGGER ALL;
 ALTER TABLE public.users ENABLE TRIGGER ALL;
 
 --
--- Data for Name: active_sessions; Type: TABLE DATA; Schema: public; Owner: nosdesk
+-- Data for Name: active_sessions; Type: TABLE DATA; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE public.active_sessions DISABLE TRIGGER ALL;
@@ -13699,12 +13860,12 @@ ALTER TABLE public.active_sessions DISABLE TRIGGER ALL;
 ALTER TABLE public.active_sessions ENABLE TRIGGER ALL;
 
 --
--- Data for Name: workspaces; Type: TABLE DATA; Schema: public; Owner: nosdesk
+-- Data for Name: workspaces; Type: TABLE DATA; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE public.workspaces DISABLE TRIGGER ALL;
 
-INSERT INTO public.workspaces VALUES (1, '2d979007-142d-4acf-9a59-35d3543f7c0e', 'default', 'Workspace', 'self_hosted', '{}', '2026-06-06 05:58:59.333557+00', NULL, NULL, NULL);
+INSERT INTO public.workspaces VALUES (1, '2d979007-142d-4acf-9a59-35d3543f7c0e', 'default', 'Workspace', 'self_hosted', '{}', '2026-06-06 05:58:59.333557+00', NULL, NULL, NULL, NULL);
 
 
 ALTER TABLE public.workspaces ENABLE TRIGGER ALL;
@@ -14117,8 +14278,8 @@ ALTER TABLE public.cycle_tickets ENABLE TRIGGER ALL;
 
 ALTER TABLE public.documentation_collections DISABLE TRIGGER ALL;
 
-INSERT INTO public.documentation_collections VALUES (2, 'd130d0e1-8c8a-4664-86e2-aeca506838ac', 'Getting Started', 'getting-started', 'Introduction and onboarding documentation', '🚀', NULL, true, NULL, '2026-06-06 05:58:59.118175+00', '2026-06-06 05:58:59.118175+00', 0, NULL, NULL, NULL, false, 1, NULL);
-INSERT INTO public.documentation_collections VALUES (1, '9744d4a0-4ad0-4940-8c9c-f759a0e7902a', 'Tickets', 'tickets', 'Documentation pages created from ticket notes', '🎫', NULL, true, NULL, '2026-06-06 05:58:59.118175+00', '2026-06-06 05:58:59.118175+00', 1, NULL, NULL, NULL, false, 1, NULL);
+INSERT INTO public.documentation_collections VALUES (2, 'd130d0e1-8c8a-4664-86e2-aeca506838ac', 'Getting Started', 'getting-started', 'Introduction and onboarding documentation', '🚀', NULL, true, NULL, '2026-06-06 05:58:59.118175+00', '2026-06-06 05:58:59.118175+00', 0, NULL, NULL, NULL, false, 1, NULL, false);
+INSERT INTO public.documentation_collections VALUES (1, '9744d4a0-4ad0-4940-8c9c-f759a0e7902a', 'Tickets', 'tickets', 'Documentation pages created from ticket notes', '🎫', NULL, true, NULL, '2026-06-06 05:58:59.118175+00', '2026-06-06 05:58:59.118175+00', 1, NULL, NULL, NULL, false, 1, NULL, false);
 
 
 ALTER TABLE public.documentation_collections ENABLE TRIGGER ALL;
@@ -14214,7 +14375,7 @@ ALTER TABLE public.documentation_subscriptions DISABLE TRIGGER ALL;
 ALTER TABLE public.documentation_subscriptions ENABLE TRIGGER ALL;
 
 --
--- Data for Name: email_suppressions; Type: TABLE DATA; Schema: public; Owner: nosdesk
+-- Data for Name: email_suppressions; Type: TABLE DATA; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE public.email_suppressions DISABLE TRIGGER ALL;
@@ -14234,7 +14395,7 @@ ALTER TABLE public.group_includes DISABLE TRIGGER ALL;
 ALTER TABLE public.group_includes ENABLE TRIGGER ALL;
 
 --
--- Data for Name: idempotency_keys; Type: TABLE DATA; Schema: public; Owner: nosdesk
+-- Data for Name: idempotency_keys; Type: TABLE DATA; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE public.idempotency_keys DISABLE TRIGGER ALL;
@@ -14284,7 +14445,7 @@ ALTER TABLE public.linked_tickets DISABLE TRIGGER ALL;
 ALTER TABLE public.linked_tickets ENABLE TRIGGER ALL;
 
 --
--- Data for Name: notification_types; Type: TABLE DATA; Schema: public; Owner: nosdesk
+-- Data for Name: notification_types; Type: TABLE DATA; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE public.notification_types DISABLE TRIGGER ALL;
@@ -14312,7 +14473,7 @@ ALTER TABLE public.notification_preferences DISABLE TRIGGER ALL;
 ALTER TABLE public.notification_preferences ENABLE TRIGGER ALL;
 
 --
--- Data for Name: notification_rate_limits; Type: TABLE DATA; Schema: public; Owner: nosdesk
+-- Data for Name: notification_rate_limits; Type: TABLE DATA; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE public.notification_rate_limits DISABLE TRIGGER ALL;
@@ -14342,7 +14503,7 @@ ALTER TABLE public.outbound_emails DISABLE TRIGGER ALL;
 ALTER TABLE public.outbound_emails ENABLE TRIGGER ALL;
 
 --
--- Data for Name: passkey_credentials; Type: TABLE DATA; Schema: public; Owner: nosdesk
+-- Data for Name: passkey_credentials; Type: TABLE DATA; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE public.passkey_credentials DISABLE TRIGGER ALL;
@@ -14402,7 +14563,7 @@ ALTER TABLE public.plugin_data DISABLE TRIGGER ALL;
 ALTER TABLE public.plugin_data ENABLE TRIGGER ALL;
 
 --
--- Data for Name: plugin_local_signing_key; Type: TABLE DATA; Schema: public; Owner: nosdesk
+-- Data for Name: plugin_local_signing_key; Type: TABLE DATA; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE public.plugin_local_signing_key DISABLE TRIGGER ALL;
@@ -14412,7 +14573,7 @@ ALTER TABLE public.plugin_local_signing_key DISABLE TRIGGER ALL;
 ALTER TABLE public.plugin_local_signing_key ENABLE TRIGGER ALL;
 
 --
--- Data for Name: plugin_registry_state; Type: TABLE DATA; Schema: public; Owner: nosdesk
+-- Data for Name: plugin_registry_state; Type: TABLE DATA; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE public.plugin_registry_state DISABLE TRIGGER ALL;
@@ -14423,7 +14584,7 @@ INSERT INTO public.plugin_registry_state VALUES (1, 0, 0, NULL, NULL, '2026-06-0
 ALTER TABLE public.plugin_registry_state ENABLE TRIGGER ALL;
 
 --
--- Data for Name: plugin_trusted_publishers; Type: TABLE DATA; Schema: public; Owner: nosdesk
+-- Data for Name: plugin_trusted_publishers; Type: TABLE DATA; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE public.plugin_trusted_publishers DISABLE TRIGGER ALL;
@@ -14443,7 +14604,7 @@ ALTER TABLE public.project_tickets DISABLE TRIGGER ALL;
 ALTER TABLE public.project_tickets ENABLE TRIGGER ALL;
 
 --
--- Data for Name: refresh_tokens; Type: TABLE DATA; Schema: public; Owner: nosdesk
+-- Data for Name: refresh_tokens; Type: TABLE DATA; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE public.refresh_tokens DISABLE TRIGGER ALL;
@@ -14453,7 +14614,7 @@ ALTER TABLE public.refresh_tokens DISABLE TRIGGER ALL;
 ALTER TABLE public.refresh_tokens ENABLE TRIGGER ALL;
 
 --
--- Data for Name: reset_tokens; Type: TABLE DATA; Schema: public; Owner: nosdesk
+-- Data for Name: reset_tokens; Type: TABLE DATA; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE public.reset_tokens DISABLE TRIGGER ALL;
@@ -14461,6 +14622,16 @@ ALTER TABLE public.reset_tokens DISABLE TRIGGER ALL;
 
 
 ALTER TABLE public.reset_tokens ENABLE TRIGGER ALL;
+
+--
+-- Data for Name: retired_slugs; Type: TABLE DATA; Schema: public; Owner: nosdesk_admin
+--
+
+ALTER TABLE public.retired_slugs DISABLE TRIGGER ALL;
+
+
+
+ALTER TABLE public.retired_slugs ENABLE TRIGGER ALL;
 
 --
 -- Data for Name: rules; Type: TABLE DATA; Schema: public; Owner: nosdesk_admin
@@ -14503,7 +14674,7 @@ ALTER TABLE public.saved_views DISABLE TRIGGER ALL;
 ALTER TABLE public.saved_views ENABLE TRIGGER ALL;
 
 --
--- Data for Name: search_index_state; Type: TABLE DATA; Schema: public; Owner: nosdesk
+-- Data for Name: search_index_state; Type: TABLE DATA; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE public.search_index_state DISABLE TRIGGER ALL;
@@ -14529,7 +14700,7 @@ ALTER TABLE public.search_query_log DISABLE TRIGGER ALL;
 ALTER TABLE public.search_query_log ENABLE TRIGGER ALL;
 
 --
--- Data for Name: security_events; Type: TABLE DATA; Schema: public; Owner: nosdesk
+-- Data for Name: security_events; Type: TABLE DATA; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE public.security_events DISABLE TRIGGER ALL;
@@ -14642,7 +14813,7 @@ ALTER TABLE public.sync_history DISABLE TRIGGER ALL;
 ALTER TABLE public.sync_history ENABLE TRIGGER ALL;
 
 --
--- Data for Name: system_meta; Type: TABLE DATA; Schema: public; Owner: nosdesk
+-- Data for Name: system_meta; Type: TABLE DATA; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE public.system_meta DISABLE TRIGGER ALL;
@@ -14705,7 +14876,7 @@ ALTER TABLE public.ticket_watchers DISABLE TRIGGER ALL;
 ALTER TABLE public.ticket_watchers ENABLE TRIGGER ALL;
 
 --
--- Data for Name: user_auth_identities; Type: TABLE DATA; Schema: public; Owner: nosdesk
+-- Data for Name: user_auth_identities; Type: TABLE DATA; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE public.user_auth_identities DISABLE TRIGGER ALL;
@@ -14715,7 +14886,7 @@ ALTER TABLE public.user_auth_identities DISABLE TRIGGER ALL;
 ALTER TABLE public.user_auth_identities ENABLE TRIGGER ALL;
 
 --
--- Data for Name: user_emails; Type: TABLE DATA; Schema: public; Owner: nosdesk
+-- Data for Name: user_emails; Type: TABLE DATA; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE public.user_emails DISABLE TRIGGER ALL;
@@ -14735,7 +14906,7 @@ ALTER TABLE public.user_groups DISABLE TRIGGER ALL;
 ALTER TABLE public.user_groups ENABLE TRIGGER ALL;
 
 --
--- Data for Name: user_preferences; Type: TABLE DATA; Schema: public; Owner: nosdesk
+-- Data for Name: user_preferences; Type: TABLE DATA; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE public.user_preferences DISABLE TRIGGER ALL;
@@ -14745,7 +14916,7 @@ ALTER TABLE public.user_preferences DISABLE TRIGGER ALL;
 ALTER TABLE public.user_preferences ENABLE TRIGGER ALL;
 
 --
--- Data for Name: user_recovery_codes; Type: TABLE DATA; Schema: public; Owner: nosdesk
+-- Data for Name: user_recovery_codes; Type: TABLE DATA; Schema: public; Owner: nosdesk_admin
 --
 
 ALTER TABLE public.user_recovery_codes DISABLE TRIGGER ALL;
@@ -14825,7 +14996,7 @@ ALTER TABLE public.yjs_snapshots DISABLE TRIGGER ALL;
 ALTER TABLE public.yjs_snapshots ENABLE TRIGGER ALL;
 
 --
--- Name: active_sessions_id_seq; Type: SEQUENCE SET; Schema: public; Owner: nosdesk
+-- Name: active_sessions_id_seq; Type: SEQUENCE SET; Schema: public; Owner: nosdesk_admin
 --
 
 SELECT pg_catalog.setval('public.active_sessions_id_seq', 1, false);
@@ -15063,14 +15234,14 @@ SELECT pg_catalog.setval('public.notification_preferences_id_seq', 1, false);
 
 
 --
--- Name: notification_rate_limits_id_seq; Type: SEQUENCE SET; Schema: public; Owner: nosdesk
+-- Name: notification_rate_limits_id_seq; Type: SEQUENCE SET; Schema: public; Owner: nosdesk_admin
 --
 
 SELECT pg_catalog.setval('public.notification_rate_limits_id_seq', 1, false);
 
 
 --
--- Name: notification_types_id_seq; Type: SEQUENCE SET; Schema: public; Owner: nosdesk
+-- Name: notification_types_id_seq; Type: SEQUENCE SET; Schema: public; Owner: nosdesk_admin
 --
 
 SELECT pg_catalog.setval('public.notification_types_id_seq', 8, true);
@@ -15119,7 +15290,7 @@ SELECT pg_catalog.setval('public.plugin_data_id_seq', 1, false);
 
 
 --
--- Name: plugin_trusted_publishers_id_seq; Type: SEQUENCE SET; Schema: public; Owner: nosdesk
+-- Name: plugin_trusted_publishers_id_seq; Type: SEQUENCE SET; Schema: public; Owner: nosdesk_admin
 --
 
 SELECT pg_catalog.setval('public.plugin_trusted_publishers_id_seq', 1, false);
@@ -15140,7 +15311,7 @@ SELECT pg_catalog.setval('public.projects_id_seq', 1, false);
 
 
 --
--- Name: refresh_tokens_id_seq; Type: SEQUENCE SET; Schema: public; Owner: nosdesk
+-- Name: refresh_tokens_id_seq; Type: SEQUENCE SET; Schema: public; Owner: nosdesk_admin
 --
 
 SELECT pg_catalog.setval('public.refresh_tokens_id_seq', 1, false);
@@ -15175,7 +15346,7 @@ SELECT pg_catalog.setval('public.saved_views_id_seq', 1, false);
 
 
 --
--- Name: search_index_state_id_seq; Type: SEQUENCE SET; Schema: public; Owner: nosdesk
+-- Name: search_index_state_id_seq; Type: SEQUENCE SET; Schema: public; Owner: nosdesk_admin
 --
 
 SELECT pg_catalog.setval('public.search_index_state_id_seq', 6, true);
@@ -15189,7 +15360,7 @@ SELECT pg_catalog.setval('public.search_query_log_id_seq', 1, false);
 
 
 --
--- Name: security_events_id_seq; Type: SEQUENCE SET; Schema: public; Owner: nosdesk
+-- Name: security_events_id_seq; Type: SEQUENCE SET; Schema: public; Owner: nosdesk_admin
 --
 
 SELECT pg_catalog.setval('public.security_events_id_seq', 1, false);
@@ -15245,21 +15416,21 @@ SELECT pg_catalog.setval('public.tickets_id_seq', 1, false);
 
 
 --
--- Name: user_auth_identities_id_seq; Type: SEQUENCE SET; Schema: public; Owner: nosdesk
+-- Name: user_auth_identities_id_seq; Type: SEQUENCE SET; Schema: public; Owner: nosdesk_admin
 --
 
 SELECT pg_catalog.setval('public.user_auth_identities_id_seq', 1, false);
 
 
 --
--- Name: user_emails_id_seq; Type: SEQUENCE SET; Schema: public; Owner: nosdesk
+-- Name: user_emails_id_seq; Type: SEQUENCE SET; Schema: public; Owner: nosdesk_admin
 --
 
 SELECT pg_catalog.setval('public.user_emails_id_seq', 1, false);
 
 
 --
--- Name: user_recovery_codes_id_seq; Type: SEQUENCE SET; Schema: public; Owner: nosdesk
+-- Name: user_recovery_codes_id_seq; Type: SEQUENCE SET; Schema: public; Owner: nosdesk_admin
 --
 
 SELECT pg_catalog.setval('public.user_recovery_codes_id_seq', 1, false);
@@ -15308,7 +15479,7 @@ SELECT pg_catalog.setval('public.working_calendars_id_seq', 1, true);
 
 
 --
--- Name: workspaces_id_seq; Type: SEQUENCE SET; Schema: public; Owner: nosdesk
+-- Name: workspaces_id_seq; Type: SEQUENCE SET; Schema: public; Owner: nosdesk_admin
 --
 
 SELECT pg_catalog.setval('public.workspaces_id_seq', 1, true);

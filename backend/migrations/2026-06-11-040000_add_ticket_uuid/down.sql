@@ -1,2 +1,0 @@
-ALTER TABLE tickets DROP CONSTRAINT IF EXISTS tickets_uuid_key;
-ALTER TABLE tickets DROP COLUMN IF EXISTS uuid;
