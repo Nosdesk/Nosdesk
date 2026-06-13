@@ -207,6 +207,13 @@ apiClient.interceptors.response.use(
     // logout doesn't spam the console.
     if (error.response?.status === 401 && (loggingOut || onPublicAuthPage())) {
       currentCorrelationId = null;
+      // First-run setup 401s carry a machine-readable `code` in the body
+      // (BOOTSTRAP_TOKEN_*) that OnboardingView localises. Reject the raw
+      // error so `response.data` survives — the typed AppError from
+      // createErrorFromResponse drops both the body and the code.
+      if (error.config?.url?.includes('/auth/setup/')) {
+        return Promise.reject(error);
+      }
       return Promise.reject(createErrorFromResponse(error));
     }
 
