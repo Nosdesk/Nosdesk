@@ -1112,7 +1112,7 @@ pub async fn setup_initial_admin(
         .filter(|s| !s.is_empty());
     let Some(provided) = bearer.or(x_bootstrap) else {
         return errors::unauthorized_with_code(
-            "Bootstrap token required. Check the server startup logs for the setup URL, or paste the token from `docker compose exec backend cat /app/state/bootstrap.token`.",
+            "Bootstrap token required. Check the server startup logs for the setup URL, or print it with `docker compose exec nosdesk nosdesk-cli setup-token`.",
             "BOOTSTRAP_TOKEN_REQUIRED",
         );
     };

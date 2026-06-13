@@ -252,7 +252,7 @@ fn log_setup_line(token: &str) {
         "  and restart, or swap the host in the URL above.".to_string(),
         String::new(),
         "  Need it again later? Run:".to_string(),
-        "      docker compose exec backend nosdesk-cli setup-token".to_string(),
+        "      docker compose exec nosdesk nosdesk-cli setup-token".to_string(),
         String::new(),
     ]
     .join("\n");
@@ -284,7 +284,7 @@ pub fn verify(provided: &str) -> Result<()> {
     }
     if is_expired(&path) {
         return Err(anyhow!(
-            "bootstrap token expired; restart the backend to mint a fresh one"
+            "bootstrap token expired; restart the server to mint a fresh one"
         ));
     }
     let on_disk = read_token_file(&path)?;

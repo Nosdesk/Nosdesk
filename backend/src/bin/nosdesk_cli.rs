@@ -4,9 +4,9 @@
 //! recovery when an admin is locked out, plugin signing, and
 //! similar server-side tasks. Most commands require `DATABASE_URL`
 //! and the same encryption env vars as the backend. Commands are
-//! typically run inside the backend container:
+//! typically run inside the nosdesk container:
 //!
-//!     docker compose exec backend nosdesk-cli admin reset-password alice@example.com
+//!     docker compose exec nosdesk nosdesk-cli admin reset-password alice@example.com
 //!
 //! Subcommand groups planned but not yet implemented (keep this
 //! list current so the shape stays predictable):

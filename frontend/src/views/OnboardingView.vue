@@ -298,7 +298,7 @@ onUnmounted(() => {
             <div class="flex flex-col gap-2">
               <p class="text-sm font-medium text-white">{{ $t('onboarding-token-help-title') }}</p>
               <p class="text-sm leading-relaxed text-white/55">{{ $t('onboarding-token-hint') }}</p>
-              <CodeBlock tone="dark" code="docker compose exec backend nosdesk-cli setup-token" />
+              <CodeBlock tone="dark" code="docker compose exec nosdesk nosdesk-cli setup-token" />
             </div>
           </li>
           <li class="flex items-start gap-3.5">
@@ -306,7 +306,7 @@ onUnmounted(() => {
             <div class="flex flex-col gap-2">
               <p class="text-sm font-medium text-white">{{ $t('onboarding-migration-title') }}</p>
               <p class="text-sm leading-relaxed text-white/55">{{ $t('onboarding-migration-body-prefix') }}</p>
-              <CodeBlock tone="dark" code="docker compose exec backend nosdesk-cli db restore /path/to/backup.zip" />
+              <CodeBlock tone="dark" code="docker compose exec nosdesk nosdesk-cli db restore /path/to/backup.zip" />
               <p class="text-sm leading-relaxed text-white/55">{{ $t('onboarding-migration-body-suffix') }}</p>
             </div>
           </li>
@@ -370,7 +370,7 @@ onUnmounted(() => {
                column; mobile (hero hidden) keeps it inline by the field. -->
           <div class="flex flex-col gap-1.5 lg:hidden">
             <p class="text-xs text-tertiary">{{ $t('onboarding-token-hint') }}</p>
-            <CodeBlock code="docker compose exec backend nosdesk-cli setup-token" />
+            <CodeBlock code="docker compose exec nosdesk nosdesk-cli setup-token" />
           </div>
         </div>
 
