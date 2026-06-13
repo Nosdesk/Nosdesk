@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { usePasskeys } from '@/composables/usePasskeys';
 import { useClipboard } from '@/composables/useClipboard';
+import { useRecoveryCodesFile } from '@/composables/useRecoveryCodesFile';
 import { useAuthStore } from '@/stores/auth';
 import { useMfaSetupStore } from '@/stores/mfaSetup';
 import { passkeySetupService } from '@/services/passkeyService';
@@ -147,19 +148,10 @@ const handleRegisterPasskey = async () => {
 const { copied: backupCodesCopied, copy: clipboardCopy } = useClipboard();
 const copyBackupCodes = () => clipboardCopy(backupCodes.value.join('\n'));
 
-// Download backup codes as text file
-const downloadBackupCodes = () => {
-  const title = t('auth-passkey-setup-backup-file-title');
-  const intro = t('auth-passkey-setup-backup-file-intro');
-  const text = `${title}\n${'='.repeat(30)}\n\n${intro}\n\n${backupCodes.value.join('\n')}\n`;
-  const blob = new Blob([text], { type: 'text/plain' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'nosdesk-recovery-codes.txt';
-  a.click();
-  URL.revokeObjectURL(url);
-};
+// Download recovery codes as a date-stamped text file (shared format
+// with MFA setup, see useRecoveryCodesFile).
+const { downloadRecoveryCodes } = useRecoveryCodesFile();
+const downloadBackupCodes = () => downloadRecoveryCodes(backupCodes.value);
 
 // Proceed from backup codes to success
 const acknowledgeBackupCodes = () => {

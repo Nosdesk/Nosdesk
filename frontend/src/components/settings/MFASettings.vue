@@ -12,6 +12,7 @@ import Button from "@/components/common/Button.vue";
 import { useAuthStore } from "@/stores/auth";
 import { useMfaSetupStore } from "@/stores/mfaSetup";
 import { useMfa } from "@/composables/useMfa";
+import { useRecoveryCodesFile } from "@/composables/useRecoveryCodesFile";
 import userService from "@/services/userService";
 
 const fluent = useFluent();
@@ -586,32 +587,14 @@ const copyBackupCodes = async () => {
     }
 };
 
-// Download backup codes as text file
+// Download recovery codes as a date-stamped text file (shared format
+// with passkey setup, see useRecoveryCodesFile).
+const { downloadRecoveryCodes } = useRecoveryCodesFile();
 const downloadBackupCodes = () => {
     if (!mfa.backupCodes.value.length) return;
 
     try {
-        const content = `${t("settings-mfa-backup-file-title")}
-
-${t("settings-mfa-backup-file-warning")}
-${t("settings-mfa-backup-file-usage")}
-
-${t("settings-mfa-backup-file-codes-heading")}
-${mfa.backupCodes.value.map((code, index) => `${index + 1}. ${code}`).join("\n")}
-
-${t("settings-mfa-backup-file-generated", { date: new Date().toISOString() })}`;
-
-        const blob = new Blob([content], { type: "text/plain" });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = `nosdesk-backup-codes-${new Date().toISOString().split("T")[0]}.txt`;
-
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-
-        URL.revokeObjectURL(url);
+        downloadRecoveryCodes(mfa.backupCodes.value);
         emit("success", t("settings-mfa-backup-codes-download-success"));
     } catch (err) {
         logger.error("Failed to download backup codes:", err);
