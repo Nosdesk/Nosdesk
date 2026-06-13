@@ -28,13 +28,9 @@
       <p class="text-xs text-tertiary">
         {{ t('guest-submit-verify-spam-hint') }}
       </p>
-      <button
-        type="button"
-        @click="submitAnother"
-        class="inline-flex items-center justify-center px-4 py-2 rounded-lg text-sm font-medium text-secondary bg-surface border border-default hover:bg-surface-hover hover:text-primary transition-colors"
-      >
+      <Button variant="secondary" @click="submitAnother">
         {{ t('guest-submit-another') }}
-      </button>
+      </Button>
     </div>
 
     <!-- Success state: verification not required -->
@@ -72,14 +68,9 @@
         </div>
         <div class="flex flex-col sm:flex-row sm:items-center gap-2">
           <code class="flex-1 min-w-0 text-xs text-primary font-mono break-all">{{ statusAbsolute }}</code>
-          <button
-            type="button"
-            @click="copyLink"
-            class="shrink-0 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-secondary bg-surface border border-default hover:bg-surface-hover hover:text-primary transition-colors"
-          >
-            <Icon name="copy" />
+          <Button variant="secondary" size="sm" :icon="copied ? 'check' : 'copy'" @click="copyLink">
             {{ copied ? t('guest-submit-copied') : t('guest-submit-copy') }}
-          </button>
+          </Button>
         </div>
         <p class="text-xs text-tertiary">
           {{ t('guest-submit-track-hint') }}
@@ -94,13 +85,9 @@
         >
           {{ t('guest-submit-view-status') }}
         </RouterLink>
-        <button
-          type="button"
-          @click="submitAnother"
-          class="inline-flex items-center justify-center px-4 py-2 rounded-lg text-sm font-medium text-secondary bg-surface border border-default hover:bg-surface-hover hover:text-primary transition-colors"
-        >
+        <Button variant="secondary" @click="submitAnother">
           {{ t('guest-submit-another-short') }}
-        </button>
+        </Button>
       </div>
     </div>
 
@@ -144,85 +131,64 @@
           </label>
         </div>
 
-        <div
-          v-if="error"
-          role="alert"
-          class="bg-status-error-muted border border-status-error/40 text-status-error rounded-lg px-3 py-2.5 text-sm flex items-start gap-2"
-        >
-          <Icon name="warning" class="shrink-0" />
-          <span>{{ error }}</span>
-        </div>
+        <AlertMessage v-if="error" type="error" :message="error" />
 
-        <div class="flex flex-col gap-1.5">
-          <label for="guest-name" class="text-sm font-medium text-secondary">{{ t('guest-submit-field-name') }}</label>
-          <input
-            id="guest-name"
-            v-model.trim="form.name"
-            type="text"
-            required
-            maxlength="120"
-            autocomplete="name"
-            :placeholder="t('guest-submit-field-name-placeholder')"
-            :aria-invalid="fieldErrors.name ? 'true' : 'false'"
-            class="w-full px-3 py-2 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition-colors"
-          />
-          <p v-if="fieldErrors.name" class="text-xs text-status-error">{{ fieldErrors.name }}</p>
-        </div>
+        <FormInput
+          v-model="form.name"
+          :label="t('guest-submit-field-name')"
+          :placeholder="t('guest-submit-field-name-placeholder')"
+          :error="fieldErrors.name ?? undefined"
+          required
+          maxlength="120"
+          autocomplete="name"
+          @blur="validateField('name')"
+          @input="fieldErrors.name && validateField('name')"
+        />
 
-        <div class="flex flex-col gap-1.5">
-          <label for="guest-email" class="text-sm font-medium text-secondary">{{ t('guest-submit-field-email') }}</label>
-          <input
-            id="guest-email"
-            v-model.trim="form.email"
-            type="email"
-            required
-            autocomplete="email"
-            :placeholder="t('guest-submit-field-email-placeholder')"
-            :aria-invalid="fieldErrors.email ? 'true' : 'false'"
-            class="w-full px-3 py-2 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition-colors"
-          />
-          <p v-if="fieldErrors.email" class="text-xs text-status-error">{{ fieldErrors.email }}</p>
-        </div>
+        <FormInput
+          v-model="form.email"
+          type="email"
+          :label="t('guest-submit-field-email')"
+          :placeholder="t('guest-submit-field-email-placeholder')"
+          :error="fieldErrors.email ?? undefined"
+          required
+          autocomplete="email"
+          @blur="validateField('email')"
+          @input="fieldErrors.email && validateField('email')"
+        />
 
-        <div class="flex flex-col gap-1.5">
-          <label for="guest-title" class="text-sm font-medium text-secondary">{{ t('guest-submit-field-title') }}</label>
-          <input
-            id="guest-title"
-            v-model.trim="form.title"
-            type="text"
-            required
-            maxlength="255"
-            :placeholder="t('guest-submit-field-title-placeholder')"
-            :aria-invalid="fieldErrors.title ? 'true' : 'false'"
-            class="w-full px-3 py-2 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition-colors"
-          />
-          <p v-if="fieldErrors.title" class="text-xs text-status-error">{{ fieldErrors.title }}</p>
-        </div>
+        <FormInput
+          v-model="form.title"
+          :label="t('guest-submit-field-title')"
+          :placeholder="t('guest-submit-field-title-placeholder')"
+          :error="fieldErrors.title ?? undefined"
+          required
+          maxlength="255"
+          @blur="validateField('title')"
+          @input="fieldErrors.title && validateField('title')"
+        />
 
-        <div class="flex flex-col gap-1.5">
-          <label for="guest-description" class="text-sm font-medium text-secondary">{{ t('guest-submit-field-description') }}</label>
-          <textarea
-            id="guest-description"
-            v-model.trim="form.description"
-            required
-            rows="5"
-            maxlength="10000"
-            :placeholder="t('guest-submit-field-description-placeholder')"
-            :aria-invalid="fieldErrors.description ? 'true' : 'false'"
-            class="w-full px-3 py-2 bg-surface-alt border border-default rounded-lg text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent resize-y transition-colors"
-          ></textarea>
-          <div class="flex items-center justify-between gap-2">
-            <p v-if="fieldErrors.description" class="text-xs text-status-error">{{ fieldErrors.description }}</p>
-            <p class="text-xs text-tertiary ml-auto">{{ t('guest-submit-description-counter', { count: form.description.length }) }}</p>
-          </div>
-        </div>
+        <FormTextarea
+          v-model="form.description"
+          :label="t('guest-submit-field-description')"
+          :placeholder="t('guest-submit-field-description-placeholder')"
+          :error="fieldErrors.description ?? undefined"
+          :description="t('guest-submit-description-counter', { count: form.description.length })"
+          required
+          :rows="5"
+          resize="vertical"
+          maxlength="10000"
+          @blur="validateField('description')"
+          @input="fieldErrors.description && validateField('description')"
+        />
 
         <!-- Attachments (only rendered when the admin has enabled them) -->
         <div v-if="attachmentsEnabled" class="flex flex-col gap-2">
           <div class="flex items-center justify-between gap-2">
-            <label class="text-sm font-medium text-secondary">
-              {{ t('guest-submit-attachments-label') }} <span class="text-tertiary font-normal">{{ t('guest-submit-attachments-optional') }}</span>
-            </label>
+            <span class="text-xs font-medium text-tertiary uppercase tracking-wide">
+              {{ t('guest-submit-attachments-label') }}
+              <span class="normal-case font-normal">{{ t('guest-submit-attachments-optional') }}</span>
+            </span>
             <span class="text-xs text-tertiary">
               {{ t('guest-submit-attachments-counter', { count: attachments.length, max: MAX_FILES }) }}
             </span>
@@ -230,20 +196,25 @@
 
           <label
             v-if="attachments.length < MAX_FILES"
-            class="flex flex-col items-center justify-center gap-1 p-4 border border-dashed border-default rounded-lg cursor-pointer hover:border-accent hover:bg-surface-alt transition-colors"
-            :class="{ 'opacity-50 cursor-not-allowed': uploading }"
+            class="flex flex-col items-center justify-center gap-1 p-4 border border-dashed rounded-lg cursor-pointer transition-colors"
+            :class="[
+              dragActive ? 'border-accent bg-surface-alt' : 'border-default hover:border-accent hover:bg-surface-alt',
+              uploading ? 'opacity-50 cursor-not-allowed' : '',
+            ]"
+            @dragover.prevent="onDragOver"
+            @dragenter.prevent="onDragOver"
+            @dragleave="onDragLeave"
+            @drop.prevent="onDrop"
           >
             <input
               type="file"
               class="sr-only"
+              multiple
               :accept="ACCEPT_TYPES"
               :disabled="uploading"
               @change="onFilePick"
             />
-            <svg class="w-5 h-5 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-            </svg>
+            <Icon name="paperclip" size="md" class="text-tertiary" />
             <span class="text-xs text-secondary">
               {{ uploading ? t('guest-submit-attachments-uploading') : t('guest-submit-attachments-pick') }}
             </span>
@@ -261,22 +232,19 @@
               :key="att.id"
               class="flex items-center gap-3 px-2 py-1.5 rounded-md bg-surface border border-default"
             >
-              <svg class="w-4 h-4 shrink-0 text-tertiary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                  d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 10-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-              </svg>
-              <div class="flex-1 min-w-0 flex flex-col gap-0">
+              <Icon name="paperclip" class="shrink-0 text-tertiary" />
+              <div class="flex-1 min-w-0 flex flex-col">
                 <span class="text-xs text-primary truncate">{{ att.name }}</span>
                 <span class="text-[11px] text-tertiary">{{ formatSize(att.size) }}</span>
               </div>
-              <button
-                type="button"
-                @click="removeAttachment(att.id)"
-                class="shrink-0 p-1 rounded text-tertiary hover:text-status-error hover:bg-status-error-muted transition-colors"
+              <Button
+                variant="ghost-danger"
+                size="sm"
+                icon="close"
+                class="!px-2"
                 :aria-label="t('guest-submit-attachments-remove-aria', { name: att.name })"
-              >
-                <Icon name="close" />
-              </button>
+                @click="removeAttachment(att.id)"
+              />
             </li>
           </ul>
 
@@ -284,14 +252,9 @@
         </div>
 
         <div class="flex justify-end">
-          <button
-            type="submit"
-            :disabled="submitting"
-            class="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-on-accent bg-accent hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            <Spinner v-if="submitting" />
+          <Button type="submit" :loading="submitting">
             {{ submitting ? t('guest-submit-submitting') : t('guest-submit-submit') }}
-          </button>
+          </Button>
         </div>
       </form>
 
@@ -310,7 +273,10 @@ import { useFluent } from 'fluent-vue';
 import PublicLayout from './PublicLayout.vue';
 import FeatureDisabledNotice from './FeatureDisabledNotice.vue';
 import Icon from '@/components/common/Icon.vue';
-import Spinner from '@/components/common/Spinner.vue';
+import Button from '@/components/common/Button.vue';
+import AlertMessage from '@/components/common/AlertMessage.vue';
+import FormInput from '@/components/common/FormInput.vue';
+import FormTextarea from '@/components/common/FormTextarea.vue';
 import { usePublicSettingsStore } from '@/stores/publicSettings';
 import {
   publicService,
@@ -345,6 +311,7 @@ const copied = ref(false);
 const attachments = ref<GuestAttachmentUpload[]>([]);
 const uploading = ref(false);
 const attachmentError = ref('');
+const dragActive = ref(false);
 
 // Priority is deliberately NOT surfaced to the submitter, every helpdesk
 // that has tried it discovers everyone marks "high," which renders the
@@ -361,7 +328,8 @@ const form = reactive({
   website: ''
 });
 
-const fieldErrors = reactive<Record<'name' | 'email' | 'title' | 'description', string | null>>({
+type FieldKey = 'name' | 'email' | 'title' | 'description';
+const fieldErrors = reactive<Record<FieldKey, string | null>>({
   name: null,
   email: null,
   title: null,
@@ -388,15 +356,30 @@ onMounted(async () => {
   loading.value = false;
 });
 
+// Per-field validation. Trims before checking so a whitespace-only value
+// fails the same way the backend would. Run on blur and, once an error is
+// showing, on every keystroke so it clears the moment the input is fixed.
+function fieldError(field: FieldKey): string | null {
+  switch (field) {
+    case 'name':
+      return form.name.trim().length < 1 ? t('guest-submit-error-name') : null;
+    case 'email':
+      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())
+        ? null
+        : t('guest-submit-error-email');
+    case 'title':
+      return form.title.trim().length < 1 ? t('guest-submit-error-title') : null;
+    case 'description':
+      return form.description.trim().length < 1 ? t('guest-submit-error-description') : null;
+  }
+}
+
+function validateField(field: FieldKey) {
+  fieldErrors[field] = fieldError(field);
+}
+
 function validate(): boolean {
-  fieldErrors.name = form.name.length < 1 ? t('guest-submit-error-name') : null;
-  fieldErrors.email = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)
-    ? null
-    : t('guest-submit-error-email');
-  fieldErrors.title = form.title.length < 1 ? t('guest-submit-error-title') : null;
-  fieldErrors.description = form.description.length < 1
-    ? t('guest-submit-error-description')
-    : null;
+  (['name', 'email', 'title', 'description'] as FieldKey[]).forEach(validateField);
   return !Object.values(fieldErrors).some(Boolean);
 }
 
@@ -410,10 +393,14 @@ async function submit() {
   submitting.value = true;
   try {
     const response = await publicService.submitTicket({
-      ...form,
+      name: form.name.trim(),
+      email: form.email.trim(),
+      title: form.title.trim(),
+      description: form.description.trim(),
+      website: form.website,
       attachment_ids: attachments.value.map((a) => a.id)
     });
-    submittedEmail.value = form.email;
+    submittedEmail.value = form.email.trim();
     success.value = response;
   } catch (e: unknown) {
     if (axios.isAxiosError(e)) {
@@ -461,45 +448,65 @@ function formatSize(bytes: number) {
   return t('guest-submit-size-mb', { value: (bytes / (1024 * 1024)).toFixed(1) });
 }
 
-async function onFilePick(event: Event) {
-  const input = event.target as HTMLInputElement;
-  const file = input.files?.[0];
-  input.value = ''; // reset so the same file can be re-picked
-  if (!file) return;
+function attachmentErrorMessage(e: unknown, file: File): string {
+  if (axios.isAxiosError(e)) {
+    const data = e.response?.data as { error?: string } | undefined;
+    if (e.response?.status === 429) return t('guest-submit-attach-error-rate-limited');
+    if (e.response?.status === 413)
+      return t('guest-submit-attach-error-too-large-server', { name: file.name });
+    if (e.response?.status === 403) return t('guest-submit-attach-error-disabled');
+    return data?.error ?? t('guest-submit-attach-error-generic');
+  }
+  return t('guest-submit-attach-error-network');
+}
 
+// Upload a batch of files in sequence. Used by both the file picker
+// (multi-select) and drag-and-drop. Each file is checked against the
+// client-side count/size limits before hitting the upload endpoint; the
+// backend re-validates everything (MIME, magic bytes, rate limit).
+async function handleFiles(files: File[]) {
   attachmentError.value = '';
-
-  if (attachments.value.length >= MAX_FILES) {
-    attachmentError.value = t('guest-submit-attach-error-max', { max: MAX_FILES });
-    return;
-  }
-  if (file.size > MAX_SIZE_BYTES) {
-    attachmentError.value = t('guest-submit-attach-error-too-large', { name: file.name, size: MAX_SIZE_MB });
-    return;
-  }
-
-  uploading.value = true;
-  try {
-    const uploaded = await publicService.uploadAttachment(file);
-    attachments.value = [...attachments.value, uploaded];
-  } catch (e: unknown) {
-    if (axios.isAxiosError(e)) {
-      const data = e.response?.data as { error?: string } | undefined;
-      if (e.response?.status === 429) {
-        attachmentError.value = t('guest-submit-attach-error-rate-limited');
-      } else if (e.response?.status === 413) {
-        attachmentError.value = t('guest-submit-attach-error-too-large-server', { name: file.name });
-      } else if (e.response?.status === 403) {
-        attachmentError.value = t('guest-submit-attach-error-disabled');
-      } else {
-        attachmentError.value = data?.error ?? t('guest-submit-attach-error-generic');
-      }
-    } else {
-      attachmentError.value = t('guest-submit-attach-error-network');
+  for (const file of files) {
+    if (attachments.value.length >= MAX_FILES) {
+      attachmentError.value = t('guest-submit-attach-error-max', { max: MAX_FILES });
+      break;
     }
-  } finally {
-    uploading.value = false;
+    if (file.size > MAX_SIZE_BYTES) {
+      attachmentError.value = t('guest-submit-attach-error-too-large', { name: file.name, size: MAX_SIZE_MB });
+      continue;
+    }
+    uploading.value = true;
+    try {
+      const uploaded = await publicService.uploadAttachment(file);
+      attachments.value = [...attachments.value, uploaded];
+    } catch (e: unknown) {
+      attachmentError.value = attachmentErrorMessage(e, file);
+    } finally {
+      uploading.value = false;
+    }
   }
+}
+
+function onFilePick(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const files = Array.from(input.files ?? []);
+  input.value = ''; // reset so the same file can be re-picked
+  if (files.length) void handleFiles(files);
+}
+
+function onDragOver() {
+  if (!uploading.value && attachments.value.length < MAX_FILES) dragActive.value = true;
+}
+
+function onDragLeave() {
+  dragActive.value = false;
+}
+
+function onDrop(event: DragEvent) {
+  dragActive.value = false;
+  if (uploading.value) return;
+  const files = Array.from(event.dataTransfer?.files ?? []);
+  if (files.length) void handleFiles(files);
 }
 
 function removeAttachment(id: number) {
