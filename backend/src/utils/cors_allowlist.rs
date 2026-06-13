@@ -165,6 +165,25 @@ mod tests {
     }
 
     #[test]
+    fn additional_origin_accepted_alongside_canonical() {
+        // Multi-origin self-host: FRONTEND_URL is a hostname and
+        // ADDITIONAL_CORS_ORIGINS adds a bare LAN IP (the school /
+        // self-signed-cert case). Both must pass, and the collab
+        // WebSocket guard relies on this same allowlist, so this also
+        // pins that a non-canonical-but-allowed origin can open the
+        // socket while an unrelated origin can't.
+        let allow = CorsAllowlist::new(
+            ["https://helpdesk.school.internal", "https://10.0.5.20:8443"],
+            None,
+        );
+        assert!(allow.allows("https://helpdesk.school.internal"));
+        assert!(allow.allows("https://10.0.5.20:8443"));
+        // Wrong port and an unrelated origin stay blocked.
+        assert!(!allow.allows("https://10.0.5.20"));
+        assert!(!allow.allows("https://evil.example.com"));
+    }
+
+    #[test]
     fn no_tenant_domain_means_subdomain_blocked() {
         let allow = build(None);
         assert!(allow.allows("https://app.nosdesk.com")); // exact still works

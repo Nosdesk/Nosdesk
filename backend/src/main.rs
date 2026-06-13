@@ -1362,6 +1362,14 @@ async fn main() -> std::io::Result<()> {
         "CORS allowlist initialised"
     );
 
+    // Shared handle so request handlers can reuse the same trusted-
+    // origin set the CORS layer enforces. The collab WebSocket guard
+    // (handlers::collaboration) checks its Origin against this rather
+    // than FRONTEND_URL alone, so an operator-allowed origin works for
+    // realtime editing too. `Data::from` rewraps the existing Arc
+    // instead of double-wrapping it.
+    let cors_data = web::Data::from(cors_allowlist.clone());
+
     // Cloned out before the factory closure moves `yjs_app_state` in, so
     // the shutdown handler below can flush collab docs on SIGTERM.
     let yjs_for_shutdown = yjs_app_state.clone();
@@ -1424,6 +1432,7 @@ async fn main() -> std::io::Result<()> {
             // unused. See security-audit-2026-06.
             .app_data(auth_limiter_data.clone())
             .app_data(web::Data::new(pool.clone()))
+            .app_data(cors_data.clone())
             .app_data(yjs_app_state.clone())
             .app_data(sse_state.clone())
             .app_data(system_state.clone())

@@ -2518,16 +2518,23 @@ pub async fn ws_handler(
     req: HttpRequest,
     body: web::Payload,
     app_state: web::Data<YjsAppState>,
+    cors_allowlist: web::Data<crate::utils::cors_allowlist::CorsAllowlist>,
     ws: crate::extractors::WorkspaceContext,
     path: web::Path<String>,
 ) -> Result<HttpResponse, Error> {
     let doc_id = path.into_inner();
     debug!(doc_id = %doc_id, "WebSocket connection request");
 
-    // Validate Origin header to prevent WebSocket hijacking (CSWSH)
-    let frontend_url =
-        std::env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:5173".to_string());
-    let allowed_origin = frontend_url.trim_end_matches('/');
+    // Validate Origin header to prevent WebSocket hijacking (CSWSH).
+    // Trust the same CorsAllowlist the HTTP CORS layer enforces
+    // (FRONTEND_URL + ADDITIONAL_CORS_ORIGINS + any tenant-subdomain
+    // regex). Any origin the operator has allowed for credentialed API
+    // calls can also open the collab socket; pinning this to
+    // FRONTEND_URL alone silently broke realtime editing for
+    // multi-origin deployments (e.g. reaching the app by LAN IP and by
+    // hostname). This widens nothing security-wise: the allowlist
+    // can't trust an origin that isn't already trusted for credentialed
+    // HTTP.
     let is_production = std::env::var("ENVIRONMENT")
         .map(|v| v.to_lowercase() == "production")
         .unwrap_or(false);
@@ -2541,9 +2548,8 @@ pub async fn ws_handler(
             // cross-site request, so it can't be CSWSH. In development we
             // accept it, which lets the dev stack be reached over any host
             // (e.g. the machine's LAN IP when testing from another device)
-            // rather than only the configured FRONTEND_URL/localhost.
-            // Production keeps the strict FRONTEND_URL allowlist so a
-            // reverse-proxied deployment still pins the public origin.
+            // without listing it. Production requires an allowlisted
+            // origin.
             let same_origin = !is_production && {
                 let host = req
                     .headers()
@@ -2556,8 +2562,8 @@ pub async fn ws_handler(
                     .unwrap_or("");
                 !host.is_empty() && origin_authority == host
             };
-            if origin_normalized != allowed_origin && !same_origin {
-                warn!(origin = %origin_str, expected = %allowed_origin, "WebSocket origin mismatch");
+            if !cors_allowlist.allows(origin_normalized) && !same_origin {
+                warn!(origin = %origin_str, "WebSocket origin not in CORS allowlist");
                 return Err(actix_web::error::ErrorForbidden("Invalid origin"));
             }
         }
