@@ -53,9 +53,11 @@ const navigateToUser = (user: User) => {
 usePageCreateAction(navigateToCreateUser)
 
 // Filter facets. Role is multi-select (backend accepts CSV via
-// parse_role); Deleted is a single-option toggle whose presence
-// swaps the backend WHERE clause from active to soft-deleted;
-// Name is the chip text-facet that drives controls.searchQuery.
+// parse_role); Name is the chip text-facet that drives
+// controls.searchQuery. Active vs soft-deleted is the `deleted`
+// filter, but it's driven by the Active/Deleted view tab (see the
+// #view-tabs slot) rather than a buried chip, since admins need to
+// find the deleted view to restore an accidentally deleted user.
 const userFacets = computed<ChipFacetDef[]>(() => [
   {
     key: 'name',
@@ -73,14 +75,6 @@ const userFacets = computed<ChipFacetDef[]>(() => [
       { value: 'technician', label: t('user-mgmt-role-technician'), swatchClass: 'bg-accent' },
       { value: 'audit_reviewer', label: t('user-mgmt-role-audit_reviewer'), swatchClass: 'bg-purple-500' },
       { value: 'user', label: t('user-mgmt-role-user'), swatchClass: 'bg-zinc-400' },
-    ],
-  },
-  {
-    key: 'deleted',
-    labelKey: 'user-mgmt-filter-deleted-label',
-    kind: 'multi',
-    options: () => [
-      { value: 'deleted', label: t('user-mgmt-filter-deleted-on'), swatchClass: 'bg-rose-500' },
     ],
   },
 ])
@@ -195,6 +189,25 @@ const listView = useListView({
   pinnedColumnIds: ['user'],
 })
 
+// The deleted-users view is a platform-admin-only recovery surface
+// (matching who can restore/purge). The backend independently forces the
+// active filter for non-admins, so hiding the tab is the UI half of that
+// gate, not the enforcement.
+const isPlatformAdmin = computed(() => auth.user?.platform_role === 'platform_admin')
+
+// Active vs Deleted view. The "deleted" filter lives in the list-view
+// controls; the view tab toggles it so soft-deleted users (with their
+// per-row Restore / Purge actions) are one obvious click away instead of
+// hidden behind a filter chip.
+const isDeletedView = computed(() => {
+  const v = listView.controls.filters.value['deleted']
+  return Array.isArray(v) ? v.includes('deleted') : v === 'deleted'
+})
+function setDeletedView(deleted: boolean) {
+  if (deleted === isDeletedView.value) return
+  listView.chipFilters.toggleValue('deleted', 'deleted')
+}
+
 // Bulk delete: irreversible, so a confirm modal rather than the
 // optimistic Undo-toast pattern. Bulk role change: a domain-
 // specific picker (Modal with role buttons), no confirm step.
@@ -294,6 +307,30 @@ function formatPurgeAt(deletedAt: string): string {
       @update:search-query="listView.controls.handleSearchUpdate"
       @retry="listView.page.handleRetry"
     >
+      <template #view-tabs>
+        <div
+          v-if="isPlatformAdmin"
+          class="inline-flex items-center gap-0.5 rounded-lg border border-default bg-surface-alt p-0.5"
+        >
+          <button
+            type="button"
+            class="px-3 py-1 text-sm font-medium rounded-md transition-colors"
+            :class="!isDeletedView ? 'bg-surface text-primary shadow-sm' : 'text-secondary hover:text-primary'"
+            @click="setDeletedView(false)"
+          >
+            {{ $t('user-mgmt-tab-active') }}
+          </button>
+          <button
+            type="button"
+            class="px-3 py-1 text-sm font-medium rounded-md transition-colors"
+            :class="isDeletedView ? 'bg-surface text-primary shadow-sm' : 'text-secondary hover:text-primary'"
+            @click="setDeletedView(true)"
+          >
+            {{ $t('user-mgmt-tab-deleted') }}
+          </button>
+        </div>
+      </template>
+
       <template #filters>
         <ListViewToolbar
           :list-view="listView"
@@ -305,6 +342,13 @@ function formatPurgeAt(deletedAt: string): string {
 
       <template #empty-state>
         <EmptyState
+          v-if="isDeletedView"
+          icon="trash"
+          :title="$t('empty-users-deleted-title')"
+          :description="$t('empty-users-deleted-description')"
+        />
+        <EmptyState
+          v-else
           icon="users"
           :title="listView.controls.searchQuery.value ? $t('empty-users-search-title') : $t('empty-users-default-title')"
           :description="listView.controls.searchQuery.value ? $t('empty-users-search-description') : $t('empty-users-default-description')"

@@ -179,6 +179,9 @@ empty-asset-search-title = Geen activa gevonden
 empty-asset-search-description = Probeer uw zoekopdracht aan te passen
 empty-users-default-title = Geen gebruikers gevonden
 empty-users-default-description = Nodig gebruikers uit om te beginnen
+# empty-users-deleted-* (machine translation, pending native review).
+empty-users-deleted-title = Geen verwijderde gebruikers
+empty-users-deleted-description = Gebruikers die je verwijdert verschijnen hier 30 dagen, waar je ze kunt herstellen voordat ze definitief worden verwijderd.
 empty-users-search-title = Geen gebruikers gevonden
 empty-users-search-description = Probeer uw zoekopdracht aan te passen
 empty-assets-default-title = Geen activa gevonden
@@ -1960,6 +1963,9 @@ user-mgmt-filter-name-label = Name
 user-mgmt-filter-role-label = Role
 user-mgmt-filter-deleted-label = Deleted
 user-mgmt-filter-deleted-on = Show deleted
+# user-mgmt-tab-* (machine translation, pending native review).
+user-mgmt-tab-active = Actief
+user-mgmt-tab-deleted = Verwijderd
 user-mgmt-grouping-role = Role
 user-mgmt-grouping-status = Status
 user-mgmt-grouping-status-active = Active

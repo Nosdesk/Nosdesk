@@ -182,6 +182,9 @@ empty-asset-search-title = Aucun actif trouvé
 empty-asset-search-description = Essayez d'ajuster vos critères de recherche
 empty-users-default-title = Aucun utilisateur trouvé
 empty-users-default-description = Invitez des utilisateurs pour commencer
+# empty-users-deleted-* (machine, à relire par un locuteur natif).
+empty-users-deleted-title = Aucun utilisateur supprimé
+empty-users-deleted-description = Les utilisateurs que vous supprimez apparaissent ici pendant 30 jours, où vous pouvez les restaurer avant leur suppression définitive.
 empty-users-search-title = Aucun utilisateur ne correspond
 empty-users-search-description = Essayez d'ajuster vos critères de recherche
 empty-assets-default-title = Aucun actif trouvé
@@ -1963,6 +1966,9 @@ user-mgmt-filter-name-label = Name
 user-mgmt-filter-role-label = Role
 user-mgmt-filter-deleted-label = Deleted
 user-mgmt-filter-deleted-on = Show deleted
+# user-mgmt-tab-* (machine, à relire par un locuteur natif).
+user-mgmt-tab-active = Actifs
+user-mgmt-tab-deleted = Supprimés
 user-mgmt-grouping-role = Role
 user-mgmt-grouping-status = Status
 user-mgmt-grouping-status-active = Active

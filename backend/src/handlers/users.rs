@@ -317,6 +317,7 @@ pub async fn get_users(pool: web::Data<crate::db::Pool>, ws: WorkspaceContext) -
 pub async fn get_paginated_users(
     pool: web::Data<crate::db::Pool>,
     query: web::Query<PaginationParams>,
+    req: HttpRequest,
     ws: WorkspaceContext,
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&pool) {
@@ -374,7 +375,20 @@ pub async fn get_paginated_users(
         }
     });
 
-    let deleted = repository::users::DeletedFilter::from_query(query.deleted.as_deref());
+    // Soft-deleted users (and the "all" view) are a platform-admin-only
+    // recovery surface, matching who can restore/purge them. A non-admin
+    // caller is forced back to the active set regardless of the requested
+    // filter, so deleted tombstones (and the PII they retain until purge)
+    // never leak to ordinary staff who can reach this directory endpoint.
+    let requested_deleted = repository::users::DeletedFilter::from_query(query.deleted.as_deref());
+    let is_admin = crate::utils::jwt::JwtUtils::extract_claims(&req)
+        .map(|claims| is_platform_admin(&claims))
+        .unwrap_or(false);
+    let deleted = if is_admin {
+        requested_deleted
+    } else {
+        repository::users::DeletedFilter::Active
+    };
 
     match repository::get_paginated_users(
         &mut conn,
