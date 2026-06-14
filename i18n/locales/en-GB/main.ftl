@@ -5079,6 +5079,12 @@ email-notice-success = Success
 email-link-fallback-prompt = Or copy and paste this link into your browser:
 email-footer-rights = All rights reserved.
 email-footer-automated = This is an automated message. Please do not reply directly to this email.
+email-footer-help = Help
+# Anti-phishing trust line in the email footer. Carries inline markup:
+# the domain is wrapped in <span class="nd-strong"> for subtle emphasis
+# and the security address is a mailto link. Translators preserve the
+# tags and the literal addresses (nosdesk.com / security@nosdesk.com).
+email-trust-notice = Nosdesk only ever emails you from <span class="nd-strong" style="color:#5b5349;font-weight:600;">nosdesk.com</span>. We'll never ask for your password or login code by email. If a message looks off, forward it to <a class="nd-link" href="mailto:security@nosdesk.com" style="color:#8c8378;font-weight:600;">security@nosdesk.com</a> and delete it.
 markdown-embed-depth-limit = [Embed depth limit reached]
 markdown-embed-circular = [Circular embed detected]
 markdown-embed-reference = Embedded: { $title }
