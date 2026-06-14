@@ -13,6 +13,7 @@ import { useTitleManager } from '@/composables/useTitleManager'
 import { useSyncProjectsStore, type SyncProject } from '@/sync/stores/projects'
 import { useProjectTickets } from '@/composables/useProjectTickets'
 import { useProjectTicketLink } from '@/composables/useProjectTicketLink'
+import { usePageCreateAction } from '@/composables/usePageCreateAction'
 import { logger } from '@/utils/logger'
 import Icon from '@/components/common/Icon.vue'
 import ProjectActionsMenu from '@/components/projectComponents/ProjectActionsMenu.vue'
@@ -65,6 +66,16 @@ function onSetStatus(status: string): void {
 // ProjectTicket sync event, so the ticket appears live in every view
 // without a refetch. The picker stays open for adding several at once.
 const showTicketPicker = ref(false)
+
+// Wire the global site-header create button (its label comes from the
+// route's `createButtonTextKey`) to this picker. The board hides this
+// bar's own "Add tickets" button in favour of the per-column composer,
+// so without this the header button would invoke nothing. Registered
+// here so every project sub-view (Board / Gantt / Cycles) shares it.
+usePageCreateAction(() => {
+  showTicketPicker.value = true
+})
+
 const { cards: projectCards } = useProjectTickets(() => props.project?.id ?? 0)
 const projectTicketIds = computed(() => projectCards.value.map((c) => c.id))
 const { linkToProject } = useProjectTicketLink()
