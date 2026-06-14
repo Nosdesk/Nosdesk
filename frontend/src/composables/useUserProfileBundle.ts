@@ -22,6 +22,10 @@ export interface UseUserProfileBundleOptions {
   uuid: MaybeRefOrGetter<string | null | undefined>
   /** Sub-resources to include. Defaults to every group. */
   include?: readonly ProfileBundleGroup[]
+  /** Gate the fetch. Defaults to "uuid is present". Callers that have a
+   *  non-uuid placeholder (e.g. the creation form's `new`) pass their own
+   *  condition so the query stays idle until a real user is in view. */
+  enabled?: MaybeRefOrGetter<boolean>
 }
 
 const ALL_GROUPS: readonly ProfileBundleGroup[] = [
@@ -39,7 +43,8 @@ export function useUserProfileBundle(options: UseUserProfileBundleOptions) {
   const query = useQuery({
     key: () => ['user', uuid.value, 'profile', include.join(',')],
     query: () => userService.getUserProfileBundle(uuid.value, include as ProfileBundleGroup[]),
-    enabled: () => !!uuid.value,
+    enabled: () =>
+      options.enabled !== undefined ? !!toValue(options.enabled) : !!uuid.value,
   })
 
   // `isLoading` reflects the *initial* fetch (no cached bundle yet).

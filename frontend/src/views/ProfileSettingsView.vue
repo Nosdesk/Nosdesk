@@ -2,7 +2,8 @@
 import { ref, watch, onMounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
-import { useQuery, useQueryCache } from '@pinia/colada';
+import { useQuery } from '@pinia/colada';
+import { useUserProfileBundle } from '@/composables/useUserProfileBundle';
 import { useAuthStore } from '@/stores/auth';
 import { useBrandingStore } from '@/stores/branding';
 import { useToastStore } from '@/stores/toast';
@@ -74,10 +75,16 @@ const activeTab = ref(routeSection && validTabs.includes(routeSection) ? routeSe
 // The target user and the admin-viewed groups list are fetched via
 // Pinia Colada with a reactive key so switching admin targets refetches
 // per-user and revisits to the same user render instantly from cache.
-const queryCache = useQueryCache();
-const userProfileQuery = useQuery({
-  key: () => ['user-profile', targetUserUuid.value ?? ''],
-  query: () => userService.getUserByUuid(targetUserUuid.value as string),
+//
+// The user bundle goes through the shared useUserProfileBundle composable
+// (single source of truth for the key, query, and include list) so this
+// view and UserProfileView can never drift into storing different shapes
+// under one cache key again — the bug this replaced was a flat-user query
+// here colliding with the profile page's bundle under the same key, which
+// surfaced as `targetUser.uuid === undefined` on SPA navigation.
+const userProfileBundle = useUserProfileBundle({
+  uuid: () => targetUserUuid.value,
+  include: ['devices', 'groups'],
   enabled: () => isAdminMode.value,
 });
 const userGroupsQuery = useQuery({
@@ -86,54 +93,44 @@ const userGroupsQuery = useQuery({
   enabled: () => isAdminMode.value,
 });
 
-// Local mirror of the loaded admin target user. Seeded from the
-// query and mutated locally by `updateUserRole` so the role-grid
-// reflects the change instantly; the query cache is also synced
-// via setQueryData so a later revisit is consistent.
+// Local mirror of the loaded admin target user. Seeded from the bundle
+// and mutated locally by `updateUserRole` so the role-grid reflects the
+// change instantly; a refetch then reconciles with server truth.
 const targetUser = ref<User | null>(null);
 // Reseed when the admin target uuid changes; otherwise leave the
 // local ref alone so role mutations aren't clobbered by background
 // revalidations.
 const seededUuid = ref<string | undefined>(undefined);
 watch(
-  [userProfileQuery.data, targetUserUuid],
-  ([data, uuid]) => {
+  [userProfileBundle.bundle, targetUserUuid],
+  ([bundle, uuid]) => {
     if (!isAdminMode.value) {
       targetUser.value = null;
       seededUuid.value = undefined;
       return;
     }
-    if (!data) return;
+    if (!bundle) return;
     if (seededUuid.value === uuid) return;
-    targetUser.value = data;
+    targetUser.value = bundle.user;
     seededUuid.value = uuid;
   },
   { immediate: true },
 );
 
-// Surface a not-found / load-failure for the admin target user.
-watch(userProfileQuery.error, (err) => {
+// Surface a not-found / load-failure for the admin target user. The
+// bundle query throws (rather than returning null) on a missing uuid,
+// so a 404 maps to the not-found copy and anything else to load-failed.
+watch(userProfileBundle.error, (err) => {
   if (!err || !isAdminMode.value) return;
   console.error('Error loading target user:', err);
-  error.value = t('user-profile-load-failed');
+  const status = (err as { response?: { status?: number } })?.response?.status;
+  error.value = status === 404 ? t('user-profile-not-found') : t('user-profile-load-failed');
   setTimeout(() => router.push('/users'), 2000);
-});
-// API can return null for a missing uuid (vs throwing); preserve the
-// pre-Colada redirect behaviour for that case too.
-watch(userProfileQuery.data, (data) => {
-  if (!isAdminMode.value) return;
-  if (data === null) {
-    error.value = t('user-profile-not-found');
-    setTimeout(() => router.push('/users'), 2000);
-  }
 });
 
 const isManagingOtherUser = computed(() => isAdminMode.value && !!targetUser.value);
 const loadingTargetUser = computed(
-  () =>
-    isAdminMode.value &&
-    userProfileQuery.status.value === 'pending' &&
-    userProfileQuery.data.value === undefined,
+  () => isAdminMode.value && userProfileBundle.isLoading.value,
 );
 const updatingRole = ref(false);
 
@@ -312,13 +309,13 @@ const updateUserRole = async (newRole: UserRole) => {
 
     if (updatedUser && targetUser.value) {
       const name = targetUser.value.name;
-      // Update the local user object with the W2 split derived from
-      // the picked tier.
+      // Optimistic local update with the W2 split derived from the picked
+      // tier so the role-grid flips instantly...
       targetUser.value = { ...targetUser.value, ...rolesFromTier(newRole) };
-      // Keep the cache in lockstep so a later revisit shows the
-      // updated role without a refetch. The seededUuid guard means
-      // the watch is a no-op here.
-      queryCache.setQueryData(['user-profile', targetUserUuid.value ?? ''], targetUser.value);
+      // ...then reconcile the shared bundle from server truth. The
+      // seededUuid guard keeps the reseed watch from clobbering the
+      // optimistic value before the refetch lands.
+      void userProfileBundle.refetch();
 
       handleSuccess(`Successfully updated ${name}'s role to ${newRole}`);
     }

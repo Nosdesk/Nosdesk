@@ -3,7 +3,7 @@ import { formatDate as formatDateUtil } from '@/utils/dateUtils';
 import { effectiveRole, type UserRole } from '@/types/user';
 import { ref, computed, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { useQuery, useQueryCache } from '@pinia/colada';
+import { useUserProfileBundle } from '@/composables/useUserProfileBundle';
 import { useDelayedFlag } from '@/composables/useDelayedFlag';
 import { useFluent } from 'fluent-vue';
 import { useAuthStore } from "@/stores/auth";
@@ -48,23 +48,28 @@ const error = ref<string | null>(null);
 // Creation mode (no uuid, or "new") runs no query: it's a form.
 const userUuid = computed(() => route.params.uuid as string | undefined);
 const isCreationMode = computed(() => !userUuid.value || userUuid.value === 'new');
-const queryCache = useQueryCache();
 
-const profileQuery = useQuery({
-    key: () => ['user-profile', userUuid.value ?? 'new'],
-    query: () => userService.getUserProfileBundle(userUuid.value as string, ['devices', 'groups']),
+// Shared bundle query (single source of truth for the cache key + shape;
+// see useUserProfileBundle). ProfileSettingsView uses the same composable,
+// so both pages share one cache entry and one shape.
+const profileQuery = useUserProfileBundle({
+    uuid: () => userUuid.value,
+    include: ['devices', 'groups'],
     enabled: () => !isCreationMode.value,
 });
 
-const loading = computed(() => profileQuery.asyncStatus.value === 'loading');
 const userProfile = computed<UserProfile | null>(() => {
-    const user = profileQuery.data.value?.user;
+    const user = profileQuery.bundle.value?.user;
     if (!user) return null;
     // Department is a placeholder until the backend carries it.
     return { ...user, department: 'IT Support', joinedDate: user.created_at };
 });
-const devices = computed<Asset[]>(() => profileQuery.data.value?.devices ?? []);
-const groups = computed<Group[]>(() => profileQuery.data.value?.groups ?? []);
+const devices = computed<Asset[]>(() => profileQuery.bundle.value?.devices ?? []);
+const groups = computed<Group[]>(() => profileQuery.bundle.value?.groups ?? []);
+
+// Cold-load flag (initial fetch with no cached bundle). Exposed as a
+// top-level ref so the template can use it directly.
+const loading = computed(() => profileQuery.isLoading.value);
 
 // Cold-load spinner only after 300ms with no cached data, so a warm
 // revisit (or a fast load) shows no flash.
@@ -164,7 +169,7 @@ const setupCreationMode = async () => {
 // Seed the editable form from the loaded user. (User emails are loaded by
 // UserEmailsCard, ticket lists by UserAssignedTickets.)
 watch(
-    () => profileQuery.data.value,
+    () => profileQuery.bundle.value,
     (bundle) => {
         if (!bundle?.user) return;
         editValues.value = {
@@ -281,12 +286,10 @@ const saveUser = async () => {
                 },
             );
 
-            // Refresh authoritative data from cache (userProfile is now
-            // derived from the query, so re-read rather than reassign).
+            // Refresh authoritative data (userProfile is derived from the
+            // bundle, so refetch rather than reassign).
             void updatedUser;
-            await queryCache.invalidateQueries({
-                key: ['user-profile', userUuid.value ?? 'new'],
-            });
+            await profileQuery.refetch();
 
             // Exit edit mode for all fields (name is handled by UserProfileCard)
             editingEmail.value = false;
