@@ -26,7 +26,7 @@ use crate::db::{DbConnection, Pool};
 use crate::extractors::PlatformAuth;
 use crate::handlers::errors;
 use crate::models::{NewWorkspace, Workspace};
-use crate::repository::workspaces::{self, CreateWorkspaceError};
+use crate::repository::workspaces::{self, CreateWorkspaceError, UpdateMembershipRoleResult};
 use crate::services::oauth_provisioning::{find_or_create_projected_user, ProjectedUserInput};
 use crate::services::search::{indexing_tasks, SearchService};
 use crate::utils::workspace_slug::validate_slug;
@@ -295,10 +295,11 @@ pub struct UpsertProjectedUserRequest {
     pub email: String,
     #[serde(default)]
     pub name: Option<String>,
-    /// One of `owner`, `admin`, `member`. First-write-wins on the
-    /// `workspace_members` row — re-projecting an existing
+    /// One of `owner`, `admin`, `agent`, `member`. First-write-wins on
+    /// the `workspace_members` row — re-projecting an existing
     /// membership does NOT silently escalate or downgrade the role
-    /// (handoff doc Task 4 gotcha).
+    /// (handoff doc Task 4 gotcha). To change an existing member's role
+    /// the control plane calls `set_member_role` instead.
     pub role: String,
 }
 
@@ -314,7 +315,7 @@ struct UpsertProjectedUserResponse {
 }
 
 fn valid_role(role: &str) -> bool {
-    matches!(role, "owner" | "admin" | "member")
+    matches!(role, "owner" | "admin" | "agent" | "member")
 }
 
 pub async fn upsert_projected_user(
@@ -347,7 +348,7 @@ pub async fn upsert_projected_user(
         return errors::bad_request("email must be non-empty");
     }
     if !valid_role(&role) {
-        return errors::bad_request("role must be one of: owner, admin, member");
+        return errors::bad_request("role must be one of: owner, admin, agent, member");
     }
 
     let mut conn = match pool_conn(&pool, "upsert_projected_user") {
@@ -456,6 +457,129 @@ pub async fn upsert_projected_user(
         Err(e) => {
             error!(error = %e, slug = %slug, "upsert_projected_user: provisioning failed");
             errors::internal("Failed to project user")
+        }
+    }
+}
+
+// =====================================================================
+// set_member_role
+// =====================================================================
+//
+// `POST /api/internal/v1/workspaces/{slug}/members/set_role` — promote
+// or demote an existing projected member's role (e.g. a self-registered
+// `member` becomes a billed `agent`). `upsert_projected_user` is
+// deliberately first-write-wins and never mutates an existing role; this
+// is the sanctioned path to CHANGE one. Idempotent (setting the same
+// role is a no-op at the DB), so no Idempotency-Key.
+
+#[derive(Debug, Deserialize)]
+pub struct SetMemberRoleRequest {
+    /// OIDC `iss` — `user_auth_identities.provider_type`.
+    pub iss: String,
+    /// OIDC `sub` — `user_auth_identities.external_id`.
+    pub sub: String,
+    /// Target role. `owner` is rejected: ownership transfer is a
+    /// separate, higher-stakes operation, and the last-owner guard
+    /// lives in `update_membership_role`.
+    pub role: String,
+}
+
+#[derive(Debug, Serialize)]
+struct SetMemberRoleResponse {
+    user_uuid: Uuid,
+    workspace_id: i32,
+    role: String,
+}
+
+/// Roles the control plane may set on an existing membership. Excludes
+/// `owner` (see `SetMemberRoleRequest::role`).
+fn valid_settable_role(role: &str) -> bool {
+    matches!(role, "admin" | "agent" | "member")
+}
+
+pub async fn set_member_role(
+    _: PlatformAuth,
+    pool: web::Data<Pool>,
+    path: web::Path<String>,
+    body: web::Json<SetMemberRoleRequest>,
+) -> impl Responder {
+    let slug = path.into_inner();
+    let SetMemberRoleRequest { iss, sub, role } = body.into_inner();
+
+    if iss.trim().is_empty() || sub.trim().is_empty() {
+        return errors::bad_request("iss and sub must both be non-empty");
+    }
+    if !valid_settable_role(&role) {
+        return errors::bad_request("role must be one of: admin, agent, member");
+    }
+
+    let mut conn = match pool_conn(&pool, "set_member_role") {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+
+    let workspace = match resolve_workspace_or_respond(&mut conn, &slug, "set_member_role") {
+        Ok(ws) => ws,
+        Err(resp) => return resp,
+    };
+
+    // Resolve the member from (iss, sub). A miss is a 404, same as an
+    // unknown membership below — the control plane treats both as
+    // "no such member to promote".
+    let user_uuid =
+        match crate::repository::user_auth_identities::find_user_by_identity(&iss, &sub, &mut conn)
+        {
+            Ok(Some(u)) => u,
+            Ok(None) => {
+                warn!(slug = %slug, "set_member_role: no user for (iss, sub)");
+                return errors::not_found_msg("member not found");
+            }
+            Err(e) => {
+                error!(error = ?e, slug = %slug, "set_member_role: identity lookup failed");
+                return errors::internal("Failed to resolve member");
+            }
+        };
+
+    // `update_membership_role` writes `workspace_members` (a meta-table
+    // without RLS) but its audit trigger reads `app.workspace_id`; wrap
+    // in a bypass context like `set_seat_limit` so the actor GUCs are
+    // set. The seat-limit trigger surfaces as a DB error on the UPDATE,
+    // mapped to 403 below — mirrors `workspace_members::update_member_role`.
+    let actor = crate::sync::actor::ActorContext::system("workspace:set_member_role");
+    let outcome = crate::sync::session::with_actor_bypass_context::<
+        UpdateMembershipRoleResult,
+        diesel::result::Error,
+    >(&mut conn, &actor, |c| {
+        workspaces::update_membership_role(c, workspace.id, user_uuid, &role)
+    });
+
+    match outcome {
+        Ok(UpdateMembershipRoleResult::Updated(_)) => {
+            info!(workspace_id = workspace.id, %user_uuid, role = %role, "set_member_role: updated");
+            HttpResponse::Ok().json(SetMemberRoleResponse {
+                user_uuid,
+                workspace_id: workspace.id,
+                role,
+            })
+        }
+        Ok(UpdateMembershipRoleResult::NotFound) => {
+            warn!(workspace_id = workspace.id, %user_uuid, "set_member_role: not a member");
+            errors::not_found_msg("member not found")
+        }
+        Ok(UpdateMembershipRoleResult::LastOwner) => HttpResponse::Conflict().json(json!({
+            "error": "last_owner",
+            "message": "cannot demote the only owner; promote another member first",
+        })),
+        Err(e) if workspaces::is_seat_limit_violation(&e) => {
+            warn!(workspace_id = workspace.id, %user_uuid, "set_member_role: blocked by workspace seat limit");
+            HttpResponse::Forbidden().json(json!({
+                "error": "seat_limit_reached",
+                "message": "This workspace has reached its seat limit. Contact support to add more seats.",
+            }))
+        }
+        Err(e) => {
+            error!(error = ?e, workspace_id = workspace.id, %user_uuid, "set_member_role: update failed");
+            errors::internal("Failed to update member role")
         }
     }
 }

@@ -1676,6 +1676,10 @@ async fn main() -> std::io::Result<()> {
                         web::post().to(handlers::internal_workspaces::set_seat_limit),
                     )
                     .route(
+                        "/workspaces/{slug}/members/set_role",
+                        web::post().to(handlers::internal_workspaces::set_member_role),
+                    )
+                    .route(
                         "/workspaces/{slug}/custom-domain",
                         web::patch().to(handlers::internal_workspaces::set_custom_domain),
                     )
