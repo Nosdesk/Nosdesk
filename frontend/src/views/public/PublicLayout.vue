@@ -1,5 +1,10 @@
 <template>
-  <div class="min-h-screen w-full flex flex-col items-center bg-app py-8 px-4 sm:px-6 gap-6">
+  <!-- min-h-dvh (dynamic viewport), not min-h-screen (100vh): the static vh
+       unit can fall short of the layout viewport on a fresh load, leaving a
+       grey gap below short pages (the html app-bg showing through). dvh tracks
+       the visible area. Covers every guest/public page (submit-ticket, status,
+       docs, help) since they all wrap this layout. -->
+  <div class="min-h-dvh w-full flex flex-col items-center bg-app py-8 px-4 sm:px-6 gap-6">
     <!-- Brand (logo only, LogoIcon already contains the wordmark) -->
     <RouterLink
       to="/"
