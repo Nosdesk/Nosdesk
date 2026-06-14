@@ -51,6 +51,9 @@ COPY backend/Cargo.toml backend/Cargo.lock ./
 # build.rs hashes migrations → NOSDESK_SCHEMA_HASH (compile-time env for db/bootstrap/backup).
 COPY backend/build.rs ./build.rs
 COPY backend/src ./src
+# license.rs embeds the Enterprise license verification key via
+# include_str!("../license_pubkey.pem") — must exist at compile time.
+COPY backend/license_pubkey.pem ./license_pubkey.pem
 COPY backend/migrations ./migrations
 # seed.rs uses include_str!("../../seeds/...") — must exist at compile time.
 COPY backend/seeds ./seeds
