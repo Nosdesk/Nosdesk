@@ -137,9 +137,10 @@ jobs:
           MFA_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
           # Greenmail's published ports are on the runner's loopback.
           GREENMAIL_HOST: 127.0.0.1
-          # Greenmail's IMAPS cert is self-signed; honour the channel's
-          # insecure_skip_cert_verify flag (see test file header).
-          NOSDESK_ALLOW_INSECURE_TLS: "1"
+          # Greenmail's IMAPS cert is self-signed. The channel's
+          # insecure_skip_cert_verify flag is honoured automatically here
+          # because this job runs as non-production (ENVIRONMENT unset); the
+          # IMAP connector only ignores the flag when ENVIRONMENT=production.
         # --test-threads=1: both tests share the single `support`
         # mailbox and purge it on entry, so they must run serially.
         run: cargo test --test channels_email_imap_integration -- --ignored --test-threads=1

@@ -193,8 +193,9 @@
             </div>
           </div>
 
-          <!-- Advanced / dev options -->
-          <details class="border-t border-default pt-4">
+          <!-- Advanced / dev options. Dev-only: the Skip-TLS-verification
+               option is hidden (and server-rejected) outside development. -->
+          <details v-if="insecureTlsAllowed" class="border-t border-default pt-4">
             <summary class="cursor-pointer text-sm text-secondary hover:text-primary">
               {{ $t('admin-channels-email-advanced') }}
             </summary>
@@ -340,6 +341,7 @@ import {
   type ImapRuntimeState
 } from '@/services/channelsService';
 import brandingService, { type BrandingConfig } from '@/services/brandingService';
+import apiClient from '@/services/apiConfig';
 import { useToastStore } from '@/stores/toast';
 import { createErrorFromResponse } from '@/utils/errors';
 import { formatRelativeTime } from '@/utils/dateUtils';
@@ -398,6 +400,22 @@ const channelQuery = useQuery({
   },
 });
 const channel = computed<Channel | null>(() => channelQuery.data.value ?? null);
+
+// Skip-TLS-verification is a development-only option; the server hard-blocks
+// it in production (refuses to save, ignores it at connect time). Mirror that
+// in the UI by reading the deployment environment and hiding the option
+// entirely outside development. Defaults to hidden until the value loads, so
+// the toggle never flashes on a production deployment.
+const systemInfoQuery = useQuery({
+  key: ['admin-system-info'],
+  query: async () =>
+    (await apiClient.get<{ environment: string }>('/admin/system/info')).data,
+});
+const insecureTlsAllowed = computed(() => {
+  const env = systemInfoQuery.data.value?.environment;
+  return env != null && env !== 'production';
+});
+
 const isFirstLoad = computed(
   () => channelQuery.status.value === 'pending' && channelQuery.data.value === undefined,
 );
@@ -592,7 +610,9 @@ function buildConfig(): Record<string, unknown> {
     mailbox: f.mailbox.trim() || DEFAULT_CONFIG.mailbox,
     use_tls: DEFAULT_CONFIG.use_tls,
     reply_domain: f.reply_domain.trim(),
-    insecure_skip_cert_verify: f.insecure_skip_cert_verify
+    // Never send true outside development: the server rejects it there, and
+    // this also clears a legacy value if a prod deployment inherited one.
+    insecure_skip_cert_verify: insecureTlsAllowed.value && f.insecure_skip_cert_verify
   };
   return cfg as unknown as Record<string, unknown>;
 }

@@ -25,6 +25,16 @@ fn get_env_var(name: &str) -> Result<String, ConfigError> {
     }
 }
 
+/// Whether the deployment is running in production, per the canonical
+/// `ENVIRONMENT` var (the same one cookies / CSP / system-info read).
+/// Anything other than `production` (including unset) is treated as
+/// non-production, so dev/test default to the more permissive behaviour.
+pub fn is_production() -> bool {
+    env::var("ENVIRONMENT")
+        .map(|v| v.trim().eq_ignore_ascii_case("production"))
+        .unwrap_or(false)
+}
+
 pub fn get_microsoft_client_id() -> Result<String, ConfigError> {
     get_env_var("MICROSOFT_CLIENT_ID")
 }

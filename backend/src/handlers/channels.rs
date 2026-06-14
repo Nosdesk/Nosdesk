@@ -121,9 +121,20 @@ fn bad_request(msg: impl Into<String>) -> HttpResponse {
 /// and blowing up at poll time.
 fn validate_config(provider: &str, config: &JsonValue) -> Result<(), String> {
     match provider {
-        "email_imap" => serde_json::from_value::<ImapChannelConfig>(config.clone())
-            .map(|_| ())
-            .map_err(|e| format!("invalid email_imap config: {e}")),
+        "email_imap" => {
+            let cfg = serde_json::from_value::<ImapChannelConfig>(config.clone())
+                .map_err(|e| format!("invalid email_imap config: {e}"))?;
+            // Skipping TLS verification is development-only. Refuse to store it
+            // on a production deployment so it can't be enabled there at all
+            // (the IMAP connector also hard-ignores it in production).
+            if cfg.insecure_skip_cert_verify && crate::config_utils::is_production() {
+                return Err(
+                    "Skip TLS certificate verification is only available in development"
+                        .to_string(),
+                );
+            }
+            Ok(())
+        }
         other => Err(format!("unknown provider: {other}")),
     }
 }

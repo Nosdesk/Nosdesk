@@ -11,23 +11,23 @@
 //! defaults to the `greenmail` service name on the compose network):
 //!
 //! ```text
-//! docker compose -f compose.yaml -f compose.dev.yaml exec \
-//!   -e NOSDESK_ALLOW_INSECURE_TLS=1 backend \
+//! docker compose -f compose.yaml -f compose.dev.yaml exec backend \
 //!   cargo test --test channels_email_imap_integration -- --ignored
 //! ```
 //!
 //! Or from the host shell, pointing at the published ports:
 //!
 //! ```text
-//! cd backend && GREENMAIL_HOST=127.0.0.1 NOSDESK_ALLOW_INSECURE_TLS=1 \
+//! cd backend && GREENMAIL_HOST=127.0.0.1 \
 //!   cargo test --test channels_email_imap_integration -- --ignored
 //! ```
 //!
-//! `NOSDESK_ALLOW_INSECURE_TLS=1` is required: Greenmail's IMAPS port
-//! presents a self-signed certificate, and the adapter only honours the
-//! channel's `insecure_skip_cert_verify` flag when that env var is set
-//! (see `email_imap.rs` — a guard against silently disabling TLS
-//! validation in production).
+//! Greenmail's IMAPS port presents a self-signed certificate, so the channel
+//! config sets `insecure_skip_cert_verify`. The adapter honours that flag
+//! automatically here because the run is non-production; it hard-ignores it
+//! when `ENVIRONMENT=production` (see `email_imap.rs` — a guard against
+//! silently disabling TLS validation in production). Don't set
+//! `ENVIRONMENT=production` when running these tests.
 //!
 //! The first test exercises the adapter's poll cycle (plant via SMTP,
 //! poll IMAP, assert the parsed event and `last_seen_uid`). The second

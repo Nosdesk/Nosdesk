@@ -243,19 +243,18 @@ async fn open_session(
     let addr = (config.host.as_str(), config.port);
     let tcp = timed("tcp connect", TcpStream::connect(addr)).await?;
 
-    // Defence in depth: the admin UI already labels
-    // `insecure_skip_cert_verify` as dev-only, but an admin who
-    // enables it for local testing and forgets to turn it off in
-    // production would silently disable TLS validation — an MITM
-    // vector for mailbox credentials. Require an explicit env var
-    // (`NOSDESK_ALLOW_INSECURE_TLS=1`) to actually honour the flag;
-    // otherwise log loudly and fall back to real validation.
-    let cert_verify_disabled = config.insecure_skip_cert_verify
-        && std::env::var("NOSDESK_ALLOW_INSECURE_TLS").ok().as_deref() == Some("1");
+    // Skipping TLS verification is a development-only affordance (local
+    // Greenmail / self-signed test servers). Honour it ONLY outside
+    // production — a hard ceiling that no other config can override, so an
+    // admin who enables it and forgets, or a stale config copied to prod,
+    // can never silently disable TLS validation (an MITM vector for mailbox
+    // credentials). The save path also refuses to store it in production.
+    let cert_verify_disabled =
+        config.insecure_skip_cert_verify && !crate::config_utils::is_production();
     if config.insecure_skip_cert_verify && !cert_verify_disabled {
         tracing::warn!(
             host = %config.host,
-            "channel has insecure_skip_cert_verify=true but NOSDESK_ALLOW_INSECURE_TLS is not set; \
+            "channel has insecure_skip_cert_verify=true but the deployment is production; \
              validating certificate normally"
         );
     }
