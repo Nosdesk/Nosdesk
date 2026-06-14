@@ -22,14 +22,14 @@
  * on, one sub-lane up/down. Mirrors the drag dispatch path; both
  * end up in `dispatchMove`.
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useFluent } from 'fluent-vue'
 
 const fluent = useFluent()
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
 
-import { useSyncTicketsStore } from '@/sync/stores/tickets'
+import { useSyncTicketsStore, type SyncTicket } from '@/sync/stores/tickets'
 import { useWorkflowStatesStore } from '@/stores/workflowStates'
 import {
   WORKFLOW_CATEGORIES,
@@ -513,22 +513,79 @@ const { defaultState: _defaultState } = storeToRefs(workflowStatesStore)
 void _defaultState
 
 // ---------------------------------------------------------------
-// Column quick-add (only active when props.onQuickAdd is set)
+// Column composer (only active when props.onQuickAdd is set)
+//
+// One input per column does two things: type a title and create a
+// new ticket, or search the workspace pool and pull an existing
+// ticket into this column. Add-existing only applies when the board
+// is project-scoped (projectId set) — it reuses the same link-then-
+// move path as the sidebar drag (`onExternalDrop`).
 // ---------------------------------------------------------------
 
 /** The lane category whose inline input is currently open, or null
- * when no column is in quick-add mode. */
+ * when no column is in composer mode. */
 const quickAddCategory = ref<WorkflowStateCategory | null>(null)
 const quickAddTitle = ref('')
+/** Highlighted option in the composer dropdown. Index 0 is always
+ * the "create" row; 1..n map to `quickAddMatches`. */
+const quickAddHighlight = ref(0)
+
+/** Ids already on this board, so the existing-search never offers a
+ * ticket that's already in the project. */
+const boardTicketIds = computed(() => new Set(props.cards.map((c) => c.id)))
+const allTickets = ticketsStore.all()
+
+/** Existing tickets matching the typed query, excluding ones already
+ * on the board. Pool-backed, so results are instant — no fetch.
+ * Empty unless the board is project-scoped (nothing to link to
+ * otherwise) and the user has typed something. */
+const quickAddMatches = computed<SyncTicket[]>(() => {
+  if (props.projectId == null) return []
+  const q = quickAddTitle.value.trim().toLowerCase()
+  if (!q) return []
+  const seen = boardTicketIds.value
+  const out: SyncTicket[] = []
+  for (const tkt of allTickets.value) {
+    if (seen.has(tkt.id)) continue
+    if (String(tkt.id) === q || tkt.title.toLowerCase().includes(q)) {
+      out.push(tkt)
+      if (out.length >= 6) break
+    }
+  }
+  return out
+})
+
+/** Whether the create row should show: a non-empty title and a
+ * column with a default state to create into. */
+const quickAddCanCreate = computed(
+  () => quickAddTitle.value.trim().length > 0,
+)
+
+/** Total navigable options = create row (when valid) + matches. */
+const quickAddOptionCount = computed(
+  () => (quickAddCanCreate.value ? 1 : 0) + quickAddMatches.value.length,
+)
+
+const quickAddOpen = computed(
+  () => quickAddCanCreate.value || quickAddMatches.value.length > 0,
+)
+
+// Typing resets the cursor to the create row so Enter creates by
+// default; arrows then move down into the existing matches.
+watch(quickAddTitle, () => {
+  quickAddHighlight.value = 0
+})
 
 function openQuickAdd(cat: WorkflowStateCategory): void {
   quickAddCategory.value = cat
   quickAddTitle.value = ''
+  quickAddHighlight.value = 0
 }
 
 function closeQuickAdd(): void {
   quickAddCategory.value = null
   quickAddTitle.value = ''
+  quickAddHighlight.value = 0
 }
 
 /** Function-ref: focus the input the moment it mounts so the user
@@ -537,19 +594,76 @@ function focusQuickAdd(el: Element | null): void {
   if (el instanceof HTMLInputElement) el.focus()
 }
 
+/** Move the dropdown highlight; wraps around the option list. */
+function quickAddNav(delta: number): void {
+  const count = quickAddOptionCount.value
+  if (count === 0) return
+  // The create row sits at index 0 when present; when it's absent
+  // (no title typed but matches exist — not currently reachable, but
+  // guarded anyway) navigation still stays in range.
+  quickAddHighlight.value = (quickAddHighlight.value + delta + count) % count
+}
+
+/** Create a new ticket in the column's default state. Clears the
+ * field but keeps the composer open for rapid successive adds. The
+ * card lands optimistically via the parent's onQuickAdd handler and
+ * is reconciled by the sync frame. */
 async function submitQuickAdd(lane: Lane): Promise<void> {
   const title = quickAddTitle.value.trim()
   if (!title || !lane.defaultState) return
-  // Clear the field but keep the input open for rapid successive
-  // adds. The new card streams back over the sync group, so there's
-  // no optimistic insert to manage here.
   quickAddTitle.value = ''
+  quickAddHighlight.value = 0
   await props.onQuickAdd?.(lane.defaultState.id, title)
 }
 
+/** Link an existing ticket into this project and drop it in the
+ * column. Mirrors the sidebar-drag path (`onExternalDrop`): optimistic
+ * link, ensure the row is in the pool, then move to the column state. */
+async function addExisting(lane: Lane, ticketId: number): Promise<void> {
+  if (!lane.defaultState) return
+  quickAddTitle.value = ''
+  quickAddHighlight.value = 0
+  if (props.projectId != null) {
+    const linked = await linkToProject(props.projectId, ticketId)
+    if (!linked) return
+  }
+  await ticketsStore.ensureInPool(ticketId)
+  const s = lane.defaultState
+  void ticketsStore.moveToWorkflowState(ticketId, {
+    id: s.id,
+    name: s.name,
+    category: s.category,
+    color: s.color,
+  })
+}
+
+/** Enter / click commits the highlighted option. */
+async function commitQuickAdd(lane: Lane): Promise<void> {
+  const matchIndex = quickAddCanCreate.value
+    ? quickAddHighlight.value - 1
+    : quickAddHighlight.value
+  const match = quickAddMatches.value[matchIndex]
+  if (match) {
+    await addExisting(lane, match.id)
+  } else {
+    await submitQuickAdd(lane)
+  }
+}
+
+/** True when the given match index is the highlighted row. */
+function isMatchHighlighted(i: number): boolean {
+  const idx = quickAddCanCreate.value ? quickAddHighlight.value - 1 : quickAddHighlight.value
+  return idx === i
+}
+
+const isCreateHighlighted = computed(
+  () => quickAddCanCreate.value && quickAddHighlight.value === 0,
+)
+
 /** Esc closes; blur closes only when nothing has been typed, so a
  * blur mid-type (e.g. a transient focus shift) doesn't discard the
- * column the user is working in. */
+ * column the user is working in. Dropdown rows use mousedown.prevent
+ * so a click commits without first blurring the input shut. */
 function onQuickAddBlur(): void {
   if (!quickAddTitle.value.trim()) closeQuickAdd()
 }
@@ -664,21 +778,64 @@ function affectedDevicesTooltip(card: CardData): string {
         <div class="kanban-lane-hairline sticky z-20 shrink-0" aria-hidden="true" />
 
         <div class="flex flex-col">
-        <!-- Inline quick-add: a single-line title input at the top
-             of the column. Enter creates a ticket in the column's
-             default workflow state and keeps the input open for the
-             next one; Esc or an empty blur closes it. -->
-        <div v-if="onQuickAdd && quickAddCategory === lane.id" class="px-2 py-1.5 border-b border-subtle shrink-0">
+        <!-- Inline composer: type a title to create a ticket in this
+             column, or search to pull an existing ticket in. Arrow
+             keys move through the dropdown; Enter commits the
+             highlighted row (create by default); Esc or an empty blur
+             closes. The input stays open for rapid successive adds. -->
+        <div
+          v-if="onQuickAdd && quickAddCategory === lane.id"
+          class="relative px-2 py-1.5 border-b border-subtle shrink-0"
+        >
           <input
             :ref="(el) => focusQuickAdd(el as Element | null)"
             v-model="quickAddTitle"
             type="text"
             class="w-full text-[13px] rounded-md border border-default bg-surface px-2 py-1 text-primary placeholder:text-tertiary focus:outline-none focus:ring-2 focus:ring-accent"
-            :placeholder="t('kanban-quick-add-placeholder')"
-            @keydown.enter.prevent="submitQuickAdd(lane)"
+            :placeholder="projectId != null ? t('kanban-composer-placeholder') : t('kanban-quick-add-placeholder')"
+            @keydown.enter.prevent="commitQuickAdd(lane)"
+            @keydown.down.prevent="quickAddNav(1)"
+            @keydown.up.prevent="quickAddNav(-1)"
             @keydown.esc.prevent="closeQuickAdd"
             @blur="onQuickAddBlur"
           />
+
+          <!-- Suggestions: create row + existing-ticket matches.
+               mousedown.prevent keeps the input focused so the click
+               commits instead of blurring the composer shut first. -->
+          <div
+            v-if="quickAddOpen"
+            class="absolute left-2 right-2 top-full z-30 mt-1 rounded-md border border-default bg-surface shadow-lg overflow-hidden"
+          >
+            <button
+              v-if="quickAddCanCreate"
+              type="button"
+              class="w-full flex items-center gap-1.5 px-2 py-1.5 text-left text-[13px] text-primary"
+              :class="isCreateHighlighted ? 'bg-accent-muted' : 'hover:bg-surface-hover'"
+              @mousedown.prevent="submitQuickAdd(lane)"
+            >
+              <span class="text-tertiary shrink-0">+</span>
+              <span class="truncate">{{ t('kanban-composer-create', { title: quickAddTitle.trim() }) }}</span>
+            </button>
+
+            <div
+              v-if="quickAddMatches.length > 0"
+              class="px-2 pt-1 pb-0.5 text-[10px] uppercase tracking-wide text-tertiary border-t border-subtle"
+            >
+              {{ t('kanban-composer-existing') }}
+            </div>
+            <button
+              v-for="(match, i) in quickAddMatches"
+              :key="match.id"
+              type="button"
+              class="w-full flex items-center gap-1.5 px-2 py-1.5 text-left text-[13px]"
+              :class="isMatchHighlighted(i) ? 'bg-accent-muted' : 'hover:bg-surface-hover'"
+              @mousedown.prevent="addExisting(lane, match.id)"
+            >
+              <span class="text-tertiary tabular-nums shrink-0">#{{ match.id }}</span>
+              <span class="truncate text-primary">{{ match.title }}</span>
+            </button>
+          </div>
         </div>
 
         <!-- Sub-lanes (one when secondary axis is off, many when on) -->

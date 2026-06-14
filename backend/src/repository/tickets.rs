@@ -104,6 +104,39 @@ pub struct TicketCreationAnnotation {
     pub subject: Option<String>,
 }
 
+/// The denormalised `workflow_state` object every ticket sync payload
+/// must carry. The kanban renderer drops any card whose nested state is
+/// absent (`toCardData` returns null), so a `ticket.created` /
+/// `ticket.updated` emit that ships only the flat `workflow_state_id`
+/// makes the card vanish until the next bootstrap. This is the single
+/// source of truth for the nested shape; bootstrap builds the same
+/// object from its batched state map.
+pub fn workflow_state_json(state: &WorkflowState) -> serde_json::Value {
+    json!({
+        "id": state.id,
+        "name": state.name,
+        "category": state.category.as_str(),
+        "color": state.color,
+    })
+}
+
+/// Resolve a ticket's workflow state and serialise it for a single-row
+/// emit. Returns `Value::Null` only when the state row is missing (a
+/// hard-deleted state); the frontend tolerates null and the card waits
+/// for the next bootstrap rather than rendering against a phantom.
+fn workflow_state_payload(
+    conn: &mut DbConnection,
+    workflow_state_id: i32,
+) -> QueryResult<serde_json::Value> {
+    let state: Option<WorkflowState> = workflow_states::table
+        .find(workflow_state_id)
+        .first(conn)
+        .optional()?;
+    Ok(state
+        .map(|s| workflow_state_json(&s))
+        .unwrap_or(serde_json::Value::Null))
+}
+
 /// Bare create — UI handlers, the import binary, and any caller
 /// without specific channel/portal context land here.
 pub fn create_ticket(conn: &mut DbConnection, new_ticket: NewTicket) -> QueryResult<Ticket> {
@@ -170,6 +203,7 @@ pub fn create_ticket_with_annotation(
             None
         };
         let groups = groups::for_ticket(conn, &ticket)?;
+        let workflow_state = workflow_state_payload(conn, ticket.workflow_state_id)?;
         // `created_via` is an additive nested object: legacy
         // consumers that look at the existing top-level fields keep
         // working; the activity renderer reads `created_via.source`
@@ -193,11 +227,19 @@ pub fn create_ticket_with_annotation(
                     "id": ticket.id,
                     "uuid": ticket.uuid,
                     "title": ticket.title,
+                    // Nested state so the kanban can place the card; the
+                    // flat id stays the write source of truth.
+                    "workflow_state": workflow_state,
                     "workflow_state_id": ticket.workflow_state_id,
                     "priority": ticket.priority.as_str(),
                     "requester_uuid": ticket.requester_uuid,
                     "assignee_uuid": ticket.assignee_uuid,
                     "category_id": ticket.category_id,
+                    "triage_state": ticket.triage_state,
+                    "due_date": ticket.due_date,
+                    "created_at": ticket.created_at,
+                    "updated_at": ticket.updated_at,
+                    "last_activity_at": ticket.updated_at,
                     "submitted_via": ticket.submitted_via,
                     "origin_channel_id": ticket.origin_channel_id,
                     "created_via": created_via,
@@ -277,6 +319,7 @@ pub fn update_ticket(
             .set(&ticket)
             .get_result(conn)?;
         let groups = groups::for_ticket(conn, &updated)?;
+        let workflow_state = workflow_state_payload(conn, updated.workflow_state_id)?;
         emit::record(
             conn,
             SyncEmit {
@@ -287,6 +330,7 @@ pub fn update_ticket(
                 data: json!({
                     "id": updated.id,
                     "title": updated.title,
+                    "workflow_state": workflow_state,
                     "workflow_state_id": updated.workflow_state_id,
                     "priority": updated.priority.as_str(),
                     "requester_uuid": updated.requester_uuid,
@@ -395,6 +439,11 @@ pub fn update_ticket_partial(
         let mut data = json!({
             "id": result.id,
             "title": result.title,
+            // Nested state so a move relocates the card on every
+            // client: the pool shallow-merges, and the kanban groups
+            // by `workflow_state.category` — without this, a remote
+            // viewer's card stays in its old column until refresh.
+            "workflow_state": workflow_state_payload(conn, result.workflow_state_id)?,
             "workflow_state_id": result.workflow_state_id,
             "priority": result.priority.as_str(),
             "requester_uuid": result.requester_uuid,

@@ -578,14 +578,9 @@ fn stream_bootstrap_inner(
 
     for t in ticket_rows {
         let ws = states_by_id.get(&t.workflow_state_id);
-        let workflow_state_payload = ws.map(|s| {
-            json!({
-                "id": s.id,
-                "name": s.name,
-                "category": s.category.as_str(),
-                "color": s.color,
-            })
-        });
+        // Same nested shape the create/update emits build, via the one
+        // shared helper, so the card's state can't drift across paths.
+        let workflow_state_payload = ws.map(|s| crate::repository::tickets::workflow_state_json(s));
         let kb_gap_signal = match kb_gap_counts.get(&t.id).copied().unwrap_or(0) {
             0 => "none",
             1..=2 => "weak",
