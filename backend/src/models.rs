@@ -3934,6 +3934,14 @@ pub struct SiteSettings {
     /// no org default; reply goes out unsigned, matching the pre-
     /// migration behaviour.
     pub signature_default: Option<String>,
+    /// Whether to render the anti-phishing security note in the
+    /// transactional email footer. Defaults false: the note is
+    /// brand-specific, so it stays opt-in until an admin enables it.
+    pub email_security_note_enabled: bool,
+    /// Admin-overridden security-note body. `None` uses the built-in
+    /// localized default (FTL key `email-security-note-default`).
+    /// Supports `{{app_name}}` and `{{domain}}` placeholders.
+    pub email_security_note_template: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]
@@ -3963,6 +3971,10 @@ pub struct UpdateSiteSettings {
     /// `Some(None)` = clear back to NULL (no org default),
     /// `Some(Some(_))` = set the org-wide template.
     pub signature_default: Option<Option<String>>,
+    pub email_security_note_enabled: Option<bool>,
+    /// Same `Option<Option<String>>` clear semantics as the auto-ack
+    /// template: `Some(None)` reverts to the built-in default.
+    pub email_security_note_template: Option<Option<String>>,
 }
 
 // API response for site settings (without internal fields)
@@ -3995,6 +4007,12 @@ pub struct SiteSettingsResponse {
     /// Admin-overridden template for the auto-ack body. `None` =
     /// use the built-in FTL default for the resolved locale.
     pub channel_auto_ack_template: Option<String>,
+    /// Whether the anti-phishing security note renders in the email
+    /// footer. See `utils::email_branding::resolve_security_note`.
+    pub email_security_note_enabled: bool,
+    /// Admin-overridden security-note body. `None` = use the built-in
+    /// localized default.
+    pub email_security_note_template: Option<String>,
 }
 
 impl From<SiteSettings> for SiteSettingsResponse {
@@ -4019,6 +4037,8 @@ impl From<SiteSettings> for SiteSettingsResponse {
             signature_default: settings.signature_default,
             channel_auto_ack_enabled: settings.channel_auto_ack_enabled,
             channel_auto_ack_template: settings.channel_auto_ack_template,
+            email_security_note_enabled: settings.email_security_note_enabled,
+            email_security_note_template: settings.email_security_note_template,
         }
     }
 }

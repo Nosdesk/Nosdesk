@@ -55,7 +55,9 @@ export const useBrandingStore = defineStore('branding', () => {
     updated_at: null,
     signature_default: null,
     channel_auto_ack_enabled: true,
-    channel_auto_ack_template: null
+    channel_auto_ack_template: null,
+    email_security_note_enabled: false,
+    email_security_note_template: null
   })
 
   // Loading state
@@ -178,7 +180,9 @@ export const useBrandingStore = defineStore('branding', () => {
       updated_at: null,
       signature_default: null,
       channel_auto_ack_enabled: true,
-      channel_auto_ack_template: null
+      channel_auto_ack_template: null,
+      email_security_note_enabled: false,
+      email_security_note_template: null
     }
     // Clear the cache
     try {

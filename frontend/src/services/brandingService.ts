@@ -26,6 +26,16 @@ export interface BrandingConfig {
    * back to `null`.
    */
   channel_auto_ack_template: string | null
+  /**
+   * Whether the anti-phishing security note renders in the email
+   * footer. Off by default until an admin enables it.
+   */
+  email_security_note_enabled: boolean
+  /**
+   * Admin-overridden security-note body. `null` = use the built-in
+   * localized default. Empty string is sent to clear back to `null`.
+   */
+  email_security_note_template: string | null
 }
 
 export interface UpdateBrandingRequest {
@@ -34,6 +44,8 @@ export interface UpdateBrandingRequest {
   signature_default?: string | null
   channel_auto_ack_enabled?: boolean
   channel_auto_ack_template?: string | null
+  email_security_note_enabled?: boolean
+  email_security_note_template?: string | null
 }
 
 class BrandingService {
@@ -59,7 +71,9 @@ class BrandingService {
         updated_at: null,
         signature_default: null,
         channel_auto_ack_enabled: true,
-        channel_auto_ack_template: null
+        channel_auto_ack_template: null,
+        email_security_note_enabled: false,
+        email_security_note_template: null
       }
     }
   }

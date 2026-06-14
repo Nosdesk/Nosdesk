@@ -85,6 +85,11 @@ pub struct EmailBranding {
     pub logo_url: Option<String>,
     pub primary_color: String,
     pub base_url: String,
+    /// Fully-resolved anti-phishing footer line, or `None` to omit it.
+    /// Resolution (toggle, template selection, placeholder
+    /// substitution) happens in `utils::email_branding`; the template
+    /// layer here only renders the string when present.
+    pub security_note: Option<String>,
 }
 
 impl Default for EmailBranding {
@@ -95,6 +100,7 @@ impl Default for EmailBranding {
             primary_color: "#FF6B1A".to_string(),
             base_url: env::var("FRONTEND_URL")
                 .unwrap_or_else(|_| "http://localhost:3000".to_string()),
+            security_note: None,
         }
     }
 }
@@ -112,6 +118,7 @@ impl EmailBranding {
             logo_url,
             primary_color: primary_color.unwrap_or_else(|| "#FF6B1A".to_string()),
             base_url,
+            security_note: None,
         }
     }
 
@@ -429,8 +436,25 @@ impl<'a> EmailTemplate<'a> {
 
         let automated_notice = crate::utils::i18n::tr(locale, "email-footer-automated");
         let help_label = crate::utils::i18n::tr(locale, "email-footer-help");
-        let trust_notice = crate::utils::i18n::tr(locale, "email-trust-notice");
         let help_url = format!("{}/support", self.branding.base_url);
+
+        // The anti-phishing line is opt-in and admin-authored (or the
+        // localized default), resolved upstream into `security_note`.
+        // Escaped here since it carries no trusted markup, and omitted
+        // entirely when the workspace has the note turned off.
+        let security_note_html = self
+            .branding
+            .security_note
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+            .map(|note| {
+                format!(
+                    r#"<p class="nd-faint" style="margin:0;color:{faint};font-size:11.5px;line-height:1.65;">{note}</p>"#,
+                    faint = C_FAINT,
+                    note = escape_html(note),
+                )
+            })
+            .unwrap_or_default();
 
         format!(
             r#"<!DOCTYPE html>
@@ -509,7 +533,7 @@ impl<'a> EmailTemplate<'a> {
               </tr></table>
               <p class="nd-faint" style="margin:18px 0 4px 0;color:{faint};font-size:12px;line-height:1.5;">{automated_notice}</p>
               <p class="nd-faint" style="margin:0 0 16px 0;color:{faint};font-size:12px;">&copy; {year} {app_name} &nbsp;&middot;&nbsp; <a class="nd-link" href="{help_url}" style="color:{faint};">{help_label}</a></p>
-              <p class="nd-faint" style="margin:0;color:{faint};font-size:11.5px;line-height:1.65;">{trust_notice}</p>
+              {security_note_html}
             </td>
           </tr>
 
@@ -1528,7 +1552,14 @@ mod tests {
         use std::str::FromStr;
 
         let svc = svc();
-        let branding = EmailBranding::default(); // default brand orange, no logo
+        let mut branding = EmailBranding::default(); // default brand orange, no logo
+                                                     // Opt-in anti-phishing footer, resolved upstream in
+                                                     // production. Set here so the preview shows the line.
+        branding.security_note = Some(
+            "Acme only ever emails you from acme.example.com. We will never ask \
+             for your password or a login code by email."
+                .to_string(),
+        );
         let locale = unic_langid::LanguageIdentifier::from_str("en-US").unwrap();
 
         let out_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1574,8 +1605,8 @@ mod tests {
             let content = std::fs::read_to_string(&p).expect("preview readable");
             assert!(content.contains("<!DOCTYPE html>"), "{name} is a full doc");
             assert!(
-                content.contains("email-trust") == false && content.contains("nosdesk.com"),
-                "{name} renders the trust line"
+                content.contains("acme.example.com"),
+                "{name} renders the configured security note"
             );
         }
     }

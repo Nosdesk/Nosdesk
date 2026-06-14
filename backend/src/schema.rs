@@ -1362,6 +1362,8 @@ diesel::table! {
         default_timezone -> Text,
         workspace_id -> Int4,
         signature_default -> Nullable<Text>,
+        email_security_note_enabled -> Bool,
+        email_security_note_template -> Nullable<Text>,
     }
 }
 
