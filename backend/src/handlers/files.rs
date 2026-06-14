@@ -16,16 +16,15 @@ use crate::utils::storage::Storage;
 // Upload files using the storage abstraction
 pub async fn upload_files(
     mut payload: Multipart,
-    pool: web::Data<crate::db::Pool>,
+    mut tc: TenantConn,
     storage: ScopedStorage,
 ) -> Result<HttpResponse, actix_web::Error> {
     info!("Received file upload request");
 
-    let mut conn = pool.get().map_err(|e| {
-        error!(error = ?e, "Database connection error");
-        actix_web::error::ErrorInternalServerError("Database connection error")
-    })?;
-
+    // The insert runs through TenantConn so `app.workspace_id` is set:
+    // `attachments.workspace_id` is NOT NULL and defaults from that GUC,
+    // and the table FORCEs RLS. A plain pooled connection leaves the GUC
+    // unset, so the default resolves to NULL and the insert fails.
     let mut uploaded_attachments = Vec::new();
     let mut transcription_text: Option<String> = None;
 
@@ -173,7 +172,7 @@ pub async fn upload_files(
         debug!(attachment = ?new_attachment, "Creating attachment record in database");
 
         // Save the attachment to the database
-        match crate::repository::create_attachment(&mut conn, new_attachment) {
+        match tc.run(|conn| crate::repository::create_attachment(conn, new_attachment)) {
             Ok(attachment) => {
                 let attachment_json = json!({
                     "id": attachment.id,

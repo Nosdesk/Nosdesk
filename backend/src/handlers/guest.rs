@@ -922,7 +922,6 @@ pub async fn search_public_docs(
 
 // ---------- Guest attachment upload ----------
 
-// audit-context-exempt: create_attachment writes the non-audited `attachments` table and its sync emit degrades gracefully on an unwrapped conn (sync_actions.workspace_id DEFAULTs to 1); no NDX01 risk. Hosted-mode guest attribution is a separate backlog item.
 /// POST /api/public/files/temp
 ///
 /// Unauthenticated single-file upload for guest ticket submissions. Stores
@@ -945,6 +944,7 @@ pub async fn search_public_docs(
 pub async fn upload_guest_attachment(
     pool: web::Data<Pool>,
     storage: crate::extractors::ScopedStorage,
+    ws: WorkspaceContext,
     req: HttpRequest,
     mut payload: Multipart,
 ) -> impl Responder {
@@ -1082,7 +1082,13 @@ pub async fn upload_guest_attachment(
         transcription: None,
     };
 
-    match repository::create_attachment(&mut conn, new_attachment) {
+    // Pin the workspace so `attachments.workspace_id` (NOT NULL, defaulted
+    // from `app.workspace_id`, FORCE RLS) is populated. Mirrors the guest
+    // ticket-create path; the temp upload is an orphan row claimed at submit.
+    let actor = guest_actor(&ws, "guest:attachment_upload");
+    match session::with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |conn| {
+        repository::create_attachment(conn, new_attachment)
+    }) {
         Ok(att) => {
             info!(
                 attachment_id = att.id,
