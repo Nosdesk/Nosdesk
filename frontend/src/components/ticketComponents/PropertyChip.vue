@@ -38,7 +38,7 @@ const removeAriaLabel = computed(() => props.removeTitle || t('ticket-chip-remov
     :is="to ? RouterLink : 'span'"
     :to="to"
     :title="title || label"
-    class="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded text-[11px] font-medium bg-surface-alt text-secondary hover:text-primary hover:bg-surface-hover transition-colors max-w-full"
+    class="print-chip inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded text-[11px] font-medium bg-surface-alt text-secondary hover:text-primary hover:bg-surface-hover transition-colors max-w-full"
     :class="{ 'opacity-60': loading }"
   >
     <slot name="leading" />
@@ -56,3 +56,32 @@ const removeAriaLabel = computed(() => props.removeTitle || t('ticket-chip-remov
     <span v-else class="w-1" aria-hidden="true" />
   </component>
 </template>
+
+<style scoped>
+/* In print the chip collapses to plain comma-separated text. Used by
+   the ticket print sheet's "Referenced" section, where ProjectChip /
+   LinkedTicketChip are reused purely to resolve names. On screen the
+   chip is unchanged. */
+@media print {
+  .print-chip {
+    display: inline !important;
+    background: transparent !important;
+    color: #222 !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+    font-size: 9.5pt !important;
+    font-weight: 400 !important;
+    max-width: none !important;
+  }
+
+  .print-chip .truncate {
+    overflow: visible;
+    white-space: normal;
+  }
+
+  .print-chip:not(:last-child)::after {
+    content: ", ";
+    color: #888;
+  }
+}
+</style>

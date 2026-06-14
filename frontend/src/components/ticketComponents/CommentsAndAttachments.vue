@@ -1022,50 +1022,41 @@ const handlePastedFiles = async (files: File[]) => {
                     v-if="props.comments.length > 0"
                     class="hidden print:block print-comments-container"
                 >
+                    <!-- One consistent block per comment: an author/date
+                         header above the body, regardless of content
+                         format. The body flows so long email comments can
+                         still break across pages. -->
                     <div
                         v-for="comment in props.comments"
                         :key="'print-' + comment.id"
                         class="print-comment"
-                        :class="{ 'print-comment--block': comment.content_format === 'html' && hasRealContent(comment) }"
                     >
-                        <template v-if="comment.content_format === 'html' && hasRealContent(comment)">
-                            <!-- Block layout: header above body so the
-                                 body can flow across page breaks. -->
-                            <div class="print-comment-header">
-                                <span class="print-comment-author">{{ comment.user?.name || $t('ticket-comments-print-unknown-author') }}</span>
-                                <span class="print-comment-date">{{ formattedDate(comment.createdAt ?? comment.created_at) }}</span>
-                            </div>
-                            <div class="print-email-body" v-html="sanitiseHtml(comment.content)" />
-                            <div
-                                v-if="comment.attachments && comment.attachments.length > 0"
-                                class="print-attachments"
-                            >
-                                <span
-                                    v-for="(attachment, idx) in comment.attachments"
-                                    :key="attachment.id"
-                                >{{ idx > 0 ? ', ' : '' }}[{{ attachment.name }}]</span>
-                            </div>
-                        </template>
-                        <template v-else>
-                            <!-- Inline format: "Author (Date): Content" -->
+                        <div class="print-comment-header">
                             <span class="print-comment-author">{{ comment.user?.name || $t('ticket-comments-print-unknown-author') }}</span>
-                            <span class="print-comment-date">({{ formattedDate(comment.createdAt ?? comment.created_at) }}):</span>
-                            <span v-if="hasRealContent(comment)" class="print-comment-content">
+                            <span class="print-comment-date">{{ formattedDate(comment.createdAt ?? comment.created_at) }}</span>
+                        </div>
+                        <div class="print-comment-body">
+                            <div
+                                v-if="comment.content_format === 'html' && hasRealContent(comment)"
+                                class="print-email-body"
+                                v-html="sanitiseHtml(comment.content)"
+                            />
+                            <div v-else-if="hasRealContent(comment)" class="print-comment-content">
                                 <MarkdownRenderer :content="comment.content" />
-                            </span>
+                            </div>
                             <span v-else-if="isAudioOnlyComment(comment)" class="print-comment-audio">
                                 [Voice: {{ getAudioDisplayName(comment.attachments?.[0]?.name ?? '') }}<template v-if="comment.attachments?.[0]?.transcription"> — "{{ comment.attachments[0].transcription }}"</template>]
                             </span>
+                        </div>
+                        <div
+                            v-if="comment.attachments && comment.attachments.length > 0 && !isAudioOnlyComment(comment)"
+                            class="print-attachments"
+                        >
                             <span
-                                v-if="comment.attachments && comment.attachments.length > 0 && !isAudioOnlyComment(comment)"
-                                class="print-attachments"
-                            >
-                                <span
-                                    v-for="(attachment, idx) in comment.attachments"
-                                    :key="attachment.id"
-                                >{{ idx > 0 ? ', ' : ' ' }}[{{ attachment.name }}]</span>
-                            </span>
-                        </template>
+                                v-for="(attachment, idx) in comment.attachments"
+                                :key="attachment.id"
+                            >{{ idx > 0 ? ', ' : '' }}[{{ attachment.name }}]</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1077,31 +1068,37 @@ const handlePastedFiles = async (files: File[]) => {
 @media print {
     .print-comments-container {
         font-size: 9pt;
-        line-height: 1.4;
+        line-height: 1.45;
     }
 
+    /* Even spacing between comments (block margin, not flex gap, so the
+       browser can still page-break between and within entries). */
     .print-comment {
-        margin-bottom: 4pt;
-        /* Allow tall email comments to break across pages — keeping
-           them whole stranded a half-empty page above the comment.
-           `orphans` / `widows` keep the author + date intro glued
-           to at least three lines of body content so a comment never
-           leaves its header alone at the bottom of a page. */
+        margin-bottom: 9pt;
         page-break-inside: auto;
         break-inside: auto;
+        /* Keep the author/date header glued to at least three lines of
+           body so a comment never leaves its header stranded at the
+           bottom of a page. */
         orphans: 3;
         widows: 3;
     }
 
-    /* Block-layout HTML emails get a little more breathing room
-       between entries so the page doesn't read as a single wall of
-       prose. */
-    .print-comment--block {
-        margin-bottom: 10pt;
+    .print-comment:last-child {
+        margin-bottom: 0;
     }
 
+    /* Author left, date right, on one baseline above the body, with a
+       hairline to separate the header from the content. */
     .print-comment-header {
-        margin-bottom: 2pt;
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 8pt;
+        margin-bottom: 3pt;
+        padding-bottom: 2pt;
+        border-bottom: 1px solid #eee;
+        break-after: avoid;
     }
 
     .print-comment-author {
@@ -1110,13 +1107,17 @@ const handlePastedFiles = async (files: File[]) => {
     }
 
     .print-comment-date {
-        color: #666;
+        color: #777;
         font-size: 8pt;
-        margin-right: 4pt;
+        white-space: nowrap;
+    }
+
+    .print-comment-body {
+        color: #222;
     }
 
     .print-comment-content {
-        color: #333;
+        color: #222;
     }
 
     /* Block-layout email body. Paragraphs and other block elements
@@ -1162,12 +1163,12 @@ const handlePastedFiles = async (files: File[]) => {
     }
 
     .print-comment-content :deep(p) {
-        display: inline;
-        margin: 0;
+        display: block;
+        margin: 0 0 3pt 0;
     }
 
-    .print-comment-content :deep(p + p)::before {
-        content: " ";
+    .print-comment-content :deep(p:last-child) {
+        margin-bottom: 0;
     }
 
     .print-comment-content :deep(ul),
@@ -1204,6 +1205,7 @@ const handlePastedFiles = async (files: File[]) => {
     .print-attachments {
         color: #666;
         font-size: 8pt;
+        margin-top: 3pt;
     }
 }
 </style>

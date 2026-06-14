@@ -3847,6 +3847,19 @@ ticket-detail-print-unknown = Unknown
 ticket-detail-print-logo-alt = Logo
 ticket-detail-print-qr-alt = Ticket QR Code
 ticket-detail-print-qr-label = Scan to open
+ticket-detail-print-due = Due
+ticket-detail-print-closed = Closed
+ticket-detail-print-sla = SLA
+ticket-detail-print-cycle = Cycle
+ticket-detail-print-source = Source
+ticket-detail-print-tags = Tags
+ticket-detail-print-watchers = Watchers
+ticket-detail-print-resolution = Resolution
+ticket-detail-print-projects = Projects
+ticket-detail-print-assets = Assets
+ticket-detail-print-linked = Linked tickets
+ticket-detail-print-docs = Documentation
+ticket-detail-print-asset-fallback = Unnamed asset
 
 # Ticket: comments & attachments composer (CommentsAndAttachments).
 ticket-comments-section-title = Comments and Attachments

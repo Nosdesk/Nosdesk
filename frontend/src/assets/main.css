@@ -1202,6 +1202,14 @@ html[data-theme="red-horizon"] body,
     height: auto !important;
   }
 
+  /* Editor: drop the authoring min-height so a short or empty ticket
+     note doesn't print a tall blank box under its content. */
+  .editor-container,
+  .editor-wrapper,
+  .ProseMirror {
+    min-height: 0 !important;
+  }
+
   /* Force light theme colors for print */
   :root {
     --color-app: #ffffff !important;

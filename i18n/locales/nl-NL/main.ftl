@@ -3743,6 +3743,20 @@ ticket-detail-print-unknown = Onbekend
 ticket-detail-print-logo-alt = Logo
 ticket-detail-print-qr-alt = QR-code van ticket
 ticket-detail-print-qr-label = Scan om te openen
+# Printlabels voor ticket (machine, na te kijken door een moedertaalspreker).
+ticket-detail-print-due = Vervaldatum
+ticket-detail-print-closed = Gesloten
+ticket-detail-print-sla = SLA
+ticket-detail-print-cycle = Cyclus
+ticket-detail-print-source = Bron
+ticket-detail-print-tags = Labels
+ticket-detail-print-watchers = Volgers
+ticket-detail-print-resolution = Oplossing
+ticket-detail-print-projects = Projecten
+ticket-detail-print-assets = Assets
+ticket-detail-print-linked = Gekoppelde tickets
+ticket-detail-print-docs = Documentatie
+ticket-detail-print-asset-fallback = Naamloze asset
 
 # Ticket: reacties en bijlagen (CommentsAndAttachments).
 ticket-comments-section-title = Reacties en bijlagen

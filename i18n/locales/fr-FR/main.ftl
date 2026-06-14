@@ -3752,6 +3752,20 @@ ticket-detail-print-unknown = Inconnu
 ticket-detail-print-logo-alt = Logo
 ticket-detail-print-qr-alt = QR Code du ticket
 ticket-detail-print-qr-label = Scannez pour ouvrir
+# Étiquettes d'impression du ticket (machine, à relire par un locuteur natif).
+ticket-detail-print-due = Échéance
+ticket-detail-print-closed = Clôturé
+ticket-detail-print-sla = SLA
+ticket-detail-print-cycle = Cycle
+ticket-detail-print-source = Source
+ticket-detail-print-tags = Étiquettes
+ticket-detail-print-watchers = Observateurs
+ticket-detail-print-resolution = Résolution
+ticket-detail-print-projects = Projets
+ticket-detail-print-assets = Équipements
+ticket-detail-print-linked = Tickets liés
+ticket-detail-print-docs = Documentation
+ticket-detail-print-asset-fallback = Équipement sans nom
 
 # Ticket : commentaires & pièces jointes (CommentsAndAttachments).
 ticket-comments-section-title = Commentaires et pièces jointes

@@ -166,7 +166,7 @@ const handleConvertToDocumentation = async () => {
          chrome) so it shares the SectionCard's frame instead of
          stacking a second card on top. The toggle in the header
          opens / closes; no separate close affordance needed. -->
-    <div class="flex-grow flex flex-col md:flex-row md:items-stretch w-full min-h-[300px]">
+    <div class="flex-grow flex flex-col md:flex-row md:items-stretch w-full min-h-[300px] print:min-h-0">
       <CollaborativeEditor
         v-if="docId"
         ref="editorRef"

@@ -26,6 +26,9 @@ import TicketAssetUsage from "@/components/ticketComponents/TicketAssetUsage.vue
 import TicketLinkedTicketsField from "@/components/ticketComponents/TicketLinkedTicketsField.vue";
 import TicketProjectsField from "@/components/ticketComponents/TicketProjectsField.vue";
 import TicketLinkedDocs from "@/components/ticketComponents/TicketLinkedDocs.vue";
+import ProjectChip from "@/components/ticketComponents/ProjectChip.vue";
+import LinkedTicketChip from "@/components/ticketComponents/LinkedTicketChip.vue";
+import { useTicketDocs } from "@/composables/usePageTicketLinks";
 import SlaExplainPopover from "@/components/sla/SlaExplainPopover.vue";
 import DatePicker from "@/components/common/DatePicker.vue";
 import { getDateConfig } from "@/utils/dateUtils";
@@ -33,6 +36,8 @@ import type { Asset } from "@/types/asset";
 import type { CommentWithAttachments } from "@/types/comment";
 import LogoIcon from "@/components/icons/LogoIcon.vue";
 import { useBrandingStore } from "@/stores/branding";
+import { useTagsStore } from "@/stores/tags";
+import type { Tag } from "@/types/tag";
 import { useAuthStore } from "@/stores/auth";
 import { deriveSlaState, type SlaPayload } from "@/composables/useSlaState";
 import { formatCompactDate, formatCompactRelativeTime, formatRelativeTime } from "@/utils/dateUtils";
@@ -546,6 +551,94 @@ const closedRelative = computed<string>(() =>
   props.ticket.closed_at ? formatRelativeTime(props.ticket.closed_at) : ''
 );
 
+// ---- Print-only derived fields ---------------------------------
+//
+// The print card is a single, complete snapshot, so it surfaces
+// fields the screen sidebar spreads across collapsible groups: due
+// date, SLA, cycle, source, tags, watchers and the resolution. These
+// only render on paper (the screen layout keeps its richer controls).
+const tagsStore = useTagsStore();
+
+// Absolute due date — paper wants the full date, not the sidebar's
+// compact "due in 2d" relative form.
+const dueDateLabel = computed<string>(() => {
+  if (!props.ticket.due_date) return '';
+  const { defaultLocale, defaultTimezone } = getDateConfig();
+  return new Date(props.ticket.due_date).toLocaleDateString(defaultLocale, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    timeZone: defaultTimezone,
+  });
+});
+
+// "On track · 2h left" / "Breached · 3d ago" / "Paused · Target …".
+// Reuses the sidebar pill's state + detail so paper matches screen.
+const slaPrintLabel = computed<string | null>(() => {
+  const s = slaState.value;
+  if (!s) return null;
+  const extra =
+    slaPillDetail.value ??
+    (s.compactLabel && s.compactLabel !== s.statusLabel ? s.compactLabel : null);
+  return extra ? `${s.statusLabel} · ${extra}` : s.statusLabel;
+});
+
+const resolvedTags = computed<Tag[]>(() =>
+  (props.ticket.tag_ids ?? [])
+    .map((id) => tagsStore.findById(id))
+    .filter((tag): tag is Tag => tag != null),
+);
+
+const resolutionText = computed<string>(() => (props.ticket.resolution_notes ?? '').trim());
+
+// Watcher names when the set is small enough to read in a sidebar-
+// width column; a bare count when it would overflow or hasn't
+// finished resolving against the directory.
+const watcherNames = computed<string[]>(() =>
+  (props.ticket.watcher_uuids ?? [])
+    .map((uuid) => getUserHandle(uuid).user.value?.name)
+    .filter((name): name is string => !!name),
+);
+const watchersDisplay = computed<string | null>(() => {
+  const count = props.ticket.watcher_uuids?.length ?? 0;
+  if (count === 0) return null;
+  const names = watcherNames.value;
+  return names.length === count && count <= 6 ? names.join(', ') : String(count);
+});
+
+// Closed-by name appended after the closed date ("· Alex Kim").
+const closedSuffix = computed<string>(() =>
+  closedByName.value ? ` · ${closedByName.value}` : '',
+);
+
+// ---- Referenced content (print) --------------------------------
+//
+// The print sheet carries the ticket's relationships, which the
+// interactive sidebar drops on paper (its property rows live inside
+// a print:hidden card). Docs reuse the cached `useTicketDocs`
+// composable (shares the sidebar's cache entry — no extra fetch);
+// projects / linked tickets reuse the same chip components so the
+// resolved names match the screen.
+const { links: linkedDocLinks } = useTicketDocs(() => props.ticket.id);
+
+const projectIds = computed<string[]>(() => {
+  const list = props.ticket.projects;
+  if (!list) return [];
+  return list.map((p) => (typeof p === 'string' ? p : String(p.id)));
+});
+
+const linkedTicketIds = computed<number[]>(() => props.ticket.linkedTickets ?? []);
+
+const printAssets = computed<Asset[]>(() => props.devices ?? []);
+
+const hasReferences = computed<boolean>(
+  () =>
+    projectIds.value.length > 0 ||
+    linkedTicketIds.value.length > 0 ||
+    printAssets.value.length > 0 ||
+    linkedDocLinks.value.length > 0,
+);
+
 // Generate QR code for ticket URL (for print)
 const ticketUrl = computed(() => {
   if (typeof window === 'undefined') return '';
@@ -578,83 +671,131 @@ watchEffect(async () => {
       <LogoIcon v-else class="print-logo-icon" />
     </div>
 
-    <!-- Print-only compact layout -->
+    <!-- Print-only compact layout. A single complete snapshot of the
+         ticket: header + QR, a dense metadata grid that fills the page
+         width, an optional tag row, and the resolution when present. -->
     <div class="hidden print:block print-ticket-details">
-      <!-- Header with ID and Title (full width) -->
+      <!-- QR pinned to the card's top-right corner. Absolute so it
+           floats over a reserved grid cell (.print-qr-spacer) without
+           inflating the header or pushing the content below it. -->
+      <div v-if="qrCodeDataUrl" class="print-qr-code">
+        <img :src="qrCodeDataUrl" :alt="t('ticket-detail-print-qr-alt')" />
+        <span class="print-qr-label">{{ t('ticket-detail-print-qr-label') }}</span>
+      </div>
+
+      <!-- Header: ID + title. margin-right keeps the title clear of
+           the QR corner. -->
       <div class="print-ticket-header">
         <span class="print-ticket-id">#{{ ticket.id }}</span>
         <h1 class="print-ticket-title">{{ ticket.title }}</h1>
       </div>
 
-      <!-- Metadata Grid -->
-      <div class="print-ticket-meta">
-        <!-- Status & Priority Row -->
-        <div class="print-meta-row">
-          <div class="print-meta-item">
-            <span class="print-meta-label">{{ t('ticket-detail-print-status') }}</span>
-            <span class="print-badge" :class="`print-badge-${printStatusBucket}`">{{ statusLabel }}</span>
-          </div>
-          <div class="print-meta-item">
-            <span class="print-meta-label">{{ t('ticket-detail-print-priority') }}</span>
-            <span class="print-badge" :class="`print-badge-${selectedPriority}`">{{ priorityLabel }}</span>
-          </div>
-          <div v-if="categoryLabel" class="print-meta-item">
-            <span class="print-meta-label">{{ t('ticket-detail-print-category') }}</span>
-            <span class="print-badge">{{ categoryLabel }}</span>
-          </div>
+      <!-- Dense metadata grid: auto-fills the row, packing every field
+           that carries a value so the sheet stays compact. The empty
+           spacer reserves the top-right cell the QR floats over. -->
+      <div class="print-meta-grid">
+        <div class="print-qr-spacer" aria-hidden="true"></div>
+        <div class="print-field">
+          <span class="print-meta-label">{{ t('ticket-detail-print-status') }}</span>
+          <span class="print-badge" :class="`print-badge-${printStatusBucket}`">{{ statusLabel }}</span>
+        </div>
+        <div class="print-field">
+          <span class="print-meta-label">{{ t('ticket-detail-print-priority') }}</span>
+          <span class="print-badge" :class="`print-badge-${selectedPriority}`">{{ priorityLabel }}</span>
+        </div>
+        <div v-if="categoryLabel" class="print-field">
+          <span class="print-meta-label">{{ t('ticket-detail-print-category') }}</span>
+          <span class="print-meta-value">{{ categoryLabel }}</span>
         </div>
 
-        <!-- People Row -->
-        <div class="print-meta-row print-people-row">
-          <div class="print-meta-item print-person">
-            <span class="print-meta-label">{{ t('ticket-detail-print-requester') }}</span>
-            <div v-if="ticket.requester_user" class="print-user">
-              <UserAvatar
-                :uuid="ticket.requester_user.uuid"
-                :fallbackName="ticket.requester_user.name"
-                :fallbackAvatar="ticket.requester_user.avatar_thumb || ticket.requester_user.avatar_url"
-                size="sm"
-                :showName="false"
-                :clickable="false"
-              />
-              <span class="print-user-name">{{ ticket.requester_user.name }}</span>
-            </div>
-            <span v-else class="print-meta-empty">{{ t('ticket-detail-print-unassigned') }}</span>
-          </div>
-          <div class="print-meta-item print-person">
-            <span class="print-meta-label">{{ t('ticket-detail-print-assignee') }}</span>
-            <div v-if="ticket.assignee_user" class="print-user">
-              <UserAvatar
-                :uuid="ticket.assignee_user.uuid"
-                :fallbackName="ticket.assignee_user.name"
-                :fallbackAvatar="ticket.assignee_user.avatar_thumb || ticket.assignee_user.avatar_url"
-                size="sm"
-                :showName="false"
-                :clickable="false"
-              />
-              <span class="print-user-name">{{ ticket.assignee_user.name }}</span>
-            </div>
-            <span v-else class="print-meta-empty">{{ t('ticket-detail-print-unassigned') }}</span>
-          </div>
+        <div class="print-field">
+          <span class="print-meta-label">{{ t('ticket-detail-print-requester') }}</span>
+          <span v-if="ticket.requester_user" class="print-meta-value">{{ ticket.requester_user.name }}</span>
+          <span v-else class="print-meta-empty">{{ t('ticket-detail-print-unassigned') }}</span>
+        </div>
+        <div class="print-field">
+          <span class="print-meta-label">{{ t('ticket-detail-print-assignee') }}</span>
+          <span v-if="ticket.assignee_user" class="print-meta-value">{{ ticket.assignee_user.name }}</span>
+          <span v-else class="print-meta-empty">{{ t('ticket-detail-print-unassigned') }}</span>
         </div>
 
-        <!-- Dates Row -->
-        <div class="print-meta-row print-dates-row">
-          <div class="print-meta-item">
-            <span class="print-meta-label">{{ t('ticket-detail-print-created') }}</span>
-            <span class="print-meta-value">{{ createdDate }}</span>
-          </div>
-          <div class="print-meta-item">
-            <span class="print-meta-label">{{ t('ticket-detail-print-modified') }}</span>
-            <span class="print-meta-value">{{ modifiedDate }}</span>
-          </div>
+        <div v-if="slaPrintLabel" class="print-field">
+          <span class="print-meta-label">{{ t('ticket-detail-print-sla') }}</span>
+          <span class="print-meta-value">{{ slaPrintLabel }}</span>
+        </div>
+        <div v-if="ticket.cycle" class="print-field">
+          <span class="print-meta-label">{{ t('ticket-detail-print-cycle') }}</span>
+          <span class="print-meta-value">{{ ticket.cycle.name }}</span>
+        </div>
+        <div v-if="sourceLabel" class="print-field">
+          <span class="print-meta-label">{{ t('ticket-detail-print-source') }}</span>
+          <span class="print-meta-value">{{ sourceLabel }}</span>
+        </div>
+
+        <div class="print-field">
+          <span class="print-meta-label">{{ t('ticket-detail-print-created') }}</span>
+          <span class="print-meta-value">{{ createdDate }}</span>
+        </div>
+        <div class="print-field">
+          <span class="print-meta-label">{{ t('ticket-detail-print-modified') }}</span>
+          <span class="print-meta-value">{{ modifiedDate }}</span>
+        </div>
+        <div v-if="dueDateLabel" class="print-field">
+          <span class="print-meta-label">{{ t('ticket-detail-print-due') }}</span>
+          <span class="print-meta-value">{{ dueDateLabel }}</span>
+        </div>
+        <div v-if="closedDateLabel" class="print-field">
+          <span class="print-meta-label">{{ t('ticket-detail-print-closed') }}</span>
+          <span class="print-meta-value">{{ closedDateLabel }}{{ closedSuffix }}</span>
+        </div>
+        <div v-if="watchersDisplay" class="print-field">
+          <span class="print-meta-label">{{ t('ticket-detail-print-watchers') }}</span>
+          <span class="print-meta-value">{{ watchersDisplay }}</span>
         </div>
       </div>
 
-      <!-- QR Code (bottom right) -->
-      <div v-if="qrCodeDataUrl" class="print-qr-code">
-        <span class="print-qr-label">{{ t('ticket-detail-print-qr-label') }}</span>
-        <img :src="qrCodeDataUrl" :alt="t('ticket-detail-print-qr-alt')" />
+      <!-- Tags: a wrapped row of bordered chips, full width. -->
+      <div v-if="resolvedTags.length" class="print-tags-row">
+        <span class="print-meta-label">{{ t('ticket-detail-print-tags') }}</span>
+        <span v-for="tag in resolvedTags" :key="tag.id" class="print-tag">{{ tag.name }}</span>
+      </div>
+
+      <!-- Resolution: the headline fact on a closed ticket, so it gets
+           its own full-width block rather than a metadata cell. -->
+      <div v-if="resolutionText" class="print-resolution">
+        <span class="print-meta-label">{{ t('ticket-detail-print-resolution') }}</span>
+        <p class="print-resolution-body">{{ resolutionText }}</p>
+      </div>
+
+      <!-- Referenced content: projects, assets, linked tickets and
+           documentation, in one compact labelled block. The interactive
+           sidebar drops these on paper (its rows live in a print:hidden
+           card); this carries the relationships onto the sheet. -->
+      <div v-if="hasReferences" class="print-references">
+        <div v-if="projectIds.length" class="print-ref-row">
+          <span class="print-meta-label">{{ t('ticket-detail-print-projects') }}</span>
+          <span class="print-ref-items">
+            <ProjectChip v-for="id in projectIds" :key="`p-${id}`" :project-id="id" />
+          </span>
+        </div>
+        <div v-if="printAssets.length" class="print-ref-row">
+          <span class="print-meta-label">{{ t('ticket-detail-print-assets') }}</span>
+          <span class="print-ref-items">
+            <span v-for="device in printAssets" :key="`a-${device.id}`" class="print-ref-text">{{ device.name || t('ticket-detail-print-asset-fallback') }}<template v-if="device.serial_number"> &middot; {{ device.serial_number }}</template></span>
+          </span>
+        </div>
+        <div v-if="linkedTicketIds.length" class="print-ref-row">
+          <span class="print-meta-label">{{ t('ticket-detail-print-linked') }}</span>
+          <span class="print-ref-items">
+            <LinkedTicketChip v-for="id in linkedTicketIds" :key="`l-${id}`" :ticket-id="id" />
+          </span>
+        </div>
+        <div v-if="linkedDocLinks.length" class="print-ref-row">
+          <span class="print-meta-label">{{ t('ticket-detail-print-docs') }}</span>
+          <span class="print-ref-items">
+            <span v-for="link in linkedDocLinks" :key="`d-${link.page_id}`" class="print-ref-text">{{ link.page_title }}</span>
+          </span>
+        </div>
       </div>
     </div>
 
@@ -1279,19 +1420,24 @@ watchEffect(async () => {
     color: #000 !important;
   }
 
+  /* relative so the QR can float in the top-right corner. */
   .print-ticket-details {
+    position: relative;
     border: 1px solid #ccc;
-    padding: 12pt;
-    margin-bottom: 12pt;
+    padding: 10pt 12pt;
+    margin-bottom: 10pt;
     background: #fafafa;
   }
 
+  /* Compact header: ID + title on one baseline. margin-right keeps the
+     title clear of the absolutely-positioned QR corner. */
   .print-ticket-header {
     display: flex;
     align-items: baseline;
     gap: 8pt;
-    margin-bottom: 10pt;
-    padding-bottom: 8pt;
+    margin-right: 64pt;
+    margin-bottom: 8pt;
+    padding-bottom: 7pt;
     border-bottom: 1px solid #ddd;
   }
 
@@ -1300,6 +1446,7 @@ watchEffect(async () => {
     font-size: 11pt;
     font-weight: 600;
     color: #666;
+    white-space: nowrap;
   }
 
   .print-ticket-title {
@@ -1310,36 +1457,42 @@ watchEffect(async () => {
     flex: 1;
   }
 
-  .print-ticket-meta {
-    display: flex;
-    flex-direction: column;
-    gap: 8pt;
+  /* Reserves the top-right grid cell the QR floats over so no field
+     slides underneath it. -2 / -1 = the last (rightmost) column. */
+  .print-qr-spacer {
+    grid-column: -2 / -1;
+    grid-row: 1 / span 2;
   }
 
-  .print-meta-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 16pt;
+  /* Auto-fill grid packs every populated field and fills the row
+     width, so the sheet stays dense regardless of field count. */
+  .print-meta-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(96pt, 1fr));
+    gap: 7pt 14pt;
+    align-items: start;
   }
 
-  .print-meta-item {
+  .print-field {
     display: flex;
     flex-direction: column;
     gap: 2pt;
-    min-width: 80pt;
+    min-width: 0;
+    break-inside: avoid;
   }
 
   .print-meta-label {
-    font-size: 8pt;
+    font-size: 7.5pt;
     font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.5pt;
+    letter-spacing: 0.4pt;
     color: #666;
   }
 
   .print-meta-value {
     font-size: 10pt;
-    color: #333;
+    color: #222;
+    word-break: break-word;
   }
 
   .print-meta-empty {
@@ -1349,10 +1502,11 @@ watchEffect(async () => {
   }
 
   .print-badge {
+    align-self: flex-start;
     display: inline-block;
     font-size: 9pt;
     font-weight: 500;
-    padding: 2pt 6pt;
+    padding: 1.5pt 5pt;
     border: 1px solid currentColor;
     border-radius: 3pt;
   }
@@ -1390,58 +1544,97 @@ watchEffect(async () => {
     border-color: #047857;
   }
 
-  .print-people-row {
+  /* Tags: wrapped chip row under the grid. */
+  .print-tags-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5pt;
+    margin-top: 8pt;
     padding-top: 6pt;
     border-top: 1px solid #eee;
   }
 
-  .print-person {
-    min-width: 120pt;
+  .print-tag {
+    font-size: 8.5pt;
+    color: #333;
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 2pt;
+    padding: 0.5pt 4pt;
+    white-space: nowrap;
   }
 
-  .print-user {
+  /* Resolution: full-width block, the headline fact on a closed ticket. */
+  .print-resolution {
     display: flex;
-    align-items: center;
+    flex-direction: column;
+    gap: 3pt;
+    margin-top: 8pt;
+    padding-top: 6pt;
+    border-top: 1px solid #eee;
+  }
+
+  .print-resolution-body {
+    margin: 0;
+    font-size: 9.5pt;
+    color: #222;
+    line-height: 1.4;
+    white-space: pre-wrap;
+  }
+
+  /* Referenced content: compact label + inline items, one row per
+     relationship type. Items wrap; commas separate them. */
+  .print-references {
+    display: flex;
+    flex-direction: column;
+    gap: 4pt;
+    margin-top: 8pt;
+    padding-top: 6pt;
+    border-top: 1px solid #eee;
+  }
+
+  .print-ref-row {
+    display: flex;
+    align-items: baseline;
     gap: 6pt;
   }
 
-  .print-user-name {
-    font-size: 10pt;
-    color: #333;
+  .print-ref-row .print-meta-label {
+    flex-shrink: 0;
+    min-width: 52pt;
   }
 
-  .print-dates-row {
-    padding-top: 6pt;
-    border-top: 1px solid #eee;
-    font-size: 9pt;
+  .print-ref-items {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 8pt;
+    font-size: 9.5pt;
+    color: #222;
   }
 
-  /* Card needs relative positioning for QR code */
-  .print-ticket-details {
-    position: relative;
+  .print-ref-text:not(:last-child)::after {
+    content: ",";
+    color: #888;
   }
 
-  /* QR Code - top right of card */
+  /* QR code: floats in the card's top-right corner over the reserved
+     grid spacer, so it never pushes the metadata or content below. */
   .print-qr-code {
     position: absolute;
-    top: 12pt;
+    top: 10pt;
     right: 12pt;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 2pt;
-  }
-
-  /* Offset header to make room for QR code */
-  .print-ticket-header {
-    margin-right: 72pt;
+    gap: 1pt;
   }
 
   .print-qr-code img {
-    width: 56pt !important;
-    height: 56pt !important;
-    max-width: 56pt !important;
-    max-height: 56pt !important;
+    width: 50pt !important;
+    height: 50pt !important;
+    max-width: 50pt !important;
+    max-height: 50pt !important;
   }
 
   .print-qr-label {
