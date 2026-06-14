@@ -8,6 +8,7 @@ import type {
   RenameWorkspaceRequest,
   AddMemberRequest,
   UpdateMemberRoleRequest,
+  EditionInfo,
 } from '@/types/workspace';
 
 /**
@@ -31,6 +32,18 @@ const workspacesService = {
       return response.data || [];
     } catch (error) {
       logger.error('Failed to list workspaces', { error });
+      throw error;
+    }
+  },
+
+  /** Edition + workspace-limit summary. Drives the create-gating UI; the
+   *  server enforces the cap regardless. */
+  async getEdition(): Promise<EditionInfo> {
+    try {
+      const response = await apiClient.get('/admin/edition');
+      return response.data;
+    } catch (error) {
+      logger.error('Failed to load edition', { error });
       throw error;
     }
   },

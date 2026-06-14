@@ -59,6 +59,12 @@ fn mint_user(conn: &mut diesel::pg::PgConnection, name: &str, role: &str) -> Use
 
 #[actix_web::test]
 async fn admin_workspaces_lifecycle_contract() {
+    // This exercises the workspace CRUD handlers, not the self-hosted
+    // single-workspace license gate (covered by workspace_license_gate.rs).
+    // Run in hosted mode so the gate (self-hosted only) doesn't block the
+    // second-workspace create this contract makes. Set before any
+    // DeploymentMode::current() call, which caches process-wide.
+    std::env::set_var("NOSDESK_DEPLOYMENT_MODE", "hosted");
     common::ensure_test_keyring();
     let test_db = common::TestDb::new();
     let pool = test_db.pool_with_size(4);

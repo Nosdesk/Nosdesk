@@ -864,6 +864,8 @@ admin-nav-workspaces-description = Créez, archivez et gérez les espaces de tra
 admin-workspaces-title = Espaces de travail
 admin-workspaces-description = Créez et gérez les espaces de travail des clients. Les slugs sont des identifiants permanents ; archivez un espace de travail avant de le supprimer définitivement.
 admin-workspaces-create = Nouvel espace de travail
+# admin-workspaces-community-cap (machine, à relire par un locuteur natif).
+admin-workspaces-community-cap = Ce déploiement auto-hébergé est limité à { $max } espace de travail. Une licence Enterprise est requise pour en ajouter d'autres.
 admin-workspaces-include-archived = Inclure les archivés
 admin-workspaces-loading = Chargement des espaces de travail…
 admin-workspaces-error-load = Échec du chargement des espaces de travail

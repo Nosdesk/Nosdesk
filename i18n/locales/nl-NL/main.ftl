@@ -861,6 +861,8 @@ admin-nav-workspaces-description = Werkruimtes voor tenants aanmaken, archiveren
 admin-workspaces-title = Werkruimtes
 admin-workspaces-description = Beheer werkruimtes voor tenants. Slugs zijn permanente identificatoren; archiveer een werkruimte voor je deze permanent verwijdert.
 admin-workspaces-create = Nieuwe werkruimte
+# admin-workspaces-community-cap (machine, nog na te kijken door moedertaalspreker).
+admin-workspaces-community-cap = Deze zelf-gehoste installatie is beperkt tot { $max } werkruimte. Een Enterprise-licentie is vereist om er meer toe te voegen.
 admin-workspaces-include-archived = Gearchiveerde tonen
 admin-workspaces-loading = Werkruimtes laden…
 admin-workspaces-error-load = Werkruimtes konden niet worden geladen

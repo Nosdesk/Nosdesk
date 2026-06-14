@@ -940,6 +940,7 @@ admin-nav-workspaces-description = Create, archive, and manage tenant workspaces
 admin-workspaces-title = Workspaces
 admin-workspaces-description = Create and manage tenant workspaces. Slugs are permanent identifiers; archive a workspace before permanently deleting it.
 admin-workspaces-create = New workspace
+admin-workspaces-community-cap = This self-hosted deployment is limited to { $max } workspace. An Enterprise license is required to add more.
 admin-workspaces-include-archived = Include archived
 admin-workspaces-loading = Loading workspaces…
 admin-workspaces-error-load = Failed to load workspaces

@@ -84,6 +84,37 @@ pub async fn list_workspaces(
     }
 }
 
+/// Edition + workspace-limit summary for the admin UI. Lets
+/// AdminWorkspacesView reflect the self-hosted single-workspace cap
+/// (disable Create + show an upgrade note) rather than hard-coding it
+/// client-side. The server gate in `create_workspace` is the real
+/// enforcement; this is purely for display.
+pub async fn get_edition(req: HttpRequest, mut pc: PlatformConn) -> impl Responder {
+    if let Err(resp) = rbac::require_platform_admin(&req) {
+        return resp;
+    }
+    let edition = crate::license::current();
+    let self_hosted = crate::middleware::DeploymentMode::current()
+        == crate::middleware::DeploymentMode::SelfHosted;
+    let active = pc.run(workspaces::count_active_workspaces).unwrap_or(0);
+    let max = edition.max_workspaces();
+    // Hosted deployments are provisioned by the control plane, not gated here.
+    let can_create = !self_hosted || (active as u64) < u64::from(max);
+    HttpResponse::Ok().json(serde_json::json!({
+        "edition": edition.name(),
+        "self_hosted": self_hosted,
+        "max_workspaces": max,
+        "active_workspaces": active,
+        "can_create_workspace": can_create,
+        "license": edition.license().map(|l| serde_json::json!({
+            "licensee": l.licensee,
+            "license_id": l.license_id,
+            "max_workspaces": l.max_workspaces,
+            "expires_at": l.expires_at,
+        })),
+    }))
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CreateWorkspaceRequest {
     pub slug: String,
@@ -105,6 +136,41 @@ pub async fn create_workspace(
     }
     if name.trim().is_empty() {
         return errors::bad_request("name must not be empty");
+    }
+
+    // License gate. Self-hosted deployments are capped at the edition's
+    // workspace limit (Community = 1); creating beyond it requires an
+    // Enterprise license. Hosted deployments are provisioned by the control
+    // plane via the /api/internal surface and are not gated here.
+    if crate::middleware::DeploymentMode::current() == crate::middleware::DeploymentMode::SelfHosted
+    {
+        let edition = crate::license::current();
+        let max = edition.max_workspaces();
+        let active = match pc.run(workspaces::count_active_workspaces) {
+            Ok(n) => n,
+            Err(e) => {
+                error!(error = ?e, "admin/workspaces license-gate count failed");
+                return errors::internal("Failed to create workspace");
+            }
+        };
+        if active as u64 >= u64::from(max) {
+            warn!(
+                active,
+                max,
+                edition = edition.name(),
+                "admin/workspaces blocked by license cap"
+            );
+            return HttpResponse::PaymentRequired().json(serde_json::json!({
+                "error": "license_required",
+                "message": format!(
+                    "This self-hosted deployment is limited to {max} active workspace(s). \
+                     An Enterprise license is required to create more."
+                ),
+                "edition": edition.name(),
+                "max_workspaces": max,
+                "active_workspaces": active,
+            }));
+        }
     }
 
     let record = NewWorkspace {

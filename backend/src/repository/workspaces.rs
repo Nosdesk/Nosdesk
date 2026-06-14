@@ -125,6 +125,16 @@ pub fn find_by_custom_domain(
         .optional()
 }
 
+/// Count active (non-archived) workspaces. Drives the self-hosted
+/// single-workspace license gate (see `admin_workspaces::create_workspace`):
+/// Community is capped at one active workspace.
+pub fn count_active_workspaces(conn: &mut DbConnection) -> QueryResult<i64> {
+    workspaces::table
+        .filter(workspaces::archived_at.is_null())
+        .count()
+        .get_result(conn)
+}
+
 // sync-audit-only: control-plane provisioning callback; never propagated through the per-workspace sync stream
 /// Set or clear the custom-domain hostname for the workspace
 /// matching `slug`. `None` clears the field; `Some(host)` sets it

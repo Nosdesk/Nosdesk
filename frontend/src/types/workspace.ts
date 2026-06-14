@@ -56,6 +56,21 @@ export interface CreateWorkspaceRequest {
   name: string;
 }
 
+/** GET /api/admin/edition — edition + workspace-limit summary. */
+export interface EditionInfo {
+  edition: 'community' | 'enterprise';
+  self_hosted: boolean;
+  max_workspaces: number;
+  active_workspaces: number;
+  can_create_workspace: boolean;
+  license: {
+    licensee: string;
+    license_id: string;
+    max_workspaces: number;
+    expires_at: number;
+  } | null;
+}
+
 /** Request body for PATCH /api/admin/workspaces/{id}. */
 export interface RenameWorkspaceRequest {
   name: string;

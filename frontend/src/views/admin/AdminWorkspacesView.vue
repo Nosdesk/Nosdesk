@@ -50,6 +50,22 @@ const loadError = computed(() =>
   workspacesQuery.error.value ? t('admin-workspaces-error-load') : '',
 );
 
+// Edition / workspace-limit. The server enforces the cap (402 on create);
+// this just reflects it so the Create affordance is disabled with a reason
+// rather than letting the admin hit a wall.
+const editionQuery = useQuery({
+  key: ['admin-edition'] as const,
+  query: () => workspacesService.getEdition(),
+});
+const canCreateWorkspace = computed(
+  () => editionQuery.data.value?.can_create_workspace ?? true,
+);
+const workspaceCapNote = computed(() => {
+  const e = editionQuery.data.value;
+  if (!e || e.can_create_workspace || !e.self_hosted) return '';
+  return t('admin-workspaces-community-cap', { max: e.max_workspaces });
+});
+
 const isSaving = ref(false);
 const errorMessage = ref('');
 const successMessage = ref('');
@@ -227,11 +243,23 @@ const deleteTypeToConfirmLabel = computed(() => {
           size="sm"
           icon="add"
           class="self-start sm:self-auto shrink-0"
+          :disabled="!canCreateWorkspace"
+          :title="workspaceCapNote || undefined"
           @click="openCreateModal"
         >
           {{ $t('admin-workspaces-create') }}
         </Button>
       </header>
+
+      <!-- Self-hosted Community is capped at one workspace; surface why the
+           Create action is disabled, with the upgrade path. -->
+      <div
+        v-if="workspaceCapNote"
+        class="rounded-lg border border-subtle bg-surface-alt px-4 py-3 text-sm text-secondary flex items-start gap-2"
+      >
+        <Icon name="info" size="sm" class="text-tertiary shrink-0 mt-0.5" />
+        <span>{{ workspaceCapNote }}</span>
+      </div>
 
       <div class="flex flex-wrap items-center gap-4">
         <Checkbox
@@ -273,7 +301,7 @@ const deleteTypeToConfirmLabel = computed(() => {
           icon="folder"
           :title="$t('empty-workspaces-title')"
           :description="$t('empty-workspaces-description')"
-          :action-label="$t('admin-workspaces-create')"
+          :action-label="canCreateWorkspace ? $t('admin-workspaces-create') : undefined"
           variant="card"
           @action="openCreateModal"
         />

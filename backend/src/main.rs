@@ -13,6 +13,7 @@
 
 use backend::db;
 use backend::handlers;
+use backend::license;
 use backend::middleware;
 use backend::services;
 use backend::utils;
@@ -256,6 +257,13 @@ async fn main() -> std::io::Result<()> {
     // === SECURITY STARTUP VALIDATION ===
     info!("Starting Nosdesk API Server");
     info!(log_level = %log_level, "Log level configured");
+    // Resolve + log the edition once at boot (verifies NOSDESK_LICENSE_KEY,
+    // if any). Community caps self-hosted deployments at one workspace.
+    info!(
+        edition = crate::license::current().name(),
+        max_workspaces = crate::license::current().max_workspaces(),
+        "Edition resolved"
+    );
 
     // Debug: Print some environment variables to see what's available
     debug!("Environment check:");
@@ -1723,6 +1731,7 @@ async fn main() -> std::io::Result<()> {
                     // requires ?confirm=<slug> matching the row.
                     .route("/admin/workspaces", web::get().to(handlers::admin_workspaces::list_workspaces))
                     .route("/admin/workspaces", web::post().to(handlers::admin_workspaces::create_workspace))
+                    .route("/admin/edition", web::get().to(handlers::admin_workspaces::get_edition))
                     .route("/admin/workspaces/{id}", web::patch().to(handlers::admin_workspaces::rename_workspace))
                     .route("/admin/workspaces/{id}", web::delete().to(handlers::admin_workspaces::hard_delete_workspace))
                     .route("/admin/workspaces/{id}/archive", web::post().to(handlers::admin_workspaces::archive_workspace))

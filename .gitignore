@@ -93,3 +93,6 @@ fly.rc.toml
 # tracked (README explains the convention) but the artefacts are
 # either built in CI or downloaded from the registry.
 /plugins/*.zip
+
+# Enterprise license signing key (private). Public counterpart is committed + embedded.
+backend/license_private.pem

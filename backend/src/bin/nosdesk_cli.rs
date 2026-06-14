@@ -84,6 +84,37 @@ enum Commands {
     /// after a detached `docker compose up -d`, where the startup
     /// banner isn't streamed to your terminal.
     SetupToken,
+
+    /// Enterprise license operations. Signing requires the private
+    /// signing key (held by Nosdesk only); the matching public key is
+    /// compiled into the server, which verifies NOSDESK_LICENSE_KEY.
+    #[command(subcommand)]
+    License(LicenseCommand),
+}
+
+#[derive(Subcommand)]
+enum LicenseCommand {
+    /// Mint a signed license token. Generate the keypair once with:
+    ///   openssl genpkey -algorithm ed25519 -out license_private.pem
+    ///   openssl pkey -in license_private.pem -pubout -out license_pubkey.pem
+    /// Commit/embed the public key; keep the private key offline.
+    Sign {
+        /// Path to the Ed25519 private key (PKCS8 PEM).
+        #[arg(long)]
+        key: PathBuf,
+        /// Licensee (organisation the license is issued to).
+        #[arg(long)]
+        licensee: String,
+        /// Maximum number of active workspaces the license permits.
+        #[arg(long, default_value_t = 10)]
+        max_workspaces: u32,
+        /// Validity period in days from now.
+        #[arg(long, default_value_t = 365)]
+        days: i64,
+        /// License id (jti). Defaults to a generated id.
+        #[arg(long)]
+        license_id: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -258,6 +289,7 @@ fn main() -> ExitCode {
         Commands::Db(cmd) => run_db(cmd),
         Commands::Secrets(cmd) => run_secrets(cmd),
         Commands::SetupToken => run_setup_token(),
+        Commands::License(cmd) => run_license(cmd),
     };
 
     match result {
@@ -267,6 +299,60 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+// ---------------------------------------------------------------
+// License signing
+// ---------------------------------------------------------------
+
+fn run_license(cmd: LicenseCommand) -> Result<()> {
+    match cmd {
+        LicenseCommand::Sign {
+            key,
+            licensee,
+            max_workspaces,
+            days,
+            license_id,
+        } => license_sign(&key, &licensee, max_workspaces, days, license_id),
+    }
+}
+
+fn license_sign(
+    key_path: &Path,
+    licensee: &str,
+    max_workspaces: u32,
+    days: i64,
+    license_id: Option<String>,
+) -> Result<()> {
+    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+
+    let pem = fs::read_to_string(key_path)
+        .with_context(|| format!("reading private key from {}", key_path.display()))?;
+    let enc = EncodingKey::from_ed_pem(pem.as_bytes())
+        .context("parsing Ed25519 private key (expected PKCS8 PEM)")?;
+
+    let now = chrono::Utc::now().timestamp();
+    let exp = now + days.max(1) * 86_400;
+    let jti = license_id.unwrap_or_else(|| format!("lic_{}", uuid::Uuid::now_v7()));
+
+    let claims = backend::license::LicenseClaims {
+        iss: backend::license::LICENSE_ISSUER.to_string(),
+        sub: licensee.to_string(),
+        jti,
+        iat: now,
+        exp,
+        max_workspaces,
+    };
+
+    let token = encode(&Header::new(Algorithm::EdDSA), &claims, &enc).context("signing license")?;
+
+    // Stderr carries the human-readable summary; stdout is just the token so
+    // it can be piped straight into an env file or secret store.
+    eprintln!(
+        "Signed license for {licensee}: max_workspaces={max_workspaces}, expires in {days} day(s)."
+    );
+    println!("{}{token}", backend::license::LICENSE_PREFIX);
+    Ok(())
 }
 
 // ---------------------------------------------------------------
