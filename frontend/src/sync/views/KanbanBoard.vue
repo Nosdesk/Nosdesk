@@ -535,15 +535,22 @@ const quickAddHighlight = ref(0)
 const boardTicketIds = computed(() => new Set(props.cards.map((c) => c.id)))
 const allTickets = ticketsStore.all()
 
-/** Existing tickets matching the typed query, excluding ones already
- * on the board. Pool-backed, so results are instant — no fetch.
- * Empty unless the board is project-scoped (nothing to link to
- * otherwise) and the user has typed something. */
+/** Existing tickets to offer in the composer dropdown, excluding ones
+ * already on the board. Pool-backed, so results are instant — no fetch.
+ * Only meaningful when the board is project-scoped (nothing to link to
+ * otherwise) and a composer is open. With no query typed, surfaces the
+ * most recently active tickets so the list is useful the moment the
+ * composer opens; once the user types, switches to title/id matching. */
 const quickAddMatches = computed<SyncTicket[]>(() => {
-  if (props.projectId == null) return []
+  if (props.projectId == null || quickAddCategory.value == null) return []
   const q = quickAddTitle.value.trim().toLowerCase()
-  if (!q) return []
   const seen = boardTicketIds.value
+  if (!q) {
+    return [...allTickets.value]
+      .filter((tkt) => !seen.has(tkt.id))
+      .sort((a, b) => b.last_activity_at.localeCompare(a.last_activity_at))
+      .slice(0, 6)
+  }
   const out: SyncTicket[] = []
   for (const tkt of allTickets.value) {
     if (seen.has(tkt.id)) continue
@@ -571,15 +578,18 @@ const quickAddOpen = computed(
 )
 
 // Typing resets the cursor to the create row so Enter creates by
-// default; arrows then move down into the existing matches.
+// default; arrows then move down into the existing matches. With the
+// field empty the dropdown shows recent tickets as a convenience, but
+// nothing is pre-highlighted (-1) so a blind Enter never links the top
+// row — the user clicks or arrows down to pick one.
 watch(quickAddTitle, () => {
-  quickAddHighlight.value = 0
+  quickAddHighlight.value = quickAddTitle.value.trim() ? 0 : -1
 })
 
 function openQuickAdd(cat: WorkflowStateCategory): void {
   quickAddCategory.value = cat
   quickAddTitle.value = ''
-  quickAddHighlight.value = 0
+  quickAddHighlight.value = -1
 }
 
 function closeQuickAdd(): void {
@@ -760,16 +770,6 @@ function affectedDevicesTooltip(card: CardData): string {
           </div>
           <div class="flex items-center gap-1 shrink-0">
             <span class="text-[10px] text-tertiary tabular-nums leading-none">{{ lane.totalCards }}</span>
-            <button
-              v-if="onQuickAdd && lane.defaultState"
-              type="button"
-              class="text-tertiary hover:text-primary hover:bg-surface-hover rounded w-4 h-4 flex items-center justify-center transition-colors text-xs leading-none"
-              :title="t('kanban-quick-add-aria', { column: lane.label })"
-              :aria-label="t('kanban-quick-add-aria', { column: lane.label })"
-              @click.stop="openQuickAdd(lane.id)"
-            >
-              +
-            </button>
           </div>
         </header>
         <!-- Bottom pad — scrolls away with the top pad. -->
@@ -778,66 +778,6 @@ function affectedDevicesTooltip(card: CardData): string {
         <div class="kanban-lane-hairline sticky z-20 shrink-0" aria-hidden="true" />
 
         <div class="flex flex-col">
-        <!-- Inline composer: type a title to create a ticket in this
-             column, or search to pull an existing ticket in. Arrow
-             keys move through the dropdown; Enter commits the
-             highlighted row (create by default); Esc or an empty blur
-             closes. The input stays open for rapid successive adds. -->
-        <div
-          v-if="onQuickAdd && quickAddCategory === lane.id"
-          class="relative px-2 py-1.5 border-b border-subtle shrink-0"
-        >
-          <input
-            :ref="(el) => focusQuickAdd(el as Element | null)"
-            v-model="quickAddTitle"
-            type="text"
-            class="w-full text-[13px] rounded-md border border-default bg-surface px-2 py-1 text-primary placeholder:text-tertiary focus:outline-none focus:ring-2 focus:ring-accent"
-            :placeholder="projectId != null ? t('kanban-composer-placeholder') : t('kanban-quick-add-placeholder')"
-            @keydown.enter.prevent="commitQuickAdd(lane)"
-            @keydown.down.prevent="quickAddNav(1)"
-            @keydown.up.prevent="quickAddNav(-1)"
-            @keydown.esc.prevent="closeQuickAdd"
-            @blur="onQuickAddBlur"
-          />
-
-          <!-- Suggestions: create row + existing-ticket matches.
-               mousedown.prevent keeps the input focused so the click
-               commits instead of blurring the composer shut first. -->
-          <div
-            v-if="quickAddOpen"
-            class="absolute left-2 right-2 top-full z-30 mt-1 rounded-md border border-default bg-surface shadow-lg overflow-hidden"
-          >
-            <button
-              v-if="quickAddCanCreate"
-              type="button"
-              class="w-full flex items-center gap-1.5 px-2 py-1.5 text-left text-[13px] text-primary"
-              :class="isCreateHighlighted ? 'bg-accent-muted' : 'hover:bg-surface-hover'"
-              @mousedown.prevent="submitQuickAdd(lane)"
-            >
-              <span class="text-tertiary shrink-0">+</span>
-              <span class="truncate">{{ t('kanban-composer-create', { title: quickAddTitle.trim() }) }}</span>
-            </button>
-
-            <div
-              v-if="quickAddMatches.length > 0"
-              class="px-2 pt-1 pb-0.5 text-[10px] uppercase tracking-wide text-tertiary border-t border-subtle"
-            >
-              {{ t('kanban-composer-existing') }}
-            </div>
-            <button
-              v-for="(match, i) in quickAddMatches"
-              :key="match.id"
-              type="button"
-              class="w-full flex items-center gap-1.5 px-2 py-1.5 text-left text-[13px]"
-              :class="isMatchHighlighted(i) ? 'bg-accent-muted' : 'hover:bg-surface-hover'"
-              @mousedown.prevent="addExisting(lane, match.id)"
-            >
-              <span class="text-tertiary tabular-nums shrink-0">#{{ match.id }}</span>
-              <span class="truncate text-primary">{{ match.title }}</span>
-            </button>
-          </div>
-        </div>
-
         <!-- Sub-lanes (one when secondary axis is off, many when on) -->
         <section
           v-for="sublane in lane.sublanes"
@@ -961,23 +901,99 @@ function affectedDevicesTooltip(card: CardData): string {
                 </span>
               </article>
 
-              <!-- Empty-sublane drop hint. Promotes to a solid
-                   accent border when the pointer is over it so
-                   the affordance matches the insertion-line
-                   shown for non-empty lanes. -->
+              <!-- Empty-sublane drop target. Stays quiet when idle so
+                   the column's "+ Add ticket" footer reads as the
+                   primary affordance; only reveals the "Drop here"
+                   accent while a card is dragged over it. -->
               <div
                 v-if="sublane.cards.length === 0"
-                class="flex items-center justify-center text-tertiary text-[11px] italic border-2 rounded-lg min-h-12 transition-colors"
+                class="flex items-center justify-center text-[11px] italic border-2 rounded-lg min-h-12 transition-colors"
                 :class="
                   isLaneHovered(sublane.id)
                     ? 'border-accent bg-accent-muted text-accent font-medium'
-                    : 'border-dashed border-subtle'
+                    : 'border-dashed border-subtle text-transparent'
                 "
               >
-                Drop here
+                {{ isLaneHovered(sublane.id) ? t('kanban-drop-here') : '' }}
               </div>
             </div>
           </section>
+
+          <!-- Add-ticket footer: a persistent, labelled affordance at
+               the foot of every column — the primary way into the
+               composer. Click to type a title (creates a ticket in
+               this column) or, on a project board, search to pull an
+               existing ticket in. With nothing typed the dropdown
+               lists the most recently active tickets. It opens upward
+               so it never spills past a tall column, and stays open
+               after each add for rapid successive entry. -->
+          <div
+            v-if="onQuickAdd && lane.defaultState"
+            class="relative px-1.5 pb-1.5 pt-0.5 shrink-0"
+          >
+            <template v-if="quickAddCategory === lane.id">
+              <input
+                :ref="(el) => focusQuickAdd(el as Element | null)"
+                v-model="quickAddTitle"
+                type="text"
+                class="w-full text-[13px] rounded-md border border-default bg-surface px-2 py-1 text-primary placeholder:text-tertiary focus:outline-none focus:ring-2 focus:ring-accent"
+                :placeholder="projectId != null ? t('kanban-composer-placeholder') : t('kanban-quick-add-placeholder')"
+                @keydown.enter.prevent="commitQuickAdd(lane)"
+                @keydown.down.prevent="quickAddNav(1)"
+                @keydown.up.prevent="quickAddNav(-1)"
+                @keydown.esc.prevent="closeQuickAdd"
+                @blur="onQuickAddBlur"
+              />
+
+              <!-- Suggestions: create row + existing-ticket matches.
+                   mousedown.prevent keeps the input focused so the click
+                   commits instead of blurring the composer shut first. -->
+              <div
+                v-if="quickAddOpen"
+                class="absolute left-1.5 right-1.5 bottom-full z-30 mb-1 rounded-md border border-default bg-surface shadow-lg overflow-hidden"
+              >
+                <button
+                  v-if="quickAddCanCreate"
+                  type="button"
+                  class="w-full flex items-center gap-1.5 px-2 py-1.5 text-left text-[13px] text-primary"
+                  :class="isCreateHighlighted ? 'bg-accent-muted' : 'hover:bg-surface-hover'"
+                  @mousedown.prevent="submitQuickAdd(lane)"
+                >
+                  <span class="text-tertiary shrink-0">+</span>
+                  <span class="truncate">{{ t('kanban-composer-create', { title: quickAddTitle.trim() }) }}</span>
+                </button>
+
+                <div
+                  v-if="quickAddMatches.length > 0"
+                  class="px-2 pt-1 pb-0.5 text-[10px] uppercase tracking-wide text-tertiary border-t border-subtle"
+                >
+                  {{ quickAddTitle.trim() ? t('kanban-composer-existing') : t('kanban-composer-recent') }}
+                </div>
+                <button
+                  v-for="(match, i) in quickAddMatches"
+                  :key="match.id"
+                  type="button"
+                  class="w-full flex items-center gap-1.5 px-2 py-1.5 text-left text-[13px]"
+                  :class="isMatchHighlighted(i) ? 'bg-accent-muted' : 'hover:bg-surface-hover'"
+                  @mousedown.prevent="addExisting(lane, match.id)"
+                >
+                  <span class="text-tertiary tabular-nums shrink-0">#{{ match.id }}</span>
+                  <span class="truncate text-primary">{{ match.title }}</span>
+                </button>
+              </div>
+            </template>
+
+            <button
+              v-else
+              type="button"
+              class="w-full flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] text-tertiary hover:text-primary hover:bg-surface-hover transition-colors"
+              :aria-label="t('kanban-quick-add-aria', { column: lane.label })"
+              @click.stop="openQuickAdd(lane.id)"
+            >
+              <span class="text-sm leading-none">+</span>
+              <span>{{ t('kanban-add-ticket') }}</span>
+            </button>
+          </div>
         </div>
       </div>
       </div>
