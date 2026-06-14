@@ -1690,6 +1690,18 @@ admin-channels-email-auto-ack-variables-hint = Variabelen (per ticket ingevuld):
 admin-channels-email-auto-ack-saving = Opslaan…
 admin-channels-email-auto-ack-save = Ontvangstbevestiging opslaan
 admin-channels-email-auto-ack-success-saved = Ontvangstbevestiging bijgewerkt
+# Beveiligingsnotitie (machine, na te kijken door een moedertaalspreker).
+admin-channels-email-security-note-heading = Beveiligingsnotitie
+admin-channels-email-security-note-subtitle = Voeg een anti-phishingregel toe aan de voettekst van transactionele e-mails (wachtwoordherstel, uitnodigingen) zodat ontvangers een echt bericht van een vervalsing kunnen onderscheiden.
+admin-channels-email-security-note-toggle-label = Beveiligingsnotitie tonen
+admin-channels-email-security-note-toggle-description = Standaard uit. Schakel in zodra uw verzenddomein en huisstijl zijn ingesteld.
+admin-channels-email-security-note-template-label = Aangepaste notitie
+admin-channels-email-security-note-template-placeholder = {"{{"}app_name{"}}"} stuurt u alleen ooit e-mail vanaf {"{{"}domain{"}}"}. We vragen u nooit om uw wachtwoord per e-mail.
+admin-channels-email-security-note-template-hint = Laat leeg om de standaardtekst te gebruiken. Alleen platte tekst.
+admin-channels-email-security-note-variables-hint = Variabelen:
+admin-channels-email-security-note-saving = Opslaan…
+admin-channels-email-security-note-save = Beveiligingsnotitie opslaan
+admin-channels-email-security-note-success-saved = Beveiligingsnotitie bijgewerkt
 
 # Admin: Microsoft Graph (gegevensimport)
 admin-msgraph-back = Terug naar gegevensimport
@@ -5499,6 +5511,14 @@ email-notice-success = Geslaagd
 email-link-fallback-prompt = Of kopieer en plak deze link in uw browser:
 email-footer-rights = Alle rechten voorbehouden.
 email-footer-automated = Dit is een geautomatiseerd bericht. Reageer hier niet rechtstreeks op.
+# TODO: translate
+email-footer-help = Help
+# Anti-phishing trust line in the email footer. Carries inline markup
+# (emphasis span + mailto link); preserve the tags and the literal
+# Standaard anti-phishingnotitie in de e-mailvoettekst (machine, na te
+# kijken door een moedertaalspreker). { $app_name } en { $domain }
+# worden ingevuld.
+email-security-note-default = { $app_name } stuurt u alleen ooit e-mail vanaf { $domain }. We vragen u nooit om uw wachtwoord of inlogcode per e-mail. Als een bericht verdacht lijkt, klik dan op geen enkele link en meld het bij uw IT-afdeling.
 markdown-embed-depth-limit = [Limiet voor insluitdiepte bereikt]
 markdown-embed-circular = [Circulaire insluiting gedetecteerd]
 markdown-embed-reference = Ingesloten: { $title }

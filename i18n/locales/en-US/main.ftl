@@ -1795,6 +1795,17 @@ admin-channels-email-auto-ack-variables-hint = Variables (filled in per ticket):
 admin-channels-email-auto-ack-saving = Saving…
 admin-channels-email-auto-ack-save = Save auto-ack
 admin-channels-email-auto-ack-success-saved = Auto-acknowledgement updated
+admin-channels-email-security-note-heading = Security note
+admin-channels-email-security-note-subtitle = Add an anti-phishing line to the footer of transactional emails (password resets, invitations) so recipients can tell a genuine message from a spoof.
+admin-channels-email-security-note-toggle-label = Show security note
+admin-channels-email-security-note-toggle-description = Off by default. Turn it on once your sending domain and branding are set.
+admin-channels-email-security-note-template-label = Custom note
+admin-channels-email-security-note-template-placeholder = {"{{"}app_name{"}}"} will only ever email you from {"{{"}domain{"}}"}. We will never ask for your password by email.
+admin-channels-email-security-note-template-hint = Leave blank to use the default wording. Plain text only.
+admin-channels-email-security-note-variables-hint = Variables:
+admin-channels-email-security-note-saving = Saving…
+admin-channels-email-security-note-save = Save security note
+admin-channels-email-security-note-success-saved = Security note updated
 
 # Admin: Microsoft Graph (data import)
 admin-msgraph-back = Back to Data Import
@@ -5709,6 +5720,12 @@ email-notice-success = Success
 email-link-fallback-prompt = Or copy and paste this link into your browser:
 email-footer-rights = All rights reserved.
 email-footer-automated = This is an automated message. Please do not reply directly to this email.
+email-footer-help = Help
+# Built-in default for the opt-in anti-phishing footer note. Rendered
+# as plain text (escaped), so no markup. { $app_name } is the workspace
+# name and { $domain } is the address it sends mail from. Admins can
+# override this wording per workspace.
+email-security-note-default = { $app_name } will only ever email you from { $domain }. We will never ask for your password or a login code by email. If a message looks suspicious, do not click any links and report it to your IT team.
 markdown-embed-depth-limit = [Embed depth limit reached]
 markdown-embed-circular = [Circular embed detected]
 markdown-embed-reference = Embedded: { $title }

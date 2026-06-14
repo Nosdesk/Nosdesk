@@ -284,6 +284,8 @@ mod tests {
             default_timezone: "UTC".into(),
             workspace_id: 1,
             signature_default: None,
+            email_security_note_enabled: false,
+            email_security_note_template: None,
         }
     }
 

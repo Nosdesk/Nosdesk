@@ -5091,6 +5091,7 @@ email-notice-success = Success
 email-link-fallback-prompt = Or copy and paste this link into your browser:
 email-footer-rights = All rights reserved.
 email-footer-automated = This is an automated message. Please don't reply directly.
+email-footer-help = Help
 markdown-embed-depth-limit = [Embed depth limit reached]
 markdown-embed-circular = [Circular embed detected]
 markdown-embed-reference = Embedded: { $title }

@@ -37,6 +37,15 @@ pub struct UpdateBrandingRequest {
     /// clear back to "use built-in FTL default for the locale".
     #[serde(default)]
     pub channel_auto_ack_template: Option<String>,
+    /// Whether to render the anti-phishing security note in the email
+    /// footer. Omitted = leave alone.
+    #[serde(default)]
+    pub email_security_note_enabled: Option<bool>,
+    /// Custom security-note body. Same omission / empty-string
+    /// semantics: omitted = leave alone, empty string = clear back to
+    /// the built-in localized default.
+    #[serde(default)]
+    pub email_security_note_template: Option<String>,
 }
 
 // GET /api/admin/branding/config - Get branding settings (public for initial load)
@@ -63,7 +72,9 @@ pub async fn get_branding_config(pool: web::Data<Pool>) -> impl Responder {
                 "updated_at": null,
                 "signature_default": null,
                 "channel_auto_ack_enabled": true,
-                "channel_auto_ack_template": null
+                "channel_auto_ack_template": null,
+                "email_security_note_enabled": false,
+                "email_security_note_template": null
             }))
         }
     }
@@ -143,6 +154,24 @@ pub async fn update_branding_config(
         }
     }
 
+    // Same allow-list rule for the security note. Empty / blank clears
+    // back to the built-in localized default.
+    if let Some(ref tmpl) = body.email_security_note_template {
+        if !tmpl.trim().is_empty() {
+            let unknown = crate::utils::template_variables::unknown_variables(
+                tmpl,
+                crate::utils::template_variables::SECURITY_NOTE_VARIABLES,
+            );
+            if !unknown.is_empty() {
+                return errors::bad_request(format!(
+                    "Unknown security-note variables: {}. Supported: {}.",
+                    unknown.join(", "),
+                    crate::utils::template_variables::SECURITY_NOTE_VARIABLES.join(", ")
+                ));
+            }
+        }
+    }
+
     // Mirror the user-signature empty-string-is-clear semantic from
     // users.rs so the admin UI can revert to "no org default"
     // without a separate API call.
@@ -160,6 +189,13 @@ pub async fn update_branding_config(
             Some(s.clone())
         }
     });
+    let security_note_template_change = body.email_security_note_template.as_ref().map(|s| {
+        if s.trim().is_empty() {
+            None
+        } else {
+            Some(s.clone())
+        }
+    });
 
     let update = UpdateSiteSettings {
         app_name: body.app_name.clone(),
@@ -171,6 +207,8 @@ pub async fn update_branding_config(
         signature_default: signature_default_change,
         channel_auto_ack_enabled: body.channel_auto_ack_enabled,
         channel_auto_ack_template: auto_ack_template_change,
+        email_security_note_enabled: body.email_security_note_enabled,
+        email_security_note_template: security_note_template_change,
         ..Default::default()
     };
 

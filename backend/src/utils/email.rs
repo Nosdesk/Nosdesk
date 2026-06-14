@@ -85,6 +85,11 @@ pub struct EmailBranding {
     pub logo_url: Option<String>,
     pub primary_color: String,
     pub base_url: String,
+    /// Fully-resolved anti-phishing footer line, or `None` to omit it.
+    /// Resolution (toggle, template selection, placeholder
+    /// substitution) happens in `utils::email_branding`; the template
+    /// layer here only renders the string when present.
+    pub security_note: Option<String>,
 }
 
 impl Default for EmailBranding {
@@ -92,9 +97,10 @@ impl Default for EmailBranding {
         Self {
             app_name: "Nosdesk".to_string(),
             logo_url: None,
-            primary_color: "#2563eb".to_string(),
+            primary_color: "#FF6B1A".to_string(),
             base_url: env::var("FRONTEND_URL")
                 .unwrap_or_else(|_| "http://localhost:3000".to_string()),
+            security_note: None,
         }
     }
 }
@@ -110,12 +116,17 @@ impl EmailBranding {
         Self {
             app_name,
             logo_url,
-            primary_color: primary_color.unwrap_or_else(|| "#2563eb".to_string()),
+            primary_color: primary_color.unwrap_or_else(|| "#FF6B1A".to_string()),
             base_url,
+            security_note: None,
         }
     }
 
-    /// Generate lighter shade of primary color for backgrounds
+    /// Generate lighter shade of primary color for backgrounds.
+    /// Retained from the previous design (the new stationery layout uses
+    /// fixed paper tokens rather than a tinted accent), kept for callers
+    /// that derive a soft background from the brand color.
+    #[allow(dead_code)]
     fn primary_color_light(&self) -> String {
         if let Some(hex) = self.primary_color.strip_prefix('#') {
             if hex.len() == 6 {
@@ -134,6 +145,130 @@ impl EmailBranding {
     }
 }
 
+// ===========================================================================
+// Email template layer ("fine-stationery" design)
+//
+// The layer is split into three pieces so compose_* functions never
+// hand-write inline-styled HTML:
+//
+//   * `Block`    — a single body element (paragraph, sub-heading, note).
+//                  Constructed via the free helpers `text`, `heading`,
+//                  `note`. Each helper emits the correct inline-styled,
+//                  dark-mode-aware HTML *once*.
+//   * `Notice`   — the bulleted "security notes" box, with a `NoticeType`
+//                  title resolved from the FTL catalogue.
+//   * `EmailLayout` — the params struct for the whole letter. It owns the
+//                  headline, the body blocks, an optional CTA, an optional
+//                  notice, and an optional sign-off. `#[derive(Default)]`
+//                  means call sites use named fields and adding a field
+//                  never breaks them.
+//
+// `EmailTemplate::render` owns ALL chrome exactly once: `<head>` + dark-
+// mode `<style>`, hidden preheader, logo letterhead + hairline rule, CTA
+// (MSO/Outlook VML bulletproof button), notice, sign-off, footer (automated
+// notice + © + Help) and the anti-phishing trust line.
+// ===========================================================================
+
+// --- Design tokens (light) -------------------------------------------------
+// Dark-mode equivalents live in the `<style>` block via the `.nd-*` classes;
+// these are the inline (light) values email clients without media-query
+// support fall back to.
+const C_PAPER: &str = "#f6f2ea";
+const C_HEAD: &str = "#1f1a15";
+const C_BODY: &str = "#4a443c";
+const C_MUTED: &str = "#8c8378";
+const C_FAINT: &str = "#a89f93";
+const C_LINK: &str = "#be4607";
+const C_HAIR: &str = "#e6ddcd";
+const C_NOTERULE: &str = "#d8d0c2";
+const C_FALLBACK_BG: &str = "#efe9dd";
+const C_STRONG: &str = "#5b5349";
+const C_CTA: &str = "#ff6b1a";
+
+/// A single rendered body block. The inline styling is baked in by the
+/// `text` / `heading` / `note` helpers so compose_* code only ever deals
+/// in semantics, never in `<p style="...">`.
+pub struct Block(String);
+
+/// A body paragraph. `html` is trusted markup (already escaped at the Rust
+/// boundary by the caller, with `<strong>` emphasis coming from the FTL
+/// value). Styled as the letter body text.
+pub fn text(html: impl Into<String>) -> Block {
+    Block(format!(
+        r#"<p class="nd-body" style="margin:0 0 18px 0;color:{body};font-size:15px;line-height:1.72;">{content}</p>"#,
+        body = C_BODY,
+        content = html.into(),
+    ))
+}
+
+/// A muted secondary line (e.g. the notification "From: …" row).
+pub fn muted(html: impl Into<String>) -> Block {
+    Block(format!(
+        r#"<p class="nd-muted" style="margin:0 0 18px 0;color:{muted};font-size:13px;line-height:1.6;">{content}</p>"#,
+        muted = C_MUTED,
+        content = html.into(),
+    ))
+}
+
+/// A body sub-heading. Smaller than the letter headline; rarely needed,
+/// kept for completeness so compose_* never reaches for raw `<h*>`.
+#[allow(dead_code)]
+pub fn heading(html: impl Into<String>) -> Block {
+    Block(format!(
+        r#"<p class="nd-head" style="margin:0 0 12px 0;color:{head};font-size:17px;line-height:1.4;font-weight:600;">{content}</p>"#,
+        head = C_HEAD,
+        content = html.into(),
+    ))
+}
+
+/// A quiet aside with a subtle grey left rule — the "didn't request this?" note.
+pub fn note(html: impl Into<String>) -> Block {
+    Block(format!(
+        r#"<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin:0 0 18px 0;"><tr>
+                <td class="nd-noterule" style="border-left:2px solid {rule};padding:2px 0 2px 16px;">
+                  <p class="nd-muted" style="margin:0;color:{muted};font-size:13px;line-height:1.6;">{content}</p>
+                </td>
+              </tr></table>"#,
+        rule = C_NOTERULE,
+        muted = C_MUTED,
+        content = html.into(),
+    ))
+}
+
+/// Call-to-action button. `label` is plain text (escaped here); `url` is a
+/// trusted, already-constructed link.
+pub struct Cta {
+    pub label: String,
+    pub url: String,
+}
+
+/// The bulleted security-notes box.
+pub struct Notice {
+    pub kind: NoticeType,
+    /// Each item is trusted markup (FTL value with optional `<strong>`).
+    pub items: Vec<String>,
+}
+
+/// Params for a full letter. Construct with named fields and `..Default::default()`
+/// so adding a field never breaks an existing call site.
+#[derive(Default)]
+pub struct EmailLayout<'a> {
+    /// The `<title>` and `<h1>` headline (plain text, escaped on render).
+    pub headline: &'a str,
+    /// Inbox-snippet preheader (plain text, escaped on render). Falls back
+    /// to "{headline} — {app_name}" when empty.
+    pub preheader: &'a str,
+    /// Ordered body blocks built via `text` / `heading` / `note` / `muted`.
+    pub body: Vec<Block>,
+    /// Optional call-to-action button (+ paste-the-link fallback).
+    pub cta: Option<Cta>,
+    /// Optional bulleted security-notes box, rendered after the body.
+    pub notice: Option<Notice>,
+    /// Optional sign-off (e.g. "With care,"). The `app_name` team line is
+    /// appended automatically when set.
+    pub signoff: Option<&'a str>,
+}
+
 /// Email template builder for consistent, branded emails
 struct EmailTemplate<'a> {
     branding: &'a EmailBranding,
@@ -144,249 +279,302 @@ impl<'a> EmailTemplate<'a> {
         Self { branding }
     }
 
-    /// Build complete HTML email with branding. `lang` lands on
-    /// the `<html lang="...">` attribute so screen readers reading
-    /// the rendered message announce the right pronunciation rules
-    /// and clients that auto-translate inbound mail know to skip
-    /// (the body already matches).
-    #[allow(clippy::too_many_arguments)]
-    fn build(
-        &self,
-        title: &str,
-        title_color: &str,
-        content: &str,
-        button_text: &str,
-        button_url: &str,
-        button_color: &str,
-        notice_type: NoticeType,
-        notice_items: &[&str],
-        footer_text: &str,
-        locale: &unic_langid::LanguageIdentifier,
-    ) -> String {
-        let logo_html = self.build_logo_section();
-        let notice_html = self.build_notice_section(notice_type, notice_items, locale);
-        let lang = locale.to_string();
-        let fallback_link_prompt = crate::utils::i18n::tr(locale, "email-link-fallback-prompt");
-        let rights_reserved = crate::utils::i18n::tr(locale, "email-footer-rights");
-        let automated_notice = crate::utils::i18n::tr(locale, "email-footer-automated");
-
-        format!(
-            r#"<!DOCTYPE html>
-<html lang="{lang}">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>{title}</title>
-    <!--[if mso]>
-    <noscript>
-        <xml>
-            <o:OfficeDocumentSettings>
-                <o:PixelsPerInch>96</o:PixelsPerInch>
-            </o:OfficeDocumentSettings>
-        </xml>
-    </noscript>
-    <![endif]-->
-</head>
-<body style="margin: 0; padding: 0; background-color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; -webkit-font-smoothing: antialiased;">
-    <!-- Preview text (hidden) -->
-    <div style="display: none; max-height: 0; overflow: hidden;">
-        {title} - {app_name}
-    </div>
-
-    <!-- Email wrapper -->
-    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f3f4f6;">
-        <tr>
-            <td style="padding: 40px 20px;">
-                <!-- Main container -->
-                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width: 600px; margin: 0 auto;">
-
-                    <!-- Header with logo -->
-                    <tr>
-                        <td style="background-color: #ffffff; border-radius: 12px 12px 0 0; padding: 32px 40px; text-align: center; border-bottom: 1px solid #e5e7eb;">
-                            {logo_html}
-                        </td>
-                    </tr>
-
-                    <!-- Title bar -->
-                    <tr>
-                        <td style="background-color: {title_color}; padding: 24px 40px;">
-                            <h1 style="margin: 0; color: #ffffff; font-size: 22px; font-weight: 600; text-align: center; letter-spacing: -0.02em;">
-                                {title}
-                            </h1>
-                        </td>
-                    </tr>
-
-                    <!-- Content area -->
-                    <tr>
-                        <td style="background-color: #ffffff; padding: 40px;">
-                            {content}
-
-                            <!-- CTA Button -->
-                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 32px 0;">
-                                <tr>
-                                    <td style="text-align: center;">
-                                        <!--[if mso]>
-                                        <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{button_url}" style="height:48px;v-text-anchor:middle;width:220px;" arcsize="12%" strokecolor="{button_color}" fillcolor="{button_color}">
-                                        <w:anchorlock/>
-                                        <center style="color:#ffffff;font-family:sans-serif;font-size:16px;font-weight:600;">{button_text}</center>
-                                        </v:roundrect>
-                                        <![endif]-->
-                                        <!--[if !mso]><!-->
-                                        <a href="{button_url}" target="_blank" style="display: inline-block; background-color: {button_color}; color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-weight: 600; font-size: 16px; transition: background-color 0.2s;">
-                                            {button_text}
-                                        </a>
-                                        <!--<![endif]-->
-                                    </td>
-                                </tr>
-                            </table>
-
-                            <!-- Fallback link -->
-                            <p style="margin: 0 0 24px 0; color: #6b7280; font-size: 13px; line-height: 1.5; text-align: center;">
-                                {fallback_link_prompt}
-                            </p>
-                            <p style="margin: 0 0 32px 0; padding: 12px 16px; background-color: #f9fafb; border-radius: 6px; word-break: break-all; font-size: 12px; color: {primary_color}; font-family: 'SF Mono', Monaco, 'Courier New', monospace;">
-                                <a href="{button_url}" style="color: {primary_color}; text-decoration: none;">{button_url}</a>
-                            </p>
-
-                            <!-- Notice box -->
-                            {notice_html}
-                        </td>
-                    </tr>
-
-                    <!-- Footer -->
-                    <tr>
-                        <td style="background-color: #f9fafb; border-radius: 0 0 12px 12px; padding: 24px 40px; border-top: 1px solid #e5e7eb;">
-                            <p style="margin: 0 0 8px 0; color: #6b7280; font-size: 13px; line-height: 1.5; text-align: center;">
-                                {footer_text}
-                            </p>
-                            <p style="margin: 0; color: #9ca3af; font-size: 12px; text-align: center;">
-                                &copy; {year} {app_name}. {rights_reserved}
-                            </p>
-                        </td>
-                    </tr>
-
-                </table>
-
-                <!-- Unsubscribe / Help links -->
-                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width: 600px; margin: 24px auto 0;">
-                    <tr>
-                        <td style="text-align: center;">
-                            <p style="margin: 0; color: #9ca3af; font-size: 12px;">
-                                {automated_notice}
-                            </p>
-                        </td>
-                    </tr>
-                </table>
-
-            </td>
-        </tr>
-    </table>
-</body>
-</html>"#,
-            title = escape_html(title),
-            app_name = escape_html(&self.branding.app_name),
-            logo_html = logo_html,
-            title_color = title_color,
-            content = content,
-            button_text = escape_html(button_text),
-            button_url = button_url,
-            button_color = button_color,
-            notice_html = notice_html,
-            footer_text = escape_html(footer_text),
-            primary_color = &self.branding.primary_color,
-            year = chrono::Utc::now().format("%Y"),
-        )
+    /// Resolve the logo URL against `base_url` (relative paths get the
+    /// base prefix; absolute `http(s)` URLs pass through).
+    fn logo_full_url(&self, logo_url: &str) -> String {
+        if logo_url.starts_with("http") {
+            logo_url.to_string()
+        } else {
+            format!("{}{}", self.branding.base_url, logo_url)
+        }
     }
 
-    /// Build the logo section HTML
+    /// The letterhead: a logo `<img>` when branding carries one, otherwise
+    /// the wordmark fallback in brand orange.
     fn build_logo_section(&self) -> String {
         match &self.branding.logo_url {
             Some(logo_url) if !logo_url.is_empty() => {
-                // Construct full URL if relative path
-                let full_url = if logo_url.starts_with("http") {
-                    logo_url.clone()
-                } else {
-                    format!("{}{}", self.branding.base_url, logo_url)
-                };
+                let full_url = self.logo_full_url(logo_url);
                 format!(
-                    r#"<img src="{}" alt="{}" style="max-width: 180px; max-height: 60px; height: auto;" />"#,
-                    escape_html(&full_url),
-                    escape_html(&self.branding.app_name)
+                    r#"<img src="{src}" width="150" height="27" alt="{alt}" style="display:block;width:150px;height:27px;border:0;outline:none;" />"#,
+                    src = escape_html(&full_url),
+                    alt = escape_html(&self.branding.app_name),
                 )
             }
             _ => {
-                // Text-based logo fallback with primary color
+                // Text wordmark fallback in brand orange (not the old blue).
                 format!(
-                    r#"<h2 style="margin: 0; color: {}; font-size: 28px; font-weight: 700; letter-spacing: -0.03em;">{}</h2>"#,
-                    &self.branding.primary_color,
-                    escape_html(&self.branding.app_name)
+                    r#"<span style="display:inline-block;color:{cta};font-size:24px;font-weight:700;letter-spacing:-0.02em;">{name}</span>"#,
+                    cta = C_CTA,
+                    name = escape_html(&self.branding.app_name),
                 )
             }
         }
     }
 
-    /// Build the notice section HTML
+    /// Render the bulleted notice box, or empty string when no items.
     fn build_notice_section(
         &self,
-        notice_type: NoticeType,
-        items: &[&str],
+        notice: &Notice,
         locale: &unic_langid::LanguageIdentifier,
     ) -> String {
-        if items.is_empty() {
+        if notice.items.is_empty() {
             return String::new();
         }
 
-        let light_color = self.branding.primary_color_light();
+        let title = crate::utils::i18n::tr(locale, notice.kind.title_key());
 
-        let (bg_color, border_color): (&str, &str) = match notice_type {
-            NoticeType::Warning => ("#fef3c7", "#f59e0b"),
-            NoticeType::Critical => ("#fee2e2", "#dc2626"),
-            NoticeType::Info => (&light_color, &self.branding.primary_color),
-            NoticeType::Success => ("#ecfdf5", "#059669"),
-        };
-
-        let title_key = match notice_type {
-            NoticeType::Warning => "email-notice-security",
-            NoticeType::Critical => "email-notice-security-critical",
-            NoticeType::Info => "email-notice-getting-started",
-            NoticeType::Success => "email-notice-success",
-        };
-        let title = crate::utils::i18n::tr(locale, title_key);
-
-        let items_html: String = items
+        let items_html: String = notice
+            .items
             .iter()
-            .map(|item| format!(
-                r#"<li style="margin: 0 0 8px 0; color: #374151; font-size: 14px; line-height: 1.5;">{item}</li>"#
-            ))
+            .map(|item| {
+                format!(
+                    r#"<li class="nd-muted" style="margin:0 0 7px 0;color:{muted};font-size:13px;line-height:1.6;">{item}</li>"#,
+                    muted = C_MUTED,
+                )
+            })
             .collect();
 
         format!(
-            r#"<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-top: 8px;">
-                <tr>
-                    <td style="background-color: {bg_color}; border-left: 4px solid {border_color}; border-radius: 0 8px 8px 0; padding: 20px;">
-                        <p style="margin: 0 0 12px 0; font-weight: 600; color: #111827; font-size: 14px;">
-                            {title}
-                        </p>
-                        <ul style="margin: 0; padding: 0 0 0 20px;">
-                            {items_html}
-                        </ul>
-                    </td>
-                </tr>
-            </table>"#,
+            r#"<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%"><tr>
+                <td class="nd-noterule" style="border-left:2px solid {rule};padding:2px 0 2px 16px;">
+                  <p class="nd-strong" style="margin:0 0 10px 0;color:{strong};font-size:13px;font-weight:600;">{title}</p>
+                  <ul style="margin:0;padding:0 0 0 18px;">{items_html}</ul>
+                </td>
+              </tr></table>"#,
+            rule = C_NOTERULE,
+            strong = C_STRONG,
+        )
+    }
+
+    /// Render the bulletproof CTA (VML for Outlook/MSO, anchor elsewhere)
+    /// plus the paste-the-link fallback.
+    fn build_cta_section(&self, cta: &Cta, locale: &unic_langid::LanguageIdentifier) -> String {
+        let fallback_prompt = crate::utils::i18n::tr(locale, "email-link-fallback-prompt");
+        format!(
+            r#"<tr>
+            <td class="nd-pad" style="padding:30px 8px 0 8px;">
+              <!--[if mso]>
+              <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{url}" style="height:46px;v-text-anchor:middle;width:200px;" arcsize="18%" strokecolor="{cta}" fillcolor="{cta}">
+              <w:anchorlock/><center style="color:#ffffff;font-family:sans-serif;font-size:15px;font-weight:600;">{label}</center>
+              </v:roundrect>
+              <![endif]-->
+              <!--[if !mso]><!-->
+              <a href="{url}" target="_blank" role="button" style="display:inline-block;background-color:{cta};color:#ffffff;font-size:15px;font-weight:600;padding:13px 30px;border-radius:8px;letter-spacing:0.01em;">{label}</a>
+              <!--<![endif]-->
+            </td>
+          </tr>
+          <tr>
+            <td class="nd-pad" style="padding:22px 8px 0 8px;">
+              <p class="nd-muted" style="margin:0 0 8px 0;color:{muted};font-size:12.5px;line-height:1.5;">{fallback_prompt}</p>
+              <p class="nd-fallback" style="margin:0;padding:11px 14px;background-color:{fallback_bg};border-radius:7px;word-break:break-all;font-size:12px;font-family:'SF Mono',Monaco,Consolas,monospace;">
+                <a class="nd-link" href="{url}" style="color:{link};">{url_text}</a>
+              </p>
+            </td>
+          </tr>"#,
+            url = cta.url,
+            url_text = escape_html(&cta.url),
+            label = escape_html(&cta.label),
+            cta = C_CTA,
+            muted = C_MUTED,
+            link = C_LINK,
+            fallback_bg = C_FALLBACK_BG,
+        )
+    }
+
+    /// Build the complete HTML letter. `EmailLayout` carries every variable
+    /// part; this owns all the chrome. `locale` lands on `<html lang>` so
+    /// screen readers announce the right rules and clients skip auto-translate.
+    fn render(&self, layout: EmailLayout<'_>, locale: &unic_langid::LanguageIdentifier) -> String {
+        let lang = locale.to_string();
+        let app_name = escape_html(&self.branding.app_name);
+        let logo_html = self.build_logo_section();
+
+        let preheader = if layout.preheader.is_empty() {
+            format!("{} — {}", layout.headline, self.branding.app_name)
+        } else {
+            layout.preheader.to_string()
+        };
+
+        let body_html: String = layout.body.iter().map(|b| b.0.as_str()).collect();
+
+        let cta_html = layout
+            .cta
+            .as_ref()
+            .map(|c| self.build_cta_section(c, locale))
+            .unwrap_or_default();
+
+        let notice_html = layout
+            .notice
+            .as_ref()
+            .map(|n| {
+                let inner = self.build_notice_section(n, locale);
+                if inner.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        r#"<tr><td class="nd-pad" style="padding:28px 8px 0 8px;">{inner}</td></tr>"#
+                    )
+                }
+            })
+            .unwrap_or_default();
+
+        let signoff_html = layout
+            .signoff
+            .map(|s| {
+                format!(
+                    r#"<tr><td class="nd-pad" style="padding:32px 8px 0 8px;">
+              <p class="nd-body" style="margin:0;color:{body};font-size:15px;line-height:1.72;">{signoff}<br><span class="nd-strong" style="color:{head};">{team}</span></p>
+            </td></tr>"#,
+                    body = C_BODY,
+                    head = C_HEAD,
+                    signoff = escape_html(s),
+                    team = escape_html(&self.branding.app_name),
+                )
+            })
+            .unwrap_or_default();
+
+        let automated_notice = crate::utils::i18n::tr(locale, "email-footer-automated");
+        let help_label = crate::utils::i18n::tr(locale, "email-footer-help");
+        let help_url = format!("{}/support", self.branding.base_url);
+
+        // The anti-phishing line is opt-in and admin-authored (or the
+        // localized default), resolved upstream into `security_note`.
+        // Escaped here since it carries no trusted markup, and omitted
+        // entirely when the workspace has the note turned off.
+        let security_note_html = self
+            .branding
+            .security_note
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+            .map(|note| {
+                format!(
+                    r#"<p class="nd-faint" style="margin:0;color:{faint};font-size:11.5px;line-height:1.65;">{note}</p>"#,
+                    faint = C_FAINT,
+                    note = escape_html(note),
+                )
+            })
+            .unwrap_or_default();
+
+        format!(
+            r#"<!DOCTYPE html>
+<html lang="{lang}" style="margin:0;padding:0;">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
+  <title>{title}</title>
+  <!--[if mso]>
+  <noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript>
+  <![endif]-->
+  <style>
+    @media (prefers-color-scheme: dark) {{
+      .nd-paper   {{ background:#0b0a08 !important; }}
+      .nd-head    {{ color:#f4f1ea !important; }}
+      .nd-body    {{ color:#cfc8bd !important; }}
+      .nd-muted   {{ color:#9a9082 !important; }}
+      .nd-faint   {{ color:#7a7263 !important; }}
+      .nd-link    {{ color:#ff9d57 !important; }}
+      .nd-fallback{{ background:#16140f !important; }}
+      .nd-hair    {{ border-color:#2a2620 !important; }}
+      .nd-noterule{{ border-color:#3a352d !important; }}
+      .nd-strong  {{ color:#e6ded0 !important; }}
+    }}
+    a {{ text-decoration:none; }}
+    @media only screen and (max-width:560px) {{
+      .nd-pad   {{ padding-left:14px !important; padding-right:14px !important; }}
+      .nd-outer {{ padding-left:12px !important; padding-right:12px !important; padding-top:36px !important; padding-bottom:32px !important; }}
+    }}
+  </style>
+</head>
+<body class="nd-paper" style="margin:0;padding:0;background-color:{paper};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;-webkit-font-smoothing:antialiased;">
+  <div style="display: none; max-height:0;overflow:hidden;opacity:0;">{preheader}</div>
+
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" class="nd-paper" style="background-color:{paper};">
+    <tr>
+      <td align="center" class="nd-outer" style="padding:56px 24px 44px 24px;">
+
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width:512px;margin:0 auto;">
+
+          <!-- Letterhead: wordmark + hairline rule -->
+          <tr><td align="center" style="padding:0 0 6px 0;">
+            {logo_html}
+          </td></tr>
+          <tr><td align="center" style="padding:18px 0 0 0;">
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr>
+              <td class="nd-hair" style="width:38px;border-top:1px solid {hair};font-size:0;line-height:0;">&nbsp;</td>
+            </tr></table>
+          </td></tr>
+
+          <!-- Letter body -->
+          <tr>
+            <td class="nd-pad" style="padding:40px 8px 0 8px;">
+              <h1 class="nd-head" style="margin:0 0 22px 0;color:{head};font-size:22px;line-height:1.35;font-weight:600;letter-spacing:-0.01em;">{title}</h1>
+              {body_html}
+            </td>
+          </tr>
+
+          <!-- CTA -->
+          {cta_html}
+
+          <!-- Notice -->
+          {notice_html}
+
+          <!-- Sign-off -->
+          {signoff_html}
+
+          <!-- Footer -->
+          <tr>
+            <td class="nd-pad" style="padding:40px 8px 0 8px;">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%"><tr>
+                <td class="nd-hair" style="border-top:1px solid {hair};font-size:0;line-height:0;">&nbsp;</td>
+              </tr></table>
+              <p class="nd-faint" style="margin:18px 0 4px 0;color:{faint};font-size:12px;line-height:1.5;">{automated_notice}</p>
+              <p class="nd-faint" style="margin:0 0 16px 0;color:{faint};font-size:12px;">&copy; {year} {app_name} &nbsp;&middot;&nbsp; <a class="nd-link" href="{help_url}" style="color:{faint};">{help_label}</a></p>
+              {security_note_html}
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"#,
+            title = escape_html(layout.headline),
+            preheader = escape_html(&preheader),
+            paper = C_PAPER,
+            head = C_HEAD,
+            hair = C_HAIR,
+            faint = C_FAINT,
+            year = chrono::Utc::now().format("%Y"),
         )
     }
 }
 
-/// Notice type for email templates
+/// Notice type for email templates. Picks the title key for the
+/// security-notes box and is preserved from the previous design.
 #[derive(Clone, Copy)]
-enum NoticeType {
+pub enum NoticeType {
     Warning,
     #[allow(dead_code)]
     Critical,
     Info,
     #[allow(dead_code)]
     Success,
+}
+
+impl NoticeType {
+    fn title_key(self) -> &'static str {
+        match self {
+            NoticeType::Warning => "email-notice-security",
+            NoticeType::Critical => "email-notice-security-critical",
+            NoticeType::Info => "email-notice-getting-started",
+            NoticeType::Success => "email-notice-success",
+        }
+    }
 }
 
 /// Email configuration loaded from environment variables
@@ -840,7 +1028,7 @@ impl EmailService {
         let title = tr("password-reset-title", &[]);
         let cta_label = tr("password-reset-cta-label", &[]);
         let footer = tr("password-reset-footer", &[]);
-        let notice_items_owned: Vec<String> = [
+        let notice_items: Vec<String> = [
             "password-reset-notice-expiry",
             "password-reset-notice-single-use",
             "password-reset-notice-never-share",
@@ -849,30 +1037,23 @@ impl EmailService {
         .iter()
         .map(|key| tr(key, &[]))
         .collect();
-        let notice_items: Vec<&str> = notice_items_owned.iter().map(String::as_str).collect();
 
-        let content = format!(
-            r#"<p style="margin: 0 0 16px 0; color: #374151; font-size: 16px; line-height: 1.6;">
-                {greeting}
-            </p>
-            <p style="margin: 0 0 16px 0; color: #374151; font-size: 16px; line-height: 1.6;">
-                {intro}
-            </p>
-            <p style="margin: 0 0 8px 0; color: #374151; font-size: 16px; line-height: 1.6;">
-                {action_prompt}
-            </p>"#
-        );
-
-        let html_body = template.build(
-            &title,
-            &branding.primary_color,
-            &content,
-            &cta_label,
-            &reset_link,
-            &branding.primary_color,
-            NoticeType::Warning,
-            &notice_items,
-            &footer,
+        let html_body = template.render(
+            EmailLayout {
+                headline: &title,
+                body: vec![text(greeting), text(intro), text(action_prompt)],
+                cta: Some(Cta {
+                    label: cta_label,
+                    url: reset_link.clone(),
+                }),
+                notice: Some(Notice {
+                    kind: NoticeType::Warning,
+                    items: notice_items,
+                }),
+                signoff: None,
+                preheader: &footer,
+                ..Default::default()
+            },
             locale,
         );
 
@@ -934,7 +1115,7 @@ impl EmailService {
         let action_prompt = tr("invitation-action-prompt", &[]);
         let cta_label = tr("invitation-cta-label", &[]);
         let footer = tr("invitation-footer", &[]);
-        let notice_items_owned: Vec<String> = [
+        let notice_items: Vec<String> = [
             "invitation-notice-expiry",
             "invitation-notice-create-password",
             "invitation-notice-strong-password",
@@ -943,35 +1124,23 @@ impl EmailService {
         .iter()
         .map(|key| tr(key, &[]))
         .collect();
-        let notice_items: Vec<&str> = notice_items_owned.iter().map(String::as_str).collect();
 
-        let content = format!(
-            r#"<p style="margin: 0 0 16px 0; color: #374151; font-size: 16px; line-height: 1.6;">
-                {greeting}
-            </p>
-            <p style="margin: 0 0 16px 0; color: #374151; font-size: 16px; line-height: 1.6;">
-                {intro}
-            </p>
-            <p style="margin: 0 0 8px 0; color: #374151; font-size: 16px; line-height: 1.6;">
-                {action_prompt}
-            </p>"#
-        );
-
-        // Green/success accent — the invitation flow is positive
-        // by intent (joining a workspace), distinct from password
-        // reset's warning amber.
-        let welcome_color = "#059669";
-
-        let html_body = template.build(
-            &title,
-            welcome_color,
-            &content,
-            &cta_label,
-            &setup_link,
-            welcome_color,
-            NoticeType::Info,
-            &notice_items,
-            &footer,
+        let html_body = template.render(
+            EmailLayout {
+                headline: &title,
+                body: vec![text(greeting), text(intro), text(action_prompt)],
+                cta: Some(Cta {
+                    label: cta_label,
+                    url: setup_link.clone(),
+                }),
+                notice: Some(Notice {
+                    kind: NoticeType::Info,
+                    items: notice_items,
+                }),
+                signoff: None,
+                preheader: &footer,
+                ..Default::default()
+            },
             locale,
         );
 
@@ -1005,15 +1174,30 @@ impl EmailService {
         invitation_token: &str,
         branding: &EmailBranding,
     ) -> Result<(), String> {
+        if !self.config.is_configured() {
+            return Err("Email is not configured".to_string());
+        }
+        let (subject, html_body) =
+            self.compose_guest_ticket_confirmation(user_name, invitation_token, branding);
+        self.send_html_email(to, &subject, &html_body).await
+    }
+
+    /// Render the guest ticket-confirmation email without sending. Returns
+    /// `(subject, html_body)`; the plain-text alternative is derived from the
+    /// HTML by `send_html_email`. Split out so the preview harness can render
+    /// it without a transport.
+    pub fn compose_guest_ticket_confirmation(
+        &self,
+        user_name: &str,
+        invitation_token: &str,
+        branding: &EmailBranding,
+    ) -> (String, String) {
         // Guest confirmation predates the inbound-locale plumbing.
         // Fall back to DEFAULT_LOCALE; once guest channels carry an
         // Accept-Language hint we can thread it through.
         let locale =
             unic_langid::LanguageIdentifier::from_str(crate::utils::locale::DEFAULT_LOCALE)
                 .expect("DEFAULT_LOCALE parses");
-        if !self.config.is_configured() {
-            return Err("Email is not configured".to_string());
-        }
 
         let confirm_link = format!(
             "{}/accept-invitation?token={}",
@@ -1021,44 +1205,46 @@ impl EmailService {
         );
         let template = EmailTemplate::new(branding);
 
-        let content = format!(
-            r#"<p style="margin: 0 0 16px 0; color: #374151; font-size: 16px; line-height: 1.6;">
-                Hi <strong>{}</strong>,
-            </p>
-            <p style="margin: 0 0 8px 0; color: #374151; font-size: 16px; line-height: 1.6;">
-                Thanks for submitting a ticket to <strong>{}</strong>. Confirm your email to release it to our team:
-            </p>"#,
-            escape_html(user_name),
+        // No recipient locale to resolve from at this point — the
+        // guest has just submitted a form, no account exists yet, so
+        // we default to DEFAULT_LOCALE. The copy here predates the
+        // i18n plumbing for this flow and stays hardcoded English;
+        // a future commit could resolve the inbound `Accept-Language`
+        // header or site_settings.default_locale here.
+        let greeting = format!("Hi <strong>{}</strong>,", escape_html(user_name));
+        let intro = format!(
+            "Thanks for submitting a ticket to <strong>{}</strong>. Confirm your email to release it to our team:",
             escape_html(&branding.app_name)
         );
 
-        // Use the app's accent color for the guest confirmation flow so it
-        // reads as "your helpdesk" rather than a generic invitation.
-        let accent = &branding.primary_color;
-
-        // No recipient locale to resolve from at this point — the
-        // guest has just submitted a form, no account exists yet,
-        // so we default to "en". A future commit could resolve
-        // the inbound `Accept-Language` header or
-        // site_settings.default_locale here.
-        let html_body = template.build(
-            "Confirm your ticket submission",
-            accent,
-            &content,
-            "Confirm email & send ticket",
-            &confirm_link,
-            accent,
-            NoticeType::Info,
-            &[
-                "Link expires in <strong>7 days</strong>",
-                "Confirming also gives you access to your ticket portal to track progress and reply",
-            ],
-            "If you didn't submit a ticket, you can safely ignore this email, no account will be created.",
+        let html_body = template.render(
+            EmailLayout {
+                headline: "Confirm your ticket submission",
+                body: vec![
+                    text(greeting),
+                    text(intro),
+                    note("If you didn't submit a ticket, you can safely ignore this email, no account will be created."),
+                ],
+                cta: Some(Cta {
+                    label: "Confirm email & send ticket".to_string(),
+                    url: confirm_link.clone(),
+                }),
+                notice: Some(Notice {
+                    kind: NoticeType::Info,
+                    items: vec![
+                        "Link expires in <strong>7 days</strong>".to_string(),
+                        "Confirming also gives you access to your ticket portal to track progress and reply".to_string(),
+                    ],
+                }),
+                signoff: None,
+                preheader: "",
+                ..Default::default()
+            },
             &locale,
         );
 
         let subject = format!("Confirm your ticket submission to {}", branding.app_name);
-        self.send_html_email(to, &subject, &html_body).await
+        (subject, html_body)
     }
 
     /// Send a technician's reply to a ticket as an email. Sets the
@@ -1129,28 +1315,25 @@ impl EmailService {
             "notif-from-row",
             &[("actor", escape_html(actor_name).into())],
         );
-        let content = format!(
-            r#"<p style="margin: 0 0 16px 0; color: #374151; font-size: 16px; line-height: 1.6;">{}</p>
-            <p style="margin: 0 0 24px 0; color: #6b7280; font-size: 14px;">{}</p>"#,
-            escape_html(body),
-            from_row,
-        );
 
         let button_label = tr(
             "notif-cta-view-in",
             &[("app", branding.app_name.clone().into())],
         );
         let footer = tr("notif-footer-preferences", &[]);
-        let html_body = template.build(
-            title,
-            &branding.primary_color,
-            &content,
-            &button_label,
-            cta_url,
-            &branding.primary_color,
-            NoticeType::Info,
-            &[],
-            &footer,
+        let html_body = template.render(
+            EmailLayout {
+                headline: title,
+                body: vec![text(escape_html(body)), muted(from_row)],
+                cta: Some(Cta {
+                    label: button_label,
+                    url: cta_url.to_string(),
+                }),
+                notice: None,
+                signoff: None,
+                preheader: &footer,
+                ..Default::default()
+            },
             locale,
         );
 
@@ -1355,5 +1538,76 @@ mod tests {
             .block_on(disabled.send_ticket_reply(outbound))
             .unwrap_err();
         assert!(err.contains("not configured"), "unexpected error: {err}");
+    }
+
+    // ---------- email design preview harness ----------
+    //
+    // Renders each compose_* with representative sample data + default
+    // branding and writes the HTML to `target/email-preview/<name>.html`
+    // so the "fine-stationery" design can be eyeballed in a browser
+    // without sending. Pure render — no network, no DB.
+
+    #[test]
+    fn render_email_previews() {
+        use std::str::FromStr;
+
+        let svc = svc();
+        let mut branding = EmailBranding::default(); // default brand orange, no logo
+                                                     // Opt-in anti-phishing footer, resolved upstream in
+                                                     // production. Set here so the preview shows the line.
+        branding.security_note = Some(
+            "Acme only ever emails you from acme.example.com. We will never ask \
+             for your password or a login code by email."
+                .to_string(),
+        );
+        let locale = unic_langid::LanguageIdentifier::from_str("en-US").unwrap();
+
+        let out_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("email-preview");
+        std::fs::create_dir_all(&out_dir).expect("create preview dir");
+
+        let write = |name: &str, html: &str| {
+            std::fs::write(out_dir.join(format!("{name}.html")), html)
+                .unwrap_or_else(|e| panic!("write {name}: {e}"));
+        };
+
+        let (_subj, html, _text) =
+            svc.compose_password_reset("Alex", "EXAMPLE-RESET-TOKEN", &branding, &locale);
+        write("password-reset", &html);
+
+        let (_subj, html, _text) =
+            svc.compose_invitation("Alex", "EXAMPLE-INVITE-TOKEN", &branding, "Kyle", &locale);
+        write("invitation", &html);
+
+        let (_subj, html) =
+            svc.compose_guest_ticket_confirmation("Alex", "EXAMPLE-GUEST-TOKEN", &branding);
+        write("guest-ticket-confirmation", &html);
+
+        let (html, _text) = svc.compose_notification(
+            "New comment on: Printer fire",
+            "It's still burning. Can someone take a look?",
+            "Kyle",
+            "https://desk.example.com/tickets/42",
+            &branding,
+            &locale,
+        );
+        write("notification", &html);
+
+        // Sanity: every preview file exists and is non-trivial.
+        for name in [
+            "password-reset",
+            "invitation",
+            "guest-ticket-confirmation",
+            "notification",
+        ] {
+            let p = out_dir.join(format!("{name}.html"));
+            let content = std::fs::read_to_string(&p).expect("preview readable");
+            assert!(content.contains("<!DOCTYPE html>"), "{name} is a full doc");
+            assert!(
+                content.contains("acme.example.com"),
+                "{name} renders the configured security note"
+            );
+        }
     }
 }
