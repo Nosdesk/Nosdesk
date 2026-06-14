@@ -43,9 +43,15 @@ struct GitHubRelease {
     html_url: String,
 }
 
-// Get current version from Cargo.toml
+// Release version for the System Information card. Release images bake the
+// real tag (e.g. "0.1.0-rc.5") via the NOSDESK_VERSION build-arg; local/dev
+// builds fall back to the crate version. CARGO_PKG_VERSION isn't bumped
+// per-rc, so without the injected value the card would always read "0.1.0".
 fn get_current_version() -> String {
-    env!("CARGO_PKG_VERSION").to_string()
+    option_env!("NOSDESK_VERSION")
+        .filter(|v| !v.is_empty())
+        .unwrap_or(env!("CARGO_PKG_VERSION"))
+        .to_string()
 }
 
 // Format uptime duration into human-readable string
@@ -67,32 +73,17 @@ fn format_uptime(duration: Duration) -> String {
     }
 }
 
-// Compare version strings (simple semver comparison)
+// True when `latest` is a strictly newer release than `current`, using real
+// semver ordering so prereleases sort correctly (0.1.0-rc.5 < 0.1.0, and
+// rc.4 < rc.5). The previous hand-rolled parse split on '.' and dropped the
+// `-rc.N` segment, which could falsely flag an update. Parse failure on
+// either side ⇒ no update (conservative).
 fn is_newer_version(current: &str, latest: &str) -> bool {
-    let current_parts: Vec<u32> = current
-        .trim_start_matches('v')
-        .split('.')
-        .filter_map(|s| s.parse().ok())
-        .collect();
-
-    let latest_parts: Vec<u32> = latest
-        .trim_start_matches('v')
-        .split('.')
-        .filter_map(|s| s.parse().ok())
-        .collect();
-
-    for i in 0..3 {
-        let current_part = current_parts.get(i).unwrap_or(&0);
-        let latest_part = latest_parts.get(i).unwrap_or(&0);
-
-        if latest_part > current_part {
-            return true;
-        } else if latest_part < current_part {
-            return false;
-        }
+    let parse = |s: &str| semver::Version::parse(s.trim().trim_start_matches('v')).ok();
+    match (parse(current), parse(latest)) {
+        (Some(c), Some(l)) => l > c,
+        _ => false,
     }
-
-    false
 }
 
 // Check GitHub for latest release with a short timeout
@@ -133,10 +124,10 @@ pub async fn get_system_info(
     let current_version = get_current_version();
     let uptime = system_state.start_time.elapsed();
 
-    // Get environment
-    let environment = std::env::var("RUST_ENV")
-        .or_else(|_| std::env::var("APP_ENV"))
-        .unwrap_or_else(|_| "development".to_string());
+    // Read the same ENVIRONMENT var the rest of the app uses (compose, main.rs,
+    // cookies, security headers). The old RUST_ENV/APP_ENV names were never set
+    // anywhere, so this card always showed "development" — even in production.
+    let environment = std::env::var("ENVIRONMENT").unwrap_or_else(|_| "development".to_string());
 
     let response = SystemInfoResponse {
         version: current_version,

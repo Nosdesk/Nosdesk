@@ -80,6 +80,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             NOSDESK_ROOT_PUBKEY=${{ secrets.NOSDESK_ROOT_PUBKEY }}
+            NOSDESK_VERSION=${{ steps.meta.outputs.version }}
             VITE_BUILD_SHA=${{ steps.vars.outputs.sha }}
           provenance: false
           cache-from: type=gha

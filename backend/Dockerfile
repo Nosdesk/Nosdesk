@@ -81,6 +81,13 @@ COPY i18n /i18n
 # release — CI must set the arg.
 ARG NOSDESK_ROOT_PUBKEY=""
 
+# Release version baked into the binary (e.g. 0.1.0-rc.5) for the admin
+# System Information card, read via option_env!("NOSDESK_VERSION"). Empty in
+# local/dev builds, where it falls back to the crate version. CI passes the
+# git tag's version. Its value is part of the RUN command below, so changing
+# it busts the build-cache layer (no stale version baked in).
+ARG NOSDESK_VERSION=""
+
 # Build the server + the nosdesk-cli admin tool together; both
 # link against the same library crate and the extra binary is a
 # trivial addition to a build we're doing anyway. The pubkey is
@@ -88,6 +95,7 @@ ARG NOSDESK_ROOT_PUBKEY=""
 # the layer's metadata; it IS a public value, but keeping build
 # secrets discipline tidy by convention.
 RUN NOSDESK_ROOT_PUBKEY="$NOSDESK_ROOT_PUBKEY" \
+    NOSDESK_VERSION="$NOSDESK_VERSION" \
     cargo build --release --bin backend --bin nosdesk-cli
 
 # Stage 4: Build frontend

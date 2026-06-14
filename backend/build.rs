@@ -21,6 +21,10 @@ fn main() {
 
     let hash = hash_migrations_dir(&migrations_dir);
     println!("cargo:rustc-env=NOSDESK_SCHEMA_HASH={hash:016x}");
+
+    // get_current_version() reads option_env!("NOSDESK_VERSION"); without this
+    // a changed version wouldn't trigger a recompile of the crate that bakes it.
+    println!("cargo:rerun-if-env-changed=NOSDESK_VERSION");
 }
 
 fn hash_migrations_dir(root: &Path) -> u64 {
