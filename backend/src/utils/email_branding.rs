@@ -31,7 +31,7 @@ pub fn get_email_branding(conn: &mut DbConnection, base_url: &str) -> EmailBrand
 /// Resolve the anti-phishing footer note into a ready-to-render
 /// string, or `None` when the workspace has it turned off.
 ///
-/// Custom admin templates use `{{app_name}}` / `{{domain}}` (the
+/// Custom admin templates use `{{brand_name}}` / `{{domain}}` (the
 /// same `{{var}}` shape as auto-ack); the built-in default is the
 /// localized `email-security-note-default` FTL value. `{{domain}}`
 /// resolves to the address the workspace sends mail from, since
@@ -47,7 +47,7 @@ fn resolve_security_note(settings: &SiteSettings, base_url: &str) -> Option<Stri
         Some(custom) if !custom.trim().is_empty() => crate::utils::template_variables::substitute(
             custom,
             &[
-                ("app_name", settings.app_name.as_str()),
+                ("brand_name", settings.app_name.as_str()),
                 ("domain", domain.as_str()),
             ],
         ),
@@ -60,7 +60,7 @@ fn resolve_security_note(settings: &SiteSettings, base_url: &str) -> Option<Stri
                 &locale,
                 "email-security-note-default",
                 &[
-                    ("app_name", settings.app_name.clone().into()),
+                    ("brand_name", settings.app_name.clone().into()),
                     ("domain", domain.clone().into()),
                 ],
             )

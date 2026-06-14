@@ -1694,17 +1694,18 @@ admin-channels-email-auto-ack-saving = Enregistrement…
 admin-channels-email-auto-ack-save = Enregistrer l'accusé
 admin-channels-email-auto-ack-success-saved = Accusé de réception mis à jour
 # Note de sécurité (machine, à relire par un locuteur natif).
-admin-channels-email-security-note-heading = Note de sécurité
-admin-channels-email-security-note-subtitle = Ajoutez une ligne anti-hameçonnage au pied des e-mails transactionnels (réinitialisations de mot de passe, invitations) pour que les destinataires distinguent un message authentique d'une usurpation.
-admin-channels-email-security-note-toggle-label = Afficher la note de sécurité
-admin-channels-email-security-note-toggle-description = Désactivée par défaut. Activez-la une fois votre domaine d'envoi et votre image de marque configurés.
-admin-channels-email-security-note-template-label = Note personnalisée
-admin-channels-email-security-note-template-placeholder = {"{{"}app_name{"}}"} ne vous enverra jamais d'e-mail que depuis {"{{"}domain{"}}"}. Nous ne vous demanderons jamais votre mot de passe par e-mail.
-admin-channels-email-security-note-template-hint = Laissez vide pour utiliser le texte par défaut. Texte brut uniquement.
-admin-channels-email-security-note-variables-hint = Variables :
-admin-channels-email-security-note-saving = Enregistrement…
-admin-channels-email-security-note-save = Enregistrer la note de sécurité
-admin-channels-email-security-note-success-saved = Note de sécurité mise à jour
+admin-email-security-note-heading = Note de sécurité
+admin-email-security-note-subtitle = Ajoutez une ligne anti-hameçonnage au pied des e-mails transactionnels (réinitialisations de mot de passe, invitations) pour que les destinataires distinguent un message authentique d'une usurpation.
+admin-email-security-note-toggle-label = Afficher la note de sécurité
+admin-email-security-note-toggle-description = Désactivée par défaut. Activez-la une fois votre domaine d'envoi et votre image de marque configurés.
+admin-email-security-note-template-label = Note personnalisée
+admin-email-security-note-template-placeholder = {"{{"}brand_name{"}}"} ne vous enverra jamais d'e-mail que depuis {"{{"}domain{"}}"}. Nous ne vous demanderons jamais votre mot de passe par e-mail.
+admin-email-security-note-template-hint = Laissez vide pour utiliser le texte par défaut. Texte brut uniquement.
+admin-email-security-note-variables-hint = Variables :
+admin-email-security-note-saving = Enregistrement…
+admin-email-security-note-save = Enregistrer la note de sécurité
+admin-email-security-note-success-saved = Note de sécurité mise à jour
+admin-email-security-note-error-save = Échec de l'enregistrement de la note de sécurité. Veuillez réessayer.
 
 # Admin : Microsoft Graph (import de données)
 admin-msgraph-back = Retour à l'import de données
@@ -5525,8 +5526,8 @@ email-footer-help = Help
 # Anti-phishing trust line in the email footer. Carries inline markup
 # (emphasis span + mailto link); preserve the tags and the literal
 # Note anti-hameçonnage par défaut du pied de page (machine, à relire
-# par un locuteur natif). { $app_name } et { $domain } sont substitués.
-email-security-note-default = { $app_name } ne vous enverra jamais d'e-mail que depuis { $domain }. Nous ne vous demanderons jamais votre mot de passe ni de code de connexion par e-mail. Si un message vous semble suspect, ne cliquez sur aucun lien et signalez-le à votre service informatique.
+# par un locuteur natif). { $brand_name } et { $domain } sont substitués.
+email-security-note-default = { $brand_name } ne vous enverra jamais d'e-mail que depuis { $domain }. Nous ne vous demanderons jamais votre mot de passe ni de code de connexion par e-mail. Si un message vous semble suspect, ne cliquez sur aucun lien et signalez-le à votre service informatique.
 markdown-embed-depth-limit = [Limite de profondeur d'intégration atteinte]
 markdown-embed-circular = [Intégration circulaire détectée]
 markdown-embed-reference = Intégré : { $title }

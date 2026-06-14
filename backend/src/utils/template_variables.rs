@@ -56,10 +56,12 @@ pub const AUTO_ACK_VARIABLES: &[&str] = &[
 ];
 
 /// Variables the email footer security note substitutes. Scoped to
-/// the workspace identity an anti-phishing line needs: the app name
+/// the workspace identity an anti-phishing line needs: the brand name
 /// and the domain the workspace sends mail from. No ticket- or
 /// recipient-scoped tokens since the note is fixed boilerplate.
-pub const SECURITY_NOTE_VARIABLES: &[&str] = &["app_name", "domain"];
+/// `brand_name` (not `app_name` as elsewhere) reads clearly in this
+/// admin-authored, customer-facing context.
+pub const SECURITY_NOTE_VARIABLES: &[&str] = &["brand_name", "domain"];
 
 /// Variables the rules engine substitutes in a `reply` action's body
 /// when a rule is applied. Mirrors `CANNED_RESPONSE_VARIABLES` plus

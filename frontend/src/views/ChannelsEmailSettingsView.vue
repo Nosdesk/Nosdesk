@@ -307,54 +307,6 @@
             </Button>
           </div>
         </form>
-
-        <!-- Anti-phishing security note. Workspace-wide (site_settings),
-             off by default. Renders in the footer of transactional
-             emails, so it lives here next to the other email-facing
-             copy. Shown regardless of channel since password-reset and
-             invitation mail send without an inbound channel. -->
-        <form
-          class="bg-surface border border-default rounded-xl p-6 flex flex-col gap-6"
-          @submit.prevent="saveSecurityNote"
-        >
-          <div class="flex flex-col gap-1">
-            <h2 class="text-lg font-semibold text-primary">
-              {{ $t('admin-channels-email-security-note-heading') }}
-            </h2>
-            <p class="text-sm text-secondary">
-              {{ $t('admin-channels-email-security-note-subtitle') }}
-            </p>
-          </div>
-
-          <ToggleSwitch
-            v-model="securityNoteEnabled"
-            :label="$t('admin-channels-email-security-note-toggle-label')"
-            :description="$t('admin-channels-email-security-note-toggle-description')"
-          />
-
-          <div class="flex flex-col gap-2">
-            <FormTextarea
-              v-model="securityNoteTemplate"
-              :label="$t('admin-channels-email-security-note-template-label')"
-              :placeholder="$t('admin-channels-email-security-note-template-placeholder')"
-              :description="$t('admin-channels-email-security-note-template-hint')"
-              :rows="4"
-              mono
-              :disabled="!securityNoteEnabled"
-            />
-            <p class="text-xs text-tertiary">
-              {{ $t('admin-channels-email-security-note-variables-hint') }}
-              <code class="text-[10px] bg-surface-alt px-1 rounded">&#123;&#123;app_name&#125;&#125;</code>,
-              <code class="text-[10px] bg-surface-alt px-1 rounded">&#123;&#123;domain&#125;&#125;</code>
-            </p>
-          </div>
-
-          <div class="flex justify-end border-t border-default pt-4">
-            <Button type="submit" :loading="savingSecurityNote" :disabled="!securityNoteIsDirty">
-              {{ savingSecurityNote ? $t('admin-channels-email-security-note-saving') : $t('admin-channels-email-security-note-save') }}
-            </Button>
-          </div>
-        </form>
       </div>
     </div>
 
@@ -497,12 +449,9 @@ const testing = ref(false);
 const deleting = ref(false);
 const clearing = ref(false);
 const savingAutoAck = ref(false);
-const savingSecurityNote = ref(false);
 const form = ref<FormState>(emptyForm());
 const autoAckEnabled = ref(true);
 const autoAckTemplate = ref('');
-const securityNoteEnabled = ref(false);
-const securityNoteTemplate = ref('');
 const testResult = ref<'idle' | 'ok' | 'failed'>('idle');
 const testErrorMessage = ref('');
 const errorMessage = ref('');
@@ -532,8 +481,6 @@ watch(
     if (!data || autoAckSeeded.value) return;
     autoAckEnabled.value = data.channel_auto_ack_enabled;
     autoAckTemplate.value = data.channel_auto_ack_template ?? '';
-    securityNoteEnabled.value = data.email_security_note_enabled;
-    securityNoteTemplate.value = data.email_security_note_template ?? '';
     autoAckSeeded.value = true;
   },
   { immediate: true },
@@ -633,15 +580,6 @@ const autoAckIsDirty = computed(() => {
   return (
     autoAckEnabled.value !== cfg.channel_auto_ack_enabled ||
     autoAckTemplate.value !== (cfg.channel_auto_ack_template ?? '')
-  );
-});
-
-const securityNoteIsDirty = computed(() => {
-  const cfg = brandingConfig.value;
-  if (!cfg) return false;
-  return (
-    securityNoteEnabled.value !== cfg.email_security_note_enabled ||
-    securityNoteTemplate.value !== (cfg.email_security_note_template ?? '')
   );
 });
 
@@ -767,25 +705,6 @@ async function saveAutoAck() {
     errorMessage.value = createErrorFromResponse(e).getUserMessage();
   } finally {
     savingAutoAck.value = false;
-  }
-}
-
-async function saveSecurityNote() {
-  if (!securityNoteIsDirty.value) return;
-  clearMessages();
-  savingSecurityNote.value = true;
-  try {
-    const updated = await brandingService.updateBrandingConfig({
-      email_security_note_enabled: securityNoteEnabled.value,
-      // Empty string clears back to the built-in localized default.
-      email_security_note_template: securityNoteTemplate.value,
-    });
-    queryCache.setQueryData(BRANDING_KEY, updated);
-    flashSuccess('admin-channels-email-security-note-success-saved');
-  } catch (e: unknown) {
-    errorMessage.value = createErrorFromResponse(e).getUserMessage();
-  } finally {
-    savingSecurityNote.value = false;
   }
 }
 
