@@ -50,19 +50,31 @@ const loadError = computed(() =>
   workspacesQuery.error.value ? t('admin-workspaces-error-load') : '',
 );
 
-// Edition / workspace-limit. The server enforces the cap (402 on create);
-// this just reflects it so the Create affordance is disabled with a reason
-// rather than letting the admin hit a wall.
+// Edition / workspace-limit gate. Multi-workspace is a licensed feature and
+// the affordance is hidden (not just disabled) until a deployment is entitled
+// to it, mirroring how the advanced TLS option is gated out of production.
+//
+// Entitled today = self-hosted with an Enterprise license, under the licensed
+// cap. Deliberately NOT offered on:
+//   - pooled / hosted base tier (one workspace per account for now)
+//   - self-hosted Community (no license)
+// Silo/Enterprise hosted tiers will opt in here once the control plane
+// provisions them. Defaults hidden until the edition query resolves so the
+// button never flashes on an ineligible deployment.
 const editionQuery = useQuery({
   key: ['admin-edition'] as const,
   query: () => workspacesService.getEdition(),
 });
-const canCreateWorkspace = computed(
-  () => editionQuery.data.value?.can_create_workspace ?? true,
-);
+const canCreateWorkspace = computed(() => {
+  const e = editionQuery.data.value;
+  if (!e) return false;
+  return e.self_hosted && e.edition === 'enterprise' && e.can_create_workspace;
+});
+// Explain the absence on self-hosted (cap reached / no license). Hosted base
+// tier just gets no button, no upsell note.
 const workspaceCapNote = computed(() => {
   const e = editionQuery.data.value;
-  if (!e || e.can_create_workspace || !e.self_hosted) return '';
+  if (!e || !e.self_hosted || canCreateWorkspace.value) return '';
   return t('admin-workspaces-community-cap', { max: e.max_workspaces });
 });
 
@@ -240,11 +252,10 @@ const deleteTypeToConfirmLabel = computed(() => {
           </p>
         </div>
         <Button
+          v-if="canCreateWorkspace"
           size="sm"
           icon="add"
           class="self-start sm:self-auto shrink-0"
-          :disabled="!canCreateWorkspace"
-          :title="workspaceCapNote || undefined"
           @click="openCreateModal"
         >
           {{ $t('admin-workspaces-create') }}
