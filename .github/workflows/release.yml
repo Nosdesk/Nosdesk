@@ -1,7 +1,9 @@
 name: Release
 
-# Build + publish the production image on a version tag (e.g. v0.1.0-rc.5).
-# Runs on a native amd64 runner (no QEMU), pushing to GHCR and Docker Hub.
+# Build + publish the production image on a version tag (e.g. v0.1.0-rc.5),
+# then create the matching GitHub Release. Runs on a native amd64 runner (no
+# QEMU), pushing to GHCR and Docker Hub. `-rc`/`-beta` tags are marked as
+# prerelease so the in-app updater (stable-only /releases/latest) skips them.
 # Does NOT re-run tests: tag a commit that already passed CI on main.
 #
 # Required repository secrets:
@@ -29,7 +31,7 @@ jobs:
     name: Build & push image
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write   # create the GitHub Release
       packages: write
     steps:
       - uses: actions/checkout@v6
@@ -85,3 +87,20 @@ jobs:
           provenance: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Publish the GitHub Release once the image is up. Prerelease tags
+      # (anything with a `-`, e.g. -rc.5/-beta) are marked prerelease, so the
+      # in-app updater's /releases/latest query keeps skipping them and only
+      # surfaces stable releases. Idempotent: a re-run updates the release.
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ steps.meta.outputs.version }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          body: |
+            Container image `${{ steps.meta.outputs.version }}`:
+            - `docker pull ghcr.io/nosdesk/nosdesk:${{ steps.meta.outputs.version }}`
+            - `docker pull docker.io/nosdesk/nosdesk:${{ steps.meta.outputs.version }}`
