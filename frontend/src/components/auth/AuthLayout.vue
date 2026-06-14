@@ -48,7 +48,12 @@ const heroStyle = computed(() => ({
 </script>
 
 <template>
-  <div class="flex h-screen overflow-hidden bg-app">
+  <!-- h-full (100% of #app, via the html/body/#app height:100% chain), NOT
+       h-screen (100vh): the vh unit tracks the large viewport, which can
+       disagree with the layout viewport on a fresh load and leave a grey gap
+       at the bottom (the html app-bg showing through). h-full matches the
+       default app layout and shrinks correctly when the mobile keyboard opens. -->
+  <div class="flex h-full overflow-hidden bg-app">
     <!-- Form panel. The section owns the scroll; the inner wrapper is
          min-h-full so short forms centre vertically while tall ones (e.g.
          onboarding with its info cards) flow from the top and scroll, all
