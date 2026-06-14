@@ -5243,12 +5243,31 @@ project-modal-col-description = Description
 project-modal-col-status = Statut
 project-modal-col-tickets = Tickets
 project-modal-col-action = Action
+# Sélecteur de projet (machine, à relire par un locuteur natif).
+project-modal-already-added = Déjà ajouté
+project-modal-select = Sélectionner
+project-modal-added = Ajouté
+project-modal-no-description = Aucune description
+project-modal-cancel = Annuler
+project-modal-count = { $count } disponible(s)
+# Sélecteur de tickets à ajouter au projet (machine, à relire par un locuteur natif).
+project-ticket-picker-title = Ajouter des tickets
+project-ticket-picker-search-placeholder = Rechercher des tickets par titre ou #id...
+project-ticket-picker-empty = Aucun ticket à ajouter
+project-ticket-picker-empty-search = Aucun ticket ne correspond à votre recherche
+project-ticket-picker-add = Ajouter
+project-ticket-picker-count = { $count } affiché(s)
+project-ticket-picker-done = Terminé
 kanban-recurring-tooltip = Ticket récurrent
 kanban-recurring-aria = Récurrent
 kanban-sla-aria = Statut SLA
 # Ajout rapide en colonne kanban (machine, à relire par un locuteur natif).
 kanban-quick-add-placeholder = Titre du nouveau ticket...
 kanban-quick-add-aria = Ajouter un ticket à { $column }
+# Compositeur de colonne kanban (machine, à relire par un locuteur natif).
+kanban-composer-placeholder = Créer ou ajouter un ticket...
+kanban-composer-create = Créer « { $title } »
+kanban-composer-existing = Ajouter un ticket existant
 calendar-today = Aujourd'hui
 calendar-anchor-label = Ancre
 calendar-anchor-tooltip = Le champ d'ancrage est défini par la vue enregistrée; le sélecteur arrivera dans une prochaine version.

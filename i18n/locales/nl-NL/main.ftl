@@ -5234,12 +5234,31 @@ project-modal-col-description = Beschrijving
 project-modal-col-status = Status
 project-modal-col-tickets = Tickets
 project-modal-col-action = Actie
+# Projectkiezer (machine, nog na te kijken door moedertaalspreker).
+project-modal-already-added = Al toegevoegd
+project-modal-select = Selecteren
+project-modal-added = Toegevoegd
+project-modal-no-description = Geen beschrijving
+project-modal-cancel = Annuleren
+project-modal-count = { $count } beschikbaar
+# Ticketkiezer om aan project toe te voegen (machine, nog na te kijken door moedertaalspreker).
+project-ticket-picker-title = Tickets toevoegen
+project-ticket-picker-search-placeholder = Zoek tickets op titel of #id...
+project-ticket-picker-empty = Geen tickets om toe te voegen
+project-ticket-picker-empty-search = Geen tickets komen overeen met je zoekopdracht
+project-ticket-picker-add = Toevoegen
+project-ticket-picker-count = { $count } weergegeven
+project-ticket-picker-done = Klaar
 kanban-recurring-tooltip = Terugkerend ticket
 kanban-recurring-aria = Terugkerend
 kanban-sla-aria = SLA-status
 # Snel toevoegen in kanban-kolom (machine, nog na te kijken door moedertaalspreker).
 kanban-quick-add-placeholder = Titel van nieuw ticket...
 kanban-quick-add-aria = Ticket toevoegen aan { $column }
+# Kanban-kolomsamensteller (machine, nog na te kijken door moedertaalspreker).
+kanban-composer-placeholder = Ticket maken of toevoegen...
+kanban-composer-create = "{ $title }" maken
+kanban-composer-existing = Bestaand ticket toevoegen
 calendar-today = Vandaag
 calendar-anchor-label = Anker
 calendar-anchor-tooltip = Het ankerveld wordt bepaald door de opgeslagen weergave; de kiezer komt in een latere update.

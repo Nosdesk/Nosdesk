@@ -1,11 +1,12 @@
 <!-- ProjectSelectionModal.vue -->
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, nextTick } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
 import Modal from '@/components/Modal.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
-import type { Project } from '@/types/project'
-import { projectService } from '@/services/projectService'
+import type { Project, ProjectStatus } from '@/types/project'
+import { useSyncProjectsStore, type SyncProject } from '@/sync/stores/projects'
+import { useAggregate } from '@/sync/composables'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
@@ -20,85 +21,54 @@ const emit = defineEmits<{
   (e: 'select-project', project: Project): void;
 }>()
 
-// State management
-const projects = ref<Project[]>([])
-const isLoading = ref(false)
-const error = ref<string | null>(null)
 const searchQuery = ref('')
 
-// Search debouncing
-let searchTimeout: ReturnType<typeof setTimeout> | null = null;
-const searchDebounceMs = 300;
+// Projects come straight from the sync pool — bounded, already
+// hydrated — so the picker opens instantly with no fetch or spinner.
+const projectsStore = useSyncProjectsStore()
 
-// Scroll container reference
-const scrollContainer = ref<HTMLElement | null>(null);
-
-// Fetch projects when the modal is shown
-watch(() => props.show, async (isVisible) => {
-  if (isVisible) {
-    // Reset state
-    searchQuery.value = '';
-    error.value = null;
-    
-    // Load initial data
-    nextTick(() => {
-      fetchProjects();
-    });
-  } else {
-    // Clear search timeout when modal closes
-    if (searchTimeout) {
-      clearTimeout(searchTimeout);
-      searchTimeout = null;
-    }
+// Ticket counts derived from the project_ticket aggregate so the
+// column stays accurate without a REST round-trip.
+const projectTickets = useAggregate<{ project_id: number; ticket_id: number }>('project_ticket')
+const ticketCountById = computed(() => {
+  const counts = new Map<number, number>()
+  for (const row of projectTickets.value) {
+    counts.set(row.project_id, (counts.get(row.project_id) ?? 0) + 1)
   }
+  return counts
 })
 
-// Fetch projects on component mount
-onMounted(async () => {
-  if (props.show) {
-    await fetchProjects()
-  }
-})
-
-const fetchProjects = async () => {
-  isLoading.value = true
-  error.value = null
-  
-  try {
-    projects.value = await projectService.getProjects()
-  } catch (err) {
-    console.error('Failed to fetch projects:', err)
-    error.value = t('project-modal-load-failed')
-    projects.value = []
-  } finally {
-    isLoading.value = false
+function toProject(p: SyncProject): Project {
+  return {
+    id: p.id,
+    name: p.name,
+    description: p.description,
+    status: p.status as ProjectStatus,
+    created_at: p.created_at,
+    updated_at: p.updated_at ?? p.created_at,
+    ticket_count: ticketCountById.value.get(p.id) ?? 0,
   }
 }
 
-// Debounced search function
-const performSearch = (_query: string) => {
-  if (searchTimeout) {
-    clearTimeout(searchTimeout);
-  }
-  
-  searchTimeout = setTimeout(() => {
-    // Search is performed on already loaded projects
-    // No need to reload from API for client-side filtering
-  }, searchDebounceMs);
-};
+// Reset the search each time the modal opens.
+watch(
+  () => props.show,
+  (isVisible) => {
+    if (isVisible) searchQuery.value = ''
+  },
+)
 
-const filteredProjects = computed(() => {
-  const query = searchQuery.value.toLowerCase()
-  return projects.value.filter(project => 
-    project.name.toLowerCase().includes(query) ||
-    project.description?.toLowerCase().includes(query)
-  )
+const filteredProjects = computed<Project[]>(() => {
+  const query = searchQuery.value.trim().toLowerCase()
+  return projectsStore.sortedByName
+    .filter(
+      (p: SyncProject) =>
+        !query ||
+        p.name.toLowerCase().includes(query) ||
+        (p.description?.toLowerCase().includes(query) ?? false),
+    )
+    .map(toProject)
 })
-
-// Watch for search query changes
-watch(searchQuery, (newQuery) => {
-  performSearch(newQuery);
-});
 
 const getStatusClass = (status: string) => {
   switch (status) {
@@ -113,14 +83,12 @@ const getStatusClass = (status: string) => {
   }
 }
 
+const isAdded = (id: number) => props.existingProjectIds?.includes(id) ?? false
+
 const selectProject = (project: Project) => {
-  // Don't select if already added
-  if (props.existingProjectIds?.includes(project.id)) {
-    return;
-  }
+  if (isAdded(project.id)) return
   emit('select-project', project)
 }
-
 </script>
 
 <template>
@@ -144,55 +112,20 @@ const selectProject = (project: Project) => {
           :placeholder="t('project-modal-search-placeholder')"
           class="w-full pl-10 pr-4 py-2.5 rounded-lg border border-default bg-surface-alt text-primary placeholder-tertiary transition-colors duration-200 hover:border-strong focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
         />
-        <div v-if="isLoading && searchQuery" class="absolute inset-y-0 right-0 pr-3 flex items-center">
-          <svg class="w-5 h-5 animate-spin text-tertiary" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-            <path class="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-          </svg>
-        </div>
       </div>
 
-      <!-- Loading state (initial load) -->
-      <div v-if="isLoading && projects.length === 0" class="text-center py-8 text-tertiary">
-        <div class="inline-flex items-center gap-3">
-          <svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-            <path class="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-          </svg>
-          <span>{{ t('common-loading-projects') }}</span>
-        </div>
-      </div>
-
-      <!-- Error state -->
-      <div v-else-if="error" class="text-center py-8">
-        <div class="bg-status-error/20 border border-status-error/30 rounded-lg p-4">
-          <p class="text-status-error flex items-center justify-center gap-2">
-            <svg class="w-5 h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-              <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
-            </svg>
-            {{ error }}
-          </p>
-          <button
-            @click="fetchProjects()"
-            class="mt-3 px-4 py-2 bg-status-error/80 text-white rounded-md hover:bg-status-error transition-colors text-sm"
-          >
-            Try Again
-          </button>
-        </div>
-      </div>
-
-      <!-- No results -->
+      <!-- No results for a search -->
       <EmptyState
-        v-else-if="!isLoading && filteredProjects.length === 0 && searchQuery"
+        v-if="filteredProjects.length === 0 && searchQuery"
         icon="search"
         :title="$t('empty-project-search-title')"
         :description="$t('empty-project-search-description')"
         variant="compact"
       />
 
-      <!-- No projects available -->
+      <!-- No projects at all -->
       <EmptyState
-        v-else-if="!isLoading && filteredProjects.length === 0 && !searchQuery"
+        v-else-if="filteredProjects.length === 0"
         icon="folder"
         :title="$t('empty-project-available-title')"
         :description="$t('empty-project-available-description')"
@@ -200,9 +133,8 @@ const selectProject = (project: Project) => {
       />
 
       <!-- Projects list -->
-      <div 
-        v-else-if="filteredProjects.length > 0"
-        ref="scrollContainer"
+      <div
+        v-else
         class="max-h-[500px] overflow-y-auto"
       >
         <div class="bg-surface-alt rounded-lg border border-default overflow-hidden">
@@ -217,20 +149,20 @@ const selectProject = (project: Project) => {
               <div class="col-span-1 text-right">{{ t('project-modal-col-action') }}</div>
             </div>
           </div>
-          
+
           <!-- Project rows -->
           <div class="divide-y divide-subtle">
             <div
               v-for="project in filteredProjects"
               :key="project.id"
               class="group relative hover:bg-surface-hover transition-colors duration-150 cursor-pointer"
-              :class="{ 'bg-accent/10 border-l-4 border-accent': existingProjectIds?.includes(project.id) }"
+              :class="{ 'bg-accent/10 border-l-4 border-accent': isAdded(project.id) }"
               @click="selectProject(project)"
             >
               <!-- Already added indicator -->
-              <div v-if="existingProjectIds?.includes(project.id)" class="absolute -top-1 right-2 z-10">
+              <div v-if="isAdded(project.id)" class="absolute -top-1 right-2 z-10">
                 <div class="bg-accent text-on-accent text-xs px-2 py-0.5 rounded-b-md shadow-sm">
-                  Already Added
+                  {{ t('project-modal-already-added') }}
                 </div>
               </div>
 
@@ -240,10 +172,8 @@ const selectProject = (project: Project) => {
                 <div class="flex flex-col gap-1.5 md:grid md:grid-cols-12 md:gap-3 md:items-center">
                   <!-- Project Name -->
                   <div class="col-span-4 min-w-0">
-                    <div class="flex flex-col gap-1">
-                      <div class="font-medium text-primary truncate text-sm" :title="project.name">
-                        {{ project.name }}
-                      </div>
+                    <div class="font-medium text-primary truncate text-sm" :title="project.name">
+                      {{ project.name }}
                     </div>
                   </div>
 
@@ -253,13 +183,13 @@ const selectProject = (project: Project) => {
                       {{ project.description }}
                     </div>
                     <div v-else class="text-sm text-tertiary italic">
-                      No description
+                      {{ t('project-modal-no-description') }}
                     </div>
                   </div>
 
                   <!-- Status -->
                   <div class="col-span-2 min-w-0">
-                    <span 
+                    <span
                       :class="getStatusClass(project.status)"
                       class="text-xs px-2 py-1 rounded-full border capitalize"
                     >
@@ -276,19 +206,19 @@ const selectProject = (project: Project) => {
                     </span>
                   </div>
 
-                  <!-- Action Button -->
+                  <!-- Action -->
                   <div class="col-span-1 text-right">
                     <button
-                      v-if="!existingProjectIds?.includes(project.id)"
+                      v-if="!isAdded(project.id)"
                       class="text-accent hover:text-accent text-xs font-medium px-2 py-1 rounded hover:bg-accent/10 transition-colors"
                     >
-                      Select
+                      {{ t('project-modal-select') }}
                     </button>
                     <span
                       v-else
                       class="text-tertiary text-xs font-medium px-2 py-1"
                     >
-                      Added
+                      {{ t('project-modal-added') }}
                     </span>
                   </div>
                 </div>
@@ -301,22 +231,17 @@ const selectProject = (project: Project) => {
 
     <!-- Footer -->
     <div class="mt-6 flex justify-between items-center pt-4">
-      <div class="flex items-center gap-2 text-sm text-tertiary">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-        </svg>
-        <span>
-          {{ filteredProjects.length }} project{{ filteredProjects.length !== 1 ? 's' : '' }} available
-        </span>
-      </div>
+      <span class="text-sm text-tertiary">
+        {{ t('project-modal-count', { count: filteredProjects.length }) }}
+      </span>
 
       <button
         type="button"
         class="px-4 py-2 text-sm text-secondary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
         @click="emit('close')"
       >
-        Cancel
+        {{ t('project-modal-cancel') }}
       </button>
     </div>
   </Modal>
-</template> 
+</template>

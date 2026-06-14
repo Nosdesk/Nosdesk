@@ -12,11 +12,11 @@ import { useRouter } from 'vue-router'
 import { useTitleManager } from '@/composables/useTitleManager'
 import { useSyncProjectsStore, type SyncProject } from '@/sync/stores/projects'
 import { useProjectTickets } from '@/composables/useProjectTickets'
-import projectService from '@/services/projectService'
+import { useProjectTicketLink } from '@/composables/useProjectTicketLink'
 import { logger } from '@/utils/logger'
 import Icon from '@/components/common/Icon.vue'
 import ProjectActionsMenu from '@/components/projectComponents/ProjectActionsMenu.vue'
-import LinkedTicketModal from '@/components/ticketComponents/LinkedTicketModal.vue'
+import AddTicketsToProjectModal from '@/components/projectComponents/AddTicketsToProjectModal.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 
 const props = defineProps<{
@@ -24,6 +24,10 @@ const props = defineProps<{
   /** Trailing meta on the right (ticket count, gantt summary, …). */
   subtitle?: string
   fallbackName?: string
+  /** Show the "Add tickets" picker button. The board hides it because
+   * its per-column composer is the primary add path; Gantt and Cycles
+   * keep it since they have no columns to compose into. Defaults on. */
+  showAddTickets?: boolean
 }>()
 
 const router = useRouter()
@@ -63,14 +67,14 @@ function onSetStatus(status: string): void {
 const showTicketPicker = ref(false)
 const { cards: projectCards } = useProjectTickets(() => props.project?.id ?? 0)
 const projectTicketIds = computed(() => projectCards.value.map((c) => c.id))
+const { linkToProject } = useProjectTicketLink()
 
 async function onAddTicket(ticketId: number): Promise<void> {
   if (!props.project) return
-  try {
-    await projectService.addTicketToProject(props.project.id, ticketId)
-  } catch (e) {
-    logger.error('Failed to add ticket to project', e)
-  }
+  // Optimistic link: the row lands in the pool immediately, so the
+  // ticket drops out of the picker (it's now "in project") and shows
+  // live across the views without waiting for the sync frame.
+  await linkToProject(props.project.id, ticketId)
 }
 
 const confirmingDelete = ref(false)
@@ -105,8 +109,10 @@ async function confirmDelete(): Promise<void> {
 
     <!-- Right: project actions. -->
     <div v-if="project" class="flex items-center gap-2 shrink-0">
-      <!-- Search + add existing tickets into this project (all 3 views). -->
+      <!-- Search + add existing tickets into this project. Hidden on
+           the board, where the per-column composer is the add path. -->
       <button
+        v-if="showAddTickets !== false"
         type="button"
         class="inline-flex items-center gap-1 text-xs font-medium text-secondary hover:text-primary hover:bg-surface-hover rounded-md px-2 py-1 border border-subtle focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         @click="showTicketPicker = true"
@@ -133,15 +139,14 @@ async function confirmDelete(): Promise<void> {
       @close="confirmingDelete = false"
     />
 
-    <!-- Workspace ticket picker. Stays open after each pick so several
+    <!-- Pool-backed ticket picker. Stays open after each add so several
          tickets can be added in one go; tickets already in the project
-         are filtered out. -->
-    <LinkedTicketModal
+         drop out of the list. -->
+    <AddTicketsToProjectModal
       :show="showTicketPicker"
-      :current-ticket-id="0"
-      :existing-linked-tickets="projectTicketIds"
+      :existing-ticket-ids="projectTicketIds"
       @close="showTicketPicker = false"
-      @select-ticket="onAddTicket"
+      @add-ticket="onAddTicket"
     />
   </header>
 </template>

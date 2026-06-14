@@ -14,7 +14,9 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import { subscribe } from '@/sync/lifecycle'
+import * as pool from '@/sync/pool'
 import { useSyncProjectsStore } from '@/sync/stores/projects'
+import { useSyncTicketsStore } from '@/sync/stores/tickets'
 import { useProjectTickets } from '@/composables/useProjectTickets'
 import KanbanBoard from '@/sync/views/KanbanBoard.vue'
 import ProjectTabBar from '@/components/views/ProjectTabBar.vue'
@@ -31,6 +33,7 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 const router = useRouter()
 const projectId = computed(() => Number(props.id))
 const projectsStore = useSyncProjectsStore()
+const ticketsStore = useSyncTicketsStore()
 
 onMounted(async () => {
   await subscribe(`project:${projectId.value}`)
@@ -47,9 +50,25 @@ function openCard(cardId: number): void {
 
 async function quickAdd(workflowStateId: number, title: string): Promise<void> {
   try {
-    await projectService.createTicketInProject(projectId.value, { title, workflow_state_id: workflowStateId })
-    // The new ticket and its project association arrive over the
-    // project:<id> sync stream, so there's nothing to insert here.
+    const created = await projectService.createTicketInProject(projectId.value, {
+      title,
+      workflow_state_id: workflowStateId,
+    })
+    // The ticket.created / project_ticket.added events also arrive over
+    // the project:<id> sync stream, but optimistically seeding the pool
+    // here makes the card appear instantly rather than after the SSE
+    // round-trip. ensureInPool fetches the full row (nested
+    // workflow_state included) so it renders; the link upsert puts it
+    // in this project's view. Both are idempotent with the SSE frame.
+    const newId = created?.id
+    if (typeof newId === 'number') {
+      await ticketsStore.ensureInPool(newId)
+      pool.upsert('project_ticket', `${projectId.value}:${newId}`, {
+        project_id: projectId.value,
+        ticket_id: newId,
+        display_order: 0,
+      })
+    }
   } catch (e) {
     logger.error('Quick-add failed', e)
   }
@@ -78,6 +97,7 @@ function onGroupByChange(value: string | string[]): void {
       :project="project"
       :subtitle="project ? $t('project-detail-ticket-count', { count: cards.length }) : undefined"
       :fallback-name="$t('project-detail-loading-name')"
+      :show-add-tickets="false"
     />
 
     <!-- View-shape controls (Group-by) ride the tab-bar row, kept
