@@ -801,11 +801,23 @@ pub async fn register(
                 .execute(&mut conn)
             {
                 error!(error = ?e, "Error creating auth identity");
-                // Rollback by deleting the user
-                let _ = repository::users::purge_user(
-                    &created_user.uuid,
+                // Rollback by deleting the user. Must run under bypass
+                // (nosdesk_admin): purge_user cascade-deletes the freshly
+                // inserted workspace_members row, and once that table has RLS a
+                // workspace-pinned/unset actor would match zero rows so the
+                // users DELETE fails its FK. Reuse the bootstrap actor (pins
+                // app.workspace_id for the audit rows); same shape as the other
+                // purge_user callers (users.rs admin purge, scheduled purge).
+                let _ = crate::sync::session::with_actor_bypass_context::<_, diesel::result::Error>(
                     &mut conn,
-                    Some(search_service.get_ref()),
+                    &actor,
+                    |c| {
+                        repository::users::purge_user(
+                            &created_user.uuid,
+                            c,
+                            Some(search_service.get_ref()),
+                        )
+                    },
                 );
                 return errors::internal("Error creating user authentication");
             }
