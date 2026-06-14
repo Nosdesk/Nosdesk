@@ -56,7 +56,11 @@ fn handler_raw_conn_emitting_calls_are_actor_wrapped() {
     )
     .unwrap();
     let emit_re = Regex::new(r"emit::record|sync::emit::record|sync_emit::record").unwrap();
-    let raw_conn_re = Regex::new(r"\bdb_conn\s*\(").unwrap();
+    // A handler "holds a raw connection" when it pulls one straight from
+    // the pool, by either of the two idioms in the codebase:
+    // `helpers::db_conn(&pool)` or `pool.get()`. The latter is what let
+    // upload_files slip an un-pinned attachment insert past this lint.
+    let raw_conn_re = Regex::new(r"\bdb_conn\s*\(|\bpool\s*\.\s*get\s*\(").unwrap();
 
     // ---- Pass 1: build the set of UNIQUELY-named emitting repo fns. ----
     //
