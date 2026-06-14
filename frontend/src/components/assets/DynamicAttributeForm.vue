@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import BaseDropdown from '@/components/common/BaseDropdown.vue';
+import Checkbox from '@/components/common/Checkbox.vue';
 import UserAttributePicker from '@/components/assets/UserAttributePicker.vue';
 import AssetAttributePicker from '@/components/assets/AssetAttributePicker.vue';
 
@@ -180,18 +181,13 @@ function enumOptions(prop: SchemaProperty): { value: string; label: string }[] {
       />
 
       <!-- boolean -> checkbox -->
-      <label
+      <Checkbox
         v-else-if="prop.type === 'boolean'"
-        class="inline-flex items-center gap-2 text-sm text-primary"
-      >
-        <input
-          type="checkbox"
-          :disabled="disabled"
-          :checked="boolValue(key)"
-          @change="(e) => updateField(key, (e.target as HTMLInputElement).checked)"
-        />
-        <span>{{ prop.title || key }}</span>
-      </label>
+        :model-value="boolValue(key)"
+        :disabled="disabled"
+        :label="prop.title || key"
+        @update:model-value="(v: boolean) => updateField(key, v)"
+      />
 
       <!-- array -> comma-separated text -->
       <input

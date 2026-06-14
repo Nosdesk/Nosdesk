@@ -5,6 +5,7 @@ import { useFluent } from 'fluent-vue';
 import { useQuery, useQueryCache } from '@pinia/colada';
 import BaseDropdown from '@/components/common/BaseDropdown.vue';
 import Button from '@/components/common/Button.vue';
+import Checkbox from '@/components/common/Checkbox.vue';
 import FormInput from '@/components/common/FormInput.vue';
 import FormTextarea from '@/components/common/FormTextarea.vue';
 import DatePicker from '@/components/common/DatePicker.vue';
@@ -294,14 +295,10 @@ function metadataLines(event: AssetLifecycleEvent): string[] {
             v-model="repairRma"
             :label="$t('asset-lifecycle-meta-rma')"
           />
-          <label class="inline-flex items-center gap-2 text-sm text-primary">
-            <input
-              v-model="repairOffsite"
-              type="checkbox"
-              class="rounded border-default"
-            />
-            {{ $t('asset-lifecycle-meta-offsite') }}
-          </label>
+          <Checkbox
+            v-model="repairOffsite"
+            :label="$t('asset-lifecycle-meta-offsite')"
+          />
           <DatePicker
             v-model="repairExpectedReturn"
             :label="$t('asset-lifecycle-meta-expected-return')"

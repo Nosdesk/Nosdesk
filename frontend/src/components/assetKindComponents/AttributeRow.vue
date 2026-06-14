@@ -14,6 +14,7 @@ import { computed } from 'vue';
 import { useFluent } from 'fluent-vue';
 
 import BaseDropdown from '@/components/common/BaseDropdown.vue';
+import Checkbox from '@/components/common/Checkbox.vue';
 import FormInput from '@/components/common/FormInput.vue';
 import FormNumber from '@/components/common/FormNumber.vue';
 import Icon from '@/components/common/Icon.vue';
@@ -195,19 +196,12 @@ const assetScopeOptions = computed(() => [
         @update:model-value="(v) => onKindChange(v as AttributeKind)"
       />
 
-      <label
-        class="flex items-center gap-2 text-sm self-end pb-1.5 cursor-pointer"
-      >
-        <input
-          type="checkbox"
-          :checked="modelValue.required"
-          class="rounded border-default"
-          @change="(e) => patch({ required: (e.target as HTMLInputElement).checked })"
-        />
-        <span class="font-medium text-primary">
-          {{ t('asset-kind-attribute-row-required') }}
-        </span>
-      </label>
+      <Checkbox
+        class="self-end pb-1.5"
+        :model-value="modelValue.required"
+        :label="t('asset-kind-attribute-row-required')"
+        @update:model-value="(v: boolean) => patch({ required: v })"
+      />
     </div>
 
     <!-- `raw` kind: read-only JSON preview + hint. -->
