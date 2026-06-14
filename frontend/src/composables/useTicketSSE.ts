@@ -1,7 +1,6 @@
 import { ref, computed, onMounted, onUnmounted, type Ref } from "vue";
 import { useSSE } from "@/services/sseService";
 import { useAuthStore } from "@/stores/auth";
-import { useTitleManager } from "@/composables/useTitleManager";
 import * as pool from "@/sync/pool";
 import {
   unwrapEventData,
@@ -36,7 +35,6 @@ export function useTicketSSE(ticketId: Ref<number | undefined>) {
   const { addEventListener, removeEventListener, isConnected, connect, disconnect } = useSSE();
 
   const authStore = useAuthStore();
-  const titleManager = useTitleManager();
 
   // Raw viewer list from the backend (already deduped per user and
   // sorted recency-first). Includes the current user; the UI filters
@@ -84,10 +82,12 @@ export function useTicketSSE(ticketId: Ref<number | undefined>) {
     if (ticketId.value == null || eventData.ticket_id !== ticketId.value) return;
     if (!shouldApplyUpdate(eventData.field)) return;
 
-    if (eventData.field === "title") {
-      titleManager.setTicket({ id: ticketId.value, title: eventData.value });
-    } else if (eventData.field === "resolution_notes") {
-      pool.patch("ticket", ticketId.value, { resolution_notes: eventData.value });
+    // Mirror the in-flight value onto the pool row the detail view + header
+    // read. Non-destructive (preserves every other field, unlike the old
+    // setTicket stub) and consistent across preview fields; the committed
+    // value still arrives via the pool and supersedes this.
+    if (eventData.field === "title" || eventData.field === "resolution_notes") {
+      pool.patch("ticket", ticketId.value, { [eventData.field]: eventData.value });
     }
   }
 

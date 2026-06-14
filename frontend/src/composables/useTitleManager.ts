@@ -161,14 +161,15 @@ export function useTitleManager() {
   };
 
   const previewTicketTitle = (newTitle: string) => {
-    if (currentTicket.value) {
-      currentTicket.value.title = newTitle;
-      // Best-effort live broadcast so other viewers watch the title being
-      // typed. The field-preview endpoint is a no-op against the DB (no
-      // write, no audit event) and our own echo is dropped via the
-      // X-SSE-Client-Id source match, so this is safe to fire per keystroke.
-      void previewTicketField(currentTicket.value.id, 'title', newTitle).catch(() => {});
-    }
+    if (!currentTicket.value) return;
+    // Transient broadcast ONLY. Do not mutate currentTicket.title: it IS the
+    // sync pool row, the canonical value the commit path diffs against (and
+    // patchTicket's rollback baseline). Writing the in-progress draft here
+    // is what silently broke title saves. The header shows the draft from
+    // InlineEdit's own local state; this just tells other viewers. The
+    // field-preview endpoint is a DB no-op (no write, no audit) and our own
+    // SSE echo is dropped via the X-SSE-Client-Id source match.
+    void previewTicketField(currentTicket.value.id, 'title', newTitle).catch(() => {});
   };
 
   const previewDocumentTitle = (newTitle: string) => {
@@ -179,10 +180,13 @@ export function useTitleManager() {
   };
 
   const updateTicketTitle = async (newTitle: string) => {
-    if (currentTicket.value) {
-      currentTicket.value.title = newTitle;
-      await ticketTitleSaveHandler.value?.(newTitle);
-    }
+    if (!currentTicket.value) return;
+    // Persist only. The registered save handler (ticketDetail.updateTitle ->
+    // patchTicket) is the SOLE writer of the canonical pool row, applying the
+    // optimistic update + rollback. currentTicket IS that pool row, so
+    // pre-setting its title here would defeat the handler's `r.title === title`
+    // no-op guard (skipping the PATCH) and corrupt the rollback baseline.
+    await ticketTitleSaveHandler.value?.(newTitle);
   };
 
   const updateDocumentTitle = async (newTitle: string) => {

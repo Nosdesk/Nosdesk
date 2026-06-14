@@ -30,11 +30,13 @@ watch(() => props.initialTitle, (newTitle) => {
   displayTitle.value = newTitle;
 }, { immediate: true });
 
-// Commit (blur / Enter): persist the new title.
+// Commit (blur / Enter): persist the new title. InlineEdit only emits this
+// on a real change (its localValue vs the pre-edit snapshot), so it is the
+// single client-side change gate. Forward unconditionally rather than
+// re-diffing against initialTitle, which tracks the live preview/SSE display
+// value and so would wrongly suppress a genuine commit.
 const handleTitleUpdate = (newValue: string) => {
-  if (newValue !== props.initialTitle) {
-    emit('updateTitle', newValue);
-  }
+  emit('updateTitle', newValue);
 };
 
 // Transient draft (per keystroke): live display + optional SSE preview,
