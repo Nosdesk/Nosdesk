@@ -636,14 +636,18 @@ const cancelDelete = () => {
 
               <div>
                 <div class="flex flex-col gap-5">
-                  <!-- Role selection grid -->
-                  <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <!-- Role selection grid. Auto-fit wrapping rather than
+                       fixed breakpoint columns: cards hold a 11rem floor
+                       and reflow 1 -> 2 -> 3 up as width allows, so they
+                       never get crushed or clipped on narrow/landscape
+                       phones the way `sm:grid-cols-3` did. -->
+                  <div class="grid grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-3">
                     <button
                       v-for="role in availableRoles"
                       :key="role.value"
                       @click="updateUserRole(role.value)"
                       :disabled="updatingRole || targetRole === role.value"
-                      class="group p-4 rounded-xl border-2 transition-all text-left"
+                      class="group p-4 rounded-xl border-2 transition-all text-left min-w-0"
                       :class="[
                         targetRole === role.value
                           ? 'border-accent bg-accent/10'

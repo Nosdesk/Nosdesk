@@ -190,7 +190,7 @@ watch(() => props.userUuid, () => {
       <div
         v-for="email in userEmails"
         :key="email.id"
-        class="flex flex-col sm:flex-row sm:items-center gap-3 p-3 bg-surface-alt rounded-lg"
+        class="flex flex-col sm:flex-row sm:items-start gap-3 p-3 bg-surface-alt rounded-lg"
       >
         <!-- Identity: envelope tile + address + metadata -->
         <div class="flex items-center gap-3 min-w-0 flex-1">
