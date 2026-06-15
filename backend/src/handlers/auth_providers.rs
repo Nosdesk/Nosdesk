@@ -676,7 +676,12 @@ pub async fn oauth_callback(
                                     user.uuid,
                                 );
                             }
-                            crate::handlers::auth::complete_login(user, &request, &mut conn)
+                            crate::handlers::auth::complete_login_redirect(
+                                user,
+                                &request,
+                                &mut conn,
+                                &safe_post_login_location(&state_data.redirect_uri),
+                            )
                         }
                         Err(e) => {
                             error!(error = ?e, "Failed to find or create user");
@@ -876,7 +881,12 @@ pub async fn oauth_callback(
                                     user.uuid,
                                 );
                             }
-                            crate::handlers::auth::complete_login(user, &request, &mut conn)
+                            crate::handlers::auth::complete_login_redirect(
+                                user,
+                                &request,
+                                &mut conn,
+                                &safe_post_login_location(&state_data.redirect_uri),
+                            )
                         }
                         Err(e) => {
                             error!(error = ?e, "Failed to find or create user from OIDC");
@@ -1374,6 +1384,20 @@ fn workspace_unresolved_redirect(redirect_uri: &str) -> HttpResponse {
 /// global role (which stays `User`). Owner / admin grants come from
 /// the eager-projection path during workspace provisioning, not
 /// from first-login.
+/// Sanitise the post-login redirect target before bouncing the browser to
+/// it. `redirect_uri` is client-supplied at initiation (carried through the
+/// signed state), so an unchecked absolute URL would be an open redirect we
+/// could be phished through. Only same-origin relative paths are honoured;
+/// anything else (absolute URL, protocol-relative `//host`, or empty) falls
+/// back to the app root.
+fn safe_post_login_location(redirect_uri: &str) -> String {
+    if redirect_uri.starts_with('/') && !redirect_uri.starts_with("//") {
+        redirect_uri.to_string()
+    } else {
+        "/".to_string()
+    }
+}
+
 /// Identity key (`user_auth_identities.provider_type`) for an OIDC login.
 ///
 /// In hosted mode this must be the platform issuer (`OIDC_ISSUER_URL`,
@@ -1877,8 +1901,21 @@ mod workspace_for_login_tests {
 
 #[cfg(test)]
 mod hosted_auth_tests {
-    use super::{callback_redirect_for, issuer_for_identity};
+    use super::{callback_redirect_for, issuer_for_identity, safe_post_login_location};
     use crate::middleware::DeploymentMode;
+
+    #[test]
+    fn post_login_location_allows_relative_blocks_absolute() {
+        // Same-origin relative paths pass through.
+        assert_eq!(safe_post_login_location("/"), "/");
+        assert_eq!(safe_post_login_location("/tickets/42"), "/tickets/42");
+        // Absolute, protocol-relative, scheme, or empty fall back to root
+        // (no open redirect after authentication).
+        assert_eq!(safe_post_login_location("https://evil.example"), "/");
+        assert_eq!(safe_post_login_location("//evil.example"), "/");
+        assert_eq!(safe_post_login_location("javascript:alert(1)"), "/");
+        assert_eq!(safe_post_login_location(""), "/");
+    }
 
     #[test]
     fn hosted_identity_uses_configured_issuer_verbatim() {
