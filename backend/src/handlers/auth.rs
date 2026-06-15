@@ -150,13 +150,45 @@ pub(crate) fn complete_login(
     request: &HttpRequest,
     conn: &mut DbConnection,
 ) -> HttpResponse {
+    match establish_login_session(user, request, conn) {
+        Ok((response, tokens)) => build_auth_cookie_response(response, &tokens),
+        Err(error_response) => error_response,
+    }
+}
+
+/// Finish a login by setting the auth cookies and **redirecting** the
+/// browser to `location` (302 Found), instead of returning JSON.
+///
+/// The OAuth/OIDC browser flow lands the user agent directly on the backend
+/// callback, so it must redirect onward into the app; a JSON body would
+/// dead-end the user on an API URL. (The XHR login path uses
+/// [`complete_login`], which returns JSON for the SPA to consume.)
+pub(crate) fn complete_login_redirect(
+    user: crate::models::User,
+    request: &HttpRequest,
+    conn: &mut DbConnection,
+    location: &str,
+) -> HttpResponse {
+    match establish_login_session(user, request, conn) {
+        Ok((_response, tokens)) => build_auth_cookie_redirect(&tokens, location),
+        Err(error_response) => error_response,
+    }
+}
+
+/// Create the session record, log the success event, and mint the login
+/// tokens. Shared by the JSON and redirect login finishers.
+fn establish_login_session(
+    user: crate::models::User,
+    request: &HttpRequest,
+    conn: &mut DbConnection,
+) -> Result<(crate::models::LoginResponse, jwt_helpers::LoginTokens), HttpResponse> {
     let user_uuid = user.uuid;
 
     let session = match create_session_record(&user_uuid, request, conn) {
         Ok(s) => s,
         Err(e) => {
             tracing::error!("Failed to create session for user {}: {}", user_uuid, e);
-            return errors::internal("Failed to create authentication session");
+            return Err(errors::internal("Failed to create authentication session"));
         }
     };
     let family_id = Uuid::new_v4();
@@ -176,10 +208,7 @@ pub(crate) fn complete_login(
         },
     );
 
-    match jwt_helpers::create_login_response(user, &session.session_id, &family_id, conn) {
-        Ok((response, tokens)) => build_auth_cookie_response(response, &tokens),
-        Err(error_response) => error_response,
-    }
+    jwt_helpers::create_login_response(user, &session.session_id, &family_id, conn)
 }
 
 /// Create a session + MFA token pair, returning an HttpResponse with auth cookies set.
@@ -245,6 +274,26 @@ pub(crate) fn build_auth_cookie_response(
             &tokens.csrf_token,
         ))
         .json(body)
+}
+
+/// Set the auth cookies and redirect (302) to `location`. The browser
+/// OAuth/OIDC callback finishes here so the user lands in the app.
+pub(crate) fn build_auth_cookie_redirect(
+    tokens: &jwt_helpers::LoginTokens,
+    location: &str,
+) -> HttpResponse {
+    HttpResponse::Found()
+        .cookie(crate::utils::cookies::create_access_token_cookie(
+            &tokens.access_token,
+        ))
+        .cookie(crate::utils::cookies::create_refresh_token_cookie(
+            &tokens.refresh_token,
+        ))
+        .cookie(crate::utils::cookies::create_csrf_token_cookie(
+            &tokens.csrf_token,
+        ))
+        .append_header(("Location", location))
+        .finish()
 }
 
 // Account lockout configuration (IP rate limiting handled by middleware)
