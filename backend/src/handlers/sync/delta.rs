@@ -21,8 +21,15 @@ use crate::schema::sync_actions;
 
 #[derive(Debug, Deserialize)]
 pub struct DeltaQuery {
-    /// Cursor — return rows with `sync_id > from`.
+    /// Cursor `sync_id`. With `from_xid8` it forms the commit-safe
+    /// `(xid8, sync_id)` cursor; on its own (legacy clients that predate
+    /// the commit-safe cursor) it falls back to `sync_id > from`.
     pub from: i64,
+    /// Cursor `xid8` — see `crate::sync::feed`. When present, rows are
+    /// returned in `(xid8, sync_id)` order strictly after the cursor and
+    /// only once settled (below the commit horizon), so a late-committing
+    /// lower-`sync_id` row is delivered next rather than skipped.
+    pub from_xid8: Option<i64>,
     /// Comma-separated group strings the client wants events for.
     /// The server intersects this with the caller's permitted set.
     pub groups: String,
@@ -54,11 +61,18 @@ pub struct ActionRow {
     pub correlation_id: Option<uuid::Uuid>,
     pub causation_id: Option<uuid::Uuid>,
     pub occurred_at: chrono::DateTime<chrono::Utc>,
+    /// Transaction id for the commit-safe cursor; not sent per-row (the
+    /// response-level `last_xid8` carries it). See `crate::sync::feed`.
+    #[serde(skip)]
+    pub xid8: i64,
 }
 
 #[derive(Debug, Serialize)]
 pub struct DeltaResponse {
     pub actions: Vec<ActionRow>,
+    /// Commit-safe cursor for the next request: `(last_xid8,
+    /// last_sync_id)`. Advances over visibility-dropped rows too.
+    pub last_xid8: i64,
     pub last_sync_id: i64,
     pub has_more: bool,
 }
@@ -114,6 +128,7 @@ pub async fn delta(
         // continue polling without special-casing.
         return HttpResponse::Ok().json(DeltaResponse {
             actions: vec![],
+            last_xid8: query.from_xid8.unwrap_or(0),
             last_sync_id: query.from,
             has_more: false,
         });
@@ -125,12 +140,13 @@ pub async fn delta(
     // without an extra count query.
     let granted_pg: Vec<Option<String>> = granted.iter().map(|g| Some(g.clone())).collect();
     let from = query.from;
-    let rows = tc.run(|conn| {
-        sync_actions::table
-            .filter(sync_actions::sync_id.gt(from))
+    let from_xid8 = query.from_xid8;
+    let rows = tc.run(move |conn| {
+        // Common shape: granted groups, only settled rows (below the
+        // commit horizon). Select xid8 last to match `ActionRow`.
+        let base = sync_actions::table
             .filter(sync_actions::groups.overlaps_with(granted_pg))
-            .order(sync_actions::sync_id.asc())
-            .limit(limit + 1)
+            .filter(crate::sync::feed::below_horizon())
             .select((
                 sync_actions::sync_id,
                 sync_actions::aggregate,
@@ -146,8 +162,27 @@ pub async fn delta(
                 sync_actions::correlation_id,
                 sync_actions::causation_id,
                 sync_actions::occurred_at,
+                sync_actions::xid8,
             ))
-            .load::<ActionRow>(conn)
+            .into_boxed();
+        let q = match from_xid8 {
+            // Commit-safe composite cursor (current clients): strictly
+            // after (from_xid8, from), ordered by (xid8, sync_id).
+            Some(x) => base
+                .filter(
+                    sync_actions::xid8
+                        .gt(x)
+                        .or(sync_actions::xid8.eq(x).and(sync_actions::sync_id.gt(from))),
+                )
+                .order((sync_actions::xid8.asc(), sync_actions::sync_id.asc())),
+            // Legacy sync_id cursor (clients that predate the upgrade);
+            // still horizon-gated. The response carries last_xid8 so the
+            // client switches to the safe cursor once it updates.
+            None => base
+                .filter(sync_actions::sync_id.gt(from))
+                .order(sync_actions::sync_id.asc()),
+        };
+        q.limit(limit + 1).load::<ActionRow>(conn)
     });
 
     let mut actions = match rows {
@@ -167,6 +202,10 @@ pub async fn delta(
     // filter below. Dropped rows must still advance the client's cursor,
     // otherwise it would re-request them every poll forever.
     let last_sync_id = actions.last().map(|a| a.sync_id).unwrap_or(query.from);
+    let last_xid8 = actions
+        .last()
+        .map(|a| a.xid8)
+        .unwrap_or(query.from_xid8.unwrap_or(0));
 
     // Read-side visibility, via the shared sync-visibility layer:
     // documentation (every viewer) + the ticket family (restricted
@@ -190,6 +229,7 @@ pub async fn delta(
 
     HttpResponse::Ok().json(DeltaResponse {
         actions,
+        last_xid8,
         last_sync_id,
         has_more,
     })

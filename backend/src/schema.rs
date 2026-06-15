@@ -1413,6 +1413,7 @@ diesel::table! {
         occurred_at -> Timestamptz,
         recorded_at -> Timestamptz,
         workspace_id -> Int4,
+        xid8 -> Int8,
     }
 }
 
@@ -1442,6 +1443,7 @@ diesel::table! {
         occurred_at -> Timestamptz,
         recorded_at -> Timestamptz,
         workspace_id -> Int4,
+        xid8 -> Int8,
     }
 }
 

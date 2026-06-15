@@ -85,6 +85,11 @@ struct ActionRow {
     correlation_id: Option<uuid::Uuid>,
     causation_id: Option<uuid::Uuid>,
     occurred_at: chrono::DateTime<chrono::Utc>,
+    /// Transaction id for the commit-safe cursor; not sent per-row
+    /// (the batch-level `last_xid8` carries the cursor). See
+    /// `crate::sync::feed`.
+    #[serde(skip)]
+    xid8: i64,
 }
 
 /// Spawn the outbox listener. Returns immediately; the task runs
@@ -98,18 +103,21 @@ pub fn spawn(database_url: String, pool: Pool, sse: Arc<SseState>) {
 }
 
 async fn run(database_url: String, pool: Pool, sse: Arc<SseState>) {
-    // Initial watermark = current MAX(sync_id). Anything written
-    // before this moment is "history" — clients fetch it via
-    // bootstrap or the delta endpoint, not via our live broadcast.
+    // Initial watermark = the latest *settled* (xid8, sync_id). Anything
+    // written before this moment is "history" — clients fetch it via
+    // bootstrap or the delta endpoint, not via our live broadcast. Rows
+    // in-flight right now carry a higher xid8 and are delivered once they
+    // settle, so the watermark can't strand them.
     let mut watermark = match initial_watermark(&pool) {
         Ok(w) => w,
         Err(e) => {
             error!(error = %e, "outbox listener: failed to read initial watermark; defaulting to 0");
-            0
+            crate::sync::feed::FeedCursor::default()
         }
     };
     info!(
-        initial_watermark = watermark,
+        initial_xid8 = watermark.xid8,
+        initial_sync_id = watermark.sync_id,
         "sync outbox listener starting"
     );
 
@@ -136,24 +144,32 @@ async fn run(database_url: String, pool: Pool, sse: Arc<SseState>) {
     }
 }
 
-fn initial_watermark(pool: &Pool) -> Result<i64, anyhow::Error> {
+fn initial_watermark(pool: &Pool) -> Result<crate::sync::feed::FeedCursor, anyhow::Error> {
+    use crate::sync::feed::FeedCursor;
     // sync_actions is RLS-enabled (Phase 3c.2); the outbox SSE
     // broadcaster is a platform-level reader fanning out across
-    // every workspace, so it bypasses via background_run.
-    let max_id: Option<i64> =
+    // every workspace, so it bypasses via background_run. Take the
+    // latest *settled* row by commit order; in-flight rows have a
+    // higher xid8 and are delivered once they settle.
+    let row: Option<(i64, i64)> =
         crate::sync::session::background_run(pool, "background:sync_outbox_watermark", |conn| {
             sync_actions::table
-                .select(diesel::dsl::max(sync_actions::sync_id))
+                .filter(crate::sync::feed::below_horizon())
+                .order((sync_actions::xid8.desc(), sync_actions::sync_id.desc()))
+                .select((sync_actions::xid8, sync_actions::sync_id))
                 .first(conn)
+                .optional()
         })?;
-    Ok(max_id.unwrap_or(0))
+    Ok(row
+        .map(|(xid8, sync_id)| FeedCursor { xid8, sync_id })
+        .unwrap_or_default())
 }
 
 async fn listen_loop(
     database_url: &str,
     pool: &Pool,
     sse: &SseState,
-    watermark: &mut i64,
+    watermark: &mut crate::sync::feed::FeedCursor,
 ) -> Result<(), anyhow::Error> {
     // tokio-postgres needs a separate connection from r2d2's pool.
     // Diesel's libpq client doesn't expose async LISTEN cleanly.
@@ -214,23 +230,31 @@ async fn listen_loop(
 async fn drain_since(
     pool: &Pool,
     sse: &SseState,
-    watermark: &mut i64,
+    watermark: &mut crate::sync::feed::FeedCursor,
 ) -> Result<(), anyhow::Error> {
+    use crate::sync::feed::FeedCursor;
     // Loop in case a single notification covered more than the page
     // cap (large multi-row commit, or many concurrent writers).
     loop {
-        let snapshot_watermark = *watermark;
+        let cursor = *watermark;
         let pool = pool.clone();
         let rows = tokio::task::spawn_blocking(move || -> Result<Vec<ActionRow>, anyhow::Error> {
             // Same bypass story: outbox drain reads across every
-            // workspace's sync_actions.
+            // workspace's sync_actions. Commit-safe cursor: only settled
+            // rows (xid8 below the horizon), ordered by (xid8, sync_id),
+            // strictly after the cursor — see `crate::sync::feed`.
             let rows = crate::sync::session::background_run(
                 &pool,
                 "background:sync_outbox_drain",
                 |conn| {
                     sync_actions::table
-                        .filter(sync_actions::sync_id.gt(snapshot_watermark))
-                        .order(sync_actions::sync_id.asc())
+                        .filter(crate::sync::feed::below_horizon())
+                        .filter(
+                            sync_actions::xid8.gt(cursor.xid8).or(sync_actions::xid8
+                                .eq(cursor.xid8)
+                                .and(sync_actions::sync_id.gt(cursor.sync_id))),
+                        )
+                        .order((sync_actions::xid8.asc(), sync_actions::sync_id.asc()))
                         .limit(DRAIN_PAGE_SIZE)
                         .select((
                             sync_actions::sync_id,
@@ -247,6 +271,7 @@ async fn drain_since(
                             sync_actions::correlation_id,
                             sync_actions::causation_id,
                             sync_actions::occurred_at,
+                            sync_actions::xid8,
                         ))
                         .load::<ActionRow>(conn)
                 },
@@ -259,24 +284,31 @@ async fn drain_since(
             return Ok(());
         }
 
-        let last_sync_id = rows.last().unwrap().sync_id;
+        let last = rows.last().unwrap();
+        let last_cursor = FeedCursor {
+            xid8: last.xid8,
+            sync_id: last.sync_id,
+        };
         let payload = serde_json::to_value(&rows)?;
         let count = rows.len();
 
         sse.broadcast_event(SseEvent::SyncActions {
             actions: payload,
-            last_sync_id,
+            last_xid8: last_cursor.xid8,
+            last_sync_id: last_cursor.sync_id,
             timestamp: Utc::now(),
         })
         .await;
 
         debug!(
-            from = snapshot_watermark,
-            to = last_sync_id,
+            from_xid8 = cursor.xid8,
+            from_sync_id = cursor.sync_id,
+            to_xid8 = last_cursor.xid8,
+            to_sync_id = last_cursor.sync_id,
             count,
             "broadcast sync_actions batch"
         );
-        *watermark = last_sync_id;
+        *watermark = last_cursor;
 
         // If we hit the page cap, there might be more — loop again
         // immediately to drain the rest before going back to wait.

@@ -169,6 +169,15 @@ fn stream_bootstrap_inner(
         .first(conn)?;
     let last_sync_id = last_sync_id.unwrap_or(0);
 
+    // Seed the client's commit-safe feed cursor. `H_b` is the commit
+    // horizon at bootstrap; everything this bootstrap can see has
+    // `xid8 < H_b`, and the delta feed serves `xid8 >= H_b`, so the two
+    // partition with no gap (a small re-delivery overlap is harmless —
+    // the client dedupes by sync_id). Cursor `xid8 = H_b - 1` so the
+    // delta's `xid8 > cursor` delivers exactly `xid8 >= H_b`. See
+    // `crate::sync::feed`.
+    let last_xid8 = crate::sync::feed::current_horizon(conn)?.saturating_sub(1);
+
     // Workspace capability flags. These are simple booleans the
     // frontend uses to gate optional UI surfaces (filter chips,
     // default visible columns, summary segments). Adding a flag
@@ -195,6 +204,7 @@ fn stream_bootstrap_inner(
         json!({
             "__meta__": {
                 "server_schema": SERVER_SCHEMA_HASH,
+                "last_xid8": last_xid8,
                 "last_sync_id": last_sync_id,
                 "groups_granted": granted,
                 "sla_enabled": sla_enabled,
@@ -524,7 +534,7 @@ fn stream_bootstrap_inner(
         };
         scoped_ids.extend(detail_ticket_ids.iter().copied());
         if scoped_ids.is_empty() {
-            return finish(tx, last_sync_id);
+            return finish(tx, last_xid8, last_sync_id);
         }
         // Restrict to tickets this viewer can actually read (staff
         // all-pass; a member with a project grant still only sees their
@@ -538,7 +548,7 @@ fn stream_bootstrap_inner(
         .into_iter()
         .collect();
         if visible.is_empty() {
-            return finish(tx, last_sync_id);
+            return finish(tx, last_xid8, last_sync_id);
         }
         tickets::table
             .filter(tickets::id.eq_any(visible))
@@ -679,7 +689,7 @@ fn stream_bootstrap_inner(
         stream_ticket_detail_extras(conn, &detail_ticket_ids, viewer.ctx.sees_all(), tx)?;
     }
 
-    finish(tx, last_sync_id)
+    finish(tx, last_xid8, last_sync_id)
 }
 
 /// Stream the related rows the pool-native ticket detail view reads
@@ -824,9 +834,13 @@ fn stream_ticket_detail_extras(
 
 fn finish(
     tx: &mpsc::Sender<Result<Bytes, std::io::Error>>,
+    last_xid8: i64,
     last_sync_id: i64,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    send(tx, json!({ "__end__": { "last_sync_id": last_sync_id } }))?;
+    send(
+        tx,
+        json!({ "__end__": { "last_xid8": last_xid8, "last_sync_id": last_sync_id } }),
+    )?;
     Ok(())
 }
 

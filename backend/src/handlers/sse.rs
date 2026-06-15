@@ -58,6 +58,10 @@ pub enum SseEvent {
     /// object pool.
     SyncActions {
         actions: serde_json::Value,
+        /// Commit-safe cursor for the batch: `(last_xid8, last_sync_id)`.
+        /// Clients advance their feed position by both — see
+        /// `crate::sync::feed`.
+        last_xid8: i64,
         last_sync_id: i64,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
@@ -464,6 +468,7 @@ async fn filter_sync_actions_frame(
         source_client_id,
     } = env;
     let SseEvent::SyncActions {
+        last_xid8,
         last_sync_id,
         timestamp,
         ..
@@ -481,6 +486,7 @@ async fn filter_sync_actions_frame(
         id,
         event: SseEvent::SyncActions {
             actions: serde_json::Value::Array(kept),
+            last_xid8,
             last_sync_id,
             timestamp,
         },
@@ -869,6 +875,7 @@ mod tests {
             id: 1,
             event: SseEvent::SyncActions {
                 actions,
+                last_xid8: 1,
                 last_sync_id: 1,
                 timestamp: chrono::Utc::now(),
             },
