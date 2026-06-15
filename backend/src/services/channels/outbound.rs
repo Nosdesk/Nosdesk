@@ -180,16 +180,21 @@ pub fn enqueue_for_comment(
     comment: crate::models::Comment,
     pool: crate::db::Pool,
 ) {
+    let workspace_id = ticket.workspace_id;
     tokio::spawn(async move {
         // Everything inside this spawn is sync DB work — no awaits
         // between pool.get and the enqueue write — so the whole
         // body fits inside a single background_run. channels,
         // tickets, signatures (user prefs), outbound_emails are
-        // all RLS-enabled; the relay runs from the comment handler
-        // spawn with no request-bound workspace pin.
-        let result = crate::sync::session::background_run(
+        // all RLS-enabled and outbound_emails.workspace_id defaults
+        // from app.workspace_id; the relay runs from the comment
+        // handler spawn with no request-bound pin, so pin the
+        // ticket's workspace explicitly or the insert writes a NULL
+        // workspace_id and fails the NOT NULL constraint.
+        let result = crate::sync::session::background_run_in_workspace(
             &pool,
             "background:channel_relay_enqueue",
+            workspace_id,
             |conn| {
                 let decision = super::relay::decide_relay(conn, &ticket, &comment)
                     .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))?;

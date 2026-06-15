@@ -369,6 +369,25 @@ pub fn background_run<T>(
     with_actor_bypass_context(&mut conn, &actor, f).map_err(BackgroundRunError::Db)
 }
 
+/// [`background_run`] pinned to a specific workspace.
+///
+/// Background writes to tenant tables (notifications, outbound_emails, …)
+/// must set `app.workspace_id`: the column default and the audit/sync
+/// triggers all read that GUC, so a plain `background_run` (system actor,
+/// no workspace) leaves `workspace_id` NULL and the insert fails the NOT
+/// NULL constraint. Use this when the caller knows the workspace the write
+/// belongs to (a ticket's `workspace_id`, a resolved recipient workspace).
+pub fn background_run_in_workspace<T>(
+    pool: &crate::db::Pool,
+    reference: &'static str,
+    workspace_id: i32,
+    f: impl FnOnce(&mut DbConnection) -> QueryResult<T>,
+) -> Result<T, BackgroundRunError> {
+    let mut conn = pool.get().map_err(BackgroundRunError::Pool)?;
+    let actor = crate::sync::actor::ActorContext::system(reference).with_workspace(workspace_id);
+    with_actor_bypass_context(&mut conn, &actor, f).map_err(BackgroundRunError::Db)
+}
+
 /// Error type returned by `background_run`. Distinguishes "couldn't
 /// get a connection from the pool" from "the closure errored".
 #[derive(Debug)]

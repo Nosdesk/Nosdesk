@@ -168,6 +168,13 @@ pub struct NotificationPayload {
     pub recipient_uuid: Uuid,
     pub actor: NotificationActor,
     pub entity: NotificationEntity,
+    /// The workspace this notification belongs to: the workspace of the
+    /// entity it's about (the ticket/doc/asset), NOT the recipient's
+    /// "primary" workspace — a recipient may belong to several. Required so
+    /// `persist_notification` can pin `app.workspace_id` for the RLS-scoped
+    /// insert + sync emit without a resolve query, and so the row lands in
+    /// the workspace the entity actually lives in.
+    pub workspace_id: i32,
     pub title: String,
     pub body: Option<String>,
     #[serde(default)]
@@ -182,6 +189,7 @@ impl NotificationPayload {
         recipient_uuid: Uuid,
         actor: NotificationActor,
         entity: NotificationEntity,
+        workspace_id: i32,
     ) -> Self {
         let title = notification_type.title().to_string();
         Self {
@@ -189,6 +197,7 @@ impl NotificationPayload {
             recipient_uuid,
             actor,
             entity,
+            workspace_id,
             title,
             body: None,
             metadata: serde_json::json!({}),
@@ -351,6 +360,7 @@ mod tests {
             Uuid::new_v4(),
             actor,
             entity,
+            1,
         );
         // Defaults
         assert!(payload.body.is_none());
@@ -388,6 +398,7 @@ mod tests {
                 Uuid::new_v4(),
                 actor,
                 entity,
+                1,
             )
             .with_body("hello"),
             channels: vec![NotificationChannel::InApp],

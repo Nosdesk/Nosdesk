@@ -514,6 +514,7 @@ pub async fn create_ticket(
                             let notification_service = notification_service.clone();
                             let ticket_id = ticket.id;
                             let ticket_title = ticket.title.clone();
+                            let ticket_workspace = ticket.workspace_id;
                             let rule_name = result.rule_name.clone();
 
                             tokio::spawn(async move {
@@ -529,6 +530,7 @@ pub async fn create_ticket(
                                         id: ticket_id,
                                         title: ticket_title,
                                     },
+                                    ticket_workspace,
                                 )
                                 .with_body(format!(
                                     "You have been auto-assigned to ticket #{ticket_id} (Rule: {rule_name})"
@@ -786,6 +788,7 @@ pub async fn create_empty_ticket(
                     let notification_service = notification_service.clone();
                     let ticket_id = ticket.id;
                     let ticket_title = ticket.title.clone();
+                    let ticket_workspace = ticket.workspace_id;
                     let rule_name = result.rule_name.clone();
 
                     tokio::spawn(async move {
@@ -801,6 +804,7 @@ pub async fn create_empty_ticket(
                                 id: ticket_id,
                                 title: ticket_title,
                             },
+                            ticket_workspace,
                         )
                         .with_body(format!(
                             "You have been auto-assigned to ticket #{ticket_id} (Rule: {rule_name})"
@@ -1174,6 +1178,7 @@ pub async fn update_ticket_partial(
                             if let Some(ref assignee) = assignee_user {
                                 let notification_service = notification_service.clone();
                                 let ticket_title = updated_ticket.title.clone();
+                                let ticket_workspace = updated_ticket.workspace_id;
                                 let assignee_uuid = assignee.uuid;
                                 let rule_name = result.rule_name.clone();
 
@@ -1190,6 +1195,7 @@ pub async fn update_ticket_partial(
                                             id: ticket_id,
                                             title: ticket_title,
                                         },
+                                        ticket_workspace,
                                     )
                                     .with_body(format!(
                                         "You have been auto-assigned to ticket #{ticket_id} (Rule: {rule_name})"
@@ -1259,6 +1265,7 @@ pub async fn update_ticket_partial(
                         .map(|c| c.as_str())
                         .unwrap_or("backlog");
                     let requester_uuid = updated_ticket.ticket.requester_uuid;
+                    let ticket_workspace = updated_ticket.ticket.workspace_id;
                     let actor_clone = actor.clone();
 
                     // Spawn async task for notifications to not block response
@@ -1274,6 +1281,7 @@ pub async fn update_ticket_partial(
                                         id: ticket_id,
                                         title: ticket_title.clone(),
                                     },
+                                    ticket_workspace,
                                 )
                                 .with_body(format!(
                                     "You have been assigned to ticket #{ticket_id}"
@@ -1296,6 +1304,7 @@ pub async fn update_ticket_partial(
                                         id: ticket_id,
                                         title: ticket_title.clone(),
                                     },
+                                    ticket_workspace,
                                 )
                                 .with_body(format!(
                                     "Ticket #{} status changed to {}",

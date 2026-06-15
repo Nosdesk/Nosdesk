@@ -628,6 +628,7 @@ fn scan_breach_candidates(
 struct BreachContext {
     ticket_id: i32,
     ticket_title: String,
+    workspace_id: i32,
     kind: SlaBreachKind,
     breached_at: chrono::DateTime<chrono::Utc>,
     assignee_uuid: Option<uuid::Uuid>,
@@ -724,6 +725,7 @@ fn process_one_breach(
         Ok(Some(BreachContext {
             ticket_id,
             ticket_title: ticket.title.clone(),
+            workspace_id,
             kind,
             breached_at: to_utc(breached_at),
             assignee_uuid: ticket.assignee_uuid,
@@ -783,6 +785,7 @@ async fn fanout_breach(
             recipient,
             actor.clone(),
             entity.clone(),
+            ctx.workspace_id,
         )
         .with_body(body.clone());
         if let Err(e) = notification_service.notify(payload).await {

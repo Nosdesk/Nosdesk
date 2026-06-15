@@ -271,13 +271,18 @@ impl NotificationService {
             .iter()
             .any(|c| matches!(c, NotificationChannel::InApp));
 
-        // notifications is RLS-enabled; the service is a
-        // background dispatcher with no request-bound workspace
-        // pin, so wrap the insert in background_run which elevates
-        // to nosdesk_admin for the txn.
-        let notification: Notification = crate::sync::session::background_run(
+        // notifications is RLS-enabled and notifications.workspace_id
+        // defaults from app.workspace_id; this service is a background
+        // dispatcher with no request-bound pin. Pin the entity's workspace
+        // (carried on the payload from the call site) so the insert + sync
+        // emit write the right workspace_id instead of NULL. Entity-derived,
+        // not recipient-derived: a recipient can belong to several
+        // workspaces, and the notification belongs to the one its entity
+        // lives in.
+        let notification: Notification = crate::sync::session::background_run_in_workspace(
             &self.pool,
             "background:notification_persist",
+            payload.workspace_id,
             |conn| {
                 let notification: Notification = diesel::insert_into(notifications::table)
                     .values(&new_notification)
@@ -289,8 +294,9 @@ impl NotificationService {
                     // backend machine (cross-machine via Postgres NOTIFY),
                     // not just the one that created it. Scoped to the
                     // recipient's private `user:<uuid>` group so no other
-                    // user can see it. workspace_id defaults to 1 like the
-                    // insert above (single-tenant); revisit for multi-tenant.
+                    // user can see it. workspace_id resolves from the pinned
+                    // app.workspace_id (the recipient's workspace), same as
+                    // the insert above.
                     //
                     // The data is the full NotificationEvent so the client
                     // can render the toast straight from the sync row.

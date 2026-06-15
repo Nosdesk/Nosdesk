@@ -183,6 +183,9 @@ pub async fn record(
                         asset_name, quantity_str, unit, threshold_str, unit,
                     );
 
+                    let asset_workspace = tc
+                        .workspace_id()
+                        .unwrap_or(crate::sync::actor::BOOTSTRAP_WORKSPACE_ID);
                     for recipient_uuid in recipients {
                         let payload = NotificationPayload::new(
                             NotificationTypeCode::AssetLowStock,
@@ -196,6 +199,7 @@ pub async fn record(
                                 id: asset_id,
                                 name: asset_name.clone(),
                             },
+                            asset_workspace,
                         )
                         .with_body(body.clone());
 

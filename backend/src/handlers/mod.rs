@@ -622,6 +622,7 @@ pub async fn add_comment_to_ticket(
                 let ticket_title = ticket_info.title.clone();
                 let ticket_requester = ticket_info.requester_uuid;
                 let ticket_assignee = ticket_info.assignee_uuid;
+                let ticket_workspace = ticket_info.workspace_id;
                 let comment_id = comment.id;
                 let comment_is_internal = comment.is_internal;
                 // Strip HTML and clean up mentions for notification preview
@@ -718,8 +719,10 @@ pub async fn add_comment_to_ticket(
                     all_candidates.dedup();
 
                     // Staff = platform admin OR workspace owner/admin/agent
-                    // in workspace 1 (single-tenant OSS). Post-W2 replaces
-                    // the legacy `users.role IN (admin, technician)` filter.
+                    // in THIS ticket's workspace. (Was hardcoded to
+                    // workspace 1 for single-tenant OSS, which stripped every
+                    // internal-note recipient in any other workspace under
+                    // hosted multi-tenancy.)
                     let staff_uuids: std::collections::HashSet<Uuid> = tc
                         .run(|conn| {
                             use crate::schema::{users, workspace_members};
@@ -733,7 +736,10 @@ pub async fn add_comment_to_ticket(
                                                 .filter(
                                                     workspace_members::user_uuid.eq(users::uuid),
                                                 )
-                                                .filter(workspace_members::workspace_id.eq(1))
+                                                .filter(
+                                                    workspace_members::workspace_id
+                                                        .eq(ticket_workspace),
+                                                )
                                                 .filter(
                                                     workspace_members::role
                                                         .eq_any(vec!["owner", "admin", "agent"]),
@@ -770,6 +776,7 @@ pub async fn add_comment_to_ticket(
                                 ticket_id,
                                 ticket_title: ticket_title.clone(),
                             },
+                            ticket_workspace,
                         )
                         .with_body(&comment_preview);
 
@@ -789,6 +796,7 @@ pub async fn add_comment_to_ticket(
                                 ticket_id,
                                 ticket_title: ticket_title.clone(),
                             },
+                            ticket_workspace,
                         )
                         .with_body(&comment_preview);
 

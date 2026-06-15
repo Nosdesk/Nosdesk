@@ -825,6 +825,7 @@ pub async fn update_documentation_page(
         let notification_service = notification_service.clone();
         let page_title = updated_page.title.clone();
         let page_slug = updated_page.slug.clone();
+        let page_workspace = updated_page.workspace_id;
         tokio::spawn(async move {
             let mut conn = match pool.get() {
                 Ok(conn) => conn,
@@ -850,6 +851,7 @@ pub async fn update_documentation_page(
                     subscriber_uuid,
                     actor.clone(),
                     entity.clone(),
+                    page_workspace,
                 )
                 .with_body(format!("\"{}\" was updated", page_title));
 

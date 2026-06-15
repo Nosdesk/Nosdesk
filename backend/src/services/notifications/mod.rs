@@ -35,6 +35,7 @@
 //!     recipient_uuid,
 //!     NotificationActor { uuid, name, avatar_thumb },
 //!     NotificationEntity::Ticket { id, title },
+//!     ticket.workspace_id, // the entity's workspace; the row is pinned here
 //! )
 //! .with_body("You've been assigned to this ticket");
 //!
