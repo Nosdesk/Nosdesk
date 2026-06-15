@@ -14,8 +14,9 @@
 
 ---
 
-> [!CAUTION]
-> Nosdesk is under active development and not yet production-ready. Expect breaking changes as the project evolves. Use at your own risk.
+<p align="center">
+  <img src="nosdesk-dashboard.png" alt="Nosdesk dashboard" width="900">
+</p>
 
 ## What is Nosdesk?
 
@@ -66,28 +67,12 @@ docker compose up -d --build
 
 Open [http://localhost:8080](http://localhost:8080) in your browser. On first launch, you'll be guided through creating your admin account.
 
-## Deploying on managed Postgres
+## Deployment
 
-The schema is **role-name-agnostic**: the migration creates the two
-row-level-security roles (`nosdesk_app`, the RLS-enforced tenant role, and
-`nosdesk_admin`, the `BYPASSRLS` owner) idempotently and owns every object
-as `nosdesk_admin`, so it applies no matter what your connecting role is
-named (a Fly `pg attach` user, a changed `POSTGRES_USER`, etc.).
-
-Run the migrations with a **superuser-capable role**. A fresh install mints
-a `BYPASSRLS` role and loads seed data with triggers disabled
-(`DISABLE TRIGGER ALL`), both of which require superuser, so a restricted
-role can't apply the migration even with the roles pre-created. The bundled
-Compose stack already does this (its Postgres superuser runs migrations),
-so it needs nothing extra. On managed/hosted Postgres (Fly Managed
-Postgres, RDS, Cloud SQL, etc.), run migrations with the cluster's admin
-role.
-
-At runtime, point the running app at a restricted, non-superuser role: it
-connects as `nosdesk_app` for tenant-isolated queries and elevates to
-`nosdesk_admin` only for operations that must cross tenant boundaries. A
-startup guard refuses to boot in multi-tenant mode on a connection role
-that bypasses RLS.
+The Compose stack above is the fastest path to a running instance. For
+production, including managed Postgres (Fly, RDS, Cloud SQL), TLS,
+backups, and the superuser-to-migrate vs restricted-role-at-runtime
+split, see the [installation guide](https://nosdesk.com/docs/operations/installation).
 
 ## Technology
 
@@ -120,45 +105,11 @@ BACKEND_BIND=0.0.0.0 docker compose -f compose.yaml -f compose.dev.yaml up -d --
 
 ## CLI tools
 
-Nosdesk ships a `nosdesk-cli` binary for plugin authoring, signing, and a
-handful of break-glass admin operations against a running instance.
-
-### Install
-
-If you have a local Rust toolchain:
-
-```bash
-cargo install --path backend --bin nosdesk-cli
-```
-
-This drops the binary at `~/.cargo/bin/nosdesk-cli`. Re-run the same
-command after pulling Nosdesk updates; cargo's incremental build only
-rebuilds what changed.
-
-The `backend` crate links against `libpq` (PostgreSQL client). Install
-it from your package manager before the first `cargo install`:
-
-```bash
-# macOS (libpq is keg-only on Homebrew)
-brew install libpq
-export LIBRARY_PATH="/opt/homebrew/opt/libpq/lib:$LIBRARY_PATH"
-export PKG_CONFIG_PATH="/opt/homebrew/opt/libpq/lib/pkgconfig:$PKG_CONFIG_PATH"
-
-# Debian/Ubuntu
-sudo apt install libpq-dev pkg-config
-```
-
-Add the macOS exports to your shell rc so future installs pick them
-up automatically.
-
-If you don't want a local toolchain, the same binary ships in the
-production Docker image at `/usr/local/bin/nosdesk-cli`:
-
-```bash
-docker compose run --rm --no-deps --entrypoint nosdesk-cli nosdesk --help
-```
-
-### Subcommands
+Nosdesk ships a `nosdesk-cli` binary for plugin authoring, signing, and
+break-glass admin operations. It's in the production image at
+`/usr/local/bin/nosdesk-cli`, or build it locally with
+`cargo install --path backend --bin nosdesk-cli` (the `backend` crate
+needs `libpq`).
 
 ```
 nosdesk-cli plugin gen-key  --out ~/.nosdesk/plugin-key
@@ -170,25 +121,9 @@ nosdesk-cli admin reset-password <email>
 nosdesk-cli admin clear-mfa      <email>
 ```
 
-`plugin sign` and friends are pure file-IO; they don't need a running
-Nosdesk. `plugin install` and the `admin` subcommands talk to the
-configured database directly, so they need `DATABASE_URL` set (the
-backend's `.env` already exports it for the Docker workflow).
-
-### Signing a plugin
-
-```bash
-cd ~/dev/<plugin-repo>
-mkdir -p dist
-nosdesk-cli plugin sign . \
-  --key <path-to-your-signing-key> \
-  --out dist/<plugin-name>-<version>.zip \
-  --source <nosdesk-root|verified-publisher|community-publisher|local>
-shasum -a 256 dist/<plugin-name>-<version>.zip
-```
-
-The `--source` value must match how your signing key is registered with
-the trust chain on the target Nosdesk instance(s).
+The `admin` subcommands and `plugin install` talk to the database
+directly, so they need `DATABASE_URL` set; signing and verifying are
+offline file-IO.
 
 ## License
 
