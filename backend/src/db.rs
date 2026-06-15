@@ -209,12 +209,32 @@ fn resolve_pool_sizing(max_size_env: Option<String>, min_idle_env: Option<String
     (max_size, min_idle)
 }
 
+/// Render a connection URL safe for logging: scheme, host, port and
+/// database name only. The userinfo (`user:password@`) and any query
+/// string are dropped so credentials never reach the logs — the prior
+/// "first 30 chars" log leaked the password for
+/// `postgres://user:password@host/db`. Falls back to a placeholder when
+/// the URL doesn't parse.
+fn redact_db_url(url: &str) -> String {
+    match url::Url::parse(url) {
+        Ok(u) => {
+            let host = u.host_str().unwrap_or("?");
+            let db = u.path().trim_start_matches('/');
+            match u.port() {
+                Some(port) => format!("{}://{host}:{port}/{db}", u.scheme()),
+                None => format!("{}://{host}/{db}", u.scheme()),
+            }
+        }
+        Err(_) => "<unparseable DATABASE_URL>".to_string(),
+    }
+}
+
 pub fn establish_connection_pool() -> Pool {
     dotenv().ok();
 
     let database_url = match env::var("DATABASE_URL") {
         Ok(url) => {
-            info!(url_prefix = %url.chars().take(30).collect::<String>(), "DATABASE_URL found");
+            info!(database = %redact_db_url(&url), "DATABASE_URL found");
             url
         }
         Err(e) => {
@@ -350,5 +370,32 @@ mod pool_sizing_tests {
             "zero allowed (fully lazy)"
         );
         assert_eq!(sz(Some("10"), Some("4")), (10, 4));
+    }
+}
+
+#[cfg(test)]
+mod redact_db_url_tests {
+    use super::redact_db_url;
+
+    #[test]
+    fn strips_credentials_and_query() {
+        let out =
+            redact_db_url("postgres://nosdesk:s3cr3t@db.internal:5432/helpdesk?sslmode=require");
+        assert_eq!(out, "postgres://db.internal:5432/helpdesk");
+        assert!(!out.contains("s3cr3t"), "password must not appear: {out}");
+        assert!(!out.contains("nosdesk"), "username must not appear: {out}");
+    }
+
+    #[test]
+    fn handles_no_port_and_no_credentials() {
+        assert_eq!(
+            redact_db_url("postgres://localhost/nosdesk"),
+            "postgres://localhost/nosdesk"
+        );
+    }
+
+    #[test]
+    fn unparseable_falls_back_without_leaking() {
+        assert_eq!(redact_db_url("not a url"), "<unparseable DATABASE_URL>");
     }
 }
