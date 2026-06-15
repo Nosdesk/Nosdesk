@@ -191,7 +191,12 @@ export async function flush(): Promise<void> {
       }
 
       backoffMs = 0
-      pool.setLastSyncId(response.last_sync_id)
+      // A push does not advance the read cursor. The read cursor is the
+      // commit-safe `(xid8, sync_id)` pair owned by the bootstrap / delta
+      // / SSE streams; a push only knows its own rows' `sync_id`, not
+      // their `xid8`, so it can't form a valid composite cursor. The
+      // pushed rows echo back through SSE with their xid8 and apply
+      // idempotently (the optimistic write already populated the pool).
 
       for (const txId of response.applied) {
         await idb.deleteTransaction(handle, txId)

@@ -36,6 +36,7 @@ const STORE_TRANSACTIONS = 'transactions'
 const STORE_META = 'meta'
 
 const META_KEY_LAST_SYNC_ID = 'last_sync_id'
+const META_KEY_LAST_XID8 = 'last_xid8'
 const META_KEY_SCHEMA_HASH = 'schema_hash'
 const META_KEY_SUBSCRIBED_GROUPS = 'subscribed_groups'
 const META_KEY_INSTANCE_ID = 'instance_id'
@@ -212,6 +213,14 @@ export function setLastSyncId(handle: IdbHandle, id: number): Promise<void> {
 
 export function getLastSyncId(handle: IdbHandle): Promise<number | undefined> {
   return getMeta<number>(handle, META_KEY_LAST_SYNC_ID)
+}
+
+export function setLastXid8(handle: IdbHandle, xid8: number): Promise<void> {
+  return putMeta(handle, META_KEY_LAST_XID8, xid8)
+}
+
+export function getLastXid8(handle: IdbHandle): Promise<number | undefined> {
+  return getMeta<number>(handle, META_KEY_LAST_XID8)
 }
 
 export function setSchemaHash(handle: IdbHandle, hash: string): Promise<void> {

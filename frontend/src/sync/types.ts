@@ -65,6 +65,10 @@ export interface SyncAction {
 
 export interface DeltaResponse {
   actions: SyncAction[]
+  /** Commit-safe cursor for the next request, paired with
+   * `last_sync_id` as `(last_xid8, last_sync_id)`. See the backend
+   * `crate::sync::feed` module. */
+  last_xid8: number
   last_sync_id: number
   has_more: boolean
 }
@@ -72,6 +76,10 @@ export interface DeltaResponse {
 export interface BootstrapMeta {
   /** Server's compiled schema hash (NOSDESK_SCHEMA_HASH). */
   server_schema: string
+  /** Commit-safe cursor floor for subsequent /api/sync/delta calls,
+   * paired with `last_sync_id`. Seeded at `horizon - 1` so the
+   * snapshot and the first delta partition with no gap. */
+  last_xid8: number
   /** Cursor for subsequent /api/sync/delta calls. */
   last_sync_id: number
   /** The intersection of requested groups and the caller's permitted set. */
@@ -91,7 +99,7 @@ export interface BootstrapMeta {
 export type BootstrapLine =
   | { __meta__: BootstrapMeta }
   | { __model__: SyncAggregate; [field: string]: unknown }
-  | { __end__: { last_sync_id: number } }
+  | { __end__: { last_xid8: number; last_sync_id: number } }
   | { __error__: string; detail?: string }
 
 export interface PushTransaction {

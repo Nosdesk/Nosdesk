@@ -31,11 +31,24 @@ type Key = `${SyncAggregate}:${string}`
 const rows = reactive(new Map<Key, ShallowReactive<Record<string, unknown>>>())
 
 /**
- * Process-wide cursor. Every successful delta / bootstrap / SSE
- * frame advances this; the lifecycle layer reads it back when
- * issuing the next delta request.
+ * Process-wide change-feed cursor: the composite `(xid8, sync_id)`
+ * pair, advanced lexicographically. `sync_id` alone is not commit-safe
+ * (a sequence is assigned at INSERT, so its order can diverge from
+ * commit order); the server pairs it with the transaction id `xid8`
+ * and only serves rows below the commit horizon. See the backend
+ * `crate::sync::feed` module. Every successful delta / bootstrap / SSE
+ * frame advances this via `setCursor`; the lifecycle layer reads it
+ * back when issuing the next delta request.
+ *
+ * `lastXid8 === 0` means "not yet seeded by an xid8-bearing source"
+ * (a fresh client, or a warm start from a cache written before the
+ * commit-safe cursor shipped). The lifecycle layer omits `from_xid8`
+ * in that state so the server serves the legacy horizon-gated
+ * catch-up; the bootstrap that follows every subscribe reseeds a real
+ * xid8.
  */
 let lastSyncId = 0
+let lastXid8 = 0
 
 /**
  * Compiled-into-the-binary schema hash (mirrors the server's
@@ -124,8 +137,20 @@ export function getLastSyncId(): number {
   return lastSyncId
 }
 
-export function setLastSyncId(id: number): void {
-  if (id > lastSyncId) lastSyncId = id
+export function getLastXid8(): number {
+  return lastXid8
+}
+
+/**
+ * Advance the composite cursor if `(xid8, syncId)` is lexicographically
+ * greater than what we hold. Monotonic: out-of-order frames (an SSE
+ * push racing a delta response) can't rewind the cursor.
+ */
+export function setCursor(xid8: number, syncId: number): void {
+  if (xid8 > lastXid8 || (xid8 === lastXid8 && syncId > lastSyncId)) {
+    lastXid8 = xid8
+    lastSyncId = syncId
+  }
 }
 
 export function getSchemaHash(): string {
@@ -156,5 +181,6 @@ export function reset(): void {
   rows.clear()
   subscribedGroups.clear()
   lastSyncId = 0
+  lastXid8 = 0
   schemaHash = ''
 }

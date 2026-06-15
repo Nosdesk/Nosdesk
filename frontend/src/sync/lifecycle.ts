@@ -194,8 +194,13 @@ export async function hydrate(
     pool.upsert(r.aggregate, r.id, r.data)
   }
 
+  // Seed the composite cursor from the cache. A cache written before
+  // the commit-safe cursor shipped has no xid8 (defaults to 0); that's
+  // fine — pullDelta omits `from_xid8` while xid8 is 0 and the bootstrap
+  // that follows every subscribe reseeds a real xid8.
   const lastCachedSyncId = (await idb.getLastSyncId(state.handle)) ?? 0
-  pool.setLastSyncId(lastCachedSyncId)
+  const lastCachedXid8 = (await idb.getLastXid8(state.handle)) ?? 0
+  pool.setCursor(lastCachedXid8, lastCachedSyncId)
 
   // Persist hash + instance id for the next warm start so the next
   // boot can detect a schema or database-generation change.
@@ -281,8 +286,13 @@ export async function pullDelta(): Promise<void> {
   const groups = Array.from(pool.getSubscribedGroups())
   if (groups.length === 0) return
   const from = pool.getLastSyncId()
-  const url =
-    `/api/sync/delta?from=${from}&groups=${encodeURIComponent(groups.join(','))}`
+  const fromXid8 = pool.getLastXid8()
+  // Send the commit-safe `from_xid8` only once a real xid8 has seeded
+  // the cursor. Until then (fresh client, or a pre-upgrade cache) omit
+  // it so the server serves the legacy horizon-gated catch-up rather
+  // than re-streaming all of history from xid8 0.
+  let url = `/api/sync/delta?from=${from}&groups=${encodeURIComponent(groups.join(','))}`
+  if (fromXid8 > 0) url += `&from_xid8=${fromXid8}`
   try {
     const res = await syncFetch(url)
     if (!res.ok) {
@@ -291,8 +301,11 @@ export async function pullDelta(): Promise<void> {
     }
     const body = (await res.json()) as DeltaResponse
     applyActions(body.actions)
-    pool.setLastSyncId(body.last_sync_id)
-    if (state.handle) await idb.setLastSyncId(state.handle, body.last_sync_id)
+    pool.setCursor(body.last_xid8, body.last_sync_id)
+    if (state.handle) {
+      await idb.setLastSyncId(state.handle, body.last_sync_id)
+      await idb.setLastXid8(state.handle, body.last_xid8)
+    }
     // Same observer fan-out as the SSE path, so imperative consumers
     // (useSyncActions) stay live even when SSE is wedged and this 10s
     // poll is the delivery path.
@@ -383,8 +396,9 @@ async function runBootstrap(groups: string[]): Promise<void> {
         // advance the cursor.
         await flushPersistBatch()
         if (bootstrapMeta && state.handle) {
-          pool.setLastSyncId(bootstrapMeta.last_sync_id)
+          pool.setCursor(bootstrapMeta.last_xid8, bootstrapMeta.last_sync_id)
           await idb.setLastSyncId(state.handle, bootstrapMeta.last_sync_id)
+          await idb.setLastXid8(state.handle, bootstrapMeta.last_xid8)
         }
       } else if ('__error__' in line) {
         logger.error('bootstrap streamed error envelope', { line })
@@ -575,11 +589,12 @@ async function fetchMissingCycles(ids: string[]): Promise<void> {
 }
 
 /** SSE handler: applies actions, advances the cursor, persists. */
-export function applySseFrame(actions: SyncAction[], lastSyncId: number): void {
+export function applySseFrame(actions: SyncAction[], lastXid8: number, lastSyncId: number): void {
   applyActions(actions)
-  pool.setLastSyncId(lastSyncId)
+  pool.setCursor(lastXid8, lastSyncId)
   if (state.handle) {
     void idb.setLastSyncId(state.handle, lastSyncId)
+    void idb.setLastXid8(state.handle, lastXid8)
   }
   // Notify imperative observers (useSyncActions) after the pool is
   // updated. This is the live SSE path, so observers fire on the
