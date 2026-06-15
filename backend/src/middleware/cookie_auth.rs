@@ -52,7 +52,22 @@ pub(crate) fn enforce_workspace_membership(
     let Ok(user_uuid) = uuid::Uuid::parse_str(&claims.sub) else {
         return Ok(());
     };
-    match crate::repository::workspaces::membership(conn, workspace_id, user_uuid) {
+    // Scope the read to the request's workspace before touching
+    // workspace_members. Its RLS policy is
+    // `workspace_id = current_setting('app.workspace_id')`, so on a raw
+    // pooled connection (where ResetAppGucs cleared the GUC) the
+    // membership row is filtered out and a real member reads as "not a
+    // member" — a chicken-and-egg, since the gate would establish the
+    // tenant scope it needs to read. Run the lookup through
+    // `with_actor_context` (the same path every tenant query uses) with the
+    // actor pinned to the resolved workspace, so `app.workspace_id` is set
+    // and RLS sees the row. The workspace is the one the host already
+    // resolved to, not anything user-supplied.
+    let actor = crate::sync::actor::ActorContext::user_at_workspace(user_uuid, workspace_id);
+    let lookup = crate::sync::session::with_actor_context(conn, &actor, |c| {
+        crate::repository::workspaces::membership(c, workspace_id, user_uuid)
+    });
+    match lookup {
         Ok(Some(_)) => Ok(()),
         Ok(None) => {
             warn!(

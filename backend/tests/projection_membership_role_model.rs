@@ -22,7 +22,7 @@ use diesel::sql_types::BigInt;
 
 use backend::repository::workspaces;
 use backend::sync::actor::ActorContext;
-use backend::sync::session::with_actor_bypass_context;
+use backend::sync::session::{with_actor_bypass_context, with_actor_context};
 
 mod common;
 
@@ -85,5 +85,55 @@ fn provisioning_membership_persists_under_nosdesk_app_role() {
         membership_count(&mut verify, ws_id, user.uuid),
         1,
         "the membership row must exist after a committed provisioning write"
+    );
+}
+
+/// The membership 403 gate reads `workspace_members` under RLS. On a raw
+/// connection without `app.workspace_id` set, the isolation policy hides
+/// the row, so a real member reads as "not a member" — the production bug.
+/// The fix scopes the read through `with_actor_context` (workspace pinned),
+/// which sets `app.workspace_id` so the row is visible. This test pins the
+/// session role to `nosdesk_app` (the production runtime role) so RLS is
+/// actually enforced — the other integration tests run as the superuser
+/// and would see the row regardless, which is why they missed this.
+#[test]
+fn membership_gate_needs_workspace_scope_to_see_the_row() {
+    common::ensure_test_keyring();
+    let test_db = common::TestDb::new();
+    let pool = test_db.pool_with_size(2);
+
+    let mut conn = pool.get().expect("conn");
+    let ws_id = common::mint_workspace(&mut conn, "gatecheck", "Gate Check");
+    let user = common::insert_user(&mut conn, "Member Person");
+    // Seed the membership (as superuser; the write path is covered above).
+    workspaces::add_membership(&mut conn, ws_id, user.uuid, "admin").expect("seed membership");
+
+    // Mirror the production runtime: nosdesk_app (RLS-enforced) with no
+    // tenant scope established (the gate's raw connection state).
+    diesel::sql_query("SET ROLE nosdesk_app")
+        .execute(&mut conn)
+        .expect("set role nosdesk_app");
+    diesel::sql_query("SELECT set_config('app.workspace_id', '', false) AS c")
+        .execute(&mut conn)
+        .expect("clear workspace guc");
+
+    // Unscoped read (the OLD gate): RLS hides the row -> false "not a member".
+    let unscoped = workspaces::membership(&mut conn, ws_id, user.uuid).expect("unscoped read");
+    assert!(
+        unscoped.is_none(),
+        "without app.workspace_id, RLS hides the membership row (the bug)"
+    );
+
+    // Scoped read (the FIX): pin the workspace via with_actor_context so
+    // app.workspace_id is set; the row is now visible.
+    let scoped = with_actor_context::<_, diesel::result::Error>(
+        &mut conn,
+        &ActorContext::user_at_workspace(user.uuid, ws_id),
+        |c| workspaces::membership(c, ws_id, user.uuid),
+    )
+    .expect("scoped read");
+    assert!(
+        scoped.is_some(),
+        "scoping the read to the resolved workspace makes the membership visible"
     );
 }
