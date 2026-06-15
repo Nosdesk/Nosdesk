@@ -13,13 +13,25 @@
 # Secrets are NOT in this file — set them with `fly secrets set` (see the
 # staging runbook): JWT_SECRET, MFA_KEK_V1, DATABASE_URL, REDIS_URL,
 # PLATFORM_PUBLIC_KEY, PLATFORM_ISSUER.
+#
+# DATABASE_URL is the RUNTIME role (nosdesk_app, NOBYPASSRLS — RLS-enforced).
+# MIGRATION_DATABASE_URL (v1.0.1+) is the PRIVILEGED role used ONLY to run
+# migrations on boot (the cluster superuser): migrations CREATE ROLE / ALTER
+# OWNER / CREATE EXTENSION / GRANT, which nosdesk_app can't. Set both; if
+# MIGRATION_DATABASE_URL is unset the app falls back to DATABASE_URL (fine for
+# single-role dev, but a hosted DB will drift — see backend/src/db.rs).
 app = "nosdesk-au"
 primary_region = "syd"
 
 [build]
-  # Prebuilt RC image from GitHub Container Registry (public; fly runs the
-  # linux/amd64 variant). Bump the tag to redeploy a newer RC.
-  image = "ghcr.io/nosdesk/nosdesk:0.1.0-rc.5"
+  # Prebuilt image from GitHub Container Registry (public; fly runs the
+  # linux/amd64 variant). Pinned to a versioned release tag for reproducible
+  # redeploys (was `:latest`, a moving tag — staging drifted off it). v1.0.1
+  # adds MIGRATION_DATABASE_URL so migrations run as a privileged role (the
+  # runtime nosdesk_app role can't CREATE ROLE / ALTER OWNER / CREATE EXTENSION,
+  # which is what stranded the earlier schema). v1.0.0 added the internal
+  # set_member_role endpoint the control plane's seat projection (M-B/M-C) calls.
+  image = "ghcr.io/nosdesk/nosdesk:1.0.1"
 
 [env]
   HOST = "0.0.0.0"

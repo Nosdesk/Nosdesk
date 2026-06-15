@@ -1,6 +1,6 @@
 use diesel::pg::PgConnection;
 use diesel::r2d2::{self, ConnectionManager};
-use diesel::RunQueryDsl;
+use diesel::{Connection, RunQueryDsl};
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use dotenvy::dotenv;
 use std::env;
@@ -60,6 +60,69 @@ pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
 // Simple flag to ensure initialization only happens once
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
 
+/// Apply pending migrations on an already-open connection (pooled or raw).
+fn apply_pending_migrations<C>(conn: &mut C) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+where
+    C: MigrationHarness<diesel::pg::Pg>,
+{
+    match conn.run_pending_migrations(MIGRATIONS) {
+        Ok(applied) => {
+            if !applied.is_empty() {
+                info!("Applied {} database migration(s)", applied.len());
+            }
+            Ok(())
+        }
+        Err(e) => {
+            error!(error = %e, "Failed to run migrations");
+            Err(e)
+        }
+    }
+}
+
+/// Run pending migrations, using a *privileged* role when
+/// `MIGRATION_DATABASE_URL` is set and falling back to the runtime pool
+/// otherwise.
+///
+/// The schema migrations are designed to be applied by a superuser / owner:
+/// they `CREATE ROLE`, `ALTER … OWNER TO nosdesk_admin`, `CREATE EXTENSION`,
+/// and `GRANT … TO nosdesk_app`. The runtime role (`nosdesk_app` —
+/// `NOBYPASSRLS`, no `CREATEROLE`) intentionally can't do any of those, so
+/// running migrations through the app's own pool fails on a fresh or changed
+/// schema and silently leaves it drifted (the failure mode that stranded the
+/// hosted-test instance).
+///
+/// Point `MIGRATION_DATABASE_URL` at a privileged role (the cluster superuser)
+/// to apply migrations cleanly. The runtime pool always stays on
+/// `DATABASE_URL` (`nosdesk_app`), so RLS enforcement and the hosted-mode
+/// role-posture guard are unaffected — the privileged connection is opened
+/// only for the migration run and dropped immediately after. When unset,
+/// behaviour is unchanged (single-role dev / self-hosted setups).
+fn run_migrations(pool: &Pool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    match env::var("MIGRATION_DATABASE_URL") {
+        Ok(url) if !url.trim().is_empty() => {
+            let url = url.trim();
+            info!(
+                database = %redact_db_url(url),
+                "Running migrations via MIGRATION_DATABASE_URL (privileged role)"
+            );
+            let mut conn = PgConnection::establish(url)
+                .map_err(|e| format!("MIGRATION_DATABASE_URL connect failed: {e}"))?;
+            apply_pending_migrations(&mut conn)
+            // `conn` drops here — the privileged connection never enters the pool.
+        }
+        _ => {
+            info!(
+                "Running migrations via the runtime pool (DATABASE_URL); \
+                 MIGRATION_DATABASE_URL not set"
+            );
+            let mut conn = pool
+                .get()
+                .map_err(|e| format!("Failed to get database connection: {e}"))?;
+            apply_pending_migrations(&mut conn)
+        }
+    }
+}
+
 /// Initialize the database by running migrations
 /// This function is designed to be called only once
 pub async fn initialize_database(
@@ -91,22 +154,16 @@ pub async fn initialize_database(
         return Err("Database not ready after 60 seconds".into());
     }
 
-    // Run migrations
+    // Run migrations. Uses MIGRATION_DATABASE_URL (a privileged role) when set,
+    // since the schema migrations need CREATE ROLE / ALTER OWNER / CREATE
+    // EXTENSION / GRANT that the runtime nosdesk_app role intentionally lacks.
+    run_migrations(pool)?;
+
+    // Post-migration bookkeeping runs as the runtime role on the pool — the
+    // migrations have already granted nosdesk_app access to these tables.
     let mut conn = pool
         .get()
         .map_err(|e| format!("Failed to get database connection: {e}"))?;
-
-    match conn.run_pending_migrations(MIGRATIONS) {
-        Ok(migrations) => {
-            if !migrations.is_empty() {
-                info!("Applied {} database migration(s)", migrations.len());
-            }
-        }
-        Err(e) => {
-            error!(error = %e, "Failed to run migrations");
-            return Err(e);
-        }
-    }
 
     // Stamp the binary's schema hash into system_meta so the bootstrap
     // protocol can detect client/server schema mismatches. `build.rs`
