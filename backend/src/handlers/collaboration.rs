@@ -2668,33 +2668,38 @@ pub async fn ws_handler(
         let mut conn = pool.get().map_err(|_| {
             actix_web::error::ErrorInternalServerError("Database connection failed")
         })?;
-        let doc_type = match parsed.resolve(&mut conn) {
-            Ok(Some(dt)) => dt,
+        // Resolve the resource + run the visibility gate under the request's
+        // workspace context. `parsed.resolve` reads `tickets`/`documentation`
+        // and `can_access_document` reads more tenant tables — all RLS-scoped
+        // by `app.workspace_id`. On a raw connection that GUC is unset, so the
+        // rows are filtered out and every doc 404s in hosted mode. The rest of
+        // this handler already wraps its reads this way.
+        let actor = yjs_session_actor(ws.workspace_id);
+        let resolved = session::with_actor_context(&mut conn, &actor, |conn| {
+            let dt = match parsed.resolve(conn)? {
+                Some(dt) => dt,
+                None => return Ok(None),
+            };
+            let allowed = can_access_document(conn, &accessor, &dt)?;
+            Ok::<_, diesel::result::Error>(Some((dt, allowed)))
+        });
+        match resolved {
+            Ok(Some((dt, true))) => dt,
+            Ok(Some((_, false))) => {
+                warn!(doc_id = %doc_id, user_uuid = %user_uuid, "WebSocket document access denied");
+                return Err(actix_web::error::ErrorNotFound("Document not found"));
+            }
             Ok(None) => {
                 warn!(doc_id = %doc_id, "WebSocket doc_id resolves to no live resource");
                 return Err(actix_web::error::ErrorNotFound("Document not found"));
             }
             Err(e) => {
-                error!(doc_id = %doc_id, error = ?e, "WebSocket doc_id resolution failed");
-                return Err(actix_web::error::ErrorInternalServerError(
-                    "Access check failed",
-                ));
-            }
-        };
-        match can_access_document(&mut conn, &accessor, &doc_type) {
-            Ok(true) => {}
-            Ok(false) => {
-                warn!(doc_id = %doc_id, user_uuid = %user_uuid, "WebSocket document access denied");
-                return Err(actix_web::error::ErrorNotFound("Document not found"));
-            }
-            Err(e) => {
-                error!(doc_id = %doc_id, error = ?e, "WebSocket document visibility check failed");
+                error!(doc_id = %doc_id, error = ?e, "WebSocket doc resolution/visibility check failed");
                 return Err(actix_web::error::ErrorInternalServerError(
                     "Access check failed",
                 ));
             }
         }
-        doc_type
     };
 
     // Per-document affinity routing (Phase 2). In single-instance mode
