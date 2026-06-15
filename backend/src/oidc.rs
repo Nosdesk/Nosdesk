@@ -24,6 +24,7 @@ use openidconnect::{
     RedirectUrl, Scope, TokenResponse, TokenUrl, UserInfoUrl,
 };
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
@@ -290,29 +291,43 @@ impl OidcClientKind {
         &self,
         code: AuthorizationCode,
         pkce_verifier: PkceCodeVerifier,
+        // Per-request redirect override. OAuth requires the token-exchange
+        // redirect_uri to equal the one used at authorize time. In hosted
+        // mode that's the tenant's own subdomain callback; `None` keeps the
+        // client's statically configured redirect.
+        redirect_override: Option<RedirectUrl>,
     ) -> Result<CoreTokenResponse, String> {
         match self {
             Self::Discovered(c) => {
-                let req = c
+                let mut req = c
                     .exchange_code(code)
-                    .map_err(|e| format!("Token endpoint not configured: {e}"))?;
-                req.set_pkce_verifier(pkce_verifier)
-                    .request_async(&*OIDC_HTTP_CLIENT)
+                    .map_err(|e| format!("Token endpoint not configured: {e}"))?
+                    .set_pkce_verifier(pkce_verifier);
+                if let Some(r) = redirect_override {
+                    req = req.set_redirect_uri(Cow::Owned(r));
+                }
+                req.request_async(&*OIDC_HTTP_CLIENT)
                     .await
                     .map_err(|e| format!("Token exchange failed: {e}"))
             }
-            Self::ManualWithUserInfo(c) => c
-                .exchange_code(code)
-                .set_pkce_verifier(pkce_verifier)
-                .request_async(&*OIDC_HTTP_CLIENT)
-                .await
-                .map_err(|e| format!("Token exchange failed: {e}")),
-            Self::ManualNoUserInfo(c) => c
-                .exchange_code(code)
-                .set_pkce_verifier(pkce_verifier)
-                .request_async(&*OIDC_HTTP_CLIENT)
-                .await
-                .map_err(|e| format!("Token exchange failed: {e}")),
+            Self::ManualWithUserInfo(c) => {
+                let mut req = c.exchange_code(code).set_pkce_verifier(pkce_verifier);
+                if let Some(r) = redirect_override {
+                    req = req.set_redirect_uri(Cow::Owned(r));
+                }
+                req.request_async(&*OIDC_HTTP_CLIENT)
+                    .await
+                    .map_err(|e| format!("Token exchange failed: {e}"))
+            }
+            Self::ManualNoUserInfo(c) => {
+                let mut req = c.exchange_code(code).set_pkce_verifier(pkce_verifier);
+                if let Some(r) = redirect_override {
+                    req = req.set_redirect_uri(Cow::Owned(r));
+                }
+                req.request_async(&*OIDC_HTTP_CLIENT)
+                    .await
+                    .map_err(|e| format!("Token exchange failed: {e}"))
+            }
         }
     }
 }
@@ -474,6 +489,10 @@ pub fn generate_nonce() -> Nonce {
 pub async fn generate_auth_url(
     _redirect_uri: Option<String>,
     _user_connection: Option<bool>,
+    // Per-tenant OAuth callback override (hosted mode). Must equal the
+    // redirect_uri later presented at token exchange. `None` uses the
+    // client's configured `OIDC_REDIRECT_URI`.
+    callback_redirect: Option<String>,
 ) -> Result<(String, OidcAuthData), String> {
     let client = get_oidc_client().await?;
     let config = OidcConfig::from_env()?;
@@ -493,6 +512,11 @@ pub async fn generate_auth_url(
         }
     }
 
+    if let Some(r) = callback_redirect {
+        let redirect_url = RedirectUrl::new(r).map_err(|e| format!("Invalid redirect URI: {e}"))?;
+        auth_request = auth_request.set_redirect_uri(Cow::Owned(redirect_url));
+    }
+
     let (auth_url, _csrf_token, _nonce) = auth_request.url();
 
     let auth_data = OidcAuthData {
@@ -506,15 +530,30 @@ pub async fn generate_auth_url(
 }
 
 /// Exchange authorization code for tokens and extract user info
-pub async fn exchange_code(code: &str, auth_data: &OidcAuthData) -> Result<OidcUserInfo, String> {
+pub async fn exchange_code(
+    code: &str,
+    auth_data: &OidcAuthData,
+    // Per-tenant OAuth callback override (hosted mode); must equal the
+    // redirect_uri used at authorize time. `None` uses the configured one.
+    callback_redirect: Option<String>,
+) -> Result<OidcUserInfo, String> {
     let client = get_oidc_client().await?;
     let config = OidcConfig::from_env()?;
 
     let pkce_verifier = PkceCodeVerifier::new(auth_data.pkce_verifier.clone());
 
+    let redirect_override = match callback_redirect {
+        Some(r) => Some(RedirectUrl::new(r).map_err(|e| format!("Invalid redirect URI: {e}"))?),
+        None => None,
+    };
+
     debug!("OIDC: Exchanging authorization code for tokens");
     let token_response = client
-        .exchange_code(AuthorizationCode::new(code.to_string()), pkce_verifier)
+        .exchange_code(
+            AuthorizationCode::new(code.to_string()),
+            pkce_verifier,
+            redirect_override,
+        )
         .await?;
 
     let id_token = token_response

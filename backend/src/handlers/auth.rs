@@ -251,12 +251,31 @@ pub(crate) fn build_auth_cookie_response(
 const MAX_LOGIN_ATTEMPTS: u32 = 5;
 const LOCKOUT_DURATION_SECONDS: u64 = 900; // 15 minutes
 
+/// True when local credential auth (password + passkey) must be refused.
+///
+/// In hosted mode the platform OIDC is the only identity source for tenant
+/// users; the static-RP passkey model also only fits self-hosted's single
+/// origin. Login, recovery, and passkey-login handlers short-circuit on
+/// this so the local paths can't be driven directly.
+pub(crate) fn hosted_local_auth_disabled() -> bool {
+    crate::middleware::DeploymentMode::current() == crate::middleware::DeploymentMode::Hosted
+}
+
 // Authentication handlers
 pub async fn login(
     db_pool: web::Data<crate::db::Pool>,
     login_data: web::Json<LoginRequest>,
     request: HttpRequest,
 ) -> impl Responder {
+    // Hosted mode authenticates tenant users exclusively through the
+    // platform OIDC; there is no local product password. Reject local
+    // sign-in even if the endpoint is reached directly.
+    if hosted_local_auth_disabled() {
+        return errors::forbidden(
+            "Password sign-in is disabled. Sign in with your organisation account.",
+        );
+    }
+
     let redis_url = get_redis_url();
     let client_ip = crate::utils::client_ip::from_http_request(&request);
     let lockout_key = RateLimiter::login_attempt_key(&login_data.email, client_ip);
@@ -872,6 +891,7 @@ pub async fn check_setup_status(
                 microsoft_auth_enabled,
                 oidc_enabled,
                 oidc_display_name,
+                local_auth_disabled: hosted_local_auth_disabled(),
             };
 
             // Security headers now applied globally by SecurityHeaders middleware

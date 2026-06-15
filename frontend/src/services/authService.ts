@@ -8,6 +8,10 @@ export interface OnboardingStatus {
   microsoft_auth_enabled: boolean;
   oidc_enabled: boolean;
   oidc_display_name?: string;
+  /** Local credential auth (password + passkey) is disabled and the
+   * platform OIDC is the only sign-in path (hosted mode). The login view
+   * hides the local forms and auto-initiates SSO. */
+  local_auth_disabled?: boolean;
 }
 
 /// Mirrors the JSON shape returned by `GET /api/auth/sessions`

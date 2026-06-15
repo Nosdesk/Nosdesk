@@ -54,6 +54,10 @@ const showForgotPasswordModal = ref(false);
 const microsoftAuthEnabled = ref(false);
 const oidcEnabled = ref(false);
 const oidcDisplayName = ref("SSO");
+// Hosted mode: local password + passkey are disabled and the platform
+// OIDC is the only sign-in path. The local forms are hidden and SSO is
+// auto-initiated on mount.
+const ssoOnly = ref(false);
 
 // MFA state
 const mfaToken = ref("");
@@ -80,6 +84,16 @@ onMounted(async () => {
     microsoftAuthEnabled.value = setupStatus.microsoft_auth_enabled || false;
     oidcEnabled.value = setupStatus.oidc_enabled || false;
     oidcDisplayName.value = setupStatus.oidc_display_name || "SSO";
+    ssoOnly.value = setupStatus.local_auth_disabled || false;
+
+    // Hosted mode with OIDC configured: the platform OIDC is the only way
+    // in, so go straight there instead of rendering a sign-in form the
+    // user can't use. The local forms stay hidden (ssoOnly) as a fallback
+    // if the redirect is blocked.
+    if (ssoOnly.value && oidcEnabled.value) {
+      void handleOidcLoginClick();
+      return;
+    }
   } catch {
     // Continue to show login page if check fails
   }
@@ -652,7 +666,7 @@ const handleOidcLogoutClick = async () => {
       </div>
 
       <!-- Login Form -->
-      <form v-else @submit.prevent="handleLogin" class="flex flex-col gap-5">
+      <form v-else-if="!ssoOnly" @submit.prevent="handleLogin" class="flex flex-col gap-5">
         <header class="flex flex-col gap-1.5">
           <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight text-primary">
             {{ $t('login-title') }}
@@ -828,6 +842,36 @@ const handleOidcLogoutClick = async () => {
           </div>
         </div>
       </form>
+
+      <!-- SSO-only (hosted mode): the platform OIDC is the only sign-in
+           path. onMounted auto-initiates the redirect; this is the visible
+           state during it, with a manual fallback if it was blocked. -->
+      <div v-else class="flex flex-col gap-5">
+        <header class="flex flex-col gap-1.5">
+          <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight text-primary">
+            {{ $t('login-title') }}
+          </h1>
+          <p class="text-base text-secondary">{{ $t('login-subtitle') }}</p>
+        </header>
+
+        <div
+          v-if="errorMessage"
+          class="bg-status-error/10 border border-status-error/50 text-status-error px-4 py-3 rounded-lg text-sm"
+        >
+          {{ errorMessage }}
+        </div>
+
+        <button
+          type="button"
+          @click="handleOidcLoginClick"
+          :disabled="loadingAction === 'oidc'"
+          class="flex-1 flex gap-1 justify-center items-center py-2 px-4 border border-default rounded-lg shadow-sm text-sm font-medium text-secondary bg-surface hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <Spinner v-if="loadingAction === 'oidc'" size="md" class="mr-2" />
+          <span v-if="loadingAction === 'oidc'">{{ $t("login-oidc-connecting") }}</span>
+          <span v-else>{{ $t("login-oidc-cta", { provider: oidcDisplayName }) }}</span>
+        </button>
+      </div>
 
       <!-- Forgot Password Modal -->
       <ForgotPasswordModal

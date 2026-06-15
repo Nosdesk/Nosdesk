@@ -51,7 +51,11 @@ pub fn upsert(conn: &mut DbConnection, report: NewCspReport) -> Result<CspReport
 
     diesel::insert_into(csp_reports)
         .values(&report)
-        .on_conflict(dedup_hash)
+        // Conflict target must match the unique index, which is composite
+        // `(workspace_id, dedup_hash)` (dedup is per-tenant). Targeting
+        // `dedup_hash` alone errors: "no unique or exclusion constraint
+        // matching the ON CONFLICT specification".
+        .on_conflict((workspace_id, dedup_hash))
         .do_update()
         .set((
             occurrence_count.eq(occurrence_count + 1),

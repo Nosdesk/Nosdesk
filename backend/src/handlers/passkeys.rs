@@ -376,6 +376,14 @@ pub async fn start_passkey_login(
     pool: web::Data<Pool>,
     body: web::Json<StartLoginRequest>,
 ) -> impl Responder {
+    // Passkeys are off in hosted mode (the static-RP model only fits a
+    // single self-hosted origin); tenant users authenticate via OIDC.
+    if crate::handlers::auth::hosted_local_auth_disabled() {
+        return errors::forbidden(
+            "Passkey sign-in is disabled. Sign in with your organisation account.",
+        );
+    }
+
     // Rate limiting based on IP for discoverable auth, email for non-discoverable
     let redis_url = get_redis_url();
 
@@ -469,6 +477,12 @@ pub async fn finish_passkey_login(
     pool: web::Data<Pool>,
     body: web::Json<FinishLoginRequest>,
 ) -> impl Responder {
+    if crate::handlers::auth::hosted_local_auth_disabled() {
+        return errors::forbidden(
+            "Passkey sign-in is disabled. Sign in with your organisation account.",
+        );
+    }
+
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
