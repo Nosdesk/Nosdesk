@@ -67,6 +67,10 @@ COPY backend/Cargo.toml backend/Cargo.lock ./
 # time`). Bake it into the image so cold starts work.
 COPY backend/build.rs ./build.rs
 COPY backend/src ./src
+# license.rs uses include_str!("../license_pubkey.pem") — must exist at
+# compile time. Not in the develop.watch sync set, so it has to be baked
+# into the image (mirrors the prod backend/Dockerfile COPY).
+COPY backend/license_pubkey.pem ./license_pubkey.pem
 COPY backend/migrations ./migrations
 COPY backend/tests ./tests
 # sync-models manifests are read by `tests/sync_model_registry.rs`
