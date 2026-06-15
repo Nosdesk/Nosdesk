@@ -3684,7 +3684,8 @@ CREATE TABLE public.sync_actions (
     client_tx_id text,
     occurred_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
     recorded_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
-    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL
+    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL,
+    xid8 bigint DEFAULT ((pg_current_xact_id())::text)::bigint NOT NULL
 )
 PARTITION BY RANGE (occurred_at);
 
@@ -3736,7 +3737,8 @@ CREATE TABLE public.sync_actions_2026_05 (
     client_tx_id text,
     occurred_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
     recorded_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
-    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL
+    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL,
+    xid8 bigint DEFAULT ((pg_current_xact_id())::text)::bigint NOT NULL
 );
 
 ALTER TABLE ONLY public.sync_actions_2026_05 FORCE ROW LEVEL SECURITY;
@@ -3766,7 +3768,8 @@ CREATE TABLE public.sync_actions_2026_06 (
     client_tx_id text,
     occurred_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
     recorded_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
-    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL
+    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL,
+    xid8 bigint DEFAULT ((pg_current_xact_id())::text)::bigint NOT NULL
 );
 
 ALTER TABLE ONLY public.sync_actions_2026_06 FORCE ROW LEVEL SECURITY;
@@ -3796,7 +3799,8 @@ CREATE TABLE public.sync_actions_2026_07 (
     client_tx_id text,
     occurred_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
     recorded_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
-    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL
+    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL,
+    xid8 bigint DEFAULT ((pg_current_xact_id())::text)::bigint NOT NULL
 );
 
 ALTER TABLE ONLY public.sync_actions_2026_07 FORCE ROW LEVEL SECURITY;
@@ -3826,7 +3830,8 @@ CREATE TABLE public.sync_actions_2026_08 (
     client_tx_id text,
     occurred_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
     recorded_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
-    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL
+    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL,
+    xid8 bigint DEFAULT ((pg_current_xact_id())::text)::bigint NOT NULL
 );
 
 ALTER TABLE ONLY public.sync_actions_2026_08 FORCE ROW LEVEL SECURITY;
@@ -3856,7 +3861,8 @@ CREATE TABLE public.sync_actions_default (
     client_tx_id text,
     occurred_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
     recorded_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
-    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL
+    workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL,
+    xid8 bigint DEFAULT ((pg_current_xact_id())::text)::bigint NOT NULL
 );
 
 ALTER TABLE ONLY public.sync_actions_default FORCE ROW LEVEL SECURITY;
@@ -9048,6 +9054,83 @@ ALTER INDEX public.sync_actions_occurred_at_brin ATTACH PARTITION public.sync_ac
 --
 
 ALTER INDEX public.sync_actions_pkey ATTACH PARTITION public.sync_actions_default_pkey;
+
+
+--
+-- Name: sync_actions_xid8_sync_id_idx; Type: INDEX; Schema: public; Owner: nosdesk_admin
+--
+
+CREATE INDEX sync_actions_xid8_sync_id_idx ON ONLY public.sync_actions USING btree (xid8, sync_id);
+
+
+--
+-- Name: sync_actions_2026_05_xid8_sync_id_idx; Type: INDEX; Schema: public; Owner: nosdesk_admin
+--
+
+CREATE INDEX sync_actions_2026_05_xid8_sync_id_idx ON public.sync_actions_2026_05 USING btree (xid8, sync_id);
+
+
+--
+-- Name: sync_actions_2026_06_xid8_sync_id_idx; Type: INDEX; Schema: public; Owner: nosdesk_admin
+--
+
+CREATE INDEX sync_actions_2026_06_xid8_sync_id_idx ON public.sync_actions_2026_06 USING btree (xid8, sync_id);
+
+
+--
+-- Name: sync_actions_2026_07_xid8_sync_id_idx; Type: INDEX; Schema: public; Owner: nosdesk_admin
+--
+
+CREATE INDEX sync_actions_2026_07_xid8_sync_id_idx ON public.sync_actions_2026_07 USING btree (xid8, sync_id);
+
+
+--
+-- Name: sync_actions_2026_08_xid8_sync_id_idx; Type: INDEX; Schema: public; Owner: nosdesk_admin
+--
+
+CREATE INDEX sync_actions_2026_08_xid8_sync_id_idx ON public.sync_actions_2026_08 USING btree (xid8, sync_id);
+
+
+--
+-- Name: sync_actions_default_xid8_sync_id_idx; Type: INDEX; Schema: public; Owner: nosdesk_admin
+--
+
+CREATE INDEX sync_actions_default_xid8_sync_id_idx ON public.sync_actions_default USING btree (xid8, sync_id);
+
+
+--
+-- Name: sync_actions_2026_05_xid8_sync_id_idx; Type: INDEX ATTACH; Schema: public; Owner: nosdesk_admin
+--
+
+ALTER INDEX public.sync_actions_xid8_sync_id_idx ATTACH PARTITION public.sync_actions_2026_05_xid8_sync_id_idx;
+
+
+--
+-- Name: sync_actions_2026_06_xid8_sync_id_idx; Type: INDEX ATTACH; Schema: public; Owner: nosdesk_admin
+--
+
+ALTER INDEX public.sync_actions_xid8_sync_id_idx ATTACH PARTITION public.sync_actions_2026_06_xid8_sync_id_idx;
+
+
+--
+-- Name: sync_actions_2026_07_xid8_sync_id_idx; Type: INDEX ATTACH; Schema: public; Owner: nosdesk_admin
+--
+
+ALTER INDEX public.sync_actions_xid8_sync_id_idx ATTACH PARTITION public.sync_actions_2026_07_xid8_sync_id_idx;
+
+
+--
+-- Name: sync_actions_2026_08_xid8_sync_id_idx; Type: INDEX ATTACH; Schema: public; Owner: nosdesk_admin
+--
+
+ALTER INDEX public.sync_actions_xid8_sync_id_idx ATTACH PARTITION public.sync_actions_2026_08_xid8_sync_id_idx;
+
+
+--
+-- Name: sync_actions_default_xid8_sync_id_idx; Type: INDEX ATTACH; Schema: public; Owner: nosdesk_admin
+--
+
+ALTER INDEX public.sync_actions_xid8_sync_id_idx ATTACH PARTITION public.sync_actions_default_xid8_sync_id_idx;
 
 
 --
