@@ -497,6 +497,14 @@ fn valid_settable_role(role: &str) -> bool {
     matches!(role, "admin" | "agent" | "member")
 }
 
+/// Result of the membership upsert in [`set_member_role`]: the role was
+/// applied (updated an existing row or created a missing one), or the
+/// change was refused because it would demote the workspace's only owner.
+enum SetMemberRoleOutcome {
+    Applied,
+    LastOwner,
+}
+
 pub async fn set_member_role(
     _: PlatformAuth,
     pool: web::Data<Pool>,
@@ -540,33 +548,44 @@ pub async fn set_member_role(
             }
         };
 
-    // `update_membership_role` writes `workspace_members` (a meta-table
-    // without RLS) but its audit trigger reads `app.workspace_id`; wrap
-    // in a bypass context like `set_seat_limit` so the actor GUCs are
-    // set. The seat-limit trigger surfaces as a DB error on the UPDATE,
-    // mapped to 403 below — mirrors `workspace_members::update_member_role`.
-    let actor = crate::sync::actor::ActorContext::system("workspace:set_member_role");
+    // Upsert the membership. `workspace_members` is RLS-enabled with a
+    // `WITH CHECK` isolation policy, and its audit trigger reads
+    // `app.workspace_id`; the bypass context both satisfies the policy for
+    // this control-plane write and sets the actor GUCs. The seat-limit
+    // trigger surfaces as a DB error, mapped to 403 below.
+    //
+    // CREATE-IF-ABSENT: if the user has no membership yet (e.g. the eager
+    // projection's grant didn't materialise, or the control plane promotes
+    // before projecting), UPDATE alone is a silent no-op. Fall through to
+    // an insert with the requested role so the promotion actually takes.
+    let actor = crate::sync::actor::ActorContext::system("workspace:set_member_role")
+        .with_workspace(workspace.id);
     let outcome = crate::sync::session::with_actor_bypass_context::<
-        UpdateMembershipRoleResult,
+        SetMemberRoleOutcome,
         diesel::result::Error,
-    >(&mut conn, &actor, |c| {
-        workspaces::update_membership_role(c, workspace.id, user_uuid, &role)
-    });
+    >(
+        &mut conn,
+        &actor,
+        |c| match workspaces::update_membership_role(c, workspace.id, user_uuid, &role)? {
+            UpdateMembershipRoleResult::Updated(_) => Ok(SetMemberRoleOutcome::Applied),
+            UpdateMembershipRoleResult::LastOwner => Ok(SetMemberRoleOutcome::LastOwner),
+            UpdateMembershipRoleResult::NotFound => {
+                workspaces::add_membership(c, workspace.id, user_uuid, &role)?;
+                Ok(SetMemberRoleOutcome::Applied)
+            }
+        },
+    );
 
     match outcome {
-        Ok(UpdateMembershipRoleResult::Updated(_)) => {
-            info!(workspace_id = workspace.id, %user_uuid, role = %role, "set_member_role: updated");
+        Ok(SetMemberRoleOutcome::Applied) => {
+            info!(workspace_id = workspace.id, %user_uuid, role = %role, "set_member_role: applied");
             HttpResponse::Ok().json(SetMemberRoleResponse {
                 user_uuid,
                 workspace_id: workspace.id,
                 role,
             })
         }
-        Ok(UpdateMembershipRoleResult::NotFound) => {
-            warn!(workspace_id = workspace.id, %user_uuid, "set_member_role: not a member");
-            errors::not_found_msg("member not found")
-        }
-        Ok(UpdateMembershipRoleResult::LastOwner) => HttpResponse::Conflict().json(json!({
+        Ok(SetMemberRoleOutcome::LastOwner) => HttpResponse::Conflict().json(json!({
             "error": "last_owner",
             "message": "cannot demote the only owner; promote another member first",
         })),
