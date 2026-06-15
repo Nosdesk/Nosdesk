@@ -2810,6 +2810,15 @@ pub struct OAuthState {
     /// <=10-minute transition window).
     #[serde(default)]
     pub workspace_id: Option<i32>,
+    /// OAuth `redirect_uri` (the IdP callback) used for THIS flow, bound
+    /// at initiation so the token exchange presents the identical value.
+    /// In hosted mode each tenant authenticates on its own subdomain, so
+    /// this is `https://<tenant-host>/api/auth/oauth/callback`, derived
+    /// from the initiating request's `Host`. `None` means "use the
+    /// statically configured `OIDC_REDIRECT_URI`" (self-hosted, and legacy
+    /// in-flight tokens minted before this field existed).
+    #[serde(default)]
+    pub callback_redirect_uri: Option<String>,
 }
 
 // OAuth Authentication request
@@ -3097,6 +3106,10 @@ pub struct OnboardingStatus {
     pub microsoft_auth_enabled: bool,
     pub oidc_enabled: bool,
     pub oidc_display_name: Option<String>,
+    /// True when local credential auth (password + passkey) is disabled and
+    /// the platform OIDC is the only sign-in path (hosted mode). The login
+    /// UI hides the password/passkey forms and auto-initiates SSO.
+    pub local_auth_disabled: bool,
 }
 
 #[derive(Debug, Deserialize)]

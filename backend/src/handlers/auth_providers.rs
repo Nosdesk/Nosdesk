@@ -127,33 +127,43 @@ pub async fn get_auth_providers(db_pool: web::Data<Pool>, req: HttpRequest) -> i
 
 // Get enabled authentication providers (for login page) - now environment-based
 pub async fn get_enabled_auth_providers(_db_pool: web::Data<Pool>) -> impl Responder {
-    // Return enabled providers based on environment configuration
-    let mut providers = vec![json!({
-        "id": 1,
-        "provider_type": "local",
-        "name": "Local",
-        "is_default": true
-    })];
+    // Hosted mode trusts exactly one identity source: the platform OIDC.
+    // Local password + Microsoft are never offered, so the login page
+    // shows only single sign-on (and the frontend can auto-initiate it).
+    let hosted =
+        crate::middleware::DeploymentMode::current() == crate::middleware::DeploymentMode::Hosted;
 
-    // Check if Microsoft is configured
-    if std::env::var("MICROSOFT_CLIENT_ID").is_ok()
-        && std::env::var("MICROSOFT_CLIENT_SECRET").is_ok()
-    {
+    let mut providers = Vec::new();
+
+    if !hosted {
         providers.push(json!({
-            "id": 2,
-            "provider_type": "microsoft",
-            "name": "Microsoft",
-            "is_default": false
+            "id": 1,
+            "provider_type": "local",
+            "name": "Local",
+            "is_default": true
         }));
+
+        // Check if Microsoft is configured
+        if std::env::var("MICROSOFT_CLIENT_ID").is_ok()
+            && std::env::var("MICROSOFT_CLIENT_SECRET").is_ok()
+        {
+            providers.push(json!({
+                "id": 2,
+                "provider_type": "microsoft",
+                "name": "Microsoft",
+                "is_default": false
+            }));
+        }
     }
 
-    // Check if OIDC is configured
+    // Check if OIDC is configured. In hosted mode it is the default (and
+    // only) provider, so the client can redirect straight to it.
     if config_utils::is_oidc_enabled() {
         providers.push(json!({
             "id": 3,
             "provider_type": "oidc",
             "name": crate::oidc::get_display_name_cached(),
-            "is_default": false
+            "is_default": hosted
         }));
     }
 
@@ -292,10 +302,16 @@ pub async fn oauth_authorize(
             "state": state
         }))
     } else if provider.provider_type == "oidc" {
+        // Per-tenant OAuth callback (hosted mode): each tenant authenticates
+        // on its own subdomain. Bind it into the signed state so the token
+        // exchange in the callback presents the identical redirect_uri.
+        let callback_redirect = oauth_callback_redirect_uri(&req);
+
         // Generate OIDC authorization URL with PKCE
         match oidc::generate_auth_url(
             oauth_request.redirect_uri.clone(),
             oauth_request.user_connection,
+            callback_redirect.clone(),
         )
         .await
         {
@@ -308,6 +324,7 @@ pub async fn oauth_authorize(
                     Some(auth_data.pkce_verifier),
                     Some(auth_data.nonce),
                     initiation_workspace,
+                    callback_redirect,
                 ) {
                     Ok(token) => token,
                     Err(e) => {
@@ -637,9 +654,13 @@ pub async fn oauth_callback(
                         Ok(id) => id,
                         Err(resp) => return resp,
                     };
-                    let user_result =
-                        find_or_create_oauth_user(&user_info, &provider, &mut conn, workspace_id)
-                            .await;
+                    let user_result = find_or_create_oauth_user(
+                        &user_info,
+                        &provider.provider_type,
+                        &mut conn,
+                        workspace_id,
+                    )
+                    .await;
 
                     match user_result {
                         Ok(user) => {
@@ -693,8 +714,11 @@ pub async fn oauth_callback(
             nonce,
         };
 
-        // Exchange code for tokens and get user info
-        match oidc::exchange_code(code, &auth_data).await {
+        // Exchange code for tokens and get user info. The redirect_uri must
+        // match the one bound at initiation (the tenant's own callback in
+        // hosted mode); it travels in the signed state, tamper-proof.
+        match oidc::exchange_code(code, &auth_data, state_data.callback_redirect_uri.clone()).await
+        {
             Ok(user_info) => {
                 // Check if this is a user connection request (vs. a standard login)
                 if is_connection {
@@ -835,7 +859,7 @@ pub async fn oauth_callback(
                     };
                     let user_result = find_or_create_oauth_user(
                         &oidc_user_info,
-                        &provider,
+                        &oidc_identity_issuer(),
                         &mut conn,
                         workspace_id,
                     )
@@ -977,10 +1001,12 @@ fn create_oauth_state(
         None,
         None,
         workspace_id,
+        None,
     )
 }
 
 // Create a signed state JWT for OAuth/OIDC flow with optional PKCE and nonce
+#[allow(clippy::too_many_arguments)]
 fn create_oauth_state_with_oidc(
     provider_type: &str,
     redirect_uri: Option<String>,
@@ -988,6 +1014,7 @@ fn create_oauth_state_with_oidc(
     pkce_verifier: Option<String>,
     nonce: Option<String>,
     workspace_id: Option<i32>,
+    callback_redirect_uri: Option<String>,
 ) -> Result<String, String> {
     // Get the JWT secret from environment or configuration
     let secret = JWT_SECRET.clone();
@@ -1010,6 +1037,7 @@ fn create_oauth_state_with_oidc(
         pkce_verifier,
         nonce,
         workspace_id,
+        callback_redirect_uri,
     };
 
     // Create the token
@@ -1188,6 +1216,44 @@ fn resolve_request_workspace(request: &HttpRequest) -> Option<i32> {
     workspace_for_login(ctx, crate::middleware::DeploymentMode::current())
 }
 
+/// The OAuth callback `redirect_uri` for THIS request, or `None` to use the
+/// statically configured `OIDC_REDIRECT_URI`.
+///
+/// In hosted mode one app serves every tenant subdomain, so a single static
+/// redirect can't work: each tenant authenticates on its own origin. We
+/// build the callback from the request `Host` (the same header the tenant
+/// middleware resolves the workspace from) over `https` (hosted is always
+/// TLS-terminated). The control plane registers each tenant's callback on
+/// the Hydra client, and Hydra rejects any redirect_uri not in that set, so
+/// a spoofed `Host` can't redirect a code anywhere unregistered. In
+/// self-hosted mode there is one origin and one configured redirect, so we
+/// return `None`.
+fn oauth_callback_redirect_uri(request: &HttpRequest) -> Option<String> {
+    let host = request
+        .headers()
+        .get(actix_web::http::header::HOST)
+        .and_then(|h| h.to_str().ok());
+    callback_redirect_for(host, crate::middleware::DeploymentMode::current())
+}
+
+/// Pure decision behind [`oauth_callback_redirect_uri`], split out for unit
+/// tests. Strips any port and lowercases, matching the tenant middleware's
+/// host normalisation so the redirect host is exactly the resolved tenant.
+fn callback_redirect_for(
+    host: Option<&str>,
+    mode: crate::middleware::DeploymentMode,
+) -> Option<String> {
+    if mode != crate::middleware::DeploymentMode::Hosted {
+        return None;
+    }
+    let host = host?;
+    let host = host.split(':').next().unwrap_or(host).trim().to_lowercase();
+    if host.is_empty() {
+        return None;
+    }
+    Some(format!("https://{host}/api/auth/oauth/callback"))
+}
+
 /// Pure decision behind [`resolve_request_workspace`], split out so the
 /// fail-closed rule is unit-testable without an `HttpRequest` or the
 /// process-wide deployment-mode `OnceLock`.
@@ -1308,9 +1374,52 @@ fn workspace_unresolved_redirect(redirect_uri: &str) -> HttpResponse {
 /// global role (which stays `User`). Owner / admin grants come from
 /// the eager-projection path during workspace provisioning, not
 /// from first-login.
+/// Identity key (`user_auth_identities.provider_type`) for an OIDC login.
+///
+/// In hosted mode this must be the platform issuer (`OIDC_ISSUER_URL`,
+/// e.g. `https://api.nosdesk.dev`), because the control plane projects
+/// each seat under `(iss, sub)`. Resolving a login by the literal
+/// `"oidc"` would miss that seat entirely. In discovery mode the token's
+/// `iss` is verified to equal `OIDC_ISSUER_URL`, so the configured value
+/// is the authoritative issuer.
+///
+/// In self-hosted mode we keep the legacy `"oidc"` key so identities
+/// written before this change (which all used `"oidc"`) still resolve.
+///
+/// The issuer is used verbatim (no normalisation): it must byte-match the
+/// `iss` the control plane stored at projection time, which is the same
+/// string operators set as `OIDC_ISSUER_URL`.
+fn oidc_identity_issuer() -> String {
+    issuer_for_identity(
+        crate::middleware::DeploymentMode::current(),
+        config_utils::get_oidc_issuer_url().ok(),
+    )
+}
+
+/// Pure decision behind [`oidc_identity_issuer`], split out for unit tests
+/// (the process-wide `DeploymentMode::current()` is cached, so the mode is
+/// passed in).
+fn issuer_for_identity(
+    mode: crate::middleware::DeploymentMode,
+    configured_issuer: Option<String>,
+) -> String {
+    use crate::middleware::DeploymentMode;
+    match mode {
+        DeploymentMode::Hosted => configured_issuer
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "oidc".to_string()),
+        DeploymentMode::SelfHosted => "oidc".to_string(),
+    }
+}
+
 async fn find_or_create_oauth_user(
     user_info: &serde_json::Value,
-    provider: &AuthProvider,
+    // Identity issuer for `user_auth_identities.provider_type`. For
+    // Microsoft this is `"microsoft"`; for OIDC it must be the real
+    // issuer (the platform `iss`) so a login resolves the seat the
+    // control plane projected under `(iss, sub)`, not the literal
+    // string `"oidc"`. See `oidc_identity_issuer`.
+    iss: &str,
     conn: &mut DbConnection,
     workspace_id: i32,
 ) -> Result<crate::models::User, String> {
@@ -1358,7 +1467,7 @@ async fn find_or_create_oauth_user(
         .map_err(|e| format!("Failed to hash password: {e}"))?;
 
     let input = ProjectedUserInput {
-        iss: provider.provider_type.clone(),
+        iss: iss.to_string(),
         sub: provider_user_id,
         email,
         name: Some(name),
@@ -1762,6 +1871,81 @@ mod workspace_for_login_tests {
         assert_eq!(
             callback_workspace_decision(None, None, DeploymentMode::SelfHosted),
             Ok(BOOTSTRAP_WORKSPACE_ID)
+        );
+    }
+}
+
+#[cfg(test)]
+mod hosted_auth_tests {
+    use super::{callback_redirect_for, issuer_for_identity};
+    use crate::middleware::DeploymentMode;
+
+    #[test]
+    fn hosted_identity_uses_configured_issuer_verbatim() {
+        // The issuer must byte-match what the control plane stored as
+        // `(iss, sub)`; no trailing-slash normalisation.
+        assert_eq!(
+            issuer_for_identity(
+                DeploymentMode::Hosted,
+                Some("https://api.nosdesk.dev".to_string())
+            ),
+            "https://api.nosdesk.dev"
+        );
+        assert_eq!(
+            issuer_for_identity(
+                DeploymentMode::Hosted,
+                Some("https://api.nosdesk.dev/".to_string())
+            ),
+            "https://api.nosdesk.dev/"
+        );
+    }
+
+    #[test]
+    fn hosted_identity_falls_back_when_issuer_absent_or_empty() {
+        assert_eq!(issuer_for_identity(DeploymentMode::Hosted, None), "oidc");
+        assert_eq!(
+            issuer_for_identity(DeploymentMode::Hosted, Some(String::new())),
+            "oidc"
+        );
+    }
+
+    #[test]
+    fn self_hosted_identity_keeps_legacy_oidc_key() {
+        // Preserves resolution of identities written before this change.
+        assert_eq!(
+            issuer_for_identity(
+                DeploymentMode::SelfHosted,
+                Some("https://idp.example".to_string())
+            ),
+            "oidc"
+        );
+    }
+
+    #[test]
+    fn callback_redirect_is_per_tenant_in_hosted_mode() {
+        assert_eq!(
+            callback_redirect_for(Some("mercury.nosdesk.dev"), DeploymentMode::Hosted),
+            Some("https://mercury.nosdesk.dev/api/auth/oauth/callback".to_string())
+        );
+        // Port stripped, host lowercased.
+        assert_eq!(
+            callback_redirect_for(Some("Venus.Nosdesk.Dev:8080"), DeploymentMode::Hosted),
+            Some("https://venus.nosdesk.dev/api/auth/oauth/callback".to_string())
+        );
+    }
+
+    #[test]
+    fn callback_redirect_is_none_when_unusable_or_self_hosted() {
+        // Self-hosted uses the statically configured OIDC_REDIRECT_URI.
+        assert_eq!(
+            callback_redirect_for(Some("mercury.nosdesk.dev"), DeploymentMode::SelfHosted),
+            None
+        );
+        // Hosted but no/empty Host: fail to None rather than emit a bad URI.
+        assert_eq!(callback_redirect_for(None, DeploymentMode::Hosted), None);
+        assert_eq!(
+            callback_redirect_for(Some(""), DeploymentMode::Hosted),
+            None
         );
     }
 }
