@@ -75,7 +75,13 @@ export function usePdfViewer(options: UsePdfViewerOptions = {}) {
       }
 
       const arrayBuffer = await response.arrayBuffer()
-      const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) })
+      // isEvalSupported: false keeps pdf.js off `new Function()` for font /
+      // PostScript compilation (it falls back to its interpreter), so it
+      // doesn't trip the app's strict `script-src 'self'` CSP.
+      const loadingTask = pdfjsLib.getDocument({
+        data: new Uint8Array(arrayBuffer),
+        isEvalSupported: false,
+      })
       pdfDocument.value = await loadingTask.promise
       totalPages.value = pdfDocument.value.numPages
 

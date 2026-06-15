@@ -24,6 +24,9 @@ declare module 'pdfjs-dist' {
   interface GetDocumentParams {
     url?: string;
     data?: Uint8Array;
+    /** When false, pdf.js never uses `new Function()` (falls back to its
+     * interpreter), keeping it within a strict `script-src 'self'` CSP. */
+    isEvalSupported?: boolean;
   }
 
   interface PDFDocumentLoadingTask {

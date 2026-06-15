@@ -117,8 +117,9 @@ const generatePdfThumbnail = async (retryCount = 0) => {
     // Configure the worker source using Vite's asset handling
     pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).href;
 
-    // Use loadingTask directly without reactivity
-    const loadingTask = pdfjsLib.getDocument(props.src);
+    // Use loadingTask directly without reactivity. isEvalSupported: false
+    // keeps pdf.js off `new Function()` so it doesn't trip the strict CSP.
+    const loadingTask = pdfjsLib.getDocument({ url: props.src, isEvalSupported: false });
     // Use shallowRef pattern - don't put PDF document directly in a reactive property
     const pdf = await loadingTask.promise;
     const page = await pdf.getPage(1);

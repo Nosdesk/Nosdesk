@@ -326,7 +326,11 @@ const generatePdfThumbnail = async () => {
     const arrayBuffer = await response.arrayBuffer();
     debugLog('PDF fetched successfully', { size: arrayBuffer.byteLength });
 
-    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
+    // isEvalSupported: false keeps pdf.js off `new Function()` (strict CSP).
+    const pdf = await pdfjsLib.getDocument({
+      data: new Uint8Array(arrayBuffer),
+      isEvalSupported: false,
+    }).promise;
     const page = await pdf.getPage(1);
 
     const scale = 1.5; // Slightly lower scale for thumbnails
