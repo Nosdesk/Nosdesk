@@ -570,7 +570,10 @@ pub async fn set_member_role(
             UpdateMembershipRoleResult::Updated(_) => Ok(SetMemberRoleOutcome::Applied),
             UpdateMembershipRoleResult::LastOwner => Ok(SetMemberRoleOutcome::LastOwner),
             UpdateMembershipRoleResult::NotFound => {
-                workspaces::add_membership(c, workspace.id, user_uuid, &role)?;
+                // No row to update: create it, self-verifying via RETURNING
+                // so a write that produces no row errors here instead of
+                // logging "applied" over a phantom membership.
+                workspaces::upsert_membership_role(c, workspace.id, user_uuid, &role)?;
                 Ok(SetMemberRoleOutcome::Applied)
             }
         },

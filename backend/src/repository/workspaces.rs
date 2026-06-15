@@ -210,6 +210,76 @@ pub fn add_membership(
     .execute(conn)
 }
 
+/// One `role` value read back from a membership upsert's `RETURNING`.
+#[derive(QueryableByName, Debug)]
+struct MembershipRoleRow {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    role: String,
+}
+
+/// SELF-VERIFYING membership upsert. Inserts the row with an EXPLICIT
+/// `workspace_id`; on conflict, applies `conflict_role` (a SQL fragment:
+/// `EXCLUDED.role` to set the new role, or `workspace_members.role` to
+/// keep the existing one for first-write-wins provisioning). The
+/// `RETURNING role` is the point: a successful upsert ALWAYS yields
+/// exactly one row, so `get_result` returns the persisted role — and
+/// ERRORS (`NotFound`) if the write produced nothing (a `BEFORE` trigger
+/// that returned NULL, a swallowed cancel, etc.). Callers propagate that
+/// error rather than logging "applied" over a row that isn't there.
+///
+/// This is the guard against the "logged success, wrote nothing" class
+/// of bug: the membership write can no longer silently no-op.
+fn upsert_membership_returning(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    user_uuid: Uuid,
+    role: &str,
+    conflict_role: &str,
+) -> QueryResult<String> {
+    diesel::sql_query(format!(
+        "INSERT INTO workspace_members (workspace_id, user_uuid, role, accepted_at) \
+         VALUES ($1, $2, $3, now()) \
+         ON CONFLICT (workspace_id, user_uuid) DO UPDATE SET role = {conflict_role} \
+         RETURNING role"
+    ))
+    .bind::<diesel::sql_types::Integer, _>(workspace_id)
+    .bind::<diesel::sql_types::Uuid, _>(user_uuid)
+    .bind::<diesel::sql_types::Text, _>(role)
+    .get_result::<MembershipRoleRow>(conn)
+    .map(|r| r.role)
+}
+
+/// Grant membership if absent, KEEPING the existing role on conflict
+/// (first-write-wins — re-projection never escalates/downgrades). Returns
+/// the persisted role; errors if the row isn't present after the write.
+pub fn ensure_membership(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    user_uuid: Uuid,
+    role: &str,
+) -> QueryResult<String> {
+    upsert_membership_returning(
+        conn,
+        workspace_id,
+        user_uuid,
+        role,
+        "workspace_members.role",
+    )
+}
+
+/// Create-or-set a membership's role (the control-plane role-change path).
+/// On conflict SETS the new role. Returns the persisted role; errors if
+/// the row isn't present after the write. The last-owner-demotion guard is
+/// the caller's responsibility (see `set_member_role`).
+pub fn upsert_membership_role(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    user_uuid: Uuid,
+    role: &str,
+) -> QueryResult<String> {
+    upsert_membership_returning(conn, workspace_id, user_uuid, role, "EXCLUDED.role")
+}
+
 /// Count the workspace's staff members (role IN owner/admin/agent) — the seats
 /// that count against `seat_limit`. End-user `member` rows are excluded.
 ///

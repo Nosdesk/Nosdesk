@@ -265,12 +265,18 @@ pub fn find_or_create_projected_user(
     // never silently land in, or be filtered against, the wrong workspace.
     let membership_actor = crate::sync::actor::ActorContext::system("provisioning:add_membership")
         .with_workspace(workspace_id);
-    crate::sync::session::with_actor_bypass_context::<usize, DieselError>(
+    // SELF-VERIFYING: `ensure_membership` returns the role read back via
+    // RETURNING, so this errors (and the whole projection fails loudly)
+    // if the membership row isn't actually present after the write —
+    // rather than reporting `created: true` over a phantom row. First-
+    // write-wins on the role (re-projection keeps the existing role).
+    let persisted_role = crate::sync::session::with_actor_bypass_context::<String, DieselError>(
         conn,
         &membership_actor,
-        |c| workspaces::add_membership(c, workspace_id, user_uuid, &role),
+        |c| workspaces::ensure_membership(c, workspace_id, user_uuid, &role),
     )
-    .map_err(|e| format!("add workspace membership: {e:?}"))?;
+    .map_err(|e| format!("ensure workspace membership: {e:?}"))?;
+    debug_assert!(!persisted_role.is_empty());
 
     Ok(outcome)
 }
