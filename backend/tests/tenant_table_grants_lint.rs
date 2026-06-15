@@ -8,10 +8,10 @@
 //! 500 that no compile or type check catches. This is a GRANT failure,
 //! distinct from RLS (which denies rows, not the whole statement).
 //!
-//! This caught `workspace_members`, which shipped in the squashed initial
-//! schema with only `SELECT,INSERT` (the lone exception among 100+ tenant
-//! tables) and so 500'd the W2 role-change UPDATE. Fixed by migration
-//! `2026-06-14-021500_grant_workspace_members_dml`.
+//! This caught `workspace_members`, which initially shipped with only
+//! `SELECT,INSERT` (the lone exception among 100+ tenant tables) and so
+//! 500'd the W2 role-change UPDATE. It now carries the full DML grant
+//! inline in the initial schema like every other tenant table.
 //!
 //! ## Escape hatch
 //!
@@ -94,8 +94,8 @@ fn insertable_tenant_tables_grant_full_dml_to_nosdesk_app() {
         violations.is_empty(),
         "nosdesk_app can INSERT into these tables but lacks UPDATE/DELETE, \
          so app writes to them fail at runtime with \"permission denied for \
-         table ...\". Grant the missing DML in a migration (see \
-         2026-06-14-021500_grant_workspace_members_dml for the form), or add \
+         table ...\". Grant the missing DML (see the workspace_members grant \
+         in the initial schema for the form), or add \
          the table to APPEND_ONLY_ALLOWLIST with a justification:\n  {}",
         violations.join("\n  ")
     );

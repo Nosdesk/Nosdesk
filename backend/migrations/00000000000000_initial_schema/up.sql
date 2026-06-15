@@ -3605,6 +3605,8 @@ CREATE TABLE public.site_settings (
     default_timezone text DEFAULT 'UTC'::text NOT NULL,
     workspace_id integer DEFAULT (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer NOT NULL,
     signature_default text,
+    email_security_note_enabled boolean DEFAULT false NOT NULL,
+    email_security_note_template text,
     CONSTRAINT site_settings_id_check CHECK ((id = 1))
 );
 
@@ -4663,6 +4665,8 @@ CREATE TABLE public.workspace_members (
     accepted_at timestamp with time zone,
     CONSTRAINT workspace_members_role_check CHECK (((role)::text = ANY (ARRAY[('owner'::character varying)::text, ('admin'::character varying)::text, ('agent'::character varying)::text, ('member'::character varying)::text])))
 );
+
+ALTER TABLE ONLY public.workspace_members FORCE ROW LEVEL SECURITY;
 
 
 ALTER TABLE public.workspace_members OWNER TO nosdesk_admin;
@@ -12566,6 +12570,19 @@ CREATE POLICY working_calendars_workspace_isolation ON public.working_calendars 
 
 
 --
+-- Name: workspace_members; Type: ROW SECURITY; Schema: public; Owner: nosdesk_admin
+--
+
+ALTER TABLE public.workspace_members ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: workspace_members workspace_members_workspace_isolation; Type: POLICY; Schema: public; Owner: nosdesk_admin
+--
+
+CREATE POLICY workspace_members_workspace_isolation ON public.workspace_members USING ((workspace_id = (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer)) WITH CHECK ((workspace_id = (NULLIF(current_setting('app.workspace_id'::text, true), ''::text))::integer));
+
+
+--
 -- Name: yjs_snapshots; Type: ROW SECURITY; Schema: public; Owner: nosdesk_admin
 --
 
@@ -13773,7 +13790,7 @@ GRANT ALL ON SEQUENCE public.working_calendars_id_seq TO nosdesk_app;
 -- Name: TABLE workspace_members; Type: ACL; Schema: public; Owner: nosdesk_admin
 --
 
-GRANT SELECT,INSERT ON TABLE public.workspace_members TO nosdesk_app;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.workspace_members TO nosdesk_app;
 
 
 --

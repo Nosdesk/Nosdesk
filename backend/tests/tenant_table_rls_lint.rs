@@ -10,8 +10,9 @@
 //! policy is the opposite failure: it denies all rows. FORCE matters because
 //! the tables are owned by a role that would otherwise bypass RLS.
 //!
-//! This caught `workspace_members`, the lone tenant table that shipped with
-//! no RLS at all (added by migration 2026-06-14-030000_workspace_members_rls).
+//! This caught `workspace_members`, the lone tenant table that initially
+//! shipped with no RLS at all; it now carries the standard ENABLE/FORCE plus
+//! isolation policy inline in the initial schema.
 //! Sibling to `tenant_table_grants_lint` (which guards the DML grants).
 //!
 //! ## Escape hatch
@@ -98,7 +99,7 @@ fn tenant_tables_have_forced_rls_with_a_policy() {
         violations.is_empty(),
         "these tables carry workspace_id but are not fully RLS-protected, so \
          workspace isolation rests entirely on per-query WHERE clauses. Add the \
-         standard policy (see 2026-06-14-030000_workspace_members_rls for the \
+         standard policy (see the workspace_members RLS in the initial schema for the \
          form), or add the table to RLS_EXEMPT_ALLOWLIST with a justification:\n  {}",
         violations.join("\n  ")
     );
