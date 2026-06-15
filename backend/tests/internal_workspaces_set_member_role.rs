@@ -41,6 +41,33 @@ fn membership_role(pool: &backend::db::Pool, workspace_id: i32, user_uuid: uuid:
         .expect("load membership role")
 }
 
+/// Count the user's membership rows in a workspace (0 or 1).
+fn membership_count(pool: &backend::db::Pool, workspace_id: i32, user_uuid: uuid::Uuid) -> i64 {
+    use backend::schema::workspace_members;
+    let mut conn = pool.get().expect("conn");
+    workspace_members::table
+        .filter(workspace_members::workspace_id.eq(workspace_id))
+        .filter(workspace_members::user_uuid.eq(user_uuid))
+        .count()
+        .get_result(&mut conn)
+        .expect("count memberships")
+}
+
+/// Delete the user's membership row, simulating a projected user whose
+/// `workspace_members` row never materialised (the production bug
+/// set_member_role's create-if-absent path guards against).
+fn delete_membership(pool: &backend::db::Pool, workspace_id: i32, user_uuid: uuid::Uuid) {
+    use backend::schema::workspace_members;
+    let mut conn = pool.get().expect("conn");
+    diesel::delete(
+        workspace_members::table
+            .filter(workspace_members::workspace_id.eq(workspace_id))
+            .filter(workspace_members::user_uuid.eq(user_uuid)),
+    )
+    .execute(&mut conn)
+    .expect("delete membership");
+}
+
 /// Set the workspace's staff seat cap straight on the row. The seat
 /// trigger only fires on `workspace_members` changes, so this is a
 /// plain UPDATE; the test pool conn writes `workspaces` directly the
@@ -167,6 +194,37 @@ async fn set_member_role_full_contract() {
         membership_role(&pool, acme_id, member_uuid),
         "agent",
         "DB role must flip to agent"
+    );
+
+    // --- 1b: identity exists but membership row is missing -> create it ---
+    // The user was projected (so `(iss, sub)` resolves) but has no
+    // workspace_members row. set_member_role must UPSERT: create the row
+    // with the requested role rather than 404 on the absent membership.
+    delete_membership(&pool, acme_id, member_uuid);
+    assert_eq!(membership_count(&pool, acme_id, member_uuid), 0);
+    let mut resp = client
+        .post(&acme_url)
+        .insert_header(("Authorization", format!("Bearer {platform_token}")))
+        .insert_header(("Content-Type", "application/json"))
+        .send_json(&json!({
+            "iss": "https://idp.example/",
+            "sub": "acme-member-1",
+            "role": "admin",
+        }))
+        .await
+        .expect("send promote-missing-membership");
+    assert_eq!(
+        resp.status(),
+        200,
+        "promoting a projected user with no membership must create it, not 404"
+    );
+    let body: serde_json::Value =
+        serde_json::from_slice(&resp.body().await.expect("body")).expect("json");
+    assert_eq!(body["role"], "admin");
+    assert_eq!(
+        membership_role(&pool, acme_id, member_uuid),
+        "admin",
+        "the recreated membership carries the requested role"
     );
 
     // --- 2: member -> agent at seat_limit=1 (owner holds the seat) -> 403 ---

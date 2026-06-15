@@ -255,8 +255,22 @@ pub fn find_or_create_projected_user(
     let user_uuid = match &outcome {
         ProjectionOutcome::Created(u) | ProjectionOutcome::Existed(u) => u.uuid,
     };
-    workspaces::add_membership(conn, workspace_id, user_uuid, &role)
-        .map_err(|e| format!("add workspace membership: {e:?}"))?;
+    // Grant membership under a BYPASSRLS context, with an EXPLICIT
+    // workspace_id. Membership is a privileged provisioning write: under
+    // the tenant `nosdesk_app` role it is subject to the workspace_members
+    // RLS `WITH CHECK`, the wrong policy surface for a control-plane grant
+    // (and the reason `set_member_role` already uses a bypass context for
+    // the same table). Passing the workspace_id explicitly (rather than
+    // leaning on the `app.workspace_id` column default) means the row can
+    // never silently land in, or be filtered against, the wrong workspace.
+    let membership_actor = crate::sync::actor::ActorContext::system("provisioning:add_membership")
+        .with_workspace(workspace_id);
+    crate::sync::session::with_actor_bypass_context::<usize, DieselError>(
+        conn,
+        &membership_actor,
+        |c| workspaces::add_membership(c, workspace_id, user_uuid, &role),
+    )
+    .map_err(|e| format!("add workspace membership: {e:?}"))?;
 
     Ok(outcome)
 }
