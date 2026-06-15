@@ -2103,19 +2103,6 @@ pub struct NewUser {
     // mfa_backup_codes lives in `user_recovery_codes` now.
 }
 
-// Add a separate struct for user registration with password
-#[derive(Deserialize, Debug)]
-pub struct UserRegistration {
-    pub name: String,
-    pub email: String,
-    pub role: String,
-    pub password: String,
-    pub pronouns: Option<String>,
-    pub avatar_url: Option<String>,
-    pub banner_url: Option<String>,
-    pub avatar_thumb: Option<String>,
-}
-
 // User update struct
 #[derive(Debug, Serialize, Deserialize, AsChangeset)]
 #[diesel(table_name = crate::schema::users)]

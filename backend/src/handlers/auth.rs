@@ -7,12 +7,12 @@ use uuid::Uuid;
 use crate::db::DbConnection;
 use crate::handlers::errors;
 use crate::handlers::helpers;
-use crate::models::{LoginRequest, PasswordChangeRequest, UserRegistration};
+use crate::models::{LoginRequest, PasswordChangeRequest};
 use crate::repository::{self, user_auth_identities::get_local_password_hash};
-use crate::utils::auth::{hash_password, validate_password};
+use crate::utils::auth::hash_password;
 use crate::utils::mfa;
 use crate::utils::rate_limit::{get_redis_url, RateLimiter};
-use crate::utils::{self, parse_uuid, ValidationError};
+use crate::utils::{parse_uuid, ValidationError};
 
 // Import JWT utilities
 use crate::utils::jwt::{helpers as jwt_helpers, JwtUtils};
@@ -632,218 +632,6 @@ pub async fn logout(db_pool: web::Data<crate::db::Pool>, req: HttpRequest) -> im
             "success": true,
             "message": "Logged out successfully"
         }))
-}
-
-pub async fn register(
-    db_pool: web::Data<crate::db::Pool>,
-    search_service: web::Data<std::sync::Arc<crate::services::search::SearchService>>,
-    user_data: web::Json<UserRegistration>,
-) -> impl Responder {
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e,
-    };
-
-    // Comprehensive input validation using our validation utilities
-    let mut validation_errors = Vec::new();
-
-    // Validate name
-    let trimmed_name = user_data.name.trim();
-    if trimmed_name.is_empty() {
-        validation_errors.push("name: Name is required".to_string());
-    } else if trimmed_name.len() > 255 {
-        validation_errors.push("name: Name must be less than 255 characters".to_string());
-    }
-
-    // Validate email
-    let trimmed_email = user_data.email.trim();
-    if trimmed_email.is_empty() {
-        validation_errors.push("email: Email is required".to_string());
-    } else if trimmed_email.len() > 255 {
-        validation_errors.push("email: Email must be less than 255 characters".to_string());
-    } else if !trimmed_email.contains('@') || !trimmed_email.contains('.') {
-        validation_errors.push("email: Invalid email format".to_string());
-    }
-
-    // Validate password using centralized validation
-    let password_validation = validate_password(&user_data.password);
-    if !password_validation.valid {
-        for error in password_validation.errors {
-            validation_errors.push(format!("password: {error}"));
-        }
-    }
-
-    // Validate role
-    let trimmed_role = user_data.role.trim().to_lowercase();
-    if !["admin", "technician", "user"].contains(&trimmed_role.as_str()) {
-        validation_errors
-            .push("role: Invalid role. Must be 'admin', 'technician', or 'user'".to_string());
-    }
-
-    // Validate optional fields
-    if let Some(ref pronouns) = user_data.pronouns {
-        if pronouns.len() > 50 {
-            validation_errors
-                .push("pronouns: Pronouns must be less than 50 characters".to_string());
-        }
-    }
-
-    if let Some(ref avatar_url) = user_data.avatar_url {
-        if avatar_url.len() > 500 {
-            validation_errors.push("avatar_url: URL must be less than 500 characters".to_string());
-        }
-    }
-
-    if let Some(ref banner_url) = user_data.banner_url {
-        if banner_url.len() > 500 {
-            validation_errors.push("banner_url: URL must be less than 500 characters".to_string());
-        }
-    }
-
-    if let Some(ref avatar_thumb) = user_data.avatar_thumb {
-        if avatar_thumb.len() > 500 {
-            validation_errors
-                .push("avatar_thumb: URL must be less than 500 characters".to_string());
-        }
-    }
-
-    // If there are validation errors, return them
-    if !validation_errors.is_empty() {
-        return HttpResponse::BadRequest().json(json!({
-            "status": "error",
-            "message": "Validation failed",
-            "errors": validation_errors
-        }));
-    }
-
-    // Check if user with this email already exists
-    if repository::get_user_by_email(&user_data.email, &mut conn).is_ok() {
-        return errors::bad_request("User with this email already exists");
-    }
-
-    // Hash the password
-    let password_hash = match hash_password(&user_data.password) {
-        Ok(hash) => hash,
-        Err(_) => return errors::internal("Error hashing password"),
-    };
-
-    // Generate a UUID if not provided
-    let user_uuid = Uuid::now_v7();
-
-    // Map the requested role string onto the platform + workspace
-    // role split.
-    let (platform_role, workspace_role) = match utils::parse_roles(&user_data.role) {
-        Ok(roles) => roles,
-        Err(e) => return e.into(),
-    };
-
-    // Create new user using builder pattern with normalized data
-    let (normalized_name, normalized_email) =
-        utils::normalization::normalize_user_data(&user_data.name, &user_data.email);
-    let (new_user, email) =
-        utils::NewUserBuilder::new(normalized_name, normalized_email.clone(), platform_role)
-            .with_uuid(user_uuid)
-            .with_pronouns(utils::normalization::normalize_optional_string(
-                user_data.pronouns.as_deref(),
-            ))
-            .with_avatar(
-                utils::normalization::normalize_optional_string(user_data.avatar_url.as_deref()),
-                utils::normalization::normalize_optional_string(user_data.avatar_thumb.as_deref()),
-            )
-            .with_banner(utils::normalization::normalize_optional_string(
-                user_data.banner_url.as_deref(),
-            ))
-            .build_with_email();
-
-    // Save user to database with email (atomically creates both user
-    // and email entry). The user doesn't exist until this insert
-    // commits, so a bootstrap system actor is the correct attribution;
-    // it also pins `app.workspace_id` so the audited `users` insert
-    // and the GUC-defaulted `workspace_members` row both succeed.
-    let actor = crate::sync::actor::ActorContext::bootstrap("register");
-    let create_result = crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
-        repository::user_helpers::create_user_with_email(
-            new_user,
-            workspace_role,
-            email,
-            true,
-            Some("manual".to_string()),
-            c,
-            Some(search_service.get_ref()),
-        )
-    });
-    match create_result {
-        Ok((created_user, _email_entry)) => {
-            // Create local auth identity with password hash
-            use crate::schema::user_auth_identities;
-            use diesel::prelude::*;
-
-            #[derive(diesel::Insertable)]
-            #[diesel(table_name = user_auth_identities)]
-            struct NewLocalAuthIdentity {
-                user_uuid: Uuid,
-                provider_type: String,
-                external_id: String,
-                email: Option<String>,
-                password_hash: Option<String>,
-            }
-
-            let auth_identity = NewLocalAuthIdentity {
-                user_uuid: created_user.uuid,
-                provider_type: "local".to_string(),
-                external_id: normalized_email.clone(),
-                email: Some(normalized_email.clone()),
-                password_hash: Some(password_hash),
-            };
-
-            if let Err(e) = diesel::insert_into(user_auth_identities::table)
-                .values(&auth_identity)
-                .execute(&mut conn)
-            {
-                error!(error = ?e, "Error creating auth identity");
-                // Rollback by deleting the user. Must run under bypass
-                // (nosdesk_admin): purge_user cascade-deletes the freshly
-                // inserted workspace_members row, and once that table has RLS a
-                // workspace-pinned/unset actor would match zero rows so the
-                // users DELETE fails its FK. Reuse the bootstrap actor (pins
-                // app.workspace_id for the audit rows); same shape as the other
-                // purge_user callers (users.rs admin purge, scheduled purge).
-                let _ = crate::sync::session::with_actor_bypass_context::<_, diesel::result::Error>(
-                    &mut conn,
-                    &actor,
-                    |c| {
-                        repository::users::purge_user(
-                            &created_user.uuid,
-                            c,
-                            Some(search_service.get_ref()),
-                        )
-                    },
-                );
-                return errors::internal("Error creating user authentication");
-            }
-
-            info!(user_name = %created_user.name, user_uuid = %created_user.uuid, "New user registered successfully");
-            let response =
-                repository::user_helpers::get_user_with_primary_email(created_user, &mut conn);
-            HttpResponse::Created().json(response)
-        }
-        Err(e) => {
-            error!(error = ?e, "Error creating user");
-
-            // Provide more specific error messages for common issues
-            let error_message =
-                if format!("{e:?}").contains("duplicate") || format!("{e:?}").contains("unique") {
-                    "Email address already exists in the system"
-                } else {
-                    "Error creating user"
-                };
-
-            HttpResponse::InternalServerError().json(json!({
-            "status": "error",
-                "message": error_message
-            }))
-        }
-    }
 }
 
 pub async fn change_password(
@@ -2412,10 +2200,8 @@ mod tests {
     use crate::test_helpers::{create_test_claims, setup_test_pool, TestFixtures};
     use actix_web::{http::StatusCode, test, App};
 
-    /// Helper to create a test app with auth routes. The
-    /// `SearchService` here is a throwaway tempdir-backed instance so
-    /// `register` (which writes through the user-creation observer)
-    /// has somewhere to send its index updates.
+    /// Helper to create a test app with the public auth routes used by
+    /// the tests below.
     fn test_app(
         pool: crate::db::Pool,
     ) -> App<
@@ -2427,18 +2213,10 @@ mod tests {
             InitError = (),
         >,
     > {
-        let tmp =
-            std::env::temp_dir().join(format!("nosdesk-test-search-{}", uuid::Uuid::new_v4()));
-        let search_service = std::sync::Arc::new(
-            crate::services::search::SearchService::new(&tmp, &pool)
-                .expect("Failed to build test SearchService"),
-        );
         App::new()
             .app_data(web::Data::new(pool))
-            .app_data(web::Data::new(search_service))
             .route("/setup/status", web::get().to(check_setup_status))
             .route("/login", web::post().to(login))
-            .route("/register", web::post().to(register))
             .route("/me", web::get().to(get_current_user))
     }
 
@@ -2494,36 +2272,6 @@ mod tests {
             json.get("code").and_then(|v| v.as_str()),
             Some("AUTH_REQUIRED")
         );
-    }
-
-    #[actix_web::test]
-    async fn register_creates_user_when_allowed() {
-        let pool = setup_test_pool();
-        let app = test::init_service(test_app(pool)).await;
-
-        // Generate unique email to avoid conflicts with existing test data
-        let unique_email = format!("testuser_{}@example.com", uuid::Uuid::new_v4());
-
-        let registration = serde_json::json!({
-            "name": "Test User",
-            "email": unique_email,
-            "role": "user",
-            "password": "SecurePassword123!"
-        });
-
-        let req = test::TestRequest::post()
-            .uri("/register")
-            .set_json(&registration)
-            .to_request();
-        let resp = test::call_service(&app, req).await;
-
-        // Registration should succeed with 201 Created
-        assert_eq!(resp.status(), StatusCode::CREATED);
-
-        let body = test::read_body(resp).await;
-        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert!(json.get("uuid").is_some());
-        assert_eq!(json.get("name").and_then(|v| v.as_str()), Some("Test User"));
     }
 
     // =========================================================================

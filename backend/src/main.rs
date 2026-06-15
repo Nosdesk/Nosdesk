@@ -1594,7 +1594,6 @@ async fn main() -> std::io::Result<()> {
                         .route("/mfa-enable-login", web::post().to(handlers::mfa_enable_login))
                         .route("/passkey-setup-login/start", web::post().to(handlers::start_passkey_setup_login))
                         .route("/passkey-setup-login/finish", web::post().to(handlers::finish_passkey_setup_login))
-                        .route("/register", web::post().to(handlers::register))
                         .route("/refresh", web::post().to(handlers::refresh_token))
                     // Password reset routes (public, rate-limited)
                     .route("/password-reset/request", web::post().to(handlers::password_reset::request_password_reset))
