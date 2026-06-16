@@ -708,20 +708,37 @@ impl EmailConfig {
 /// and the legacy direct-send methods so the connection/security wiring
 /// lives in one place.
 fn build_smtp_mailer(config: &EmailConfig) -> Result<SmtpTransport, String> {
-    let creds = Credentials::new(config.smtp_username.clone(), config.smtp_password.clone());
-
     let builder = match config.security {
         SmtpSecurity::Tls => SmtpTransport::relay(&config.smtp_host)
             .map_err(|e| format!("Failed to create SMTP transport: {e}"))?,
         SmtpSecurity::StartTls => SmtpTransport::starttls_relay(&config.smtp_host)
             .map_err(|e| format!("Failed to create SMTP transport: {e}"))?,
-        // Plain transport for local test servers — no TLS, no auth
-        // negotiation. Credentials still ride but the connection is
-        // cleartext, so `SmtpSecurity::Plaintext`'s doc flags it.
+        // Plain transport for local test servers (Greenmail, Mailpit): no
+        // TLS, no auth.
         SmtpSecurity::Plaintext => SmtpTransport::builder_dangerous(&config.smtp_host),
     };
+    let builder = builder.port(config.smtp_port);
 
-    Ok(builder.port(config.smtp_port).credentials(creds).build())
+    // Only authenticate when the connection can actually carry credentials.
+    // lettre refuses PLAIN/LOGIN over an unencrypted link, and attaching
+    // credentials to a server that offers no AUTH (the dev Mailpit sidecar,
+    // where SMTP_SECURITY=plaintext but the .env username/password are still
+    // present) makes the send fail with "No compatible authentication
+    // mechanism was found". Plaintext is local-test only, so skip auth there;
+    // also skip when no credentials are configured (open / IP-allowlisted relay).
+    let authenticate = config.security != SmtpSecurity::Plaintext
+        && !config.smtp_username.is_empty()
+        && !config.smtp_password.is_empty();
+    let builder = if authenticate {
+        builder.credentials(Credentials::new(
+            config.smtp_username.clone(),
+            config.smtp_password.clone(),
+        ))
+    } else {
+        builder
+    };
+
+    Ok(builder.build())
 }
 
 /// Build the lettre `Message` for an outbound queue message. Shared by
