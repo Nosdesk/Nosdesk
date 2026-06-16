@@ -59,6 +59,109 @@ pub struct ImapRuntimeState {
     pub uid_validity: Option<u32>,
     #[serde(default)]
     pub last_error: Option<String>,
+    /// Messages whose ingest (the pipeline) failed and are awaiting a
+    /// bounded retry. The poll cursor advances past them so the channel
+    /// keeps making progress; these are re-fetched by UID each poll until
+    /// they ingest or exhaust [`MAX_INGEST_ATTEMPTS`]. Keyed implicitly by
+    /// `uid` (one entry per UID).
+    #[serde(default)]
+    pub retry_queue: Vec<IngestRetry>,
+    /// Messages that exhausted their ingest retries, kept for operator
+    /// visibility (the channel admin surface reads runtime_state). Capped
+    /// at [`DEAD_LETTER_CAP`], oldest pruned first.
+    #[serde(default)]
+    pub dead_letters: Vec<IngestDeadLetter>,
+}
+
+/// A message awaiting an ingest retry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IngestRetry {
+    pub uid: u32,
+    /// RFC 5322 Message-ID, carried for operator correlation and the
+    /// dead-letter record.
+    pub external_id: String,
+    pub attempts: u32,
+    pub last_error: String,
+    pub first_failed_at: DateTime<Utc>,
+}
+
+/// A message that exhausted its ingest retries and was given up on.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IngestDeadLetter {
+    pub uid: u32,
+    pub external_id: String,
+    pub attempts: u32,
+    pub last_error: String,
+    pub dead_lettered_at: DateTime<Utc>,
+}
+
+/// How many poll cycles a failed-to-ingest message is retried before it is
+/// dead-lettered. A transient blip clears well within this; a persistently
+/// bad message stops blocking after it.
+pub const MAX_INGEST_ATTEMPTS: u32 = 5;
+
+/// Cap on the retained dead-letter list in runtime_state.
+const DEAD_LETTER_CAP: usize = 50;
+
+impl ImapRuntimeState {
+    /// A message ingested successfully: drop any pending retry for its UID.
+    fn record_ingest_success(&mut self, uid: u32) {
+        self.retry_queue.retain(|r| r.uid != uid);
+    }
+
+    /// A message failed to ingest. Schedule (or advance) its retry; returns the
+    /// dead-letter entry when this failure exhausts [`MAX_INGEST_ATTEMPTS`].
+    fn record_ingest_failure(
+        &mut self,
+        uid: u32,
+        external_id: &str,
+        error: &str,
+    ) -> Option<IngestDeadLetter> {
+        let exhausted = match self.retry_queue.iter_mut().find(|r| r.uid == uid) {
+            Some(entry) => {
+                entry.attempts += 1;
+                entry.last_error = error.to_string();
+                entry.attempts >= MAX_INGEST_ATTEMPTS
+            }
+            None => {
+                self.retry_queue.push(IngestRetry {
+                    uid,
+                    external_id: external_id.to_string(),
+                    attempts: 1,
+                    last_error: error.to_string(),
+                    first_failed_at: Utc::now(),
+                });
+                false
+            }
+        };
+        exhausted.then(|| self.dead_letter(uid, error.to_string()))
+    }
+
+    /// Move a UID out of the retry queue into the capped dead-letter list and
+    /// return the recorded entry. Carries the queued external_id / attempts
+    /// when present.
+    fn dead_letter(&mut self, uid: u32, error: String) -> IngestDeadLetter {
+        let (external_id, attempts) = self
+            .retry_queue
+            .iter()
+            .find(|r| r.uid == uid)
+            .map(|r| (r.external_id.clone(), r.attempts))
+            .unwrap_or_default();
+        self.retry_queue.retain(|r| r.uid != uid);
+        let entry = IngestDeadLetter {
+            uid,
+            external_id,
+            attempts,
+            last_error: error,
+            dead_lettered_at: Utc::now(),
+        };
+        self.dead_letters.push(entry.clone());
+        let len = self.dead_letters.len();
+        if len > DEAD_LETTER_CAP {
+            self.dead_letters.drain(0..len - DEAD_LETTER_CAP);
+        }
+        entry
+    }
 }
 
 /// Shape of `channels.config` for the `email_imap` provider. Populated
@@ -587,6 +690,30 @@ impl PullAdapter for EmailImapAdapter {
     fn poll_interval(&self) -> Duration {
         Duration::from_secs(DEFAULT_POLL_SECS)
     }
+
+    fn record_ingest_outcome(
+        &mut self,
+        source_ref: Option<u64>,
+        external_id: &str,
+        success: bool,
+        error: Option<&str>,
+    ) {
+        let Some(uid) = source_ref.and_then(|r| u32::try_from(r).ok()) else {
+            return;
+        };
+        if success {
+            self.state.record_ingest_success(uid);
+            return;
+        }
+        let err = error.unwrap_or("ingest failed");
+        if let Some(dl) = self.state.record_ingest_failure(uid, external_id, err) {
+            self.log_dead_letter(&dl);
+        }
+    }
+
+    async fn flush_runtime_state(&self) -> Result<(), ChannelError> {
+        self.persist_state().await
+    }
 }
 
 impl EmailImapAdapter {
@@ -641,8 +768,16 @@ impl EmailImapAdapter {
         // mailbox would loop in "reset to UID 0 → fetch fails →
         // restart → reset again" forever.
         if rescan_needed {
+            // Pending retry UIDs were numbered under the old UIDVALIDITY and
+            // are meaningless now; the rescan re-ingests everything from UID 1.
+            self.state.retry_queue.clear();
             self.persist_state().await?;
         }
+
+        // Re-fetch previously-failed messages (bounded ingest retry) before
+        // the new-UID scan, so they're re-ingested first. These UIDs sit
+        // below `last_seen_uid`, so the scan below won't pick them up.
+        let mut events = self.fetch_retry_queue(session).await;
 
         let since = self.state.last_seen_uid;
         let search_query = format!("UID {}:*", since.saturating_add(1));
@@ -665,7 +800,7 @@ impl EmailImapAdapter {
             uids.truncate(MAX_FETCH_PER_POLL);
         }
 
-        let mut events = Vec::with_capacity(uids.len());
+        events.reserve(uids.len());
         let mut max_uid = self.state.last_seen_uid;
 
         for uid in uids {
@@ -711,6 +846,46 @@ impl EmailImapAdapter {
         )
         .map(|_| ())
         .map_err(ChannelError::transient("persist runtime_state"))
+    }
+
+    /// Re-fetch the messages whose ingest previously failed (the retry
+    /// queue), in UID order, returning them as events for the registry to
+    /// re-ingest. A queued message that can no longer be fetched (deleted
+    /// upstream, or now unparseable) is dead-lettered here, since it can
+    /// never produce a successful ingest. The mailbox is assumed already
+    /// selected by the caller.
+    async fn fetch_retry_queue(&mut self, session: &mut ImapSession) -> Vec<InboundEvent> {
+        let mut uids: Vec<u32> = self.state.retry_queue.iter().map(|r| r.uid).collect();
+        uids.sort_unstable();
+        let mut events = Vec::new();
+        let mut unfetchable = Vec::new();
+        for uid in uids {
+            match fetch_single_uid(session, uid).await {
+                Ok(Some(msg)) => events.push(InboundEvent::MessageReceived(msg)),
+                Ok(None) | Err(_) => unfetchable.push(uid),
+            }
+        }
+        for uid in unfetchable {
+            // A queued message we can no longer fetch can never ingest; give up.
+            if self.state.retry_queue.iter().any(|r| r.uid == uid) {
+                let entry = self
+                    .state
+                    .dead_letter(uid, "message no longer fetchable for retry".to_string());
+                self.log_dead_letter(&entry);
+            }
+        }
+        events
+    }
+
+    fn log_dead_letter(&self, dl: &IngestDeadLetter) {
+        warn!(
+            channel = self.id,
+            uid = dl.uid,
+            external_id = %dl.external_id,
+            attempts = dl.attempts,
+            error = %dl.last_error,
+            "inbound message dead-lettered; it will not be retried"
+        );
     }
 }
 
@@ -807,7 +982,12 @@ async fn fetch_single_uid(
     };
     let internal_date = fetch.internal_date().map(|d| d.with_timezone(&Utc));
     parse_rfc822_into_inbound_message(body, internal_date)
-        .map(Some)
+        .map(|mut m| {
+            // Stamp the IMAP UID so the registry can report this message's
+            // ingest outcome for bounded retry / dead-lettering.
+            m.source_ref = Some(uid as u64);
+            Some(m)
+        })
         .map_err(|e| format!("parse rfc822: {e}"))
 }
 
@@ -900,6 +1080,9 @@ pub fn parse_rfc822_into_inbound_message(
         // message and that complicates every adapter signature.
         raw_bytes: Some(raw.to_vec()),
         content_language,
+        // Set by the caller (fetch_single_uid) from the IMAP UID; the parser
+        // itself has no transport context.
+        source_ref: None,
     })
 }
 
@@ -1308,11 +1491,60 @@ mod tests {
             last_seen_uid: 42,
             uid_validity: Some(123),
             last_error: None,
+            retry_queue: Vec::new(),
+            dead_letters: Vec::new(),
         };
         let v = serde_json::to_value(&state).unwrap();
         let back: ImapRuntimeState = serde_json::from_value(v).unwrap();
         assert_eq!(back.last_seen_uid, 42);
         assert_eq!(back.uid_validity, Some(123));
+    }
+
+    #[test]
+    fn ingest_retry_escalates_to_dead_letter_at_the_cap() {
+        let mut s = ImapRuntimeState::default();
+        // First failure schedules a retry (attempts = 1, not yet dead).
+        assert!(s.record_ingest_failure(7, "<m7@ex>", "db blip").is_none());
+        assert_eq!(s.retry_queue.len(), 1);
+        assert_eq!(s.retry_queue[0].attempts, 1);
+        // Failures advance attempts; nothing dead-letters before the cap.
+        for _ in 0..(MAX_INGEST_ATTEMPTS - 2) {
+            assert!(s.record_ingest_failure(7, "<m7@ex>", "db blip").is_none());
+        }
+        assert_eq!(s.retry_queue[0].attempts, MAX_INGEST_ATTEMPTS - 1);
+        // The attempt that reaches the cap dead-letters it and clears the queue.
+        let dl = s
+            .record_ingest_failure(7, "<m7@ex>", "db blip")
+            .expect("should dead-letter at the cap");
+        assert_eq!(dl.uid, 7);
+        assert_eq!(dl.attempts, MAX_INGEST_ATTEMPTS);
+        assert_eq!(dl.external_id, "<m7@ex>");
+        assert!(s.retry_queue.is_empty());
+        assert_eq!(s.dead_letters.len(), 1);
+    }
+
+    #[test]
+    fn ingest_success_clears_a_pending_retry() {
+        let mut s = ImapRuntimeState::default();
+        s.record_ingest_failure(9, "<m9@ex>", "blip");
+        assert_eq!(s.retry_queue.len(), 1);
+        s.record_ingest_success(9);
+        assert!(s.retry_queue.is_empty());
+        assert!(s.dead_letters.is_empty());
+    }
+
+    #[test]
+    fn dead_letters_are_capped_keeping_the_most_recent() {
+        let mut s = ImapRuntimeState::default();
+        for uid in 0..(DEAD_LETTER_CAP as u32 + 10) {
+            s.dead_letter(uid, "gone".to_string());
+        }
+        assert_eq!(s.dead_letters.len(), DEAD_LETTER_CAP);
+        assert_eq!(s.dead_letters.first().unwrap().uid, 10);
+        assert_eq!(
+            s.dead_letters.last().unwrap().uid,
+            DEAD_LETTER_CAP as u32 + 9
+        );
     }
 
     #[test]

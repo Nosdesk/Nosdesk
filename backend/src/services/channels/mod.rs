@@ -207,6 +207,12 @@ pub struct InboundMessage {
     /// `None` when the header was missing or empty; the resolver
     /// falls through to site default in that case.
     pub content_language: Option<String>,
+    /// Opaque per-channel source reference, used by the adapter's bounded
+    /// ingest-retry accounting to identify a message across polls. For
+    /// `email_imap` this is the IMAP UID; chat/webhook channels leave it
+    /// `None`. The registry passes it back to
+    /// [`ChannelAdapter::record_ingest_outcome`] after the pipeline runs.
+    pub source_ref: Option<u64>,
 }
 
 /// Either bytes we already have (IMAP) or a URL we fetch later (Slack
@@ -354,6 +360,34 @@ pub trait ChannelAdapter: Send + Sync + 'static {
 pub trait PullAdapter: ChannelAdapter {
     async fn poll(&mut self) -> Result<Vec<InboundEvent>, ChannelError>;
     fn poll_interval(&self) -> Duration;
+
+    /// Record the pipeline's ingest outcome for a message the last [`poll`]
+    /// returned, identified by its `source_ref`. This drives bounded
+    /// per-message retry: a failure schedules a re-fetch on a later poll (up
+    /// to a cap, then dead-letter); a success clears any pending retry. The
+    /// poll cursor itself always advances, so the channel keeps making
+    /// progress regardless. `external_id` (the message id) is kept for the
+    /// dead-letter record. Default no-op for adapters with no retry model.
+    /// Call [`flush_runtime_state`] after a batch to persist the changes.
+    ///
+    /// [`poll`]: Self::poll
+    /// [`flush_runtime_state`]: Self::flush_runtime_state
+    fn record_ingest_outcome(
+        &mut self,
+        _source_ref: Option<u64>,
+        _external_id: &str,
+        _success: bool,
+        _error: Option<&str>,
+    ) {
+    }
+
+    /// Persist any runtime-state changes [`record_ingest_outcome`] made during
+    /// the just-processed batch. Default Ok (nothing to persist).
+    ///
+    /// [`record_ingest_outcome`]: Self::record_ingest_outcome
+    async fn flush_runtime_state(&self) -> Result<(), ChannelError> {
+        Ok(())
+    }
 }
 
 /// Webhook-based adapters (Postmark, Slack Events, Teams Graph change

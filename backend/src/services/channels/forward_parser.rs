@@ -208,6 +208,7 @@ mod tests {
             bounce_reports: Vec::new(),
             raw_bytes: None,
             content_language: None,
+            source_ref: None,
         }
     }
 

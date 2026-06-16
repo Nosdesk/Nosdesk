@@ -384,28 +384,54 @@ pub async fn run_one_poll(
     }
 
     for event in events {
+        // Capture the source reference + message id before the pipeline
+        // consumes the event, so the outcome can be reported back for the
+        // adapter's bounded ingest-retry accounting.
+        let (source_ref, external_id) = match &event {
+            crate::services::channels::InboundEvent::MessageReceived(m) => {
+                (m.source_ref, m.external_id.clone())
+            }
+            // Edits/deletes carry no UID for retry accounting (chat-only today).
+            crate::services::channels::InboundEvent::MessageEdited { .. }
+            | crate::services::channels::InboundEvent::MessageDeleted { .. } => {
+                (None, String::new())
+            }
+        };
         // `&mut dyn PullAdapter` upcasts to `&mut dyn ChannelAdapter`
         // natively (stable trait upcasting). The pipeline only needs
         // the `resolve_thread` / `send_reply` surface of the supertrait.
         let base: &mut dyn crate::services::channels::ChannelAdapter = adapter;
-        match pipeline::process_event(base, channel, event, &mut conn, &ctx).await {
+        let result = pipeline::process_event(base, channel, event, &mut conn, &ctx).await;
+        match &result {
             Ok(outcome) => {
                 counter!(
                     "nosdesk_channels_pipeline_outcome_total",
-                    "outcome" => pipeline_outcome_label(&outcome),
+                    "outcome" => pipeline_outcome_label(outcome),
                 )
                 .increment(1);
                 debug!(channel = channel.id, ?outcome, "processed inbound event");
             }
             Err(e) => {
                 counter!("nosdesk_channels_pipeline_error_total").increment(1);
-                // A single bad message must not kill the loop — log
-                // and move on. The ingestion pipeline only errors on
-                // DB failures or attachment issues; the channel row
-                // stays healthy.
-                warn!(channel = channel.id, error = %e, "pipeline error; skipping event");
+                // A single bad message must not kill the loop. Instead of
+                // dropping it (the cursor has already advanced past it), hand
+                // the failure to the adapter, which retries the message on a
+                // later poll up to a cap, then dead-letters it.
+                warn!(channel = channel.id, error = %e, "pipeline error; scheduling ingest retry");
             }
         }
+        let err_text = result.as_ref().err().map(|e| e.to_string());
+        adapter.record_ingest_outcome(
+            source_ref,
+            &external_id,
+            result.is_ok(),
+            err_text.as_deref(),
+        );
+    }
+
+    // Persist the retry/dead-letter bookkeeping accumulated above.
+    if let Err(e) = adapter.flush_runtime_state().await {
+        warn!(channel = channel.id, error = %e, "failed to persist inbound retry state");
     }
 
     // Clear the stored `last_error` on success so admins see a healthy
@@ -650,6 +676,7 @@ mod tests {
             bounce_reports: Vec::new(),
             raw_bytes: None,
             content_language: None,
+            source_ref: None,
         })
     }
 
