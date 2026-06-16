@@ -339,6 +339,29 @@ pub fn dns_record_for(
     Ok(Some(dkim_record(selector, domain, &public_b64)))
 }
 
+// sync-audit-only: Workspace outbound mode reset; covered by the workspace_email_settings audit trigger.
+/// Revert the workspace to `fallback` mode, clearing the verified-domain DKIM
+/// material and verification state. The identity (`from_*`) and any `smtp_*`
+/// columns are left as-is.
+pub fn reset_to_fallback(conn: &mut DbConnection, workspace_id: i32) -> QueryResult<()> {
+    use crate::schema::workspace_email_settings::dsl as w;
+    diesel::update(w::workspace_email_settings)
+        .filter(w::workspace_id.eq(workspace_id))
+        .set((
+            w::sending_mode.eq(workspace_email_sending_mode::FALLBACK),
+            w::verification_status.eq(workspace_email_verification_status::UNVERIFIED),
+            w::sending_domain.eq::<Option<String>>(None),
+            w::dkim_selector.eq::<Option<String>>(None),
+            w::dkim_algorithm.eq::<Option<String>>(None),
+            w::encrypted_dkim_private_key.eq::<Option<Vec<u8>>>(None),
+            w::dkim_kek_id.eq::<Option<i16>>(None),
+            w::verified_at.eq::<Option<chrono::NaiveDateTime>>(None),
+            w::updated_at.eq(diesel::dsl::now),
+        ))
+        .execute(conn)?;
+    Ok(())
+}
+
 // sync-audit-only: Workspace DKIM verification status; covered by the workspace_email_settings audit trigger.
 /// Set the DKIM verification status for the current workspace (and stamp
 /// `verified_at` when transitioning to verified). The settings row must exist.

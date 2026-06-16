@@ -1726,6 +1726,12 @@ async fn main() -> std::io::Result<()> {
                     // Email configuration (admin only) - environment-based config
                     .route("/admin/email/config", web::get().to(handlers::email::get_email_config))
                     .route("/admin/email/test", web::post().to(handlers::email::send_test_email))
+                    // Per-workspace verified sending domain (DKIM)
+                    .route("/admin/email/outbound", web::get().to(handlers::workspace_email::get_outbound))
+                    .route("/admin/email/outbound", web::delete().to(handlers::workspace_email::reset))
+                    .route("/admin/email/outbound/domain", web::put().to(handlers::workspace_email::set_domain))
+                    .route("/admin/email/outbound/verify", web::post().to(handlers::workspace_email::verify_domain))
+                    .route("/admin/email/outbound/test", web::post().to(handlers::workspace_email::test_send))
 
                     // System information (admin only)
                     .route("/admin/system/info", web::get().to(handlers::system::get_system_info))
