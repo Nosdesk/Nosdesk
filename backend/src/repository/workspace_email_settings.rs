@@ -39,6 +39,23 @@ pub fn get(conn: &mut DbConnection) -> QueryResult<Option<WorkspaceEmailSettings
         .optional()
 }
 
+/// Settings for an explicit `workspace_id`. Unlike [`get`], this filters by
+/// the id rather than relying solely on the RLS GUC, so it is correct on a
+/// pinned connection (filter agrees with RLS) and on a bypass connection
+/// (the filter does the scoping). The outbound resolver uses it so it works
+/// from whatever connection context the caller holds.
+pub fn get_for_workspace(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+) -> QueryResult<Option<WorkspaceEmailSettings>> {
+    use crate::schema::workspace_email_settings::dsl as w;
+    w::workspace_email_settings
+        .filter(w::workspace_id.eq(workspace_id))
+        .select(WorkspaceEmailSettings::as_select())
+        .first(conn)
+        .optional()
+}
+
 // sync-audit-only: Workspace outbound email identity; covered by the audit_log trigger on workspace_email_settings, sync clients don't subscribe.
 /// Insert or update the editable settings for the current workspace. The
 /// password columns are left untouched (managed by `set_password` /

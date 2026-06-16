@@ -10,6 +10,7 @@ pub mod imports;
 pub mod msgraph;
 pub mod notifications;
 pub mod oauth_provisioning;
+pub mod outbound_email;
 pub mod plugins;
 pub mod presence;
 pub mod recurrence;
