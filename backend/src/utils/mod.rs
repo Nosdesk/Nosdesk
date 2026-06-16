@@ -6,6 +6,7 @@ pub mod content;
 pub mod cookies;
 pub mod cors_allowlist;
 pub mod csrf;
+pub mod egress;
 pub mod email;
 pub mod email_branding;
 pub mod email_resend;
