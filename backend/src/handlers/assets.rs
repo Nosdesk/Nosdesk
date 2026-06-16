@@ -199,7 +199,7 @@ impl AssetResponse {
             is_editable,
             primary_user: user.map(|u| {
                 let name = u.name.clone();
-                let role = repository::user_helpers::bootstrap_workspace_role(conn, u.uuid)
+                let role = repository::user_helpers::workspace_role(conn, u.uuid)
                     .map(|r| r.as_str().to_string())
                     .unwrap_or_else(|| crate::models::WorkspaceRole::Member.as_str().to_string());
 

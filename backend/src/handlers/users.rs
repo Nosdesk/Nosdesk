@@ -295,6 +295,9 @@ pub async fn get_users(pool: web::Data<crate::db::Pool>, ws: WorkspaceContext) -
         Ok(c) => c,
         Err(e) => return e,
     };
+    // Pin the resolved workspace so the users read and per-row workspace_role
+    // lookup are visible under RLS (both tables are workspace-isolated).
+    helpers::pin_workspace(&mut conn, ws.workspace_id);
 
     match repository::get_users(&mut conn) {
         Ok(users) => {
@@ -324,6 +327,9 @@ pub async fn get_paginated_users(
         Ok(c) => c,
         Err(e) => return e,
     };
+    // Pin the resolved workspace so the users read and per-row workspace_role
+    // lookup are visible under RLS (both tables are workspace-isolated).
+    helpers::pin_workspace(&mut conn, ws.workspace_id);
 
     // Extract and validate pagination parameters
     let page = query.page.unwrap_or(1).max(1);
@@ -492,6 +498,7 @@ fn get_device_counts_batch(user_uuids: &[Uuid], conn: &mut DbConnection) -> Hash
 pub async fn get_user_by_uuid(
     uuid_path: web::Path<String>,
     pool: web::Data<crate::db::Pool>,
+    req: HttpRequest,
 ) -> impl Responder {
     let uuid_str = uuid_path.into_inner();
 
@@ -505,6 +512,9 @@ pub async fn get_user_by_uuid(
         Ok(c) => c,
         Err(e) => return e,
     };
+    // Pin the request's workspace so the returned user's workspace_role
+    // resolves under RLS (workspace_members is workspace-isolated).
+    helpers::pin_request_workspace(&req, &mut conn);
 
     match repository::get_user_by_uuid(&user_uuid_parsed, &mut conn) {
         Ok(user) => {
@@ -532,6 +542,9 @@ pub async fn get_users_batch(
         Ok(c) => c,
         Err(e) => return e,
     };
+    // Pin the resolved workspace so the users read and per-row workspace_role
+    // lookup are visible under RLS (both tables are workspace-isolated).
+    helpers::pin_workspace(&mut conn, ws.workspace_id);
 
     // Validate UUIDs and remove duplicates
     let mut valid_uuids = HashSet::new();
@@ -610,6 +623,11 @@ pub async fn create_user(
         Ok(c) => c,
         Err(e) => return e,
     };
+    // Pin the request's workspace at the session level so the new user's
+    // workspace_role resolves under RLS when the response is built after
+    // the creation transaction (with_actor_context's SET LOCAL reverts to
+    // this value on commit).
+    helpers::pin_request_workspace(&req, &mut conn);
 
     // Resolve the inviter's display name for the invitation email.
     let admin_name = uuid::Uuid::parse_str(&actor_claims.sub)
@@ -2510,6 +2528,10 @@ pub async fn get_user_with_emails(
         Err(e) => return e,
     };
 
+    // Pin the request's workspace so the returned user's workspace_role
+    // resolves under RLS (workspace_members is workspace-isolated).
+    helpers::pin_request_workspace(&req, &mut conn);
+
     let user_uuid = path.into_inner();
 
     let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
@@ -2569,6 +2591,7 @@ pub async fn get_user_profile_bundle(
     path: web::Path<String>,
     query: web::Query<ProfileQuery>,
     auth: crate::extractors::AuthContext,
+    req: HttpRequest,
 ) -> impl Responder {
     let uuid_str = path.into_inner();
     let user_uuid_parsed = match utils::parse_uuid(&uuid_str) {
@@ -2589,6 +2612,9 @@ pub async fn get_user_profile_bundle(
         Ok(c) => c,
         Err(e) => return e,
     };
+    // Pin the request's workspace so the bundle's workspace_role (and other
+    // RLS-scoped reads) resolve to the caller's workspace.
+    helpers::pin_request_workspace(&req, &mut conn);
 
     match crate::repository::user_profile::compute(&mut conn, &user_uuid_parsed, &groups) {
         Ok(Some(bundle)) => HttpResponse::Ok().json(bundle),

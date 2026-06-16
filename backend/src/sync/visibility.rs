@@ -51,7 +51,7 @@ impl SyncViewer {
         let ctx = VisibilityContext::new(
             user.uuid,
             PlatformRole::from_db(&user.platform_role),
-            user_helpers::bootstrap_workspace_role(conn, user.uuid),
+            user_helpers::workspace_role(conn, user.uuid),
         );
         let is_doc_admin = user_helpers::user_is_admin(conn, user);
         Self { ctx, is_doc_admin }

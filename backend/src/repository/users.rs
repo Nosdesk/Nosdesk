@@ -47,7 +47,7 @@ fn emit_user_event(
 ) -> QueryResult<()> {
     let email =
         crate::repository::user_helpers::get_primary_email(&user.uuid, conn).unwrap_or_default();
-    let workspace_role = crate::repository::user_helpers::bootstrap_workspace_role(conn, user.uuid)
+    let workspace_role = crate::repository::user_helpers::workspace_role(conn, user.uuid)
         .map(|r| r.as_str().to_string());
     // Personal dashboard layout lives in `user_preferences`; carry it
     // so a user's own sessions sync the arrangement live through the
@@ -679,7 +679,7 @@ mod tests {
         let fetched = get_user_by_uuid(&user.uuid, &mut conn).unwrap();
         assert_eq!(fetched.name, "Alice Test");
         assert_eq!(
-            crate::repository::user_helpers::bootstrap_workspace_role(&mut conn, fetched.uuid),
+            crate::repository::user_helpers::workspace_role(&mut conn, fetched.uuid),
             Some(crate::models::WorkspaceRole::Agent)
         );
     }

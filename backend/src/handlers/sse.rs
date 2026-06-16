@@ -621,6 +621,10 @@ pub async fn sse_events_stream(
             return Ok(errors::internal("Database connection error"));
         }
     };
+    // Pin the request's workspace so the caller's visibility (their role +
+    // per-ticket checks) resolves under RLS. The pool clears app.workspace_id
+    // on checkout, so without this an admin is downgraded to member visibility.
+    crate::handlers::helpers::pin_request_workspace(&req, &mut conn);
 
     // Validate SSE token
     let token = match query.sse_token.as_ref() {
@@ -807,7 +811,7 @@ fn lookup_vis_for(
     user_uuid: uuid::Uuid,
 ) -> Option<crate::repository::ticket_visibility::VisibilityContext> {
     let user = crate::repository::users::get_user_by_uuid(&user_uuid, conn).ok()?;
-    let workspace_role = crate::repository::user_helpers::bootstrap_workspace_role(conn, user_uuid);
+    let workspace_role = crate::repository::user_helpers::workspace_role(conn, user_uuid);
     Some(
         crate::repository::ticket_visibility::VisibilityContext::new(
             user_uuid,

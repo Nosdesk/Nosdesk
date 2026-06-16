@@ -638,8 +638,11 @@ pub async fn finish_passkey_login(
         );
     }
 
-    // Create session + tokens, return response with auth cookies
+    // Create session + tokens, return response with auth cookies.
+    // Pin the workspace so the response's workspace_role resolves under RLS
+    // (workspace_members is workspace-isolated).
     let user_uuid = user.uuid;
+    super::helpers::pin_request_workspace(&req, &mut conn);
     let session = super::auth::create_session_record(&user_uuid, &req, &mut conn).map_err(|e| {
         error!(
             "Failed to create session for passkey login {}: {:?}",
@@ -940,6 +943,9 @@ pub async fn start_passkey_setup_login(
         Ok(c) => c,
         Err(e) => return e,
     };
+    // Pin the request's workspace so the MFA policy gate resolves the
+    // caller's role under RLS (the pool clears app.workspace_id on checkout).
+    helpers::pin_request_workspace(&req, &mut conn);
 
     // Find user by email
     let user = match repository::user_helpers::get_user_by_email(&email_lower, &mut conn) {
@@ -1117,6 +1123,9 @@ pub async fn finish_passkey_setup_login(
         Ok(c) => c,
         Err(e) => return e,
     };
+    // Pin the request's workspace so the MFA policy gate resolves the
+    // caller's role under RLS (the pool clears app.workspace_id on checkout).
+    helpers::pin_request_workspace(&req, &mut conn);
 
     // Find user by email and verify password again (security)
     let user = match repository::user_helpers::get_user_by_email(&email_lower, &mut conn) {
@@ -1268,8 +1277,11 @@ pub async fn finish_passkey_setup_login(
         user.uuid, passkey_name
     );
 
-    // Create session + tokens, return response with auth cookies
+    // Create session + tokens, return response with auth cookies.
+    // Pin the workspace so the response's workspace_role resolves under RLS
+    // (workspace_members is workspace-isolated).
     let user_uuid = user.uuid;
+    super::helpers::pin_request_workspace(&req, &mut conn);
     let session = super::auth::create_session_record(&user_uuid, &req, &mut conn).map_err(|e| {
         error!(
             "Failed to create session for passkey setup login {}: {:?}",

@@ -654,7 +654,7 @@ pub fn should_require_mfa(
 /// caller surfaces both as a 5xx and tells the user to retry.
 pub async fn validate_mfa_policy(user: &User, conn: &mut crate::db::DbConnection) -> Result<()> {
     let platform_role = PlatformRole::from_db(&user.platform_role);
-    let workspace_role = crate::repository::user_helpers::bootstrap_workspace_role(conn, user.uuid);
+    let workspace_role = crate::repository::user_helpers::workspace_role(conn, user.uuid);
     if !should_require_mfa(platform_role, workspace_role) || user.mfa_enabled {
         return Ok(());
     }

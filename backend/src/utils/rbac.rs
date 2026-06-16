@@ -177,6 +177,26 @@ pub fn require_workspace_role_detailed(
         }
     };
 
+    // Pin the resolved workspace on this raw connection so the membership
+    // read is visible under RLS. `workspace_members` is FORCE-isolated by
+    // `app.workspace_id` and the runtime role is NOBYPASSRLS, so without
+    // this the policy filters every row out and the gate 403s every
+    // workspace-scoped endpoint in hosted multi-tenant mode.
+    {
+        use diesel::prelude::*;
+        if let Err(e) =
+            diesel::sql_query("SELECT set_config('app.workspace_id', $1, false) AS set_config")
+                .bind::<diesel::sql_types::Text, _>(workspace_id.to_string())
+                .execute(&mut conn)
+        {
+            tracing::error!(error = %e, "failed to pin workspace for role gate");
+            return Err(HttpResponse::InternalServerError().json(json!({
+                "error": "Internal server error",
+                "message": "Workspace membership lookup failed"
+            })));
+        }
+    }
+
     let membership =
         match crate::repository::workspaces::membership(&mut conn, workspace_id, user_uuid) {
             Ok(Some(m)) => m,

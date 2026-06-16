@@ -3,14 +3,19 @@ use crate::models::{PlatformRole, User, UserEmail, WorkspaceRole};
 use diesel::prelude::*;
 use uuid::Uuid;
 
-/// The user's `WorkspaceRole` in the bootstrap workspace (id=1), if
-/// they have a membership there. Mirrors the workspace the legacy
-/// `legacy_role_for_user` pinned to; hosted multi-workspace callers
-/// should look up the relevant workspace's membership directly.
-pub fn bootstrap_workspace_role(conn: &mut DbConnection, user_uuid: Uuid) -> Option<WorkspaceRole> {
+/// The user's `WorkspaceRole` in the CURRENT workspace — the one
+/// `app.workspace_id` is scoped to — or `None` if they have no membership
+/// there. `workspace_members` is RLS-isolated by workspace, so a caller
+/// running in a workspace context (`TenantConn` / `with_actor_context` / a
+/// workspace-pinned raw conn) gets the role in THAT workspace.
+///
+/// This replaced a hardcoded `workspace_id = 1` read, which returned `None`
+/// for every non-bootstrap workspace under hosted multi-tenancy. An
+/// unscoped caller now reads nothing rather than the wrong workspace's role
+/// — fail-safe (least privilege), not a leak.
+pub fn workspace_role(conn: &mut DbConnection, user_uuid: Uuid) -> Option<WorkspaceRole> {
     use crate::schema::workspace_members;
     workspace_members::table
-        .filter(workspace_members::workspace_id.eq(crate::sync::actor::BOOTSTRAP_WORKSPACE_ID))
         .filter(workspace_members::user_uuid.eq(user_uuid))
         .select(workspace_members::role)
         .first::<String>(conn)
@@ -19,7 +24,7 @@ pub fn bootstrap_workspace_role(conn: &mut DbConnection, user_uuid: Uuid) -> Opt
 }
 
 /// True when `user` is a baseline, unprivileged account: platform
-/// role `user` and no workspace role above `member` in the bootstrap
+/// role `user` and no workspace role above `member` in the current
 /// workspace. Privileged accounts (platform admin / audit reviewer,
 /// or workspace agent/admin/owner) return false. Used by the guest
 /// auto-provisioning paths so a drive-by submission can never reuse
@@ -28,7 +33,7 @@ fn is_baseline_user(conn: &mut DbConnection, user: &User) -> bool {
     if PlatformRole::from_db(&user.platform_role) != PlatformRole::User {
         return false;
     }
-    match bootstrap_workspace_role(conn, user.uuid) {
+    match workspace_role(conn, user.uuid) {
         Some(role) => !role.meets(WorkspaceRole::Agent),
         None => true,
     }
@@ -36,21 +41,21 @@ fn is_baseline_user(conn: &mut DbConnection, user: &User) -> bool {
 
 /// True when `user` may handle tickets (be assigned, see all
 /// tickets): a platform admin, or a workspace agent/admin/owner in
-/// the bootstrap workspace. The DB-side mirror of
+/// the current workspace. The DB-side mirror of
 /// `AuthContext::can_handle_tickets` for when only a `User` row is on
 /// hand (assignee validation, SSE fan-out).
 pub fn user_can_handle_tickets(conn: &mut DbConnection, user: &User) -> bool {
     PlatformRole::from_db(&user.platform_role).is_platform_admin()
-        || bootstrap_workspace_role(conn, user.uuid).is_some_and(|r| r.meets(WorkspaceRole::Agent))
+        || workspace_role(conn, user.uuid).is_some_and(|r| r.meets(WorkspaceRole::Agent))
 }
 
 /// True when `user` is an administrator: a platform admin, or a
-/// workspace admin/owner in the bootstrap workspace. Mirrors the old
+/// workspace admin/owner in the current workspace. Mirrors the old
 /// `legacy_role_for_user(...) == "admin"` check used to guard
 /// admin-account deletion.
 pub fn user_is_admin(conn: &mut DbConnection, user: &User) -> bool {
     PlatformRole::from_db(&user.platform_role).is_platform_admin()
-        || bootstrap_workspace_role(conn, user.uuid).is_some_and(|r| r.meets(WorkspaceRole::Admin))
+        || workspace_role(conn, user.uuid).is_some_and(|r| r.meets(WorkspaceRole::Admin))
 }
 
 /// Observer fired after a user record is successfully committed to the
@@ -399,7 +404,7 @@ pub fn get_user_with_primary_email(
 ) -> crate::models::UserResponse {
     let primary_email = get_primary_email(&user.uuid, conn);
     let prefs = crate::repository::user_preferences::get(conn, user.uuid).ok();
-    let workspace_role = bootstrap_workspace_role(conn, user.uuid);
+    let workspace_role = workspace_role(conn, user.uuid);
 
     crate::models::UserResponse {
         uuid: user.uuid,
@@ -648,7 +653,7 @@ mod tests {
             GuestUserResult::Created(user) => {
                 assert_eq!(user.name, "Fresh User");
                 assert_eq!(
-                    bootstrap_workspace_role(&mut conn, user.uuid),
+                    workspace_role(&mut conn, user.uuid),
                     Some(WorkspaceRole::Member)
                 );
                 // The matching email row should be unverified and tagged

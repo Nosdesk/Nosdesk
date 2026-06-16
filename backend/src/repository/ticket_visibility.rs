@@ -90,8 +90,7 @@ impl VisibilityContext {
     pub fn resolve(claims: &Claims, conn: &mut DbConnection) -> Option<Self> {
         let user_uuid = Uuid::parse_str(&claims.sub).ok()?;
         let platform_role = PlatformRole::from_db(&claims.platform_role);
-        let workspace_role =
-            crate::repository::user_helpers::bootstrap_workspace_role(conn, user_uuid);
+        let workspace_role = crate::repository::user_helpers::workspace_role(conn, user_uuid);
         Some(Self::new(user_uuid, platform_role, workspace_role))
     }
 

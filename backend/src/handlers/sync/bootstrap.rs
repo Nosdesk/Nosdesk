@@ -277,9 +277,8 @@ fn stream_bootstrap_inner(
             .filter_map(|p| p.dashboard_layout.map(|dl| (p.user_uuid, dl)))
             .collect();
     for user in user_rows {
-        let workspace_role =
-            crate::repository::user_helpers::bootstrap_workspace_role(conn, user.uuid)
-                .map(|r| r.as_str().to_string());
+        let workspace_role = crate::repository::user_helpers::workspace_role(conn, user.uuid)
+            .map(|r| r.as_str().to_string());
         send(
             tx,
             json!({

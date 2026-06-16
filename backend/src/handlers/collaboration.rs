@@ -586,8 +586,7 @@ impl DocAccessor {
     ) -> Option<Self> {
         let user_uuid = Uuid::parse_str(&claims.sub).ok()?;
         let platform_role = crate::models::PlatformRole::from_db(&claims.platform_role);
-        let workspace_role =
-            crate::repository::user_helpers::bootstrap_workspace_role(conn, user_uuid);
+        let workspace_role = crate::repository::user_helpers::workspace_role(conn, user_uuid);
         let vis = crate::repository::ticket_visibility::VisibilityContext::new(
             user_uuid,
             platform_role,
@@ -2588,6 +2587,10 @@ pub async fn ws_handler(
         let mut conn = pool.get().map_err(|_| {
             actix_web::error::ErrorInternalServerError("Database connection failed")
         })?;
+        // Pin the request's workspace so the accessor's role + visibility
+        // resolve under RLS (the pool clears app.workspace_id on checkout).
+        // Without this an admin is downgraded to member document visibility.
+        crate::handlers::helpers::pin_request_workspace(&req, &mut conn);
 
         // Use our centralized JWT validation
         use crate::utils::jwt::JwtUtils;

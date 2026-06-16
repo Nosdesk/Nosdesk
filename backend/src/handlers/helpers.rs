@@ -38,8 +38,47 @@ pub fn db_conn(pool: &web::Data<Pool>) -> Result<DbConnection, HttpResponse> {
     errors::db_conn(pool)
 }
 
+/// Pin `app.workspace_id` on a raw connection from the request's resolved
+/// workspace, so RLS-scoped tenant reads/writes on that connection see the
+/// tenant's rows (production connects as the NOBYPASSRLS `nosdesk_app`
+/// role). Session-scoped: `ResetAppGucs` clears it on the next pool
+/// checkout, and a later `with_actor_context` overrides it per transaction.
+///
+/// No-op when the request didn't resolve a workspace (apex / platform
+/// routes that don't touch tenant tables). This is what makes the legacy
+/// raw-conn helpers safe-by-default, the way `TenantConn` already is.
+pub fn pin_request_workspace(req: &HttpRequest, conn: &mut DbConnection) {
+    let workspace_id = req
+        .extensions()
+        .get::<crate::middleware::RequestContext>()
+        .and_then(|ctx| ctx.actor.workspace_id)
+        .or_else(|| {
+            req.extensions()
+                .get::<crate::extractors::WorkspaceContext>()
+                .map(|w| w.workspace_id)
+        });
+    if let Some(ws) = workspace_id {
+        pin_workspace(conn, ws);
+    }
+}
+
+/// Pin a known `workspace_id` on a raw connection (session-scoped). The
+/// lower-level half of [`pin_request_workspace`], for the handlers that
+/// already hold a resolved [`WorkspaceContext`] and don't need to re-derive
+/// it from the request extensions.
+pub fn pin_workspace(conn: &mut DbConnection, workspace_id: i32) {
+    use diesel::prelude::*;
+    let _ = diesel::sql_query("SELECT set_config('app.workspace_id', $1, false) AS set_config")
+        .bind::<diesel::sql_types::Text, _>(workspace_id.to_string())
+        .execute(conn);
+}
+
 /// Extract claims + user UUID + DB connection from a request.
 /// Combines the three most common boilerplate blocks into one call.
+///
+/// The returned connection is pinned to the request's workspace (see
+/// [`pin_request_workspace`]) so RLS-scoped reads on it are tenant-correct
+/// without each handler remembering to scope.
 pub fn auth_conn(
     req: &HttpRequest,
     pool: &web::Data<Pool>,
@@ -49,9 +88,10 @@ pub fn auth_conn(
         .get::<Claims>()
         .cloned()
         .ok_or_else(|| errors::unauthorized("Authentication required"))?;
-    let conn = db_conn(pool)?;
+    let mut conn = db_conn(pool)?;
     let user_uuid =
         Uuid::parse_str(&claims.sub).map_err(|_| errors::internal("Invalid user UUID"))?;
+    pin_request_workspace(req, &mut conn);
     Ok((claims, user_uuid, conn))
 }
 
@@ -67,16 +107,18 @@ pub fn admin_conn(req: &HttpRequest, pool: &web::Data<Pool>) -> Result<DbConnect
         .cloned()
         .ok_or_else(|| errors::unauthorized("Authentication required"))?;
     let mut conn = db_conn(pool)?;
+    // Pin the request's workspace so the membership lookup below is
+    // RLS-scoped to the workspace the caller is acting in, not collapsed
+    // onto the bootstrap workspace.
+    pin_request_workspace(req, &mut conn);
     // Admin tier = platform admin, or workspace admin/owner in the
-    // bootstrap workspace (the claims carry only the platform role, so
+    // request's workspace (the claims carry only the platform role, so
     // the workspace half is looked up). Mirrors the old derived-admin
     // gate now that the legacy UserRole projection is gone.
     let is_admin = crate::utils::rbac::is_platform_admin(&claims)
         || crate::utils::parse_uuid(&claims.sub)
             .ok()
-            .and_then(|uuid| {
-                crate::repository::user_helpers::bootstrap_workspace_role(&mut conn, uuid)
-            })
+            .and_then(|uuid| crate::repository::user_helpers::workspace_role(&mut conn, uuid))
             .is_some_and(|r| r.meets(crate::models::WorkspaceRole::Admin));
     if !is_admin {
         return Err(errors::forbidden("Admin required"));

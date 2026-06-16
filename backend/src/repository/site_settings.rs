@@ -13,6 +13,7 @@ use uuid::Uuid;
 /// workspace-scoped (`app.workspace_id` set, via `TenantConn` /
 /// `with_actor_context`) — that GUC both scopes the read and fills the
 /// `workspace_id` default on insert. Every settings access path is scoped.
+// sync-audit-only: Workspace settings; covered by the audit_log trigger on site_settings, sync clients don't subscribe
 pub(crate) fn ensure_row(conn: &mut DbConnection) -> QueryResult<()> {
     diesel::sql_query(
         "INSERT INTO site_settings DEFAULT VALUES ON CONFLICT (workspace_id) DO NOTHING",

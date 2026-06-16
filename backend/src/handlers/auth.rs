@@ -184,6 +184,10 @@ fn establish_login_session(
 ) -> Result<(crate::models::LoginResponse, jwt_helpers::LoginTokens), HttpResponse> {
     let user_uuid = user.uuid;
 
+    // Pin the request's workspace so the login response's workspace_role
+    // resolves under RLS (workspace_members is workspace-isolated).
+    helpers::pin_request_workspace(request, conn);
+
     let session = match create_session_record(&user_uuid, request, conn) {
         Ok(s) => s,
         Err(e) => {
@@ -221,6 +225,10 @@ fn complete_mfa_login(
     conn: &mut DbConnection,
 ) -> HttpResponse {
     let user_uuid = user.uuid;
+
+    // Pin the request's workspace so the login response's workspace_role
+    // resolves under RLS (workspace_members is workspace-isolated).
+    helpers::pin_request_workspace(request, conn);
 
     let session = match create_session_record(&user_uuid, request, conn) {
         Ok(s) => s,
@@ -362,6 +370,12 @@ pub async fn login(
         Ok(c) => c,
         Err(e) => return e,
     };
+    // Pin the request's workspace up front so every role-dependent check on
+    // this connection (the MFA policy gate below, the login response builder)
+    // resolves the caller's role under RLS. In production the pool clears
+    // app.workspace_id on checkout, so without this the role reads as None
+    // and the MFA policy would not see an admin as elevated.
+    helpers::pin_request_workspace(&request, &mut conn);
 
     // AUD-007: lookup + bcrypt verify happen as one equal-work
     // call. Missing users, SSO-only users, and wrong passwords
@@ -850,6 +864,11 @@ pub async fn get_current_user(
         Err(_) => return errors::bad_request("Invalid user UUID"),
     };
 
+    // Pin the request's workspace so the user's workspace_role resolves
+    // under RLS (workspace_members is workspace-isolated). Without this the
+    // /me response carries a null workspace_role in hosted multi-tenant mode.
+    helpers::pin_request_workspace(&req, &mut conn);
+
     // Get user from database using claims
     let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
         Ok(user) => user,
@@ -1106,6 +1125,19 @@ pub async fn setup_initial_admin(
     // Default ticket categories are seeded inside create_initial_admin's
     // transaction (so they inherit the bootstrap actor context); nothing
     // to do here.
+
+    // Pin the bootstrap workspace so the response's workspace_role resolves
+    // under RLS. create_initial_admin set the membership inside its own
+    // transaction, which reset the connection GUC on commit; this is always
+    // the bootstrap workspace (the only one that exists at setup time).
+    {
+        use diesel::prelude::*;
+        let _ = diesel::sql_query("SELECT set_config('app.workspace_id', $1, false) AS set_config")
+            .bind::<diesel::sql_types::Text, _>(
+                crate::sync::actor::BOOTSTRAP_WORKSPACE_ID.to_string(),
+            )
+            .execute(&mut conn);
+    }
 
     let response = crate::models::AdminSetupResponse {
         success: true,
@@ -1569,6 +1601,10 @@ pub async fn mfa_setup_login(
         Err(e) => return e,
     };
 
+    // Pin the request's workspace so the MFA policy gate resolves the
+    // caller's role under RLS (the pool clears app.workspace_id on checkout).
+    helpers::pin_request_workspace(&http_request, &mut conn);
+
     let user = match crate::utils::login_timing::verify_credentials(
         &mut conn,
         &email_lower,
@@ -1686,6 +1722,9 @@ pub async fn mfa_enable_login(
         Ok(c) => c,
         Err(e) => return e,
     };
+    // Pin the request's workspace so the MFA policy gate resolves the
+    // caller's role under RLS (the pool clears app.workspace_id on checkout).
+    helpers::pin_request_workspace(&http_request, &mut conn);
 
     let user = match crate::utils::login_timing::verify_credentials(
         &mut conn,
@@ -1823,7 +1862,10 @@ pub async fn mfa_enable_login(
             // column is now the authoritative copy).
             mfa::consume_setup_secret(&user_uuid).await;
 
-            // Create session + tokens (same as login, but attach backup codes)
+            // Create session + tokens (same as login, but attach backup codes).
+            // Pin the workspace so the response's workspace_role resolves
+            // under RLS (workspace_members is workspace-isolated).
+            helpers::pin_request_workspace(&http_request, &mut conn);
             let session = match create_session_record(&user_uuid, &http_request, &mut conn) {
                 Ok(s) => s,
                 Err(e) => {
