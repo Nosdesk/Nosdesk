@@ -14,7 +14,7 @@ use serde_json::json;
 use tracing::error;
 use uuid::Uuid;
 
-use crate::extractors::AuthContext;
+use crate::extractors::{AuthContext, WorkspaceContext};
 use crate::handlers::errors;
 use crate::handlers::helpers;
 use crate::repository::dashboard_stats::{self, StatsGroup};
@@ -58,6 +58,7 @@ pub async fn get_stats(
     pool: web::Data<crate::db::Pool>,
     query: web::Query<StatsQuery>,
     auth: AuthContext,
+    ws: WorkspaceContext,
 ) -> impl Responder {
     let target_user = query.user.unwrap_or(auth.user_uuid);
 
@@ -81,6 +82,10 @@ pub async fn get_stats(
         Ok(c) => c,
         Err(e) => return e,
     };
+    // Pin the resolved workspace so the stats queries (tickets and related
+    // RLS-isolated tables) are visible; the pool clears app.workspace_id on
+    // checkout, so an unpinned conn computes empty stats in hosted mode.
+    helpers::pin_workspace(&mut conn, ws.workspace_id);
 
     match dashboard_stats::compute(&mut conn, &target_user, &groups) {
         Ok(bundle) => HttpResponse::Ok().json(bundle),

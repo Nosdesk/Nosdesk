@@ -79,12 +79,10 @@ pub async fn emit_plugin_event(
         Err(e) => return e,
     };
 
-    // Plugin must exist before we accept its events. This read
-    // happens before we set the workspace GUC; once RLS on `plugins`
-    // is the only access layer, the read will be implicitly scoped
-    // by the surrounding tx-level GUC (set by the workspace
-    // middleware on the outer connection). For now, the runtime DSN
-    // still bypasses RLS so the lookup is unscoped here.
+    // Plugin must exist before we accept its events. `plugins` is
+    // RLS-isolated; the read is scoped because `auth_conn` above pinned
+    // the request's workspace on this connection (the runtime role is
+    // NOBYPASSRLS, so an unpinned read would 404 every plugin).
     let plugin = match plugin_repo::get_plugin_by_uuid(&mut conn, plugin_uuid) {
         Ok(p) => p,
         Err(diesel::result::Error::NotFound) => {
@@ -96,15 +94,10 @@ pub async fn emit_plugin_event(
         }
     };
 
-    // Pull the workspace pin from RequestContext (populated by the
-    // auth middleware via WorkspaceContext). Without it the inner
-    // emit::record write would land in `sync_actions` with no
-    // `app.workspace_id` GUC set, and once Phase 3a-style RLS
-    // covers sync_actions any cross-tenant inference would fail.
-    // The actor here is `Plugin`-kind (not `User`), so we can't
-    // delegate to `TenantConn` which would build a User actor;
-    // instead we copy the workspace_id off the RequestContext's
-    // actor and pair it with the plugin actor.
+    // The actor here is `Plugin`-kind (not `User`), so we can't delegate to
+    // `TenantConn` which would build a User actor; instead we copy the
+    // workspace_id off the RequestContext's actor and pair it with the
+    // plugin actor for the emit below.
     let workspace_id = req
         .extensions()
         .get::<RequestContext>()

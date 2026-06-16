@@ -1339,6 +1339,16 @@ pub async fn run_scheduled_delta_sync(pool: &crate::db::Pool) -> anyhow::Result<
 
     let mut conn = pool.get().map_err(|e| anyhow::anyhow!("db pool: {e}"))?;
 
+    // perform_sync writes sync_history (RLS) plus users/groups/devices across
+    // many async Graph fetches, same shape as the interactive path. MS Graph
+    // is configured by instance env vars, so it targets the bootstrap
+    // workspace. Elevate + pin for the run's lifetime and reset before the
+    // conn returns to the pool. Without this the RLS writes silently fail.
+    let actor = crate::sync::actor::ActorContext::system("scheduler:msgraph_delta_sync")
+        .with_workspace(crate::sync::actor::BOOTSTRAP_WORKSPACE_ID);
+    crate::sync::session::elevate_session_role(&mut conn, &actor)
+        .map_err(|e| anyhow::anyhow!("session elevation failed: {e}"))?;
+
     let entities = vec![
         "users".to_string(),
         "devices".to_string(),
@@ -1369,7 +1379,11 @@ pub async fn run_scheduled_delta_sync(pool: &crate::db::Pool) -> anyhow::Result<
     // unreachable, internal sync-machinery bug) return Err. Those
     // are real operator-attention events the scheduler's status
     // registry should reflect as a failed run.
-    match perform_sync(&mut conn, provider.id, &entities, &session_id, true).await {
+    let outcome = perform_sync(&mut conn, provider.id, &entities, &session_id, true).await;
+    // Reset the session elevation before the conn drops back into the pool,
+    // so the bypass + workspace pin can't leak across checkouts.
+    crate::sync::session::reset_session_role(&mut conn);
+    match outcome {
         Ok(result) => {
             if result.total_errors > 0 {
                 tracing::warn!(

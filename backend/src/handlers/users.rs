@@ -945,6 +945,11 @@ pub async fn delete_user(
         Ok(c) => c,
         Err(e) => return e,
     };
+    // Pin the request's workspace so the admin-protection guard below
+    // (`user_is_admin` reads RLS-isolated workspace_members) resolves the
+    // target's role. On an unpinned conn the role reads as None and the guard
+    // fails OPEN, letting an admin account be deleted.
+    helpers::pin_request_workspace(&req, &mut conn);
 
     let (claims, user_uuid_parsed, target_user) =
         match require_admin_target(&req, &mut conn, uuid.as_str()) {
@@ -1064,6 +1069,10 @@ pub async fn purge_user_now(
         Ok(c) => c,
         Err(e) => return e,
     };
+    // Pin the request's workspace so the admin-protection guard below
+    // (`user_is_admin` reads RLS-isolated workspace_members) resolves the
+    // target's role; otherwise it reads None and the guard fails OPEN.
+    helpers::pin_request_workspace(&req, &mut conn);
 
     let (claims, user_uuid_parsed, target) =
         match require_admin_target(&req, &mut conn, uuid.as_str()) {
@@ -2402,6 +2411,10 @@ pub async fn resend_invitation(
         Ok(c) => c,
         Err(e) => return e,
     };
+    // Pin the request's workspace so the branding read and invitation-email
+    // enqueue (both RLS-isolated) are scoped; the pool clears app.workspace_id
+    // on checkout, so an unpinned enqueue fails the NOT NULL workspace default.
+    helpers::pin_request_workspace(&req, &mut conn);
 
     // Extract claims from cookie auth middleware
     let claims = match req.extensions().get::<crate::models::Claims>() {

@@ -63,18 +63,14 @@ pub async fn request_password_reset(
 
 /// The actual work, off the response path.
 ///
-/// All the tables this function touches (`users`, `reset_tokens`,
-/// `user_emails`) are global, not RLS-protected — verified via
-/// `pg_class.relrowsecurity = false` for each. No workspace pin
-/// is needed. The 3i.3 marker that previously flagged this for
-/// task #565 was overcautious: the post-3h.4 `SET LOCAL ROLE
-/// nosdesk_app` baseline only matters when the called repo
-/// functions hit RLS-enabled tables, and none of these do.
-///
-/// If the data model changes to make any of those tables workspace-
-/// scoped (e.g. reset_tokens gains a workspace_id), revisit and
-/// wrap each repo call in background_run with the cross-tenant
-/// email → workspace resolution pinned via an actor.
+/// The identity tables this touches (`users`, `reset_tokens`,
+/// `user_emails`, `user_preferences`) are global, not RLS-protected, so
+/// the cross-tenant email lookup and token issue run on a plain pooled
+/// connection. The two RLS-isolated reads/writes (the `site_settings`
+/// branding read and the `outbound_emails` enqueue) run pinned to the
+/// recipient's workspace via `background_run_in_workspace`: the pool
+/// clears `app.workspace_id` on checkout, so an unpinned enqueue would
+/// fail the NOT NULL workspace default and no reset email would send.
 async fn issue_password_reset(
     pool: web::Data<crate::db::Pool>,
     email: String,
@@ -142,23 +138,52 @@ async fn issue_password_reset(
         }
     };
 
-    let branding = get_email_branding(&mut conn, &base_url);
-    // Enqueue rather than fire-and-forget. The outbound worker
-    // retries with backoff if SMTP burps, applies the suppression
-    // list, and respects the circuit breaker. The idempotency key
-    // is derived from a hash of the raw reset token so a network
-    // blip between this handler and the DB doesn't deliver two
-    // copies of the same reset link.
-    let locale = crate::repository::user_locale::resolve_effective_locale(&mut conn, user.uuid);
-    match crate::services::transactional_email::enqueue_password_reset(
-        &mut conn,
-        &email_service,
-        &branding,
-        &user_email,
-        &user.name,
-        &reset_token.raw_token,
-        &locale,
+    // Resolve the recipient's workspace so the RLS-isolated branding read and
+    // outbound enqueue are scoped correctly. The lookup reads workspace_members
+    // (RLS-isolated) and is inherently cross-tenant here (we only have the
+    // email, no request workspace), so it runs elevated. A user with no
+    // membership gets no email rather than a NULL-workspace insert failure.
+    let workspace_id = match crate::sync::session::background_run(
+        &pool,
+        "background:password_reset",
+        |c| repository::workspaces::primary_workspace_for_user(c, user.uuid),
     ) {
+        Ok(id) => id,
+        Err(e) => {
+            warn!(user_uuid = %user.uuid, error = %e, "no workspace for password-reset recipient");
+            return Ok(());
+        }
+    };
+
+    // Enqueue rather than fire-and-forget. The outbound worker retries with
+    // backoff if SMTP burps, applies the suppression list, and respects the
+    // circuit breaker. The idempotency key is derived from a hash of the raw
+    // reset token so a network blip between this handler and the DB doesn't
+    // deliver two copies of the same reset link.
+    //
+    // The branding read (site_settings) and the enqueue (outbound_emails) are
+    // workspace-isolated, so they run pinned + elevated via
+    // background_run_in_workspace, the standard path for tenant-table
+    // background writes.
+    let enqueue = crate::sync::session::background_run_in_workspace(
+        &pool,
+        "background:password_reset",
+        workspace_id,
+        |conn| {
+            let branding = get_email_branding(conn, &base_url);
+            let locale = crate::repository::user_locale::resolve_effective_locale(conn, user.uuid);
+            crate::services::transactional_email::enqueue_password_reset(
+                conn,
+                &email_service,
+                &branding,
+                &user_email,
+                &user.name,
+                &reset_token.raw_token,
+                &locale,
+            )
+        },
+    );
+    match enqueue {
         Ok(row) => info!(
             queue_id = row.id,
             user_uuid = %user.uuid,

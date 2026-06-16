@@ -92,6 +92,14 @@ pub async fn push(
         Ok(c) => c,
         Err(e) => return e,
     };
+    // Pin the request's workspace so the per-transaction idempotency
+    // short-circuit (`lookup_existing` reads the RLS-isolated sync_actions)
+    // is visible; the per-write actor context below re-pins it transactionally.
+    // Without this the fast-path never fires and a client retry collides with
+    // the unique index instead of being recognised as already applied.
+    if let Some(ws) = workspace_id {
+        helpers::pin_workspace(&mut conn, ws);
+    }
 
     let mut applied: Vec<String> = Vec::with_capacity(body.len());
     let mut rejected: Vec<RejectedTx> = Vec::new();

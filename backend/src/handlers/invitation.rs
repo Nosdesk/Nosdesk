@@ -234,14 +234,17 @@ pub async fn accept_invitation(
         }
     }
 
-    // Pre-session (token-verified) flow: resolve the audit workspace
-    // once from the user's primary membership, then thread it through
-    // the audited writes below (users.password_changed_at and the
-    // ticket release). Fail loud if the user has no membership —
-    // silently attributing to workspace 1 mis-routes the audit row
-    // under hosted multi-tenancy.
+    // Pre-session (token-verified) flow: resolve the audit workspace once
+    // from the user's primary membership, then thread it through the audited
+    // writes below (users.password_changed_at and the ticket release). The
+    // lookup reads workspace_members (RLS-isolated) and is cross-tenant here
+    // (token-verified, no request workspace pinned), so it runs elevated;
+    // otherwise the runtime role reads no membership and the accept 500s.
+    // Fail loud if the user genuinely has no membership.
     let workspace_id =
-        match crate::repository::workspaces::primary_workspace_for_user(&mut conn, user.uuid) {
+        match crate::sync::session::background_run(&db_pool, "background:invitation_accept", |c| {
+            crate::repository::workspaces::primary_workspace_for_user(c, user.uuid)
+        }) {
             Ok(ws) => ws,
             Err(e) => {
                 error!(
