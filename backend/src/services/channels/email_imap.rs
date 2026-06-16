@@ -354,8 +354,22 @@ async fn open_session(
         ));
     }
 
-    let addr = (config.host.as_str(), config.port);
-    let tcp = timed("tcp connect", TcpStream::connect(addr)).await?;
+    // Resolve and SSRF-vet the admin-supplied host before dialing, then
+    // connect to a validated address (not the hostname) so a rebinding
+    // DNS record can't slip an internal IP between the check and the
+    // connect. An allowlisted host (NOSDESK_OUTBOUND_ALLOWED_HOSTS) skips
+    // the routability filter for same-VPC self-host relays. The hostname
+    // is still used for the TLS handshake below, so certificate
+    // verification is unaffected.
+    let addrs = crate::utils::egress::resolve_and_validate(&config.host, config.port)
+        .await
+        .map_err(|e| match e {
+            crate::utils::egress::EgressError::DnsLookup { .. } => {
+                ChannelError::Transient(format!("imap host: {e}"))
+            }
+            _ => ChannelError::Configuration(format!("imap host rejected: {e}")),
+        })?;
+    let tcp = timed("tcp connect", TcpStream::connect(&*addrs)).await?;
 
     // Skipping TLS verification is a development-only affordance (local
     // Greenmail / self-signed test servers). Honour it ONLY outside

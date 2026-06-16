@@ -76,6 +76,23 @@ use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 fn greenmail_host() -> String {
     std::env::var("GREENMAIL_HOST").unwrap_or_else(|_| "greenmail".into())
 }
+
+/// Greenmail runs on loopback (`127.0.0.1`) or a private compose address
+/// (`greenmail`), both of which the IMAP egress guard rejects by default.
+/// Opt the test host into the outbound allowlist, exactly as a self-hoster
+/// reaching an internal mail server would. Every connecting test uses the
+/// same host value, so setting this process-global var from each is safe.
+fn allow_greenmail_egress() {
+    std::env::set_var("NOSDESK_OUTBOUND_ALLOWED_HOSTS", greenmail_host());
+}
+
+/// Both live tests share one Greenmail mailbox (`support@example.com`) and
+/// one test database, and each starts by purging all mail. Run
+/// concurrently under cargo's default thread pool, one test's fixture
+/// leaks into the other's poll. Serialize them on this lock so the suite
+/// passes regardless of `--test-threads`. A `tokio::sync::Mutex` is held
+/// safely across the `.await`s in each test body.
+static MAILBOX_SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 const IMAP_PORT: u16 = 3993;
 const SMTP_PORT: u16 = 3025;
 const API_PORT: u16 = 8080;
@@ -299,10 +316,12 @@ fn find_our_message<'a>(
 #[tokio::test]
 #[ignore = "requires Greenmail on 127.0.0.1:3993/3025 — see file header"]
 async fn poll_fetches_pending_email_and_advances_uid() {
+    let _serial = MAILBOX_SERIAL.lock().await;
     if !greenmail_reachable() {
         let host = greenmail_host();
         panic!("Greenmail not reachable on {host}:{SMTP_PORT} — start via --profile email-testing");
     }
+    allow_greenmail_egress();
     purge_greenmail().await;
 
     let pool = build_pool();
@@ -396,10 +415,12 @@ fn greenmail_email_service() -> Arc<EmailService> {
 #[tokio::test]
 #[ignore = "requires Greenmail on 127.0.0.1:3993/3025 — see file header"]
 async fn full_cycle_inbound_internal_outbound() {
+    let _serial = MAILBOX_SERIAL.lock().await;
     if !greenmail_reachable() {
         let host = greenmail_host();
         panic!("Greenmail not reachable on {host}:{SMTP_PORT} — start via --profile email-testing");
     }
+    allow_greenmail_egress();
     purge_greenmail().await;
 
     let pool = build_pool();

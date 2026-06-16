@@ -1173,7 +1173,7 @@ dependencies = [
 
 [[package]]
 name = "backend"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "actix-cors",
  "actix-files",
