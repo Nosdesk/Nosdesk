@@ -33,6 +33,7 @@ use std::sync::Arc;
 
 use actix_web::web;
 use diesel::Connection;
+use diesel::OptionalExtension;
 use serde_json::json;
 use tracing::{debug, info, warn};
 
@@ -374,9 +375,18 @@ pub async fn process_event(
             };
         let sender_uuid = sender.uuid;
 
-        let (ticket, comment, is_new_ticket) = match existing_ticket_id {
-            Some(ticket_id) => {
-                let ticket = tickets_repo::get_ticket_by_id(conn, ticket_id)?;
+        // existing_ticket_id may point at a ticket that no longer exists, was
+        // resolved by a loose subject "#N" match, or lives in another workspace
+        // (RLS-hidden under the channel's pin). Treat a missing or invisible
+        // ticket as "start a new one" rather than erroring, which would drop
+        // the inbound message after the IMAP cursor already advanced.
+        let resolved_existing = match existing_ticket_id {
+            Some(ticket_id) => tickets_repo::get_ticket_by_id(conn, ticket_id).optional()?,
+            None => None,
+        };
+
+        let (ticket, comment, is_new_ticket) = match resolved_existing {
+            Some(ticket) => {
                 let comment = insert_inbound_comment(
                     conn,
                     ticket.id,
