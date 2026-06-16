@@ -89,17 +89,27 @@ restart-frontend: ## Restart the frontend-watch container
 
 # Run pending diesel migrations against the dev DB. Schema regen
 # happens via `make schema` (separate step because it touches a
-# tracked file).
+# tracked file). The CLI runs as the privileged MIGRATION_DATABASE_URL
+# role since the dev backend now connects as the unprivileged
+# nosdesk_app; falls back to DATABASE_URL where the split isn't set.
 migrate: ## Run pending diesel migrations
-	$(COMPOSE) exec nosdesk diesel migration run
+	$(COMPOSE) exec nosdesk sh -c 'DATABASE_URL="$${MIGRATION_DATABASE_URL:-$$DATABASE_URL}" diesel migration run'
 
 # Regenerate backend/src/schema.rs from the live DB. Run after
 # every successful `make migrate` if the migration touched table
 # structure. RUST_LOG=off prevents stdout pollution corrupting the
-# file.
+# file. Uses the privileged role for full introspection.
 schema: ## Regenerate backend/src/schema.rs from the live DB
-	$(COMPOSE) exec nosdesk sh -c 'RUST_LOG=off diesel print-schema 2>/dev/null' > backend/src/schema.rs
+	$(COMPOSE) exec nosdesk sh -c 'DATABASE_URL="$${MIGRATION_DATABASE_URL:-$$DATABASE_URL}" RUST_LOG=off diesel print-schema 2>/dev/null' > backend/src/schema.rs
 	@echo "Regenerated backend/src/schema.rs"
+
+# (Re)provision the nosdesk_app LOGIN role on an EXISTING dev DB, for the
+# dev/prod parity flip without a full `make clean`. init-db-dev.sh does this
+# automatically on a fresh data dir; this target covers a DB created before
+# the flip. Idempotent.
+dev-app-role: ## Grant the nosdesk_app runtime role LOGIN on an existing dev DB
+	$(COMPOSE) exec postgres sh -c 'psql -v ON_ERROR_STOP=1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -c "ALTER ROLE nosdesk_app LOGIN PASSWORD '"'"'nosdesk_app_dev'"'"';"'
+	@echo "nosdesk_app is now LOGIN-capable; restart the backend (make restart) to pick up the role."
 
 # Backend unit + integration tests. Runs inside the container so
 # libpq is available without a host-side install. `-j 1` keeps the

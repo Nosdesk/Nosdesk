@@ -8,6 +8,12 @@ services:
   postgres:
     ports:
       - "127.0.0.1:54329:5432"
+    # Dev-only: pre-create `nosdesk_app` as a LOGIN role so the dev backend
+    # can connect as the NOBYPASSRLS runtime role like hosted does (the base
+    # init-db.sh and the migration both leave it NOLOGIN). Runs after
+    # 01-init-db.sh on a fresh data dir; `make dev-app-role` covers an existing DB.
+    volumes:
+      - ./init-db-dev.sh:/docker-entrypoint-initdb.d/02-init-db-dev.sh:ro
 
   # Redis — dev override publishes the port on host loopback so
   # `cargo test` can reach it for redis-backed integration tests (the
@@ -138,6 +144,15 @@ services:
       # the CREATE DATABASE + GRANT, and `backend/src/test_helpers.rs`
       # for the hard-fail when this is unset.
       - TEST_DATABASE_URL=postgres://${POSTGRES_USER:-nosdesk}:${POSTGRES_PASSWORD:-nosdesk_password}@postgres:5432/nosdesk_test
+      # Dev/prod parity: run the dev backend as the NOBYPASSRLS `nosdesk_app`
+      # runtime role, exactly like hosted, so RLS is enforced in dev and the
+      # superuser profile stops masking RLS-scoping bugs. Overrides DATABASE_URL
+      # from .env for `make dev`. The login role + password are provisioned by
+      # init-db-dev.sh (dev only); `make dev-app-role` covers an existing DB.
+      # Migrations and the diesel CLI (`make migrate`) run as the superuser via
+      # MIGRATION_DATABASE_URL, which also sidesteps the diesel-table grant gap.
+      - DATABASE_URL=postgres://nosdesk_app:nosdesk_app_dev@postgres:5432/nosdesk
+      - MIGRATION_DATABASE_URL=postgres://${POSTGRES_USER:-nosdesk}:${POSTGRES_PASSWORD:-nosdesk_password}@postgres:5432/nosdesk
       # NOSDESK_ROOT_PUBKEY is loaded from .env via env_file. Do
       # not redeclare it here, since environment: would override the
       # .env value with whatever the host shell has (typically
