@@ -6991,6 +6991,12 @@ pub struct OutboundEmail {
     /// used to correlate delivery/bounce/complaint webhooks back to this
     /// row. NULL for SMTP, where the RFC `message_id` is the only identity.
     pub provider_message_id: Option<String>,
+    /// Which sending identity the worker uses for this row (see
+    /// [`outbound_email_sender_identity`]): `workspace` (the workspace's own
+    /// SMTP identity, falling back to the instance identity) or `platform`
+    /// (the instance identity, for auth mail that must not originate from a
+    /// tenant relay). Decided at enqueue.
+    pub sender_identity: String,
 }
 
 #[derive(Debug, Clone, Insertable)]
@@ -7014,6 +7020,9 @@ pub struct NewOutboundEmail {
     /// `enqueue_idempotent` when this is `Some`; `enqueue` with a
     /// None key for fire-and-forget channel replies.
     pub idempotency_key: Option<String>,
+    /// See [`outbound_email_sender_identity`]: `workspace` for conversation /
+    /// notification mail, `platform` for password reset / invitation.
+    pub sender_identity: String,
 }
 
 /// Status string constants. Centralised so Rust callers (worker, repo,
@@ -7025,6 +7034,16 @@ pub mod outbound_email_status {
     pub const FAILED: &str = "failed";
     pub const DEAD: &str = "dead";
     pub const SUPPRESSED: &str = "suppressed";
+}
+
+/// Sender-identity constants, kept in lockstep with the
+/// `outbound_emails_sender_identity_check` SQL constraint. `WORKSPACE` uses
+/// the workspace's own SMTP identity (falling back to the instance identity
+/// when unconfigured); `PLATFORM` pins the instance identity for auth mail
+/// that must not originate from a tenant relay.
+pub mod outbound_email_sender_identity {
+    pub const WORKSPACE: &str = "workspace";
+    pub const PLATFORM: &str = "platform";
 }
 
 // === Email suppression list ==================================

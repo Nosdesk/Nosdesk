@@ -23,7 +23,7 @@ use diesel::result::Error as DieselError;
 use ring::digest;
 
 use crate::db::DbConnection;
-use crate::models::{NewOutboundEmail, OutboundEmail};
+use crate::models::{outbound_email_sender_identity, NewOutboundEmail, OutboundEmail};
 use crate::repository::outbound_emails;
 use crate::utils::email::{EmailBranding, EmailService};
 
@@ -104,6 +104,8 @@ pub fn prepare_password_reset(
         headers_json,
         correlation_id: None,
         idempotency_key: Some(format!("password_reset:{}", hash16(reset_token))),
+        // Auth mail: pin the instance identity, never a tenant relay.
+        sender_identity: outbound_email_sender_identity::PLATFORM.to_string(),
     }
 }
 
@@ -156,6 +158,8 @@ pub fn prepare_invitation(
         headers_json,
         correlation_id: None,
         idempotency_key: Some(format!("invitation:{}", hash16(invitation_token))),
+        // Auth mail: pin the instance identity, never a tenant relay.
+        sender_identity: outbound_email_sender_identity::PLATFORM.to_string(),
     }
 }
 
@@ -226,6 +230,9 @@ pub fn prepare_notification(
         headers_json,
         correlation_id: None,
         idempotency_key: Some(format!("notify:{event_id}:{recipient_uuid}")),
+        // Notifications send from the workspace identity (fall back to the
+        // instance identity when the workspace hasn't configured one).
+        sender_identity: outbound_email_sender_identity::WORKSPACE.to_string(),
     }
 }
 

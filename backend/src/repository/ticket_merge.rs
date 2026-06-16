@@ -840,6 +840,8 @@ pub fn enqueue_merge_notifications(
                 headers_json: serde_json::json!({}),
                 correlation_id: None,
                 idempotency_key: None,
+                sender_identity: crate::models::outbound_email_sender_identity::WORKSPACE
+                    .to_string(),
             },
         )?;
         enqueued += 1;

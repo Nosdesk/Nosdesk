@@ -954,6 +954,8 @@ diesel::table! {
         workspace_id -> Int4,
         delivered_at -> Nullable<Timestamptz>,
         provider_message_id -> Nullable<Text>,
+        #[max_length = 16]
+        sender_identity -> Varchar,
     }
 }
 

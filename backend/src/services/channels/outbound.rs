@@ -231,6 +231,8 @@ pub fn enqueue_for_comment(
                     // request context propagates through this far.
                     correlation_id: None,
                     idempotency_key: None,
+                    sender_identity: crate::models::outbound_email_sender_identity::WORKSPACE
+                        .to_string(),
                 };
 
                 let row = crate::repository::outbound_emails::enqueue_or_suppress(conn, new_row)
