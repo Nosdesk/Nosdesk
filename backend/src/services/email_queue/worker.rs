@@ -15,13 +15,15 @@
 //! receiving MTAs and customer MUAs deduplicate on Message-ID.
 
 use crate::db::Pool;
-use crate::models::{NewChannelMessage, OutboundEmail};
+use crate::models::{outbound_email_sender_identity, NewChannelMessage, OutboundEmail};
 use crate::repository::channels as channels_repo;
 use crate::repository::outbound_emails as repo;
 use crate::services::email_queue::circuit::{BreakerState, CircuitBreaker};
 use crate::services::email_queue::retry::{classify, next_attempt_at, RetryDecision, MAX_ATTEMPTS};
+use crate::services::outbound_email::OutboundEmailResolver;
 use crate::utils::email::{EmailService, OutboundEmailMessage};
 use anyhow::Result;
+use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::{debug, info, info_span, warn, Instrument};
 
@@ -45,18 +47,23 @@ pub struct WorkerStats {
     pub dead: usize,
     pub suppressed: usize,
     pub circuit_skipped: usize,
+    /// Rows whose sending identity isn't configured yet (no workspace
+    /// identity and no env fallback). Released without burning an attempt,
+    /// so they send once an admin configures one.
+    pub unconfigured: usize,
 }
 
 /// Drive one drain cycle: claim a batch, dispatch each row, terminate
 /// it. Returns stats. Designed to be called in a loop by the listener
 /// (on `pg_notify`) and by the periodic safety-net tick.
 ///
-/// `email` is the shared EmailService used by the existing fire-and-
-/// forget path; passing it in lets us share the SMTP transport and
-/// the breaker state across listener-triggered and periodic invocations.
+/// `resolver` maps each row to the `EmailService` to send it with: the
+/// row's workspace identity (or the env fallback) for conversation /
+/// notification mail, the instance identity for auth mail. The breaker
+/// state is shared across listener-triggered and periodic invocations.
 pub async fn run_one_drain(
     pool: Pool,
-    email: Arc<EmailService>,
+    resolver: Arc<OutboundEmailResolver>,
     breaker: Arc<CircuitBreaker>,
 ) -> Result<WorkerStats> {
     let mut stats = WorkerStats::default();
@@ -83,6 +90,32 @@ pub async fn run_one_drain(
         return Ok(stats);
     }
 
+    // Resolve a sending identity for the drain before the send loop.
+    // Workspace-identity rows resolve their workspace's own SMTP (or the env
+    // fallback); platform rows use the instance identity. Read every
+    // workspace identity for this batch in one checkout rather than one per
+    // row. A resolve failure defers the workspace mail (empty map → the
+    // rows take the `Unconfigured` branch) instead of erroring the drain.
+    let workspace_ids: Vec<i32> = claimed
+        .iter()
+        .filter(|r| r.sender_identity != outbound_email_sender_identity::PLATFORM)
+        .map(|r| r.workspace_id)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    let ws_services = if workspace_ids.is_empty() {
+        std::collections::HashMap::new()
+    } else {
+        crate::sync::session::background_run(&pool, "background:email_queue_resolve", |conn| {
+            resolver.resolve_batch(conn, &workspace_ids)
+        })
+        .unwrap_or_else(|e| {
+            warn!(error = %e, "email_queue: resolving workspace identities failed; deferring this drain's workspace mail");
+            std::collections::HashMap::new()
+        })
+    };
+    let platform = resolver.platform();
+
     for row in claimed {
         let span = info_span!(
             "email_queue.send",
@@ -96,8 +129,15 @@ pub async fn run_one_drain(
             correlation_id = row.correlation_id.map(|id| id.to_string()).unwrap_or_default(),
         );
         let pool = pool.clone();
-        let email = email.clone();
         let breaker = breaker.clone();
+        // The identity to send this row with: the instance identity for
+        // auth mail, otherwise the workspace's resolved service. `None`
+        // means nothing is configured to send it yet.
+        let service = if row.sender_identity == outbound_email_sender_identity::PLATFORM {
+            platform.clone()
+        } else {
+            ws_services.get(&row.workspace_id).cloned()
+        };
         async move {
             // Pre-send: skip recipients already on the suppression list
             // (prior hard bounce or complaint). The list is global (no
@@ -112,7 +152,10 @@ pub async fn run_one_drain(
             let outcome = if suppressed {
                 DispatchOutcome::Suppressed
             } else {
-                dispatch(&row, email, breaker.clone()).await
+                match service {
+                    Some(svc) => dispatch(&row, svc, breaker.clone()).await,
+                    None => DispatchOutcome::Unconfigured,
+                }
             };
             // Terminate (update outbound_emails status, and for channel
             // replies record the outbound channel_messages row) pinned to
@@ -216,6 +259,9 @@ enum DispatchOutcome {
     CircuitSkip,
     /// Recipient is on the suppression list; no SMTP attempt was made.
     Suppressed,
+    /// No sending identity is configured for this row yet (no workspace
+    /// identity and no env fallback). No SMTP attempt was made.
+    Unconfigured,
 }
 
 fn terminate_row(
@@ -364,6 +410,21 @@ fn terminate_row(
             } else {
                 stats.circuit_skipped += 1;
                 debug!(queue_id = row.id, "circuit open, releasing claim");
+            }
+        }
+        DispatchOutcome::Unconfigured => {
+            // No identity to send with yet. Release the claim without
+            // burning an attempt, like CircuitSkip, so the row sends once
+            // an admin configures a workspace identity (or env SMTP).
+            if let Err(e) = repo::release_claim(conn, row.id) {
+                warn!(error = %e, queue_id = row.id, "release_claim failed");
+            } else {
+                stats.unconfigured += 1;
+                debug!(
+                    queue_id = row.id,
+                    sender_identity = %row.sender_identity,
+                    "no sending identity configured, releasing claim"
+                );
             }
         }
     }

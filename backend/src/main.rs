@@ -914,6 +914,14 @@ async fn main() -> std::io::Result<()> {
             }
         };
 
+    // Per-workspace outbound resolver. The env `EmailService` is the
+    // fallback identity, so single-tenant self-host is unchanged; the queue
+    // worker resolves each row's identity (the row's workspace identity, or
+    // the instance identity for auth mail) through this at send time.
+    let outbound_resolver = std::sync::Arc::new(
+        services::outbound_email::OutboundEmailResolver::new(pool.clone(), email_service.clone()),
+    );
+
     // Spawn the outbound email queue listener (Item J Pass 1). Holds a
     // dedicated tokio_postgres LISTEN connection on
     // `outbound_emails_new`; on each NOTIFY, drives the worker to claim
@@ -923,14 +931,13 @@ async fn main() -> std::io::Result<()> {
     // the periodic scheduler below) recovers rows whose worker died
     // mid-send.
     //
-    // Skipped silently when email isn't configured — the worker would
-    // just mark every row failed forever; better not to enqueue at all
-    // (the cutover at services/channels/outbound.rs honours the same
-    // gate).
-    if let (Ok(database_url), Some(email)) = (std::env::var("DATABASE_URL"), email_service.clone())
-    {
-        services::email_queue::spawn(database_url, pool.clone(), email);
-    } else if email_service.is_some() {
+    // Spawned whenever DATABASE_URL is set: the resolver routes each row to
+    // its workspace identity or the env fallback, and a row with no
+    // configured identity is released (not failed), so the worker is safe to
+    // run even before any SMTP identity exists.
+    if let Ok(database_url) = std::env::var("DATABASE_URL") {
+        services::email_queue::spawn(database_url, pool.clone(), outbound_resolver.clone());
+    } else {
         warn!("DATABASE_URL not set; outbound email queue listener not spawned");
     }
 

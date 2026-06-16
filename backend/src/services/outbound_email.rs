@@ -17,7 +17,10 @@
 //!
 //! [`resolve_on_conn`]: OutboundEmailResolver::resolve_on_conn
 
+use std::collections::HashMap;
 use std::sync::Arc;
+
+use diesel::QueryResult;
 
 use crate::db::{DbConnection, Pool};
 use crate::models::WorkspaceEmailSettings;
@@ -87,6 +90,52 @@ impl OutboundEmailResolver {
         self.from_row(row)
     }
 
+    /// Resolve the sending service for each of `workspace_ids` in one read,
+    /// for the queue worker's drain. A workspace with a usable identity maps
+    /// to its own service; one without maps to the fallback (when present).
+    /// A workspace whose stored password won't decrypt is omitted, so its
+    /// mail defers rather than sending from the wrong identity. Workspaces
+    /// with neither a usable identity nor a fallback are omitted too, so the
+    /// caller reads a missing entry as "unconfigured".
+    pub fn resolve_batch(
+        &self,
+        conn: &mut DbConnection,
+        workspace_ids: &[i32],
+    ) -> QueryResult<HashMap<i32, Arc<EmailService>>> {
+        let mut usable: HashMap<i32, WorkspaceEmailSettings> =
+            ws_settings::get_for_workspaces(conn, workspace_ids)?
+                .into_iter()
+                .filter(is_usable)
+                .map(|r| (r.workspace_id, r))
+                .collect();
+
+        let mut out = HashMap::with_capacity(workspace_ids.len());
+        for &ws in workspace_ids {
+            if out.contains_key(&ws) {
+                continue;
+            }
+            let svc = match usable.remove(&ws) {
+                Some(r) => match build_workspace_service(&r) {
+                    Ok(svc) => svc,
+                    Err(e) => {
+                        tracing::warn!(
+                            workspace_id = ws,
+                            error = %e,
+                            "skipping workspace email identity; its mail will defer"
+                        );
+                        continue;
+                    }
+                },
+                None => match &self.fallback {
+                    Some(f) => f.clone(),
+                    None => continue,
+                },
+            };
+            out.insert(ws, svc);
+        }
+        Ok(out)
+    }
+
     /// The env fallback identity, for platform/auth mail (password reset,
     /// invitation) that must not send from a tenant's relay.
     pub fn platform(&self) -> Option<Arc<EmailService>> {
@@ -113,15 +162,20 @@ impl OutboundEmailResolver {
         row: Option<WorkspaceEmailSettings>,
     ) -> Result<Arc<EmailService>, ResolveError> {
         match row {
-            Some(ref r) if is_usable(r) => {
-                let password = ws_settings::decrypt_password(r)
-                    .map_err(ResolveError::Credential)?
-                    .unwrap_or_default();
-                Ok(Arc::new(EmailService::new(build_email_config(r, password))))
-            }
+            Some(ref r) if is_usable(r) => build_workspace_service(r),
             _ => self.fallback.clone().ok_or(ResolveError::NotConfigured),
         }
     }
+}
+
+/// Build the `EmailService` for a usable workspace row: decrypt the password
+/// (empty when none is stored, for an auth-less relay) and assemble the
+/// config. Shared by the single and batch resolution paths.
+fn build_workspace_service(r: &WorkspaceEmailSettings) -> Result<Arc<EmailService>, ResolveError> {
+    let password = ws_settings::decrypt_password(r)
+        .map_err(ResolveError::Credential)?
+        .unwrap_or_default();
+    Ok(Arc::new(EmailService::new(build_email_config(r, password))))
 }
 
 /// A workspace identity is usable only when enabled and pointing at a host.
@@ -287,5 +341,35 @@ mod tests {
         assert_eq!(parse_security("starttls"), SmtpSecurity::StartTls);
         assert_eq!(parse_security("plaintext"), SmtpSecurity::Plaintext);
         assert_eq!(parse_security("nonsense"), SmtpSecurity::StartTls);
+    }
+
+    #[test]
+    fn resolve_batch_maps_workspace_and_fallback() {
+        let mut conn = setup_test_connection();
+        repo::upsert(&mut conn, enabled_fields()).unwrap();
+
+        // RLS scopes the test connection to workspace 1, so 424242 reads as
+        // "no row" and takes the fallback, exactly as an unconfigured
+        // workspace would under the worker's bypass read.
+        let map = resolver_with_fallback()
+            .resolve_batch(&mut conn, &[1, 424242])
+            .unwrap();
+        assert_eq!(
+            map.get(&1).unwrap().config().from_email,
+            "support@acme.test"
+        );
+        assert_eq!(
+            map.get(&424242).unwrap().config().from_email,
+            "platform@fallback.test"
+        );
+    }
+
+    #[test]
+    fn resolve_batch_omits_unconfigured_without_fallback() {
+        let mut conn = setup_test_connection();
+        let map = resolver_no_fallback()
+            .resolve_batch(&mut conn, &[424242])
+            .unwrap();
+        assert!(map.get(&424242).is_none());
     }
 }

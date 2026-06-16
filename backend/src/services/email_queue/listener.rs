@@ -28,7 +28,7 @@ use tracing::{debug, error, info, warn};
 use crate::db::Pool;
 use crate::services::email_queue::circuit::CircuitBreaker;
 use crate::services::email_queue::worker;
-use crate::utils::email::EmailService;
+use crate::services::outbound_email::OutboundEmailResolver;
 
 const RECONNECT_BACKOFF_MS: u64 = 500;
 const RECONNECT_BACKOFF_MAX_MS: u64 = 5_000;
@@ -38,23 +38,23 @@ const SAFETY_NET_TICK: Duration = Duration::from_secs(30);
 /// process. Errors inside the task are logged and the listener
 /// reconnects — there's no recoverable "task failed" state for the
 /// caller to act on.
-pub fn spawn(database_url: String, pool: Pool, email: Arc<EmailService>) {
+pub fn spawn(database_url: String, pool: Pool, resolver: Arc<OutboundEmailResolver>) {
     let breaker = Arc::new(CircuitBreaker::new());
     tokio::spawn(async move {
-        run(database_url, pool, email, breaker).await;
+        run(database_url, pool, resolver, breaker).await;
     });
 }
 
 async fn run(
     database_url: String,
     pool: Pool,
-    email: Arc<EmailService>,
+    resolver: Arc<OutboundEmailResolver>,
     breaker: Arc<CircuitBreaker>,
 ) {
     info!("email queue listener starting");
     let mut backoff_ms = RECONNECT_BACKOFF_MS;
     loop {
-        match listen_loop(&database_url, &pool, &email, &breaker).await {
+        match listen_loop(&database_url, &pool, &resolver, &breaker).await {
             Ok(()) => {
                 warn!("email queue listener exited cleanly; reconnecting");
                 backoff_ms = RECONNECT_BACKOFF_MS;
@@ -75,7 +75,7 @@ async fn run(
 async fn listen_loop(
     database_url: &str,
     pool: &Pool,
-    email: &Arc<EmailService>,
+    resolver: &Arc<OutboundEmailResolver>,
     breaker: &Arc<CircuitBreaker>,
 ) -> Result<(), anyhow::Error> {
     // Same dedicated tokio_postgres connection pattern as sync_outbox.
@@ -113,7 +113,7 @@ async fn listen_loop(
 
     // Catch-up on connect: anything enqueued between our last drain
     // and this LISTEN was missed. Drain now before tailing.
-    drain(pool, email, breaker).await;
+    drain(pool, resolver, breaker).await;
 
     let mut safety_tick = tokio::time::interval(SAFETY_NET_TICK);
     safety_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -125,14 +125,14 @@ async fn listen_loop(
                 if recv.is_none() {
                     break;
                 }
-                drain(pool, email, breaker).await;
+                drain(pool, resolver, breaker).await;
             }
             _ = safety_tick.tick() => {
                 // Belt-and-braces: in case a notification was missed
                 // (reconnect window, channel buffer overflow). Cheap
                 // when the queue is empty — claim_batch returns []
                 // immediately.
-                drain(pool, email, breaker).await;
+                drain(pool, resolver, breaker).await;
             }
         }
     }
@@ -141,19 +141,19 @@ async fn listen_loop(
     Err(anyhow::anyhow!("notification stream closed"))
 }
 
-async fn drain(pool: &Pool, email: &Arc<EmailService>, breaker: &Arc<CircuitBreaker>) {
+async fn drain(pool: &Pool, resolver: &Arc<OutboundEmailResolver>, breaker: &Arc<CircuitBreaker>) {
     // Loop until the worker reports an empty claim — drains a burst
     // (multi-row commit) in one notification rather than waiting for
     // the next tick.
     loop {
-        let stats = match worker::run_one_drain(pool.clone(), email.clone(), breaker.clone()).await
-        {
-            Ok(s) => s,
-            Err(e) => {
-                error!(error = %e, "email queue: drain failed");
-                break;
-            }
-        };
+        let stats =
+            match worker::run_one_drain(pool.clone(), resolver.clone(), breaker.clone()).await {
+                Ok(s) => s,
+                Err(e) => {
+                    error!(error = %e, "email queue: drain failed");
+                    break;
+                }
+            };
         if stats.claimed == 0 {
             break;
         }

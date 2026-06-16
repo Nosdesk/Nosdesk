@@ -56,6 +56,20 @@ pub fn get_for_workspace(
         .optional()
 }
 
+/// Settings for several workspaces in one read. Filters by id rather than
+/// the RLS GUC, so the queue worker (which drains under a bypass connection
+/// across all workspaces) can resolve a whole drain's identities at once.
+pub fn get_for_workspaces(
+    conn: &mut DbConnection,
+    workspace_ids: &[i32],
+) -> QueryResult<Vec<WorkspaceEmailSettings>> {
+    use crate::schema::workspace_email_settings::dsl as w;
+    w::workspace_email_settings
+        .filter(w::workspace_id.eq_any(workspace_ids))
+        .select(WorkspaceEmailSettings::as_select())
+        .load(conn)
+}
+
 // sync-audit-only: Workspace outbound email identity; covered by the audit_log trigger on workspace_email_settings, sync clients don't subscribe.
 /// Insert or update the editable settings for the current workspace. The
 /// password columns are left untouched (managed by `set_password` /
