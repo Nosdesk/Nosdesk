@@ -676,6 +676,7 @@ pub fn build_burnup(conn: &mut DbConnection, cycle: &Cycle) -> QueryResult<serde
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::schema::sync_actions;
     use crate::test_helpers::{setup_test_connection, TestFixtures};
 
     fn make_cycle(project_id: i32, name: &str, state: &str) -> NewCycle {
@@ -831,6 +832,37 @@ mod tests {
             cycle_tickets::table.filter(cycle_tickets::ticket_id.eq_any([t2.id, t3.id])),
         )
         .set(cycle_tickets::added_at.eq(now - chrono::Duration::days(1)))
+        .execute(&mut conn)
+        .unwrap();
+
+        // build_burnup reconstructs membership intervals from the
+        // `cycle_ticket.added` events in sync_actions (occurred_at), NOT from
+        // cycle_tickets.added_at, so the backdate above only bites if it also
+        // lands on the event timestamps. The events are stamped with the DB
+        // clock (~now), which can run slightly AHEAD of the process clock that
+        // build_burnup samples for "now"; backdating them by whole days both
+        // makes the scope ramp real and removes that sub-second skew as a
+        // source of flakiness (a ticket added "now" but recorded one tick in
+        // the future would otherwise drop out of final_scope).
+        diesel::update(
+            sync_actions::table
+                .filter(sync_actions::aggregate.eq(SyncAggregate::CycleTicket))
+                .filter(sync_actions::aggregate_id.eq(format!("{}:{}", cycle.id, t1.id)))
+                .filter(sync_actions::event_type.eq("cycle_ticket.added")),
+        )
+        .set(sync_actions::occurred_at.eq(now - chrono::Duration::days(2)))
+        .execute(&mut conn)
+        .unwrap();
+        diesel::update(
+            sync_actions::table
+                .filter(sync_actions::aggregate.eq(SyncAggregate::CycleTicket))
+                .filter(sync_actions::aggregate_id.eq_any([
+                    format!("{}:{}", cycle.id, t2.id),
+                    format!("{}:{}", cycle.id, t3.id),
+                ]))
+                .filter(sync_actions::event_type.eq("cycle_ticket.added")),
+        )
+        .set(sync_actions::occurred_at.eq(now - chrono::Duration::days(1)))
         .execute(&mut conn)
         .unwrap();
 
