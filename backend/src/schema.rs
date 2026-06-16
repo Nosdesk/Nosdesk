@@ -1822,6 +1822,28 @@ diesel::table! {
 }
 
 diesel::table! {
+    workspace_email_settings (workspace_id) {
+        workspace_id -> Int4,
+        enabled -> Bool,
+        #[max_length = 255]
+        from_name -> Varchar,
+        #[max_length = 320]
+        from_email -> Varchar,
+        #[max_length = 255]
+        smtp_host -> Varchar,
+        smtp_port -> Int4,
+        #[max_length = 16]
+        smtp_security -> Varchar,
+        #[max_length = 255]
+        smtp_username -> Varchar,
+        encrypted_smtp_password -> Nullable<Bytea>,
+        encrypted_kek_id -> Nullable<Int2>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     workspace_members (workspace_id, user_uuid) {
         workspace_id -> Int4,
         user_uuid -> Uuid,
@@ -2070,6 +2092,7 @@ diesel::joinable!(working_calendar_holidays -> working_calendars (calendar_id));
 diesel::joinable!(working_calendar_holidays -> workspaces (workspace_id));
 diesel::joinable!(working_calendars -> users (created_by));
 diesel::joinable!(working_calendars -> workspaces (workspace_id));
+diesel::joinable!(workspace_email_settings -> workspaces (workspace_id));
 diesel::joinable!(workspace_members -> users (user_uuid));
 diesel::joinable!(workspace_members -> workspaces (workspace_id));
 diesel::joinable!(yjs_snapshots -> workspaces (workspace_id));
@@ -2175,6 +2198,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     workflow_states,
     working_calendar_holidays,
     working_calendars,
+    workspace_email_settings,
     workspace_members,
     workspaces,
     yjs_snapshots,

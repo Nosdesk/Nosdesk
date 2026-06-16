@@ -66,6 +66,9 @@ pub mod user_ticket_views;
 // Site configuration
 pub mod site_settings;
 
+// Per-workspace outbound email identity
+pub mod workspace_email_settings;
+
 // Backup and restore
 pub mod backup;
 

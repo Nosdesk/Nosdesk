@@ -6522,6 +6522,47 @@ pub struct NewChannelCredential {
     pub expires_at: Option<NaiveDateTime>,
 }
 
+/// Per-workspace outbound email identity (one row per workspace).
+///
+/// Deliberately NOT `Serialize`: `encrypted_smtp_password` must never reach
+/// a client. The admin handler builds a separate response DTO carrying a
+/// `password_configured` flag instead of the ciphertext. The blob is a
+/// framed AES-256-GCM value (`utils::encryption::Keyring` shape) with
+/// AAD = `workspace_id.to_be_bytes() ‖ b".nosdesk.workspace.email.v1"`,
+/// decrypted by the outbound resolver at send time.
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = crate::schema::workspace_email_settings)]
+pub struct WorkspaceEmailSettings {
+    pub workspace_id: i32,
+    pub enabled: bool,
+    pub from_name: String,
+    pub from_email: String,
+    pub smtp_host: String,
+    pub smtp_port: i32,
+    pub smtp_security: String,
+    pub smtp_username: String,
+    pub encrypted_smtp_password: Option<Vec<u8>>,
+    pub encrypted_kek_id: Option<i16>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+}
+
+/// Editable fields of [`WorkspaceEmailSettings`]. Omits `workspace_id` (the
+/// RLS GUC fills it on insert), the password columns (managed separately by
+/// `repository::workspace_email_settings::set_password`/`clear_password`),
+/// and the timestamps.
+#[derive(Debug, Insertable)]
+#[diesel(table_name = crate::schema::workspace_email_settings)]
+pub struct UpsertWorkspaceEmailSettings {
+    pub enabled: bool,
+    pub from_name: String,
+    pub from_email: String,
+    pub smtp_host: String,
+    pub smtp_port: i32,
+    pub smtp_security: String,
+    pub smtp_username: String,
+}
+
 /// Ledger row — one per inbound or outbound message through a channel.
 /// Used for dedup (unique on `channel_id, external_id, direction`),
 /// thread resolution (lookup by `external_id`), and audit.
