@@ -39,8 +39,8 @@ use crate::repository::channels as channels_repo;
 use crate::services::channels::email_imap::build_email_imap_adapter;
 use crate::services::channels::pipeline::{self, PipelineContext};
 use crate::services::channels::{ChannelError, PullAdapter};
+use crate::services::outbound_email::OutboundEmailResolver;
 use crate::services::search::SearchService;
-use crate::utils::email::EmailService;
 use crate::utils::storage::Storage;
 
 /// Starting backoff after the first transient failure. Doubles each
@@ -71,7 +71,7 @@ const POOL_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(5);
 #[derive(Clone)]
 pub struct RegistryDeps {
     pub pool: Pool,
-    pub email: Option<Arc<EmailService>>,
+    pub resolver: Option<Arc<OutboundEmailResolver>>,
     pub sse: Option<web::Data<SseState>>,
     pub search: Option<Arc<SearchService>>,
     pub storage: Option<Arc<dyn Storage>>,
@@ -85,10 +85,10 @@ impl RegistryDeps {
             sse: self.sse.clone(),
             search: self.search.clone(),
             http: self.http.clone(),
-            // Thread the pool + email through so the pipeline's
-            // auto-ack branch can spawn an SMTP send on newly
-            // opened tickets.
-            email: self.email.clone(),
+            // Thread the pool + resolver through so the pipeline's
+            // auto-ack branch can resolve the ticket's workspace identity
+            // and spawn an SMTP send on newly opened tickets.
+            resolver: self.resolver.clone(),
             pool: Some(self.pool.clone()),
         }
     }
@@ -239,7 +239,16 @@ pub fn build_pull_adapter(
 ) -> Result<Box<dyn PullAdapter>, StartError> {
     match channel.provider.as_str() {
         "email_imap" => {
-            let email = deps.email.clone().ok_or(StartError::MissingEmailService)?;
+            // The poll adapter only sends via its (legacy) send_reply, which
+            // production no longer uses, so the instance/env identity is the
+            // right handle here. The live per-workspace send paths are the
+            // queue worker and the auto-ack, both of which resolve identity
+            // themselves.
+            let email = deps
+                .resolver
+                .as_ref()
+                .and_then(|r| r.platform())
+                .ok_or(StartError::MissingEmailService)?;
             let adapter = build_email_imap_adapter(channel, email, deps.pool.clone())
                 .map_err(StartError::BadConfig)?;
             Ok(Box::new(adapter))
@@ -683,7 +692,7 @@ mod tests {
     fn deps_with_pool(pool: Pool) -> RegistryDeps {
         RegistryDeps {
             pool,
-            email: None,
+            resolver: None,
             sse: None,
             search: None,
             storage: None,

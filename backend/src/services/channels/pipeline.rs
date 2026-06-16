@@ -116,12 +116,13 @@ pub struct PipelineContext {
     pub sse: Option<web::Data<SseState>>,
     pub search: Option<Arc<crate::services::search::SearchService>>,
     pub http: Option<reqwest::Client>,
-    /// SMTP handle used to send the auto-acknowledgement on newly
-    /// opened tickets. `None` disables the auto-ack branch — unit
-    /// tests leave this unset to avoid touching SMTP.
-    pub email: Option<Arc<crate::utils::email::EmailService>>,
+    /// Outbound resolver used to send the auto-acknowledgement on newly
+    /// opened tickets, from the ticket's workspace identity (or the env
+    /// fallback). `None` disables the auto-ack branch — unit tests leave
+    /// this unset to avoid touching SMTP.
+    pub resolver: Option<Arc<crate::services::outbound_email::OutboundEmailResolver>>,
     /// Pool handle for the auto-ack spawn (needs to be cloneable into
-    /// a `'static` task). Paired with `email`: both or neither should
+    /// a `'static` task). Paired with `resolver`: both or neither should
     /// be set.
     pub pool: Option<crate::db::Pool>,
 }
@@ -494,10 +495,10 @@ pub async fn process_event(
     // context — tests typically leave those unset. The spawn is
     // fire-and-forget so an SMTP hiccup never blocks ingestion.
     if is_new_ticket {
-        if let (Some(pool), Some(email)) = (ctx.pool.clone(), ctx.email.clone()) {
+        if let (Some(pool), Some(resolver)) = (ctx.pool.clone(), ctx.resolver.clone()) {
             super::auto_ack::spawn_auto_ack(
                 pool,
-                email,
+                resolver,
                 channel.clone(),
                 ticket.clone(),
                 msg.external_id.clone(),

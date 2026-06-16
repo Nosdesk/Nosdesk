@@ -39,7 +39,8 @@ use crate::repository::{
     channels as channels_repo, site_settings as site_settings_repo, user_helpers,
 };
 use crate::services::channels::threading::{format_outbound_message_id, format_outbound_subject};
-use crate::utils::email::{EmailService, OutboundEmailMessage};
+use crate::services::outbound_email::OutboundEmailResolver;
+use crate::utils::email::OutboundEmailMessage;
 
 /// Built-in fallback template, retained as a compile-time
 /// constant for tests that snapshot the wording. At runtime the
@@ -60,7 +61,7 @@ pub const DEFAULT_TEMPLATE: &str = "Your request (#{{ticket_id}}) has been recei
 /// conversation correctly.
 pub fn spawn_auto_ack(
     pool: Pool,
-    email: Arc<EmailService>,
+    resolver: Arc<OutboundEmailResolver>,
     channel: Channel,
     ticket: Ticket,
     in_reply_to: String,
@@ -69,7 +70,7 @@ pub fn spawn_auto_ack(
     tokio::spawn(async move {
         if let Err(e) = send_auto_ack(
             &pool,
-            &email,
+            &resolver,
             &channel,
             &ticket,
             &in_reply_to,
@@ -89,7 +90,7 @@ pub fn spawn_auto_ack(
 
 async fn send_auto_ack(
     pool: &Pool,
-    email: &EmailService,
+    resolver: &OutboundEmailResolver,
     channel: &Channel,
     ticket: &Ticket,
     in_reply_to: &str,
@@ -192,7 +193,14 @@ async fn send_auto_ack(
         // marks it auto-replied and a customer OOO won't ping-pong with us.
         auto_submitted: Some("auto-replied"),
     };
-    email
+    // Resolve the sending identity for this workspace (its own SMTP, or the
+    // env fallback). Done here, after the enabled / provider guards, so a
+    // disabled auto-ack never resolves and an unconfigured identity surfaces
+    // as a logged send failure rather than silently using the wrong From.
+    let service = resolver
+        .resolve_owned(ticket.workspace_id)
+        .map_err(|e| format!("resolve sender identity: {e}"))?;
+    service
         .send_ticket_reply(outbound)
         .await
         .map_err(|e| format!("smtp: {e}"))?;

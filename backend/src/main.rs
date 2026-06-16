@@ -977,10 +977,10 @@ async fn main() -> std::io::Result<()> {
         web::Data::new(service)
     };
 
-    // Wrap the channels-outbound email handle so handlers can inject it.
-    // `Option` lets the comment handler skip relay when SMTP is disabled
-    // rather than failing the request.
-    let email_service_data = web::Data::new(email_service.clone());
+    // Inject the outbound resolver so the comment handler can gate the
+    // channel relay on whether outbound is configured at all (the worker
+    // resolves the per-workspace identity at send time).
+    let outbound_resolver_data = web::Data::new(outbound_resolver.clone());
 
     // Initialize webhook service for external integrations
     let webhook_service = web::Data::new(services::webhooks::WebhookService::new(pool.clone()));
@@ -1122,7 +1122,7 @@ async fn main() -> std::io::Result<()> {
         use services::channels::supervisor;
         let deps = RegistryDeps {
             pool: pool.clone(),
-            email: email_service.clone(),
+            resolver: Some(outbound_resolver.clone()),
             sse: Some(sse_state.clone()),
             search: Some(search_service.get_ref().clone()),
             storage: Some(storage.clone()),
@@ -1471,7 +1471,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(system_state.clone())
             .app_data(storage_data.clone())
             .app_data(notification_service.clone())
-            .app_data(email_service_data.clone())
+            .app_data(outbound_resolver_data.clone())
             .app_data(channel_control_data.clone())
             .app_data(scheduler_status_data.clone())
             .app_data(webhook_service.clone())

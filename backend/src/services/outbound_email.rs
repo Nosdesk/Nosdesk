@@ -142,17 +142,15 @@ impl OutboundEmailResolver {
         self.fallback.clone()
     }
 
-    /// Whether any outbound identity exists for `workspace_id`: an enabled
-    /// workspace identity, or the env fallback. A cheap gate for the comment
-    /// enqueue path, which should not queue mail that can never be sent.
-    pub fn any_configured(&self, conn: &mut DbConnection, workspace_id: i32) -> bool {
-        if self.fallback.is_some() {
-            return true;
-        }
-        matches!(
-            ws_settings::get_for_workspace(conn, workspace_id),
-            Ok(Some(ref r)) if is_usable(r)
-        )
+    /// Whether an env fallback identity exists. The comment-relay enqueue
+    /// gate uses this (conn-free, so it doesn't amplify the hot comment-
+    /// create path): a channel that produces comments already requires the
+    /// instance identity to poll inbound, so the fallback's presence is the
+    /// baseline "outbound is possible" signal. Per-workspace identities
+    /// override the From at send time; they don't change whether a row
+    /// should be queued, and the worker defers a row it can't resolve.
+    pub fn has_fallback(&self) -> bool {
+        self.fallback.is_some()
     }
 
     /// A usable workspace row builds a workspace service; otherwise the
@@ -322,17 +320,9 @@ mod tests {
     }
 
     #[test]
-    fn any_configured_reflects_settings_and_fallback() {
-        let mut conn = setup_test_connection();
-
-        // No settings, no fallback: nothing to send with.
-        assert!(!resolver_no_fallback().any_configured(&mut conn, 1));
-        // No settings, but a fallback exists.
-        assert!(resolver_with_fallback().any_configured(&mut conn, 1));
-
-        // Enabled workspace identity counts even without a fallback.
-        repo::upsert(&mut conn, enabled_fields()).unwrap();
-        assert!(resolver_no_fallback().any_configured(&mut conn, 1));
+    fn has_fallback_reflects_env_service() {
+        assert!(resolver_with_fallback().has_fallback());
+        assert!(!resolver_no_fallback().has_fallback());
     }
 
     #[test]

@@ -205,7 +205,7 @@ mod tests {
     fn bare_deps(pool: crate::db::Pool) -> RegistryDeps {
         RegistryDeps {
             pool,
-            email: None,
+            resolver: None,
             sse: None,
             search: None,
             storage: None,

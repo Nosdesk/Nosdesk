@@ -559,7 +559,7 @@ mod tests {
         use crate::services::channels::supervisor;
         let deps = RegistryDeps {
             pool: pool.clone(),
-            email: None,
+            resolver: None,
             sse: None,
             search: None,
             storage: None,

@@ -247,7 +247,7 @@ pub async fn add_comment_to_ticket(
     storage: crate::extractors::ScopedStorage,
     notification_service: web::Data<NotificationService>,
     search_service: web::Data<Arc<SearchService>>,
-    email_service: web::Data<Option<Arc<crate::utils::email::EmailService>>>,
+    outbound_resolver: web::Data<Arc<crate::services::outbound_email::OutboundEmailResolver>>,
     req: actix_web::HttpRequest,
 ) -> impl Responder {
     let ticket_id = access.ticket_id;
@@ -598,17 +598,18 @@ pub async fn add_comment_to_ticket(
             // the worker (services::email_queue::worker) handles SMTP
             // dispatch with retry, idempotency, and crash recovery.
             //
-            // Skipped silently when SMTP isn't configured — the worker
-            // would just mark every row failed forever. Same gate as
-            // the listener spawn in main.rs.
-            if let (Some(ticket_info), Some(_email_svc)) =
-                (ticket.as_ref(), email_service.get_ref().as_ref())
-            {
-                crate::services::channels::outbound::enqueue_for_comment(
-                    ticket_info.clone(),
-                    comment.clone(),
-                    pool.get_ref().clone(),
-                );
+            // Skipped when no outbound identity is configured at all (no env
+            // fallback). The worker resolves the per-workspace identity at
+            // send time and defers a row it can't resolve, so this gate only
+            // avoids queueing in a deployment with no baseline SMTP.
+            if let Some(ticket_info) = ticket.as_ref() {
+                if outbound_resolver.has_fallback() {
+                    crate::services::channels::outbound::enqueue_for_comment(
+                        ticket_info.clone(),
+                        comment.clone(),
+                        pool.get_ref().clone(),
+                    );
+                }
             }
 
             // Search index update is fired by the CommentCreatedObserver
