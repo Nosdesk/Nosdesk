@@ -95,27 +95,34 @@ async fn send_auto_ack(
     in_reply_to: &str,
     inbound_locale: Option<&str>,
 ) -> Result<(), String> {
-    // Load site_settings (RLS) + recipient lookup in one bypass
-    // txn. The auto-ack runs from the channel pipeline which has
-    // no request-bound workspace pin.
+    // Load site_settings (RLS) + recipient lookup, pinned to the ticket's
+    // workspace. The auto-ack runs from a detached spawn with no request
+    // context, so it must establish the workspace itself; run_in_workspace
+    // (non-bypass) both scopes the RLS-isolated site_settings read to THIS
+    // workspace and sets the GUC the later record write needs.
     let (settings, recipient_email, customer_name) = {
         let requester_uuid = ticket
             .requester_uuid
             .ok_or_else(|| "ticket has no requester".to_string())?;
-        crate::sync::session::background_run(pool, "background:auto_ack_prep", |conn| {
-            let settings = site_settings_repo::get_site_settings(conn)
-                .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))?;
-            let email =
-                user_helpers::get_primary_email(&requester_uuid, conn).ok_or_else(|| {
-                    diesel::result::Error::QueryBuilderError(
-                        "requester has no primary email".into(),
-                    )
-                })?;
-            let name = crate::repository::users::get_user_by_uuid(&requester_uuid, conn)
-                .map(|u| u.name)
-                .unwrap_or_else(|_| email.clone());
-            Ok::<_, diesel::result::Error>((settings, email, name))
-        })
+        crate::sync::session::run_in_workspace(
+            pool,
+            "background:auto_ack_prep",
+            ticket.workspace_id,
+            |conn| {
+                let settings = site_settings_repo::get_site_settings(conn)
+                    .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))?;
+                let email =
+                    user_helpers::get_primary_email(&requester_uuid, conn).ok_or_else(|| {
+                        diesel::result::Error::QueryBuilderError(
+                            "requester has no primary email".into(),
+                        )
+                    })?;
+                let name = crate::repository::users::get_user_by_uuid(&requester_uuid, conn)
+                    .map(|u| u.name)
+                    .unwrap_or_else(|_| email.clone());
+                Ok::<_, diesel::result::Error>((settings, email, name))
+            },
+        )
         .map_err(|e| format!("auto-ack prep: {e}"))?
     };
 
@@ -191,24 +198,31 @@ async fn send_auto_ack(
         .map_err(|e| format!("smtp: {e}"))?;
 
     // Record the outbound so a customer reply threads back. Comment_id
-    // is NULL by design — auto-ack is system-authored, not a ticket
-    // comment. channel_messages is RLS-enabled; same bypass story.
-    crate::sync::session::background_run(pool, "background:auto_ack_record", |conn| {
-        channels_repo::record_message(
-            conn,
-            NewChannelMessage {
-                channel_id: channel.id,
-                external_id: format!("<{message_id}>"),
-                direction: CHANNEL_DIRECTION_OUTBOUND.to_string(),
-                ticket_id: Some(ticket.id),
-                comment_id: None,
-                in_reply_to: Some(in_reply_to.to_string()),
-                from_address: None,
-                author_user_uuid: None,
-                raw_metadata: Some(serde_json::json!({ "auto_ack": true })),
-            },
-        )
-    })
+    // is NULL by design: auto-ack is system-authored, not a ticket comment.
+    // channel_messages is workspace-isolated and its workspace_id column
+    // defaults from app.workspace_id, so this runs pinned to the ticket's
+    // workspace (run_in_workspace) or the insert writes a NULL workspace_id.
+    crate::sync::session::run_in_workspace(
+        pool,
+        "background:auto_ack_record",
+        ticket.workspace_id,
+        |conn| {
+            channels_repo::record_message(
+                conn,
+                NewChannelMessage {
+                    channel_id: channel.id,
+                    external_id: format!("<{message_id}>"),
+                    direction: CHANNEL_DIRECTION_OUTBOUND.to_string(),
+                    ticket_id: Some(ticket.id),
+                    comment_id: None,
+                    in_reply_to: Some(in_reply_to.to_string()),
+                    from_address: None,
+                    author_user_uuid: None,
+                    raw_metadata: Some(serde_json::json!({ "auto_ack": true })),
+                },
+            )
+        },
+    )
     .map_err(|e| format!("record channel_messages: {e}"))?;
 
     info!(

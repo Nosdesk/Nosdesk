@@ -127,34 +127,6 @@ pub async fn send_and_record(
     Ok(sent)
 }
 
-/// Thin wrapper for the common fire-and-forget case used by the
-/// comment-creation handler. Errors are logged, not propagated, since
-/// a failed outbound relay should not block the user's HTTP response
-/// (the comment is already saved; we'll retry on a future send or the
-/// admin can resend manually).
-pub async fn send_and_record_best_effort(
-    channel: &Channel,
-    thread: ThreadContext,
-    content: OutboundContent,
-    comment_id: i32,
-    email: Arc<EmailService>,
-    pool: crate::db::Pool,
-    conn: &mut DbConnection,
-) {
-    match send_and_record(channel, thread, content, comment_id, email, pool, conn).await {
-        Ok(_) => {}
-        Err(e) => {
-            warn!(
-                channel_id = channel.id,
-                provider = %channel.provider,
-                comment_id,
-                error = %e,
-                "outbound channel dispatch failed — comment saved, no reply sent"
-            );
-        }
-    }
-}
-
 /// Spawn a detached task that composes the outbound reply for a
 /// freshly-created comment and enqueues it on the durable
 /// `outbound_emails` queue (Item J Pass 1). The actual SMTP send
@@ -287,64 +259,6 @@ pub fn enqueue_for_comment(
                 );
             }
         }
-    });
-}
-
-/// Legacy fire-and-forget direct-send entry point.
-///
-/// **Deprecated.** Kept compiled-in for one release as a rollback
-/// escape hatch in case the queue rollout (Pass 1) needs to be
-/// reverted. New code paths must call [`enqueue_for_comment`] instead.
-/// Will be removed in Pass 2 once the queue has soaked.
-#[deprecated(note = "use enqueue_for_comment; the queue is the durable replacement")]
-#[allow(dead_code)]
-pub fn spawn_relay_for_comment_direct_legacy(
-    ticket: crate::models::Ticket,
-    comment: crate::models::Comment,
-    pool: crate::db::Pool,
-    email: Arc<EmailService>,
-) {
-    tokio::spawn(async move {
-        let mut conn = match pool.get() {
-            Ok(c) => c,
-            Err(e) => {
-                warn!(error = %e, "channel relay: could not obtain db connection");
-                return;
-            }
-        };
-        let decision = match super::relay::decide_relay(&mut conn, &ticket, &comment) {
-            Ok(d) => d,
-            Err(e) => {
-                warn!(error = %e, "channel relay: decision failed");
-                return;
-            }
-        };
-        let (channel, thread) = match decision {
-            super::relay::RelayDecision::Relay { channel, thread } => (channel, thread),
-            other => {
-                tracing::debug!(decision = ?other, "channel relay: skipped");
-                return;
-            }
-        };
-        let body = super::reply_body::ReplyBody::from_comment(&comment);
-        let body = super::signature::append_signature_for_user(&mut conn, comment.user_uuid, body);
-        let body = super::quote_previous::maybe_prepend_quote(&mut conn, &channel, &ticket, body);
-        let content = OutboundContent {
-            body_markdown: body.text,
-            body_html: Some(body.html),
-            attachments: vec![],
-            external_id_hint: None,
-        };
-        send_and_record_best_effort(
-            &channel,
-            thread,
-            content,
-            comment.id,
-            email,
-            pool.clone(),
-            &mut conn,
-        )
-        .await;
     });
 }
 

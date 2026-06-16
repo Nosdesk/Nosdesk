@@ -228,18 +228,25 @@ impl NotificationDeliveryChannel for EmailChannel {
         // connection. Branding feeds every transactional surface
         // (logo, primary color); the locale picks which message
         // catalogue formats the subject.
-        let (branding, recipient_locale) = {
-            let mut conn = self
-                .pool
-                .get()
-                .map_err(|e| ChannelError::DatabaseError(e.to_string()))?;
-            let branding = get_email_branding(&mut conn, &self.base_url);
-            let locale = crate::repository::user_locale::resolve_effective_locale(
-                &mut conn,
-                notification.payload.recipient_uuid,
-            );
-            (branding, locale)
-        };
+        // Pinned to the notification's workspace: the branding read is
+        // RLS-isolated site_settings, and delivery runs from a background
+        // dispatcher with no request context. Without the pin the read
+        // falls back to default branding (or, under the hosted role, sees
+        // nothing).
+        let base_url = self.base_url.clone();
+        let recipient_uuid = notification.payload.recipient_uuid;
+        let (branding, recipient_locale) = crate::sync::session::run_in_workspace(
+            &self.pool,
+            "background:notification_email_prep",
+            notification.payload.workspace_id,
+            |conn| {
+                let branding = get_email_branding(conn, &base_url);
+                let locale =
+                    crate::repository::user_locale::resolve_effective_locale(conn, recipient_uuid);
+                Ok((branding, locale))
+            },
+        )
+        .map_err(|e| ChannelError::DatabaseError(e.to_string()))?;
 
         let subject = self.generate_subject(notification, &branding.app_name, &recipient_locale);
         let entity_url = self.generate_entity_url(notification);
@@ -264,38 +271,43 @@ impl NotificationDeliveryChannel for EmailChannel {
         // watcher.
         let event_id = notification.uuid.to_string();
         let recipient_uuid_str = notification.payload.recipient_uuid.to_string();
-        {
-            let mut conn = self
-                .pool
-                .get()
-                .map_err(|e| ChannelError::DatabaseError(e.to_string()))?;
-            match crate::services::transactional_email::enqueue_notification(
-                &mut conn,
-                self.email_service.as_ref(),
-                &branding,
-                &recipient_email,
-                &subject,
-                &title,
-                &body_text,
-                &actor_name,
-                &entity_url,
-                &event_id,
-                &recipient_uuid_str,
-                &recipient_locale,
-            ) {
-                Ok(row) => tracing::debug!(
-                    queue_id = row.id,
-                    notification_uuid = %notification.uuid,
-                    recipient = %recipient_email,
-                    "Notification email enqueued"
-                ),
-                Err(e) => tracing::error!(
-                    notification_uuid = %notification.uuid,
-                    recipient = %recipient_email,
-                    error = ?e,
-                    "Failed to enqueue notification email"
-                ),
-            }
+        // Enqueue pinned to the notification's workspace: outbound_emails is
+        // workspace-isolated with a workspace_id default from app.workspace_id,
+        // so an unpinned insert writes NULL and is rejected.
+        let enqueue = crate::sync::session::run_in_workspace(
+            &self.pool,
+            "background:notification_email_enqueue",
+            notification.payload.workspace_id,
+            |conn| {
+                crate::services::transactional_email::enqueue_notification(
+                    conn,
+                    self.email_service.as_ref(),
+                    &branding,
+                    &recipient_email,
+                    &subject,
+                    &title,
+                    &body_text,
+                    &actor_name,
+                    &entity_url,
+                    &event_id,
+                    &recipient_uuid_str,
+                    &recipient_locale,
+                )
+            },
+        );
+        match enqueue {
+            Ok(row) => tracing::debug!(
+                queue_id = row.id,
+                notification_uuid = %notification.uuid,
+                recipient = %recipient_email,
+                "Notification email enqueued"
+            ),
+            Err(e) => tracing::error!(
+                notification_uuid = %notification.uuid,
+                recipient = %recipient_email,
+                error = ?e,
+                "Failed to enqueue notification email"
+            ),
         }
 
         // Update rate limit tracking

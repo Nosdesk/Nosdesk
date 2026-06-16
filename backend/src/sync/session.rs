@@ -388,6 +388,32 @@ pub fn background_run_in_workspace<T>(
     with_actor_bypass_context(&mut conn, &actor, f).map_err(BackgroundRunError::Db)
 }
 
+/// Like [`background_run_in_workspace`] but NON-bypass: runs the closure as the
+/// `nosdesk_app` runtime role (RLS enforced) pinned to `workspace_id`.
+///
+/// This is the right primitive for per-workspace background work that reads as
+/// well as writes tenant tables: the workspace pin satisfies the NOT NULL
+/// `workspace_id` column default on inserts AND scopes RLS reads to that one
+/// workspace. `background_run`/`background_run_in_workspace` elevate to
+/// `nosdesk_admin` (BYPASSRLS), which fixes the write default but leaves an
+/// unfiltered read returning an arbitrary tenant's row. Reserve the bypass
+/// variants for genuinely cross-workspace operations (e.g. the outbound queue
+/// claim that drains every tenant in one pass).
+///
+/// Used by the channel/notification background paths (auto-ack, notification
+/// email delivery, the IMAP poll's per-channel credential read and cursor
+/// write), each of which knows its workspace from the channel or ticket.
+pub fn run_in_workspace<T>(
+    pool: &crate::db::Pool,
+    reference: &'static str,
+    workspace_id: i32,
+    f: impl FnOnce(&mut DbConnection) -> QueryResult<T>,
+) -> Result<T, BackgroundRunError> {
+    let mut conn = pool.get().map_err(BackgroundRunError::Pool)?;
+    let actor = crate::sync::actor::ActorContext::system(reference).with_workspace(workspace_id);
+    with_actor_context(&mut conn, &actor, f).map_err(BackgroundRunError::Db)
+}
+
 /// Error type returned by `background_run`. Distinguishes "couldn't
 /// get a connection from the pool" from "the closure errored".
 #[derive(Debug)]

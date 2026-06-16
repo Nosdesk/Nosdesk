@@ -326,6 +326,7 @@ async fn poll_fetches_pending_email_and_advances_uid() {
     let config: ImapChannelConfig = serde_json::from_value(channel.config.clone()).unwrap();
     let mut adapter = EmailImapAdapter::new(
         channel_id,
+        channel.workspace_id,
         config,
         email_service_stub(),
         pool.clone(),
@@ -420,6 +421,7 @@ async fn full_cycle_inbound_internal_outbound() {
     let config: ImapChannelConfig = serde_json::from_value(channel.config.clone()).unwrap();
     let mut adapter = EmailImapAdapter::new(
         channel_id,
+        channel.workspace_id,
         config.clone(),
         email_service_stub(),
         pool.clone(),

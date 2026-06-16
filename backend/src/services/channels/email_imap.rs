@@ -148,6 +148,10 @@ impl ImapChannelConfig {
 pub struct EmailImapAdapter {
     id: String,
     channel_id: i32,
+    /// The channel's workspace. The poll path reads credentials and writes
+    /// runtime state on tenant tables (`channel_credentials`, `channels`),
+    /// both workspace-isolated, so those raw-conn touches pin to this id.
+    workspace_id: i32,
     config: ImapChannelConfig,
     /// SMTP handle used by [`ChannelAdapter::send_reply`]. Not touched
     /// by the poll path.
@@ -169,6 +173,7 @@ pub struct EmailImapAdapter {
 impl EmailImapAdapter {
     pub fn new(
         channel_id: i32,
+        workspace_id: i32,
         config: ImapChannelConfig,
         email: Arc<EmailService>,
         pool: crate::db::Pool,
@@ -177,6 +182,7 @@ impl EmailImapAdapter {
         Self {
             id: format!("email_imap:{channel_id}"),
             channel_id,
+            workspace_id,
             config,
             email,
             pool,
@@ -212,7 +218,12 @@ pub fn build_email_imap_adapter(
     let state: ImapRuntimeState =
         serde_json::from_value(channel.runtime_state.clone()).unwrap_or_default();
     Ok(EmailImapAdapter::new(
-        channel.id, config, email, pool, state,
+        channel.id,
+        channel.workspace_id,
+        config,
+        email,
+        pool,
+        state,
     ))
 }
 
@@ -442,11 +453,6 @@ const IMAP_OP_TIMEOUT: Duration = Duration::from_secs(30);
 /// catches up within a few iterations for any realistic backlog.
 const MAX_FETCH_PER_POLL: usize = 200;
 
-/// Pool acquisition timeout for poll-path DB reads. The pool's
-/// default 30s is too long for a per-poll operation — we'd rather
-/// fail the poll quickly and retry than stall the worker.
-const POOL_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(5);
-
 /// IMAP fetch spec. `RFC822` gives us the full raw message,
 /// `INTERNALDATE` gives the server's stamp (preferred over the Date
 /// header, which clients can forge or clock-skew), `UID` echoes the id
@@ -495,17 +501,23 @@ impl PullAdapter for EmailImapAdapter {
         // using Configuration here would stop the worker permanently for
         // what might be a connection blip. Only the "no credential row
         // exists" case is a genuine Configuration problem.
-        let password = {
-            let mut conn = self
-                .pool
-                .get_timeout(POOL_ACQUIRE_TIMEOUT)
-                .map_err(ChannelError::transient("db pool"))?;
-            channels_repo::get_credential(&mut conn, self.channel_id, CRED_TYPE_IMAP_PASSWORD)
-                .map_err(ChannelError::transient("credential lookup"))?
-                .ok_or_else(|| {
-                    ChannelError::Configuration("no IMAP password stored for channel".into())
-                })?
-        };
+        let channel_id = self.channel_id;
+        let password = crate::sync::session::run_in_workspace(
+            &self.pool,
+            "channels:imap_credential",
+            self.workspace_id,
+            |conn| {
+                // channel_credentials is workspace-isolated; pin so the read
+                // resolves under the runtime (NOBYPASSRLS) role, not just the
+                // superuser dev profile. get_credential's CredentialError is
+                // flattened into the closure's diesel error channel (all such
+                // failures stay Transient, as before).
+                channels_repo::get_credential(conn, channel_id, CRED_TYPE_IMAP_PASSWORD)
+                    .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))
+            },
+        )
+        .map_err(ChannelError::transient("credential lookup"))?
+        .ok_or_else(|| ChannelError::Configuration("no IMAP password stored for channel".into()))?;
 
         let mut session = open_session(&self.config, &password).await?;
 
@@ -687,13 +699,18 @@ impl EmailImapAdapter {
     async fn persist_state(&self) -> Result<(), ChannelError> {
         let blob =
             serde_json::to_value(&self.state).map_err(ChannelError::other("runtime_state json"))?;
-        let mut conn = self
-            .pool
-            .get_timeout(POOL_ACQUIRE_TIMEOUT)
-            .map_err(ChannelError::transient("db pool"))?;
-        channels_repo::update_runtime_state(&mut conn, self.channel_id, blob)
-            .map(|_| ())
-            .map_err(ChannelError::transient("persist runtime_state"))
+        let channel_id = self.channel_id;
+        // `channels` is workspace-isolated; pin so the UPDATE matches the row
+        // under the runtime role. Unpinned, the RLS USING clause matches no
+        // rows and the cursor write silently no-ops (reprocessing on restart).
+        crate::sync::session::run_in_workspace(
+            &self.pool,
+            "channels:imap_persist_state",
+            self.workspace_id,
+            |conn| channels_repo::update_runtime_state(conn, channel_id, blob),
+        )
+        .map(|_| ())
+        .map_err(ChannelError::transient("persist runtime_state"))
     }
 }
 
