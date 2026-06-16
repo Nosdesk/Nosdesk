@@ -99,7 +99,21 @@ pub async fn run_one_drain(
         let email = email.clone();
         let breaker = breaker.clone();
         async move {
-            let outcome = dispatch(&row, email, breaker.clone()).await;
+            // Pre-send: skip recipients already on the suppression list
+            // (prior hard bounce or complaint). The list is global (no
+            // workspace_id), so a bypass read is fine; a failed lookup falls
+            // through to attempting the send rather than silently blocking it.
+            let suppressed = crate::sync::session::background_run(
+                &pool,
+                "background:email_queue_suppress_check",
+                |conn| crate::repository::email_suppressions::is_suppressed(conn, &row.recipient),
+            )
+            .unwrap_or(false);
+            let outcome = if suppressed {
+                DispatchOutcome::Suppressed
+            } else {
+                dispatch(&row, email, breaker.clone()).await
+            };
             // Terminate (update outbound_emails status, and for channel
             // replies record the outbound channel_messages row) pinned to
             // the row's workspace. Bypass alone isn't enough: the
@@ -144,16 +158,18 @@ async fn dispatch(
         .iter()
         .filter_map(|r| r.as_deref().map(str::to_owned))
         .collect();
-    // Headers_json may carry extra MIME headers (Auto-Submitted,
-    // X-Auto-Response-Suppress) the producer wanted on the wire.
-    // For Pass 1 we honour `auto_submitted` only — the full custom-
-    // header surface lands later if needed.
+    // headers_json carries the producer's Auto-Submitted value
+    // ("auto-generated" for transactional/notification mail,
+    // "auto-replied" for a direct reply). Pass it through verbatim so the
+    // RFC 3834 + Exchange loop-prevention headers actually ship; any value
+    // other than "no" marks the message as system-authored. (Previously
+    // only "auto-replied" was honoured, so transactional mail silently
+    // shipped without the headers.)
     let auto_submitted = row
         .headers_json
         .get("Auto-Submitted")
         .and_then(|v| v.as_str())
-        .map(|s| s.eq_ignore_ascii_case("auto-replied"))
-        .unwrap_or(false);
+        .filter(|s| !s.eq_ignore_ascii_case("no"));
 
     let message = OutboundEmailMessage {
         to: &row.recipient,
@@ -190,9 +206,16 @@ async fn dispatch(
 
 #[derive(Debug)]
 enum DispatchOutcome {
-    Sent { provider_message_id: Option<String> },
-    Failed { error: String, code: Option<u16> },
+    Sent {
+        provider_message_id: Option<String>,
+    },
+    Failed {
+        error: String,
+        code: Option<u16>,
+    },
     CircuitSkip,
+    /// Recipient is on the suppression list; no SMTP attempt was made.
+    Suppressed,
 }
 
 fn terminate_row(
@@ -291,17 +314,45 @@ fn terminate_row(
                         warn!(error = %e, queue_id = row.id, "mark_dead (suppress) failed");
                     } else {
                         stats.dead += 1;
-                        // Pass 2 wires the suppression list update here.
-                        // For Pass 1 we mark dead and warn; the suppression
-                        // table doesn't exist yet.
+                        // The SMTP server rejected the address as bad
+                        // (550/551/553). Add it to the suppression list so
+                        // future sends to it are skipped pre-send.
+                        let new = crate::models::NewEmailSuppression {
+                            email: row.recipient.clone(),
+                            reason: crate::models::email_suppression_reason::HARD_BOUNCE
+                                .to_string(),
+                            bounce_diagnostic: Some(error.clone()),
+                        };
+                        if let Err(e) = crate::repository::email_suppressions::upsert(conn, new) {
+                            warn!(
+                                error = %e,
+                                queue_id = row.id,
+                                recipient = %row.recipient,
+                                "failed to add suppression after SMTP reject"
+                            );
+                        }
                         warn!(
                             queue_id = row.id,
                             recipient = %row.recipient,
                             smtp_code = ?code,
-                            "email send rejected as bad recipient (suppression list pending Pass 2)"
+                            "email rejected as bad recipient; added to suppression list"
                         );
                     }
                 }
+            }
+        }
+        DispatchOutcome::Suppressed => {
+            // No SMTP attempt was made: the recipient is already suppressed.
+            // Mark dead so it won't retry.
+            if let Err(e) = repo::mark_dead(conn, row.id, "recipient on suppression list", None) {
+                warn!(error = %e, queue_id = row.id, "mark_dead (pre-send suppressed) failed");
+            } else {
+                stats.suppressed += 1;
+                info!(
+                    queue_id = row.id,
+                    recipient = %row.recipient,
+                    "email skipped: recipient on suppression list"
+                );
             }
         }
         DispatchOutcome::CircuitSkip => {

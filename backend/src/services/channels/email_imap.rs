@@ -405,8 +405,8 @@ impl ChannelAdapter for EmailImapAdapter {
             message_id: &message_id,
             in_reply_to,
             references: &thread.references,
-            // Tech-authored reply — no auto-reply headers.
-            auto_submitted: false,
+            // Tech-authored reply: a human wrote it, so no auto headers.
+            auto_submitted: None,
         };
 
         self.email

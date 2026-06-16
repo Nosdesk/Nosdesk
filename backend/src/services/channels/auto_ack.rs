@@ -188,9 +188,9 @@ async fn send_auto_ack(
         message_id: &message_id,
         in_reply_to: Some(in_reply_to),
         references: &references,
-        // This IS the auto-acknowledgement — emit RFC 3834 headers so
-        // a customer OOO doesn't ping-pong with us.
-        auto_submitted: true,
+        // This IS the auto-acknowledgement: a direct reply, so RFC 3834
+        // marks it auto-replied and a customer OOO won't ping-pong with us.
+        auto_submitted: Some("auto-replied"),
     };
     email
         .send_ticket_reply(outbound)

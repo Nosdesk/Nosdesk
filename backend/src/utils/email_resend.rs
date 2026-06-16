@@ -62,10 +62,10 @@ impl EmailTransport for ResendEmailTransport {
         if !msg.references.is_empty() {
             opts = opts.with_header("References", &msg.references.join(" "));
         }
-        // RFC 3834 + Exchange loop-prevention headers for auto-replies.
-        if msg.auto_submitted {
+        // RFC 3834 + Exchange loop-prevention headers for system-authored mail.
+        if let Some(value) = msg.auto_submitted {
             opts = opts
-                .with_header("Auto-Submitted", "auto-replied")
+                .with_header("Auto-Submitted", value)
                 .with_header("X-Auto-Response-Suppress", "All");
         }
 

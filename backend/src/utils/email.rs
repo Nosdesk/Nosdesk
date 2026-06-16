@@ -765,10 +765,10 @@ fn build_outbound_message(
     if !outbound.references.is_empty() {
         builder = builder.header(References::from(outbound.references.join(" ")));
     }
-    // RFC 3834 + Exchange loop-prevention headers for auto-replies.
-    if outbound.auto_submitted {
+    // RFC 3834 + Exchange loop-prevention headers for system-authored mail.
+    if let Some(value) = outbound.auto_submitted {
         builder = builder
-            .header(AutoSubmitted("auto-replied".to_string()))
+            .header(AutoSubmitted(value.to_string()))
             .header(XAutoResponseSuppress("All".to_string()));
     }
 
@@ -955,7 +955,7 @@ impl EmailService {
             message_id: &message_id,
             in_reply_to: None,
             references: &[],
-            auto_submitted: false,
+            auto_submitted: None,
         };
         self.send_outbound(&outbound).await.map(|_| ())
     }
@@ -979,7 +979,7 @@ impl EmailService {
             message_id: &message_id,
             in_reply_to: None,
             references: &[],
-            auto_submitted: false,
+            auto_submitted: None,
         };
         self.send_outbound(&outbound).await.map(|_| ())
     }
@@ -1383,11 +1383,14 @@ pub struct OutboundEmailMessage<'a> {
     pub in_reply_to: Option<&'a str>,
     /// Full ancestor chain, each entry already wrapped in `<...>`.
     pub references: &'a [String],
-    /// `true` when this is a system-authored automatic response (the
-    /// initial "we got your ticket" auto-ack). Causes RFC 3834 loop-
-    /// prevention headers to be emitted so the recipient's OOO /
-    /// auto-responder won't bounce back and trigger a ping-pong.
-    pub auto_submitted: bool,
+    /// The RFC 3834 `Auto-Submitted` value when this is a system-authored
+    /// automatic message: `"auto-replied"` for a direct reply (the
+    /// "we got your ticket" auto-ack), `"auto-generated"` for other
+    /// automated mail (password reset, invitation, notification). `None`
+    /// for ordinary mail. When set, the loop-prevention headers
+    /// (`Auto-Submitted` + `X-Auto-Response-Suppress`) are emitted so the
+    /// recipient's OOO / auto-responder won't bounce back and ping-pong.
+    pub auto_submitted: Option<&'a str>,
 }
 
 #[cfg(test)]
@@ -1456,7 +1459,7 @@ mod tests {
                 message_id: "ticket-42.comment-7.deadbeef@yourco.com",
                 in_reply_to: None,
                 references: &[],
-                auto_submitted: false,
+                auto_submitted: None,
             })
             .unwrap();
         assert!(
@@ -1477,12 +1480,52 @@ mod tests {
                 message_id: "ticket-42.comment-1.aaaaaaaa@yourco.com",
                 in_reply_to: None,
                 references: &[],
-                auto_submitted: false,
+                auto_submitted: None,
             })
             .unwrap();
         let dump = rendered(&msg);
         assert!(!dump.contains("In-Reply-To:"));
         assert!(!dump.contains("References:"));
+    }
+
+    #[test]
+    fn auto_submitted_value_reaches_the_wire() {
+        // The loop-prevention headers must ship with the producer's actual
+        // value, on the built message, not just in the queue row. Regression
+        // guard for the worker honouring only "auto-replied" and silently
+        // dropping the headers for "auto-generated" transactional mail.
+        let base = |auto: Option<&'static str>| {
+            rendered(
+                &svc()
+                    .build_ticket_reply_message(&OutboundEmailMessage {
+                        to: "alice@example.com",
+                        subject: "[#42] hi",
+                        body_text: "hi",
+                        body_html: None,
+                        message_id: "ticket-42.comment-1.aaaaaaaa@yourco.com",
+                        in_reply_to: None,
+                        references: &[],
+                        auto_submitted: auto,
+                    })
+                    .unwrap(),
+            )
+        };
+
+        let generated = base(Some("auto-generated"));
+        assert!(
+            generated.contains("Auto-Submitted: auto-generated"),
+            "transactional mail must carry Auto-Submitted: auto-generated: {generated}"
+        );
+        assert!(generated.contains("X-Auto-Response-Suppress: All"));
+
+        let replied = base(Some("auto-replied"));
+        assert!(replied.contains("Auto-Submitted: auto-replied"));
+
+        let human = base(None);
+        assert!(
+            !human.contains("Auto-Submitted:"),
+            "ordinary mail must not carry loop-prevention headers"
+        );
     }
 
     #[test]
@@ -1497,7 +1540,7 @@ mod tests {
                 message_id: "ticket-42.comment-3.cafef00d@yourco.com",
                 in_reply_to: Some("<second@x>"),
                 references: &refs,
-                auto_submitted: false,
+                auto_submitted: None,
             })
             .unwrap();
         let dump = rendered(&msg);
@@ -1519,7 +1562,7 @@ mod tests {
                 message_id: "ticket-42.comment-5.f00dbabe@yourco.com",
                 in_reply_to: None,
                 references: &[],
-                auto_submitted: false,
+                auto_submitted: None,
             })
             .unwrap();
         let dump = rendered(&msg);
@@ -1548,7 +1591,7 @@ mod tests {
             message_id: "ticket-1.comment-1.aa@host",
             in_reply_to: None,
             references: &[],
-            auto_submitted: false,
+            auto_submitted: None,
         };
         let rt = tokio::runtime::Runtime::new().unwrap();
         let err = rt
