@@ -316,67 +316,6 @@ pub fn mark_bounced(
     .execute(conn)
 }
 
-/// Resolve the workspace + recipient for a row by its provider message id
-/// (Resend `email_id`). Used by the Resend webhook to scope its audited
-/// writes (delivery/bounce + suppression) to the right workspace. Returns
-/// `None` when no row carries that provider id (e.g. an event for a send
-/// from before provider tracking, or a non-tracked provider).
-pub fn workspace_and_recipient_by_provider(
-    conn: &mut DbConnection,
-    provider_message_id: &str,
-) -> Result<Option<(i32, String)>, DieselError> {
-    use crate::schema::outbound_emails::dsl as oe;
-    oe::outbound_emails
-        .filter(oe::provider_message_id.eq(provider_message_id))
-        .select((oe::workspace_id, oe::recipient))
-        .first::<(i32, String)>(conn)
-        .optional()
-}
-
-// sync-audit-only: delivery confirmation from the provider webhook; not a tier-1 aggregate, covered by the outbound_emails audit trigger.
-/// Stamp the provider's confirmed-delivery time on a row, matched by its
-/// provider message id. Idempotent: a redelivered `email.delivered`
-/// webhook keeps the first timestamp.
-pub fn mark_delivered_by_provider(
-    conn: &mut DbConnection,
-    provider_message_id: &str,
-) -> Result<usize, DieselError> {
-    diesel::sql_query(
-        r#"
-        UPDATE outbound_emails
-        SET delivered_at = COALESCE(delivered_at, now())
-        WHERE provider_message_id = $1
-        "#,
-    )
-    .bind::<Text, _>(provider_message_id)
-    .execute(conn)
-}
-
-// sync-audit-only: bounce metadata from the provider webhook; mirrors mark_bounced but keyed on the provider message id.
-/// Stamp bounce metadata on a row matched by its provider message id
-/// (the Resend webhook path; `mark_bounced` is the RFC-Message-ID/DSN
-/// path). Does NOT change `status`, mirroring `mark_bounced`.
-pub fn mark_bounced_by_provider(
-    conn: &mut DbConnection,
-    provider_message_id: &str,
-    recipient: Option<&str>,
-    diagnostic: Option<&str>,
-) -> Result<usize, DieselError> {
-    diesel::sql_query(
-        r#"
-        UPDATE outbound_emails
-        SET bounced_at = now(),
-            bounce_recipient = $2,
-            bounce_diagnostic = $3
-        WHERE provider_message_id = $1
-        "#,
-    )
-    .bind::<Text, _>(provider_message_id)
-    .bind::<Nullable<Text>, _>(recipient)
-    .bind::<Nullable<Text>, _>(diagnostic)
-    .execute(conn)
-}
-
 // sync-audit-only: worker lease release on the outbound queue
 /// Release a claim without recording a failure — used by the circuit
 /// breaker when SMTP is down and the worker shouldn't burn an attempt.

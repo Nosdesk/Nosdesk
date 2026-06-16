@@ -7021,13 +7021,12 @@ pub struct OutboundEmail {
     pub idempotency_key: Option<String>,
     pub workspace_id: i32,
     /// `sent` means the transport accepted handoff; `delivered_at` is
-    /// stamped only when a provider confirms actual delivery (e.g. the
-    /// Resend `email.delivered` webhook). NULL for SMTP, which has no
-    /// delivery signal.
+    /// stamped only when a provider confirms actual delivery. NULL for
+    /// SMTP, which has no delivery signal.
     pub delivered_at: Option<chrono::DateTime<chrono::Utc>>,
-    /// The sending provider's own message id (e.g. Resend `email_id`),
-    /// used to correlate delivery/bounce/complaint webhooks back to this
-    /// row. NULL for SMTP, where the RFC `message_id` is the only identity.
+    /// The sending provider's own message id, for a future transport that
+    /// returns one. NULL for SMTP, where the RFC `message_id` is the only
+    /// identity.
     pub provider_message_id: Option<String>,
     /// Which sending identity the worker uses for this row (see
     /// [`outbound_email_sender_identity`]): `workspace` (the workspace's own
@@ -7123,7 +7122,7 @@ pub struct NewEmailSuppression {
 pub mod email_suppression_reason {
     pub const HARD_BOUNCE: &str = "hard_bounce";
     pub const MANUAL: &str = "manual";
-    /// Recipient marked a message as spam (Resend `email.complained`).
+    /// Recipient marked a message as spam (a feedback-loop complaint).
     /// Continuing to send to a complainer wrecks sender reputation.
     pub const COMPLAINT: &str = "complaint";
 }

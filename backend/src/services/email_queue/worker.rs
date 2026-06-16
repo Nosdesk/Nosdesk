@@ -275,9 +275,8 @@ fn terminate_row(
             provider_message_id,
         } => {
             // Two writes on success:
-            //   1. Flip the queue row to `sent` (terminal), persisting the
-            //      provider message id (Resend `email_id`; None for SMTP)
-            //      so the delivery/bounce webhook can correlate back.
+            //   1. Flip the queue row to `sent` (terminal), persisting any
+            //      provider message id (None for SMTP).
             //   2. Record an outbound `channel_messages` row so later
             //      inbound replies thread back via the existing
             //      external_id lookup. The Message-ID we stamped at

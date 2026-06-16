@@ -854,23 +854,23 @@ fn dkim_sign_message(message: &mut Message, signer: &DkimSigner) -> Result<(), S
     Ok(())
 }
 
-/// Outcome of a transport send. Carries the provider message id when the
-/// backend returns one (e.g. Resend's `email_id`); `None` for SMTP, where
-/// the RFC Message-ID is the only identity.
+/// Outcome of a transport send. Carries a provider message id when a
+/// backend returns one; `None` for SMTP, where the RFC Message-ID is the
+/// only identity.
 #[allow(dead_code)]
 pub struct SendOutcome {
     pub provider_message_id: Option<String>,
 }
 
-/// Pluggable email transport. SMTP (the default, works with any standard
-/// relay and needs no third-party service) and, later, Resend implement
-/// this; `EmailService` composes a message then hands it to whichever
-/// transport is configured.
+/// Email transport seam. SMTP is the only implementation; the trait keeps
+/// composition (building the message) in `EmailService` and the provider
+/// hand-off behind a swappable boundary, which also makes the send path
+/// mockable in tests.
 #[async_trait]
 pub trait EmailTransport: Send + Sync {
     async fn send(&self, msg: &OutboundEmailMessage<'_>) -> Result<SendOutcome, String>;
     fn is_configured(&self) -> bool;
-    /// Stable identifier for status reporting (`"smtp"` | `"resend"`).
+    /// Stable identifier for status reporting (currently always `"smtp"`).
     fn provider_name(&self) -> &'static str;
 }
 
@@ -934,8 +934,7 @@ pub struct EmailService {
 impl EmailService {
     /// Create a new email service with the given configuration
     pub fn new(config: EmailConfig) -> Self {
-        // SMTP is the default transport and the self-host standard.
-        // Provider selection (e.g. Resend) is added here in a later stage.
+        // SMTP is the only transport and the self-host standard.
         let transport: Arc<dyn EmailTransport> = Arc::new(SmtpEmailTransport::new(config.clone()));
         Self { config, transport }
     }
@@ -949,61 +948,23 @@ impl EmailService {
         Self { config, transport }
     }
 
-    /// Create email service from environment variables, selecting the
-    /// transport. SMTP is the default and the self-host standard; Resend
-    /// is used when `EMAIL_PROVIDER=resend` (or, as a convenience, when
-    /// `RESEND_API_KEY` is set and no provider is named).
+    /// Create the email service from environment variables. SMTP is the only
+    /// transport: every provider (SES, Mailgun, ...) offers SMTP submission,
+    /// and per-workspace DKIM signing rides on the SMTP path.
     pub fn from_env() -> Result<Self, String> {
-        let provider = env::var("EMAIL_PROVIDER")
-            .unwrap_or_default()
-            .trim()
-            .to_lowercase();
-        let use_resend =
-            provider == "resend" || (provider.is_empty() && env::var("RESEND_API_KEY").is_ok());
-
-        if use_resend {
-            let api_key = env::var("RESEND_API_KEY")
-                .map_err(|_| "RESEND_API_KEY is required when EMAIL_PROVIDER=resend".to_string())?;
-            let from_name = env::var("SMTP_FROM_NAME")
-                .or_else(|_| env::var("RESEND_FROM_NAME"))
-                .unwrap_or_else(|_| "Nosdesk".to_string());
-            let from_email = env::var("RESEND_FROM_EMAIL")
-                .or_else(|_| env::var("SMTP_FROM_EMAIL"))
-                .map_err(|_| {
-                    "RESEND_FROM_EMAIL or SMTP_FROM_EMAIL is required for Resend".to_string()
-                })?;
-            // The config carries the shared sender + enabled flag; the
-            // SMTP-specific fields stay empty under the Resend transport.
-            let config = EmailConfig {
-                smtp_host: String::new(),
-                smtp_port: 0,
-                smtp_username: String::new(),
-                smtp_password: String::new(),
-                from_name: from_name.clone(),
-                from_email: from_email.clone(),
-                enabled: true,
-                security: SmtpSecurity::Tls,
-            };
-            let transport: Arc<dyn EmailTransport> =
-                Arc::new(crate::utils::email_resend::ResendEmailTransport::new(
-                    api_key, from_name, from_email,
-                ));
-            return Ok(Self { config, transport });
-        }
-
         let config = EmailConfig::from_env()?;
         Ok(Self::new(config))
     }
 
-    /// True when the active transport can send (SMTP credentials present,
-    /// or a Resend API key configured). Provider-aware, unlike the raw
-    /// SMTP-centric `EmailConfig::is_configured`.
+    /// True when the active transport can send (SMTP credentials present).
+    /// Delegates to the transport rather than the raw SMTP-centric
+    /// `EmailConfig::is_configured`.
     pub fn is_configured(&self) -> bool {
         self.transport.is_configured()
     }
 
     /// Active provider identifier for admin status reporting
-    /// (`"smtp"` | `"resend"`).
+    /// (currently always `"smtp"`).
     pub fn provider_name(&self) -> &'static str {
         self.transport.provider_name()
     }
@@ -1022,8 +983,8 @@ impl EmailService {
         format!("{}@{}", uuid::Uuid::now_v7(), domain)
     }
 
-    /// Send a simple text email through the configured transport (SMTP or
-    /// Resend), so direct sends are provider-agnostic like the queue path.
+    /// Send a simple text email through the configured SMTP transport, so
+    /// direct sends share the same path as the queue.
     pub async fn send_text_email(&self, to: &str, subject: &str, body: &str) -> Result<(), String> {
         let message_id = self.generate_message_id();
         let outbound = OutboundEmailMessage {
@@ -1363,10 +1324,10 @@ impl EmailService {
         self.send_outbound(&outbound).await.map(|_| ())
     }
 
-    /// Send and return the transport outcome (the provider message id for
-    /// Resend, `None` for SMTP). The queue worker uses this to persist the
-    /// provider id for webhook correlation; `send_ticket_reply` is the
-    /// thin wrapper for callers that don't need the id (auto-ack, IMAP).
+    /// Send and return the transport outcome. SMTP carries no provider
+    /// message id (`None`); the field exists for a future transport that
+    /// returns one. `send_ticket_reply` is the thin wrapper for callers
+    /// that don't need the outcome (auto-ack, IMAP).
     pub async fn send_outbound(
         &self,
         outbound: &OutboundEmailMessage<'_>,

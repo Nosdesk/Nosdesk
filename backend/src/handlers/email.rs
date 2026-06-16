@@ -25,14 +25,12 @@ pub async fn get_email_config(_tc: TenantConn, req: HttpRequest) -> impl Respond
         return errors::forbidden("Only administrators can view email configuration");
     }
 
-    // Provider-aware: SMTP (default) or Resend. EmailService::from_env
-    // selects the transport and reports is_configured for the active
-    // provider, so the page is correct under either.
+    // SMTP transport. EmailService::from_env reports is_configured for the
+    // active transport.
     match EmailService::from_env() {
         Ok(service) => {
+            // Return configuration (without secrets).
             let config = service.config();
-            // Return configuration (without secrets). The smtp_* fields
-            // are empty under Resend; the frontend keys off `provider`.
             HttpResponse::Ok().json(json!({
                 "provider": service.provider_name(),
                 "from_name": config.from_name,
