@@ -154,6 +154,13 @@ export const adminNavGroups: AdminNavGroup[] = [
         icon: 'email',
         route: '/admin/email-settings',
         keywords: ['email', 'smtp', 'mail', 'notifications', 'configuration']
+      },
+      {
+        titleKey: 'admin-nav-email-sending-domain-title',
+        descriptionKey: 'admin-nav-email-sending-domain-description',
+        icon: 'email',
+        route: '/admin/email/sending-domain',
+        keywords: ['email', 'domain', 'sending', 'dkim', 'spf', 'dmarc', 'verified', 'from']
       }
     ]
   },

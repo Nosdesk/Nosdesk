@@ -853,7 +853,44 @@ admin-nav-branding-title = Branding
 admin-nav-branding-description = Pas het uiterlijk en de branding van de applicatie aan
 admin-nav-email-settings-title = E-mailconfiguratie
 admin-nav-email-settings-description = Configureer SMTP-instellingen en verstuur test-e-mails
+# MACHINE TRANSLATION, pending native review (verified sending domain)
+admin-nav-email-sending-domain-title = Verzenddomein
+admin-nav-email-sending-domain-description = Verstuur e-mail vanaf je eigen geverifieerde domein met DKIM
 admin-nav-workspaces-title = Werkruimtes
+
+# MACHINE TRANSLATION, pending native review (verified sending domain)
+route-title-admin-email-sending-domain = Verzenddomein
+email-domain-title = Verzenddomein
+email-domain-description = Verstuur e-mail vanaf je eigen domein. Verifieer het één keer en wij ondertekenen elk bericht met DKIM zodat het in de inbox aankomt.
+email-domain-loading = Laden...
+email-domain-setup-intro = Voer het adres in waarvandaan je helpdesk moet verzenden. Wij geven je één DNS-record om te publiceren.
+email-domain-from-name-label = Afzendernaam
+email-domain-from-name-placeholder = Acme Support
+email-domain-from-email-label = Afzenderadres
+email-domain-from-email-placeholder = support@jouwbedrijf.com
+email-domain-from-email-help = Wij ondertekenen e-mail voor het domein van dit adres.
+email-domain-setup-button = Verzenddomein instellen
+email-domain-status-verified = Geverifieerd
+email-domain-status-pending = Verificatie in behandeling
+email-domain-record-instructions = Voeg dit TXT-record toe bij je DNS-provider en controleer daarna de verificatie.
+email-domain-record-name-label = Recordnaam
+email-domain-record-value-label = Recordwaarde
+email-domain-copy = Kopiëren
+email-domain-copied = Gekopieerd naar klembord
+email-domain-dns-propagation-note = DNS-wijzigingen kunnen even duren voordat ze zijn doorgevoerd.
+email-domain-verify-button = Verificatie controleren
+email-domain-test-button = Test-e-mail versturen
+email-domain-remove-button = Verwijderen
+email-domain-setup-success = Verzenddomein ingesteld. Publiceer het DNS-record en verifieer daarna.
+email-domain-verified-success = Je verzenddomein is geverifieerd.
+email-domain-pending-still = Nog niet geverifieerd. Het DNS-record wordt mogelijk nog doorgevoerd.
+email-domain-test-sent = Test-e-mail verstuurd naar
+email-domain-removed = Verzenddomein verwijderd.
+email-domain-error-load = Kan instellingen voor verzenddomein niet laden.
+email-domain-error-setup = Kan het verzenddomein niet instellen.
+email-domain-error-verify = Kan het verzenddomein niet verifiëren.
+email-domain-error-test = Kan de test-e-mail niet versturen.
+email-domain-error-remove = Kan het verzenddomein niet verwijderen.
 admin-nav-workspaces-description = Werkruimtes voor tenants aanmaken, archiveren en beheren, samen met hun leden.
 
 # Admin: Workspaces (AdminWorkspacesView). Tenant lifecycle —

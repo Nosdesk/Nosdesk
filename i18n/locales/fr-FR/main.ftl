@@ -856,7 +856,44 @@ admin-nav-branding-title = Marque
 admin-nav-branding-description = Personnalisez l'apparence et la marque de l'application
 admin-nav-email-settings-title = Configuration des e-mails
 admin-nav-email-settings-description = Configurez les paramètres SMTP et envoyez des e-mails de test
+# MACHINE TRANSLATION, pending native review (verified sending domain)
+admin-nav-email-sending-domain-title = Domaine d'envoi
+admin-nav-email-sending-domain-description = Envoyez des e-mails depuis votre propre domaine vérifié avec DKIM
 admin-nav-workspaces-title = Espaces de travail
+
+# MACHINE TRANSLATION, pending native review (verified sending domain)
+route-title-admin-email-sending-domain = Domaine d'envoi
+email-domain-title = Domaine d'envoi
+email-domain-description = Envoyez des e-mails depuis votre propre domaine. Vérifiez-le une fois et nous signons chaque message avec DKIM pour qu'il arrive bien en boîte de réception.
+email-domain-loading = Chargement...
+email-domain-setup-intro = Saisissez l'adresse depuis laquelle votre helpdesk doit envoyer. Nous vous fournirons un enregistrement DNS à publier.
+email-domain-from-name-label = Nom d'expéditeur
+email-domain-from-name-placeholder = Support Acme
+email-domain-from-email-label = Adresse d'expéditeur
+email-domain-from-email-placeholder = support@votreentreprise.com
+email-domain-from-email-help = Nous signons les e-mails pour le domaine de cette adresse.
+email-domain-setup-button = Configurer le domaine d'envoi
+email-domain-status-verified = Vérifié
+email-domain-status-pending = Vérification en attente
+email-domain-record-instructions = Ajoutez cet enregistrement TXT chez votre fournisseur DNS, puis vérifiez.
+email-domain-record-name-label = Nom de l'enregistrement
+email-domain-record-value-label = Valeur de l'enregistrement
+email-domain-copy = Copier
+email-domain-copied = Copié dans le presse-papiers
+email-domain-dns-propagation-note = La propagation des changements DNS peut prendre un certain temps.
+email-domain-verify-button = Vérifier
+email-domain-test-button = Envoyer un e-mail de test
+email-domain-remove-button = Supprimer
+email-domain-setup-success = Domaine d'envoi configuré. Publiez l'enregistrement DNS, puis vérifiez.
+email-domain-verified-success = Votre domaine d'envoi est vérifié.
+email-domain-pending-still = Pas encore vérifié. L'enregistrement DNS est peut-être en cours de propagation.
+email-domain-test-sent = E-mail de test envoyé à
+email-domain-removed = Domaine d'envoi supprimé.
+email-domain-error-load = Impossible de charger les paramètres du domaine d'envoi.
+email-domain-error-setup = Impossible de configurer le domaine d'envoi.
+email-domain-error-verify = Impossible de vérifier le domaine d'envoi.
+email-domain-error-test = Impossible d'envoyer l'e-mail de test.
+email-domain-error-remove = Impossible de supprimer le domaine d'envoi.
 admin-nav-workspaces-description = Créez, archivez et gérez les espaces de travail des clients et leurs membres.
 
 # Admin: Workspaces (AdminWorkspacesView). Tenant lifecycle —

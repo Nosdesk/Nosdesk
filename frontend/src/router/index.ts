@@ -789,6 +789,12 @@ const router = createRouter({
           meta: { titleKey: 'route-title-admin-email-settings' }
         },
         {
+          path: 'email/sending-domain',
+          name: 'admin-email-sending-domain',
+          component: () => import('../views/EmailSendingDomainView.vue'),
+          meta: { titleKey: 'route-title-admin-email-sending-domain' }
+        },
+        {
           path: 'channels/email',
           name: 'admin-channels-email',
           component: () => import('../views/ChannelsEmailSettingsView.vue'),

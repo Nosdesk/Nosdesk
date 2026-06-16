@@ -932,7 +932,43 @@ admin-nav-branding-title = Branding
 admin-nav-branding-description = Customize the appearance and branding of the application
 admin-nav-email-settings-title = Email Configuration
 admin-nav-email-settings-description = Configure SMTP settings and send test emails
+admin-nav-email-sending-domain-title = Sending domain
+admin-nav-email-sending-domain-description = Send email from your own verified domain with DKIM
 admin-nav-workspaces-title = Workspaces
+
+# Admin: verified sending domain (EmailSendingDomainView)
+route-title-admin-email-sending-domain = Sending domain
+email-domain-title = Sending domain
+email-domain-description = Send email from your own domain. Verify it once and we sign every message with DKIM so it lands in inboxes.
+email-domain-loading = Loading...
+email-domain-setup-intro = Enter the address your helpdesk should send from. We'll give you one DNS record to publish.
+email-domain-from-name-label = From name
+email-domain-from-name-placeholder = Acme Support
+email-domain-from-email-label = From address
+email-domain-from-email-placeholder = support@yourcompany.com
+email-domain-from-email-help = We'll sign mail for this address's domain.
+email-domain-setup-button = Set up sending domain
+email-domain-status-verified = Verified
+email-domain-status-pending = Pending verification
+email-domain-record-instructions = Add this TXT record at your DNS provider, then check verification.
+email-domain-record-name-label = Record name
+email-domain-record-value-label = Record value
+email-domain-copy = Copy
+email-domain-copied = Copied to clipboard
+email-domain-dns-propagation-note = DNS changes can take a little while to propagate.
+email-domain-verify-button = Check verification
+email-domain-test-button = Send test email
+email-domain-remove-button = Remove
+email-domain-setup-success = Sending domain set up. Publish the DNS record, then verify.
+email-domain-verified-success = Your sending domain is verified.
+email-domain-pending-still = Not verified yet. The DNS record may still be propagating.
+email-domain-test-sent = Test email sent to
+email-domain-removed = Sending domain removed.
+email-domain-error-load = Could not load sending domain settings.
+email-domain-error-setup = Could not set up the sending domain.
+email-domain-error-verify = Could not verify the sending domain.
+email-domain-error-test = Could not send the test email.
+email-domain-error-remove = Could not remove the sending domain.
 admin-nav-workspaces-description = Create, archive, and manage tenant workspaces and their members.
 
 # Admin: Workspaces (AdminWorkspacesView). Tenant lifecycle —
