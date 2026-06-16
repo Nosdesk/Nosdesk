@@ -1842,6 +1842,19 @@ diesel::table! {
         encrypted_kek_id -> Nullable<Int2>,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        #[max_length = 16]
+        sending_mode -> Varchar,
+        #[max_length = 255]
+        sending_domain -> Nullable<Varchar>,
+        #[max_length = 63]
+        dkim_selector -> Nullable<Varchar>,
+        #[max_length = 16]
+        dkim_algorithm -> Nullable<Varchar>,
+        encrypted_dkim_private_key -> Nullable<Bytea>,
+        dkim_kek_id -> Nullable<Int2>,
+        #[max_length = 16]
+        verification_status -> Varchar,
+        verified_at -> Nullable<Timestamptz>,
     }
 }
 

@@ -6545,6 +6545,41 @@ pub struct WorkspaceEmailSettings {
     pub encrypted_kek_id: Option<i16>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
+    /// How this workspace sends: `fallback` (instance identity),
+    /// `verified_domain` (DKIM-signed via the instance relay), or
+    /// `smtp_relay` (the workspace's own relay, the `smtp_*` columns).
+    /// See [`workspace_email_sending_mode`].
+    pub sending_mode: String,
+    /// The verified sending domain (the `From` domain), for `verified_domain`.
+    pub sending_domain: Option<String>,
+    /// DKIM selector (`<selector>._domainkey.<sending_domain>`).
+    pub dkim_selector: Option<String>,
+    /// `rsa` | `ed25519`.
+    pub dkim_algorithm: Option<String>,
+    /// KEK-encrypted DKIM private key (framed AES-256-GCM blob), AAD-bound to
+    /// the workspace. Redacted from the audit log.
+    pub encrypted_dkim_private_key: Option<Vec<u8>>,
+    /// kek_id sidecar for `encrypted_dkim_private_key`.
+    pub dkim_kek_id: Option<i16>,
+    /// `unverified` | `pending` | `verified` | `failed`. Only `verified`
+    /// permits sending from the workspace's domain.
+    pub verification_status: String,
+    pub verified_at: Option<NaiveDateTime>,
+}
+
+/// Sending-mode + verification-status constants, kept in lockstep with the
+/// `workspace_email_settings_*_check` SQL constraints.
+pub mod workspace_email_sending_mode {
+    pub const FALLBACK: &str = "fallback";
+    pub const VERIFIED_DOMAIN: &str = "verified_domain";
+    pub const SMTP_RELAY: &str = "smtp_relay";
+}
+
+pub mod workspace_email_verification_status {
+    pub const UNVERIFIED: &str = "unverified";
+    pub const PENDING: &str = "pending";
+    pub const VERIFIED: &str = "verified";
+    pub const FAILED: &str = "failed";
 }
 
 /// Editable fields of [`WorkspaceEmailSettings`]. Omits `workspace_id` (the
