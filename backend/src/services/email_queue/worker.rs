@@ -100,11 +100,16 @@ pub async fn run_one_drain(
         let breaker = breaker.clone();
         async move {
             let outcome = dispatch(&row, email, breaker.clone()).await;
-            // Terminate (update outbound_emails row status) under
-            // bypass for the same RLS reason.
-            let term_result = crate::sync::session::background_run(
+            // Terminate (update outbound_emails status, and for channel
+            // replies record the outbound channel_messages row) pinned to
+            // the row's workspace. Bypass alone isn't enough: the
+            // channel_messages.workspace_id column default reads
+            // app.workspace_id, so without the pin the insert writes NULL
+            // and trips the NOT NULL constraint.
+            let term_result = crate::sync::session::background_run_in_workspace(
                 &pool,
                 "background:email_queue_terminate",
+                row.workspace_id,
                 |conn| {
                     terminate_row(conn, &row, outcome, &mut stats);
                     Ok::<_, diesel::result::Error>(())
