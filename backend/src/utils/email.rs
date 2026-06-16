@@ -797,6 +797,63 @@ fn build_outbound_message(
     Ok(message)
 }
 
+/// DKIM signing algorithm for a workspace's sending domain. RSA-2048 is the
+/// v1 default (universal receiver support); ed25519 is a future option.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DkimAlgorithm {
+    Rsa,
+    Ed25519,
+}
+
+impl DkimAlgorithm {
+    fn to_lettre(self) -> lettre::message::dkim::DkimSigningAlgorithm {
+        match self {
+            DkimAlgorithm::Rsa => lettre::message::dkim::DkimSigningAlgorithm::Rsa,
+            DkimAlgorithm::Ed25519 => lettre::message::dkim::DkimSigningAlgorithm::Ed25519,
+        }
+    }
+}
+
+/// Per-domain DKIM signing material attached to the SMTP transport. When
+/// present, every outbound message is DKIM-signed `d=domain` before the relay
+/// hands it off, so DMARC passes via DKIM alignment regardless of the relay's
+/// envelope (no SPF alignment needed). The private key is PKCS#1 PEM for `Rsa`
+/// or base64 raw bytes for `Ed25519`, matching `algorithm`.
+#[derive(Clone)]
+pub struct DkimSigner {
+    /// DNS selector: `<selector>._domainkey.<domain>`.
+    pub selector: String,
+    /// The signing domain (the `From` domain); goes in `d=`.
+    pub domain: String,
+    /// The private key. Never logged (see the `Debug` impl).
+    pub private_key: String,
+    pub algorithm: DkimAlgorithm,
+}
+
+impl std::fmt::Debug for DkimSigner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DkimSigner")
+            .field("selector", &self.selector)
+            .field("domain", &self.domain)
+            .field("private_key", &"<redacted>")
+            .field("algorithm", &self.algorithm)
+            .finish()
+    }
+}
+
+/// Add a `DKIM-Signature` header to `message`, signing the From/Subject/To/Date
+/// header set (lettre's default) with the workspace's key. A malformed key
+/// surfaces as a send error rather than a panic.
+fn dkim_sign_message(message: &mut Message, signer: &DkimSigner) -> Result<(), String> {
+    use lettre::message::dkim::{dkim_sign, DkimConfig, DkimSigningKey};
+
+    let key = DkimSigningKey::new(&signer.private_key, signer.algorithm.to_lettre())
+        .map_err(|e| format!("invalid DKIM signing key for {}: {e}", signer.domain))?;
+    let config = DkimConfig::default_config(signer.selector.clone(), signer.domain.clone(), key);
+    dkim_sign(message, &config);
+    Ok(())
+}
+
 /// Outcome of a transport send. Carries the provider message id when the
 /// backend returns one (e.g. Resend's `email_id`); `None` for SMTP, where
 /// the RFC Message-ID is the only identity.
@@ -820,11 +877,21 @@ pub trait EmailTransport: Send + Sync {
 /// SMTP transport via lettre. The default provider.
 pub struct SmtpEmailTransport {
     config: EmailConfig,
+    /// Optional DKIM signer. `Some` for a workspace sending from its verified
+    /// domain (signs `d=domain`); `None` leaves signing to the relay or a
+    /// later platform-domain signer.
+    dkim: Option<DkimSigner>,
 }
 
 impl SmtpEmailTransport {
     pub fn new(config: EmailConfig) -> Self {
-        Self { config }
+        Self { config, dkim: None }
+    }
+
+    /// Construct with a DKIM signer, so every send is signed `d=domain` before
+    /// the relay hands it off.
+    pub fn with_dkim(config: EmailConfig, dkim: Option<DkimSigner>) -> Self {
+        Self { config, dkim }
     }
 }
 
@@ -834,7 +901,10 @@ impl EmailTransport for SmtpEmailTransport {
         if !self.config.is_configured() {
             return Err("Email is not configured".to_string());
         }
-        let message = build_outbound_message(&self.config, msg)?;
+        let mut message = build_outbound_message(&self.config, msg)?;
+        if let Some(signer) = &self.dkim {
+            dkim_sign_message(&mut message, signer)?;
+        }
         let mailer = build_smtp_mailer(&self.config)?;
         mailer
             .send(&message)
@@ -1526,6 +1596,121 @@ mod tests {
             !human.contains("Auto-Submitted:"),
             "ordinary mail must not carry loop-prevention headers"
         );
+    }
+
+    // ---------- DKIM signing ----------
+
+    const TEST_DKIM_PKCS1_KEY: &str = "-----BEGIN RSA PRIVATE KEY-----
+MIIEowIBAAKCAQEAx/pqSWX4u310FOxAxq/1j/qVn3XfZ1aMvKj7YPaFsHsvVpoC
+MEW7yCeuX+DqB0aT2hwGrUVJgJVaQ8mtsUFfDtYMxdGSILoBEL1Mfp8v1hfzXUD4
++k3tZPAsaX9fEz0YdXTM+/hkg1e0cXuMZb54Wt4H/vwRxbBmlx+uw0KT6aa1RF7R
+ZiW44dqa+4T1lkKg4fX3K/Joa5DzSvng8RhTLkXF4pPRe37tjkA5PanFr+lmrGCM
+JF0+R6OP81sg+yYBhhcMl4bQAx1YhWhtkFeBxiMP7COrQooETOKSfjyszT1jF7BD
+iT+BzBZF0QQAWMhRwmW8bcv+gK5kng4dkgVbxQIDAQABAoIBACzxNb7OGHLGdHaZ
+S8t7UwQrDEI8gtseA94IWgpGDPCHFrHvRaukmFmYtWMd0GqXLXY4kzWQmz63EgSn
+CA6Mgvj6GP/CJAWP19pzuIPCccU7N7nO9sWGCuKC6XBCLFNOCTeoasL75VbxOH/C
+hOB+yFyfhouDCdl0VfIDsEp4pXY+V84eHxS9ZO///RYRxYMZyC4DgpR/WXtFOHBS
+yRMXT4h2rdGkrDg2Wv/OhCylxjatkhSI6P+wbq9fHAHmlzbEF/0XAYm5B6Ar8mzi
++wxiU/S6JVrOIPCxPwkOeqzoHt56rplk4rBxz8woQfTQl+kwIHLWqCtUjLXwogUz
+kMdqxFECgYEA40/aaGKCOIWpLunzcKJ32saganor11qVA8VLBEiGbX9vHhPUwZZt
+JmTmbPRnVSHPudtR6hJjsm143BLs9w7fHZNVxvyIdAqhoQdHECyuL66q1Lq4jHZi
+pU/QLqYDlCI5I3Q4GHp6r0kYwIOVu7B/fR/jozQJdI/fqMW6NnBrSy0CgYEA4Tdx
+8Gzmaoxo9CvwM89hxMxMWm+17uNqZg2Q31HorgGI7iTcqi5+zF1JJaYsB2huHhI2
+BLl86oXPdjdpxeM3RxIIW+tEjl9woDagHDHL9KPtCCvSa+4R8dZu2rVZ32UgKVq8
+3b+vHhp1WphuFygxTXzDUBtxdFpx5q8dgi5gUfkCgYBswNiy1maNGk2+V0oUWnbT
+YfJ/3uG4z+q5ehwQ+Y3vN2f3UO+aixi/pMil2izSCzIyLp87SP8P79ZCHH/pF+Fh
+agtA/7NdKXT48N1r/KR9xaiPzKHc+grqIoxstRrDNbh2oPTxqS+nS2afPJVXzfLA
+74/ellfrv6X3PlqADzsWJQKBgFXWHfT2bHNbhHzbajc06RxqiQdG4F5mCp1OulKD
+E12OdDPflMK/6c/WFhTlWo6QPLf1VOVEFNoFmeaChCvJx72sn8b4yi5BLdnCOA/G
+4ucguyyMFyzPlcNIaQOubsx37GQWkzko34NnriaTRhJJXVEdJguYCgvAlPzI7UQ6
+jLdxAoGBAKZD/KJTS/sYWXHjztl0EmZzYexrS38I+AxdktPA3GqdsA9D2bNJelry
+JmP3rOGzew+YvyVrjwfHjkFEusxZQo8yLlv6KMtOEGJgFrVt95ykUr6py3R3t9+k
+B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
+-----END RSA PRIVATE KEY-----";
+
+    fn dkim_test_config() -> EmailConfig {
+        EmailConfig {
+            smtp_host: "smtp.example.org".into(),
+            smtp_port: 587,
+            smtp_username: "u".into(),
+            smtp_password: "p".into(),
+            from_name: "Support".into(),
+            from_email: "support@example.org".into(),
+            enabled: true,
+            security: SmtpSecurity::StartTls,
+        }
+    }
+
+    fn dkim_test_outbound() -> OutboundEmailMessage<'static> {
+        OutboundEmailMessage {
+            to: "alice@example.com",
+            subject: "[#42] hi",
+            body_text: "hi",
+            body_html: None,
+            message_id: "ticket-42.comment-1.aaaaaaaa@example.org",
+            in_reply_to: None,
+            references: &[],
+            auto_submitted: None,
+        }
+    }
+
+    #[test]
+    fn dkim_signature_is_added_when_signer_present() {
+        let mut msg = build_outbound_message(&dkim_test_config(), &dkim_test_outbound()).unwrap();
+        let signer = DkimSigner {
+            selector: "test".into(),
+            domain: "example.org".into(),
+            private_key: TEST_DKIM_PKCS1_KEY.into(),
+            algorithm: DkimAlgorithm::Rsa,
+        };
+        dkim_sign_message(&mut msg, &signer).unwrap();
+        let dump = String::from_utf8(msg.formatted()).expect("utf-8");
+        assert!(
+            dump.contains("DKIM-Signature:"),
+            "missing DKIM-Signature:\n{dump}"
+        );
+        assert!(
+            dump.contains("d=example.org"),
+            "wrong signing domain:\n{dump}"
+        );
+        assert!(dump.contains("s=test"), "wrong selector:\n{dump}");
+        assert!(
+            dump.contains("a=rsa-sha256"),
+            "wrong algorithm tag:\n{dump}"
+        );
+    }
+
+    #[test]
+    fn dkim_invalid_key_is_a_clean_error() {
+        let mut msg = build_outbound_message(&dkim_test_config(), &dkim_test_outbound()).unwrap();
+        let signer = DkimSigner {
+            selector: "s".into(),
+            domain: "example.org".into(),
+            private_key: "-----BEGIN RSA PRIVATE KEY-----\nnope\n-----END RSA PRIVATE KEY-----"
+                .into(),
+            algorithm: DkimAlgorithm::Rsa,
+        };
+        let err = dkim_sign_message(&mut msg, &signer).unwrap_err();
+        assert!(
+            err.contains("invalid DKIM signing key"),
+            "unexpected: {err}"
+        );
+    }
+
+    #[test]
+    fn dkim_signer_debug_redacts_private_key() {
+        let signer = DkimSigner {
+            selector: "test".into(),
+            domain: "example.org".into(),
+            private_key: "SUPER-SECRET-KEY".into(),
+            algorithm: DkimAlgorithm::Rsa,
+        };
+        let dbg = format!("{signer:?}");
+        assert!(
+            !dbg.contains("SUPER-SECRET-KEY"),
+            "private key leaked in Debug: {dbg}"
+        );
+        assert!(dbg.contains("redacted"));
     }
 
     #[test]

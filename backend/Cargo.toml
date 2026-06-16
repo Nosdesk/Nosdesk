@@ -139,7 +139,7 @@ aws-sdk-s3 = { version = "1", default-features = false, features = [
 ] }
 
 # Email dependencies
-lettre = { version = "0.11", features = ["tokio1-native-tls", "smtp-transport", "builder", "hostname"] }
+lettre = { version = "0.11", features = ["tokio1-native-tls", "smtp-transport", "builder", "hostname", "dkim"] }
 # HTML / plaintext interconversion for outbound channel relays. `html2text`
 # renders the rich HTML the editor produces into a readable plaintext
 # fallback for the multipart/alternative email body. `html-escape` is the

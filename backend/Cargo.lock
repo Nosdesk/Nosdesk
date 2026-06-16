@@ -3910,6 +3910,7 @@ checksum = "0da65617f6cb926332d039cb578aad56178da86e128db6a1b09f4c94fa5b3349"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
+ "ed25519-dalek",
  "email-encoding",
  "email_address",
  "fastrand",
@@ -3923,6 +3924,8 @@ dependencies = [
  "nom 8.0.0",
  "percent-encoding",
  "quoted_printable",
+ "rsa",
+ "sha2 0.10.9",
  "socket2 0.6.4",
  "tokio",
  "tokio-native-tls",
