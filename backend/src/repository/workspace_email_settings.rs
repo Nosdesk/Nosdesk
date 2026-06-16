@@ -217,6 +217,9 @@ pub struct DkimDnsRecord {
     /// TXT value: `v=DKIM1; k=rsa; p=<base64 SPKI DER public key>`.
     pub txt_value: String,
     pub selector: String,
+    /// The base64 SPKI public key alone (the `p=` value), for comparing
+    /// against what's actually published during verification.
+    pub public_b64: String,
 }
 
 fn dkim_record(selector: &str, domain: &str, public_b64: &str) -> DkimDnsRecord {
@@ -224,6 +227,7 @@ fn dkim_record(selector: &str, domain: &str, public_b64: &str) -> DkimDnsRecord 
         name: format!("{selector}._domainkey.{domain}"),
         txt_value: format!("v=DKIM1; k=rsa; p={public_b64}"),
         selector: selector.to_string(),
+        public_b64: public_b64.to_string(),
     }
 }
 
@@ -333,6 +337,27 @@ pub fn dns_record_for(
     };
     let public_b64 = dkim_public_b64(&pem)?;
     Ok(Some(dkim_record(selector, domain, &public_b64)))
+}
+
+// sync-audit-only: Workspace DKIM verification status; covered by the workspace_email_settings audit trigger.
+/// Set the DKIM verification status for the current workspace (and stamp
+/// `verified_at` when transitioning to verified). The settings row must exist.
+pub fn set_verification_status(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    status: &str,
+    verified_at: Option<chrono::NaiveDateTime>,
+) -> QueryResult<()> {
+    use crate::schema::workspace_email_settings::dsl as w;
+    diesel::update(w::workspace_email_settings)
+        .filter(w::workspace_id.eq(workspace_id))
+        .set((
+            w::verification_status.eq(status),
+            w::verified_at.eq(verified_at),
+            w::updated_at.eq(diesel::dsl::now),
+        ))
+        .execute(conn)?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -467,6 +492,23 @@ mod tests {
         let row = get(&mut conn).unwrap().unwrap();
         assert!(decrypt_dkim_key(&row).unwrap().is_none());
         assert!(dns_record_for(&row).unwrap().is_none());
+    }
+
+    #[test]
+    fn set_verification_status_round_trips() {
+        let mut conn = setup_test_connection();
+        upsert(&mut conn, sample_fields()).unwrap();
+
+        let ts = chrono::Utc::now().naive_utc();
+        set_verification_status(&mut conn, 1, "verified", Some(ts)).unwrap();
+        let row = get(&mut conn).unwrap().unwrap();
+        assert_eq!(row.verification_status, "verified");
+        assert!(row.verified_at.is_some());
+
+        set_verification_status(&mut conn, 1, "pending", None).unwrap();
+        let row = get(&mut conn).unwrap().unwrap();
+        assert_eq!(row.verification_status, "pending");
+        assert!(row.verified_at.is_none());
     }
 
     // One RSA-2048 keypair is generated here (CPU-bound, ~hundreds of ms), so
