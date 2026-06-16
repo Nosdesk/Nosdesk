@@ -940,6 +940,15 @@ impl EmailService {
         Self { config, transport }
     }
 
+    /// Create an SMTP email service that DKIM-signs every send with `dkim`.
+    /// Used for the verified-domain mode: the workspace sends from its own
+    /// `From` through the instance relay, signed `d=domain`.
+    pub fn smtp_with_dkim(config: EmailConfig, dkim: Option<DkimSigner>) -> Self {
+        let transport: Arc<dyn EmailTransport> =
+            Arc::new(SmtpEmailTransport::with_dkim(config.clone(), dkim));
+        Self { config, transport }
+    }
+
     /// Create email service from environment variables, selecting the
     /// transport. SMTP is the default and the self-host standard; Resend
     /// is used when `EMAIL_PROVIDER=resend` (or, as a convenience, when

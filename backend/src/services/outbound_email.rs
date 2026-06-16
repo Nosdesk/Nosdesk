@@ -23,11 +23,13 @@ use std::sync::Arc;
 use diesel::QueryResult;
 
 use crate::db::{DbConnection, Pool};
-use crate::models::WorkspaceEmailSettings;
+use crate::models::{
+    workspace_email_sending_mode, workspace_email_verification_status, WorkspaceEmailSettings,
+};
 use crate::repository::channels::CredentialError;
 use crate::repository::workspace_email_settings as ws_settings;
 use crate::sync::session::{run_in_workspace, BackgroundRunError};
-use crate::utils::email::{EmailConfig, EmailService, SmtpSecurity};
+use crate::utils::email::{DkimAlgorithm, DkimSigner, EmailConfig, EmailService, SmtpSecurity};
 
 /// Resolves the outbound `EmailService` for a workspace.
 pub struct OutboundEmailResolver {
@@ -102,10 +104,9 @@ impl OutboundEmailResolver {
         conn: &mut DbConnection,
         workspace_ids: &[i32],
     ) -> QueryResult<HashMap<i32, Arc<EmailService>>> {
-        let mut usable: HashMap<i32, WorkspaceEmailSettings> =
+        let by_ws: HashMap<i32, WorkspaceEmailSettings> =
             ws_settings::get_for_workspaces(conn, workspace_ids)?
                 .into_iter()
-                .filter(is_usable)
                 .map(|r| (r.workspace_id, r))
                 .collect();
 
@@ -114,9 +115,13 @@ impl OutboundEmailResolver {
             if out.contains_key(&ws) {
                 continue;
             }
-            let svc = match usable.remove(&ws) {
-                Some(r) => match build_workspace_service(&r) {
-                    Ok(svc) => svc,
+            let svc = match by_ws.get(&ws) {
+                Some(r) => match self.build_for_row(r) {
+                    Ok(Some(svc)) => svc,
+                    Ok(None) => match &self.fallback {
+                        Some(f) => f.clone(),
+                        None => continue,
+                    },
                     Err(e) => {
                         tracing::warn!(
                             workspace_id = ws,
@@ -159,28 +164,86 @@ impl OutboundEmailResolver {
         &self,
         row: Option<WorkspaceEmailSettings>,
     ) -> Result<Arc<EmailService>, ResolveError> {
-        match row {
-            Some(ref r) if is_usable(r) => build_workspace_service(r),
-            _ => self.fallback.clone().ok_or(ResolveError::NotConfigured),
+        if let Some(ref r) = row {
+            if let Some(svc) = self.build_for_row(r)? {
+                return Ok(svc);
+            }
         }
+        self.fallback.clone().ok_or(ResolveError::NotConfigured)
+    }
+
+    /// Build the sending service for a row by its `sending_mode`, or `None`
+    /// when the row isn't in a usable state (disabled, fallback mode, an
+    /// enabled-but-hostless smtp_relay, or an unverified verified_domain), in
+    /// which case the caller uses the env fallback. An `Err` means a usable
+    /// mode whose build failed (e.g. a key won't decrypt); callers defer such
+    /// a row rather than sending it from the wrong identity.
+    fn build_for_row(
+        &self,
+        r: &WorkspaceEmailSettings,
+    ) -> Result<Option<Arc<EmailService>>, ResolveError> {
+        if !r.enabled {
+            return Ok(None);
+        }
+        match r.sending_mode.as_str() {
+            workspace_email_sending_mode::SMTP_RELAY => {
+                if r.smtp_host.trim().is_empty() {
+                    return Ok(None);
+                }
+                let password = ws_settings::decrypt_password(r)
+                    .map_err(ResolveError::Credential)?
+                    .unwrap_or_default();
+                Ok(Some(Arc::new(EmailService::new(build_email_config(
+                    r, password,
+                )))))
+            }
+            workspace_email_sending_mode::VERIFIED_DOMAIN => {
+                if r.verification_status != workspace_email_verification_status::VERIFIED {
+                    return Ok(None);
+                }
+                self.build_verified_domain_service(r).map(Some)
+            }
+            // `fallback` or any unexpected value.
+            _ => Ok(None),
+        }
+    }
+
+    /// Verified-domain mode: send through the **instance relay** (the env
+    /// transport's SMTP settings) with the workspace's `From` and a DKIM signer
+    /// for its domain, so DMARC passes on DKIM alignment. Requires the env
+    /// relay to exist (there's nothing else to send through).
+    fn build_verified_domain_service(
+        &self,
+        r: &WorkspaceEmailSettings,
+    ) -> Result<Arc<EmailService>, ResolveError> {
+        let relay = self.fallback.as_ref().ok_or(ResolveError::NotConfigured)?;
+        let mut config = relay.config().clone();
+        config.from_name = r.from_name.clone();
+        config.from_email = r.from_email.clone();
+
+        let pem = ws_settings::decrypt_dkim_key(r)
+            .map_err(ResolveError::Credential)?
+            .ok_or(ResolveError::NotConfigured)?;
+        let signer = DkimSigner {
+            selector: r
+                .dkim_selector
+                .clone()
+                .unwrap_or_else(|| "nosdesk".to_string()),
+            domain: r.sending_domain.clone().unwrap_or_default(),
+            private_key: pem,
+            algorithm: parse_dkim_algorithm(r.dkim_algorithm.as_deref()),
+        };
+        Ok(Arc::new(EmailService::smtp_with_dkim(config, Some(signer))))
     }
 }
 
-/// Build the `EmailService` for a usable workspace row: decrypt the password
-/// (empty when none is stored, for an auth-less relay) and assemble the
-/// config. Shared by the single and batch resolution paths.
-fn build_workspace_service(r: &WorkspaceEmailSettings) -> Result<Arc<EmailService>, ResolveError> {
-    let password = ws_settings::decrypt_password(r)
-        .map_err(ResolveError::Credential)?
-        .unwrap_or_default();
-    Ok(Arc::new(EmailService::new(build_email_config(r, password))))
-}
-
-/// A workspace identity is usable only when enabled and pointing at a host.
-/// An enabled-but-hostless row (mid-setup) falls back rather than building a
-/// transport that can't connect.
-fn is_usable(r: &WorkspaceEmailSettings) -> bool {
-    r.enabled && !r.smtp_host.trim().is_empty()
+/// Map the stored `dkim_algorithm` string onto the enum. `rsa` is the default
+/// for any unexpected value (v1 only generates RSA keys).
+fn parse_dkim_algorithm(s: Option<&str>) -> DkimAlgorithm {
+    match s {
+        Some("ed25519") => DkimAlgorithm::Ed25519,
+        _ => DkimAlgorithm::Rsa,
+    }
 }
 
 fn build_email_config(r: &WorkspaceEmailSettings, password: String) -> EmailConfig {
@@ -246,6 +309,7 @@ mod tests {
             smtp_port: 465,
             smtp_security: "tls".into(),
             smtp_username: "acme".into(),
+            sending_mode: "smtp_relay".into(),
         }
     }
 
@@ -361,5 +425,51 @@ mod tests {
             .resolve_batch(&mut conn, &[424242])
             .unwrap();
         assert!(map.get(&424242).is_none());
+    }
+
+    #[test]
+    fn verified_domain_not_yet_verified_falls_back() {
+        let mut conn = setup_test_connection();
+        let mut fields = enabled_fields();
+        fields.sending_mode = "verified_domain".into();
+        repo::upsert(&mut conn, fields).unwrap();
+        // No DKIM provisioned, status defaults to 'unverified': we must NOT
+        // send from the tenant's unverified domain, so fall back.
+        let svc = resolver_with_fallback()
+            .resolve_on_conn(&mut conn, 1)
+            .unwrap();
+        assert_eq!(svc.config().from_email, "platform@fallback.test");
+    }
+
+    // Generates one RSA-2048 keypair (CPU-bound), so the verified-domain build
+    // path is asserted in a single test.
+    #[test]
+    fn verified_domain_sends_via_relay_with_workspace_from() {
+        use diesel::prelude::*;
+        let mut conn = setup_test_connection();
+
+        let mut fields = enabled_fields();
+        fields.sending_mode = "verified_domain".into();
+        fields.from_email = "support@acme.test".into();
+        repo::upsert(&mut conn, fields).unwrap();
+        repo::provision_dkim(&mut conn, 1, "acme.test").unwrap();
+        {
+            // Mark verified directly; the verification repo fn lands next step.
+            use crate::schema::workspace_email_settings::dsl as w;
+            diesel::update(w::workspace_email_settings)
+                .set(w::verification_status.eq("verified"))
+                .execute(&mut conn)
+                .unwrap();
+        }
+
+        let svc = resolver_with_fallback()
+            .resolve_on_conn(&mut conn, 1)
+            .unwrap();
+        // The From is the workspace's verified address...
+        assert_eq!(svc.config().from_email, "support@acme.test");
+        // ...but the transport is the instance relay (the fallback's host), not
+        // a per-workspace relay. DKIM signing rides on this transport (covered
+        // by the email-module signing tests).
+        assert_eq!(svc.config().smtp_host, "smtp.platform.test");
     }
 }

@@ -100,6 +100,7 @@ pub fn upsert(
             w::smtp_port.eq(excluded(w::smtp_port)),
             w::smtp_security.eq(excluded(w::smtp_security)),
             w::smtp_username.eq(excluded(w::smtp_username)),
+            w::sending_mode.eq(excluded(w::sending_mode)),
             w::updated_at.eq(diesel::dsl::now),
         ))
         .returning(WorkspaceEmailSettings::as_returning())
@@ -348,6 +349,7 @@ mod tests {
             smtp_port: 587,
             smtp_security: "starttls".into(),
             smtp_username: "smtp-user".into(),
+            sending_mode: "smtp_relay".into(),
         }
     }
 

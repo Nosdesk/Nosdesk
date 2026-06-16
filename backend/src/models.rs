@@ -6583,9 +6583,10 @@ pub mod workspace_email_verification_status {
 }
 
 /// Editable fields of [`WorkspaceEmailSettings`]. Omits `workspace_id` (the
-/// RLS GUC fills it on insert), the password columns (managed separately by
-/// `repository::workspace_email_settings::set_password`/`clear_password`),
-/// and the timestamps.
+/// RLS GUC fills it on insert), the password and DKIM columns (managed
+/// separately by `set_password`/`clear_password` and `provision_dkim`), and
+/// the timestamps. `sending_mode` chooses how the workspace sends; the
+/// verified-domain fields are populated by `provision_dkim`.
 #[derive(Debug, Insertable)]
 #[diesel(table_name = crate::schema::workspace_email_settings)]
 pub struct UpsertWorkspaceEmailSettings {
@@ -6596,6 +6597,8 @@ pub struct UpsertWorkspaceEmailSettings {
     pub smtp_port: i32,
     pub smtp_security: String,
     pub smtp_username: String,
+    /// See [`workspace_email_sending_mode`].
+    pub sending_mode: String,
 }
 
 /// Ledger row — one per inbound or outbound message through a channel.
