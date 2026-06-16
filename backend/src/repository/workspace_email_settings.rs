@@ -10,10 +10,17 @@
 //! between workspaces by anyone with raw SQL write. The plaintext only ever
 //! exists transiently in `set_password` / `decrypt_password`.
 
+use base64::Engine as _;
 use diesel::prelude::*;
+use rsa::pkcs1::{DecodeRsaPrivateKey, EncodeRsaPrivateKey, LineEnding};
+use rsa::pkcs8::EncodePublicKey;
+use rsa::{RsaPrivateKey, RsaPublicKey};
 
 use crate::db::DbConnection;
-use crate::models::{UpsertWorkspaceEmailSettings, WorkspaceEmailSettings};
+use crate::models::{
+    workspace_email_sending_mode, workspace_email_verification_status,
+    UpsertWorkspaceEmailSettings, WorkspaceEmailSettings,
+};
 use crate::repository::channels::CredentialError;
 use crate::utils::encryption;
 
@@ -181,6 +188,152 @@ pub fn decrypt_password(row: &WorkspaceEmailSettings) -> Result<Option<String>, 
     Ok(Some(s))
 }
 
+// ===========================================================================
+// Verified-domain DKIM (self-managed keys)
+// ===========================================================================
+
+/// AAD purpose tag for the workspace DKIM private key. Distinct from the SMTP
+/// password tag so a DKIM blob can't be swapped into the password slot, and
+/// workspace-bound so it can't be lifted to another workspace.
+const WS_DKIM_AAD_TAG: &[u8] = b".nosdesk.workspace.dkim.v1";
+
+fn ws_dkim_aad(workspace_id: i32) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(4 + WS_DKIM_AAD_TAG.len());
+    buf.extend_from_slice(&workspace_id.to_be_bytes());
+    buf.extend_from_slice(WS_DKIM_AAD_TAG);
+    buf
+}
+
+/// RSA-2048 is the v1 default (universal receiver support; ed25519 is a future
+/// refinement). The selector is fixed for v1; rotation is a later concern.
+const DKIM_RSA_BITS: usize = 2048;
+const DKIM_SELECTOR: &str = "nosdesk";
+
+/// The DNS record a workspace admin publishes to authorise our DKIM signing.
+pub struct DkimDnsRecord {
+    /// Record name: `<selector>._domainkey.<domain>`.
+    pub name: String,
+    /// TXT value: `v=DKIM1; k=rsa; p=<base64 SPKI DER public key>`.
+    pub txt_value: String,
+    pub selector: String,
+}
+
+fn dkim_record(selector: &str, domain: &str, public_b64: &str) -> DkimDnsRecord {
+    DkimDnsRecord {
+        name: format!("{selector}._domainkey.{domain}"),
+        txt_value: format!("v=DKIM1; k=rsa; p={public_b64}"),
+        selector: selector.to_string(),
+    }
+}
+
+/// Derive the base64 SPKI public key from a PKCS#1 PEM private key, for the
+/// published record. The public key is not secret, so this can run on a
+/// decrypted key without further protection.
+fn dkim_public_b64(private_pem: &str) -> Result<String, CredentialError> {
+    let private = RsaPrivateKey::from_pkcs1_pem(private_pem)
+        .map_err(|e| CredentialError::Crypto(format!("DKIM private key parse: {e}")))?;
+    let der = RsaPublicKey::from(&private)
+        .to_public_key_der()
+        .map_err(|e| CredentialError::Crypto(format!("DKIM public key encode: {e}")))?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(der.as_bytes()))
+}
+
+// sync-audit-only: Workspace DKIM key provisioning; the private key is encrypted at rest and redacted by the workspace_email_settings audit trigger.
+/// Generate a fresh RSA-2048 DKIM keypair for `domain`, store the private key
+/// KEK-encrypted (AAD-bound to the workspace), switch the workspace into
+/// `verified_domain` mode with `pending` status, and return the DNS record to
+/// publish. The settings row must already exist (upsert first). Calling again
+/// rotates the key and resets verification. Key generation is CPU-bound; async
+/// callers should wrap this in `spawn_blocking`.
+pub fn provision_dkim(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    domain: &str,
+) -> Result<DkimDnsRecord, CredentialError> {
+    use crate::schema::workspace_email_settings::dsl as w;
+
+    let mut rng = rand::thread_rng();
+    let private = RsaPrivateKey::new(&mut rng, DKIM_RSA_BITS)
+        .map_err(|e| CredentialError::Crypto(format!("DKIM key generation: {e}")))?;
+    let private_pem = private
+        .to_pkcs1_pem(LineEnding::LF)
+        .map_err(|e| CredentialError::Crypto(format!("DKIM private key encode: {e}")))?;
+    let public_b64 = dkim_public_b64(&private_pem)?;
+
+    let kr = encryption::keyring();
+    let aad = ws_dkim_aad(workspace_id);
+    let encrypted = kr
+        .encrypt(private_pem.as_bytes(), &aad)
+        .map_err(|e| CredentialError::Crypto(e.to_string()))?;
+    let kek_id = kr.current_version() as i16;
+
+    let updated = diesel::update(w::workspace_email_settings)
+        .filter(w::workspace_id.eq(workspace_id))
+        .set((
+            w::sending_mode.eq(workspace_email_sending_mode::VERIFIED_DOMAIN),
+            w::sending_domain.eq(domain),
+            w::dkim_selector.eq(DKIM_SELECTOR),
+            w::dkim_algorithm.eq("rsa"),
+            w::encrypted_dkim_private_key.eq(Some(encrypted)),
+            w::dkim_kek_id.eq(Some(kek_id)),
+            w::verification_status.eq(workspace_email_verification_status::PENDING),
+            w::verified_at.eq::<Option<chrono::NaiveDateTime>>(None),
+            w::updated_at.eq(diesel::dsl::now),
+        ))
+        .execute(conn)?;
+    if updated == 0 {
+        return Err(CredentialError::Db(diesel::result::Error::NotFound));
+    }
+
+    Ok(dkim_record(DKIM_SELECTOR, domain, &public_b64))
+}
+
+/// Decrypt the stored DKIM private key (PKCS#1 PEM), or `Ok(None)` when none is
+/// stored. Verifies the sidecar `dkim_kek_id` and binds `workspace_id` into the
+/// AAD, mirroring [`decrypt_password`].
+pub fn decrypt_dkim_key(row: &WorkspaceEmailSettings) -> Result<Option<String>, CredentialError> {
+    let blob = match &row.encrypted_dkim_private_key {
+        Some(b) => b,
+        None => return Ok(None),
+    };
+    let sidecar = row.dkim_kek_id.ok_or_else(|| {
+        CredentialError::Crypto("DKIM key present but kek_id sidecar is null".into())
+    })?;
+    let blob_kek_id = encryption::Keyring::read_kek_id(blob)
+        .map_err(|e| CredentialError::Crypto(e.to_string()))?;
+    if blob_kek_id as i16 != sidecar {
+        return Err(CredentialError::Crypto(format!(
+            "workspace_email_settings ws#{} DKIM sidecar kek_id ({}) disagrees with blob ({})",
+            row.workspace_id, sidecar, blob_kek_id
+        )));
+    }
+    let aad = ws_dkim_aad(row.workspace_id);
+    let plaintext = encryption::keyring()
+        .decrypt(blob, &aad)
+        .map_err(|e| CredentialError::Crypto(e.to_string()))?;
+    let s = String::from_utf8(plaintext.to_vec())
+        .map_err(|_| CredentialError::Crypto("DKIM key is not valid UTF-8".into()))?;
+    Ok(Some(s))
+}
+
+/// The DNS record to publish for `row`, derived from the stored key, or `None`
+/// when the workspace has no DKIM domain/key. Used by the admin UI and the
+/// verification check.
+pub fn dns_record_for(
+    row: &WorkspaceEmailSettings,
+) -> Result<Option<DkimDnsRecord>, CredentialError> {
+    let (domain, selector) = match (&row.sending_domain, &row.dkim_selector) {
+        (Some(d), Some(s)) => (d, s),
+        _ => return Ok(None),
+    };
+    let pem = match decrypt_dkim_key(row)? {
+        Some(p) => p,
+        None => return Ok(None),
+    };
+    let public_b64 = dkim_public_b64(&pem)?;
+    Ok(Some(dkim_record(selector, domain, &public_b64)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -302,6 +455,50 @@ mod tests {
         assert!(
             get(&mut conn).unwrap().is_none(),
             "RLS must scope the read to the pinned workspace"
+        );
+    }
+
+    #[test]
+    fn dkim_helpers_are_none_when_unprovisioned() {
+        let mut conn = setup_test_connection();
+        upsert(&mut conn, sample_fields()).unwrap();
+        let row = get(&mut conn).unwrap().unwrap();
+        assert!(decrypt_dkim_key(&row).unwrap().is_none());
+        assert!(dns_record_for(&row).unwrap().is_none());
+    }
+
+    // One RSA-2048 keypair is generated here (CPU-bound, ~hundreds of ms), so
+    // the full provisioning cycle is asserted in a single test.
+    #[test]
+    fn provision_dkim_stores_key_and_renders_a_usable_record() {
+        let mut conn = setup_test_connection();
+        upsert(&mut conn, sample_fields()).unwrap();
+
+        let record = provision_dkim(&mut conn, 1, "acme.test").unwrap();
+        assert_eq!(record.name, "nosdesk._domainkey.acme.test");
+        assert!(record.txt_value.starts_with("v=DKIM1; k=rsa; p="));
+        assert!(record.txt_value.len() > 200, "public key looks too short");
+
+        let row = get(&mut conn).unwrap().unwrap();
+        assert_eq!(row.sending_mode, "verified_domain");
+        assert_eq!(row.verification_status, "pending");
+        assert_eq!(row.sending_domain.as_deref(), Some("acme.test"));
+        assert_eq!(row.dkim_selector.as_deref(), Some("nosdesk"));
+        assert!(row.encrypted_dkim_private_key.is_some());
+        assert!(row.dkim_kek_id.is_some());
+
+        // The stored key decrypts to a PKCS#1 PEM that the signing layer (lettre)
+        // accepts, and the rendered record is stable across reads.
+        let pem = decrypt_dkim_key(&row).unwrap().unwrap();
+        assert!(pem.contains("BEGIN RSA PRIVATE KEY"));
+        lettre::message::dkim::DkimSigningKey::new(
+            &pem,
+            lettre::message::dkim::DkimSigningAlgorithm::Rsa,
+        )
+        .expect("provisioned key must be valid for DKIM signing");
+        assert_eq!(
+            dns_record_for(&row).unwrap().unwrap().txt_value,
+            record.txt_value
         );
     }
 }

@@ -1245,6 +1245,7 @@ dependencies = [
  "ring",
  "rpassword",
  "rrule",
+ "rsa",
  "sanitize-filename",
  "semver",
  "serde",

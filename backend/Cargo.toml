@@ -114,6 +114,10 @@ base32 = "0.4.0"          # Base32 encoding for TOTP secrets
 
 # Security dependencies for MFA encryption and CSRF
 ring = "0.17.8"           # Cryptographic primitives for AES-256-GCM encryption and SHA-256 hashing
+# Per-workspace DKIM keypair generation (RSA-2048, PKCS#1 PEM private + SPKI DER
+# public for the DNS record). Already in the tree via lettre's `dkim` feature;
+# declared directly here so the verified-domain key provisioning can use it.
+rsa = "0.9"
 zeroize = { version = "1.8.1", features = ["derive"] } # Memory zeroing for sensitive data
 hex = "0.4.3"             # Hex encoding/decoding
 constant_time_eq = "0.3"  # Constant-time comparison for CSRF tokens
