@@ -45,13 +45,18 @@
 //! those names only. The default is empty. IP-literal hosts
 //! must be listed by their literal form.
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
 use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 use thiserror::Error;
 use url::Url;
+
+// The routability predicate and the operator allowlist live in the
+// transport-agnostic egress policy; this module is the reqwest adapter
+// over them. Raw-TCP connectors (IMAP, SMTP) use `egress` directly.
+use super::egress::{ip_is_routable, ipv4_is_routable, ipv6_is_routable, is_host_allowlisted};
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum SafeHttpError {
@@ -205,165 +210,9 @@ impl Resolve for SafeResolver {
     }
 }
 
-fn is_host_allowlisted(host: &str) -> bool {
-    let raw = match std::env::var("NOSDESK_OUTBOUND_ALLOWED_HOSTS") {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
-    let host_lower = host.to_ascii_lowercase();
-    raw.split(',')
-        .map(|s| s.trim().to_ascii_lowercase())
-        .filter(|s| !s.is_empty())
-        .any(|allowed| allowed == host_lower)
-}
-
-// =============================================================================
-// Routability helpers
-// =============================================================================
-//
-// These mirror the `IpAddr::is_global()` semantics that are
-// still unstable on stable Rust, with the v4 ranges enumerated
-// explicitly so the behaviour is auditable. Kept private to this
-// module — the only legitimate consumer of the predicate is the
-// resolver + the IP-literal guard.
-
-fn ip_is_routable(ip: &IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(v4) => ipv4_is_routable(v4),
-        IpAddr::V6(v6) => ipv6_is_routable(v6),
-    }
-}
-
-fn ipv4_is_routable(ip: &Ipv4Addr) -> bool {
-    if ip.is_loopback()
-        || ip.is_private()
-        || ip.is_link_local()
-        || ip.is_multicast()
-        || ip.is_broadcast()
-        || ip.is_unspecified()
-        || ip.is_documentation()
-    {
-        return false;
-    }
-    let octets = ip.octets();
-    // Carrier-grade NAT (RFC 6598): 100.64.0.0/10.
-    if octets[0] == 100 && (octets[1] & 0xc0) == 64 {
-        return false;
-    }
-    // Reserved: 240.0.0.0/4 (class E, future-use).
-    if octets[0] >= 240 {
-        return false;
-    }
-    // "This network": 0.0.0.0/8.
-    if octets[0] == 0 {
-        return false;
-    }
-    // IETF-protocol assignments: 192.0.0.0/24.
-    if octets[0] == 192 && octets[1] == 0 && octets[2] == 0 {
-        return false;
-    }
-    // Benchmarking: 198.18.0.0/15.
-    if octets[0] == 198 && (octets[1] == 18 || octets[1] == 19) {
-        return false;
-    }
-    true
-}
-
-fn ipv6_is_routable(ip: &Ipv6Addr) -> bool {
-    if ip.is_loopback() || ip.is_multicast() || ip.is_unspecified() {
-        return false;
-    }
-    let segments = ip.segments();
-    // Unique local (fc00::/7).
-    if (segments[0] & 0xfe00) == 0xfc00 {
-        return false;
-    }
-    // Link local (fe80::/10).
-    if (segments[0] & 0xffc0) == 0xfe80 {
-        return false;
-    }
-    // IPv4-mapped (::ffff:0:0/96) — recurse on the embedded v4 so
-    // an IPv6-cloaked v4 loopback can't slip past.
-    if segments[0] == 0
-        && segments[1] == 0
-        && segments[2] == 0
-        && segments[3] == 0
-        && segments[4] == 0
-        && segments[5] == 0xffff
-    {
-        let mapped = Ipv4Addr::new(
-            (segments[6] >> 8) as u8,
-            (segments[6] & 0xff) as u8,
-            (segments[7] >> 8) as u8,
-            (segments[7] & 0xff) as u8,
-        );
-        return ipv4_is_routable(&mapped);
-    }
-    // Documentation (2001:db8::/32).
-    if segments[0] == 0x2001 && segments[1] == 0xdb8 {
-        return false;
-    }
-    true
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn rejects_loopback_v4() {
-        assert!(!ipv4_is_routable(&Ipv4Addr::new(127, 0, 0, 1)));
-    }
-
-    #[test]
-    fn rejects_rfc1918() {
-        assert!(!ipv4_is_routable(&Ipv4Addr::new(10, 0, 0, 1)));
-        assert!(!ipv4_is_routable(&Ipv4Addr::new(172, 16, 0, 1)));
-        assert!(!ipv4_is_routable(&Ipv4Addr::new(172, 31, 255, 255)));
-        assert!(!ipv4_is_routable(&Ipv4Addr::new(192, 168, 1, 1)));
-    }
-
-    #[test]
-    fn rejects_link_local_and_metadata() {
-        // 169.254.169.254 is the AWS / Azure / GCP metadata IP and
-        // the canonical SSRF target.
-        assert!(!ipv4_is_routable(&Ipv4Addr::new(169, 254, 169, 254)));
-        assert!(!ipv4_is_routable(&Ipv4Addr::new(169, 254, 0, 1)));
-    }
-
-    #[test]
-    fn rejects_cgnat_and_zero() {
-        assert!(!ipv4_is_routable(&Ipv4Addr::new(100, 64, 0, 1)));
-        assert!(!ipv4_is_routable(&Ipv4Addr::new(100, 127, 255, 254)));
-        assert!(!ipv4_is_routable(&Ipv4Addr::new(0, 0, 0, 0)));
-    }
-
-    #[test]
-    fn accepts_public_v4() {
-        assert!(ipv4_is_routable(&Ipv4Addr::new(8, 8, 8, 8)));
-        assert!(ipv4_is_routable(&Ipv4Addr::new(1, 1, 1, 1)));
-        assert!(ipv4_is_routable(&Ipv4Addr::new(140, 82, 114, 4)));
-    }
-
-    #[test]
-    fn rejects_v6_loopback_and_local() {
-        assert!(!ipv6_is_routable(&Ipv6Addr::LOCALHOST));
-        assert!(!ipv6_is_routable(&"fe80::1".parse::<Ipv6Addr>().unwrap()));
-        assert!(!ipv6_is_routable(&"fc00::1".parse::<Ipv6Addr>().unwrap()));
-        assert!(!ipv6_is_routable(&"fd12::1".parse::<Ipv6Addr>().unwrap()));
-    }
-
-    #[test]
-    fn rejects_v6_mapped_v4_loopback() {
-        let mapped: Ipv6Addr = "::ffff:127.0.0.1".parse().unwrap();
-        assert!(!ipv6_is_routable(&mapped));
-    }
-
-    #[test]
-    fn accepts_public_v6() {
-        let pub_v6: Ipv6Addr = "2606:4700:4700::1111".parse().unwrap();
-        assert!(ipv6_is_routable(&pub_v6));
-    }
 
     #[test]
     fn ip_literal_guard_rejects_loopback() {
