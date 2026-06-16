@@ -41,7 +41,14 @@ pub async fn get_my_flags(pool: web::Data<Pool>, req: HttpRequest) -> impl Respo
         Err(e) => return e,
     };
 
-    match repo::resolve_for_user(&mut conn, &user_uuid) {
+    // Scope the read to the request's workspace: site_settings is
+    // RLS-isolated by workspace_id, so the resolver must run with
+    // app.workspace_id set or it reads zero rows (the hosted-mode 500).
+    let actor = helpers::actor_for(&req, "feature_flags:read");
+    let resolved = crate::sync::session::with_actor_context(&mut conn, &actor, |conn| {
+        repo::resolve_for_user(conn, &user_uuid)
+    });
+    match resolved {
         Ok(flags) => HttpResponse::Ok().json(flags),
         Err(e) => {
             error!(error = %e, user = %user_uuid, "failed to resolve feature flags");
@@ -70,7 +77,11 @@ pub async fn patch_workspace_flag(
         .get::<Claims>()
         .and_then(|c| Uuid::parse_str(&c.sub).ok());
 
-    match repo::set_workspace_flag(&mut conn, &body.flag, body.value.clone()) {
+    let actor = helpers::actor_for(&req, "feature_flags:write");
+    let updated = crate::sync::session::with_actor_context(&mut conn, &actor, |conn| {
+        repo::set_workspace_flag(conn, &body.flag, body.value.clone())
+    });
+    match updated {
         Ok(flags) => {
             info!(
                 actor = ?actor_uuid,
@@ -107,7 +118,11 @@ pub async fn put_workspace_flags(
         .get::<Claims>()
         .and_then(|c| Uuid::parse_str(&c.sub).ok());
 
-    match repo::set_all_workspace_flags(&mut conn, body.flags.clone()) {
+    let actor = helpers::actor_for(&req, "feature_flags:write");
+    let replaced = crate::sync::session::with_actor_context(&mut conn, &actor, |conn| {
+        repo::set_all_workspace_flags(conn, body.flags.clone())
+    });
+    match replaced {
         Ok(flags) => {
             info!(actor = ?actor_uuid, "workspace feature flags replaced");
             HttpResponse::Ok().json(flags)

@@ -23,15 +23,22 @@ use crate::schema::{site_settings, users};
 /// with per-user overrides. Returns a flat `{ flag_name: value }`
 /// object suitable for shipping to the client.
 pub fn resolve_for_user(conn: &mut DbConnection, user_uuid: &Uuid) -> QueryResult<Value> {
+    // Workspace defaults: the RLS-visible site_settings row (the request's
+    // workspace, no hardcoded id). Absent (workspace has no row yet) means
+    // "no workspace defaults" rather than an error, so the endpoint never
+    // 500s — flags fall back to per-user overrides and code defaults.
     let workspace: Value = site_settings::table
-        .find(1)
         .select(site_settings::feature_flags)
-        .first(conn)?;
+        .first::<Value>(conn)
+        .optional()?
+        .unwrap_or_else(|| serde_json::json!({}));
 
     let user_overrides: Value = users::table
         .find(user_uuid)
         .select(users::feature_flag_overrides)
-        .first(conn)?;
+        .first::<Value>(conn)
+        .optional()?
+        .unwrap_or_else(|| serde_json::json!({}));
 
     Ok(merge_flags(&workspace, &user_overrides))
 }
@@ -45,14 +52,16 @@ pub fn set_workspace_flag(
     flag_name: &str,
     value: Option<Value>,
 ) -> QueryResult<Value> {
+    crate::repository::site_settings::ensure_row(conn)?;
     let mut current: Value = site_settings::table
-        .find(1)
         .select(site_settings::feature_flags)
-        .first(conn)?;
+        .first::<Value>(conn)
+        .optional()?
+        .unwrap_or_else(|| serde_json::json!({}));
 
     apply_patch(&mut current, flag_name, value);
 
-    diesel::update(site_settings::table.find(1))
+    diesel::update(site_settings::table)
         .set(site_settings::feature_flags.eq(&current))
         .execute(conn)?;
 
@@ -90,7 +99,8 @@ pub fn set_all_workspace_flags(conn: &mut DbConnection, flags: Value) -> QueryRe
             "feature_flags must be a JSON object".into(),
         ));
     }
-    diesel::update(site_settings::table.find(1))
+    crate::repository::site_settings::ensure_row(conn)?;
+    diesel::update(site_settings::table)
         .set(site_settings::feature_flags.eq(&flags))
         .execute(conn)?;
     Ok(flags)

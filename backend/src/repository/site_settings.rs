@@ -4,18 +4,47 @@ use crate::schema::site_settings;
 use diesel::prelude::*;
 use uuid::Uuid;
 
-/// Get site settings (always returns the single row, id=1)
+/// Ensure the current workspace has a `site_settings` row, lazily creating
+/// a default one (every column from its DB default; `workspace_id` and the
+/// sequence-backed `id` resolve automatically) if absent. Idempotent via
+/// `ON CONFLICT (workspace_id)`.
+///
+/// site_settings is RLS-isolated by `workspace_id`, so the caller MUST be
+/// workspace-scoped (`app.workspace_id` set, via `TenantConn` /
+/// `with_actor_context`) — that GUC both scopes the read and fills the
+/// `workspace_id` default on insert. Every settings access path is scoped.
+pub(crate) fn ensure_row(conn: &mut DbConnection) -> QueryResult<()> {
+    diesel::sql_query(
+        "INSERT INTO site_settings DEFAULT VALUES ON CONFLICT (workspace_id) DO NOTHING",
+    )
+    .execute(conn)?;
+    Ok(())
+}
+
+/// Get the current workspace's site settings, creating the default row on
+/// first access. Returns exactly one row: RLS scopes the read to the
+/// request's workspace (no hardcoded id), so this no longer collapses every
+/// workspace onto a single global row.
 pub fn get_site_settings(conn: &mut DbConnection) -> QueryResult<SiteSettings> {
-    site_settings::table.find(1).first(conn)
+    if let Some(settings) = site_settings::table
+        .first::<SiteSettings>(conn)
+        .optional()?
+    {
+        return Ok(settings);
+    }
+    ensure_row(conn)?;
+    site_settings::table.first(conn)
 }
 
 // sync-audit-only: Workspace settings — covered by the audit_log trigger on site_settings; sync clients don't subscribe
-/// Update site settings
+/// Update the current workspace's site settings. The update targets the
+/// RLS-visible row (the request's workspace); no `id` filter.
 pub fn update_site_settings(
     conn: &mut DbConnection,
     update: UpdateSiteSettings,
 ) -> QueryResult<SiteSettings> {
-    diesel::update(site_settings::table.find(1))
+    ensure_row(conn)?;
+    diesel::update(site_settings::table)
         .set(&update)
         .get_result(conn)
 }
@@ -27,7 +56,8 @@ pub fn update_logo_url(
     logo_url: Option<String>,
     updated_by: Uuid,
 ) -> QueryResult<SiteSettings> {
-    diesel::update(site_settings::table.find(1))
+    ensure_row(conn)?;
+    diesel::update(site_settings::table)
         .set((
             site_settings::logo_url.eq(logo_url),
             site_settings::updated_by.eq(Some(updated_by)),
@@ -42,7 +72,8 @@ pub fn update_logo_light_url(
     logo_light_url: Option<String>,
     updated_by: Uuid,
 ) -> QueryResult<SiteSettings> {
-    diesel::update(site_settings::table.find(1))
+    ensure_row(conn)?;
+    diesel::update(site_settings::table)
         .set((
             site_settings::logo_light_url.eq(logo_light_url),
             site_settings::updated_by.eq(Some(updated_by)),
@@ -57,7 +88,8 @@ pub fn update_favicon_url(
     favicon_url: Option<String>,
     updated_by: Uuid,
 ) -> QueryResult<SiteSettings> {
-    diesel::update(site_settings::table.find(1))
+    ensure_row(conn)?;
+    diesel::update(site_settings::table)
         .set((
             site_settings::favicon_url.eq(favicon_url),
             site_settings::updated_by.eq(Some(updated_by)),

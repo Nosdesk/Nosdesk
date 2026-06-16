@@ -49,13 +49,20 @@ pub struct UpdateBrandingRequest {
 }
 
 // GET /api/admin/branding/config - Get branding settings (public for initial load)
-pub async fn get_branding_config(pool: web::Data<Pool>) -> impl Responder {
+pub async fn get_branding_config(req: HttpRequest, pool: web::Data<Pool>) -> impl Responder {
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
 
-    match site_settings::get_site_settings(&mut conn) {
+    // site_settings is RLS-isolated by workspace; scope the read to the
+    // request's workspace (resolved from the Host on every route, public
+    // included) so each workspace sees its own branding.
+    let actor = helpers::actor_for(&req, "branding:read");
+    let loaded = crate::sync::session::with_actor_context(&mut conn, &actor, |conn| {
+        site_settings::get_site_settings(conn)
+    });
+    match loaded {
         Ok(settings) => {
             let response: SiteSettingsResponse = settings.into();
             HttpResponse::Ok().json(response)
@@ -81,8 +88,8 @@ pub async fn get_branding_config(pool: web::Data<Pool>) -> impl Responder {
 }
 
 // GET /api/branding - Public endpoint for branding (no auth required)
-pub async fn get_public_branding(pool: web::Data<Pool>) -> impl Responder {
-    get_branding_config(pool).await
+pub async fn get_public_branding(req: HttpRequest, pool: web::Data<Pool>) -> impl Responder {
+    get_branding_config(req, pool).await
 }
 
 // PATCH /api/admin/branding/config - Update branding settings

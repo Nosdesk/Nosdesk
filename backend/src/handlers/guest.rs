@@ -953,9 +953,14 @@ pub async fn upload_guest_attachment(
         Err(e) => return e,
     };
 
-    let settings = match get_settings(&mut conn) {
-        Some(s) => s,
-        None => {
+    // Scope the settings read to the workspace (RLS), matching every other
+    // guest handler; a bare conn reads zero rows under hosted mode.
+    let settings_actor = guest_actor(&ws, "guest:attachment_upload");
+    let settings = match session::with_actor_context(&mut conn, &settings_actor, |c| {
+        Ok::<_, diesel::result::Error>(get_settings(c))
+    }) {
+        Ok(Some(s)) => s,
+        Ok(None) | Err(_) => {
             return errors::service_unavailable("Settings unavailable");
         }
     };

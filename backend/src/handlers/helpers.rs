@@ -126,10 +126,19 @@ pub fn actor_for(req: &HttpRequest, system_ref: &'static str) -> ActorContext {
         .extensions()
         .get::<Claims>()
         .and_then(|c| Uuid::parse_str(&c.sub).ok());
+    // Prefer the auth-populated RequestContext actor pin; fall back to the
+    // WorkspaceContext that WorkspaceContextMiddleware sets on EVERY route
+    // (including public, unauthenticated ones), so workspace-scoped reads
+    // work outside the auth middleware too.
     let workspace_id = req
         .extensions()
         .get::<crate::middleware::RequestContext>()
-        .and_then(|ctx| ctx.actor.workspace_id);
+        .and_then(|ctx| ctx.actor.workspace_id)
+        .or_else(|| {
+            req.extensions()
+                .get::<crate::extractors::WorkspaceContext>()
+                .map(|w| w.workspace_id)
+        });
     let mut actor = match uuid {
         Some(u) => ActorContext::user(u, None),
         None => ActorContext::system(system_ref),
