@@ -141,6 +141,15 @@ aws-sdk-s3 = { version = "1", default-features = false, features = [
     "default-https-client",
     "rt-tokio",
 ] }
+# SES sending-identity management for hosted deployments: registers a
+# workspace's verified domain as a BYODKIM identity so SES authorises the
+# From. default-features off to avoid this SDK's `rustls` feature (the legacy
+# rustls 0.21 stack aws-sdk-s3 carves out); the modern shared HTTPS connector
+# aws-sdk-s3 pulls in (`default-https-client`) serves this client too.
+aws-sdk-sesv2 = { version = "1", default-features = false, features = [
+    "behavior-version-latest",
+    "rt-tokio",
+] }
 
 # Email dependencies
 lettre = { version = "0.11", features = ["tokio1-native-tls", "smtp-transport", "builder", "hostname", "dkim"] }

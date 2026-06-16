@@ -21,6 +21,7 @@ use crate::models::{
 use crate::repository::{user_helpers, workspace_email_settings as ws_settings};
 use crate::services::dkim_verification;
 use crate::services::outbound_email::OutboundEmailResolver;
+use crate::services::ses_identity;
 use crate::sync::session::run_in_workspace;
 use crate::utils::rbac;
 
@@ -139,25 +140,52 @@ pub async fn set_domain(
     };
 
     // RSA keygen is CPU-bound, so run the whole upsert + provision on a
-    // blocking thread, atomically in one workspace-pinned transaction.
+    // blocking thread, atomically in one workspace-pinned transaction. The
+    // closure also hands back the decrypted key so the async SES registration
+    // below has it without a second decrypt round-trip.
     let pool = pool.get_ref().clone();
+    let domain_for_provision = domain.clone();
     let provision = tokio::task::spawn_blocking(move || {
         run_in_workspace(&pool, "dkim-provision", workspace_id, |conn| {
             ws_settings::upsert(conn, fields)?;
-            ws_settings::provision_dkim(conn, workspace_id, &domain)
-                .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))
+            let record = ws_settings::provision_dkim(conn, workspace_id, &domain_for_provision)
+                .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))?;
+            let row = ws_settings::get(conn)?.ok_or(diesel::result::Error::NotFound)?;
+            let private_pem = ws_settings::decrypt_dkim_key(&row)
+                .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))?
+                .ok_or(diesel::result::Error::NotFound)?;
+            Ok::<_, diesel::result::Error>((record, private_pem))
         })
     })
     .await;
 
-    match provision {
-        Ok(Ok(record)) => HttpResponse::Ok().json(serde_json::json!({
-            "dkim_record": { "name": record.name, "txt_value": record.txt_value },
-            "verification_status": workspace_email_verification_status::PENDING,
-        })),
-        Ok(Err(e)) => errors::internal(format!("provision DKIM: {e}")),
-        Err(e) => errors::internal(format!("provision task: {e}")),
+    let (record, private_pem) = match provision {
+        Ok(Ok(v)) => v,
+        Ok(Err(e)) => return errors::internal(format!("provision DKIM: {e}")),
+        Err(e) => return errors::internal(format!("provision task: {e}")),
+    };
+
+    // Hosted: authorise the From domain in SES (BYODKIM, our key) so sends from
+    // it aren't rejected. Self-host leaves SES unconfigured and this is a no-op.
+    // Failure here is fatal to the request: without it sending won't work, and
+    // the admin should know to retry rather than publish a record that can't send.
+    match ses_identity::SesIdentityManager::from_env() {
+        Ok(Some(ses)) => {
+            if let Err(e) = ses
+                .register_sending_domain(&domain, &record.selector, &private_pem)
+                .await
+            {
+                return errors::internal(format!("register {domain} with SES: {e}"));
+            }
+        }
+        Ok(None) => {}
+        Err(e) => return errors::internal(format!("{e}")),
     }
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "dkim_record": { "name": record.name, "txt_value": record.txt_value },
+        "verification_status": workspace_email_verification_status::PENDING,
+    }))
 }
 
 /// POST /admin/email/outbound/verify — check the published DKIM record.
@@ -239,8 +267,31 @@ pub async fn reset(mut tc: TenantConn, req: HttpRequest) -> impl Responder {
     let Some(workspace_id) = tc.workspace_id() else {
         return errors::bad_request("no workspace context");
     };
-    match tc.run(|conn| ws_settings::reset_to_fallback(conn, workspace_id)) {
-        Ok(()) => HttpResponse::Ok().json(serde_json::json!({ "status": "reset" })),
-        Err(e) => errors::internal(format!("reset: {e}")),
+
+    // Read the domain before clearing it, so we can deregister the SES identity.
+    let cleared = tc.run(|conn| {
+        let domain = ws_settings::get(conn)?.and_then(|r| r.sending_domain);
+        ws_settings::reset_to_fallback(conn, workspace_id)?;
+        Ok::<_, diesel::result::Error>(domain)
+    });
+    let domain = match cleared {
+        Ok(d) => d,
+        Err(e) => return errors::internal(format!("reset: {e}")),
+    };
+
+    // Best-effort SES cleanup: the workspace is already back on fallback, so a
+    // lingering identity is unused. Don't fail the reset on an SES hiccup.
+    if let Some(domain) = domain {
+        match ses_identity::SesIdentityManager::from_env() {
+            Ok(Some(ses)) => {
+                if let Err(e) = ses.deregister_sending_domain(&domain).await {
+                    tracing::warn!("SES deregister for {domain} failed (left for cleanup): {e}");
+                }
+            }
+            Ok(None) => {}
+            Err(e) => tracing::warn!("SES config while deregistering {domain}: {e}"),
+        }
     }
+
+    HttpResponse::Ok().json(serde_json::json!({ "status": "reset" }))
 }

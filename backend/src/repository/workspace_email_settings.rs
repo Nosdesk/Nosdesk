@@ -13,7 +13,7 @@
 use base64::Engine as _;
 use diesel::prelude::*;
 use rsa::pkcs1::{DecodeRsaPrivateKey, EncodeRsaPrivateKey, LineEnding};
-use rsa::pkcs8::EncodePublicKey;
+use rsa::pkcs8::{EncodePrivateKey, EncodePublicKey};
 use rsa::{RsaPrivateKey, RsaPublicKey};
 
 use crate::db::DbConnection;
@@ -240,6 +240,18 @@ fn dkim_public_b64(private_pem: &str) -> Result<String, CredentialError> {
     let der = RsaPublicKey::from(&private)
         .to_public_key_der()
         .map_err(|e| CredentialError::Crypto(format!("DKIM public key encode: {e}")))?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(der.as_bytes()))
+}
+
+/// The DKIM private key as base64-encoded PKCS#8 DER, the format Amazon SES
+/// BYODKIM (`DomainSigningPrivateKey`) expects. Input is our stored PKCS#1 PEM.
+/// The output carries the private key, so handle it like the PEM itself.
+pub fn dkim_private_pkcs8_b64(private_pem: &str) -> Result<String, CredentialError> {
+    let private = RsaPrivateKey::from_pkcs1_pem(private_pem)
+        .map_err(|e| CredentialError::Crypto(format!("DKIM private key parse: {e}")))?;
+    let der = private
+        .to_pkcs8_der()
+        .map_err(|e| CredentialError::Crypto(format!("DKIM PKCS#8 encode: {e}")))?;
     Ok(base64::engine::general_purpose::STANDARD.encode(der.as_bytes()))
 }
 
@@ -567,5 +579,14 @@ mod tests {
             dns_record_for(&row).unwrap().unwrap().txt_value,
             record.txt_value
         );
+
+        // The same key converts to the base64 PKCS#8 DER that SES BYODKIM wants,
+        // and the bytes round-trip back to a parseable PKCS#8 private key.
+        use rsa::pkcs8::DecodePrivateKey;
+        let b64 = dkim_private_pkcs8_b64(&pem).unwrap();
+        let der = base64::engine::general_purpose::STANDARD
+            .decode(&b64)
+            .unwrap();
+        rsa::RsaPrivateKey::from_pkcs8_der(&der).expect("SES key must be valid PKCS#8 DER");
     }
 }

@@ -20,6 +20,7 @@ pub mod scheduler;
 pub mod search;
 pub mod search_replicator;
 pub mod seed;
+pub mod ses_identity;
 pub mod sla;
 pub mod starter_catalog;
 pub mod sync_outbox;
