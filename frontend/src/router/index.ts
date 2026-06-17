@@ -1039,7 +1039,10 @@ async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLoca
           import('@/sync/sseBridge'),
         ]);
         const { schemaHash, instanceId } = await fetchServerIdentity();
-        await hydrate(authStore.user.uuid, schemaHash, instanceId);
+        // Key the local cache per workspace in path mode (null in host mode).
+        // The prefix guard runs before this one, so the slug is already set.
+        const { activeWorkspaceSlug } = await import('@/services/activeWorkspace');
+        await hydrate(authStore.user.uuid, schemaHash, instanceId, activeWorkspaceSlug());
         attachSseBridge();
       } catch (e) {
          
