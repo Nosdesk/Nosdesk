@@ -24,6 +24,8 @@
 //!   passes through; if it succeeds, back to `closed`; if it fails,
 //!   back to `open` and reset the cool-down clock.
 
+use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 
@@ -121,6 +123,39 @@ impl Default for CircuitBreaker {
     }
 }
 
+/// Per-transport circuit breakers, keyed by relay host.
+///
+/// A single shared breaker would let one tenant's broken SMTP relay
+/// (`smtp_relay` mode, its own host) trip the breaker for *every* send,
+/// including the platform/auth mail that goes through a different, healthy
+/// instance relay. Keying by relay host isolates fate: a broken relay pauses
+/// only its own host's sends. Workspaces that share a relay (the instance relay
+/// carries platform mail, verified-domain mail, and the fallback) share one
+/// breaker, which is correct — if that relay is down, they are all affected.
+///
+/// Breakers are created lazily on first use and live for the process; the host
+/// set is tiny (one per configured relay).
+#[derive(Debug, Default)]
+pub struct CircuitBreakerRegistry {
+    breakers: Mutex<HashMap<String, Arc<CircuitBreaker>>>,
+}
+
+impl CircuitBreakerRegistry {
+    pub fn new() -> Self {
+        Self {
+            breakers: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// The breaker for `relay_host`, creating it on first use.
+    pub async fn for_host(&self, relay_host: &str) -> Arc<CircuitBreaker> {
+        let mut map = self.breakers.lock().await;
+        map.entry(relay_host.to_string())
+            .or_insert_with(|| Arc::new(CircuitBreaker::new()))
+            .clone()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,5 +190,22 @@ mod tests {
             cb.record_failure().await;
         }
         assert_eq!(cb.state().await, BreakerState::Closed);
+    }
+
+    #[tokio::test]
+    async fn registry_isolates_breakers_by_host() {
+        let reg = CircuitBreakerRegistry::new();
+        let a = reg.for_host("relay-a").await;
+        for _ in 0..FAILURE_THRESHOLD {
+            a.record_failure().await;
+        }
+        // relay-a is open; relay-b is a different transport and untouched.
+        assert!(!reg.for_host("relay-a").await.allow().await);
+        assert!(reg.for_host("relay-b").await.allow().await);
+        // The same host returns the same breaker, so state persists.
+        assert_eq!(
+            reg.for_host("relay-a").await.state().await,
+            BreakerState::Open
+        );
     }
 }

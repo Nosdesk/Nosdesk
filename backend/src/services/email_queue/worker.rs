@@ -18,7 +18,7 @@ use crate::db::Pool;
 use crate::models::{outbound_email_sender_identity, NewChannelMessage, OutboundEmail};
 use crate::repository::channels as channels_repo;
 use crate::repository::outbound_emails as repo;
-use crate::services::email_queue::circuit::{BreakerState, CircuitBreaker};
+use crate::services::email_queue::circuit::{BreakerState, CircuitBreaker, CircuitBreakerRegistry};
 use crate::services::email_queue::retry::{classify, next_attempt_at, RetryDecision, MAX_ATTEMPTS};
 use crate::services::outbound_email::OutboundEmailResolver;
 use crate::utils::email::{EmailService, OutboundEmailMessage};
@@ -64,16 +64,24 @@ pub struct WorkerStats {
 pub async fn run_one_drain(
     pool: Pool,
     resolver: Arc<OutboundEmailResolver>,
-    breaker: Arc<CircuitBreaker>,
+    registry: Arc<CircuitBreakerRegistry>,
 ) -> Result<WorkerStats> {
     let mut stats = WorkerStats::default();
 
-    // Don't even claim if the breaker is open — there's no point
-    // moving rows to `sending` only to release them.
-    if !breaker.allow().await {
-        debug!("email_queue: circuit open, skipping drain");
-        stats.circuit_skipped = 1;
-        return Ok(stats);
+    // The instance relay carries platform/auth mail and is the default for
+    // workspace mail, so if its breaker is open there's little point claiming a
+    // batch only to release it. Skip the whole drain then, preserving the old
+    // single-breaker behaviour for the common case. Per-host breakers below
+    // still isolate an individual tenant relay within a drain, so one broken
+    // tenant relay never pauses the instance relay's mail.
+    let platform = resolver.platform();
+    if let Some(p) = &platform {
+        let host = p.config().smtp_host.clone();
+        if !registry.for_host(&host).await.allow().await {
+            debug!("email_queue: instance relay circuit open, skipping drain");
+            stats.circuit_skipped = 1;
+            return Ok(stats);
+        }
     }
 
     // Claim batch under bypass — outbound_emails is RLS-enabled
@@ -114,7 +122,7 @@ pub async fn run_one_drain(
             std::collections::HashMap::new()
         })
     };
-    let platform = resolver.platform();
+    // `platform` was resolved above for the pre-claim breaker check; reuse it.
 
     for row in claimed {
         let span = info_span!(
@@ -129,7 +137,7 @@ pub async fn run_one_drain(
             correlation_id = row.correlation_id.map(|id| id.to_string()).unwrap_or_default(),
         );
         let pool = pool.clone();
-        let breaker = breaker.clone();
+        let registry = registry.clone();
         // The identity to send this row with: the instance identity for
         // auth mail, otherwise the workspace's resolved service. `None`
         // means nothing is configured to send it yet.
@@ -153,7 +161,12 @@ pub async fn run_one_drain(
                 DispatchOutcome::Suppressed
             } else {
                 match service {
-                    Some(svc) => dispatch(&row, svc, breaker.clone()).await,
+                    // Use the breaker for this row's relay host, so a broken
+                    // tenant relay trips only its own transport.
+                    Some(svc) => {
+                        let breaker = registry.for_host(&svc.config().smtp_host).await;
+                        dispatch(&row, svc, breaker).await
+                    }
                     None => DispatchOutcome::Unconfigured,
                 }
             };
@@ -355,32 +368,25 @@ fn terminate_row(
                     }
                 }
                 RetryDecision::Suppress => {
+                    // A 550/551/553-shaped reject. Dead-letter it, but do NOT add
+                    // the recipient to the (global, irreversible-without-admin)
+                    // suppression list: `code` here is string-scraped from
+                    // lettre's error text (see `parse_smtp_code`), so a transient
+                    // error whose message merely contains "550" (e.g. "...550 ms")
+                    // could permanently block a valid address across every
+                    // workspace. Suppression is driven only by the inbound DSN
+                    // path (`bounce_parser`), which uses structured RFC 3464
+                    // status codes. Re-enable suppression here once the transport
+                    // returns a structured SMTP code (worker Pass 2).
                     if let Err(e) = repo::mark_dead(conn, row.id, &error, code.map(i32::from)) {
                         warn!(error = %e, queue_id = row.id, "mark_dead (suppress) failed");
                     } else {
                         stats.dead += 1;
-                        // The SMTP server rejected the address as bad
-                        // (550/551/553). Add it to the suppression list so
-                        // future sends to it are skipped pre-send.
-                        let new = crate::models::NewEmailSuppression {
-                            email: row.recipient.clone(),
-                            reason: crate::models::email_suppression_reason::HARD_BOUNCE
-                                .to_string(),
-                            bounce_diagnostic: Some(error.clone()),
-                        };
-                        if let Err(e) = crate::repository::email_suppressions::upsert(conn, new) {
-                            warn!(
-                                error = %e,
-                                queue_id = row.id,
-                                recipient = %row.recipient,
-                                "failed to add suppression after SMTP reject"
-                            );
-                        }
                         warn!(
                             queue_id = row.id,
                             recipient = %row.recipient,
                             smtp_code = ?code,
-                            "email rejected as bad recipient; added to suppression list"
+                            "email rejected as bad recipient; dead-lettered (suppression deferred to the DSN path)"
                         );
                     }
                 }

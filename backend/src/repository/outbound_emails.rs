@@ -87,8 +87,23 @@ pub fn enqueue_idempotent(
             // the caller can log the queue id without distinguishing
             // first-insert from retry. Operators inspecting the admin
             // queue UI see only one row per logical send regardless.
+            //
+            // Scope the read to the current workspace. The unique index is
+            // (workspace_id, idempotency_key), so the conflict is within this
+            // workspace; the INSERT assigns workspace_id from the
+            // `app.workspace_id` GUC, so the same GUC scopes the recovery. This
+            // matters because the recovery may run under a BYPASSRLS connection
+            // where RLS wouldn't scope it: filtering by key alone could return
+            // another tenant's row if a key is ever reused across workspaces.
+            // With both columns filtered the partial unique index guarantees at
+            // most one match, so `.first()` is deterministic.
             outbound_emails::table
                 .filter(outbound_emails::idempotency_key.eq(&key))
+                .filter(outbound_emails::workspace_id.eq(diesel::dsl::sql::<
+                    diesel::sql_types::Integer,
+                >(
+                    "current_setting('app.workspace_id')::int",
+                )))
                 .first(conn)
         }
     }

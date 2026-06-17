@@ -26,7 +26,7 @@ use tokio_postgres::{AsyncMessage, NoTls};
 use tracing::{debug, error, info, warn};
 
 use crate::db::Pool;
-use crate::services::email_queue::circuit::CircuitBreaker;
+use crate::services::email_queue::circuit::CircuitBreakerRegistry;
 use crate::services::email_queue::worker;
 use crate::services::outbound_email::OutboundEmailResolver;
 
@@ -39,9 +39,9 @@ const SAFETY_NET_TICK: Duration = Duration::from_secs(30);
 /// reconnects — there's no recoverable "task failed" state for the
 /// caller to act on.
 pub fn spawn(database_url: String, pool: Pool, resolver: Arc<OutboundEmailResolver>) {
-    let breaker = Arc::new(CircuitBreaker::new());
+    let registry = Arc::new(CircuitBreakerRegistry::new());
     tokio::spawn(async move {
-        run(database_url, pool, resolver, breaker).await;
+        run(database_url, pool, resolver, registry).await;
     });
 }
 
@@ -49,12 +49,12 @@ async fn run(
     database_url: String,
     pool: Pool,
     resolver: Arc<OutboundEmailResolver>,
-    breaker: Arc<CircuitBreaker>,
+    registry: Arc<CircuitBreakerRegistry>,
 ) {
     info!("email queue listener starting");
     let mut backoff_ms = RECONNECT_BACKOFF_MS;
     loop {
-        match listen_loop(&database_url, &pool, &resolver, &breaker).await {
+        match listen_loop(&database_url, &pool, &resolver, &registry).await {
             Ok(()) => {
                 warn!("email queue listener exited cleanly; reconnecting");
                 backoff_ms = RECONNECT_BACKOFF_MS;
@@ -76,7 +76,7 @@ async fn listen_loop(
     database_url: &str,
     pool: &Pool,
     resolver: &Arc<OutboundEmailResolver>,
-    breaker: &Arc<CircuitBreaker>,
+    registry: &Arc<CircuitBreakerRegistry>,
 ) -> Result<(), anyhow::Error> {
     // Same dedicated tokio_postgres connection pattern as sync_outbox.
     let (client, connection) = tokio_postgres::connect(database_url, NoTls).await?;
@@ -113,7 +113,7 @@ async fn listen_loop(
 
     // Catch-up on connect: anything enqueued between our last drain
     // and this LISTEN was missed. Drain now before tailing.
-    drain(pool, resolver, breaker).await;
+    drain(pool, resolver, registry).await;
 
     let mut safety_tick = tokio::time::interval(SAFETY_NET_TICK);
     safety_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -125,14 +125,14 @@ async fn listen_loop(
                 if recv.is_none() {
                     break;
                 }
-                drain(pool, resolver, breaker).await;
+                drain(pool, resolver, registry).await;
             }
             _ = safety_tick.tick() => {
                 // Belt-and-braces: in case a notification was missed
                 // (reconnect window, channel buffer overflow). Cheap
                 // when the queue is empty — claim_batch returns []
                 // immediately.
-                drain(pool, resolver, breaker).await;
+                drain(pool, resolver, registry).await;
             }
         }
     }
@@ -141,13 +141,17 @@ async fn listen_loop(
     Err(anyhow::anyhow!("notification stream closed"))
 }
 
-async fn drain(pool: &Pool, resolver: &Arc<OutboundEmailResolver>, breaker: &Arc<CircuitBreaker>) {
+async fn drain(
+    pool: &Pool,
+    resolver: &Arc<OutboundEmailResolver>,
+    registry: &Arc<CircuitBreakerRegistry>,
+) {
     // Loop until the worker reports an empty claim — drains a burst
     // (multi-row commit) in one notification rather than waiting for
     // the next tick.
     loop {
         let stats =
-            match worker::run_one_drain(pool.clone(), resolver.clone(), breaker.clone()).await {
+            match worker::run_one_drain(pool.clone(), resolver.clone(), registry.clone()).await {
                 Ok(s) => s,
                 Err(e) => {
                     error!(error = %e, "email queue: drain failed");
@@ -157,7 +161,8 @@ async fn drain(pool: &Pool, resolver: &Arc<OutboundEmailResolver>, breaker: &Arc
         if stats.claimed == 0 {
             break;
         }
-        // If the breaker tripped mid-batch, stop looping until next tick.
+        // If the instance relay's breaker tripped mid-batch, stop looping until
+        // next tick rather than re-claiming rows we'll only release.
         if stats.circuit_skipped > 0 {
             break;
         }
