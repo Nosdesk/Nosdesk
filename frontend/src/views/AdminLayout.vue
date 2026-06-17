@@ -4,7 +4,6 @@ import { useRoute } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import AdminSidebar from '@/components/admin/AdminSidebar.vue';
 import { allAdminNavItems, isAdminRouteActive } from '@/components/admin/adminNavData';
-import { effectiveRouteName } from '@/router/workspaceRouting';
 
 const route = useRoute();
 const fluent = useFluent();
@@ -12,9 +11,8 @@ const fluent = useFluent();
 // Index-page check via the named route, not a string compare.
 // The router resolves trailing slashes, query strings, hashes, and
 // future path renames into the same `route.name`, so a name check
-// is more robust than `route.path === '/admin'`. `effectiveRouteName`
-// keeps it working under the anonymous `/:workspace` nested copies.
-const isIndexPage = computed(() => effectiveRouteName(route) === 'admin-index');
+// is more robust than `route.path === '/admin'`.
+const isIndexPage = computed(() => route.name === 'admin-index');
 
 // Current active nav item for the mobile breadcrumb
 const activeItem = computed(() => {

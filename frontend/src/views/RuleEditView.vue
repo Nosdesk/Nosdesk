@@ -15,7 +15,6 @@
  */
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { effectiveRouteName } from '@/router/workspaceRouting';
 import { useFluent } from 'fluent-vue';
 import { useQueryCache } from '@pinia/colada';
 
@@ -44,7 +43,7 @@ const router = useRouter();
 const toast = useToastStore();
 const queryCache = useQueryCache();
 
-const isNew = computed(() => effectiveRouteName(route) === 'admin-rules-new');
+const isNew = computed(() => route.name === 'admin-rules-new');
 const ruleId = computed<number | null>(() =>
   isNew.value ? null : Number(route.params.id) || null,
 );
