@@ -7039,6 +7039,10 @@ pub struct OutboundEmail {
     /// (the instance identity, for auth mail that must not originate from a
     /// tenant relay). Decided at enqueue.
     pub sender_identity: String,
+    /// Notification vs transactional (see [`outbound_email_mail_class`]).
+    /// Drives deliverability headers (List-Unsubscribe on notification only).
+    /// Last field so the column order matches the schema.
+    pub mail_class: String,
 }
 
 #[derive(Debug, Clone, Insertable)]
@@ -7065,6 +7069,9 @@ pub struct NewOutboundEmail {
     /// See [`outbound_email_sender_identity`]: `workspace` for conversation /
     /// notification mail, `platform` for password reset / invitation.
     pub sender_identity: String,
+    /// See [`outbound_email_mail_class`]: `notification` (opt-out-able) or
+    /// `transactional` (must-deliver). Set explicitly at enqueue.
+    pub mail_class: String,
 }
 
 /// Status string constants. Centralised so Rust callers (worker, repo,
@@ -7086,6 +7093,17 @@ pub mod outbound_email_status {
 pub mod outbound_email_sender_identity {
     pub const WORKSPACE: &str = "workspace";
     pub const PLATFORM: &str = "platform";
+}
+
+/// Mail-class constants, kept in lockstep with the
+/// `outbound_emails_mail_class_check` SQL constraint. `NOTIFICATION` is
+/// opt-out-able mail (ticket-update notifications) that carries
+/// List-Unsubscribe; `TRANSACTIONAL` is must-deliver mail (password reset,
+/// invitation, the agent's reply, auto-ack) that never does. A distinct axis
+/// from sender identity: a conversation reply is `workspace` + `transactional`.
+pub mod outbound_email_mail_class {
+    pub const TRANSACTIONAL: &str = "transactional";
+    pub const NOTIFICATION: &str = "notification";
 }
 
 // === Email suppression list ==================================

@@ -1446,6 +1446,7 @@ mod tests {
             correlation_id: None,
             idempotency_key: None,
             sender_identity: crate::models::outbound_email_sender_identity::WORKSPACE.to_string(),
+            mail_class: crate::models::outbound_email_mail_class::TRANSACTIONAL.to_string(),
         }
     }
 

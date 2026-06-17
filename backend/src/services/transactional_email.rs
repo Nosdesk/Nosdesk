@@ -23,7 +23,9 @@ use diesel::result::Error as DieselError;
 use ring::digest;
 
 use crate::db::DbConnection;
-use crate::models::{outbound_email_sender_identity, NewOutboundEmail, OutboundEmail};
+use crate::models::{
+    outbound_email_mail_class, outbound_email_sender_identity, NewOutboundEmail, OutboundEmail,
+};
 use crate::repository::outbound_emails;
 use crate::utils::email::{EmailBranding, EmailService};
 
@@ -106,6 +108,7 @@ pub fn prepare_password_reset(
         idempotency_key: Some(format!("password_reset:{}", hash16(reset_token))),
         // Auth mail: pin the instance identity, never a tenant relay.
         sender_identity: outbound_email_sender_identity::PLATFORM.to_string(),
+        mail_class: outbound_email_mail_class::TRANSACTIONAL.to_string(),
     }
 }
 
@@ -160,6 +163,7 @@ pub fn prepare_invitation(
         idempotency_key: Some(format!("invitation:{}", hash16(invitation_token))),
         // Auth mail: pin the instance identity, never a tenant relay.
         sender_identity: outbound_email_sender_identity::PLATFORM.to_string(),
+        mail_class: outbound_email_mail_class::TRANSACTIONAL.to_string(),
     }
 }
 
@@ -233,6 +237,7 @@ pub fn prepare_notification(
         // Notifications send from the workspace identity (fall back to the
         // instance identity when the workspace hasn't configured one).
         sender_identity: outbound_email_sender_identity::WORKSPACE.to_string(),
+        mail_class: outbound_email_mail_class::NOTIFICATION.to_string(),
     }
 }
 
@@ -406,6 +411,48 @@ mod tests {
             row.body_text
         );
         assert!(row.body_text.contains("Alice"));
+    }
+
+    #[test]
+    fn mail_class_distinguishes_notification_from_transactional() {
+        use crate::models::outbound_email_mail_class as mc;
+
+        let reset = prepare_password_reset(
+            &test_svc(),
+            &test_branding(),
+            "alice@example.com",
+            "Alice",
+            "tok",
+            &en_us(),
+        );
+        let invite = prepare_invitation(
+            &test_svc(),
+            &test_branding(),
+            "bob@example.com",
+            "Bob",
+            "tok",
+            "Kyle",
+            &en_us(),
+        );
+        let notify = prepare_notification(
+            &test_svc(),
+            &test_branding(),
+            "carol@example.com",
+            "subj",
+            "title",
+            "body",
+            "Dave",
+            "https://desk.example.com/tickets/1",
+            "evt-1",
+            "11111111-1111-1111-1111-111111111111",
+            &en_us(),
+        );
+
+        // Auth mail is must-deliver; only the ticket-activity notification is the
+        // opt-out-able class that will carry List-Unsubscribe (B2).
+        assert_eq!(reset.mail_class, mc::TRANSACTIONAL);
+        assert_eq!(invite.mail_class, mc::TRANSACTIONAL);
+        assert_eq!(notify.mail_class, mc::NOTIFICATION);
     }
 
     #[test]

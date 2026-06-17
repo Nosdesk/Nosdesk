@@ -233,6 +233,9 @@ pub fn enqueue_for_comment(
                     idempotency_key: None,
                     sender_identity: crate::models::outbound_email_sender_identity::WORKSPACE
                         .to_string(),
+                    // The agent's reply is conversation mail: workspace identity,
+                    // but transactional (no List-Unsubscribe on a human reply).
+                    mail_class: crate::models::outbound_email_mail_class::TRANSACTIONAL.to_string(),
                 };
 
                 let row = crate::repository::outbound_emails::enqueue_or_suppress(conn, new_row)

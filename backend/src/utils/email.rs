@@ -1119,6 +1119,9 @@ impl EmailService {
             in_reply_to: None,
             references: &[],
             auto_submitted: None,
+            // Generic direct-send path; its callers (test mail, guest ticket
+            // confirmation) are transactional, the safe no-unsubscribe default.
+            mail_class: crate::models::outbound_email_mail_class::TRANSACTIONAL,
         };
         self.send_outbound(&outbound).await.map(|_| ())
     }
@@ -1143,6 +1146,9 @@ impl EmailService {
             in_reply_to: None,
             references: &[],
             auto_submitted: None,
+            // Generic direct-send path; its callers (test mail, guest ticket
+            // confirmation) are transactional, the safe no-unsubscribe default.
+            mail_class: crate::models::outbound_email_mail_class::TRANSACTIONAL,
         };
         self.send_outbound(&outbound).await.map(|_| ())
     }
@@ -1554,6 +1560,12 @@ pub struct OutboundEmailMessage<'a> {
     /// (`Auto-Submitted` + `X-Auto-Response-Suppress`) are emitted so the
     /// recipient's OOO / auto-responder won't bounce back and ping-pong.
     pub auto_submitted: Option<&'a str>,
+    /// Mail class (see `models::outbound_email_mail_class`): `"notification"`
+    /// (opt-out-able) or `"transactional"` (must-deliver). Carried to the send
+    /// path so deliverability headers branch on it (List-Unsubscribe on
+    /// notification only). Defaults to transactional on any path that hasn't
+    /// classified itself, which is the safe, no-unsubscribe choice.
+    pub mail_class: &'a str,
 }
 
 #[cfg(test)]
@@ -1623,6 +1635,7 @@ mod tests {
                 in_reply_to: None,
                 references: &[],
                 auto_submitted: None,
+                mail_class: "transactional",
             })
             .unwrap();
         assert!(
@@ -1644,6 +1657,7 @@ mod tests {
                 in_reply_to: None,
                 references: &[],
                 auto_submitted: None,
+                mail_class: "transactional",
             })
             .unwrap();
         let dump = rendered(&msg);
@@ -1669,6 +1683,7 @@ mod tests {
                         in_reply_to: None,
                         references: &[],
                         auto_submitted: auto,
+                        mail_class: "transactional",
                     })
                     .unwrap(),
             )
@@ -1744,6 +1759,7 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
             in_reply_to: None,
             references: &[],
             auto_submitted: None,
+            mail_class: "transactional",
         }
     }
 
@@ -1886,6 +1902,7 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
                 in_reply_to: Some("<second@x>"),
                 references: &refs,
                 auto_submitted: None,
+                mail_class: "transactional",
             })
             .unwrap();
         let dump = rendered(&msg);
@@ -1908,6 +1925,7 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
                 in_reply_to: None,
                 references: &[],
                 auto_submitted: None,
+                mail_class: "transactional",
             })
             .unwrap();
         let dump = rendered(&msg);
@@ -1937,6 +1955,7 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
             in_reply_to: None,
             references: &[],
             auto_submitted: None,
+            mail_class: "transactional",
         };
         let rt = tokio::runtime::Runtime::new().unwrap();
         let err = rt

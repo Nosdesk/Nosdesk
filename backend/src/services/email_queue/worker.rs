@@ -236,6 +236,7 @@ async fn dispatch(
         in_reply_to: row.in_reply_to.as_deref(),
         references: &references,
         auto_submitted,
+        mail_class: &row.mail_class,
     };
 
     match email.send_outbound(&message).await {

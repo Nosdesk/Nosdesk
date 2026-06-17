@@ -842,6 +842,10 @@ pub fn enqueue_merge_notifications(
                 idempotency_key: None,
                 sender_identity: crate::models::outbound_email_sender_identity::WORKSPACE
                     .to_string(),
+                // A merge notice to the customer is conversation mail about
+                // their own ticket: transactional, not an opt-out-able
+                // notification (only internal ticket-activity notifications are).
+                mail_class: crate::models::outbound_email_mail_class::TRANSACTIONAL.to_string(),
             },
         )?;
         enqueued += 1;

@@ -536,6 +536,8 @@ impl ChannelAdapter for EmailImapAdapter {
             references: &thread.references,
             // Tech-authored reply: a human wrote it, so no auto headers.
             auto_submitted: None,
+            // Conversation mail to the customer: transactional, never opt-out-able.
+            mail_class: crate::models::outbound_email_mail_class::TRANSACTIONAL,
         };
 
         self.email

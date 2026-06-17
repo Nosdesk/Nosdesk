@@ -955,6 +955,8 @@ diesel::table! {
         provider_message_id -> Nullable<Text>,
         #[max_length = 16]
         sender_identity -> Varchar,
+        #[max_length = 16]
+        mail_class -> Varchar,
     }
 }
 
