@@ -166,6 +166,7 @@ impl WorkspaceContextConfig {
                     workspace_uuid: ws.uuid,
                     slug: ws.slug,
                     name: ws.name,
+                    custom_domain: ws.custom_domain,
                     organisation_id: ws.organisation_id,
                 }))
             }
@@ -308,6 +309,7 @@ fn workspace_to_context(ws: crate::models::Workspace) -> WorkspaceContext {
         workspace_uuid: ws.uuid,
         slug: ws.slug,
         name: ws.name,
+        custom_domain: ws.custom_domain,
         organisation_id: ws.organisation_id,
     }
 }
