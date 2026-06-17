@@ -1,6 +1,7 @@
 // App.vue
 <script setup lang="ts">
 import { RouterView, useRoute, useRouter } from 'vue-router'
+import { effectiveRouteName } from '@/router/workspaceRouting'
 import { computed, ref, onMounted, watch, nextTick } from 'vue'
 import { useFluent } from 'fluent-vue'
 import Navbar from './components/Navbar.vue'
@@ -87,13 +88,14 @@ useTicketDeletionCleanup();
 
 // Computed property to determine if on a documentation page
 const isDocumentationPage = computed(() => {
-  return route.name === 'documentation-article';
+  return effectiveRouteName(route) === 'documentation-article';
 });
 
 // Computed property for the current page URL (for display purposes)
 const currentPageUrl = computed(() => {
   // Only show URL for certain pages
-  if (route.name === 'settings' || route.name === 'profile') {
+  const name = effectiveRouteName(route);
+  if (name === 'settings' || name === 'profile') {
     return window.location.href;
   }
   return undefined;

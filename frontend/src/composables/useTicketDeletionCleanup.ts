@@ -32,6 +32,7 @@
  */
 import { useRoute, useRouter } from 'vue-router'
 import { useQueryCache } from '@pinia/colada'
+import { effectiveRouteName } from '@/router/workspaceRouting'
 
 import { useSyncActions } from '@/composables/useSyncActions'
 import { useCollabSessionStore } from '@/stores/collabSession'
@@ -77,7 +78,7 @@ export function useTicketDeletionCleanup(): void {
     // If we're currently viewing the ticket that just got deleted,
     // navigate away before the next render tries to read from
     // half-purged state.
-    if (route.name === 'ticket-view' && Number(route.params.id) === id) {
+    if (effectiveRouteName(route) === 'ticket-view' && Number(route.params.id) === id) {
       void router.push('/tickets')
     }
   }

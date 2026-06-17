@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory, type RouteLocationNormalized } from 'vue-router'
+import { withWorkspaceRouting, installWorkspacePrefixGuard, effectiveRouteName } from './workspaceRouting'
 import DashboardView from '../views/DashboardView.vue'
 import TicketView from '../views/TicketView.vue'
 import LoginView from '../views/LoginView.vue'
@@ -50,12 +51,16 @@ declare module 'vue-router' {
     createButtonTextKey?: string;
     createButtonIcon?: 'plus' | 'ticket' | 'user' | 'device' | 'project' | 'document';
     preloadedDocument?: unknown;
+    /** Logical route name preserved on the anonymous `/:workspace` nested
+     * copies (slug-in-path mode), where `route.name` is undefined. Read via
+     * `effectiveRouteName` so name checks hold in both routing modes. */
+    routeName?: string;
   }
 }
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
-  routes: [
+  routes: withWorkspaceRouting([
     {
       path: '/login',
       name: 'login',
@@ -872,8 +877,12 @@ const router = createRouter({
       path: '/:pathMatch(.*)*',
       redirect: '/error/404'
     }
-  ],
+  ]),
 })
+
+// Slug-in-path prefix guard (Model C, path mode). Registered first so it runs
+// before the auth guards; inert in host mode. See ./workspaceRouting.
+installWorkspacePrefixGuard(router)
 
 // Update document title on navigation
 // Routes where useTitleManager handles document.title (skip generic title-setting)
@@ -881,8 +890,11 @@ const titleManagedRoutes = ['ticket', 'device', 'documentation-article'];
 
 router.beforeResolve((to) => {
   // Skip title-setting for routes managed by useTitleManager —
-  // those views set their own specific title (e.g. "#123 Fix the bug")
-  if (titleManagedRoutes.includes(to.name as string)) {
+  // those views set their own specific title (e.g. "#123 Fix the bug").
+  // `effectiveRouteName` so this still matches under the anonymous
+  // `/:workspace` nested copies (slug-in-path mode).
+  const routeName = effectiveRouteName(to);
+  if (routeName && titleManagedRoutes.includes(routeName)) {
     return;
   }
 
@@ -905,8 +917,8 @@ router.beforeResolve((to) => {
     title = translate(titleKey, titleKeyArgs);
   } else if (to.meta?.title) {
     title = to.meta.title as string;
-  } else if (to.name) {
-    title = to.name.toString()
+  } else if (routeName) {
+    title = routeName
       .split('-')
       .map(word => word.charAt(0).toUpperCase() + word.slice(1))
       .join(' ');
