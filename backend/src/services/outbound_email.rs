@@ -62,8 +62,6 @@ pub enum ResolveError {
     Db(diesel::result::Error),
     /// Acquiring a pooled connection / pinning the workspace failed.
     Background(BackgroundRunError),
-    /// A `smtp_relay` workspace's relay host failed the SSRF egress check.
-    RelayHostRejected(String),
 }
 
 impl std::fmt::Display for ResolveError {
@@ -73,42 +71,10 @@ impl std::fmt::Display for ResolveError {
             Self::Credential(e) => write!(f, "outbound SMTP password: {e}"),
             Self::Db(e) => write!(f, "reading workspace email settings: {e}"),
             Self::Background(e) => write!(f, "resolving workspace email settings: {e}"),
-            Self::RelayHostRejected(h) => write!(f, "relay host rejected (SSRF guard): {h}"),
         }
     }
 }
 impl std::error::Error for ResolveError {}
-
-/// First-layer SSRF guard for a workspace-supplied SMTP relay host. The
-/// `smtp_relay` mode dials a tenant-controlled host, so reject one that points
-/// at an internal target: an IP-literal in a non-routable block (loopback,
-/// link-local / cloud metadata `169.254.169.254`, RFC1918, CGNAT, …) or an
-/// obvious `localhost` name. The egress allowlist
-/// (`NOSDESK_OUTBOUND_ALLOWED_HOSTS`) exempts same-VPC self-host relays.
-///
-/// This is the SYNCHRONOUS half only: it does NOT resolve hostnames, so a
-/// hostname that resolves to an internal IP still passes here. Before
-/// `smtp_relay` gets a configuration UI, the save path must additionally run the
-/// async `egress::resolve_and_validate` and the send must connect to the
-/// validated address (as the IMAP adapter does), closing the hostname and
-/// DNS-rebind gap. Until then no endpoint accepts a tenant relay host, so this
-/// guard is defence-in-depth, not the sole control.
-fn validate_relay_host(host: &str) -> Result<(), ResolveError> {
-    use crate::utils::egress;
-    let host = host.trim();
-    if egress::is_host_allowlisted(host) {
-        return Ok(());
-    }
-    let lower = host.to_ascii_lowercase();
-    if lower == "localhost" || lower.ends_with(".localhost") {
-        return Err(ResolveError::RelayHostRejected(host.to_string()));
-    }
-    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
-        egress::validate_resolved_ip(&ip)
-            .map_err(|_| ResolveError::RelayHostRejected(host.to_string()))?;
-    }
-    Ok(())
-}
 
 impl OutboundEmailResolver {
     pub fn new(pool: Pool, fallback: Option<Arc<EmailService>>) -> Self {
@@ -237,13 +203,15 @@ impl OutboundEmailResolver {
                 if r.smtp_host.trim().is_empty() {
                     return Ok(None);
                 }
-                validate_relay_host(&r.smtp_host)?;
                 let password = ws_settings::decrypt_password(r)
                     .map_err(ResolveError::Credential)?
                     .unwrap_or_default();
-                Ok(Some(Arc::new(EmailService::new(build_email_config(
-                    r, password,
-                )))))
+                // The host is tenant-supplied: build an untrusted-relay service
+                // that SSRF-validates the host and connects to a validated
+                // address on every send.
+                Ok(Some(Arc::new(EmailService::new_untrusted_relay(
+                    build_email_config(r, password),
+                ))))
             }
             workspace_email_sending_mode::VERIFIED_DOMAIN => {
                 if r.verification_status != workspace_email_verification_status::VERIFIED {
@@ -326,32 +294,6 @@ mod tests {
     use crate::models::UpsertWorkspaceEmailSettings;
     use crate::repository::workspace_email_settings as repo;
     use crate::test_helpers::{setup_test_connection, setup_test_pool};
-
-    #[test]
-    fn relay_host_ssrf_guard_rejects_internal_ip_literals() {
-        // Public IP literal and a plain hostname pass the synchronous guard
-        // (a hostname isn't resolved here, by design).
-        assert!(validate_relay_host("8.8.8.8").is_ok());
-        assert!(validate_relay_host("smtp.example.com").is_ok());
-        // Loopback, link-local/metadata, RFC1918, and IPv6 loopback literals are
-        // rejected. These are never on the egress allowlist, so the assertion is
-        // independent of any concurrent test toggling the env var.
-        for bad in [
-            "127.0.0.1",
-            "169.254.169.254",
-            "10.0.0.5",
-            "192.168.1.1",
-            "::1",
-        ] {
-            assert!(
-                matches!(
-                    validate_relay_host(bad),
-                    Err(ResolveError::RelayHostRejected(_))
-                ),
-                "expected {bad} to be rejected"
-            );
-        }
-    }
 
     fn fallback_service() -> Arc<EmailService> {
         Arc::new(EmailService::new(EmailConfig {

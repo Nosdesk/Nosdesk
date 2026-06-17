@@ -704,18 +704,42 @@ impl EmailConfig {
     }
 }
 
-/// Build a lettre SMTP mailer from config. Shared by the SMTP transport
-/// and the legacy direct-send methods so the connection/security wiring
-/// lives in one place.
+/// Build a lettre SMTP mailer from config, connecting to `config.smtp_host`.
+/// Shared by the SMTP transport and the direct-send methods so the
+/// connection/security wiring lives in one place.
 fn build_smtp_mailer(config: &EmailConfig) -> Result<SmtpTransport, String> {
+    build_smtp_mailer_for(config, &config.smtp_host, &config.smtp_host)
+}
+
+/// Build a lettre SMTP mailer that TCP-connects to `connect_host` while
+/// validating TLS against `tls_domain`. For a trusted relay both are the
+/// configured hostname (lettre resolves it). For a tenant relay (`smtp_relay`)
+/// `connect_host` is a pre-validated IP and `tls_domain` is the hostname, so the
+/// connection goes to the SSRF-vetted address while the certificate / SNI still
+/// checks against the hostname. lettre's `relay()`/`starttls_relay()` are just
+/// sugar over `builder_dangerous(server).tls(..(TlsParameters::new(domain)))`,
+/// so splitting the two is exactly what they do, minus the coupling.
+fn build_smtp_mailer_for(
+    config: &EmailConfig,
+    connect_host: &str,
+    tls_domain: &str,
+) -> Result<SmtpTransport, String> {
+    use lettre::transport::smtp::client::{Tls, TlsParameters};
+
+    let tls_params = || {
+        TlsParameters::new(tls_domain.to_string())
+            .map_err(|e| format!("Failed to build TLS parameters: {e}"))
+    };
     let builder = match config.security {
-        SmtpSecurity::Tls => SmtpTransport::relay(&config.smtp_host)
-            .map_err(|e| format!("Failed to create SMTP transport: {e}"))?,
-        SmtpSecurity::StartTls => SmtpTransport::starttls_relay(&config.smtp_host)
-            .map_err(|e| format!("Failed to create SMTP transport: {e}"))?,
+        SmtpSecurity::Tls => {
+            SmtpTransport::builder_dangerous(connect_host).tls(Tls::Wrapper(tls_params()?))
+        }
+        SmtpSecurity::StartTls => {
+            SmtpTransport::builder_dangerous(connect_host).tls(Tls::Required(tls_params()?))
+        }
         // Plain transport for local test servers (Greenmail, Mailpit): no
         // TLS, no auth.
-        SmtpSecurity::Plaintext => SmtpTransport::builder_dangerous(&config.smtp_host),
+        SmtpSecurity::Plaintext => SmtpTransport::builder_dangerous(connect_host),
     };
     let builder = builder.port(config.smtp_port);
 
@@ -927,17 +951,40 @@ pub struct SmtpEmailTransport {
     /// domain (signs `d=domain`); `None` leaves signing to the relay or a
     /// later platform-domain signer.
     dkim: Option<DkimSigner>,
+    /// True when `config.smtp_host` is tenant-supplied (the `smtp_relay` mode
+    /// dials a workspace's own relay). Gates the SSRF resolve-and-validate +
+    /// connect-to-validated-address in `send`. The env relay and the
+    /// verified-domain relay are operator config and stay `false`.
+    untrusted_host: bool,
 }
 
 impl SmtpEmailTransport {
     pub fn new(config: EmailConfig) -> Self {
-        Self { config, dkim: None }
+        Self {
+            config,
+            dkim: None,
+            untrusted_host: false,
+        }
     }
 
     /// Construct with a DKIM signer, so every send is signed `d=domain` before
     /// the relay hands it off.
     pub fn with_dkim(config: EmailConfig, dkim: Option<DkimSigner>) -> Self {
-        Self { config, dkim }
+        Self {
+            config,
+            dkim,
+            untrusted_host: false,
+        }
+    }
+
+    /// Construct for a tenant-supplied relay host (`smtp_relay` mode). Every
+    /// send SSRF-validates the host and connects to a validated address.
+    pub fn new_untrusted(config: EmailConfig) -> Self {
+        Self {
+            config,
+            dkim: None,
+            untrusted_host: true,
+        }
     }
 }
 
@@ -951,7 +998,28 @@ impl EmailTransport for SmtpEmailTransport {
         if let Some(signer) = &self.dkim {
             dkim_sign_message(&mut message, signer)?;
         }
-        let mailer = build_smtp_mailer(&self.config)?;
+        let mailer = if self.untrusted_host {
+            // The relay host is tenant-controlled. Resolve + SSRF-vet it and
+            // connect to a validated address rather than letting lettre
+            // re-resolve the hostname, so a record pointing at an internal /
+            // metadata IP (or a rebind between the check and the connect) can't
+            // be reached. TLS still validates against the hostname (SNI + cert).
+            let addrs = crate::utils::egress::resolve_and_validate(
+                &self.config.smtp_host,
+                self.config.smtp_port,
+            )
+            .await
+            .map_err(|e| format!("relay host rejected: {e}"))?;
+            let ip = addrs
+                .first()
+                .ok_or_else(|| "no validated address for relay host".to_string())?
+                .ip();
+            // All returned addresses are vetted (resolve_and_validate fails
+            // closed if any is non-routable), so the first is safe to use.
+            build_smtp_mailer_for(&self.config, &ip.to_string(), &self.config.smtp_host)?
+        } else {
+            build_smtp_mailer(&self.config)?
+        };
         mailer
             .send(&message)
             .map_err(|e| format!("Failed to send ticket reply: {e}"))?;
@@ -991,6 +1059,15 @@ impl EmailService {
     pub fn smtp_with_dkim(config: EmailConfig, dkim: Option<DkimSigner>) -> Self {
         let transport: Arc<dyn EmailTransport> =
             Arc::new(SmtpEmailTransport::with_dkim(config.clone(), dkim));
+        Self { config, transport }
+    }
+
+    /// Create a service for a tenant-supplied SMTP relay (`smtp_relay` mode).
+    /// The relay host is SSRF-validated on every send and the connection goes to
+    /// a validated address (see `SmtpEmailTransport::new_untrusted`).
+    pub fn new_untrusted_relay(config: EmailConfig) -> Self {
+        let transport: Arc<dyn EmailTransport> =
+            Arc::new(SmtpEmailTransport::new_untrusted(config.clone()));
         Self { config, transport }
     }
 
@@ -1735,6 +1812,48 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
         assert!(
             err.contains("invalid DKIM signing key"),
             "unexpected: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn untrusted_relay_rejects_internal_host_before_connecting() {
+        // An untrusted (smtp_relay) transport pointed at a loopback host must be
+        // refused by the SSRF resolve+validate step, not dialed. 127.0.0.1 is an
+        // IP literal so resolve_and_validate hits no network DNS — it resolves
+        // locally and the routability check rejects it. Deterministic; the egress
+        // allowlist never contains 127.0.0.1.
+        let mut config = dkim_test_config();
+        config.smtp_host = "127.0.0.1".into();
+        let transport = SmtpEmailTransport::new_untrusted(config);
+        let outbound = dkim_test_outbound();
+        let err = match transport.send(&outbound).await {
+            Err(e) => e,
+            Ok(_) => panic!("expected the internal relay host to be rejected"),
+        };
+        assert!(
+            err.contains("relay host rejected"),
+            "expected SSRF rejection, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn trusted_relay_does_not_ssrf_validate_the_host() {
+        // The env/verified-domain relay is operator config: a loopback host is a
+        // legitimate self-host relay and must NOT be SSRF-rejected. It will fail
+        // to connect (nothing is listening), but the error must be a connection
+        // failure, not the SSRF rejection.
+        let mut config = dkim_test_config();
+        config.smtp_host = "127.0.0.1".into();
+        config.smtp_port = 59; // almost certainly closed
+        let transport = SmtpEmailTransport::new(config);
+        let outbound = dkim_test_outbound();
+        let err = match transport.send(&outbound).await {
+            Err(e) => e,
+            Ok(_) => panic!("expected a connection failure to the closed port"),
+        };
+        assert!(
+            !err.contains("relay host rejected"),
+            "trusted relay must not be SSRF-rejected, got: {err}"
         );
     }
 
