@@ -2,8 +2,9 @@ name: Release
 
 # Build + publish the production image on a version tag (e.g. v0.1.0-rc.5),
 # then create the matching GitHub Release. Runs on a native amd64 runner (no
-# QEMU), pushing to GHCR and Docker Hub. `-rc`/`-beta` tags are marked as
-# prerelease so the in-app updater (stable-only /releases/latest) skips them.
+# QEMU). Stable tags push to GHCR and Docker Hub; `-rc`/`-beta` prereleases
+# push to GHCR only and are marked prerelease so the in-app updater
+# (stable-only /releases/latest) skips them.
 # Does NOT re-run tests: tag a commit that already passed CI on main.
 #
 # Required repository secrets:
@@ -46,9 +47,11 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
+          # Prerelease tags (-rc/-beta) publish to GHCR only; Docker Hub gets
+          # stable releases only. metadata-action drops the disabled image.
           images: |
             ghcr.io/nosdesk/nosdesk
-            docker.io/nosdesk/nosdesk
+            name=docker.io/nosdesk/nosdesk,enable=${{ !contains(github.ref_name, '-') }}
           tags: |
             type=semver,pattern={{version}}
             type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
@@ -64,6 +67,8 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to Docker Hub
+        # Stable tags only; prereleases publish to GHCR alone (no Docker Hub push).
+        if: ${{ !contains(github.ref_name, '-') }}
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
