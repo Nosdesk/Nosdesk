@@ -88,6 +88,9 @@ fly.dev.toml
 # v1 release-candidate fly app config (personal-org, throwaway). Local-only
 # like fly.dev.toml: keeps personal deploy config out of the public repo.
 fly.rc.toml
+# Hosted staging app config (personal-org nosdesk-dev). Deploy orchestration,
+# not product code; stays local like the other fly.*.toml above.
+fly.hosted-test.toml
 
 # Signed plugin zips dropped for provisioning. The directory is
 # tracked (README explains the convention) but the artefacts are
