@@ -1522,6 +1522,9 @@ async fn main() -> std::io::Result<()> {
             // Public branding config (needed for favicon/logo before login)
             .route("/api/branding", web::get().to(handlers::branding::get_public_branding))
 
+            // Public instance config (routing topology) read at SPA startup
+            .route("/api/config", web::get().to(handlers::app_config::get_public_config))
+
             // Public (unauthenticated) guest endpoints — feature flags checked per handler.
             // Tighter JSON payload limit here than the app-wide default: the only
             // write endpoint in this scope is /tickets with a 10KB description cap,
