@@ -27,6 +27,7 @@ import type {
   RouteLocationNormalized,
 } from 'vue-router';
 import { getWorkspaceRouting } from '@/services/instanceConfig';
+import { setActiveWorkspaceSlug } from '@/services/activeWorkspace';
 
 const WORKSPACE_PARAM = 'workspace';
 
@@ -84,7 +85,13 @@ export function installWorkspaceGuard(router: Router): void {
     if (getWorkspaceRouting() !== 'path') {
       return slug ? { path: '/error/404', replace: true } : true;
     }
-    if (slug) return true;
+    if (slug) {
+      // On a workspace route: publish the slug so the axios interceptor sends
+      // it as the selection header. Set here (beforeEach), before route loaders
+      // fire, so the first data fetch on a fresh navigation already carries it.
+      setActiveWorkspaceSlug(slug);
+      return true;
+    }
     if (!isAuthed(to)) return true;
     const fromSlug = workspaceSlugOf(from);
     if (!fromSlug) return true;

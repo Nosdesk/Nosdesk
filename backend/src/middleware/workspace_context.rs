@@ -89,11 +89,11 @@ pub fn invalidate_cache_key(key: &str) {
     WORKSPACE_CACHE.remove(key);
 }
 
-/// Request header carrying the agent app's selected workspace uuid
-/// (Model C). In selection mode the auth gate resolves this to a
-/// workspace and membership-gates it, replacing Host-derived
-/// resolution for the single-origin agent surface. The customer
-/// portal stays Host-derived and ignores this header.
+/// Request header carrying the agent app's selected workspace **slug**
+/// (Model C), as it appears in the single-origin URL (`/acme/...`). In
+/// selection mode the auth gate resolves this to a workspace and
+/// membership-gates it, replacing Host-derived resolution for the agent
+/// surface. The customer portal stays Host-derived and ignores this header.
 pub const WORKSPACE_SELECTION_HEADER: &str = "X-Nosdesk-Workspace";
 
 /// Whether selection-based workspace resolution is enabled.
@@ -115,17 +115,17 @@ pub fn selection_resolution_enabled() -> bool {
         )
 }
 
-/// Resolve a selection-header workspace uuid to a [`WorkspaceContext`].
+/// Resolve a selection-header workspace slug to a [`WorkspaceContext`].
 /// `Ok(None)` for an unknown / soft-archived workspace; the caller maps
 /// that to the same 403 a non-member gets so workspace existence does
 /// not leak. The `workspaces` table is resolvable without a pinned GUC
-/// (it is the resolution table), the same way `find_by_slug` is used in
-/// Host-derived resolution above.
+/// (it is the resolution table), the same `find_by_slug` Host-derived
+/// resolution uses above.
 pub fn resolve_selected_context(
     conn: &mut crate::db::DbConnection,
-    workspace_uuid: uuid::Uuid,
+    slug: &str,
 ) -> diesel::QueryResult<Option<WorkspaceContext>> {
-    Ok(workspace_repo::find_by_uuid(conn, workspace_uuid)?.map(workspace_to_context))
+    Ok(workspace_repo::find_by_slug(conn, slug)?.map(workspace_to_context))
 }
 
 /// Deployment topology. Drives whether workspace context comes

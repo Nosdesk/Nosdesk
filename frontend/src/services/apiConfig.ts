@@ -3,6 +3,7 @@ import { logger } from '@/utils/logger';
 import { createErrorFromResponse } from '@/utils/errors';
 import { ErrorTracker } from '@/utils/errorTracking';
 import { getSSEClientId } from '@/services/sseService';
+import { activeWorkspaceSlug as getActiveWorkspaceSlug } from '@/services/activeWorkspace';
 import { getSessionId as getDiagnosticsSessionId } from '@/services/diagnostics/session';
 import { pushApi as pushApiBreadcrumb } from '@/services/diagnostics/breadcrumbs';
 import { getCsrfToken } from '@/utils/csrf';
@@ -129,6 +130,14 @@ apiClient.interceptors.request.use(
     const sseClientId = getSSEClientId();
     if (sseClientId) {
       config.headers['X-SSE-Client-Id'] = sseClientId;
+    }
+
+    // Selected workspace (Model C single-origin / path mode). The router keeps
+    // this in sync with the URL slug; it's null in host mode, where the backend
+    // resolves the workspace from the Host instead and ignores this header.
+    const workspaceSlug = getActiveWorkspaceSlug();
+    if (workspaceSlug) {
+      config.headers['X-Nosdesk-Workspace'] = workspaceSlug;
     }
 
     // Verbose logging (development only)

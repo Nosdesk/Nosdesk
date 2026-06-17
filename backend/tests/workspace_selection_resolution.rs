@@ -63,16 +63,17 @@ fn selection_header_resolves_and_gates() {
     let test_db = common::TestDb::new();
     let pool = test_db.pool_with_size(2);
 
-    // Two workspaces; a user who is a member of `acme` only.
-    let (acme_id, acme_uuid, member_uuid, stranger_uuid) = {
+    // Two workspaces; a user who is a member of `acme` only. The header carries
+    // the slug, the way the agent app URL does.
+    let (acme_id, member_uuid, stranger_uuid) = {
         let mut conn = pool.get().expect("conn");
         let acme = common::mint_workspace(&mut conn, "acme-sel", "Acme Sel");
         let _other = common::mint_workspace(&mut conn, "other-sel", "Other Sel");
         let member = common::insert_user(&mut conn, "Sel Member");
         let stranger = common::insert_user(&mut conn, "Sel Stranger");
-        let acme_uuid = context_of(&mut conn, acme).workspace_uuid;
-        (acme, acme_uuid, member.uuid, stranger.uuid)
+        (acme, member.uuid, stranger.uuid)
     };
+    let acme_slug = "acme-sel";
     {
         let mut conn = pool.get().expect("conn");
         let actor = ActorContext::user(member_uuid, None).with_workspace(acme_id);
@@ -92,7 +93,7 @@ fn selection_header_resolves_and_gates() {
     {
         let mut conn = pool.get().expect("conn");
         let req = TestRequest::default()
-            .insert_header((WORKSPACE_SELECTION_HEADER, acme_uuid.to_string()))
+            .insert_header((WORKSPACE_SELECTION_HEADER, acme_slug))
             .to_srv_request();
         enforce_workspace_membership(&req, &mut conn, &claims_for(member_uuid))
             .expect("member selecting their workspace must pass");
@@ -111,33 +112,37 @@ fn selection_header_resolves_and_gates() {
     {
         let mut conn = pool.get().expect("conn");
         let req = TestRequest::default()
-            .insert_header((WORKSPACE_SELECTION_HEADER, acme_uuid.to_string()))
+            .insert_header((WORKSPACE_SELECTION_HEADER, acme_slug))
             .to_srv_request();
         let err = enforce_workspace_membership(&req, &mut conn, &claims_for(stranger_uuid))
             .expect_err("non-member selection must be denied");
         assert_eq!(status_of(&err), 403, "non-member selection must be 403");
     }
 
-    // Unknown workspace uuid: 403, indistinguishable from non-member (no leak).
+    // Unknown slug: 403, indistinguishable from non-member (no existence leak).
     {
         let mut conn = pool.get().expect("conn");
         let req = TestRequest::default()
-            .insert_header((WORKSPACE_SELECTION_HEADER, uuid::Uuid::new_v4().to_string()))
+            .insert_header((WORKSPACE_SELECTION_HEADER, "no-such-workspace"))
             .to_srv_request();
         let err = enforce_workspace_membership(&req, &mut conn, &claims_for(member_uuid))
             .expect_err("unknown workspace must be denied");
         assert_eq!(status_of(&err), 403, "unknown workspace must be 403");
     }
 
-    // Malformed header: 400, a client error distinct from the 403 boundary.
+    // Blank header: treated as no selection (not an error). With no Host context
+    // either, there is nothing to authorize, so it passes and publishes nothing.
     {
         let mut conn = pool.get().expect("conn");
         let req = TestRequest::default()
-            .insert_header((WORKSPACE_SELECTION_HEADER, "not-a-uuid"))
+            .insert_header((WORKSPACE_SELECTION_HEADER, "   "))
             .to_srv_request();
-        let err = enforce_workspace_membership(&req, &mut conn, &claims_for(member_uuid))
-            .expect_err("malformed selection header must be rejected");
-        assert_eq!(status_of(&err), 400, "malformed header must be 400");
+        enforce_workspace_membership(&req, &mut conn, &claims_for(member_uuid))
+            .expect("blank selection header is ignored, nothing to gate");
+        assert!(
+            req.extensions().get::<WorkspaceContext>().is_none(),
+            "blank header must not publish a context"
+        );
     }
 
     // No header in selection mode: falls back to the Host-derived context the
@@ -156,7 +161,7 @@ fn selection_header_resolves_and_gates() {
     {
         let mut conn = pool.get().expect("conn");
         let req = TestRequest::default()
-            .insert_header((WORKSPACE_SELECTION_HEADER, acme_uuid.to_string()))
+            .insert_header((WORKSPACE_SELECTION_HEADER, acme_slug))
             .to_srv_request();
         // No Host-derived context either, so there is nothing to authorize: Ok,
         // and crucially no selection-derived context is published from the header.

@@ -53,6 +53,15 @@ export async function resetWorkspaceScopedState(): Promise<void> {
     logger.error('Failed to clear the query cache', e);
   }
 
+  // Drop the selected-workspace slug so the axios interceptor stops sending a
+  // stale `X-Nosdesk-Workspace` header; the next workspace navigation re-sets it.
+  try {
+    const { setActiveWorkspaceSlug } = await import('@/services/activeWorkspace');
+    setActiveWorkspaceSlug(null);
+  } catch (e) {
+    logger.error('Failed to clear the active workspace slug', e);
+  }
+
   // Sync runtime, SSE bridge, and collab IndexedDB. The sync pool's IDB is keyed
   // by (user, schema) with no workspace today, so a full teardown is the only
   // way to keep one workspace's rows from bleeding into the next; re-hydration

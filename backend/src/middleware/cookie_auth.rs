@@ -83,11 +83,12 @@ pub fn enforce_workspace_membership(
     Ok(())
 }
 
-/// Resolve the `X-Nosdesk-Workspace` selection header to a
-/// `WorkspaceContext`, or `Ok(None)` when selection resolution is off or
-/// the header is absent. A malformed uuid is `400 Bad Request`; an
-/// unknown workspace is `403 Forbidden` (indistinguishable from a
-/// non-member so workspace existence does not leak).
+/// Resolve the `X-Nosdesk-Workspace` selection header (the workspace **slug**,
+/// as it appears in the agent app's URL) to a `WorkspaceContext`, or `Ok(None)`
+/// when selection resolution is off or the header is absent. An unknown slug is
+/// `403 Forbidden`, indistinguishable from a non-member so workspace existence
+/// does not leak. The slug is the selection *input*; everything downstream keys
+/// off the resolved workspace's id / uuid.
 fn selected_workspace_context(
     req: &ServiceRequest,
     conn: &mut DbConnection,
@@ -96,16 +97,16 @@ fn selected_workspace_context(
     if !wc::selection_resolution_enabled() {
         return Ok(None);
     }
-    let Some(raw) = req
+    let Some(slug) = req
         .headers()
         .get(wc::WORKSPACE_SELECTION_HEADER)
         .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
     else {
         return Ok(None);
     };
-    let workspace_uuid = uuid::Uuid::parse_str(raw.trim())
-        .map_err(|_| actix_web::error::ErrorBadRequest("Invalid workspace selection"))?;
-    match wc::resolve_selected_context(conn, workspace_uuid) {
+    match wc::resolve_selected_context(conn, slug) {
         Ok(Some(ctx)) => Ok(Some(ctx)),
         Ok(None) => Err(actix_web::error::ErrorForbidden(
             "Not a member of this workspace",
