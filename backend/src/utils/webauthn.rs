@@ -119,13 +119,66 @@ impl WebAuthnConfig {
     }
 }
 
-// Lazy static WebAuthn instance
-lazy_static::lazy_static! {
-    static ref WEBAUTHN_CONFIG: WebAuthnConfig = WebAuthnConfig::from_env()
-        .expect("Failed to load WebAuthn configuration");
+// =============================================================================
+// Per-request verifier (per-workspace RP)
+// =============================================================================
+//
+// Hosted multi-tenant: RP ID + origin are the host the request is served on
+// (`mercury.nosdesk.dev` or a tenant's custom domain), so passkeys are scoped
+// per host/workspace and custom domains work without a shared RP ID (which
+// would leak credentials across tenants). Self-hosted single-tenant: the
+// env-configured RP (`WEBAUTHN_RP_ID` / `WEBAUTHN_RP_ORIGIN`). Building per
+// request is cheap. Rationale + spec research: docs/plans/tenant-origin-awareness.md.
 
-    pub static ref WEBAUTHN: Webauthn = WEBAUTHN_CONFIG.build_webauthn()
-        .expect("Failed to build WebAuthn instance");
+/// Build the WebAuthn verifier for the current request. RP ID is the request's
+/// (validated) workspace host in hosted mode, or the env config in self-hosted
+/// mode. Returns an owned `Webauthn`; cheap to construct per call. Errors
+/// surface per request (not as a startup panic), so a hosted deploy needs no
+/// `WEBAUTHN_RP_*` env at all.
+pub fn webauthn_for_request(req: &actix_web::HttpRequest) -> Result<Webauthn> {
+    match request_workspace_host(req) {
+        Some(host) => build_webauthn_for_host(&host),
+        None => WebAuthnConfig::from_env()?.build_webauthn(),
+    }
+}
+
+/// The host this request is actually served on (= the WebAuthn RP ID), when it
+/// resolved to a hosted workspace. This is the **request host**, not the
+/// workspace's canonical-preference host: `rp_origin` must equal the browser's
+/// real origin, which differs from the canonical host when a workspace has a
+/// custom domain but is reached via its subdomain. The `WorkspaceContext` gate
+/// means the middleware already validated this host belongs to a workspace, and
+/// the browser independently enforces RP-ID/origin matching. Mirrors OIDC's
+/// `oauth_callback_redirect_uri`, the sibling request-origin concern.
+fn request_workspace_host(req: &actix_web::HttpRequest) -> Option<String> {
+    use actix_web::HttpMessage;
+    // Gate: only build a per-workspace verifier for a resolved hosted workspace.
+    // Drop the extensions borrow before reading headers.
+    if req
+        .extensions()
+        .get::<crate::extractors::WorkspaceContext>()
+        .is_none()
+    {
+        return None;
+    }
+    let host = req
+        .headers()
+        .get(actix_web::http::header::HOST)
+        .and_then(|h| h.to_str().ok())?;
+    let host = host.split(':').next().unwrap_or(host).trim().to_lowercase();
+    (!host.is_empty()).then_some(host)
+}
+
+/// Build a verifier whose RP ID and origin are the workspace canonical `host`.
+fn build_webauthn_for_host(host: &str) -> Result<Webauthn> {
+    let rp_origin = Url::parse(&format!("https://{host}"))
+        .map_err(|e| anyhow!("Invalid WebAuthn origin for host {host}: {e}"))?;
+    let rp_name = env::var("WEBAUTHN_RP_NAME").unwrap_or_else(|_| "Nosdesk".to_string());
+    WebauthnBuilder::new(host, &rp_origin)
+        .map_err(|e| anyhow!("Failed to create WebAuthn builder: {e:?}"))?
+        .rp_name(&rp_name)
+        .build()
+        .map_err(|e| anyhow!("Failed to build WebAuthn: {e:?}"))
 }
 
 // =============================================================================
