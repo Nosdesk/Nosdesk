@@ -7020,13 +7020,18 @@ pub struct OutboundEmail {
     /// the handler layer via stable Message-ID.
     pub idempotency_key: Option<String>,
     pub workspace_id: i32,
-    /// `sent` means the transport accepted handoff; `delivered_at` is
-    /// stamped only when a provider confirms actual delivery. NULL for
-    /// SMTP, which has no delivery signal.
+    /// `sent` means the transport accepted handoff. `delivered_at` would mark
+    /// confirmed delivery, but **nothing writes it today**: SMTP gives no
+    /// delivery signal, and the only integration that did (the provider webhook)
+    /// was removed. It is therefore always NULL. Do NOT build UI or metrics that
+    /// assume it is populated; `status = 'sent'` is the strongest signal we have.
+    /// Kept for a future delivery-confirming transport; a cleanup migration may
+    /// drop it.
     pub delivered_at: Option<chrono::DateTime<chrono::Utc>>,
-    /// The sending provider's own message id, for a future transport that
-    /// returns one. NULL for SMTP, where the RFC `message_id` is the only
-    /// identity.
+    /// The sending provider's own message id. **Always NULL under SMTP** (no
+    /// provider id; the RFC `message_id` is the only identity). The worker still
+    /// plumbs it through `mark_sent`, so it is ready for a future transport that
+    /// returns one, but nothing populates it today.
     pub provider_message_id: Option<String>,
     /// Which sending identity the worker uses for this row (see
     /// [`outbound_email_sender_identity`]): `workspace` (the workspace's own

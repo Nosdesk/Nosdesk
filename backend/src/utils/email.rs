@@ -841,15 +841,61 @@ impl std::fmt::Debug for DkimSigner {
     }
 }
 
-/// Add a `DKIM-Signature` header to `message`, signing the From/Subject/To/Date
-/// header set (lettre's default) with the workspace's key. A malformed key
-/// surfaces as a send error rather than a panic.
+/// Add a `DKIM-Signature` header to `message`, signed with the workspace's key.
+/// A key that fails to PARSE surfaces as a send error here; a parsed key that
+/// fails to sign panics inside lettre (near-zero for a valid RSA-2048 key).
+///
+/// Deliberately does NOT use lettre's `default_config`, which signs only
+/// From/Subject/To/Date with `simple` header canonicalization. Two changes:
+///
+/// - **Canonicalization is relaxed/relaxed.** `simple` headers forbid any
+///   whitespace/case/folding change to a signed header; a relay (we sign at
+///   submission, SES relays afterward) routinely refolds long Subject/References
+///   lines, which would invalidate the signature in transit. `relaxed`
+///   tolerates that (RFC 6376 §3.4.5), so the signature survives the relay.
+///
+/// - **Expanded signed-header set.** We cover every header that defines the
+///   message's identity and framing, so none can be altered without breaking the
+///   signature (RFC 6376 §5.4.1 recommends signing these). Conditional headers
+///   (In-Reply-To, References, Reply-To) are listed even when absent: §3.7 treats
+///   an `h=` entry with no header as the empty string on both sides, so listing
+///   them costs nothing and prevents one being ADDED in transit (oversigning).
 fn dkim_sign_message(message: &mut Message, signer: &DkimSigner) -> Result<(), String> {
-    use lettre::message::dkim::{dkim_sign, DkimConfig, DkimSigningKey};
+    use lettre::message::dkim::{
+        dkim_sign, DkimCanonicalization, DkimCanonicalizationType, DkimConfig, DkimSigningKey,
+    };
+    use lettre::message::header::HeaderName;
 
     let key = DkimSigningKey::new(&signer.private_key, signer.algorithm.to_lettre())
         .map_err(|e| format!("invalid DKIM signing key for {}: {e}", signer.domain))?;
-    let config = DkimConfig::default_config(signer.selector.clone(), signer.domain.clone(), key);
+
+    let headers = [
+        "From",
+        "Subject",
+        "To",
+        "Date",
+        "Message-ID",
+        "MIME-Version",
+        "Content-Type",
+        "Content-Transfer-Encoding",
+        "In-Reply-To",
+        "References",
+        "Reply-To",
+    ]
+    .into_iter()
+    .map(HeaderName::new_from_ascii_str)
+    .collect();
+
+    let config = DkimConfig::new(
+        signer.selector.clone(),
+        signer.domain.clone(),
+        key,
+        headers,
+        DkimCanonicalization {
+            header: DkimCanonicalizationType::Relaxed,
+            body: DkimCanonicalizationType::Relaxed,
+        },
+    );
     dkim_sign(message, &config);
     Ok(())
 }
@@ -1648,6 +1694,31 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
             dump.contains("a=rsa-sha256"),
             "wrong algorithm tag:\n{dump}"
         );
+        // Relaxed/relaxed canonicalization so the signature survives a relay
+        // refolding signed headers in transit (not lettre's default `simple`).
+        assert!(
+            dump.contains("c=relaxed/relaxed"),
+            "expected relaxed/relaxed canonicalization:\n{dump}"
+        );
+        // Expanded signed-header set: identity + framing + threading, beyond
+        // the default From/Subject/To/Date. The h= tag is lowercased by relaxed.
+        let h = dump
+            .split("h=")
+            .nth(1)
+            .and_then(|s| s.split(';').next())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        for required in [
+            "from",
+            "subject",
+            "to",
+            "date",
+            "message-id",
+            "mime-version",
+            "content-type",
+        ] {
+            assert!(h.contains(required), "h= missing {required}:\n{dump}");
+        }
     }
 
     #[test]

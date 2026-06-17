@@ -105,6 +105,57 @@ pub struct SetDomainRequest {
     from_email: String,
 }
 
+/// Register the workspace's verified sending domain with SES (BYODKIM, our key),
+/// idempotently. No-op when SES identity management is unconfigured (self-host)
+/// or the workspace has no verified-domain key. Reads + decrypts the key under a
+/// workspace-pinned blocking connection, then makes the async SES call.
+///
+/// Both `set_domain` (initial setup) and `verify_domain` (before flipping to
+/// verified) call this, so "verified" can never diverge from "registered in
+/// SES": if `set_domain`'s registration fails after the key is stored, the next
+/// verify re-ensures it before the status can advance.
+async fn ensure_ses_registration(pool: &Pool, workspace_id: i32) -> Result<(), String> {
+    let ses = match ses_identity::SesIdentityManager::from_env() {
+        Ok(Some(s)) => s,
+        Ok(None) => return Ok(()), // self-host / no SES identity management
+        Err(e) => return Err(e.to_string()),
+    };
+
+    let pool = pool.clone();
+    let material = tokio::task::spawn_blocking(move || {
+        run_in_workspace(&pool, "ses-ensure", workspace_id, |conn| {
+            let Some(row) = ws_settings::get(conn)? else {
+                return Ok(None);
+            };
+            if row.sending_mode != workspace_email_sending_mode::VERIFIED_DOMAIN {
+                return Ok(None);
+            }
+            let (Some(domain), Some(selector)) =
+                (row.sending_domain.clone(), row.dkim_selector.clone())
+            else {
+                return Ok(None);
+            };
+            match ws_settings::decrypt_dkim_key(&row) {
+                Ok(Some(pem)) => Ok(Some((domain, selector, pem))),
+                Ok(None) => Ok(None),
+                Err(e) => Err(diesel::result::Error::QueryBuilderError(
+                    e.to_string().into(),
+                )),
+            }
+        })
+    })
+    .await
+    .map_err(|e| format!("SES ensure task: {e}"))?
+    .map_err(|e| format!("SES ensure read: {e}"))?;
+
+    let Some((domain, selector, pem)) = material else {
+        return Ok(());
+    };
+    ses.register_sending_domain(&domain, &selector, &pem)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// PUT /admin/email/outbound/domain — set the verified-domain identity and
 /// provision a DKIM keypair. The sending domain is the From address's domain.
 /// Returns the DNS record to publish.
@@ -139,47 +190,37 @@ pub async fn set_domain(
         sending_mode: workspace_email_sending_mode::VERIFIED_DOMAIN.to_string(),
     };
 
-    // RSA keygen is CPU-bound, so run the whole upsert + provision on a
-    // blocking thread, atomically in one workspace-pinned transaction. The
-    // closure also hands back the decrypted key so the async SES registration
-    // below has it without a second decrypt round-trip.
-    let pool = pool.get_ref().clone();
+    // RSA keygen is CPU-bound, so run the upsert + provision on a blocking
+    // thread, atomically in one workspace-pinned transaction.
+    let pool_for_provision = pool.get_ref().clone();
     let domain_for_provision = domain.clone();
     let provision = tokio::task::spawn_blocking(move || {
-        run_in_workspace(&pool, "dkim-provision", workspace_id, |conn| {
-            ws_settings::upsert(conn, fields)?;
-            let record = ws_settings::provision_dkim(conn, workspace_id, &domain_for_provision)
-                .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))?;
-            let row = ws_settings::get(conn)?.ok_or(diesel::result::Error::NotFound)?;
-            let private_pem = ws_settings::decrypt_dkim_key(&row)
-                .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))?
-                .ok_or(diesel::result::Error::NotFound)?;
-            Ok::<_, diesel::result::Error>((record, private_pem))
-        })
+        run_in_workspace(
+            &pool_for_provision,
+            "dkim-provision",
+            workspace_id,
+            |conn| {
+                ws_settings::upsert(conn, fields)?;
+                ws_settings::provision_dkim(conn, workspace_id, &domain_for_provision)
+                    .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))
+            },
+        )
     })
     .await;
 
-    let (record, private_pem) = match provision {
-        Ok(Ok(v)) => v,
+    let record = match provision {
+        Ok(Ok(r)) => r,
         Ok(Err(e)) => return errors::internal(format!("provision DKIM: {e}")),
         Err(e) => return errors::internal(format!("provision task: {e}")),
     };
 
-    // Hosted: authorise the From domain in SES (BYODKIM, our key) so sends from
-    // it aren't rejected. Self-host leaves SES unconfigured and this is a no-op.
-    // Failure here is fatal to the request: without it sending won't work, and
-    // the admin should know to retry rather than publish a record that can't send.
-    match ses_identity::SesIdentityManager::from_env() {
-        Ok(Some(ses)) => {
-            if let Err(e) = ses
-                .register_sending_domain(&domain, &record.selector, &private_pem)
-                .await
-            {
-                return errors::internal(format!("register {domain} with SES: {e}"));
-            }
-        }
-        Ok(None) => {}
-        Err(e) => return errors::internal(format!("{e}")),
+    // Hosted: authorise the From domain in SES so sends from it aren't rejected.
+    // Self-host leaves SES unconfigured and this is a no-op. Fatal on failure so
+    // the admin retries rather than publishing a record that can't send; the key
+    // is already stored, and verify_domain re-ensures registration before the
+    // status can advance.
+    if let Err(e) = ensure_ses_registration(pool.get_ref(), workspace_id).await {
+        return errors::internal(format!("register {domain} with SES: {e}"));
     }
 
     HttpResponse::Ok().json(serde_json::json!({
@@ -200,6 +241,15 @@ pub async fn verify_domain(
     let Some(workspace_id) = tc.workspace_id() else {
         return errors::bad_request("no workspace context");
     };
+
+    // Re-ensure SES knows this domain before the DNS check can flip us to
+    // verified, so a verified status always implies the domain is registered for
+    // sending (closes the gap where set_domain stored the key but its SES call
+    // failed). Idempotent; no-op off-SES.
+    if let Err(e) = ensure_ses_registration(pool.get_ref(), workspace_id).await {
+        return errors::internal(format!("ensure SES registration: {e}"));
+    }
+
     match dkim_verification::verify_dkim_domain(pool.get_ref(), workspace_id).await {
         Ok(status) => HttpResponse::Ok().json(serde_json::json!({ "verification_status": status })),
         Err(dkim_verification::VerifyError::NotProvisioned) => {

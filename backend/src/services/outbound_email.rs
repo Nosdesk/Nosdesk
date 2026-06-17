@@ -31,6 +31,19 @@ use crate::repository::workspace_email_settings as ws_settings;
 use crate::sync::session::{run_in_workspace, BackgroundRunError};
 use crate::utils::email::{DkimAlgorithm, DkimSigner, EmailConfig, EmailService, SmtpSecurity};
 
+/// True when `recipient` is on the (global) suppression list — a prior hard
+/// bounce or complaint. The queue worker checks this before every send; this is
+/// the same guard for the DIRECT (non-queued) send paths (auto-ack, technician
+/// replies), so none of them ships mail to a known-bad address and erodes the
+/// shared relay's reputation. Fails OPEN: a lookup error attempts the send
+/// rather than silently dropping it, matching the worker.
+pub fn recipient_is_suppressed(pool: &Pool, recipient: &str) -> bool {
+    crate::sync::session::background_run(pool, "background:direct_send_suppress_check", |conn| {
+        crate::repository::email_suppressions::is_suppressed(conn, recipient)
+    })
+    .unwrap_or(false)
+}
+
 /// Resolves the outbound `EmailService` for a workspace.
 pub struct OutboundEmailResolver {
     pool: Pool,

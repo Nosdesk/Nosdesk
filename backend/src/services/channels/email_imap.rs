@@ -511,6 +511,18 @@ impl ChannelAdapter for EmailImapAdapter {
             .known_email
             .as_deref()
             .ok_or_else(|| ChannelError::Configuration("recipient has no email".into()))?;
+
+        // Don't send to an address that previously hard-bounced or complained.
+        // Unlike the auto-ack path, a technician deliberately authored this, so
+        // surface it as an error (they can clear the suppression in admin) rather
+        // than silently dropping their reply.
+        if crate::services::outbound_email::recipient_is_suppressed(&self.pool, recipient) {
+            return Err(ChannelError::Other(format!(
+                "recipient {recipient} is on the suppression list (prior hard bounce or \
+                 complaint); remove them from suppressions to send"
+            )));
+        }
+
         let subject = thread.subject.as_deref().unwrap_or("(no subject)");
         let in_reply_to = thread.external_thread_id.as_deref();
 

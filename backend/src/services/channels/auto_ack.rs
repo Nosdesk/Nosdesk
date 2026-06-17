@@ -193,6 +193,20 @@ async fn send_auto_ack(
         // marks it auto-replied and a customer OOO won't ping-pong with us.
         auto_submitted: Some("auto-replied"),
     };
+
+    // Don't auto-reply to an address that previously hard-bounced or complained:
+    // it would re-bounce and erode the shared relay's reputation. The queued
+    // paths check this in the worker; this direct send must too. Silent skip is
+    // correct here, auto-ack is best-effort system mail, not a human's reply.
+    if crate::services::outbound_email::recipient_is_suppressed(pool, &recipient_email) {
+        tracing::info!(
+            recipient = %recipient_email,
+            ticket = ticket.id,
+            "skipping auto-ack: recipient is on the suppression list"
+        );
+        return Ok(());
+    }
+
     // Resolve the sending identity for this workspace (its own SMTP, or the
     // env fallback). Done here, after the enabled / provider guards, so a
     // disabled auto-ack never resolves and an unconfigured identity surfaces
