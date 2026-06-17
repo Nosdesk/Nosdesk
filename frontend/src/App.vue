@@ -8,6 +8,8 @@ import PageHeader from './components/SiteHeader.vue'
 import MobileSearchBar from './components/MobileSearchBar.vue'
 import ToastContainer from './components/common/ToastContainer.vue'
 import RouteProgress from './components/common/RouteProgress.vue'
+import LoadingSpinner from './components/common/LoadingSpinner.vue'
+import { workspaceSwitchingRef } from '@/composables/useWorkspaceSwitch'
 import { GlobalSearchModal } from './components/GlobalSearch'
 import { useTitleManager } from '@/composables/useTitleManager'
 import { useMobileSearch } from '@/composables/useMobileSearch'
@@ -34,6 +36,7 @@ const brandingStore = useBrandingStore()
 useFavicon(() => brandingStore.faviconUrl)
 
 const route = useRoute()
+const isSwitchingWorkspace = workspaceSwitchingRef()
 const router = useRouter()
 const isBlankLayout = computed(() => route.meta.layout === 'blank')
 
@@ -234,7 +237,17 @@ onMounted(async () => {
         class="flex-1 overflow-hidden sm:pb-0"
         :class="isMobileSearchActive ? 'pb-[calc(6.5rem+env(safe-area-inset-bottom))]' : 'pb-[calc(3rem+env(safe-area-inset-bottom))]'"
       >
+        <!-- Workspace switch in flight: mask the content so neither the old
+             workspace's data (being torn down) nor the new one's empty state
+             flashes while the sync pool re-hydrates. -->
+        <div
+          v-if="isSwitchingWorkspace"
+          class="flex h-full w-full items-center justify-center text-secondary"
+        >
+          <LoadingSpinner size="md" />
+        </div>
         <RouterView
+          v-else
           v-slot="{ Component, route: viewRoute }"
           @update:ticket="titleManager.setTicket"
           @update:device="titleManager.setDevice"

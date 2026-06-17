@@ -1,5 +1,7 @@
 import { createRouter, createWebHistory, type RouteLocationNormalized } from 'vue-router'
-import { withWorkspaceRouting, installWorkspaceGuard } from './workspaceRouting'
+import { withWorkspaceRouting, installWorkspaceGuard, workspaceSlugOf } from './workspaceRouting'
+import { getWorkspaceRouting } from '@/services/instanceConfig'
+import { lastWorkspaceSlug } from '@/services/activeWorkspace'
 import DashboardView from '../views/DashboardView.vue'
 import TicketView from '../views/TicketView.vue'
 import LoginView from '../views/LoginView.vue'
@@ -962,6 +964,28 @@ async function checkOnboarding(to: RouteLocationNormalized, _from: RouteLocation
 }
 
 /**
+ * Pick the workspace to land an authenticated bare-route request on (path
+ * mode). Prefer the device's last workspace when the user is still a member of
+ * it, otherwise their first membership. Loads the membership list if it isn't
+ * cached yet.
+ */
+async function defaultWorkspaceSlug(): Promise<string | null> {
+  const { useMyWorkspacesStore } = await import('@/stores/myWorkspaces');
+  const store = useMyWorkspacesStore();
+  if (store.workspaces.length === 0) {
+    try {
+      await store.refetch();
+    } catch {
+      // fall through: nothing to land on, the caller passes through
+    }
+  }
+  const slugs = store.workspaces.map((w) => w.slug);
+  const last = lastWorkspaceSlug();
+  if (last && slugs.includes(last)) return last;
+  return store.workspaces[0]?.slug ?? null;
+}
+
+/**
  * Fetch user data if authenticated but not yet loaded
  * Handles authentication state and redirects
  */
@@ -1009,6 +1033,25 @@ async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLoca
   if (authStore.isAuthenticated && authStore.user) {
     if (to.path === '/login' || to.name === 'onboarding') {
       return { name: 'home' };
+    }
+  }
+
+  // Post-login landing (path mode): an authenticated request to a bare
+  // authenticated route carries no workspace in the URL (a fresh login, a
+  // bookmark to `/`, a hard reload at the apex). Send it to a concrete
+  // workspace so the slug routing, the selection header, and the per-workspace
+  // cache all engage. Host mode never has a bare-vs-slugged distinction.
+  if (
+    getWorkspaceRouting() === 'path' &&
+    requiresAuth &&
+    authStore.isAuthenticated &&
+    authStore.user &&
+    !workspaceSlugOf(to)
+  ) {
+    const slug = await defaultWorkspaceSlug();
+    if (slug) {
+      const sub = to.fullPath === '/' ? '' : to.fullPath;
+      return { path: `/${slug}${sub}` };
     }
   }
 
