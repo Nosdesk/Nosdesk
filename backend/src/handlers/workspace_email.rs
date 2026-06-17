@@ -259,6 +259,44 @@ pub async fn verify_domain(
     }
 }
 
+/// GET /admin/email/outbound/dns-check — live SPF/DKIM/DMARC/MX readout for the
+/// workspace's sending domain, so the admin can self-diagnose deliverability.
+/// Read-only; does not change verification status.
+pub async fn dns_check(mut tc: TenantConn, req: HttpRequest) -> impl Responder {
+    if let Err(resp) = require_admin(&req) {
+        return resp;
+    }
+
+    let loaded = tc.run(|conn| {
+        let row = ws_settings::get(conn)?;
+        let record = match &row {
+            Some(r) => ws_settings::dns_record_for(r)
+                .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))?,
+            None => None,
+        };
+        Ok::<_, diesel::result::Error>((row, record))
+    });
+    let (row, record) = match loaded {
+        Ok(v) => v,
+        Err(e) => return errors::internal(format!("load sending domain: {e}")),
+    };
+
+    let (Some(row), Some(record)) = (row, record) else {
+        return errors::bad_request("no sending domain configured");
+    };
+    let Some(domain) = row.sending_domain else {
+        return errors::bad_request("no sending domain configured");
+    };
+
+    let report = crate::services::dns_diagnostics::check_email_auth(
+        &domain,
+        &record.name,
+        &record.public_b64,
+    )
+    .await;
+    HttpResponse::Ok().json(report)
+}
+
 /// POST /admin/email/outbound/test — send a test email from the verified
 /// identity to the requesting admin's own address.
 pub async fn test_send(

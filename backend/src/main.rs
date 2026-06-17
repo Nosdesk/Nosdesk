@@ -1738,6 +1738,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/admin/email/outbound", web::delete().to(handlers::workspace_email::reset))
                     .route("/admin/email/outbound/domain", web::put().to(handlers::workspace_email::set_domain))
                     .route("/admin/email/outbound/verify", web::post().to(handlers::workspace_email::verify_domain))
+                    .route("/admin/email/outbound/dns-check", web::get().to(handlers::workspace_email::dns_check))
                     .route("/admin/email/outbound/test", web::post().to(handlers::workspace_email::test_send))
 
                     // System information (admin only)

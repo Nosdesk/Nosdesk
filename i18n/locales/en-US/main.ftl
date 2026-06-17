@@ -969,6 +969,14 @@ email-domain-error-setup = Could not set up the sending domain.
 email-domain-error-verify = Could not verify the sending domain.
 email-domain-error-test = Could not send the test email.
 email-domain-error-remove = Could not remove the sending domain.
+email-domain-dns-title = DNS health
+email-domain-dns-description = Live check of this domain's email authentication records.
+email-domain-dns-check-button = Check DNS
+email-domain-dns-dkim = DKIM
+email-domain-dns-dmarc = DMARC
+email-domain-dns-spf = SPF
+email-domain-dns-mx = MX
+email-domain-error-dns-check = Could not run the DNS check.
 admin-nav-workspaces-description = Create, archive, and manage tenant workspaces and their members.
 
 # Admin: Workspaces (AdminWorkspacesView). Tenant lifecycle —

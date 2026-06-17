@@ -20,6 +20,22 @@ export interface SetDomainResponse {
   verification_status: string;
 }
 
+export type CheckStatus = 'pass' | 'warn' | 'fail' | 'info';
+
+export interface RecordCheck {
+  status: CheckStatus;
+  summary: string;
+  value: string | null;
+}
+
+export interface EmailAuthReport {
+  domain: string;
+  spf: RecordCheck;
+  dkim: RecordCheck;
+  dmarc: RecordCheck;
+  mx: RecordCheck;
+}
+
 /// Admin API for a workspace's verified sending domain (DKIM via the instance
 /// relay). Mirrors the `/admin/email/outbound` endpoints.
 export default {
@@ -41,6 +57,11 @@ export default {
       '/admin/email/outbound/verify',
       {},
     );
+    return response.data;
+  },
+
+  async dnsCheck(): Promise<EmailAuthReport> {
+    const response = await apiClient.get<EmailAuthReport>('/admin/email/outbound/dns-check');
     return response.data;
   },
 

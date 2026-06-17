@@ -66,8 +66,9 @@ pub fn published_record_has_key(published: &[String], expected_public_b64: &str)
 }
 
 /// Resolve the TXT records at `name`. NXDOMAIN / no-records yields an empty
-/// list (the record isn't published yet), not an error.
-async fn txt_lookup(name: &str) -> Result<Vec<String>, VerifyError> {
+/// list (the record isn't published yet), not an error. Shared with the
+/// DNS-diagnostics panel ([`crate::services::dns_diagnostics`]).
+pub(crate) async fn txt_lookup(name: &str) -> Result<Vec<String>, VerifyError> {
     use hickory_resolver::config::{ResolverConfig, ResolverOpts};
     use hickory_resolver::net::{runtime::TokioRuntimeProvider, DnsError, NetError};
     use hickory_resolver::proto::rr::RData;

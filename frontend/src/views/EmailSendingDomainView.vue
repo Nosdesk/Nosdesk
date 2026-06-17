@@ -10,6 +10,8 @@ import FormInput from '@/components/common/FormInput.vue';
 import Button from '@/components/common/Button.vue';
 import workspaceEmailService, {
   type OutboundSettings,
+  type EmailAuthReport,
+  type RecordCheck,
 } from '@/services/workspaceEmailService';
 import { extractErrorMessage } from '@/utils/errors';
 import { useToastStore } from '@/stores/toast';
@@ -58,6 +60,33 @@ const saving = ref(false);
 const verifying = ref(false);
 const testing = ref(false);
 const removing = ref(false);
+const checkingDns = ref(false);
+const dnsReport = ref<EmailAuthReport | null>(null);
+
+// SPF/DKIM/DMARC/MX checks in display order.
+const dnsChecks = computed<Array<{ key: string; label: string; check: RecordCheck }>>(() => {
+  const r = dnsReport.value;
+  if (!r) return [];
+  return [
+    { key: 'dkim', label: t('email-domain-dns-dkim'), check: r.dkim },
+    { key: 'dmarc', label: t('email-domain-dns-dmarc'), check: r.dmarc },
+    { key: 'spf', label: t('email-domain-dns-spf'), check: r.spf },
+    { key: 'mx', label: t('email-domain-dns-mx'), check: r.mx },
+  ];
+});
+
+function dnsStatusClass(status: RecordCheck['status']): string {
+  switch (status) {
+    case 'pass':
+      return 'bg-status-success/20 text-status-success border-status-success/50';
+    case 'fail':
+      return 'bg-status-error/20 text-status-error border-status-error/50';
+    case 'warn':
+      return 'bg-status-warning/20 text-status-warning border-status-warning/50';
+    default:
+      return 'bg-surface-alt text-tertiary border-default';
+  }
+}
 
 async function setupDomain() {
   if (!fromEmail.value.trim()) return;
@@ -105,6 +134,18 @@ async function sendTest() {
     actionError.value = extractErrorMessage(error, t('email-domain-error-test'));
   } finally {
     testing.value = false;
+  }
+}
+
+async function runDnsCheck() {
+  actionError.value = '';
+  checkingDns.value = true;
+  try {
+    dnsReport.value = await workspaceEmailService.dnsCheck();
+  } catch (error) {
+    actionError.value = extractErrorMessage(error, t('email-domain-error-dns-check'));
+  } finally {
+    checkingDns.value = false;
   }
 }
 
@@ -225,6 +266,43 @@ async function copy(text: string) {
           <Icon name="info" class="w-3.5 h-3.5" />
           {{ t('email-domain-dns-propagation-note') }}
         </p>
+      </div>
+
+      <!-- DNS health: live SPF/DKIM/DMARC/MX readout for self-diagnosis. -->
+      <div class="flex flex-col gap-3 pt-1 border-t border-default">
+        <div class="flex items-center justify-between gap-3 flex-wrap pt-3">
+          <div class="flex flex-col gap-0.5">
+            <span class="text-sm font-medium text-primary">{{ t('email-domain-dns-title') }}</span>
+            <span class="text-xs text-tertiary">{{ t('email-domain-dns-description') }}</span>
+          </div>
+          <Button variant="secondary" size="sm" :loading="checkingDns" @click="runDnsCheck">
+            {{ t('email-domain-dns-check-button') }}
+          </Button>
+        </div>
+
+        <ul v-if="dnsReport" class="flex flex-col gap-2">
+          <li
+            v-for="row in dnsChecks"
+            :key="row.key"
+            class="flex items-start gap-3 p-2.5 rounded-lg bg-surface-alt"
+          >
+            <span
+              class="mt-0.5 px-2 py-0.5 text-xs font-medium rounded-full border uppercase shrink-0 w-16 text-center"
+              :class="dnsStatusClass(row.check.status)"
+            >
+              {{ row.check.status }}
+            </span>
+            <div class="flex flex-col gap-0.5 min-w-0">
+              <span class="text-sm text-primary font-medium">{{ row.label }}</span>
+              <span class="text-xs text-secondary">{{ row.check.summary }}</span>
+              <code
+                v-if="row.check.value"
+                class="mt-1 font-mono text-xs text-tertiary break-all select-all"
+                >{{ row.check.value }}</code
+              >
+            </div>
+          </li>
+        </ul>
       </div>
 
       <div class="flex items-center gap-2 flex-wrap">

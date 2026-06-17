@@ -894,6 +894,18 @@ email-domain-error-setup = Impossible de configurer le domaine d'envoi.
 email-domain-error-verify = Impossible de vérifier le domaine d'envoi.
 email-domain-error-test = Impossible d'envoyer l'e-mail de test.
 email-domain-error-remove = Impossible de supprimer le domaine d'envoi.
+# MACHINE TRANSLATION, pending native review
+email-domain-dns-title = État DNS
+# MACHINE TRANSLATION, pending native review
+email-domain-dns-description = Vérification en direct des enregistrements d'authentification e-mail de ce domaine.
+# MACHINE TRANSLATION, pending native review
+email-domain-dns-check-button = Vérifier le DNS
+email-domain-dns-dkim = DKIM
+email-domain-dns-dmarc = DMARC
+email-domain-dns-spf = SPF
+email-domain-dns-mx = MX
+# MACHINE TRANSLATION, pending native review
+email-domain-error-dns-check = Impossible d'exécuter la vérification DNS.
 admin-nav-workspaces-description = Créez, archivez et gérez les espaces de travail des clients et leurs membres.
 
 # Admin: Workspaces (AdminWorkspacesView). Tenant lifecycle —

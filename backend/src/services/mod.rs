@@ -6,6 +6,7 @@ pub mod backup;
 pub mod channels;
 pub mod collab_ownership;
 pub mod dkim_verification;
+pub mod dns_diagnostics;
 pub mod email_queue;
 pub mod imports;
 pub mod msgraph;

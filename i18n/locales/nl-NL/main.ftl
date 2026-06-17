@@ -891,6 +891,18 @@ email-domain-error-setup = Kan het verzenddomein niet instellen.
 email-domain-error-verify = Kan het verzenddomein niet verifiëren.
 email-domain-error-test = Kan de test-e-mail niet versturen.
 email-domain-error-remove = Kan het verzenddomein niet verwijderen.
+# MACHINE TRANSLATION, pending native review
+email-domain-dns-title = DNS-status
+# MACHINE TRANSLATION, pending native review
+email-domain-dns-description = Live controle van de e-mailauthenticatierecords van dit domein.
+# MACHINE TRANSLATION, pending native review
+email-domain-dns-check-button = DNS controleren
+email-domain-dns-dkim = DKIM
+email-domain-dns-dmarc = DMARC
+email-domain-dns-spf = SPF
+email-domain-dns-mx = MX
+# MACHINE TRANSLATION, pending native review
+email-domain-error-dns-check = Kon de DNS-controle niet uitvoeren.
 admin-nav-workspaces-description = Werkruimtes voor tenants aanmaken, archiveren en beheren, samen met hun leden.
 
 # Admin: Workspaces (AdminWorkspacesView). Tenant lifecycle —
