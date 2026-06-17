@@ -2599,6 +2599,18 @@ pub async fn ws_handler(
             Ok((claims, user)) => {
                 let accessor = DocAccessor::from_claims(&claims, &mut conn)
                     .ok_or_else(|| actix_web::error::ErrorUnauthorized("Invalid token subject"))?;
+                // Membership gate. The collab WS bypasses the auth middleware and
+                // below only cross-checks the docId's workspace_uuid against the
+                // request workspace (both client-influenced once the workspace is
+                // a selection). The authenticated user must actually belong to the
+                // request workspace, or they could open another tenant's docs.
+                // Defense-in-depth today (Host-derived); load-bearing under
+                // Model C. See docs/plans/v1.1-scope.md.
+                crate::middleware::cookie_auth::require_workspace_membership(
+                    &mut conn,
+                    ws.workspace_id,
+                    user.uuid,
+                )?;
                 (user.uuid, accessor)
             }
             Err(_) => {

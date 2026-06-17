@@ -149,6 +149,7 @@ fn test_workspace() -> WorkspaceContext {
         slug: "default".into(),
         name: "Default".into(),
         organisation_id: None,
+        custom_domain: None,
     }
 }
 
@@ -189,6 +190,24 @@ async fn handshake_broadcast_and_clean_disconnect() {
 
     // Seed a user so JWT validation finds a real row to attach to.
     let user = common::insert_user(&mut pool.get().expect("conn"), "WSAlice");
+
+    // The collab WS handshake runs the workspace-membership gate, so the user
+    // must be a member of the request workspace (id 1 here). Production reaches
+    // this handshake only for members; mirror that. Pinned via the actor because
+    // workspace_members is RLS-isolated and the pooled conn carries no GUC.
+    {
+        let mut conn = pool.get().expect("conn");
+        let actor = backend::sync::actor::ActorContext::user(user.uuid, None).with_workspace(1);
+        backend::sync::session::with_actor_context::<_, diesel::result::Error>(
+            &mut conn,
+            &actor,
+            |c| {
+                backend::repository::workspaces::add_membership(c, 1, user.uuid, "admin")?;
+                Ok(())
+            },
+        )
+        .expect("seed workspace membership");
+    }
 
     // ws_handler's JWT validation also checks `active_sessions`: the
     // token's `sid` claim must reference a live session row owned by

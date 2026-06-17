@@ -643,6 +643,26 @@ pub async fn sse_events_stream(
         }
     };
 
+    // Membership gate. SSE bypasses the cookie/dual-auth middleware, so it
+    // authorizes the workspace explicitly: when the request resolved to a
+    // workspace, the authenticated user must be a member, otherwise they could
+    // subscribe to another tenant's live SyncActions stream (the topic +
+    // visibility checks below run UNDER the pinned workspace). Defense-in-depth
+    // while the workspace is Host-derived; load-bearing once it is a client
+    // selection (Model C). See docs/plans/v1.1-scope.md.
+    use actix_web::HttpMessage as _;
+    if let Some(workspace_id) = req
+        .extensions()
+        .get::<crate::extractors::WorkspaceContext>()
+        .map(|w| w.workspace_id)
+    {
+        crate::middleware::cookie_auth::require_workspace_membership(
+            &mut conn,
+            workspace_id,
+            user.uuid,
+        )?;
+    }
+
     // Resolve subscription set. The client may declare interest via
     // `?topics=user,global,ticket-42` (comma-separated). When absent,
     // `user` + `global` are subscribed for back-compat. Unknown

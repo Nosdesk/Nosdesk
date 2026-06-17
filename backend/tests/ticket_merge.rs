@@ -121,6 +121,7 @@ fn spawn(pool: &common::TestPool, user: &User) -> (actix_test::TestServer, Arc<S
             slug: "default".to_string(),
             name: "Default".to_string(),
             organisation_id: None,
+            custom_domain: None,
         };
         App::new()
             .app_data(web::Data::new(pool))
