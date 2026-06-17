@@ -89,6 +89,45 @@ pub fn invalidate_cache_key(key: &str) {
     WORKSPACE_CACHE.remove(key);
 }
 
+/// Request header carrying the agent app's selected workspace uuid
+/// (Model C). In selection mode the auth gate resolves this to a
+/// workspace and membership-gates it, replacing Host-derived
+/// resolution for the single-origin agent surface. The customer
+/// portal stays Host-derived and ignores this header.
+pub const WORKSPACE_SELECTION_HEADER: &str = "X-Nosdesk-Workspace";
+
+/// Whether selection-based workspace resolution is enabled.
+///
+/// True only when running `hosted` AND `NOSDESK_WORKSPACE_SELECTION`
+/// is truthy. Read fresh from the environment (not memoised) so it is
+/// operationally toggleable and the unit tests can flip it. Off by
+/// default: self-hosted and current Host-derived hosted are unaffected.
+pub fn selection_resolution_enabled() -> bool {
+    DeploymentMode::from_env() == DeploymentMode::Hosted
+        && matches!(
+            std::env::var("NOSDESK_WORKSPACE_SELECTION")
+                .ok()
+                .as_deref()
+                .map(str::trim)
+                .map(str::to_ascii_lowercase)
+                .as_deref(),
+            Some("1") | Some("true") | Some("yes") | Some("on")
+        )
+}
+
+/// Resolve a selection-header workspace uuid to a [`WorkspaceContext`].
+/// `Ok(None)` for an unknown / soft-archived workspace; the caller maps
+/// that to the same 403 a non-member gets so workspace existence does
+/// not leak. The `workspaces` table is resolvable without a pinned GUC
+/// (it is the resolution table), the same way `find_by_slug` is used in
+/// Host-derived resolution above.
+pub fn resolve_selected_context(
+    conn: &mut crate::db::DbConnection,
+    workspace_uuid: uuid::Uuid,
+) -> diesel::QueryResult<Option<WorkspaceContext>> {
+    Ok(workspace_repo::find_by_uuid(conn, workspace_uuid)?.map(workspace_to_context))
+}
+
 /// Deployment topology. Drives whether workspace context comes
 /// from a process-wide bootstrap (self-hosted) or per-request
 /// subdomain resolution (hosted SaaS).
@@ -382,5 +421,57 @@ mod tests {
         } else {
             std::env::remove_var("NOSDESK_DEPLOYMENT_MODE");
         }
+    }
+
+    /// Snapshot + restore both env vars selection resolution reads, run `body`
+    /// with them set to the given values. std::env is process-wide, so tests
+    /// that touch it must put it back.
+    fn with_selection_env(mode: Option<&str>, flag: Option<&str>, body: impl FnOnce()) {
+        let prev_mode = std::env::var("NOSDESK_DEPLOYMENT_MODE").ok();
+        let prev_flag = std::env::var("NOSDESK_WORKSPACE_SELECTION").ok();
+        match mode {
+            Some(v) => std::env::set_var("NOSDESK_DEPLOYMENT_MODE", v),
+            None => std::env::remove_var("NOSDESK_DEPLOYMENT_MODE"),
+        }
+        match flag {
+            Some(v) => std::env::set_var("NOSDESK_WORKSPACE_SELECTION", v),
+            None => std::env::remove_var("NOSDESK_WORKSPACE_SELECTION"),
+        }
+        body();
+        match prev_mode {
+            Some(v) => std::env::set_var("NOSDESK_DEPLOYMENT_MODE", v),
+            None => std::env::remove_var("NOSDESK_DEPLOYMENT_MODE"),
+        }
+        match prev_flag {
+            Some(v) => std::env::set_var("NOSDESK_WORKSPACE_SELECTION", v),
+            None => std::env::remove_var("NOSDESK_WORKSPACE_SELECTION"),
+        }
+    }
+
+    #[test]
+    fn selection_off_by_default_and_requires_both_hosted_and_flag() {
+        // Default: neither hosted nor flag.
+        with_selection_env(None, None, || {
+            assert!(!selection_resolution_enabled());
+        });
+        // Hosted but flag absent: still off.
+        with_selection_env(Some("hosted"), None, || {
+            assert!(!selection_resolution_enabled());
+        });
+        // Flag set but self-hosted: off (single-tenant ignores selection).
+        with_selection_env(Some("self_hosted"), Some("1"), || {
+            assert!(!selection_resolution_enabled());
+        });
+        // Both present: on.
+        with_selection_env(Some("hosted"), Some("1"), || {
+            assert!(selection_resolution_enabled());
+        });
+        // Truthy spellings accepted; junk is not.
+        with_selection_env(Some("hosted"), Some("true"), || {
+            assert!(selection_resolution_enabled());
+        });
+        with_selection_env(Some("hosted"), Some("maybe"), || {
+            assert!(!selection_resolution_enabled());
+        });
     }
 }

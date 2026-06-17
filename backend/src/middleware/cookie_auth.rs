@@ -22,42 +22,101 @@ use crate::models::Claims;
 use crate::utils::jwt::JwtUtils;
 use actix_web::HttpMessage;
 
-/// Item U: workspace membership 403 gate.
+/// Item U: resolve-then-gate the request's workspace.
 ///
-/// If the request has a `WorkspaceContext` (hosted mode with the
-/// subdomain resolved) and the authenticated user has no
-/// `workspace_members` row for that workspace, return
-/// `403 Forbidden` instead of letting the request fall through
-/// into the app with RLS-filtered-to-empty queries.
+/// Two resolution paths feed the same membership 403 gate:
 ///
-/// Skipped when no `WorkspaceContext` is present (apex domain,
-/// unrecognised subdomain) - those routes shouldn't touch tenant
-/// tables anyway, and the strict RLS policy is the secondary
-/// guard there.
+/// - **Host-derived** (today / customer portal / self-hosted): the
+///   `WorkspaceContextMiddleware` already put a `WorkspaceContext` in
+///   extensions from the subdomain. The user must be a member of it or
+///   the request is `403 Forbidden` instead of falling through into the
+///   app with RLS-filtered-to-empty queries.
+/// - **Selection-derived** (Model C single-origin agent app, behind
+///   `NOSDESK_WORKSPACE_SELECTION`): the client names the workspace in
+///   the `X-Nosdesk-Workspace` header. The gate resolves it, membership-
+///   checks it, and inserts the resulting `WorkspaceContext` so handlers
+///   read the selection. Header wins when present; absent header falls
+///   back to Host-derived.
 ///
-/// Used by every authentication middleware (cookie auth + dual
-/// auth) so the gate fires on every authenticated entry path.
-pub(crate) fn enforce_workspace_membership(
+/// Skipped (Ok) when neither path yields a workspace (apex / public
+/// routes that pin nothing); those routes don't touch tenant tables and
+/// the strict RLS policy is the secondary guard.
+///
+/// Called by every authentication middleware (cookie auth + dual auth)
+/// so the gate fires on every authenticated entry path.
+pub fn enforce_workspace_membership(
     req: &ServiceRequest,
     conn: &mut DbConnection,
     claims: &Claims,
 ) -> Result<(), Error> {
-    // No resolved workspace (apex / public routes that pin nothing): there is
-    // no tenant scope to authorize against. Any route that DOES pin a workspace
-    // carries a WorkspaceContext, so it reaches the membership check below.
-    let Some(workspace_id) = req
-        .extensions()
-        .get::<crate::extractors::WorkspaceContext>()
-        .map(|w| w.workspace_id)
-    else {
+    // Selection-derived workspace takes precedence when enabled and the header
+    // is present. Resolve it to a context up front; a present-but-bad header is
+    // a client error (400), an unknown workspace collapses into the same 403 a
+    // non-member gets below (no workspace-existence leak).
+    let selected = selected_workspace_context(req, conn)?;
+
+    // Otherwise fall back to the Host-derived context the middleware resolved.
+    let target = match &selected {
+        Some(ctx) => Some(ctx.workspace_id),
+        None => req
+            .extensions()
+            .get::<crate::extractors::WorkspaceContext>()
+            .map(|w| w.workspace_id),
+    };
+    let Some(workspace_id) = target else {
+        // No tenant scope to authorize against (apex / public route).
         return Ok(());
     };
+
     // A workspace-scoped request whose subject doesn't parse is malformed; fail
     // closed rather than skip the gate (auth already validated the token, so
     // this is unreachable in practice, but the gate must never fail open).
     let user_uuid = uuid::Uuid::parse_str(&claims.sub)
         .map_err(|_| actix_web::error::ErrorForbidden("Not a member of this workspace"))?;
-    require_workspace_membership(conn, workspace_id, user_uuid)
+    require_workspace_membership(conn, workspace_id, user_uuid)?;
+
+    // Membership confirmed: publish the selection-derived context so downstream
+    // handlers and pins read the selected workspace, not a Host-derived one.
+    if let Some(ctx) = selected {
+        req.extensions_mut().insert(ctx);
+    }
+    Ok(())
+}
+
+/// Resolve the `X-Nosdesk-Workspace` selection header to a
+/// `WorkspaceContext`, or `Ok(None)` when selection resolution is off or
+/// the header is absent. A malformed uuid is `400 Bad Request`; an
+/// unknown workspace is `403 Forbidden` (indistinguishable from a
+/// non-member so workspace existence does not leak).
+fn selected_workspace_context(
+    req: &ServiceRequest,
+    conn: &mut DbConnection,
+) -> Result<Option<crate::extractors::WorkspaceContext>, Error> {
+    use crate::middleware::workspace_context as wc;
+    if !wc::selection_resolution_enabled() {
+        return Ok(None);
+    }
+    let Some(raw) = req
+        .headers()
+        .get(wc::WORKSPACE_SELECTION_HEADER)
+        .and_then(|v| v.to_str().ok())
+    else {
+        return Ok(None);
+    };
+    let workspace_uuid = uuid::Uuid::parse_str(raw.trim())
+        .map_err(|_| actix_web::error::ErrorBadRequest("Invalid workspace selection"))?;
+    match wc::resolve_selected_context(conn, workspace_uuid) {
+        Ok(Some(ctx)) => Ok(Some(ctx)),
+        Ok(None) => Err(actix_web::error::ErrorForbidden(
+            "Not a member of this workspace",
+        )),
+        Err(e) => {
+            error!(error = ?e, "Selection-header workspace lookup failed");
+            Err(actix_web::error::ErrorInternalServerError(
+                "Workspace resolution failed",
+            ))
+        }
+    }
 }
 
 /// Fail-closed membership check: `Ok(())` iff `user_uuid` is a member of
