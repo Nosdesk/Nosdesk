@@ -47,6 +47,7 @@ impl JwtUtils {
             platform_role: user.platform_role.clone(),
             scope: "full".to_string(),
             sid: Some(session_id.to_string()),
+            workspace_uuid: None,
             exp: now + 15 * 60, // 15 minutes
             iat: now,
         };
@@ -60,8 +61,15 @@ impl JwtUtils {
     }
 
     /// Create a short-lived SSE token (1 hour expiry)
-    /// These tokens are specifically for Server-Sent Events and have reduced scope
-    pub fn create_sse_token(user_id: &str, platform_role: &str) -> Result<String, JwtError> {
+    /// These tokens are specifically for Server-Sent Events and have reduced scope.
+    /// `workspace_uuid` binds the selected workspace into the token (Model C) so
+    /// the stream — which can't receive the selection header over EventSource —
+    /// authorizes against it; `None` for Host-derived / self-hosted callers.
+    pub fn create_sse_token(
+        user_id: &str,
+        platform_role: &str,
+        workspace_uuid: Option<uuid::Uuid>,
+    ) -> Result<String, JwtError> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|_| JwtError::SystemTime)?
@@ -74,6 +82,7 @@ impl JwtUtils {
             platform_role: platform_role.to_string(),
             scope: "sse".to_string(),
             sid: None,
+            workspace_uuid,
             exp: now + 3600,
             iat: now,
         };
@@ -685,11 +694,17 @@ mod tests {
         let _ = &*JWT_SECRET;
 
         let user_id = uuid::Uuid::new_v4().to_string();
-        let token = JwtUtils::create_sse_token(&user_id, "platform_admin")
+        let ws = uuid::Uuid::new_v4();
+        let token = JwtUtils::create_sse_token(&user_id, "platform_admin", Some(ws))
             .expect("Failed to create SSE token");
         let claims = JwtUtils::validate_token(&token).expect("Failed to validate SSE token");
         assert_eq!(claims.scope, "sse");
         assert_eq!(claims.sub, user_id);
+        assert_eq!(
+            claims.workspace_uuid,
+            Some(ws),
+            "SSE token carries the workspace"
+        );
     }
 
     #[test]

@@ -106,6 +106,7 @@ impl AuthContext {
                 platform_role: platform_role.as_str().to_string(),
                 scope: "full".into(),
                 sid: None,
+                workspace_uuid: None,
                 exp: 9999999999,
                 iat: 0,
             },

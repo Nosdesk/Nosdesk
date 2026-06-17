@@ -255,6 +255,7 @@ mod tests {
             platform_role: platform_role.to_string(),
             scope: "full".to_string(),
             sid: None,
+            workspace_uuid: None,
             exp: 0,
             iat: 0,
         }

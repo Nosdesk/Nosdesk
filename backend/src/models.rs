@@ -2580,6 +2580,14 @@ pub struct Claims {
     pub scope: String, // Token scope: "full" for normal sessions
     #[serde(default)] // Session ID (UUID) — None for SSE/API tokens
     pub sid: Option<String>,
+    /// Workspace selected when an SSE token was minted (Model C). EventSource
+    /// can't send the `X-Nosdesk-Workspace` header, so the selected workspace
+    /// is bound into the SSE token instead and the stream authorizes against
+    /// it. `None` on session/API tokens (which resolve the workspace per
+    /// request) and on SSE tokens minted before this claim existed (the stream
+    /// falls back to the Host-derived context).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_uuid: Option<Uuid>,
     pub exp: usize, // Expiration time
     pub iat: usize, // Issued at
 }

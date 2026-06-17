@@ -90,6 +90,7 @@ fn claims_for(user: &User) -> Claims {
         platform_role: "user".to_string(),
         scope: "full".to_string(),
         sid: None,
+        workspace_uuid: None,
         exp: (chrono::Utc::now().timestamp() + 3600) as usize,
         iat: chrono::Utc::now().timestamp() as usize,
     }
