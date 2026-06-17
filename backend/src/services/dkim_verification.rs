@@ -134,6 +134,64 @@ pub async fn verify_dkim_domain(
     Ok(new_status)
 }
 
+/// Outcome of one [`reverify_all`] sweep.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ReverifyStats {
+    /// Verified domains re-checked this run.
+    pub checked: usize,
+    /// Still resolving to our key.
+    pub still_verified: usize,
+    /// Record gone: reverted to `pending` (sends fall back to platform).
+    pub reverted: usize,
+    /// Transient lookup error: status left unchanged.
+    pub errored: usize,
+}
+
+/// Re-check every workspace currently in verified-domain mode with status
+/// `verified`, confirming the published DKIM record still resolves to our key.
+///
+/// A domain whose record has disappeared flips back to `pending`, so the
+/// resolver reverts it to the platform fallback identity rather than keep
+/// DKIM-signing with a key receivers can no longer fetch (which would fail
+/// DKIM/DMARC and silently tank the tenant's deliverability). A transient DNS
+/// error leaves the status untouched: `verify_dkim_domain` only writes after a
+/// successful lookup, and an empty result (NXDOMAIN / no records) is the
+/// "record gone" signal, so a resolver blip never causes a false revert.
+///
+/// Runs as a scheduled job. Lists verified workspaces under a bypass connection
+/// (cross-workspace scan), then re-verifies each one workspace-pinned.
+pub async fn reverify_all(pool: &Pool) -> Result<ReverifyStats, VerifyError> {
+    let ids = crate::sync::session::background_run(pool, "dkim-reverify-list", |conn| {
+        ws_settings::verified_domain_workspace_ids(conn)
+    })
+    .map_err(VerifyError::Background)?;
+
+    let mut stats = ReverifyStats::default();
+    for workspace_id in ids {
+        stats.checked += 1;
+        match verify_dkim_domain(pool, workspace_id).await {
+            Ok(s) if s == status::VERIFIED => stats.still_verified += 1,
+            Ok(_) => {
+                stats.reverted += 1;
+                tracing::warn!(
+                    workspace_id,
+                    "DKIM domain re-verification failed: published record no longer matches; \
+                     reverted to pending, sends now use the platform fallback identity"
+                );
+            }
+            Err(e) => {
+                stats.errored += 1;
+                tracing::warn!(
+                    workspace_id,
+                    error = %e,
+                    "DKIM domain re-verification errored (transient); status left unchanged"
+                );
+            }
+        }
+    }
+    Ok(stats)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1236,6 +1236,19 @@ async fn main() -> std::io::Result<()> {
             move || jobs::sweep_outbound_email_leases(p.clone()),
         );
 
+        // Hourly: re-verify workspace DKIM sending domains. A `verified`
+        // domain whose published record disappears flips back to `pending`
+        // so sends fall back to the platform identity instead of shipping
+        // mail that fails DKIM/DMARC at the receiver.
+        let p = pool.clone();
+        spawn_periodic(
+            "dkim.reverify_domains",
+            Duration::from_secs(60 * 60),
+            scheduler_shutdown.clone(),
+            scheduler_status.clone(),
+            move || jobs::reverify_dkim_domains(p.clone()),
+        );
+
         // Daily: row-level retention for security_events and
         // webhook_deliveries; partition-level retention for audit_log
         // and sync_actions. Partition drops use DETACH CONCURRENTLY so

@@ -77,6 +77,18 @@ pub fn get_for_workspaces(
         .load(conn)
 }
 
+/// The ids of every workspace currently in verified-domain mode with status
+/// `verified`. A cross-workspace scan for the periodic DKIM re-verification job,
+/// so it filters explicitly and is meant to run under a bypass connection.
+pub fn verified_domain_workspace_ids(conn: &mut DbConnection) -> QueryResult<Vec<i32>> {
+    use crate::schema::workspace_email_settings::dsl as w;
+    w::workspace_email_settings
+        .filter(w::sending_mode.eq(workspace_email_sending_mode::VERIFIED_DOMAIN))
+        .filter(w::verification_status.eq(workspace_email_verification_status::VERIFIED))
+        .select(w::workspace_id)
+        .load(conn)
+}
+
 // sync-audit-only: Workspace outbound email identity; covered by the audit_log trigger on workspace_email_settings, sync clients don't subscribe.
 /// Insert or update the editable settings for the current workspace. The
 /// password columns are left untouched (managed by `set_password` /
@@ -527,6 +539,31 @@ mod tests {
         let row = get(&mut conn).unwrap().unwrap();
         assert!(decrypt_dkim_key(&row).unwrap().is_none());
         assert!(dns_record_for(&row).unwrap().is_none());
+    }
+
+    #[test]
+    fn verified_domain_workspace_ids_lists_only_verified() {
+        let mut conn = setup_test_connection();
+        let mut fields = sample_fields();
+        fields.sending_mode = "verified_domain".into();
+        upsert(&mut conn, fields).unwrap();
+
+        // A fresh verified-domain row is unverified, so it isn't listed.
+        assert!(verified_domain_workspace_ids(&mut conn).unwrap().is_empty());
+
+        set_verification_status(
+            &mut conn,
+            1,
+            "verified",
+            Some(chrono::Utc::now().naive_utc()),
+        )
+        .unwrap();
+        assert_eq!(verified_domain_workspace_ids(&mut conn).unwrap(), vec![1]);
+
+        // Reverting drops it from the list (so the re-verify job won't re-check
+        // an already-reverted domain).
+        set_verification_status(&mut conn, 1, "pending", None).unwrap();
+        assert!(verified_domain_workspace_ids(&mut conn).unwrap().is_empty());
     }
 
     #[test]

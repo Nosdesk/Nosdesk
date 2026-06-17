@@ -354,6 +354,27 @@ pub async fn sweep_outbound_email_leases(pool: Pool) -> Result<()> {
     Ok(())
 }
 
+/// Re-verify workspace DKIM sending domains. A domain stays `verified` only
+/// while its published record keeps resolving to our key; if a tenant removes
+/// the record, this flips it back to `pending` so sends fall back to the
+/// platform identity instead of shipping mail that fails DKIM/DMARC. See
+/// [`crate::services::dkim_verification::reverify_all`]. Default cadence: hourly.
+pub async fn reverify_dkim_domains(pool: Pool) -> Result<()> {
+    let stats = crate::services::dkim_verification::reverify_all(&pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("reverify_dkim_domains: {e}"))?;
+    if stats.checked > 0 {
+        info!(
+            checked = stats.checked,
+            still_verified = stats.still_verified,
+            reverted = stats.reverted,
+            errored = stats.errored,
+            "scheduler: DKIM sending domains re-verified"
+        );
+    }
+    Ok(())
+}
+
 /// Hard-delete soft-deleted users whose grace window has elapsed.
 /// The single + bulk delete handlers stamp `users.deleted_at`; this
 /// worker is the only path that runs the destructive cascade for
