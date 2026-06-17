@@ -435,62 +435,28 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null;
     authProvider.value = null;
 
-    // Drop cached feature flags so a different user logging in afterwards
-    // doesn't briefly see the previous user's resolved flag set.
+    // Tear down everything workspace-scoped (config stores, query cache, sync
+    // pool, SSE bridge, collab caches) so a different user signing in afterwards
+    // doesn't briefly see the previous session's data. The same routine backs
+    // the in-app workspace switch. myWorkspaces needs no explicit reset: its
+    // query key is account-scoped, so clearing `user` switches it to `anon`.
     try {
-      const { useFeatureFlagsStore } = await import('@/stores/featureFlags');
-      useFeatureFlagsStore().reset();
+      const { resetWorkspaceScopedState } = await import('@/stores/workspaceReset');
+      await resetWorkspaceScopedState();
     } catch (e) {
-      logger.error('Failed to reset feature flags on logout', e);
+      logger.error('Failed to reset workspace-scoped state on logout', e);
     }
 
-    try {
-      const { useWorkflowStatesStore } = await import('@/stores/workflowStates');
-      useWorkflowStatesStore().reset();
-    } catch (e) {
-      logger.error('Failed to reset workflow states on logout', e);
-    }
-
-    // myWorkspaces no longer needs an explicit reset: its query key is
-    // scoped to the signed-in account, so clearing `user` switches it to
-    // the empty `anon` key automatically.
-
-    try {
-      const { resetWorkspaceCapabilities } = await import('@/composables/useWorkspaceCapabilities');
-      resetWorkspaceCapabilities();
-    } catch (e) {
-      logger.error('Failed to reset workspace capabilities on logout', e);
-    }
-
-    // Reset appearance to the application default so the login page shows
-    // the brand theme rather than the signed-out user's personal
-    // theme/accent. Device-level settings (device-local theme pin,
-    // colour-blind mode) are deliberately kept.
+    // Account/session teardown that does NOT belong to the workspace-scoped
+    // routine: reset appearance to the application default so the login page
+    // shows the brand theme rather than the signed-out user's personal
+    // theme/accent. Device-level settings (device-local theme pin, colour-blind
+    // mode) are deliberately kept.
     try {
       const { useThemeStore } = await import('@/stores/theme');
       useThemeStore().resetToDefault();
     } catch (e) {
       logger.error('Failed to reset theme on logout', e);
-    }
-
-    // Tear down the sync runtime so a different user signing in
-    // afterwards doesn't briefly see the previous user's pool. The
-    // IDB handle is closed here; per-user database scoping means a
-    // re-login under a different account opens a different DB.
-    try {
-      const [{ tearDown }, { detachSseBridge }, { purgeAllCollabDocs }] = await Promise.all([
-        import('@/sync/lifecycle'),
-        import('@/sync/sseBridge'),
-        import('@/utils/collabLocalCache'),
-      ]);
-      detachSseBridge();
-      await tearDown();
-      // Collab caches are keyed by workspace, not user, so unlike the
-      // sync pool they'd otherwise outlive the session and be readable
-      // by the next account on a shared machine. Purge them on logout.
-      await purgeAllCollabDocs();
-    } catch (e) {
-      logger.error('Failed to tear down sync runtime on logout', e);
     }
 
     // Remove from localStorage
