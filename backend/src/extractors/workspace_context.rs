@@ -52,30 +52,17 @@ impl WorkspaceContext {
     /// OIDC). A verified `custom_domain` wins; otherwise
     /// `<slug>.<NOSDESK_TENANT_DOMAIN>`. Returns `None` in self-hosted mode or
     /// when no tenant base domain is configured, the caller then falls back to
-    /// `FRONTEND_URL` or the request host.
+    /// `FRONTEND_URL` or the request host. Delegates to `utils::tenant_origin`,
+    /// the single source of truth shared with the `Workspace`-keyed callers.
     pub fn canonical_origin(&self) -> Option<String> {
-        let tenant_domain = std::env::var("NOSDESK_TENANT_DOMAIN").ok();
-        canonical_origin_for(
+        use crate::utils::tenant_origin;
+        let host = tenant_origin::canonical_host_for(
             &self.slug,
             self.custom_domain.as_deref(),
-            tenant_domain.as_deref(),
-        )
+            tenant_origin::tenant_domain().as_deref(),
+        );
+        tenant_origin::origin_from_host(host)
     }
-}
-
-/// Pure origin builder behind [`WorkspaceContext::canonical_origin`]. A
-/// non-empty `custom_domain` wins; else `<slug>.<tenant_domain>` when a
-/// non-empty `tenant_domain` is given; else `None`.
-pub(crate) fn canonical_origin_for(
-    slug: &str,
-    custom_domain: Option<&str>,
-    tenant_domain: Option<&str>,
-) -> Option<String> {
-    if let Some(domain) = custom_domain.map(str::trim).filter(|s| !s.is_empty()) {
-        return Some(format!("https://{domain}"));
-    }
-    let tenant_domain = tenant_domain.map(str::trim).filter(|s| !s.is_empty())?;
-    Some(format!("https://{slug}.{tenant_domain}"))
 }
 
 /// Error type for `WorkspaceContext` extraction failures.
@@ -123,40 +110,3 @@ impl FromRequest for WorkspaceContext {
 // T: FromRequest`: extraction failure yields `Ok(None)`. Apex-
 // domain routes (signup, marketing) take `Option<_>` and the
 // handler branches on `Some` / `None`.
-
-#[cfg(test)]
-mod tests {
-    use super::canonical_origin_for;
-
-    #[test]
-    fn custom_domain_wins_over_slug() {
-        assert_eq!(
-            canonical_origin_for("acme", Some("help.acme.com"), Some("nosdesk.dev")),
-            Some("https://help.acme.com".to_string())
-        );
-    }
-
-    #[test]
-    fn slug_plus_tenant_domain_when_no_custom_domain() {
-        assert_eq!(
-            canonical_origin_for("acme", None, Some("nosdesk.dev")),
-            Some("https://acme.nosdesk.dev".to_string())
-        );
-    }
-
-    #[test]
-    fn none_without_custom_domain_or_tenant_domain() {
-        assert_eq!(canonical_origin_for("acme", None, None), None);
-    }
-
-    #[test]
-    fn empty_values_are_treated_as_unset() {
-        // Blank custom domain falls through to the tenant-domain form.
-        assert_eq!(
-            canonical_origin_for("acme", Some("  "), Some("nosdesk.dev")),
-            Some("https://acme.nosdesk.dev".to_string())
-        );
-        // Blank tenant domain with no custom domain yields None.
-        assert_eq!(canonical_origin_for("acme", None, Some("")), None);
-    }
-}

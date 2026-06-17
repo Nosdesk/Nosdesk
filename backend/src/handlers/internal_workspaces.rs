@@ -645,6 +645,15 @@ fn looks_like_fqdn(s: &str) -> bool {
         .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '-')
 }
 
+/// Set or clear a workspace's verified custom domain.
+///
+/// Passkey implication (C1 / tenant-origin): WebAuthn RP ID is the workspace's
+/// canonical host, so changing the custom domain changes the RP ID and
+/// **invalidates every existing passkey** for the workspace (the spec binds
+/// credentials to the RP ID; there is no rebind). The admin-facing flow must
+/// warn before changing it, and we must not delete the old credentials until
+/// users re-enrol on the new host. Slug is immutable, so this is the only
+/// passkey-invalidating event. See docs/plans/tenant-origin-awareness.md.
 pub async fn set_custom_domain(
     req: HttpRequest,
     _: PlatformAuth,

@@ -162,16 +162,12 @@ async fn issue_password_reset(
     };
     let workspace_id = workspace.id;
 
-    // Tenant-canonical link host: a verified custom domain or
-    // `<slug>.<NOSDESK_TENANT_DOMAIN>`, falling back to FRONTEND_URL or the
-    // request host for self-hosted single-tenant.
-    let tenant_domain = std::env::var("NOSDESK_TENANT_DOMAIN").ok();
-    let base_url = crate::extractors::workspace_context::canonical_origin_for(
-        &workspace.slug,
-        workspace.custom_domain.as_deref(),
-        tenant_domain.as_deref(),
+    // Tenant-canonical link host: the recipient workspace's canonical origin
+    // (custom domain or `<slug>.<NOSDESK_TENANT_DOMAIN>`), falling back to
+    // FRONTEND_URL or the request host for self-hosted single-tenant.
+    let base_url = crate::utils::tenant_origin::email_link_base(
+        crate::utils::tenant_origin::workspace_origin(&workspace),
     )
-    .or_else(|| std::env::var("FRONTEND_URL").ok())
     .unwrap_or_else(|| format!("{scheme}://{host}"));
 
     // Enqueue rather than fire-and-forget. The outbound worker retries with

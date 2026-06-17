@@ -179,12 +179,10 @@ async fn prepare_invitation(
         .extensions()
         .get::<crate::extractors::WorkspaceContext>()
         .and_then(|ws| ws.canonical_origin());
-    let base_url = ws_origin
-        .or_else(|| std::env::var("FRONTEND_URL").ok())
-        .unwrap_or_else(|| {
-            let conn_info = req.connection_info();
-            format!("{}://{}", conn_info.scheme(), conn_info.host())
-        });
+    let base_url = crate::utils::tenant_origin::email_link_base(ws_origin).unwrap_or_else(|| {
+        let conn_info = req.connection_info();
+        format!("{}://{}", conn_info.scheme(), conn_info.host())
+    });
 
     let email_service = crate::utils::email::EmailService::from_env()
         .map_err(|e| SendInvitationResult::EmailServiceError(format!("{e:?}")))?;
