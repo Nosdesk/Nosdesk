@@ -756,4 +756,71 @@ mod tests {
         let bumped = sync_counter_into_credential_blob(blob, 0);
         assert_eq!(bumped["cred"]["counter"], serde_json::json!(0));
     }
+
+    mod request_workspace_host {
+        use super::super::request_workspace_host;
+        use crate::extractors::WorkspaceContext;
+        use actix_web::{test::TestRequest, HttpMessage, HttpRequest};
+
+        fn req(host: &str, ctx: Option<WorkspaceContext>) -> HttpRequest {
+            let req = TestRequest::default()
+                .insert_header(("host", host))
+                .to_http_request();
+            if let Some(c) = ctx {
+                req.extensions_mut().insert(c);
+            }
+            req
+        }
+
+        fn ctx(slug: &str, custom_domain: Option<&str>) -> WorkspaceContext {
+            WorkspaceContext {
+                workspace_id: 1,
+                workspace_uuid: uuid::Uuid::nil(),
+                slug: slug.to_string(),
+                name: "Test".to_string(),
+                custom_domain: custom_domain.map(str::to_string),
+                organisation_id: None,
+            }
+        }
+
+        #[test]
+        fn uses_request_host_for_a_resolved_workspace() {
+            let r = req("mercury.nosdesk.dev", Some(ctx("mercury", None)));
+            assert_eq!(
+                request_workspace_host(&r),
+                Some("mercury.nosdesk.dev".to_string())
+            );
+        }
+
+        #[test]
+        fn uses_request_host_not_canonical_when_custom_domain_differs() {
+            // Workspace has a custom domain but the browser is on the subdomain.
+            // rp_origin must equal the browser origin, so the RP host is the
+            // request host, NOT the canonical (custom-domain) host.
+            let r = req(
+                "mercury.nosdesk.dev",
+                Some(ctx("mercury", Some("help.acme.com"))),
+            );
+            assert_eq!(
+                request_workspace_host(&r),
+                Some("mercury.nosdesk.dev".to_string())
+            );
+        }
+
+        #[test]
+        fn none_without_workspace_context() {
+            // Self-hosted / unresolved: fall back to the env-configured RP.
+            let r = req("mercury.nosdesk.dev", None);
+            assert_eq!(request_workspace_host(&r), None);
+        }
+
+        #[test]
+        fn strips_port_and_lowercases() {
+            let r = req("Mercury.Nosdesk.Dev:8443", Some(ctx("mercury", None)));
+            assert_eq!(
+                request_workspace_host(&r),
+                Some("mercury.nosdesk.dev".to_string())
+            );
+        }
+    }
 }
