@@ -645,6 +645,65 @@ pub enum SmtpSecurity {
     Plaintext,
 }
 
+/// Result of checking whether an SMTP `(port, security)` pair is coherent (B4).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SmtpCoherence {
+    /// Standard, no concerns.
+    Ok,
+    /// Reachable but worth surfacing (e.g. plaintext submission, port 25).
+    Warn(String),
+    /// Protocol-impossible: the pair physically cannot complete a connection.
+    Error(String),
+}
+
+/// Check an SMTP `(port, security)` pair for coherence (B4).
+///
+/// The load-bearing distinction is implicit-TLS-on-connect (465) vs a STARTTLS
+/// upgrade (587), per RFC 8314 / 6409 — the port itself is only a hint. So only
+/// the three pairs that physically can't connect are hard [`SmtpCoherence::Error`]s;
+/// non-standard ports (2525, custom relays) trust the operator's chosen mode and
+/// at most [`SmtpCoherence::Warn`]. This keeps legitimate corporate / alt-port
+/// relays working while still catching the cryptic-at-connect-time mistakes.
+pub fn check_port_security(port: u16, security: SmtpSecurity) -> SmtpCoherence {
+    use SmtpSecurity::*;
+    match (port, security) {
+        // Port 465 is implicit-TLS-on-connect: a STARTTLS handshake or plaintext
+        // EHLO is the wrong first bytes and the connection never establishes.
+        (465, StartTls) => SmtpCoherence::Error(
+            "Port 465 uses implicit TLS on connect, not STARTTLS. Use port 587 for STARTTLS, \
+             or keep 465 and set security to TLS."
+                .into(),
+        ),
+        (465, Plaintext) => SmtpCoherence::Error(
+            "Port 465 requires implicit TLS; plaintext is not possible on it.".into(),
+        ),
+        // Port 587 expects a cleartext EHLO first, then STARTTLS; an immediate
+        // TLS handshake is rejected.
+        (587, Tls) => SmtpCoherence::Error(
+            "Port 587 uses STARTTLS, not implicit TLS. Use port 465 for implicit TLS, \
+             or keep 587 and set security to STARTTLS."
+                .into(),
+        ),
+        (465, Tls) | (587, StartTls) => SmtpCoherence::Ok,
+        (587, Plaintext) => SmtpCoherence::Warn(
+            "Port 587 normally uses STARTTLS; plaintext submission sends mail unencrypted.".into(),
+        ),
+        // Port 25 is server-to-server relay, not authenticated submission.
+        (25, _) => SmtpCoherence::Warn(
+            "Port 25 is for server-to-server relay, not authenticated submission; prefer 587 \
+             (STARTTLS) or 465 (implicit TLS)."
+                .into(),
+        ),
+        // Any other port: trust the operator's explicit mode, but flag plaintext.
+        (_, Plaintext) => SmtpCoherence::Warn(
+            "Plaintext SMTP sends mail unencrypted; use TLS or STARTTLS unless this is a trusted \
+             local relay."
+                .into(),
+        ),
+        _ => SmtpCoherence::Ok,
+    }
+}
+
 impl EmailConfig {
     /// Load email configuration from environment variables
     pub fn from_env() -> Result<Self, String> {
@@ -708,6 +767,21 @@ impl EmailConfig {
                 ));
             }
         };
+
+        // B4: fail fast at startup on an incoherent port/security pair instead
+        // of a cryptic TLS error on the first send. Warnings are logged but
+        // don't block boot.
+        match check_port_security(smtp_port, security) {
+            SmtpCoherence::Error(msg) => {
+                return Err(format!(
+                    "SMTP_PORT {smtp_port} / SMTP_SECURITY mismatch: {msg}"
+                ));
+            }
+            SmtpCoherence::Warn(msg) => {
+                tracing::warn!(port = smtp_port, "SMTP config warning: {msg}");
+            }
+            SmtpCoherence::Ok => {}
+        }
 
         Ok(Self {
             smtp_host,
@@ -1667,6 +1741,44 @@ pub struct OutboundEmailMessage<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn smtp_coherence_matrix() {
+        use SmtpSecurity::*;
+        // The three protocol-impossible pairs are hard errors.
+        assert!(matches!(
+            check_port_security(465, StartTls),
+            SmtpCoherence::Error(_)
+        ));
+        assert!(matches!(
+            check_port_security(465, Plaintext),
+            SmtpCoherence::Error(_)
+        ));
+        assert!(matches!(
+            check_port_security(587, Tls),
+            SmtpCoherence::Error(_)
+        ));
+        // The standard coherent pairs are clean.
+        assert_eq!(check_port_security(465, Tls), SmtpCoherence::Ok);
+        assert_eq!(check_port_security(587, StartTls), SmtpCoherence::Ok);
+        // Insecure-but-reachable and relay-port configs warn, not error.
+        assert!(matches!(
+            check_port_security(587, Plaintext),
+            SmtpCoherence::Warn(_)
+        ));
+        assert!(matches!(
+            check_port_security(25, StartTls),
+            SmtpCoherence::Warn(_)
+        ));
+        // Non-standard ports trust the operator's explicit TLS mode.
+        assert_eq!(check_port_security(2525, StartTls), SmtpCoherence::Ok);
+        assert_eq!(check_port_security(10025, Tls), SmtpCoherence::Ok);
+        // ...but still flag plaintext on any port.
+        assert!(matches!(
+            check_port_security(2525, Plaintext),
+            SmtpCoherence::Warn(_)
+        ));
+    }
 
     #[test]
     fn test_email_config_disabled_by_default() {
