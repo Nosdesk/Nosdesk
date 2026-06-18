@@ -193,6 +193,24 @@ pub fn enqueue_invitation(
     outbound_emails::enqueue_idempotent(conn, row)
 }
 
+/// Build the signed one-click unsubscribe URL for a notification email, on the
+/// same origin as `cta_url` (the product app that serves the endpoint). `None`
+/// when the recipient uuid or the CTA origin can't be parsed, or `JWT_SECRET`
+/// is unset — the `List-Unsubscribe` header is then simply omitted.
+fn unsubscribe_url(cta_url: &str, recipient_uuid: &str) -> Option<String> {
+    let user = uuid::Uuid::parse_str(recipient_uuid).ok()?;
+    let token = crate::utils::unsubscribe_token::sign(&user)?;
+    let origin = url::Url::parse(cta_url)
+        .ok()?
+        .origin()
+        .ascii_serialization();
+    // `origin()` yields "null" for opaque / relative URLs; don't build a bad link.
+    if origin == "null" {
+        return None;
+    }
+    Some(format!("{origin}/api/public/unsubscribe?token={token}"))
+}
+
 /// Build the `NewOutboundEmail` row for a notification send.
 /// See `prepare_password_reset` for the rationale.
 #[allow(clippy::too_many_arguments)]
@@ -218,7 +236,14 @@ pub fn prepare_notification(
     // Auto-Submitted: doing so makes Gmail treat them as bot
     // traffic and reduces engagement scoring. Keep them
     // person-to-person-shaped.
-    let headers_json = serde_json::json!({});
+    //
+    // B2: notification mail is opt-out-able, so carry a one-click unsubscribe
+    // URL. The endpoint lives on the same origin the CTA links to (the product
+    // app), and the token is signed so the no-auth endpoint can trust it.
+    let headers_json = match unsubscribe_url(cta_url, recipient_uuid) {
+        Some(url) => serde_json::json!({ "List-Unsubscribe": url }),
+        None => serde_json::json!({}),
+    };
 
     NewOutboundEmail {
         channel_id: None,

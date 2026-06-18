@@ -245,6 +245,15 @@ async fn dispatch(
         .zip(reply_to)
         .and_then(|(secret, base)| crate::utils::verp::tagged_return_path(base, row.id, &secret));
 
+    // B2: producer-supplied one-click unsubscribe URL, set only on notification
+    // mail. Same headers_json bag as Reply-To.
+    let list_unsubscribe = row
+        .headers_json
+        .get("List-Unsubscribe")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
     let message = OutboundEmailMessage {
         to: &row.recipient,
         subject: &row.subject,
@@ -257,6 +266,7 @@ async fn dispatch(
         mail_class: &row.mail_class,
         reply_to,
         envelope_from: envelope_from.as_deref(),
+        list_unsubscribe,
     };
 
     match email.send_outbound(&message).await {

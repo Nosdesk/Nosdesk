@@ -48,6 +48,39 @@ impl Header for XAutoResponseSuppress {
         HeaderValue::new(Self::name(), self.0.clone())
     }
 }
+
+/// `List-Unsubscribe` (RFC 2369 / 8058) — the unsubscribe URL(s), each in
+/// angle brackets. Emitted on opt-out-able notification mail only.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ListUnsubscribe(String);
+impl Header for ListUnsubscribe {
+    fn name() -> HeaderName {
+        HeaderName::new_from_ascii_str("List-Unsubscribe")
+    }
+    fn parse(s: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(Self(s.into()))
+    }
+    fn display(&self) -> HeaderValue {
+        HeaderValue::new(Self::name(), self.0.clone())
+    }
+}
+
+/// `List-Unsubscribe-Post` (RFC 8058) — signals one-click support; the only
+/// valid value is `List-Unsubscribe=One-Click`. Pairs with an https
+/// `List-Unsubscribe` URL so the mail client POSTs it without loading a page.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ListUnsubscribePost;
+impl Header for ListUnsubscribePost {
+    fn name() -> HeaderName {
+        HeaderName::new_from_ascii_str("List-Unsubscribe-Post")
+    }
+    fn parse(_s: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(Self)
+    }
+    fn display(&self) -> HeaderValue {
+        HeaderValue::new(Self::name(), "List-Unsubscribe=One-Click".to_string())
+    }
+}
 use std::env;
 use std::str::FromStr;
 
@@ -802,6 +835,13 @@ fn build_outbound_message(
             .map_err(|e| format!("Invalid Reply-To address: {e}"))?;
         builder = builder.reply_to(mailbox);
     }
+    // B2: one-click unsubscribe on notification mail. The producer only sets
+    // this on opt-out-able notification mail, never transactional.
+    if let Some(url) = outbound.list_unsubscribe {
+        builder = builder
+            .header(ListUnsubscribe(format!("<{url}>")))
+            .header(ListUnsubscribePost);
+    }
 
     // Prefer multipart/alternative when both text + html are given so
     // clients can pick; text-only falls back to a single part. Both
@@ -912,6 +952,10 @@ fn dkim_sign_message(message: &mut Message, signer: &DkimSigner) -> Result<(), S
         "In-Reply-To",
         "References",
         "Reply-To",
+        // RFC 8058 §3: the one-click headers MUST be covered by the DKIM
+        // signature the receiver validates, or the unsubscribe POST is refused.
+        "List-Unsubscribe",
+        "List-Unsubscribe-Post",
     ]
     .into_iter()
     .map(HeaderName::new_from_ascii_str)
@@ -1153,6 +1197,7 @@ impl EmailService {
             mail_class: crate::models::outbound_email_mail_class::TRANSACTIONAL,
             reply_to: None,
             envelope_from: None,
+            list_unsubscribe: None,
         };
         self.send_outbound(&outbound).await.map(|_| ())
     }
@@ -1182,6 +1227,7 @@ impl EmailService {
             mail_class: crate::models::outbound_email_mail_class::TRANSACTIONAL,
             reply_to: None,
             envelope_from: None,
+            list_unsubscribe: None,
         };
         self.send_outbound(&outbound).await.map(|_| ())
     }
@@ -1611,6 +1657,11 @@ pub struct OutboundEmailMessage<'a> {
     /// the originating row by its token. `None` (the default, and whenever
     /// `SMTP_VERP_SECRET` is unset) uses lettre's From-derived envelope.
     pub envelope_from: Option<&'a str>,
+    /// `List-Unsubscribe` URL (B2 / RFC 8058). Set on opt-out-able notification
+    /// mail to a signed one-click endpoint; emits `List-Unsubscribe` plus
+    /// `List-Unsubscribe-Post: List-Unsubscribe=One-Click`. `None` on
+    /// transactional mail (which must not advertise unsubscribe).
+    pub list_unsubscribe: Option<&'a str>,
 }
 
 #[cfg(test)]
@@ -1683,6 +1734,7 @@ mod tests {
                 mail_class: "transactional",
                 reply_to: None,
                 envelope_from: None,
+                list_unsubscribe: None,
             })
             .unwrap();
         assert!(
@@ -1707,6 +1759,7 @@ mod tests {
                 mail_class: "transactional",
                 reply_to: None,
                 envelope_from: None,
+                list_unsubscribe: None,
             })
             .unwrap();
         let dump = rendered(&msg);
@@ -1735,6 +1788,7 @@ mod tests {
                         mail_class: "transactional",
                         reply_to: None,
                         envelope_from: None,
+                        list_unsubscribe: None,
                     })
                     .unwrap(),
             )
@@ -1813,6 +1867,7 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
             mail_class: "transactional",
             reply_to: None,
             envelope_from: None,
+            list_unsubscribe: None,
         }
     }
 
@@ -1958,6 +2013,7 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
                 mail_class: "transactional",
                 reply_to: None,
                 envelope_from: None,
+                list_unsubscribe: None,
             })
             .unwrap();
         let dump = rendered(&msg);
@@ -1982,6 +2038,7 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
             mail_class: "transactional",
             reply_to: Some("support@acme.com"),
             envelope_from: None,
+            list_unsubscribe: None,
         };
         let with = rendered(&svc().build_ticket_reply_message(&base).unwrap());
         assert!(with.contains("Reply-To: support@acme.com"), "dump:\n{with}");
@@ -1991,11 +2048,51 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
                 .build_ticket_reply_message(&OutboundEmailMessage {
                     reply_to: None,
                     envelope_from: None,
+                    list_unsubscribe: None,
                     ..base
                 })
                 .unwrap(),
         );
         assert!(!without.contains("Reply-To:"), "dump:\n{without}");
+    }
+
+    #[test]
+    fn list_unsubscribe_headers_emitted_only_when_set() {
+        let base = OutboundEmailMessage {
+            to: "alice@example.com",
+            subject: "Ticket #42 updated",
+            body_text: "an update",
+            body_html: None,
+            message_id: "notify.cafef00d@yourco.com",
+            in_reply_to: None,
+            references: &[],
+            auto_submitted: None,
+            mail_class: "notification",
+            reply_to: None,
+            envelope_from: None,
+            list_unsubscribe: Some("https://acme.nosdesk.dev/api/public/unsubscribe?token=t.sig"),
+        };
+        let with = rendered(&svc().build_ticket_reply_message(&base).unwrap());
+        assert!(
+            with.contains(
+                "List-Unsubscribe: <https://acme.nosdesk.dev/api/public/unsubscribe?token=t.sig>"
+            ),
+            "dump:\n{with}"
+        );
+        assert!(
+            with.contains("List-Unsubscribe-Post: List-Unsubscribe=One-Click"),
+            "dump:\n{with}"
+        );
+
+        let without = rendered(
+            &svc()
+                .build_ticket_reply_message(&OutboundEmailMessage {
+                    list_unsubscribe: None,
+                    ..base
+                })
+                .unwrap(),
+        );
+        assert!(!without.contains("List-Unsubscribe"), "dump:\n{without}");
     }
 
     #[test]
@@ -2013,6 +2110,7 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
                 mail_class: "transactional",
                 reply_to: None,
                 envelope_from: None,
+                list_unsubscribe: None,
             })
             .unwrap();
         let dump = rendered(&msg);
@@ -2045,6 +2143,7 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
             mail_class: "transactional",
             reply_to: None,
             envelope_from: None,
+            list_unsubscribe: None,
         };
         let rt = tokio::runtime::Runtime::new().unwrap();
         let err = rt
