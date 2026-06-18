@@ -220,17 +220,23 @@ pub async fn oauth_authorize(
         }
     };
 
-    // Bind the workspace into the signed state NOW, while the request
-    // context authoritatively identifies the tenant (the user is on their
-    // own workspace subdomain). The callback reads this back rather than
-    // re-deriving the tenant from its own `Host`, so a first-login user is
-    // provisioned into the workspace they actually started from. Hosted
-    // mode fails closed when initiation didn't resolve to a tenant.
-    // User-connection flows don't provision membership, so they carry no
-    // workspace.
+    // Which workspace (if any) to bind into the signed state. The callback
+    // reads this back rather than re-deriving the tenant from its own `Host`.
     let initiation_workspace = if is_user_connection {
+        // User-connection flows don't provision membership, so they carry no
+        // workspace.
+        None
+    } else if crate::middleware::workspace_context::selection_resolution_enabled() {
+        // Model C: central-origin agent login is workspace-agnostic. The agent
+        // authenticates into the central identity and SELECTS a workspace
+        // post-login, so nothing is bound here; the callback resolves an
+        // existing seat instead of provisioning from the login origin.
         None
     } else {
+        // Model B (per-tenant origin) / self-hosted: bind the request-resolved
+        // workspace while the request context authoritatively identifies the
+        // tenant, so a first-login user is provisioned into the workspace they
+        // started from. Fail closed when the tenant can't be determined.
         match resolve_request_workspace(&req) {
             Some(id) => Some(id),
             None => {
@@ -649,45 +655,35 @@ pub async fn oauth_callback(
                     }
                 } else {
                     // Regular login/signup flow
-                    // Find or create user based on OAuth identity
-                    let workspace_id = match resolve_callback_workspace(&state_data, &request) {
-                        Ok(id) => id,
-                        Err(resp) => return resp,
-                    };
-                    let user_result = find_or_create_oauth_user(
+                    let user = match resolve_login_user(
                         &user_info,
                         &provider.provider_type,
+                        &state_data,
+                        &request,
                         &mut conn,
-                        workspace_id,
                     )
-                    .await;
-
-                    match user_result {
-                        Ok(user) => {
-                            info!(user_uuid = %user.uuid, "OAuth: Completing login");
-                            // OAuth provisioning mints users with no search
-                            // observer, so this reindex both indexes a
-                            // first-login user and refreshes the workspace
-                            // tags when a login grants membership in a new
-                            // workspace.
-                            if let Some(search_service) = &search_service {
-                                indexing_tasks::spawn_reindex_user(
-                                    search_service.get_ref().clone(),
-                                    user.uuid,
-                                );
-                            }
-                            crate::handlers::auth::complete_login_redirect(
-                                user,
-                                &request,
-                                &mut conn,
-                                &safe_post_login_location(&state_data.redirect_uri),
-                            )
-                        }
-                        Err(e) => {
-                            error!(error = ?e, "Failed to find or create user");
-                            errors::internal("Failed to authenticate user")
-                        }
+                    .await
+                    {
+                        Ok(user) => user,
+                        Err(resp) => return resp,
+                    };
+                    info!(user_uuid = %user.uuid, "OAuth: Completing login");
+                    // OAuth provisioning mints users with no search observer, so
+                    // this reindex both indexes a first-login user and refreshes
+                    // the workspace tags when a login grants membership in a new
+                    // workspace.
+                    if let Some(search_service) = &search_service {
+                        indexing_tasks::spawn_reindex_user(
+                            search_service.get_ref().clone(),
+                            user.uuid,
+                        );
                     }
+                    crate::handlers::auth::complete_login_redirect(
+                        user,
+                        &request,
+                        &mut conn,
+                        &safe_post_login_location(&state_data.redirect_uri),
+                    )
                 }
             }
             Err(e) => {
@@ -858,41 +854,33 @@ pub async fn oauth_callback(
                         "surname": user_info.family_name,
                     });
 
-                    let workspace_id = match resolve_callback_workspace(&state_data, &request) {
-                        Ok(id) => id,
-                        Err(resp) => return resp,
-                    };
-                    let user_result = find_or_create_oauth_user(
+                    let user = match resolve_login_user(
                         &oidc_user_info,
                         &oidc_identity_issuer(),
+                        &state_data,
+                        &request,
                         &mut conn,
-                        workspace_id,
                     )
-                    .await;
-
-                    match user_result {
-                        Ok(user) => {
-                            info!(user_uuid = %user.uuid, "OIDC: Completing login");
-                            // Index / refresh the user's search doc with
-                            // current workspace memberships (see above).
-                            if let Some(search_service) = &search_service {
-                                indexing_tasks::spawn_reindex_user(
-                                    search_service.get_ref().clone(),
-                                    user.uuid,
-                                );
-                            }
-                            crate::handlers::auth::complete_login_redirect(
-                                user,
-                                &request,
-                                &mut conn,
-                                &safe_post_login_location(&state_data.redirect_uri),
-                            )
-                        }
-                        Err(e) => {
-                            error!(error = ?e, "Failed to find or create user from OIDC");
-                            errors::internal("Failed to authenticate user")
-                        }
+                    .await
+                    {
+                        Ok(user) => user,
+                        Err(resp) => return resp,
+                    };
+                    info!(user_uuid = %user.uuid, "OIDC: Completing login");
+                    // Index / refresh the user's search doc with current
+                    // workspace memberships (see above).
+                    if let Some(search_service) = &search_service {
+                        indexing_tasks::spawn_reindex_user(
+                            search_service.get_ref().clone(),
+                            user.uuid,
+                        );
                     }
+                    crate::handlers::auth::complete_login_redirect(
+                        user,
+                        &request,
+                        &mut conn,
+                        &safe_post_login_location(&state_data.redirect_uri),
+                    )
                 }
             }
             Err(e) => {
@@ -1357,19 +1345,28 @@ fn resolve_callback_workspace(
     }
 }
 
-/// Redirect response for a login that couldn't be tied to a workspace
-/// (hosted mode, unresolved tenant). Mirrors the existing auth-error
-/// redirect shape so the frontend surfaces it the same way.
-fn workspace_unresolved_redirect(redirect_uri: &str) -> HttpResponse {
+/// Build the standard auth-error redirect: bounce to the login redirect target
+/// with an `?auth_error=<message>` the frontend surfaces. Strips any existing
+/// query so the error is the only param.
+fn auth_error_redirect(redirect_uri: &str, message: &str) -> HttpResponse {
     let redirect_path = redirect_uri.split('?').next().unwrap_or("/");
     let error_url = format!(
         "{}?auth_error={}",
         redirect_path,
-        urlencoding::encode("Could not determine the workspace for this sign-in")
+        urlencoding::encode(message)
     );
     HttpResponse::Found()
         .append_header(("Location", error_url))
         .finish()
+}
+
+/// Redirect response for a login that couldn't be tied to a workspace
+/// (Model B / self-hosted, unresolved tenant).
+fn workspace_unresolved_redirect(redirect_uri: &str) -> HttpResponse {
+    auth_error_redirect(
+        redirect_uri,
+        "Could not determine the workspace for this sign-in",
+    )
 }
 
 // Helper function to find or create a user from OAuth profile
@@ -1436,6 +1433,99 @@ fn issuer_for_identity(
     }
 }
 
+/// Extract the login email from an OAuth/OIDC `user_info` blob. MS Graph uses
+/// `mail` for cloud accounts and `userPrincipalName` for hybrid AD; the OIDC
+/// path normalises its claims into the same `mail` field.
+fn oauth_user_email(user_info: &serde_json::Value) -> Result<String, String> {
+    user_info
+        .get("mail")
+        .or_else(|| user_info.get("userPrincipalName"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .ok_or_else(|| "No email in user info".to_string())
+}
+
+/// Extract the provider subject (OIDC `sub` / MS Graph object id) from a
+/// `user_info` blob; stored in `user_auth_identities.external_id`.
+fn oauth_user_sub(user_info: &serde_json::Value) -> Result<String, String> {
+    user_info
+        .get("id")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .ok_or_else(|| "No id in user info".to_string())
+}
+
+/// Resolve the local user for a completing OAuth/OIDC login.
+///
+/// - **Model C (selection mode):** resolve an EXISTING seat only, by identity
+///   then email-link. An unknown identity is denied, because the seat and its
+///   workspace membership are provisioned upstream by the control plane, not at
+///   the login origin. No workspace is involved, and the resolve touches only
+///   non-audited, non-RLS identity tables, so it needs no workspace pin.
+/// - **Model B / self-hosted:** resolve the workspace bound at initiation (or
+///   the request's own context) and find-or-create the user as a member of it.
+///
+/// Returns the resolved user, or an `HttpResponse` (auth-error redirect / 500)
+/// the caller should return directly.
+async fn resolve_login_user(
+    user_info: &serde_json::Value,
+    iss: &str,
+    state: &OAuthState,
+    request: &HttpRequest,
+    conn: &mut DbConnection,
+) -> Result<crate::models::User, HttpResponse> {
+    if crate::middleware::workspace_context::selection_resolution_enabled() {
+        return resolve_existing_seat_user(user_info, iss, state, conn);
+    }
+    let workspace_id = resolve_callback_workspace(state, request)?;
+    find_or_create_oauth_user(user_info, iss, conn, workspace_id)
+        .await
+        .map_err(|e| {
+            error!(error = ?e, "Failed to find or create user during login");
+            errors::internal("Failed to authenticate user")
+        })
+}
+
+/// Model C central login: resolve an existing seat without ever creating a user
+/// or granting membership from the login origin. Unknown identity is denied.
+fn resolve_existing_seat_user(
+    user_info: &serde_json::Value,
+    iss: &str,
+    state: &OAuthState,
+    conn: &mut DbConnection,
+) -> Result<crate::models::User, HttpResponse> {
+    let email = oauth_user_email(user_info).map_err(|e| {
+        error!(error = %e, "Central-origin login: cannot read email from user_info");
+        auth_error_redirect(&state.redirect_uri, CENTRAL_LOGIN_NO_SEAT_MSG)
+    })?;
+    let sub = oauth_user_sub(user_info).map_err(|e| {
+        error!(error = %e, "Central-origin login: cannot read subject from user_info");
+        auth_error_redirect(&state.redirect_uri, CENTRAL_LOGIN_NO_SEAT_MSG)
+    })?;
+    // Resolve-only: pass no metadata / password_hash since we never create here.
+    match crate::services::oauth_provisioning::resolve_user_by_identity_or_email(
+        conn, iss, &sub, &email, &None, &None,
+    ) {
+        Ok(Some(user)) => Ok(user),
+        Ok(None) => {
+            warn!(%email, "Central-origin login denied: no seat for this identity");
+            Err(auth_error_redirect(
+                &state.redirect_uri,
+                CENTRAL_LOGIN_NO_SEAT_MSG,
+            ))
+        }
+        Err(e) => {
+            error!(error = %e, "Seat resolution failed during central-origin login");
+            Err(errors::internal("Failed to authenticate user"))
+        }
+    }
+}
+
+/// Shown when a central-origin login resolves a valid identity that holds no
+/// workspace seat (membership is provisioned upstream, not at login).
+const CENTRAL_LOGIN_NO_SEAT_MSG: &str =
+    "No workspace access for this account. Ask your administrator to invite you.";
+
 async fn find_or_create_oauth_user(
     user_info: &serde_json::Value,
     // Identity issuer for `user_auth_identities.provider_type`. For
@@ -1449,18 +1539,7 @@ async fn find_or_create_oauth_user(
 ) -> Result<crate::models::User, String> {
     use crate::services::oauth_provisioning::{find_or_create_projected_user, ProjectedUserInput};
 
-    // Extract email from user info (MS Graph uses `mail` for cloud
-    // accounts, `userPrincipalName` for hybrid AD)
-    let email = match user_info
-        .get("mail")
-        .or_else(|| user_info.get("userPrincipalName"))
-    {
-        Some(email) => match email.as_str() {
-            Some(e) => e.to_string(),
-            None => return Err("Invalid email format".to_string()),
-        },
-        None => return Err("No email in user info".to_string()),
-    };
+    let email = oauth_user_email(user_info)?;
 
     let name = match user_info.get("displayName") {
         Some(name) => match name.as_str() {
@@ -1470,16 +1549,9 @@ async fn find_or_create_oauth_user(
         None => return Err("No name in user info".to_string()),
     };
 
-    // MS Graph object id maps onto OIDC `sub`. We're storing it in
-    // `user_auth_identities.external_id`; same value as the OIDC
-    // sub claim would be for a true OIDC client.
-    let provider_user_id = match user_info.get("id") {
-        Some(id) => match id.as_str() {
-            Some(i) => i.to_string(),
-            None => return Err("Invalid id format".to_string()),
-        },
-        None => return Err("No id in user info".to_string()),
-    };
+    // MS Graph object id maps onto OIDC `sub`, stored in
+    // `user_auth_identities.external_id`.
+    let provider_user_id = oauth_user_sub(user_info)?;
 
     // Random password lands on the identity row so the legacy
     // password-fallback path doesn't see a NULL hash. Eager path
@@ -1809,6 +1881,48 @@ mod connect_redirect_tests {
         );
         // Unrelated query: preserved.
         assert_eq!(strip_query_param("/p?foo=1", "user_uuid"), "/p?foo=1");
+    }
+}
+
+#[cfg(test)]
+mod login_resolution_tests {
+    use super::{auth_error_redirect, oauth_user_email, oauth_user_sub};
+    use serde_json::json;
+
+    #[test]
+    fn email_reads_mail_then_upn() {
+        // OIDC-normalised claims + MS Graph cloud accounts use `mail`.
+        assert_eq!(
+            oauth_user_email(&json!({"mail": "a@x.com"})).unwrap(),
+            "a@x.com"
+        );
+        // Hybrid AD falls back to userPrincipalName.
+        assert_eq!(
+            oauth_user_email(&json!({"userPrincipalName": "b@x.com"})).unwrap(),
+            "b@x.com"
+        );
+        // `mail` wins when both present.
+        assert_eq!(
+            oauth_user_email(&json!({"mail": "a@x.com", "userPrincipalName": "b@x.com"})).unwrap(),
+            "a@x.com"
+        );
+        // Neither present -> error (never silently log in without an email).
+        assert!(oauth_user_email(&json!({"id": "1"})).is_err());
+    }
+
+    #[test]
+    fn sub_reads_id() {
+        assert_eq!(oauth_user_sub(&json!({"id": "abc"})).unwrap(), "abc");
+        assert!(oauth_user_sub(&json!({"mail": "a@x.com"})).is_err());
+    }
+
+    #[test]
+    fn auth_error_redirect_strips_query_and_encodes_message() {
+        let resp = auth_error_redirect("/login?next=/x", "No seat here");
+        assert_eq!(resp.status(), actix_web::http::StatusCode::FOUND);
+        let loc = resp.headers().get("location").unwrap().to_str().unwrap();
+        // Existing query stripped; message percent-encoded onto the clean path.
+        assert_eq!(loc, "/login?auth_error=No%20seat%20here");
     }
 }
 
