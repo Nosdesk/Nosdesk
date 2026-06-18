@@ -234,10 +234,12 @@ pub enum GuestUserResult {
 /// Atomically find-or-create a requester account for a public guest ticket
 /// submission.
 ///
-/// **Reuse rule:** only accounts whose primary email was itself created by a
-/// previous guest submission (source = [`GUEST_EMAIL_SOURCE`], unverified,
-/// role = `User`) are reused. Any other match — verified email, admin,
-/// technician, OAuth-linked — returns [`GuestUserResult::EmailClaimed`].
+/// **Reuse rule:** only UNVERIFIED, BASELINE end-user accounts (platform
+/// `User`, workspace role below Agent) are reused. That covers anonymous guest
+/// stubs as well as pre-created baseline members (the internal-IT pre-loaded
+/// employee).
+/// Any other match (verified email, admin, agent, audit reviewer, OAuth-linked)
+/// returns [`GuestUserResult::EmailClaimed`].
 ///
 /// **Concurrency:** the lookup and insert run inside a single DB transaction.
 /// If a racing insert causes a unique-violation, the transaction retries the
@@ -357,29 +359,31 @@ fn lookup_for_guest(
     use crate::schema::{user_emails, users};
 
     // Fetch the user and their primary email row together so we can classify.
-    let row: Option<(User, bool, Option<String>)> = users::table
+    let row: Option<(User, bool)> = users::table
         .inner_join(user_emails::table.on(users::uuid.eq(user_emails::user_uuid)))
         .filter(user_emails::email.ilike(email))
         .filter(user_emails::is_primary.eq(true))
-        .select((
-            users::all_columns,
-            user_emails::is_verified,
-            user_emails::source,
-        ))
-        .first::<(User, bool, Option<String>)>(conn)
+        .select((users::all_columns, user_emails::is_verified))
+        .first::<(User, bool)>(conn)
         .optional()?;
 
-    let Some((user, is_verified, source)) = row else {
+    let Some((user, is_verified)) = row else {
         return Ok(None);
     };
 
-    // Only reuse accounts that came from a prior guest submission AND
-    // are still unverified AND are a baseline unprivileged account
-    // (platform admin / audit reviewer / workspace agent+ never lose
-    // the privilege check).
-    let reusable = !is_verified
-        && is_baseline_user(conn, &user)
-        && source.as_deref() == Some(GUEST_EMAIL_SOURCE);
+    // Reuse an existing account as the inbound/guest requester only when it is an
+    // UNVERIFIED, BASELINE end-user (platform `User`, workspace role below Agent).
+    // This covers anonymous guest stubs AND pre-created baseline members (the
+    // internal-IT "pre-loaded employee" case, workstream F), where the email's
+    // `source` is admin/import rather than a guest submission. The source no
+    // longer gates reuse; the two guards below are the impersonation envelope:
+    //   - `!is_verified`: never reuse an account that has proven email ownership.
+    //     A verified user should sign in rather than have a spoofable `From`
+    //     attributed to them.
+    //   - `is_baseline_user`: never reuse an agent / admin / audit reviewer.
+    // So a spoofed `From` can at most open a ticket as an unverified end-user,
+    // the same trust the guest channel already extends to any sender address.
+    let reusable = !is_verified && is_baseline_user(conn, &user);
 
     Ok(Some(if reusable {
         GuestUserResult::Existing(user)
@@ -725,24 +729,34 @@ mod tests {
     }
 
     #[test]
-    fn find_or_create_guest_user_rejects_non_guest_source() {
-        // An unverified user-role account whose email came from elsewhere
-        // (e.g. an invitation that was never accepted) shouldn't be
-        // claimable by a public submission.
+    fn find_or_create_guest_user_reuses_unverified_baseline_member() {
+        // Workstream F: an unverified, baseline (end-user / Member) account is
+        // reusable as the inbound/guest requester regardless of how its email
+        // was created — a pre-loaded internal-IT employee (source = admin /
+        // import) or an invitation that was never accepted. Previously these
+        // were dropped as EmailClaimed, silently losing the ticket. The
+        // `!is_verified` + `is_baseline_user` guards (see the other tests) keep
+        // verified and privileged accounts out.
         let mut conn = setup_test_connection();
-        let invited = TestFixtures::create_user(&mut conn, "Invited", "user");
+        let member = TestFixtures::create_user(&mut conn, "Pre-loaded Employee", "user");
         insert_email(
             &mut conn,
-            invited.uuid,
-            "invited@example.com",
+            member.uuid,
+            "employee@example.com",
             false,
             Some("admin_invitation"),
         );
 
-        let result = find_or_create_guest_user("invited@example.com", "Someone", &mut conn, None)
+        let result = find_or_create_guest_user("employee@example.com", "Someone", &mut conn, None)
             .expect("should succeed");
 
-        assert!(matches!(result, GuestUserResult::EmailClaimed));
+        match result {
+            GuestUserResult::Existing(user) => assert_eq!(user.uuid, member.uuid),
+            other => panic!(
+                "expected Existing (reused baseline member), got {:?}",
+                std::mem::discriminant(&other)
+            ),
+        }
     }
 
     #[test]

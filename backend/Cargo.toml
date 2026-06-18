@@ -231,3 +231,14 @@ tempfile = "3"
 # (the only debug info CI uses) while shrinking target and cache.
 [profile.dev]
 debug = "line-tables-only"
+
+# Fast-compiling unoptimised profile for throwaway dev/staging images (the
+# dev-image CI workflow passes --profile fast). Inherits release config but
+# drops optimisation: opt-level 0 + many codegen units compiles far faster
+# than a real release build. The binary is larger and slower at runtime, which
+# is fine for staging. Output dir is target/fast.
+[profile.fast]
+inherits = "release"
+opt-level = 0
+codegen-units = 256
+debug = false
