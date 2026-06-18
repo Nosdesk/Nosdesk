@@ -351,7 +351,21 @@ pub fn get_device_by_microsoft_id(
         .first(conn)
 }
 
-pub fn create_device(conn: &mut DbConnection, new_device: NewAsset) -> QueryResult<Asset> {
+/// Canonicalise a serial number: trim surrounding whitespace and treat an
+/// empty / whitespace-only value as "no serial" (`None`). Storing "no serial"
+/// as NULL — never `""` — is what lets the partial unique index
+/// `idx_asset_serial_unique` exempt serial-less assets: Postgres treats each
+/// NULL as distinct, but `''` is a real value, so two empty-string serials in a
+/// workspace collide. The DB index also excludes blanks as a backstop, but
+/// normalising here keeps the data model clean at the source. See issue #24.
+fn normalize_serial(serial: Option<String>) -> Option<String> {
+    serial
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+pub fn create_device(conn: &mut DbConnection, mut new_device: NewAsset) -> QueryResult<Asset> {
+    new_device.serial_number = normalize_serial(new_device.serial_number);
     // Wrap the INSERT + sync emit in a single transaction so a
     // crash between the two never leaves the row inserted
     // without a corresponding sync_actions event.
@@ -371,6 +385,11 @@ pub fn update_device(
     device_update: AssetUpdate,
 ) -> QueryResult<Asset> {
     let mut update = device_update;
+    // Same canonicalisation as create: a blank serial means "no serial". With
+    // AsChangeset's `Option<String>`, `None` leaves the column unchanged, so a
+    // cleared serial collapses to "leave as-is" rather than writing `""` (which
+    // would risk a unique-index collision). See issue #24.
+    update.serial_number = normalize_serial(update.serial_number);
     update.updated_at = Some(Utc::now().naive_utc());
 
     // emit::record fires inside emit_asset_event.
@@ -524,6 +543,63 @@ mod tests {
 
         let fetched = get_device_by_id(&mut conn, dev.id).unwrap();
         assert_eq!(fetched.name, "TestDev");
+    }
+
+    #[test]
+    fn normalize_serial_blanks_become_none() {
+        assert_eq!(normalize_serial(None), None);
+        assert_eq!(normalize_serial(Some(String::new())), None);
+        assert_eq!(normalize_serial(Some("   ".into())), None);
+        assert_eq!(
+            normalize_serial(Some("  SN-1  ".into())),
+            Some("SN-1".to_string())
+        );
+        assert_eq!(
+            normalize_serial(Some("SN-2".into())),
+            Some("SN-2".to_string())
+        );
+    }
+
+    #[test]
+    fn blank_serials_do_not_collide_but_real_ones_still_do() {
+        let mut conn = setup_test_connection();
+        // Issue #24: two assets with no serial (empty / whitespace-only) must
+        // both create — normalised to NULL, which the partial unique index
+        // exempts. Before the fix the second collided on idx_asset_serial_unique.
+        let a = NewAsset {
+            serial_number: Some(String::new()),
+            ..minimal_device("Blank A")
+        };
+        let b = NewAsset {
+            serial_number: Some("   ".into()),
+            ..minimal_device("Blank B")
+        };
+        let a = create_device(&mut conn, a).unwrap();
+        let b = create_device(&mut conn, b).unwrap();
+        assert_eq!(a.serial_number, None, "a blank serial is stored as NULL");
+        assert_eq!(b.serial_number, None);
+
+        // A real serial is still unique per workspace, and two serials that
+        // differ only by surrounding whitespace are the same after trimming.
+        create_device(
+            &mut conn,
+            NewAsset {
+                serial_number: Some("SN-DUP".into()),
+                ..minimal_device("Real 1")
+            },
+        )
+        .unwrap();
+        let dup = create_device(
+            &mut conn,
+            NewAsset {
+                serial_number: Some(" SN-DUP ".into()),
+                ..minimal_device("Real 2")
+            },
+        );
+        assert!(
+            dup.is_err(),
+            "a duplicate non-blank serial (after trim) must still collide"
+        );
     }
 
     #[test]
