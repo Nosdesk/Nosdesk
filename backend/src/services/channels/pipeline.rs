@@ -762,13 +762,28 @@ fn insert_inbound_comment(
     // columns, forcing the renderer to re-sanitise per-render or
     // risk XSS. For plaintext there's nothing to sanitise; we split
     // the raw text directly.
-    let split = match content_format {
+    let mut split = match content_format {
         crate::models::ContentFormat::Html => {
             let clean = super::email_sanitise::sanitise(&content).html;
             super::email_quote::split_html(&clean)
         }
         _ => super::email_quote::split_plaintext(&content),
     };
+
+    // B5: trim the sender's signature from the reply (plaintext path; HTML is
+    // B5b). Fold the removed signature into the collapsed quoted region rather
+    // than drop it, so nothing is lost in-app and the raw body stays the source
+    // of truth for recovery.
+    if content_format == crate::models::ContentFormat::Plaintext {
+        let sig = super::email_signature::strip_plaintext(&split.new_content);
+        if let Some(signature) = sig.signature {
+            split.new_content = sig.content;
+            split.quoted_content = Some(match split.quoted_content.take() {
+                Some(quoted) => format!("{signature}\n\n{quoted}"),
+                None => signature,
+            });
+        }
+    }
 
     // Native-first render tiering: classify the (already-sanitised)
     // body into text / simple / rich so the frontend renders the common
