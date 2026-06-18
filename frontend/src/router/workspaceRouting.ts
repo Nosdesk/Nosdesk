@@ -26,7 +26,7 @@ import type {
   Router,
   RouteLocationNormalized,
 } from 'vue-router';
-import { getWorkspaceRouting } from '@/services/instanceConfig';
+import { fetchInstanceConfig, getWorkspaceRouting } from '@/services/instanceConfig';
 import { setActiveWorkspaceSlug } from '@/services/activeWorkspace';
 
 const WORKSPACE_PARAM = 'workspace';
@@ -80,7 +80,12 @@ function isAuthed(route: RouteLocationNormalized): boolean {
  *   routes it to a concrete workspace.
  */
 export function installWorkspaceGuard(router: Router): void {
-  router.beforeEach((to, from) => {
+  router.beforeEach(async (to, from) => {
+    // Resolve the routing mode before deciding. Memoised, so this awaits the
+    // bootstrap fetch only on the very first navigation (a cold load); every
+    // later navigation sees a settled promise. Without it a hard refresh of a
+    // slugged URL is judged in the 'host' default and 404'd mid-fetch.
+    await fetchInstanceConfig();
     const slug = workspaceSlugOf(to);
     if (getWorkspaceRouting() !== 'path') {
       return slug ? { path: '/error/404', replace: true } : true;
