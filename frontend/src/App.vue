@@ -9,7 +9,7 @@ import MobileSearchBar from './components/MobileSearchBar.vue'
 import ToastContainer from './components/common/ToastContainer.vue'
 import RouteProgress from './components/common/RouteProgress.vue'
 import LoadingSpinner from './components/common/LoadingSpinner.vue'
-import { workspaceSwitchingRef } from '@/composables/useWorkspaceSwitch'
+import { useWorkspaceSwitch } from '@/composables/useWorkspaceSwitch'
 import { GlobalSearchModal } from './components/GlobalSearch'
 import { useTitleManager } from '@/composables/useTitleManager'
 import { useMobileSearch } from '@/composables/useMobileSearch'
@@ -36,7 +36,7 @@ const brandingStore = useBrandingStore()
 useFavicon(() => brandingStore.faviconUrl)
 
 const route = useRoute()
-const isSwitchingWorkspace = workspaceSwitchingRef()
+const { isSwitchingWorkspace } = useWorkspaceSwitch()
 const router = useRouter()
 const isBlankLayout = computed(() => route.meta.layout === 'blank')
 

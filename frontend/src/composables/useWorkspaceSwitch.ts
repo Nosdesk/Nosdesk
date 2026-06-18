@@ -52,8 +52,3 @@ export function useWorkspaceSwitch() {
 
   return { isSwitchingWorkspace, switchWorkspace };
 }
-
-/** The switch-in-flight flag, for the app shell. */
-export function workspaceSwitchingRef() {
-  return isSwitchingWorkspace;
-}

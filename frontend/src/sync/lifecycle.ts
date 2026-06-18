@@ -20,7 +20,7 @@ import { notifySyncActions } from './observers'
 import { applyWorkspaceCapabilities } from '@/composables/useWorkspaceCapabilities'
 import { purgeAllCollabDocs } from '@/utils/collabLocalCache'
 import { refreshAccessToken } from '@/services/authRefresh'
-import { activeWorkspaceSlug } from '@/services/activeWorkspace'
+import { workspaceHeaders } from '@/services/activeWorkspace'
 import type {
   BootstrapLine,
   BootstrapMeta,
@@ -239,11 +239,8 @@ export async function hydrate(
  */
 async function syncFetch(url: string): Promise<Response> {
   // The sync engine uses raw fetch (streaming JSONL), so the axios interceptor's
-  // selection header doesn't apply here; add it explicitly. Null in host mode,
-  // where the backend resolves the workspace from the Host.
-  const headers: Record<string, string> = {}
-  const slug = activeWorkspaceSlug()
-  if (slug) headers['X-Nosdesk-Workspace'] = slug
+  // selection header doesn't apply here; add it explicitly (empty in host mode).
+  const headers = workspaceHeaders()
   const res = await fetch(url, { credentials: 'include', headers })
   if (res.status !== 401) return res
   const refreshed = await refreshAccessToken()

@@ -14,7 +14,7 @@
  */
 import { logger } from '@/utils/logger'
 import { getCsrfToken } from '@/utils/csrf'
-import { activeWorkspaceSlug } from '@/services/activeWorkspace'
+import { workspaceHeaders } from '@/services/activeWorkspace'
 import * as pool from './pool'
 import * as idb from './idb'
 import type { PushResponse, PushTransaction, SyncAggregate } from './types'
@@ -173,12 +173,13 @@ export async function flush(): Promise<void> {
         // middleware still requires the double-submit header on this
         // POST, so echo the token the same way apiClient does. The
         // selection header is added here too (the interceptor doesn't see
-        // this fetch); null in host mode, where the Host resolves it.
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+        // this fetch); empty in host mode, where the Host resolves it.
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          ...workspaceHeaders(),
+        }
         const csrfToken = getCsrfToken()
         if (csrfToken) headers['X-CSRF-Token'] = csrfToken
-        const workspaceSlug = activeWorkspaceSlug()
-        if (workspaceSlug) headers['X-Nosdesk-Workspace'] = workspaceSlug
         const res = await fetch('/api/sync/push', {
           method: 'POST',
           headers,

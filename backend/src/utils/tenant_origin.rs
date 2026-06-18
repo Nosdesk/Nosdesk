@@ -39,7 +39,7 @@ pub fn canonical_host_for(
 
 /// A workspace's canonical host (no scheme), reading the configured tenant
 /// domain. `None` in self-hosted mode or when unconfigured.
-pub fn workspace_host(workspace: &Workspace) -> Option<String> {
+fn workspace_host(workspace: &Workspace) -> Option<String> {
     canonical_host_for(
         &workspace.slug,
         workspace.custom_domain.as_deref(),

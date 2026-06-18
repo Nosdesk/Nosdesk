@@ -50,9 +50,9 @@ pub fn enforce_workspace_membership(
     claims: &Claims,
 ) -> Result<(), Error> {
     // Selection-derived workspace takes precedence when enabled and the header
-    // is present. Resolve it to a context up front; a present-but-bad header is
-    // a client error (400), an unknown workspace collapses into the same 403 a
-    // non-member gets below (no workspace-existence leak).
+    // is present. Resolve it to a context up front; an unknown slug collapses
+    // into the same 403 a non-member gets below (no workspace-existence leak),
+    // and a blank header is simply no selection.
     let selected = selected_workspace_context(req, conn)?;
 
     // Otherwise fall back to the Host-derived context the middleware resolved.

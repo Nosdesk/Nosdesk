@@ -37,6 +37,15 @@ export function activeWorkspaceSlug(): string | null {
 /** Reactive read, for UI (the workspace switcher's active-workspace highlight). */
 export const activeWorkspaceSlugRef: Readonly<Ref<string | null>> = readonly(slug);
 
+/**
+ * The selection header to attach to a request, or `{}` when none. One place for
+ * the header name + slug read, shared by the axios interceptor and the sync
+ * engine's raw `fetch` calls (which the interceptor doesn't see).
+ */
+export function workspaceHeaders(): Record<string, string> {
+  return slug.value ? { 'X-Nosdesk-Workspace': slug.value } : {};
+}
+
 /** The last workspace slug this device was on, for the post-login landing. */
 export function lastWorkspaceSlug(): string | null {
   try {

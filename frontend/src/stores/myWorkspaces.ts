@@ -7,10 +7,7 @@ import { computed } from 'vue';
 import { useQuery } from '@pinia/colada';
 import workspacesService from '@/services/workspacesService';
 import type { MyWorkspaceEntry } from '@/types/workspace';
-import {
-  navigateToWorkspace,
-  resolveActiveWorkspaceId,
-} from '@/utils/workspaceNavigation';
+import { resolveActiveWorkspaceId } from '@/utils/workspaceNavigation';
 import { useAuthStore } from '@/stores/auth';
 import { getWorkspaceRouting } from '@/services/instanceConfig';
 import { activeWorkspaceSlugRef } from '@/services/activeWorkspace';
@@ -62,17 +59,12 @@ export const useMyWorkspacesStore = defineStore('myWorkspaces', () => {
     () => query.status.value === 'pending' && query.data.value === undefined,
   );
 
-  function switchTo(entry: MyWorkspaceEntry): void {
-    navigateToWorkspace(entry);
-  }
-
   return {
     workspaces,
     activeWorkspace,
     activeWorkspaceId,
     showSwitcher,
     isLoading,
-    switchTo,
     refetch: query.refetch,
   };
 });
