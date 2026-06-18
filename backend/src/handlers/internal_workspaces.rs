@@ -368,6 +368,10 @@ pub async fn upsert_projected_user(
         iss,
         sub,
         email,
+        // The control plane provisions verified seat emails, so the
+        // email-fallback link is authorised here. The (iss, sub) is
+        // usually known too, in which case the identity match wins first.
+        email_verified: true,
         name,
         role: role.clone(),
         workspace_id: workspace.id,

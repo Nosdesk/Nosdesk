@@ -1511,16 +1511,35 @@ async fn resolve_login_user(
     request: &HttpRequest,
     conn: &mut DbConnection,
 ) -> Result<crate::models::User, HttpResponse> {
+    let email_verified = oauth_email_verified(&state.provider_type, user_info);
     if crate::middleware::workspace_context::selection_resolution_enabled() {
-        return resolve_existing_seat_user(user_info, iss, state, conn);
+        return resolve_existing_seat_user(user_info, iss, state, email_verified, conn);
     }
     let workspace_id = resolve_callback_workspace(state, request)?;
-    find_or_create_oauth_user(user_info, iss, conn, workspace_id)
+    find_or_create_oauth_user(user_info, iss, email_verified, conn, workspace_id)
         .await
         .map_err(|e| {
             error!(error = ?e, "Failed to find or create user during login");
             errors::internal("Failed to authenticate user")
         })
+}
+
+/// Whether the provider vouches that the login email is verified, gating the
+/// email-fallback account link (see `resolve_user_by_identity_or_email`).
+///
+/// - Microsoft/Entra: the user authenticated against the directory that owns
+///   the address, so it is provider-verified. Graph `/me` carries no
+///   `email_verified` claim, so trust the directory.
+/// - OIDC: trust only an explicit `email_verified == true`. Absent or false is
+///   NOT verified, so the email-fallback link is refused.
+fn oauth_email_verified(provider_type: &str, user_info: &serde_json::Value) -> bool {
+    match provider_type {
+        "microsoft" => true,
+        _ => user_info
+            .get("email_verified")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+    }
 }
 
 /// Model C central login: resolve an existing seat without ever creating a user
@@ -1529,6 +1548,7 @@ fn resolve_existing_seat_user(
     user_info: &serde_json::Value,
     iss: &str,
     state: &OAuthState,
+    email_verified: bool,
     conn: &mut DbConnection,
 ) -> Result<crate::models::User, HttpResponse> {
     let email = oauth_user_email(user_info).map_err(|e| {
@@ -1541,7 +1561,13 @@ fn resolve_existing_seat_user(
     })?;
     // Resolve-only: pass no metadata / password_hash since we never create here.
     match crate::services::oauth_provisioning::resolve_user_by_identity_or_email(
-        conn, iss, &sub, &email, &None, &None,
+        conn,
+        iss,
+        &sub,
+        &email,
+        email_verified,
+        &None,
+        &None,
     ) {
         Ok(Some(user)) => Ok(user),
         Ok(None) => {
@@ -1571,6 +1597,7 @@ async fn find_or_create_oauth_user(
     // control plane projected under `(iss, sub)`, not the literal
     // string `"oidc"`. See `oidc_identity_issuer`.
     iss: &str,
+    email_verified: bool,
     conn: &mut DbConnection,
     workspace_id: i32,
 ) -> Result<crate::models::User, String> {
@@ -1603,6 +1630,7 @@ async fn find_or_create_oauth_user(
         iss: iss.to_string(),
         sub: provider_user_id,
         email,
+        email_verified,
         name: Some(name),
         role: "member".to_string(),
         workspace_id,
@@ -1962,7 +1990,7 @@ mod connect_redirect_tests {
 
 #[cfg(test)]
 mod login_resolution_tests {
-    use super::{auth_error_redirect, oauth_user_email, oauth_user_sub};
+    use super::{auth_error_redirect, oauth_email_verified, oauth_user_email, oauth_user_sub};
     use serde_json::json;
 
     #[test]
@@ -1990,6 +2018,27 @@ mod login_resolution_tests {
     fn sub_reads_id() {
         assert_eq!(oauth_user_sub(&json!({"id": "abc"})).unwrap(), "abc");
         assert!(oauth_user_sub(&json!({"mail": "a@x.com"})).is_err());
+    }
+
+    #[test]
+    fn email_verified_trusts_microsoft_and_explicit_oidc_claim() {
+        // Entra directory emails are provider-verified; Graph sends no claim.
+        assert!(oauth_email_verified("microsoft", &json!({})));
+        // OIDC: only an explicit true counts as verified.
+        assert!(oauth_email_verified(
+            "oidc",
+            &json!({"email_verified": true})
+        ));
+        assert!(!oauth_email_verified(
+            "oidc",
+            &json!({"email_verified": false})
+        ));
+        // Absent or non-bool claim is NOT verified (refuses the email link).
+        assert!(!oauth_email_verified("oidc", &json!({})));
+        assert!(!oauth_email_verified(
+            "oidc",
+            &json!({"email_verified": "true"})
+        ));
     }
 
     #[test]
