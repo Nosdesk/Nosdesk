@@ -2909,6 +2909,13 @@ error-page-default-message = Page introuvable
 error-page-description = La page que vous cherchez n'existe pas ou vous n'y avez peut-être pas accès.
 error-page-go-back = Retour
 error-page-go-home = Aller au tableau de bord
+# No workspace access (machine, à relire par un locuteur natif).
+no-workspace-access-title = Aucun accès à un espace de travail
+no-workspace-access-message = Votre compte n'est encore membre d'aucun espace de travail.
+no-workspace-access-description = Demandez à votre administrateur de vous ajouter à un espace de travail, puis actualisez. Si vous venez d'être ajouté, une actualisation devrait suffire.
+no-workspace-access-refresh = Actualiser
+no-workspace-access-sign-out = Se déconnecter
+route-title-no-workspace-access = Aucun accès à un espace de travail
 error-page-debug-title = Contrôles de débogage (appuyez sur « d » pour basculer)
 error-page-debug-master-toggle = Activation générale des effets
 error-page-debug-global-intensity = Intensité globale

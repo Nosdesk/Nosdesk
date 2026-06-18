@@ -2900,6 +2900,13 @@ error-page-default-message = Pagina niet gevonden
 error-page-description = De pagina die je zoekt bestaat niet, of je hebt er mogelijk geen toegang toe.
 error-page-go-back = Terug
 error-page-go-home = Naar dashboard
+# No workspace access (machine, te controleren door een moedertaalspreker).
+no-workspace-access-title = Geen toegang tot een werkruimte
+no-workspace-access-message = Je account is nog geen lid van een werkruimte.
+no-workspace-access-description = Vraag je beheerder om je aan een werkruimte toe te voegen en vernieuw daarna. Als je net bent toegevoegd, zou vernieuwen genoeg moeten zijn.
+no-workspace-access-refresh = Vernieuwen
+no-workspace-access-sign-out = Afmelden
+route-title-no-workspace-access = Geen toegang tot een werkruimte
 error-page-debug-title = Debug-instellingen (druk op 'd' om te wisselen)
 error-page-debug-master-toggle = Hoofdschakelaar effecten
 error-page-debug-global-intensity = Algemene intensiteit

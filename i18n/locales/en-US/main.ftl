@@ -3004,6 +3004,14 @@ error-page-debug-glitch-frequency = Glitch Frequency
 error-page-debug-glitch-intensity = Glitch Intensity
 error-page-debug-cursor-influence = Cursor Influence
 
+# No workspace access (NoWorkspaceAccessView)
+no-workspace-access-title = No workspace access
+no-workspace-access-message = Your account isn't a member of any workspace yet.
+no-workspace-access-description = Ask your administrator to add you to a workspace, then refresh. If you were just added, a refresh should pick it up.
+no-workspace-access-refresh = Refresh
+no-workspace-access-sign-out = Sign out
+route-title-no-workspace-access = No workspace access
+
 # PDF viewer (PDFViewerView)
 pdf-viewer-default-filename = Document
 pdf-viewer-back = Back

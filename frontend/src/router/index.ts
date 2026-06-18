@@ -110,6 +110,20 @@ const router = createRouter({
       }
     },
     {
+      path: '/no-workspace-access',
+      name: 'no-workspace-access',
+      component: () => import('@/views/NoWorkspaceAccessView.vue'),
+      // requiresAuth:false keeps this route bare (no `/:workspace?` prefix) so
+      // the post-login landing guard, which only fires on requiresAuth routes,
+      // never re-redirects here and loops. The user is authenticated; they just
+      // have no workspace to land on.
+      meta: {
+        layout: 'blank',
+        requiresAuth: false,
+        titleKey: 'route-title-no-workspace-access',
+      },
+    },
+    {
       path: '/submit-ticket',
       name: 'guest-submit-ticket',
       component: () => import('@/views/public/GuestTicketSubmitView.vue'),
@@ -1053,6 +1067,9 @@ async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLoca
       const sub = to.fullPath === '/' ? '' : to.fullPath;
       return { path: `/${slug}${sub}` };
     }
+    // Authenticated but member of no workspace: land on a clear "no access"
+    // page rather than falling through to a workspace-required route that 404s.
+    return { name: 'no-workspace-access' };
   }
 
   // Load feature flags once per session for any authenticated route. Failures
