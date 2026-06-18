@@ -67,9 +67,13 @@ jobs:
             NOSDESK_ROOT_PUBKEY=${{ secrets.NOSDESK_ROOT_PUBKEY }}
             NOSDESK_VERSION=dev-${{ steps.vars.outputs.sha }}
             VITE_BUILD_SHA=${{ steps.vars.outputs.sha }}
+            CARGO_PROFILE=fast
           provenance: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Registry cache (no 10 GB GHA-cache cap, so the heavy Rust target
+          # actually survives between runs). Dedicated dev ref: the fast
+          # profile cooks different artifacts than release.
+          cache-from: type=registry,ref=ghcr.io/nosdesk/nosdesk:buildcache-dev
+          cache-to: type=registry,ref=ghcr.io/nosdesk/nosdesk:buildcache-dev,mode=max
 
       - name: Deploy hint
         run: |

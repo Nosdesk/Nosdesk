@@ -90,8 +90,12 @@ jobs:
             NOSDESK_VERSION=${{ steps.meta.outputs.version }}
             VITE_BUILD_SHA=${{ steps.vars.outputs.sha }}
           provenance: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Registry cache instead of GHA cache: the heavy Rust target dir
+          # exceeds GitHub's 10 GB per-repo cache cap and gets evicted, so GHA
+          # cache effectively cold-builds each time. A GHCR cache image has no
+          # such cap. Dedicated release ref (the dev-image workflow uses its own).
+          cache-from: type=registry,ref=ghcr.io/nosdesk/nosdesk:buildcache-release
+          cache-to: type=registry,ref=ghcr.io/nosdesk/nosdesk:buildcache-release,mode=max
 
       # Publish the GitHub Release once the image is up. Prerelease tags
       # (anything with a `-`, e.g. -rc.5/-beta) are marked prerelease, so the

@@ -1,48 +1,66 @@
 # syntax=docker/dockerfile:1.7
-# Multi-stage build with optimized dependency caching
-# Stage 1: Compute a recipe file for dependencies
-FROM rust:1.95-slim-bookworm AS planner
+# Multi-stage build with cargo-chef dependency caching.
+#
+# The Rust stages share a PREBUILT cargo-chef base image (cargo-chef already
+# installed), so nothing compiles cargo-chef from source. cargo-chef splits the
+# dependency build into its own layer, cached unless Cargo.toml/lock change, so
+# a source-only edit skips the heavy dep compile.
 
-# Install cargo-chef for dependency caching
-RUN cargo install cargo-chef --locked
+# Rust build profile. `release` (default) for published images; the dev-image
+# workflow passes `fast` (opt-level 0, output dir target/fast) for quick staging
+# builds. Declared before the first stage so each stage can re-`ARG` it; the
+# `release` path runs the identical `--release` command as before.
+ARG CARGO_PROFILE=release
 
+# Prebuilt cargo-chef on rust 1.95 slim-bookworm (matches the prior base image).
+FROM lukemathwalker/cargo-chef:0.1.77-rust-1.95.0-slim-bookworm AS chef
 WORKDIR /app
+
+# Stage 1: compute the dependency recipe.
+FROM chef AS planner
 COPY backend/Cargo.toml backend/Cargo.lock ./
 RUN cargo chef prepare --recipe-path recipe.json
 
-# Stage 2: Build dependencies (this layer will be cached)
-FROM rust:1.95-slim-bookworm AS cacher
-
-# Install build dependencies
+# Stage 2: build dependencies (this layer caches unless deps change).
+FROM chef AS cacher
+ARG CARGO_PROFILE
 RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
+COPY --from=planner /app/recipe.json recipe.json
+# `--release` (default) is the exact command used before; `fast` and any other
+# named profile go through `--profile`.
+RUN if [ "$CARGO_PROFILE" = "release" ]; then \
+      cargo chef cook --release --recipe-path recipe.json; \
+    else \
+      cargo chef cook --profile "$CARGO_PROFILE" --recipe-path recipe.json; \
+    fi
 
-# Install cargo-chef and diesel CLI
-RUN cargo install cargo-chef --locked
+# Stage 2b: diesel CLI, shipped for manual operator migrations
+# (`docker compose exec backend diesel ...`). Built postgres-only to match the
+# runtime's libpq. Its own stage so the compile runs in PARALLEL with the
+# dependency cook above instead of blocking it.
+FROM chef AS tools
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
 RUN cargo install diesel_cli --no-default-features --features postgres --locked
 
-WORKDIR /app
-COPY --from=planner /app/recipe.json recipe.json
-
-# Build dependencies - this layer will be cached unless dependencies change
-RUN cargo chef cook --release --recipe-path recipe.json
-
-# Stage 3: Build the application
-FROM rust:1.95-slim-bookworm AS builder
-
-# Install build dependencies
+# Stage 3: build the application.
+FROM chef AS builder
+ARG CARGO_PROFILE
 RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /app
 
-# Copy the compiled dependencies from cacher stage
+# Compiled dependencies + cargo caches from the cacher stage.
 COPY --from=cacher /app/target target
 COPY --from=cacher /usr/local/cargo /usr/local/cargo
 
@@ -96,7 +114,11 @@ ARG NOSDESK_VERSION=""
 # secrets discipline tidy by convention.
 RUN NOSDESK_ROOT_PUBKEY="$NOSDESK_ROOT_PUBKEY" \
     NOSDESK_VERSION="$NOSDESK_VERSION" \
-    cargo build --release --bin backend --bin nosdesk-cli
+    sh -c 'if [ "$CARGO_PROFILE" = "release" ]; then \
+      cargo build --release --bin backend --bin nosdesk-cli; \
+    else \
+      cargo build --profile "$CARGO_PROFILE" --bin backend --bin nosdesk-cli; \
+    fi'
 
 # Stage 4: Build frontend
 FROM node:24-bookworm-slim AS frontend-builder
@@ -131,6 +153,7 @@ RUN npm run build-only
 
 # Stage 5: Runtime image
 FROM debian:bookworm-slim AS runtime
+ARG CARGO_PROFILE
 
 # Install only runtime dependencies
 RUN apt-get update && apt-get install -y \
@@ -171,12 +194,13 @@ WORKDIR /app
 
 # Copy the compiled binaries from builder stage. `nosdesk-cli` is
 # placed on PATH so admins can `docker compose exec backend
-# nosdesk-cli ...` without caring about its location.
-COPY --from=builder /app/target/release/backend ./backend
-COPY --from=builder /app/target/release/nosdesk-cli /usr/local/bin/nosdesk-cli
+# nosdesk-cli ...` without caring about its location. The profile dir
+# matches CARGO_PROFILE (release -> target/release, fast -> target/fast).
+COPY --from=builder /app/target/${CARGO_PROFILE}/backend ./backend
+COPY --from=builder /app/target/${CARGO_PROFILE}/nosdesk-cli /usr/local/bin/nosdesk-cli
 
-# Copy diesel CLI from builder stage
-COPY --from=builder /usr/local/cargo/bin/diesel /usr/local/bin/diesel
+# Copy diesel CLI from the tools stage
+COPY --from=tools /usr/local/cargo/bin/diesel /usr/local/bin/diesel
 
 # Copy migrations for automatic migration on startup
 COPY --from=builder /app/migrations ./migrations
@@ -205,4 +229,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
 
 # Run the application directly (backend handles database initialization)
-CMD ["./backend"] 
+CMD ["./backend"]
