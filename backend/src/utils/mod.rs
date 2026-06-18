@@ -34,6 +34,7 @@ pub mod storage;
 pub mod template_variables;
 pub mod tenant_origin;
 pub mod tracing_redact;
+pub mod unsubscribe_token;
 pub mod user;
 pub mod utf8_trunc;
 pub mod verp;

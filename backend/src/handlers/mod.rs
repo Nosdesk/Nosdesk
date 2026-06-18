@@ -64,6 +64,7 @@ pub mod tags;
 pub mod ticket_merge;
 pub mod ticket_watchers;
 pub mod tickets;
+pub mod unsubscribe;
 pub mod users;
 pub mod webhooks;
 pub mod workflow_states;

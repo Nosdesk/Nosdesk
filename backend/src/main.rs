@@ -1541,6 +1541,10 @@ async fn main() -> std::io::Result<()> {
                     .route("/docs", web::get().to(handlers::guest::list_public_docs))
                     .route("/docs/search", web::get().to(handlers::guest::search_public_docs))
                     .route("/docs/{slug}", web::get().to(handlers::guest::get_public_doc))
+                    // One-click email unsubscribe (RFC 8058): POST is the mail
+                    // client's automatic one-click, GET the human-followed link.
+                    .route("/unsubscribe", web::post().to(handlers::unsubscribe::one_click))
+                    .route("/unsubscribe", web::get().to(handlers::unsubscribe::landing))
             )
 
             // Public WebSocket for collaboration (auth handled in WebSocket handler)
