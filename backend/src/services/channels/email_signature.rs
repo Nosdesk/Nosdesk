@@ -118,6 +118,62 @@ fn trailing_is_signatureish(rest: &[&str]) -> bool {
         .all(|l| l.trim().chars().count() <= TOO_LONG_SIGNATURE_LINE)
 }
 
+/// HTML signature-container markers, mirroring `email_quote`'s quote markers:
+/// distinctive literal substrings that never appear in normal body content, so
+/// a substring match is safe. Must run on the RAW (pre-sanitise) HTML — the
+/// sanitiser strips `class` / `id`, so a post-sanitise search finds nothing.
+const HTML_SIGNATURE_MARKERS: &[&str] = &[
+    // Gmail wraps the signature in `<div class="gmail_signature">`, usually also
+    // carrying `data-smartmail="gmail_signature"`.
+    "class=\"gmail_signature\"",
+    "class='gmail_signature'",
+    "data-smartmail=\"gmail_signature\"",
+    "data-smartmail='gmail_signature'",
+    // Outlook on the web wraps it in `<div id="Signature">`.
+    "id=\"Signature\"",
+    "id='Signature'",
+    // Outlook mobile.
+    "id=\"ms-outlook-mobile-signature\"",
+    "id='ms-outlook-mobile-signature'",
+];
+
+/// Strip a trailing signature container from already-quote-stripped HTML by
+/// finding the earliest signature marker and cutting at its opening tag. Mirrors
+/// [`super::email_quote::split_html`]. Operate on RAW HTML (see the marker doc);
+/// the caller sanitises the resulting parts.
+pub fn strip_html(html: &str) -> SignatureSplit {
+    let trimmed = html.trim_end_matches(['\r', '\n', ' ', '\t']);
+
+    let mut earliest: Option<usize> = None;
+    for marker in HTML_SIGNATURE_MARKERS {
+        if let Some(pos) = trimmed.find(marker) {
+            // The markers are attribute fragments, so walk back to the opening
+            // `<` of the containing tag.
+            let tag_start = trimmed[..pos].rfind('<').unwrap_or(pos);
+            earliest = Some(match earliest {
+                Some(existing) if existing < tag_start => existing,
+                _ => tag_start,
+            });
+        }
+    }
+
+    match earliest {
+        Some(boundary) => {
+            let signature = trimmed[boundary..].trim();
+            SignatureSplit {
+                content: trimmed[..boundary]
+                    .trim_end_matches(['\r', '\n', ' ', '\t'])
+                    .to_string(),
+                signature: (!signature.is_empty()).then(|| signature.to_string()),
+            }
+        }
+        None => SignatureSplit {
+            content: trimmed.to_string(),
+            signature: None,
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -182,5 +238,30 @@ mod tests {
         let split = strip_plaintext("Done.\n\n-- \nJohn");
         assert_eq!(split.content, "Done.");
         assert_eq!(split.signature.as_deref(), Some("-- \nJohn"));
+    }
+
+    #[test]
+    fn html_cuts_at_gmail_signature() {
+        let html = "<div>Sounds good to me.</div>\
+                    <div class=\"gmail_signature\" data-smartmail=\"gmail_signature\">\
+                    <div>John Smith</div><div>Acme Corp</div></div>";
+        let split = strip_html(html);
+        assert_eq!(split.content, "<div>Sounds good to me.</div>");
+        assert!(split.signature.unwrap().contains("gmail_signature"));
+    }
+
+    #[test]
+    fn html_cuts_at_outlook_web_signature() {
+        let html = "<p>Approved.</p><div id=\"Signature\"><p>Jane, IT</p></div>";
+        let split = strip_html(html);
+        assert_eq!(split.content, "<p>Approved.</p>");
+    }
+
+    #[test]
+    fn html_without_signature_marker_is_unchanged() {
+        let html = "<div>Just a reply, no signature block.</div>";
+        let split = strip_html(html);
+        assert_eq!(split.content, html);
+        assert_eq!(split.signature, None);
     }
 }
