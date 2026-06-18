@@ -227,6 +227,15 @@ async fn dispatch(
         .and_then(|v| v.as_str())
         .filter(|s| !s.eq_ignore_ascii_case("no"));
 
+    // B3: producer-supplied Reply-To (channel inbound mailbox), same bag as
+    // Auto-Submitted. Absent / blank means no header.
+    let reply_to = row
+        .headers_json
+        .get("Reply-To")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
     let message = OutboundEmailMessage {
         to: &row.recipient,
         subject: &row.subject,
@@ -237,6 +246,7 @@ async fn dispatch(
         references: &references,
         auto_submitted,
         mail_class: &row.mail_class,
+        reply_to,
     };
 
     match email.send_outbound(&message).await {

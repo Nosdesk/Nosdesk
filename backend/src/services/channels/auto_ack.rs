@@ -194,6 +194,11 @@ async fn send_auto_ack(
         auto_submitted: Some("auto-replied"),
         // Conversation mail to the customer about their own ticket: transactional.
         mail_class: crate::models::outbound_email_mail_class::TRANSACTIONAL,
+        // B3: reply to the channel's polled mailbox so it threads back in.
+        reply_to: config
+            .username
+            .contains('@')
+            .then(|| config.username.as_str()),
     };
 
     // Don't auto-reply to an address that previously hard-bounced or complained:

@@ -795,6 +795,13 @@ fn build_outbound_message(
             .header(AutoSubmitted(value.to_string()))
             .header(XAutoResponseSuppress("All".to_string()));
     }
+    // B3: point replies at the channel's polled mailbox when the From diverges.
+    if let Some(reply_to) = outbound.reply_to {
+        let mailbox: Mailbox = reply_to
+            .parse()
+            .map_err(|e| format!("Invalid Reply-To address: {e}"))?;
+        builder = builder.reply_to(mailbox);
+    }
 
     // Prefer multipart/alternative when both text + html are given so
     // clients can pick; text-only falls back to a single part. Both
@@ -1122,6 +1129,7 @@ impl EmailService {
             // Generic direct-send path; its callers (test mail, guest ticket
             // confirmation) are transactional, the safe no-unsubscribe default.
             mail_class: crate::models::outbound_email_mail_class::TRANSACTIONAL,
+            reply_to: None,
         };
         self.send_outbound(&outbound).await.map(|_| ())
     }
@@ -1149,6 +1157,7 @@ impl EmailService {
             // Generic direct-send path; its callers (test mail, guest ticket
             // confirmation) are transactional, the safe no-unsubscribe default.
             mail_class: crate::models::outbound_email_mail_class::TRANSACTIONAL,
+            reply_to: None,
         };
         self.send_outbound(&outbound).await.map(|_| ())
     }
@@ -1566,6 +1575,12 @@ pub struct OutboundEmailMessage<'a> {
     /// notification only). Defaults to transactional on any path that hasn't
     /// classified itself, which is the safe, no-unsubscribe choice.
     pub mail_class: &'a str,
+    /// `Reply-To` address (B3). Set on channel-bound conversation mail to the
+    /// channel's polled inbound mailbox so a recipient's reply threads back into
+    /// the ticket even when the `From` is a different workspace send identity
+    /// (verified-domain / relay mode). `None` emits no header, leaving the
+    /// `From` as the implicit reply target.
+    pub reply_to: Option<&'a str>,
 }
 
 #[cfg(test)]
@@ -1636,6 +1651,7 @@ mod tests {
                 references: &[],
                 auto_submitted: None,
                 mail_class: "transactional",
+                reply_to: None,
             })
             .unwrap();
         assert!(
@@ -1658,6 +1674,7 @@ mod tests {
                 references: &[],
                 auto_submitted: None,
                 mail_class: "transactional",
+                reply_to: None,
             })
             .unwrap();
         let dump = rendered(&msg);
@@ -1684,6 +1701,7 @@ mod tests {
                         references: &[],
                         auto_submitted: auto,
                         mail_class: "transactional",
+                        reply_to: None,
                     })
                     .unwrap(),
             )
@@ -1760,6 +1778,7 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
             references: &[],
             auto_submitted: None,
             mail_class: "transactional",
+            reply_to: None,
         }
     }
 
@@ -1903,6 +1922,7 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
                 references: &refs,
                 auto_submitted: None,
                 mail_class: "transactional",
+                reply_to: None,
             })
             .unwrap();
         let dump = rendered(&msg);
@@ -1911,6 +1931,34 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
             dump.contains("References: <first@x> <second@x>"),
             "dump:\n{dump}"
         );
+    }
+
+    #[test]
+    fn reply_to_header_emitted_only_when_set() {
+        let base = OutboundEmailMessage {
+            to: "alice@example.com",
+            subject: "[#42] Re: thread",
+            body_text: "reply",
+            body_html: None,
+            message_id: "ticket-42.comment-3.cafef00d@yourco.com",
+            in_reply_to: None,
+            references: &[],
+            auto_submitted: None,
+            mail_class: "transactional",
+            reply_to: Some("support@acme.com"),
+        };
+        let with = rendered(&svc().build_ticket_reply_message(&base).unwrap());
+        assert!(with.contains("Reply-To: support@acme.com"), "dump:\n{with}");
+
+        let without = rendered(
+            &svc()
+                .build_ticket_reply_message(&OutboundEmailMessage {
+                    reply_to: None,
+                    ..base
+                })
+                .unwrap(),
+        );
+        assert!(!without.contains("Reply-To:"), "dump:\n{without}");
     }
 
     #[test]
@@ -1926,6 +1974,7 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
                 references: &[],
                 auto_submitted: None,
                 mail_class: "transactional",
+                reply_to: None,
             })
             .unwrap();
         let dump = rendered(&msg);
@@ -1956,6 +2005,7 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
             references: &[],
             auto_submitted: None,
             mail_class: "transactional",
+            reply_to: None,
         };
         let rt = tokio::runtime::Runtime::new().unwrap();
         let err = rt

@@ -538,6 +538,12 @@ impl ChannelAdapter for EmailImapAdapter {
             auto_submitted: None,
             // Conversation mail to the customer: transactional, never opt-out-able.
             mail_class: crate::models::outbound_email_mail_class::TRANSACTIONAL,
+            // B3: reply to the channel's polled mailbox so it threads back in.
+            reply_to: self
+                .config
+                .username
+                .contains('@')
+                .then(|| self.config.username.as_str()),
         };
 
         self.email
