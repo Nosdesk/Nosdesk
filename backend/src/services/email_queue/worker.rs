@@ -236,6 +236,15 @@ async fn dispatch(
         .map(str::trim)
         .filter(|s| !s.is_empty());
 
+    // B1: VERP Return-Path so a bounce links back to THIS row by token, even
+    // when the remote MTA doesn't echo our Message-ID. The base is the polled
+    // mailbox (= the Reply-To target), so the bounce lands where replies already
+    // do. Off unless SMTP_VERP_SECRET is set, so existing deployments are
+    // unchanged until an operator enables and deliverability-tests it.
+    let envelope_from: Option<String> = crate::utils::verp::configured_secret()
+        .zip(reply_to)
+        .and_then(|(secret, base)| crate::utils::verp::tagged_return_path(base, row.id, &secret));
+
     let message = OutboundEmailMessage {
         to: &row.recipient,
         subject: &row.subject,
@@ -247,6 +256,7 @@ async fn dispatch(
         auto_submitted,
         mail_class: &row.mail_class,
         reply_to,
+        envelope_from: envelope_from.as_deref(),
     };
 
     match email.send_outbound(&message).await {

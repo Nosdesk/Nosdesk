@@ -199,6 +199,9 @@ async fn send_auto_ack(
             .username
             .contains('@')
             .then(|| config.username.as_str()),
+        // Direct send (not queued), so there's no outbound row to encode a
+        // VERP token against; bounces fall back to Message-ID correlation.
+        envelope_from: None,
     };
 
     // Don't auto-reply to an address that previously hard-bounced or complained:

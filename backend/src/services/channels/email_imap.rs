@@ -544,6 +544,8 @@ impl ChannelAdapter for EmailImapAdapter {
                 .username
                 .contains('@')
                 .then(|| self.config.username.as_str()),
+            // Direct send (not queued): no outbound row id for a VERP token.
+            envelope_from: None,
         };
 
         self.email

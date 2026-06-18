@@ -1027,9 +1027,31 @@ impl EmailTransport for SmtpEmailTransport {
         } else {
             build_smtp_mailer(&self.config)?
         };
-        mailer
-            .send(&message)
-            .map_err(|e| format!("Failed to send ticket reply: {e}"))?;
+        // B1: when a VERP Return-Path is set, send with an explicit envelope so
+        // `MAIL FROM` is the bounce-token address, distinct from the `From`
+        // header. lettre's default `send` derives the envelope from `From`;
+        // overriding it needs `send_raw` with the formatted (DKIM-signed) bytes.
+        match msg.envelope_from {
+            Some(return_path) => {
+                let from: lettre::Address = return_path
+                    .parse()
+                    .map_err(|e| format!("Invalid Return-Path {return_path}: {e}"))?;
+                let to: lettre::Address = msg
+                    .to
+                    .parse()
+                    .map_err(|e| format!("Invalid recipient {}: {e}", msg.to))?;
+                let envelope = lettre::address::Envelope::new(Some(from), vec![to])
+                    .map_err(|e| format!("Invalid envelope: {e}"))?;
+                mailer
+                    .send_raw(&envelope, &message.formatted())
+                    .map_err(|e| format!("Failed to send ticket reply: {e}"))?;
+            }
+            None => {
+                mailer
+                    .send(&message)
+                    .map_err(|e| format!("Failed to send ticket reply: {e}"))?;
+            }
+        }
         Ok(SendOutcome {
             provider_message_id: None,
         })
@@ -1130,6 +1152,7 @@ impl EmailService {
             // confirmation) are transactional, the safe no-unsubscribe default.
             mail_class: crate::models::outbound_email_mail_class::TRANSACTIONAL,
             reply_to: None,
+            envelope_from: None,
         };
         self.send_outbound(&outbound).await.map(|_| ())
     }
@@ -1158,6 +1181,7 @@ impl EmailService {
             // confirmation) are transactional, the safe no-unsubscribe default.
             mail_class: crate::models::outbound_email_mail_class::TRANSACTIONAL,
             reply_to: None,
+            envelope_from: None,
         };
         self.send_outbound(&outbound).await.map(|_| ())
     }
@@ -1581,6 +1605,12 @@ pub struct OutboundEmailMessage<'a> {
     /// (verified-domain / relay mode). `None` emits no header, leaving the
     /// `From` as the implicit reply target.
     pub reply_to: Option<&'a str>,
+    /// VERP envelope-from / Return-Path (B1). When `Some`, the message is sent
+    /// with this `MAIL FROM` (distinct from the `From` header) so a bounce DSN
+    /// is addressed back to it and the inbound handler can link the bounce to
+    /// the originating row by its token. `None` (the default, and whenever
+    /// `SMTP_VERP_SECRET` is unset) uses lettre's From-derived envelope.
+    pub envelope_from: Option<&'a str>,
 }
 
 #[cfg(test)]
@@ -1652,6 +1682,7 @@ mod tests {
                 auto_submitted: None,
                 mail_class: "transactional",
                 reply_to: None,
+                envelope_from: None,
             })
             .unwrap();
         assert!(
@@ -1675,6 +1706,7 @@ mod tests {
                 auto_submitted: None,
                 mail_class: "transactional",
                 reply_to: None,
+                envelope_from: None,
             })
             .unwrap();
         let dump = rendered(&msg);
@@ -1702,6 +1734,7 @@ mod tests {
                         auto_submitted: auto,
                         mail_class: "transactional",
                         reply_to: None,
+                        envelope_from: None,
                     })
                     .unwrap(),
             )
@@ -1779,6 +1812,7 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
             auto_submitted: None,
             mail_class: "transactional",
             reply_to: None,
+            envelope_from: None,
         }
     }
 
@@ -1923,6 +1957,7 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
                 auto_submitted: None,
                 mail_class: "transactional",
                 reply_to: None,
+                envelope_from: None,
             })
             .unwrap();
         let dump = rendered(&msg);
@@ -1946,6 +1981,7 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
             auto_submitted: None,
             mail_class: "transactional",
             reply_to: Some("support@acme.com"),
+            envelope_from: None,
         };
         let with = rendered(&svc().build_ticket_reply_message(&base).unwrap());
         assert!(with.contains("Reply-To: support@acme.com"), "dump:\n{with}");
@@ -1954,6 +1990,7 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
             &svc()
                 .build_ticket_reply_message(&OutboundEmailMessage {
                     reply_to: None,
+                    envelope_from: None,
                     ..base
                 })
                 .unwrap(),
@@ -1975,6 +2012,7 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
                 auto_submitted: None,
                 mail_class: "transactional",
                 reply_to: None,
+                envelope_from: None,
             })
             .unwrap();
         let dump = rendered(&msg);
@@ -2006,6 +2044,7 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
             auto_submitted: None,
             mail_class: "transactional",
             reply_to: None,
+            envelope_from: None,
         };
         let rt = tokio::runtime::Runtime::new().unwrap();
         let err = rt
