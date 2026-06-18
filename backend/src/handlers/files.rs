@@ -310,7 +310,8 @@ pub(crate) async fn serve_or_not_found(
 pub async fn upload_ticket_note_image(
     path: web::Path<i32>,
     mut payload: Multipart,
-    pool: web::Data<crate::db::Pool>,
+    mut tc: TenantConn,
+    auth: AuthContext,
     storage: ScopedStorage,
 ) -> Result<HttpResponse, actix_web::Error> {
     let ticket_id = path.into_inner();
@@ -319,15 +320,14 @@ pub async fn upload_ticket_note_image(
         "Received ticket note image upload request"
     );
 
-    // Verify ticket exists
-    let mut conn = pool.get().map_err(|e| {
-        error!(error = ?e, "Database connection error");
-        actix_web::error::ErrorInternalServerError("Database connection error")
-    })?;
-
-    // Check if ticket exists
-    crate::repository::tickets::get_ticket_by_id(&mut conn, ticket_id)
-        .map_err(|_| actix_web::error::ErrorNotFound("Ticket not found"))?;
+    // Workspace + ticket-visibility gate, mirroring the GET sibling
+    // (serve_ticket_note_image). TenantConn pins `app.workspace_id` so the
+    // lookup is scoped to the caller's membership-gated workspace and a
+    // cross-workspace ticket id 404s. The previous raw pooled connection left
+    // the GUC cleared (RLS-zero under the NOBYPASSRLS app role) and skipped the
+    // access check entirely, relying solely on RLS — which would leak under a
+    // misconfigured BYPASSRLS role.
+    authorize_ticket_access(&mut tc, &auth, ticket_id)?;
 
     let mut uploaded_files = Vec::new();
 
