@@ -190,17 +190,46 @@ pub async fn process_event(
                 "bounce: detected but DSN was unparseable; no linkage"
             );
         }
+
+        // B1b: prefer VERP linkage. If the DSN was addressed to one of our
+        // VERP Return-Paths, the embedded token names the originating row
+        // directly, so we don't depend on the remote MTA echoing the original
+        // Message-ID (many don't). Only for single-report DSNs: our outbound
+        // rows are per-recipient, so a bounce of our mail carries one report,
+        // and one token must not be applied across several reports.
+        let verp_row_id = if msg.bounce_reports.len() == 1 {
+            crate::utils::verp::configured_secret().and_then(|secret| {
+                msg.recipients
+                    .iter()
+                    .find_map(|addr| crate::utils::verp::row_id_from_address(addr, &secret))
+            })
+        } else {
+            None
+        };
+
         for report in &msg.bounce_reports {
-            match crate::repository::outbound_emails::mark_bounced(
-                conn,
-                &report.original_message_id,
-                report.recipient.as_deref(),
-                report.diagnostic.as_deref(),
-            ) {
+            let linkage = match verp_row_id {
+                Some(id) => crate::repository::outbound_emails::mark_bounced_by_id(
+                    conn,
+                    id,
+                    report.recipient.as_deref(),
+                    report.diagnostic.as_deref(),
+                ),
+                None => crate::repository::outbound_emails::mark_bounced(
+                    conn,
+                    &report.original_message_id,
+                    report.recipient.as_deref(),
+                    report.diagnostic.as_deref(),
+                ),
+            };
+            // How the row was located, for the log line below.
+            let via = verp_row_id.map_or("message-id", |_| "verp");
+            match linkage {
                 Ok(0) => {
                     debug!(
                         channel_id = channel.id,
                         message_id = %report.original_message_id,
+                        via,
                         "bounce: no matching outbound row"
                     );
                 }
@@ -208,6 +237,7 @@ pub async fn process_event(
                     debug!(
                         channel_id = channel.id,
                         message_id = %report.original_message_id,
+                        via,
                         rows = n,
                         recipient = ?report.recipient,
                         "bounce: linked to outbound row"
@@ -218,6 +248,7 @@ pub async fn process_event(
                         channel_id = channel.id,
                         error = %e,
                         message_id = %report.original_message_id,
+                        via,
                         "bounce: failed to update outbound row"
                     );
                 }

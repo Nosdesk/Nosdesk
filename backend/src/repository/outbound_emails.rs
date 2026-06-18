@@ -331,6 +331,32 @@ pub fn mark_bounced(
     .execute(conn)
 }
 
+// sync-audit-only: worker terminal state transition on the outbound queue
+/// Like [`mark_bounced`] but matches the row by its primary key. Used when a
+/// VERP Return-Path token (B1) named the originating row directly, which is
+/// more reliable than the DSN echoing the original Message-ID. Stamps the same
+/// bounce metadata and likewise leaves `status` untouched.
+pub fn mark_bounced_by_id(
+    conn: &mut DbConnection,
+    id: i64,
+    recipient: Option<&str>,
+    diagnostic: Option<&str>,
+) -> Result<usize, DieselError> {
+    diesel::sql_query(
+        r#"
+        UPDATE outbound_emails
+        SET bounced_at = now(),
+            bounce_recipient = $2,
+            bounce_diagnostic = $3
+        WHERE id = $1
+        "#,
+    )
+    .bind::<BigInt, _>(id)
+    .bind::<Nullable<Text>, _>(recipient)
+    .bind::<Nullable<Text>, _>(diagnostic)
+    .execute(conn)
+}
+
 // sync-audit-only: worker lease release on the outbound queue
 /// Release a claim without recording a failure — used by the circuit
 /// breaker when SMTP is down and the worker shouldn't burn an attempt.
@@ -575,6 +601,42 @@ mod tests {
         assert_eq!(fetched.recipient, row.recipient);
         assert_eq!(fetched.status, outbound_email_status::PENDING);
         assert_eq!(fetched.attempts, 0);
+    }
+
+    #[test]
+    fn mark_bounced_by_id_stamps_only_that_row() {
+        let mut conn = setup_test_connection();
+        let ch = seed_channel(&mut conn);
+        let row = enqueue(&mut conn, fresh_row(ch, "verp")).unwrap();
+        assert!(row.bounced_at.is_none());
+
+        let n = mark_bounced_by_id(
+            &mut conn,
+            row.id,
+            Some("test-verp@example.com"),
+            Some("550 mailbox unavailable"),
+        )
+        .unwrap();
+        assert_eq!(n, 1, "matches exactly the row by id");
+
+        let refreshed = get(&mut conn, row.id).unwrap();
+        assert!(refreshed.bounced_at.is_some());
+        assert_eq!(
+            refreshed.bounce_recipient.as_deref(),
+            Some("test-verp@example.com")
+        );
+        assert_eq!(
+            refreshed.bounce_diagnostic.as_deref(),
+            Some("550 mailbox unavailable")
+        );
+        // A bounce is delivery detail, not a fresh state: status is untouched.
+        assert_eq!(refreshed.status, outbound_email_status::PENDING);
+
+        // A non-existent id matches nothing.
+        assert_eq!(
+            mark_bounced_by_id(&mut conn, row.id + 99_999, None, None).unwrap(),
+            0
+        );
     }
 
     #[test]
