@@ -285,13 +285,13 @@ pub async fn oauth_authorize(
         };
 
         // Generate a JWT state token
-        let state = match create_oauth_state(
+        let (state, binding) = match create_oauth_state(
             "microsoft",
             oauth_request.redirect_uri.clone(),
             oauth_request.user_connection,
             initiation_workspace,
         ) {
-            Ok(token) => token,
+            Ok(pair) => pair,
             Err(e) => {
                 error!(error = %e, "Failed to create OAuth state token");
                 return errors::internal("Failed to initiate authentication flow");
@@ -303,10 +303,13 @@ pub async fn oauth_authorize(
             "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize?client_id={client_id}&response_type=code&redirect_uri={redirect_uri_config}&response_mode=query&scope=User.Read&state={state}"
         );
 
-        HttpResponse::Ok().json(json!({
-            "auth_url": auth_url,
-            "state": state
-        }))
+        // Bind the flow to this user-agent (RFC 9700 §2.1).
+        HttpResponse::Ok()
+            .cookie(crate::utils::cookies::create_oauth_state_cookie(&binding))
+            .json(json!({
+                "auth_url": auth_url,
+                "state": state
+            }))
     } else if provider.provider_type == "oidc" {
         // Per-tenant OAuth callback (hosted mode): each tenant authenticates
         // on its own subdomain. Bind it into the signed state so the token
@@ -323,7 +326,7 @@ pub async fn oauth_authorize(
         {
             Ok((auth_url, auth_data)) => {
                 // Create state JWT with PKCE verifier and nonce
-                let state = match create_oauth_state_with_oidc(
+                let (state, binding) = match create_oauth_state_with_oidc(
                     "oidc",
                     oauth_request.redirect_uri.clone(),
                     oauth_request.user_connection,
@@ -332,7 +335,7 @@ pub async fn oauth_authorize(
                     initiation_workspace,
                     callback_redirect,
                 ) {
-                    Ok(token) => token,
+                    Ok(pair) => pair,
                     Err(e) => {
                         error!(error = %e, "Failed to create OAuth state token for OIDC");
                         return errors::internal("Failed to initiate authentication flow");
@@ -343,10 +346,13 @@ pub async fn oauth_authorize(
                 // Replace with JWT state
                 let auth_url_with_state = replace_state_in_url(&auth_url, &state);
 
-                HttpResponse::Ok().json(json!({
-                    "auth_url": auth_url_with_state,
-                    "state": state
-                }))
+                // Bind the flow to this user-agent (RFC 9700 §2.1).
+                HttpResponse::Ok()
+                    .cookie(crate::utils::cookies::create_oauth_state_cookie(&binding))
+                    .json(json!({
+                        "auth_url": auth_url_with_state,
+                        "state": state
+                    }))
             }
             Err(e) => {
                 error!(error = %e, "Failed to generate OIDC authorization URL");
@@ -423,6 +429,29 @@ pub async fn oauth_callback(
             return errors::bad_request("Invalid or expired state parameter");
         }
     };
+
+    // RFC 9700 §2.1: confirm this callback completes in the SAME user-agent that
+    // started the flow. The signed state has integrity but is not session-bound,
+    // so without this an attacker who runs their own flow could CSRF the
+    // resulting (code, state) onto a victim and swap them into the attacker's
+    // account. The `oauth_state` cookie was set at initiation; an attacker can't
+    // set it in the victim's browser.
+    if let Some(expected) = &state_data.binding {
+        let presented = request
+            .cookie(crate::utils::cookies::OAUTH_STATE_COOKIE)
+            .map(|c| c.value().to_string());
+        let matches = presented
+            .as_deref()
+            .map(|p| constant_time_eq::constant_time_eq(p.as_bytes(), expected.as_bytes()))
+            .unwrap_or(false);
+        if !matches {
+            warn!("OAuth callback rejected: state-binding cookie missing or mismatched");
+            return errors::bad_request("Invalid or expired state parameter");
+        }
+    }
+    // `binding == None` is a legacy in-flight state minted before this field
+    // existed; allowed transitionally, and such states expire within the
+    // 10-minute state lifetime, after which the binding check is mandatory.
 
     // Get the provider by type
     let provider_type = &state_data.provider_type;
@@ -986,12 +1015,15 @@ pub async fn oauth_logout(
 // JWT State Management
 
 // Create a signed state JWT for OAuth flow
+/// Returns `(state_jwt, binding)`. The caller MUST set the `binding` in the
+/// `oauth_state` cookie (RFC 9700 §2.1) so the callback can confirm the flow
+/// completes in the same user-agent that started it.
 fn create_oauth_state(
     provider_type: &str,
     redirect_uri: Option<String>,
     user_connection: Option<bool>,
     workspace_id: Option<i32>,
-) -> Result<String, String> {
+) -> Result<(String, String), String> {
     create_oauth_state_with_oidc(
         provider_type,
         redirect_uri,
@@ -1003,7 +1035,8 @@ fn create_oauth_state(
     )
 }
 
-// Create a signed state JWT for OAuth/OIDC flow with optional PKCE and nonce
+// Create a signed state JWT for OAuth/OIDC flow with optional PKCE and nonce.
+// Returns `(state_jwt, binding)` — see `create_oauth_state`.
 #[allow(clippy::too_many_arguments)]
 fn create_oauth_state_with_oidc(
     provider_type: &str,
@@ -1013,7 +1046,7 @@ fn create_oauth_state_with_oidc(
     nonce: Option<String>,
     workspace_id: Option<i32>,
     callback_redirect_uri: Option<String>,
-) -> Result<String, String> {
+) -> Result<(String, String), String> {
     // Get the JWT secret from environment or configuration
     let secret = JWT_SECRET.clone();
 
@@ -1024,7 +1057,10 @@ fn create_oauth_state_with_oidc(
         .as_secs() as usize;
     let exp = now + (10 * 60); // 10 minutes
 
-    // Create claims
+    // One 128-bit random value serves as both the (legacy) state value and the
+    // user-agent binding. It rides inside the signed, tamper-proof JWT AND is
+    // set in the `oauth_state` cookie by the caller; the callback requires the
+    // two to match.
     let state = format!("{:x}", rand::random::<u128>());
     let claims = OAuthState {
         state: state.clone(),
@@ -1036,6 +1072,7 @@ fn create_oauth_state_with_oidc(
         nonce,
         workspace_id,
         callback_redirect_uri,
+        binding: Some(state.clone()),
     };
 
     // Create the token
@@ -1044,7 +1081,7 @@ fn create_oauth_state_with_oidc(
         &claims,
         &jsonwebtoken::EncodingKey::from_secret(secret.as_bytes()),
     ) {
-        Ok(token) => Ok(token),
+        Ok(token) => Ok((token, state)),
         Err(e) => Err(format!("Failed to create state JWT: {e}")),
     }
 }
@@ -1822,13 +1859,13 @@ pub async fn oauth_connect(
         // Generate a JWT state token with user_connection=true. Connecting
         // an identity to an already-authenticated account doesn't
         // provision workspace membership, so no workspace is bound.
-        let state = match create_oauth_state(
+        let (state, binding) = match create_oauth_state(
             &provider.provider_type,
             Some(actual_redirect_uri),
             Some(true),
             None,
         ) {
-            Ok(token) => token,
+            Ok(pair) => pair,
             Err(e) => {
                 error!(error = %e, "Failed to create OAuth state token for connect");
                 return errors::internal("Failed to initiate authentication flow");
@@ -1840,15 +1877,54 @@ pub async fn oauth_connect(
             "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize?client_id={client_id}&response_type=code&redirect_uri={redirect_uri_config}&response_mode=query&scope=User.Read&state={state}"
         );
 
-        HttpResponse::Ok().json(json!({
-            "auth_url": auth_url,
-            "state": state
-        }))
+        // Bind the flow to this user-agent (RFC 9700 §2.1).
+        HttpResponse::Ok()
+            .cookie(crate::utils::cookies::create_oauth_state_cookie(&binding))
+            .json(json!({
+                "auth_url": auth_url,
+                "state": state
+            }))
     } else {
         errors::bad_request(format!(
             "{} authentication is not implemented",
             provider.name
         ))
+    }
+}
+
+#[cfg(test)]
+mod oauth_state_binding_tests {
+    use super::{create_oauth_state, verify_oauth_state};
+
+    /// The state JWT helpers read the process-global `JWT_SECRET` lazy-static,
+    /// which panics if unset. Ensure it's present before first access so these
+    /// tests pass in isolation, not just when another test set it first.
+    fn ensure_jwt_secret() {
+        if std::env::var("JWT_SECRET").is_err() {
+            std::env::set_var("JWT_SECRET", "test-jwt-secret-for-oauth-state-binding");
+        }
+    }
+
+    #[test]
+    fn state_embeds_binding_and_round_trips() {
+        ensure_jwt_secret();
+        let (token, binding) = create_oauth_state("oidc", None, None, None).unwrap();
+        assert!(
+            !binding.is_empty(),
+            "binding must be a non-empty random value"
+        );
+        let state = verify_oauth_state(&token).unwrap();
+        // The cookie value (binding) the caller sets must equal what the signed
+        // state carries, so the callback's constant-time compare can match them.
+        assert_eq!(state.binding.as_deref(), Some(binding.as_str()));
+    }
+
+    #[test]
+    fn two_flows_get_distinct_bindings() {
+        ensure_jwt_secret();
+        let (_, b1) = create_oauth_state("oidc", None, None, None).unwrap();
+        let (_, b2) = create_oauth_state("oidc", None, None, None).unwrap();
+        assert_ne!(b1, b2, "each flow must bind to a fresh random value");
     }
 }
 

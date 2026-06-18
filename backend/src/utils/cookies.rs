@@ -71,6 +71,37 @@ pub fn delete_csrf_token_cookie() -> Cookie<'static> {
         .finish()
 }
 
+/// Binds an in-progress OAuth/OIDC login to the browser that started it
+/// (RFC 9700 §2.1). Set at initiation carrying the flow's random binding value;
+/// the callback rejects unless this cookie matches the value in the signed
+/// state, so an attacker can't CSRF their own `(code, state)` onto a victim.
+pub const OAUTH_STATE_COOKIE: &str = "oauth_state";
+
+/// Cookie binding an OAuth flow to its initiating user-agent. `SameSite=Lax`
+/// (NOT Strict): the IdP redirects the browser back to the callback as a
+/// cross-site top-level navigation, and a Strict cookie would not be sent. Lives
+/// as long as the state JWT (10 min). Scoped to the OAuth endpoints.
+pub fn create_oauth_state_cookie(binding: &str) -> Cookie<'static> {
+    Cookie::build(OAUTH_STATE_COOKIE, binding.to_string())
+        .path("/api/auth/oauth")
+        .http_only(true)
+        .secure(auth_cookies_use_secure_flag())
+        .same_site(SameSite::Lax)
+        .max_age(actix_web::cookie::time::Duration::minutes(10))
+        .finish()
+}
+
+/// Cookie that clears [`OAUTH_STATE_COOKIE`] once a flow completes.
+pub fn delete_oauth_state_cookie() -> Cookie<'static> {
+    Cookie::build(OAUTH_STATE_COOKIE, "")
+        .path("/api/auth/oauth")
+        .http_only(true)
+        .secure(auth_cookies_use_secure_flag())
+        .same_site(SameSite::Lax)
+        .max_age(actix_web::cookie::time::Duration::seconds(0))
+        .finish()
+}
+
 /// Whether auth cookies receive the `Secure` attribute.
 ///
 /// **Fail-closed:** `ENVIRONMENT` unset / empty / anything other than an
@@ -125,6 +156,18 @@ mod tests {
         // CSRF cookie must be readable by JavaScript
         assert!(!cookie.http_only().unwrap_or(true));
         assert_eq!(cookie.same_site(), Some(SameSite::Strict));
+    }
+
+    #[test]
+    fn oauth_state_cookie_is_lax_and_http_only() {
+        let cookie = create_oauth_state_cookie("bind-abc");
+        assert_eq!(cookie.name(), OAUTH_STATE_COOKIE);
+        assert_eq!(cookie.value(), "bind-abc");
+        assert!(cookie.http_only().unwrap_or(false));
+        // MUST be Lax, not Strict: the IdP redirects the browser back to the
+        // callback cross-site, and a Strict cookie would not be sent.
+        assert_eq!(cookie.same_site(), Some(SameSite::Lax));
+        assert_eq!(cookie.path(), Some("/api/auth/oauth"));
     }
 
     #[test]

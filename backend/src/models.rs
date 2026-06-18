@@ -2827,6 +2827,14 @@ pub struct OAuthState {
     /// in-flight tokens minted before this field existed).
     #[serde(default)]
     pub callback_redirect_uri: Option<String>,
+    /// Per-flow random value bound to the initiating user-agent via the
+    /// `oauth_state` cookie (RFC 9700 §2.1). The callback rejects unless the
+    /// cookie matches this value, so an attacker can't CSRF their own
+    /// `(code, state)` onto a victim (login-CSRF / session swap). `None` for
+    /// legacy in-flight tokens minted before this field existed (a <=10-minute
+    /// transition window, after which every state carries a binding).
+    #[serde(default)]
+    pub binding: Option<String>,
 }
 
 // OAuth Authentication request
