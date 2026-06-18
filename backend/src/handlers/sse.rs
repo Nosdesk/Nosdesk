@@ -664,6 +664,10 @@ pub async fn sse_events_stream(
     // app.workspace_id on checkout, so without the pin an admin is downgraded
     // to member visibility. SSE bypasses the cookie/dual-auth middleware, so
     // the gate that middleware runs for REST is invoked explicitly here.
+    //
+    // The gate runs immediately after the pin with no tenant-content read in
+    // between, so pinning a client-selected workspace cannot leak. Keep the
+    // per-topic visibility reads (parse_topics_authorized below) after this.
     if let Some(workspace_id) = workspace_id {
         crate::handlers::helpers::pin_workspace(&mut conn, workspace_id);
         crate::middleware::cookie_auth::require_workspace_membership(

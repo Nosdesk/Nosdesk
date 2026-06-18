@@ -2651,6 +2651,14 @@ pub async fn ws_handler(
         // Pin so the accessor's role + visibility resolve under RLS (the
         // pool clears app.workspace_id on checkout); without it an admin is
         // downgraded to member document visibility.
+        //
+        // Safety invariant: the pin precedes the membership gate below, but
+        // everything read under it before the gate touches only the CALLER'S
+        // OWN data (their user row in validate_token_with_user_check, their
+        // own workspace_role in from_claims). No other tenant's content is
+        // read until after the gate denies non-members, so pinning a
+        // client-selected workspace here cannot leak. Keep any tenant-content
+        // read (the per-document resolve + visibility check) below the gate.
         crate::handlers::helpers::pin_workspace(&mut conn, workspace_id);
 
         use crate::utils::jwt::JwtUtils;
