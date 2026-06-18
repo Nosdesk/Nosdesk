@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
+import { shareableRouteUrl } from '@/utils/shareUrl'
 import { useRecentTicketsStore } from '@/stores/recentTickets'
 import { useWorkflowStatesStore } from '@/stores/workflowStates'
 import { ref, onMounted, computed } from 'vue'
@@ -58,7 +59,8 @@ const handleTicketContextMenuSelect = async (actionId: string) => {
   const ticket = contextMenuTicket.value
   if (!ticket) return
 
-  const ticketUrl = `/tickets/${ticket.id}`
+  // Workspace-scoped in path mode so the link/new-tab opens the right tenant.
+  const ticketUrl = shareableRouteUrl('ticket-view', { id: String(ticket.id) })
 
   switch (actionId) {
     case 'open-new-tab':
@@ -66,7 +68,7 @@ const handleTicketContextMenuSelect = async (actionId: string) => {
       break
 
     case 'copy-link':
-      await copy(`${window.location.origin}${ticketUrl}`)
+      await copy(ticketUrl)
       break
 
     case 'remove-recent':

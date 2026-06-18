@@ -5,6 +5,7 @@ import { Node as ProseMirrorNode } from 'prosemirror-model'
 import { InputRule } from 'prosemirror-inputrules'
 import { getTicketById } from '@/services/ticketService'
 import { translate } from '@/i18n'
+import { shareableRouteUrl } from '@/utils/shareUrl'
 import {
   type TicketCardData,
   renderTicketCardHtml
@@ -219,7 +220,7 @@ export function createTicketLinkPlugin(): Plugin {
               const data = JSON.parse(jsonData)
               if (data.ticketId) {
                 ticketId = data.ticketId
-                href = `${window.location.origin}/tickets/${ticketId}`
+                href = shareableRouteUrl('ticket-view', { id: String(ticketId) })
               }
             } catch {
               // Invalid JSON, ignore

@@ -1,18 +1,22 @@
 /**
- * The active workspace slug, as a plain module value.
+ * The active workspace slug — the single source of truth for which workspace
+ * the agent app is on in path mode.
  *
- * Decoupled on purpose (no imports): the router keeps it in sync on navigation
- * and the axios interceptor reads it to set the `X-Nosdesk-Workspace` header,
- * without either side importing the other (which would cycle through the store
- * and router). Only set in path mode; `null` in host mode means no header is
- * sent and the backend resolves the workspace from the Host, as today.
+ * Deliberately depends only on `vue` (a leaf): the router keeps it in sync on
+ * navigation, the axios interceptor reads it to set the `X-Nosdesk-Workspace`
+ * header, and reactive consumers (the switcher via the myWorkspaces store) read
+ * the ref, all without importing the router or store (which would cycle). Only
+ * set in path mode; `null` in host mode means no header is sent and the backend
+ * resolves the workspace from the Host, as today.
  */
+import { readonly, ref, type Ref } from 'vue';
+
 const LAST_WORKSPACE_KEY = 'nosdesk:last-workspace';
 
-let slug: string | null = null;
+const slug = ref<string | null>(null);
 
 export function setActiveWorkspaceSlug(next: string | null): void {
-  slug = next;
+  slug.value = next;
   // Remember the last workspace the user was on so the post-login landing can
   // return them there. Only persist a real slug; clearing on logout/switch
   // (null) must not erase the memory.
@@ -25,9 +29,13 @@ export function setActiveWorkspaceSlug(next: string | null): void {
   }
 }
 
+/** Non-reactive read, for the axios interceptor / sync engine (outside Vue). */
 export function activeWorkspaceSlug(): string | null {
-  return slug;
+  return slug.value;
 }
+
+/** Reactive read, for UI (the workspace switcher's active-workspace highlight). */
+export const activeWorkspaceSlugRef: Readonly<Ref<string | null>> = readonly(slug);
 
 /** The last workspace slug this device was on, for the post-login landing. */
 export function lastWorkspaceSlug(): string | null {

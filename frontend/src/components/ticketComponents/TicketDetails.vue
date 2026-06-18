@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watchEffect, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
+import { shareableRouteUrl } from '@/utils/shareUrl';
 import { useFluent } from 'fluent-vue';
 import { stripHtml } from '@/composables/useSanitise';
 import type { TicketPriority } from '@/constants/ticketOptions';
@@ -639,10 +640,10 @@ const hasReferences = computed<boolean>(
     linkedDocLinks.value.length > 0,
 );
 
-// Generate QR code for ticket URL (for print)
+// Generate QR code for ticket URL (for print). Workspace-scoped in path mode.
 const ticketUrl = computed(() => {
   if (typeof window === 'undefined') return '';
-  return `${window.location.origin}/tickets/${props.ticket.id}`;
+  return shareableRouteUrl('ticket-view', { id: String(props.ticket.id) });
 });
 
 watchEffect(async () => {
