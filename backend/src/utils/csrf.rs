@@ -14,6 +14,19 @@ pub fn generate_csrf_token() -> String {
 }
 
 /// Validate a CSRF token by comparing it to the expected value
+/// The CSRF cookie name for a request path. Authenticated portal requests
+/// (`/api/portal/...`, excluding the public `/api/portal/auth/` sign-in routes
+/// which skip CSRF entirely) carry the portal session's own `portal_csrf`
+/// cookie; everything else uses the agent `csrf_token` cookie. Selecting by
+/// surface keeps the double-submit check honest across the two session realms.
+pub fn csrf_cookie_for_path(path: &str) -> &'static str {
+    if path.starts_with("/api/portal/") {
+        crate::utils::cookies::PORTAL_CSRF_TOKEN_COOKIE
+    } else {
+        crate::utils::cookies::CSRF_TOKEN_COOKIE
+    }
+}
+
 pub fn validate_csrf_token(provided: &str, expected: &str) -> bool {
     // Use constant-time comparison to prevent timing attacks
     use constant_time_eq::constant_time_eq;
@@ -124,6 +137,11 @@ where
             // no CSRF surface to protect. Rate limiting is handled by the
             // scope's dedicated limiter + per-handler Redis counters.
             || path.starts_with("/api/public/")
+            // Public portal sign-in (magic-link request + callback):
+            // unauthenticated, no portal session cookie yet, so nothing to
+            // forge against. The authenticated portal API below validates
+            // against the portal_csrf cookie.
+            || path.starts_with("/api/portal/auth/")
             // CSP violation reports are sent by browsers without
             // credentials, so there's no session to forge against.
             // Browsers also don't include arbitrary headers, so we
@@ -147,9 +165,11 @@ where
             .and_then(|h| h.to_str().ok())
             .map(|s| s.to_string());
 
-        // Extract CSRF token from cookie
+        // Extract CSRF token from cookie. The portal is a separate session
+        // realm with its own cookie, so pick the cookie that matches the
+        // surface this request belongs to.
         let cookie_token = req
-            .cookie(crate::utils::cookies::CSRF_TOKEN_COOKIE)
+            .cookie(csrf_cookie_for_path(path))
             .map(|c| c.value().to_string());
 
         // Log only a short prefix, taken char-wise so an attacker-
@@ -232,6 +252,22 @@ mod tests {
     #[test]
     fn validate_matching_tokens() {
         assert!(validate_csrf_token("abc123", "abc123"));
+    }
+
+    #[test]
+    fn portal_paths_use_the_portal_csrf_cookie() {
+        use crate::utils::cookies::{CSRF_TOKEN_COOKIE, PORTAL_CSRF_TOKEN_COOKIE};
+        assert_eq!(
+            csrf_cookie_for_path("/api/portal/tickets"),
+            PORTAL_CSRF_TOKEN_COOKIE
+        );
+        assert_eq!(
+            csrf_cookie_for_path("/api/portal/tickets/5/comments"),
+            PORTAL_CSRF_TOKEN_COOKIE
+        );
+        // Agent + everything else keeps the agent cookie.
+        assert_eq!(csrf_cookie_for_path("/api/tickets"), CSRF_TOKEN_COOKIE);
+        assert_eq!(csrf_cookie_for_path("/api/auth/me"), CSRF_TOKEN_COOKIE);
     }
 
     #[test]
