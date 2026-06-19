@@ -26,12 +26,16 @@ use backend::sync::session::with_actor_context;
 mod common;
 
 fn claims_for(user_uuid: uuid::Uuid) -> Claims {
+    claims_scoped(user_uuid, "full")
+}
+
+fn claims_scoped(user_uuid: uuid::Uuid, scope: &str) -> Claims {
     Claims {
         sub: user_uuid.to_string(),
         name: "Selector".to_string(),
         email: String::new(),
         platform_role: "user".to_string(),
-        scope: "full".to_string(),
+        scope: scope.to_string(),
         sid: None,
         workspace_uuid: None,
         exp: (chrono::Utc::now() + chrono::Duration::hours(1)).timestamp() as usize,
@@ -180,6 +184,24 @@ fn selection_header_resolves_and_gates() {
             published,
             Some(acme_id),
             "origin-derived context must remain authoritative, not the header"
+        );
+    }
+
+    // A portal-scope token is refused on the agent surface outright, even for a
+    // real member on a resolved origin. The portal is a separate principal
+    // realm; its session must never authenticate an agent request.
+    {
+        let mut conn = pool.get().expect("conn");
+        let req = TestRequest::default().to_srv_request();
+        req.extensions_mut()
+            .insert(context_of(&mut pool.get().expect("conn"), acme_id));
+        let err =
+            enforce_workspace_membership(&req, &mut conn, &claims_scoped(member_uuid, "portal"))
+                .expect_err("portal-scope token must be denied on the agent surface");
+        assert_eq!(
+            status_of(&err),
+            403,
+            "portal-scope token on the agent surface must be 403"
         );
     }
 

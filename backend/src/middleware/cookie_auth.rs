@@ -22,6 +22,15 @@ use crate::models::Claims;
 use crate::utils::jwt::JwtUtils;
 use actix_web::HttpMessage;
 
+/// Token scope for an authenticated CUSTOMER PORTAL session (a baseline user
+/// signed in on the per-tenant portal origin). It is a distinct principal realm
+/// from an agent session: a portal token must never authenticate an agent /
+/// management request, even though both subjects are `users` rows. The agent
+/// membership gate refuses it outright (see [`enforce_workspace_membership`]);
+/// portal routes require it via their own auth. Kept here next to the gate that
+/// enforces the boundary.
+pub const PORTAL_SCOPE: &str = "portal";
+
 /// Item U: resolve-then-gate the request's workspace.
 ///
 /// The request's ORIGIN is authoritative for tenant scope, and resolution is
@@ -55,6 +64,18 @@ pub fn enforce_workspace_membership(
     conn: &mut DbConnection,
     claims: &Claims,
 ) -> Result<(), Error> {
+    // A customer-portal token is a different principal realm and must never
+    // authenticate an agent / management request. This gate is the single
+    // chokepoint both agent auth paths (cookie + dual) share, so refusing
+    // portal scope here walls it off everywhere at once. Belt-and-suspenders
+    // behind the separate portal cookie names and the separate portal origin.
+    if claims.scope == PORTAL_SCOPE {
+        warn!(user = %claims.sub, "Portal-scope token rejected on the agent surface");
+        return Err(actix_web::error::ErrorForbidden(
+            "This session cannot access the agent application",
+        ));
+    }
+
     // Origin-derived context wins when present (tenant portal / custom domain /
     // self-hosted bootstrap). Only when the origin resolved to no workspace
     // (the agent origin) do we consult the selection header. Resolving
