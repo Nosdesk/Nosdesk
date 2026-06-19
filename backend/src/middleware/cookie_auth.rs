@@ -24,48 +24,54 @@ use actix_web::HttpMessage;
 
 /// Item U: resolve-then-gate the request's workspace.
 ///
-/// Two resolution paths feed the same membership 403 gate:
+/// The request's ORIGIN is authoritative for tenant scope, and resolution is
+/// keyed on it:
 ///
-/// - **Host-derived** (today / customer portal / self-hosted): the
-///   `WorkspaceContextMiddleware` already put a `WorkspaceContext` in
-///   extensions from the subdomain. The user must be a member of it or
-///   the request is `403 Forbidden` instead of falling through into the
-///   app with RLS-filtered-to-empty queries.
-/// - **Selection-derived** (Model C single-origin agent app, behind
-///   `NOSDESK_WORKSPACE_SELECTION`): the client names the workspace in
-///   the `X-Nosdesk-Workspace` header. The gate resolves it, membership-
-///   checks it, and inserts the resulting `WorkspaceContext` so handlers
-///   read the selection. Header wins when present; absent header falls
-///   back to Host-derived.
+/// - **Origin-derived** (customer portal `<slug>.nosdesk.app`, custom domains,
+///   and the self-hosted bootstrap): the `WorkspaceContextMiddleware` already
+///   put a `WorkspaceContext` in extensions from the Host. When present it wins
+///   outright. A client cannot override its own origin's tenant via a header,
+///   so on a tenant origin the selection header is never consulted (it could
+///   otherwise 403 on a stray slug and is a cross-tenant confusion vector).
+/// - **Selection-derived** (the single-origin agent app at `app.nosdesk.com`,
+///   behind `NOSDESK_WORKSPACE_SELECTION`): consulted ONLY when the origin
+///   resolved to no workspace — i.e. the agent origin, whose Host is on a
+///   different base domain and so never matches a tenant. The client names the
+///   workspace in the `X-Nosdesk-Workspace` header; the gate resolves it,
+///   membership-checks it, and inserts the resulting `WorkspaceContext`.
 ///
-/// Skipped (Ok) when neither path yields a workspace (apex / public
-/// routes that pin nothing); those routes don't touch tenant tables and
-/// the strict RLS policy is the secondary guard.
+/// Either way the same membership 403 gate fires: the user must be a member of
+/// the resolved workspace or the request is `403 Forbidden` rather than falling
+/// through into the app with RLS-filtered-to-empty queries.
 ///
-/// Called by every authentication middleware (cookie auth + dual auth)
-/// so the gate fires on every authenticated entry path.
+/// Skipped (Ok) when neither path yields a workspace (apex / public routes that
+/// pin nothing); those routes don't touch tenant tables and the strict RLS
+/// policy is the secondary guard.
+///
+/// Called by every authentication middleware (cookie auth + dual auth) so the
+/// gate fires on every authenticated entry path.
 pub fn enforce_workspace_membership(
     req: &ServiceRequest,
     conn: &mut DbConnection,
     claims: &Claims,
 ) -> Result<(), Error> {
-    // Selection-derived workspace takes precedence when enabled and the header
-    // is present. Resolve it to a context up front; an unknown slug collapses
-    // into the same 403 a non-member gets below (no workspace-existence leak),
-    // and a blank header is simply no selection.
-    let selected = selected_workspace_context(req, conn)?;
+    // Origin-derived context wins when present (tenant portal / custom domain /
+    // self-hosted bootstrap). Only when the origin resolved to no workspace
+    // (the agent origin) do we consult the selection header. Resolving
+    // selection eagerly would 403 a tenant-origin request that carries a stray
+    // header, so the ordering here is load-bearing, not just precedence.
+    let host_derived = req
+        .extensions()
+        .get::<crate::extractors::WorkspaceContext>()
+        .map(|w| w.workspace_id);
 
-    // Otherwise fall back to the Host-derived context the middleware resolved.
-    let target = match &selected {
-        Some(ctx) => Some(ctx.workspace_id),
-        None => req
-            .extensions()
-            .get::<crate::extractors::WorkspaceContext>()
-            .map(|w| w.workspace_id),
-    };
-    let Some(workspace_id) = target else {
-        // No tenant scope to authorize against (apex / public route).
-        return Ok(());
+    let (workspace_id, selected) = match host_derived {
+        Some(id) => (id, None),
+        None => match selected_workspace_context(req, conn)? {
+            Some(ctx) => (ctx.workspace_id, Some(ctx)),
+            // No tenant scope to authorize against (agent apex / public route).
+            None => return Ok(()),
+        },
     };
 
     // A workspace-scoped request whose subject doesn't parse is malformed; fail

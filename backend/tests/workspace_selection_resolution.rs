@@ -156,6 +156,33 @@ fn selection_header_resolves_and_gates() {
             .expect("host-derived fallback still gates members through");
     }
 
+    // Origin wins over a stray selection header. A tenant-origin request (Host
+    // resolved to acme, the member's workspace) carries a header naming a
+    // DIFFERENT workspace the user is not a member of. If selection were
+    // consulted here it would 403 (non-member of other-sel); instead the
+    // origin is authoritative, the member passes against acme, and the header
+    // is ignored. This is the cross-tenant-confinement invariant: a client
+    // cannot override its own origin's tenant via a header.
+    {
+        let mut conn = pool.get().expect("conn");
+        let req = TestRequest::default()
+            .insert_header((WORKSPACE_SELECTION_HEADER, "other-sel"))
+            .to_srv_request();
+        req.extensions_mut()
+            .insert(context_of(&mut pool.get().expect("conn"), acme_id));
+        enforce_workspace_membership(&req, &mut conn, &claims_for(member_uuid))
+            .expect("origin-derived workspace wins; stray selection header is ignored");
+        let published = req
+            .extensions()
+            .get::<WorkspaceContext>()
+            .map(|w| w.workspace_id);
+        assert_eq!(
+            published,
+            Some(acme_id),
+            "origin-derived context must remain authoritative, not the header"
+        );
+    }
+
     // --- Selection mode OFF: header is ignored entirely ---
     std::env::remove_var("NOSDESK_WORKSPACE_SELECTION");
     {
