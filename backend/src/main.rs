@@ -1601,6 +1601,21 @@ async fn main() -> std::io::Result<()> {
                         web::get().to(handlers::portal::magic_link_callback),
                     ),
             )
+            // Authenticated customer portal API. Registered AFTER the public
+            // `/api/portal/auth` scope so the sign-in routes match there first.
+            // The portal session is ownership-scoped: every handler reads its
+            // own tickets only, RLS-pinned to the origin's workspace.
+            .service(
+                web::scope("/api/portal")
+                    .wrap(actix_web::middleware::from_fn(
+                        handlers::portal::portal_auth_middleware,
+                    ))
+                    .route("/tickets", web::get().to(handlers::portal::list_my_tickets))
+                    .route(
+                        "/tickets/{id}",
+                        web::get().to(handlers::portal::get_my_ticket),
+                    ),
+            )
             // Authentication routes (public by design)
             .service(
                 web::scope("/api/auth")

@@ -17,19 +17,29 @@
 //!   who is a member of that workspace. Split out (like the agent gate) so it
 //!   is unit-testable independently of the actix middleware that will wrap it.
 
+use std::future::{ready, Ready};
+
+use actix_web::body::MessageBody;
 use actix_web::cookie::Cookie;
-use actix_web::dev::ServiceRequest;
-use actix_web::{web, Error, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::dev::{Payload, ServiceRequest, ServiceResponse};
+use actix_web::middleware::Next;
+use actix_web::{web, Error, FromRequest, HttpMessage, HttpRequest, HttpResponse, Responder};
 use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
 
 use crate::db::{DbConnection, Pool};
-use crate::extractors::WorkspaceContext;
+use crate::extractors::{TenantConn, WorkspaceContext};
 use crate::handlers::errors;
 use crate::middleware::cookie_auth::{require_workspace_membership, PORTAL_SCOPE};
-use crate::models::{Claims, User};
+use crate::models::{Claims, Ticket, User};
+use crate::repository::ticket_visibility::{
+    can_view_ticket, visible_tickets_query, VisibilityContext,
+};
+use crate::schema::tickets;
+use crate::utils::jwt::JwtUtils;
 use crate::utils::reset_tokens::{ResetTokenUtils, TokenType};
+use diesel::prelude::*;
 
 /// The authenticated portal principal for a request: a customer (`user_uuid`)
 /// acting within one workspace (resolved from the portal origin and confirmed
@@ -354,4 +364,112 @@ fn sign_in_error_redirect() -> HttpResponse {
     HttpResponse::Found()
         .append_header(("Location", "/?signin_error=1"))
         .finish()
+}
+
+// --- Authenticated portal API ---
+
+/// Extractor for the authenticated portal principal, published by
+/// [`portal_auth_middleware`]. A handler that takes `PortalContext` is only
+/// reachable behind that middleware.
+impl FromRequest for PortalContext {
+    type Error = Error;
+    type Future = Ready<Result<Self, Error>>;
+
+    fn from_request(req: &HttpRequest, _payload: &mut Payload) -> Self::Future {
+        match req.extensions().get::<PortalContext>().cloned() {
+            Some(ctx) => ready(Ok(ctx)),
+            None => ready(Err(actix_web::error::ErrorUnauthorized(
+                "Portal authentication required",
+            ))),
+        }
+    }
+}
+
+/// Authenticate a portal request from its `portal_access` cookie and gate it.
+/// Mirrors the agent `cookie_auth_middleware`: validate the token (and its
+/// session), run the portal authorization gate, then pin the request actor to
+/// the workspace so `TenantConn` queries are RLS-scoped. A non-portal token, a
+/// token bound to a different tenant, or a non-member all fail here.
+pub async fn portal_auth_middleware(
+    req: ServiceRequest,
+    next: Next<impl MessageBody>,
+) -> Result<ServiceResponse<impl MessageBody>, Error> {
+    let pool = req
+        .app_data::<web::Data<Pool>>()
+        .ok_or_else(|| actix_web::error::ErrorInternalServerError("Database pool not found"))?;
+    let mut conn = pool
+        .get()
+        .map_err(|_| actix_web::error::ErrorInternalServerError("Database connection failed"))?;
+
+    let token = req
+        .cookie(crate::utils::cookies::PORTAL_ACCESS_TOKEN_COOKIE)
+        .ok_or_else(|| actix_web::error::ErrorUnauthorized("Authentication required"))?;
+
+    let (claims, _user) = JwtUtils::authenticate_with_token(token.value(), &mut conn)
+        .await
+        .map_err(|_| actix_web::error::ErrorUnauthorized("Invalid or expired token"))?;
+
+    let portal_ctx = authorize_portal_request(&req, &mut conn, &claims)?;
+    drop(conn);
+
+    req.extensions_mut().insert(portal_ctx);
+    // Pin the actor to the resolved workspace (same path the agent auth uses) so
+    // TenantConn runs portal queries RLS-scoped to this tenant.
+    crate::middleware::request_context::populate(&req, &claims);
+    req.extensions_mut().insert(claims);
+
+    next.call(req).await
+}
+
+/// `GET /api/portal/tickets` — the customer's own tickets in this workspace.
+///
+/// RLS pins to the workspace (the portal origin's tenant); the visibility
+/// context is forced requester-only, so the rows are exactly the tickets this
+/// customer requested or watches, never another customer's.
+pub async fn list_my_tickets(mut tc: TenantConn, portal: PortalContext) -> impl Responder {
+    let vis = VisibilityContext::requester_only(portal.user_uuid);
+    let result = tc.run(move |conn| {
+        visible_tickets_query(&vis)
+            .order(tickets::updated_at.desc())
+            .load::<Ticket>(conn)
+    });
+    match result {
+        Ok(rows) => HttpResponse::Ok().json(rows),
+        Err(e) => {
+            tracing::error!(error = ?e, "portal: failed to list tickets");
+            errors::internal("Failed to list tickets")
+        }
+    }
+}
+
+/// `GET /api/portal/tickets/{id}` — one of the customer's tickets with its
+/// customer-visible thread (internal notes dropped). 404 (not 403) when the
+/// ticket isn't theirs, so ticket existence doesn't leak.
+pub async fn get_my_ticket(
+    mut tc: TenantConn,
+    portal: PortalContext,
+    path: web::Path<i32>,
+) -> impl Responder {
+    let ticket_id = path.into_inner();
+    let vis = VisibilityContext::requester_only(portal.user_uuid);
+    let result = tc.run(move |conn| {
+        if !can_view_ticket(conn, &vis, ticket_id)? {
+            return Ok(None);
+        }
+        let ticket = crate::repository::tickets::get_ticket_by_id(conn, ticket_id)?;
+        let comments =
+            crate::repository::comments::get_public_comments_by_ticket_id(conn, ticket_id)?;
+        Ok(Some((ticket, comments)))
+    });
+    match result {
+        Ok(Some((ticket, comments))) => HttpResponse::Ok().json(json!({
+            "ticket": ticket,
+            "comments": comments,
+        })),
+        Ok(None) => errors::not_found("Ticket not found"),
+        Err(e) => {
+            tracing::error!(error = ?e, "portal: failed to load ticket");
+            errors::internal("Failed to load ticket")
+        }
+    }
 }
