@@ -387,6 +387,7 @@ impl FromRequest for PortalContext {
     }
 }
 
+// tenant-read-exempt: authorize_portal_request's only tenant read is require_workspace_membership, which pins via with_actor_context (invisible to the scanner).
 /// Authenticate a portal request from its `portal_access` cookie and gate it.
 /// Mirrors the agent `cookie_auth_middleware`: validate the token (and its
 /// session), run the portal authorization gate, then pin the request actor to
