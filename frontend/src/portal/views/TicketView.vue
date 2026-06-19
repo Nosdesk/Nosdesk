@@ -2,7 +2,15 @@
 import { onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 
-import { getMyTicket, type PortalComment, type PortalTicket } from '../service'
+import Button from '@/components/common/Button.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
+
+import {
+  getMyTicket,
+  replyToMyTicket,
+  type PortalComment,
+  type PortalTicket,
+} from '../service'
 
 const props = defineProps<{ id: string }>()
 
@@ -10,6 +18,10 @@ const ticket = ref<PortalTicket | null>(null)
 const comments = ref<PortalComment[]>([])
 const loading = ref(true)
 const failed = ref(false)
+
+const reply = ref('')
+const sending = ref(false)
+const replyFailed = ref(false)
 
 onMounted(async () => {
   try {
@@ -22,6 +34,21 @@ onMounted(async () => {
     loading.value = false
   }
 })
+
+async function sendReply(): Promise<void> {
+  if (!reply.value.trim()) return
+  sending.value = true
+  replyFailed.value = false
+  try {
+    const comment = await replyToMyTicket(Number(props.id), reply.value.trim())
+    comments.value.push(comment)
+    reply.value = ''
+  } catch {
+    replyFailed.value = true
+  } finally {
+    sending.value = false
+  }
+}
 </script>
 
 <template>
@@ -49,6 +76,24 @@ onMounted(async () => {
       <p v-if="!comments.length" class="text-sm text-secondary">
         No messages on this ticket yet.
       </p>
+
+      <form class="mt-6 flex flex-col gap-2" @submit.prevent="sendReply">
+        <FormTextarea
+          v-model="reply"
+          label="Add a reply"
+          placeholder="Type your message"
+          :rows="3"
+          :disabled="sending"
+        />
+        <p v-if="replyFailed" class="text-sm text-status-error">
+          Your reply couldn't be sent. Please try again.
+        </p>
+        <div class="flex">
+          <Button type="submit" :loading="sending" :disabled="!reply.trim()" class="ml-auto">
+            Send reply
+          </Button>
+        </div>
+      </form>
     </div>
   </div>
 </template>

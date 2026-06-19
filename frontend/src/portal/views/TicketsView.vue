@@ -21,7 +21,12 @@ onMounted(async () => {
 
 <template>
   <div class="max-w-2xl mx-auto p-4">
-    <h1 class="text-xl font-semibold mb-4">My tickets</h1>
+    <div class="flex items-center mb-4">
+      <h1 class="text-xl font-semibold">My tickets</h1>
+      <RouterLink to="/tickets/new" class="ml-auto text-sm text-accent hover:underline">
+        New ticket
+      </RouterLink>
+    </div>
 
     <p v-if="loading" class="text-sm text-secondary">Loading your tickets…</p>
     <p v-else-if="failed" class="text-sm text-status-error">
