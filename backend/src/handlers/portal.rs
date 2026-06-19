@@ -18,6 +18,7 @@
 //!   is unit-testable independently of the actix middleware that will wrap it.
 
 use std::future::{ready, Ready};
+use std::sync::Arc;
 
 use actix_web::body::MessageBody;
 use actix_web::cookie::Cookie;
@@ -32,11 +33,12 @@ use crate::db::{DbConnection, Pool};
 use crate::extractors::{TenantConn, WorkspaceContext};
 use crate::handlers::errors;
 use crate::middleware::cookie_auth::{require_workspace_membership, PORTAL_SCOPE};
-use crate::models::{Claims, Ticket, User};
+use crate::models::{Claims, ContentFormat, NewComment, NewTicket, Ticket, User};
 use crate::repository::ticket_visibility::{
     can_view_ticket, visible_tickets_query, VisibilityContext,
 };
 use crate::schema::tickets;
+use crate::services::search::SearchService;
 use crate::utils::jwt::JwtUtils;
 use crate::utils::reset_tokens::{ResetTokenUtils, TokenType};
 use diesel::prelude::*;
@@ -470,6 +472,145 @@ pub async fn get_my_ticket(
         Err(e) => {
             tracing::error!(error = ?e, "portal: failed to load ticket");
             errors::internal("Failed to load ticket")
+        }
+    }
+}
+
+#[derive(Deserialize)]
+pub struct NewPortalTicket {
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+}
+
+#[derive(Deserialize)]
+pub struct NewPortalReply {
+    pub content: String,
+}
+
+/// `POST /api/portal/tickets` — the customer opens a ticket. Requester is the
+/// portal user; the optional description lands as the first customer-visible
+/// comment. Created under the pinned actor, so the activity attributes it to
+/// the customer.
+pub async fn create_my_ticket(
+    mut tc: TenantConn,
+    portal: PortalContext,
+    search_service: web::Data<Arc<SearchService>>,
+    body: web::Json<NewPortalTicket>,
+) -> impl Responder {
+    let body = body.into_inner();
+    let title = body.title.trim().to_string();
+    if title.is_empty() {
+        return errors::bad_request("Title is required");
+    }
+    let description = body.description.trim().to_string();
+    let user_uuid = portal.user_uuid;
+    let search = Arc::clone(search_service.get_ref());
+
+    let result = tc.run(move |conn| {
+        let default_state = crate::repository::workflow_states::default_state(conn)?;
+        let new_ticket = NewTicket {
+            title: title.clone(),
+            workflow_state_id: default_state.id,
+            requester_uuid: Some(user_uuid),
+            submitted_via: Some("portal".to_string()),
+            ..Default::default()
+        };
+        let annotation = crate::repository::tickets::TicketCreationAnnotation {
+            source: Some("portal".to_string()),
+            subject: Some(title.clone()),
+            ..Default::default()
+        };
+        let ticket = crate::repository::tickets::create_ticket_with_annotation(
+            conn, new_ticket, annotation, None,
+        )?;
+
+        // First customer-visible comment carries the description. Non-fatal
+        // (mirrors the guest portal): the ticket is the primary artefact.
+        if !description.is_empty() {
+            let new_comment = NewComment {
+                content: description.clone(),
+                ticket_id: ticket.id,
+                user_uuid,
+                is_internal: false,
+                content_format: ContentFormat::Plaintext,
+                ..Default::default()
+            };
+            let annotation = crate::repository::comments::CommentCreationAnnotation {
+                source: Some("portal".to_string()),
+                ..Default::default()
+            };
+            if let Err(e) = crate::repository::comments::create_comment_with_annotation(
+                conn,
+                new_comment,
+                annotation,
+                Some(&search),
+            ) {
+                tracing::warn!(error = ?e, ticket_id = ticket.id, "portal: failed to persist initial comment");
+            }
+        }
+        Ok(ticket)
+    });
+
+    match result {
+        Ok(ticket) => HttpResponse::Created().json(ticket),
+        Err(e) => {
+            tracing::error!(error = ?e, "portal: failed to create ticket");
+            errors::internal("Failed to create ticket")
+        }
+    }
+}
+
+/// `POST /api/portal/tickets/{id}/comments` — the customer replies on one of
+/// their own tickets. Ownership is checked first (404 otherwise), and the reply
+/// is always a customer-visible (non-internal) comment authored by the customer.
+pub async fn reply_to_my_ticket(
+    mut tc: TenantConn,
+    portal: PortalContext,
+    search_service: web::Data<Arc<SearchService>>,
+    path: web::Path<i32>,
+    body: web::Json<NewPortalReply>,
+) -> impl Responder {
+    let ticket_id = path.into_inner();
+    let content = body.into_inner().content.trim().to_string();
+    if content.is_empty() {
+        return errors::bad_request("Reply cannot be empty");
+    }
+    let vis = VisibilityContext::requester_only(portal.user_uuid);
+    let user_uuid = portal.user_uuid;
+    let search = Arc::clone(search_service.get_ref());
+
+    let result = tc.run(move |conn| {
+        if !can_view_ticket(conn, &vis, ticket_id)? {
+            return Ok(None);
+        }
+        let new_comment = NewComment {
+            content,
+            ticket_id,
+            user_uuid,
+            is_internal: false,
+            content_format: ContentFormat::Plaintext,
+            ..Default::default()
+        };
+        let annotation = crate::repository::comments::CommentCreationAnnotation {
+            source: Some("portal".to_string()),
+            ..Default::default()
+        };
+        let comment = crate::repository::comments::create_comment_with_annotation(
+            conn,
+            new_comment,
+            annotation,
+            Some(&search),
+        )?;
+        Ok(Some(comment))
+    });
+
+    match result {
+        Ok(Some(comment)) => HttpResponse::Created().json(comment),
+        Ok(None) => errors::not_found("Ticket not found"),
+        Err(e) => {
+            tracing::error!(error = ?e, "portal: failed to post reply");
+            errors::internal("Failed to post reply")
         }
     }
 }

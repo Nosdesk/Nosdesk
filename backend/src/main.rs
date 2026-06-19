@@ -1611,9 +1611,14 @@ async fn main() -> std::io::Result<()> {
                         handlers::portal::portal_auth_middleware,
                     ))
                     .route("/tickets", web::get().to(handlers::portal::list_my_tickets))
+                    .route("/tickets", web::post().to(handlers::portal::create_my_ticket))
                     .route(
                         "/tickets/{id}",
                         web::get().to(handlers::portal::get_my_ticket),
+                    )
+                    .route(
+                        "/tickets/{id}/comments",
+                        web::post().to(handlers::portal::reply_to_my_ticket),
                     ),
             )
             // Authentication routes (public by design)
