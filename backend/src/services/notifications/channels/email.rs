@@ -96,9 +96,10 @@ impl EmailChannel {
         )
     }
 
-    /// Build the deep link for a notification. `base_url` is the recipient
-    /// workspace's canonical origin (resolved per notification), so links land
-    /// on the tenant's own host rather than the channel's static fallback.
+    /// Build the deep link for a notification. `base_url` is the recipient's
+    /// surface base (resolved per notification by `notification_link_base`):
+    /// the agent app for an agent, the per-tenant portal for a customer, so the
+    /// link lands where that recipient can actually open the entity.
     fn generate_entity_url(
         &self,
         notification: &DeliverableNotification,
@@ -246,12 +247,29 @@ impl NotificationDeliveryChannel for EmailChannel {
             "background:notification_email_prep",
             workspace_id,
             move |conn| {
-                // Deep links use the notification workspace's canonical origin
-                // (custom domain or `<slug>.<NOSDESK_TENANT_DOMAIN>`), else the
-                // channel's configured base (FRONTEND_URL).
+                // Deep links point to the RECIPIENT's surface. In hosted Model
+                // C an agent views the entity in the agent app (central origin
+                // + slug-in-path); a customer/baseline recipient views it in
+                // the per-tenant portal (`<slug>.<NOSDESK_TENANT_DOMAIN>` or a
+                // custom domain). Self-host has one origin for everyone.
                 let base_url = match crate::repository::workspaces::find_by_id(conn, workspace_id) {
-                    Ok(Some(ws)) => crate::utils::tenant_origin::workspace_origin(&ws)
-                        .unwrap_or_else(|| fallback_base.clone()),
+                    Ok(Some(ws)) => {
+                        let recipient_is_agent =
+                            crate::repository::users::find_active_by_uuid(&recipient_uuid, conn)
+                                .map(|u| {
+                                    crate::repository::user_helpers::user_can_handle_tickets(
+                                        conn, &u,
+                                    )
+                                })
+                                .unwrap_or(false);
+                        notification_link_base(
+                            crate::middleware::workspace_context::selection_resolution_enabled(),
+                            recipient_is_agent,
+                            &ws.slug,
+                            crate::utils::tenant_origin::workspace_origin(&ws).as_deref(),
+                            &fallback_base,
+                        )
+                    }
                     _ => fallback_base.clone(),
                 };
                 let branding = get_email_branding(conn, &base_url);
@@ -380,5 +398,59 @@ impl NotificationDeliveryChannel for EmailChannel {
 
         // Return true if NOT rate limited (no recent notification found)
         recent.is_none()
+    }
+}
+
+/// Base URL for a notification deep link, chosen by the recipient's surface.
+///
+/// In hosted Model C the agent app and the customer portal are different
+/// origins: an AGENT recipient views the entity in the agent app (the central
+/// `agent_origin` with the workspace slug in the path), a customer/baseline
+/// recipient in the per-tenant `portal_origin`. Outside selection mode
+/// (self-host) there is a single origin for everyone, so role doesn't matter.
+fn notification_link_base(
+    selection_enabled: bool,
+    recipient_is_agent: bool,
+    slug: &str,
+    portal_origin: Option<&str>,
+    agent_origin: &str,
+) -> String {
+    if selection_enabled && recipient_is_agent {
+        format!("{}/{}", agent_origin.trim_end_matches('/'), slug)
+    } else {
+        portal_origin
+            .map(str::to_owned)
+            .unwrap_or_else(|| agent_origin.to_owned())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::notification_link_base;
+
+    #[test]
+    fn routes_notification_links_by_recipient_surface() {
+        let portal = Some("https://acme.nosdesk.au");
+        let agent = "https://app.nosdesk.com";
+
+        // Hosted, agent recipient -> agent app, slug in the path.
+        assert_eq!(
+            notification_link_base(true, true, "acme", portal, agent),
+            "https://app.nosdesk.com/acme"
+        );
+        // Hosted, customer recipient -> the per-tenant portal origin.
+        assert_eq!(
+            notification_link_base(true, false, "acme", portal, agent),
+            "https://acme.nosdesk.au"
+        );
+        // Self-host (no selection): single origin, regardless of role.
+        assert_eq!(
+            notification_link_base(false, true, "default", None, "https://help.example.com"),
+            "https://help.example.com"
+        );
+        assert_eq!(
+            notification_link_base(false, false, "default", None, "https://help.example.com"),
+            "https://help.example.com"
+        );
     }
 }
