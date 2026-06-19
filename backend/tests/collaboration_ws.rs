@@ -149,6 +149,7 @@ fn test_workspace() -> WorkspaceContext {
         slug: "default".into(),
         name: "Default".into(),
         organisation_id: None,
+        custom_domain: None,
     }
 }
 
@@ -189,6 +190,24 @@ async fn handshake_broadcast_and_clean_disconnect() {
 
     // Seed a user so JWT validation finds a real row to attach to.
     let user = common::insert_user(&mut pool.get().expect("conn"), "WSAlice");
+
+    // The collab WS handshake runs the workspace-membership gate, so the user
+    // must be a member of the request workspace (id 1 here). Production reaches
+    // this handshake only for members; mirror that. Pinned via the actor because
+    // workspace_members is RLS-isolated and the pooled conn carries no GUC.
+    {
+        let mut conn = pool.get().expect("conn");
+        let actor = backend::sync::actor::ActorContext::user(user.uuid, None).with_workspace(1);
+        backend::sync::session::with_actor_context::<_, diesel::result::Error>(
+            &mut conn,
+            &actor,
+            |c| {
+                backend::repository::workspaces::add_membership(c, 1, user.uuid, "admin")?;
+                Ok(())
+            },
+        )
+        .expect("seed workspace membership");
+    }
 
     // ws_handler's JWT validation also checks `active_sessions`: the
     // token's `sid` claim must reference a live session row owned by
@@ -364,4 +383,104 @@ async fn handshake_broadcast_and_clean_disconnect() {
     .await
     .expect("client B Pong timeout after A disconnect");
     assert!(got_pong, "client B never received Pong for its probe Ping");
+}
+
+/// Selection-path handshake (Model C, increment 2): with NO Host-derived
+/// WorkspaceContext on the request (the single-origin agent app), the collab WS
+/// resolves the workspace from the docId's embedded workspace_uuid and
+/// membership-gates it. The WS can't send the selection header, so the docId is
+/// the carrier. A member of the docId's workspace connects; a non-member is
+/// rejected at the handshake.
+#[actix_web::test]
+async fn handshake_resolves_workspace_from_doc_id_without_host_context() {
+    install_fast_heartbeat();
+
+    let test_db = common::TestDb::new();
+    let pool = build_pool(test_db.url());
+
+    // Bootstrap workspace 1's real uuid is the docId's tenancy anchor.
+    let ws1_uuid = backend::repository::workspaces::find_by_id(&mut pool.get().expect("conn"), 1)
+        .expect("ws lookup")
+        .expect("bootstrap workspace exists")
+        .uuid;
+
+    // A member of workspace 1 and a stranger who belongs to no workspace.
+    let member = common::insert_user(&mut pool.get().expect("conn"), "DocSel Member");
+    let stranger = common::insert_user(&mut pool.get().expect("conn"), "DocSel Stranger");
+    {
+        let mut conn = pool.get().expect("conn");
+        let actor = backend::sync::actor::ActorContext::user(member.uuid, None).with_workspace(1);
+        backend::sync::session::with_actor_context::<_, diesel::result::Error>(
+            &mut conn,
+            &actor,
+            |c| {
+                backend::repository::workspaces::add_membership(c, 1, member.uuid, "admin")?;
+                Ok(())
+            },
+        )
+        .expect("seed membership");
+    }
+
+    let cookie_for = |user: &backend::models::User| {
+        let session = backend::repository::active_sessions::create_session(
+            &mut pool.get().expect("conn"),
+            backend::models::NewActiveSession {
+                user_uuid: user.uuid,
+                device_name: Some("ws-sel".into()),
+                ip_address: None,
+                user_agent: Some("ws-sel-client".into()),
+                location: None,
+                expires_at: (chrono::Utc::now() + chrono::Duration::hours(1)).naive_utc(),
+                is_current: true,
+            },
+        )
+        .expect("create session");
+        let token = JwtUtils::create_token(user, &session.session_id).expect("mint JWT");
+        awc::cookie::Cookie::new(ACCESS_TOKEN_COOKIE, token)
+    };
+    let member_cookie = cookie_for(&member);
+    let stranger_cookie = cookie_for(&stranger);
+
+    let ticket_uuid = seed_ticket(&mut pool.get().expect("conn"));
+
+    let state_pool_inner = pool.clone();
+    let srv = actix_test::start(move || {
+        let (state, _tmp) = build_app_state(&state_pool_inner);
+        std::mem::forget(_tmp);
+        // No WorkspaceContext injected: the handler must derive the workspace
+        // from the docId, exercising the selection (None-context) branch.
+        App::new()
+            .app_data(web::Data::new(state))
+            .app_data(web::Data::new(state_pool_inner.clone()))
+            .route("/ws/{doc}", web::get().to(ws_handler))
+    });
+
+    // docId carries workspace 1's real uuid so find_by_uuid resolves it.
+    let doc_id = format!("ws-{ws1_uuid}_ticket-{ticket_uuid}");
+    let url = srv.url(&format!("/ws/{doc_id}"));
+    let client = awc::Client::new();
+
+    // Member: handshake succeeds and the initial SyncStep1 frame arrives.
+    let (_resp, mut conn) = client
+        .ws(&url)
+        .cookie(member_cookie)
+        .connect()
+        .await
+        .expect("member handshake should succeed via docId-derived workspace");
+    let first = tokio::time::timeout(Duration::from_secs(2), conn.next())
+        .await
+        .expect("initial frame timeout")
+        .expect("stream ended before initial frame")
+        .expect("initial frame error");
+    assert!(
+        matches!(first, ws::Frame::Binary(_)),
+        "expected Binary SyncStep1, got {first:?}"
+    );
+
+    // Non-member: rejected at the handshake (403 -> connect errors).
+    let denied = client.ws(&url).cookie(stranger_cookie).connect().await;
+    assert!(
+        denied.is_err(),
+        "non-member must be rejected at the docId-derived handshake"
+    );
 }

@@ -29,17 +29,40 @@ use uuid::Uuid;
 
 /// Resolved workspace for the current request. Cloned from the
 /// request extensions on extraction (the middleware stuffs it
-/// there). Cheap to clone — small struct with one short
-/// `String`.
+/// there). Cheap to clone — small struct with a couple of short
+/// `String`s.
 #[derive(Debug, Clone)]
 pub struct WorkspaceContext {
     pub workspace_id: i32,
     pub workspace_uuid: Uuid,
     pub slug: String,
     pub name: String,
+    /// Verified custom domain (`workspaces.custom_domain`) if the tenant set
+    /// one. Drives `canonical_origin`: a custom domain is the workspace's
+    /// browser host instead of `<slug>.<tenant_domain>`.
+    pub custom_domain: Option<String>,
     /// Nullable seam for a future org-as-parent-of-workspaces
     /// tier. NULL on every workspace today.
     pub organisation_id: Option<i32>,
+}
+
+impl WorkspaceContext {
+    /// The workspace's canonical browser origin (`https://<host>`), for
+    /// building tenant-facing URLs (password-reset / invite links, WebAuthn,
+    /// OIDC). A verified `custom_domain` wins; otherwise
+    /// `<slug>.<NOSDESK_TENANT_DOMAIN>`. Returns `None` in self-hosted mode or
+    /// when no tenant base domain is configured, the caller then falls back to
+    /// `FRONTEND_URL` or the request host. Delegates to `utils::tenant_origin`,
+    /// the single source of truth shared with the `Workspace`-keyed callers.
+    pub fn canonical_origin(&self) -> Option<String> {
+        use crate::utils::tenant_origin;
+        let host = tenant_origin::canonical_host_for(
+            &self.slug,
+            self.custom_domain.as_deref(),
+            tenant_origin::tenant_domain().as_deref(),
+        );
+        tenant_origin::origin_from_host(host)
+    }
 }
 
 /// Error type for `WorkspaceContext` extraction failures.

@@ -37,7 +37,7 @@
 //! the lazy caller can ignore the bool.
 
 use diesel::result::{DatabaseErrorKind, Error as DieselError};
-use tracing::error;
+use tracing::{error, warn};
 
 use crate::db::DbConnection;
 use crate::models::{NewUserAuthIdentity, NewUserEmail, PlatformRole, User, WorkspaceRole};
@@ -56,6 +56,15 @@ pub struct ProjectedUserInput {
     /// Mapped onto `user_auth_identities.external_id`.
     pub sub: String,
     pub email: String,
+    /// Whether the provider asserts this email is verified. Gates the
+    /// email-fallback account link in [`resolve_user_by_identity_or_email`]:
+    /// a new `(iss, sub)` is only attached to an existing email-matched user
+    /// when the provider vouches for the address, since email-alone linking on
+    /// an unverified address is an account-takeover vector. The control plane
+    /// passes `true` (it provisions verified seat emails); the login paths read
+    /// the IdP's `email_verified` claim (Entra directory emails count as
+    /// verified).
+    pub email_verified: bool,
     /// Display name. Required for new-user creation; for the
     /// existing-by-identity path we use whatever's already on the
     /// users row (no rename here).
@@ -103,6 +112,93 @@ impl ProjectionOutcome {
     }
 }
 
+/// Resolve an OIDC identity to an EXISTING local user, without creating one.
+///
+/// Steps 1-2 of the projection lookup, shared by the full provisioner (which
+/// creates a user when this returns `None`) and the central-origin agent login
+/// (which DENIES when this returns `None`, because the seat and its workspace
+/// membership are provisioned upstream by the control plane, not at login):
+///
+///  1. `(iss, sub)` identity match -> that user.
+///  2. no identity, but the email matches a user AND the provider vouches the
+///     email is verified -> attach the identity to them (the first OIDC login
+///     for a pre-provisioned seat) and return them.
+///  3. neither (or email matched but unverified) -> `Ok(None)`; the caller
+///     decides create-vs-deny.
+///
+/// The `email_verified` gate on step 2 is load-bearing: linking a fresh
+/// `(iss, sub)` to an existing user on an UNVERIFIED email lets anyone who can
+/// make the IdP assert a victim's address take over that account. Step 1 is a
+/// cryptographic identity match and is never gated.
+pub fn resolve_user_by_identity_or_email(
+    conn: &mut DbConnection,
+    iss: &str,
+    sub: &str,
+    email: &str,
+    email_verified: bool,
+    metadata: &Option<serde_json::Value>,
+    password_hash: &Option<String>,
+) -> Result<Option<User>, String> {
+    match user_auth_identities::find_user_by_identity(iss, sub, conn) {
+        Ok(Some(user_uuid)) => {
+            let user = users_repo::find_active_by_uuid(&user_uuid, conn)
+                .map_err(|e| format!("identity {iss}/{sub} resolved a user that's gone: {e:?}"))?;
+            Ok(Some(user))
+        }
+        // Email-fallback link, but only for a provider-verified address. An
+        // unverified email match is treated as no match (caller creates or
+        // denies) rather than silently attaching to the existing account.
+        Ok(None) if !email_verified => {
+            warn!(
+                %iss,
+                "OIDC email-fallback link refused: provider did not verify the email; \
+                 not attaching a new identity to the email-matched account"
+            );
+            Ok(None)
+        }
+        Ok(None) => match users_repo::get_user_by_email(email, conn) {
+            Ok(user) => {
+                let new_identity = NewUserAuthIdentity {
+                    user_uuid: user.uuid,
+                    provider_type: iss.to_string(),
+                    external_id: sub.to_string(),
+                    email: Some(email.to_string()),
+                    metadata: metadata.clone(),
+                    password_hash: password_hash.clone(),
+                };
+                // Step 1 found no identity under (iss, sub), so a
+                // UniqueViolation here means a SEPARATE identity row already
+                // owns (iss, sub) and points at a different user. Silently
+                // linking would route the projected workspace member to user A
+                // while OIDC login resolves (iss, sub) to user B above, so B
+                // would log in with no membership and access would be broken
+                // with no failure surfaced. Surface as a hard error instead.
+                // The transient case (any other DieselError) also returns Err
+                // so the control plane retries via the idempotency key rather
+                // than being told `created: false` for a row we did not link.
+                match user_auth_identities::create_identity(new_identity, conn) {
+                    Ok(_) => {
+                        // Mirror the OIDC-provided email into user_emails if it
+                        // isn't already there.
+                        ensure_email_linked(conn, &user, iss, email);
+                        Ok(Some(user))
+                    }
+                    Err(DieselError::DatabaseError(DatabaseErrorKind::UniqueViolation, _)) => {
+                        Err(format!(
+                            "OIDC identity ({iss}, {sub}) is already attached to a different \
+                             user; refusing to silently link to the email-matched user {}",
+                            user.uuid,
+                        ))
+                    }
+                    Err(e) => Err(format!("attach OIDC identity to email-matched user: {e:?}")),
+                }
+            }
+            Err(_) => Ok(None),
+        },
+        Err(e) => Err(format!("find_user_by_identity: {e:?}")),
+    }
+}
+
 /// Resolve a user from an OIDC identity, creating one if needed,
 /// and ensure they're a member of the target workspace. See the
 /// module docs for the four-step lookup order.
@@ -114,6 +210,7 @@ pub fn find_or_create_projected_user(
         iss,
         sub,
         email,
+        email_verified,
         name,
         role,
         workspace_id,
@@ -121,122 +218,71 @@ pub fn find_or_create_projected_user(
         metadata,
     } = input;
 
-    // --- 1. find by (iss, sub) ---
-    let outcome = match user_auth_identities::find_user_by_identity(&iss, &sub, conn) {
-        Ok(Some(user_uuid)) => {
-            let user = users_repo::find_active_by_uuid(&user_uuid, conn)
-                .map_err(|e| format!("identity {iss}/{sub} resolved a user that's gone: {e:?}"))?;
-            ProjectionOutcome::Existed(user)
-        }
-        Ok(None) => {
-            // --- 2. fall back by email; attach identity if found ---
-            match users_repo::get_user_by_email(&email, conn) {
-                Ok(user) => {
-                    let new_identity = NewUserAuthIdentity {
-                        user_uuid: user.uuid,
-                        provider_type: iss.clone(),
-                        external_id: sub.clone(),
-                        email: Some(email.clone()),
-                        metadata: metadata.clone(),
-                        password_hash: password_hash.clone(),
-                    };
-                    // Step 1 found no identity under (iss, sub), so a
-                    // UniqueViolation here means a SEPARATE identity row
-                    // already owns (iss, sub) and points at a different
-                    // user. Silently linking would route the projected
-                    // workspace member to user A while OIDC login would
-                    // resolve (iss, sub) to user B at line 123, so B
-                    // would log in with no membership and access would
-                    // be broken with no failure surfaced. Surface as a
-                    // hard error instead. The transient case (any other
-                    // DieselError) also returns Err so the control
-                    // plane retries via the idempotency key rather than
-                    // being told `created: false` for a row we did not
-                    // actually link.
-                    match user_auth_identities::create_identity(new_identity, conn) {
-                        Ok(_) => {
-                            // Mirror the OIDC-provided email into
-                            // user_emails if it isn't already there.
-                            ensure_email_linked(conn, &user, &iss, &email);
-                            ProjectionOutcome::Existed(user)
-                        }
-                        Err(DieselError::DatabaseError(DatabaseErrorKind::UniqueViolation, _)) => {
-                            return Err(format!(
-                                "OIDC identity ({iss}, {sub}) is already attached to a \
-                                 different user; refusing to silently link to the \
-                                 email-matched user {user_uuid}",
-                                user_uuid = user.uuid,
-                            ));
-                        }
-                        Err(e) => {
-                            return Err(format!(
-                                "attach OIDC identity to email-matched user: {e:?}"
-                            ));
-                        }
-                    }
-                }
-                Err(_) => {
-                    // --- 3. create fresh user + identity + email ---
-                    let display_name = name.clone().unwrap_or_else(|| {
-                        // Fallback for callers that didn't send a
-                        // name. Email local-part is a reasonable
-                        // best-guess; the operator can rename
-                        // later.
-                        email
-                            .split('@')
-                            .next()
-                            .unwrap_or(email.as_str())
-                            .to_string()
-                    });
-                    // A brand-new OIDC user has no platform privileges;
-                    // their workspace role comes from the projection's
-                    // requested `role`, set explicitly below.
-                    let new_user =
-                        NewUserBuilder::local_user(display_name, email.clone(), PlatformRole::User)
-                            .build();
-                    // Mint via the sync-wired helper so the OIDC address
-                    // lands as the user's PRIMARY email in user_emails.
-                    // get_user_by_email (step 2 above) and the MFA /
-                    // password-reset flows resolve only the primary
-                    // email, so a user minted without one would miss the
-                    // email fallback on the next projection and get a
-                    // duplicate row. The low-level users_repo::create_user
-                    // writes only the users table and is vestigial for
-                    // exactly this reason. Address is provider-verified,
-                    // so seed it verified; source records the issuer.
-                    //
-                    // The membership role is the projection's requested
-                    // `role` (e.g. `owner`), passed as an explicit
-                    // WorkspaceRole. Deriving it from `user_role` would
-                    // wrongly write `member` for an owner-projection,
-                    // since `UserRole` has no `Owner`.
-                    let (user, _email) = user_helpers::create_user_with_email(
-                        new_user,
-                        WorkspaceRole::from_db(&role),
-                        email.clone(),
-                        true,
-                        Some(iss.clone()),
-                        conn,
-                        None,
-                    )
-                    .map_err(|e| format!("create_user: {e:?}"))?;
+    // --- 1-2. resolve an existing user (by identity, then email-link) ---
+    // --- 3. none matched -> create a fresh user + identity + email ---
+    let outcome = match resolve_user_by_identity_or_email(
+        conn,
+        &iss,
+        &sub,
+        &email,
+        email_verified,
+        &metadata,
+        &password_hash,
+    )? {
+        Some(user) => ProjectionOutcome::Existed(user),
+        None => {
+            let display_name = name.clone().unwrap_or_else(|| {
+                // Fallback for callers that didn't send a name. Email
+                // local-part is a reasonable best-guess; the operator can
+                // rename later.
+                email
+                    .split('@')
+                    .next()
+                    .unwrap_or(email.as_str())
+                    .to_string()
+            });
+            // A brand-new OIDC user has no platform privileges; their
+            // workspace role comes from the projection's requested `role`,
+            // set explicitly below.
+            let new_user =
+                NewUserBuilder::local_user(display_name, email.clone(), PlatformRole::User).build();
+            // Mint via the sync-wired helper so the OIDC address lands as the
+            // user's PRIMARY email in user_emails. get_user_by_email (step 2)
+            // and the MFA / password-reset flows resolve only the primary
+            // email, so a user minted without one would miss the email
+            // fallback on the next projection and get a duplicate row. The
+            // low-level users_repo::create_user writes only the users table and
+            // is vestigial for exactly this reason. Address is
+            // provider-verified, so seed it verified; source records the issuer.
+            //
+            // The membership role is the projection's requested `role` (e.g.
+            // `owner`), passed as an explicit WorkspaceRole. Deriving it from
+            // `user_role` would wrongly write `member` for an owner-projection,
+            // since `UserRole` has no `Owner`.
+            let (user, _email) = user_helpers::create_user_with_email(
+                new_user,
+                WorkspaceRole::from_db(&role),
+                email.clone(),
+                true,
+                Some(iss.clone()),
+                conn,
+                None,
+            )
+            .map_err(|e| format!("create_user: {e:?}"))?;
 
-                    let new_identity = NewUserAuthIdentity {
-                        user_uuid: user.uuid,
-                        provider_type: iss.clone(),
-                        external_id: sub.clone(),
-                        email: Some(email),
-                        metadata,
-                        password_hash,
-                    };
-                    if let Err(e) = user_auth_identities::create_identity(new_identity, conn) {
-                        return Err(format!("created user but failed to attach identity: {e:?}"));
-                    }
-                    ProjectionOutcome::Created(user)
-                }
+            let new_identity = NewUserAuthIdentity {
+                user_uuid: user.uuid,
+                provider_type: iss.clone(),
+                external_id: sub.clone(),
+                email: Some(email),
+                metadata,
+                password_hash,
+            };
+            if let Err(e) = user_auth_identities::create_identity(new_identity, conn) {
+                return Err(format!("created user but failed to attach identity: {e:?}"));
             }
+            ProjectionOutcome::Created(user)
         }
-        Err(e) => return Err(format!("find_user_by_identity: {e:?}")),
     };
 
     // --- 4. ensure workspace_members row exists ---
@@ -349,6 +395,7 @@ mod tests {
             iss: iss.to_string(),
             sub: sub.clone(),
             email: email.clone(),
+            email_verified: true,
             name: Some("Owner One".to_string()),
             role: "owner".to_string(),
             workspace_id: 1,
@@ -363,6 +410,7 @@ mod tests {
             iss: iss.to_string(),
             sub: sub.clone(),
             email: email.clone(),
+            email_verified: true,
             name: Some("Owner One renamed by IdP".to_string()),
             role: "owner".to_string(),
             workspace_id: 1,
@@ -402,6 +450,7 @@ mod tests {
             iss: iss_canonical.to_string(),
             sub: sub.clone(),
             email: email.clone(),
+            email_verified: true,
             name: Some("Owner Two".to_string()),
             role: "owner".to_string(),
             workspace_id: 1,
@@ -415,6 +464,7 @@ mod tests {
             iss: iss_drifted.to_string(),
             sub: sub.clone(),
             email: email.clone(),
+            email_verified: true,
             name: Some("Owner Two".to_string()),
             role: "owner".to_string(),
             workspace_id: 1,
@@ -444,6 +494,70 @@ mod tests {
         assert_eq!(
             count, 2,
             "drifted iss must store a separate identity row, not reuse the canonical one"
+        );
+    }
+
+    /// The email-fallback link (step 2) must refuse to attach a fresh
+    /// `(iss, sub)` to an existing email-matched user when the provider has
+    /// NOT verified the email: that is the account-takeover vector. A later
+    /// call with the same identity but a verified email links as normal.
+    #[test]
+    fn email_fallback_link_requires_a_verified_email() {
+        let mut conn = setup_test_connection();
+        let iss = "https://api.nosdesk.com/";
+        let email = format!("victim+{}@acme.example", uuid::Uuid::new_v4());
+
+        // Seed an existing user that owns the email (via the verified eager
+        // projection), under a DIFFERENT identity than the attacker will use.
+        let owner_sub = format!("owner-{}", uuid::Uuid::new_v4());
+        let owner = ProjectedUserInput {
+            iss: iss.to_string(),
+            sub: owner_sub,
+            email: email.clone(),
+            email_verified: true,
+            name: Some("Victim".to_string()),
+            role: "member".to_string(),
+            workspace_id: 1,
+            password_hash: None,
+            metadata: None,
+        };
+        let owner_uuid = find_or_create_projected_user(&mut conn, owner)
+            .expect("seed owner")
+            .into_user()
+            .uuid;
+
+        // A new identity arrives matching the email but unverified: no link.
+        let attacker_sub = format!("attacker-{}", uuid::Uuid::new_v4());
+        let unverified = resolve_user_by_identity_or_email(
+            &mut conn,
+            iss,
+            &attacker_sub,
+            &email,
+            false,
+            &None,
+            &None,
+        )
+        .expect("resolve must not error");
+        assert!(
+            unverified.is_none(),
+            "unverified email must not link a new identity to the existing account"
+        );
+
+        // The same identity with a verified email links to the owner.
+        let verified = resolve_user_by_identity_or_email(
+            &mut conn,
+            iss,
+            &attacker_sub,
+            &email,
+            true,
+            &None,
+            &None,
+        )
+        .expect("resolve must not error")
+        .expect("verified email links to the email-matched user");
+        assert_eq!(
+            verified.uuid, owner_uuid,
+            "a verified email links the new identity to the email-matched user"
         );
     }
 }

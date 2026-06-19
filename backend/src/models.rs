@@ -2580,6 +2580,14 @@ pub struct Claims {
     pub scope: String, // Token scope: "full" for normal sessions
     #[serde(default)] // Session ID (UUID) — None for SSE/API tokens
     pub sid: Option<String>,
+    /// Workspace selected when an SSE token was minted (Model C). EventSource
+    /// can't send the `X-Nosdesk-Workspace` header, so the selected workspace
+    /// is bound into the SSE token instead and the stream authorizes against
+    /// it. `None` on session/API tokens (which resolve the workspace per
+    /// request) and on SSE tokens minted before this claim existed (the stream
+    /// falls back to the Host-derived context).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_uuid: Option<Uuid>,
     pub exp: usize, // Expiration time
     pub iat: usize, // Issued at
 }
@@ -2797,19 +2805,6 @@ pub struct OAuthState {
     pub pkce_verifier: Option<String>,
     /// Nonce for ID token validation (for OIDC providers)
     pub nonce: Option<String>,
-    /// Workspace this login was initiated against, captured at
-    /// initiation from the authoritative request context (the user is on
-    /// their own workspace subdomain) and carried through the IdP
-    /// round-trip inside this signed, tamper-proof token. The callback
-    /// provisions membership into THIS workspace rather than re-deriving
-    /// the tenant from the callback's `Host` header, binding the
-    /// workspace into the integrity-protected login transaction instead
-    /// of trusting attacker-influenceable ambient state. `None` for
-    /// user-connection flows (which don't provision membership) and for
-    /// legacy in-flight tokens minted before this field existed (a
-    /// <=10-minute transition window).
-    #[serde(default)]
-    pub workspace_id: Option<i32>,
     /// OAuth `redirect_uri` (the IdP callback) used for THIS flow, bound
     /// at initiation so the token exchange presents the identical value.
     /// In hosted mode each tenant authenticates on its own subdomain, so
@@ -2819,6 +2814,14 @@ pub struct OAuthState {
     /// in-flight tokens minted before this field existed).
     #[serde(default)]
     pub callback_redirect_uri: Option<String>,
+    /// Per-flow random value bound to the initiating user-agent via the
+    /// `oauth_state` cookie (RFC 9700 §2.1). The callback rejects unless the
+    /// cookie matches this value, so an attacker can't CSRF their own
+    /// `(code, state)` onto a victim (login-CSRF / session swap). `None` for
+    /// legacy in-flight tokens minted before this field existed (a <=10-minute
+    /// transition window, after which every state carries a binding).
+    #[serde(default)]
+    pub binding: Option<String>,
 }
 
 // OAuth Authentication request
@@ -7031,6 +7034,10 @@ pub struct OutboundEmail {
     /// (the instance identity, for auth mail that must not originate from a
     /// tenant relay). Decided at enqueue.
     pub sender_identity: String,
+    /// Notification vs transactional (see [`outbound_email_mail_class`]).
+    /// Drives deliverability headers (List-Unsubscribe on notification only).
+    /// Last field so the column order matches the schema.
+    pub mail_class: String,
 }
 
 #[derive(Debug, Clone, Insertable)]
@@ -7057,6 +7064,9 @@ pub struct NewOutboundEmail {
     /// See [`outbound_email_sender_identity`]: `workspace` for conversation /
     /// notification mail, `platform` for password reset / invitation.
     pub sender_identity: String,
+    /// See [`outbound_email_mail_class`]: `notification` (opt-out-able) or
+    /// `transactional` (must-deliver). Set explicitly at enqueue.
+    pub mail_class: String,
 }
 
 /// Status string constants. Centralised so Rust callers (worker, repo,
@@ -7078,6 +7088,17 @@ pub mod outbound_email_status {
 pub mod outbound_email_sender_identity {
     pub const WORKSPACE: &str = "workspace";
     pub const PLATFORM: &str = "platform";
+}
+
+/// Mail-class constants, kept in lockstep with the
+/// `outbound_emails_mail_class_check` SQL constraint. `NOTIFICATION` is
+/// opt-out-able mail (ticket-update notifications) that carries
+/// List-Unsubscribe; `TRANSACTIONAL` is must-deliver mail (password reset,
+/// invitation, the agent's reply, auto-ack) that never does. A distinct axis
+/// from sender identity: a conversation reply is `workspace` + `transactional`.
+pub mod outbound_email_mail_class {
+    pub const TRANSACTIONAL: &str = "transactional";
+    pub const NOTIFICATION: &str = "notification";
 }
 
 // === Email suppression list ==================================

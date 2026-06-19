@@ -220,27 +220,11 @@ pub async fn oauth_authorize(
         }
     };
 
-    // Bind the workspace into the signed state NOW, while the request
-    // context authoritatively identifies the tenant (the user is on their
-    // own workspace subdomain). The callback reads this back rather than
-    // re-deriving the tenant from its own `Host`, so a first-login user is
-    // provisioned into the workspace they actually started from. Hosted
-    // mode fails closed when initiation didn't resolve to a tenant.
-    // User-connection flows don't provision membership, so they carry no
-    // workspace.
-    let initiation_workspace = if is_user_connection {
-        None
-    } else {
-        match resolve_request_workspace(&req) {
-            Some(id) => Some(id),
-            None => {
-                warn!(
-                    "OAuth initiation rejected: request did not resolve to a workspace (hosted mode)"
-                );
-                return errors::bad_request("Could not determine the workspace for this sign-in");
-            }
-        }
-    };
+    // Login no longer binds a workspace into the signed state. Hosted agent
+    // login is workspace-agnostic (Model C: resolve an existing seat at the
+    // callback, select a workspace post-login); self-hosted has one workspace
+    // (the bootstrap), resolved at the callback. The Model B per-tenant binding
+    // was retired with per-tenant federation.
 
     // For Microsoft Entra, generate the authorization URL
     if provider.provider_type == "microsoft" {
@@ -279,13 +263,12 @@ pub async fn oauth_authorize(
         };
 
         // Generate a JWT state token
-        let state = match create_oauth_state(
+        let (state, binding) = match create_oauth_state(
             "microsoft",
             oauth_request.redirect_uri.clone(),
             oauth_request.user_connection,
-            initiation_workspace,
         ) {
-            Ok(token) => token,
+            Ok(pair) => pair,
             Err(e) => {
                 error!(error = %e, "Failed to create OAuth state token");
                 return errors::internal("Failed to initiate authentication flow");
@@ -297,10 +280,13 @@ pub async fn oauth_authorize(
             "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize?client_id={client_id}&response_type=code&redirect_uri={redirect_uri_config}&response_mode=query&scope=User.Read&state={state}"
         );
 
-        HttpResponse::Ok().json(json!({
-            "auth_url": auth_url,
-            "state": state
-        }))
+        // Bind the flow to this user-agent (RFC 9700 §2.1).
+        HttpResponse::Ok()
+            .cookie(crate::utils::cookies::create_oauth_state_cookie(&binding))
+            .json(json!({
+                "auth_url": auth_url,
+                "state": state
+            }))
     } else if provider.provider_type == "oidc" {
         // Per-tenant OAuth callback (hosted mode): each tenant authenticates
         // on its own subdomain. Bind it into the signed state so the token
@@ -317,16 +303,15 @@ pub async fn oauth_authorize(
         {
             Ok((auth_url, auth_data)) => {
                 // Create state JWT with PKCE verifier and nonce
-                let state = match create_oauth_state_with_oidc(
+                let (state, binding) = match create_oauth_state_with_oidc(
                     "oidc",
                     oauth_request.redirect_uri.clone(),
                     oauth_request.user_connection,
                     Some(auth_data.pkce_verifier),
                     Some(auth_data.nonce),
-                    initiation_workspace,
                     callback_redirect,
                 ) {
-                    Ok(token) => token,
+                    Ok(pair) => pair,
                     Err(e) => {
                         error!(error = %e, "Failed to create OAuth state token for OIDC");
                         return errors::internal("Failed to initiate authentication flow");
@@ -337,10 +322,13 @@ pub async fn oauth_authorize(
                 // Replace with JWT state
                 let auth_url_with_state = replace_state_in_url(&auth_url, &state);
 
-                HttpResponse::Ok().json(json!({
-                    "auth_url": auth_url_with_state,
-                    "state": state
-                }))
+                // Bind the flow to this user-agent (RFC 9700 §2.1).
+                HttpResponse::Ok()
+                    .cookie(crate::utils::cookies::create_oauth_state_cookie(&binding))
+                    .json(json!({
+                        "auth_url": auth_url_with_state,
+                        "state": state
+                    }))
             }
             Err(e) => {
                 error!(error = %e, "Failed to generate OIDC authorization URL");
@@ -417,6 +405,29 @@ pub async fn oauth_callback(
             return errors::bad_request("Invalid or expired state parameter");
         }
     };
+
+    // RFC 9700 §2.1: confirm this callback completes in the SAME user-agent that
+    // started the flow. The signed state has integrity but is not session-bound,
+    // so without this an attacker who runs their own flow could CSRF the
+    // resulting (code, state) onto a victim and swap them into the attacker's
+    // account. The `oauth_state` cookie was set at initiation; an attacker can't
+    // set it in the victim's browser.
+    if let Some(expected) = &state_data.binding {
+        let presented = request
+            .cookie(crate::utils::cookies::OAUTH_STATE_COOKIE)
+            .map(|c| c.value().to_string());
+        let matches = presented
+            .as_deref()
+            .map(|p| constant_time_eq::constant_time_eq(p.as_bytes(), expected.as_bytes()))
+            .unwrap_or(false);
+        if !matches {
+            warn!("OAuth callback rejected: state-binding cookie missing or mismatched");
+            return errors::bad_request("Invalid or expired state parameter");
+        }
+    }
+    // `binding == None` is a legacy in-flight state minted before this field
+    // existed; allowed transitionally, and such states expire within the
+    // 10-minute state lifetime, after which the binding check is mandatory.
 
     // Get the provider by type
     let provider_type = &state_data.provider_type;
@@ -649,45 +660,34 @@ pub async fn oauth_callback(
                     }
                 } else {
                     // Regular login/signup flow
-                    // Find or create user based on OAuth identity
-                    let workspace_id = match resolve_callback_workspace(&state_data, &request) {
-                        Ok(id) => id,
-                        Err(resp) => return resp,
-                    };
-                    let user_result = find_or_create_oauth_user(
+                    let user = match resolve_login_user(
                         &user_info,
                         &provider.provider_type,
+                        &state_data,
                         &mut conn,
-                        workspace_id,
                     )
-                    .await;
-
-                    match user_result {
-                        Ok(user) => {
-                            info!(user_uuid = %user.uuid, "OAuth: Completing login");
-                            // OAuth provisioning mints users with no search
-                            // observer, so this reindex both indexes a
-                            // first-login user and refreshes the workspace
-                            // tags when a login grants membership in a new
-                            // workspace.
-                            if let Some(search_service) = &search_service {
-                                indexing_tasks::spawn_reindex_user(
-                                    search_service.get_ref().clone(),
-                                    user.uuid,
-                                );
-                            }
-                            crate::handlers::auth::complete_login_redirect(
-                                user,
-                                &request,
-                                &mut conn,
-                                &safe_post_login_location(&state_data.redirect_uri),
-                            )
-                        }
-                        Err(e) => {
-                            error!(error = ?e, "Failed to find or create user");
-                            errors::internal("Failed to authenticate user")
-                        }
+                    .await
+                    {
+                        Ok(user) => user,
+                        Err(resp) => return resp,
+                    };
+                    info!(user_uuid = %user.uuid, "OAuth: Completing login");
+                    // OAuth provisioning mints users with no search observer, so
+                    // this reindex both indexes a first-login user and refreshes
+                    // the workspace tags when a login grants membership in a new
+                    // workspace.
+                    if let Some(search_service) = &search_service {
+                        indexing_tasks::spawn_reindex_user(
+                            search_service.get_ref().clone(),
+                            user.uuid,
+                        );
                     }
+                    crate::handlers::auth::complete_login_redirect(
+                        user,
+                        &request,
+                        &mut conn,
+                        &safe_post_login_location(&state_data.redirect_uri),
+                    )
                 }
             }
             Err(e) => {
@@ -858,41 +858,32 @@ pub async fn oauth_callback(
                         "surname": user_info.family_name,
                     });
 
-                    let workspace_id = match resolve_callback_workspace(&state_data, &request) {
-                        Ok(id) => id,
-                        Err(resp) => return resp,
-                    };
-                    let user_result = find_or_create_oauth_user(
+                    let user = match resolve_login_user(
                         &oidc_user_info,
                         &oidc_identity_issuer(),
+                        &state_data,
                         &mut conn,
-                        workspace_id,
                     )
-                    .await;
-
-                    match user_result {
-                        Ok(user) => {
-                            info!(user_uuid = %user.uuid, "OIDC: Completing login");
-                            // Index / refresh the user's search doc with
-                            // current workspace memberships (see above).
-                            if let Some(search_service) = &search_service {
-                                indexing_tasks::spawn_reindex_user(
-                                    search_service.get_ref().clone(),
-                                    user.uuid,
-                                );
-                            }
-                            crate::handlers::auth::complete_login_redirect(
-                                user,
-                                &request,
-                                &mut conn,
-                                &safe_post_login_location(&state_data.redirect_uri),
-                            )
-                        }
-                        Err(e) => {
-                            error!(error = ?e, "Failed to find or create user from OIDC");
-                            errors::internal("Failed to authenticate user")
-                        }
+                    .await
+                    {
+                        Ok(user) => user,
+                        Err(resp) => return resp,
+                    };
+                    info!(user_uuid = %user.uuid, "OIDC: Completing login");
+                    // Index / refresh the user's search doc with current
+                    // workspace memberships (see above).
+                    if let Some(search_service) = &search_service {
+                        indexing_tasks::spawn_reindex_user(
+                            search_service.get_ref().clone(),
+                            user.uuid,
+                        );
                     }
+                    crate::handlers::auth::complete_login_redirect(
+                        user,
+                        &request,
+                        &mut conn,
+                        &safe_post_login_location(&state_data.redirect_uri),
+                    )
                 }
             }
             Err(e) => {
@@ -998,24 +989,26 @@ pub async fn oauth_logout(
 // JWT State Management
 
 // Create a signed state JWT for OAuth flow
+/// Returns `(state_jwt, binding)`. The caller MUST set the `binding` in the
+/// `oauth_state` cookie (RFC 9700 §2.1) so the callback can confirm the flow
+/// completes in the same user-agent that started it.
 fn create_oauth_state(
     provider_type: &str,
     redirect_uri: Option<String>,
     user_connection: Option<bool>,
-    workspace_id: Option<i32>,
-) -> Result<String, String> {
+) -> Result<(String, String), String> {
     create_oauth_state_with_oidc(
         provider_type,
         redirect_uri,
         user_connection,
         None,
         None,
-        workspace_id,
         None,
     )
 }
 
-// Create a signed state JWT for OAuth/OIDC flow with optional PKCE and nonce
+// Create a signed state JWT for OAuth/OIDC flow with optional PKCE and nonce.
+// Returns `(state_jwt, binding)` — see `create_oauth_state`.
 #[allow(clippy::too_many_arguments)]
 fn create_oauth_state_with_oidc(
     provider_type: &str,
@@ -1023,9 +1016,8 @@ fn create_oauth_state_with_oidc(
     user_connection: Option<bool>,
     pkce_verifier: Option<String>,
     nonce: Option<String>,
-    workspace_id: Option<i32>,
     callback_redirect_uri: Option<String>,
-) -> Result<String, String> {
+) -> Result<(String, String), String> {
     // Get the JWT secret from environment or configuration
     let secret = JWT_SECRET.clone();
 
@@ -1036,7 +1028,10 @@ fn create_oauth_state_with_oidc(
         .as_secs() as usize;
     let exp = now + (10 * 60); // 10 minutes
 
-    // Create claims
+    // One 128-bit random value serves as both the (legacy) state value and the
+    // user-agent binding. It rides inside the signed, tamper-proof JWT AND is
+    // set in the `oauth_state` cookie by the caller; the callback requires the
+    // two to match.
     let state = format!("{:x}", rand::random::<u128>());
     let claims = OAuthState {
         state: state.clone(),
@@ -1046,8 +1041,8 @@ fn create_oauth_state_with_oidc(
         user_connection,
         pkce_verifier,
         nonce,
-        workspace_id,
         callback_redirect_uri,
+        binding: Some(state.clone()),
     };
 
     // Create the token
@@ -1056,7 +1051,7 @@ fn create_oauth_state_with_oidc(
         &claims,
         &jsonwebtoken::EncodingKey::from_secret(secret.as_bytes()),
     ) {
-        Ok(token) => Ok(token),
+        Ok(token) => Ok((token, state)),
         Err(e) => Err(format!("Failed to create state JWT: {e}")),
     }
 }
@@ -1207,25 +1202,6 @@ async fn get_microsoft_user_info(access_token: &str) -> Result<serde_json::Value
     }
 }
 
-/// Resolve the workspace an OAuth/OIDC login is being INITIATED for,
-/// from the `WorkspaceContext` the workspace middleware attaches to the
-/// request. The result is bound into the signed state so the callback
-/// can trust it; see [`OAuthState::workspace_id`].
-///
-/// In HOSTED mode a missing context means the request didn't resolve to
-/// a tenant (apex domain, unknown subdomain, or a transient resolve
-/// failure). We MUST fail closed: returning `None` rejects initiation
-/// rather than starting a login that would later have to guess a
-/// workspace. In SELF-HOSTED mode there is exactly one workspace, so the
-/// bootstrap workspace is the correct and only answer.
-fn resolve_request_workspace(request: &HttpRequest) -> Option<i32> {
-    let ctx = request
-        .extensions()
-        .get::<crate::extractors::WorkspaceContext>()
-        .map(|w| w.workspace_id);
-    workspace_for_login(ctx, crate::middleware::DeploymentMode::current())
-}
-
 /// The OAuth callback `redirect_uri` for THIS request, or `None` to use the
 /// statically configured `OIDC_REDIRECT_URI`.
 ///
@@ -1264,108 +1240,15 @@ fn callback_redirect_for(
     Some(format!("https://{host}/api/auth/oauth/callback"))
 }
 
-/// Pure decision behind [`resolve_request_workspace`], split out so the
-/// fail-closed rule is unit-testable without an `HttpRequest` or the
-/// process-wide deployment-mode `OnceLock`.
-fn workspace_for_login(
-    resolved: Option<i32>,
-    mode: crate::middleware::DeploymentMode,
-) -> Option<i32> {
-    use crate::middleware::DeploymentMode;
-    match resolved {
-        Some(id) => Some(id),
-        None => match mode {
-            DeploymentMode::SelfHosted => Some(crate::sync::actor::BOOTSTRAP_WORKSPACE_ID),
-            DeploymentMode::Hosted => None,
-        },
-    }
-}
-
-/// Why a callback couldn't settle on a workspace to provision into.
-#[derive(Debug, PartialEq, Eq)]
-enum WorkspaceBindingError {
-    /// The workspace bound into the (signed) state at initiation
-    /// disagrees with the one the callback request resolved to. That
-    /// means a state minted for one tenant is being completed against
-    /// another (replay / cross-tenant), so we refuse.
-    Mismatch { state_ws: i32, ctx_ws: i32 },
-    /// Neither the state nor the request yields a workspace: a legacy
-    /// in-flight token (minted before workspace binding) completing on an
-    /// unresolved host. Fail closed.
-    Unresolved,
-}
-
-/// Pure decision for the CALLBACK: which workspace to provision a
-/// first-login user into.
-///
-/// The workspace bound into the signed state at initiation
-/// (`state_ws`) is authoritative — it was captured where the tenant was
-/// unambiguous and is integrity-protected by the state's signature. The
-/// callback request's own resolved context (`ctx_ws`) is used only as a
-/// defense-in-depth cross-check, never as the primary source, so the
-/// callback's `Host` header can't redirect a login into another tenant.
-///
-/// `state_ws == None` is the transitional path for tokens minted before
-/// this field existed; it falls back to the same fail-closed request
-/// resolution as initiation and goes dead once those tokens expire.
-fn callback_workspace_decision(
-    state_ws: Option<i32>,
-    ctx_ws: Option<i32>,
-    mode: crate::middleware::DeploymentMode,
-) -> Result<i32, WorkspaceBindingError> {
-    match state_ws {
-        Some(state_ws) => match ctx_ws {
-            Some(ctx_ws) if ctx_ws != state_ws => {
-                Err(WorkspaceBindingError::Mismatch { state_ws, ctx_ws })
-            }
-            _ => Ok(state_ws),
-        },
-        None => workspace_for_login(ctx_ws, mode).ok_or(WorkspaceBindingError::Unresolved),
-    }
-}
-
-/// Resolve the workspace to provision a first-login user into at the
-/// OAuth/OIDC callback, authoritatively from the signed state with a
-/// defense-in-depth cross-check against the callback request's context.
-/// On any failure returns the same auth-error redirect the rest of the
-/// callback uses, so the caller can `return` it directly.
-fn resolve_callback_workspace(
-    state: &OAuthState,
-    request: &HttpRequest,
-) -> Result<i32, HttpResponse> {
-    let ctx_ws = request
-        .extensions()
-        .get::<crate::extractors::WorkspaceContext>()
-        .map(|w| w.workspace_id);
-    match callback_workspace_decision(
-        state.workspace_id,
-        ctx_ws,
-        crate::middleware::DeploymentMode::current(),
-    ) {
-        Ok(id) => Ok(id),
-        Err(WorkspaceBindingError::Mismatch { state_ws, ctx_ws }) => {
-            warn!(
-                state_ws,
-                ctx_ws, "OAuth callback rejected: state/context workspace mismatch (replay?)"
-            );
-            Err(workspace_unresolved_redirect(&state.redirect_uri))
-        }
-        Err(WorkspaceBindingError::Unresolved) => {
-            warn!("OAuth callback rejected: no workspace bound in state and request did not resolve one");
-            Err(workspace_unresolved_redirect(&state.redirect_uri))
-        }
-    }
-}
-
-/// Redirect response for a login that couldn't be tied to a workspace
-/// (hosted mode, unresolved tenant). Mirrors the existing auth-error
-/// redirect shape so the frontend surfaces it the same way.
-fn workspace_unresolved_redirect(redirect_uri: &str) -> HttpResponse {
+/// Build the standard auth-error redirect: bounce to the login redirect target
+/// with an `?auth_error=<message>` the frontend surfaces. Strips any existing
+/// query so the error is the only param.
+fn auth_error_redirect(redirect_uri: &str, message: &str) -> HttpResponse {
     let redirect_path = redirect_uri.split('?').next().unwrap_or("/");
     let error_url = format!(
         "{}?auth_error={}",
         redirect_path,
-        urlencoding::encode("Could not determine the workspace for this sign-in")
+        urlencoding::encode(message)
     );
     HttpResponse::Found()
         .append_header(("Location", error_url))
@@ -1436,6 +1319,132 @@ fn issuer_for_identity(
     }
 }
 
+/// Extract the login email from an OAuth/OIDC `user_info` blob. MS Graph uses
+/// `mail` for cloud accounts and `userPrincipalName` for hybrid AD; the OIDC
+/// path normalises its claims into the same `mail` field.
+fn oauth_user_email(user_info: &serde_json::Value) -> Result<String, String> {
+    user_info
+        .get("mail")
+        .or_else(|| user_info.get("userPrincipalName"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .ok_or_else(|| "No email in user info".to_string())
+}
+
+/// Extract the provider subject (OIDC `sub` / MS Graph object id) from a
+/// `user_info` blob; stored in `user_auth_identities.external_id`.
+fn oauth_user_sub(user_info: &serde_json::Value) -> Result<String, String> {
+    user_info
+        .get("id")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .ok_or_else(|| "No id in user info".to_string())
+}
+
+/// Resolve the local user for a completing OAuth/OIDC login.
+///
+/// - **Model C (selection mode):** resolve an EXISTING seat only, by identity
+///   then email-link. An unknown identity is denied, because the seat and its
+///   workspace membership are provisioned upstream by the control plane, not at
+///   the login origin. No workspace is involved, and the resolve touches only
+///   non-audited, non-RLS identity tables, so it needs no workspace pin.
+/// - **Self-hosted:** one workspace (the bootstrap); find-or-create the user as
+///   a member of it. Reaching here in HOSTED mode means selection mode is off on
+///   a hosted deployment, unsupported since per-tenant federation was retired
+///   (hosted login is Model C). Fail closed.
+///
+/// Returns the resolved user, or an `HttpResponse` (auth-error redirect / 500)
+/// the caller should return directly.
+async fn resolve_login_user(
+    user_info: &serde_json::Value,
+    iss: &str,
+    state: &OAuthState,
+    conn: &mut DbConnection,
+) -> Result<crate::models::User, HttpResponse> {
+    let email_verified = oauth_email_verified(&state.provider_type, user_info);
+    if crate::middleware::workspace_context::selection_resolution_enabled() {
+        return resolve_existing_seat_user(user_info, iss, state, email_verified, conn);
+    }
+    let workspace_id = match crate::middleware::DeploymentMode::current() {
+        crate::middleware::DeploymentMode::SelfHosted => crate::sync::actor::BOOTSTRAP_WORKSPACE_ID,
+        crate::middleware::DeploymentMode::Hosted => {
+            error!("hosted OAuth login reached without selection mode; per-tenant federation is retired");
+            return Err(errors::internal("Authentication is misconfigured"));
+        }
+    };
+    find_or_create_oauth_user(user_info, iss, email_verified, conn, workspace_id)
+        .await
+        .map_err(|e| {
+            error!(error = ?e, "Failed to find or create user during login");
+            errors::internal("Failed to authenticate user")
+        })
+}
+
+/// Whether the provider vouches that the login email is verified, gating the
+/// email-fallback account link (see `resolve_user_by_identity_or_email`).
+///
+/// - Microsoft/Entra: the user authenticated against the directory that owns
+///   the address, so it is provider-verified. Graph `/me` carries no
+///   `email_verified` claim, so trust the directory.
+/// - OIDC: trust only an explicit `email_verified == true`. Absent or false is
+///   NOT verified, so the email-fallback link is refused.
+fn oauth_email_verified(provider_type: &str, user_info: &serde_json::Value) -> bool {
+    match provider_type {
+        "microsoft" => true,
+        _ => user_info
+            .get("email_verified")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+    }
+}
+
+/// Model C central login: resolve an existing seat without ever creating a user
+/// or granting membership from the login origin. Unknown identity is denied.
+fn resolve_existing_seat_user(
+    user_info: &serde_json::Value,
+    iss: &str,
+    state: &OAuthState,
+    email_verified: bool,
+    conn: &mut DbConnection,
+) -> Result<crate::models::User, HttpResponse> {
+    let email = oauth_user_email(user_info).map_err(|e| {
+        error!(error = %e, "Central-origin login: cannot read email from user_info");
+        auth_error_redirect(&state.redirect_uri, CENTRAL_LOGIN_NO_SEAT_MSG)
+    })?;
+    let sub = oauth_user_sub(user_info).map_err(|e| {
+        error!(error = %e, "Central-origin login: cannot read subject from user_info");
+        auth_error_redirect(&state.redirect_uri, CENTRAL_LOGIN_NO_SEAT_MSG)
+    })?;
+    // Resolve-only: pass no metadata / password_hash since we never create here.
+    match crate::services::oauth_provisioning::resolve_user_by_identity_or_email(
+        conn,
+        iss,
+        &sub,
+        &email,
+        email_verified,
+        &None,
+        &None,
+    ) {
+        Ok(Some(user)) => Ok(user),
+        Ok(None) => {
+            warn!(%email, "Central-origin login denied: no seat for this identity");
+            Err(auth_error_redirect(
+                &state.redirect_uri,
+                CENTRAL_LOGIN_NO_SEAT_MSG,
+            ))
+        }
+        Err(e) => {
+            error!(error = %e, "Seat resolution failed during central-origin login");
+            Err(errors::internal("Failed to authenticate user"))
+        }
+    }
+}
+
+/// Shown when a central-origin login resolves a valid identity that holds no
+/// workspace seat (membership is provisioned upstream, not at login).
+const CENTRAL_LOGIN_NO_SEAT_MSG: &str =
+    "No workspace access for this account. Ask your administrator to invite you.";
+
 async fn find_or_create_oauth_user(
     user_info: &serde_json::Value,
     // Identity issuer for `user_auth_identities.provider_type`. For
@@ -1444,23 +1453,13 @@ async fn find_or_create_oauth_user(
     // control plane projected under `(iss, sub)`, not the literal
     // string `"oidc"`. See `oidc_identity_issuer`.
     iss: &str,
+    email_verified: bool,
     conn: &mut DbConnection,
     workspace_id: i32,
 ) -> Result<crate::models::User, String> {
     use crate::services::oauth_provisioning::{find_or_create_projected_user, ProjectedUserInput};
 
-    // Extract email from user info (MS Graph uses `mail` for cloud
-    // accounts, `userPrincipalName` for hybrid AD)
-    let email = match user_info
-        .get("mail")
-        .or_else(|| user_info.get("userPrincipalName"))
-    {
-        Some(email) => match email.as_str() {
-            Some(e) => e.to_string(),
-            None => return Err("Invalid email format".to_string()),
-        },
-        None => return Err("No email in user info".to_string()),
-    };
+    let email = oauth_user_email(user_info)?;
 
     let name = match user_info.get("displayName") {
         Some(name) => match name.as_str() {
@@ -1470,16 +1469,9 @@ async fn find_or_create_oauth_user(
         None => return Err("No name in user info".to_string()),
     };
 
-    // MS Graph object id maps onto OIDC `sub`. We're storing it in
-    // `user_auth_identities.external_id`; same value as the OIDC
-    // sub claim would be for a true OIDC client.
-    let provider_user_id = match user_info.get("id") {
-        Some(id) => match id.as_str() {
-            Some(i) => i.to_string(),
-            None => return Err("Invalid id format".to_string()),
-        },
-        None => return Err("No id in user info".to_string()),
-    };
+    // MS Graph object id maps onto OIDC `sub`, stored in
+    // `user_auth_identities.external_id`.
+    let provider_user_id = oauth_user_sub(user_info)?;
 
     // Random password lands on the identity row so the legacy
     // password-fallback path doesn't see a NULL hash. Eager path
@@ -1494,6 +1486,7 @@ async fn find_or_create_oauth_user(
         iss: iss.to_string(),
         sub: provider_user_id,
         email,
+        email_verified,
         name: Some(name),
         role: "member".to_string(),
         workspace_id,
@@ -1750,13 +1743,12 @@ pub async fn oauth_connect(
         // Generate a JWT state token with user_connection=true. Connecting
         // an identity to an already-authenticated account doesn't
         // provision workspace membership, so no workspace is bound.
-        let state = match create_oauth_state(
+        let (state, binding) = match create_oauth_state(
             &provider.provider_type,
             Some(actual_redirect_uri),
             Some(true),
-            None,
         ) {
-            Ok(token) => token,
+            Ok(pair) => pair,
             Err(e) => {
                 error!(error = %e, "Failed to create OAuth state token for connect");
                 return errors::internal("Failed to initiate authentication flow");
@@ -1768,15 +1760,54 @@ pub async fn oauth_connect(
             "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize?client_id={client_id}&response_type=code&redirect_uri={redirect_uri_config}&response_mode=query&scope=User.Read&state={state}"
         );
 
-        HttpResponse::Ok().json(json!({
-            "auth_url": auth_url,
-            "state": state
-        }))
+        // Bind the flow to this user-agent (RFC 9700 §2.1).
+        HttpResponse::Ok()
+            .cookie(crate::utils::cookies::create_oauth_state_cookie(&binding))
+            .json(json!({
+                "auth_url": auth_url,
+                "state": state
+            }))
     } else {
         errors::bad_request(format!(
             "{} authentication is not implemented",
             provider.name
         ))
+    }
+}
+
+#[cfg(test)]
+mod oauth_state_binding_tests {
+    use super::{create_oauth_state, verify_oauth_state};
+
+    /// The state JWT helpers read the process-global `JWT_SECRET` lazy-static,
+    /// which panics if unset. Ensure it's present before first access so these
+    /// tests pass in isolation, not just when another test set it first.
+    fn ensure_jwt_secret() {
+        if std::env::var("JWT_SECRET").is_err() {
+            std::env::set_var("JWT_SECRET", "test-jwt-secret-for-oauth-state-binding");
+        }
+    }
+
+    #[test]
+    fn state_embeds_binding_and_round_trips() {
+        ensure_jwt_secret();
+        let (token, binding) = create_oauth_state("oidc", None, None).unwrap();
+        assert!(
+            !binding.is_empty(),
+            "binding must be a non-empty random value"
+        );
+        let state = verify_oauth_state(&token).unwrap();
+        // The cookie value (binding) the caller sets must equal what the signed
+        // state carries, so the callback's constant-time compare can match them.
+        assert_eq!(state.binding.as_deref(), Some(binding.as_str()));
+    }
+
+    #[test]
+    fn two_flows_get_distinct_bindings() {
+        ensure_jwt_secret();
+        let (_, b1) = create_oauth_state("oidc", None, None).unwrap();
+        let (_, b2) = create_oauth_state("oidc", None, None).unwrap();
+        assert_ne!(b1, b2, "each flow must bind to a fresh random value");
     }
 }
 
@@ -1813,89 +1844,65 @@ mod connect_redirect_tests {
 }
 
 #[cfg(test)]
-mod workspace_for_login_tests {
-    use super::{callback_workspace_decision, workspace_for_login, WorkspaceBindingError};
-    use crate::middleware::DeploymentMode;
-    use crate::sync::actor::BOOTSTRAP_WORKSPACE_ID;
-
-    // --- initiation-side resolution (bound into the signed state) ---
+mod login_resolution_tests {
+    use super::{auth_error_redirect, oauth_email_verified, oauth_user_email, oauth_user_sub};
+    use serde_json::json;
 
     #[test]
-    fn resolved_context_is_used_in_either_mode() {
+    fn email_reads_mail_then_upn() {
+        // OIDC-normalised claims + MS Graph cloud accounts use `mail`.
         assert_eq!(
-            workspace_for_login(Some(7), DeploymentMode::Hosted),
-            Some(7)
+            oauth_user_email(&json!({"mail": "a@x.com"})).unwrap(),
+            "a@x.com"
         );
+        // Hybrid AD falls back to userPrincipalName.
         assert_eq!(
-            workspace_for_login(Some(7), DeploymentMode::SelfHosted),
-            Some(7)
+            oauth_user_email(&json!({"userPrincipalName": "b@x.com"})).unwrap(),
+            "b@x.com"
         );
+        // `mail` wins when both present.
+        assert_eq!(
+            oauth_user_email(&json!({"mail": "a@x.com", "userPrincipalName": "b@x.com"})).unwrap(),
+            "a@x.com"
+        );
+        // Neither present -> error (never silently log in without an email).
+        assert!(oauth_user_email(&json!({"id": "1"})).is_err());
     }
 
     #[test]
-    fn missing_context_fails_closed_in_hosted_mode() {
-        // P0.3: no silent fallback to the bootstrap workspace in hosted
-        // mode — initiation must be rejected.
-        assert_eq!(workspace_for_login(None, DeploymentMode::Hosted), None);
+    fn sub_reads_id() {
+        assert_eq!(oauth_user_sub(&json!({"id": "abc"})).unwrap(), "abc");
+        assert!(oauth_user_sub(&json!({"mail": "a@x.com"})).is_err());
     }
 
     #[test]
-    fn missing_context_falls_back_to_bootstrap_in_self_hosted() {
-        // Self-hosted has exactly one workspace, so the bootstrap
-        // workspace is the correct answer.
-        assert_eq!(
-            workspace_for_login(None, DeploymentMode::SelfHosted),
-            Some(BOOTSTRAP_WORKSPACE_ID)
-        );
-    }
-
-    // --- callback-side resolution (state is authoritative) ---
-
-    #[test]
-    fn callback_trusts_the_state_bound_workspace() {
-        // No callback context at all: the signed state still decides,
-        // regardless of mode. This is the whole point — the callback
-        // Host can't override the tenant bound at initiation.
-        assert_eq!(
-            callback_workspace_decision(Some(42), None, DeploymentMode::Hosted),
-            Ok(42)
-        );
-        // Context agrees with the state: fine.
-        assert_eq!(
-            callback_workspace_decision(Some(42), Some(42), DeploymentMode::Hosted),
-            Ok(42)
-        );
+    fn email_verified_trusts_microsoft_and_explicit_oidc_claim() {
+        // Entra directory emails are provider-verified; Graph sends no claim.
+        assert!(oauth_email_verified("microsoft", &json!({})));
+        // OIDC: only an explicit true counts as verified.
+        assert!(oauth_email_verified(
+            "oidc",
+            &json!({"email_verified": true})
+        ));
+        assert!(!oauth_email_verified(
+            "oidc",
+            &json!({"email_verified": false})
+        ));
+        // Absent or non-bool claim is NOT verified (refuses the email link).
+        assert!(!oauth_email_verified("oidc", &json!({})));
+        assert!(!oauth_email_verified(
+            "oidc",
+            &json!({"email_verified": "true"})
+        ));
     }
 
     #[test]
-    fn callback_rejects_state_context_mismatch() {
-        // State minted for workspace 42, but the callback resolved to 7:
-        // a replayed / cross-tenant state. Refuse.
-        assert_eq!(
-            callback_workspace_decision(Some(42), Some(7), DeploymentMode::Hosted),
-            Err(WorkspaceBindingError::Mismatch {
-                state_ws: 42,
-                ctx_ws: 7
-            })
-        );
-    }
-
-    #[test]
-    fn callback_legacy_token_falls_back_fail_closed() {
-        // Legacy token without a bound workspace (pre-deploy): falls back
-        // to the same fail-closed request resolution.
-        assert_eq!(
-            callback_workspace_decision(None, Some(7), DeploymentMode::Hosted),
-            Ok(7)
-        );
-        assert_eq!(
-            callback_workspace_decision(None, None, DeploymentMode::Hosted),
-            Err(WorkspaceBindingError::Unresolved)
-        );
-        assert_eq!(
-            callback_workspace_decision(None, None, DeploymentMode::SelfHosted),
-            Ok(BOOTSTRAP_WORKSPACE_ID)
-        );
+    fn auth_error_redirect_strips_query_and_encodes_message() {
+        let resp = auth_error_redirect("/login?next=/x", "No seat here");
+        assert_eq!(resp.status(), actix_web::http::StatusCode::FOUND);
+        let loc = resp.headers().get("location").unwrap().to_str().unwrap();
+        // Existing query stripped; message percent-encoded onto the clean path.
+        assert_eq!(loc, "/login?auth_error=No%20seat%20here");
     }
 }
 

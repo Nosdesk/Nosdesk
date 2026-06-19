@@ -12,6 +12,7 @@ import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue';
 import Spinner from '@/components/common/Spinner.vue';
 import type { PopoverAnchor } from '@/composables/usePopover';
 import { useMyWorkspacesStore } from '@/stores/myWorkspaces';
+import { useWorkspaceSwitch } from '@/composables/useWorkspaceSwitch';
 
 withDefaults(
   defineProps<{
@@ -25,6 +26,7 @@ const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 const store = useMyWorkspacesStore();
+const { switchWorkspace } = useWorkspaceSwitch();
 
 const open = ref(false);
 const triggerRef = ref<HTMLElement | null>(null);
@@ -54,8 +56,12 @@ function handleSelect(id: string): void {
   const workspaceId = Number(id.slice(3));
   const entry = store.workspaces.find((w) => w.workspace_id === workspaceId);
   if (!entry) return;
+  if (entry.workspace_id === store.activeWorkspaceId) {
+    open.value = false;
+    return;
+  }
   open.value = false;
-  store.switchTo(entry);
+  void switchWorkspace(entry);
 }
 
 const triggerTitle = computed(() => {

@@ -74,9 +74,15 @@ pub async fn send_test_email(
     };
 
     // Get branding for test email. site_settings is workspace-scoped,
-    // so the lookup rides on TenantConn's RLS-primed transaction.
-    let base_url =
-        std::env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:3000".to_string());
+    // so the lookup rides on TenantConn's RLS-primed transaction. The link host
+    // is this workspace's canonical origin (the test send targets the current
+    // workspace), then FRONTEND_URL, then a local default.
+    let ws_origin = req
+        .extensions()
+        .get::<crate::extractors::WorkspaceContext>()
+        .and_then(|ws| ws.canonical_origin());
+    let base_url = crate::utils::tenant_origin::email_link_base(ws_origin)
+        .unwrap_or_else(|| "http://localhost:3000".to_string());
     let branding =
         match tc.run(|conn| Ok::<_, diesel::result::Error>(get_email_branding(conn, &base_url))) {
             Ok(b) => b,

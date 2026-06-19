@@ -192,6 +192,17 @@ async fn send_auto_ack(
         // This IS the auto-acknowledgement: a direct reply, so RFC 3834
         // marks it auto-replied and a customer OOO won't ping-pong with us.
         auto_submitted: Some("auto-replied"),
+        // Conversation mail to the customer about their own ticket: transactional.
+        mail_class: crate::models::outbound_email_mail_class::TRANSACTIONAL,
+        // B3: reply to the channel's polled mailbox so it threads back in.
+        reply_to: config
+            .username
+            .contains('@')
+            .then(|| config.username.as_str()),
+        // Direct send (not queued), so there's no outbound row to encode a
+        // VERP token against; bounces fall back to Message-ID correlation.
+        envelope_from: None,
+        list_unsubscribe: None,
     };
 
     // Don't auto-reply to an address that previously hard-bounced or complained:

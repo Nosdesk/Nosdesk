@@ -89,6 +89,45 @@ pub fn invalidate_cache_key(key: &str) {
     WORKSPACE_CACHE.remove(key);
 }
 
+/// Request header carrying the agent app's selected workspace **slug**
+/// (Model C), as it appears in the single-origin URL (`/acme/...`). In
+/// selection mode the auth gate resolves this to a workspace and
+/// membership-gates it, replacing Host-derived resolution for the agent
+/// surface. The customer portal stays Host-derived and ignores this header.
+pub const WORKSPACE_SELECTION_HEADER: &str = "X-Nosdesk-Workspace";
+
+/// Whether selection-based workspace resolution is enabled.
+///
+/// True only when running `hosted` AND `NOSDESK_WORKSPACE_SELECTION`
+/// is truthy. Read fresh from the environment (not memoised) so it is
+/// operationally toggleable and the unit tests can flip it. Off by
+/// default: self-hosted and current Host-derived hosted are unaffected.
+pub fn selection_resolution_enabled() -> bool {
+    DeploymentMode::from_env() == DeploymentMode::Hosted
+        && matches!(
+            std::env::var("NOSDESK_WORKSPACE_SELECTION")
+                .ok()
+                .as_deref()
+                .map(str::trim)
+                .map(str::to_ascii_lowercase)
+                .as_deref(),
+            Some("1") | Some("true") | Some("yes") | Some("on")
+        )
+}
+
+/// Resolve a selection-header workspace slug to a [`WorkspaceContext`].
+/// `Ok(None)` for an unknown / soft-archived workspace; the caller maps
+/// that to the same 403 a non-member gets so workspace existence does
+/// not leak. The `workspaces` table is resolvable without a pinned GUC
+/// (it is the resolution table), the same `find_by_slug` Host-derived
+/// resolution uses above.
+pub fn resolve_selected_context(
+    conn: &mut crate::db::DbConnection,
+    slug: &str,
+) -> diesel::QueryResult<Option<WorkspaceContext>> {
+    Ok(workspace_repo::find_by_slug(conn, slug)?.map(workspace_to_context))
+}
+
 /// Deployment topology. Drives whether workspace context comes
 /// from a process-wide bootstrap (self-hosted) or per-request
 /// subdomain resolution (hosted SaaS).
@@ -166,6 +205,7 @@ impl WorkspaceContextConfig {
                     workspace_uuid: ws.uuid,
                     slug: ws.slug,
                     name: ws.name,
+                    custom_domain: ws.custom_domain,
                     organisation_id: ws.organisation_id,
                 }))
             }
@@ -287,7 +327,16 @@ async fn resolve_context(
             }
 
             // --- Pass 2: subdomain match against slug ---
-            let slug = subdomain_from_host(&host_no_port)?;
+            // Scope slug resolution to the configured tenant base domain so a
+            // host on a DIFFERENT base domain (the agent origin
+            // `app.nosdesk.com` vs tenants on `*.nosdesk.app`) never resolves
+            // to a tenant workspace. With no tenant domain configured (legacy /
+            // single-base-domain hosted), fall back to the bare first-label
+            // extraction.
+            let slug = match crate::utils::tenant_origin::tenant_domain() {
+                Some(td) => slug_under_tenant_domain(&host_no_port, &td)?,
+                None => subdomain_from_host(&host_no_port)?,
+            };
             let slug_key = format!("slug:{slug}");
             if let Some(ctx) = cache_get(&slug_key) {
                 return Some(ctx);
@@ -308,6 +357,7 @@ fn workspace_to_context(ws: crate::models::Workspace) -> WorkspaceContext {
         workspace_uuid: ws.uuid,
         slug: ws.slug,
         name: ws.name,
+        custom_domain: ws.custom_domain,
         organisation_id: ws.organisation_id,
     }
 }
@@ -335,6 +385,25 @@ fn subdomain_from_host(host: &str) -> Option<&str> {
     Some(labels[0])
 }
 
+/// Extract the tenant slug from a host that sits DIRECTLY under the configured
+/// tenant base domain: `acme.nosdesk.app` with tenant domain `nosdesk.app` ->
+/// `Some("acme")`.
+///
+/// Returns `None` when the host is not exactly `<label>.<tenant_domain>`: a
+/// different base domain (the agent origin `app.nosdesk.com`), the apex domain
+/// itself, or a multi-level subdomain (`x.acme.nosdesk.app`). Scoping slug
+/// resolution to the tenant domain is what keeps the agent origin (served on a
+/// different base domain) from ever resolving to a tenant workspace, which is
+/// the origin boundary the surface model relies on. `host` is expected already
+/// port-stripped and lowercased.
+fn slug_under_tenant_domain<'a>(host: &'a str, tenant_domain: &str) -> Option<&'a str> {
+    let label = host.strip_suffix(tenant_domain)?.strip_suffix('.')?;
+    if label.is_empty() || label.contains('.') {
+        return None;
+    }
+    Some(label)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -355,6 +424,44 @@ mod tests {
     fn subdomain_localhost_returns_none() {
         assert_eq!(subdomain_from_host("localhost"), None);
         assert_eq!(subdomain_from_host("localhost:8080"), None);
+    }
+
+    #[test]
+    fn tenant_slug_extracted_under_tenant_domain() {
+        assert_eq!(
+            slug_under_tenant_domain("acme.nosdesk.app", "nosdesk.app"),
+            Some("acme")
+        );
+    }
+
+    #[test]
+    fn tenant_slug_none_on_different_base_domain() {
+        // The agent origin lives on a DIFFERENT base domain; it must never
+        // resolve to a tenant, no matter what slugs exist.
+        assert_eq!(
+            slug_under_tenant_domain("app.nosdesk.com", "nosdesk.app"),
+            None
+        );
+        assert_eq!(
+            slug_under_tenant_domain("nosdesk-dev.fly.dev", "nosdesk.app"),
+            None
+        );
+    }
+
+    #[test]
+    fn tenant_slug_none_for_apex_and_multilevel() {
+        // The tenant apex itself has no slug label.
+        assert_eq!(slug_under_tenant_domain("nosdesk.app", "nosdesk.app"), None);
+        // Multi-level subdomains are not provisioned and must not resolve.
+        assert_eq!(
+            slug_under_tenant_domain("x.acme.nosdesk.app", "nosdesk.app"),
+            None
+        );
+        // A host that merely ends with the domain string but isn't under it.
+        assert_eq!(
+            slug_under_tenant_domain("evilnosdesk.app", "nosdesk.app"),
+            None
+        );
     }
 
     #[test]
@@ -380,5 +487,57 @@ mod tests {
         } else {
             std::env::remove_var("NOSDESK_DEPLOYMENT_MODE");
         }
+    }
+
+    /// Snapshot + restore both env vars selection resolution reads, run `body`
+    /// with them set to the given values. std::env is process-wide, so tests
+    /// that touch it must put it back.
+    fn with_selection_env(mode: Option<&str>, flag: Option<&str>, body: impl FnOnce()) {
+        let prev_mode = std::env::var("NOSDESK_DEPLOYMENT_MODE").ok();
+        let prev_flag = std::env::var("NOSDESK_WORKSPACE_SELECTION").ok();
+        match mode {
+            Some(v) => std::env::set_var("NOSDESK_DEPLOYMENT_MODE", v),
+            None => std::env::remove_var("NOSDESK_DEPLOYMENT_MODE"),
+        }
+        match flag {
+            Some(v) => std::env::set_var("NOSDESK_WORKSPACE_SELECTION", v),
+            None => std::env::remove_var("NOSDESK_WORKSPACE_SELECTION"),
+        }
+        body();
+        match prev_mode {
+            Some(v) => std::env::set_var("NOSDESK_DEPLOYMENT_MODE", v),
+            None => std::env::remove_var("NOSDESK_DEPLOYMENT_MODE"),
+        }
+        match prev_flag {
+            Some(v) => std::env::set_var("NOSDESK_WORKSPACE_SELECTION", v),
+            None => std::env::remove_var("NOSDESK_WORKSPACE_SELECTION"),
+        }
+    }
+
+    #[test]
+    fn selection_off_by_default_and_requires_both_hosted_and_flag() {
+        // Default: neither hosted nor flag.
+        with_selection_env(None, None, || {
+            assert!(!selection_resolution_enabled());
+        });
+        // Hosted but flag absent: still off.
+        with_selection_env(Some("hosted"), None, || {
+            assert!(!selection_resolution_enabled());
+        });
+        // Flag set but self-hosted: off (single-tenant ignores selection).
+        with_selection_env(Some("self_hosted"), Some("1"), || {
+            assert!(!selection_resolution_enabled());
+        });
+        // Both present: on.
+        with_selection_env(Some("hosted"), Some("1"), || {
+            assert!(selection_resolution_enabled());
+        });
+        // Truthy spellings accepted; junk is not.
+        with_selection_env(Some("hosted"), Some("true"), || {
+            assert!(selection_resolution_enabled());
+        });
+        with_selection_env(Some("hosted"), Some("maybe"), || {
+            assert!(!selection_resolution_enabled());
+        });
     }
 }

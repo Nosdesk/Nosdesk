@@ -73,11 +73,26 @@ fn handle_missing_asset(path: &str) -> HttpResponse {
     HttpResponse::NotFound().finish()
 }
 
-/// Serve the SPA index.html for all non-API routes (SPA routing)
+/// The SPA shell file for a request's surface: the customer portal
+/// (`portal.html`) on a hosted per-tenant origin (the workspace middleware
+/// host-resolved a `WorkspaceContext` from `<slug>.nosdesk.app` or a verified
+/// custom domain), the agent app (`index.html`) otherwise. Self-host always
+/// serves the agent app, ignoring its ever-present bootstrap workspace.
+fn spa_shell_path(mode: middleware::DeploymentMode, host_resolved_workspace: bool) -> &'static str {
+    if mode == middleware::DeploymentMode::Hosted && host_resolved_workspace {
+        "./public/portal.html"
+    } else {
+        "./public/index.html"
+    }
+}
+
+/// Serve the SPA shell for all non-API routes (SPA routing)
 /// This follows Actix best practices for SPA applications
-async fn serve_spa(_req: HttpRequest) -> HttpResponse {
+async fn serve_spa(req: HttpRequest) -> HttpResponse {
+    use actix_web::HttpMessage as _;
+
     // Check if this is a static asset request (has file extension and not HTML)
-    let path = _req.path();
+    let path = req.path();
 
     // If it's a hashed asset request (contains hash pattern), handle as missing asset.
     // Frontend assets live under `/static/` (Vite's `assetsDir`),
@@ -91,9 +106,21 @@ async fn serve_spa(_req: HttpRequest) -> HttpResponse {
         return HttpResponse::NotFound().finish();
     }
 
-    // For all other routes (SPA routes), serve index.html
+    // Pick the SPA shell by surface (see `spa_shell_path`). The portal origin
+    // host-resolves to a `WorkspaceContext` in hosted mode; the agent origin
+    // resolves to none; self-host always serves the agent app.
+    let host_resolved_workspace = req
+        .extensions()
+        .get::<backend::extractors::WorkspaceContext>()
+        .is_some();
+    let shell = spa_shell_path(
+        middleware::DeploymentMode::current(),
+        host_resolved_workspace,
+    );
+
+    // For all other routes (SPA routes), serve the chosen shell.
     // Use no-cache so browsers always check for updated versions after deployments
-    match tokio::fs::read("./public/index.html").await {
+    match tokio::fs::read(shell).await {
         Ok(content) => {
             HttpResponse::Ok()
                 .content_type("text/html; charset=utf-8")
@@ -1522,6 +1549,9 @@ async fn main() -> std::io::Result<()> {
             // Public branding config (needed for favicon/logo before login)
             .route("/api/branding", web::get().to(handlers::branding::get_public_branding))
 
+            // Public instance config (routing topology) read at SPA startup
+            .route("/api/config", web::get().to(handlers::app_config::get_public_config))
+
             // Public (unauthenticated) guest endpoints — feature flags checked per handler.
             // Tighter JSON payload limit here than the app-wide default: the only
             // write endpoint in this scope is /tickets with a 10KB description cap,
@@ -1538,6 +1568,10 @@ async fn main() -> std::io::Result<()> {
                     .route("/docs", web::get().to(handlers::guest::list_public_docs))
                     .route("/docs/search", web::get().to(handlers::guest::search_public_docs))
                     .route("/docs/{slug}", web::get().to(handlers::guest::get_public_doc))
+                    // One-click email unsubscribe (RFC 8058): POST is the mail
+                    // client's automatic one-click, GET the human-followed link.
+                    .route("/unsubscribe", web::post().to(handlers::unsubscribe::one_click))
+                    .route("/unsubscribe", web::get().to(handlers::unsubscribe::landing))
             )
 
             // Public WebSocket for collaboration (auth handled in WebSocket handler)
@@ -1578,6 +1612,42 @@ async fn main() -> std::io::Result<()> {
             .route("/api/events/stream", web::get().to(handlers::sse::sse_events_stream))
             .route("/api/events/status", web::get().to(handlers::sse::sse_status))
 
+            // Customer portal sign-in (public by design). Unauthenticated;
+            // the workspace is resolved from the portal origin by the app-wide
+            // workspace-context middleware. Rate-limited like the auth scope to
+            // bound magic-link sends.
+            .service(
+                web::scope("/api/portal/auth")
+                    .wrap(RateLimiter::default())
+                    .route(
+                        "/magic-link",
+                        web::post().to(handlers::portal::request_magic_link),
+                    )
+                    .route(
+                        "/callback",
+                        web::get().to(handlers::portal::magic_link_callback),
+                    ),
+            )
+            // Authenticated customer portal API. Registered AFTER the public
+            // `/api/portal/auth` scope so the sign-in routes match there first.
+            // The portal session is ownership-scoped: every handler reads its
+            // own tickets only, RLS-pinned to the origin's workspace.
+            .service(
+                web::scope("/api/portal")
+                    .wrap(actix_web::middleware::from_fn(
+                        handlers::portal::portal_auth_middleware,
+                    ))
+                    .route("/tickets", web::get().to(handlers::portal::list_my_tickets))
+                    .route("/tickets", web::post().to(handlers::portal::create_my_ticket))
+                    .route(
+                        "/tickets/{id}",
+                        web::get().to(handlers::portal::get_my_ticket),
+                    )
+                    .route(
+                        "/tickets/{id}/comments",
+                        web::post().to(handlers::portal::reply_to_my_ticket),
+                    ),
+            )
             // Authentication routes (public by design)
             .service(
                 web::scope("/api/auth")
@@ -2484,4 +2554,34 @@ async fn main() -> std::io::Result<()> {
     });
 
     server.await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::spa_shell_path;
+    use backend::middleware::DeploymentMode;
+
+    #[test]
+    fn portal_shell_only_on_a_hosted_tenant_origin() {
+        // Hosted + a host-resolved workspace => the customer portal.
+        assert_eq!(
+            spa_shell_path(DeploymentMode::Hosted, true),
+            "./public/portal.html"
+        );
+        // Hosted agent origin (no host-resolved workspace) => the agent app.
+        assert_eq!(
+            spa_shell_path(DeploymentMode::Hosted, false),
+            "./public/index.html"
+        );
+        // Self-host always serves the agent app, even though its bootstrap
+        // workspace makes a context ever-present.
+        assert_eq!(
+            spa_shell_path(DeploymentMode::SelfHosted, true),
+            "./public/index.html"
+        );
+        assert_eq!(
+            spa_shell_path(DeploymentMode::SelfHosted, false),
+            "./public/index.html"
+        );
+    }
 }

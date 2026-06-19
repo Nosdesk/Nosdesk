@@ -52,7 +52,11 @@ app.use(router)
 import { useThemeStore } from './stores/theme'
 useThemeStore(pinia)
 
-// Wait for initial route resolution before mounting
-router.isReady().then(() => {
+// Fetch instance config (routing topology) in parallel with the initial route
+// resolution so its value is settled before first paint. The fetch defaults to
+// 'host' and never rejects, so it can't block or break the mount.
+import { fetchInstanceConfig } from './services/instanceConfig'
+
+Promise.all([fetchInstanceConfig(), router.isReady()]).then(() => {
   app.mount('#app')
 })

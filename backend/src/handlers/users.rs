@@ -170,7 +170,16 @@ async fn prepare_invitation(
         return Err(SendInvitationResult::TokenStorageError(format!("{e:?}")));
     }
 
-    let base_url = std::env::var("FRONTEND_URL").unwrap_or_else(|_| {
+    // Invite into the current workspace, so the link lives on this workspace's
+    // canonical origin (custom domain or `<slug>.<NOSDESK_TENANT_DOMAIN>`),
+    // falling back to FRONTEND_URL / the request host for self-hosted. The
+    // `extensions()` borrow is dropped before `connection_info()` (which borrows
+    // extensions mutably) to avoid a RefCell double-borrow.
+    let ws_origin = req
+        .extensions()
+        .get::<crate::extractors::WorkspaceContext>()
+        .and_then(|ws| ws.canonical_origin());
+    let base_url = crate::utils::tenant_origin::email_link_base(ws_origin).unwrap_or_else(|| {
         let conn_info = req.connection_info();
         format!("{}://{}", conn_info.scheme(), conn_info.host())
     });

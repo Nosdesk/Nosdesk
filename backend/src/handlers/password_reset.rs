@@ -118,8 +118,6 @@ async fn issue_password_reset(
     )
     .map_err(|e| format!("create_reset_token: {e}"))?;
 
-    let base_url = std::env::var("FRONTEND_URL").unwrap_or_else(|_| format!("{scheme}://{host}"));
-
     let Some(user_email) =
         crate::repository::user_helpers::get_primary_email(&user.uuid, &mut conn)
     else {
@@ -138,22 +136,39 @@ async fn issue_password_reset(
         }
     };
 
-    // Resolve the recipient's workspace so the RLS-isolated branding read and
-    // outbound enqueue are scoped correctly. The lookup reads workspace_members
+    // Resolve the recipient's primary workspace so the RLS-isolated branding
+    // read and outbound enqueue are scoped correctly, and so the reset link is
+    // built on the tenant's own origin. The lookup reads workspace_members
     // (RLS-isolated) and is inherently cross-tenant here (we only have the
     // email, no request workspace), so it runs elevated. A user with no
     // membership gets no email rather than a NULL-workspace insert failure.
-    let workspace_id = match crate::sync::session::background_run(
+    let workspace = match crate::sync::session::background_run(
         &pool,
         "background:password_reset",
-        |c| repository::workspaces::primary_workspace_for_user(c, user.uuid),
+        |c| {
+            let id = repository::workspaces::primary_workspace_for_user(c, user.uuid)?;
+            repository::workspaces::find_by_id(c, id)
+        },
     ) {
-        Ok(id) => id,
+        Ok(Some(ws)) => ws,
+        Ok(None) => {
+            warn!(user_uuid = %user.uuid, "password-reset recipient workspace not found");
+            return Ok(());
+        }
         Err(e) => {
             warn!(user_uuid = %user.uuid, error = %e, "no workspace for password-reset recipient");
             return Ok(());
         }
     };
+    let workspace_id = workspace.id;
+
+    // Tenant-canonical link host: the recipient workspace's canonical origin
+    // (custom domain or `<slug>.<NOSDESK_TENANT_DOMAIN>`), falling back to
+    // FRONTEND_URL or the request host for self-hosted single-tenant.
+    let base_url = crate::utils::tenant_origin::email_link_base(
+        crate::utils::tenant_origin::workspace_origin(&workspace),
+    )
+    .unwrap_or_else(|| format!("{scheme}://{host}"));
 
     // Enqueue rather than fire-and-forget. The outbound worker retries with
     // backoff if SMTP burps, applies the suppression list, and respects the

@@ -96,21 +96,27 @@ impl EmailChannel {
         )
     }
 
-    /// Generate the entity URL for the email
-    fn generate_entity_url(&self, notification: &DeliverableNotification) -> String {
+    /// Build the deep link for a notification. `base_url` is the recipient
+    /// workspace's canonical origin (resolved per notification), so links land
+    /// on the tenant's own host rather than the channel's static fallback.
+    fn generate_entity_url(
+        &self,
+        notification: &DeliverableNotification,
+        base_url: &str,
+    ) -> String {
         match &notification.payload.entity {
             crate::services::notifications::types::NotificationEntity::DocumentationPage {
                 slug,
                 ..
             } => {
-                format!("{}/documentation/{}", self.base_url, slug)
+                format!("{base_url}/documentation/{slug}")
             }
             crate::services::notifications::types::NotificationEntity::Asset { id, .. } => {
-                format!("{}/assets/{}", self.base_url, id)
+                format!("{base_url}/assets/{id}")
             }
             _ => {
                 let ticket_id = notification.payload.entity.ticket_id();
-                format!("{}/tickets/{}", self.base_url, ticket_id)
+                format!("{base_url}/tickets/{ticket_id}")
             }
         }
     }
@@ -224,32 +230,40 @@ impl NotificationDeliveryChannel for EmailChannel {
             .get_recipient_email(&notification.payload.recipient_uuid)
             .await?;
 
-        // Load workspace branding + recipient locale in one
-        // connection. Branding feeds every transactional surface
-        // (logo, primary color); the locale picks which message
-        // catalogue formats the subject.
+        // Load the link base, workspace branding, and recipient locale in one
+        // connection. Branding feeds every transactional surface (logo, primary
+        // color); the locale picks which message catalogue formats the subject.
         // Pinned to the notification's workspace: the branding read is
         // RLS-isolated site_settings, and delivery runs from a background
         // dispatcher with no request context. Without the pin the read
         // falls back to default branding (or, under the hosted role, sees
         // nothing).
-        let base_url = self.base_url.clone();
+        let workspace_id = notification.payload.workspace_id;
         let recipient_uuid = notification.payload.recipient_uuid;
-        let (branding, recipient_locale) = crate::sync::session::run_in_workspace(
+        let fallback_base = self.base_url.clone();
+        let (base_url, branding, recipient_locale) = crate::sync::session::run_in_workspace(
             &self.pool,
             "background:notification_email_prep",
-            notification.payload.workspace_id,
-            |conn| {
+            workspace_id,
+            move |conn| {
+                // Deep links use the notification workspace's canonical origin
+                // (custom domain or `<slug>.<NOSDESK_TENANT_DOMAIN>`), else the
+                // channel's configured base (FRONTEND_URL).
+                let base_url = match crate::repository::workspaces::find_by_id(conn, workspace_id) {
+                    Ok(Some(ws)) => crate::utils::tenant_origin::workspace_origin(&ws)
+                        .unwrap_or_else(|| fallback_base.clone()),
+                    _ => fallback_base.clone(),
+                };
                 let branding = get_email_branding(conn, &base_url);
                 let locale =
                     crate::repository::user_locale::resolve_effective_locale(conn, recipient_uuid);
-                Ok((branding, locale))
+                Ok((base_url, branding, locale))
             },
         )
         .map_err(|e| ChannelError::DatabaseError(e.to_string()))?;
 
         let subject = self.generate_subject(notification, &branding.app_name, &recipient_locale);
-        let entity_url = self.generate_entity_url(notification);
+        let entity_url = self.generate_entity_url(notification, &base_url);
         let body_text = match notification.payload.body.as_deref() {
             Some(text) if !text.is_empty() => text.to_string(),
             _ => crate::utils::i18n::tr_with(&recipient_locale, "notif-body-fallback", &[]),

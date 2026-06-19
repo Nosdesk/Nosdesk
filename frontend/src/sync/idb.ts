@@ -48,11 +48,23 @@ export interface IdbHandle {
 }
 
 /**
- * Open the per-user / per-schema database. Creates the object
+ * Open the per-user / per-workspace / per-schema database. Creates the object
  * stores on first run.
+ *
+ * `workspaceSlug` enters the name only in single-origin path mode, where one
+ * origin serves several workspaces and the cache must not be shared between
+ * them. Host mode passes no slug and keeps the original name (subdomain installs
+ * are already isolated per-origin by the browser). The slug is a safe cache key
+ * because retired slugs are never reused, so it never points at two workspaces.
  */
-export function open(userUuid: string, schemaHash: string): Promise<IdbHandle> {
-  const name = `nosdesk-sync-${userUuid}-${schemaHash}`
+export function open(
+  userUuid: string,
+  schemaHash: string,
+  workspaceSlug?: string | null,
+): Promise<IdbHandle> {
+  const name = ['nosdesk-sync', userUuid, workspaceSlug || null, schemaHash]
+    .filter(Boolean)
+    .join('-')
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(name, 1)
     req.onupgradeneeded = () => {

@@ -20,6 +20,7 @@ import { notifySyncActions } from './observers'
 import { applyWorkspaceCapabilities } from '@/composables/useWorkspaceCapabilities'
 import { purgeAllCollabDocs } from '@/utils/collabLocalCache'
 import { refreshAccessToken } from '@/services/authRefresh'
+import { workspaceHeaders } from '@/services/activeWorkspace'
 import type {
   BootstrapLine,
   BootstrapMeta,
@@ -128,6 +129,7 @@ export async function hydrate(
   userUuid: string,
   schemaHash: string,
   instanceId = '',
+  workspaceSlug: string | null = null,
 ): Promise<void> {
   if (state.handle || state.memoryOnly) return
   pool.setSchemaHash(schemaHash)
@@ -140,7 +142,7 @@ export async function hydrate(
   // still holds rows, optimistic writes still apply — just
   // without warm-start persistence.
   try {
-    state.handle = await idb.open(userUuid, schemaHash)
+    state.handle = await idb.open(userUuid, schemaHash, workspaceSlug)
   } catch (e) {
     logger.warn('IndexedDB unavailable; degrading sync engine to memory-only', { error: e })
     state.memoryOnly = true
@@ -175,7 +177,7 @@ export async function hydrate(
     const oldName = state.handle.name
     state.handle.db.close()
     await idb.wipe(oldName)
-    state.handle = await idb.open(userUuid, schemaHash)
+    state.handle = await idb.open(userUuid, schemaHash, workspaceSlug)
     queue.setIdbHandle(state.handle)
 
     // The collaborative-document caches (separate y-indexeddb
@@ -236,11 +238,14 @@ export async function hydrate(
  * off (the axios client owns redirect-to-login for a dead session).
  */
 async function syncFetch(url: string): Promise<Response> {
-  const res = await fetch(url, { credentials: 'include' })
+  // The sync engine uses raw fetch (streaming JSONL), so the axios interceptor's
+  // selection header doesn't apply here; add it explicitly (empty in host mode).
+  const headers = workspaceHeaders()
+  const res = await fetch(url, { credentials: 'include', headers })
   if (res.status !== 401) return res
   const refreshed = await refreshAccessToken()
   if (!refreshed) return res
-  return fetch(url, { credentials: 'include' })
+  return fetch(url, { credentials: 'include', headers })
 }
 
 export async function fetchServerIdentity(): Promise<{

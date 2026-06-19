@@ -215,6 +215,17 @@ pub fn enqueue_for_comment(
                     .clone()
                     .unwrap_or_else(|| thread.recipient.external_id.clone());
 
+                // B3: point the customer's reply at the channel's polled mailbox
+                // so it threads back into the ticket even when the workspace
+                // sends From a different (verified-domain) identity. Only when the
+                // IMAP username is itself an address, so the send-path parse can't
+                // fail on a non-email login.
+                let headers_json = if config.username.contains('@') {
+                    serde_json::json!({ "Reply-To": config.username })
+                } else {
+                    serde_json::json!({})
+                };
+
                 let new_row = crate::models::NewOutboundEmail {
                     channel_id: Some(channel.id),
                     ticket_id: Some(thread.ticket_id),
@@ -226,13 +237,16 @@ pub fn enqueue_for_comment(
                     message_id,
                     in_reply_to: thread.external_thread_id,
                     references_list: thread.references.into_iter().map(Some).collect(),
-                    headers_json: serde_json::json!({}),
+                    headers_json,
                     // Item S correlation_id flows in once the per-
                     // request context propagates through this far.
                     correlation_id: None,
                     idempotency_key: None,
                     sender_identity: crate::models::outbound_email_sender_identity::WORKSPACE
                         .to_string(),
+                    // The agent's reply is conversation mail: workspace identity,
+                    // but transactional (no List-Unsubscribe on a human reply).
+                    mail_class: crate::models::outbound_email_mail_class::TRANSACTIONAL.to_string(),
                 };
 
                 let row = crate::repository::outbound_emails::enqueue_or_suppress(conn, new_row)

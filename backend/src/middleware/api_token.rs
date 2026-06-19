@@ -157,6 +157,7 @@ pub fn try_bearer_auth(
         platform_role: user.platform_role.clone(),
         scope,
         sid: None,
+        workspace_uuid: None,
         exp: (now + chrono::Duration::hours(24)).timestamp() as usize,
         iat: now.timestamp() as usize,
     };

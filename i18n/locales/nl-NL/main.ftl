@@ -46,6 +46,27 @@ invitation-body-text =
 
     -- { $app }
 
+# Wachtwoordloze aanmelding bij het klantenportaal (automatische vertaling, in afwachting van revisie).
+portal-magic-link-subject = Meld u aan bij { $app }-ondersteuning
+portal-magic-link-title = Meld u aan bij { $app }
+portal-magic-link-greeting = Hallo <strong>{ $name }</strong>,
+portal-magic-link-intro = Gebruik de knop hieronder om u aan te melden bij het <strong>{ $app }</strong>-ondersteuningsportaal en uw tickets te bekijken.
+portal-magic-link-cta-label = Aanmelden
+portal-magic-link-notice-expiry = Deze aanmeldlink verloopt over <strong>20 minuten</strong> en kan eenmaal worden gebruikt
+portal-magic-link-notice-unexpected = Als u dit niet hebt aangevraagd, kunt u deze e-mail negeren
+portal-magic-link-body-text =
+    Hallo { $name },
+
+    Gebruik deze link om u aan te melden bij het { $app }-ondersteuningsportaal en uw tickets te bekijken:
+
+    { $link }
+
+    Goed om te weten:
+      - Deze aanmeldlink verloopt over 20 minuten en kan eenmaal worden gebruikt.
+      - Als u dit niet hebt aangevraagd, kunt u deze e-mail negeren.
+
+    -- { $app }
+
 # Notification email subjects.
 notif-ticket-assigned = [{ $app }] Ticket toegewezen: { $title }
 notif-ticket-status-changed = [{ $app }] Status gewijzigd: { $title }
@@ -2900,6 +2921,13 @@ error-page-default-message = Pagina niet gevonden
 error-page-description = De pagina die je zoekt bestaat niet, of je hebt er mogelijk geen toegang toe.
 error-page-go-back = Terug
 error-page-go-home = Naar dashboard
+# No workspace access (machine, te controleren door een moedertaalspreker).
+no-workspace-access-title = Geen toegang tot een werkruimte
+no-workspace-access-message = Je account is nog geen lid van een werkruimte.
+no-workspace-access-description = Vraag je beheerder om je aan een werkruimte toe te voegen en vernieuw daarna. Als je net bent toegevoegd, zou vernieuwen genoeg moeten zijn.
+no-workspace-access-refresh = Vernieuwen
+no-workspace-access-sign-out = Afmelden
+route-title-no-workspace-access = Geen toegang tot een werkruimte
 error-page-debug-title = Debug-instellingen (druk op 'd' om te wisselen)
 error-page-debug-master-toggle = Hoofdschakelaar effecten
 error-page-debug-global-intensity = Algemene intensiteit

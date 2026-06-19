@@ -190,17 +190,46 @@ pub async fn process_event(
                 "bounce: detected but DSN was unparseable; no linkage"
             );
         }
+
+        // B1b: prefer VERP linkage. If the DSN was addressed to one of our
+        // VERP Return-Paths, the embedded token names the originating row
+        // directly, so we don't depend on the remote MTA echoing the original
+        // Message-ID (many don't). Only for single-report DSNs: our outbound
+        // rows are per-recipient, so a bounce of our mail carries one report,
+        // and one token must not be applied across several reports.
+        let verp_row_id = if msg.bounce_reports.len() == 1 {
+            crate::utils::verp::configured_secret().and_then(|secret| {
+                msg.recipients
+                    .iter()
+                    .find_map(|addr| crate::utils::verp::row_id_from_address(addr, &secret))
+            })
+        } else {
+            None
+        };
+
         for report in &msg.bounce_reports {
-            match crate::repository::outbound_emails::mark_bounced(
-                conn,
-                &report.original_message_id,
-                report.recipient.as_deref(),
-                report.diagnostic.as_deref(),
-            ) {
+            let linkage = match verp_row_id {
+                Some(id) => crate::repository::outbound_emails::mark_bounced_by_id(
+                    conn,
+                    id,
+                    report.recipient.as_deref(),
+                    report.diagnostic.as_deref(),
+                ),
+                None => crate::repository::outbound_emails::mark_bounced(
+                    conn,
+                    &report.original_message_id,
+                    report.recipient.as_deref(),
+                    report.diagnostic.as_deref(),
+                ),
+            };
+            // How the row was located, for the log line below.
+            let via = verp_row_id.map_or("message-id", |_| "verp");
+            match linkage {
                 Ok(0) => {
                     debug!(
                         channel_id = channel.id,
                         message_id = %report.original_message_id,
+                        via,
                         "bounce: no matching outbound row"
                     );
                 }
@@ -208,6 +237,7 @@ pub async fn process_event(
                     debug!(
                         channel_id = channel.id,
                         message_id = %report.original_message_id,
+                        via,
                         rows = n,
                         recipient = ?report.recipient,
                         "bounce: linked to outbound row"
@@ -218,6 +248,7 @@ pub async fn process_event(
                         channel_id = channel.id,
                         error = %e,
                         message_id = %report.original_message_id,
+                        via,
                         "bounce: failed to update outbound row"
                     );
                 }
@@ -685,6 +716,20 @@ fn open_ticket_from_message(
     tickets_repo::create_ticket_with_annotation(conn, new_ticket, annotation, None)
 }
 
+/// Fold a stripped signature and the quoted thread into the single collapsed
+/// region, signature first (its original position, before the quote).
+fn combine_collapsed(
+    signature: Option<String>,
+    quoted: Option<String>,
+    sep: &str,
+) -> Option<String> {
+    match (signature, quoted) {
+        (Some(s), Some(q)) => Some(format!("{s}{sep}{q}")),
+        (Some(s), None) => Some(s),
+        (None, q) => q,
+    }
+}
+
 fn insert_inbound_comment(
     conn: &mut DbConnection,
     ticket_id: i32,
@@ -731,12 +776,34 @@ fn insert_inbound_comment(
     // columns, forcing the renderer to re-sanitise per-render or
     // risk XSS. For plaintext there's nothing to sanitise; we split
     // the raw text directly.
+    // Split the reply from the quoted thread (B5: and the sender's signature),
+    // then sanitise each stored part. The HTML split MUST run on RAW HTML: the
+    // quote/signature markers (gmail_quote, blockquote cite, gmail_signature) are
+    // `class`/`id` attributes the sanitiser strips, so a sanitise-first order
+    // would never find them. Sanitising `new_content` + `quoted_content` AFTER
+    // the split keeps the stored columns render-safe (the invariant the old
+    // sanitise-first order protected). Plaintext needs no sanitising. The removed
+    // signature folds into the collapsed quoted region (its original position,
+    // before the quote) so nothing is lost in-app; the raw body stays the source
+    // of truth for recovery.
     let split = match content_format {
         crate::models::ContentFormat::Html => {
-            let clean = super::email_sanitise::sanitise(&content).html;
-            super::email_quote::split_html(&clean)
+            let quote = super::email_quote::split_html(&content);
+            let sig = super::email_signature::strip_html(&quote.new_content);
+            let quoted = combine_collapsed(sig.signature, quote.quoted_content, "\n");
+            super::email_quote::QuoteSplit {
+                new_content: super::email_sanitise::sanitise(&sig.content).html,
+                quoted_content: quoted.map(|q| super::email_sanitise::sanitise(&q).html),
+            }
         }
-        _ => super::email_quote::split_plaintext(&content),
+        _ => {
+            let quote = super::email_quote::split_plaintext(&content);
+            let sig = super::email_signature::strip_plaintext(&quote.new_content);
+            super::email_quote::QuoteSplit {
+                new_content: sig.content,
+                quoted_content: combine_collapsed(sig.signature, quote.quoted_content, "\n\n"),
+            }
+        }
     };
 
     // Native-first render tiering: classify the (already-sanitised)
@@ -1160,6 +1227,72 @@ mod tests {
         m
     }
 
+    /// Regression guard for the split-before-sanitise order (B5): a Gmail-shaped
+    /// HTML reply (new text, then a `gmail_signature` block, then a `gmail_quote`
+    /// block) must land with the signature AND the quote trimmed out of
+    /// `new_content`. This only works because the split runs on RAW HTML — the
+    /// markers are `class` attributes the sanitiser strips, so a sanitise-first
+    /// order would leave both inline. Folds the trimmed parts into the collapsed
+    /// region.
+    #[tokio::test]
+    async fn html_quote_and_signature_stripped_through_sanitiser() {
+        use crate::schema::comments;
+        use diesel::prelude::*;
+        let mut conn = setup_test_connection();
+        let ch = TestFixtures::create_channel(&mut conn, "email_imap");
+
+        let html = concat!(
+            r#"<div dir="ltr"><div>Yes, ship it.</div>"#,
+            r#"<div class="gmail_signature" data-smartmail="gmail_signature">"#,
+            r#"<div>Jane Doe</div><div>Acme</div></div>"#,
+            r#"<div class="gmail_quote"><blockquote type="cite">"#,
+            r#"the original question</blockquote></div></div>"#,
+        );
+
+        let out = process_event(
+            &StubAdapter,
+            &ch,
+            InboundEvent::MessageReceived(message_with_body(
+                "<sig-quote@ex>",
+                "Re: x",
+                "",
+                Some(html),
+            )),
+            &mut conn,
+            &PipelineContext::bare(),
+        )
+        .await
+        .expect("process_event");
+        let comment_id = match out {
+            PipelineOutcome::TicketOpened { comment_id, .. } => comment_id,
+            other => panic!("expected TicketOpened, got {other:?}"),
+        };
+        let (new_content, quoted): (Option<String>, Option<String>) = comments::table
+            .filter(comments::id.eq(comment_id))
+            .select((comments::new_content, comments::quoted_content))
+            .first(&mut conn)
+            .expect("ingested comment");
+
+        let nc = new_content.unwrap_or_default();
+        assert!(
+            nc.contains("Yes, ship it"),
+            "new_content keeps the reply: {nc}"
+        );
+        assert!(
+            !nc.contains("Jane Doe"),
+            "signature stripped from new_content: {nc}"
+        );
+        assert!(
+            !nc.contains("original question"),
+            "quote stripped from new_content: {nc}"
+        );
+        let q = quoted.unwrap_or_default();
+        assert!(
+            q.contains("Jane Doe") && q.contains("original question"),
+            "collapsed region carries both the signature and the quote: {q}"
+        );
+    }
+
     /// End-to-end render-tier classification (Item J native-first): a
     /// real message flows through sanitise → quote-split → classify →
     /// persist, and the stored comment carries the right `render_kind`.
@@ -1446,6 +1579,7 @@ mod tests {
             correlation_id: None,
             idempotency_key: None,
             sender_identity: crate::models::outbound_email_sender_identity::WORKSPACE.to_string(),
+            mail_class: crate::models::outbound_email_mail_class::TRANSACTIONAL.to_string(),
         }
     }
 

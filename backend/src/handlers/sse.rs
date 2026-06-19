@@ -621,20 +621,15 @@ pub async fn sse_events_stream(
             return Ok(errors::internal("Database connection error"));
         }
     };
-    // Pin the request's workspace so the caller's visibility (their role +
-    // per-ticket checks) resolves under RLS. The pool clears app.workspace_id
-    // on checkout, so without this an admin is downgraded to member visibility.
-    crate::handlers::helpers::pin_request_workspace(&req, &mut conn);
-
-    // Validate SSE token
+    // Validate the SSE token first; the selected workspace is bound into it
+    // (EventSource can't send the selection header), so the claims drive the
+    // workspace resolution below.
     let token = match query.sse_token.as_ref() {
         Some(t) => t.as_str(),
         None => {
             return Ok(errors::unauthorized("Missing SSE token"));
         }
     };
-
-    // Validate the SSE token
     use crate::utils::jwt::JwtUtils;
     let (user_info, user) = match JwtUtils::validate_token_with_user_check(token, &mut conn).await {
         Ok((claims, user)) => (claims, user),
@@ -642,6 +637,45 @@ pub async fn sse_events_stream(
             return Ok(e.into());
         }
     };
+
+    // Resolve the stream's workspace: the token's bound selection (Model C)
+    // wins, else the Host-derived context the middleware put on this request.
+    use actix_web::HttpMessage as _;
+    let workspace_id = match user_info.workspace_uuid {
+        Some(ws_uuid) => match crate::repository::workspaces::find_by_uuid(&mut conn, ws_uuid) {
+            Ok(Some(ws)) => Some(ws.id),
+            // Unknown workspace collapses into the same denial a non-member
+            // gets below, so workspace existence does not leak.
+            Ok(None) => return Ok(errors::forbidden("Not a member of this workspace")),
+            Err(e) => {
+                tracing::error!(error = ?e, "SSE token workspace resolution failed");
+                return Ok(errors::internal("Workspace resolution failed"));
+            }
+        },
+        None => req
+            .extensions()
+            .get::<crate::extractors::WorkspaceContext>()
+            .map(|w| w.workspace_id),
+    };
+
+    // Pin + membership-gate the resolved workspace so the caller's visibility
+    // (their role + per-ticket checks) resolves under RLS, and they can't
+    // subscribe to another tenant's live SyncActions stream. The pool clears
+    // app.workspace_id on checkout, so without the pin an admin is downgraded
+    // to member visibility. SSE bypasses the cookie/dual-auth middleware, so
+    // the gate that middleware runs for REST is invoked explicitly here.
+    //
+    // The gate runs immediately after the pin with no tenant-content read in
+    // between, so pinning a client-selected workspace cannot leak. Keep the
+    // per-topic visibility reads (parse_topics_authorized below) after this.
+    if let Some(workspace_id) = workspace_id {
+        crate::handlers::helpers::pin_workspace(&mut conn, workspace_id);
+        crate::middleware::cookie_auth::require_workspace_membership(
+            &mut conn,
+            workspace_id,
+            user.uuid,
+        )?;
+    }
 
     // Resolve subscription set. The client may declare interest via
     // `?topics=user,global,ticket-42` (comma-separated). When absent,
@@ -853,9 +887,23 @@ pub async fn get_sse_token(
         }
     };
 
+    // Bind the request's resolved workspace into the SSE token. The auth
+    // middleware has already resolved it (selection header or Host) and
+    // membership-gated it, so the stream can authorize against the same
+    // workspace without the selection header EventSource can't send. `None`
+    // when no workspace resolved (apex / self-hosted bootstrap is still set).
+    let workspace_uuid = req
+        .extensions()
+        .get::<crate::extractors::WorkspaceContext>()
+        .map(|w| w.workspace_uuid);
+
     // Generate a short-lived SSE token (1 hour)
     use crate::utils::jwt::JwtUtils;
-    let sse_token = match JwtUtils::create_sse_token(&user_info.sub, &user_info.platform_role) {
+    let sse_token = match JwtUtils::create_sse_token(
+        &user_info.sub,
+        &user_info.platform_role,
+        workspace_uuid,
+    ) {
         Ok(token) => token,
         Err(_) => {
             return errors::internal("Failed to create SSE token");

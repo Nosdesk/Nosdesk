@@ -96,6 +96,20 @@ pub fn find_by_id(conn: &mut DbConnection, id: i32) -> QueryResult<Option<Worksp
         .optional()
 }
 
+/// Load a workspace by its public uuid. Used by selection-based
+/// resolution (Model C): the agent app sends the chosen workspace
+/// uuid in the `X-Nosdesk-Workspace` header and the auth gate
+/// resolves it here before membership-gating. The uuid is the
+/// stable, opaque identifier (slug is mutable). Returns `None` for
+/// an unknown or soft-archived workspace.
+pub fn find_by_uuid(conn: &mut DbConnection, uuid: Uuid) -> QueryResult<Option<Workspace>> {
+    workspaces::table
+        .filter(workspaces::uuid.eq(uuid))
+        .filter(workspaces::archived_at.is_null())
+        .first(conn)
+        .optional()
+}
+
 /// Load a workspace by URL slug. Used by the hosted-mode
 /// middleware to resolve `acme.nosdesk.com` -> the Acme
 /// workspace row. Returns `None` if the slug doesn't match an

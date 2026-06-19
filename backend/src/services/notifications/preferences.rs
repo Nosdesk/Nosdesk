@@ -183,6 +183,47 @@ impl PreferenceService {
         Ok(())
     }
 
+    /// One-click unsubscribe (B2 / RFC 8058): turn OFF the email channel for
+    /// EVERY notification type for this user, so notification mail stops while
+    /// transactional mail (password reset, invitation) is unaffected. Inserts a
+    /// disabled row per type (or flips an existing one) so a type added later
+    /// still respects the opt-out's per-type rows. Preferences are global per
+    /// user; the resolved workspace only pins the audit trigger (the table's
+    /// unique key carries no workspace_id).
+    pub async fn disable_all_email(&self, user_uuid_val: &Uuid) -> Result<(), String> {
+        let resolved_workspace = crate::sync::session::background_run(
+            &self.pool,
+            "background:notification_unsubscribe",
+            |conn| crate::repository::workspaces::primary_workspace_for_user(conn, *user_uuid_val),
+        )
+        .map_err(|e| format!("Failed to resolve workspace for unsubscribe: {e}"))?;
+
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|e| format!("Failed to acquire connection: {e}"))?;
+        let actor = crate::sync::actor::ActorContext::system("background:notification_unsubscribe")
+            .with_workspace(resolved_workspace);
+        crate::sync::session::with_actor_bypass_context(&mut conn, &actor, |conn| {
+            diesel::sql_query(
+                "INSERT INTO notification_preferences \
+                   (user_uuid, notification_type_id, channel, enabled, created_at, updated_at) \
+                 SELECT $1, nt.id, 'email', false, now(), now() FROM notification_types nt \
+                 ON CONFLICT (user_uuid, notification_type_id, channel) \
+                 DO UPDATE SET enabled = false, updated_at = now()",
+            )
+            .bind::<diesel::sql_types::Uuid, _>(*user_uuid_val)
+            .execute(conn)
+        })
+        .map_err(|e| format!("Failed to disable email notifications: {e}"))?;
+
+        {
+            let mut cache = self.cache.write().await;
+            cache.remove(user_uuid_val);
+        }
+        Ok(())
+    }
+
     /// Get all preferences for a user (for settings UI)
     pub async fn get_all_preferences(
         &self,

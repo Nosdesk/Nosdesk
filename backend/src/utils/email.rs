@@ -48,6 +48,39 @@ impl Header for XAutoResponseSuppress {
         HeaderValue::new(Self::name(), self.0.clone())
     }
 }
+
+/// `List-Unsubscribe` (RFC 2369 / 8058) — the unsubscribe URL(s), each in
+/// angle brackets. Emitted on opt-out-able notification mail only.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ListUnsubscribe(String);
+impl Header for ListUnsubscribe {
+    fn name() -> HeaderName {
+        HeaderName::new_from_ascii_str("List-Unsubscribe")
+    }
+    fn parse(s: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(Self(s.into()))
+    }
+    fn display(&self) -> HeaderValue {
+        HeaderValue::new(Self::name(), self.0.clone())
+    }
+}
+
+/// `List-Unsubscribe-Post` (RFC 8058) — signals one-click support; the only
+/// valid value is `List-Unsubscribe=One-Click`. Pairs with an https
+/// `List-Unsubscribe` URL so the mail client POSTs it without loading a page.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ListUnsubscribePost;
+impl Header for ListUnsubscribePost {
+    fn name() -> HeaderName {
+        HeaderName::new_from_ascii_str("List-Unsubscribe-Post")
+    }
+    fn parse(_s: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(Self)
+    }
+    fn display(&self) -> HeaderValue {
+        HeaderValue::new(Self::name(), "List-Unsubscribe=One-Click".to_string())
+    }
+}
 use std::env;
 use std::str::FromStr;
 
@@ -612,6 +645,65 @@ pub enum SmtpSecurity {
     Plaintext,
 }
 
+/// Result of checking whether an SMTP `(port, security)` pair is coherent (B4).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SmtpCoherence {
+    /// Standard, no concerns.
+    Ok,
+    /// Reachable but worth surfacing (e.g. plaintext submission, port 25).
+    Warn(String),
+    /// Protocol-impossible: the pair physically cannot complete a connection.
+    Error(String),
+}
+
+/// Check an SMTP `(port, security)` pair for coherence (B4).
+///
+/// The load-bearing distinction is implicit-TLS-on-connect (465) vs a STARTTLS
+/// upgrade (587), per RFC 8314 / 6409 — the port itself is only a hint. So only
+/// the three pairs that physically can't connect are hard [`SmtpCoherence::Error`]s;
+/// non-standard ports (2525, custom relays) trust the operator's chosen mode and
+/// at most [`SmtpCoherence::Warn`]. This keeps legitimate corporate / alt-port
+/// relays working while still catching the cryptic-at-connect-time mistakes.
+pub fn check_port_security(port: u16, security: SmtpSecurity) -> SmtpCoherence {
+    use SmtpSecurity::*;
+    match (port, security) {
+        // Port 465 is implicit-TLS-on-connect: a STARTTLS handshake or plaintext
+        // EHLO is the wrong first bytes and the connection never establishes.
+        (465, StartTls) => SmtpCoherence::Error(
+            "Port 465 uses implicit TLS on connect, not STARTTLS. Use port 587 for STARTTLS, \
+             or keep 465 and set security to TLS."
+                .into(),
+        ),
+        (465, Plaintext) => SmtpCoherence::Error(
+            "Port 465 requires implicit TLS; plaintext is not possible on it.".into(),
+        ),
+        // Port 587 expects a cleartext EHLO first, then STARTTLS; an immediate
+        // TLS handshake is rejected.
+        (587, Tls) => SmtpCoherence::Error(
+            "Port 587 uses STARTTLS, not implicit TLS. Use port 465 for implicit TLS, \
+             or keep 587 and set security to STARTTLS."
+                .into(),
+        ),
+        (465, Tls) | (587, StartTls) => SmtpCoherence::Ok,
+        (587, Plaintext) => SmtpCoherence::Warn(
+            "Port 587 normally uses STARTTLS; plaintext submission sends mail unencrypted.".into(),
+        ),
+        // Port 25 is server-to-server relay, not authenticated submission.
+        (25, _) => SmtpCoherence::Warn(
+            "Port 25 is for server-to-server relay, not authenticated submission; prefer 587 \
+             (STARTTLS) or 465 (implicit TLS)."
+                .into(),
+        ),
+        // Any other port: trust the operator's explicit mode, but flag plaintext.
+        (_, Plaintext) => SmtpCoherence::Warn(
+            "Plaintext SMTP sends mail unencrypted; use TLS or STARTTLS unless this is a trusted \
+             local relay."
+                .into(),
+        ),
+        _ => SmtpCoherence::Ok,
+    }
+}
+
 impl EmailConfig {
     /// Load email configuration from environment variables
     pub fn from_env() -> Result<Self, String> {
@@ -675,6 +767,21 @@ impl EmailConfig {
                 ));
             }
         };
+
+        // B4: fail fast at startup on an incoherent port/security pair instead
+        // of a cryptic TLS error on the first send. Warnings are logged but
+        // don't block boot.
+        match check_port_security(smtp_port, security) {
+            SmtpCoherence::Error(msg) => {
+                return Err(format!(
+                    "SMTP_PORT {smtp_port} / SMTP_SECURITY mismatch: {msg}"
+                ));
+            }
+            SmtpCoherence::Warn(msg) => {
+                tracing::warn!(port = smtp_port, "SMTP config warning: {msg}");
+            }
+            SmtpCoherence::Ok => {}
+        }
 
         Ok(Self {
             smtp_host,
@@ -795,6 +902,20 @@ fn build_outbound_message(
             .header(AutoSubmitted(value.to_string()))
             .header(XAutoResponseSuppress("All".to_string()));
     }
+    // B3: point replies at the channel's polled mailbox when the From diverges.
+    if let Some(reply_to) = outbound.reply_to {
+        let mailbox: Mailbox = reply_to
+            .parse()
+            .map_err(|e| format!("Invalid Reply-To address: {e}"))?;
+        builder = builder.reply_to(mailbox);
+    }
+    // B2: one-click unsubscribe on notification mail. The producer only sets
+    // this on opt-out-able notification mail, never transactional.
+    if let Some(url) = outbound.list_unsubscribe {
+        builder = builder
+            .header(ListUnsubscribe(format!("<{url}>")))
+            .header(ListUnsubscribePost);
+    }
 
     // Prefer multipart/alternative when both text + html are given so
     // clients can pick; text-only falls back to a single part. Both
@@ -905,6 +1026,10 @@ fn dkim_sign_message(message: &mut Message, signer: &DkimSigner) -> Result<(), S
         "In-Reply-To",
         "References",
         "Reply-To",
+        // RFC 8058 §3: the one-click headers MUST be covered by the DKIM
+        // signature the receiver validates, or the unsubscribe POST is refused.
+        "List-Unsubscribe",
+        "List-Unsubscribe-Post",
     ]
     .into_iter()
     .map(HeaderName::new_from_ascii_str)
@@ -1020,9 +1145,31 @@ impl EmailTransport for SmtpEmailTransport {
         } else {
             build_smtp_mailer(&self.config)?
         };
-        mailer
-            .send(&message)
-            .map_err(|e| format!("Failed to send ticket reply: {e}"))?;
+        // B1: when a VERP Return-Path is set, send with an explicit envelope so
+        // `MAIL FROM` is the bounce-token address, distinct from the `From`
+        // header. lettre's default `send` derives the envelope from `From`;
+        // overriding it needs `send_raw` with the formatted (DKIM-signed) bytes.
+        match msg.envelope_from {
+            Some(return_path) => {
+                let from: lettre::Address = return_path
+                    .parse()
+                    .map_err(|e| format!("Invalid Return-Path {return_path}: {e}"))?;
+                let to: lettre::Address = msg
+                    .to
+                    .parse()
+                    .map_err(|e| format!("Invalid recipient {}: {e}", msg.to))?;
+                let envelope = lettre::address::Envelope::new(Some(from), vec![to])
+                    .map_err(|e| format!("Invalid envelope: {e}"))?;
+                mailer
+                    .send_raw(&envelope, &message.formatted())
+                    .map_err(|e| format!("Failed to send ticket reply: {e}"))?;
+            }
+            None => {
+                mailer
+                    .send(&message)
+                    .map_err(|e| format!("Failed to send ticket reply: {e}"))?;
+            }
+        }
         Ok(SendOutcome {
             provider_message_id: None,
         })
@@ -1119,6 +1266,12 @@ impl EmailService {
             in_reply_to: None,
             references: &[],
             auto_submitted: None,
+            // Generic direct-send path; its callers (test mail, guest ticket
+            // confirmation) are transactional, the safe no-unsubscribe default.
+            mail_class: crate::models::outbound_email_mail_class::TRANSACTIONAL,
+            reply_to: None,
+            envelope_from: None,
+            list_unsubscribe: None,
         };
         self.send_outbound(&outbound).await.map(|_| ())
     }
@@ -1143,6 +1296,12 @@ impl EmailService {
             in_reply_to: None,
             references: &[],
             auto_submitted: None,
+            // Generic direct-send path; its callers (test mail, guest ticket
+            // confirmation) are transactional, the safe no-unsubscribe default.
+            mail_class: crate::models::outbound_email_mail_class::TRANSACTIONAL,
+            reply_to: None,
+            envelope_from: None,
+            list_unsubscribe: None,
         };
         self.send_outbound(&outbound).await.map(|_| ())
     }
@@ -1336,6 +1495,85 @@ impl EmailService {
                 ("app", branding.app_name.clone().into()),
                 ("by", invited_by.to_string().into()),
                 ("link", setup_link.clone().into()),
+            ],
+        );
+
+        (subject, html_body, body_text)
+    }
+
+    /// Render the customer-portal passwordless sign-in email. Returns
+    /// `(subject, html_body, body_text)`. Same HTML/plaintext split as the
+    /// invitation; the CTA links to the portal callback on the workspace's own
+    /// origin (carried in `branding.base_url`).
+    pub fn compose_portal_magic_link(
+        &self,
+        user_name: &str,
+        magic_token: &str,
+        branding: &EmailBranding,
+        locale: &unic_langid::LanguageIdentifier,
+    ) -> (String, String, String) {
+        let sign_in_link = format!(
+            "{}/portal/auth/callback?token={}",
+            branding.base_url, magic_token
+        );
+        let template = EmailTemplate::new(branding);
+        let tr = |key: &str, args: &[(&str, fluent_bundle::FluentValue<'static>)]| {
+            crate::utils::i18n::tr_with(locale, key, args)
+        };
+
+        let name_html = escape_html(user_name);
+        let app_html = escape_html(&branding.app_name);
+
+        let title = tr(
+            "portal-magic-link-title",
+            &[("app", app_html.clone().into())],
+        );
+        let greeting = tr(
+            "portal-magic-link-greeting",
+            &[("name", name_html.clone().into())],
+        );
+        let intro = tr(
+            "portal-magic-link-intro",
+            &[("app", app_html.clone().into())],
+        );
+        let cta_label = tr("portal-magic-link-cta-label", &[]);
+        let notice_items: Vec<String> = [
+            "portal-magic-link-notice-expiry",
+            "portal-magic-link-notice-unexpected",
+        ]
+        .iter()
+        .map(|key| tr(key, &[]))
+        .collect();
+
+        let html_body = template.render(
+            EmailLayout {
+                headline: &title,
+                body: vec![text(greeting), text(intro)],
+                cta: Some(Cta {
+                    label: cta_label,
+                    url: sign_in_link.clone(),
+                }),
+                notice: Some(Notice {
+                    kind: NoticeType::Info,
+                    items: notice_items,
+                }),
+                signoff: None,
+                preheader: &title,
+            },
+            locale,
+        );
+
+        let subject = tr(
+            "portal-magic-link-subject",
+            &[("app", branding.app_name.clone().into())],
+        );
+
+        let body_text = tr(
+            "portal-magic-link-body-text",
+            &[
+                ("name", user_name.to_string().into()),
+                ("app", branding.app_name.clone().into()),
+                ("link", sign_in_link.clone().into()),
             ],
         );
 
@@ -1554,11 +1792,72 @@ pub struct OutboundEmailMessage<'a> {
     /// (`Auto-Submitted` + `X-Auto-Response-Suppress`) are emitted so the
     /// recipient's OOO / auto-responder won't bounce back and ping-pong.
     pub auto_submitted: Option<&'a str>,
+    /// Mail class (see `models::outbound_email_mail_class`): `"notification"`
+    /// (opt-out-able) or `"transactional"` (must-deliver). Carried to the send
+    /// path so deliverability headers branch on it (List-Unsubscribe on
+    /// notification only). Defaults to transactional on any path that hasn't
+    /// classified itself, which is the safe, no-unsubscribe choice.
+    pub mail_class: &'a str,
+    /// `Reply-To` address (B3). Set on channel-bound conversation mail to the
+    /// channel's polled inbound mailbox so a recipient's reply threads back into
+    /// the ticket even when the `From` is a different workspace send identity
+    /// (verified-domain / relay mode). `None` emits no header, leaving the
+    /// `From` as the implicit reply target.
+    pub reply_to: Option<&'a str>,
+    /// VERP envelope-from / Return-Path (B1). When `Some`, the message is sent
+    /// with this `MAIL FROM` (distinct from the `From` header) so a bounce DSN
+    /// is addressed back to it and the inbound handler can link the bounce to
+    /// the originating row by its token. `None` (the default, and whenever
+    /// `SMTP_VERP_SECRET` is unset) uses lettre's From-derived envelope.
+    pub envelope_from: Option<&'a str>,
+    /// `List-Unsubscribe` URL (B2 / RFC 8058). Set on opt-out-able notification
+    /// mail to a signed one-click endpoint; emits `List-Unsubscribe` plus
+    /// `List-Unsubscribe-Post: List-Unsubscribe=One-Click`. `None` on
+    /// transactional mail (which must not advertise unsubscribe).
+    pub list_unsubscribe: Option<&'a str>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn smtp_coherence_matrix() {
+        use SmtpSecurity::*;
+        // The three protocol-impossible pairs are hard errors.
+        assert!(matches!(
+            check_port_security(465, StartTls),
+            SmtpCoherence::Error(_)
+        ));
+        assert!(matches!(
+            check_port_security(465, Plaintext),
+            SmtpCoherence::Error(_)
+        ));
+        assert!(matches!(
+            check_port_security(587, Tls),
+            SmtpCoherence::Error(_)
+        ));
+        // The standard coherent pairs are clean.
+        assert_eq!(check_port_security(465, Tls), SmtpCoherence::Ok);
+        assert_eq!(check_port_security(587, StartTls), SmtpCoherence::Ok);
+        // Insecure-but-reachable and relay-port configs warn, not error.
+        assert!(matches!(
+            check_port_security(587, Plaintext),
+            SmtpCoherence::Warn(_)
+        ));
+        assert!(matches!(
+            check_port_security(25, StartTls),
+            SmtpCoherence::Warn(_)
+        ));
+        // Non-standard ports trust the operator's explicit TLS mode.
+        assert_eq!(check_port_security(2525, StartTls), SmtpCoherence::Ok);
+        assert_eq!(check_port_security(10025, Tls), SmtpCoherence::Ok);
+        // ...but still flag plaintext on any port.
+        assert!(matches!(
+            check_port_security(2525, Plaintext),
+            SmtpCoherence::Warn(_)
+        ));
+    }
 
     #[test]
     fn test_email_config_disabled_by_default() {
@@ -1623,6 +1922,10 @@ mod tests {
                 in_reply_to: None,
                 references: &[],
                 auto_submitted: None,
+                mail_class: "transactional",
+                reply_to: None,
+                envelope_from: None,
+                list_unsubscribe: None,
             })
             .unwrap();
         assert!(
@@ -1644,6 +1947,10 @@ mod tests {
                 in_reply_to: None,
                 references: &[],
                 auto_submitted: None,
+                mail_class: "transactional",
+                reply_to: None,
+                envelope_from: None,
+                list_unsubscribe: None,
             })
             .unwrap();
         let dump = rendered(&msg);
@@ -1669,6 +1976,10 @@ mod tests {
                         in_reply_to: None,
                         references: &[],
                         auto_submitted: auto,
+                        mail_class: "transactional",
+                        reply_to: None,
+                        envelope_from: None,
+                        list_unsubscribe: None,
                     })
                     .unwrap(),
             )
@@ -1744,6 +2055,10 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
             in_reply_to: None,
             references: &[],
             auto_submitted: None,
+            mail_class: "transactional",
+            reply_to: None,
+            envelope_from: None,
+            list_unsubscribe: None,
         }
     }
 
@@ -1886,6 +2201,10 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
                 in_reply_to: Some("<second@x>"),
                 references: &refs,
                 auto_submitted: None,
+                mail_class: "transactional",
+                reply_to: None,
+                envelope_from: None,
+                list_unsubscribe: None,
             })
             .unwrap();
         let dump = rendered(&msg);
@@ -1894,6 +2213,77 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
             dump.contains("References: <first@x> <second@x>"),
             "dump:\n{dump}"
         );
+    }
+
+    #[test]
+    fn reply_to_header_emitted_only_when_set() {
+        let base = OutboundEmailMessage {
+            to: "alice@example.com",
+            subject: "[#42] Re: thread",
+            body_text: "reply",
+            body_html: None,
+            message_id: "ticket-42.comment-3.cafef00d@yourco.com",
+            in_reply_to: None,
+            references: &[],
+            auto_submitted: None,
+            mail_class: "transactional",
+            reply_to: Some("support@acme.com"),
+            envelope_from: None,
+            list_unsubscribe: None,
+        };
+        let with = rendered(&svc().build_ticket_reply_message(&base).unwrap());
+        assert!(with.contains("Reply-To: support@acme.com"), "dump:\n{with}");
+
+        let without = rendered(
+            &svc()
+                .build_ticket_reply_message(&OutboundEmailMessage {
+                    reply_to: None,
+                    envelope_from: None,
+                    list_unsubscribe: None,
+                    ..base
+                })
+                .unwrap(),
+        );
+        assert!(!without.contains("Reply-To:"), "dump:\n{without}");
+    }
+
+    #[test]
+    fn list_unsubscribe_headers_emitted_only_when_set() {
+        let base = OutboundEmailMessage {
+            to: "alice@example.com",
+            subject: "Ticket #42 updated",
+            body_text: "an update",
+            body_html: None,
+            message_id: "notify.cafef00d@yourco.com",
+            in_reply_to: None,
+            references: &[],
+            auto_submitted: None,
+            mail_class: "notification",
+            reply_to: None,
+            envelope_from: None,
+            list_unsubscribe: Some("https://acme.nosdesk.dev/api/public/unsubscribe?token=t.sig"),
+        };
+        let with = rendered(&svc().build_ticket_reply_message(&base).unwrap());
+        assert!(
+            with.contains(
+                "List-Unsubscribe: <https://acme.nosdesk.dev/api/public/unsubscribe?token=t.sig>"
+            ),
+            "dump:\n{with}"
+        );
+        assert!(
+            with.contains("List-Unsubscribe-Post: List-Unsubscribe=One-Click"),
+            "dump:\n{with}"
+        );
+
+        let without = rendered(
+            &svc()
+                .build_ticket_reply_message(&OutboundEmailMessage {
+                    list_unsubscribe: None,
+                    ..base
+                })
+                .unwrap(),
+        );
+        assert!(!without.contains("List-Unsubscribe"), "dump:\n{without}");
     }
 
     #[test]
@@ -1908,6 +2298,10 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
                 in_reply_to: None,
                 references: &[],
                 auto_submitted: None,
+                mail_class: "transactional",
+                reply_to: None,
+                envelope_from: None,
+                list_unsubscribe: None,
             })
             .unwrap();
         let dump = rendered(&msg);
@@ -1937,6 +2331,10 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
             in_reply_to: None,
             references: &[],
             auto_submitted: None,
+            mail_class: "transactional",
+            reply_to: None,
+            envelope_from: None,
+            list_unsubscribe: None,
         };
         let rt = tokio::runtime::Runtime::new().unwrap();
         let err = rt
@@ -1999,12 +2397,26 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
         );
         write("notification", &html);
 
+        let (_subj, html, text) =
+            svc.compose_portal_magic_link("Alex", "EXAMPLE-SIGNIN-TOKEN", &branding, &locale);
+        write("portal-magic-link", &html);
+        // The CTA must carry the portal callback link on the configured origin.
+        assert!(
+            html.contains("/portal/auth/callback?token=EXAMPLE-SIGNIN-TOKEN"),
+            "magic-link html must link to the portal callback"
+        );
+        assert!(
+            text.contains("/portal/auth/callback?token=EXAMPLE-SIGNIN-TOKEN"),
+            "magic-link plaintext must carry the callback link"
+        );
+
         // Sanity: every preview file exists and is non-trivial.
         for name in [
             "password-reset",
             "invitation",
             "guest-ticket-confirmation",
             "notification",
+            "portal-magic-link",
         ] {
             let p = out_dir.join(format!("{name}.html"));
             let content = std::fs::read_to_string(&p).expect("preview readable");

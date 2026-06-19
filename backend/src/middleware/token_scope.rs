@@ -431,6 +431,7 @@ mod enforcement_tests {
             platform_role: "user".into(),
             scope: scope.into(),
             sid: None,
+            workspace_uuid: None,
             exp: 0,
             iat: 0,
         }

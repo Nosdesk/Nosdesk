@@ -812,17 +812,25 @@ pub fn enqueue_merge_notifications(
         if channel.provider != "email_imap" {
             continue;
         }
-        let reply_domain = match serde_json::from_value::<ImapChannelConfig>(channel.config.clone())
-        {
-            Ok(cfg) => cfg.reply_domain,
+        let config = match serde_json::from_value::<ImapChannelConfig>(channel.config.clone()) {
+            Ok(cfg) => cfg,
             Err(_) => continue,
         };
         let Some(recipient) = user_helpers::get_primary_email(&requester_uuid, conn) else {
             continue;
         };
 
-        let message_id = format_outbound_message_id(destination.id, source.id, &reply_domain);
+        let message_id =
+            format_outbound_message_id(destination.id, source.id, &config.reply_domain);
         let subject = format_outbound_subject(destination.id, &destination.title);
+        // B3: customer replies to the merge notice should thread back into the
+        // ticket via the channel's polled mailbox (see outbound.rs). Only when
+        // the IMAP username is an address.
+        let headers_json = if config.username.contains('@') {
+            serde_json::json!({ "Reply-To": config.username })
+        } else {
+            serde_json::json!({})
+        };
 
         outbound_emails::enqueue(
             conn,
@@ -837,11 +845,15 @@ pub fn enqueue_merge_notifications(
                 message_id,
                 in_reply_to: None,
                 references_list: Vec::new(),
-                headers_json: serde_json::json!({}),
+                headers_json,
                 correlation_id: None,
                 idempotency_key: None,
                 sender_identity: crate::models::outbound_email_sender_identity::WORKSPACE
                     .to_string(),
+                // A merge notice to the customer is conversation mail about
+                // their own ticket: transactional, not an opt-out-able
+                // notification (only internal ticket-activity notifications are).
+                mail_class: crate::models::outbound_email_mail_class::TRANSACTIONAL.to_string(),
             },
         )?;
         enqueued += 1;

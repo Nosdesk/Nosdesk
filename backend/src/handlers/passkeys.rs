@@ -19,7 +19,7 @@ use crate::utils::jwt::helpers as jwt_helpers;
 use crate::utils::locale::request_locale;
 use crate::utils::mfa;
 use crate::utils::rate_limit::{get_redis_url, RateLimiter};
-use crate::utils::webauthn::{self, credential_id_to_string, StoredPasskeyCredential, WEBAUTHN};
+use crate::utils::webauthn::{self, credential_id_to_string, StoredPasskeyCredential};
 
 // =============================================================================
 // Request/Response Types
@@ -184,7 +184,13 @@ pub async fn start_passkey_registration(
         .collect();
 
     // Create WebAuthn registration challenge
-    let webauthn = &*WEBAUTHN;
+    let webauthn = match webauthn::webauthn_for_request(&req) {
+        Ok(w) => w,
+        Err(e) => {
+            error!("Failed to build WebAuthn verifier: {:?}", e);
+            return errors::internal("WebAuthn is not configured for this workspace");
+        }
+    };
 
     let (ccr, reg_state) = match webauthn.start_passkey_registration(
         user_uuid,
@@ -297,7 +303,13 @@ pub async fn finish_passkey_registration(
     };
 
     // Complete registration with WebAuthn
-    let webauthn = &*WEBAUTHN;
+    let webauthn = match webauthn::webauthn_for_request(&req) {
+        Ok(w) => w,
+        Err(e) => {
+            error!("Failed to build WebAuthn verifier: {:?}", e);
+            return errors::internal("WebAuthn is not configured for this workspace");
+        }
+    };
     let passkey = match webauthn.finish_passkey_registration(&reg_response, &reg_state) {
         Ok(pk) => pk,
         Err(e) => {
@@ -419,7 +431,13 @@ pub async fn start_passkey_login(
         _ => {}
     }
 
-    let webauthn = &*WEBAUTHN;
+    let webauthn = match webauthn::webauthn_for_request(&req) {
+        Ok(w) => w,
+        Err(e) => {
+            error!("Failed to build WebAuthn verifier: {:?}", e);
+            return errors::internal("WebAuthn is not configured for this workspace");
+        }
+    };
 
     // AUD-007: every start_login takes the discoverable-auth
     // path, regardless of whether an email was supplied or
@@ -516,7 +534,13 @@ pub async fn finish_passkey_login(
         }
     };
 
-    let webauthn = &*WEBAUTHN;
+    let webauthn = match webauthn::webauthn_for_request(&req) {
+        Ok(w) => w,
+        Err(e) => {
+            error!("Failed to build WebAuthn verifier: {:?}", e);
+            return errors::internal("WebAuthn is not configured for this workspace");
+        }
+    };
 
     // Run the appropriate finish ceremony and capture the
     // AuthenticationResult so we can persist the bumped sign counter
@@ -1046,7 +1070,13 @@ pub async fn start_passkey_setup_login(
         .collect();
 
     // Create WebAuthn registration challenge
-    let webauthn = &*WEBAUTHN;
+    let webauthn = match webauthn::webauthn_for_request(&req) {
+        Ok(w) => w,
+        Err(e) => {
+            error!("Failed to build WebAuthn verifier: {:?}", e);
+            return errors::internal("WebAuthn is not configured for this workspace");
+        }
+    };
 
     let (ccr, reg_state) = match webauthn.start_passkey_registration(
         user.uuid,
@@ -1213,7 +1243,13 @@ pub async fn finish_passkey_setup_login(
     };
 
     // Complete registration with WebAuthn
-    let webauthn = &*WEBAUTHN;
+    let webauthn = match webauthn::webauthn_for_request(&req) {
+        Ok(w) => w,
+        Err(e) => {
+            error!("Failed to build WebAuthn verifier: {:?}", e);
+            return errors::internal("WebAuthn is not configured for this workspace");
+        }
+    };
     let passkey = match webauthn.finish_passkey_registration(&reg_response, &reg_state) {
         Ok(pk) => pk,
         Err(e) => {

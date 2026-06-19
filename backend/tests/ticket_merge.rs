@@ -90,6 +90,7 @@ fn claims_for(user: &User) -> Claims {
         platform_role: "user".to_string(),
         scope: "full".to_string(),
         sid: None,
+        workspace_uuid: None,
         exp: (chrono::Utc::now().timestamp() + 3600) as usize,
         iat: chrono::Utc::now().timestamp() as usize,
     }
@@ -121,6 +122,7 @@ fn spawn(pool: &common::TestPool, user: &User) -> (actix_test::TestServer, Arc<S
             slug: "default".to_string(),
             name: "Default".to_string(),
             organisation_id: None,
+            custom_domain: None,
         };
         App::new()
             .app_data(web::Data::new(pool))

@@ -23,7 +23,9 @@ use diesel::result::Error as DieselError;
 use ring::digest;
 
 use crate::db::DbConnection;
-use crate::models::{outbound_email_sender_identity, NewOutboundEmail, OutboundEmail};
+use crate::models::{
+    outbound_email_mail_class, outbound_email_sender_identity, NewOutboundEmail, OutboundEmail,
+};
 use crate::repository::outbound_emails;
 use crate::utils::email::{EmailBranding, EmailService};
 
@@ -106,6 +108,7 @@ pub fn prepare_password_reset(
         idempotency_key: Some(format!("password_reset:{}", hash16(reset_token))),
         // Auth mail: pin the instance identity, never a tenant relay.
         sender_identity: outbound_email_sender_identity::PLATFORM.to_string(),
+        mail_class: outbound_email_mail_class::TRANSACTIONAL.to_string(),
     }
 }
 
@@ -160,6 +163,7 @@ pub fn prepare_invitation(
         idempotency_key: Some(format!("invitation:{}", hash16(invitation_token))),
         // Auth mail: pin the instance identity, never a tenant relay.
         sender_identity: outbound_email_sender_identity::PLATFORM.to_string(),
+        mail_class: outbound_email_mail_class::TRANSACTIONAL.to_string(),
     }
 }
 
@@ -189,6 +193,78 @@ pub fn enqueue_invitation(
     outbound_emails::enqueue_idempotent(conn, row)
 }
 
+/// Build the `NewOutboundEmail` row for a customer-portal sign-in link.
+/// Transactional auth mail (no unsubscribe), sent from the WORKSPACE identity
+/// (the tenant's branded portal, falling back to the instance identity when the
+/// workspace has no verified sending domain).
+pub fn prepare_portal_magic_link(
+    svc: &EmailService,
+    branding: &EmailBranding,
+    recipient: &str,
+    user_name: &str,
+    magic_token: &str,
+    locale: &unic_langid::LanguageIdentifier,
+) -> NewOutboundEmail {
+    let (subject, body_html, body_text) =
+        svc.compose_portal_magic_link(user_name, magic_token, branding, locale);
+    let message_id = make_message_id("portal-signin", &from_email_domain(svc));
+    let headers_json = serde_json::json!({
+        "Auto-Submitted": "auto-generated",
+    });
+
+    NewOutboundEmail {
+        channel_id: None,
+        ticket_id: None,
+        comment_id: None,
+        recipient: recipient.to_string(),
+        subject,
+        body_text,
+        body_html: Some(body_html),
+        message_id,
+        in_reply_to: None,
+        references_list: vec![],
+        headers_json,
+        correlation_id: None,
+        idempotency_key: Some(format!("portal_magic_link:{}", hash16(magic_token))),
+        sender_identity: outbound_email_sender_identity::WORKSPACE.to_string(),
+        mail_class: outbound_email_mail_class::TRANSACTIONAL.to_string(),
+    }
+}
+
+/// Enqueue a customer-portal sign-in email. The key derives from the token, so
+/// a fresh sign-in request (new token) is a new send; idempotency only catches
+/// enqueue retries inside one request.
+pub fn enqueue_portal_magic_link(
+    conn: &mut DbConnection,
+    svc: &EmailService,
+    branding: &EmailBranding,
+    recipient: &str,
+    user_name: &str,
+    magic_token: &str,
+    locale: &unic_langid::LanguageIdentifier,
+) -> Result<OutboundEmail, DieselError> {
+    let row = prepare_portal_magic_link(svc, branding, recipient, user_name, magic_token, locale);
+    outbound_emails::enqueue_idempotent(conn, row)
+}
+
+/// Build the signed one-click unsubscribe URL for a notification email, on the
+/// same origin as `cta_url` (the product app that serves the endpoint). `None`
+/// when the recipient uuid or the CTA origin can't be parsed, or `JWT_SECRET`
+/// is unset — the `List-Unsubscribe` header is then simply omitted.
+fn unsubscribe_url(cta_url: &str, recipient_uuid: &str) -> Option<String> {
+    let user = uuid::Uuid::parse_str(recipient_uuid).ok()?;
+    let token = crate::utils::unsubscribe_token::sign(&user)?;
+    let origin = url::Url::parse(cta_url)
+        .ok()?
+        .origin()
+        .ascii_serialization();
+    // `origin()` yields "null" for opaque / relative URLs; don't build a bad link.
+    if origin == "null" {
+        return None;
+    }
+    Some(format!("{origin}/api/public/unsubscribe?token={token}"))
+}
+
 /// Build the `NewOutboundEmail` row for a notification send.
 /// See `prepare_password_reset` for the rationale.
 #[allow(clippy::too_many_arguments)]
@@ -214,7 +290,14 @@ pub fn prepare_notification(
     // Auto-Submitted: doing so makes Gmail treat them as bot
     // traffic and reduces engagement scoring. Keep them
     // person-to-person-shaped.
-    let headers_json = serde_json::json!({});
+    //
+    // B2: notification mail is opt-out-able, so carry a one-click unsubscribe
+    // URL. The endpoint lives on the same origin the CTA links to (the product
+    // app), and the token is signed so the no-auth endpoint can trust it.
+    let headers_json = match unsubscribe_url(cta_url, recipient_uuid) {
+        Some(url) => serde_json::json!({ "List-Unsubscribe": url }),
+        None => serde_json::json!({}),
+    };
 
     NewOutboundEmail {
         channel_id: None,
@@ -233,6 +316,7 @@ pub fn prepare_notification(
         // Notifications send from the workspace identity (fall back to the
         // instance identity when the workspace hasn't configured one).
         sender_identity: outbound_email_sender_identity::WORKSPACE.to_string(),
+        mail_class: outbound_email_mail_class::NOTIFICATION.to_string(),
     }
 }
 
@@ -406,6 +490,48 @@ mod tests {
             row.body_text
         );
         assert!(row.body_text.contains("Alice"));
+    }
+
+    #[test]
+    fn mail_class_distinguishes_notification_from_transactional() {
+        use crate::models::outbound_email_mail_class as mc;
+
+        let reset = prepare_password_reset(
+            &test_svc(),
+            &test_branding(),
+            "alice@example.com",
+            "Alice",
+            "tok",
+            &en_us(),
+        );
+        let invite = prepare_invitation(
+            &test_svc(),
+            &test_branding(),
+            "bob@example.com",
+            "Bob",
+            "tok",
+            "Kyle",
+            &en_us(),
+        );
+        let notify = prepare_notification(
+            &test_svc(),
+            &test_branding(),
+            "carol@example.com",
+            "subj",
+            "title",
+            "body",
+            "Dave",
+            "https://desk.example.com/tickets/1",
+            "evt-1",
+            "11111111-1111-1111-1111-111111111111",
+            &en_us(),
+        );
+
+        // Auth mail is must-deliver; only the ticket-activity notification is the
+        // opt-out-able class that will carry List-Unsubscribe (B2).
+        assert_eq!(reset.mail_class, mc::TRANSACTIONAL);
+        assert_eq!(invite.mail_class, mc::TRANSACTIONAL);
+        assert_eq!(notify.mail_class, mc::NOTIFICATION);
     }
 
     #[test]

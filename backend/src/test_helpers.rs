@@ -463,6 +463,7 @@ pub fn create_test_claims(user: &User) -> crate::models::Claims {
         platform_role: user.platform_role.clone(),
         scope: "full".to_string(),
         sid: None,
+        workspace_uuid: None,
         exp: (chrono::Utc::now() + chrono::Duration::hours(24)).timestamp() as usize,
         iat: chrono::Utc::now().timestamp() as usize,
     }

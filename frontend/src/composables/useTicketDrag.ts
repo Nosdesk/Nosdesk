@@ -1,5 +1,6 @@
 import { ref, readonly } from 'vue'
 import type { WorkflowStateCategory } from '@/types/workflow'
+import { shareableRouteUrl } from '@/utils/shareUrl'
 import { createDragEdgeScroller } from '@/composables/useDragEdgeScroll'
 
 export interface DraggableTicket {
@@ -170,8 +171,8 @@ export function useTicketDrag() {
       // Allow all effects for maximum compatibility with external apps
       event.dataTransfer.effectAllowed = 'all'
 
-      // Build ticket URL
-      const ticketUrl = `${window.location.origin}/tickets/${ticket.id}`
+      // Build ticket URL (workspace-scoped in path mode)
+      const ticketUrl = shareableRouteUrl('ticket-view', { id: String(ticket.id) })
       const ticketLabel = `#${ticket.id} ${ticket.title}`
 
       // Set multiple data formats for maximum compatibility

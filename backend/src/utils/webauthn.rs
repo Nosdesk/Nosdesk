@@ -119,13 +119,66 @@ impl WebAuthnConfig {
     }
 }
 
-// Lazy static WebAuthn instance
-lazy_static::lazy_static! {
-    static ref WEBAUTHN_CONFIG: WebAuthnConfig = WebAuthnConfig::from_env()
-        .expect("Failed to load WebAuthn configuration");
+// =============================================================================
+// Per-request verifier (per-workspace RP)
+// =============================================================================
+//
+// Hosted multi-tenant: RP ID + origin are the host the request is served on
+// (`mercury.nosdesk.dev` or a tenant's custom domain), so passkeys are scoped
+// per host/workspace and custom domains work without a shared RP ID (which
+// would leak credentials across tenants). Self-hosted single-tenant: the
+// env-configured RP (`WEBAUTHN_RP_ID` / `WEBAUTHN_RP_ORIGIN`). Building per
+// request is cheap. Rationale + spec research: docs/plans/tenant-origin-awareness.md.
 
-    pub static ref WEBAUTHN: Webauthn = WEBAUTHN_CONFIG.build_webauthn()
-        .expect("Failed to build WebAuthn instance");
+/// Build the WebAuthn verifier for the current request. RP ID is the request's
+/// (validated) workspace host in hosted mode, or the env config in self-hosted
+/// mode. Returns an owned `Webauthn`; cheap to construct per call. Errors
+/// surface per request (not as a startup panic), so a hosted deploy needs no
+/// `WEBAUTHN_RP_*` env at all.
+pub fn webauthn_for_request(req: &actix_web::HttpRequest) -> Result<Webauthn> {
+    match request_workspace_host(req) {
+        Some(host) => build_webauthn_for_host(&host),
+        None => WebAuthnConfig::from_env()?.build_webauthn(),
+    }
+}
+
+/// The host this request is actually served on (= the WebAuthn RP ID), when it
+/// resolved to a hosted workspace. This is the **request host**, not the
+/// workspace's canonical-preference host: `rp_origin` must equal the browser's
+/// real origin, which differs from the canonical host when a workspace has a
+/// custom domain but is reached via its subdomain. The `WorkspaceContext` gate
+/// means the middleware already validated this host belongs to a workspace, and
+/// the browser independently enforces RP-ID/origin matching. Mirrors OIDC's
+/// `oauth_callback_redirect_uri`, the sibling request-origin concern.
+fn request_workspace_host(req: &actix_web::HttpRequest) -> Option<String> {
+    use actix_web::HttpMessage;
+    // Gate: only build a per-workspace verifier for a resolved hosted workspace.
+    // Drop the extensions borrow before reading headers.
+    if req
+        .extensions()
+        .get::<crate::extractors::WorkspaceContext>()
+        .is_none()
+    {
+        return None;
+    }
+    let host = req
+        .headers()
+        .get(actix_web::http::header::HOST)
+        .and_then(|h| h.to_str().ok())?;
+    let host = host.split(':').next().unwrap_or(host).trim().to_lowercase();
+    (!host.is_empty()).then_some(host)
+}
+
+/// Build a verifier whose RP ID and origin are the workspace canonical `host`.
+fn build_webauthn_for_host(host: &str) -> Result<Webauthn> {
+    let rp_origin = Url::parse(&format!("https://{host}"))
+        .map_err(|e| anyhow!("Invalid WebAuthn origin for host {host}: {e}"))?;
+    let rp_name = env::var("WEBAUTHN_RP_NAME").unwrap_or_else(|_| "Nosdesk".to_string());
+    WebauthnBuilder::new(host, &rp_origin)
+        .map_err(|e| anyhow!("Failed to create WebAuthn builder: {e:?}"))?
+        .rp_name(&rp_name)
+        .build()
+        .map_err(|e| anyhow!("Failed to build WebAuthn: {e:?}"))
 }
 
 // =============================================================================
@@ -702,5 +755,72 @@ mod tests {
         let blob = serde_json::json!({ "cred": { "counter": 5 } });
         let bumped = sync_counter_into_credential_blob(blob, 0);
         assert_eq!(bumped["cred"]["counter"], serde_json::json!(0));
+    }
+
+    mod request_workspace_host {
+        use super::super::request_workspace_host;
+        use crate::extractors::WorkspaceContext;
+        use actix_web::{test::TestRequest, HttpMessage, HttpRequest};
+
+        fn req(host: &str, ctx: Option<WorkspaceContext>) -> HttpRequest {
+            let req = TestRequest::default()
+                .insert_header(("host", host))
+                .to_http_request();
+            if let Some(c) = ctx {
+                req.extensions_mut().insert(c);
+            }
+            req
+        }
+
+        fn ctx(slug: &str, custom_domain: Option<&str>) -> WorkspaceContext {
+            WorkspaceContext {
+                workspace_id: 1,
+                workspace_uuid: uuid::Uuid::nil(),
+                slug: slug.to_string(),
+                name: "Test".to_string(),
+                custom_domain: custom_domain.map(str::to_string),
+                organisation_id: None,
+            }
+        }
+
+        #[test]
+        fn uses_request_host_for_a_resolved_workspace() {
+            let r = req("mercury.nosdesk.dev", Some(ctx("mercury", None)));
+            assert_eq!(
+                request_workspace_host(&r),
+                Some("mercury.nosdesk.dev".to_string())
+            );
+        }
+
+        #[test]
+        fn uses_request_host_not_canonical_when_custom_domain_differs() {
+            // Workspace has a custom domain but the browser is on the subdomain.
+            // rp_origin must equal the browser origin, so the RP host is the
+            // request host, NOT the canonical (custom-domain) host.
+            let r = req(
+                "mercury.nosdesk.dev",
+                Some(ctx("mercury", Some("help.acme.com"))),
+            );
+            assert_eq!(
+                request_workspace_host(&r),
+                Some("mercury.nosdesk.dev".to_string())
+            );
+        }
+
+        #[test]
+        fn none_without_workspace_context() {
+            // Self-hosted / unresolved: fall back to the env-configured RP.
+            let r = req("mercury.nosdesk.dev", None);
+            assert_eq!(request_workspace_host(&r), None);
+        }
+
+        #[test]
+        fn strips_port_and_lowercases() {
+            let r = req("Mercury.Nosdesk.Dev:8443", Some(ctx("mercury", None)));
+            assert_eq!(
+                request_workspace_host(&r),
+                Some("mercury.nosdesk.dev".to_string())
+            );
+        }
     }
 }

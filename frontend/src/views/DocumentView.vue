@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { shareableRouteUrl } from '@/utils/shareUrl'
 import { useFluent } from 'fluent-vue'
 import { formatDate } from '@/utils/dateUtils'
 import { docUrl, slugify } from '@/utils/docUrl'
@@ -125,7 +126,9 @@ const isDocumentPage = computed(() => !!document.value && !isTicketNote.value)
 
 const handleCopyLink = () => {
   const slug = document.value?.slug || document.value?.id
-  const url = `${window.location.origin}/documentation/${slug}`
+  if (slug == null) return
+  // Workspace-scoped in path mode so a shared link opens the right tenant.
+  const url = shareableRouteUrl('documentation-page', { path: String(slug) })
   copyToClipboard(url)
 }
 

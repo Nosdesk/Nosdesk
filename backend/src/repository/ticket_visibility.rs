@@ -94,6 +94,18 @@ impl VisibilityContext {
         Some(Self::new(user_uuid, platform_role, workspace_role))
     }
 
+    /// Visibility for the customer portal: ALWAYS requester-scoped, never
+    /// sees-all, whatever the underlying user's role. The portal is an
+    /// ownership-bounded surface, so a user who also happens to be an agent
+    /// must still see only their own tickets there. Do not derive portal
+    /// visibility from a role lookup; it must be forced.
+    pub fn requester_only(user_uuid: Uuid) -> Self {
+        Self {
+            user_uuid,
+            sees_all: false,
+        }
+    }
+
     /// Build from the `AuthContext` extractor that most handlers
     /// already destructure out of the request. Uses the workspace
     /// role AuthContext already resolved for the request's workspace.
@@ -227,6 +239,33 @@ mod tests {
         let ticket = TestFixtures::create_ticket(&mut conn, "other", Some(requester.uuid), None);
 
         assert!(can_view_ticket(&mut conn, &ctx(tech.uuid, "technician"), ticket.id).unwrap());
+    }
+
+    #[test]
+    fn requester_only_confines_even_a_technician_to_their_own() {
+        // The portal is ownership-bounded regardless of role: a user who is
+        // ALSO a technician (and would otherwise see every ticket) must see
+        // only their own tickets through the portal's forced-requester context.
+        let mut conn = setup_test_connection();
+        let tech = TestFixtures::create_user(&mut conn, "tech-portal", "technician");
+        let other = TestFixtures::create_user(&mut conn, "other-cust", "user");
+        let theirs = TestFixtures::create_ticket(&mut conn, "not yours", Some(other.uuid), None);
+        let own = TestFixtures::create_ticket(&mut conn, "yours", Some(tech.uuid), None);
+
+        // Role-derived context: the tech sees the other customer's ticket.
+        assert!(can_view_ticket(&mut conn, &ctx(tech.uuid, "technician"), theirs.id).unwrap());
+
+        // Portal (requester_only): forced non-sees-all, confined to own tickets.
+        let portal = VisibilityContext::requester_only(tech.uuid);
+        assert!(!portal.sees_all(), "portal visibility must never see all");
+        assert!(
+            !can_view_ticket(&mut conn, &portal, theirs.id).unwrap(),
+            "portal must not see another customer's ticket"
+        );
+        assert!(
+            can_view_ticket(&mut conn, &portal, own.id).unwrap(),
+            "portal sees the user's own ticket"
+        );
     }
 
     #[test]

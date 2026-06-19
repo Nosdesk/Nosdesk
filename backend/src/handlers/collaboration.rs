@@ -2517,7 +2517,7 @@ pub async fn ws_handler(
     req: HttpRequest,
     body: web::Payload,
     app_state: web::Data<YjsAppState>,
-    ws: crate::extractors::WorkspaceContext,
+    ws: Option<crate::extractors::WorkspaceContext>,
     path: web::Path<String>,
 ) -> Result<HttpResponse, Error> {
     let doc_id = path.into_inner();
@@ -2581,25 +2581,101 @@ pub async fn ws_handler(
         .cookie(crate::utils::cookies::ACCESS_TOKEN_COOKIE)
         .ok_or_else(|| actix_web::error::ErrorUnauthorized("No authentication cookie"))?;
 
-    // Validate the token, extract the user UUID, and resolve the
+    // Parse the workspace-namespaced doc_id up front; its embedded
+    // workspace_uuid is the tenancy anchor. Rejects legacy bare ids
+    // ("ticket-N") so a stale client that didn't refresh after the
+    // namespace migration fails fast with a clear log line instead of
+    // silently sharing the workspace-1 doc.
+    let parsed = match DocumentType::from_namespaced_doc_id(&doc_id) {
+        Ok(p) => p,
+        Err(e) => {
+            warn!(doc_id = %doc_id, error = ?e, "WebSocket doc_id parse failed");
+            return Err(actix_web::error::ErrorBadRequest(
+                "doc_id must be in the workspace-namespaced format ws-{uuid}_{kind}-{id}",
+            ));
+        }
+    };
+
+    // Validate the token, resolve the connection's workspace, and build the
     // visibility context used to gate per-document access below.
-    let (user_uuid, accessor) = if let Some(pool) = req.app_data::<web::Data<crate::db::Pool>>() {
+    let (user_uuid, accessor, workspace_id) = if let Some(pool) =
+        req.app_data::<web::Data<crate::db::Pool>>()
+    {
         let mut conn = pool.get().map_err(|_| {
             actix_web::error::ErrorInternalServerError("Database connection failed")
         })?;
-        // Pin the request's workspace so the accessor's role + visibility
-        // resolve under RLS (the pool clears app.workspace_id on checkout).
-        // Without this an admin is downgraded to member document visibility.
-        crate::handlers::helpers::pin_request_workspace(&req, &mut conn);
 
-        // Use our centralized JWT validation
+        // Resolve the workspace. A Host-derived context (per-tenant-origin
+        // surface) wins, and the docId must match it — the cross-tenant
+        // guard against a tab cached on workspace A constructing a B docId.
+        // With no Host context (single-origin agent app), the docId's
+        // workspace_uuid IS the selection: the WS can't send the selection
+        // header, so the docId is the carrier (like the SSE token). The
+        // membership gate below is the authorization in both cases.
+        let workspace_id = match &ws {
+            Some(ws) => {
+                if parsed.workspace_uuid != ws.workspace_uuid {
+                    warn!(
+                        doc_id = %doc_id,
+                        requested_workspace_uuid = %parsed.workspace_uuid,
+                        request_workspace_id = ws.workspace_id,
+                        "WebSocket doc_id workspace mismatch — rejecting cross-tenant request"
+                    );
+                    return Err(actix_web::error::ErrorForbidden(
+                        "doc_id workspace does not match the request workspace",
+                    ));
+                }
+                ws.workspace_id
+            }
+            None => {
+                match crate::repository::workspaces::find_by_uuid(&mut conn, parsed.workspace_uuid)
+                {
+                    Ok(Some(w)) => w.id,
+                    // Unknown workspace collapses into the same denial a
+                    // non-member gets, so workspace existence does not leak.
+                    Ok(None) => {
+                        return Err(actix_web::error::ErrorForbidden(
+                            "Not a member of this workspace",
+                        ))
+                    }
+                    Err(e) => {
+                        error!(error = ?e, "WebSocket docId workspace resolution failed");
+                        return Err(actix_web::error::ErrorInternalServerError(
+                            "Workspace resolution failed",
+                        ));
+                    }
+                }
+            }
+        };
+
+        // Pin so the accessor's role + visibility resolve under RLS (the
+        // pool clears app.workspace_id on checkout); without it an admin is
+        // downgraded to member document visibility.
+        //
+        // Safety invariant: the pin precedes the membership gate below, but
+        // everything read under it before the gate touches only the CALLER'S
+        // OWN data (their user row in validate_token_with_user_check, their
+        // own workspace_role in from_claims). No other tenant's content is
+        // read until after the gate denies non-members, so pinning a
+        // client-selected workspace here cannot leak. Keep any tenant-content
+        // read (the per-document resolve + visibility check) below the gate.
+        crate::handlers::helpers::pin_workspace(&mut conn, workspace_id);
+
         use crate::utils::jwt::JwtUtils;
-
         match JwtUtils::validate_token_with_user_check(token.value(), &mut conn).await {
             Ok((claims, user)) => {
                 let accessor = DocAccessor::from_claims(&claims, &mut conn)
                     .ok_or_else(|| actix_web::error::ErrorUnauthorized("Invalid token subject"))?;
-                (user.uuid, accessor)
+                // Membership gate: the collab WS bypasses the auth
+                // middleware, so the gate it runs for REST is invoked
+                // explicitly here. Load-bearing under Model C, where the
+                // workspace is client-selected (docId / Host).
+                crate::middleware::cookie_auth::require_workspace_membership(
+                    &mut conn,
+                    workspace_id,
+                    user.uuid,
+                )?;
+                (user.uuid, accessor, workspace_id)
             }
             Err(_) => {
                 return Err(actix_web::error::ErrorUnauthorized(
@@ -2613,44 +2689,10 @@ pub async fn ws_handler(
         ));
     };
 
-    // Parse the workspace-namespaced doc_id and validate that its
-    // claimed workspace matches the WorkspaceContext the middleware
-    // resolved from this request. This is the cache-key + tenancy
-    // guard:
-    //
-    //   * Rejects legacy bare ids ("ticket-N"), so a stale client
-    //     that didn't refresh after the namespace migration fails
-    //     fast with a clear log line instead of silently sharing
-    //     the workspace-1 doc.
-    //   * Rejects cross-workspace requests under hosted multi-
-    //     tenancy: a tab cached against workspace A whose state
-    //     somehow constructs a `ws-{A_uuid}_...` docId after
-    //     navigating to workspace B can't accidentally read or
-    //     write workspace B's doc.
-    let parsed = match DocumentType::from_namespaced_doc_id(&doc_id) {
-        Ok(p) => p,
-        Err(e) => {
-            warn!(doc_id = %doc_id, error = ?e, "WebSocket doc_id parse failed");
-            return Err(actix_web::error::ErrorBadRequest(
-                "doc_id must be in the workspace-namespaced format ws-{uuid}_{kind}-{id}",
-            ));
-        }
-    };
-    if parsed.workspace_uuid != ws.workspace_uuid {
-        warn!(
-            doc_id = %doc_id,
-            requested_workspace_uuid = %parsed.workspace_uuid,
-            request_workspace_id = ws.workspace_id,
-            "WebSocket doc_id workspace mismatch — rejecting cross-tenant request"
-        );
-        return Err(actix_web::error::ErrorForbidden(
-            "doc_id workspace does not match the request workspace",
-        ));
-    }
     debug!(
         doc_id = %doc_id,
         user_uuid = %user_uuid,
-        workspace_id = ws.workspace_id,
+        workspace_id,
         "WebSocket authentication + workspace check successful"
     );
 
@@ -2677,7 +2719,7 @@ pub async fn ws_handler(
         // by `app.workspace_id`. On a raw connection that GUC is unset, so the
         // rows are filtered out and every doc 404s in hosted mode. The rest of
         // this handler already wraps its reads this way.
-        let actor = yjs_session_actor(ws.workspace_id);
+        let actor = yjs_session_actor(workspace_id);
         let resolved = session::with_actor_context(&mut conn, &actor, |conn| {
             let dt = match parsed.resolve(conn)? {
                 Some(dt) => dt,
@@ -2749,7 +2791,6 @@ pub async fn ws_handler(
         .max_continuation_size(1024 * 1024);
 
     let session_id = Uuid::now_v7().to_string();
-    let workspace_id = ws.workspace_id;
     let app_state_inner = app_state.get_ref().clone();
 
     actix_web::rt::spawn(session_task(

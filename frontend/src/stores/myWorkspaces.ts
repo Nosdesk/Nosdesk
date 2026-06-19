@@ -7,11 +7,10 @@ import { computed } from 'vue';
 import { useQuery } from '@pinia/colada';
 import workspacesService from '@/services/workspacesService';
 import type { MyWorkspaceEntry } from '@/types/workspace';
-import {
-  navigateToWorkspace,
-  resolveActiveWorkspaceId,
-} from '@/utils/workspaceNavigation';
+import { resolveActiveWorkspaceId } from '@/utils/workspaceNavigation';
 import { useAuthStore } from '@/stores/auth';
+import { getWorkspaceRouting } from '@/services/instanceConfig';
+import { activeWorkspaceSlugRef } from '@/services/activeWorkspace';
 
 export const MY_WORKSPACES_KEY = ['my-workspaces'] as const;
 
@@ -34,13 +33,24 @@ export const useMyWorkspacesStore = defineStore('myWorkspaces', () => {
     () => (Array.isArray(query.data.value) ? query.data.value : []),
   );
 
-  const activeWorkspaceId = computed(() => resolveActiveWorkspaceId(workspaces.value));
-
+  // The active workspace is whichever one the URL points at, resolved
+  // mode-appropriately: in path mode the route slug (the single source of truth
+  // the router keeps in `activeWorkspace` and the carrier header read from), and
+  // in host mode the subdomain. Both feed one `activeWorkspace`, so the switcher
+  // and the carrier never disagree.
   const activeWorkspace = computed<MyWorkspaceEntry | null>(() => {
-    const id = activeWorkspaceId.value;
-    if (id == null) return workspaces.value[0] ?? null;
-    return workspaces.value.find((w) => w.workspace_id === id) ?? workspaces.value[0] ?? null;
+    const fallback = () => workspaces.value[0] ?? null;
+    if (getWorkspaceRouting() === 'path') {
+      const slug = activeWorkspaceSlugRef.value;
+      if (!slug) return fallback();
+      return workspaces.value.find((w) => w.slug === slug) ?? fallback();
+    }
+    const id = resolveActiveWorkspaceId(workspaces.value);
+    if (id == null) return fallback();
+    return workspaces.value.find((w) => w.workspace_id === id) ?? fallback();
   });
+
+  const activeWorkspaceId = computed(() => activeWorkspace.value?.workspace_id ?? null);
 
   /** Hide the switcher when the operator only belongs to one tenant. */
   const showSwitcher = computed(() => workspaces.value.length > 1);
@@ -49,17 +59,12 @@ export const useMyWorkspacesStore = defineStore('myWorkspaces', () => {
     () => query.status.value === 'pending' && query.data.value === undefined,
   );
 
-  function switchTo(entry: MyWorkspaceEntry): void {
-    navigateToWorkspace(entry);
-  }
-
   return {
     workspaces,
     activeWorkspace,
     activeWorkspaceId,
     showSwitcher,
     isLoading,
-    switchTo,
     refetch: query.refetch,
   };
 });

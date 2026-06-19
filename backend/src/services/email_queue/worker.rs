@@ -227,6 +227,33 @@ async fn dispatch(
         .and_then(|v| v.as_str())
         .filter(|s| !s.eq_ignore_ascii_case("no"));
 
+    // B3: producer-supplied Reply-To (channel inbound mailbox), same bag as
+    // Auto-Submitted. Absent / blank means no header.
+    let reply_to = row
+        .headers_json
+        .get("Reply-To")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
+    // B1: VERP Return-Path so a bounce links back to THIS row by token, even
+    // when the remote MTA doesn't echo our Message-ID. The base is the polled
+    // mailbox (= the Reply-To target), so the bounce lands where replies already
+    // do. Off unless SMTP_VERP_SECRET is set, so existing deployments are
+    // unchanged until an operator enables and deliverability-tests it.
+    let envelope_from: Option<String> = crate::utils::verp::configured_secret()
+        .zip(reply_to)
+        .and_then(|(secret, base)| crate::utils::verp::tagged_return_path(base, row.id, &secret));
+
+    // B2: producer-supplied one-click unsubscribe URL, set only on notification
+    // mail. Same headers_json bag as Reply-To.
+    let list_unsubscribe = row
+        .headers_json
+        .get("List-Unsubscribe")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
     let message = OutboundEmailMessage {
         to: &row.recipient,
         subject: &row.subject,
@@ -236,6 +263,10 @@ async fn dispatch(
         in_reply_to: row.in_reply_to.as_deref(),
         references: &references,
         auto_submitted,
+        mail_class: &row.mail_class,
+        reply_to,
+        envelope_from: envelope_from.as_deref(),
+        list_unsubscribe,
     };
 
     match email.send_outbound(&message).await {

@@ -47,6 +47,7 @@ impl JwtUtils {
             platform_role: user.platform_role.clone(),
             scope: "full".to_string(),
             sid: Some(session_id.to_string()),
+            workspace_uuid: None,
             exp: now + 15 * 60, // 15 minutes
             iat: now,
         };
@@ -60,8 +61,15 @@ impl JwtUtils {
     }
 
     /// Create a short-lived SSE token (1 hour expiry)
-    /// These tokens are specifically for Server-Sent Events and have reduced scope
-    pub fn create_sse_token(user_id: &str, platform_role: &str) -> Result<String, JwtError> {
+    /// These tokens are specifically for Server-Sent Events and have reduced scope.
+    /// `workspace_uuid` binds the selected workspace into the token (Model C) so
+    /// the stream — which can't receive the selection header over EventSource —
+    /// authorizes against it; `None` for Host-derived / self-hosted callers.
+    pub fn create_sse_token(
+        user_id: &str,
+        platform_role: &str,
+        workspace_uuid: Option<uuid::Uuid>,
+    ) -> Result<String, JwtError> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|_| JwtError::SystemTime)?
@@ -74,7 +82,47 @@ impl JwtUtils {
             platform_role: platform_role.to_string(),
             scope: "sse".to_string(),
             sid: None,
+            workspace_uuid,
             exp: now + 3600,
+            iat: now,
+        };
+
+        encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(JWT_SECRET.as_bytes()),
+        )
+        .map_err(JwtError::EncodingError)
+    }
+
+    /// Create a customer-portal session access token (15 minutes).
+    ///
+    /// Scope `portal` (refused on the agent surface) and the workspace UUID
+    /// bound into the token so the portal gate can confirm the session belongs
+    /// to the origin's workspace and reject a token replayed onto a different
+    /// tenant's portal. Mirrors [`create_token`] otherwise.
+    pub fn create_portal_token(
+        user: &User,
+        workspace_uuid: uuid::Uuid,
+        session_id: &uuid::Uuid,
+    ) -> Result<String, JwtError> {
+        if user.deleted_at.is_some() {
+            return Err(JwtError::UserNotFound);
+        }
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| JwtError::SystemTime)?
+            .as_secs() as usize;
+
+        let claims = Claims {
+            sub: uuid_to_string(&user.uuid),
+            name: user.name.clone(),
+            email: String::new(),
+            platform_role: user.platform_role.clone(),
+            scope: crate::middleware::cookie_auth::PORTAL_SCOPE.to_string(),
+            sid: Some(session_id.to_string()),
+            workspace_uuid: Some(workspace_uuid),
+            exp: now + 15 * 60, // 15 minutes
             iat: now,
         };
 
@@ -443,6 +491,55 @@ pub mod helpers {
         })
     }
 
+    /// Customer-portal equivalent of [`create_tokens`]: a portal-scope access
+    /// token (workspace-bound) plus the same refresh + CSRF machinery. The
+    /// refresh row and CSRF token are issued identically to an agent session;
+    /// only the access token's scope and workspace binding differ.
+    pub fn create_portal_tokens(
+        user: &User,
+        workspace_uuid: uuid::Uuid,
+        session_id: &uuid::Uuid,
+        family_id: &uuid::Uuid,
+        conn: &mut DbConnection,
+    ) -> Result<LoginTokens, HttpResponse> {
+        let access_token = JwtUtils::create_portal_token(user, workspace_uuid, session_id)
+            .map_err(|_| {
+                HttpResponse::InternalServerError().json(json!({
+                    "status": "error",
+                    "message": "Error generating token"
+                }))
+            })?;
+
+        let refresh_token = JwtUtils::generate_refresh_token();
+        let refresh_token_hash = JwtUtils::hash_refresh_token(&refresh_token);
+        let refresh_expires = chrono::Utc::now().naive_utc() + chrono::Duration::days(7);
+        crate::repository::refresh_tokens::create_refresh_token(
+            conn,
+            crate::models::NewRefreshToken {
+                token_hash: refresh_token_hash,
+                user_uuid: user.uuid,
+                expires_at: refresh_expires,
+                session_id: Some(*session_id),
+                family_id: *family_id,
+            },
+        )
+        .map_err(|e| {
+            tracing::error!("Failed to store portal refresh token: {}", e);
+            HttpResponse::InternalServerError().json(json!({
+                "status": "error",
+                "message": "Failed to create refresh token"
+            }))
+        })?;
+
+        let csrf_token = crate::utils::csrf::generate_csrf_token();
+
+        Ok(LoginTokens {
+            access_token,
+            refresh_token,
+            csrf_token,
+        })
+    }
+
     /// Create a successful login response with tokens (caller sets cookies)
     pub fn create_login_response(
         user: User,
@@ -685,11 +782,17 @@ mod tests {
         let _ = &*JWT_SECRET;
 
         let user_id = uuid::Uuid::new_v4().to_string();
-        let token = JwtUtils::create_sse_token(&user_id, "platform_admin")
+        let ws = uuid::Uuid::new_v4();
+        let token = JwtUtils::create_sse_token(&user_id, "platform_admin", Some(ws))
             .expect("Failed to create SSE token");
         let claims = JwtUtils::validate_token(&token).expect("Failed to validate SSE token");
         assert_eq!(claims.scope, "sse");
         assert_eq!(claims.sub, user_id);
+        assert_eq!(
+            claims.workspace_uuid,
+            Some(ws),
+            "SSE token carries the workspace"
+        );
     }
 
     #[test]
