@@ -85,6 +85,14 @@ export default defineConfig({
         }
       : null,
     rolldownOptions: {
+      // Two SPA entries sharing one build: the agent app (index.html) and the
+      // customer portal (portal.html). The backend serves index.html on the
+      // agent origin and portal.html on a per-tenant portal origin; chunks are
+      // shared between them.
+      input: {
+        main: fileURLToPath(new URL("./index.html", import.meta.url)),
+        portal: fileURLToPath(new URL("./portal.html", import.meta.url)),
+      },
       output: {
         // Rolldown's group-based vendor splitting. Replaces the
         // deprecated `output.manualChunks` function form. Each
