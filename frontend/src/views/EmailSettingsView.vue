@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
-import axios from 'axios';
+import apiClient from '@/services/apiConfig';
 import { useFluent } from 'fluent-vue';
 import { useQuery, useQueryCache } from '@pinia/colada';
 
@@ -43,7 +43,7 @@ const EMAIL_CONFIG_KEY = ['email-config'] as const;
 const emailConfigQuery = useQuery({
   key: EMAIL_CONFIG_KEY,
   query: async () => {
-    const response = await axios.get('/api/admin/email/config');
+    const response = await apiClient.get('/admin/email/config');
     return response.data as EmailConfig;
   },
 });
@@ -80,7 +80,7 @@ const sendTestEmail = async () => {
   errorMessage.value = '';
 
   try {
-    const response = await axios.post('/api/admin/email/test', {
+    const response = await apiClient.post('/admin/email/test', {
       to: testEmailAddress.value
     });
 
