@@ -102,6 +102,56 @@ pub fn delete_oauth_state_cookie() -> Cookie<'static> {
         .finish()
 }
 
+// --- Customer portal session cookies ---
+//
+// The portal is a separate principal realm on a separate registrable domain
+// (`<slug>.nosdesk.app`), so it gets its OWN cookie names. Distinct names mean
+// an agent session and a portal session never collide in one browser even if a
+// custom domain later puts them under the same registrable domain; the agent
+// auth path only ever reads `access_token`, never these. Host-only and
+// `SameSite=Strict` like the agent cookies (no `Domain=.` sharing).
+pub const PORTAL_ACCESS_TOKEN_COOKIE: &str = "portal_access";
+pub const PORTAL_REFRESH_TOKEN_COOKIE: &str = "portal_refresh";
+pub const PORTAL_CSRF_TOKEN_COOKIE: &str = "portal_csrf";
+
+/// Path the portal refresh cookie is scoped to (sent only to the refresh
+/// endpoint, like the agent refresh cookie).
+const PORTAL_REFRESH_PATH: &str = "/api/portal/auth/refresh";
+
+/// httpOnly portal access-token cookie (15 minutes).
+pub fn create_portal_access_cookie(token: &str) -> Cookie<'static> {
+    Cookie::build(PORTAL_ACCESS_TOKEN_COOKIE, token.to_string())
+        .path("/")
+        .http_only(true)
+        .secure(auth_cookies_use_secure_flag())
+        .same_site(SameSite::Strict)
+        .max_age(actix_web::cookie::time::Duration::minutes(15))
+        .finish()
+}
+
+/// httpOnly portal refresh-token cookie (7 days, scoped to the portal refresh
+/// endpoint).
+pub fn create_portal_refresh_cookie(token: &str) -> Cookie<'static> {
+    Cookie::build(PORTAL_REFRESH_TOKEN_COOKIE, token.to_string())
+        .path(PORTAL_REFRESH_PATH)
+        .http_only(true)
+        .secure(auth_cookies_use_secure_flag())
+        .same_site(SameSite::Strict)
+        .max_age(actix_web::cookie::time::Duration::days(7))
+        .finish()
+}
+
+/// Portal CSRF cookie (NOT httpOnly so the portal SPA can echo it in a header).
+pub fn create_portal_csrf_cookie(token: &str) -> Cookie<'static> {
+    Cookie::build(PORTAL_CSRF_TOKEN_COOKIE, token.to_string())
+        .path("/")
+        .http_only(false)
+        .secure(auth_cookies_use_secure_flag())
+        .same_site(SameSite::Strict)
+        .max_age(actix_web::cookie::time::Duration::minutes(15))
+        .finish()
+}
+
 /// Whether auth cookies receive the `Secure` attribute.
 ///
 /// **Fail-closed:** `ENVIRONMENT` unset / empty / anything other than an
