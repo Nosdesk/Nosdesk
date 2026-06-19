@@ -193,6 +193,60 @@ pub fn enqueue_invitation(
     outbound_emails::enqueue_idempotent(conn, row)
 }
 
+/// Build the `NewOutboundEmail` row for a customer-portal sign-in link.
+/// Transactional auth mail (no unsubscribe), sent from the WORKSPACE identity
+/// (the tenant's branded portal, falling back to the instance identity when the
+/// workspace has no verified sending domain).
+pub fn prepare_portal_magic_link(
+    svc: &EmailService,
+    branding: &EmailBranding,
+    recipient: &str,
+    user_name: &str,
+    magic_token: &str,
+    locale: &unic_langid::LanguageIdentifier,
+) -> NewOutboundEmail {
+    let (subject, body_html, body_text) =
+        svc.compose_portal_magic_link(user_name, magic_token, branding, locale);
+    let message_id = make_message_id("portal-signin", &from_email_domain(svc));
+    let headers_json = serde_json::json!({
+        "Auto-Submitted": "auto-generated",
+    });
+
+    NewOutboundEmail {
+        channel_id: None,
+        ticket_id: None,
+        comment_id: None,
+        recipient: recipient.to_string(),
+        subject,
+        body_text,
+        body_html: Some(body_html),
+        message_id,
+        in_reply_to: None,
+        references_list: vec![],
+        headers_json,
+        correlation_id: None,
+        idempotency_key: Some(format!("portal_magic_link:{}", hash16(magic_token))),
+        sender_identity: outbound_email_sender_identity::WORKSPACE.to_string(),
+        mail_class: outbound_email_mail_class::TRANSACTIONAL.to_string(),
+    }
+}
+
+/// Enqueue a customer-portal sign-in email. The key derives from the token, so
+/// a fresh sign-in request (new token) is a new send; idempotency only catches
+/// enqueue retries inside one request.
+pub fn enqueue_portal_magic_link(
+    conn: &mut DbConnection,
+    svc: &EmailService,
+    branding: &EmailBranding,
+    recipient: &str,
+    user_name: &str,
+    magic_token: &str,
+    locale: &unic_langid::LanguageIdentifier,
+) -> Result<OutboundEmail, DieselError> {
+    let row = prepare_portal_magic_link(svc, branding, recipient, user_name, magic_token, locale);
+    outbound_emails::enqueue_idempotent(conn, row)
+}
+
 /// Build the signed one-click unsubscribe URL for a notification email, on the
 /// same origin as `cta_url` (the product app that serves the endpoint). `None`
 /// when the recipient uuid or the CTA origin can't be parsed, or `JWT_SECRET`

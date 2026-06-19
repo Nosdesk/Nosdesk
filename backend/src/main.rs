@@ -1585,6 +1585,22 @@ async fn main() -> std::io::Result<()> {
             .route("/api/events/stream", web::get().to(handlers::sse::sse_events_stream))
             .route("/api/events/status", web::get().to(handlers::sse::sse_status))
 
+            // Customer portal sign-in (public by design). Unauthenticated;
+            // the workspace is resolved from the portal origin by the app-wide
+            // workspace-context middleware. Rate-limited like the auth scope to
+            // bound magic-link sends.
+            .service(
+                web::scope("/api/portal/auth")
+                    .wrap(RateLimiter::default())
+                    .route(
+                        "/magic-link",
+                        web::post().to(handlers::portal::request_magic_link),
+                    )
+                    .route(
+                        "/callback",
+                        web::get().to(handlers::portal::magic_link_callback),
+                    ),
+            )
             // Authentication routes (public by design)
             .service(
                 web::scope("/api/auth")

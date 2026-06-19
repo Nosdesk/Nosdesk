@@ -1501,6 +1501,85 @@ impl EmailService {
         (subject, html_body, body_text)
     }
 
+    /// Render the customer-portal passwordless sign-in email. Returns
+    /// `(subject, html_body, body_text)`. Same HTML/plaintext split as the
+    /// invitation; the CTA links to the portal callback on the workspace's own
+    /// origin (carried in `branding.base_url`).
+    pub fn compose_portal_magic_link(
+        &self,
+        user_name: &str,
+        magic_token: &str,
+        branding: &EmailBranding,
+        locale: &unic_langid::LanguageIdentifier,
+    ) -> (String, String, String) {
+        let sign_in_link = format!(
+            "{}/portal/auth/callback?token={}",
+            branding.base_url, magic_token
+        );
+        let template = EmailTemplate::new(branding);
+        let tr = |key: &str, args: &[(&str, fluent_bundle::FluentValue<'static>)]| {
+            crate::utils::i18n::tr_with(locale, key, args)
+        };
+
+        let name_html = escape_html(user_name);
+        let app_html = escape_html(&branding.app_name);
+
+        let title = tr(
+            "portal-magic-link-title",
+            &[("app", app_html.clone().into())],
+        );
+        let greeting = tr(
+            "portal-magic-link-greeting",
+            &[("name", name_html.clone().into())],
+        );
+        let intro = tr(
+            "portal-magic-link-intro",
+            &[("app", app_html.clone().into())],
+        );
+        let cta_label = tr("portal-magic-link-cta-label", &[]);
+        let notice_items: Vec<String> = [
+            "portal-magic-link-notice-expiry",
+            "portal-magic-link-notice-unexpected",
+        ]
+        .iter()
+        .map(|key| tr(key, &[]))
+        .collect();
+
+        let html_body = template.render(
+            EmailLayout {
+                headline: &title,
+                body: vec![text(greeting), text(intro)],
+                cta: Some(Cta {
+                    label: cta_label,
+                    url: sign_in_link.clone(),
+                }),
+                notice: Some(Notice {
+                    kind: NoticeType::Info,
+                    items: notice_items,
+                }),
+                signoff: None,
+                preheader: &title,
+            },
+            locale,
+        );
+
+        let subject = tr(
+            "portal-magic-link-subject",
+            &[("app", branding.app_name.clone().into())],
+        );
+
+        let body_text = tr(
+            "portal-magic-link-body-text",
+            &[
+                ("name", user_name.to_string().into()),
+                ("app", branding.app_name.clone().into()),
+                ("link", sign_in_link.clone().into()),
+            ],
+        );
+
+        (subject, html_body, body_text)
+    }
+
     /// Send a confirmation email for a guest ticket submission. The link
     /// uses the same accept-invitation flow as a normal invitation, but the
     /// copy is tailored to the ticket-submission context — the email is
@@ -2318,12 +2397,26 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
         );
         write("notification", &html);
 
+        let (_subj, html, text) =
+            svc.compose_portal_magic_link("Alex", "EXAMPLE-SIGNIN-TOKEN", &branding, &locale);
+        write("portal-magic-link", &html);
+        // The CTA must carry the portal callback link on the configured origin.
+        assert!(
+            html.contains("/portal/auth/callback?token=EXAMPLE-SIGNIN-TOKEN"),
+            "magic-link html must link to the portal callback"
+        );
+        assert!(
+            text.contains("/portal/auth/callback?token=EXAMPLE-SIGNIN-TOKEN"),
+            "magic-link plaintext must carry the callback link"
+        );
+
         // Sanity: every preview file exists and is non-trivial.
         for name in [
             "password-reset",
             "invitation",
             "guest-ticket-confirmation",
             "notification",
+            "portal-magic-link",
         ] {
             let p = out_dir.join(format!("{name}.html"));
             let content = std::fs::read_to_string(&p).expect("preview readable");

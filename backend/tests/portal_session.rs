@@ -161,4 +161,38 @@ fn portal_session_establishment_and_gate() {
             .expect_err("an unbound portal token must be denied");
         assert_eq!(status_of(&err), 403, "unbound portal token must be 403");
     }
+
+    // --- magic-link token is single-use and resolves to the customer ---
+    {
+        use backend::utils::reset_tokens::{ResetTokenUtils, TokenType};
+        let mut conn = pool.get().expect("conn");
+        let token = ResetTokenUtils::create_reset_token(customer.uuid, TokenType::PortalMagicLink);
+        backend::repository::reset_tokens::create_reset_token(
+            &mut conn,
+            &token.token_hash,
+            customer.uuid,
+            TokenType::PortalMagicLink.as_str(),
+            None,
+            None,
+            token.expires_at,
+            None,
+        )
+        .expect("issue magic-link token");
+
+        let resolved = backend::repository::reset_tokens::validate_and_consume_token(
+            &mut conn,
+            &token.raw_token,
+            TokenType::PortalMagicLink.as_str(),
+        )
+        .expect("a fresh magic-link token resolves to its user");
+        assert_eq!(resolved, customer.uuid, "token resolves to the customer");
+
+        // Single-use: a second consume of the same token fails.
+        backend::repository::reset_tokens::validate_and_consume_token(
+            &mut conn,
+            &token.raw_token,
+            TokenType::PortalMagicLink.as_str(),
+        )
+        .expect_err("a consumed magic-link token cannot be reused");
+    }
 }

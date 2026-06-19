@@ -49,6 +49,27 @@ invitation-body-text =
 
     -- { $app }
 
+# Connexion sans mot de passe au portail client (traduction automatique, en attente de relecture).
+portal-magic-link-subject = Connectez-vous à l'assistance { $app }
+portal-magic-link-title = Connectez-vous à { $app }
+portal-magic-link-greeting = Bonjour <strong>{ $name }</strong>,
+portal-magic-link-intro = Utilisez le bouton ci-dessous pour vous connecter au portail d'assistance <strong>{ $app }</strong> et consulter vos tickets.
+portal-magic-link-cta-label = Se connecter
+portal-magic-link-notice-expiry = Ce lien de connexion expire dans <strong>20 minutes</strong> et ne peut être utilisé qu'une seule fois
+portal-magic-link-notice-unexpected = Si vous n'êtes pas à l'origine de cette demande, vous pouvez ignorer cet e-mail
+portal-magic-link-body-text =
+    Bonjour { $name },
+
+    Utilisez ce lien pour vous connecter au portail d'assistance { $app } et consulter vos tickets :
+
+    { $link }
+
+    À savoir :
+      - Ce lien de connexion expire dans 20 minutes et ne peut être utilisé qu'une seule fois.
+      - Si vous n'êtes pas à l'origine de cette demande, vous pouvez ignorer cet e-mail.
+
+    -- { $app }
+
 # Notification email subjects.
 notif-ticket-assigned = [{ $app }] Ticket assigné : { $title }
 notif-ticket-status-changed = [{ $app }] Statut modifié : { $title }

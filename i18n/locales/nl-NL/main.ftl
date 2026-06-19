@@ -46,6 +46,27 @@ invitation-body-text =
 
     -- { $app }
 
+# Wachtwoordloze aanmelding bij het klantenportaal (automatische vertaling, in afwachting van revisie).
+portal-magic-link-subject = Meld u aan bij { $app }-ondersteuning
+portal-magic-link-title = Meld u aan bij { $app }
+portal-magic-link-greeting = Hallo <strong>{ $name }</strong>,
+portal-magic-link-intro = Gebruik de knop hieronder om u aan te melden bij het <strong>{ $app }</strong>-ondersteuningsportaal en uw tickets te bekijken.
+portal-magic-link-cta-label = Aanmelden
+portal-magic-link-notice-expiry = Deze aanmeldlink verloopt over <strong>20 minuten</strong> en kan eenmaal worden gebruikt
+portal-magic-link-notice-unexpected = Als u dit niet hebt aangevraagd, kunt u deze e-mail negeren
+portal-magic-link-body-text =
+    Hallo { $name },
+
+    Gebruik deze link om u aan te melden bij het { $app }-ondersteuningsportaal en uw tickets te bekijken:
+
+    { $link }
+
+    Goed om te weten:
+      - Deze aanmeldlink verloopt over 20 minuten en kan eenmaal worden gebruikt.
+      - Als u dit niet hebt aangevraagd, kunt u deze e-mail negeren.
+
+    -- { $app }
+
 # Notification email subjects.
 notif-ticket-assigned = [{ $app }] Ticket toegewezen: { $title }
 notif-ticket-status-changed = [{ $app }] Status gewijzigd: { $title }

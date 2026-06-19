@@ -85,6 +85,29 @@ invitation-body-text =
 
     -- { $app }
 
+# Customer-portal passwordless sign-in email. Same HTML/plaintext
+# split as the invitation: HTML keys carry inline <strong> emphasis,
+# variables are HTML-escaped at the Rust boundary.
+portal-magic-link-subject = Sign in to { $app } support
+portal-magic-link-title = Sign in to { $app }
+portal-magic-link-greeting = Hello <strong>{ $name }</strong>,
+portal-magic-link-intro = Use the button below to sign in to the <strong>{ $app }</strong> support portal and view your tickets.
+portal-magic-link-cta-label = Sign in
+portal-magic-link-notice-expiry = This sign-in link expires in <strong>20 minutes</strong> and can be used once
+portal-magic-link-notice-unexpected = If you didn't request this, you can safely ignore this email
+portal-magic-link-body-text =
+    Hello { $name },
+
+    Use this link to sign in to the { $app } support portal and view your tickets:
+
+    { $link }
+
+    A few things to know:
+      - This sign-in link expires in 20 minutes and can be used once.
+      - If you didn't request this, you can safely ignore this email.
+
+    -- { $app }
+
 # Notification email subjects. Each stamps the workspace name in
 # brackets so inbox grouping by sender + subject prefix still
 # works. $title is the entity (ticket title / doc page title);

@@ -8,6 +8,10 @@ use uuid::Uuid;
 pub enum TokenType {
     PasswordReset,
     Invitation,
+    /// Customer-portal passwordless sign-in link. Short-lived and single-use;
+    /// possession of the emailed link proves the customer owns the address,
+    /// which is their whole identity in the portal.
+    PortalMagicLink,
 }
 
 impl TokenType {
@@ -15,6 +19,7 @@ impl TokenType {
         match self {
             TokenType::PasswordReset => "password_reset",
             TokenType::Invitation => "invitation",
+            TokenType::PortalMagicLink => "portal_magic_link",
         }
     }
 
@@ -23,6 +28,7 @@ impl TokenType {
         match self {
             TokenType::PasswordReset => Duration::hours(1), // 1 hour for password resets
             TokenType::Invitation => Duration::days(7),     // 7 days for user invitations
+            TokenType::PortalMagicLink => Duration::minutes(20), // short-lived sign-in link
         }
     }
 }
