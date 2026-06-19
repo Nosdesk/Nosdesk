@@ -7081,10 +7081,15 @@ pub mod outbound_email_status {
 }
 
 /// Sender-identity constants, kept in lockstep with the
-/// `outbound_emails_sender_identity_check` SQL constraint. `WORKSPACE` uses
-/// the workspace's own SMTP identity (falling back to the instance identity
-/// when unconfigured); `PLATFORM` pins the instance identity for auth mail
-/// that must not originate from a tenant relay.
+/// `outbound_emails_sender_identity_check` SQL constraint.
+///
+/// `WORKSPACE` is tenant-content mail (notifications, the portal sign-in link):
+/// it sends ONLY from the workspace's own verified sending domain and is
+/// deferred (never sent from the platform) until one is configured, so
+/// tenant-controlled content never leaves on the platform domain — a phishing
+/// and deliverability-reputation boundary. `PLATFORM` is platform-own mail
+/// (account/auth, billing) to the platform's own users: it pins the instance
+/// identity and never originates from a tenant relay.
 pub mod outbound_email_sender_identity {
     pub const WORKSPACE: &str = "workspace";
     pub const PLATFORM: &str = "platform";

@@ -106,12 +106,18 @@ impl OutboundEmailResolver {
     }
 
     /// Resolve the sending service for each of `workspace_ids` in one read,
-    /// for the queue worker's drain. A workspace with a usable identity maps
-    /// to its own service; one without maps to the fallback (when present).
-    /// A workspace whose stored password won't decrypt is omitted, so its
-    /// mail defers rather than sending from the wrong identity. Workspaces
-    /// with neither a usable identity nor a fallback are omitted too, so the
-    /// caller reads a missing entry as "unconfigured".
+    /// for the queue worker's drain. This is the WORKSPACE-identity path
+    /// (the worker resolves PLATFORM rows via [`platform`](Self::platform)).
+    ///
+    /// A workspace with its own usable identity (a verified sending domain or
+    /// an smtp_relay) maps to that service. A workspace WITHOUT one is omitted
+    /// — it does NOT fall back to the platform identity. Tenant mail carries
+    /// tenant-controlled content (workspace name, customer names, ticket
+    /// text); sending it from the platform domain would lend the platform's
+    /// reputation to phishing and risk the platform's deliverability. So the
+    /// caller reads a missing entry as "unconfigured" and defers the row until
+    /// the workspace verifies a sending domain. (A row whose stored password
+    /// won't decrypt is likewise omitted, deferring rather than mis-sending.)
     pub fn resolve_batch(
         &self,
         conn: &mut DbConnection,
@@ -131,10 +137,11 @@ impl OutboundEmailResolver {
             let svc = match by_ws.get(&ws) {
                 Some(r) => match self.build_for_row(r) {
                     Ok(Some(svc)) => svc,
-                    Ok(None) => match &self.fallback {
-                        Some(f) => f.clone(),
-                        None => continue,
-                    },
+                    // No usable workspace identity: omit, do NOT fall back to
+                    // the platform. Tenant content must never leave on the
+                    // platform domain; the row defers until a sending domain
+                    // is verified.
+                    Ok(None) => continue,
                     Err(e) => {
                         tracing::warn!(
                             workspace_id = ws,
@@ -144,10 +151,8 @@ impl OutboundEmailResolver {
                         continue;
                     }
                 },
-                None => match &self.fallback {
-                    Some(f) => f.clone(),
-                    None => continue,
-                },
+                // No settings row at all: same policy, no platform fallback.
+                None => continue,
             };
             out.insert(ws, svc);
         }
@@ -414,13 +419,14 @@ mod tests {
     }
 
     #[test]
-    fn resolve_batch_maps_workspace_and_fallback() {
+    fn resolve_batch_maps_own_identity_and_omits_unconfigured() {
         let mut conn = setup_test_connection();
         repo::upsert(&mut conn, enabled_fields()).unwrap();
 
-        // RLS scopes the test connection to workspace 1, so 424242 reads as
-        // "no row" and takes the fallback, exactly as an unconfigured
-        // workspace would under the worker's bypass read.
+        // Workspace 1 has its own identity; 424242 reads as "no row"
+        // (unconfigured). Even WITH a platform fallback present, the
+        // unconfigured workspace is OMITTED — tenant mail must not send from
+        // the platform identity — so the worker defers it.
         let map = resolver_with_fallback()
             .resolve_batch(&mut conn, &[1, 424242])
             .unwrap();
@@ -428,9 +434,9 @@ mod tests {
             map.get(&1).unwrap().config().from_email,
             "support@acme.test"
         );
-        assert_eq!(
-            map.get(&424242).unwrap().config().from_email,
-            "platform@fallback.test"
+        assert!(
+            map.get(&424242).is_none(),
+            "an unconfigured workspace must not fall back to the platform identity"
         );
     }
 
