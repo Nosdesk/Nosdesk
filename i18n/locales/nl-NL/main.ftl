@@ -3961,6 +3961,10 @@ ticket-activity-load-more-error = Kan meer activiteit niet laden
 ticket-activity-empty = Nog geen activiteit.
 ticket-activity-load-more = Oudere activiteit laden
 ticket-activity-loading = Laden…
+# MT: pending native review
+ticket-activity-show-more = Toon { $count } meer
+# MT: pending native review
+ticket-activity-show-less = Toon minder
 ticket-activity-actor-someone = Iemand
 ticket-activity-actor-system = Systeem
 ticket-activity-actor-sender = Afzender

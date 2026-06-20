@@ -3970,6 +3970,10 @@ ticket-activity-load-more-error = Échec du chargement d'activité supplémentai
 ticket-activity-empty = Aucune activité pour l'instant.
 ticket-activity-load-more = Charger l'historique plus ancien
 ticket-activity-loading = Chargement…
+# MT: pending native review
+ticket-activity-show-more = Afficher { $count } de plus
+# MT: pending native review
+ticket-activity-show-less = Afficher moins
 ticket-activity-actor-someone = Quelqu'un
 ticket-activity-actor-system = Système
 ticket-activity-actor-sender = Expéditeur

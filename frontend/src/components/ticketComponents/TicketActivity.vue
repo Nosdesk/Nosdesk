@@ -128,6 +128,7 @@ watch(() => props.ticketId, () => {
   events.value = []
   nextCursor.value = null
   expanded.value = new Set()
+  showAllRows.value = false
   loadInitial()
 })
 
@@ -518,6 +519,19 @@ function toggleBundle(id: number) {
   else next.add(id)
   expanded.value = next
 }
+
+// Row cap: the rail shows the most-recent few rows and folds the rest
+// behind a "show more" toggle, so the activity surface stays glanceable
+// in the sidebar instead of running the full ticket history inline.
+// `timeline` is already newest-first, so the head is the most recent.
+const DEFAULT_VISIBLE_ROWS = 5
+const showAllRows = ref(false)
+const visibleTimeline = computed(() =>
+  showAllRows.value ? timeline.value : timeline.value.slice(0, DEFAULT_VISIBLE_ROWS),
+)
+const hiddenRowCount = computed(() =>
+  Math.max(0, timeline.value.length - DEFAULT_VISIBLE_ROWS),
+)
 </script>
 
 <template>
@@ -557,7 +571,7 @@ function toggleBundle(id: number) {
            resolves through the same sync-engine pool as the rest of
            the app; actor uuid is null for system events (background
            jobs, webhooks), which fall back to the "sys" badge. -->
-      <template v-for="item in timeline" :key="item.key">
+      <template v-for="item in visibleTimeline" :key="item.key">
         <!-- Grouped run of consecutive same-actor changes. -->
         <li v-if="item.kind === 'bundle'" class="flex flex-col">
           <button
@@ -672,12 +686,28 @@ function toggleBundle(id: number) {
       </template>
     </ul>
 
+    <!-- Row-cap toggle. The rail defaults to the most-recent
+         DEFAULT_VISIBLE_ROWS rows; this reveals / refolds the
+         already-loaded remainder without a network round-trip. -->
+    <button
+      v-if="hiddenRowCount > 0"
+      type="button"
+      class="text-xs text-tertiary hover:text-primary px-2 py-1.5 rounded hover:bg-surface-hover transition-colors flex items-center gap-1.5 self-start"
+      :aria-expanded="showAllRows"
+      @click="showAllRows = !showAllRows"
+    >
+      <Icon :name="showAllRows ? 'chevronUp' : 'chevronDown'" class="w-3.5 h-3.5" />
+      <span>{{ showAllRows ? t('ticket-activity-show-less') : t('ticket-activity-show-more', { count: hiddenRowCount }) }}</span>
+    </button>
+
     <!-- Load-more affordance. Explicit button rather than
          infinite scroll — the timeline is a reference surface,
          not a primary scan target, and explicit pagination keeps
-         the hot DOM small for tickets with hundreds of events. -->
+         the hot DOM small for tickets with hundreds of events.
+         Offered only once the loaded rows are fully expanded, so
+         the cap is exhausted before we fetch an older page. -->
     <button
-      v-if="nextCursor != null"
+      v-if="nextCursor != null && (showAllRows || hiddenRowCount === 0)"
       type="button"
       class="text-xs text-tertiary hover:text-primary px-2 py-1.5 rounded hover:bg-surface-hover transition-colors flex items-center justify-center gap-1.5 self-start"
       :disabled="loadingMore"
