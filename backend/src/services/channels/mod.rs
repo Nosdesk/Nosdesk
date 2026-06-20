@@ -421,6 +421,32 @@ pub trait StreamAdapter: ChannelAdapter {
     ) -> Result<(), ChannelError>;
 }
 
+// ---------- Provider ingestion mode ----------
+
+/// How a provider delivers inbound mail, which decides whether the worker
+/// registry spawns a poll loop for it. `Pull` providers (IMAP) are polled
+/// on a background worker; `Push` providers (SES forwarding, future webhook
+/// adapters) are ingested by an HTTP handler and need no worker; `Unknown`
+/// is a provider string the build doesn't recognise, which the registry
+/// surfaces loudly rather than silently ignoring.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IngestionMode {
+    Pull,
+    Push,
+    Unknown,
+}
+
+/// Classify a `channels.provider` value by how it ingests. The single
+/// source of truth the registry consults before deciding to start a poll
+/// worker, so adding a provider touches exactly one match arm.
+pub fn ingestion_mode(provider: &str) -> IngestionMode {
+    match provider {
+        crate::models::CHANNEL_PROVIDER_EMAIL_IMAP => IngestionMode::Pull,
+        crate::models::CHANNEL_PROVIDER_EMAIL_FORWARD => IngestionMode::Push,
+        _ => IngestionMode::Unknown,
+    }
+}
+
 // ---------- Channel direction constants re-exported for ergonomics ----------
 
 pub use crate::models::{CHANNEL_DIRECTION_INBOUND, CHANNEL_DIRECTION_OUTBOUND};
@@ -434,6 +460,13 @@ mod tests {
     #[test]
     fn loop_markers_any_is_false_by_default() {
         assert!(!LoopMarkers::default().any());
+    }
+
+    #[test]
+    fn ingestion_mode_classifies_each_provider() {
+        assert_eq!(ingestion_mode("email_imap"), IngestionMode::Pull);
+        assert_eq!(ingestion_mode("email_forward"), IngestionMode::Push);
+        assert_eq!(ingestion_mode("slack"), IngestionMode::Unknown);
     }
 
     #[test]
