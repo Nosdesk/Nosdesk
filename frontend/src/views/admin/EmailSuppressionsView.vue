@@ -198,6 +198,11 @@ function formatDateTime(iso: string): string {
             <Spinner />
         </div>
 
+        <!-- Embedded (Activity tab): the count above already says "0", so a full
+             empty-state card is noise; a single muted line suffices. -->
+        <p v-else-if="props.embedded && rows.length === 0" class="text-sm text-tertiary">
+            {{ $t('admin-suppressions-empty-description') }}
+        </p>
         <EmptyState
             v-else-if="rows.length === 0"
             icon="inbox"

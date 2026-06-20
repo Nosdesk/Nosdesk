@@ -303,6 +303,11 @@ const deadTotal = computed(
       <Spinner />
     </div>
 
+    <!-- Embedded (Activity tab): the stats above already show the counts, so a
+         full empty-state card is noise; a single muted line suffices. -->
+    <p v-else-if="props.embedded && rows.length === 0" class="text-sm text-tertiary">
+      {{ $t('admin-email-queue-empty-description') }}
+    </p>
     <EmptyState
       v-else-if="rows.length === 0"
       icon="inbox"
