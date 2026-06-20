@@ -26,6 +26,7 @@ import TicketActivity from "@/components/ticketComponents/TicketActivity.vue";
 import DeviceSelectionModal from "@/components/ticketComponents/AssetSelectionModal.vue";
 import CommentsAndAttachments from "@/components/ticketComponents/CommentsAndAttachments.vue";
 import MergedIntoBanner from "@/components/ticketComponents/MergedIntoBanner.vue";
+import SpamBanner from "@/components/ticketComponents/SpamBanner.vue";
 import MergedInField from "@/components/ticketComponents/MergedInField.vue";
 import LinkedTicketModal from "@/components/ticketComponents/LinkedTicketModal.vue";
 import ProjectSelectionModal from "@/components/ticketComponents/ProjectSelectionModal.vue";
@@ -613,6 +614,11 @@ useCreateTicketAction();
                                 :target-id="ticket.merged_into_ticket_id"
                                 :actor="ticket.merged_by_user_uuid"
                                 :when="ticket.merged_at"
+                            />
+                            <SpamBanner
+                                v-if="ticket.spam_suspected"
+                                :ticket-id="ticket.id"
+                                @delete="showDeleteConfirm = true"
                             />
                             <MergedInField v-if="ticket" :ticket-id="ticket.id" />
                             <TicketDetails

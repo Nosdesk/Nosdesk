@@ -260,6 +260,11 @@ function recurrenceLabel(rule: string | null | undefined): string {
             class="text-[10px] font-semibold uppercase tracking-wide text-rose-600 dark:text-rose-400 shrink-0"
             :title="$t('views-ticket-row-sla-breached-tooltip')"
           >{{ $t('views-ticket-row-sla-badge') }}</span>
+          <span
+            v-if="card.spam_suspected"
+            class="text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 shrink-0"
+            :title="$t('views-ticket-row-spam-tooltip')"
+          >{{ $t('views-ticket-row-spam-badge') }}</span>
         </div>
       </template>
 

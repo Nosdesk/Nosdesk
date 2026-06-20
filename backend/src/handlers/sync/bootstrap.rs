@@ -649,6 +649,7 @@ fn stream_bootstrap_inner(
                 "assignee_uuid": t.assignee_uuid,
                 "category_id": t.category_id,
                 "triage_state": t.triage_state,
+                "spam_suspected": t.spam_suspected,
                 "due_date": t.due_date,
                 "resolution_notes": t.resolution_notes,
                 // Detail-view scalars (source row + audit bylines) so

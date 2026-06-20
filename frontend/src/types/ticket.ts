@@ -115,6 +115,10 @@ export interface Ticket {
   merged_at?: string | null
   merged_by_user_uuid?: string | null
   merge_reason?: string | null
+  /** True when the ticket opened from inbound mail the provider flagged as
+   *  spam. Opens flagged + low-priority (never dropped); cleared via "not
+   *  spam". Read on every queue row to render the badge. */
+  spam_suspected?: boolean
 }
 
 /** One merge that consumed sources into a ticket, from the

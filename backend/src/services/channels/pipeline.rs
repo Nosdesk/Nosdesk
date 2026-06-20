@@ -637,6 +637,14 @@ fn open_ticket_from_message(
         submitted_via: Some(channel.provider.clone()),
         origin_channel_id: Some(channel.id),
         triage_state: Some("untriaged".into()),
+        // Spam-flagged mail still opens a ticket (never dropped), but badged
+        // and de-prioritised so it triages out of the way without being lost.
+        spam_suspected: msg.spam_suspected,
+        priority: if msg.spam_suspected {
+            crate::models::TicketPriority::Low
+        } else {
+            crate::models::TicketPriority::default()
+        },
         ..Default::default()
     };
 
@@ -2070,10 +2078,21 @@ My printer is literally on fire.
         .await
         .unwrap();
 
-        let comment_id = match outcome {
-            PipelineOutcome::TicketOpened { comment_id, .. } => comment_id,
+        let (ticket_id, comment_id) = match outcome {
+            PipelineOutcome::TicketOpened {
+                ticket_id,
+                comment_id,
+            } => (ticket_id, comment_id),
             other => panic!("expected TicketOpened, got {other:?}"),
         };
+        // The ticket opens (never dropped), flagged and de-prioritised.
+        let ticket = tickets_repo::get_ticket_by_id(&mut conn, ticket_id).unwrap();
+        assert!(
+            ticket.spam_suspected,
+            "spam mail should open a flagged ticket"
+        );
+        assert_eq!(ticket.priority, crate::models::TicketPriority::Low);
+        // The inbound comment also carries the per-message flag.
         use crate::schema::comments::dsl as c;
         use diesel::prelude::*;
         let metadata: Option<serde_json::Value> = c::comments
@@ -2084,7 +2103,6 @@ My printer is literally on fire.
         assert_eq!(
             metadata.expect("channel_metadata present")["spam_suspected"],
             serde_json::json!(true),
-            "spam-flagged inbound should stamp spam_suspected on the comment"
         );
     }
 

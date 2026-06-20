@@ -4347,6 +4347,16 @@ views-tickets-table-resize-handle-tooltip = Sleep om te wijzigen · dubbelklik o
 views-ticket-row-select-aria = Ticket #{ $id } selecteren
 views-ticket-row-recurring-tooltip = Terugkerend ticket
 views-ticket-row-sla-badge = SLA
+# MT: pending native review (nl-NL)
+views-ticket-row-spam-badge = Spam
+# MT: pending native review (nl-NL)
+views-ticket-row-spam-tooltip = Gemarkeerd als mogelijke spam door het mailfilter
+# MT: pending native review (nl-NL)
+ticket-spam-banner-text = Dit ticket is door het mailfilter gemarkeerd als mogelijke spam.
+# MT: pending native review (nl-NL)
+ticket-spam-not-spam = Geen spam
+# MT: pending native review (nl-NL)
+ticket-spam-delete = Verwijderen
 views-ticket-row-sla-breached-tooltip = SLA overschreden
 views-ticket-row-sla-breached = Overschreden
 views-ticket-row-sla-paused = Gepauzeerd

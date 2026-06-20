@@ -1645,6 +1645,7 @@ diesel::table! {
         sla_resolution_target_at -> Nullable<Timestamptz>,
         sla_resolution_breached_at -> Nullable<Timestamptz>,
         uuid -> Uuid,
+        spam_suspected -> Bool,
     }
 }
 

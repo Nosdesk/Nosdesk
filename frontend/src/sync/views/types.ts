@@ -40,6 +40,8 @@ export interface CardData {
   title: string
   workflow_state: CardWorkflowState
   priority: Priority
+  /** True when the inbound mail filter flagged the source message as spam. */
+  spam_suspected?: boolean
 
   // People (refs; resolve via useReference())
   assignee_uuid?: string | null

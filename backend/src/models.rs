@@ -964,9 +964,14 @@ pub struct Ticket {
     /// Stable, never-recycled identity. Unlike the integer `id` (which
     /// a DB reset recycles), this UUID is minted once at creation, so
     /// it's the safe key for collaborative-document caches keyed
-    /// `ws-{workspaceUuid}_ticket-{uuid}`. Must stay the LAST field to
-    /// match the column order in `schema.rs` (positional Queryable).
+    /// `ws-{workspaceUuid}_ticket-{uuid}`.
     pub uuid: Uuid,
+    /// True when the ticket opened from inbound mail the provider flagged as
+    /// spam. The ticket still opens (we never drop a customer request) but is
+    /// badged + low-priority for triage. Cleared via a normal ticket update
+    /// ("not spam"). Must stay the LAST field to match `schema.rs` column
+    /// order (positional Queryable).
+    pub spam_suspected: bool,
 }
 
 /// Merge metadata for a ticket that was merged into another (the satellite of
@@ -1021,6 +1026,9 @@ pub struct NewTicket {
     pub recurrence_rule: Option<String>,
     pub recurrence_template_id: Option<i32>,
     pub resolution_notes: Option<String>,
+    /// Defaults false; set true by the inbound pipeline when the source
+    /// message was flagged as spam.
+    pub spam_suspected: bool,
 }
 
 // Add a new struct for partial ticket updates
@@ -1046,6 +1054,9 @@ pub struct TicketUpdate {
     /// normalises to `Some(None)` at the handler boundary so the
     /// UI can post a single shape regardless of intent.
     pub resolution_notes: Option<Option<String>>,
+    /// Cleared to `false` by the "not spam" action; never set true via the API
+    /// (only the inbound pipeline flags spam).
+    pub spam_suspected: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]

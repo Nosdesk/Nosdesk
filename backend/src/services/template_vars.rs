@@ -185,6 +185,7 @@ mod tests {
             sla_response_breached_at: None,
             sla_resolution_target_at: None,
             sla_resolution_breached_at: None,
+            spam_suspected: false,
         }
     }
 
