@@ -19,8 +19,12 @@ use tracing::{error, info, warn};
 use crate::db::DbConnection;
 use crate::extractors::TenantConn;
 use crate::handlers::errors;
-use crate::models::{Channel, ChannelUpdate, NewChannel, WorkspaceRole, CRED_TYPE_IMAP_PASSWORD};
+use crate::models::{
+    Channel, ChannelUpdate, NewChannel, WorkspaceRole, CHANNEL_PROVIDER_EMAIL_FORWARD,
+    CRED_TYPE_IMAP_PASSWORD, INBOUND_ADDRESS_STATUS_ACTIVE,
+};
 use crate::repository::channels as channels_repo;
+use crate::repository::inbound_addresses;
 use crate::services::channels::email_imap::{test_imap_connection, ImapChannelConfig};
 use crate::services::channels::supervisor::ChannelControl;
 use crate::utils::rbac::require_workspace_role;
@@ -35,6 +39,21 @@ pub struct ChannelResponse {
     #[serde(flatten)]
     pub channel: Channel,
     pub has_credential: bool,
+    /// For `email_forward` channels: the `<token>@<inbound_domain>` address the
+    /// customer forwards to. `None` for other providers (and if the instance
+    /// has no inbound domain configured).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub forwarding_address: Option<String>,
+}
+
+/// Compose a forwarding address from a token + the instance inbound domain.
+/// `None` when `NOSDESK_INBOUND_DOMAIN` is unset (so the UI shows nothing
+/// rather than a half-formed address).
+fn forwarding_address(token: &str) -> Option<String> {
+    std::env::var("NOSDESK_INBOUND_DOMAIN")
+        .ok()
+        .filter(|d| !d.is_empty())
+        .map(|domain| format!("{token}@{domain}"))
 }
 
 impl ChannelResponse {
@@ -48,9 +67,20 @@ impl ChannelResponse {
         let has = channels_repo::get_credential(conn, channel.id, CRED_TYPE_IMAP_PASSWORD)
             .map_err(cred_to_diesel)?
             .is_some();
+        // Forwarding channels surface their generated address so the admin can
+        // copy it into their mail provider's forward rule.
+        let forwarding_address = if channel.provider == CHANNEL_PROVIDER_EMAIL_FORWARD {
+            inbound_addresses::list_for_channel(conn, channel.id)?
+                .into_iter()
+                .find(|a| a.status == INBOUND_ADDRESS_STATUS_ACTIVE)
+                .and_then(|a| forwarding_address(&a.token))
+        } else {
+            None
+        };
         Ok(Self {
             channel,
             has_credential: has,
+            forwarding_address,
         })
     }
 }
@@ -132,6 +162,15 @@ fn validate_config(provider: &str, config: &JsonValue) -> Result<(), String> {
                     "Skip TLS certificate verification is only available in development"
                         .to_string(),
                 );
+            }
+            Ok(())
+        }
+        // Forwarding channels carry no user config (the address is generated),
+        // but the instance must have an inbound domain configured for the
+        // generated address to be deliverable.
+        CHANNEL_PROVIDER_EMAIL_FORWARD => {
+            if forwarding_address("probe").is_none() {
+                return Err("Inbound forwarding is not enabled on this instance".to_string());
             }
             Ok(())
         }
@@ -236,6 +275,11 @@ pub async fn create_channel(
             )
             .map_err(cred_to_diesel)?;
         }
+        // Forwarding channels get a generated address minted in the same
+        // transaction, so the response already carries it.
+        if channel.provider == CHANNEL_PROVIDER_EMAIL_FORWARD {
+            inbound_addresses::create_for_channel(conn, channel.id)?;
+        }
         let id = channel.id;
         let response = ChannelResponse::build(channel, conn)?;
         Ok((response, id))
@@ -247,8 +291,11 @@ pub async fn create_channel(
             // Ask the supervisor to spin up a worker. Upsert is
             // idempotent — if the channel is `enabled = false` (admin
             // wanted to add creds before going live) the supervisor
-            // will just leave it stopped.
-            control.upsert(channel_id).await;
+            // will just leave it stopped. Forwarding channels are
+            // push-based (no poll worker), so they skip this.
+            if response.channel.provider != CHANNEL_PROVIDER_EMAIL_FORWARD {
+                control.upsert(channel_id).await;
+            }
             HttpResponse::Created().json(response)
         }
         Err(e) => {

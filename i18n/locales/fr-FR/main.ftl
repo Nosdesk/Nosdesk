@@ -1123,6 +1123,42 @@ admin-channels-add = Ajouter un canal
 admin-channels-add-prompt = Choisissez un type de canal
 admin-channels-type-email-imap = E-mail (IMAP)
 admin-channels-type-email-imap-description = Interroger une boîte aux lettres et transformer les messages en tickets
+# MT: pending native review (fr-FR)
+admin-channels-type-email-forward = Transfert d'e-mails
+# MT: pending native review (fr-FR)
+admin-channels-type-email-forward-description = Transférez votre boîte de support vers une adresse que nous générons ; aucun identifiant requis
+# MT: pending native review (fr-FR)
+admin-channels-forwarding-title = Transfert d'e-mails
+# MT: pending native review (fr-FR)
+admin-channels-forwarding-description = Transférez votre boîte de support vers une adresse générée et les nouveaux e-mails deviennent des tickets. Aucun identifiant de boîte aux lettres requis.
+# MT: pending native review (fr-FR)
+admin-channels-forwarding-not-enabled = Le transfert d'e-mails n'est pas disponible sur cette instance.
+# MT: pending native review (fr-FR)
+admin-channels-forwarding-create-heading = Configurer le transfert
+# MT: pending native review (fr-FR)
+admin-channels-forwarding-create-description = Créez le canal pour générer votre adresse de transfert.
+# MT: pending native review (fr-FR)
+admin-channels-forwarding-name-placeholder = Nom du canal (facultatif)
+# MT: pending native review (fr-FR)
+admin-channels-forwarding-default-name = Transfert d'e-mails
+# MT: pending native review (fr-FR)
+admin-channels-forwarding-create-button = Créer l'adresse de transfert
+# MT: pending native review (fr-FR)
+admin-channels-forwarding-creating = Création...
+# MT: pending native review (fr-FR)
+admin-channels-forwarding-error-create = Échec de la création du canal de transfert
+# MT: pending native review (fr-FR)
+admin-channels-forwarding-address-heading = Votre adresse de transfert
+# MT: pending native review (fr-FR)
+admin-channels-forwarding-address-description = Transférez votre boîte de support vers cette adresse.
+# MT: pending native review (fr-FR)
+admin-channels-forwarding-copy = Copier
+# MT: pending native review (fr-FR)
+admin-channels-forwarding-copied = Copié
+# MT: pending native review (fr-FR)
+admin-channels-forwarding-instructions-heading = Comment transférer
+# MT: pending native review (fr-FR)
+admin-channels-forwarding-instructions-body = Dans votre fournisseur de messagerie, ajoutez une règle qui transfère votre boîte de support vers l'adresse ci-dessus. Les nouveaux messages arrivent alors sous forme de tickets.
 admin-channels-status-active = Actif
 admin-channels-status-disabled = Désactivé
 admin-channels-status-error = Erreur
@@ -5172,6 +5208,8 @@ route-title-admin-email-suppressions = Suppressions d'e-mails
 route-title-admin-guest-access = Accès invité
 route-title-admin-email-settings = Configuration des e-mails
 route-title-admin-channels-email = Réception des e-mails
+# MT: pending native review (fr-FR)
+route-title-admin-channels-forwarding = Transfert d'e-mails
 route-title-admin-data-import = Importation de données
 route-title-admin-microsoft-graph = Connexion Microsoft Graph
 route-title-admin-csv-import = Importation CSV

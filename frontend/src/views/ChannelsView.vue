@@ -12,6 +12,7 @@ import { useFluent } from 'fluent-vue';
 import { useQuery } from '@pinia/colada';
 
 import { channelsService, type Channel, type ImapRuntimeState } from '@/services/channelsService';
+import { isInboundForwardingEnabled } from '@/services/instanceConfig';
 import type { IconName } from '@/components/common/icons';
 import Icon from '@/components/common/Icon.vue';
 import Button from '@/components/common/Button.vue';
@@ -32,6 +33,13 @@ interface ChannelType {
 }
 const CHANNEL_TYPES: ChannelType[] = [
   {
+    provider: 'email_forward',
+    icon: 'email',
+    titleKey: 'admin-channels-type-email-forward',
+    descriptionKey: 'admin-channels-type-email-forward-description',
+    route: '/admin/channels/forwarding',
+  },
+  {
     provider: 'email_imap',
     icon: 'email',
     titleKey: 'admin-channels-type-email-imap',
@@ -41,6 +49,13 @@ const CHANNEL_TYPES: ChannelType[] = [
 ];
 
 const typeFor = (provider: string) => CHANNEL_TYPES.find((c) => c.provider === provider);
+
+// The add-channel picker hides forwarding unless the instance can receive it
+// (needs an inbound domain). `typeFor` still resolves it so an existing
+// forwarding channel renders correctly regardless.
+const addableTypes = computed(() =>
+  CHANNEL_TYPES.filter((c) => c.provider !== 'email_forward' || isInboundForwardingEnabled()),
+);
 
 const CHANNELS_KEY = ['admin-channels-list'] as const;
 const channelsQuery = useQuery({
@@ -86,7 +101,7 @@ const STATUS_CLASS: Record<Status, string> = {
       <div v-if="showAdd" class="rounded-xl border border-default bg-surface p-4 flex flex-col gap-2">
         <p class="text-sm text-secondary">{{ t('admin-channels-add-prompt') }}</p>
         <button
-          v-for="ct in CHANNEL_TYPES"
+          v-for="ct in addableTypes"
           :key="ct.provider"
           type="button"
           class="flex items-center gap-3 p-3 rounded-lg border border-default hover:border-strong text-left transition-colors"

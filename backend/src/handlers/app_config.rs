@@ -30,8 +30,15 @@ pub async fn get_public_config() -> impl Responder {
         crate::middleware::DeploymentMode::Hosted => "hosted",
         crate::middleware::DeploymentMode::SelfHosted => "self_hosted",
     };
+    // Forwarding-based inbound email is available only when the instance has an
+    // inbound domain configured (the hosted SES-receiving path); the admin UI
+    // uses this to show or hide the forwarding channel type.
+    let inbound_forwarding_enabled = std::env::var("NOSDESK_INBOUND_DOMAIN")
+        .map(|s| !s.is_empty())
+        .unwrap_or(false);
     HttpResponse::Ok().json(json!({
         "workspace_routing": workspace_routing,
         "deployment_mode": deployment_mode,
+        "inbound_forwarding_enabled": inbound_forwarding_enabled,
     }))
 }

@@ -829,6 +829,12 @@ const router = createRouter({
           meta: { titleKey: 'route-title-admin-channels-email', requiresAuth: true, adminRequired: true }
         },
         {
+          path: 'channels/forwarding',
+          name: 'admin-channels-forwarding',
+          component: () => import('../views/ChannelsForwardingView.vue'),
+          meta: { titleKey: 'route-title-admin-channels-forwarding', requiresAuth: true, adminRequired: true }
+        },
+        {
           path: 'data-import',
           name: 'admin-data-import',
           component: () => import('../views/DataImportView.vue'),

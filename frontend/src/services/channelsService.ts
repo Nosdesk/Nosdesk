@@ -27,6 +27,11 @@ export interface Channel {
   updated_at: string;
   last_polled_at: string | null;
   has_credential: boolean;
+  /**
+   * For `email_forward` channels: the generated `<token>@<inbound_domain>`
+   * address the customer forwards to. Absent for other providers.
+   */
+  forwarding_address?: string;
 }
 
 /** Known shape of `config` for the `email_imap` provider. */
@@ -94,6 +99,19 @@ export const channelsService = {
   async create(req: CreateChannelRequest): Promise<Channel> {
     const { data } = await apiClient.post<Channel>('/admin/channels', req);
     return data;
+  },
+
+  /**
+   * Create a forwarding channel. The backend mints the `<token>@<domain>`
+   * address (returned as `forwarding_address`) and needs no further config.
+   */
+  async createForwarding(name: string): Promise<Channel> {
+    return this.create({
+      provider: 'email_forward',
+      name,
+      enabled: true,
+      config: {},
+    });
   },
 
   async update(id: number, req: UpdateChannelRequest): Promise<Channel> {
