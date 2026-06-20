@@ -807,6 +807,19 @@ diesel::table! {
 }
 
 diesel::table! {
+    inbound_addresses (id) {
+        id -> Int4,
+        #[max_length = 64]
+        token -> Varchar,
+        channel_id -> Int4,
+        #[max_length = 16]
+        status -> Varchar,
+        created_at -> Timestamptz,
+        workspace_id -> Int4,
+    }
+}
+
+diesel::table! {
     knowledge_gap_signals (id) {
         id -> Int8,
         gap_id -> Int8,
@@ -2008,6 +2021,8 @@ diesel::joinable!(groups -> users (created_by));
 diesel::joinable!(groups -> workspaces (workspace_id));
 diesel::joinable!(import_jobs -> users (created_by));
 diesel::joinable!(import_jobs -> workspaces (workspace_id));
+diesel::joinable!(inbound_addresses -> channels (channel_id));
+diesel::joinable!(inbound_addresses -> workspaces (workspace_id));
 diesel::joinable!(knowledge_gap_signals -> knowledge_gaps (gap_id));
 diesel::joinable!(knowledge_gap_signals -> workspaces (workspace_id));
 diesel::joinable!(knowledge_gaps -> documentation_pages (resolved_page_id));
@@ -2158,6 +2173,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     groups,
     idempotency_keys,
     import_jobs,
+    inbound_addresses,
     knowledge_gap_signals,
     knowledge_gaps,
     linked_tickets,

@@ -6459,6 +6459,20 @@ pub const CHANNEL_DIRECTION_OUTBOUND: &str = "outbound";
 /// open for extension without migration.
 pub const CRED_TYPE_IMAP_PASSWORD: &str = "imap_password";
 
+/// `channels.provider` values for the two email ingestion paths. `email_imap`
+/// polls a mailbox (self-host / niche providers); `email_forward` receives
+/// mail the customer forwards to a generated `<token>@inbound.<domain>`
+/// address (the hosted path). Both feed the same parse pipeline; only the
+/// ingestion source differs.
+pub const CHANNEL_PROVIDER_EMAIL_IMAP: &str = "email_imap";
+pub const CHANNEL_PROVIDER_EMAIL_FORWARD: &str = "email_forward";
+
+/// `inbound_addresses.status` values, in lockstep with the
+/// `inbound_addresses_status_check` SQL constraint. `active` addresses route;
+/// `retired` ones are kept on record but no longer resolve.
+pub const INBOUND_ADDRESS_STATUS_ACTIVE: &str = "active";
+pub const INBOUND_ADDRESS_STATUS_RETIRED: &str = "retired";
+
 #[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
 #[diesel(table_name = crate::schema::channels)]
 pub struct Channel {
@@ -6639,6 +6653,34 @@ pub struct NewChannelMessage {
     pub author_user_uuid: Option<Uuid>,
     pub raw_metadata: Option<serde_json::Value>,
 }
+
+/// A forwarding address (`<token>@inbound.<domain>`) owned by an
+/// `email_forward` channel. The `token` is the routing key the inbound
+/// webhook resolves; see `repository::inbound_addresses` and the
+/// `inbound_addresses` migration for the capability rationale.
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable, Associations)]
+#[diesel(table_name = crate::schema::inbound_addresses)]
+#[diesel(belongs_to(Channel))]
+pub struct InboundAddress {
+    pub id: i32,
+    pub token: String,
+    pub channel_id: i32,
+    /// See [`INBOUND_ADDRESS_STATUS_ACTIVE`] / [`INBOUND_ADDRESS_STATUS_RETIRED`].
+    pub status: String,
+    pub created_at: NaiveDateTime,
+    pub workspace_id: i32,
+}
+
+/// Insert shape for a new forwarding address. `status` defaults to `active`,
+/// `workspace_id` is filled from the RLS GUC, and the timestamp defaults at
+/// the DB; the caller supplies only the channel and the generated token.
+#[derive(Debug, Insertable)]
+#[diesel(table_name = crate::schema::inbound_addresses)]
+pub struct NewInboundAddress {
+    pub token: String,
+    pub channel_id: i32,
+}
+
 // ---------- Canned responses ----------
 
 /// Reusable reply template that techs can pull into the ticket
