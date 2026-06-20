@@ -80,11 +80,17 @@ impl SesIdentityManager {
     /// Register `domain` as a BYODKIM sending identity signed by the workspace's
     /// key (`private_pem`, the stored PKCS#1 PEM). Idempotent: an already-registered
     /// identity has its signing key updated, so a key rotation re-registers cleanly.
+    /// `update_existing`: when the identity already exists, whether to re-apply
+    /// the DKIM signing key. True on an explicit re-setup (`set_domain`, which
+    /// regenerates the key); false on a plain ensure (e.g. a customer pressing
+    /// Verify), where re-applying an unchanged key just makes SES re-run DKIM
+    /// setup and email "DKIM setup successful" for nothing.
     pub async fn register_sending_domain(
         &self,
         domain: &str,
         selector: &str,
         private_pem: &str,
+        update_existing: bool,
     ) -> Result<(), SesError> {
         let key_b64 = ws_settings::dkim_private_pkcs8_b64(private_pem)
             .map_err(|e| SesError::Key(e.to_string()))?;
@@ -103,21 +109,26 @@ impl SesIdentityManager {
 
         match created {
             Ok(_) => Ok(()),
-            // Already registered (re-config / rotation): swap the signing key.
+            // Already registered. Only swap the signing key on an explicit
+            // re-setup; a plain ensure leaves it as-is so SES stays quiet.
             Err(aws_sdk_sesv2::error::SdkError::ServiceError(se))
                 if matches!(
                     se.err(),
                     CreateEmailIdentityError::AlreadyExistsException(_)
                 ) =>
             {
-                self.client
-                    .put_email_identity_dkim_signing_attributes()
-                    .email_identity(domain)
-                    .signing_attributes_origin(DkimSigningAttributesOrigin::External)
-                    .signing_attributes(signing)
-                    .send()
-                    .await
-                    .map_err(|e| SesError::Api(format!("update DKIM signing for {domain}: {e}")))?;
+                if update_existing {
+                    self.client
+                        .put_email_identity_dkim_signing_attributes()
+                        .email_identity(domain)
+                        .signing_attributes_origin(DkimSigningAttributesOrigin::External)
+                        .signing_attributes(signing)
+                        .send()
+                        .await
+                        .map_err(|e| {
+                            SesError::Api(format!("update DKIM signing for {domain}: {e}"))
+                        })?;
+                }
                 Ok(())
             }
             Err(e) => Err(SesError::Api(format!("create identity {domain}: {e}"))),

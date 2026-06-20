@@ -114,7 +114,11 @@ pub struct SetDomainRequest {
 /// verified) call this, so "verified" can never diverge from "registered in
 /// SES": if `set_domain`'s registration fails after the key is stored, the next
 /// verify re-ensures it before the status can advance.
-async fn ensure_ses_registration(pool: &Pool, workspace_id: i32) -> Result<(), String> {
+async fn ensure_ses_registration(
+    pool: &Pool,
+    workspace_id: i32,
+    update_existing: bool,
+) -> Result<(), String> {
     let ses = match ses_identity::SesIdentityManager::from_env() {
         Ok(Some(s)) => s,
         Ok(None) => return Ok(()), // self-host / no SES identity management
@@ -151,7 +155,7 @@ async fn ensure_ses_registration(pool: &Pool, workspace_id: i32) -> Result<(), S
     let Some((domain, selector, pem)) = material else {
         return Ok(());
     };
-    ses.register_sending_domain(&domain, &selector, &pem)
+    ses.register_sending_domain(&domain, &selector, &pem, update_existing)
         .await
         .map_err(|e| e.to_string())
 }
@@ -219,7 +223,8 @@ pub async fn set_domain(
     // the admin retries rather than publishing a record that can't send; the key
     // is already stored, and verify_domain re-ensures registration before the
     // status can advance.
-    if let Err(e) = ensure_ses_registration(pool.get_ref(), workspace_id).await {
+    // set_domain just (re)generated the DKIM key, so push it (update_existing).
+    if let Err(e) = ensure_ses_registration(pool.get_ref(), workspace_id, true).await {
         return errors::internal(format!("register {domain} with SES: {e}"));
     }
 
@@ -246,7 +251,10 @@ pub async fn verify_domain(
     // verified, so a verified status always implies the domain is registered for
     // sending (closes the gap where set_domain stored the key but its SES call
     // failed). Idempotent; no-op off-SES.
-    if let Err(e) = ensure_ses_registration(pool.get_ref(), workspace_id).await {
+    // Verify only ensures the identity EXISTS (creates if missing); it must not
+    // re-apply an unchanged key, or every customer "Verify" click makes SES email
+    // a "DKIM setup successful" notice. The key is only changed via set_domain.
+    if let Err(e) = ensure_ses_registration(pool.get_ref(), workspace_id, false).await {
         return errors::internal(format!("ensure SES registration: {e}"));
     }
 
