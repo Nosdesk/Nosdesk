@@ -41,8 +41,9 @@ pub fn db_conn(pool: &web::Data<Pool>) -> Result<DbConnection, HttpResponse> {
 /// Pin `app.workspace_id` on a raw connection from the request's resolved
 /// workspace, so RLS-scoped tenant reads/writes on that connection see the
 /// tenant's rows (production connects as the NOBYPASSRLS `nosdesk_app`
-/// role). Session-scoped: `ResetAppGucs` clears it on the next pool
-/// checkout, and a later `with_actor_context` overrides it per transaction.
+/// role). Session-scoped, but the pool scrubs `app.*` on every checkout
+/// (`ResettingManager`), so the pin can't outlive the request; a later
+/// `with_actor_context` overrides it per transaction.
 ///
 /// No-op when the request didn't resolve a workspace (apex / platform
 /// routes that don't touch tenant tables). This is what makes the legacy

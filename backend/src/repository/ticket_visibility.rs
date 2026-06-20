@@ -235,8 +235,8 @@ mod tests {
     fn visibility_is_governed_by_the_pinned_workspace_not_ambient_connection() {
         // Regression for the TicketAccess unpinned-connection bug: the gate
         // ran can_view_ticket on a raw connection whose app.workspace_id was
-        // whatever lingered on the pooled connection (ResetAppGucs clears it
-        // on checkout). Since the query carries no explicit workspace filter
+        // whatever lingered on the pooled connection (now scrubbed on every
+        // checkout by ResettingManager). Since the query carries no explicit workspace filter
         // and leans on the tickets RLS policy, an unpinned connection scoped
         // to no workspace, 404ing every ticket; a leaked one could scope to
         // the wrong tenant. Lock the precondition: even an all-seeing admin

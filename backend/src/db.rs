@@ -8,49 +8,71 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tracing::{error, info, warn};
 
-pub type Pool = r2d2::Pool<ConnectionManager<PgConnection>>;
-pub type DbConnection = r2d2::PooledConnection<ConnectionManager<PgConnection>>;
+pub type Pool = r2d2::Pool<ResettingManager>;
+pub type DbConnection = r2d2::PooledConnection<ResettingManager>;
 
-/// Connection customizer that clears every app-level GUC when a
-/// connection is established.
+/// Clear every per-request `app.*` GUC in one round-trip.
 ///
-/// `with_actor_context` scopes its GUCs to a transaction (via
-/// `set_config(_, _, true)`), so they normally die at commit/rollback.
-/// This is belt-and-braces: r2d2 runs `on_acquire` each time it gets a
-/// backend from the connection manager, so if a deployment fronts
-/// Postgres with a pooler (PgBouncer/pgcat) that hands back a server
-/// connection another client left with a session-scoped `app.*` GUC
-/// still set, this clears it before the connection enters our pool
-/// rather than letting stale workspace / actor attribution leak in.
 /// Empty-string is equivalent to unset everywhere these GUCs are read
-/// (every reader goes through `NULLIF(current_setting(...), '')`),
-/// matching `sync::session::reset_session_role`.
-#[derive(Debug)]
-struct ResetAppGucs;
+/// (every reader goes through `NULLIF(current_setting(...), '')`), matching
+/// `sync::session::reset_session_role`. Executing the statement also proves
+/// the backend is live, which is why this doubles as the pool's checkout
+/// validity check (see [`ResettingManager::is_valid`]).
+///
+/// `app.bypass_workspace_check` is a retired isolation switch (no RLS policy
+/// reads it since the 2026-06-12 migration) but stays in the scrub list so a
+/// future change can't accidentally inherit a stale `true` across requests.
+fn clear_app_gucs(conn: &mut PgConnection) -> diesel::QueryResult<()> {
+    diesel::sql_query(
+        "SELECT set_config('app.workspace_id', '', false), \
+                set_config('app.actor_uuid', '', false), \
+                set_config('app.actor_kind', '', false), \
+                set_config('app.actor_ref', '', false), \
+                set_config('app.correlation_id', '', false), \
+                set_config('app.client_tx_id', '', false), \
+                set_config('app.bypass_workspace_check', '', false)",
+    )
+    .execute(conn)
+    .map(|_| ())
+}
 
-impl r2d2::CustomizeConnection<PgConnection, r2d2::Error> for ResetAppGucs {
-    fn on_acquire(&self, conn: &mut PgConnection) -> Result<(), r2d2::Error> {
-        for key in [
-            "app.workspace_id",
-            "app.actor_uuid",
-            "app.actor_kind",
-            "app.actor_ref",
-            "app.correlation_id",
-            "app.client_tx_id",
-            // Defense-in-depth for a retired isolation switch: no RLS
-            // policy reads `app.bypass_workspace_check` anymore (the
-            // 2026-06-12 migration dropped the last five), so this is
-            // inert today. Clearing it when the connection is established
-            // means a fresh backend can never start out carrying a stale
-            // `true` even if a future change reintroduces a reader.
-            "app.bypass_workspace_check",
-        ] {
-            diesel::sql_query("SELECT set_config($1, '', false)")
-                .bind::<diesel::sql_types::Text, _>(key)
-                .execute(conn)
-                .map_err(r2d2::Error::QueryError)?;
-        }
-        Ok(())
+/// Pool connection manager that scrubs per-request GUCs on every checkout.
+///
+/// r2d2's `CustomizeConnection::on_acquire` only fires when a backend is
+/// first created, not per checkout, so a session-scoped `SET` (e.g. the
+/// `pin_workspace` helpers) survives on a pooled connection across requests
+/// and would leak one request's workspace into the next. r2d2 DOES call
+/// `is_valid` on every checkout when `test_on_check_out` is set (it is, on
+/// the production pool), so that is where we scrub: every request starts
+/// from a clean slate, and a handler that forgets to pin its workspace fails
+/// closed (sees no rows under RLS) instead of inheriting the previous
+/// request's tenant. `with_actor_context` callers are unaffected — their
+/// `SET LOCAL` GUCs already die at commit.
+#[derive(Debug)]
+pub struct ResettingManager(ConnectionManager<PgConnection>);
+
+impl ResettingManager {
+    pub fn new(database_url: impl Into<String>) -> Self {
+        Self(ConnectionManager::new(database_url))
+    }
+}
+
+impl r2d2::ManageConnection for ResettingManager {
+    type Connection = PgConnection;
+    type Error = <ConnectionManager<PgConnection> as r2d2::ManageConnection>::Error;
+
+    fn connect(&self) -> Result<Self::Connection, Self::Error> {
+        self.0.connect()
+    }
+
+    fn is_valid(&self, conn: &mut Self::Connection) -> Result<(), Self::Error> {
+        // The scrub statement also proves liveness, so it subsumes the
+        // standard validity ping rather than running in addition to it.
+        clear_app_gucs(conn).map_err(r2d2::Error::QueryError)
+    }
+
+    fn has_broken(&self, conn: &mut Self::Connection) -> bool {
+        self.0.has_broken(conn)
     }
 }
 
@@ -342,13 +364,16 @@ pub fn establish_connection_pool() -> Pool {
     );
 
     info!("Attempting to create database connection pool");
-    let manager = ConnectionManager::<PgConnection>::new(database_url);
+    let manager = ResettingManager::new(database_url);
 
     match r2d2::Pool::builder()
         .max_size(max_size)
         .min_idle(Some(min_idle))
         .connection_timeout(Duration::from_secs(connection_timeout))
-        .connection_customizer(Box::new(ResetAppGucs))
+        // Scrub per-request GUCs on every checkout (ResettingManager::is_valid).
+        // test_on_check_out is on by default; set explicitly because the GUC
+        // scrub — and the tenant isolation that depends on it — relies on it.
+        .test_on_check_out(true)
         .build(manager)
     {
         Ok(pool) => {
@@ -389,6 +414,49 @@ mod role_posture_tests {
         assert!(
             !posture.bypasses_rls,
             "nosdesk_app is NOBYPASSRLS and must not be flagged as bypassing"
+        );
+    }
+}
+
+#[cfg(test)]
+mod checkout_reset_tests {
+    use super::*;
+    use diesel::dsl::sql;
+    use diesel::select;
+    use diesel::sql_types::{Nullable, Text};
+
+    // The production pool scrubs per-request app.* GUCs on every checkout, so
+    // a session-scoped SET left behind by one request can't leak into the
+    // next request that reuses the same pooled backend.
+    #[test]
+    fn checkout_scrubs_leaked_session_gucs() {
+        let url = std::env::var("TEST_DATABASE_URL")
+            .expect("TEST_DATABASE_URL must be set for the checkout-scrub test");
+        let pool = r2d2::Pool::builder()
+            .max_size(1)
+            .test_on_check_out(true)
+            .build(ResettingManager::new(url))
+            .expect("build reset-test pool");
+
+        // One request leaves a workspace pinned on the connection...
+        {
+            let mut conn = pool.get().expect("first checkout");
+            diesel::sql_query("SELECT set_config('app.workspace_id', '5', false)")
+                .execute(&mut conn)
+                .expect("pin workspace");
+        }
+
+        // ...and the next checkout of that same backend must start clean.
+        let mut conn = pool.get().expect("second checkout");
+        let leaked: Option<String> = select(sql::<Nullable<Text>>(
+            "current_setting('app.workspace_id', true)",
+        ))
+        .get_result(&mut conn)
+        .expect("read workspace guc");
+        assert_eq!(
+            leaked.unwrap_or_default(),
+            "",
+            "a leaked session GUC must be scrubbed on checkout"
         );
     }
 }

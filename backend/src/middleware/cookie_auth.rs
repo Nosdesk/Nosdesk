@@ -154,7 +154,7 @@ fn selected_workspace_context(
 ///
 /// RLS-pinned read: `workspace_members`' policy is
 /// `workspace_id = current_setting('app.workspace_id')`, so on a raw pooled
-/// connection (GUC cleared by ResetAppGucs) a real member would read as "not a
+/// connection (GUC scrubbed on checkout by ResettingManager) a real member would read as "not a
 /// member". Running the lookup through `with_actor_context` pins the read to
 /// `workspace_id`. Callers that have already session-pinned the SAME workspace
 /// (SSE/collab via `pin_request_workspace`) are unaffected: the actor workspace
