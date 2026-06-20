@@ -20,8 +20,12 @@ use std::sync::Arc;
 use tracing::{info, warn};
 
 use crate::db::DbConnection;
-use crate::models::{Channel, NewChannelMessage, CHANNEL_DIRECTION_OUTBOUND};
+use crate::models::{
+    Channel, NewChannelMessage, CHANNEL_DIRECTION_OUTBOUND, CHANNEL_PROVIDER_EMAIL_FORWARD,
+    CHANNEL_PROVIDER_EMAIL_IMAP, INBOUND_ADDRESS_STATUS_ACTIVE,
+};
 use crate::repository::channels as channels_repo;
+use crate::repository::inbound_addresses;
 use crate::services::channels::email_imap::{build_email_imap_adapter, ImapChannelConfig};
 use crate::services::channels::threading::format_outbound_message_id;
 use crate::services::channels::{
@@ -127,6 +131,38 @@ pub async fn send_and_record(
     Ok(sent)
 }
 
+/// Reply routing for a channel: the Message-ID domain plus the optional
+/// `Reply-To` the customer's reply should target so it threads back onto the
+/// ticket. `None` means we can't route a reply (bad config / no forwarding
+/// address), so the caller skips the enqueue.
+///
+/// - `email_imap`: thread back via the polled mailbox (`Reply-To` = the IMAP
+///   username when it's an address).
+/// - `email_forward`: thread back via the generated forwarding address, so the
+///   customer's reply re-enters through SES inbound and threads.
+fn reply_routing(conn: &mut DbConnection, channel: &Channel) -> Option<(String, Option<String>)> {
+    if channel.provider == CHANNEL_PROVIDER_EMAIL_IMAP {
+        let config: ImapChannelConfig = serde_json::from_value(channel.config.clone()).ok()?;
+        let reply_to = config
+            .username
+            .contains('@')
+            .then(|| config.username.clone());
+        Some((config.reply_domain, reply_to))
+    } else if channel.provider == CHANNEL_PROVIDER_EMAIL_FORWARD {
+        let domain = std::env::var("NOSDESK_INBOUND_DOMAIN")
+            .ok()
+            .filter(|d| !d.is_empty())?;
+        let address = inbound_addresses::list_for_channel(conn, channel.id)
+            .ok()?
+            .into_iter()
+            .find(|a| a.status == INBOUND_ADDRESS_STATUS_ACTIVE)?;
+        let forwarding_address = format!("{}@{}", address.token, domain);
+        Some((domain, Some(forwarding_address)))
+    } else {
+        None
+    }
+}
+
 /// Spawn a detached task that composes the outbound reply for a
 /// freshly-created comment and enqueues it on the durable
 /// `outbound_emails` queue (Item J Pass 1). The actual SMTP send
@@ -191,20 +227,16 @@ pub fn enqueue_for_comment(
                 let body =
                     super::quote_previous::maybe_prepend_quote(conn, &channel, &ticket, body);
 
-                let config: super::email_imap::ImapChannelConfig =
-                    match serde_json::from_value(channel.config.clone()) {
-                        Ok(c) => c,
-                        Err(e) => {
-                            warn!(
-                                channel_id = channel.id,
-                                error = %e,
-                                "channel relay: bad channel config; skipping enqueue"
-                            );
-                            return Ok(None);
-                        }
-                    };
+                let Some((reply_domain, reply_to)) = reply_routing(conn, &channel) else {
+                    warn!(
+                        channel_id = channel.id,
+                        provider = %channel.provider,
+                        "channel relay: no reply routing for channel; skipping enqueue"
+                    );
+                    return Ok(None);
+                };
                 let message_id =
-                    format_outbound_message_id(thread.ticket_id, comment.id, &config.reply_domain);
+                    format_outbound_message_id(thread.ticket_id, comment.id, &reply_domain);
                 let subject = super::threading::format_outbound_subject(
                     thread.ticket_id,
                     thread.subject.as_deref().unwrap_or(""),
@@ -215,15 +247,13 @@ pub fn enqueue_for_comment(
                     .clone()
                     .unwrap_or_else(|| thread.recipient.external_id.clone());
 
-                // B3: point the customer's reply at the channel's polled mailbox
-                // so it threads back into the ticket even when the workspace
-                // sends From a different (verified-domain) identity. Only when the
-                // IMAP username is itself an address, so the send-path parse can't
-                // fail on a non-email login.
-                let headers_json = if config.username.contains('@') {
-                    serde_json::json!({ "Reply-To": config.username })
-                } else {
-                    serde_json::json!({})
+                // Point the customer's reply where it threads back: the IMAP
+                // polled mailbox, or the forwarding address (re-ingested via
+                // SES). Set even when the workspace sends From a different
+                // (verified-domain) identity. Absent when there's no route.
+                let headers_json = match &reply_to {
+                    Some(addr) => serde_json::json!({ "Reply-To": addr }),
+                    None => serde_json::json!({}),
                 };
 
                 let new_row = crate::models::NewOutboundEmail {
