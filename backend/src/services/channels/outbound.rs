@@ -140,7 +140,13 @@ pub async fn send_and_record(
 ///   username when it's an address).
 /// - `email_forward`: thread back via the generated forwarding address, so the
 ///   customer's reply re-enters through SES inbound and threads.
-fn reply_routing(conn: &mut DbConnection, channel: &Channel) -> Option<(String, Option<String>)> {
+///
+/// Shared with [`super::auto_ack`] so the acknowledgement threads back the same
+/// way an agent's reply does.
+pub(crate) fn reply_routing(
+    conn: &mut DbConnection,
+    channel: &Channel,
+) -> Option<(String, Option<String>)> {
     if channel.provider == CHANNEL_PROVIDER_EMAIL_IMAP {
         let config: ImapChannelConfig = serde_json::from_value(channel.config.clone()).ok()?;
         let reply_to = config

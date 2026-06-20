@@ -30,6 +30,7 @@ use crate::services::channels::pipeline::{self, PipelineContext, PipelineOutcome
 use crate::services::channels::InboundEvent;
 use crate::services::inbound_email::s3_fetch::InboundS3;
 use crate::services::inbound_email::{ses, sns};
+use crate::services::outbound_email::OutboundEmailResolver;
 use crate::services::search::SearchService;
 use crate::sync::actor::ActorContext;
 use crate::sync::session::{elevate_session_role, reset_session_role};
@@ -52,6 +53,7 @@ pub async fn receive(
     storage: web::Data<Arc<dyn Storage>>,
     sse_state: web::Data<SseState>,
     search_service: web::Data<Arc<SearchService>>,
+    resolver: web::Data<Arc<OutboundEmailResolver>>,
     inbound_s3: web::Data<Option<InboundS3>>,
 ) -> HttpResponse {
     let message = match sns::SnsMessage::parse(&body) {
@@ -84,18 +86,15 @@ pub async fn receive(
         }
     };
 
-    // Spam/virus gate. Drops are silent (200, no retry, no row).
-    match ses::gate(&notification.receipt) {
-        ses::GateOutcome::DropVirus => {
-            warn!("inbound: dropped message failing virus scan");
-            return HttpResponse::Ok().finish();
-        }
-        ses::GateOutcome::DropSpam => {
-            info!("inbound: dropped message failing spam scan");
-            return HttpResponse::Ok().finish();
-        }
-        ses::GateOutcome::Pass => {}
+    // Virus is a hard drop, known token or not: never ingest malware.
+    if ses::virus_failed(&notification.receipt) {
+        warn!("inbound: dropped message failing virus scan");
+        return HttpResponse::Ok().finish();
     }
+    // Spam is handled token-aware below: dropped for an unknown token, but for
+    // a known workspace the ticket still opens (flagged), because forwarding
+    // inflates spam scores and a silent drop would lose a real customer request.
+    let spam = ses::spam_failed(&notification.receipt);
 
     let Some(s3) = inbound_s3.get_ref() else {
         // Hosted always configures this; an unconfigured server can't fetch the
@@ -136,8 +135,13 @@ pub async fn receive(
     };
 
     let Some(address) = resolved else {
-        // Unknown (or absent) token + scans passed: dead-letter so a
-        // misconfigured forward is diagnosable instead of vanishing.
+        // Unknown (or absent) token. Spam to a guessed address has no value, so
+        // drop it; clean mail is dead-lettered so a misconfigured forward is
+        // diagnosable instead of vanishing.
+        if spam {
+            info!("inbound: dropped spam to an unrecognized address");
+            return HttpResponse::Ok().finish();
+        }
         return record_dead_letter(&pool, &notification, &object_key);
     };
 
@@ -161,12 +165,15 @@ pub async fn receive(
     if msg.raw_bytes.is_none() {
         msg.raw_bytes = Some(raw);
     }
+    // Carry the spam verdict so the pipeline opens the ticket but flags it.
+    msg.spam_suspected = spam;
 
     match ingest(
         &pool,
         storage.get_ref().clone(),
         sse_state.clone(),
         search_service.get_ref().clone(),
+        resolver.get_ref().clone(),
         address.workspace_id,
         address.channel_id,
         msg,
@@ -199,6 +206,7 @@ async fn ingest(
     storage: Arc<dyn Storage>,
     sse: web::Data<SseState>,
     search: Arc<SearchService>,
+    resolver: Arc<OutboundEmailResolver>,
     workspace_id: i32,
     channel_id: i32,
     msg: crate::services::channels::InboundMessage,
@@ -216,16 +224,15 @@ async fn ingest(
     };
 
     let adapter = EmailForwardAdapter::new(channel_id);
-    // Auto-ack (and outbound threadback) for forwarding channels are wired with
-    // the outbound dispatch path, so resolver/pool are left unset here; the
-    // attachment/SSE/search side effects still run.
+    // resolver + pool enable the auto-ack on newly opened tickets (gated per
+    // workspace by site_settings); it threads back via the forwarding address.
     let ctx = PipelineContext {
         storage: Some(storage),
         sse: Some(sse),
         search: Some(search),
         http: Some(HTTP.clone()),
-        resolver: None,
-        pool: None,
+        resolver: Some(resolver),
+        pool: Some(pool.clone()),
     };
 
     let result = pipeline::process_event(

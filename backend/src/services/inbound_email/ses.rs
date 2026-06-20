@@ -106,16 +106,6 @@ impl SesNotification {
     }
 }
 
-/// Outcome of the spam/virus gate. We treat the gate the same regardless of
-/// whether the token is known; the caller decides what to do with a `Pass`
-/// (route or dead-letter) vs a drop (silent).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GateOutcome {
-    Pass,
-    DropVirus,
-    DropSpam,
-}
-
 fn verdict_failed(v: &Option<SesVerdict>) -> bool {
     v.as_ref()
         .and_then(|v| v.status.as_deref())
@@ -123,17 +113,19 @@ fn verdict_failed(v: &Option<SesVerdict>) -> bool {
         .unwrap_or(false)
 }
 
-/// Gate on the SES verdicts. Virus FAIL always drops (never ingest malware);
-/// spam FAIL drops too. A missing verdict is treated as a pass (SES only omits
-/// them when scanning is disabled, which is an operator choice).
-pub fn gate(receipt: &SesReceipt) -> GateOutcome {
-    if verdict_failed(&receipt.virus_verdict) {
-        return GateOutcome::DropVirus;
-    }
-    if verdict_failed(&receipt.spam_verdict) {
-        return GateOutcome::DropSpam;
-    }
-    GateOutcome::Pass
+/// Virus scan failed. Always a hard drop (we never ingest malware), regardless
+/// of whether the recipient token is known. A missing verdict is a pass: SES
+/// only omits verdicts when scanning is disabled, which is an operator choice.
+pub fn virus_failed(receipt: &SesReceipt) -> bool {
+    verdict_failed(&receipt.virus_verdict)
+}
+
+/// Spam scan failed. NOT a hard drop on its own: for a *known* workspace the
+/// caller still opens a flagged ticket, because a false positive — common with
+/// forwarded mail, which breaks SPF alignment — must not silently lose a real
+/// customer request. Only mail to an *unknown* token is dropped on a spam FAIL.
+pub fn spam_failed(receipt: &SesReceipt) -> bool {
+    verdict_failed(&receipt.spam_verdict)
 }
 
 /// Extract the forwarding token from an envelope recipient of the form
@@ -184,29 +176,29 @@ mod tests {
         assert_eq!(n.s3_object_key(), Some("raw/abc123"));
         assert_eq!(n.sender().as_deref(), Some("customer@theirco.com"));
         assert_eq!(n.subject().as_deref(), Some("Help please"));
-        assert_eq!(gate(&n.receipt), GateOutcome::Pass);
+        assert!(!virus_failed(&n.receipt) && !spam_failed(&n.receipt));
     }
 
     #[test]
-    fn gate_drops_virus_then_spam() {
+    fn verdict_helpers_detect_fail_case_insensitively() {
         let mut n = SesNotification::parse(SAMPLE).unwrap();
+        assert!(!virus_failed(&n.receipt) && !spam_failed(&n.receipt));
         n.receipt.spam_verdict = Some(SesVerdict {
             status: Some("FAIL".into()),
         });
-        assert_eq!(gate(&n.receipt), GateOutcome::DropSpam);
-        // Virus takes precedence over spam.
+        assert!(spam_failed(&n.receipt) && !virus_failed(&n.receipt));
         n.receipt.virus_verdict = Some(SesVerdict {
             status: Some("fail".into()),
         });
-        assert_eq!(gate(&n.receipt), GateOutcome::DropVirus);
+        assert!(virus_failed(&n.receipt));
     }
 
     #[test]
-    fn missing_verdicts_pass() {
+    fn missing_verdicts_are_not_failures() {
         let mut n = SesNotification::parse(SAMPLE).unwrap();
         n.receipt.spam_verdict = None;
         n.receipt.virus_verdict = None;
-        assert_eq!(gate(&n.receipt), GateOutcome::Pass);
+        assert!(!virus_failed(&n.receipt) && !spam_failed(&n.receipt));
     }
 
     #[test]

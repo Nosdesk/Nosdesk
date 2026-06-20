@@ -701,6 +701,12 @@ fn insert_inbound_comment(
     if let Some(by) = forwarded_by_user_uuid {
         metadata["forwarded_by_user_uuid"] = json!(by.to_string());
     }
+    // Mail the provider flagged as spam still opens a ticket (never silently
+    // drop a customer's request), but we stamp the verdict so the ticket view
+    // can badge it and agents can triage.
+    if msg.spam_suspected {
+        metadata["spam_suspected"] = json!(true);
+    }
 
     // Prefer the rich HTML body when the message has one — it carries
     // the formatting the customer's mail client emitted (lists, links,
@@ -1158,6 +1164,7 @@ mod tests {
             raw_bytes: None,
             content_language: None,
             source_ref: None,
+            spam_suspected: false,
         }
     }
 
@@ -2039,6 +2046,45 @@ My printer is literally on fire.
             metadata["forwarded_by_user_uuid"].as_str(),
             Some(tech.uuid.to_string().as_str()),
             "forwarded_by_user_uuid should point at the forwarding tech"
+        );
+    }
+
+    #[tokio::test]
+    async fn spam_suspected_message_opens_a_flagged_ticket() {
+        // A provider-flagged-as-spam message still opens a ticket (we never
+        // silently drop a customer request) and the comment carries the flag
+        // so agents can triage.
+        let mut conn = setup_test_connection();
+        let ch = TestFixtures::create_channel(&mut conn, "email_imap");
+        let mut msg = sample_message("<spam@ex>", vec![], Some("cheap deals"));
+        msg.from.known_email = Some("sender@elsewhere.com".into());
+        msg.spam_suspected = true;
+
+        let outcome = process_event(
+            &StubAdapter,
+            &ch,
+            InboundEvent::MessageReceived(msg),
+            &mut conn,
+            &PipelineContext::bare(),
+        )
+        .await
+        .unwrap();
+
+        let comment_id = match outcome {
+            PipelineOutcome::TicketOpened { comment_id, .. } => comment_id,
+            other => panic!("expected TicketOpened, got {other:?}"),
+        };
+        use crate::schema::comments::dsl as c;
+        use diesel::prelude::*;
+        let metadata: Option<serde_json::Value> = c::comments
+            .filter(c::id.eq(comment_id))
+            .select(c::channel_metadata)
+            .first(&mut conn)
+            .unwrap();
+        assert_eq!(
+            metadata.expect("channel_metadata present")["spam_suspected"],
+            serde_json::json!(true),
+            "spam-flagged inbound should stamp spam_suspected on the comment"
         );
     }
 

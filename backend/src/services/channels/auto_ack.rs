@@ -101,7 +101,7 @@ async fn send_auto_ack(
     // context, so it must establish the workspace itself; run_in_workspace
     // (non-bypass) both scopes the RLS-isolated site_settings read to THIS
     // workspace and sets the GUC the later record write needs.
-    let (settings, recipient_email, customer_name) = {
+    let (settings, recipient_email, customer_name, routing) = {
         let requester_uuid = ticket
             .requester_uuid
             .ok_or_else(|| "ticket has no requester".to_string())?;
@@ -121,7 +121,10 @@ async fn send_auto_ack(
                 let name = crate::repository::users::get_user_by_uuid(&requester_uuid, conn)
                     .map(|u| u.name)
                     .unwrap_or_else(|_| email.clone());
-                Ok::<_, diesel::result::Error>((settings, email, name))
+                // Where the customer's reply to this ack should thread back —
+                // the same provider-aware routing an agent reply uses.
+                let routing = super::outbound::reply_routing(conn, channel);
+                Ok::<_, diesel::result::Error>((settings, email, name, routing))
             },
         )
         .map_err(|e| format!("auto-ack prep: {e}"))?
@@ -134,12 +137,13 @@ async fn send_auto_ack(
         );
         return Ok(());
     }
-    if channel.provider != "email_imap" {
-        // Only email knows how to deliver one today; chat adapters
-        // might have their own "we got it" UX (Slack ephemeral, etc).
-        debug!(provider = %channel.provider, "auto-ack not supported for this provider");
+    // No reply route means no email channel to deliver an ack through (chat
+    // adapters get their own "we got it" UX). `reply_domain` stamps the
+    // Message-ID; `reply_to` threads the customer's reply back.
+    let Some((reply_domain, reply_to)) = routing else {
+        debug!(provider = %channel.provider, "auto-ack: channel has no reply route; skipping");
         return Ok(());
-    }
+    };
 
     // Render template. Admin-customised wording wins outright;
     // the inbound's Content-Language only drives the *default*
@@ -174,10 +178,7 @@ async fn send_auto_ack(
     // Build outbound email. The Message-ID is stamped by the threading
     // helper so the recipient's reply matches back to this ticket via
     // the References cascade (step 1 — References chain).
-    let config: crate::services::channels::email_imap::ImapChannelConfig =
-        serde_json::from_value(channel.config.clone())
-            .map_err(|e| format!("parse channel.config: {e}"))?;
-    let message_id = format_outbound_message_id(ticket.id, 0, &config.reply_domain);
+    let message_id = format_outbound_message_id(ticket.id, 0, &reply_domain);
     let subject = format_outbound_subject(ticket.id, &ticket.title);
     let references = vec![in_reply_to.to_string()];
 
@@ -194,11 +195,9 @@ async fn send_auto_ack(
         auto_submitted: Some("auto-replied"),
         // Conversation mail to the customer about their own ticket: transactional.
         mail_class: crate::models::outbound_email_mail_class::TRANSACTIONAL,
-        // B3: reply to the channel's polled mailbox so it threads back in.
-        reply_to: config
-            .username
-            .contains('@')
-            .then(|| config.username.as_str()),
+        // Thread the reply back: the IMAP polled mailbox or the forwarding
+        // address, depending on the channel.
+        reply_to: reply_to.as_deref(),
         // Direct send (not queued), so there's no outbound row to encode a
         // VERP token against; bounces fall back to Message-ID correlation.
         envelope_from: None,

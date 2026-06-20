@@ -215,6 +215,12 @@ pub struct InboundMessage {
     /// `None`. The registry passes it back to
     /// [`ChannelAdapter::record_ingest_outcome`] after the pipeline runs.
     pub source_ref: Option<u64>,
+    /// Normalized "this looks like spam" signal. Set from the provider's own
+    /// verdict (SES `X-SES-Spam-Verdict` on the forwarding path; a future IMAP
+    /// adapter could map `X-Spam-Flag`). The pipeline still opens the ticket —
+    /// it must never silently drop a known customer's mail — but stamps the
+    /// flag so agents can triage. `false` for adapters with no spam signal.
+    pub spam_suspected: bool,
 }
 
 /// Either bytes we already have (IMAP) or a URL we fetch later (Slack
