@@ -184,22 +184,12 @@ fn dmarc_policy(record: &str) -> Option<String> {
 /// Resolve MX hostnames at `name`, sorted by preference. NXDOMAIN / no-records
 /// yields an empty list, mirroring `txt_lookup`.
 async fn mx_lookup(name: &str) -> Result<Vec<String>, String> {
-    use hickory_resolver::config::{ResolverConfig, ResolverOpts};
-    use hickory_resolver::net::{runtime::TokioRuntimeProvider, DnsError, NetError};
+    use hickory_resolver::net::{DnsError, NetError};
     use hickory_resolver::proto::rr::RData;
-    use hickory_resolver::TokioResolver;
-    use std::time::Duration;
 
-    let mut opts = ResolverOpts::default();
-    opts.timeout = Duration::from_secs(5);
-    opts.attempts = 2;
-    let resolver = TokioResolver::builder_with_config(
-        ResolverConfig::default(),
-        TokioRuntimeProvider::default(),
-    )
-    .with_options(opts)
-    .build()
-    .map_err(|e| format!("resolver build: {e}"))?;
+    // One shared resolver for the whole email-auth DNS surface (see
+    // `dkim_verification::email_auth_resolver` for why it's the host resolver).
+    let resolver = crate::services::dkim_verification::email_auth_resolver()?;
 
     match resolver.mx_lookup(name).await {
         Ok(lookup) => {
