@@ -865,21 +865,11 @@ admin-nav-plugins-title = Plugins
 admin-nav-plugins-description = Gérez les plugins installés et les intégrations
 admin-nav-data-import-title = Import de données
 admin-nav-data-import-description = Importez des données depuis Intune, des fichiers CSV et d'autres sources
-admin-nav-channels-email-title = Réception d'e-mails
-admin-nav-channels-email-description = Interrogez une boîte de support en IMAP et transformez les messages en tickets
-admin-nav-email-queue-title = File d'e-mails
-admin-nav-email-queue-description = File durable des e-mails sortants : statut, réessais, bounces et actions par ligne
-admin-nav-email-suppressions-title = Suppressions d'e-mails
-admin-nav-email-suppressions-description = Adresses bloquées pour l'envoi sortant, alimentées automatiquement par les bounces durs
 admin-nav-audit-log-title = Journal d'audit
 admin-nav-audit-log-description = Trace forensique des modifications, issue des triggers par table
 admin-nav-branding-title = Marque
 admin-nav-branding-description = Personnalisez l'apparence et la marque de l'application
-admin-nav-email-settings-title = Configuration des e-mails
-admin-nav-email-settings-description = Configurez les paramètres SMTP et envoyez des e-mails de test
 # MACHINE TRANSLATION, pending native review (verified sending domain)
-admin-nav-email-sending-domain-title = Domaine d'envoi
-admin-nav-email-sending-domain-description = Envoyez des e-mails depuis votre propre domaine vérifié avec DKIM
 admin-nav-workspaces-title = Espaces de travail
 
 # MACHINE TRANSLATION, pending native review (verified sending domain)
@@ -1105,7 +1095,6 @@ admin-email-settings-configured = Configuré
 admin-email-settings-not-configured = Non configuré
 admin-email-settings-enabled = Activé
 admin-email-settings-server = Serveur
-admin-email-settings-username = Nom d'utilisateur
 admin-email-settings-from-address = Adresse d'expéditeur
 admin-email-settings-password = Mot de passe
 admin-email-settings-password-not-set = Non défini

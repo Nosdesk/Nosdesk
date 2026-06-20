@@ -263,7 +263,10 @@ const getRequiredEnvVars = () => [
                  platform relay; point the admin at their sending domain. -->
             <div v-if="emailConfig?.managed" class="flex flex-col gap-2 text-sm bg-surface-alt rounded-lg p-3">
               <p class="text-secondary">{{ $t('admin-email-settings-managed-note') }}</p>
+              <!-- Standalone only: in the Email delivery page the sending-domain
+                   section is rendered directly below, so the link is redundant. -->
               <RouterLink
+                v-if="!props.embedded"
                 :to="{ name: 'admin-email-sending-domain' }"
                 class="text-accent hover:underline font-medium w-fit"
               >

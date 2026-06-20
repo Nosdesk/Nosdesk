@@ -862,21 +862,11 @@ admin-nav-plugins-title = Plug-ins
 admin-nav-plugins-description = Beheer geïnstalleerde plug-ins en integraties
 admin-nav-data-import-title = Gegevensimport
 admin-nav-data-import-description = Importeer gegevens uit Intune, CSV-bestanden en andere bronnen
-admin-nav-channels-email-title = E-mailinname
-admin-nav-channels-email-description = Pol een support-mailbox via IMAP en zet berichten om in tickets
-admin-nav-email-queue-title = E-mailwachtrij
-admin-nav-email-queue-description = Duurzame wachtrij voor uitgaande e-mail: status, herhalingen, bounces en acties per rij
-admin-nav-email-suppressions-title = E-mailsuppressies
-admin-nav-email-suppressions-description = Adressen die geblokkeerd zijn voor uitgaande verzending, automatisch gevuld door harde bounces
 admin-nav-audit-log-title = Auditlogboek
 admin-nav-audit-log-description = Forensisch overzicht van wijzigingen, gevoed door triggers per tabel
 admin-nav-branding-title = Branding
 admin-nav-branding-description = Pas het uiterlijk en de branding van de applicatie aan
-admin-nav-email-settings-title = E-mailconfiguratie
-admin-nav-email-settings-description = Configureer SMTP-instellingen en verstuur test-e-mails
 # MACHINE TRANSLATION, pending native review (verified sending domain)
-admin-nav-email-sending-domain-title = Verzenddomein
-admin-nav-email-sending-domain-description = Verstuur e-mail vanaf je eigen geverifieerde domein met DKIM
 admin-nav-workspaces-title = Werkruimtes
 
 # MACHINE TRANSLATION, pending native review (verified sending domain)
@@ -1102,7 +1092,6 @@ admin-email-settings-configured = Geconfigureerd
 admin-email-settings-not-configured = Niet geconfigureerd
 admin-email-settings-enabled = Ingeschakeld
 admin-email-settings-server = Server
-admin-email-settings-username = Gebruikersnaam
 admin-email-settings-from-address = Afzender
 admin-email-settings-password = Wachtwoord
 admin-email-settings-password-not-set = Niet ingesteld
