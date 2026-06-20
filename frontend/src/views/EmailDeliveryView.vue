@@ -67,9 +67,15 @@ const tabs: { id: Tab; labelKey: string }[] = [
         <EmailSettingsView embedded />
         <EmailSendingDomainView embedded />
       </div>
-      <div v-else class="flex flex-col gap-6">
-        <EmailQueueView embedded />
-        <EmailSuppressionsView embedded />
+      <div v-else class="flex flex-col gap-8">
+        <section class="flex flex-col gap-3">
+          <h2 class="text-base font-semibold text-primary">{{ t('admin-email-queue-title') }}</h2>
+          <EmailQueueView embedded />
+        </section>
+        <section class="flex flex-col gap-3">
+          <h2 class="text-base font-semibold text-primary">{{ t('admin-suppressions-title') }}</h2>
+          <EmailSuppressionsView embedded />
+        </section>
       </div>
     </div>
   </div>
