@@ -17,6 +17,10 @@ import brandingService, { type BrandingConfig } from '@/services/brandingService
 import { extractErrorMessage } from '@/utils/errors';
 import { useToastStore } from '@/stores/toast';
 
+// `embedded`: render as a section inside the consolidated Email delivery page
+// (no page header / outer padding), vs. the standalone admin route.
+const props = withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false });
+
 const toast = useToastStore();
 const fluent = useFluent();
 const t = (key: string) => fluent.$t(key);
@@ -175,17 +179,18 @@ const getRequiredEnvVars = () => [
 </script>
 
 <template>
-  <div class="flex-1">
-    <div class="flex flex-col gap-4 px-4 sm:px-6 py-4 mx-auto w-full max-w-8xl">
-      <div class="mb-6">
+  <div :class="props.embedded ? '' : 'flex-1'">
+    <div :class="props.embedded ? 'flex flex-col gap-4' : 'flex flex-col gap-4 px-4 sm:px-6 py-4 mx-auto w-full max-w-8xl'">
+      <div v-if="!props.embedded" class="mb-6">
         <h1 class="text-xl sm:text-2xl font-bold text-primary">{{ $t('admin-email-settings-title') }}</h1>
         <p class="text-secondary mt-2">
           {{ $t('admin-email-settings-description') }}
         </p>
       </div>
 
-      <!-- Configuration Notice -->
-      <EnvConfigNotice>
+      <!-- Configuration Notice (self-host: the relay is set via .env; hidden on
+           hosted, where outbound is Nosdesk-managed). -->
+      <EnvConfigNotice v-if="!emailConfig?.managed">
         {{ $t('admin-email-settings-env-notice-prefix') }}
         <code class="bg-surface px-1 rounded text-primary">.env</code>
         {{ $t('admin-email-settings-env-notice-suffix') }}

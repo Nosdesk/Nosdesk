@@ -17,6 +17,9 @@ import {
   type OutboundEmailStatus,
 } from '@/services/emailQueueService';
 
+// `embedded`: render as the Activity tab inside the Email delivery page.
+const props = withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false });
+
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
@@ -203,8 +206,8 @@ const deadTotal = computed(
 </script>
 
 <template>
-  <div class="flex flex-col gap-6 p-6">
-    <header class="flex flex-col gap-2">
+  <div :class="props.embedded ? 'flex flex-col gap-6' : 'flex flex-col gap-6 p-6'">
+    <header v-if="!props.embedded" class="flex flex-col gap-2">
       <h1 class="text-2xl font-semibold">{{ $t('admin-email-queue-title') }}</h1>
       <p class="text-sm text-secondary">
         {{ $t('admin-email-queue-description') }}

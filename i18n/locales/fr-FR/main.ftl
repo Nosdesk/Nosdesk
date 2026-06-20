@@ -1113,6 +1113,15 @@ admin-email-settings-env-vars-label = Env :
 # (machine, à relire par un locuteur natif).
 admin-email-settings-managed-note = Les e-mails sortants sont distribués par Nosdesk. Pour envoyer depuis votre propre adresse, configurez un domaine d'envoi.
 admin-email-settings-managed-domain-link = Configurer le domaine d'envoi
+# (machine, à relire par un locuteur natif).
+admin-nav-group-communication = Communication
+admin-nav-email-delivery-title = Distribution des e-mails
+admin-nav-email-delivery-description = Identité d'expéditeur, domaine et activité de distribution
+route-title-admin-email-delivery = Distribution des e-mails
+admin-email-delivery-title = Distribution des e-mails
+admin-email-delivery-description = Comment cet espace de travail envoie ses e-mails et comment se déroule la distribution.
+admin-email-delivery-tab-setup = Configuration
+admin-email-delivery-tab-activity = Activité
 admin-email-settings-test-send = Envoyer un test :
 admin-email-settings-test-placeholder = destinataire@exemple.com
 admin-email-settings-test-send-button = Envoyer
