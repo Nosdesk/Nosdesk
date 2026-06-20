@@ -1919,6 +1919,10 @@ async fn main() -> std::io::Result<()> {
                     // notification didn't fire.
                     .route("/admin/email-queue", web::get().to(handlers::email_queue::list))
                     .route("/admin/email-queue/stats", web::get().to(handlers::email_queue::stats))
+
+                    // Inbound dead-letter log — platform-admin only. Cross-tenant
+                    // operator view of mail forwarded to an unknown token.
+                    .route("/admin/inbound/dead-letters", web::get().to(handlers::inbound_dead_letters::list))
                     .route("/admin/email-queue/{id}/retry", web::post().to(handlers::email_queue::retry_now))
                     .route("/admin/email-queue/{id}/cancel", web::post().to(handlers::email_queue::cancel))
                     .route("/admin/email-suppressions", web::get().to(handlers::email_suppressions::list))

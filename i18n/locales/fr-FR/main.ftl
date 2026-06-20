@@ -1159,6 +1159,34 @@ admin-channels-forwarding-copied = Copié
 admin-channels-forwarding-instructions-heading = Comment transférer
 # MT: pending native review (fr-FR)
 admin-channels-forwarding-instructions-body = Dans votre fournisseur de messagerie, ajoutez une règle qui transfère votre boîte de support vers l'adresse ci-dessus. Les nouveaux messages arrivent alors sous forme de tickets.
+# MT: pending native review (fr-FR)
+admin-nav-unrouted-inbound-title = Courrier entrant non routé
+# MT: pending native review (fr-FR)
+admin-nav-unrouted-inbound-description = Courrier transféré ne correspondant à aucune adresse
+# MT: pending native review (fr-FR)
+admin-unrouted-title = Courrier entrant non routé
+# MT: pending native review (fr-FR)
+admin-unrouted-description = Courrier transféré ayant passé les analyses anti-spam et antivirus mais ne correspondant à aucune adresse de transfert active, généralement une cible de transfert mal saisie ou obsolète.
+# MT: pending native review (fr-FR)
+admin-unrouted-count-label = au cours des 7 derniers jours
+# MT: pending native review (fr-FR)
+admin-unrouted-empty-title = Rien de non routé
+# MT: pending native review (fr-FR)
+admin-unrouted-empty-description = Tout le courrier transféré a correspondu à une adresse. Un transfert mal configuré apparaîtrait ici.
+# MT: pending native review (fr-FR)
+admin-unrouted-col-recipient = Envoyé à
+# MT: pending native review (fr-FR)
+admin-unrouted-col-from = De
+# MT: pending native review (fr-FR)
+admin-unrouted-col-subject = Objet
+# MT: pending native review (fr-FR)
+admin-unrouted-col-received = Reçu
+# MT: pending native review (fr-FR)
+admin-unrouted-no-sender = (aucun expéditeur)
+# MT: pending native review (fr-FR)
+admin-unrouted-no-subject = (aucun objet)
+# MT: pending native review (fr-FR)
+admin-unrouted-error-load = Échec du chargement du courrier non routé
 admin-channels-status-active = Actif
 admin-channels-status-disabled = Désactivé
 admin-channels-status-error = Erreur
@@ -5210,6 +5238,8 @@ route-title-admin-email-settings = Configuration des e-mails
 route-title-admin-channels-email = Réception des e-mails
 # MT: pending native review (fr-FR)
 route-title-admin-channels-forwarding = Transfert d'e-mails
+# MT: pending native review (fr-FR)
+route-title-admin-unrouted-inbound = Courrier entrant non routé
 route-title-admin-data-import = Importation de données
 route-title-admin-microsoft-graph = Connexion Microsoft Graph
 route-title-admin-csv-import = Importation CSV

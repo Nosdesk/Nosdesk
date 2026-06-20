@@ -40,6 +40,7 @@ pub mod health;
 pub mod helpers;
 pub mod image_proxy;
 pub mod imports;
+pub mod inbound_dead_letters;
 pub mod inbound_email;
 pub mod internal_workspaces;
 pub mod invitation;

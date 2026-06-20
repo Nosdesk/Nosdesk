@@ -835,6 +835,12 @@ const router = createRouter({
           meta: { titleKey: 'route-title-admin-channels-forwarding', requiresAuth: true, adminRequired: true }
         },
         {
+          path: 'inbound/unrouted',
+          name: 'admin-inbound-unrouted',
+          component: () => import('../views/InboundUnroutedView.vue'),
+          meta: { titleKey: 'route-title-admin-unrouted-inbound', requiresAuth: true, adminRequired: true }
+        },
+        {
           path: 'data-import',
           name: 'admin-data-import',
           component: () => import('../views/DataImportView.vue'),

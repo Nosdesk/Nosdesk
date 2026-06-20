@@ -69,6 +69,10 @@ export const useAuthStore = defineStore('auth', () => {
   // an audit reviewer can reach only the audit surface, not the rest
   // of the admin panel.
   const isAuditReviewer = computed(() => user.value?.platform_role === 'audit_reviewer');
+  // Platform operator (Nosdesk staff on hosted). Distinct from `isAdmin`,
+  // which also includes per-workspace owners/admins. Gates cross-tenant
+  // operator-only UI (e.g. the inbound dead-letter view).
+  const isPlatformAdmin = computed(() => user.value?.platform_role === 'platform_admin');
   const isMicrosoftAuth = computed(() => authProvider.value === 'microsoft');
 
   // Fetch current user data from the backend
@@ -508,6 +512,7 @@ export const useAuthStore = defineStore('auth', () => {
     isAdmin,
     isTechnician,
     isAuditReviewer,
+    isPlatformAdmin,
     isMicrosoftAuth,
     login,
     verifyMfaAndLogin,

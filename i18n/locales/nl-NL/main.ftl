@@ -1156,6 +1156,34 @@ admin-channels-forwarding-copied = Gekopieerd
 admin-channels-forwarding-instructions-heading = Hoe door te sturen
 # MT: pending native review (nl-NL)
 admin-channels-forwarding-instructions-body = Voeg in je e-mailprovider een regel toe die je supportmailbox doorstuurt naar het bovenstaande adres. Nieuwe berichten komen dan binnen als tickets.
+# MT: pending native review (nl-NL)
+admin-nav-unrouted-inbound-title = Niet-gerouteerde inkomende e-mail
+# MT: pending native review (nl-NL)
+admin-nav-unrouted-inbound-description = Doorgestuurde e-mail die geen adres vond
+# MT: pending native review (nl-NL)
+admin-unrouted-title = Niet-gerouteerde inkomende e-mail
+# MT: pending native review (nl-NL)
+admin-unrouted-description = Doorgestuurde e-mail die de spam- en viruscontroles doorstond maar geen actief doorstuuradres vond, meestal een verkeerd getypt of verouderd doorstuuradres.
+# MT: pending native review (nl-NL)
+admin-unrouted-count-label = in de afgelopen 7 dagen
+# MT: pending native review (nl-NL)
+admin-unrouted-empty-title = Niets niet-gerouteerd
+# MT: pending native review (nl-NL)
+admin-unrouted-empty-description = Alle doorgestuurde e-mail vond een adres. Een verkeerd geconfigureerd doorsturen zou hier verschijnen.
+# MT: pending native review (nl-NL)
+admin-unrouted-col-recipient = Verzonden naar
+# MT: pending native review (nl-NL)
+admin-unrouted-col-from = Van
+# MT: pending native review (nl-NL)
+admin-unrouted-col-subject = Onderwerp
+# MT: pending native review (nl-NL)
+admin-unrouted-col-received = Ontvangen
+# MT: pending native review (nl-NL)
+admin-unrouted-no-sender = (geen afzender)
+# MT: pending native review (nl-NL)
+admin-unrouted-no-subject = (geen onderwerp)
+# MT: pending native review (nl-NL)
+admin-unrouted-error-load = Kan niet-gerouteerde e-mail niet laden
 admin-channels-status-active = Actief
 admin-channels-status-disabled = Uitgeschakeld
 admin-channels-status-error = Fout
@@ -5201,6 +5229,8 @@ route-title-admin-email-settings = E-mailconfiguratie
 route-title-admin-channels-email = E-mailontvangst
 # MT: pending native review (nl-NL)
 route-title-admin-channels-forwarding = E-mail doorsturen
+# MT: pending native review (nl-NL)
+route-title-admin-unrouted-inbound = Niet-gerouteerde inkomende e-mail
 route-title-admin-data-import = Gegevensimport
 route-title-admin-microsoft-graph = Microsoft Graph-verbinding
 route-title-admin-csv-import = CSV-import

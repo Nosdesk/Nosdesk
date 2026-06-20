@@ -3,14 +3,26 @@ import { ref, computed } from 'vue';
 import { useFluent } from 'fluent-vue';
 import {
   adminNavGroups,
-  filterAdminNavGroups
+  filterAdminNavGroups,
+  filterAdminNavGroupsForRole
 } from '@/components/admin/adminNavData';
+import { useAuthStore } from '@/stores/auth';
 import Icon from '@/components/common/Icon.vue';
 
 const fluent = useFluent();
+const authStore = useAuthStore();
 const searchQuery = ref('');
+// Role-filter first (so platform-operator-only tiles stay hidden from
+// per-workspace admins), then apply the search filter.
+const roleGroups = computed(() =>
+  filterAdminNavGroupsForRole(adminNavGroups, {
+    isAdmin: authStore.isAdmin,
+    isAuditReviewer: authStore.isAuditReviewer,
+    isPlatformAdmin: authStore.isPlatformAdmin
+  })
+);
 const filteredGroups = computed(() =>
-  filterAdminNavGroups(adminNavGroups, searchQuery.value, (key) => fluent.$t(key))
+  filterAdminNavGroups(roleGroups.value, searchQuery.value, (key) => fluent.$t(key))
 );
 </script>
 
