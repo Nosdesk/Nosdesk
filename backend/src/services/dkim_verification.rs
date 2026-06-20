@@ -65,25 +65,38 @@ pub fn published_record_has_key(published: &[String], expected_public_b64: &str)
         .any(|p| p == expected)
 }
 
-/// Resolve the TXT records at `name`. NXDOMAIN / no-records yields an empty
-/// list (the record isn't published yet), not an error. Shared with the
-/// DNS-diagnostics panel ([`crate::services::dns_diagnostics`]).
-pub(crate) async fn txt_lookup(name: &str) -> Result<Vec<String>, VerifyError> {
-    use hickory_resolver::config::{ResolverConfig, ResolverOpts};
-    use hickory_resolver::net::{runtime::TokioRuntimeProvider, DnsError, NetError};
-    use hickory_resolver::proto::rr::RData;
+/// Single source of truth for the email-auth DNS resolver, shared by the DKIM
+/// verifier (`txt_lookup`) and the diagnostics panel (`dns_diagnostics::mx_lookup`).
+///
+/// Builds from the host's system configuration (`/etc/resolv.conf`) rather than a
+/// hardcoded public resolver. Hardcoding `8.8.8.8` was the anti-pattern: it
+/// ignores the host's DNS config and assumes public UDP reachability, which the
+/// hosted (Fly) environment doesn't provide (DNS is reachable only via the
+/// internal resolver), so every lookup failed there with "no connections
+/// available". The host resolver is correct in every environment, hosted recurses
+/// public records via the internal resolver, self-host uses the operator's.
+pub(crate) fn email_auth_resolver() -> Result<hickory_resolver::TokioResolver, String> {
+    use hickory_resolver::config::ResolverOpts;
     use hickory_resolver::TokioResolver;
 
     let mut opts = ResolverOpts::default();
     opts.timeout = Duration::from_secs(5);
     opts.attempts = 2;
-    let resolver = TokioResolver::builder_with_config(
-        ResolverConfig::default(),
-        TokioRuntimeProvider::default(),
-    )
-    .with_options(opts)
-    .build()
-    .map_err(|e| VerifyError::Dns(format!("resolver build: {e}")))?;
+    TokioResolver::builder_tokio()
+        .map_err(|e| format!("resolver build (system conf): {e}"))?
+        .with_options(opts)
+        .build()
+        .map_err(|e| format!("resolver build: {e}"))
+}
+
+/// Resolve the TXT records at `name`. NXDOMAIN / no-records yields an empty
+/// list (the record isn't published yet), not an error. Shared with the
+/// DNS-diagnostics panel ([`crate::services::dns_diagnostics`]).
+pub(crate) async fn txt_lookup(name: &str) -> Result<Vec<String>, VerifyError> {
+    use hickory_resolver::net::{DnsError, NetError};
+    use hickory_resolver::proto::rr::RData;
+
+    let resolver = email_auth_resolver().map_err(VerifyError::Dns)?;
 
     match resolver.txt_lookup(name).await {
         // `TXT`'s Display concatenates its <=255-char segments into the full

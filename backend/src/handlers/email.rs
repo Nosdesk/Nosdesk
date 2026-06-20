@@ -29,9 +29,29 @@ pub async fn get_email_config(_tc: TenantConn, req: HttpRequest) -> impl Respond
     // active transport.
     match EmailService::from_env() {
         Ok(service) => {
-            // Return configuration (without secrets).
             let config = service.config();
+            // Hosted: outbound is delivered by Nosdesk-managed infra. The
+            // platform SMTP relay (host + username) is operator/infra config, and
+            // the username is an SES IAM credential, so it must not surface in the
+            // product admin UI. Return only the managed status + the From identity.
+            let managed = crate::middleware::DeploymentMode::current()
+                == crate::middleware::DeploymentMode::Hosted;
+            if managed {
+                return HttpResponse::Ok().json(json!({
+                    "managed": true,
+                    "provider": service.provider_name(),
+                    "from_name": config.from_name,
+                    "from_email": config.from_email,
+                    "enabled": config.enabled,
+                    "is_configured": service.is_configured(),
+                }));
+            }
+            // Self-host: the operator configured this relay; show what it points
+            // at (host/port/from) so they can verify it. Never echo `smtp_username`
+            // back, it's a credential identifier and adds no value over the
+            // configured/host fields.
             HttpResponse::Ok().json(json!({
+                "managed": false,
                 "provider": service.provider_name(),
                 "from_name": config.from_name,
                 "from_email": config.from_email,
@@ -39,7 +59,6 @@ pub async fn get_email_config(_tc: TenantConn, req: HttpRequest) -> impl Respond
                 "is_configured": service.is_configured(),
                 "smtp_host": config.smtp_host,
                 "smtp_port": config.smtp_port,
-                "smtp_username": config.smtp_username,
                 "smtp_password_configured": !config.smtp_password.is_empty(),
             }))
         }

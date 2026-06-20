@@ -27,6 +27,9 @@ import {
   type EmailSuppression,
 } from '@/services/emailSuppressionsService';
 
+// `embedded`: render as part of the Activity tab inside the Email delivery page.
+const props = withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false });
+
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
@@ -135,8 +138,8 @@ function formatDateTime(iso: string): string {
 </script>
 
 <template>
-    <div class="flex flex-col gap-6 p-6">
-        <header class="flex flex-col gap-2">
+    <div :class="props.embedded ? 'flex flex-col gap-6' : 'flex flex-col gap-6 p-6'">
+        <header v-if="!props.embedded" class="flex flex-col gap-2">
             <h1 class="text-2xl font-semibold">{{ $t('admin-suppressions-title') }}</h1>
             <p class="text-sm text-secondary">
                 {{ $t('admin-suppressions-description') }}

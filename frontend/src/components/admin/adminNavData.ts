@@ -72,6 +72,25 @@ export const adminNavGroups: AdminNavGroup[] = [
     ]
   },
   {
+    labelKey: 'admin-nav-group-communication',
+    items: [
+      {
+        titleKey: 'admin-nav-channels-email-title',
+        descriptionKey: 'admin-nav-channels-email-description',
+        icon: 'email',
+        route: '/admin/channels/email',
+        keywords: ['email', 'imap', 'ingestion', 'inbox', 'mailbox', 'channel', 'channels', 'pipeline', 'tickets']
+      },
+      {
+        titleKey: 'admin-nav-email-delivery-title',
+        descriptionKey: 'admin-nav-email-delivery-description',
+        icon: 'email',
+        route: '/admin/email',
+        keywords: ['email', 'delivery', 'sending', 'smtp', 'domain', 'dkim', 'spf', 'dmarc', 'queue', 'suppressions', 'bounce', 'unsubscribe', 'outbound', 'from']
+      }
+    ]
+  },
+  {
     labelKey: 'admin-nav-group-integrations',
     items: [
       {
@@ -102,27 +121,6 @@ export const adminNavGroups: AdminNavGroup[] = [
         route: '/admin/data-import',
         keywords: ['import', 'data', 'intune', 'csv', 'microsoft', 'graph', 'migration']
       },
-      {
-        titleKey: 'admin-nav-channels-email-title',
-        descriptionKey: 'admin-nav-channels-email-description',
-        icon: 'email',
-        route: '/admin/channels/email',
-        keywords: ['email', 'imap', 'ingestion', 'inbox', 'mailbox', 'channel', 'pipeline', 'tickets']
-      },
-      {
-        titleKey: 'admin-nav-email-queue-title',
-        descriptionKey: 'admin-nav-email-queue-description',
-        icon: 'email',
-        route: '/admin/email-queue',
-        keywords: ['email', 'outbound', 'queue', 'smtp', 'send', 'retry', 'bounce', 'delivery', 'spool']
-      },
-      {
-        titleKey: 'admin-nav-email-suppressions-title',
-        descriptionKey: 'admin-nav-email-suppressions-description',
-        icon: 'email',
-        route: '/admin/email-suppressions',
-        keywords: ['email', 'suppressions', 'block', 'bounce', 'blocklist', 'unsubscribe', 'complaint']
-      }
     ]
   },
   {
@@ -148,20 +146,6 @@ export const adminNavGroups: AdminNavGroup[] = [
         route: '/admin/settings/branding',
         keywords: ['branding', 'logo', 'theme', 'appearance', 'colors', 'customization']
       },
-      {
-        titleKey: 'admin-nav-email-settings-title',
-        descriptionKey: 'admin-nav-email-settings-description',
-        icon: 'email',
-        route: '/admin/email-settings',
-        keywords: ['email', 'smtp', 'mail', 'notifications', 'configuration']
-      },
-      {
-        titleKey: 'admin-nav-email-sending-domain-title',
-        descriptionKey: 'admin-nav-email-sending-domain-description',
-        icon: 'email',
-        route: '/admin/email/sending-domain',
-        keywords: ['email', 'domain', 'sending', 'dkim', 'spf', 'dmarc', 'verified', 'from']
-      }
     ]
   },
   {

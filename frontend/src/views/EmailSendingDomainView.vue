@@ -16,6 +16,10 @@ import workspaceEmailService, {
 import { extractErrorMessage } from '@/utils/errors';
 import { useToastStore } from '@/stores/toast';
 
+// `embedded`: render as a section inside the consolidated Email delivery page
+// (no page header / outer padding), vs. the standalone admin route.
+const props = withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false });
+
 const toast = useToastStore();
 const fluent = useFluent();
 const t = (key: string) => fluent.$t(key);
@@ -175,8 +179,8 @@ async function copy(text: string) {
 </script>
 
 <template>
-  <div class="max-w-2xl mx-auto p-6 flex flex-col gap-6">
-    <header class="flex flex-col gap-1">
+  <div :class="props.embedded ? 'flex flex-col gap-6' : 'max-w-2xl mx-auto p-6 flex flex-col gap-6'">
+    <header v-if="!props.embedded" class="flex flex-col gap-1">
       <h1 class="text-xl font-semibold text-primary">{{ t('email-domain-title') }}</h1>
       <p class="text-sm text-tertiary">{{ t('email-domain-description') }}</p>
     </header>

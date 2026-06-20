@@ -1107,6 +1107,18 @@ admin-email-settings-from-address = Afzender
 admin-email-settings-password = Wachtwoord
 admin-email-settings-password-not-set = Niet ingesteld
 admin-email-settings-env-vars-label = Env:
+# (machine, na te kijken door moedertaalspreker).
+admin-email-settings-managed-note = Uitgaande e-mail wordt bezorgd door Nosdesk. Stel een verzenddomein in om vanaf je eigen adres te verzenden.
+admin-email-settings-managed-domain-link = Verzenddomein instellen
+# (machine, na te kijken door moedertaalspreker).
+admin-nav-group-communication = Communicatie
+admin-nav-email-delivery-title = E-mailbezorging
+admin-nav-email-delivery-description = Afzenderidentiteit, domein en bezorgactiviteit
+route-title-admin-email-delivery = E-mailbezorging
+admin-email-delivery-title = E-mailbezorging
+admin-email-delivery-description = Hoe deze werkruimte e-mail verzendt en hoe de bezorging verloopt.
+admin-email-delivery-tab-setup = Instellen
+admin-email-delivery-tab-activity = Activiteit
 admin-email-settings-test-send = Test verzenden:
 admin-email-settings-test-placeholder = ontvanger@voorbeeld.com
 admin-email-settings-test-send-button = Verzenden

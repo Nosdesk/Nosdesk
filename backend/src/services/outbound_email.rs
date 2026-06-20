@@ -50,6 +50,14 @@ pub struct OutboundEmailResolver {
     /// The env-configured service, used when a workspace has no identity of
     /// its own. `None` when no env SMTP is configured at all.
     fallback: Option<Arc<EmailService>>,
+    /// Whether WORKSPACE mail may fall back to the env identity. True only on
+    /// self-host, where the env relay IS the single operator's own identity; on
+    /// hosted the env identity is the SHARED PLATFORM identity, so tenant mail
+    /// must never fall back to it (it would leave on the platform domain). The
+    /// bulk queue path ([`resolve_batch`](Self::resolve_batch)) honours this; the
+    /// direct-send path ([`from_row`](Self::from_row)) always falls back (a
+    /// pre-existing asymmetry, see its note).
+    workspace_fallback_allowed: bool,
 }
 
 #[derive(Debug)]
@@ -78,7 +86,41 @@ impl std::error::Error for ResolveError {}
 
 impl OutboundEmailResolver {
     pub fn new(pool: Pool, fallback: Option<Arc<EmailService>>) -> Self {
-        Self { pool, fallback }
+        // Self-host: the env identity is the operator's own, so WORKSPACE mail
+        // may fall back to it. Hosted: it's shared platform infra, never.
+        let workspace_fallback_allowed = crate::middleware::DeploymentMode::current()
+            == crate::middleware::DeploymentMode::SelfHosted;
+        Self {
+            pool,
+            fallback,
+            workspace_fallback_allowed,
+        }
+    }
+
+    /// Test constructor that sets the workspace-fallback policy explicitly, since
+    /// `DeploymentMode::current()` is process-cached and can't be flipped per test.
+    #[cfg(test)]
+    fn with_policy(
+        pool: Pool,
+        fallback: Option<Arc<EmailService>>,
+        workspace_fallback_allowed: bool,
+    ) -> Self {
+        Self {
+            pool,
+            fallback,
+            workspace_fallback_allowed,
+        }
+    }
+
+    /// The env identity, but only when it's safe to send WORKSPACE mail from it
+    /// (self-host). On hosted this is always `None`: tenant mail must never fall
+    /// back to the shared platform identity. Used by [`resolve_batch`](Self::resolve_batch).
+    fn workspace_safe_fallback(&self) -> Option<Arc<EmailService>> {
+        if self.workspace_fallback_allowed {
+            self.fallback.clone()
+        } else {
+            None
+        }
     }
 
     /// Resolve on a connection the caller already holds. The caller is
@@ -110,14 +152,17 @@ impl OutboundEmailResolver {
     /// (the worker resolves PLATFORM rows via [`platform`](Self::platform)).
     ///
     /// A workspace with its own usable identity (a verified sending domain or
-    /// an smtp_relay) maps to that service. A workspace WITHOUT one is omitted
-    /// — it does NOT fall back to the platform identity. Tenant mail carries
-    /// tenant-controlled content (workspace name, customer names, ticket
-    /// text); sending it from the platform domain would lend the platform's
-    /// reputation to phishing and risk the platform's deliverability. So the
+    /// an smtp_relay) maps to that service. A workspace WITHOUT one is, on
+    /// HOSTED, omitted — it does NOT fall back to the SHARED platform identity.
+    /// Tenant mail carries tenant-controlled content (workspace name, customer
+    /// names, ticket text); sending it from the platform domain would lend the
+    /// platform's reputation to phishing and risk its deliverability. So the
     /// caller reads a missing entry as "unconfigured" and defers the row until
-    /// the workspace verifies a sending domain. (A row whose stored password
-    /// won't decrypt is likewise omitted, deferring rather than mis-sending.)
+    /// the workspace verifies a sending domain. On SELF-HOST the env identity is
+    /// the single operator's own, so an unconfigured workspace falls back to it
+    /// (matching the direct-send path) rather than stranding the operator's
+    /// notification mail. (A row whose stored password won't decrypt is omitted
+    /// on both modes, deferring rather than mis-sending.)
     pub fn resolve_batch(
         &self,
         conn: &mut DbConnection,
@@ -137,12 +182,19 @@ impl OutboundEmailResolver {
             let svc = match by_ws.get(&ws) {
                 Some(r) => match self.build_for_row(r) {
                     Ok(Some(svc)) => svc,
-                    // No usable workspace identity: omit, do NOT fall back to
-                    // the platform. Tenant content must never leave on the
-                    // platform domain; the row defers until a sending domain
-                    // is verified.
-                    Ok(None) => continue,
+                    // No usable workspace identity. On HOSTED, omit: tenant
+                    // content must never leave on the SHARED platform domain, so
+                    // the row defers until a sending domain is verified. On
+                    // self-host the env identity is the operator's own, so it's
+                    // safe to fall back (matching the direct-send path).
+                    Ok(None) => match self.workspace_safe_fallback() {
+                        Some(fb) => fb,
+                        None => continue,
+                    },
                     Err(e) => {
+                        // A configured-but-broken identity (e.g. a key that won't
+                        // decrypt): defer rather than mis-send from the env
+                        // identity, on both modes.
                         tracing::warn!(
                             workspace_id = ws,
                             error = %e,
@@ -151,8 +203,12 @@ impl OutboundEmailResolver {
                         continue;
                     }
                 },
-                // No settings row at all: same policy, no platform fallback.
-                None => continue,
+                // No settings row at all: same policy (self-host falls back,
+                // hosted defers).
+                None => match self.workspace_safe_fallback() {
+                    Some(fb) => fb,
+                    None => continue,
+                },
             };
             out.insert(ws, svc);
         }
@@ -313,12 +369,20 @@ mod tests {
         }))
     }
 
+    // Self-host policy (WORKSPACE mail may fall back to the env identity), set
+    // explicitly so tests don't depend on the process-cached DeploymentMode.
     fn resolver_with_fallback() -> OutboundEmailResolver {
-        OutboundEmailResolver::new(setup_test_pool(), Some(fallback_service()))
+        OutboundEmailResolver::with_policy(setup_test_pool(), Some(fallback_service()), true)
     }
 
     fn resolver_no_fallback() -> OutboundEmailResolver {
-        OutboundEmailResolver::new(setup_test_pool(), None)
+        OutboundEmailResolver::with_policy(setup_test_pool(), None, true)
+    }
+
+    // Hosted policy: WORKSPACE mail must never fall back to the shared platform
+    // identity, an unconfigured workspace is omitted (defers).
+    fn resolver_hosted_with_fallback() -> OutboundEmailResolver {
+        OutboundEmailResolver::with_policy(setup_test_pool(), Some(fallback_service()), false)
     }
 
     fn enabled_fields() -> UpsertWorkspaceEmailSettings {
@@ -419,15 +483,15 @@ mod tests {
     }
 
     #[test]
-    fn resolve_batch_maps_own_identity_and_omits_unconfigured() {
+    fn resolve_batch_maps_own_identity_and_omits_unconfigured_on_hosted() {
         let mut conn = setup_test_connection();
         repo::upsert(&mut conn, enabled_fields()).unwrap();
 
-        // Workspace 1 has its own identity; 424242 reads as "no row"
+        // HOSTED: workspace 1 has its own identity; 424242 reads as "no row"
         // (unconfigured). Even WITH a platform fallback present, the
         // unconfigured workspace is OMITTED — tenant mail must not send from
-        // the platform identity — so the worker defers it.
-        let map = resolver_with_fallback()
+        // the SHARED platform identity — so the worker defers it.
+        let map = resolver_hosted_with_fallback()
             .resolve_batch(&mut conn, &[1, 424242])
             .unwrap();
         assert_eq!(
@@ -436,7 +500,28 @@ mod tests {
         );
         assert!(
             map.get(&424242).is_none(),
-            "an unconfigured workspace must not fall back to the platform identity"
+            "on hosted an unconfigured workspace must not fall back to the platform identity"
+        );
+    }
+
+    #[test]
+    fn resolve_batch_falls_back_for_unconfigured_on_self_host() {
+        let mut conn = setup_test_connection();
+        repo::upsert(&mut conn, enabled_fields()).unwrap();
+
+        // SELF-HOST: the env identity is the operator's own, so an unconfigured
+        // workspace falls back to it rather than stranding its notification mail.
+        let map = resolver_with_fallback()
+            .resolve_batch(&mut conn, &[1, 424242])
+            .unwrap();
+        assert_eq!(
+            map.get(&1).unwrap().config().from_email,
+            "support@acme.test"
+        );
+        assert_eq!(
+            map.get(&424242).unwrap().config().from_email,
+            "platform@fallback.test",
+            "on self-host an unconfigured workspace falls back to the env identity"
         );
     }
 

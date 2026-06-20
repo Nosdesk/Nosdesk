@@ -14,6 +14,11 @@ use serde_json::json;
 /// `"host"` for the subdomain / self-hosted model. Derived from the same
 /// selection-resolution switch the backend auth gate reads, so the client's
 /// routing and the server's workspace resolution never disagree.
+///
+/// `deployment_mode` (`"hosted"` | `"self_hosted"`) lets the SPA render
+/// deployment-aware admin UI, e.g. hiding the platform SMTP relay panel on
+/// hosted (it's Nosdesk-managed infra, not a tenant concern). Not sensitive:
+/// hosted vs self-host is observable from the surface anyway.
 pub async fn get_public_config() -> impl Responder {
     let workspace_routing = if crate::middleware::workspace_context::selection_resolution_enabled()
     {
@@ -21,5 +26,12 @@ pub async fn get_public_config() -> impl Responder {
     } else {
         "host"
     };
-    HttpResponse::Ok().json(json!({ "workspace_routing": workspace_routing }))
+    let deployment_mode = match crate::middleware::DeploymentMode::current() {
+        crate::middleware::DeploymentMode::Hosted => "hosted",
+        crate::middleware::DeploymentMode::SelfHosted => "self_hosted",
+    };
+    HttpResponse::Ok().json(json!({
+        "workspace_routing": workspace_routing,
+        "deployment_mode": deployment_mode,
+    }))
 }

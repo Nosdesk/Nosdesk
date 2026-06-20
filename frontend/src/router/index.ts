@@ -782,16 +782,23 @@ const router = createRouter({
           redirect: { name: 'admin-audit' }
         },
         {
+          // Consolidated outbound-email admin: Setup + Activity sub-tabs.
+          path: 'email',
+          name: 'admin-email-delivery',
+          component: () => import('../views/EmailDeliveryView.vue'),
+          meta: { titleKey: 'route-title-admin-email-delivery', requiresAuth: true, adminRequired: true }
+        },
+        // The standalone outbound-email routes now live as sub-sections of
+        // Email delivery; redirect old links/bookmarks to the right tab.
+        {
           path: 'email-queue',
           name: 'admin-email-queue',
-          component: () => import('../views/admin/EmailQueueView.vue'),
-          meta: { titleKey: 'route-title-admin-email-queue' }
+          redirect: { name: 'admin-email-delivery', query: { tab: 'activity' } }
         },
         {
           path: 'email-suppressions',
           name: 'admin-email-suppressions',
-          component: () => import('../views/admin/EmailSuppressionsView.vue'),
-          meta: { titleKey: 'route-title-admin-email-suppressions' }
+          redirect: { name: 'admin-email-delivery', query: { tab: 'activity' } }
         },
         {
           path: 'guest-access',
@@ -802,14 +809,12 @@ const router = createRouter({
         {
           path: 'email-settings',
           name: 'admin-email-settings',
-          component: () => import('../views/EmailSettingsView.vue'),
-          meta: { titleKey: 'route-title-admin-email-settings' }
+          redirect: { name: 'admin-email-delivery' }
         },
         {
           path: 'email/sending-domain',
           name: 'admin-email-sending-domain',
-          component: () => import('../views/EmailSendingDomainView.vue'),
-          meta: { titleKey: 'route-title-admin-email-sending-domain' }
+          redirect: { name: 'admin-email-delivery' }
         },
         {
           path: 'channels/email',

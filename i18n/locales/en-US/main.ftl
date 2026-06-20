@@ -1198,6 +1198,18 @@ admin-email-settings-from-address = From Address
 admin-email-settings-password = Password
 admin-email-settings-password-not-set = Not Set
 admin-email-settings-env-vars-label = Env:
+# Hosted only: shown instead of the platform SMTP relay (Nosdesk-managed infra).
+admin-email-settings-managed-note = Outbound email is delivered by Nosdesk. To send from your own address, set up a sending domain.
+admin-email-settings-managed-domain-link = Configure sending domain
+# Email delivery: the consolidated outbound-email admin page + its nav group.
+admin-nav-group-communication = Communication
+admin-nav-email-delivery-title = Email delivery
+admin-nav-email-delivery-description = Sending identity, domain, and delivery activity
+route-title-admin-email-delivery = Email delivery
+admin-email-delivery-title = Email delivery
+admin-email-delivery-description = How this workspace sends email, and how delivery is going.
+admin-email-delivery-tab-setup = Setup
+admin-email-delivery-tab-activity = Activity
 admin-email-settings-test-send = Send test:
 admin-email-settings-test-placeholder = recipient@example.com
 admin-email-settings-test-send-button = Send
