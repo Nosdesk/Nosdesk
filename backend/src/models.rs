@@ -6473,6 +6473,10 @@ pub const CHANNEL_PROVIDER_EMAIL_FORWARD: &str = "email_forward";
 pub const INBOUND_ADDRESS_STATUS_ACTIVE: &str = "active";
 pub const INBOUND_ADDRESS_STATUS_RETIRED: &str = "retired";
 
+/// `inbound_dead_letters.reason` values. `unknown_token` is clean mail (scans
+/// passed) that resolved to no active forwarding token.
+pub const INBOUND_DEAD_LETTER_REASON_UNKNOWN_TOKEN: &str = "unknown_token";
+
 #[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
 #[diesel(table_name = crate::schema::channels)]
 pub struct Channel {
@@ -6679,6 +6683,34 @@ pub struct InboundAddress {
 pub struct NewInboundAddress {
     pub token: String,
     pub channel_id: i32,
+}
+
+/// A platform-level dead-letter row: clean inbound mail (spam/virus scans
+/// passed) that resolved to no active forwarding token. Untenanted by design
+/// (see the `inbound_dead_letters` migration) because an unknown token can't
+/// be attributed to a workspace; surfaced to the operator so a misconfigured
+/// forward is diagnosable rather than silently lost.
+#[derive(Debug, Clone, Serialize, Queryable, Identifiable)]
+#[diesel(table_name = crate::schema::inbound_dead_letters)]
+pub struct InboundDeadLetter {
+    pub id: i64,
+    pub envelope_recipient: String,
+    pub from_address: Option<String>,
+    pub subject: Option<String>,
+    pub s3_key: String,
+    /// See [`INBOUND_DEAD_LETTER_REASON_UNKNOWN_TOKEN`].
+    pub reason: String,
+    pub received_at: NaiveDateTime,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = crate::schema::inbound_dead_letters)]
+pub struct NewInboundDeadLetter {
+    pub envelope_recipient: String,
+    pub from_address: Option<String>,
+    pub subject: Option<String>,
+    pub s3_key: String,
+    pub reason: String,
 }
 
 // ---------- Canned responses ----------

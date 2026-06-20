@@ -820,6 +820,21 @@ diesel::table! {
 }
 
 diesel::table! {
+    inbound_dead_letters (id) {
+        id -> Int8,
+        #[max_length = 320]
+        envelope_recipient -> Varchar,
+        #[max_length = 320]
+        from_address -> Nullable<Varchar>,
+        subject -> Nullable<Text>,
+        s3_key -> Text,
+        #[max_length = 32]
+        reason -> Varchar,
+        received_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     knowledge_gap_signals (id) {
         id -> Int8,
         gap_id -> Int8,
@@ -2174,6 +2189,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     idempotency_keys,
     import_jobs,
     inbound_addresses,
+    inbound_dead_letters,
     knowledge_gap_signals,
     knowledge_gaps,
     linked_tickets,
