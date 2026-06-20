@@ -1568,6 +1568,17 @@ diesel::table! {
 }
 
 diesel::table! {
+    ticket_merges (ticket_id) {
+        ticket_id -> Int4,
+        merged_into_ticket_id -> Int4,
+        merged_at -> Timestamptz,
+        merged_by_user_uuid -> Nullable<Uuid>,
+        merge_reason -> Nullable<Text>,
+        workspace_id -> Int4,
+    }
+}
+
+diesel::table! {
     ticket_rule_runs (event_id, ticket_id, rule_id) {
         event_id -> Uuid,
         ticket_id -> Int4,
@@ -1633,10 +1644,6 @@ diesel::table! {
         sla_response_breached_at -> Nullable<Timestamptz>,
         sla_resolution_target_at -> Nullable<Timestamptz>,
         sla_resolution_breached_at -> Nullable<Timestamptz>,
-        merged_into_ticket_id -> Nullable<Int4>,
-        merged_at -> Nullable<Timestamptz>,
-        merged_by_user_uuid -> Nullable<Uuid>,
-        merge_reason -> Nullable<Text>,
         uuid -> Uuid,
     }
 }
@@ -2110,6 +2117,7 @@ diesel::joinable!(ticket_assets -> users (created_by));
 diesel::joinable!(ticket_assets -> workspaces (workspace_id));
 diesel::joinable!(ticket_categories -> users (created_by));
 diesel::joinable!(ticket_categories -> workspaces (workspace_id));
+diesel::joinable!(ticket_merges -> workspaces (workspace_id));
 diesel::joinable!(ticket_tags -> tags (tag_id));
 diesel::joinable!(ticket_tags -> tickets (ticket_id));
 diesel::joinable!(ticket_tags -> users (created_by));
@@ -2229,6 +2237,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     tags,
     ticket_assets,
     ticket_categories,
+    ticket_merges,
     ticket_rule_runs,
     ticket_tags,
     ticket_watchers,

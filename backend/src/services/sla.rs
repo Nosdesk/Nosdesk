@@ -781,10 +781,6 @@ mod tests {
             sla_response_breached_at: None,
             sla_resolution_target_at: None,
             sla_resolution_breached_at: None,
-            merged_into_ticket_id: None,
-            merged_at: None,
-            merged_by_user_uuid: None,
-            merge_reason: None,
         }
     }
 

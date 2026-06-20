@@ -155,7 +155,7 @@ pub fn execute_merge(
     input: MergeInput,
     actor: &ActorContext,
 ) -> Result<MergeOutcome, MergeError> {
-    use crate::schema::{tickets, workflow_states};
+    use crate::schema::{ticket_merges, tickets, workflow_states};
 
     let workspace_id = actor.workspace_id.ok_or(MergeError::MissingWorkspace)?;
     let target_id = input.destination_ticket_id;
@@ -208,7 +208,7 @@ pub fn execute_merge(
         if destination.workspace_id != workspace_id {
             return Err(MergeError::CrossWorkspace(target_id));
         }
-        if destination.merged_into_ticket_id.is_some() {
+        if is_merge_source(conn, target_id)? {
             return Err(MergeError::AlreadyMerged(target_id));
         }
         if state_category(conn, destination.workflow_state_id)? == WorkflowStateCategory::Merged {
@@ -226,7 +226,7 @@ pub fn execute_merge(
             if s.workspace_id != workspace_id {
                 return Err(MergeError::CrossWorkspace(sid));
             }
-            if s.merged_into_ticket_id.is_some() {
+            if is_merge_source(conn, sid)? {
                 return Err(MergeError::AlreadyMerged(sid));
             }
             sources.push(s);
@@ -254,16 +254,28 @@ pub fn execute_merge(
 
         let source_array = source_ids.clone();
 
-        // Step 4: mark sources merged and move them to the merged state.
+        // Step 4: move sources to the merged state, and record the merge in
+        // the satellite (one row per source). Merge metadata used to be four
+        // columns on `tickets`; it now lives in `ticket_merges`.
         diesel::update(tickets::table.filter(tickets::id.eq_any(&source_array)))
             .set((
-                tickets::merged_into_ticket_id.eq(target_id),
-                tickets::merged_at.eq(diesel::dsl::now),
-                tickets::merged_by_user_uuid.eq(actor.uuid),
-                tickets::merge_reason.eq(reason.clone()),
                 tickets::workflow_state_id.eq(merged_state_id),
                 tickets::updated_at.eq(diesel::dsl::now),
             ))
+            .execute(conn)?;
+        let merged_at = chrono::Utc::now().naive_utc();
+        let merge_rows: Vec<crate::models::NewTicketMerge> = source_array
+            .iter()
+            .map(|&sid| crate::models::NewTicketMerge {
+                ticket_id: sid,
+                merged_into_ticket_id: target_id,
+                merged_at,
+                merged_by_user_uuid: actor.uuid,
+                merge_reason: reason.clone(),
+            })
+            .collect();
+        diesel::insert_into(ticket_merges::table)
+            .values(&merge_rows)
             .execute(conn)?;
 
         // Step 5: move comments (attachments ride along via comment_id).
@@ -455,12 +467,10 @@ pub fn execute_merge(
 
         for source in &sources {
             let source_groups = groups::for_ticket(conn, source)?;
-            // Re-read post-update so the emit carries the persisted merge
-            // fields and an `id` (so the pool applies it as an op-U on the
-            // source ticket row rather than skipping a pk-less side event).
-            // Drives the merged-into banner + read-only composer
-            // pool-native (Phase 2).
-            let merged = load_ticket(conn, source.id)?;
+            // Emit a partial op-U carrying the merge fields (and an `id`, so the
+            // pool applies it on the source ticket row) — drives the
+            // merged-into banner + read-only composer pool-native. The values
+            // are the ones we just wrote to `ticket_merges`, so no re-read.
             emit::record(
                 conn,
                 SyncEmit {
@@ -470,9 +480,9 @@ pub fn execute_merge(
                     event_type: "ticket.merged_into",
                     data: json!({
                         "id": source.id,
-                        "merged_into_ticket_id": merged.merged_into_ticket_id,
-                        "merged_at": merged.merged_at,
-                        "merged_by_user_uuid": merged.merged_by_user_uuid,
+                        "merged_into_ticket_id": target_id,
+                        "merged_at": merged_at,
+                        "merged_by_user_uuid": actor.uuid,
                         "actor_uuid": actor.uuid,
                     }),
                     groups: source_groups,
@@ -502,6 +512,33 @@ pub fn execute_merge(
 }
 
 /// Fetch a ticket by id, mapping "not found" to a clean `MergeError`.
+/// Whether a ticket is already a merge source (has a `ticket_merges` row).
+/// Replaces the old `ticket.merged_into_ticket_id.is_some()` check now that
+/// merge metadata lives in the satellite.
+fn is_merge_source(conn: &mut DbConnection, ticket_id: i32) -> Result<bool, MergeError> {
+    use crate::schema::ticket_merges;
+    use diesel::dsl::{exists, select};
+    Ok(select(exists(ticket_merges::table.find(ticket_id))).get_result(conn)?)
+}
+
+/// Batched merge lookup for the sync bootstrap: the `ticket_merges` row for
+/// each merge-source ticket in `ticket_ids`, keyed by source ticket id. Absent
+/// keys are unmerged tickets. Mirrors the other per-ticket membership maps so
+/// the bootstrap denormalises merge state without a per-row join.
+pub fn merges_for_tickets(
+    conn: &mut DbConnection,
+    ticket_ids: &[i32],
+) -> diesel::QueryResult<std::collections::HashMap<i32, crate::models::TicketMerge>> {
+    use crate::schema::ticket_merges;
+    if ticket_ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let rows: Vec<crate::models::TicketMerge> = ticket_merges::table
+        .filter(ticket_merges::ticket_id.eq_any(ticket_ids))
+        .load(conn)?;
+    Ok(rows.into_iter().map(|m| (m.ticket_id, m)).collect())
+}
+
 fn load_ticket(conn: &mut DbConnection, id: i32) -> Result<Ticket, MergeError> {
     use crate::schema::tickets;
     tickets::table
@@ -684,34 +721,26 @@ pub fn merge_history_for_ticket(
     conn: &mut DbConnection,
     ticket_id: i32,
 ) -> QueryResult<MergeHistory> {
-    use crate::schema::tickets;
+    use crate::schema::ticket_merges;
     use diesel::sql_types::{BigInt, Integer, Jsonb, Nullable, Text, Timestamptz, Uuid as SqlUuid};
 
-    // Direction 1: this ticket as a source.
-    let row: Option<(
-        Option<i32>,
-        Option<chrono::NaiveDateTime>,
-        Option<Uuid>,
-        Option<String>,
-    )> = tickets::table
+    // Direction 1: this ticket as a merge source (a ticket_merges row).
+    let merged_into = ticket_merges::table
         .find(ticket_id)
         .select((
-            tickets::merged_into_ticket_id,
-            tickets::merged_at,
-            tickets::merged_by_user_uuid,
-            tickets::merge_reason,
+            ticket_merges::merged_into_ticket_id,
+            ticket_merges::merged_at,
+            ticket_merges::merged_by_user_uuid,
+            ticket_merges::merge_reason,
         ))
-        .first(conn)
-        .optional()?;
-
-    let merged_into = row.and_then(|(into, at, by, reason)| {
-        into.map(|destination_id| MergedIntoInfo {
+        .first::<(i32, chrono::NaiveDateTime, Option<Uuid>, Option<String>)>(conn)
+        .optional()?
+        .map(|(destination_id, at, by, reason)| MergedIntoInfo {
             destination_id,
-            merged_at: at,
+            merged_at: Some(at),
             merged_by: by,
             reason,
-        })
-    });
+        });
 
     // Direction 2: merges that consumed sources into this ticket.
     #[derive(diesel::QueryableByName)]
@@ -930,9 +959,11 @@ mod tests {
         assert_eq!(outcome.comments_moved, 1);
         assert_eq!(outcome.merged_sources.len(), 1);
         let merged = &outcome.merged_sources[0];
-        assert_eq!(merged.merged_into_ticket_id, Some(dest.id));
-        assert!(merged.merged_at.is_some());
-        assert_eq!(merged.merged_by_user_uuid, Some(user.uuid));
+        // Merge metadata now lives in the ticket_merges satellite.
+        let merges = merges_for_tickets(&mut conn, &[merged.id]).unwrap();
+        let rec = merges.get(&merged.id).expect("merge record");
+        assert_eq!(rec.merged_into_ticket_id, dest.id);
+        assert_eq!(rec.merged_by_user_uuid, Some(user.uuid));
 
         // Source sits in the merged category now.
         assert_eq!(
@@ -981,10 +1012,11 @@ mod tests {
         .unwrap();
 
         assert_eq!(outcome.merged_sources.len(), 3);
-        assert!(outcome
-            .merged_sources
+        let ids: Vec<i32> = outcome.merged_sources.iter().map(|t| t.id).collect();
+        let merges = merges_for_tickets(&mut conn, &ids).unwrap();
+        assert!(ids
             .iter()
-            .all(|t| t.merged_into_ticket_id == Some(dest.id)));
+            .all(|id| merges.get(id).map(|r| r.merged_into_ticket_id) == Some(dest.id)));
         assert_eq!(count_sync(&mut conn, "ticket.merged_into", s2.id), 1);
     }
 

@@ -569,6 +569,7 @@ fn stream_bootstrap_inner(
     // Tag id list per ticket. Same batched-lookup pattern the
     // cycle membership uses; empty Vec when a ticket has no tags.
     let tag_membership = crate::repository::tags::tag_ids_for_tickets(conn, &ticket_ids)?;
+    let merge_membership = crate::repository::ticket_merge::merges_for_tickets(conn, &ticket_ids)?;
     let watcher_membership =
         crate::repository::ticket_watchers::watcher_uuids_for_tickets(conn, &ticket_ids)?;
     // Load every SLA policy + working calendar once; the
@@ -662,9 +663,9 @@ fn stream_bootstrap_inner(
                 // Merge state so the pool-native ticket detail view can
                 // render the merged-into banner + read-only composer
                 // without a REST fetch (Phase 2).
-                "merged_into_ticket_id": t.merged_into_ticket_id,
-                "merged_at": t.merged_at,
-                "merged_by_user_uuid": t.merged_by_user_uuid,
+                "merged_into_ticket_id": merge_membership.get(&t.id).map(|m| m.merged_into_ticket_id),
+                "merged_at": merge_membership.get(&t.id).map(|m| m.merged_at),
+                "merged_by_user_uuid": merge_membership.get(&t.id).and_then(|m| m.merged_by_user_uuid),
                 "kb_gap_signal": kb_gap_signal,
                 "affected_devices": affected_devices,
                 "cycle_id": cycle_membership.get(&t.id),

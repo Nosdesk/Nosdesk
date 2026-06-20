@@ -961,26 +961,39 @@ pub struct Ticket {
     pub sla_resolution_target_at: Option<NaiveDateTime>,
     /// Idempotency stamp for the resolution breach.
     pub sla_resolution_breached_at: Option<NaiveDateTime>,
-    /// Canonical destination this ticket was merged into, or NULL when
-    /// the ticket is not a merge source. Set together with `merged_at`
-    /// and `merged_by_user_uuid` (DB invariant `tickets_merge_complete`).
-    /// A non-NULL value marks the ticket terminal: its UI is read-only
-    /// and future channel replies reroute to the destination.
-    pub merged_into_ticket_id: Option<i32>,
-    /// Wall-clock moment the merge committed. NULL on unmerged tickets.
-    pub merged_at: Option<NaiveDateTime>,
-    /// The actor who performed the merge. NULL on unmerged tickets.
-    #[serde(serialize_with = "serialize_optional_uuid_as_string")]
-    pub merged_by_user_uuid: Option<Uuid>,
-    /// Optional free-text note captured in the merge dialog. NULL when
-    /// the merging agent left the reason field empty.
-    pub merge_reason: Option<String>,
     /// Stable, never-recycled identity. Unlike the integer `id` (which
     /// a DB reset recycles), this UUID is minted once at creation, so
     /// it's the safe key for collaborative-document caches keyed
     /// `ws-{workspaceUuid}_ticket-{uuid}`. Must stay the LAST field to
     /// match the column order in `schema.rs` (positional Queryable).
     pub uuid: Uuid,
+}
+
+/// Merge metadata for a ticket that was merged into another (the satellite of
+/// the old `tickets.merged_*` columns). 1:1 with merge-source tickets, keyed
+/// by the source `ticket_id`; absent for the ~99% of tickets never merged.
+#[derive(Debug, Clone, Serialize, Deserialize, Queryable, Identifiable, Insertable)]
+#[diesel(table_name = crate::schema::ticket_merges)]
+#[diesel(primary_key(ticket_id))]
+pub struct TicketMerge {
+    pub ticket_id: i32,
+    pub merged_into_ticket_id: i32,
+    pub merged_at: NaiveDateTime,
+    #[serde(serialize_with = "serialize_optional_uuid_as_string")]
+    pub merged_by_user_uuid: Option<Uuid>,
+    pub merge_reason: Option<String>,
+    pub workspace_id: i32,
+}
+
+/// Insert shape for a new merge record. `workspace_id` fills from the RLS GUC.
+#[derive(Debug, Insertable)]
+#[diesel(table_name = crate::schema::ticket_merges)]
+pub struct NewTicketMerge {
+    pub ticket_id: i32,
+    pub merged_into_ticket_id: i32,
+    pub merged_at: NaiveDateTime,
+    pub merged_by_user_uuid: Option<Uuid>,
+    pub merge_reason: Option<String>,
 }
 
 // Ticket implementation removed - serialization now handled by serde attributes
