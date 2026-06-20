@@ -147,7 +147,11 @@ where
             // Browsers also don't include arbitrary headers, so we
             // can't require an X-CSRF-Token here. Reports are
             // rate-limited and deduplicated server-side.
-            || path == "/api/csp-report";
+            || path == "/api/csp-report"
+            // Inbound-email webhook: AWS SNS posts here server-to-server with
+            // no session cookie, so there's no CSRF surface. Authentication is
+            // the SNS message signature, verified inside the handler.
+            || path == "/api/inbound/email";
 
         if is_public_endpoint {
             // Skip CSRF validation for public auth endpoints
