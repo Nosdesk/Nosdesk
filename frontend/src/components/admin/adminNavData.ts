@@ -75,11 +75,11 @@ export const adminNavGroups: AdminNavGroup[] = [
     labelKey: 'admin-nav-group-communication',
     items: [
       {
-        titleKey: 'admin-nav-channels-email-title',
-        descriptionKey: 'admin-nav-channels-email-description',
+        titleKey: 'admin-nav-channels-title',
+        descriptionKey: 'admin-nav-channels-description',
         icon: 'email',
-        route: '/admin/channels/email',
-        keywords: ['email', 'imap', 'ingestion', 'inbox', 'mailbox', 'channel', 'channels', 'pipeline', 'tickets']
+        route: '/admin/channels',
+        keywords: ['email', 'imap', 'ingestion', 'inbox', 'mailbox', 'channel', 'channels', 'pipeline', 'tickets', 'source']
       },
       {
         titleKey: 'admin-nav-email-delivery-title',
