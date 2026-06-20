@@ -546,7 +546,6 @@ fn pipeline_outcome_label(outcome: &pipeline::PipelineOutcome) -> &'static str {
         PipelineOutcome::SkippedBounce => "skipped_bounce",
         PipelineOutcome::SkippedUnsupportedVariant => "skipped_unsupported",
         PipelineOutcome::SkippedNoIdentity => "skipped_no_identity",
-        PipelineOutcome::SkippedEmailClaimed => "skipped_email_claimed",
     }
 }
 
