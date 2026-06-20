@@ -118,6 +118,14 @@ ring = "0.17.8"           # Cryptographic primitives for AES-256-GCM encryption 
 # public for the DNS record). Already in the tree via lettre's `dkim` feature;
 # declared directly here so the verified-domain key provisioning can use it.
 rsa = "0.9"
+# SHA-256 digest for `rsa`'s PKCS#1 v1.5 signature verification (the SNS
+# message-signature check on the inbound-email webhook). RustCrypto, pairs
+# directly with the `rsa` crate's VerifyingKey<Sha256>.
+sha2 = "0.10"
+# X.509 parser, used only to pull the RSA public key (SubjectPublicKeyInfo) out
+# of AWS's SNS signing certificate so we can verify the SNS message signature
+# on the inbound-email webhook. Narrow, read-only use; not a TLS trust path.
+x509-parser = "0.16"
 zeroize = { version = "1.8.1", features = ["derive"] } # Memory zeroing for sensitive data
 hex = "0.4.3"             # Hex encoding/decoding
 constant_time_eq = "0.3"  # Constant-time comparison for CSRF tokens
