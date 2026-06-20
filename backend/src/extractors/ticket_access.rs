@@ -147,22 +147,29 @@ impl FromRequest for TicketAccess {
             let mut conn = pool
                 .get()
                 .map_err(|e| TicketAccessError::Database(e.to_string()))?;
-            // Pin the request's workspace before the visibility query. The
-            // runtime role is NOBYPASSRLS, `can_view_ticket` carries no
-            // explicit workspace filter, and the tickets RLS policy keys off
-            // `app.workspace_id`, which `ResetAppGucs` clears on every
-            // checkout. Without this, the gate would scope to whatever
-            // workspace happened to linger on the pooled connection: a 404
-            // when nothing lingered, a cross-tenant read when the wrong one
-            // did. Same helper, and same workspace source, that every other
-            // raw-conn path and `TenantConn` use.
-            crate::handlers::helpers::pin_request_workspace(&req, &mut conn);
             let vis = VisibilityContext::from_auth(&auth);
-            let allowed =
-                ticket_visibility::can_view_ticket(&mut conn, &vis, ticket_id).map_err(|e| {
-                    error!(error = ?e, ticket_id, "ticket visibility check failed");
-                    TicketAccessError::Database(e.to_string())
-                })?;
+            // Run the RLS-gated visibility check inside a workspace-pinned
+            // transaction, exactly as `TenantConn` runs every tenant query.
+            // `can_view_ticket` carries no explicit workspace filter and the
+            // tickets policy keys off `app.workspace_id`; `with_actor_context`
+            // sets it with SET LOCAL, so the read scopes to this request's
+            // workspace and reverts at commit, leaving nothing on the pooled
+            // connection to leak. A ticket route always resolves a workspace;
+            // if one somehow didn't, the unpinned read fails closed (404).
+            let allowed = match crate::handlers::helpers::request_workspace_id(&req) {
+                Some(ws) => {
+                    let actor =
+                        crate::sync::actor::ActorContext::user_at_workspace(auth.user_uuid, ws);
+                    crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
+                        ticket_visibility::can_view_ticket(c, &vis, ticket_id)
+                    })
+                }
+                None => ticket_visibility::can_view_ticket(&mut conn, &vis, ticket_id),
+            }
+            .map_err(|e| {
+                error!(error = ?e, ticket_id, "ticket visibility check failed");
+                TicketAccessError::Database(e.to_string())
+            })?;
             if !allowed {
                 return Err(TicketAccessError::NotVisible);
             }

@@ -48,18 +48,25 @@ pub fn db_conn(pool: &web::Data<Pool>) -> Result<DbConnection, HttpResponse> {
 /// routes that don't touch tenant tables). This is what makes the legacy
 /// raw-conn helpers safe-by-default, the way `TenantConn` already is.
 pub fn pin_request_workspace(req: &HttpRequest, conn: &mut DbConnection) {
-    let workspace_id = req
-        .extensions()
+    if let Some(ws) = request_workspace_id(req) {
+        pin_workspace(conn, ws);
+    }
+}
+
+/// The workspace a request resolved to, from the actor the auth middleware
+/// pinned (preferred) or the `WorkspaceContext` the host / selection resolver
+/// attached. `None` for apex / platform routes that never resolved a
+/// workspace. The single source raw-conn callers use to build a workspace-
+/// pinned actor for `with_actor_context`.
+pub fn request_workspace_id(req: &HttpRequest) -> Option<i32> {
+    req.extensions()
         .get::<crate::middleware::RequestContext>()
         .and_then(|ctx| ctx.actor.workspace_id)
         .or_else(|| {
             req.extensions()
                 .get::<crate::extractors::WorkspaceContext>()
                 .map(|w| w.workspace_id)
-        });
-    if let Some(ws) = workspace_id {
-        pin_workspace(conn, ws);
-    }
+        })
 }
 
 /// Pin a known `workspace_id` on a raw connection (session-scoped). The
