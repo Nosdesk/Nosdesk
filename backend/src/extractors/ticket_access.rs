@@ -147,6 +147,16 @@ impl FromRequest for TicketAccess {
             let mut conn = pool
                 .get()
                 .map_err(|e| TicketAccessError::Database(e.to_string()))?;
+            // Pin the request's workspace before the visibility query. The
+            // runtime role is NOBYPASSRLS, `can_view_ticket` carries no
+            // explicit workspace filter, and the tickets RLS policy keys off
+            // `app.workspace_id`, which `ResetAppGucs` clears on every
+            // checkout. Without this, the gate would scope to whatever
+            // workspace happened to linger on the pooled connection: a 404
+            // when nothing lingered, a cross-tenant read when the wrong one
+            // did. Same helper, and same workspace source, that every other
+            // raw-conn path and `TenantConn` use.
+            crate::handlers::helpers::pin_request_workspace(&req, &mut conn);
             let vis = VisibilityContext::from_auth(&auth);
             let allowed =
                 ticket_visibility::can_view_ticket(&mut conn, &vis, ticket_id).map_err(|e| {
