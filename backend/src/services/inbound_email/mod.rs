@@ -11,4 +11,6 @@
 //! Self-host keeps IMAP polling; only the ingestion source differs, the parse
 //! pipeline is shared.
 
+pub mod s3_fetch;
+pub mod ses;
 pub mod sns;

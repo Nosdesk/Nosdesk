@@ -32,6 +32,7 @@ use crate::db::DbConnection;
 pub mod auto_ack;
 pub mod bounce_parser;
 pub mod email_format_flowed;
+pub mod email_forward;
 pub mod email_imap;
 pub mod email_quote;
 pub mod email_render_kind;

@@ -1136,6 +1136,18 @@ async fn main() -> std::io::Result<()> {
     // abstraction instead of writing straight to the local filesystem.
     utils::storage::set_process_storage(storage.clone());
 
+    // Inbound-email S3 reader (hosted forwarding path). `None` on self-host or
+    // when `NOSDESK_INBOUND_S3_BUCKET` is unset; a bucket configured without
+    // SES credentials is a hard misconfig we surface loudly but don't crash on.
+    let inbound_s3 = match services::inbound_email::s3_fetch::InboundS3::from_env() {
+        Ok(reader) => reader,
+        Err(e) => {
+            tracing::error!("inbound-email S3 disabled: {e}");
+            None
+        }
+    };
+    let inbound_s3_data = web::Data::new(inbound_s3);
+
     info!(host = %host, port = %port, environment = %environment, "Server starting");
 
     // Boot the channel-worker supervisor. The supervisor owns a
@@ -1519,6 +1531,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(registry_cache.clone())
             .app_data(search_service.clone())
             .app_data(analytics_cache.clone())
+            .app_data(inbound_s3_data.clone())
             .app_data(json_config)
             .app_data(multipart_config)
 
@@ -1551,6 +1564,11 @@ async fn main() -> std::io::Result<()> {
 
             // Public instance config (routing topology) read at SPA startup
             .route("/api/config", web::get().to(handlers::app_config::get_public_config))
+
+            // Inbound-email webhook (hosted): AWS SNS POSTs here when SES
+            // receives forwarded mail. Unauthenticated by necessity (SNS is
+            // server-to-server); the handler verifies the SNS signature.
+            .route("/api/inbound/email", web::post().to(handlers::inbound_email::receive))
 
             // Public (unauthenticated) guest endpoints — feature flags checked per handler.
             // Tighter JSON payload limit here than the app-wide default: the only
