@@ -1,6 +1,12 @@
 <template>
   <div class="flex-1">
     <div class="flex flex-col gap-6 px-4 sm:px-6 py-4 mx-auto w-full max-w-6xl">
+      <RouterLink
+        :to="{ name: 'admin-channels' }"
+        class="text-sm text-secondary hover:text-primary w-fit"
+      >
+        &lsaquo; {{ $t('admin-nav-channels-title') }}
+      </RouterLink>
       <div class="flex flex-col gap-2">
         <h1 class="text-xl sm:text-2xl font-bold text-primary">{{ $t('admin-channels-email-title') }}</h1>
         <p class="text-secondary">

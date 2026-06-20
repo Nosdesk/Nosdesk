@@ -19,8 +19,7 @@ import { useInfiniteQuery, useQueryCache } from '@pinia/colada';
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
-import Skeleton from '@/components/common/Skeleton.vue';
-import SkeletonBar from '@/components/common/SkeletonBar.vue';
+import Spinner from '@/components/common/Spinner.vue';
 import { formatDateTime as formatDateTimeTz } from '@/utils/dateUtils';
 import {
   emailSuppressionsService,
@@ -54,6 +53,18 @@ const rows = computed<EmailSuppression[]>(
 );
 const total = computed(() => suppressionsList.data.value?.pages.at(-1)?.total ?? 0);
 const hasMore = computed(() => suppressionsList.hasNextPage.value);
+
+// Embedded (the Email delivery Activity tab) shows a compact "recent 5"
+// summary; the operator expands it for the full list + add form.
+const COMPACT_ROWS = 5;
+const expanded = ref(false);
+const displayRows = computed(() =>
+  props.embedded && !expanded.value ? rows.value.slice(0, COMPACT_ROWS) : rows.value,
+);
+const canExpand = computed(
+  () => props.embedded && !expanded.value && (rows.value.length > COMPACT_ROWS || hasMore.value),
+);
+
 const isFirstLoad = computed(
   () => suppressionsList.asyncStatus.value === 'loading' && rows.value.length === 0,
 );
@@ -153,7 +164,7 @@ function formatDateTime(iso: string): string {
             </span>
         </section>
 
-        <section class="flex flex-col gap-2 rounded border border-default bg-surface p-3">
+        <section v-if="!props.embedded || expanded" class="flex flex-col gap-2 rounded border border-default bg-surface p-3">
             <h2 class="text-sm font-semibold text-primary">{{ $t('admin-suppressions-add-title') }}</h2>
             <form class="flex flex-col sm:flex-row gap-2" @submit.prevent="handleAdd">
                 <input
@@ -183,22 +194,15 @@ function formatDateTime(iso: string): string {
         <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
         <AlertMessage v-if="loadError && rows.length === 0" type="error" :message="loadError" />
 
-        <Skeleton
-            v-if="isFirstLoad"
-            :label="$t('admin-suppressions-title')"
-            class="flex flex-col gap-1"
-        >
-            <div
-                v-for="n in 5"
-                :key="n"
-                class="rounded border border-default bg-surface px-3 py-2 flex items-center gap-3"
-            >
-                <SkeletonBar class="h-4 w-16 shrink-0" />
-                <SkeletonBar class="h-4 flex-1" />
-                <SkeletonBar class="h-4 w-24 shrink-0" />
-            </div>
-        </Skeleton>
+        <div v-if="isFirstLoad" class="flex justify-center py-8 text-tertiary">
+            <Spinner />
+        </div>
 
+        <!-- Embedded (Activity tab): the count above already says "0", so a full
+             empty-state card is noise; a single muted line suffices. -->
+        <p v-else-if="props.embedded && rows.length === 0" class="text-sm text-tertiary">
+            {{ $t('admin-suppressions-empty-description') }}
+        </p>
         <EmptyState
             v-else-if="rows.length === 0"
             icon="inbox"
@@ -208,7 +212,7 @@ function formatDateTime(iso: string): string {
 
         <ul v-else class="flex flex-col gap-1">
             <li
-                v-for="row in rows"
+                v-for="row in displayRows"
                 :key="row.email"
                 class="rounded border border-default bg-surface px-3 py-2 flex items-center gap-3"
             >
@@ -241,7 +245,16 @@ function formatDateTime(iso: string): string {
             </li>
         </ul>
 
-        <div v-if="hasMore" class="flex justify-center pt-2">
+        <div v-if="canExpand" class="flex justify-center pt-2">
+            <button
+                type="button"
+                class="h-9 px-4 rounded border border-default text-sm hover:bg-hover"
+                @click="expanded = true"
+            >
+                {{ $t('admin-suppressions-show-all') }}
+            </button>
+        </div>
+        <div v-else-if="hasMore" class="flex justify-center pt-2">
             <button
                 type="button"
                 class="h-9 px-4 rounded border border-default text-sm hover:bg-hover disabled:opacity-50"

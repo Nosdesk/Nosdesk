@@ -817,6 +817,12 @@ const router = createRouter({
           redirect: { name: 'admin-email-delivery' }
         },
         {
+          path: 'channels',
+          name: 'admin-channels',
+          component: () => import('../views/ChannelsView.vue'),
+          meta: { titleKey: 'route-title-admin-channels', requiresAuth: true, adminRequired: true }
+        },
+        {
           path: 'channels/email',
           name: 'admin-channels-email',
           component: () => import('../views/ChannelsEmailSettingsView.vue'),

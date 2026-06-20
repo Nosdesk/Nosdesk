@@ -6,8 +6,7 @@ import { useInfiniteQuery, useQuery, useQueryCache } from '@pinia/colada';
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
-import Skeleton from '@/components/common/Skeleton.vue';
-import SkeletonBar from '@/components/common/SkeletonBar.vue';
+import Spinner from '@/components/common/Spinner.vue';
 import { formatDateTime } from '@/utils/dateUtils';
 import {
   emailQueueService,
@@ -85,6 +84,17 @@ const rows = computed<OutboundEmailRow[]>(
 const hasMore = computed(() => queueList.hasNextPage.value);
 const isFirstLoad = computed(
   () => queueList.asyncStatus.value === 'loading' && rows.value.length === 0,
+);
+
+// Embedded (the Email delivery Activity tab) shows a compact "recent 5"
+// summary; the operator expands it for the full filterable list.
+const COMPACT_ROWS = 5;
+const showAll = ref(false);
+const displayRows = computed(() =>
+  props.embedded && !showAll.value ? rows.value.slice(0, COMPACT_ROWS) : rows.value,
+);
+const canExpand = computed(
+  () => props.embedded && !showAll.value && (rows.value.length > COMPACT_ROWS || hasMore.value),
 );
 const isLoadingMore = computed(
   () => queueList.asyncStatus.value === 'loading' && rows.value.length > 0,
@@ -234,7 +244,7 @@ const deadTotal = computed(
       </div>
     </section>
 
-    <section class="flex flex-wrap gap-3 items-end">
+    <section v-if="!props.embedded || showAll" class="flex flex-wrap gap-3 items-end">
       <div class="flex flex-col gap-1 text-xs text-secondary">
         <span>{{ $t('admin-email-queue-filter-status') }}</span>
         <div class="flex flex-wrap gap-1">
@@ -289,23 +299,15 @@ const deadTotal = computed(
     <AlertMessage v-if="errorMessage" type="error" :message="errorMessage" />
     <AlertMessage v-if="loadError && rows.length === 0" type="error" :message="loadError" />
 
-    <Skeleton
-      v-if="isFirstLoad"
-      :label="$t('admin-email-queue-title')"
-      class="flex flex-col gap-1"
-    >
-      <div
-        v-for="n in 6"
-        :key="n"
-        class="rounded border border-default bg-surface px-3 py-2 flex items-center gap-3"
-      >
-        <SkeletonBar class="h-4 w-16 shrink-0" />
-        <SkeletonBar class="h-4 flex-1" />
-        <SkeletonBar class="h-4 w-20 shrink-0" />
-        <SkeletonBar class="h-4 w-12 shrink-0" />
-      </div>
-    </Skeleton>
+    <div v-if="isFirstLoad" class="flex justify-center py-8 text-tertiary">
+      <Spinner />
+    </div>
 
+    <!-- Embedded (Activity tab): the stats above already show the counts, so a
+         full empty-state card is noise; a single muted line suffices. -->
+    <p v-else-if="props.embedded && rows.length === 0" class="text-sm text-tertiary">
+      {{ $t('admin-email-queue-empty-description') }}
+    </p>
     <EmptyState
       v-else-if="rows.length === 0"
       icon="inbox"
@@ -315,7 +317,7 @@ const deadTotal = computed(
 
     <ul v-else class="flex flex-col gap-1">
       <li
-        v-for="row in rows"
+        v-for="row in displayRows"
         :key="row.id"
         class="rounded border border-default bg-surface"
       >
@@ -415,7 +417,16 @@ const deadTotal = computed(
       </li>
     </ul>
 
-    <div v-if="hasMore" class="flex justify-center pt-2">
+    <div v-if="canExpand" class="flex justify-center pt-2">
+      <button
+        type="button"
+        class="h-9 px-4 rounded border border-default text-sm hover:bg-hover"
+        @click="showAll = true"
+      >
+        {{ $t('admin-email-queue-show-all') }}
+      </button>
+    </div>
+    <div v-else-if="hasMore" class="flex justify-center pt-2">
       <button
         type="button"
         class="h-9 px-4 rounded border border-default text-sm hover:bg-hover disabled:opacity-50"
