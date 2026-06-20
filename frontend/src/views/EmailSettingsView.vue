@@ -25,10 +25,15 @@ const t = (key: string) => fluent.$t(key);
 interface EmailConfig {
   /** Active transport. Always 'smtp'; older backends omit it. */
   provider?: 'smtp';
-  smtp_host: string;
-  smtp_port: number;
-  smtp_username: string;
-  smtp_password_configured: boolean;
+  /**
+   * Hosted: outbound is Nosdesk-managed, so the platform relay details
+   * (host/username) are withheld and only the managed status + From are sent.
+   * The SES SMTP username is a credential and is never returned.
+   */
+  managed?: boolean;
+  smtp_host?: string;
+  smtp_port?: number;
+  smtp_password_configured?: boolean;
   from_name: string;
   from_email: string;
   enabled: boolean;
@@ -249,17 +254,26 @@ const getRequiredEnvVars = () => [
               </div>
             </div>
 
-            <!-- Current Configuration -->
-            <div v-if="emailConfig?.is_configured" class="flex flex-col md:flex-row gap-4 text-sm">
-              <!-- Left: Server, Username, From details -->
+            <!-- Hosted: outbound is Nosdesk-managed infra. Don't expose the
+                 platform relay; point the admin at their sending domain. -->
+            <div v-if="emailConfig?.managed" class="flex flex-col gap-2 text-sm bg-surface-alt rounded-lg p-3">
+              <p class="text-secondary">{{ $t('admin-email-settings-managed-note') }}</p>
+              <RouterLink
+                :to="{ name: 'admin-email-sending-domain' }"
+                class="text-accent hover:underline font-medium w-fit"
+              >
+                {{ $t('admin-email-settings-managed-domain-link') }}
+              </RouterLink>
+            </div>
+
+            <!-- Self-host: the operator's own relay. The username is never
+                 echoed back (it's a credential identifier, no display value). -->
+            <div v-else-if="emailConfig?.is_configured" class="flex flex-col md:flex-row gap-4 text-sm">
+              <!-- Left: Server, From details -->
               <div class="flex-1 flex flex-col gap-2">
                 <div class="flex flex-col gap-0.5">
                   <span class="text-tertiary text-xs">{{ $t('admin-email-settings-server') }}</span>
                   <span class="text-primary font-mono text-xs bg-surface-alt px-2 py-1.5 rounded select-all">{{ emailConfig.smtp_host }}:{{ emailConfig.smtp_port }}</span>
-                </div>
-                <div class="flex flex-col gap-0.5">
-                  <span class="text-tertiary text-xs">{{ $t('admin-email-settings-username') }}</span>
-                  <span class="text-primary font-mono text-xs bg-surface-alt px-2 py-1.5 rounded select-all break-all">{{ emailConfig.smtp_username }}</span>
                 </div>
                 <div class="flex flex-col gap-0.5">
                   <span class="text-tertiary text-xs">{{ $t('admin-email-settings-from-address') }}</span>
@@ -283,8 +297,9 @@ const getRequiredEnvVars = () => [
               {{ emailConfig.error }}
             </div>
 
-            <!-- Required environment variables -->
-            <div class="flex items-center gap-2 text-xs">
+            <!-- Required environment variables (self-host only; hosted relay
+                 is operator infra, not configured from the product UI). -->
+            <div v-if="!emailConfig?.managed" class="flex items-center gap-2 text-xs">
               <span class="text-tertiary">{{ $t('admin-email-settings-env-vars-label') }}</span>
               <div class="flex flex-wrap gap-1">
                 <code

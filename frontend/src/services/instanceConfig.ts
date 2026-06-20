@@ -11,14 +11,24 @@ import { logger } from '@/utils/logger';
 /** Where the selected workspace lives in the URL. */
 export type WorkspaceRouting = 'host' | 'path';
 
+/** Whether this instance is the managed hosted SaaS or a self-hosted install. */
+export type DeploymentMode = 'hosted' | 'self_hosted';
+
 interface InstanceConfig {
   workspace_routing: WorkspaceRouting;
+  deployment_mode: DeploymentMode;
 }
 
 // Default 'host': the subdomain / self-hosted model every current deployment
 // runs. A pending or failed fetch keeps today's behaviour and never activates
 // the single-origin slug-in-path routing.
 let workspaceRouting: WorkspaceRouting = 'host';
+
+// Default 'self_hosted': the conservative, backward-compatible default. Hosted-
+// aware UI that hides infrastructure must still rely on backend enforcement (the
+// API redacts platform secrets regardless of this client hint), so a config blip
+// can never leak.
+let deploymentMode: DeploymentMode = 'self_hosted';
 
 // Memoised so bootstrap and the router guard share one fetch. The guard awaits
 // this before reading the routing mode, so a cold load (hard refresh, deep link)
@@ -40,6 +50,9 @@ export function fetchInstanceConfig(): Promise<void> {
         if (data?.workspace_routing === 'path' || data?.workspace_routing === 'host') {
           workspaceRouting = data.workspace_routing;
         }
+        if (data?.deployment_mode === 'hosted' || data?.deployment_mode === 'self_hosted') {
+          deploymentMode = data.deployment_mode;
+        }
       } catch (e) {
         logger.error('Failed to fetch instance config; defaulting workspace_routing=host', e);
       }
@@ -51,4 +64,14 @@ export function fetchInstanceConfig(): Promise<void> {
 /** Where the workspace lives in the URL. 'host' until the config resolves. */
 export function getWorkspaceRouting(): WorkspaceRouting {
   return workspaceRouting;
+}
+
+/** The instance's deployment mode. 'self_hosted' until the config resolves. */
+export function getDeploymentMode(): DeploymentMode {
+  return deploymentMode;
+}
+
+/** True on the managed hosted SaaS. Use to hide operator/infra-only admin UI. */
+export function isHostedDeployment(): boolean {
+  return deploymentMode === 'hosted';
 }
