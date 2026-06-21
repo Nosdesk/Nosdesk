@@ -5847,6 +5847,22 @@ assets-list-grouping-manufacturer-none = No manufacturer
 assets-list-grouping-location = Location
 assets-list-grouping-location-none = No location
 assets-list-grouping-primary-user = Primary user
+# Lentilles de planification de parc (machine, à relire par un locuteur natif).
+assets-list-grouping-os = Famille d'OS
+assets-list-grouping-warranty-window = Fenêtre de garantie
+assets-list-grouping-compliance = Conformité
+assets-list-os-windows = Windows
+assets-list-os-macos = macOS
+assets-list-os-linux = Linux
+assets-list-os-ios = iOS / iPadOS
+assets-list-os-android = Android
+assets-list-os-other = Autre
+assets-list-warranty-window-expired = Expirée
+assets-list-warranty-window-expiring-30d = Expire sous 30 jours
+assets-list-warranty-window-expiring-90d = Expire sous 90 jours
+assets-list-warranty-window-active = Sous garantie
+assets-list-warranty-window-unknown = Pas de date de garantie
+assets-list-compliance-unknown = Inconnu
 tickets-grouping-all = Tous
 
 # T batch: final sweep

@@ -5963,6 +5963,22 @@ assets-list-grouping-manufacturer-none = No manufacturer
 assets-list-grouping-location = Location
 assets-list-grouping-location-none = No location
 assets-list-grouping-primary-user = Primary user
+# Fleet-planning lenses (group over the complete filtered set).
+assets-list-grouping-os = OS family
+assets-list-grouping-warranty-window = Warranty window
+assets-list-grouping-compliance = Compliance
+assets-list-os-windows = Windows
+assets-list-os-macos = macOS
+assets-list-os-linux = Linux
+assets-list-os-ios = iOS / iPadOS
+assets-list-os-android = Android
+assets-list-os-other = Other
+assets-list-warranty-window-expired = Expired
+assets-list-warranty-window-expiring-30d = Expiring within 30 days
+assets-list-warranty-window-expiring-90d = Expiring within 90 days
+assets-list-warranty-window-active = In warranty
+assets-list-warranty-window-unknown = No warranty date
+assets-list-compliance-unknown = Unknown
 tickets-grouping-all = All
 
 # T batch: final sweep

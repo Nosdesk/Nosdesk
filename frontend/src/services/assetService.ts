@@ -39,6 +39,38 @@ export type { PaginatedResponse } from '@/types/pagination';
  */
 const transformDeviceResponse = (backendDevice: Asset): Asset => backendDevice;
 
+/** An asset row tagged with the server-derived planning buckets. The
+ *  inventory list groups by these when a planning lens is active.
+ *  `compliance_state` is grouped from `attributes.compliance_state`. */
+export type AssetGroupingRow = Asset & {
+  /** 'windows' | 'macos' | 'linux' | 'ios' | 'android' | 'other'. */
+  os_family: string;
+  /** 'expired' | 'expiring_30d' | 'expiring_90d' | 'active' | 'unknown'. */
+  warranty_window: string;
+};
+
+/** Fetch the complete filtered asset set (no pagination) tagged with
+ *  planning buckets. Drives the inventory list's fleet-planning lenses,
+ *  where counts and selection must cover the whole fleet, not just the
+ *  rows scrolled into view. Accepts the same filter keys as the
+ *  paginated list. */
+export const getAssetGroupingDataset = async (filters: {
+  search?: string;
+  status?: string;
+  warranty?: string;
+  location?: string;
+  lowStock?: string;
+}): Promise<AssetGroupingRow[]> => {
+  const params: Record<string, string> = {};
+  if (filters.search) params.search = filters.search;
+  if (filters.status) params.status = filters.status;
+  if (filters.warranty) params.warranty = filters.warranty;
+  if (filters.location) params.location = filters.location;
+  if (filters.lowStock) params.lowStock = filters.lowStock;
+  const response = await apiClient.get('/assets/grouping-dataset', { params });
+  return response.data as AssetGroupingRow[];
+};
+
 /**
  * Get all devices
  * @returns Promise<Asset[]> - A promise that resolves to an array of devices

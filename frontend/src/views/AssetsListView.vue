@@ -25,7 +25,7 @@ import AssetStatusBadge from '@/components/assets/AssetStatusBadge.vue'
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
-import { downloadAssetsCsv, getPaginatedAssets, bulkAction, createEmptyAsset } from '@/services/assetService'
+import { downloadAssetsCsv, getPaginatedAssets, bulkAction, createEmptyAsset, getAssetGroupingDataset, type AssetGroupingRow } from '@/services/assetService'
 import { useAssetLocationsQuery } from '@/composables/useAssetLocationsQuery'
 import { assetsKeys } from '@/queries/assets'
 import type { Asset } from '@/types/asset'
@@ -129,8 +129,24 @@ const assetFacets = computed<ChipFacetDef[]>(() => [
 
 // Group-by axes. Client-side bucketing of the loaded page; most
 // useful in infinite-scroll mode (default pageSize=0 → up to 50
-// rows in one shot).
+// rows in one shot). The fleet-planning axes (os_family /
+// warranty_window / compliance) instead source the complete
+// filtered set via `completeDataset` below, so their counts and
+// "select all in a bucket" cover the whole fleet.
 const WARRANTY_ORDER = ['Expired', 'Warning', 'Active', 'Unknown'] as const
+
+// Planning-lens orderings + labels. Bucket keys are server-derived
+// (os_family / warranty_window); compliance reads the raw attribute.
+const OS_ORDER = ['windows', 'macos', 'linux', 'ios', 'android', 'other'] as const
+const WARRANTY_WINDOW_ORDER = ['expired', 'expiring_30d', 'expiring_90d', 'active', 'unknown'] as const
+const PLANNING_AXES = ['os_family', 'warranty_window', 'compliance'] as const
+
+function osFamilyLabel(fam: string): string {
+  return t(`assets-list-os-${fam}`)
+}
+function warrantyWindowLabel(win: string): string {
+  return t(`assets-list-warranty-window-${win.replace(/_/g, '-')}`)
+}
 
 const groupAxes: GroupAxisDef<Asset>[] = [
   {
@@ -195,6 +211,45 @@ const groupAxes: GroupAxisDef<Asset>[] = [
       }
     },
   },
+  // Fleet-planning lenses. These only render over the complete dataset
+  // (see `completeDataset`), where each row carries the server-derived
+  // os_family / warranty_window buckets.
+  {
+    key: 'os_family',
+    labelKey: 'assets-list-grouping-os',
+    bucketFor: (asset) => {
+      const fam = (asset as AssetGroupingRow).os_family || 'other'
+      return { key: `os:${fam}`, label: osFamilyLabel(fam) }
+    },
+    sortBy: (bucketKey) => {
+      const i = OS_ORDER.indexOf(bucketKey.replace('os:', '') as (typeof OS_ORDER)[number])
+      return i === -1 ? 999 : i
+    },
+  },
+  {
+    key: 'warranty_window',
+    labelKey: 'assets-list-grouping-warranty-window',
+    bucketFor: (asset) => {
+      const win = (asset as AssetGroupingRow).warranty_window || 'unknown'
+      return { key: `ww:${win}`, label: warrantyWindowLabel(win) }
+    },
+    sortBy: (bucketKey) => {
+      const i = WARRANTY_WINDOW_ORDER.indexOf(
+        bucketKey.replace('ww:', '') as (typeof WARRANTY_WINDOW_ORDER)[number],
+      )
+      return i === -1 ? 999 : i
+    },
+  },
+  {
+    key: 'compliance',
+    labelKey: 'assets-list-grouping-compliance',
+    bucketFor: (asset) => {
+      const raw = (asset.attributes?.compliance_state as string | undefined) ?? ''
+      const key = raw || 'unknown'
+      const label = raw || t('assets-list-compliance-unknown')
+      return { key: `compliance:${key}`, label }
+    },
+  },
 ]
 
 // Available sortable fields: id, name, hostname, serial_number,
@@ -235,9 +290,47 @@ const listView = useListView({
   scrollContainerRef,
   facets: assetFacets,
   groupAxes,
+  completeDataset: {
+    axes: PLANNING_AXES,
+    fetch: (params) =>
+      getAssetGroupingDataset({
+        search: params.search as string | undefined,
+        status: params.status as string | undefined,
+        warranty: params.warranty as string | undefined,
+        location: params.location as string | undefined,
+        lowStock: params.lowStock as string | undefined,
+      }),
+    keyFor: (cacheKeyPart) => [...assetsKeys.root, 'grouping-dataset', cacheKeyPart],
+  },
   columns,
   pinnedColumnIds: ['name'],
 })
+
+// Display source: the complete planning dataset when a planning lens
+// is active, otherwise the paginated page. The loading flags fall back
+// to the complete query's status in that mode.
+const displayItems = computed(() => listView.effectiveItems.value)
+const displayTotal = computed(() =>
+  listView.completeActive.value
+    ? listView.effectiveItems.value.length
+    : listView.page.totalItems.value,
+)
+const displayFirstLoad = computed(() =>
+  listView.completeActive.value
+    ? listView.completeLoading.value && listView.effectiveItems.value.length === 0
+    : listView.page.isFirstLoad.value,
+)
+const displayBackgroundRefresh = computed(() =>
+  listView.completeActive.value
+    ? listView.completeLoading.value && listView.effectiveItems.value.length > 0
+    : listView.page.isBackgroundRefresh.value,
+)
+const displayLoadingMore = computed(() =>
+  listView.completeActive.value ? false : listView.page.isLoadingMore.value,
+)
+const displayError = computed(() =>
+  listView.completeActive.value ? null : listView.page.errorMessage.value,
+)
 
 // Bulk delete: irreversible (devices aren't soft-deleted), so a
 // confirm modal rather than the optimistic Undo-toast pattern.
@@ -310,12 +403,12 @@ async function exportAssetsCsv() {
   <div class="h-full">
   <ListPageLayout
     ref="layout"
-    :items="listView.page.items.value"
-    :total-items="listView.page.totalItems.value"
-    :is-first-load="listView.page.isFirstLoad.value"
-    :is-background-refresh="listView.page.isBackgroundRefresh.value"
-    :is-loading-more="listView.page.isLoadingMore.value"
-    :error="listView.page.errorMessage.value"
+    :items="displayItems"
+    :total-items="displayTotal"
+    :is-first-load="displayFirstLoad"
+    :is-background-refresh="displayBackgroundRefresh"
+    :is-loading-more="displayLoadingMore"
+    :error="displayError"
     :search-query="listView.controls.searchQuery.value"
     :search-placeholder="$t('assets-list-search-placeholder')"
     :item-label="$t('assets-list-item-label')"
@@ -526,7 +619,7 @@ async function exportAssetsCsv() {
 
     <template #footer>
       <PaginationControls
-        v-if="!isMobile"
+        v-if="!isMobile && !listView.completeActive.value"
         :current-page="listView.controls.currentPage.value"
         :total-pages="listView.page.totalPages.value"
         :total-items="listView.page.totalItems.value"

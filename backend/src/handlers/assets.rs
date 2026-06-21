@@ -450,31 +450,30 @@ pub async fn asset_planner(mut tc: TenantConn, _auth: AuthContext) -> impl Respo
     }
 }
 
-/// One asset shaped for the inventory planning lenses. Carries the
-/// server-derived bucket keys so the client groups by a string rather
-/// than re-deriving the OS / warranty heuristics. This is the complete
-/// (un-paginated) matching set, so group counts and "select all in a
-/// bucket" are fleet-true rather than reflecting only loaded rows.
+/// A full asset row augmented with the server-derived planning buckets.
+/// Flattens `AssetResponse` so the inventory list renders the same
+/// columns it always does, and adds `os_family` / `warranty_window` so
+/// the client groups by a stable key rather than re-deriving the OS /
+/// warranty heuristics. Compliance grouping reads
+/// `attributes.compliance_state` directly (already a categorical value),
+/// so it needs no derived field.
 #[derive(Debug, Serialize)]
 pub struct AssetGroupingRow {
-    pub id: i32,
-    pub name: String,
-    pub kind: String,
-    pub status: String,
+    #[serde(flatten)]
+    pub asset: AssetResponse,
     /// 'windows' | 'macos' | 'linux' | 'ios' | 'android' | 'other'.
     pub os_family: &'static str,
     /// 'expired' | 'expiring_30d' | 'expiring_90d' | 'active' | 'unknown'.
     pub warranty_window: &'static str,
-    pub compliance_state: Option<String>,
-    pub primary_user_uuid: Option<Uuid>,
 }
 
-/// `GET /api/assets/grouping-dataset` — the full set of assets matching
-/// the current inventory list filters, each tagged with the derived
-/// planning buckets. Drives the inventory list's planning-axis grouping
-/// (OS family / warranty window / compliance). Same filter keys as the
-/// paginated list so it is "the list, grouped" rather than a different
-/// view. RLS scopes rows to the workspace.
+/// `GET /api/assets/grouping-dataset` — the complete set of assets
+/// matching the current inventory list filters, each tagged with the
+/// derived planning buckets. The inventory list switches to this source
+/// when a planning axis (OS family / warranty window / compliance) is
+/// active so group counts and "select all in a bucket" are fleet-true
+/// rather than reflecting only the rows scrolled into view. Same filter
+/// keys as the paginated list; RLS scopes rows to the workspace.
 pub async fn asset_grouping_dataset(
     mut tc: TenantConn,
     query: web::Query<AssetExportQuery>,
@@ -494,29 +493,35 @@ pub async fn asset_grouping_dataset(
         low_stock_only: matches!(query.low_stock.as_deref(), Some("true") | Some("1")),
     };
 
-    match tc.run(move |conn| repository::assets::list_for_export(conn, filters)) {
-        Ok(devices) => {
-            let today = chrono::Utc::now().date_naive();
-            let payload: Vec<AssetGroupingRow> = devices
-                .into_iter()
-                .map(|d| {
-                    let os = it_attrs::operating_system(&d.attributes);
-                    let warranty_end = it_attrs::warranty_end_date(&d.attributes);
-                    let compliance = it_attrs::compliance_state(&d.attributes).map(str::to_string);
-                    AssetGroupingRow {
-                        os_family: classify_os(os),
-                        warranty_window: classify_warranty_window(warranty_end, today),
-                        compliance_state: compliance,
-                        id: d.id,
-                        name: d.name,
-                        kind: d.kind,
-                        status: d.status,
-                        primary_user_uuid: d.primary_user_uuid,
-                    }
-                })
-                .collect();
-            HttpResponse::Ok().json(payload)
-        }
+    let result = tc.run(move |conn| {
+        let devices = repository::assets::list_for_export(conn, filters)?;
+        let today = chrono::Utc::now().date_naive();
+        // Derive the buckets from each device's attributes before the
+        // response builder consumes the row.
+        let rows: Vec<AssetGroupingRow> = devices
+            .into_iter()
+            .map(|d| {
+                let os_family = classify_os(it_attrs::operating_system(&d.attributes));
+                let warranty_window =
+                    classify_warranty_window(it_attrs::warranty_end_date(&d.attributes), today);
+                let user = d
+                    .primary_user_uuid
+                    .as_ref()
+                    .and_then(|uuid| get_user_by_uuid(conn, uuid));
+                let groups = groups_repo::get_groups_for_device(conn, d.id).unwrap_or_default();
+                let asset = AssetResponse::from_device_and_user(d, user, groups, conn);
+                AssetGroupingRow {
+                    asset,
+                    os_family,
+                    warranty_window,
+                }
+            })
+            .collect();
+        Ok::<_, Error>(rows)
+    });
+
+    match result {
+        Ok(rows) => HttpResponse::Ok().json(rows),
         Err(e) => {
             error!(error = ?e, "asset grouping dataset load failed");
             errors::internal("Failed to load assets")

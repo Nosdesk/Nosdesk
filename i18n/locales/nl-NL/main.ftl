@@ -5838,6 +5838,22 @@ assets-list-grouping-manufacturer-none = No manufacturer
 assets-list-grouping-location = Location
 assets-list-grouping-location-none = No location
 assets-list-grouping-primary-user = Primary user
+# Vlootplanning-lenzen (machine, na te kijken door moedertaalspreker).
+assets-list-grouping-os = OS-familie
+assets-list-grouping-warranty-window = Garantievenster
+assets-list-grouping-compliance = Naleving
+assets-list-os-windows = Windows
+assets-list-os-macos = macOS
+assets-list-os-linux = Linux
+assets-list-os-ios = iOS / iPadOS
+assets-list-os-android = Android
+assets-list-os-other = Overig
+assets-list-warranty-window-expired = Verlopen
+assets-list-warranty-window-expiring-30d = Verloopt binnen 30 dagen
+assets-list-warranty-window-expiring-90d = Verloopt binnen 90 dagen
+assets-list-warranty-window-active = Onder garantie
+assets-list-warranty-window-unknown = Geen garantiedatum
+assets-list-compliance-unknown = Onbekend
 tickets-grouping-all = Alle
 
 # T batch: final sweep
