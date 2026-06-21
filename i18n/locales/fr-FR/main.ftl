@@ -5863,6 +5863,29 @@ assets-list-warranty-window-expiring-90d = Expire sous 90 jours
 assets-list-warranty-window-active = Sous garantie
 assets-list-warranty-window-unknown = Pas de date de garantie
 assets-list-compliance-unknown = Inconnu
+# Création de déploiement (machine, à relire par un locuteur natif).
+asset-rollout-bulk-action = {$count ->
+    [one] Créer un déploiement (1)
+   *[other] Créer un déploiement ({$count})
+  }
+asset-rollout-title = Créer un déploiement
+asset-rollout-summary = {$count ->
+    [one] 1 appareil recevra un ticket dans un nouveau projet.
+   *[other] {$count} appareils recevront chacun un ticket dans un nouveau projet.
+  }
+asset-rollout-name-label = Nom du déploiement
+asset-rollout-name-placeholder = ex. Renouvellement Windows 10
+asset-rollout-state-label = Statut initial
+asset-rollout-priority-label = Priorité
+asset-rollout-create-action = {$count ->
+    [one] Créer le déploiement (1 ticket)
+   *[other] Créer le déploiement ({$count} tickets)
+  }
+asset-rollout-created = {$count ->
+    [one] Déploiement créé avec 1 ticket
+   *[other] Déploiement créé avec {$count} tickets
+  }
+asset-rollout-create-failed = Échec de la création du déploiement
 tickets-grouping-all = Tous
 
 # T batch: final sweep

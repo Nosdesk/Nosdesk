@@ -71,6 +71,29 @@ export const getAssetGroupingDataset = async (filters: {
   return response.data as AssetGroupingRow[];
 };
 
+/** Body for creating a rollout from a selected device group. */
+export interface CreateRolloutBody {
+  name: string;
+  description?: string | null;
+  workflow_state_id: number;
+  priority?: string;
+  asset_ids: number[];
+}
+
+export interface CreateRolloutResult {
+  project_id: number;
+  ticket_count: number;
+}
+
+/** Mint a rollout project with one ticket per selected device, each
+ *  ticket linked to its asset. One server-side transaction. */
+export const createAssetRollout = async (
+  body: CreateRolloutBody,
+): Promise<CreateRolloutResult> => {
+  const response = await apiClient.post('/assets/rollouts', body);
+  return response.data as CreateRolloutResult;
+};
+
 /**
  * Get all devices
  * @returns Promise<Asset[]> - A promise that resolves to an array of devices

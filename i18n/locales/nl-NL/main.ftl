@@ -5854,6 +5854,29 @@ assets-list-warranty-window-expiring-90d = Verloopt binnen 90 dagen
 assets-list-warranty-window-active = Onder garantie
 assets-list-warranty-window-unknown = Geen garantiedatum
 assets-list-compliance-unknown = Onbekend
+# Uitrol aanmaken (machine, na te kijken door moedertaalspreker).
+asset-rollout-bulk-action = {$count ->
+    [one] Uitrol aanmaken (1)
+   *[other] Uitrol aanmaken ({$count})
+  }
+asset-rollout-title = Uitrol aanmaken
+asset-rollout-summary = {$count ->
+    [one] 1 apparaat krijgt een ticket in een nieuw project.
+   *[other] {$count} apparaten krijgen elk een ticket in een nieuw project.
+  }
+asset-rollout-name-label = Naam van uitrol
+asset-rollout-name-placeholder = bijv. Windows 10-vernieuwing
+asset-rollout-state-label = Beginstatus
+asset-rollout-priority-label = Prioriteit
+asset-rollout-create-action = {$count ->
+    [one] Uitrol aanmaken (1 ticket)
+   *[other] Uitrol aanmaken ({$count} tickets)
+  }
+asset-rollout-created = {$count ->
+    [one] Uitrol aangemaakt met 1 ticket
+   *[other] Uitrol aangemaakt met {$count} tickets
+  }
+asset-rollout-create-failed = Uitrol aanmaken mislukt
 tickets-grouping-all = Alle
 
 # T batch: final sweep

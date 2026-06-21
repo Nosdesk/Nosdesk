@@ -5979,6 +5979,29 @@ assets-list-warranty-window-expiring-90d = Expiring within 90 days
 assets-list-warranty-window-active = In warranty
 assets-list-warranty-window-unknown = No warranty date
 assets-list-compliance-unknown = Unknown
+# Create-rollout handoff (selected devices -> project + one ticket each).
+asset-rollout-bulk-action = {$count ->
+    [one] Create rollout (1)
+   *[other] Create rollout ({$count})
+  }
+asset-rollout-title = Create rollout
+asset-rollout-summary = {$count ->
+    [one] 1 device will get a ticket in a new project.
+   *[other] {$count} devices will each get a ticket in a new project.
+  }
+asset-rollout-name-label = Rollout name
+asset-rollout-name-placeholder = e.g. Windows 10 refresh
+asset-rollout-state-label = Initial status
+asset-rollout-priority-label = Priority
+asset-rollout-create-action = {$count ->
+    [one] Create rollout (1 ticket)
+   *[other] Create rollout ({$count} tickets)
+  }
+asset-rollout-created = {$count ->
+    [one] Rollout created with 1 ticket
+   *[other] Rollout created with {$count} tickets
+  }
+asset-rollout-create-failed = Failed to create rollout
 tickets-grouping-all = All
 
 # T batch: final sweep

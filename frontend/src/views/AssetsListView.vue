@@ -22,6 +22,7 @@ import { useAuthStore } from '@/stores/auth'
 import { TextCell, StatusBadgeCell, UserAvatarCell } from '@/components/common/cells'
 import AssetViewTabs from '@/components/assets/AssetViewTabs.vue'
 import AssetStatusBadge from '@/components/assets/AssetStatusBadge.vue'
+import CreateRolloutModal from '@/components/assets/CreateRolloutModal.vue'
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
@@ -364,6 +365,34 @@ async function confirmDelete() {
   listView.selection.clear()
 }
 
+// Create-rollout handoff: turn the selected devices into a project with
+// one ticket per device. Operates on the explicit selection so the count
+// shown is exactly what gets created.
+const showRollout = ref(false)
+const selectedAssetIds = computed(() =>
+  listView.selection.selectedIds.value.map((id) => parseInt(id)),
+)
+
+// Seed the rollout name from the bucket the selection sits in: when every
+// selected device falls in one group (the common "select a whole bucket"
+// case), suggest that bucket's label (e.g. "Expiring within 90 days").
+const rolloutDefaultName = computed<string>(() => {
+  const selected = new Set(listView.selection.selectedIds.value)
+  if (selected.size === 0) return ''
+  const covering = listView.buckets.value.filter((b) =>
+    b.items.some((it) => selected.has(String(it.id))),
+  )
+  if (covering.length !== 1) return ''
+  const bucket = covering[0]
+  const selectedInBucket = bucket.items.filter((it) => selected.has(String(it.id))).length
+  return selectedInBucket === selected.size ? bucket.label : ''
+})
+
+function onRolloutCreated() {
+  showRollout.value = false
+  listView.selection.clear()
+}
+
 function filterString(value: string | number | undefined): string | undefined {
   if (value == null || value === '') return undefined
   return String(value)
@@ -608,6 +637,14 @@ async function exportAssetsCsv() {
     <template #bulk-actions="{ selectedCount }">
       <button
         type="button"
+        class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-full text-accent hover:bg-accent/10 transition-colors whitespace-nowrap"
+        @click="showRollout = true"
+      >
+        <Icon name="send" size="sm" />
+        {{ $t('asset-rollout-bulk-action', { count: selectedCount }) }}
+      </button>
+      <button
+        type="button"
         class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-full text-status-error hover:bg-status-error/10 transition-colors whitespace-nowrap disabled:opacity-50"
         :disabled="bulkDelete.asyncStatus.value === 'loading'"
         @click="showDeleteConfirm = true"
@@ -641,6 +678,14 @@ async function exportAssetsCsv() {
     :confirm-label="$t('assets-list-bulk-delete-count', { count: listView.selection.selectedCount.value })"
     @confirm="confirmDelete"
     @close="showDeleteConfirm = false"
+  />
+
+  <CreateRolloutModal
+    :show="showRollout"
+    :asset-ids="selectedAssetIds"
+    :default-name="rolloutDefaultName"
+    @close="showRollout = false"
+    @created="onRolloutCreated"
   />
 
   <ListViewModals :list-view="listView" />
