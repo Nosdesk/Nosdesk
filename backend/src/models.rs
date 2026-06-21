@@ -1123,6 +1123,9 @@ pub struct Asset {
     /// transition flow, which records an `asset_lifecycle_events`
     /// row, so `AssetUpdate` deliberately omits it.
     pub status: String,
+    /// Optional link to the `asset_models` catalog row this asset was
+    /// stamped from. NULL for model-less / hand-entered assets.
+    pub model_id: Option<i32>,
 }
 
 /// Canonical asset lifecycle states. Stored as snake_case strings in
@@ -1240,6 +1243,9 @@ pub struct AssetUpdate {
     pub unit: Option<Option<String>>,
     pub external_sync_source: Option<Option<String>>,
     pub low_stock_threshold: Option<Option<bigdecimal::BigDecimal>>,
+    /// Link to a catalog model. `Some(Some(id))` stamps a model,
+    /// `Some(None)` clears it, `None` leaves it unchanged.
+    pub model_id: Option<Option<i32>>,
 }
 
 /// Runtime-extensible asset-kind registry. `slug` is the value
@@ -1290,6 +1296,82 @@ pub struct AssetKindUpdate {
     pub attribute_schema: Option<serde_json::Value>,
     pub sort_order: Option<i32>,
     pub category: Option<String>,
+    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+// === Asset model catalog (NetBox-style) ======================
+//
+// `manufacturers` (a make) -> `asset_models` (a real make+model, the
+// "device type") -> `assets` (instances stamped from a model). See
+// docs/plans/asset-model-catalog.md.
+
+/// A manufacturer / make (Apple, Dell) in the asset model catalog.
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
+#[diesel(table_name = crate::schema::manufacturers)]
+pub struct Manufacturer {
+    pub id: i32,
+    pub name: String,
+    pub workspace_id: i32,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub created_by: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Insertable)]
+#[diesel(table_name = crate::schema::manufacturers)]
+pub struct NewManufacturer {
+    pub name: String,
+    pub created_by: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize, Deserialize, AsChangeset)]
+#[diesel(table_name = crate::schema::manufacturers)]
+pub struct ManufacturerChange {
+    pub name: Option<String>,
+    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// An asset model ("device type"): a real make+model that assets are
+/// stamped from. Carries the kind and a default-attributes spec blob
+/// that copies onto new assets at assignment (copy-at-assignment).
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable, Associations)]
+#[diesel(table_name = crate::schema::asset_models)]
+#[diesel(belongs_to(Manufacturer))]
+pub struct AssetModel {
+    pub id: i32,
+    pub manufacturer_id: i32,
+    pub name: String,
+    pub kind: String,
+    pub part_number: Option<String>,
+    pub default_attributes: serde_json::Value,
+    pub notes: Option<String>,
+    pub workspace_id: i32,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub created_by: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Insertable)]
+#[diesel(table_name = crate::schema::asset_models)]
+pub struct NewAssetModel {
+    pub manufacturer_id: i32,
+    pub name: String,
+    pub kind: String,
+    pub part_number: Option<String>,
+    pub default_attributes: serde_json::Value,
+    pub notes: Option<String>,
+    pub created_by: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize, Deserialize, AsChangeset)]
+#[diesel(table_name = crate::schema::asset_models)]
+pub struct AssetModelChange {
+    pub manufacturer_id: Option<i32>,
+    pub name: Option<String>,
+    pub kind: Option<String>,
+    pub part_number: Option<Option<String>>,
+    pub default_attributes: Option<serde_json::Value>,
+    pub notes: Option<Option<String>>,
     pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 

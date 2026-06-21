@@ -225,6 +225,25 @@ diesel::table! {
 }
 
 diesel::table! {
+    asset_models (id) {
+        id -> Int4,
+        manufacturer_id -> Int4,
+        #[max_length = 255]
+        name -> Varchar,
+        #[max_length = 64]
+        kind -> Varchar,
+        #[max_length = 255]
+        part_number -> Nullable<Varchar>,
+        default_attributes -> Jsonb,
+        notes -> Nullable<Text>,
+        workspace_id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
     asset_usage_log (id) {
         id -> Int8,
         asset_id -> Int4,
@@ -274,6 +293,7 @@ diesel::table! {
         workspace_id -> Int4,
         #[max_length = 32]
         status -> Varchar,
+        model_id -> Nullable<Int4>,
     }
 }
 
@@ -907,6 +927,18 @@ diesel::table! {
         created_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
         workspace_id -> Int4,
+    }
+}
+
+diesel::table! {
+    manufacturers (id) {
+        id -> Int4,
+        #[max_length = 255]
+        name -> Varchar,
+        workspace_id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
     }
 }
 
@@ -1983,10 +2015,14 @@ diesel::joinable!(asset_loans -> workspaces (workspace_id));
 diesel::joinable!(asset_media -> assets (asset_id));
 diesel::joinable!(asset_media -> users (uploaded_by));
 diesel::joinable!(asset_media -> workspaces (workspace_id));
+diesel::joinable!(asset_models -> manufacturers (manufacturer_id));
+diesel::joinable!(asset_models -> users (created_by));
+diesel::joinable!(asset_models -> workspaces (workspace_id));
 diesel::joinable!(asset_usage_log -> assets (asset_id));
 diesel::joinable!(asset_usage_log -> tickets (ticket_id));
 diesel::joinable!(asset_usage_log -> users (recorded_by));
 diesel::joinable!(asset_usage_log -> workspaces (workspace_id));
+diesel::joinable!(assets -> asset_models (model_id));
 diesel::joinable!(assets -> workspaces (workspace_id));
 diesel::joinable!(assignment_log -> assignment_rules (rule_id));
 diesel::joinable!(assignment_log -> tickets (ticket_id));
@@ -2077,6 +2113,8 @@ diesel::joinable!(knowledge_gaps -> documentation_pages (resolved_page_id));
 diesel::joinable!(knowledge_gaps -> workspaces (workspace_id));
 diesel::joinable!(linked_tickets -> users (created_by));
 diesel::joinable!(linked_tickets -> workspaces (workspace_id));
+diesel::joinable!(manufacturers -> users (created_by));
+diesel::joinable!(manufacturers -> workspaces (workspace_id));
 diesel::joinable!(notification_preferences -> notification_types (notification_type_id));
 diesel::joinable!(notification_preferences -> users (user_uuid));
 diesel::joinable!(notification_preferences -> workspaces (workspace_id));
@@ -2188,6 +2226,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     asset_lifecycle_events,
     asset_loans,
     asset_media,
+    asset_models,
     asset_usage_log,
     assets,
     assignment_log,
@@ -2228,6 +2267,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     knowledge_gap_signals,
     knowledge_gaps,
     linked_tickets,
+    manufacturers,
     notification_preferences,
     notification_rate_limits,
     notification_types,
