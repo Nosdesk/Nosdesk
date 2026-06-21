@@ -2377,6 +2377,10 @@ assets-list-bulk-action-error = Échec de la suppression des actifs. Veuillez r�
 asset-detail-back-to-ticket = Retour au ticket n°{ $id }
 asset-detail-back-to-devices = Retour
 asset-detail-readonly = Lecture seule
+# Machine, à relire par un locuteur natif.
+asset-detail-sync-source-intune = Synchronisé depuis Intune
+asset-detail-sync-source-entra = Synchronisé depuis Microsoft Entra
+asset-detail-sync-source-generic = Synchronisé depuis une source externe
 asset-detail-delete-item-name = Actif
 asset-detail-error-invalid-id = ID d'actif invalide
 asset-detail-error-load = Échec du chargement des détails de l'actif

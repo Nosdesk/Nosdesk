@@ -822,6 +822,42 @@ pub async fn create_empty_device(
     }
 }
 
+/// Attribute keys owned by the Microsoft Graph (Intune / Entra) sync.
+/// Mirrors the frontend `SYNC_OWNED_ATTRIBUTE_KEYS` in AssetView.vue.
+/// On a sync-owned asset these stay read-only; everything not listed
+/// is a user-owned key (e.g. warranty) and may be edited manually.
+const SYNC_OWNED_ATTRIBUTE_KEYS: &[&str] = &[
+    "hostname",
+    "is_managed",
+    "os_version",
+    "operating_system",
+    "last_sync_time",
+    "enrollment_date",
+    "entra_device_id",
+    "compliance_state",
+    "intune_device_id",
+    "microsoft_device_id",
+];
+
+/// Rebuild a sync-owned asset's attributes from the existing row,
+/// overlaying only the user-owned keys from `incoming`. Sync-owned keys
+/// keep their existing values no matter what the client sent, so a
+/// synced asset can never have its Graph-managed fields changed here.
+fn overlay_user_attributes(
+    existing: &serde_json::Value,
+    incoming: Option<&serde_json::Value>,
+) -> serde_json::Value {
+    let mut merged = existing.as_object().cloned().unwrap_or_default();
+    if let Some(obj) = incoming.and_then(|v| v.as_object()) {
+        for (key, value) in obj {
+            if !SYNC_OWNED_ATTRIBUTE_KEYS.contains(&key.as_str()) {
+                merged.insert(key.clone(), value.clone());
+            }
+        }
+    }
+    serde_json::Value::Object(merged)
+}
+
 /// Update a device (technician or admin only)
 pub async fn update_device(
     mut tc: TenantConn,
@@ -853,12 +889,25 @@ pub async fn update_device(
         }
     };
 
-    // Prevent editing assets owned by an external sync.
-    if existing_device.external_sync_source.is_some() {
-        return errors::forbidden("Cannot edit device synced from Microsoft Graph: This device is managed by Microsoft Intune/Entra and cannot be edited manually. Changes must be made in Microsoft Entra Admin Center or Intune.");
-    }
-
-    let update_data = device_update.into_inner();
+    // Assets owned by an external sync (Intune / Entra) are managed by
+    // Microsoft Graph: their columns and sync-owned attribute keys are
+    // read-only here. We still allow edits to user-owned attribute keys
+    // (e.g. warranty) that the sync never writes. To keep that safe no
+    // matter what the client sends, re-scope a synced asset's update to
+    // attributes only, rebuilt from the existing row with just the
+    // non-sync keys overlaid.
+    let update_data = if existing_device.external_sync_source.is_some() {
+        let incoming = device_update.into_inner();
+        AssetUpdate {
+            attributes: Some(overlay_user_attributes(
+                &existing_device.attributes,
+                incoming.attributes.as_ref(),
+            )),
+            ..Default::default()
+        }
+    } else {
+        device_update.into_inner()
+    };
 
     // Validate kind/attributes coherence if either is being
     // changed. Updates that only touch IT-desk columns don't
@@ -1133,5 +1182,42 @@ pub async fn bulk_devices(
             "code": "backend-error-bad-request",
             "message": format!("Unknown action: {}", action)
         })),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::overlay_user_attributes;
+    use serde_json::json;
+
+    #[test]
+    fn overlay_keeps_sync_keys_and_applies_user_keys() {
+        // A synced device: sync owns intune_device_id / hostname; the
+        // user is editing warranty_status and trying to spoof hostname.
+        let existing = json!({
+            "intune_device_id": "abc-123",
+            "hostname": "LAPTOP-1",
+            "warranty_status": "Unknown",
+        });
+        let incoming = json!({
+            "intune_device_id": "HACKED",   // sync-owned -> must be ignored
+            "hostname": "HACKED",           // sync-owned -> must be ignored
+            "warranty_status": "Active",    // user-owned -> applied
+            "warranty_end_date": "2027-01-01", // new user key -> applied
+        });
+
+        let merged = overlay_user_attributes(&existing, Some(&incoming));
+
+        assert_eq!(merged["intune_device_id"], "abc-123");
+        assert_eq!(merged["hostname"], "LAPTOP-1");
+        assert_eq!(merged["warranty_status"], "Active");
+        assert_eq!(merged["warranty_end_date"], "2027-01-01");
+    }
+
+    #[test]
+    fn overlay_with_no_incoming_is_identity() {
+        let existing = json!({ "intune_device_id": "abc-123", "warranty_status": "Active" });
+        let merged = overlay_user_attributes(&existing, None);
+        assert_eq!(merged, existing);
     }
 }

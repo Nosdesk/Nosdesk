@@ -2374,6 +2374,10 @@ assets-list-bulk-action-error = Verwijderen van activa mislukt. Probeer het opni
 asset-detail-back-to-ticket = Terug naar ticket #{ $id }
 asset-detail-back-to-devices = Terug
 asset-detail-readonly = Alleen-lezen
+# Machinevertaling, te controleren door moedertaalspreker.
+asset-detail-sync-source-intune = Gesynchroniseerd vanuit Intune
+asset-detail-sync-source-entra = Gesynchroniseerd vanuit Microsoft Entra
+asset-detail-sync-source-generic = Gesynchroniseerd vanuit externe bron
 asset-detail-delete-item-name = Activum
 asset-detail-error-invalid-id = Ongeldige activum-ID
 asset-detail-error-load = Activumgegevens konden niet worden geladen

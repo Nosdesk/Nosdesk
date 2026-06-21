@@ -91,6 +91,63 @@ const selectedKindSchema = computed(
 const isEditable = computed(() => device.value?.is_editable ?? false);
 const isSynced = computed(() => device.value != null && !device.value.is_editable);
 
+// Attribute keys owned by the Microsoft Graph (Intune / Entra) sync.
+// These are written by the sync (see backend msgraph_integration.rs),
+// never typed by a human, so they must not appear as manual inputs.
+// They render read-only in a "Synced from …" panel, and only when the
+// asset is actually sync-owned. Everything else in a kind's schema is
+// treated as a user-editable field.
+const SYNC_OWNED_ATTRIBUTE_KEYS = new Set([
+  'hostname',
+  'is_managed',
+  'os_version',
+  'operating_system',
+  'last_sync_time',
+  'enrollment_date',
+  'entra_device_id',
+  'compliance_state',
+  'intune_device_id',
+  'microsoft_device_id',
+]);
+
+/** Build a schema containing only the properties whose key passes
+ *  `pred`, or null when none match (so the card can `v-if` cleanly). */
+function partitionSchema(pred: (key: string) => boolean): Record<string, unknown> | null {
+  const schema = selectedKindSchema.value;
+  if (!schema) return null;
+  const props = (schema.properties as Record<string, unknown>) ?? {};
+  const filtered: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(props)) {
+    if (pred(key)) filtered[key] = value;
+  }
+  if (Object.keys(filtered).length === 0) return null;
+  return { ...schema, properties: filtered };
+}
+
+const userAttributeSchema = computed(() =>
+  partitionSchema((k) => !SYNC_OWNED_ATTRIBUTE_KEYS.has(k)),
+);
+const syncAttributeSchema = computed(() =>
+  partitionSchema((k) => SYNC_OWNED_ATTRIBUTE_KEYS.has(k)),
+);
+
+// Surface the sync panel when the asset is sync-owned, or defensively
+// when a sync attribute already carries a value.
+const hasSyncData = computed(() => {
+  const attrs = device.value?.attributes ?? {};
+  return Object.keys(attrs).some(
+    (k) => SYNC_OWNED_ATTRIBUTE_KEYS.has(k) && attrs[k] != null && attrs[k] !== '',
+  );
+});
+const showSyncPanel = computed(() => syncAttributeSchema.value != null && (isSynced.value || hasSyncData.value));
+
+const syncSourceLabel = computed(() => {
+  const src = device.value?.external_sync_source;
+  if (src === 'intune') return t('asset-detail-sync-source-intune');
+  if (src === 'entra') return t('asset-detail-sync-source-entra');
+  return t('asset-detail-sync-source-generic');
+});
+
 const displayName = computed(() => {
   if (!device.value) return '';
   return (
@@ -198,15 +255,67 @@ const visibleProps = computed(() => PROP_ORDER.filter((k) => isPropVisible(k)));
 const addableProps = computed(() =>
   PROP_ORDER.filter((k) => relevantSet.value.has(k) && !isPropVisible(k)),
 );
-const addPropOptions = computed<DropdownOption[]>(() =>
-  addableProps.value.map((k) => ({ value: k, label: t(PROP_LABEL_KEY[k]) })),
+
+// User-owned kind attributes participate in the same extend-on-demand
+// list as the universal columns: each schema property is its own
+// addable property, rendered by a single-field DynamicAttributeForm.
+const userAttrKeys = computed<string[]>(() =>
+  Object.keys((userAttributeSchema.value?.properties as Record<string, unknown>) ?? {}),
 );
+function attrHasValue(key: string): boolean {
+  const v = device.value?.attributes?.[key];
+  return v != null && v !== '';
+}
+const revealedAttrs = ref<Set<string>>(new Set());
+function isAttrVisible(key: string): boolean {
+  return attrHasValue(key) || revealedAttrs.value.has(key);
+}
+const visibleAttrKeys = computed(() => userAttrKeys.value.filter(isAttrVisible));
+const addableAttrKeys = computed(() => userAttrKeys.value.filter((k) => !isAttrVisible(k)));
+function attrTitle(key: string): string {
+  const props = (userAttributeSchema.value?.properties as Record<string, { title?: string }>) ?? {};
+  return props[key]?.title ?? key;
+}
+function singleAttrSchema(key: string): Record<string, unknown> | null {
+  const props = (userAttributeSchema.value?.properties as Record<string, unknown>) ?? {};
+  if (!(key in props)) return null;
+  return { type: 'object', properties: { [key]: props[key] } };
+}
+
+// The Add-property menu offers both universal columns and the kind's
+// user attributes; values are namespaced so the handler knows which.
+const addPropOptions = computed<DropdownOption[]>(() => [
+  // Columns are only addable on manual assets (synced columns are
+  // locked); user attributes are addable either way.
+  ...(isEditable.value
+    ? addableProps.value.map((k) => ({ value: `col:${k}`, label: t(PROP_LABEL_KEY[k]) }))
+    : []),
+  ...addableAttrKeys.value.map((k) => ({ value: `attr:${k}`, label: attrTitle(k) })),
+]);
 
 const addPropModel = ref('');
 function onAddProp(value: string) {
   if (!value) return;
-  revealed.value = new Set(revealed.value).add(value as PropKey);
+  if (value.startsWith('attr:')) {
+    revealedAttrs.value = new Set(revealedAttrs.value).add(value.slice(5));
+  } else {
+    const key = value.startsWith('col:') ? value.slice(4) : value;
+    revealed.value = new Set(revealed.value).add(key as PropKey);
+  }
   addPropModel.value = '';
+}
+
+// User attributes autosave like the rest of the property list: edits
+// flow through the shared attributeDraft and commit (debounced) via
+// saveAttributes. The single-field forms only emit on real user input,
+// so programmatic resets (fetch / kind change) never trigger a save.
+let attrSaveTimer: ReturnType<typeof setTimeout> | null = null;
+function onAttrInput(next: Record<string, unknown>) {
+  attributeDraft.value = next;
+  if (attrSaveTimer) clearTimeout(attrSaveTimer);
+  attrSaveTimer = setTimeout(() => {
+    void saveAttributes();
+  }, 600);
 }
 
 const locationSuggestions = computed(() => {
@@ -252,12 +361,6 @@ async function saveAttributes() {
   } finally {
     isSaving.value = false;
   }
-}
-
-function discardAttributes() {
-  if (!device.value) return;
-  attributeDraft.value = { ...(device.value.attributes ?? {}) };
-  attributesError.value = null;
 }
 
 /**
@@ -456,6 +559,7 @@ watch(device, (newDevice) => {
 
 watch(() => route.params.id, () => {
   revealed.value = new Set();
+  revealedAttrs.value = new Set();
   fetchDeviceData();
 });
 
@@ -723,8 +827,30 @@ onMounted(() => {
                   </div>
                 </template>
 
+                <!-- User-owned kind attributes (e.g. warranty), each its
+                     own extend-on-demand field. Editable even on synced
+                     assets: the backend only lets these keys change, with
+                     sync-owned keys staying locked. Autosaves on input. -->
+                <div
+                  v-for="key in visibleAttrKeys"
+                  :key="`attr-${key}`"
+                  class="sm:col-span-2"
+                >
+                  <DynamicAttributeForm
+                    :schema="singleAttrSchema(key)"
+                    :model-value="attributeDraft"
+                    @update:model-value="onAttrInput"
+                  />
+                </div>
+                <AlertMessage
+                  v-if="attributesError"
+                  type="error"
+                  :message="attributesError"
+                  class="sm:col-span-2"
+                />
+
                 <!-- Add property -->
-                <div v-if="isEditable && addableProps.length > 0" class="sm:col-span-2">
+                <div v-if="addPropOptions.length > 0" class="sm:col-span-2">
                   <BaseDropdown
                     :model-value="addPropModel"
                     :options="addPropOptions"
@@ -736,28 +862,19 @@ onMounted(() => {
               </div>
             </SectionCard>
 
-            <!-- Custom attributes (only when the kind defines a schema). -->
-            <SectionCard
-              v-if="selectedKindSchema && Object.keys((selectedKindSchema.properties as Record<string, unknown>) ?? {}).length > 0"
-              content-padding="p-4"
-            >
-              <template #title>{{ selectedKind?.label ?? $t('asset-detail-section-kind') }}</template>
-              <div class="flex flex-col gap-3">
-                <DynamicAttributeForm
-                  :schema="selectedKindSchema"
-                  v-model="attributeDraft"
-                  :disabled="!isKindEditable"
-                />
-                <div v-if="isKindEditable && attributesDirty" class="flex items-center gap-2">
-                  <Button size="sm" :disabled="isSaving" @click="saveAttributes">
-                    {{ $t('asset-detail-attributes-save') }}
-                  </Button>
-                  <Button size="sm" variant="secondary" :disabled="isSaving" @click="discardAttributes">
-                    {{ $t('asset-detail-attributes-discard') }}
-                  </Button>
-                </div>
-                <AlertMessage v-if="attributesError" type="error" :message="attributesError" />
-              </div>
+            <!-- Sync-owned device telemetry (Intune / Entra). Read-only
+                 and shown only when the asset is sync-owned: this data
+                 comes from the Microsoft Graph sync, not manual entry. -->
+            <SectionCard v-if="showSyncPanel" content-padding="p-4">
+              <template #leading>
+                <Icon name="refresh" size="sm" class="text-secondary" />
+              </template>
+              <template #title>{{ syncSourceLabel }}</template>
+              <DynamicAttributeForm
+                :schema="syncAttributeSchema"
+                v-model="attributeDraft"
+                :disabled="true"
+              />
             </SectionCard>
 
             <!-- Sub-record panels: lifecycle, loans, usage, media,
