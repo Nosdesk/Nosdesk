@@ -24,6 +24,7 @@ interface Tab {
 const tabs: Tab[] = [
   { to: '/assets', labelKey: 'asset-tabs-inventory' },
   { to: '/assets/planner', labelKey: 'asset-tabs-planner', exact: true },
+  { to: '/assets/catalog', labelKey: 'asset-tabs-catalog', exact: true },
 ]
 
 function isActive(tab: Tab): boolean {

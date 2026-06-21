@@ -285,6 +285,7 @@ nav-asset-planner = Asset Planner
 # of duplicate sidebar entries for inventory list + planner.
 asset-tabs-inventory = Inventory
 asset-tabs-planner = Planner
+asset-tabs-catalog = Catalog
 nav-users = Users
 nav-documentation = Documentation
 nav-inbox = Inbox
@@ -5455,6 +5456,38 @@ route-title-admin-categories = Categories
 route-title-admin-assignment-rules = Assignment rules
 route-title-admin-workflow = Workflow
 route-title-admin-asset-kinds = Asset kinds
+route-title-asset-catalog = Asset catalog
+common-edit = Edit
+common-delete = Delete
+common-save = Save
+common-cancel = Cancel
+asset-catalog-title = Asset catalog
+asset-catalog-description = Manufacturers and the models assets are stamped from.
+asset-catalog-manufacturers-heading = Manufacturers
+asset-catalog-add-manufacturer = Add manufacturer
+asset-catalog-edit-manufacturer = Edit manufacturer
+asset-catalog-manufacturers-empty = No manufacturers yet
+asset-catalog-models-heading = Models
+asset-catalog-add-model = Add model
+asset-catalog-edit-model = Edit model
+asset-catalog-models-empty = No models yet
+asset-catalog-need-manufacturer = Add a manufacturer first
+asset-catalog-manufacturer-name = Name
+asset-catalog-manufacturer-name-placeholder = e.g. Apple
+asset-catalog-part-number = Part number
+asset-catalog-part-number-placeholder = Optional
+asset-catalog-notes = Notes
+asset-catalog-delete-title = Delete
+asset-catalog-manufacturer-delete-confirm = Delete manufacturer "{ $name }"?
+asset-catalog-model-delete-confirm = Delete model "{ $name }"? Assets stamped from it keep their details.
+asset-catalog-manufacturer-save-failed = Could not save the manufacturer. Please try again.
+asset-catalog-model-save-failed = Could not save the model. Please try again.
+asset-catalog-delete-failed = Could not delete. It may still be in use.
+asset-catalog-model-count = { $count ->
+    [0] No models
+    [one] 1 model
+   *[other] { $count } models
+}
 route-title-admin-asset-kinds-new = New asset kind
 route-title-admin-asset-kinds-edit = Edit asset kind
 route-title-admin-api-tokens = API tokens
@@ -6176,3 +6209,8 @@ dashboard-section-agents = Agents
 dashboard-section-categories = Categories
 dashboard-section-backlog-ageing = Backlog & Ageing
 dashboard-section-audit-activity = Audit Activity
+asset-catalog-col-model = Model
+asset-catalog-col-type = Type
+asset-catalog-col-part-number = Part number
+asset-catalog-filter-all = All
+asset-catalog-manage-manufacturers = Manufacturers

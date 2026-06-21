@@ -238,6 +238,7 @@ nav-asset-planner = Planificateur d'actifs
 # of duplicate sidebar entries for inventory list + planner.
 asset-tabs-inventory = Inventory
 asset-tabs-planner = Planner
+asset-tabs-catalog = Catalogue
 nav-users = Utilisateurs
 nav-documentation = Documentation
 nav-inbox = Boîte de réception
@@ -5339,6 +5340,39 @@ route-title-admin-categories = Catégories
 route-title-admin-assignment-rules = Règles d'attribution
 route-title-admin-workflow = Flux de travail
 route-title-admin-asset-kinds = Types d'actifs
+# Catalogue d'actifs (machine, à relire par un locuteur natif).
+route-title-asset-catalog = Catalogue d'actifs
+common-edit = Modifier
+common-delete = Supprimer
+common-save = Enregistrer
+common-cancel = Annuler
+asset-catalog-title = Catalogue d'actifs
+asset-catalog-description = Fabricants et modèles à partir desquels les actifs sont créés.
+asset-catalog-manufacturers-heading = Fabricants
+asset-catalog-add-manufacturer = Ajouter un fabricant
+asset-catalog-edit-manufacturer = Modifier le fabricant
+asset-catalog-manufacturers-empty = Aucun fabricant pour le moment
+asset-catalog-models-heading = Modèles
+asset-catalog-add-model = Ajouter un modèle
+asset-catalog-edit-model = Modifier le modèle
+asset-catalog-models-empty = Aucun modèle pour le moment
+asset-catalog-need-manufacturer = Ajoutez d'abord un fabricant
+asset-catalog-manufacturer-name = Nom
+asset-catalog-manufacturer-name-placeholder = ex. Apple
+asset-catalog-part-number = Référence
+asset-catalog-part-number-placeholder = Facultatif
+asset-catalog-notes = Notes
+asset-catalog-delete-title = Supprimer
+asset-catalog-manufacturer-delete-confirm = Supprimer le fabricant « { $name } » ?
+asset-catalog-model-delete-confirm = Supprimer le modèle « { $name } » ? Les actifs créés à partir de celui-ci conservent leurs informations.
+asset-catalog-manufacturer-save-failed = Impossible d'enregistrer le fabricant. Veuillez réessayer.
+asset-catalog-model-save-failed = Impossible d'enregistrer le modèle. Veuillez réessayer.
+asset-catalog-delete-failed = Suppression impossible. L'élément est peut-être encore utilisé.
+asset-catalog-model-count = { $count ->
+    [0] Aucun modèle
+    [one] 1 modèle
+   *[other] { $count } modèles
+}
 route-title-admin-asset-kinds-new = Nouveau type d'actif
 route-title-admin-asset-kinds-edit = Modifier le type d'actif
 route-title-admin-api-tokens = Jetons d'API
@@ -6038,3 +6072,8 @@ admin-rule-editor-error-save = Impossible d'enregistrer la règle.
 admin-rule-editor-error-conflict = Cette règle lit et écrit dans les mêmes champs. Enregistrez quand même pour outrepasser.
 admin-rule-editor-override-self-ref = Je sais que cette règle peut boucler
 admin-rule-editor-priority-label = Priorité (la plus basse en premier)
+asset-catalog-col-model = Modèle
+asset-catalog-col-type = Type
+asset-catalog-col-part-number = Référence
+asset-catalog-filter-all = Tous
+asset-catalog-manage-manufacturers = Fabricants

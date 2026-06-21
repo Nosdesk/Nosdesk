@@ -314,6 +314,17 @@ const router = createRouter({
       }
     },
     {
+      // Make/model catalog. Agent-accessible (operational reference data),
+      // a sibling of the inventory + planner views.
+      path: '/assets/catalog',
+      name: 'asset-catalog',
+      component: () => import('../views/AssetCatalogView.vue'),
+      meta: {
+        requiresAuth: true,
+        titleKey: 'route-title-asset-catalog',
+      }
+    },
+    {
       path: '/projects/:id',
       name: 'project-detail',
       component: ProjectDetailView,

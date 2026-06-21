@@ -235,6 +235,7 @@ nav-asset-planner = Activaplanner
 # of duplicate sidebar entries for inventory list + planner.
 asset-tabs-inventory = Inventory
 asset-tabs-planner = Planner
+asset-tabs-catalog = Catalogus
 nav-users = Gebruikers
 nav-documentation = Documentatie
 nav-inbox = Postvak
@@ -5330,6 +5331,39 @@ route-title-admin-categories = Categorieën
 route-title-admin-assignment-rules = Toewijzingsregels
 route-title-admin-workflow = Werkstroom
 route-title-admin-asset-kinds = Activatypen
+# Asset-catalogus (machinevertaling, te controleren door moedertaalspreker).
+route-title-asset-catalog = Asset-catalogus
+common-edit = Bewerken
+common-delete = Verwijderen
+common-save = Opslaan
+common-cancel = Annuleren
+asset-catalog-title = Asset-catalogus
+asset-catalog-description = Fabrikanten en de modellen waaruit assets worden gestempeld.
+asset-catalog-manufacturers-heading = Fabrikanten
+asset-catalog-add-manufacturer = Fabrikant toevoegen
+asset-catalog-edit-manufacturer = Fabrikant bewerken
+asset-catalog-manufacturers-empty = Nog geen fabrikanten
+asset-catalog-models-heading = Modellen
+asset-catalog-add-model = Model toevoegen
+asset-catalog-edit-model = Model bewerken
+asset-catalog-models-empty = Nog geen modellen
+asset-catalog-need-manufacturer = Voeg eerst een fabrikant toe
+asset-catalog-manufacturer-name = Naam
+asset-catalog-manufacturer-name-placeholder = bijv. Apple
+asset-catalog-part-number = Onderdeelnummer
+asset-catalog-part-number-placeholder = Optioneel
+asset-catalog-notes = Notities
+asset-catalog-delete-title = Verwijderen
+asset-catalog-manufacturer-delete-confirm = Fabrikant "{ $name }" verwijderen?
+asset-catalog-model-delete-confirm = Model "{ $name }" verwijderen? Assets die ervan zijn gestempeld behouden hun gegevens.
+asset-catalog-manufacturer-save-failed = Kan de fabrikant niet opslaan. Probeer het opnieuw.
+asset-catalog-model-save-failed = Kan het model niet opslaan. Probeer het opnieuw.
+asset-catalog-delete-failed = Verwijderen mislukt. Het wordt mogelijk nog gebruikt.
+asset-catalog-model-count = { $count ->
+    [0] Geen modellen
+    [one] 1 model
+   *[other] { $count } modellen
+}
 route-title-admin-asset-kinds-new = Nieuw activatype
 route-title-admin-asset-kinds-edit = Activatype bewerken
 route-title-admin-api-tokens = API-tokens
@@ -6030,3 +6064,8 @@ admin-rule-editor-error-save = Kan de regel niet opslaan.
 admin-rule-editor-error-conflict = Deze regel leest en schrijft naar dezelfde velden. Sla toch op om te negeren.
 admin-rule-editor-override-self-ref = Ik begrijp dat deze regel in een lus kan terechtkomen
 admin-rule-editor-priority-label = Prioriteit (lagere waarden eerst)
+asset-catalog-col-model = Model
+asset-catalog-col-type = Type
+asset-catalog-col-part-number = Onderdeelnummer
+asset-catalog-filter-all = Alle
+asset-catalog-manage-manufacturers = Fabrikanten
