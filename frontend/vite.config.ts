@@ -120,8 +120,15 @@ export default defineConfig({
               priority: 20,
             },
             {
+              // heic2any is deliberately NOT grouped here. It bundles a
+              // libheif Emscripten runtime that calls `new Function` on
+              // evaluation, which our production CSP (`script-src 'self'`,
+              // no `unsafe-eval`) rejects. It is dynamically imported in
+              // uploadService only when a HEIC file is converted; leaving
+              // it ungrouped lets Rolldown split it into its own async
+              // chunk so the eval never runs in the eager startup path.
               name: 'vendor-media',
-              test: /node_modules[\\/](heic2any|jszip|qrcode|highlight\.js|lowlight)[\\/]/,
+              test: /node_modules[\\/](jszip|qrcode|highlight\.js|lowlight)[\\/]/,
               priority: 10,
             },
           ],
