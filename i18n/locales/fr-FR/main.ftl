@@ -4138,6 +4138,64 @@ asset-lifecycle-heading = Cycle de vie
 asset-lifecycle-description = Suivez les changements de statut opérationnel tels que les réparations, les prêts et la mise hors service.
 asset-lifecycle-current-label = Statut actuel
 asset-lifecycle-change-status = Changer le statut
+# MT: pending native review
+asset-lifecycle-managed-by-loan = Géré par le prêt en cours
+# MT: pending native review
+asset-loan-heading = Prêts
+# MT: pending native review
+asset-loan-description = Prêtez temporairement cet appareil à quelqu'un et suivez son retour.
+# MT: pending native review
+asset-loan-loan-out = Prêter
+# MT: pending native review
+asset-loan-return = Retourner
+# MT: pending native review
+asset-loan-borrower = Emprunteur
+# MT: pending native review
+asset-loan-select-borrower = Sélectionner un emprunteur
+# MT: pending native review
+asset-loan-due-back-optional = Date de retour (facultatif)
+# MT: pending native review
+asset-loan-ticket-field = Ticket
+# MT: pending native review
+asset-loan-ticket-field-placeholder = ex. 1234
+# MT: pending native review
+asset-loan-notes = Notes
+# MT: pending native review
+asset-loan-issue-title = Prêter l'appareil
+# MT: pending native review
+asset-loan-return-title = Retourner l'appareil
+# MT: pending native review
+asset-loan-return-body = Retourner cet appareil de { $name } ?
+# MT: pending native review
+asset-loan-return-notes = Notes de retour (facultatif)
+# MT: pending native review
+asset-loan-cancel = Annuler
+# MT: pending native review
+asset-loan-not-loanable = Cet appareil ne peut être prêté que lorsqu'il est en service ou en stock.
+# MT: pending native review
+asset-loan-empty-title = Aucun prêt pour l'instant
+# MT: pending native review
+asset-loan-empty-description = Prêtez cet appareil pour suivre qui le détient et quand il doit être rendu.
+# MT: pending native review
+asset-loan-history = Historique des prêts
+# MT: pending native review
+asset-loan-loaned-relative = Prêté { $when }
+# MT: pending native review
+asset-loan-ticket = Ticket n°{ $id }
+# MT: pending native review
+asset-loan-unknown-borrower = Emprunteur inconnu
+# MT: pending native review
+asset-loan-due-overdue = En retard
+# MT: pending native review
+asset-loan-due-today = À rendre aujourd'hui
+# MT: pending native review
+asset-loan-due-soon = À rendre dans { $days } jours
+# MT: pending native review
+asset-loan-due-on = À rendre le { $date }
+# MT: pending native review
+asset-loan-range = { $from } à { $to }
+# MT: pending native review
+asset-loan-failed = Une erreur s'est produite. Veuillez réessayer.
 asset-lifecycle-empty-title = Aucune transition pour le moment
 asset-lifecycle-empty-description = Les changements de statut apparaîtront ici une fois enregistrés.
 asset-lifecycle-transition-failed = Échec du changement de statut de l'actif

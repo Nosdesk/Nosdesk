@@ -102,6 +102,21 @@ export interface AssetLifecycleEvent {
   occurred_at: string;
 }
 
+/** A device loan: an asset in a borrower's custody for a span. Active while
+ * `returned_at` is null; overdue while active and `due_back` is in the past. */
+export interface AssetLoan {
+  id: number;
+  asset_id: number;
+  borrower_user_uuid: string;
+  loaned_at: string;
+  due_back?: string | null;
+  returned_at?: string | null;
+  ticket_id?: number | null;
+  notes?: string | null;
+  actor_uuid?: string | null;
+  returned_by_uuid?: string | null;
+}
+
 /** Wire shape for POST /assets (create) and the wider parts
  *  of PUT /assets/:id. IT-flavoured fields go in `attributes`
  *  now; this DTO mirrors the universal columns plus the

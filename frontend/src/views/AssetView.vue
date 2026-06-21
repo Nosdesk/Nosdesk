@@ -20,6 +20,7 @@ import UserSelectionModal from '@/components/UserSelectionModal.vue';
 import DeviceGroups from '@/components/AssetGroups.vue';
 import AssetMediaPanel from '@/components/assets/AssetMediaPanel.vue';
 import AssetLifecyclePanel from '@/components/assets/AssetLifecyclePanel.vue';
+import AssetLoanPanel from '@/components/assets/AssetLoanPanel.vue';
 import AssetStatusBadge from '@/components/assets/AssetStatusBadge.vue';
 import AssetUsageHistory from '@/components/assets/AssetUsageHistory.vue';
 import PluginSlot from '@/plugins/components/PluginSlot.vue';
@@ -1015,6 +1016,16 @@ onMounted(() => {
             <SectionCard v-if="!isCreationMode && device" content-padding="p-4">
               <template #title>{{ $t('asset-lifecycle-heading') }}</template>
               <AssetLifecyclePanel
+                :asset-id="device.id"
+                :current-status="device.status"
+                :can-edit="canChangeLifecycle"
+              />
+            </SectionCard>
+
+            <!-- Loans (edit mode only) -->
+            <SectionCard v-if="!isCreationMode && device" content-padding="p-4">
+              <template #title>{{ $t('asset-loan-heading') }}</template>
+              <AssetLoanPanel
                 :asset-id="device.id"
                 :current-status="device.status"
                 :can-edit="canChangeLifecycle"

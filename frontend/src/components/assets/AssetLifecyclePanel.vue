@@ -73,11 +73,14 @@ const repairVendor = ref('');
 const repairRma = ref('');
 const repairOffsite = ref(false);
 const repairExpectedReturn = ref('');
-const loanedTo = ref('');
-const loanDueBack = ref('');
 
+// On-loan is owned by the loan ledger (the Loans panel), not a manual
+// transition: you loan an asset out and return it there, which keeps the
+// loan record and the status in step. So it's not offered as a target, and
+// while an asset is on loan its status is changed by returning the loan.
+const isOnLoan = computed(() => props.currentStatus === 'on_loan');
 const statusOptions = computed(() =>
-  ASSET_STATUSES.filter((s) => s !== props.currentStatus),
+  ASSET_STATUSES.filter((s) => s !== props.currentStatus && s !== 'on_loan'),
 );
 const statusDropdownOptions = computed(() =>
   statusOptions.value.map((status) => ({
@@ -94,8 +97,6 @@ function resetForm() {
   repairRma.value = '';
   repairOffsite.value = false;
   repairExpectedReturn.value = '';
-  loanedTo.value = '';
-  loanDueBack.value = '';
   errorMessage.value = '';
 }
 
@@ -116,12 +117,6 @@ function buildMetadata(): Record<string, unknown> {
     if (repairRma.value.trim()) meta.rma_number = repairRma.value.trim();
     if (repairOffsite.value) meta.offsite = true;
     if (repairExpectedReturn.value) meta.expected_return = repairExpectedReturn.value;
-    return meta;
-  }
-  if (toStatus.value === 'on_loan') {
-    const meta: Record<string, unknown> = {};
-    if (loanedTo.value.trim()) meta.loaned_to = loanedTo.value.trim();
-    if (loanDueBack.value) meta.due_back = loanDueBack.value;
     return meta;
   }
   return {};
@@ -206,13 +201,16 @@ function metadataLines(event: AssetLifecycleEvent): string[] {
         <AssetStatusBadge :status="currentStatus" size="md" />
       </div>
       <Button
-        v-if="canEdit"
+        v-if="canEdit && !isOnLoan"
         size="sm"
         icon="refresh"
         @click="openModal"
       >
         {{ $t('asset-lifecycle-change-status') }}
       </Button>
+      <span v-else-if="canEdit && isOnLoan" class="text-xs text-tertiary">
+        {{ $t('asset-lifecycle-managed-by-loan') }}
+      </span>
     </div>
 
     <p class="text-xs text-tertiary">{{ $t('asset-lifecycle-description') }}</p>
@@ -302,17 +300,6 @@ function metadataLines(event: AssetLifecycleEvent): string[] {
           <DatePicker
             v-model="repairExpectedReturn"
             :label="$t('asset-lifecycle-meta-expected-return')"
-          />
-        </template>
-
-        <template v-if="toStatus === 'on_loan'">
-          <FormInput
-            v-model="loanedTo"
-            :label="$t('asset-lifecycle-meta-loaned-to')"
-          />
-          <DatePicker
-            v-model="loanDueBack"
-            :label="$t('asset-lifecycle-meta-due-back')"
           />
         </template>
 

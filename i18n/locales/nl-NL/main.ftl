@@ -4129,6 +4129,64 @@ asset-lifecycle-heading = Levenscyclus
 asset-lifecycle-description = Volg operationele statuswijzigingen zoals reparaties, uitleningen en buiten gebruikstelling.
 asset-lifecycle-current-label = Huidige status
 asset-lifecycle-change-status = Status wijzigen
+# MT: pending native review
+asset-lifecycle-managed-by-loan = Beheerd door de actieve uitlening
+# MT: pending native review
+asset-loan-heading = Uitleningen
+# MT: pending native review
+asset-loan-description = Leen dit apparaat tijdelijk uit en volg de teruggave.
+# MT: pending native review
+asset-loan-loan-out = Uitlenen
+# MT: pending native review
+asset-loan-return = Terugnemen
+# MT: pending native review
+asset-loan-borrower = Lener
+# MT: pending native review
+asset-loan-select-borrower = Selecteer een lener
+# MT: pending native review
+asset-loan-due-back-optional = Terug verwacht (optioneel)
+# MT: pending native review
+asset-loan-ticket-field = Ticket
+# MT: pending native review
+asset-loan-ticket-field-placeholder = bijv. 1234
+# MT: pending native review
+asset-loan-notes = Notities
+# MT: pending native review
+asset-loan-issue-title = Apparaat uitlenen
+# MT: pending native review
+asset-loan-return-title = Apparaat terugnemen
+# MT: pending native review
+asset-loan-return-body = Dit apparaat terugnemen van { $name }?
+# MT: pending native review
+asset-loan-return-notes = Notities bij teruggave (optioneel)
+# MT: pending native review
+asset-loan-cancel = Annuleren
+# MT: pending native review
+asset-loan-not-loanable = Dit apparaat kan alleen worden uitgeleend als het in gebruik of op voorraad is.
+# MT: pending native review
+asset-loan-empty-title = Nog geen uitleningen
+# MT: pending native review
+asset-loan-empty-description = Leen dit apparaat uit om bij te houden wie het heeft en wanneer het terug moet.
+# MT: pending native review
+asset-loan-history = Uitleengeschiedenis
+# MT: pending native review
+asset-loan-loaned-relative = Uitgeleend { $when }
+# MT: pending native review
+asset-loan-ticket = Ticket #{ $id }
+# MT: pending native review
+asset-loan-unknown-borrower = Onbekende lener
+# MT: pending native review
+asset-loan-due-overdue = Te laat
+# MT: pending native review
+asset-loan-due-today = Vandaag terug
+# MT: pending native review
+asset-loan-due-soon = Terug over { $days } dagen
+# MT: pending native review
+asset-loan-due-on = Terug op { $date }
+# MT: pending native review
+asset-loan-range = { $from } tot { $to }
+# MT: pending native review
+asset-loan-failed = Er is iets misgegaan. Probeer het opnieuw.
 asset-lifecycle-empty-title = Nog geen overgangen
 asset-lifecycle-empty-description = Statuswijzigingen verschijnen hier zodra ze zijn vastgelegd.
 asset-lifecycle-transition-failed = Wijzigen van activumstatus mislukt

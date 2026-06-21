@@ -4236,6 +4236,40 @@ asset-lifecycle-heading = Lifecycle
 asset-lifecycle-description = Track operational status changes such as repairs, loans, and retirement.
 asset-lifecycle-current-label = Current status
 asset-lifecycle-change-status = Change status
+asset-lifecycle-managed-by-loan = Managed by the active loan
+
+# Asset loans
+asset-loan-heading = Loans
+asset-loan-description = Loan this device to someone temporarily and track its return.
+asset-loan-loan-out = Loan out
+asset-loan-return = Return
+asset-loan-borrower = Borrower
+asset-loan-select-borrower = Select a borrower
+asset-loan-due-back-optional = Due back (optional)
+asset-loan-ticket-field = Ticket
+asset-loan-ticket-field-placeholder = e.g. 1234
+asset-loan-notes = Notes
+asset-loan-issue-title = Loan out device
+asset-loan-return-title = Return device
+asset-loan-return-body = Return this device from { $name }?
+asset-loan-return-notes = Return notes (optional)
+asset-loan-cancel = Cancel
+asset-loan-not-loanable = This device can only be loaned out while it's in service or in stock.
+asset-loan-empty-title = No loans yet
+asset-loan-empty-description = Loan this device out to track who has it and when it's due back.
+asset-loan-history = Loan history
+asset-loan-loaned-relative = Loaned { $when }
+asset-loan-ticket = Ticket #{ $id }
+asset-loan-unknown-borrower = Unknown borrower
+asset-loan-due-overdue = Overdue
+asset-loan-due-today = Due today
+asset-loan-due-soon = Due in { $days } { $days ->
+    [one] day
+   *[other] days
+}
+asset-loan-due-on = Due { $date }
+asset-loan-range = { $from } to { $to }
+asset-loan-failed = Something went wrong. Please try again.
 asset-lifecycle-empty-title = No transitions yet
 asset-lifecycle-empty-description = Status changes will appear here once recorded.
 asset-lifecycle-transition-failed = Failed to change asset status
