@@ -4199,6 +4199,16 @@ asset-loan-ticket-heading = Geleende apparaten
 asset-loan-device-fallback = Apparaat #{ $id }
 # MT: pending native review
 asset-loan-returned-on = teruggenomen op { $date }
+# MT: pending native review
+asset-loan-device = Apparaat
+# MT: pending native review
+asset-loan-device-search = Apparaten zoeken…
+# MT: pending native review
+asset-loan-change = Wijzigen
+# MT: pending native review
+asset-loan-loading = Laden…
+# MT: pending native review
+asset-loan-no-loanable = Geen beschikbare apparaten
 asset-lifecycle-empty-title = Nog geen overgangen
 asset-lifecycle-empty-description = Statuswijzigingen verschijnen hier zodra ze zijn vastgelegd.
 asset-lifecycle-transition-failed = Wijzigen van activumstatus mislukt

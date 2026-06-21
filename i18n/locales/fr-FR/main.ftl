@@ -4208,6 +4208,16 @@ asset-loan-ticket-heading = Appareils prêtés
 asset-loan-device-fallback = Appareil n°{ $id }
 # MT: pending native review
 asset-loan-returned-on = retourné le { $date }
+# MT: pending native review
+asset-loan-device = Appareil
+# MT: pending native review
+asset-loan-device-search = Rechercher des appareils…
+# MT: pending native review
+asset-loan-change = Modifier
+# MT: pending native review
+asset-loan-loading = Chargement…
+# MT: pending native review
+asset-loan-no-loanable = Aucun appareil disponible
 asset-lifecycle-empty-title = Aucune transition pour le moment
 asset-lifecycle-empty-description = Les changements de statut apparaîtront ici une fois enregistrés.
 asset-lifecycle-transition-failed = Échec du changement de statut de l'actif
