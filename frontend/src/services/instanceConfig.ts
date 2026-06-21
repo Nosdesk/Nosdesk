@@ -17,6 +17,7 @@ export type DeploymentMode = 'hosted' | 'self_hosted';
 interface InstanceConfig {
   workspace_routing: WorkspaceRouting;
   deployment_mode: DeploymentMode;
+  inbound_forwarding_enabled: boolean;
 }
 
 // Default 'host': the subdomain / self-hosted model every current deployment
@@ -29,6 +30,11 @@ let workspaceRouting: WorkspaceRouting = 'host';
 // API redacts platform secrets regardless of this client hint), so a config blip
 // can never leak.
 let deploymentMode: DeploymentMode = 'self_hosted';
+
+// Default false: forwarding-based inbound email needs an instance inbound
+// domain (the hosted SES-receiving path), absent on self-host. The admin UI
+// hides the forwarding channel type until the config confirms it's available.
+let inboundForwardingEnabled = false;
 
 // Memoised so bootstrap and the router guard share one fetch. The guard awaits
 // this before reading the routing mode, so a cold load (hard refresh, deep link)
@@ -53,6 +59,9 @@ export function fetchInstanceConfig(): Promise<void> {
         if (data?.deployment_mode === 'hosted' || data?.deployment_mode === 'self_hosted') {
           deploymentMode = data.deployment_mode;
         }
+        if (typeof data?.inbound_forwarding_enabled === 'boolean') {
+          inboundForwardingEnabled = data.inbound_forwarding_enabled;
+        }
       } catch (e) {
         logger.error('Failed to fetch instance config; defaulting workspace_routing=host', e);
       }
@@ -74,4 +83,9 @@ export function getDeploymentMode(): DeploymentMode {
 /** True on the managed hosted SaaS. Use to hide operator/infra-only admin UI. */
 export function isHostedDeployment(): boolean {
   return deploymentMode === 'hosted';
+}
+
+/** True when forwarding-based inbound email is available on this instance. */
+export function isInboundForwardingEnabled(): boolean {
+  return inboundForwardingEnabled;
 }

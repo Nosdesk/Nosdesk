@@ -95,8 +95,22 @@ impl FromRequest for SyncContext {
             let user = crate::repository::users::find_active_by_uuid(&user_uuid, &mut conn)
                 .map_err(|_| SyncContextError::UserNotFound)?;
 
-            let allowed_groups = crate::sync::groups::allowed_for_user(&mut conn, &user)
-                .map_err(|e| SyncContextError::DatabaseError(e.to_string()))?;
+            // allowed_for_user reads `projects` + `user_groups`, both RLS-
+            // scoped on `app.workspace_id`. Compute the sync scope inside a
+            // workspace-pinned transaction so it reflects this request's
+            // workspace, not whatever lingered on the pooled connection;
+            // SET LOCAL reverts at commit. No resolved workspace means no
+            // sync scope to compute (unpinned read returns user-only groups).
+            let allowed_groups = match crate::handlers::helpers::request_workspace_id(&req) {
+                Some(ws) => {
+                    let actor = crate::sync::actor::ActorContext::user_at_workspace(user_uuid, ws);
+                    crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
+                        crate::sync::groups::allowed_for_user(c, &user)
+                    })
+                }
+                None => crate::sync::groups::allowed_for_user(&mut conn, &user),
+            }
+            .map_err(|e| SyncContextError::DatabaseError(e.to_string()))?;
 
             let correlation_id = req
                 .headers()

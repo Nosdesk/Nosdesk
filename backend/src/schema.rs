@@ -807,6 +807,34 @@ diesel::table! {
 }
 
 diesel::table! {
+    inbound_addresses (id) {
+        id -> Int4,
+        #[max_length = 64]
+        token -> Varchar,
+        channel_id -> Int4,
+        #[max_length = 16]
+        status -> Varchar,
+        created_at -> Timestamptz,
+        workspace_id -> Int4,
+    }
+}
+
+diesel::table! {
+    inbound_dead_letters (id) {
+        id -> Int8,
+        #[max_length = 320]
+        envelope_recipient -> Varchar,
+        #[max_length = 320]
+        from_address -> Nullable<Varchar>,
+        subject -> Nullable<Text>,
+        s3_key -> Text,
+        #[max_length = 32]
+        reason -> Varchar,
+        received_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     knowledge_gap_signals (id) {
         id -> Int8,
         gap_id -> Int8,
@@ -1540,6 +1568,17 @@ diesel::table! {
 }
 
 diesel::table! {
+    ticket_merges (ticket_id) {
+        ticket_id -> Int4,
+        merged_into_ticket_id -> Int4,
+        merged_at -> Timestamptz,
+        merged_by_user_uuid -> Nullable<Uuid>,
+        merge_reason -> Nullable<Text>,
+        workspace_id -> Int4,
+    }
+}
+
+diesel::table! {
     ticket_rule_runs (event_id, ticket_id, rule_id) {
         event_id -> Uuid,
         ticket_id -> Int4,
@@ -1605,11 +1644,8 @@ diesel::table! {
         sla_response_breached_at -> Nullable<Timestamptz>,
         sla_resolution_target_at -> Nullable<Timestamptz>,
         sla_resolution_breached_at -> Nullable<Timestamptz>,
-        merged_into_ticket_id -> Nullable<Int4>,
-        merged_at -> Nullable<Timestamptz>,
-        merged_by_user_uuid -> Nullable<Uuid>,
-        merge_reason -> Nullable<Text>,
         uuid -> Uuid,
+        spam_suspected -> Bool,
     }
 }
 
@@ -2008,6 +2044,8 @@ diesel::joinable!(groups -> users (created_by));
 diesel::joinable!(groups -> workspaces (workspace_id));
 diesel::joinable!(import_jobs -> users (created_by));
 diesel::joinable!(import_jobs -> workspaces (workspace_id));
+diesel::joinable!(inbound_addresses -> channels (channel_id));
+diesel::joinable!(inbound_addresses -> workspaces (workspace_id));
 diesel::joinable!(knowledge_gap_signals -> knowledge_gaps (gap_id));
 diesel::joinable!(knowledge_gap_signals -> workspaces (workspace_id));
 diesel::joinable!(knowledge_gaps -> documentation_pages (resolved_page_id));
@@ -2080,6 +2118,7 @@ diesel::joinable!(ticket_assets -> users (created_by));
 diesel::joinable!(ticket_assets -> workspaces (workspace_id));
 diesel::joinable!(ticket_categories -> users (created_by));
 diesel::joinable!(ticket_categories -> workspaces (workspace_id));
+diesel::joinable!(ticket_merges -> workspaces (workspace_id));
 diesel::joinable!(ticket_tags -> tags (tag_id));
 diesel::joinable!(ticket_tags -> tickets (ticket_id));
 diesel::joinable!(ticket_tags -> users (created_by));
@@ -2158,6 +2197,8 @@ diesel::allow_tables_to_appear_in_same_query!(
     groups,
     idempotency_keys,
     import_jobs,
+    inbound_addresses,
+    inbound_dead_letters,
     knowledge_gap_signals,
     knowledge_gaps,
     linked_tickets,
@@ -2197,6 +2238,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     tags,
     ticket_assets,
     ticket_categories,
+    ticket_merges,
     ticket_rule_runs,
     ticket_tags,
     ticket_watchers,

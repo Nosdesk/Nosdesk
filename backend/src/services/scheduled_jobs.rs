@@ -835,15 +835,14 @@ impl SlaBreachKind {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use diesel::pg::PgConnection;
-    use diesel::r2d2::{self, ConnectionManager};
+    use diesel::r2d2;
 
     // A real 2-connection pool (no test-transaction wrapper) so two
     // sessions can be held at once to observe advisory-lock contention.
     fn real_pool() -> Pool {
         let url = std::env::var("TEST_DATABASE_URL")
             .expect("TEST_DATABASE_URL must be set for the advisory-lock test");
-        let manager = ConnectionManager::<PgConnection>::new(url);
+        let manager = crate::db::ResettingManager::new(url);
         r2d2::Pool::builder()
             .max_size(2)
             .build(manager)

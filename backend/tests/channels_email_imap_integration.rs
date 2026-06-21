@@ -63,7 +63,7 @@ use backend::services::channels::relay::{self, RelayDecision};
 use backend::services::channels::{InboundEvent, PullAdapter};
 use backend::utils::email::{EmailConfig, EmailService, SmtpSecurity};
 use diesel::prelude::*;
-use diesel::r2d2::{self, ConnectionManager};
+use diesel::r2d2;
 use diesel_migrations::MigrationHarness;
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
@@ -201,10 +201,13 @@ fn build_pool() -> Pool {
     // tests are compiled as external crates against the lib), so we
     // inline the same Once-guarded init here.
     ensure_test_keyring();
-    let manager = ConnectionManager::<diesel::PgConnection>::new(url);
+    let manager = backend::db::ResettingManager::new(url);
     r2d2::Pool::builder()
         .max_size(4)
         .connection_customizer(Box::new(WorkspaceGucCustomizer))
+        // Seeded ambient workspace GUC (outside the request middleware), so
+        // keep the production per-checkout scrub off this pool.
+        .test_on_check_out(false)
         .build(manager)
         .expect("build pool")
 }

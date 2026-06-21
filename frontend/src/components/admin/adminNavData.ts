@@ -9,6 +9,9 @@ export interface AdminNavItem {
   /** Visible to the standalone audit_reviewer role (Item C/D4). When
    * false/undefined the item is admin-only. */
   auditReviewerAllowed?: boolean;
+  /** Visible only to platform admins (Nosdesk operators), not per-workspace
+   * owners/admins. For cross-tenant operator tools. */
+  platformAdminOnly?: boolean;
 }
 
 export interface AdminNavGroup {
@@ -192,6 +195,14 @@ export const adminNavGroups: AdminNavGroup[] = [
         icon: 'archive',
         route: '/admin/backup-restore',
         keywords: ['backup', 'restore', 'export', 'import', 'data', 'recovery']
+      },
+      {
+        titleKey: 'admin-nav-unrouted-inbound-title',
+        descriptionKey: 'admin-nav-unrouted-inbound-description',
+        icon: 'inbox',
+        route: '/admin/inbound/unrouted',
+        keywords: ['inbound', 'unrouted', 'dead letter', 'forwarding', 'email', 'token', 'misconfigured'],
+        platformAdminOnly: true
       }
     ]
   }
@@ -201,15 +212,23 @@ export const adminNavGroups: AdminNavGroup[] = [
 export const allAdminNavItems = adminNavGroups.flatMap(g => g.items);
 
 /**
- * Restrict nav groups to what a role may see. Admins see everything;
- * the standalone audit_reviewer role sees only items flagged
+ * Restrict nav groups to what a role may see. Admins see everything except
+ * platform-admin-only items (unless they're also a platform admin); the
+ * standalone audit_reviewer role sees only items flagged
  * `auditReviewerAllowed`. Empty groups are dropped.
  */
 export function filterAdminNavGroupsForRole(
   groups: AdminNavGroup[],
-  opts: { isAdmin: boolean; isAuditReviewer: boolean },
+  opts: { isAdmin: boolean; isAuditReviewer: boolean; isPlatformAdmin: boolean },
 ): AdminNavGroup[] {
-  if (opts.isAdmin) return groups;
+  if (opts.isAdmin) {
+    if (opts.isPlatformAdmin) return groups;
+    // A per-workspace admin who isn't a platform operator: hide cross-tenant
+    // operator tools.
+    return groups
+      .map(group => ({ ...group, items: group.items.filter(i => !i.platformAdminOnly) }))
+      .filter(group => group.items.length > 0);
+  }
   if (opts.isAuditReviewer) {
     return groups
       .map(group => ({ ...group, items: group.items.filter(i => i.auditReviewerAllowed) }))

@@ -1120,6 +1120,70 @@ admin-channels-add = Kanaal toevoegen
 admin-channels-add-prompt = Kies een kanaaltype
 admin-channels-type-email-imap = E-mail (IMAP)
 admin-channels-type-email-imap-description = Een mailbox pollen en berichten omzetten in tickets
+# MT: pending native review (nl-NL)
+admin-channels-type-email-forward = E-mail doorsturen
+# MT: pending native review (nl-NL)
+admin-channels-type-email-forward-description = Stuur je supportmailbox door naar een adres dat wij genereren; geen inloggegevens nodig
+# MT: pending native review (nl-NL)
+admin-channels-forwarding-title = E-mail doorsturen
+# MT: pending native review (nl-NL)
+admin-channels-forwarding-description = Stuur je supportmailbox door naar een gegenereerd adres en nieuwe e-mail wordt tickets. Geen mailbox-inloggegevens nodig.
+# MT: pending native review (nl-NL)
+admin-channels-forwarding-not-enabled = E-mail doorsturen is niet beschikbaar op deze instantie.
+# MT: pending native review (nl-NL)
+admin-channels-forwarding-create-heading = Doorsturen instellen
+# MT: pending native review (nl-NL)
+admin-channels-forwarding-create-description = Maak het kanaal aan om je doorstuuradres te genereren.
+# MT: pending native review (nl-NL)
+admin-channels-forwarding-name-placeholder = Kanaalnaam (optioneel)
+# MT: pending native review (nl-NL)
+admin-channels-forwarding-default-name = E-mail doorsturen
+# MT: pending native review (nl-NL)
+admin-channels-forwarding-create-button = Doorstuuradres aanmaken
+# MT: pending native review (nl-NL)
+admin-channels-forwarding-creating = Aanmaken...
+# MT: pending native review (nl-NL)
+admin-channels-forwarding-error-create = Kan het doorstuurkanaal niet aanmaken
+# MT: pending native review (nl-NL)
+admin-channels-forwarding-address-heading = Je doorstuuradres
+# MT: pending native review (nl-NL)
+admin-channels-forwarding-address-description = Stuur je supportmailbox door naar dit adres.
+# MT: pending native review (nl-NL)
+admin-channels-forwarding-copy = Kopiëren
+# MT: pending native review (nl-NL)
+admin-channels-forwarding-copied = Gekopieerd
+# MT: pending native review (nl-NL)
+admin-channels-forwarding-instructions-heading = Hoe door te sturen
+# MT: pending native review (nl-NL)
+admin-channels-forwarding-instructions-body = Voeg in je e-mailprovider een regel toe die je supportmailbox doorstuurt naar het bovenstaande adres. Nieuwe berichten komen dan binnen als tickets.
+# MT: pending native review (nl-NL)
+admin-nav-unrouted-inbound-title = Niet-gerouteerde inkomende e-mail
+# MT: pending native review (nl-NL)
+admin-nav-unrouted-inbound-description = Doorgestuurde e-mail die geen adres vond
+# MT: pending native review (nl-NL)
+admin-unrouted-title = Niet-gerouteerde inkomende e-mail
+# MT: pending native review (nl-NL)
+admin-unrouted-description = Doorgestuurde e-mail die de spam- en viruscontroles doorstond maar geen actief doorstuuradres vond, meestal een verkeerd getypt of verouderd doorstuuradres.
+# MT: pending native review (nl-NL)
+admin-unrouted-count-label = in de afgelopen 7 dagen
+# MT: pending native review (nl-NL)
+admin-unrouted-empty-title = Niets niet-gerouteerd
+# MT: pending native review (nl-NL)
+admin-unrouted-empty-description = Alle doorgestuurde e-mail vond een adres. Een verkeerd geconfigureerd doorsturen zou hier verschijnen.
+# MT: pending native review (nl-NL)
+admin-unrouted-col-recipient = Verzonden naar
+# MT: pending native review (nl-NL)
+admin-unrouted-col-from = Van
+# MT: pending native review (nl-NL)
+admin-unrouted-col-subject = Onderwerp
+# MT: pending native review (nl-NL)
+admin-unrouted-col-received = Ontvangen
+# MT: pending native review (nl-NL)
+admin-unrouted-no-sender = (geen afzender)
+# MT: pending native review (nl-NL)
+admin-unrouted-no-subject = (geen onderwerp)
+# MT: pending native review (nl-NL)
+admin-unrouted-error-load = Kan niet-gerouteerde e-mail niet laden
 admin-channels-status-active = Actief
 admin-channels-status-disabled = Uitgeschakeld
 admin-channels-status-error = Fout
@@ -3897,6 +3961,10 @@ ticket-activity-load-more-error = Kan meer activiteit niet laden
 ticket-activity-empty = Nog geen activiteit.
 ticket-activity-load-more = Oudere activiteit laden
 ticket-activity-loading = Laden…
+# MT: pending native review
+ticket-activity-show-more = Toon { $count } meer
+# MT: pending native review
+ticket-activity-show-less = Toon minder
 ticket-activity-actor-someone = Iemand
 ticket-activity-actor-system = Systeem
 ticket-activity-actor-sender = Afzender
@@ -4283,6 +4351,16 @@ views-tickets-table-resize-handle-tooltip = Sleep om te wijzigen · dubbelklik o
 views-ticket-row-select-aria = Ticket #{ $id } selecteren
 views-ticket-row-recurring-tooltip = Terugkerend ticket
 views-ticket-row-sla-badge = SLA
+# MT: pending native review (nl-NL)
+views-ticket-row-spam-badge = Spam
+# MT: pending native review (nl-NL)
+views-ticket-row-spam-tooltip = Gemarkeerd als mogelijke spam door het mailfilter
+# MT: pending native review (nl-NL)
+ticket-spam-banner-text = Dit ticket is door het mailfilter gemarkeerd als mogelijke spam.
+# MT: pending native review (nl-NL)
+ticket-spam-not-spam = Geen spam
+# MT: pending native review (nl-NL)
+ticket-spam-delete = Verwijderen
 views-ticket-row-sla-breached-tooltip = SLA overschreden
 views-ticket-row-sla-breached = Overschreden
 views-ticket-row-sla-paused = Gepauzeerd
@@ -5163,6 +5241,10 @@ route-title-admin-email-suppressions = E-mailonderdrukkingen
 route-title-admin-guest-access = Gasttoegang
 route-title-admin-email-settings = E-mailconfiguratie
 route-title-admin-channels-email = E-mailontvangst
+# MT: pending native review (nl-NL)
+route-title-admin-channels-forwarding = E-mail doorsturen
+# MT: pending native review (nl-NL)
+route-title-admin-unrouted-inbound = Niet-gerouteerde inkomende e-mail
 route-title-admin-data-import = Gegevensimport
 route-title-admin-microsoft-graph = Microsoft Graph-verbinding
 route-title-admin-csv-import = CSV-import

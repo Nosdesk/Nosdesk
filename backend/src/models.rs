@@ -961,26 +961,44 @@ pub struct Ticket {
     pub sla_resolution_target_at: Option<NaiveDateTime>,
     /// Idempotency stamp for the resolution breach.
     pub sla_resolution_breached_at: Option<NaiveDateTime>,
-    /// Canonical destination this ticket was merged into, or NULL when
-    /// the ticket is not a merge source. Set together with `merged_at`
-    /// and `merged_by_user_uuid` (DB invariant `tickets_merge_complete`).
-    /// A non-NULL value marks the ticket terminal: its UI is read-only
-    /// and future channel replies reroute to the destination.
-    pub merged_into_ticket_id: Option<i32>,
-    /// Wall-clock moment the merge committed. NULL on unmerged tickets.
-    pub merged_at: Option<NaiveDateTime>,
-    /// The actor who performed the merge. NULL on unmerged tickets.
-    #[serde(serialize_with = "serialize_optional_uuid_as_string")]
-    pub merged_by_user_uuid: Option<Uuid>,
-    /// Optional free-text note captured in the merge dialog. NULL when
-    /// the merging agent left the reason field empty.
-    pub merge_reason: Option<String>,
     /// Stable, never-recycled identity. Unlike the integer `id` (which
     /// a DB reset recycles), this UUID is minted once at creation, so
     /// it's the safe key for collaborative-document caches keyed
-    /// `ws-{workspaceUuid}_ticket-{uuid}`. Must stay the LAST field to
-    /// match the column order in `schema.rs` (positional Queryable).
+    /// `ws-{workspaceUuid}_ticket-{uuid}`.
     pub uuid: Uuid,
+    /// True when the ticket opened from inbound mail the provider flagged as
+    /// spam. The ticket still opens (we never drop a customer request) but is
+    /// badged + low-priority for triage. Cleared via a normal ticket update
+    /// ("not spam"). Must stay the LAST field to match `schema.rs` column
+    /// order (positional Queryable).
+    pub spam_suspected: bool,
+}
+
+/// Merge metadata for a ticket that was merged into another (the satellite of
+/// the old `tickets.merged_*` columns). 1:1 with merge-source tickets, keyed
+/// by the source `ticket_id`; absent for the ~99% of tickets never merged.
+#[derive(Debug, Clone, Serialize, Deserialize, Queryable, Identifiable, Insertable)]
+#[diesel(table_name = crate::schema::ticket_merges)]
+#[diesel(primary_key(ticket_id))]
+pub struct TicketMerge {
+    pub ticket_id: i32,
+    pub merged_into_ticket_id: i32,
+    pub merged_at: NaiveDateTime,
+    #[serde(serialize_with = "serialize_optional_uuid_as_string")]
+    pub merged_by_user_uuid: Option<Uuid>,
+    pub merge_reason: Option<String>,
+    pub workspace_id: i32,
+}
+
+/// Insert shape for a new merge record. `workspace_id` fills from the RLS GUC.
+#[derive(Debug, Insertable)]
+#[diesel(table_name = crate::schema::ticket_merges)]
+pub struct NewTicketMerge {
+    pub ticket_id: i32,
+    pub merged_into_ticket_id: i32,
+    pub merged_at: NaiveDateTime,
+    pub merged_by_user_uuid: Option<Uuid>,
+    pub merge_reason: Option<String>,
 }
 
 // Ticket implementation removed - serialization now handled by serde attributes
@@ -1008,6 +1026,9 @@ pub struct NewTicket {
     pub recurrence_rule: Option<String>,
     pub recurrence_template_id: Option<i32>,
     pub resolution_notes: Option<String>,
+    /// Defaults false; set true by the inbound pipeline when the source
+    /// message was flagged as spam.
+    pub spam_suspected: bool,
 }
 
 // Add a new struct for partial ticket updates
@@ -1033,6 +1054,9 @@ pub struct TicketUpdate {
     /// normalises to `Some(None)` at the handler boundary so the
     /// UI can post a single shape regardless of intent.
     pub resolution_notes: Option<Option<String>>,
+    /// Cleared to `false` by the "not spam" action; never set true via the API
+    /// (only the inbound pipeline flags spam).
+    pub spam_suspected: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
@@ -6459,6 +6483,24 @@ pub const CHANNEL_DIRECTION_OUTBOUND: &str = "outbound";
 /// open for extension without migration.
 pub const CRED_TYPE_IMAP_PASSWORD: &str = "imap_password";
 
+/// `channels.provider` values for the two email ingestion paths. `email_imap`
+/// polls a mailbox (self-host / niche providers); `email_forward` receives
+/// mail the customer forwards to a generated `<token>@inbound.<domain>`
+/// address (the hosted path). Both feed the same parse pipeline; only the
+/// ingestion source differs.
+pub const CHANNEL_PROVIDER_EMAIL_IMAP: &str = "email_imap";
+pub const CHANNEL_PROVIDER_EMAIL_FORWARD: &str = "email_forward";
+
+/// `inbound_addresses.status` values, in lockstep with the
+/// `inbound_addresses_status_check` SQL constraint. `active` addresses route;
+/// `retired` ones are kept on record but no longer resolve.
+pub const INBOUND_ADDRESS_STATUS_ACTIVE: &str = "active";
+pub const INBOUND_ADDRESS_STATUS_RETIRED: &str = "retired";
+
+/// `inbound_dead_letters.reason` values. `unknown_token` is clean mail (scans
+/// passed) that resolved to no active forwarding token.
+pub const INBOUND_DEAD_LETTER_REASON_UNKNOWN_TOKEN: &str = "unknown_token";
+
 #[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
 #[diesel(table_name = crate::schema::channels)]
 pub struct Channel {
@@ -6639,6 +6681,62 @@ pub struct NewChannelMessage {
     pub author_user_uuid: Option<Uuid>,
     pub raw_metadata: Option<serde_json::Value>,
 }
+
+/// A forwarding address (`<token>@inbound.<domain>`) owned by an
+/// `email_forward` channel. The `token` is the routing key the inbound
+/// webhook resolves; see `repository::inbound_addresses` and the
+/// `inbound_addresses` migration for the capability rationale.
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable, Associations)]
+#[diesel(table_name = crate::schema::inbound_addresses)]
+#[diesel(belongs_to(Channel))]
+pub struct InboundAddress {
+    pub id: i32,
+    pub token: String,
+    pub channel_id: i32,
+    /// See [`INBOUND_ADDRESS_STATUS_ACTIVE`] / [`INBOUND_ADDRESS_STATUS_RETIRED`].
+    pub status: String,
+    pub created_at: NaiveDateTime,
+    pub workspace_id: i32,
+}
+
+/// Insert shape for a new forwarding address. `status` defaults to `active`,
+/// `workspace_id` is filled from the RLS GUC, and the timestamp defaults at
+/// the DB; the caller supplies only the channel and the generated token.
+#[derive(Debug, Insertable)]
+#[diesel(table_name = crate::schema::inbound_addresses)]
+pub struct NewInboundAddress {
+    pub token: String,
+    pub channel_id: i32,
+}
+
+/// A platform-level dead-letter row: clean inbound mail (spam/virus scans
+/// passed) that resolved to no active forwarding token. Untenanted by design
+/// (see the `inbound_dead_letters` migration) because an unknown token can't
+/// be attributed to a workspace; surfaced to the operator so a misconfigured
+/// forward is diagnosable rather than silently lost.
+#[derive(Debug, Clone, Serialize, Queryable, Identifiable)]
+#[diesel(table_name = crate::schema::inbound_dead_letters)]
+pub struct InboundDeadLetter {
+    pub id: i64,
+    pub envelope_recipient: String,
+    pub from_address: Option<String>,
+    pub subject: Option<String>,
+    pub s3_key: String,
+    /// See [`INBOUND_DEAD_LETTER_REASON_UNKNOWN_TOKEN`].
+    pub reason: String,
+    pub received_at: NaiveDateTime,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = crate::schema::inbound_dead_letters)]
+pub struct NewInboundDeadLetter {
+    pub envelope_recipient: String,
+    pub from_address: Option<String>,
+    pub subject: Option<String>,
+    pub s3_key: String,
+    pub reason: String,
+}
+
 // ---------- Canned responses ----------
 
 /// Reusable reply template that techs can pull into the ticket

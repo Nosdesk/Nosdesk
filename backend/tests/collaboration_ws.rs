@@ -127,15 +127,18 @@ fn ensure_test_keyring() {
 }
 
 fn build_pool(url: &str) -> backend::db::Pool {
-    use diesel::r2d2::{ConnectionManager, Pool};
+    use diesel::r2d2::Pool;
     // YjsAppState construction touches the Keyring via the periodic
     // save loop's encryption paths; init once per process so we
     // never panic with `keyring not initialised`.
     ensure_test_keyring();
-    let mgr = ConnectionManager::<diesel::pg::PgConnection>::new(url);
+    let mgr = backend::db::ResettingManager::new(url);
     Pool::builder()
         .max_size(4)
         .connection_customizer(Box::new(WorkspaceGuc))
+        // Seeded ambient workspace GUC (outside the request middleware), so
+        // keep the production per-checkout scrub off this pool.
+        .test_on_check_out(false)
         .build(mgr)
         .expect("build backend Pool")
 }

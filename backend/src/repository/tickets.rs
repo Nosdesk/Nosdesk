@@ -236,6 +236,7 @@ pub fn create_ticket_with_annotation(
                     "assignee_uuid": ticket.assignee_uuid,
                     "category_id": ticket.category_id,
                     "triage_state": ticket.triage_state,
+                    "spam_suspected": ticket.spam_suspected,
                     "due_date": ticket.due_date,
                     "created_at": ticket.created_at,
                     "updated_at": ticket.updated_at,
@@ -336,6 +337,7 @@ pub fn update_ticket(
                     "requester_uuid": updated.requester_uuid,
                     "assignee_uuid": updated.assignee_uuid,
                     "category_id": updated.category_id,
+                    "spam_suspected": updated.spam_suspected,
                 }),
                 groups,
                 causation_id: None,
@@ -449,6 +451,7 @@ pub fn update_ticket_partial(
             "requester_uuid": result.requester_uuid,
             "assignee_uuid": result.assignee_uuid,
             "category_id": result.category_id,
+            "spam_suspected": result.spam_suspected,
             "verification_state": result.verification_state,
             "due_date": result.due_date,
             "resolution_notes": result.resolution_notes,
@@ -1139,52 +1142,9 @@ mod tests {
         assert!(pauses_sla);
     }
 
-    #[test]
-    fn ticket_can_be_marked_merged() {
-        let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "merger", "user");
-        let source = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
-        let target = TestFixtures::create_ticket(&mut conn, "Target", Some(user.uuid), None);
-
-        let now = chrono::Utc::now().naive_utc();
-        let updated = diesel::update(tickets::table.find(source.id))
-            .set((
-                tickets::merged_into_ticket_id.eq(Some(target.id)),
-                tickets::merged_at.eq(Some(now)),
-                tickets::merged_by_user_uuid.eq(Some(user.uuid)),
-                tickets::merge_reason.eq(Some("same outage".to_string())),
-            ))
-            .execute(&mut conn)
-            .expect("setting all merge columns together satisfies the invariant");
-        assert_eq!(updated, 1);
-
-        let reloaded: Ticket = tickets::table.find(source.id).first(&mut conn).unwrap();
-        assert_eq!(reloaded.merged_into_ticket_id, Some(target.id));
-        assert_eq!(reloaded.merged_by_user_uuid, Some(user.uuid));
-        assert_eq!(reloaded.merge_reason.as_deref(), Some("same outage"));
-    }
-
-    #[test]
-    fn partial_merge_state_violates_invariant() {
-        let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "partial", "user");
-        let source = TestFixtures::create_ticket(&mut conn, "Source", Some(user.uuid), None);
-        let target = TestFixtures::create_ticket(&mut conn, "Target", Some(user.uuid), None);
-
-        // Setting merged_into_ticket_id without merged_at / merged_by_user_uuid
-        // must be rejected by tickets_merge_complete.
-        let result = diesel::update(tickets::table.find(source.id))
-            .set(tickets::merged_into_ticket_id.eq(Some(target.id)))
-            .execute(&mut conn);
-
-        match result {
-            Err(diesel::result::Error::DatabaseError(
-                diesel::result::DatabaseErrorKind::CheckViolation,
-                _,
-            )) => {}
-            other => panic!("expected CheckViolation, got {other:?}"),
-        }
-    }
+    // (Merge metadata moved to the `ticket_merges` satellite; the merge
+    // behaviour and its all-or-nothing integrity are covered by the merge
+    // tests in `repository/ticket_merge.rs` + `tests/ticket_merge.rs`.)
 
     /// Insert a ticket with an explicit verification state. The shared
     /// fixture helper always passes `None`, which is the wrong shape for
@@ -1738,6 +1698,11 @@ mod tests {
             "ticket_tags_pkey",
             "ticket_watchers_pkey",
             "tickets_guest_lookup_token_key",
+            // The inbound forwarding token is an opaque global capability: the
+            // inbound webhook resolves it to a workspace cross-tenant (before
+            // any workspace is known), so a global UNIQUE is the intended
+            // design, not a leak. See repository/inbound_addresses.rs.
+            "inbound_addresses_token_key",
             "user_groups_pkey",
             "user_ticket_views_user_uuid_ticket_id_key",
             "working_calendar_holidays_calendar_id_date_key",

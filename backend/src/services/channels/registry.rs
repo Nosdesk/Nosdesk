@@ -164,6 +164,19 @@ impl ChannelRegistry {
             return Ok(());
         }
 
+        // Push providers (SES forwarding, future webhook adapters) are
+        // ingested by an HTTP handler, not polled. They're valid enabled
+        // channels with no poll worker, so skip them here rather than raise
+        // the unsupported-provider error a Pull-only dispatch would.
+        if super::ingestion_mode(&channel.provider) == super::IngestionMode::Push {
+            debug!(
+                channel = channel.id,
+                provider = %channel.provider,
+                "push-based channel; ingested via webhook, no poll worker needed"
+            );
+            return Ok(());
+        }
+
         let adapter = build_pull_adapter(&channel, &self.deps)?;
         let (stop_tx, stop_rx) = watch::channel(false);
         let deps = self.deps.clone();
@@ -546,7 +559,6 @@ fn pipeline_outcome_label(outcome: &pipeline::PipelineOutcome) -> &'static str {
         PipelineOutcome::SkippedBounce => "skipped_bounce",
         PipelineOutcome::SkippedUnsupportedVariant => "skipped_unsupported",
         PipelineOutcome::SkippedNoIdentity => "skipped_no_identity",
-        PipelineOutcome::SkippedEmailClaimed => "skipped_email_claimed",
     }
 }
 
@@ -686,6 +698,7 @@ mod tests {
             raw_bytes: None,
             content_language: None,
             source_ref: None,
+            spam_suspected: false,
         })
     }
 
@@ -844,6 +857,35 @@ mod tests {
             Err(other) => panic!("expected UnsupportedProvider, got {other:?}"),
             Ok(_) => panic!("expected build_pull_adapter to fail"),
         }
+    }
+
+    #[tokio::test]
+    async fn start_skips_push_provider_without_a_worker() {
+        // email_forward is push-based (SES → webhook); the poller registry
+        // must accept it as a valid enabled channel and start no worker,
+        // rather than logging an unsupported-provider error.
+        let pool = setup_test_pool();
+        let deps = deps_with_pool(pool.clone());
+        let mut registry = ChannelRegistry::new(deps.clone());
+        let channel = {
+            let mut conn = pool.get().unwrap();
+            channels_repo::create(
+                &mut conn,
+                NewChannel {
+                    provider: "email_forward".into(),
+                    name: "forwarding".into(),
+                    enabled: true,
+                    config: serde_json::json!({}),
+                },
+            )
+            .unwrap()
+        };
+        let id = channel.id;
+        assert!(registry.start(channel).is_ok());
+        assert!(
+            !registry.is_running(id),
+            "push channel should not register a poll worker"
+        );
     }
 
     #[tokio::test]

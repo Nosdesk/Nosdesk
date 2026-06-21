@@ -21,7 +21,8 @@ const searchQuery = ref('');
 const roleGroups = computed(() =>
   filterAdminNavGroupsForRole(adminNavGroups, {
     isAdmin: authStore.isAdmin,
-    isAuditReviewer: authStore.isAuditReviewer
+    isAuditReviewer: authStore.isAuditReviewer,
+    isPlatformAdmin: authStore.isPlatformAdmin
   })
 );
 

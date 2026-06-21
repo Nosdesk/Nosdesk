@@ -77,9 +77,6 @@ pub enum PipelineOutcome {
     /// one. Phase-1 email always has one; this is a safety net for
     /// future chat adapters where some providers hide emails.
     SkippedNoIdentity,
-    /// Email resolved to a verified/privileged account. Refuse to
-    /// attach the message — the real owner needs to sign in properly.
-    SkippedEmailClaimed,
 }
 
 /// Errors the pipeline can emit. Adapters can retry on [`Self::Db`] for
@@ -377,107 +374,88 @@ pub async fn process_event(
     // created one), a comment (if the dedup row write failed), and
     // let the next poll re-ingest into a second comment on the same
     // ticket.
-    let ingest = conn.transaction::<_, PipelineError, _>(|conn| {
-        // Attribute every emit in this transaction to the inbound
-        // channel pipeline so sync_actions records the system actor
-        // rather than NULL. The outer call has no HTTP request, so
-        // we synthesise a system actor here.
-        //
-        // `.with_workspace` is load-bearing: ingestion writes tickets
-        // and comments, both workspace-scoped (workspace_id NOT NULL,
-        // RLS) and audit-triggered (audit_log.workspace_id NOT NULL,
-        // defaulted from the app.workspace_id GUC). Without the channel's
-        // workspace on the actor, set_actor leaves the GUC unset and the
-        // first insert aborts the whole ingest transaction. The channel
-        // owns the workspace the inbound message belongs to.
-        let actor = ActorContext::system("channels:inbound").with_workspace(channel.workspace_id);
-        session::set_actor(conn, &actor)?;
+    let (ticket, comment, is_new_ticket, sender_uuid) =
+        conn.transaction::<_, PipelineError, _>(|conn| {
+            // Attribute every emit in this transaction to the inbound
+            // channel pipeline so sync_actions records the system actor
+            // rather than NULL. The outer call has no HTTP request, so
+            // we synthesise a system actor here.
+            //
+            // `.with_workspace` is load-bearing: ingestion writes tickets
+            // and comments, both workspace-scoped (workspace_id NOT NULL,
+            // RLS) and audit-triggered (audit_log.workspace_id NOT NULL,
+            // defaulted from the app.workspace_id GUC). Without the channel's
+            // workspace on the actor, set_actor leaves the GUC unset and the
+            // first insert aborts the whole ingest transaction. The channel
+            // owns the workspace the inbound message belongs to.
+            let actor =
+                ActorContext::system("channels:inbound").with_workspace(channel.workspace_id);
+            session::set_actor(conn, &actor)?;
 
-        // Identity resolution. Routes through the forward-aware
-        // branch when the envelope sender is a verified tech;
-        // otherwise falls into the normal guest-user path. See
-        // `resolve_identity` for the full decision tree.
-        let (sender, forwarded_by_uuid) =
-            match resolve_identity(channel, &msg, &sender_email, conn, ctx)? {
-                Resolved::Identified { user, forwarded_by } => (user, forwarded_by),
-                // Skip paths write nothing; the transaction commits as a
-                // no-op and the outer code turns `Ingest::Skip` into the
-                // matching `PipelineOutcome`.
-                Resolved::Skip(outcome) => return Ok(Ingest::Skip(outcome)),
+            // Identity resolution. The sender becomes the requester (their
+            // own account if they have one, else a guest); a staff member
+            // forwarding a customer's mail redirects attribution to that
+            // customer. See `resolve_identity` for the full decision tree.
+            let (sender, forwarded_by_uuid) =
+                resolve_identity(channel, &msg, &sender_email, conn, ctx)?;
+            let sender_uuid = sender.uuid;
+
+            // existing_ticket_id may point at a ticket that no longer exists, was
+            // resolved by a loose subject "#N" match, or lives in another workspace
+            // (RLS-hidden under the channel's pin). Treat a missing or invisible
+            // ticket as "start a new one" rather than erroring, which would drop
+            // the inbound message after the IMAP cursor already advanced.
+            let resolved_existing = match existing_ticket_id {
+                Some(ticket_id) => tickets_repo::get_ticket_by_id(conn, ticket_id).optional()?,
+                None => None,
             };
-        let sender_uuid = sender.uuid;
 
-        // existing_ticket_id may point at a ticket that no longer exists, was
-        // resolved by a loose subject "#N" match, or lives in another workspace
-        // (RLS-hidden under the channel's pin). Treat a missing or invisible
-        // ticket as "start a new one" rather than erroring, which would drop
-        // the inbound message after the IMAP cursor already advanced.
-        let resolved_existing = match existing_ticket_id {
-            Some(ticket_id) => tickets_repo::get_ticket_by_id(conn, ticket_id).optional()?,
-            None => None,
-        };
+            let (ticket, comment, is_new_ticket) = match resolved_existing {
+                Some(ticket) => {
+                    let comment = insert_inbound_comment(
+                        conn,
+                        ticket.id,
+                        sender_uuid,
+                        &msg,
+                        forwarded_by_uuid,
+                        raw_source_uri.clone(),
+                        ctx,
+                    )?;
+                    (ticket, comment, false)
+                }
+                None => {
+                    let ticket = open_ticket_from_message(conn, channel, &msg, sender_uuid)?;
+                    let comment = insert_inbound_comment(
+                        conn,
+                        ticket.id,
+                        sender_uuid,
+                        &msg,
+                        forwarded_by_uuid,
+                        raw_source_uri.clone(),
+                        ctx,
+                    )?;
+                    (ticket, comment, true)
+                }
+            };
 
-        let (ticket, comment, is_new_ticket) = match resolved_existing {
-            Some(ticket) => {
-                let comment = insert_inbound_comment(
-                    conn,
-                    ticket.id,
-                    sender_uuid,
-                    &msg,
-                    forwarded_by_uuid,
-                    raw_source_uri.clone(),
-                    ctx,
-                )?;
-                (ticket, comment, false)
-            }
-            None => {
-                let ticket = open_ticket_from_message(conn, channel, &msg, sender_uuid)?;
-                let comment = insert_inbound_comment(
-                    conn,
-                    ticket.id,
-                    sender_uuid,
-                    &msg,
-                    forwarded_by_uuid,
-                    raw_source_uri.clone(),
-                    ctx,
-                )?;
-                (ticket, comment, true)
-            }
-        };
+            let in_reply_to = msg.references.first().cloned();
+            channels_repo::record_message(
+                conn,
+                NewChannelMessage {
+                    channel_id: channel.id,
+                    external_id: msg.external_id.clone(),
+                    direction: CHANNEL_DIRECTION_INBOUND.to_string(),
+                    ticket_id: Some(ticket.id),
+                    comment_id: Some(comment.id),
+                    in_reply_to,
+                    from_address: Some(sender_email.clone()),
+                    author_user_uuid: Some(sender_uuid),
+                    raw_metadata: Some(msg.raw_metadata.clone()),
+                },
+            )?;
 
-        let in_reply_to = msg.references.first().cloned();
-        channels_repo::record_message(
-            conn,
-            NewChannelMessage {
-                channel_id: channel.id,
-                external_id: msg.external_id.clone(),
-                direction: CHANNEL_DIRECTION_INBOUND.to_string(),
-                ticket_id: Some(ticket.id),
-                comment_id: Some(comment.id),
-                in_reply_to,
-                from_address: Some(sender_email.clone()),
-                author_user_uuid: Some(sender_uuid),
-                raw_metadata: Some(msg.raw_metadata.clone()),
-            },
-        )?;
-
-        Ok(Ingest::Done {
-            ticket,
-            comment,
-            is_new_ticket,
-            sender_uuid,
-        })
-    })?;
-
-    let (ticket, comment, is_new_ticket, sender_uuid) = match ingest {
-        Ingest::Skip(outcome) => return Ok(outcome),
-        Ingest::Done {
-            ticket,
-            comment,
-            is_new_ticket,
-            sender_uuid,
-        } => (ticket, comment, is_new_ticket, sender_uuid),
-    };
+            Ok((ticket, comment, is_new_ticket, sender_uuid))
+        })?;
 
     // Attachments — best effort. Each failure is logged and skipped so
     // one malformed file doesn't lose the whole message. Runs outside
@@ -553,116 +531,85 @@ pub async fn process_event(
 
 // ---------- DB helpers ----------
 
-/// Outcome carried out of the ingest transaction. `Skip` signals that
-/// identity resolution said stop (EmailClaimed, forwarded-tech-to-tech,
-/// etc.) and the transaction committed a no-op; `Done` carries the
-/// rows the transaction created so the caller can drive post-commit
-/// side effects (attachments, SSE, search index, auto-ack).
-enum Ingest {
-    Skip(PipelineOutcome),
-    Done {
-        ticket: Ticket,
-        comment: Comment,
-        is_new_ticket: bool,
-        sender_uuid: uuid::Uuid,
-    },
-}
-
-/// Outcome of identity resolution. Either we've got a `User` to
-/// attribute the ticket to (plus, optionally, the tech who forwarded
-/// the message in), or we're bailing with a specific skip reason.
-enum Resolved {
-    Identified {
-        user: crate::models::User,
-        forwarded_by: Option<uuid::Uuid>,
-    },
-    Skip(PipelineOutcome),
-}
-
-/// Decide who the inbound message should be attributed to.
+/// Decide who the inbound message should be attributed to, returning the
+/// requester plus the forwarding staff member (if any).
 ///
-/// - If the envelope sender is a verified Nosdesk user AND the body
-///   parses as a forward, the original customer becomes the requester
-///   (auto-provisioned) and the tech is recorded on the comment for
-///   audit. This is the tech-forward workflow mainstream helpdesks
-///   (Zendesk, Freshdesk, Help Scout, Zammad) all implement.
-/// - If the sender is verified but no forward markers exist, we
-///   refuse to silently attribute the ticket to the tech and return
-///   `SkippedEmailClaimed` — the tech will notice the missing ticket
-///   and can re-send as a proper forward.
-/// - Otherwise (unknown sender) we run the standard guest-user
-///   auto-provision path.
+/// Inbound mail always opens (or threads onto) a ticket; nobody is rejected
+/// for having an account. The requester is the sender, resolved to their
+/// existing account if one exists and an auto-provisioned guest otherwise.
+///
+/// The one special case is the **tech-forward workflow**: when a staff member
+/// (one who can handle tickets) forwards a *customer's* email, attribution is
+/// redirected to that customer and the staff member is recorded as the
+/// forwarder for the audit trail. This is the pattern mainstream helpdesks
+/// (Zendesk, Freshdesk, Help Scout, Zammad) implement. A staff member emailing
+/// in directly (no forward markers) is simply the requester, same as anyone
+/// else — an employee on an internal IT desk can raise a ticket by emailing in.
+///
+/// Loops, auto-replies, and bounces are filtered earlier (`loop_markers` /
+/// `is_bounce`), so they never reach here.
 fn resolve_identity(
     channel: &Channel,
     msg: &InboundMessage,
     sender_email: &str,
     conn: &mut DbConnection,
     ctx: &PipelineContext,
-) -> Result<Resolved, PipelineError> {
-    use crate::repository::user_helpers::find_verified_user_by_email;
+) -> Result<(crate::models::User, Option<uuid::Uuid>), PipelineError> {
+    use crate::repository::user_helpers::{find_verified_user_by_email, user_can_handle_tickets};
     let observer = ctx
         .search
         .as_ref()
         .map(|s| s as &dyn crate::repository::user_helpers::UserCreatedObserver);
 
-    let verified_sender = find_verified_user_by_email(sender_email, conn)?;
-    if let Some(tech) = verified_sender {
-        let Some(fwd) = super::forward_parser::extract(msg) else {
-            info!(
-                channel_id = channel.id,
-                external_id = %msg.external_id,
-                "skip: sender email is claimed by a verified/privileged account"
-            );
-            return Ok(Resolved::Skip(PipelineOutcome::SkippedEmailClaimed));
-        };
-
-        info!(
-            channel_id = channel.id,
-            external_id = %msg.external_id,
-            forwarded_by = %tech.uuid,
-            original = %fwd.email,
-            "tech forward detected; attributing ticket to original sender"
-        );
-        let display = fwd
-            .display_name
-            .clone()
-            .unwrap_or_else(|| fwd.email.clone());
-        match find_or_create_guest_user(&fwd.email, &display, conn, observer)? {
-            GuestUserResult::Created(u) | GuestUserResult::Existing(u) => {
-                Ok(Resolved::Identified {
-                    user: u,
-                    forwarded_by: Some(tech.uuid),
-                })
-            }
-            // Tech A forwarding tech B's message — refuse. Either
-            // direction of attribution is surprising; we'd rather the
-            // tech handle this manually.
-            GuestUserResult::EmailClaimed => {
+    if let Some(sender) = find_verified_user_by_email(sender_email, conn)? {
+        // Tech-forward: only staff may forward on a customer's behalf, and only
+        // when the body actually carries forward markers. Then the original
+        // customer is the requester and the staff member is the forwarder.
+        if user_can_handle_tickets(conn, &sender) {
+            if let Some(fwd) = super::forward_parser::extract(msg) {
+                let display = fwd
+                    .display_name
+                    .clone()
+                    .unwrap_or_else(|| fwd.email.clone());
+                let customer = resolve_requester(&fwd.email, &display, conn, observer)?;
                 info!(
                     channel_id = channel.id,
                     external_id = %msg.external_id,
-                    "skip: forwarded sender is also a verified account"
+                    forwarded_by = %sender.uuid,
+                    original = %fwd.email,
+                    "tech forward detected; attributing ticket to original sender"
                 );
-                Ok(Resolved::Skip(PipelineOutcome::SkippedEmailClaimed))
+                return Ok((customer, Some(sender.uuid)));
             }
         }
-    } else {
-        // Unknown sender — standard guest provisioning. `EmailClaimed`
-        // shouldn't trigger here now that the verified lookup above
-        // covers it, but the branch exists as a safety net against
-        // races between this call and
-        // `find_or_create_guest_user`'s own check.
-        match find_or_create_guest_user(sender_email, &msg.from.display_name, conn, observer)? {
-            GuestUserResult::Created(u) | GuestUserResult::Existing(u) => {
-                Ok(Resolved::Identified {
-                    user: u,
-                    forwarded_by: None,
-                })
-            }
-            GuestUserResult::EmailClaimed => {
-                Ok(Resolved::Skip(PipelineOutcome::SkippedEmailClaimed))
-            }
-        }
+        // Member, or staff emailing in directly: the sender is the requester.
+        return Ok((sender, None));
+    }
+
+    // Unknown sender: auto-provision (or reuse) a guest account.
+    let user = resolve_requester(sender_email, &msg.from.display_name, conn, observer)?;
+    Ok((user, None))
+}
+
+/// Resolve an email address to the user a ticket should be attributed to:
+/// their existing account if one exists, otherwise an auto-provisioned guest.
+fn resolve_requester(
+    email: &str,
+    display_name: &str,
+    conn: &mut DbConnection,
+    observer: Option<&dyn crate::repository::user_helpers::UserCreatedObserver>,
+) -> Result<crate::models::User, PipelineError> {
+    use crate::repository::user_helpers::find_verified_user_by_email;
+    if let Some(u) = find_verified_user_by_email(email, conn)? {
+        return Ok(u);
+    }
+    match find_or_create_guest_user(email, display_name, conn, observer)? {
+        GuestUserResult::Created(u) | GuestUserResult::Existing(u) => Ok(u),
+        // Unreachable in a single transaction (the lookup above already caught
+        // any verified/privileged account), but if the email turned out to be
+        // claimed, attribute to that real account rather than dropping the mail.
+        GuestUserResult::EmailClaimed => find_verified_user_by_email(email, conn)?
+            .ok_or(PipelineError::Db(diesel::result::Error::NotFound)),
     }
 }
 
@@ -690,6 +637,14 @@ fn open_ticket_from_message(
         submitted_via: Some(channel.provider.clone()),
         origin_channel_id: Some(channel.id),
         triage_state: Some("untriaged".into()),
+        // Spam-flagged mail still opens a ticket (never dropped), but badged
+        // and de-prioritised so it triages out of the way without being lost.
+        spam_suspected: msg.spam_suspected,
+        priority: if msg.spam_suspected {
+            crate::models::TicketPriority::Low
+        } else {
+            crate::models::TicketPriority::default()
+        },
         ..Default::default()
     };
 
@@ -753,6 +708,12 @@ fn insert_inbound_comment(
     // endpoint surfaces it as a top-level `from_address` DTO field.
     if let Some(by) = forwarded_by_user_uuid {
         metadata["forwarded_by_user_uuid"] = json!(by.to_string());
+    }
+    // Mail the provider flagged as spam still opens a ticket (never silently
+    // drop a customer's request), but we stamp the verdict so the ticket view
+    // can badge it and agents can triage.
+    if msg.spam_suspected {
+        metadata["spam_suspected"] = json!(true);
     }
 
     // Prefer the rich HTML body when the message has one — it carries
@@ -1141,7 +1102,8 @@ mod tests {
     //! - Reply path (appends to resolved ticket)
     //! - Edit/Delete variants skipped
     //! - Missing email → SkippedNoIdentity
-    //! - Claimed email → SkippedEmailClaimed (via verified existing user)
+    //! - Sender with an existing account (member or staff) → ticket attributed
+    //!   to that account; tech-forward redirects to the original customer
     //!
     //! SSE / search / storage side effects are covered by the E2E task (#23).
 
@@ -1210,6 +1172,7 @@ mod tests {
             raw_bytes: None,
             content_language: None,
             source_ref: None,
+            spam_suspected: false,
         }
     }
 
@@ -1949,10 +1912,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn skips_when_sender_email_is_claimed_by_real_account() {
+    async fn verified_staff_emailing_directly_opens_ticket_for_themselves() {
+        // A staff member (admin) emails the channel directly, no forward
+        // markers. They become the requester and a ticket opens — emailing in
+        // is never rejected for who the sender is.
         let mut conn = setup_test_connection();
 
-        // Seed: real registered admin with a verified email.
         let admin = crate::models::NewUser {
             uuid: uuid::Uuid::now_v7(),
             name: "Admin".into(),
@@ -1966,7 +1931,7 @@ mod tests {
             mfa_enabled: false,
             platform_role: Some("platform_admin".to_string()),
         };
-        create_user_with_email(
+        let (admin, _) = create_user_with_email(
             admin,
             crate::models::WorkspaceRole::Admin,
             "claimed@example.com".into(),
@@ -1991,7 +1956,17 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(outcome, PipelineOutcome::SkippedEmailClaimed);
+
+        let ticket_id = match outcome {
+            PipelineOutcome::TicketOpened { ticket_id, .. } => ticket_id,
+            other => panic!("expected TicketOpened, got {other:?}"),
+        };
+        let ticket = tickets_repo::get_ticket_by_id(&mut conn, ticket_id).unwrap();
+        assert_eq!(
+            ticket.requester_uuid,
+            Some(admin.uuid),
+            "the staff sender should be the requester"
+        );
     }
 
     #[tokio::test]
@@ -2083,41 +2058,15 @@ My printer is literally on fire.
     }
 
     #[tokio::test]
-    async fn verified_sender_without_forward_markers_is_still_rejected() {
-        // Safety net: a verified tech who sends a plain (non-
-        // forwarded) email should NOT auto-open a ticket with
-        // themselves as requester. Fall through to SkippedEmailClaimed
-        // so the tech gets visible feedback that they need to forward
-        // properly.
+    async fn spam_suspected_message_opens_a_flagged_ticket() {
+        // A provider-flagged-as-spam message still opens a ticket (we never
+        // silently drop a customer request) and the comment carries the flag
+        // so agents can triage.
         let mut conn = setup_test_connection();
-        let tech = crate::models::NewUser {
-            uuid: uuid::Uuid::now_v7(),
-            name: "Tech2".into(),
-            pronouns: None,
-            avatar_url: None,
-            banner_url: None,
-            avatar_thumb: None,
-            microsoft_uuid: None,
-            mfa_secret: None,
-            mfa_secret_kek_id: None,
-            mfa_enabled: false,
-            platform_role: Some("platform_admin".to_string()),
-        };
-        create_user_with_email(
-            tech,
-            crate::models::WorkspaceRole::Admin,
-            "admin2@yourco.com".into(),
-            true,
-            None,
-            &mut conn,
-            None,
-        )
-        .expect("seed admin");
-
         let ch = TestFixtures::create_channel(&mut conn, "email_imap");
-        let mut msg = sample_message("<plain@yourco>", vec![], Some("just a note"));
-        msg.from.known_email = Some("admin2@yourco.com".into());
-        msg.body_text = "Hey team, no forward here, just a check-in.".into();
+        let mut msg = sample_message("<spam@ex>", vec![], Some("cheap deals"));
+        msg.from.known_email = Some("sender@elsewhere.com".into());
+        msg.spam_suspected = true;
 
         let outcome = process_event(
             &StubAdapter,
@@ -2128,7 +2077,91 @@ My printer is literally on fire.
         )
         .await
         .unwrap();
-        assert_eq!(outcome, PipelineOutcome::SkippedEmailClaimed);
+
+        let (ticket_id, comment_id) = match outcome {
+            PipelineOutcome::TicketOpened {
+                ticket_id,
+                comment_id,
+            } => (ticket_id, comment_id),
+            other => panic!("expected TicketOpened, got {other:?}"),
+        };
+        // The ticket opens (never dropped), flagged and de-prioritised.
+        let ticket = tickets_repo::get_ticket_by_id(&mut conn, ticket_id).unwrap();
+        assert!(
+            ticket.spam_suspected,
+            "spam mail should open a flagged ticket"
+        );
+        assert_eq!(ticket.priority, crate::models::TicketPriority::Low);
+        // The inbound comment also carries the per-message flag.
+        use crate::schema::comments::dsl as c;
+        use diesel::prelude::*;
+        let metadata: Option<serde_json::Value> = c::comments
+            .filter(c::id.eq(comment_id))
+            .select(c::channel_metadata)
+            .first(&mut conn)
+            .unwrap();
+        assert_eq!(
+            metadata.expect("channel_metadata present")["spam_suspected"],
+            serde_json::json!(true),
+        );
+    }
+
+    #[tokio::test]
+    async fn verified_member_emailing_in_opens_ticket_for_themselves() {
+        // An end-user member (e.g. an employee on an internal IT desk) emails
+        // the channel. They're not staff, so they become the requester and a
+        // ticket opens, attributed to their real account — this is the gap the
+        // old EmailClaimed skip created.
+        let mut conn = setup_test_connection();
+        let member = crate::models::NewUser {
+            uuid: uuid::Uuid::now_v7(),
+            name: "Employee".into(),
+            pronouns: None,
+            avatar_url: None,
+            banner_url: None,
+            avatar_thumb: None,
+            microsoft_uuid: None,
+            mfa_secret: None,
+            mfa_secret_kek_id: None,
+            mfa_enabled: false,
+            platform_role: None,
+        };
+        let (member, _) = create_user_with_email(
+            member,
+            crate::models::WorkspaceRole::Member,
+            "employee@yourco.com".into(),
+            true,
+            None,
+            &mut conn,
+            None,
+        )
+        .expect("seed member");
+
+        let ch = TestFixtures::create_channel(&mut conn, "email_imap");
+        let mut msg = sample_message("<plain@yourco>", vec![], Some("printer down"));
+        msg.from.known_email = Some("employee@yourco.com".into());
+        msg.body_text = "My printer won't turn on.".into();
+
+        let outcome = process_event(
+            &StubAdapter,
+            &ch,
+            InboundEvent::MessageReceived(msg),
+            &mut conn,
+            &PipelineContext::bare(),
+        )
+        .await
+        .unwrap();
+
+        let ticket_id = match outcome {
+            PipelineOutcome::TicketOpened { ticket_id, .. } => ticket_id,
+            other => panic!("expected TicketOpened, got {other:?}"),
+        };
+        let ticket = tickets_repo::get_ticket_by_id(&mut conn, ticket_id).unwrap();
+        assert_eq!(
+            ticket.requester_uuid,
+            Some(member.uuid),
+            "the member sender should be the requester, attributed to their real account"
+        );
     }
 
     // ---------- SSRF / attachment-size guard tests ----------

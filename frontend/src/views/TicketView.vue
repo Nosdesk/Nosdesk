@@ -26,6 +26,7 @@ import TicketActivity from "@/components/ticketComponents/TicketActivity.vue";
 import DeviceSelectionModal from "@/components/ticketComponents/AssetSelectionModal.vue";
 import CommentsAndAttachments from "@/components/ticketComponents/CommentsAndAttachments.vue";
 import MergedIntoBanner from "@/components/ticketComponents/MergedIntoBanner.vue";
+import SpamBanner from "@/components/ticketComponents/SpamBanner.vue";
 import MergedInField from "@/components/ticketComponents/MergedInField.vue";
 import LinkedTicketModal from "@/components/ticketComponents/LinkedTicketModal.vue";
 import ProjectSelectionModal from "@/components/ticketComponents/ProjectSelectionModal.vue";
@@ -614,6 +615,11 @@ useCreateTicketAction();
                                 :actor="ticket.merged_by_user_uuid"
                                 :when="ticket.merged_at"
                             />
+                            <SpamBanner
+                                v-if="ticket.spam_suspected"
+                                :ticket-id="ticket.id"
+                                @delete="showDeleteConfirm = true"
+                            />
                             <MergedInField v-if="ticket" :ticket-id="ticket.id" />
                             <TicketDetails
                                 :ticket="ticket"
@@ -658,6 +664,20 @@ useCreateTicketAction();
 
                             <PluginSlot slot-name="ticket-sidebar" :ticket="pluginTicket" :actionActivatedMap="pluginActionActivatedMap" />
                         </template>
+
+                        <!-- Activity timeline. Sourced from the
+                             sync_actions event log; surfaces every
+                             status / assignee / priority / category
+                             change + comment events. Lives in the left
+                             reference rail, under the metadata it
+                             annotates: activity is a reference surface
+                             techs consult for "who did this and when",
+                             not a primary scan target, so it stays out
+                             of the conversation columns. Hidden on print
+                             — not useful in offline export. -->
+                        <div v-if="ticket" class="print:hidden">
+                            <TicketActivity :ticket-id="ticket.id" />
+                        </div>
                         </div>
                     </div>
 
@@ -748,20 +768,6 @@ useCreateTicketAction();
                                 @delete-attachment="deleteAttachment"
                                 @delete-comment="deleteComment"
                             />
-                        </div>
-
-                        <!-- Activity timeline. Sourced from the
-                             sync_actions event log; surfaces every
-                             status / assignee / priority / category
-                             change + comment events. Lives below
-                             the comments thread because comments are
-                             the primary scan target for an open
-                             ticket; activity is a reference surface
-                             techs consult when they need to answer
-                             "who did this and when". Hidden on print
-                             — not useful in offline export. -->
-                        <div v-if="ticket" class="print:hidden">
-                            <TicketActivity :ticket-id="ticket.id" />
                         </div>
                     </div>
                 </div>

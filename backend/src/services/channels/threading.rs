@@ -355,6 +355,7 @@ mod tests {
             raw_bytes: None,
             content_language: None,
             source_ref: None,
+            spam_suspected: false,
         }
     }
 

@@ -232,6 +232,51 @@ mod tests {
     }
 
     #[test]
+    fn visibility_is_governed_by_the_pinned_workspace_not_ambient_connection() {
+        // Regression for the TicketAccess unpinned-connection bug: the gate
+        // ran can_view_ticket on a raw connection whose app.workspace_id was
+        // whatever lingered on the pooled connection (now scrubbed on every
+        // checkout by ResettingManager). Since the query carries no explicit workspace filter
+        // and leans on the tickets RLS policy, an unpinned connection scoped
+        // to no workspace, 404ing every ticket; a leaked one could scope to
+        // the wrong tenant. Lock the precondition: even an all-seeing admin
+        // resolves nothing without a pinned workspace, and re-pinning
+        // restores the gate.
+        use diesel::sql_types::{Nullable, Text};
+
+        let mut conn = setup_test_connection();
+        let admin = TestFixtures::create_user(&mut conn, "admin", "admin");
+        let ticket = TestFixtures::create_ticket(&mut conn, "scoped", Some(admin.uuid), None);
+        let vis = ctx(admin.uuid, "admin");
+
+        // Baseline: the fixture connection is pinned to the ticket's workspace.
+        assert!(can_view_ticket(&mut conn, &vis, ticket.id).unwrap());
+
+        // Capture, then clear, the pinned workspace to mimic a freshly
+        // checked-out connection that nothing has re-pinned.
+        let pinned: Option<String> = diesel::select(diesel::dsl::sql::<Nullable<Text>>(
+            "current_setting('app.workspace_id', true)",
+        ))
+        .get_result(&mut conn)
+        .unwrap();
+        diesel::sql_query("SELECT set_config('app.workspace_id', '', false)")
+            .execute(&mut conn)
+            .unwrap();
+        assert!(
+            !can_view_ticket(&mut conn, &vis, ticket.id).unwrap(),
+            "an unpinned connection must resolve no ticket, even for an admin"
+        );
+
+        // Re-pin: visibility is restored, proving the workspace pin (not
+        // ambient connection state) is what governs the gate.
+        diesel::sql_query("SELECT set_config('app.workspace_id', $1, false)")
+            .bind::<Text, _>(pinned.unwrap_or_default())
+            .execute(&mut conn)
+            .unwrap();
+        assert!(can_view_ticket(&mut conn, &vis, ticket.id).unwrap());
+    }
+
+    #[test]
     fn technician_sees_every_ticket() {
         let mut conn = setup_test_connection();
         let tech = TestFixtures::create_user(&mut conn, "tech", "technician");

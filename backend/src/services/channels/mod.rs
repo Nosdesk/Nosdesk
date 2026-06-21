@@ -32,6 +32,7 @@ use crate::db::DbConnection;
 pub mod auto_ack;
 pub mod bounce_parser;
 pub mod email_format_flowed;
+pub mod email_forward;
 pub mod email_imap;
 pub mod email_quote;
 pub mod email_render_kind;
@@ -214,6 +215,12 @@ pub struct InboundMessage {
     /// `None`. The registry passes it back to
     /// [`ChannelAdapter::record_ingest_outcome`] after the pipeline runs.
     pub source_ref: Option<u64>,
+    /// Normalized "this looks like spam" signal. Set from the provider's own
+    /// verdict (SES `X-SES-Spam-Verdict` on the forwarding path; a future IMAP
+    /// adapter could map `X-Spam-Flag`). The pipeline still opens the ticket —
+    /// it must never silently drop a known customer's mail — but stamps the
+    /// flag so agents can triage. `false` for adapters with no spam signal.
+    pub spam_suspected: bool,
 }
 
 /// Either bytes we already have (IMAP) or a URL we fetch later (Slack
@@ -414,6 +421,32 @@ pub trait StreamAdapter: ChannelAdapter {
     ) -> Result<(), ChannelError>;
 }
 
+// ---------- Provider ingestion mode ----------
+
+/// How a provider delivers inbound mail, which decides whether the worker
+/// registry spawns a poll loop for it. `Pull` providers (IMAP) are polled
+/// on a background worker; `Push` providers (SES forwarding, future webhook
+/// adapters) are ingested by an HTTP handler and need no worker; `Unknown`
+/// is a provider string the build doesn't recognise, which the registry
+/// surfaces loudly rather than silently ignoring.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IngestionMode {
+    Pull,
+    Push,
+    Unknown,
+}
+
+/// Classify a `channels.provider` value by how it ingests. The single
+/// source of truth the registry consults before deciding to start a poll
+/// worker, so adding a provider touches exactly one match arm.
+pub fn ingestion_mode(provider: &str) -> IngestionMode {
+    match provider {
+        crate::models::CHANNEL_PROVIDER_EMAIL_IMAP => IngestionMode::Pull,
+        crate::models::CHANNEL_PROVIDER_EMAIL_FORWARD => IngestionMode::Push,
+        _ => IngestionMode::Unknown,
+    }
+}
+
 // ---------- Channel direction constants re-exported for ergonomics ----------
 
 pub use crate::models::{CHANNEL_DIRECTION_INBOUND, CHANNEL_DIRECTION_OUTBOUND};
@@ -427,6 +460,13 @@ mod tests {
     #[test]
     fn loop_markers_any_is_false_by_default() {
         assert!(!LoopMarkers::default().any());
+    }
+
+    #[test]
+    fn ingestion_mode_classifies_each_provider() {
+        assert_eq!(ingestion_mode("email_imap"), IngestionMode::Pull);
+        assert_eq!(ingestion_mode("email_forward"), IngestionMode::Push);
+        assert_eq!(ingestion_mode("slack"), IngestionMode::Unknown);
     }
 
     #[test]

@@ -199,20 +199,31 @@ impl FromRequest for AuthContext {
                 crate::repository::groups::get_group_ids_for_user(&mut conn, &user_uuid)
                     .unwrap_or_default();
 
-            // Look up the caller's role in the workspace the
-            // request resolved to (set by WorkspaceContextMiddleware).
-            // Apex / unscoped requests have no WorkspaceContext and
-            // get a None workspace role — derive_role then falls
-            // back to platform_role alone.
+            // Look up the caller's role in the workspace the request resolved
+            // to (set by WorkspaceContextMiddleware). Apex / unscoped requests
+            // have no WorkspaceContext and get a None workspace role —
+            // derive_role then falls back to platform_role alone.
+            //
+            // The lookup runs in a workspace-pinned transaction:
+            // `workspace_members` is RLS-scoped on `app.workspace_id`, so on a
+            // raw pooled connection a real member would read as a non-member.
+            // `with_actor_context` sets the GUC with SET LOCAL for the read and
+            // reverts at commit, leaving nothing on the connection to leak.
             let workspace_role = req
                 .extensions()
                 .get::<WorkspaceContext>()
                 .map(|wc| wc.workspace_id)
                 .and_then(|workspace_id| {
-                    crate::repository::workspaces::membership(&mut conn, workspace_id, user_uuid)
-                        .ok()
-                        .flatten()
-                        .map(|m| WorkspaceRole::from_db(&m.role))
+                    let actor = crate::sync::actor::ActorContext::user_at_workspace(
+                        user_uuid,
+                        workspace_id,
+                    );
+                    crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
+                        crate::repository::workspaces::membership(c, workspace_id, user_uuid)
+                    })
+                    .ok()
+                    .flatten()
+                    .map(|m| WorkspaceRole::from_db(&m.role))
                 });
 
             Ok(AuthContext {

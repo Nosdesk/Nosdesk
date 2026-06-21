@@ -20,6 +20,7 @@ export function toCardData(ticket: SyncTicket): CardData | null {
     title: ticket.title,
     workflow_state: ticket.workflow_state,
     priority: ticket.priority,
+    spam_suspected: ticket.spam_suspected ?? false,
     assignee_uuid: ticket.assignee_uuid,
     requester_uuid: ticket.requester_uuid,
     due_date: ticket.due_date,

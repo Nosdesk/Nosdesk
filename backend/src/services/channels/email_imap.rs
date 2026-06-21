@@ -1120,6 +1120,9 @@ pub fn parse_rfc822_into_inbound_message(
         // Set by the caller (fetch_single_uid) from the IMAP UID; the parser
         // itself has no transport context.
         source_ref: None,
+        // Spam is a transport-level verdict (SES on the forwarding path), not
+        // something the MIME parser decides; the caller sets it.
+        spam_suspected: false,
     })
 }
 

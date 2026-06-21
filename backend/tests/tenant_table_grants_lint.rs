@@ -31,7 +31,12 @@ use common::TestDb;
 /// Tables `nosdesk_app` may INSERT into but intentionally must NOT
 /// UPDATE or DELETE. Add an entry only with a justification, e.g.
 /// `"audit_log", // immutable audit trail, append-only by design`.
-const APPEND_ONLY_ALLOWLIST: &[&str] = &[];
+const APPEND_ONLY_ALLOWLIST: &[&str] = &[
+    // Operator dead-letter log for unrouted inbound mail: rows are inserted by
+    // the inbound webhook and read / retention-deleted by the operator, never
+    // updated. No UPDATE grant by design.
+    "inbound_dead_letters",
+];
 
 #[derive(QueryableByName, Debug)]
 struct TableGrant {

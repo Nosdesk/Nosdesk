@@ -909,6 +909,12 @@ pub async fn update_ticket_partial(
         }
     }
 
+    // "Not spam": only *clearing* the flag is allowed via the API — the inbound
+    // pipeline is the sole thing that ever marks a ticket as spam.
+    if body.get("spam_suspected").and_then(|v| v.as_bool()) == Some(false) {
+        ticket_update.spam_suspected = Some(false);
+    }
+
     // Handle requester (can be name, UUID, or empty string for unassign)
     if let Some(requester_str) = body.get("requester").and_then(|v| v.as_str()) {
         if requester_str.is_empty() {

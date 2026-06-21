@@ -6,7 +6,7 @@
 
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
-use diesel::r2d2::{self, ConnectionManager};
+use diesel::r2d2;
 use diesel::Connection;
 use diesel_migrations::MigrationHarness;
 use once_cell::sync::OnceCell;
@@ -145,9 +145,13 @@ pub fn setup_test_connection() -> DbConnection {
          dev ticket/user ids)",
     );
 
-    let manager = ConnectionManager::<PgConnection>::new(database_url);
+    // test_on_check_out(false): keep the production GUC scrub off this
+    // single held fixture connection so the role + workspace GUCs this
+    // helper sets below survive for the test's lifetime.
+    let manager = crate::db::ResettingManager::new(database_url);
     let pool = r2d2::Pool::builder()
         .max_size(1)
+        .test_on_check_out(false)
         .build(manager)
         .expect("Failed to create test connection pool");
 
@@ -431,11 +435,16 @@ pub fn setup_test_pool() -> crate::db::Pool {
     ensure_test_db_migrated();
     ensure_test_keyring();
 
-    let manager = ConnectionManager::<PgConnection>::new(test_database_url());
+    // test_on_check_out(false): the TestTransaction customizer sets the
+    // role + ambient workspace GUC once on acquire; the production checkout
+    // scrub would clear them between the handler's pool checkouts, so it
+    // stays off for the test pool.
+    let manager = crate::db::ResettingManager::new(test_database_url());
     r2d2::Pool::builder()
         .max_size(1)
         .connection_customizer(Box::new(TestTransaction))
         .connection_timeout(Duration::from_secs(5))
+        .test_on_check_out(false)
         .build(manager)
         .expect("Failed to create test pool")
 }

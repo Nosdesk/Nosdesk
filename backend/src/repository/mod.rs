@@ -27,6 +27,8 @@ pub mod feature_flags;
 pub mod groups;
 pub mod idempotency_keys;
 pub mod imports;
+pub mod inbound_addresses;
+pub mod inbound_dead_letters;
 pub mod knowledge_gaps;
 pub mod linked_tickets;
 pub mod outbound_emails;

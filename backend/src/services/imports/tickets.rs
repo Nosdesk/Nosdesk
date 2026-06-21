@@ -118,6 +118,7 @@ impl Importer for TicketImporter {
                 recurrence_rule: None,
                 recurrence_template_id: None,
                 resolution_notes: None,
+                spam_suspected: false,
             };
             // create_ticket emits the ticket.created sync event in the
             // transaction, so imported tickets reach the activity feed,

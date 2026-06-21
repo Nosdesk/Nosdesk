@@ -34,6 +34,9 @@ export interface SyncTicket {
   workflow_state: CardWorkflowState | null
   workflow_state_id: number
   priority: Priority
+  /** True when the inbound mail filter flagged the source message as spam.
+   *  Renders a badge in the queue; opens flagged + low-priority. */
+  spam_suspected: boolean
   requester_uuid: string | null
   assignee_uuid: string | null
   category_id: number | null
@@ -85,6 +88,7 @@ function apiTicketToSync(ticket: Ticket): SyncTicket {
     workflow_state: cardWs,
     workflow_state_id: ticket.workflow_state_id ?? ws?.id ?? 0,
     priority: ticket.priority,
+    spam_suspected: ticket.spam_suspected ?? false,
     requester_uuid: ticket.requester_user?.uuid ?? ticket.requester ?? null,
     assignee_uuid: ticket.assignee_user?.uuid ?? ticket.assignee ?? null,
     category_id: ticket.category_id ?? null,

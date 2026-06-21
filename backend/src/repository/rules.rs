@@ -583,7 +583,13 @@ pub fn apply_manual(
             .first(conn)
             .optional()?
             .ok_or(ApplyError::TicketNotFound(input.ticket_id))?;
-        if ticket.merged_into_ticket_id.is_some() {
+        // Merge metadata now lives in the `ticket_merges` satellite; a row
+        // there means the ticket is a merge source (terminal, read-only).
+        let is_merged: bool = diesel::select(diesel::dsl::exists(
+            crate::schema::ticket_merges::table.find(ticket.id),
+        ))
+        .get_result(conn)?;
+        if is_merged {
             return Err(ApplyError::TicketMerged(ticket.id));
         }
 

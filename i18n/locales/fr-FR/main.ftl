@@ -1123,6 +1123,70 @@ admin-channels-add = Ajouter un canal
 admin-channels-add-prompt = Choisissez un type de canal
 admin-channels-type-email-imap = E-mail (IMAP)
 admin-channels-type-email-imap-description = Interroger une boîte aux lettres et transformer les messages en tickets
+# MT: pending native review (fr-FR)
+admin-channels-type-email-forward = Transfert d'e-mails
+# MT: pending native review (fr-FR)
+admin-channels-type-email-forward-description = Transférez votre boîte de support vers une adresse que nous générons ; aucun identifiant requis
+# MT: pending native review (fr-FR)
+admin-channels-forwarding-title = Transfert d'e-mails
+# MT: pending native review (fr-FR)
+admin-channels-forwarding-description = Transférez votre boîte de support vers une adresse générée et les nouveaux e-mails deviennent des tickets. Aucun identifiant de boîte aux lettres requis.
+# MT: pending native review (fr-FR)
+admin-channels-forwarding-not-enabled = Le transfert d'e-mails n'est pas disponible sur cette instance.
+# MT: pending native review (fr-FR)
+admin-channels-forwarding-create-heading = Configurer le transfert
+# MT: pending native review (fr-FR)
+admin-channels-forwarding-create-description = Créez le canal pour générer votre adresse de transfert.
+# MT: pending native review (fr-FR)
+admin-channels-forwarding-name-placeholder = Nom du canal (facultatif)
+# MT: pending native review (fr-FR)
+admin-channels-forwarding-default-name = Transfert d'e-mails
+# MT: pending native review (fr-FR)
+admin-channels-forwarding-create-button = Créer l'adresse de transfert
+# MT: pending native review (fr-FR)
+admin-channels-forwarding-creating = Création...
+# MT: pending native review (fr-FR)
+admin-channels-forwarding-error-create = Échec de la création du canal de transfert
+# MT: pending native review (fr-FR)
+admin-channels-forwarding-address-heading = Votre adresse de transfert
+# MT: pending native review (fr-FR)
+admin-channels-forwarding-address-description = Transférez votre boîte de support vers cette adresse.
+# MT: pending native review (fr-FR)
+admin-channels-forwarding-copy = Copier
+# MT: pending native review (fr-FR)
+admin-channels-forwarding-copied = Copié
+# MT: pending native review (fr-FR)
+admin-channels-forwarding-instructions-heading = Comment transférer
+# MT: pending native review (fr-FR)
+admin-channels-forwarding-instructions-body = Dans votre fournisseur de messagerie, ajoutez une règle qui transfère votre boîte de support vers l'adresse ci-dessus. Les nouveaux messages arrivent alors sous forme de tickets.
+# MT: pending native review (fr-FR)
+admin-nav-unrouted-inbound-title = Courrier entrant non routé
+# MT: pending native review (fr-FR)
+admin-nav-unrouted-inbound-description = Courrier transféré ne correspondant à aucune adresse
+# MT: pending native review (fr-FR)
+admin-unrouted-title = Courrier entrant non routé
+# MT: pending native review (fr-FR)
+admin-unrouted-description = Courrier transféré ayant passé les analyses anti-spam et antivirus mais ne correspondant à aucune adresse de transfert active, généralement une cible de transfert mal saisie ou obsolète.
+# MT: pending native review (fr-FR)
+admin-unrouted-count-label = au cours des 7 derniers jours
+# MT: pending native review (fr-FR)
+admin-unrouted-empty-title = Rien de non routé
+# MT: pending native review (fr-FR)
+admin-unrouted-empty-description = Tout le courrier transféré a correspondu à une adresse. Un transfert mal configuré apparaîtrait ici.
+# MT: pending native review (fr-FR)
+admin-unrouted-col-recipient = Envoyé à
+# MT: pending native review (fr-FR)
+admin-unrouted-col-from = De
+# MT: pending native review (fr-FR)
+admin-unrouted-col-subject = Objet
+# MT: pending native review (fr-FR)
+admin-unrouted-col-received = Reçu
+# MT: pending native review (fr-FR)
+admin-unrouted-no-sender = (aucun expéditeur)
+# MT: pending native review (fr-FR)
+admin-unrouted-no-subject = (aucun objet)
+# MT: pending native review (fr-FR)
+admin-unrouted-error-load = Échec du chargement du courrier non routé
 admin-channels-status-active = Actif
 admin-channels-status-disabled = Désactivé
 admin-channels-status-error = Erreur
@@ -3906,6 +3970,10 @@ ticket-activity-load-more-error = Échec du chargement d'activité supplémentai
 ticket-activity-empty = Aucune activité pour l'instant.
 ticket-activity-load-more = Charger l'historique plus ancien
 ticket-activity-loading = Chargement…
+# MT: pending native review
+ticket-activity-show-more = Afficher { $count } de plus
+# MT: pending native review
+ticket-activity-show-less = Afficher moins
 ticket-activity-actor-someone = Quelqu'un
 ticket-activity-actor-system = Système
 ticket-activity-actor-sender = Expéditeur
@@ -4292,6 +4360,16 @@ views-tickets-table-resize-handle-tooltip = Glisser pour redimensionner · doubl
 views-ticket-row-select-aria = Sélectionner le ticket n°{ $id }
 views-ticket-row-recurring-tooltip = Ticket récurrent
 views-ticket-row-sla-badge = SLA
+# MT: pending native review (fr-FR)
+views-ticket-row-spam-badge = Spam
+# MT: pending native review (fr-FR)
+views-ticket-row-spam-tooltip = Signalé comme spam potentiel par le filtre de messagerie
+# MT: pending native review (fr-FR)
+ticket-spam-banner-text = Ce ticket a été signalé comme spam potentiel par le filtre de messagerie.
+# MT: pending native review (fr-FR)
+ticket-spam-not-spam = Pas un spam
+# MT: pending native review (fr-FR)
+ticket-spam-delete = Supprimer
 views-ticket-row-sla-breached-tooltip = SLA dépassé
 views-ticket-row-sla-breached = Dépassé
 views-ticket-row-sla-paused = En pause
@@ -5172,6 +5250,10 @@ route-title-admin-email-suppressions = Suppressions d'e-mails
 route-title-admin-guest-access = Accès invité
 route-title-admin-email-settings = Configuration des e-mails
 route-title-admin-channels-email = Réception des e-mails
+# MT: pending native review (fr-FR)
+route-title-admin-channels-forwarding = Transfert d'e-mails
+# MT: pending native review (fr-FR)
+route-title-admin-unrouted-inbound = Courrier entrant non routé
 route-title-admin-data-import = Importation de données
 route-title-admin-microsoft-graph = Connexion Microsoft Graph
 route-title-admin-csv-import = Importation CSV

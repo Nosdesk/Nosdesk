@@ -17,7 +17,7 @@
 
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
-use diesel::r2d2::{self, ConnectionManager, PooledConnection};
+use diesel::r2d2;
 use diesel_migrations::MigrationHarness;
 use std::sync::OnceLock;
 use uuid::Uuid;
@@ -48,8 +48,8 @@ impl r2d2::CustomizeConnection<PgConnection, r2d2::Error> for WorkspaceGucCustom
     }
 }
 
-pub type TestPool = r2d2::Pool<ConnectionManager<PgConnection>>;
-pub type TestPooledConn = PooledConnection<ConnectionManager<PgConnection>>;
+pub type TestPool = backend::db::Pool;
+pub type TestPooledConn = backend::db::DbConnection;
 
 /// Init the at-rest Keyring + JWT secret once per process.
 /// `backend::test_helpers::ensure_test_keyring` is `#[cfg(test)]`-
@@ -194,10 +194,14 @@ impl TestDb {
     /// the middleware stack can grab a conn for the idempotency
     /// cache check while the handler still owns its own.
     pub fn pool_with_size(&self, max_size: u32) -> TestPool {
-        let manager = ConnectionManager::<PgConnection>::new(&self.url);
+        let manager = backend::db::ResettingManager::new(&self.url);
         r2d2::Pool::builder()
             .max_size(max_size)
             .connection_customizer(Box::new(WorkspaceGucCustomizer))
+            // Integration tests seed app.workspace_id=1 per connection and
+            // read it ambiently (they run outside the request middleware), so
+            // keep the production per-checkout GUC scrub off this pool.
+            .test_on_check_out(false)
             .build(manager)
             .expect("build sandbox pool")
     }
