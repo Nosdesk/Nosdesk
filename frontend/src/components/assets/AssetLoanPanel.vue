@@ -42,6 +42,7 @@ const pastLoans = computed<AssetLoan[]>(() => loans.value.filter((l) => l.return
 const isFirstLoad = computed(
   () => loansQuery.status.value === 'pending' && loansQuery.data.value === undefined,
 );
+const loadError = computed(() => (loansQuery.error.value ? t('asset-loan-load-error') : ''));
 
 // Only in-service / in-stock assets with no active loan can be loaned out.
 const canLoan = computed(
@@ -200,6 +201,8 @@ async function submitReturn() {
         {{ $t('asset-loan-loan-out') }}
       </Button>
     </div>
+
+    <p v-if="loadError" class="text-xs text-status-error">{{ loadError }}</p>
 
     <!-- Active loan -->
     <div

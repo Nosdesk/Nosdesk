@@ -73,6 +73,7 @@ const due = computed<DueInfo | null>(() => {
     </div>
     <Button
       v-if="isActive && canReturn"
+      class="shrink-0"
       size="sm"
       variant="secondary"
       icon="check"

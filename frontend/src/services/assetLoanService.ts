@@ -5,6 +5,7 @@ import type { AssetLoan } from '@/types/asset';
 export const assetLoanKeys = {
   root: ['asset-loans'] as const,
   forAsset: (assetId: number) => ['asset-loans', assetId] as const,
+  forTicket: (ticketId: number) => ['ticket-loans', ticketId] as const,
 };
 
 export interface IssueLoanBody {

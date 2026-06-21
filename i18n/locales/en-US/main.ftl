@@ -4281,6 +4281,7 @@ asset-loan-device-search = Search devices…
 asset-loan-change = Change
 asset-loan-loading = Loading…
 asset-loan-no-loanable = No available devices
+asset-loan-load-error = Couldn't load loans.
 asset-lifecycle-empty-title = No transitions yet
 asset-lifecycle-empty-description = Status changes will appear here once recorded.
 asset-lifecycle-transition-failed = Failed to change asset status

@@ -4218,6 +4218,8 @@ asset-loan-change = Modifier
 asset-loan-loading = Chargement…
 # MT: pending native review
 asset-loan-no-loanable = Aucun appareil disponible
+# MT: pending native review
+asset-loan-load-error = Impossible de charger les prêts.
 asset-lifecycle-empty-title = Aucune transition pour le moment
 asset-lifecycle-empty-description = Les changements de statut apparaîtront ici une fois enregistrés.
 asset-lifecycle-transition-failed = Échec du changement de statut de l'actif

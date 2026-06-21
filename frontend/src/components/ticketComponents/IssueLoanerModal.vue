@@ -80,10 +80,12 @@ async function loadDevices() {
   }
 }
 
-function onSearchInput() {
+// Debounced reload as the agent types. A watcher (not an `@input`
+// listener) so it doesn't depend on FormInput forwarding the native event.
+watch(search, () => {
   if (searchTimer) clearTimeout(searchTimer);
   searchTimer = setTimeout(() => void loadDevices(), 300);
-}
+});
 
 function onSelectBorrower(user: { uuid: string; name: string }) {
   showBorrowerPicker.value = false;
@@ -130,7 +132,7 @@ async function submit() {
           <FormInput
             v-model="search"
             :placeholder="$t('asset-loan-device-search')"
-            @input="onSearchInput"
+            :aria-label="$t('asset-loan-device-search')"
           />
           <div class="rounded-lg border border-default bg-surface max-h-48 overflow-y-auto divide-y divide-default">
             <div v-if="loadingDevices" class="px-3 py-3 text-xs text-tertiary text-center">

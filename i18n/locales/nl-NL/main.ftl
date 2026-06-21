@@ -4209,6 +4209,8 @@ asset-loan-change = Wijzigen
 asset-loan-loading = Laden…
 # MT: pending native review
 asset-loan-no-loanable = Geen beschikbare apparaten
+# MT: pending native review
+asset-loan-load-error = Kan uitleningen niet laden.
 asset-lifecycle-empty-title = Nog geen overgangen
 asset-lifecycle-empty-description = Statuswijzigingen verschijnen hier zodra ze zijn vastgelegd.
 asset-lifecycle-transition-failed = Wijzigen van activumstatus mislukt

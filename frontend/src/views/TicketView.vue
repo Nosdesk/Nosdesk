@@ -663,7 +663,7 @@ useCreateTicketAction();
                         <template v-if="ticket">
                             <TicketGapFlag :ticket-id="ticket.id" />
 
-                            <TicketLoansCard :ticket-id="ticket.id" :requester-uuid="ticket.requester" />
+                            <TicketLoansCard :ticket-id="ticket.id" :requester-uuid="ticket.requester" :has-devices="devices.length > 0" />
 
                             <PluginSlot slot-name="ticket-sidebar" :ticket="pluginTicket" :actionActivatedMap="pluginActionActivatedMap" />
                         </template>
