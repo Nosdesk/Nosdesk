@@ -32,6 +32,7 @@ use crate::services::search::SearchService;
 // `PROVISION_LOCK_KEY` in `services::plugins::provisioning`.
 const MSGRAPH_DELTA_SYNC_LOCK: i64 = 0x004e_6f73_4d53_4744;
 const THUMBNAIL_BACKFILL_LOCK: i64 = 0x004e_6f73_5448_4d42;
+const LOAN_REMINDER_LOCK: i64 = 0x004e_6f73_4c6f_616e;
 
 /// Holds a per-job Postgres advisory lock for the duration of one
 /// scheduler tick, releasing it on drop — including on an unwinding panic,
@@ -830,6 +831,127 @@ impl SlaBreachKind {
             SlaBreachKind::Resolution => "Resolution",
         }
     }
+}
+
+// ---- Device loan due-back reminders --------------------------------
+
+const LOAN_DUE_SOON_DAYS_DEFAULT: i64 = 2;
+
+#[derive(Clone, Copy)]
+enum ReminderKind {
+    DueSoon,
+    Overdue,
+}
+
+/// Daily: remind borrowers about device loans due back soon or overdue.
+///
+/// Cross-machine guarded by an advisory lock. Scans every workspace's loans
+/// under BYPASSRLS, dispatches a notification to the borrower via
+/// `NotificationService` (in-app + email per their preferences), then stamps
+/// the loan so each reminder fires once. A failed dispatch leaves the stamp
+/// unset, so the next tick retries (eventual delivery over double-sending).
+/// The due-soon horizon is `NOSDESK_LOAN_DUE_SOON_DAYS` (default 2).
+pub async fn loan_due_reminders(
+    pool: Pool,
+    notification_service: Arc<crate::services::notifications::NotificationService>,
+) -> Result<()> {
+    use crate::repository::asset_loans as loans;
+    use crate::services::notifications::types::{
+        NotificationActor, NotificationEntity, NotificationPayload, NotificationTypeCode,
+    };
+
+    let _lock = match try_job_lock(&pool, LOAN_REMINDER_LOCK, "asset_loans.due_reminders")? {
+        Some(guard) => guard,
+        None => return Ok(()), // another machine holds it this tick
+    };
+
+    let due_soon_days = std::env::var("NOSDESK_LOAN_DUE_SOON_DAYS")
+        .ok()
+        .and_then(|v| v.trim().parse::<i64>().ok())
+        .filter(|n| *n >= 0)
+        .unwrap_or(LOAN_DUE_SOON_DAYS_DEFAULT);
+    let today = chrono::Utc::now().date_naive();
+    let horizon = today + chrono::Duration::days(due_soon_days);
+
+    // Cross-workspace scan under BYPASSRLS.
+    let mut conn = pool.get().context("db pool")?;
+    let actor = crate::sync::actor::ActorContext::system("scheduler:loan_reminders");
+    let (overdue, due_soon) = crate::sync::session::with_actor_bypass_context::<
+        _,
+        diesel::result::Error,
+    >(&mut conn, &actor, |conn| {
+        Ok((
+            loans::overdue_reminder_candidates(conn, today)?,
+            loans::due_soon_reminder_candidates(conn, today, horizon)?,
+        ))
+    })
+    .context("scan loan reminder candidates")?;
+    drop(conn);
+
+    let (mut sent, mut failed) = (0usize, 0usize);
+    let work = overdue
+        .into_iter()
+        .map(|c| (ReminderKind::Overdue, c))
+        .chain(due_soon.into_iter().map(|c| (ReminderKind::DueSoon, c)));
+    for (kind, c) in work {
+        let (type_code, body) = match kind {
+            ReminderKind::Overdue => (
+                NotificationTypeCode::LoanOverdue,
+                format!("{} was due back on {}.", c.asset_name, c.due_back),
+            ),
+            ReminderKind::DueSoon => (
+                NotificationTypeCode::LoanDueSoon,
+                format!("{} is due back on {}.", c.asset_name, c.due_back),
+            ),
+        };
+        let payload = NotificationPayload::new(
+            type_code,
+            c.borrower_user_uuid,
+            // System reminder: a sentinel actor (no human triggered it). The
+            // actor uuid is only used for the self-skip + display, not stored.
+            NotificationActor {
+                uuid: uuid::Uuid::nil(),
+                name: "Nosdesk".to_string(),
+                avatar_thumb: None,
+            },
+            NotificationEntity::Asset {
+                id: c.asset_id,
+                name: c.asset_name.clone(),
+            },
+            c.workspace_id,
+        )
+        .with_body(body);
+
+        if let Err(e) = notification_service.notify(payload).await {
+            failed += 1;
+            warn!(loan_id = c.loan_id, error = %e, "scheduler:loan_reminders: notify failed; retry next tick");
+            continue;
+        }
+        // Stamp only after a successful dispatch, in the loan's workspace.
+        let stamped = match kind {
+            ReminderKind::Overdue => crate::sync::session::background_run_in_workspace(
+                &pool,
+                "scheduler:loan_reminders:stamp",
+                c.workspace_id,
+                |conn| loans::mark_overdue_notified(conn, c.loan_id),
+            ),
+            ReminderKind::DueSoon => crate::sync::session::background_run_in_workspace(
+                &pool,
+                "scheduler:loan_reminders:stamp",
+                c.workspace_id,
+                |conn| loans::mark_due_soon_notified(conn, c.loan_id),
+            ),
+        };
+        if let Err(e) = stamped {
+            warn!(loan_id = c.loan_id, error = ?e, "scheduler:loan_reminders: failed to stamp");
+        }
+        sent += 1;
+    }
+
+    if sent > 0 || failed > 0 {
+        info!(sent, failed, "scheduler: loan due reminders swept");
+    }
+    Ok(())
 }
 
 #[cfg(test)]

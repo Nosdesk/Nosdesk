@@ -173,6 +173,100 @@ pub fn active_for_asset(conn: &mut DbConnection, asset_id: i32) -> QueryResult<O
         .optional()
 }
 
+// ---- Due-back reminders (scheduler) --------------------------------
+
+/// A loan that needs a due-back reminder. The reminder job dispatches a
+/// notification to the borrower and stamps the matching `*_notified_at`.
+#[derive(Debug, Clone)]
+pub struct ReminderCandidate {
+    pub loan_id: i32,
+    pub asset_id: i32,
+    pub asset_name: String,
+    pub borrower_user_uuid: Uuid,
+    pub due_back: NaiveDate,
+    pub ticket_id: Option<i32>,
+    pub workspace_id: i32,
+}
+
+type CandidateRow = (i32, i32, String, Uuid, Option<NaiveDate>, Option<i32>, i32);
+
+fn to_candidate(row: CandidateRow) -> ReminderCandidate {
+    let (loan_id, asset_id, asset_name, borrower_user_uuid, due_back, ticket_id, workspace_id) =
+        row;
+    ReminderCandidate {
+        loan_id,
+        asset_id,
+        asset_name,
+        borrower_user_uuid,
+        // Both queries filter due_back to a real date, so this is always Some.
+        due_back: due_back.unwrap_or_default(),
+        ticket_id,
+        workspace_id,
+    }
+}
+
+/// Active loans now past their due date and not yet flagged overdue.
+pub fn overdue_reminder_candidates(
+    conn: &mut DbConnection,
+    today: NaiveDate,
+) -> QueryResult<Vec<ReminderCandidate>> {
+    asset_loans::table
+        .inner_join(assets::table)
+        .filter(asset_loans::returned_at.is_null())
+        .filter(asset_loans::due_back.lt(today))
+        .filter(asset_loans::overdue_notified_at.is_null())
+        .select((
+            asset_loans::id,
+            asset_loans::asset_id,
+            assets::name,
+            asset_loans::borrower_user_uuid,
+            asset_loans::due_back,
+            asset_loans::ticket_id,
+            asset_loans::workspace_id,
+        ))
+        .load::<CandidateRow>(conn)
+        .map(|rows| rows.into_iter().map(to_candidate).collect())
+}
+
+/// Active loans due back within the horizon and not yet flagged due-soon.
+pub fn due_soon_reminder_candidates(
+    conn: &mut DbConnection,
+    today: NaiveDate,
+    horizon: NaiveDate,
+) -> QueryResult<Vec<ReminderCandidate>> {
+    asset_loans::table
+        .inner_join(assets::table)
+        .filter(asset_loans::returned_at.is_null())
+        .filter(asset_loans::due_back.ge(today))
+        .filter(asset_loans::due_back.le(horizon))
+        .filter(asset_loans::due_soon_notified_at.is_null())
+        .select((
+            asset_loans::id,
+            asset_loans::asset_id,
+            assets::name,
+            asset_loans::borrower_user_uuid,
+            asset_loans::due_back,
+            asset_loans::ticket_id,
+            asset_loans::workspace_id,
+        ))
+        .load::<CandidateRow>(conn)
+        .map(|rows| rows.into_iter().map(to_candidate).collect())
+}
+
+// sync-audit-only: reminder bookkeeping stamp, not a user-facing change
+pub fn mark_overdue_notified(conn: &mut DbConnection, loan_id: i32) -> QueryResult<usize> {
+    diesel::update(asset_loans::table.find(loan_id))
+        .set(asset_loans::overdue_notified_at.eq(Utc::now()))
+        .execute(conn)
+}
+
+// sync-audit-only: reminder bookkeeping stamp, not a user-facing change
+pub fn mark_due_soon_notified(conn: &mut DbConnection, loan_id: i32) -> QueryResult<usize> {
+    diesel::update(asset_loans::table.find(loan_id))
+        .set(asset_loans::due_soon_notified_at.eq(Utc::now()))
+        .execute(conn)
+}
+
 /// Issue a loan: an asset enters a borrower's custody. Sets the asset
 /// `on_loan`, logs the transition, and emits the loan + asset + lifecycle
 /// sync events, atomically.
@@ -462,6 +556,84 @@ mod tests {
         let rows = list_for_ticket(&mut conn, ticket.id).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].ticket_id, Some(ticket.id));
+    }
+
+    #[test]
+    fn overdue_candidate_appears_until_stamped() {
+        let mut conn = setup_test_connection();
+        let borrower = TestFixtures::create_user(&mut conn, "borrower", "user");
+        let a = asset(&mut conn, "Loaner-OD");
+        let today = Utc::now().date_naive();
+        let past = today - chrono::Duration::days(3);
+        let loan = issue(
+            &mut conn,
+            IssueLoan {
+                asset_id: a.id,
+                borrower_user_uuid: borrower.uuid,
+                due_back: Some(past),
+                ticket_id: None,
+                notes: None,
+                actor_uuid: None,
+            },
+        )
+        .unwrap();
+
+        let before = overdue_reminder_candidates(&mut conn, today).unwrap();
+        assert!(
+            before.iter().any(|c| c.loan_id == loan.id),
+            "overdue loan is a candidate"
+        );
+
+        mark_overdue_notified(&mut conn, loan.id).unwrap();
+        let after = overdue_reminder_candidates(&mut conn, today).unwrap();
+        assert!(
+            !after.iter().any(|c| c.loan_id == loan.id),
+            "stamped loan stops re-appearing"
+        );
+    }
+
+    #[test]
+    fn due_soon_candidate_respects_horizon() {
+        let mut conn = setup_test_connection();
+        let borrower = TestFixtures::create_user(&mut conn, "borrower", "user");
+        let soon = asset(&mut conn, "Loaner-Soon");
+        let far = asset(&mut conn, "Loaner-Far");
+        let today = Utc::now().date_naive();
+        let horizon = today + chrono::Duration::days(2);
+        let soon_loan = issue(
+            &mut conn,
+            IssueLoan {
+                asset_id: soon.id,
+                borrower_user_uuid: borrower.uuid,
+                due_back: Some(today + chrono::Duration::days(1)),
+                ticket_id: None,
+                notes: None,
+                actor_uuid: None,
+            },
+        )
+        .unwrap();
+        issue(
+            &mut conn,
+            IssueLoan {
+                asset_id: far.id,
+                borrower_user_uuid: borrower.uuid,
+                due_back: Some(today + chrono::Duration::days(10)),
+                ticket_id: None,
+                notes: None,
+                actor_uuid: None,
+            },
+        )
+        .unwrap();
+
+        let candidates = due_soon_reminder_candidates(&mut conn, today, horizon).unwrap();
+        assert!(
+            candidates.iter().any(|c| c.loan_id == soon_loan.id),
+            "loan due tomorrow is due-soon"
+        );
+        assert!(
+            !candidates.iter().any(|c| c.asset_id == far.id),
+            "loan due in 10 days is outside the horizon"
+        );
     }
 
     #[test]

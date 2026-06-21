@@ -1386,6 +1386,20 @@ async fn main() -> std::io::Result<()> {
             move || jobs::detect_sla_breaches(p.clone(), ns.clone()),
         );
 
+        // Daily: remind borrowers about device loans due back soon or
+        // overdue, via NotificationService. Advisory-locked; scans all
+        // workspaces under BYPASSRLS and stamps each loan so a reminder
+        // fires once.
+        let p = pool.clone();
+        let ns = notification_service.clone().into_inner();
+        spawn_periodic(
+            "asset_loans.due_reminders",
+            Duration::from_secs(24 * 60 * 60),
+            scheduler_shutdown.clone(),
+            scheduler_status.clone(),
+            move || jobs::loan_due_reminders(p.clone(), ns.clone()),
+        );
+
         info!("scheduler: periodic jobs spawned");
     }
     let scheduler_status_data = web::Data::new(scheduler_status);

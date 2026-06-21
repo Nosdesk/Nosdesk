@@ -81,6 +81,8 @@ impl EmailChannel {
             NotificationTypeCode::DocPageUpdated => "notif-doc-page-updated",
             NotificationTypeCode::AssetLowStock => "notif-asset-low-stock",
             NotificationTypeCode::SlaBreached => "notif-sla-breached",
+            NotificationTypeCode::LoanDueSoon => "notif-loan-due-soon",
+            NotificationTypeCode::LoanOverdue => "notif-loan-overdue",
         };
 
         // Pass every possible arg; Fluent silently ignores unused
