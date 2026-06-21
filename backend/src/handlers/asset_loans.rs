@@ -12,7 +12,7 @@ use serde::Deserialize;
 use tracing::error;
 use uuid::Uuid;
 
-use crate::extractors::{AuthContext, TenantConn};
+use crate::extractors::{AuthContext, TenantConn, TicketAccess};
 use crate::handlers::errors;
 use crate::repository::{
     asset_loans::{self as repo, IssueLoan, LoanError},
@@ -76,6 +76,19 @@ pub async fn list_for_asset(
         Err(e) => {
             error!(asset_id, error = ?e, "failed to list asset loans");
             errors::internal("Failed to load asset loans")
+        }
+    }
+}
+
+/// Loans issued against a ticket. Visibility-gated by `TicketAccess`, so a
+/// caller who can't read the ticket can't read its loans.
+pub async fn list_for_ticket(mut tc: TenantConn, access: TicketAccess) -> impl Responder {
+    let ticket_id = access.ticket_id;
+    match tc.run(|conn| repo::list_for_ticket(conn, ticket_id)) {
+        Ok(rows) => HttpResponse::Ok().json(rows),
+        Err(e) => {
+            error!(ticket_id, error = ?e, "failed to list ticket loans");
+            errors::internal("Failed to load ticket loans")
         }
     }
 }

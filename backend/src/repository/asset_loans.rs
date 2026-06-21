@@ -156,6 +156,15 @@ pub fn list_for_asset(conn: &mut DbConnection, asset_id: i32) -> QueryResult<Vec
         .load(conn)
 }
 
+/// Loans issued against a ticket (the loaner-from-ticket flow links them).
+/// Newest first.
+pub fn list_for_ticket(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<Vec<AssetLoan>> {
+    asset_loans::table
+        .filter(asset_loans::ticket_id.eq(ticket_id))
+        .order(asset_loans::loaned_at.desc())
+        .load(conn)
+}
+
 pub fn active_for_asset(conn: &mut DbConnection, asset_id: i32) -> QueryResult<Option<AssetLoan>> {
     asset_loans::table
         .filter(asset_loans::asset_id.eq(asset_id))
@@ -429,6 +438,30 @@ mod tests {
         return_loan(&mut conn, a.id, loan.id, Utc::now(), None, None).unwrap();
         let err = return_loan(&mut conn, a.id, loan.id, Utc::now(), None, None).unwrap_err();
         assert!(matches!(err, LoanError::AlreadyReturned));
+    }
+
+    #[test]
+    fn list_for_ticket_returns_linked_loans() {
+        let mut conn = setup_test_connection();
+        let borrower = TestFixtures::create_user(&mut conn, "borrower", "user");
+        let ticket =
+            TestFixtures::create_ticket(&mut conn, "loaner please", Some(borrower.uuid), None);
+        let a = asset(&mut conn, "Loaner-T");
+        issue(
+            &mut conn,
+            IssueLoan {
+                asset_id: a.id,
+                borrower_user_uuid: borrower.uuid,
+                due_back: None,
+                ticket_id: Some(ticket.id),
+                notes: None,
+                actor_uuid: None,
+            },
+        )
+        .unwrap();
+        let rows = list_for_ticket(&mut conn, ticket.id).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].ticket_id, Some(ticket.id));
     }
 
     #[test]

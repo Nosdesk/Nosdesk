@@ -4016,6 +4016,12 @@ ticket-activity-phrase-replied-via = heeft gereageerd via { $channel }
 ticket-activity-phrase-comment-via = heeft een reactie toegevoegd via { $channel }
 ticket-activity-phrase-commented = heeft op dit ticket gereageerd
 ticket-activity-phrase-comment-deleted = heeft een reactie verwijderd
+# MT: pending native review
+ticket-activity-phrase-loan-issued = heeft een apparaat uitgeleend aan { $borrower }
+# MT: pending native review
+ticket-activity-phrase-loan-issued-plain = heeft een apparaat uitgeleend
+# MT: pending native review
+ticket-activity-phrase-loan-returned = heeft een geleend apparaat teruggenomen
 ticket-activity-phrase-generic = heeft een wijziging aangebracht
 
 # Ticket: labelkiezer (TicketTagsField).
@@ -4187,6 +4193,12 @@ asset-loan-due-on = Terug op { $date }
 asset-loan-range = { $from } tot { $to }
 # MT: pending native review
 asset-loan-failed = Er is iets misgegaan. Probeer het opnieuw.
+# MT: pending native review
+asset-loan-ticket-heading = Geleende apparaten
+# MT: pending native review
+asset-loan-device-fallback = Apparaat #{ $id }
+# MT: pending native review
+asset-loan-returned-on = teruggenomen op { $date }
 asset-lifecycle-empty-title = Nog geen overgangen
 asset-lifecycle-empty-description = Statuswijzigingen verschijnen hier zodra ze zijn vastgelegd.
 asset-lifecycle-transition-failed = Wijzigen van activumstatus mislukt

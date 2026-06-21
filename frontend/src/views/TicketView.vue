@@ -31,6 +31,7 @@ import MergedInField from "@/components/ticketComponents/MergedInField.vue";
 import LinkedTicketModal from "@/components/ticketComponents/LinkedTicketModal.vue";
 import ProjectSelectionModal from "@/components/ticketComponents/ProjectSelectionModal.vue";
 import TicketGapFlag from "@/components/ticketComponents/TicketGapFlag.vue";
+import TicketLoansCard from "@/components/ticketComponents/TicketLoansCard.vue";
 import documentationService from "@/services/documentationService";
 import { docUrl } from "@/utils/docUrl";
 import { pageTicketLinkKeys } from "@/composables/usePageTicketLinks";
@@ -661,6 +662,8 @@ useCreateTicketAction();
                              actions live in the header overflow menu. -->
                         <template v-if="ticket">
                             <TicketGapFlag :ticket-id="ticket.id" />
+
+                            <TicketLoansCard :ticket-id="ticket.id" />
 
                             <PluginSlot slot-name="ticket-sidebar" :ticket="pluginTicket" :actionActivatedMap="pluginActionActivatedMap" />
                         </template>

@@ -2193,6 +2193,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/tickets/{id}/view", web::post().to(handlers::record_ticket_view))
                     .route("/tickets/{id}/view", web::delete().to(handlers::remove_recent_ticket))
                     .route("/tickets/{id}/activity", web::get().to(handlers::get_ticket_activity))
+                    .route("/tickets/{id}/loans", web::get().to(handlers::asset_loans::list_for_ticket))
                     .route("/tickets/{id}/field-preview", web::post().to(handlers::preview_ticket_field))
                     .route("/tickets/{id}/tags", web::put().to(handlers::tags::set_ticket_tags))
                     .route("/tickets/{id}/watchers", web::get().to(handlers::ticket_watchers::list_watchers))

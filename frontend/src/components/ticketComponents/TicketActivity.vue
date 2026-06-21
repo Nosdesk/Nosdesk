@@ -345,6 +345,19 @@ function phraseFor(ev: TicketActivityEvent, ctx: PhraseContext): string {
     }
     case 'comment.deleted':
       return t('ticket-activity-phrase-comment-deleted')
+    case 'asset_loan.issued': {
+      const borrower = data.borrower_user_uuid as string | undefined
+      const name = borrower ? ctx.userName(borrower) : null
+      return name
+        ? t('ticket-activity-phrase-loan-issued', { borrower: name })
+        : t('ticket-activity-phrase-loan-issued-plain')
+    }
+    case 'asset_loan.updated':
+      // The same event covers return and due-date edits; only a return
+      // (returned_at now set) is milestone-worthy in the ticket feed.
+      return data.returned_at
+        ? t('ticket-activity-phrase-loan-returned')
+        : t('ticket-activity-phrase-generic')
     default:
       return t('ticket-activity-phrase-generic')
   }

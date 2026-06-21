@@ -4087,6 +4087,9 @@ ticket-activity-phrase-replied-via = replied via { $channel }
 ticket-activity-phrase-comment-via = added a comment via { $channel }
 ticket-activity-phrase-commented = commented on this ticket
 ticket-activity-phrase-comment-deleted = deleted a comment
+ticket-activity-phrase-loan-issued = issued a loaner to { $borrower }
+ticket-activity-phrase-loan-issued-plain = issued a loaner
+ticket-activity-phrase-loan-returned = returned a loaner
 ticket-activity-phrase-merged = merged { $count ->
     [one] 1 ticket
    *[other] { $count } tickets
@@ -4270,6 +4273,9 @@ asset-loan-due-soon = Due in { $days } { $days ->
 asset-loan-due-on = Due { $date }
 asset-loan-range = { $from } to { $to }
 asset-loan-failed = Something went wrong. Please try again.
+asset-loan-ticket-heading = Loaners
+asset-loan-device-fallback = Device #{ $id }
+asset-loan-returned-on = returned { $date }
 asset-lifecycle-empty-title = No transitions yet
 asset-lifecycle-empty-description = Status changes will appear here once recorded.
 asset-lifecycle-transition-failed = Failed to change asset status

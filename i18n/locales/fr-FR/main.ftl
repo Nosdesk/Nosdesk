@@ -4025,6 +4025,12 @@ ticket-activity-phrase-replied-via = a répondu via { $channel }
 ticket-activity-phrase-comment-via = a ajouté un commentaire via { $channel }
 ticket-activity-phrase-commented = a commenté ce ticket
 ticket-activity-phrase-comment-deleted = a supprimé un commentaire
+# MT: pending native review
+ticket-activity-phrase-loan-issued = a prêté un appareil à { $borrower }
+# MT: pending native review
+ticket-activity-phrase-loan-issued-plain = a prêté un appareil
+# MT: pending native review
+ticket-activity-phrase-loan-returned = a retourné un appareil prêté
 ticket-activity-phrase-generic = a effectué une modification
 
 # Ticket : sélecteur d'étiquettes (TicketTagsField).
@@ -4196,6 +4202,12 @@ asset-loan-due-on = À rendre le { $date }
 asset-loan-range = { $from } à { $to }
 # MT: pending native review
 asset-loan-failed = Une erreur s'est produite. Veuillez réessayer.
+# MT: pending native review
+asset-loan-ticket-heading = Appareils prêtés
+# MT: pending native review
+asset-loan-device-fallback = Appareil n°{ $id }
+# MT: pending native review
+asset-loan-returned-on = retourné le { $date }
 asset-lifecycle-empty-title = Aucune transition pour le moment
 asset-lifecycle-empty-description = Les changements de statut apparaîtront ici une fois enregistrés.
 asset-lifecycle-transition-failed = Échec du changement de statut de l'actif

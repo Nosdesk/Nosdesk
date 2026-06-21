@@ -33,6 +33,11 @@ export const assetLoanService = {
     return data;
   },
 
+  async listByTicket(ticketId: number): Promise<AssetLoan[]> {
+    const { data } = await apiClient.get<AssetLoan[]>(`/tickets/${ticketId}/loans`);
+    return data;
+  },
+
   async issue(assetId: number, body: IssueLoanBody): Promise<AssetLoan> {
     const { data } = await apiClient.post<AssetLoan>(`/assets/${assetId}/loans`, body);
     return data;
