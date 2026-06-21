@@ -8,6 +8,7 @@ pub mod asset_kinds;
 pub mod asset_lifecycle;
 pub mod asset_loans;
 pub mod asset_media;
+pub mod asset_models;
 pub mod asset_usage;
 pub mod assets;
 pub mod assignment_rules;
@@ -46,6 +47,7 @@ pub mod inbound_email;
 pub mod internal_workspaces;
 pub mod invitation;
 pub mod knowledge_gaps;
+pub mod manufacturers;
 pub mod microsoft_graph;
 pub mod msgraph_integration;
 pub mod notifications;
@@ -99,9 +101,10 @@ pub use tickets::{
 };
 // Export specific items from devices to avoid conflicts
 pub use assets::{
-    bulk_devices, create_device, create_empty_device, delete_device, export_assets,
-    get_all_devices, get_asset_locations, get_device_by_id, get_paginated_devices,
-    get_paginated_devices_excluding, get_user_devices, unmanage_device, update_device,
+    bulk_devices, clear_asset_model, create_device, create_empty_device, delete_device,
+    export_assets, get_all_devices, get_asset_locations, get_device_by_id, get_paginated_devices,
+    get_paginated_devices_excluding, get_user_devices, set_asset_model, unmanage_device,
+    update_device,
 };
 pub use auth_providers::*;
 pub use documentation::*;

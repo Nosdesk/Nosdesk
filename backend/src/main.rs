@@ -2401,8 +2401,21 @@ async fn main() -> std::io::Result<()> {
                     // pickers. Technician-gated (matches asset create);
                     // admin CRUD lives under /admin/asset-kinds.
                     .route("/asset-kinds", web::get().to(handlers::asset_kinds::list_for_picker))
+                    // Asset model catalog (manufacturers + models). Technician-gated CRUD.
+                    .route("/manufacturers", web::get().to(handlers::manufacturers::list))
+                    .route("/manufacturers", web::post().to(handlers::manufacturers::create))
+                    .route("/manufacturers/{id:\\d+}", web::get().to(handlers::manufacturers::get))
+                    .route("/manufacturers/{id:\\d+}", web::put().to(handlers::manufacturers::update))
+                    .route("/manufacturers/{id:\\d+}", web::delete().to(handlers::manufacturers::delete))
+                    .route("/asset-models", web::get().to(handlers::asset_models::list))
+                    .route("/asset-models", web::post().to(handlers::asset_models::create))
+                    .route("/asset-models/{id:\\d+}", web::get().to(handlers::asset_models::get))
+                    .route("/asset-models/{id:\\d+}", web::put().to(handlers::asset_models::update))
+                    .route("/asset-models/{id:\\d+}", web::delete().to(handlers::asset_models::delete))
                     .route("/assets", web::post().to(handlers::create_device))
                     .route("/assets/empty", web::post().to(handlers::create_empty_device))
+                    .route("/assets/{id:\\d+}/model", web::post().to(handlers::set_asset_model))
+                    .route("/assets/{id:\\d+}/model", web::delete().to(handlers::clear_asset_model))
                     .route("/assets/{id:\\d+}", web::get().to(handlers::get_device_by_id))
                     .route("/assets/{id:\\d+}", web::put().to(handlers::update_device))
                     .route("/assets/{id:\\d+}", web::delete().to(handlers::delete_device))

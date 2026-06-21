@@ -455,6 +455,7 @@ mod export_tests {
             low_stock_threshold: Some(BigDecimal::from_str("2").unwrap()),
             workspace_id: 1,
             status: "in_service".to_string(),
+            model_id: None,
         }
     }
 

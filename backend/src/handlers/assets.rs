@@ -896,7 +896,7 @@ pub async fn update_device(
     // matter what the client sends, re-scope a synced asset's update to
     // attributes only, rebuilt from the existing row with just the
     // non-sync keys overlaid.
-    let update_data = if existing_device.external_sync_source.is_some() {
+    let mut update_data = if existing_device.external_sync_source.is_some() {
         let incoming = device_update.into_inner();
         AssetUpdate {
             attributes: Some(overlay_user_attributes(
@@ -908,6 +908,11 @@ pub async fn update_device(
     } else {
         device_update.into_inner()
     };
+
+    // Model assignment goes through POST /assets/{id}/model, which stamps
+    // the manufacturer/model/kind/specs. Never let model_id ride the
+    // generic update un-stamped.
+    update_data.model_id = None;
 
     // Validate kind/attributes coherence if either is being
     // changed. Updates that only touch IT-desk columns don't
@@ -1185,6 +1190,180 @@ pub async fn bulk_devices(
     }
 }
 
+// === Asset model catalog: stamp-on-assignment ================
+
+#[derive(Debug, serde::Deserialize)]
+pub struct SetModelBody {
+    pub model_id: i32,
+}
+
+/// Merge a model's `default_attributes` onto an asset's attributes
+/// without clobbering values the asset already carries (per-unit data
+/// wins over a model default). A key counts as empty when it is absent,
+/// null, or an empty string.
+fn stamp_default_attributes(
+    existing: &serde_json::Value,
+    defaults: &serde_json::Value,
+) -> serde_json::Value {
+    let mut merged = existing.as_object().cloned().unwrap_or_default();
+    if let Some(obj) = defaults.as_object() {
+        for (key, value) in obj {
+            let occupied = merged
+                .get(key)
+                .map(|v| !v.is_null() && v.as_str() != Some(""))
+                .unwrap_or(false);
+            if !occupied {
+                merged.insert(key.clone(), value.clone());
+            }
+        }
+    }
+    serde_json::Value::Object(merged)
+}
+
+/// `POST /api/assets/{id}/model` — stamp a catalog model onto an asset:
+/// copy the model's manufacturer, model name, kind, and default specs
+/// (no-clobber) onto the row and link `model_id`. Copy-at-assignment, so
+/// later edits to the model never rewrite this asset. Refused on synced
+/// assets (Graph owns those fields).
+pub async fn set_asset_model(
+    mut tc: TenantConn,
+    auth: AuthContext,
+    path: web::Path<i32>,
+    body: web::Json<SetModelBody>,
+    search_service: web::Data<Arc<SearchService>>,
+) -> impl Responder {
+    if !auth.can_handle_tickets() {
+        return errors::forbidden("Forbidden: Only technicians and administrators can edit assets");
+    }
+    let asset_id = path.into_inner();
+    let model_id = body.into_inner().model_id;
+
+    let existing = match tc.run(|conn| repository::get_device_by_id(conn, asset_id)) {
+        Ok(d) => d,
+        Err(Error::NotFound) => {
+            return errors::not_found_msg(format!("Asset {asset_id} not found"))
+        }
+        Err(e) => {
+            error!(asset_id, error = ?e, "load asset for model stamp");
+            return errors::internal("Failed to load asset");
+        }
+    };
+    if existing.external_sync_source.is_some() {
+        return errors::forbidden("Cannot set a model on an asset synced from Microsoft Graph.");
+    }
+
+    let model = match tc.run(move |conn| crate::repository::asset_models::get(conn, model_id)) {
+        Ok(m) => m,
+        Err(Error::NotFound) => {
+            return errors::unprocessable_entity(format!("Unknown asset model: {model_id}"))
+        }
+        Err(e) => {
+            error!(model_id, error = ?e, "load model for stamp");
+            return errors::internal("Failed to load asset model");
+        }
+    };
+    let manufacturer_id = model.manufacturer_id;
+    let manufacturer =
+        match tc.run(move |conn| crate::repository::manufacturers::get(conn, manufacturer_id)) {
+            Ok(m) => m,
+            Err(e) => {
+                error!(manufacturer_id, error = ?e, "load manufacturer for stamp");
+                return errors::internal("Failed to load manufacturer");
+            }
+        };
+
+    let merged_attrs = stamp_default_attributes(&existing.attributes, &model.default_attributes);
+
+    // The stamped (kind, attributes) pair must be valid, or we'd write an
+    // asset that fails its own kind's schema.
+    let kind = model.kind.clone();
+    let attrs_for_validation = merged_attrs.clone();
+    match tc.run(move |conn| Ok::<_, Error>(validate_for_kind(conn, &kind, &attrs_for_validation)))
+    {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => return asset_validation_response(e),
+        Err(_) => return errors::internal("Failed to validate asset"),
+    }
+
+    let update = AssetUpdate {
+        manufacturer: Some(manufacturer.name),
+        model: Some(model.name.clone()),
+        kind: Some(model.kind.clone()),
+        attributes: Some(merged_attrs),
+        model_id: Some(Some(model_id)),
+        updated_at: Some(chrono::Utc::now().naive_utc()),
+        ..Default::default()
+    };
+
+    apply_asset_update_response(&mut tc, asset_id, update, &search_service)
+}
+
+/// `DELETE /api/assets/{id}/model` — unlink the catalog model. The
+/// stamped manufacturer/model/kind snapshot stays on the asset; only the
+/// link is cleared, so it becomes a model-less one-off.
+pub async fn clear_asset_model(
+    mut tc: TenantConn,
+    auth: AuthContext,
+    path: web::Path<i32>,
+    search_service: web::Data<Arc<SearchService>>,
+) -> impl Responder {
+    if !auth.can_handle_tickets() {
+        return errors::forbidden("Forbidden: Only technicians and administrators can edit assets");
+    }
+    let asset_id = path.into_inner();
+
+    let existing = match tc.run(|conn| repository::get_device_by_id(conn, asset_id)) {
+        Ok(d) => d,
+        Err(Error::NotFound) => {
+            return errors::not_found_msg(format!("Asset {asset_id} not found"))
+        }
+        Err(e) => {
+            error!(asset_id, error = ?e, "load asset for model clear");
+            return errors::internal("Failed to load asset");
+        }
+    };
+    if existing.external_sync_source.is_some() {
+        return errors::forbidden("Cannot edit an asset synced from Microsoft Graph.");
+    }
+
+    let update = AssetUpdate {
+        model_id: Some(None),
+        updated_at: Some(chrono::Utc::now().naive_utc()),
+        ..Default::default()
+    };
+    apply_asset_update_response(&mut tc, asset_id, update, &search_service)
+}
+
+/// Apply an `AssetUpdate` and render the full asset response, reindexing
+/// for search. Shared by the model stamp/clear endpoints.
+fn apply_asset_update_response(
+    tc: &mut TenantConn,
+    asset_id: i32,
+    update: AssetUpdate,
+    search_service: &web::Data<Arc<SearchService>>,
+) -> HttpResponse {
+    let result = tc.run(|conn| {
+        let device = repository::update_device(conn, asset_id, update)?;
+        let user = device
+            .primary_user_uuid
+            .as_ref()
+            .and_then(|uuid| get_user_by_uuid(conn, uuid));
+        let groups = groups_repo::get_groups_for_device(conn, asset_id).unwrap_or_default();
+        let response = AssetResponse::from_device_and_user(device.clone(), user, groups, conn);
+        Ok((device, response))
+    });
+    match result {
+        Ok((device, response)) => {
+            indexing_tasks::spawn_index_device(search_service.get_ref().clone(), device);
+            HttpResponse::Ok().json(response)
+        }
+        Err(e) => {
+            error!(asset_id, error = ?e, "apply asset update");
+            errors::internal("Failed to update asset")
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::overlay_user_attributes;
@@ -1219,5 +1398,31 @@ mod tests {
         let existing = json!({ "intune_device_id": "abc-123", "warranty_status": "Active" });
         let merged = overlay_user_attributes(&existing, None);
         assert_eq!(merged, existing);
+    }
+
+    use super::stamp_default_attributes;
+
+    #[test]
+    fn stamp_fills_empty_keys_without_clobbering() {
+        // Asset already has a hostname and a blank warranty; the model
+        // defaults a warranty and an OS.
+        let existing = json!({
+            "hostname": "LAPTOP-1",
+            "warranty_status": "",
+            "os_version": null,
+        });
+        let defaults = json!({
+            "hostname": "MODEL-DEFAULT",   // occupied -> keep the asset's
+            "warranty_status": "Active",   // empty string -> fill
+            "os_version": "14.0",          // null -> fill
+            "operating_system": "macOS",   // absent -> fill
+        });
+
+        let merged = stamp_default_attributes(&existing, &defaults);
+
+        assert_eq!(merged["hostname"], "LAPTOP-1");
+        assert_eq!(merged["warranty_status"], "Active");
+        assert_eq!(merged["os_version"], "14.0");
+        assert_eq!(merged["operating_system"], "macOS");
     }
 }
