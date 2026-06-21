@@ -5,7 +5,9 @@
 //! asset-level concerns (consumable usage tally, quantity
 //! guards) belong alongside.
 
+pub mod bucketing;
 pub mod kinds;
+pub mod rollout;
 
 use chrono::NaiveDate;
 use diesel::result::Error as DieselError;

@@ -2397,6 +2397,8 @@ async fn main() -> std::io::Result<()> {
                     .route("/assets/export", web::get().to(handlers::export_assets))
                     .route("/assets/locations", web::get().to(handlers::get_asset_locations))
                     .route("/assets/planner", web::get().to(handlers::assets::asset_planner))
+                    .route("/assets/grouping-dataset", web::get().to(handlers::assets::asset_grouping_dataset))
+                    .route("/assets/rollouts", web::post().to(handlers::assets::create_rollout))
                     // Read-only kind registry for the asset create/edit
                     // pickers. Technician-gated (matches asset create);
                     // admin CRUD lives under /admin/asset-kinds.

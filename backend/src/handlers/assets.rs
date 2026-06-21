@@ -376,41 +376,7 @@ pub struct AssetPlannerRow {
     pub asset_tag: Option<String>,
 }
 
-fn classify_os(raw: Option<&str>) -> &'static str {
-    let s = raw.unwrap_or("").to_lowercase();
-    if s.contains("windows") {
-        return "windows";
-    }
-    if s.contains("mac") || s.contains("os x") || s.contains("darwin") {
-        return "macos";
-    }
-    if s.contains("linux") || s.contains("ubuntu") || s.contains("fedora") || s.contains("debian") {
-        return "linux";
-    }
-    if s.contains("ios") || s.contains("iphone") || s.contains("ipad") {
-        return "ios";
-    }
-    if s.contains("android") {
-        return "android";
-    }
-    "other"
-}
-
-fn classify_warranty(end: Option<chrono::NaiveDate>, today: chrono::NaiveDate) -> &'static str {
-    let Some(end) = end else {
-        return "unknown";
-    };
-    let days = (end - today).num_days();
-    if days < 0 {
-        "expired"
-    } else if days <= 30 {
-        "expiring_30d"
-    } else if days <= 90 {
-        "expiring_90d"
-    } else {
-        "active"
-    }
-}
+use crate::services::assets::bucketing::{classify_os, classify_warranty_window};
 
 /// `GET /api/assets/planner` — returns every device shaped for the
 /// asset rollout planner view. Bucketing happens server-side so
@@ -465,7 +431,7 @@ pub async fn asset_planner(mut tc: TenantConn, _auth: AuthContext) -> impl Respo
                         manufacturer: d.manufacturer.clone(),
                         model: d.model.clone(),
                         os_family: classify_os(os.as_deref()),
-                        warranty_bucket: classify_warranty(warranty_end, today),
+                        warranty_bucket: classify_warranty_window(warranty_end, today),
                         operating_system: os,
                         os_version,
                         warranty_end_date: warranty_end.map(|dt| dt.format("%Y-%m-%d").to_string()),
@@ -480,6 +446,170 @@ pub async fn asset_planner(mut tc: TenantConn, _auth: AuthContext) -> impl Respo
         Err(e) => {
             error!(error = ?e, "asset planner load failed");
             errors::internal("Failed to load assets")
+        }
+    }
+}
+
+/// One asset shaped for the inventory planning lenses. Carries the
+/// server-derived bucket keys so the client groups by a string rather
+/// than re-deriving the OS / warranty heuristics. This is the complete
+/// (un-paginated) matching set, so group counts and "select all in a
+/// bucket" are fleet-true rather than reflecting only loaded rows.
+#[derive(Debug, Serialize)]
+pub struct AssetGroupingRow {
+    pub id: i32,
+    pub name: String,
+    pub kind: String,
+    pub status: String,
+    /// 'windows' | 'macos' | 'linux' | 'ios' | 'android' | 'other'.
+    pub os_family: &'static str,
+    /// 'expired' | 'expiring_30d' | 'expiring_90d' | 'active' | 'unknown'.
+    pub warranty_window: &'static str,
+    pub compliance_state: Option<String>,
+    pub primary_user_uuid: Option<Uuid>,
+}
+
+/// `GET /api/assets/grouping-dataset` — the full set of assets matching
+/// the current inventory list filters, each tagged with the derived
+/// planning buckets. Drives the inventory list's planning-axis grouping
+/// (OS family / warranty window / compliance). Same filter keys as the
+/// paginated list so it is "the list, grouped" rather than a different
+/// view. RLS scopes rows to the workspace.
+pub async fn asset_grouping_dataset(
+    mut tc: TenantConn,
+    query: web::Query<AssetExportQuery>,
+    auth: AuthContext,
+) -> impl Responder {
+    use crate::services::assets::it_attrs;
+
+    if !auth.can_handle_tickets() {
+        return errors::forbidden("Forbidden: technicians and administrators only");
+    }
+
+    let filters = repository::assets::AssetListFilters {
+        search: query.search.as_deref(),
+        warranty: query.warranty.as_deref(),
+        location: query.location.as_deref(),
+        status: query.status.as_deref(),
+        low_stock_only: matches!(query.low_stock.as_deref(), Some("true") | Some("1")),
+    };
+
+    match tc.run(move |conn| repository::assets::list_for_export(conn, filters)) {
+        Ok(devices) => {
+            let today = chrono::Utc::now().date_naive();
+            let payload: Vec<AssetGroupingRow> = devices
+                .into_iter()
+                .map(|d| {
+                    let os = it_attrs::operating_system(&d.attributes);
+                    let warranty_end = it_attrs::warranty_end_date(&d.attributes);
+                    let compliance = it_attrs::compliance_state(&d.attributes).map(str::to_string);
+                    AssetGroupingRow {
+                        os_family: classify_os(os),
+                        warranty_window: classify_warranty_window(warranty_end, today),
+                        compliance_state: compliance,
+                        id: d.id,
+                        name: d.name,
+                        kind: d.kind,
+                        status: d.status,
+                        primary_user_uuid: d.primary_user_uuid,
+                    }
+                })
+                .collect();
+            HttpResponse::Ok().json(payload)
+        }
+        Err(e) => {
+            error!(error = ?e, "asset grouping dataset load failed");
+            errors::internal("Failed to load assets")
+        }
+    }
+}
+
+/// Request body for `POST /api/assets/rollouts`. Mints a rollout project
+/// and one ticket per selected device, each ticket linked to its asset.
+#[derive(Debug, Deserialize)]
+pub struct CreateRolloutBody {
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Initial workflow state every rollout ticket starts in.
+    pub workflow_state_id: i32,
+    #[serde(default)]
+    pub priority: Option<crate::models::TicketPriority>,
+    /// Exact device ids to roll out. The client selects these from the
+    /// complete grouping dataset, so the set is authoritative.
+    pub asset_ids: Vec<i32>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreateRolloutResponse {
+    pub project_id: i32,
+    pub ticket_count: usize,
+}
+
+/// `POST /api/assets/rollouts` — the planner-to-projects handoff. Creates
+/// a project, then for every selected asset a ticket (linked to the
+/// project and to the asset) in one transaction, so a partial failure
+/// never leaves a half-built rollout. Agent-gated like ticket creation.
+pub async fn create_rollout(
+    mut tc: TenantConn,
+    body: web::Json<CreateRolloutBody>,
+    auth: AuthContext,
+) -> impl Responder {
+    use crate::services::assets::rollout::{self, RolloutSpec};
+
+    if !auth.can_handle_tickets() {
+        return errors::forbidden("Forbidden: technicians and administrators only");
+    }
+    let body = body.into_inner();
+
+    let name = body.name.trim().to_string();
+    if name.is_empty() || name.len() > 255 {
+        return errors::bad_request("name must be 1 to 255 characters");
+    }
+    if body.asset_ids.is_empty() {
+        return errors::bad_request("Select at least one device for the rollout");
+    }
+    // Bound the batch so a runaway selection can't open thousands of
+    // tickets in one synchronous request.
+    const MAX_ROLLOUT_DEVICES: usize = 500;
+    if body.asset_ids.len() > MAX_ROLLOUT_DEVICES {
+        return errors::bad_request(format!(
+            "A rollout can cover at most {MAX_ROLLOUT_DEVICES} devices at once"
+        ));
+    }
+
+    // Dedup while preserving order so a doubled id doesn't double-ticket.
+    let mut seen = std::collections::HashSet::new();
+    let asset_ids: Vec<i32> = body
+        .asset_ids
+        .into_iter()
+        .filter(|id| seen.insert(*id))
+        .collect();
+
+    let spec = RolloutSpec {
+        name,
+        description: body
+            .description
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty()),
+        workflow_state_id: body.workflow_state_id,
+        priority: body.priority.unwrap_or_default(),
+        asset_ids,
+    };
+
+    let result = tc.run(move |conn| rollout::create_rollout(conn, spec));
+
+    match result {
+        Ok(r) => HttpResponse::Created().json(CreateRolloutResponse {
+            project_id: r.project_id,
+            ticket_count: r.ticket_count,
+        }),
+        Err(Error::DatabaseError(diesel::result::DatabaseErrorKind::ForeignKeyViolation, _)) => {
+            errors::bad_request("Unknown workflow state")
+        }
+        Err(e) => {
+            error!(error = ?e, "rollout creation failed");
+            errors::internal("Failed to create rollout")
         }
     }
 }
