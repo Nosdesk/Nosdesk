@@ -1,0 +1,28 @@
+{
+  "name": "asset_loan",
+  "schema_version": 1,
+  "fields": {
+    "id": { "rust": "i32", "ts": "number", "primary": true },
+    "asset_id": { "rust": "i32", "ts": "number" },
+    "borrower_user_uuid": { "rust": "Uuid", "ts": "string" },
+    "loaned_at": { "rust": "DateTime<Utc>", "ts": "string" },
+    "due_back": { "rust": "Option<NaiveDate>", "ts": "string | null" },
+    "returned_at": { "rust": "Option<DateTime<Utc>>", "ts": "string | null" },
+    "ticket_id": { "rust": "Option<i32>", "ts": "number | null" },
+    "notes": { "rust": "Option<String>", "ts": "string | null" },
+    "actor_uuid": { "rust": "Option<Uuid>", "ts": "string | null" },
+    "returned_by_uuid": { "rust": "Option<Uuid>", "ts": "string | null" }
+  },
+  "events": [
+    { "type": "asset_loan.issued", "op": "I" },
+    { "type": "asset_loan.updated", "op": "U" }
+  ],
+  "groups": [
+    "workspace:1"
+  ],
+  "references": [
+    { "field": "asset_id", "aggregate": "asset" },
+    { "field": "ticket_id", "aggregate": "ticket" },
+    { "field": "borrower_user_uuid", "aggregate": "user" }
+  ]
+}

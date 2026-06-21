@@ -526,6 +526,11 @@ pub enum SyncAggregate {
     /// Same shape/intent as `asset_usage`.
     #[serde(rename = "asset_audit")]
     AssetAudit,
+    /// Device loan ledger row (`asset_loans`). A loan span: borrower,
+    /// optional due-back, optional ticket. Op Insert on issue, Update on
+    /// return or due-date edit.
+    #[serde(rename = "asset_loan")]
+    AssetLoan,
 }
 
 impl SyncAggregate {
@@ -557,6 +562,7 @@ impl SyncAggregate {
             Self::LinkedTicket => "linked_ticket",
             Self::AssetUsage => "asset_usage",
             Self::AssetAudit => "asset_audit",
+            Self::AssetLoan => "asset_loan",
         }
     }
 }
@@ -597,6 +603,7 @@ impl FromSql<crate::schema::sql_types::SyncAggregate, Pg> for SyncAggregate {
             b"linked_ticket" => Ok(Self::LinkedTicket),
             b"asset_usage" => Ok(Self::AssetUsage),
             b"asset_audit" => Ok(Self::AssetAudit),
+            b"asset_loan" => Ok(Self::AssetLoan),
             other => {
                 Err(format!("unknown sync_aggregate: {}", String::from_utf8_lossy(other)).into())
             }
@@ -1431,6 +1438,59 @@ pub struct NewAssetLifecycleEvent {
     pub ticket_id: Option<i32>,
     pub metadata: serde_json::Value,
     pub actor_uuid: Option<Uuid>,
+}
+
+/// A device loan: an asset in a borrower's custody for a span. The
+/// `asset_loans` ledger is the source of truth for who holds what until
+/// when; `assets.status = 'on_loan'` mirrors "has an active loan". A loan
+/// is active while `returned_at` is None; overdue while active and
+/// `due_back` is in the past. `status_before` is the asset's status at
+/// issue, restored on return.
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable, Associations)]
+#[diesel(table_name = crate::schema::asset_loans)]
+#[diesel(belongs_to(Asset))]
+pub struct AssetLoan {
+    pub id: i32,
+    pub asset_id: i32,
+    pub borrower_user_uuid: Uuid,
+    pub loaned_at: chrono::DateTime<chrono::Utc>,
+    pub due_back: Option<NaiveDate>,
+    pub returned_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub ticket_id: Option<i32>,
+    pub status_before: String,
+    pub notes: Option<String>,
+    pub actor_uuid: Option<Uuid>,
+    pub returned_by_uuid: Option<Uuid>,
+    pub due_soon_notified_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub overdue_notified_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub workspace_id: i32,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Clone, Insertable)]
+#[diesel(table_name = crate::schema::asset_loans)]
+pub struct NewAssetLoan {
+    pub asset_id: i32,
+    pub borrower_user_uuid: Uuid,
+    pub due_back: Option<NaiveDate>,
+    pub ticket_id: Option<i32>,
+    pub status_before: String,
+    pub notes: Option<String>,
+    pub actor_uuid: Option<Uuid>,
+}
+
+/// Partial update for a loan. Outer `Option` = "leave unchanged"; inner
+/// (for nullable columns) distinguishes "set to NULL" from "unchanged".
+/// Covers the edit (due_back / notes) and return (returned_at /
+/// returned_by_uuid) paths.
+#[derive(Debug, Clone, Default, AsChangeset)]
+#[diesel(table_name = crate::schema::asset_loans)]
+pub struct AssetLoanChange {
+    pub due_back: Option<Option<NaiveDate>>,
+    pub notes: Option<Option<String>>,
+    pub returned_at: Option<Option<chrono::DateTime<chrono::Utc>>>,
+    pub returned_by_uuid: Option<Option<Uuid>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations)]

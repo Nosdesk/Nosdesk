@@ -6,6 +6,7 @@ pub mod app_config;
 pub mod asset_audits;
 pub mod asset_kinds;
 pub mod asset_lifecycle;
+pub mod asset_loans;
 pub mod asset_media;
 pub mod asset_usage;
 pub mod assets;

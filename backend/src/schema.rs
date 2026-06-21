@@ -178,6 +178,28 @@ diesel::table! {
 }
 
 diesel::table! {
+    asset_loans (id) {
+        id -> Int4,
+        asset_id -> Int4,
+        borrower_user_uuid -> Uuid,
+        loaned_at -> Timestamptz,
+        due_back -> Nullable<Date>,
+        returned_at -> Nullable<Timestamptz>,
+        ticket_id -> Nullable<Int4>,
+        #[max_length = 32]
+        status_before -> Varchar,
+        notes -> Nullable<Text>,
+        actor_uuid -> Nullable<Uuid>,
+        returned_by_uuid -> Nullable<Uuid>,
+        due_soon_notified_at -> Nullable<Timestamptz>,
+        overdue_notified_at -> Nullable<Timestamptz>,
+        workspace_id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     asset_media (id) {
         id -> Int4,
         asset_id -> Int4,
@@ -1955,6 +1977,9 @@ diesel::joinable!(asset_lifecycle_events -> assets (asset_id));
 diesel::joinable!(asset_lifecycle_events -> tickets (ticket_id));
 diesel::joinable!(asset_lifecycle_events -> users (actor_uuid));
 diesel::joinable!(asset_lifecycle_events -> workspaces (workspace_id));
+diesel::joinable!(asset_loans -> assets (asset_id));
+diesel::joinable!(asset_loans -> tickets (ticket_id));
+diesel::joinable!(asset_loans -> workspaces (workspace_id));
 diesel::joinable!(asset_media -> assets (asset_id));
 diesel::joinable!(asset_media -> users (uploaded_by));
 diesel::joinable!(asset_media -> workspaces (workspace_id));
@@ -2161,6 +2186,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     asset_groups,
     asset_kinds,
     asset_lifecycle_events,
+    asset_loans,
     asset_media,
     asset_usage_log,
     assets,
