@@ -81,6 +81,17 @@ pub fn delete_for_user(
     .execute(conn)
 }
 
+// sync-audit-only: Sessions / auth tokens (covered by security_events)
+/// Delete every passkey credential owned by a user. Used by the
+/// locked-out-admin CLI recovery (`admin clear-passkeys`) when a
+/// passkey is blocking login from a non-secure-context origin and the
+/// user can't complete the WebAuthn challenge. Returns the number of
+/// credentials removed.
+pub fn delete_all_for_user(conn: &mut DbConnection, user_uuid: &Uuid) -> Result<usize, Error> {
+    diesel::delete(passkey_credentials::table.filter(passkey_credentials::user_uuid.eq(user_uuid)))
+        .execute(conn)
+}
+
 /// Number of credentials a user has. Used for the per-user cap
 /// check before registration.
 pub fn count_for_user(conn: &mut DbConnection, user_uuid: &Uuid) -> Result<i64, Error> {
