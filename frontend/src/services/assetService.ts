@@ -227,6 +227,22 @@ export const createAsset = async (deviceData: AssetFormData): Promise<Asset> => 
   }
 };
 
+/**
+ * Mint an empty asset and return it. Mirrors `createEmptyTicket`:
+ * creation is a one-click action that drops the user on the asset's
+ * detail page to fill in name, type, and optional properties inline.
+ * There is no separate create form.
+ */
+export const createEmptyAsset = async (): Promise<Asset> => {
+  try {
+    const response = await apiClient.post('/assets/empty');
+    return transformDeviceResponse(response.data);
+  } catch (error) {
+    logger.error('Failed to create empty asset', { error });
+    throw error;
+  }
+};
+
 
 
 /**

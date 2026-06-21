@@ -2383,6 +2383,8 @@ asset-detail-error-unmanage = Beheer opheffen mislukt. Probeer het opnieuw.
 asset-detail-section-details = Activumgegevens
 asset-detail-section-kind = Activatype
 asset-detail-field-kind = Type
+# Machinevertaling, te controleren door moedertaalspreker.
+assets-list-create-error = Kan geen nieuw asset aanmaken. Probeer het opnieuw.
 asset-detail-field-name = Naam
 asset-detail-field-name-placeholder-create = Voer activumnaam in
 asset-detail-field-name-placeholder-edit = Voer naam in...
@@ -2412,11 +2414,17 @@ asset-detail-warranty-unknown = Onbekend
 asset-detail-section-primary-user = Primaire gebruiker
 asset-detail-no-user-assigned = Geen gebruiker toegewezen aan dit activum
 asset-detail-action-assign-user = Gebruiker toewijzen
+# Machinevertaling, te controleren door moedertaalspreker.
+asset-detail-add-property = Eigenschap toevoegen
+asset-detail-clear-user = Eigenaar verwijderen
 asset-detail-action-change-user = Gebruiker wijzigen
 # asset-detail-action-track-stock (machine translation, pending native review).
 asset-detail-action-track-stock = Voorraad bijhouden
 asset-detail-section-device-information = Apparaatinformatie
 asset-detail-field-device-id = Apparaat-ID
+# Machinevertaling, te controleren door moedertaalspreker.
+asset-detail-section-record = Record
+asset-detail-field-asset-id = Asset-ID
 asset-detail-field-created = Aangemaakt
 asset-detail-field-last-updated = Laatst bijgewerkt
 asset-detail-manually-managed = Handmatig beheerd

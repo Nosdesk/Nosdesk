@@ -99,9 +99,9 @@ pub use tickets::{
 };
 // Export specific items from devices to avoid conflicts
 pub use assets::{
-    bulk_devices, create_device, delete_device, export_assets, get_all_devices,
-    get_asset_locations, get_device_by_id, get_paginated_devices, get_paginated_devices_excluding,
-    get_user_devices, unmanage_device, update_device,
+    bulk_devices, create_device, create_empty_device, delete_device, export_assets,
+    get_all_devices, get_asset_locations, get_device_by_id, get_paginated_devices,
+    get_paginated_devices_excluding, get_user_devices, unmanage_device, update_device,
 };
 pub use auth_providers::*;
 pub use documentation::*;

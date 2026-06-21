@@ -2097,7 +2097,6 @@ async fn main() -> std::io::Result<()> {
                     // Asset-kind registry. Admin-only CRUD over the
                     // runtime discriminator table that drives
                     // `assets.kind` validation.
-                    .route("/admin/asset-kinds", web::get().to(handlers::asset_kinds::list))
                     .route("/admin/asset-kinds/{id}", web::get().to(handlers::asset_kinds::get))
                     .route("/admin/asset-kinds", web::post().to(handlers::asset_kinds::create))
                     // Usage stat. Sits at /usage suffix on a numeric
@@ -2398,7 +2397,12 @@ async fn main() -> std::io::Result<()> {
                     .route("/assets/export", web::get().to(handlers::export_assets))
                     .route("/assets/locations", web::get().to(handlers::get_asset_locations))
                     .route("/assets/planner", web::get().to(handlers::assets::asset_planner))
+                    // Read-only kind registry for the asset create/edit
+                    // pickers. Technician-gated (matches asset create);
+                    // admin CRUD lives under /admin/asset-kinds.
+                    .route("/asset-kinds", web::get().to(handlers::asset_kinds::list_for_picker))
                     .route("/assets", web::post().to(handlers::create_device))
+                    .route("/assets/empty", web::post().to(handlers::create_empty_device))
                     .route("/assets/{id:\\d+}", web::get().to(handlers::get_device_by_id))
                     .route("/assets/{id:\\d+}", web::put().to(handlers::update_device))
                     .route("/assets/{id:\\d+}", web::delete().to(handlers::delete_device))

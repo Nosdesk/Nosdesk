@@ -376,15 +376,6 @@ const router = createRouter({
       }
     },
     {
-      path: '/assets/new',
-      name: 'asset-create',
-      component: () => import('../views/AssetView.vue'),
-      meta: {
-        requiresAuth: true,
-        titleKey: 'route-title-asset-create'
-      }
-    },
-    {
       path: '/assets/:id',
       name: 'asset-view',
       component: () => import('../views/AssetView.vue'),
@@ -399,7 +390,7 @@ const router = createRouter({
     // migrated yet) bounces to the new /assets equivalent so the
     // rename is transparent.
     { path: '/devices', redirect: '/assets' },
-    { path: '/devices/new', redirect: '/assets/new' },
+    { path: '/devices/new', redirect: '/assets' },
     {
       path: '/devices/:id',
       redirect: (to) => ({ path: `/assets/${to.params.id}` }),

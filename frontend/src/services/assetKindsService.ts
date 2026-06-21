@@ -66,8 +66,14 @@ export interface AssetKindUsage {
 }
 
 export const assetKindsService = {
+  // Read from the technician-gated registry list, not the admin
+  // CRUD endpoint: anyone who can create or edit an asset must be
+  // able to populate the type picker. The admin endpoints below
+  // stay admin-only. Both return the identical AssetKind rows, so
+  // every consumer shares one cache key (ASSET_KINDS_QUERY_KEY) and
+  // an admin write still invalidates every open picker.
   async list(): Promise<AssetKind[]> {
-    const { data } = await apiClient.get<AssetKind[]>('/admin/asset-kinds')
+    const { data } = await apiClient.get<AssetKind[]>('/asset-kinds')
     return data
   },
 

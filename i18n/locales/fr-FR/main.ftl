@@ -2386,6 +2386,8 @@ asset-detail-error-unmanage = Échec de la désinscription de l'appareil. Veuill
 asset-detail-section-details = Détails de l'actif
 asset-detail-section-kind = Type d'actif
 asset-detail-field-kind = Type
+# Machine, à relire par un locuteur natif.
+assets-list-create-error = Impossible de créer un nouvel actif. Veuillez réessayer.
 asset-detail-field-name = Nom
 asset-detail-field-name-placeholder-create = Saisissez le nom de l'actif
 asset-detail-field-name-placeholder-edit = Saisir un nom...
@@ -2415,11 +2417,17 @@ asset-detail-warranty-unknown = Inconnue
 asset-detail-section-primary-user = Utilisateur principal
 asset-detail-no-user-assigned = Aucun utilisateur assigné à cet actif
 asset-detail-action-assign-user = Attribuer un utilisateur
+# Machine, à relire par un locuteur natif.
+asset-detail-add-property = Ajouter une propriété
+asset-detail-clear-user = Retirer le propriétaire
 asset-detail-action-change-user = Changer d'utilisateur
 # asset-detail-action-track-stock (machine, à relire par un locuteur natif).
 asset-detail-action-track-stock = Suivre le stock
 asset-detail-section-device-information = Informations sur l'appareil
 asset-detail-field-device-id = ID de l'appareil
+# Machine, à relire par un locuteur natif.
+asset-detail-section-record = Enregistrement
+asset-detail-field-asset-id = ID de l'actif
 asset-detail-field-created = Créé
 asset-detail-field-last-updated = Dernière mise à jour
 asset-detail-manually-managed = Géré manuellement

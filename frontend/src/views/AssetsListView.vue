@@ -25,7 +25,7 @@ import AssetStatusBadge from '@/components/assets/AssetStatusBadge.vue'
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
-import { downloadAssetsCsv, getPaginatedAssets, bulkAction } from '@/services/assetService'
+import { downloadAssetsCsv, getPaginatedAssets, bulkAction, createEmptyAsset } from '@/services/assetService'
 import { useAssetLocationsQuery } from '@/composables/useAssetLocationsQuery'
 import { assetsKeys } from '@/queries/assets'
 import type { Asset } from '@/types/asset'
@@ -66,8 +66,15 @@ const scrollContainerRef = computed<HTMLElement | null>(
   () => layoutRef.value?.scrollContainerRef ?? null,
 )
 
-const navigateToCreateAsset = () => {
-  void router.push('/assets/new')
+// Creation mirrors the ticket model: mint an empty asset and drop the
+// user on its detail page to fill it in inline. No separate form.
+const navigateToCreateAsset = async () => {
+  try {
+    const asset = await createEmptyAsset()
+    await router.push(`/assets/${asset.id}`)
+  } catch (err) {
+    toast.error(extractErrorMessage(err, t('assets-list-create-error')))
+  }
 }
 const navigateToAsset = (asset: Asset) => {
   void router.push(`/assets/${asset.id}`)

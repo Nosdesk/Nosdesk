@@ -767,6 +767,61 @@ pub async fn create_device(
     }
 }
 
+/// Mint an empty asset and return it (technician or admin only).
+///
+/// Mirrors `POST /tickets/empty`: creation is a one-click action that
+/// drops the user onto the asset's detail page, where they fill in the
+/// name, type, and any optional properties inline. The row starts as a
+/// `generic` kind with a placeholder name; everything else is added on
+/// the detail surface, so there is no separate create form.
+pub async fn create_empty_device(
+    mut tc: TenantConn,
+    auth: AuthContext,
+    search_service: web::Data<Arc<SearchService>>,
+) -> impl Responder {
+    if !auth.can_handle_tickets() {
+        return errors::forbidden(
+            "Forbidden: Only technicians and administrators can create assets",
+        );
+    }
+
+    let new_device = NewAsset {
+        name: "New asset".to_string(),
+        serial_number: None,
+        manufacturer: None,
+        model: None,
+        location: None,
+        notes: None,
+        primary_user_uuid: None,
+        purchase_date: None,
+        asset_tag: None,
+        kind: "generic".to_string(),
+        attributes: serde_json::json!({}),
+        quantity: None,
+        unit: None,
+        external_sync_source: None,
+        low_stock_threshold: None,
+    };
+
+    let result = tc.run(|conn| {
+        let device = repository::create_device(conn, new_device)?;
+        let device_response =
+            AssetResponse::from_device_and_user(device.clone(), None, vec![], conn);
+        Ok((device, device_response))
+    });
+
+    match result {
+        Ok((device, device_response)) => {
+            indexing_tasks::spawn_index_device(search_service.get_ref().clone(), device);
+            HttpResponse::Created().json(device_response)
+        }
+        Err(e) => {
+            error!(error = ?e, "Database error creating empty asset");
+            errors::internal("Failed to create asset")
+        }
+    }
+}
+
 /// Update a device (technician or admin only)
 pub async fn update_device(
     mut tc: TenantConn,
