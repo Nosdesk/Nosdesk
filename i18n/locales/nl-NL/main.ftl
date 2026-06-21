@@ -2420,6 +2420,25 @@ asset-detail-no-user-assigned = Geen gebruiker toegewezen aan dit activum
 asset-detail-action-assign-user = Gebruiker toewijzen
 # Machinevertaling, te controleren door moedertaalspreker.
 asset-detail-add-property = Eigenschap toevoegen
+# Asset-modelcatalogus (machinevertaling, te controleren door moedertaalspreker).
+asset-model-label = Model
+asset-model-change = Wijzigen
+asset-model-clear = Model verwijderen
+asset-model-choose = Kies een model
+asset-model-none = Geen model
+asset-model-search-placeholder = Modellen zoeken...
+asset-model-create-new = + Nieuw model
+asset-model-create-title = Nieuw model
+asset-model-field-manufacturer = Fabrikant
+asset-model-field-manufacturer-placeholder = Kies een fabrikant
+asset-model-new-manufacturer = + Nieuwe fabrikant
+asset-model-new-manufacturer-placeholder = Naam fabrikant
+asset-model-field-name = Modelnaam
+asset-model-field-name-placeholder = bijv. Latitude 5540
+asset-model-create-submit = Model aanmaken
+asset-model-set-failed = Kan het model niet instellen. Probeer het opnieuw.
+asset-model-clear-failed = Kan het model niet verwijderen. Probeer het opnieuw.
+asset-model-create-failed = Kan het model niet aanmaken. Probeer het opnieuw.
 asset-detail-clear-user = Eigenaar verwijderen
 asset-detail-action-change-user = Gebruiker wijzigen
 # asset-detail-action-track-stock (machine translation, pending native review).

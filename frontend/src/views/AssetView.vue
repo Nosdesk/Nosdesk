@@ -23,6 +23,7 @@ import AssetLifecyclePanel from '@/components/assets/AssetLifecyclePanel.vue';
 import AssetLoanPanel from '@/components/assets/AssetLoanPanel.vue';
 import AssetStatusBadge from '@/components/assets/AssetStatusBadge.vue';
 import AssetUsageHistory from '@/components/assets/AssetUsageHistory.vue';
+import AssetModelField from '@/components/assets/AssetModelField.vue';
 import { kindIconName } from '@/components/assets/assetKindIcon';
 import PluginSlot from '@/plugins/components/PluginSlot.vue';
 import Modal from '@/components/Modal.vue';
@@ -372,6 +373,25 @@ async function saveAttributes() {
  * rejects unknown keys) rather than wiped, so compatible values carry
  * across. No confirm dialog: this behaves like editing any property.
  */
+/** Re-hydrate after the model picker stamps/clears a model: the backend
+ *  returns the updated asset with manufacturer/model/kind/attributes
+ *  already applied, so mirror it into local state. */
+function onAssetModelUpdated(asset: Asset) {
+  device.value = asset;
+  selectedKindSlug.value = asset.kind ?? 'generic';
+  attributeDraft.value = { ...(asset.attributes ?? {}) };
+  editValues.value = {
+    ...editValues.value,
+    name: asset.name,
+    manufacturer: asset.manufacturer || '',
+    model: asset.model,
+    serial_number: asset.serial_number,
+    location: asset.location || '',
+    asset_tag: asset.asset_tag || '',
+    purchase_date: asset.purchase_date || '',
+  };
+}
+
 async function changeKind(newSlug: string) {
   if (!device.value) return;
   const currentSlug = device.value.kind ?? 'generic';
@@ -649,12 +669,27 @@ onMounted(() => {
               <template #title>{{ $t('asset-detail-section-details') }}</template>
 
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-3">
-                <!-- Type. Always present; the one decision that shapes
-                     the rest. -->
+                <!-- Model. The primary "what is this?" control: pick a
+                     real make+model from the catalog and the asset is
+                     stamped (manufacturer, model, kind, specs). -->
+                <div class="sm:col-span-2">
+                  <AssetModelField
+                    :asset-id="device.id"
+                    :model-id="device.model_id ?? null"
+                    :kind="selectedKindSlug"
+                    :manufacturer-snapshot="device.manufacturer ?? null"
+                    :model-snapshot="device.model || null"
+                    :editable="isEditable"
+                    @updated="onAssetModelUpdated"
+                  />
+                </div>
+
+                <!-- Type. Owned by the model when one is linked; editable
+                     directly only for model-less assets. -->
                 <div class="flex flex-col gap-1 sm:col-span-2">
                   <h3 class="text-xs font-medium text-tertiary">{{ $t('asset-detail-field-kind') }}</h3>
                   <SearchableDropdown
-                    v-if="isKindEditable && kinds.length > 0"
+                    v-if="isKindEditable && kinds.length > 0 && !device.model_id"
                     :model-value="selectedKindSlug"
                     :options="kindOptions"
                     size="sm"

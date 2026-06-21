@@ -2423,6 +2423,25 @@ asset-detail-no-user-assigned = Aucun utilisateur assigné à cet actif
 asset-detail-action-assign-user = Attribuer un utilisateur
 # Machine, à relire par un locuteur natif.
 asset-detail-add-property = Ajouter une propriété
+# Catalogue de modèles d'actifs (machine, à relire par un locuteur natif).
+asset-model-label = Modèle
+asset-model-change = Changer
+asset-model-clear = Retirer le modèle
+asset-model-choose = Choisir un modèle
+asset-model-none = Aucun modèle
+asset-model-search-placeholder = Rechercher des modèles...
+asset-model-create-new = + Nouveau modèle
+asset-model-create-title = Nouveau modèle
+asset-model-field-manufacturer = Fabricant
+asset-model-field-manufacturer-placeholder = Choisir un fabricant
+asset-model-new-manufacturer = + Nouveau fabricant
+asset-model-new-manufacturer-placeholder = Nom du fabricant
+asset-model-field-name = Nom du modèle
+asset-model-field-name-placeholder = ex. Latitude 5540
+asset-model-create-submit = Créer le modèle
+asset-model-set-failed = Impossible de définir le modèle. Veuillez réessayer.
+asset-model-clear-failed = Impossible de retirer le modèle. Veuillez réessayer.
+asset-model-create-failed = Impossible de créer le modèle. Veuillez réessayer.
 asset-detail-clear-user = Retirer le propriétaire
 asset-detail-action-change-user = Changer d'utilisateur
 # asset-detail-action-track-stock (machine, à relire par un locuteur natif).

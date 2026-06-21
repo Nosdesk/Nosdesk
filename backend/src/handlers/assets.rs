@@ -123,6 +123,8 @@ pub struct AssetResponse {
     pub primary_user: Option<UserInfo>,
     pub groups: Vec<GroupInfo>,
     pub is_editable: bool,
+    /// Linked catalog model, or null for a model-less asset.
+    pub model_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -166,6 +168,7 @@ impl AssetResponse {
         // dedicated `external_sync_source` column so the answer
         // doesn't depend on a particular Microsoft Graph field.
         let is_editable = device.external_sync_source.is_none();
+        let model_id = device.model_id;
 
         Self {
             id: device.id,
@@ -197,6 +200,7 @@ impl AssetResponse {
             external_sync_source: device.external_sync_source,
             low_stock_threshold: device.low_stock_threshold.as_ref().map(|q| q.to_string()),
             is_editable,
+            model_id,
             primary_user: user.map(|u| {
                 let name = u.name.clone();
                 let role = repository::user_helpers::workspace_role(conn, u.uuid)

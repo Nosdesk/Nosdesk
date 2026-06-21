@@ -243,6 +243,23 @@ export const createEmptyAsset = async (): Promise<Asset> => {
   }
 };
 
+/**
+ * Stamp a catalog model onto an asset. The backend copies the model's
+ * manufacturer, model name, kind, and default specs onto the row (no
+ * clobber) and links model_id, returning the updated asset.
+ */
+export const setAssetModel = async (assetId: number, modelId: number): Promise<Asset> => {
+  const response = await apiClient.post(`/assets/${assetId}/model`, { model_id: modelId });
+  return transformDeviceResponse(response.data);
+};
+
+/** Unlink the catalog model. The stamped manufacturer/model snapshot
+ *  stays on the asset; it becomes a model-less one-off. */
+export const clearAssetModel = async (assetId: number): Promise<Asset> => {
+  const response = await apiClient.delete(`/assets/${assetId}/model`);
+  return transformDeviceResponse(response.data);
+};
+
 
 
 /**

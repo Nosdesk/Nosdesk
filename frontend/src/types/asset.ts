@@ -53,6 +53,10 @@ export interface Asset {
    *  rendered as low-stock in the UI. */
   low_stock_threshold?: string | null;
   is_editable: boolean;
+  /** Linked catalog model (asset_models row), or null/absent for a
+   *  model-less asset. The manufacturer/model columns above hold the
+   *  stamped snapshot regardless. */
+  model_id?: number | null;
   // Joined enrichments from the REST endpoint
   primary_user?: {
     uuid: string;
@@ -115,6 +119,30 @@ export interface AssetLoan {
   notes?: string | null;
   actor_uuid?: string | null;
   returned_by_uuid?: string | null;
+}
+
+/** A manufacturer (make) in the asset model catalog. */
+export interface Manufacturer {
+  id: number;
+  name: string;
+  created_at: string;
+  updated_at: string;
+  created_by?: string | null;
+}
+
+/** An asset model ("device type"): a real make+model assets are stamped
+ *  from. Belongs to a manufacturer, carries a kind + default specs. */
+export interface AssetModel {
+  id: number;
+  manufacturer_id: number;
+  name: string;
+  kind: string;
+  part_number?: string | null;
+  default_attributes: Record<string, unknown>;
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by?: string | null;
 }
 
 /** Wire shape for POST /assets (create) and the wider parts
