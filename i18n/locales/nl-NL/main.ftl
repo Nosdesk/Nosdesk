@@ -5352,6 +5352,9 @@ asset-catalog-manufacturer-name = Naam
 asset-catalog-manufacturer-name-placeholder = bijv. Apple
 asset-catalog-part-number = Onderdeelnummer
 asset-catalog-part-number-placeholder = Optioneel
+# Standaardspecificaties van model (machine, na te kijken door moedertaalspreker).
+asset-catalog-default-specs = Standaardspecificaties
+asset-catalog-default-specs-hint = Vooraf ingevuld op elk asset dat van dit model wordt afgeleid. Laat leeg om over te slaan.
 asset-catalog-notes = Notities
 asset-catalog-delete-title = Verwijderen
 asset-catalog-manufacturer-delete-confirm = Fabrikant "{ $name }" verwijderen?

@@ -126,10 +126,15 @@ pub async fn create(
         return errors::bad_request(format!("name must be 1 to {NAME_MAX_LEN} characters"));
     }
 
+    // A model never defaults sync-owned keys (Intune/Entra telemetry is
+    // per-instance), so strip them before validating + storing.
+    let default_attributes =
+        crate::services::assets::strip_sync_owned_keys(&body.default_attributes);
+
     // Model must reference a real kind, and its default specs must be
     // valid for that kind, or it could never stamp a valid asset.
     let kind = body.kind.clone();
-    let attrs = body.default_attributes.clone();
+    let attrs = default_attributes.clone();
     match tc.run(move |conn| Ok::<_, DieselError>(validate_for_kind(conn, &kind, &attrs))) {
         Ok(Ok(())) => {}
         Ok(Err(e)) => return validation_err_response(e),
@@ -144,7 +149,7 @@ pub async fn create(
         name,
         kind: body.kind,
         part_number: body.part_number.map(|s| s.trim().to_string()),
-        default_attributes: body.default_attributes,
+        default_attributes,
         notes: body.notes.map(|s| s.trim().to_string()),
         created_by: Some(auth.user_uuid),
     };
@@ -182,9 +187,16 @@ pub async fn update(
         }
     }
 
+    // Strip sync-owned keys from any incoming default specs; a model never
+    // defaults Intune/Entra telemetry.
+    let stripped_default_attributes = body
+        .default_attributes
+        .as_ref()
+        .map(crate::services::assets::strip_sync_owned_keys);
+
     // If kind or default specs change, validate the effective pair
     // against the registry before applying.
-    if body.kind.is_some() || body.default_attributes.is_some() {
+    if body.kind.is_some() || stripped_default_attributes.is_some() {
         let existing = match tc.run(|conn| repo::get(conn, id)) {
             Ok(m) => m,
             Err(DieselError::NotFound) => {
@@ -196,8 +208,7 @@ pub async fn update(
             }
         };
         let kind = body.kind.clone().unwrap_or(existing.kind);
-        let attrs = body
-            .default_attributes
+        let attrs = stripped_default_attributes
             .clone()
             .unwrap_or(existing.default_attributes);
         match tc.run(move |conn| Ok::<_, DieselError>(validate_for_kind(conn, &kind, &attrs))) {
@@ -217,7 +228,7 @@ pub async fn update(
         part_number: body
             .part_number
             .map(|opt| opt.map(|s| s.trim().to_string())),
-        default_attributes: body.default_attributes,
+        default_attributes: stripped_default_attributes,
         notes: body.notes.map(|opt| opt.map(|s| s.trim().to_string())),
         updated_at: None,
     };

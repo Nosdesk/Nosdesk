@@ -21,6 +21,8 @@ import SearchableDropdown, { type DropdownOption } from '@/components/common/Sea
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
+import DynamicAttributeForm from '@/components/assets/DynamicAttributeForm.vue';
+import { userAttributeSchema } from '@/components/assets/assetAttributeSchema';
 
 import { useManufacturersQuery, useAssetModelsQuery } from '@/composables/useAssetCatalogQuery';
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery';
@@ -103,6 +105,7 @@ interface ModelForm {
   kind: string;
   part_number: string;
   notes: string;
+  default_attributes: Record<string, unknown>;
 }
 const blankModel = (): ModelForm => ({
   show: false,
@@ -112,6 +115,7 @@ const blankModel = (): ModelForm => ({
   kind: 'generic',
   part_number: '',
   notes: '',
+  default_attributes: {},
 });
 const modelModal = ref<ModelForm>(blankModel());
 const modelSaving = ref(false);
@@ -130,6 +134,28 @@ const modelCanSave = computed(
     modelModal.value.kind !== '',
 );
 
+// Default specs are authored against the user-editable slice of the
+// chosen kind's schema (sync-owned Intune/Entra keys are never defaulted).
+const modelKindUserSchema = computed(() => {
+  const schema = kinds.value.find((k) => k.slug === modelModal.value.kind)
+    ?.attribute_schema as Record<string, unknown> | undefined;
+  return userAttributeSchema(schema ?? null);
+});
+
+// Switching kinds drops any drafted specs the new kind doesn't define,
+// so a model never carries defaults that wouldn't stamp a valid asset.
+function onModelKindChange(slug: string) {
+  modelModal.value.kind = slug;
+  const allowed = new Set(
+    Object.keys((modelKindUserSchema.value?.properties as Record<string, unknown>) ?? {}),
+  );
+  const pruned: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(modelModal.value.default_attributes)) {
+    if (allowed.has(key)) pruned[key] = value;
+  }
+  modelModal.value.default_attributes = pruned;
+}
+
 function openModelCreate() {
   modelModal.value = {
     ...blankModel(),
@@ -147,6 +173,7 @@ function openModelEdit(m: AssetModel) {
     kind: m.kind,
     part_number: m.part_number ?? '',
     notes: m.notes ?? '',
+    default_attributes: { ...(m.default_attributes ?? {}) },
   };
   modelError.value = null;
 }
@@ -162,6 +189,7 @@ async function saveModel() {
       kind: f.kind,
       part_number: f.part_number.trim() || null,
       notes: f.notes.trim() || null,
+      default_attributes: f.default_attributes,
     };
     if (f.id == null) {
       await assetModelsService.create(body);
@@ -390,7 +418,7 @@ async function confirmDelete() {
             :model-value="modelModal.kind"
             :options="kindOptions"
             size="sm"
-            @update:model-value="(v) => (modelModal.kind = String(v))"
+            @update:model-value="(v) => onModelKindChange(String(v))"
           />
         </div>
         <FormInput
@@ -399,6 +427,19 @@ async function confirmDelete() {
           :placeholder="$t('asset-catalog-part-number-placeholder')"
           size="sm"
         />
+
+        <!-- Default specs: pre-fill stamped onto every asset of this model -->
+        <div v-if="modelKindUserSchema" class="flex flex-col gap-1.5 pt-1 border-t border-subtle">
+          <label class="text-xs font-medium uppercase tracking-wide text-tertiary">
+            {{ $t('asset-catalog-default-specs') }}
+          </label>
+          <p class="text-xs text-tertiary -mt-0.5">{{ $t('asset-catalog-default-specs-hint') }}</p>
+          <DynamicAttributeForm
+            v-model="modelModal.default_attributes"
+            :schema="modelKindUserSchema"
+          />
+        </div>
+
         <FormTextarea v-model="modelModal.notes" :label="$t('asset-catalog-notes')" :rows="2" :max-rows="6" />
         <AlertMessage v-if="modelError" type="error" :message="modelError" />
         <div class="flex justify-end gap-2">

@@ -5361,6 +5361,9 @@ asset-catalog-manufacturer-name = Nom
 asset-catalog-manufacturer-name-placeholder = ex. Apple
 asset-catalog-part-number = Référence
 asset-catalog-part-number-placeholder = Facultatif
+# Specs par défaut du modèle (machine, à relire par un locuteur natif).
+asset-catalog-default-specs = Spécifications par défaut
+asset-catalog-default-specs-hint = Pré-remplies sur chaque actif créé à partir de ce modèle. Laisser vide pour ignorer.
 asset-catalog-notes = Notes
 asset-catalog-delete-title = Supprimer
 asset-catalog-manufacturer-delete-confirm = Supprimer le fabricant « { $name } » ?

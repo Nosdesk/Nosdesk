@@ -14,6 +14,55 @@ use serde_json::Value;
 use crate::db::DbConnection;
 use crate::repository::asset_kinds as repo;
 
+/// Attribute keys owned by the Microsoft Graph (Intune / Entra) sync.
+/// Mirrors the frontend `SYNC_OWNED_ATTRIBUTE_KEYS`. These are written by
+/// the sync on a synced asset, never typed by a human, so: a model's
+/// default specs must never set them, and a synced asset's manual edit
+/// can never change them.
+pub const SYNC_OWNED_ATTRIBUTE_KEYS: &[&str] = &[
+    "hostname",
+    "is_managed",
+    "os_version",
+    "operating_system",
+    "last_sync_time",
+    "enrollment_date",
+    "entra_device_id",
+    "compliance_state",
+    "intune_device_id",
+    "microsoft_device_id",
+];
+
+/// Return a copy of `attributes` with every sync-owned key removed. Used
+/// to keep sync-owned keys out of a model's `default_attributes`.
+pub fn strip_sync_owned_keys(attributes: &Value) -> Value {
+    let mut obj = attributes.as_object().cloned().unwrap_or_default();
+    for key in SYNC_OWNED_ATTRIBUTE_KEYS {
+        obj.remove(*key);
+    }
+    Value::Object(obj)
+}
+
+#[cfg(test)]
+mod sync_owned_tests {
+    use super::strip_sync_owned_keys;
+    use serde_json::json;
+
+    #[test]
+    fn strip_removes_sync_keys_keeps_user_keys() {
+        let attrs = json!({
+            "intune_device_id": "abc",
+            "hostname": "PC-1",
+            "warranty_status": "Active",
+            "cpu": "M3",
+        });
+        let stripped = strip_sync_owned_keys(&attrs);
+        assert!(stripped.get("intune_device_id").is_none());
+        assert!(stripped.get("hostname").is_none());
+        assert_eq!(stripped["warranty_status"], "Active");
+        assert_eq!(stripped["cpu"], "M3");
+    }
+}
+
 /// Errors surfaced by `validate_for_kind`.
 #[derive(Debug, thiserror::Error)]
 pub enum AssetValidationError {

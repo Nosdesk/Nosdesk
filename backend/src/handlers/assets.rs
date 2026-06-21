@@ -15,7 +15,7 @@ use uuid::Uuid;
 use crate::models::{Asset, AssetUpdate, Group, NewAsset, User};
 use crate::repository;
 use crate::repository::groups as groups_repo;
-use crate::services::assets::{validate_for_kind, AssetValidationError};
+use crate::services::assets::{validate_for_kind, AssetValidationError, SYNC_OWNED_ATTRIBUTE_KEYS};
 use crate::services::imports::assets::write_assets_csv;
 use crate::services::search::indexing_tasks;
 use crate::services::search::SearchService;
@@ -825,23 +825,6 @@ pub async fn create_empty_device(
         }
     }
 }
-
-/// Attribute keys owned by the Microsoft Graph (Intune / Entra) sync.
-/// Mirrors the frontend `SYNC_OWNED_ATTRIBUTE_KEYS` in AssetView.vue.
-/// On a sync-owned asset these stay read-only; everything not listed
-/// is a user-owned key (e.g. warranty) and may be edited manually.
-const SYNC_OWNED_ATTRIBUTE_KEYS: &[&str] = &[
-    "hostname",
-    "is_managed",
-    "os_version",
-    "operating_system",
-    "last_sync_time",
-    "enrollment_date",
-    "entra_device_id",
-    "compliance_state",
-    "intune_device_id",
-    "microsoft_device_id",
-];
 
 /// Rebuild a sync-owned asset's attributes from the existing row,
 /// overlaying only the user-owned keys from `incoming`. Sync-owned keys

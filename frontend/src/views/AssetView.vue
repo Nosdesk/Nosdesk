@@ -25,6 +25,11 @@ import AssetStatusBadge from '@/components/assets/AssetStatusBadge.vue';
 import AssetUsageHistory from '@/components/assets/AssetUsageHistory.vue';
 import AssetModelField from '@/components/assets/AssetModelField.vue';
 import { kindIconName } from '@/components/assets/assetKindIcon';
+import {
+  SYNC_OWNED_ATTRIBUTE_KEYS,
+  userAttributeSchema as buildUserAttributeSchema,
+  syncAttributeSchema as buildSyncAttributeSchema,
+} from '@/components/assets/assetAttributeSchema';
 import PluginSlot from '@/plugins/components/PluginSlot.vue';
 import Modal from '@/components/Modal.vue';
 import { getAssetById, updateAsset, deleteAsset, unmanageAsset } from '@/services/assetService';
@@ -92,44 +97,16 @@ const selectedKindSchema = computed(
 const isEditable = computed(() => device.value?.is_editable ?? false);
 const isSynced = computed(() => device.value != null && !device.value.is_editable);
 
-// Attribute keys owned by the Microsoft Graph (Intune / Entra) sync.
-// These are written by the sync (see backend msgraph_integration.rs),
-// never typed by a human, so they must not appear as manual inputs.
-// They render read-only in a "Synced from …" panel, and only when the
-// asset is actually sync-owned. Everything else in a kind's schema is
-// treated as a user-editable field.
-const SYNC_OWNED_ATTRIBUTE_KEYS = new Set([
-  'hostname',
-  'is_managed',
-  'os_version',
-  'operating_system',
-  'last_sync_time',
-  'enrollment_date',
-  'entra_device_id',
-  'compliance_state',
-  'intune_device_id',
-  'microsoft_device_id',
-]);
-
-/** Build a schema containing only the properties whose key passes
- *  `pred`, or null when none match (so the card can `v-if` cleanly). */
-function partitionSchema(pred: (key: string) => boolean): Record<string, unknown> | null {
-  const schema = selectedKindSchema.value;
-  if (!schema) return null;
-  const props = (schema.properties as Record<string, unknown>) ?? {};
-  const filtered: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(props)) {
-    if (pred(key)) filtered[key] = value;
-  }
-  if (Object.keys(filtered).length === 0) return null;
-  return { ...schema, properties: filtered };
-}
-
+// The user-editable and sync-owned slices of the kind's schema come
+// from the shared partition util. Sync-owned keys (Intune / Entra) are
+// written by the sync, never typed by a human; they render read-only in
+// a "Synced from …" panel, and only when the asset is actually
+// sync-owned. Everything else is a user-editable field.
 const userAttributeSchema = computed(() =>
-  partitionSchema((k) => !SYNC_OWNED_ATTRIBUTE_KEYS.has(k)),
+  buildUserAttributeSchema(selectedKindSchema.value),
 );
 const syncAttributeSchema = computed(() =>
-  partitionSchema((k) => SYNC_OWNED_ATTRIBUTE_KEYS.has(k)),
+  buildSyncAttributeSchema(selectedKindSchema.value),
 );
 
 // Surface the sync panel when the asset is sync-owned, or defensively
