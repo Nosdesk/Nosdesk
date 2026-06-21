@@ -232,9 +232,7 @@ nav-assets = Activa
 nav-asset-planner = Activaplanner
 
 # Tab strip across the top of the asset section. Used in place
-# of duplicate sidebar entries for inventory list + planner.
 asset-tabs-inventory = Inventory
-asset-tabs-planner = Planner
 asset-tabs-catalog = Catalogus
 nav-users = Gebruikers
 nav-documentation = Documentatie
@@ -2851,49 +2849,9 @@ doc-detail-ticket-note-title = Notities voor ticket #{ $id }
 doc-detail-ticket-note-description = Documentatie voor ticket { $title }
 doc-detail-ticket-note-author-system = Systeem
 
-# Asset planner (AssetPlannerView): kanban voor het plannen van
 # apparaat-uitrol, gegroepeerd op OS-familie, garantieperiode of
 # nalevingsstatus. Bevat de header, zijbalkfilters, groepkolommen
 # en chips op de apparaatkaarten.
-asset-planner-title = Apparatuur
-asset-planner-subtitle = Plan uitrol op OS, garantie of naleving.
-asset-planner-search-placeholder = Zoek op naam, hostnaam, model…
-asset-planner-group-by = Groeperen op
-asset-planner-axis-os = OS-familie
-asset-planner-axis-warranty = Garantie
-asset-planner-axis-compliance = Naleving
-asset-planner-loading = Apparatuur laden…
-asset-planner-load-error = Apparatuur laden mislukt
-asset-planner-filters-heading = Filters
-asset-planner-filters-clear = Wissen ({ $count })
-asset-planner-section-os = OS
-asset-planner-section-warranty = Garantie
-asset-planner-section-compliance = Naleving
-asset-planner-count = { $visible } van { $total ->
-    [one] { $total } apparaat
-   *[other] { $total } apparaten
-   }
-asset-planner-empty = Geen activa komen overeen met de huidige filters.
-asset-planner-warranty-ends = Garantie loopt af op { $date }
-asset-planner-no-warranty-data = Geen garantiegegevens
-asset-planner-warranty-unknown-short = n.v.t.
-asset-planner-card-host = Host
-asset-planner-card-os = OS
-asset-planner-card-model = Model
-asset-planner-card-tag = Label
-asset-planner-card-compliance = Naleving
-asset-planner-os-windows = Windows
-asset-planner-os-macos = macOS
-asset-planner-os-linux = Linux
-asset-planner-os-ios = iOS
-asset-planner-os-android = Android
-asset-planner-os-other = Overig
-asset-planner-warranty-expired = Verlopen
-asset-planner-warranty-expiring-30d = Verloopt binnen 30 dagen
-asset-planner-warranty-expiring-90d = Verloopt binnen 90 dagen
-asset-planner-warranty-active = Actief
-asset-planner-warranty-unknown = Onbekend
-asset-planner-compliance-unknown = Onbekend
 
 # Collection view (CollectionView): documentation collection
 # detail page with editable name/icon, an overview editor,
@@ -5309,7 +5267,6 @@ route-title-project-gantt = Gantt
 route-title-assets = Middelen
 route-title-asset-create = Activum aanmaken
 route-title-asset-view = Activumdetails
-route-title-asset-planner = Activaplanner
 route-title-project-detail = Projectdetails
 route-title-error = Fout
 route-title-users = Gebruikers

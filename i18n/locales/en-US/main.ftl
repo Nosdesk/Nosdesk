@@ -282,9 +282,7 @@ nav-assets = Assets
 nav-asset-planner = Asset Planner
 
 # Tab strip across the top of the asset section. Used in place
-# of duplicate sidebar entries for inventory list + planner.
 asset-tabs-inventory = Inventory
-asset-tabs-planner = Planner
 asset-tabs-catalog = Catalog
 nav-users = Users
 nav-documentation = Documentation
@@ -2914,49 +2912,9 @@ doc-detail-ticket-note-title = Notes for Ticket #{ $id }
 doc-detail-ticket-note-description = Documentation for ticket { $title }
 doc-detail-ticket-note-author-system = System
 
-# Asset planner (AssetPlannerView): rollout-planning kanban for
 # devices, grouped by OS family, warranty bucket, or compliance
 # state. Covers the header, sidebar filters, group columns, and
 # device card chips.
-asset-planner-title = Assets
-asset-planner-subtitle = Plan rollouts by OS, warranty, or compliance state.
-asset-planner-search-placeholder = Search by name, hostname, model…
-asset-planner-group-by = Group by
-asset-planner-axis-os = OS family
-asset-planner-axis-warranty = Warranty
-asset-planner-axis-compliance = Compliance
-asset-planner-loading = Loading assets…
-asset-planner-load-error = Failed to load assets
-asset-planner-filters-heading = Filters
-asset-planner-filters-clear = Clear ({ $count })
-asset-planner-section-os = OS
-asset-planner-section-warranty = Warranty
-asset-planner-section-compliance = Compliance
-asset-planner-count = { $visible } of { $total ->
-    [one] { $total } device
-   *[other] { $total } devices
-   }
-asset-planner-empty = No assets match the current filters.
-asset-planner-warranty-ends = Warranty ends { $date }
-asset-planner-no-warranty-data = No warranty data
-asset-planner-warranty-unknown-short = n/a
-asset-planner-card-host = Host
-asset-planner-card-os = OS
-asset-planner-card-model = Model
-asset-planner-card-tag = Tag
-asset-planner-card-compliance = Compliance
-asset-planner-os-windows = Windows
-asset-planner-os-macos = macOS
-asset-planner-os-linux = Linux
-asset-planner-os-ios = iOS
-asset-planner-os-android = Android
-asset-planner-os-other = Other
-asset-planner-warranty-expired = Expired
-asset-planner-warranty-expiring-30d = Expiring in 30 days
-asset-planner-warranty-expiring-90d = Expiring in 90 days
-asset-planner-warranty-active = Active
-asset-planner-warranty-unknown = Unknown
-asset-planner-compliance-unknown = Unknown
 
 # Collection view (CollectionView): documentation collection
 # detail page with editable name/icon, an overview editor,
@@ -5434,7 +5392,6 @@ route-title-project-gantt = Gantt
 route-title-assets = Assets
 route-title-asset-create = Create asset
 route-title-asset-view = Asset details
-route-title-asset-planner = Asset planner
 route-title-project-detail = Project details
 route-title-error = Error
 route-title-users = Users

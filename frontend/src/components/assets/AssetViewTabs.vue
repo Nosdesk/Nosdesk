@@ -1,11 +1,10 @@
 <script setup lang="ts">
 /**
- * Tab strip across the top of the asset section. Lets the
- * user flip between the two views that share the underlying
- * asset data (inventory list, capacity planner) without
- * leaning on the sidebar — the planner used to be a sidebar
- * sibling of `/assets`, which highlighted both when the planner
- * was open. Routes stay the same so deep links keep working.
+ * Tab strip across the top of the asset section. Flips between the
+ * views that share the underlying asset data (inventory list, make/
+ * model catalog) without leaning on the sidebar. The fleet-planning
+ * lenses that used to be a separate "Planner" view now live inside the
+ * inventory list as group-by axes.
  */
 import { RouterLink, useRoute } from 'vue-router'
 
@@ -23,7 +22,6 @@ interface Tab {
 
 const tabs: Tab[] = [
   { to: '/assets', labelKey: 'asset-tabs-inventory' },
-  { to: '/assets/planner', labelKey: 'asset-tabs-planner', exact: true },
   { to: '/assets/catalog', labelKey: 'asset-tabs-catalog', exact: true },
 ]
 

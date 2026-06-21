@@ -17,7 +17,6 @@ import ProjectDetailView from '../views/ProjectDetailView.vue'
 import CycleDetailView from '../views/CycleDetailView.vue'
 import ProjectGanttView from '../views/ProjectGanttView.vue'
 import ProjectCyclesView from '../views/ProjectCyclesView.vue'
-import AssetPlannerView from '../views/AssetPlannerView.vue'
 import UserProfileView from '../views/UserProfileView.vue'
 import DocumentationIndexView from '@/views/DocumentationIndexView.vue'
 import DocumentView from '@/views/DocumentView.vue'
@@ -302,20 +301,8 @@ const router = createRouter({
       }
     },
     {
-      // Planner moves to `/assets/planner` so `/assets` (singular)
-      // can be the inventory list page. Existing `/assets` deep
-      // links now hit a redirect via the route below.
-      path: '/assets/planner',
-      name: 'asset-planner',
-      component: AssetPlannerView,
-      meta: {
-        requiresAuth: true,
-        titleKey: 'route-title-asset-planner',
-      }
-    },
-    {
       // Make/model catalog. Agent-accessible (operational reference data),
-      // a sibling of the inventory + planner views.
+      // a sibling of the inventory view.
       path: '/assets/catalog',
       name: 'asset-catalog',
       component: () => import('../views/AssetCatalogView.vue'),

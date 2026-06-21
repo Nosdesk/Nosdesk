@@ -235,9 +235,7 @@ nav-assets = Ressources matérielles
 nav-asset-planner = Planificateur d'actifs
 
 # Tab strip across the top of the asset section. Used in place
-# of duplicate sidebar entries for inventory list + planner.
 asset-tabs-inventory = Inventory
-asset-tabs-planner = Planner
 asset-tabs-catalog = Catalogue
 nav-users = Utilisateurs
 nav-documentation = Documentation
@@ -2860,49 +2858,9 @@ doc-detail-ticket-note-title = Notes pour le ticket n°{ $id }
 doc-detail-ticket-note-description = Documentation pour le ticket { $title }
 doc-detail-ticket-note-author-system = Système
 
-# Asset planner (AssetPlannerView): kanban de planification des
 # déploiements d'équipements, regroupés par famille d'OS, période
 # de garantie ou état de conformité. Couvre l'en-tête, les filtres
 # latéraux, les colonnes et les puces des cartes.
-asset-planner-title = Équipements
-asset-planner-subtitle = Planifiez les déploiements par OS, garantie ou conformité.
-asset-planner-search-placeholder = Rechercher par nom, hôte, modèle…
-asset-planner-group-by = Grouper par
-asset-planner-axis-os = Famille d'OS
-asset-planner-axis-warranty = Garantie
-asset-planner-axis-compliance = Conformité
-asset-planner-loading = Chargement des équipements…
-asset-planner-load-error = Échec du chargement des équipements
-asset-planner-filters-heading = Filtres
-asset-planner-filters-clear = Effacer ({ $count })
-asset-planner-section-os = OS
-asset-planner-section-warranty = Garantie
-asset-planner-section-compliance = Conformité
-asset-planner-count = { $visible } sur { $total ->
-    [one] { $total } équipement
-   *[other] { $total } équipements
-   }
-asset-planner-empty = Aucun actif ne correspond aux filtres actuels.
-asset-planner-warranty-ends = Garantie expire le { $date }
-asset-planner-no-warranty-data = Pas de donnée de garantie
-asset-planner-warranty-unknown-short = n/d
-asset-planner-card-host = Hôte
-asset-planner-card-os = OS
-asset-planner-card-model = Modèle
-asset-planner-card-tag = Étiquette
-asset-planner-card-compliance = Conformité
-asset-planner-os-windows = Windows
-asset-planner-os-macos = macOS
-asset-planner-os-linux = Linux
-asset-planner-os-ios = iOS
-asset-planner-os-android = Android
-asset-planner-os-other = Autre
-asset-planner-warranty-expired = Expirée
-asset-planner-warranty-expiring-30d = Expire dans 30 jours
-asset-planner-warranty-expiring-90d = Expire dans 90 jours
-asset-planner-warranty-active = Active
-asset-planner-warranty-unknown = Inconnue
-asset-planner-compliance-unknown = Inconnue
 
 # Collection view (CollectionView): documentation collection
 # detail page with editable name/icon, an overview editor,
@@ -5318,7 +5276,6 @@ route-title-project-gantt = Gantt
 route-title-assets = Ressources
 route-title-asset-create = Créer un actif
 route-title-asset-view = Détails de l'actif
-route-title-asset-planner = Planificateur d'actifs
 route-title-project-detail = Détails du projet
 route-title-error = Erreur
 route-title-users = Utilisateurs
