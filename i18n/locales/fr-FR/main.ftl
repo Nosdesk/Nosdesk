@@ -2840,7 +2840,6 @@ docs-gaps-resolve-action = Enregistrer comme document
 # Document view (DocumentView): full-page editor for a single doc
 # page (or a ticket note). Covers the header toolbar, metadata
 # strip, save indicators, verification chips, panels, and toasts.
-doc-detail-back-to-ticket = Retour au ticket
 doc-detail-back-to-documentation = Retour à la documentation
 doc-detail-saving = Enregistrement
 doc-detail-publish = Publier
@@ -2868,9 +2867,6 @@ doc-detail-toast-deleting = Suppression du document
 doc-detail-toast-deleted = Document supprimé avec succès
 doc-detail-toast-delete-error = Erreur lors de la suppression du document
 doc-detail-duplicate-suffix = { $title } (copie)
-doc-detail-ticket-note-title = Notes pour le ticket n°{ $id }
-doc-detail-ticket-note-description = Documentation pour le ticket { $title }
-doc-detail-ticket-note-author-system = Système
 
 # déploiements d'équipements, regroupés par famille d'OS, période
 # de garantie ou état de conformité. Couvre l'en-tête, les filtres
@@ -5211,7 +5207,10 @@ tickets-collaborative-article-title = Notes du ticket
 tickets-collaborative-article-doc-title = Documentation : Ticket n°{ $id }
 tickets-collaborative-article-revision-history = Historique des révisions
 tickets-collaborative-article-convert-doc = Convertir en page de documentation
-tickets-collaborative-article-open-full = Ouvrir l'éditeur complet
+# Machine-translated, pending native review.
+tickets-collaborative-article-promote-confirm-title = Promouvoir la note en document ?
+tickets-collaborative-article-promote-confirm-message = Le contenu de la note est déplacé dans un nouveau document, et la note est remplacée par une intégration de celui-ci. Le document s'ouvre en plein écran, et le ticket continue de l'afficher en ligne.
+tickets-collaborative-article-promote-confirm-label = Promouvoir
 tickets-project-info-remove = Retirer du projet
 tickets-project-info-description = Description
 tickets-project-info-project-id = ID projet
@@ -5288,7 +5287,6 @@ route-title-dashboard = Tableau de bord
 route-title-inbox = Boîte de réception
 route-title-tickets = Tickets
 route-title-ticket-view = Voir le ticket
-route-title-ticket-notes = Notes du ticket #{ $id }
 route-title-user-profile = Profil utilisateur
 route-title-user-settings = Paramètres utilisateur
 route-title-user-settings-profile = Paramètres du profil utilisateur

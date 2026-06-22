@@ -476,13 +476,6 @@ const router = createRouter({
         to.meta.titleKeyArgs = undefined;
         to.meta.preloadedDocument = undefined;
 
-        // Handle ticket notes, preloaded inside component (needs different data shape)
-        if (to.query.ticketId) {
-          to.meta.titleKey = 'route-title-ticket-notes';
-          to.meta.titleKeyArgs = { id: String(to.query.ticketId) };
-          return;
-        }
-
         // Preload document data so the view renders instantly
         const path = to.params.path?.toString();
         if (path) {

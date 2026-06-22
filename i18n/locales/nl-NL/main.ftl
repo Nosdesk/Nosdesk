@@ -2831,7 +2831,6 @@ docs-gaps-resolve-action = Opslaan als document
 # Document view (DocumentView): full-page editor for a single doc
 # page (or a ticket note). Covers the header toolbar, metadata
 # strip, save indicators, verification chips, panels, and toasts.
-doc-detail-back-to-ticket = Terug naar ticket
 doc-detail-back-to-documentation = Terug naar documentatie
 doc-detail-saving = Bezig met opslaan
 doc-detail-publish = Publiceren
@@ -2859,9 +2858,6 @@ doc-detail-toast-deleting = Document verwijderen
 doc-detail-toast-deleted = Document succesvol verwijderd
 doc-detail-toast-delete-error = Fout bij verwijderen document
 doc-detail-duplicate-suffix = { $title } (kopie)
-doc-detail-ticket-note-title = Notities voor ticket #{ $id }
-doc-detail-ticket-note-description = Documentatie voor ticket { $title }
-doc-detail-ticket-note-author-system = Systeem
 
 # apparaat-uitrol, gegroepeerd op OS-familie, garantieperiode of
 # nalevingsstatus. Bevat de header, zijbalkfilters, groepkolommen
@@ -5202,7 +5198,10 @@ tickets-collaborative-article-title = Ticketnotities
 tickets-collaborative-article-doc-title = Documentatie: ticket #{ $id }
 tickets-collaborative-article-revision-history = Versiegeschiedenis
 tickets-collaborative-article-convert-doc = Omzetten naar documentatiepagina
-tickets-collaborative-article-open-full = Volledige editor openen
+# Machine-translated, pending native review.
+tickets-collaborative-article-promote-confirm-title = Notitie promoveren naar document?
+tickets-collaborative-article-promote-confirm-message = Hiermee wordt de inhoud van de notitie naar een nieuw document verplaatst en wordt de notitie vervangen door een insluiting ervan. Het document opent in volledig scherm en het ticket blijft het inline tonen.
+tickets-collaborative-article-promote-confirm-label = Promoveren
 tickets-project-info-remove = Uit project verwijderen
 tickets-project-info-description = Beschrijving
 tickets-project-info-project-id = Project-ID
@@ -5279,7 +5278,6 @@ route-title-dashboard = Dashboard
 route-title-inbox = Inbox
 route-title-tickets = Tickets
 route-title-ticket-view = Ticket bekijken
-route-title-ticket-notes = Notities ticket #{ $id }
 route-title-user-profile = Gebruikersprofiel
 route-title-user-settings = Gebruikersinstellingen
 route-title-user-settings-profile = Instellingen gebruikersprofiel

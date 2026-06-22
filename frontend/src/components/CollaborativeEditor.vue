@@ -125,25 +125,45 @@ setDocumentNavigationHandler((uuid: string) => {
 // Document picker state
 const showDocumentPicker = ref(false);
 
+// Build an `embedded_document` node from a doc reference. Shared by the
+// picker-driven insert and the promote-to-document replace so the node
+// shape stays in one place.
+const buildEmbeddedDocNode = (doc: { uuid: string; title: string }) => {
+    if (!editorView) return null;
+    const type = editorView.state.schema.nodes.embedded_document;
+    if (!type) return null;
+    return type.create({ documentUuid: doc.uuid, documentTitle: doc.title });
+};
+
 const insertEmbeddedDocument = (doc: { uuid: string; title: string }) => {
     showDocumentPicker.value = false;
     if (!editorView) return;
 
-    const view = editorView;
-    const { state } = view;
-    const embeddedDocType = state.schema.nodes.embedded_document;
-    if (!embeddedDocType) return;
+    const node = buildEmbeddedDocNode(doc);
+    if (!node) return;
 
-    const node = embeddedDocType.create({
-        documentUuid: doc.uuid,
-        documentTitle: doc.title,
-    });
-
-    const tr = state.tr.replaceSelectionWith(node);
-    view.dispatch(tr);
-    view.focus();
+    const tr = editorView.state.tr.replaceSelectionWith(node);
+    editorView.dispatch(tr);
+    editorView.focus();
 
     // Sync embeddings after inserting
+    syncEmbeddings();
+};
+
+// Replace the entire document body with a single embedded-document node.
+// Used when promoting a ticket note into a standalone document: the
+// note's content is cloned into the new doc server-side, then the note
+// body becomes a transclusion of that doc (one source of truth).
+const replaceAllWithEmbeddedDocument = (doc: { uuid: string; title: string }) => {
+    if (!editorView) return;
+
+    const node = buildEmbeddedDocNode(doc);
+    if (!node) return;
+
+    const { state } = editorView;
+    const tr = state.tr.replaceWith(0, state.doc.content.size, node);
+    editorView.dispatch(tr);
+
     syncEmbeddings();
 };
 
@@ -1941,6 +1961,7 @@ defineExpose({
     isViewingRevision,
     currentRevisionNumber,
     getTextContent,
+    replaceAllWithEmbeddedDocument,
 });
 </script>
 

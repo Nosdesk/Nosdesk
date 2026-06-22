@@ -2895,7 +2895,6 @@ docs-gaps-resolve-action = Save as doc
 # Document view (DocumentView): full-page editor for a single doc
 # page (or a ticket note). Covers the header toolbar, metadata
 # strip, save indicators, verification chips, panels, and toasts.
-doc-detail-back-to-ticket = Back to Ticket
 doc-detail-back-to-documentation = Back to Documentation
 doc-detail-saving = Saving
 doc-detail-publish = Publish
@@ -2923,9 +2922,6 @@ doc-detail-toast-deleting = Deleting document
 doc-detail-toast-deleted = Document deleted successfully
 doc-detail-toast-delete-error = Error deleting document
 doc-detail-duplicate-suffix = { $title } (copy)
-doc-detail-ticket-note-title = Notes for Ticket #{ $id }
-doc-detail-ticket-note-description = Documentation for ticket { $title }
-doc-detail-ticket-note-author-system = System
 
 # devices, grouped by OS family, warranty bucket, or compliance
 # state. Covers the header, sidebar filters, group columns, and
@@ -5321,7 +5317,9 @@ tickets-collaborative-article-title = Ticket Notes
 tickets-collaborative-article-doc-title = Documentation: Ticket #{ $id }
 tickets-collaborative-article-revision-history = Revision history
 tickets-collaborative-article-convert-doc = Convert to documentation page
-tickets-collaborative-article-open-full = Open full editor
+tickets-collaborative-article-promote-confirm-title = Promote note to a document?
+tickets-collaborative-article-promote-confirm-message = This moves the note's content into a new document and replaces the note with an embed of it. The document opens in full-page view, and the ticket keeps showing it inline.
+tickets-collaborative-article-promote-confirm-label = Promote
 tickets-project-info-remove = Remove from project
 tickets-project-info-description = Description
 tickets-project-info-project-id = Project ID
@@ -5398,7 +5396,6 @@ route-title-dashboard = Dashboard
 route-title-inbox = Inbox
 route-title-tickets = Tickets
 route-title-ticket-view = View ticket
-route-title-ticket-notes = Ticket #{ $id } notes
 route-title-user-profile = User profile
 route-title-user-settings = User settings
 route-title-user-settings-profile = User profile settings

@@ -78,6 +78,12 @@ export const ICON_REGISTRY = {
   bell: {
     d: 'M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0',
   },
+  /** Open book — the "documentation / knowledge base" concept,
+   * app-wide. Matches the Documentation nav section so converting a
+   * ticket note into a doc page reads as "send this to the docs". */
+  book: {
+    d: 'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253',
+  },
   /** Calendar grid with day-tick marks. Used wherever a surface
    * places tickets onto specific days (the Calendar built-in view,
    * due-date picker headers). Distinct from `clock` (a generic
