@@ -4143,6 +4143,9 @@ asset-loan-select-borrower = Sélectionner un emprunteur
 # MT: pending native review
 asset-loan-due-back-optional = Date de retour (facultatif)
 # Dates de prêt (machine, à relire par un locuteur natif).
+# Période de prêt (machine, à relire par un locuteur natif).
+asset-loan-period-label = Période de prêt
+asset-loan-period-hint = Quand l'appareil a été remis, et quand il doit être rendu. Laissez la date de retour vide pour un prêt sans échéance.
 asset-loan-loaned-on = Prêté le
 asset-loan-return-by-optional = À rendre avant (facultatif)
 # MT: pending native review

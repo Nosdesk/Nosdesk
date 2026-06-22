@@ -4134,6 +4134,9 @@ asset-loan-select-borrower = Selecteer een lener
 # MT: pending native review
 asset-loan-due-back-optional = Terug verwacht (optioneel)
 # Uitleendatums (machine, na te kijken door moedertaalspreker).
+# Uitleenperiode (machine, na te kijken door moedertaalspreker).
+asset-loan-period-label = Uitleenperiode
+asset-loan-period-hint = Wanneer het apparaat is uitgereikt en wanneer het terug moet. Laat de retourdatum leeg voor een open uitlening.
 asset-loan-loaned-on = Uitgeleend op
 asset-loan-return-by-optional = Terugbrengen vóór (optioneel)
 # MT: pending native review
