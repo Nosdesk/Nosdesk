@@ -2434,6 +2434,13 @@ assets-list-export-failed = Failed to export assets. Please try again.
 assets-list-unassigned = Unassigned
 assets-list-warranty-unknown = Unknown
 assets-list-bulk-delete = Delete
+# Row right-click context menu.
+assets-list-context-open = Open
+assets-list-context-open-new-tab = Open in new tab
+assets-list-context-copy-link = Copy link
+assets-list-context-copy-id = Copy asset ID
+assets-list-context-rollout = Create rollout
+assets-list-context-delete = Delete
 assets-list-bulk-delete-count = Delete { $count }
 assets-list-bulk-delete-title = { $count ->
     [one] Delete device?

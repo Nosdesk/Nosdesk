@@ -2356,6 +2356,13 @@ assets-list-export-failed = Exporteren van assets mislukt. Probeer het opnieuw.
 assets-list-unassigned = Niet toegewezen
 assets-list-warranty-unknown = Onbekend
 assets-list-bulk-delete = Verwijderen
+# Row right-click context menu. Machine-translated, pending native review.
+assets-list-context-open = Openen
+assets-list-context-open-new-tab = Openen in nieuw tabblad
+assets-list-context-copy-link = Link kopiëren
+assets-list-context-copy-id = Asset-ID kopiëren
+assets-list-context-rollout = Uitrol aanmaken
+assets-list-context-delete = Verwijderen
 assets-list-bulk-delete-count = { $count } verwijderen
 assets-list-bulk-delete-title = { $count ->
     [one] Apparaat verwijderen?

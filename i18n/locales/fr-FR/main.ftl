@@ -2359,6 +2359,13 @@ assets-list-export-failed = Échec de l'export des actifs. Veuillez réessayer.
 assets-list-unassigned = Non attribué
 assets-list-warranty-unknown = Inconnue
 assets-list-bulk-delete = Supprimer
+# Row right-click context menu. Machine-translated, pending native review.
+assets-list-context-open = Ouvrir
+assets-list-context-open-new-tab = Ouvrir dans un nouvel onglet
+assets-list-context-copy-link = Copier le lien
+assets-list-context-copy-id = Copier l'ID de l'actif
+assets-list-context-rollout = Créer un déploiement
+assets-list-context-delete = Supprimer
 assets-list-bulk-delete-count = Supprimer { $count }
 assets-list-bulk-delete-title = { $count ->
     [one] Supprimer l'appareil ?

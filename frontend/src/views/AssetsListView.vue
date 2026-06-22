@@ -10,6 +10,9 @@ import DataTable from '@/components/common/DataTable.vue'
 import Icon from '@/components/common/Icon.vue'
 import PaginationControls from '@/components/common/PaginationControls.vue'
 import BulkConfirmDialog from '@/components/common/BulkConfirmDialog.vue'
+import ContextMenu, { type MenuItem } from '@/components/common/ContextMenu.vue'
+import { ICON_REGISTRY } from '@/components/common/icons'
+import { useClipboard } from '@/composables/useClipboard'
 import ListPageLayout, { type ListPageLayoutExpose } from '@/components/common/ListPageLayout.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ListViewToolbar from '@/components/views/ListViewToolbar.vue'
@@ -413,6 +416,58 @@ function onRolloutCreated() {
   listView.selection.clear()
 }
 
+// Right-click row context menu (desktop), mirroring the tickets list.
+const { copy } = useClipboard()
+const showAssetContextMenu = ref(false)
+const contextMenuPos = ref({ x: 0, y: 0 })
+const contextAsset = ref<Asset | null>(null)
+const showContextDeleteConfirm = ref(false)
+
+const assetContextMenuItems = computed<MenuItem[]>(() => {
+  const items: MenuItem[] = [
+    { id: 'open', label: t('assets-list-context-open'), icon: ICON_REGISTRY.chevronRight.d },
+    { id: 'open-new-tab', label: t('assets-list-context-open-new-tab'), icon: ICON_REGISTRY.openExternal.d },
+    { id: 'copy-link', label: t('assets-list-context-copy-link'), icon: ICON_REGISTRY.link.d },
+    { id: 'copy-id', label: t('assets-list-context-copy-id'), icon: ICON_REGISTRY.copy.d },
+    { id: 'rollout', label: t('assets-list-context-rollout'), icon: ICON_REGISTRY.send.d, divider: true },
+  ]
+  if (contextAsset.value?.is_editable) {
+    items.push({ id: 'delete', label: t('assets-list-context-delete'), icon: ICON_REGISTRY.trash.d, danger: true, divider: true })
+  }
+  return items
+})
+
+function onAssetContextMenu(asset: Asset, event: MouseEvent) {
+  contextAsset.value = asset
+  contextMenuPos.value = { x: event.clientX, y: event.clientY }
+  showAssetContextMenu.value = true
+}
+
+async function onAssetContextSelect(actionId: string) {
+  const a = contextAsset.value
+  if (!a) return
+  const url = `/assets/${a.id}`
+  switch (actionId) {
+    case 'open': navigateToAsset(a); break
+    case 'open-new-tab': window.open(url, '_blank'); break
+    case 'copy-link': await copy(`${window.location.origin}${url}`); break
+    case 'copy-id': await copy(String(a.id)); break
+    case 'rollout':
+      rolloutAssetIds.value = [a.id]
+      rolloutName.value = a.name
+      showRollout.value = true
+      break
+    case 'delete': showContextDeleteConfirm.value = true; break
+  }
+}
+
+async function confirmContextDelete() {
+  showContextDeleteConfirm.value = false
+  const a = contextAsset.value
+  if (!a) return
+  await bulkDelete.mutateAsync([a.id])
+}
+
 // Mobile planning lens: when a planning axis is active, the mobile body
 // switches from the flat list to the summary -> drill-down view.
 const activeAxisLabel = computed<string>(() => {
@@ -527,6 +582,7 @@ async function exportAssetsCsv() {
         @toggle-selection="listView.dt.onToggleSelection"
         @toggle-all="listView.dt.onToggleAll"
         @row-click="navigateToAsset"
+        @row-contextmenu="onAssetContextMenu"
         @toggle-bucket="listView.grouping.toggleCollapsed"
       >
         <template #cell-name="{ item }">
@@ -671,6 +727,24 @@ async function exportAssetsCsv() {
     :default-name="rolloutName"
     @close="showRollout = false"
     @created="onRolloutCreated"
+  />
+
+  <ContextMenu
+    :open="showAssetContextMenu"
+    :items="assetContextMenuItems"
+    :x="contextMenuPos.x"
+    :y="contextMenuPos.y"
+    @select="onAssetContextSelect"
+    @close="showAssetContextMenu = false"
+  />
+
+  <BulkConfirmDialog
+    :show="showContextDeleteConfirm"
+    :title="$t('assets-list-bulk-delete-title', { count: 1 })"
+    :message="$t('assets-list-bulk-delete-message', { count: 1 })"
+    :confirm-label="$t('assets-list-bulk-delete-count', { count: 1 })"
+    @confirm="confirmContextDelete"
+    @close="showContextDeleteConfirm = false"
   />
 
   <ListViewModals :list-view="listView" />
