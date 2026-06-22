@@ -18,6 +18,8 @@ import {
   type BreakdownBucket,
   type BreakdownGroupBy,
 } from '@/services/analyticsService'
+import { priorityForBadge, priorityLabel } from '@/utils/priorityHelpers'
+import type { Priority } from '@/sync/views/types'
 
 const props = withDefaults(
   defineProps<{
@@ -65,17 +67,48 @@ const isEmpty = computed(() => !loading.value && !hasError.value && buckets.valu
 
 const maxValue = computed(() => Math.max(1, ...buckets.value.map((b) => b.value)))
 
-/** Label for a bucket key. Priority gets a fixed translation;
- *  category and assignee keys fall back to the raw id for now —
- *  resolving them to human names requires an extra round trip and
- *  ships in Wave 6 alongside drill-through. */
+/** Label for a bucket key. Priority reuses the canonical priority
+ *  labels so every surface reads the same; category and assignee
+ *  keys fall back to the raw id for now — resolving them to human
+ *  names requires an extra round trip and ships in Wave 6 alongside
+ *  drill-through. */
 function bucketLabel(b: BreakdownBucket): string {
   if (props.groupBy === 'priority') {
-    return t(`dashboard-bar-priority-${b.key}`)
+    return priorityLabel(b.key as Priority)
   }
   if (b.key === 'none') return t('dashboard-bar-uncategorised')
   if (b.key === 'unassigned') return t('dashboard-bar-unassigned')
   return b.key
+}
+
+/** Okabe-Ito categorical palette, cycled for category/assignee
+ *  breakdowns. Spelled out as full class literals so Tailwind's
+ *  scanner keeps every utility. See the chart palette note in
+ *  main.css. */
+const CHART_CLASSES = [
+  'bg-chart-1',
+  'bg-chart-2',
+  'bg-chart-3',
+  'bg-chart-4',
+  'bg-chart-5',
+  'bg-chart-6',
+  'bg-chart-7',
+  'bg-chart-8',
+] as const
+
+/** Bar fill class for a bucket. Priority maps to the semantic
+ *  priority palette (urgent collapses to high, none to a neutral
+ *  tint) so the bars match the dots used across the app; other
+ *  breakdowns cycle the categorical palette by row. */
+function barClass(b: BreakdownBucket, index: number): string {
+  if (props.groupBy === 'priority') {
+    const tier = priorityForBadge(b.key as Priority)
+    if (tier === 'low') return 'bg-priority-low'
+    if (tier === 'medium') return 'bg-priority-medium'
+    if (tier === 'high') return 'bg-priority-high'
+    return 'bg-tertiary'
+  }
+  return CHART_CLASSES[index % CHART_CLASSES.length]
 }
 
 function rowLink(b: BreakdownBucket) {
@@ -103,7 +136,7 @@ function rowLink(b: BreakdownBucket) {
       {{ t('dashboard-line-chart-empty') }}
     </div>
     <ul v-else class="flex flex-col gap-1.5">
-      <li v-for="b in buckets" :key="b.key">
+      <li v-for="(b, index) in buckets" :key="b.key">
         <component
           :is="rowLink(b) ? 'router-link' : 'div'"
           :to="rowLink(b) ?? undefined"
@@ -115,7 +148,8 @@ function rowLink(b: BreakdownBucket) {
           <span class="text-secondary truncate" :title="bucketLabel(b)">{{ bucketLabel(b) }}</span>
           <div class="h-2 rounded-sm bg-surface-alt overflow-hidden">
             <div
-              class="h-full bg-chart-1 transition-[width] duration-200"
+              class="h-full transition-[width] duration-200"
+              :class="barClass(b, index)"
               :style="{ width: `${(b.value / maxValue) * 100}%` }"
             />
           </div>
