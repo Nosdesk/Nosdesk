@@ -5199,6 +5199,8 @@ tickets-collaborative-article-doc-title = Documentatie: ticket #{ $id }
 tickets-collaborative-article-revision-history = Versiegeschiedenis
 tickets-collaborative-article-convert-doc = Omzetten naar documentatiepagina
 # Machine-translated, pending native review.
+tickets-collaborative-article-open-doc = Gekoppeld document openen
+# Machine-translated, pending native review.
 tickets-collaborative-article-promote-confirm-title = Notitie promoveren naar document?
 tickets-collaborative-article-promote-confirm-message = Hiermee wordt de inhoud van de notitie naar een nieuw document verplaatst en wordt de notitie vervangen door een insluiting ervan. Het document opent in volledig scherm en het ticket blijft het inline tonen.
 tickets-collaborative-article-promote-confirm-label = Promoveren

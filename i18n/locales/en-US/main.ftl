@@ -5317,6 +5317,7 @@ tickets-collaborative-article-title = Ticket Notes
 tickets-collaborative-article-doc-title = Documentation: Ticket #{ $id }
 tickets-collaborative-article-revision-history = Revision history
 tickets-collaborative-article-convert-doc = Convert to documentation page
+tickets-collaborative-article-open-doc = Open linked document
 tickets-collaborative-article-promote-confirm-title = Promote note to a document?
 tickets-collaborative-article-promote-confirm-message = This moves the note's content into a new document and replaces the note with an embed of it. The document opens in full-page view, and the ticket keeps showing it inline.
 tickets-collaborative-article-promote-confirm-label = Promote

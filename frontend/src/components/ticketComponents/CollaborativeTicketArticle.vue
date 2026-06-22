@@ -10,6 +10,7 @@ import Icon from '@/components/common/Icon.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import apiClient from '@/services/apiConfig';
 import { docUrl } from '@/utils/docUrl';
+import { listDocsForTicket, createPageFromTicket, type TicketDocLink } from '@/services/documentationService';
 import { useCollabDocId } from '@/composables/useCollabDocId';
 import { useSyncTicketsStore } from '@/sync/stores/tickets';
 
@@ -50,15 +51,23 @@ const docId = useCollabDocId('ticket', () => ticketsStore.byId(props.ticketId).v
 const showRevisionHistory = ref(false);
 const editorRef = ref<InstanceType<typeof CollaborativeEditor> | null>(null);
 
+// The document this note was promoted into, if any (the 'resolves'
+// link). Drives whether the header action promotes or just opens the
+// existing document, and keeps promote idempotent (no double embed).
+const promotedDoc = ref<TicketDocLink | null>(null);
+
+async function refreshPromotedDoc() {
+  const links = await listDocsForTicket(props.ticketId);
+  promotedDoc.value = links.find((l) => l.link_type === 'resolves') ?? null;
+}
+
 // No need to load content via HTTP - the CollaborativeEditor handles everything via WebSocket
 // The editor will sync with the backend's in-memory Yjs document automatically
 onMounted(() => {
   // Just mark as loaded immediately - editor handles content sync via WebSocket
   isLoading.value = false;
   emit('initialization-complete');
-  if (import.meta.env.DEV) {
-    console.log('CollaborativeTicketArticle mounted for ticket', props.ticketId, '- editor will sync via WebSocket');
-  }
+  refreshPromotedDoc();
 });
 
 // No need to save via HTTP POST - backend automatically saves via WebSocket sync protocol
@@ -114,25 +123,35 @@ const toggleRevisionHistory = () => {
 const showPromoteConfirm = ref(false);
 const promoting = ref(false);
 
+// Header action: open the document if the note was already promoted,
+// otherwise ask to promote.
+const onPromoteOrOpen = () => {
+  if (promotedDoc.value) {
+    router.push(docUrl({ slug: promotedDoc.value.page_slug, id: promotedDoc.value.page_id }));
+    return;
+  }
+  showPromoteConfirm.value = true;
+};
+
 const confirmPromote = async () => {
   promoting.value = true;
   try {
     // Idempotent: returns the existing linked page or creates a new
     // draft, cloning the note's content and filing it under the
     // system "Tickets" collection.
-    const response = await apiClient.post(`/tickets/${props.ticketId}/documentation/create`, {
+    const doc = await createPageFromTicket(props.ticketId, {
       title: t('tickets-collaborative-article-doc-title', { id: props.ticketId }),
       icon: '📋',
       parent_id: null,
     });
 
-    const doc = response.data;
     if (doc?.uuid) {
       // Replace the note body with a transclusion of the new doc, then
       // let the editor commit it to the collab doc before we navigate
       // away and unmount it. No content is lost: the doc already holds
       // the cloned content server-side.
       editorRef.value?.replaceAllWithEmbeddedDocument({ uuid: doc.uuid, title: doc.title });
+      await refreshPromotedDoc();
       await nextTick();
       showPromoteConfirm.value = false;
       router.push(docUrl(doc));
@@ -158,9 +177,9 @@ const confirmPromote = async () => {
         <Icon name="clock" />
       </button>
       <button
-        @click="showPromoteConfirm = true"
+        @click="onPromoteOrOpen"
         class="p-1 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
-        :title="t('tickets-collaborative-article-convert-doc')"
+        :title="promotedDoc ? t('tickets-collaborative-article-open-doc') : t('tickets-collaborative-article-convert-doc')"
       >
         <Icon name="book" />
       </button>
