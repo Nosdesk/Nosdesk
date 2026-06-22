@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import BaseDropdown from '@/components/common/BaseDropdown.vue';
 import Checkbox from '@/components/common/Checkbox.vue';
+import DatePicker from '@/components/common/DatePicker.vue';
 import UserAttributePicker from '@/components/assets/UserAttributePicker.vue';
 import AssetAttributePicker from '@/components/assets/AssetAttributePicker.vue';
 
@@ -211,6 +212,14 @@ function enumOptions(prop: SchemaProperty): { value: string; label: string }[] {
         :step="prop.multipleOf ?? (prop.type === 'integer' ? 1 : 'any')"
         class="bg-surface-alt rounded-lg border border-default px-3 py-2 text-primary text-sm"
         @input="(e) => onNumberInput(key, (e.target as HTMLInputElement).value, prop)"
+      />
+
+      <!-- date -> app DatePicker (we never use the native date chrome) -->
+      <DatePicker
+        v-else-if="prop.format === 'date'"
+        :model-value="stringValue(key)"
+        :disabled="disabled"
+        @update:model-value="(v) => updateField(key, v)"
       />
 
       <!-- string with format / default text -->
