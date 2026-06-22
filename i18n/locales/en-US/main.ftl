@@ -3343,13 +3343,6 @@ ticket-picker-user-section-all = All users
 ticket-picker-user-you-suffix = (you)
 
 # Ticket picker: linked ticket modal (LinkedTicketModal)
-ticket-picker-linked-title = Link Ticket
-ticket-picker-linked-search-placeholder = Search tickets...
-ticket-picker-linked-loading = Loading tickets...
-ticket-picker-linked-error = Failed to load tickets
-ticket-picker-linked-try-again = Try Again
-ticket-picker-linked-empty-search = No tickets match your search
-ticket-picker-linked-empty = No tickets available to link
 ticket-picker-linked-col-id = ID
 ticket-picker-linked-col-title = Title
 ticket-picker-linked-col-status = Status
@@ -3359,7 +3352,6 @@ ticket-picker-linked-count = { $count ->
     [one] { $count } ticket
    *[other] { $count } tickets
 }
-ticket-picker-linked-cancel = Cancel
 
 # Ticket picker: canned response picker (CannedResponsePicker)
 ticket-picker-canned-trigger-aria = Insert canned response

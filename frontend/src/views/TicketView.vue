@@ -28,7 +28,7 @@ import CommentsAndAttachments from "@/components/ticketComponents/CommentsAndAtt
 import MergedIntoBanner from "@/components/ticketComponents/MergedIntoBanner.vue";
 import SpamBanner from "@/components/ticketComponents/SpamBanner.vue";
 import MergedInField from "@/components/ticketComponents/MergedInField.vue";
-import LinkedTicketModal from "@/components/ticketComponents/LinkedTicketModal.vue";
+import TicketPickerModal from "@/components/ticketComponents/TicketPickerModal.vue";
 import ProjectSelectionModal from "@/components/ticketComponents/ProjectSelectionModal.vue";
 import TicketGapFlag from "@/components/ticketComponents/TicketGapFlag.vue";
 import TicketLoansCard from "@/components/ticketComponents/TicketLoansCard.vue";
@@ -789,13 +789,12 @@ useCreateTicketAction();
                 @select-device="addDevice"
             />
 
-            <LinkedTicketModal
+            <TicketPickerModal
                 v-if="ticket"
                 :show="showLinkedTicketModal"
-                :current-ticket-id="ticket.id"
-                :existing-linked-tickets="ticket.linkedTickets"
+                :exclude-ids="[ticket.id, ...ticket.linkedTickets]"
                 @close="showLinkedTicketModal = false"
-                @select-ticket="linkTicket"
+                @select="(t) => linkTicket(t.id)"
             />
 
             <ProjectSelectionModal

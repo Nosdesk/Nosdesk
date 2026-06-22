@@ -8,16 +8,15 @@
   refreshing happens through one cache update.
 
   Read-only when `canEdit` is false; technicians get the inline
-  "Link a ticket..." affordance which opens the existing
-  LinkedTicketModal (already used elsewhere in the app for ticket
-  pickers).
+  "Link a ticket..." affordance which opens the shared
+  TicketPickerModal (the app-wide ticket picker).
 -->
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
-import LinkedTicketModal from '@/components/ticketComponents/LinkedTicketModal.vue'
+import TicketPickerModal from '@/components/ticketComponents/TicketPickerModal.vue'
 import { coarseStatusBucket, type WorkflowStateCategory } from '@/types/workflow'
 
 const fluent = useFluent()
@@ -195,12 +194,11 @@ function categoryLabel(category: WorkflowStateCategory | null | undefined): stri
       </div>
     </template>
 
-    <LinkedTicketModal
+    <TicketPickerModal
       :show="showPicker"
-      :current-ticket-id="0"
-      :existing-linked-tickets="existingTicketIds"
+      :exclude-ids="existingTicketIds"
       @close="showPicker = false"
-      @select-ticket="onPickTicket"
+      @select="(t) => onPickTicket(t.id)"
     />
   </section>
 </template>

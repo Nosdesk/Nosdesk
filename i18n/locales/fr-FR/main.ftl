@@ -3286,13 +3286,6 @@ ticket-picker-user-section-all = Tous les utilisateurs
 ticket-picker-user-you-suffix = (vous)
 
 # Ticket picker: modale de ticket lié (LinkedTicketModal)
-ticket-picker-linked-title = Lier un ticket
-ticket-picker-linked-search-placeholder = Rechercher des tickets...
-ticket-picker-linked-loading = Chargement des tickets...
-ticket-picker-linked-error = Échec du chargement des tickets
-ticket-picker-linked-try-again = Réessayer
-ticket-picker-linked-empty-search = Aucun ticket ne correspond à votre recherche
-ticket-picker-linked-empty = Aucun ticket à lier
 ticket-picker-linked-col-id = ID
 ticket-picker-linked-col-title = Titre
 ticket-picker-linked-col-status = Statut
@@ -3302,7 +3295,6 @@ ticket-picker-linked-count = { $count ->
     [one] { $count } ticket
    *[other] { $count } tickets
 }
-ticket-picker-linked-cancel = Annuler
 
 # Ticket picker: réponses préenregistrées (CannedResponsePicker)
 ticket-picker-canned-trigger-aria = Insérer une réponse préenregistrée

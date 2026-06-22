@@ -3277,13 +3277,6 @@ ticket-picker-user-section-all = Alle gebruikers
 ticket-picker-user-you-suffix = (jij)
 
 # Ticket picker: gekoppeld ticket modaal (LinkedTicketModal)
-ticket-picker-linked-title = Ticket koppelen
-ticket-picker-linked-search-placeholder = Tickets zoeken...
-ticket-picker-linked-loading = Tickets laden...
-ticket-picker-linked-error = Kan tickets niet laden
-ticket-picker-linked-try-again = Opnieuw proberen
-ticket-picker-linked-empty-search = Geen tickets gevonden voor je zoekopdracht
-ticket-picker-linked-empty = Geen tickets om te koppelen
 ticket-picker-linked-col-id = ID
 ticket-picker-linked-col-title = Titel
 ticket-picker-linked-col-status = Status
@@ -3293,7 +3286,6 @@ ticket-picker-linked-count = { $count ->
     [one] { $count } ticket
    *[other] { $count } tickets
 }
-ticket-picker-linked-cancel = Annuleren
 
 # Ticket picker: standaardantwoordenkiezer (CannedResponsePicker)
 ticket-picker-canned-trigger-aria = Standaardantwoord invoegen
