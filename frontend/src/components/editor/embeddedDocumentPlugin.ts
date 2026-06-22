@@ -11,23 +11,34 @@ import * as Y from 'yjs'
 export const embeddedDocumentPluginKey = new PluginKey('embeddedDocument')
 
 // Cache for embedded document content
-const contentCache = new Map<string, { html: string; title: string; icon: string; loading: boolean; error: boolean }>()
+interface EmbeddedDocContent {
+  html: string
+  title: string
+  icon: string
+  // Canonical slug for navigation. Docs are routed by slug, not uuid,
+  // so the open affordance needs this to reach the page.
+  slug: string | null
+  loading: boolean
+  error: boolean
+}
+const contentCache = new Map<string, EmbeddedDocContent>()
 
-// Navigation callback
-let navigateToDocument: ((uuid: string) => void) | null = null
+// Navigation callback. Receives the doc's slug (the routable path), not
+// the uuid — the documentation route resolves by slug.
+let navigateToDocument: ((slug: string) => void) | null = null
 
-export function setDocumentNavigationHandler(handler: (uuid: string) => void) {
+export function setDocumentNavigationHandler(handler: (slug: string) => void) {
   navigateToDocument = handler
 }
 
 // Fetch document content for embedding
-async function fetchDocumentContent(uuid: string): Promise<{ html: string; title: string; icon: string }> {
+async function fetchDocumentContent(uuid: string): Promise<EmbeddedDocContent> {
   const cached = contentCache.get(uuid)
   if (cached && !cached.loading && !cached.error) {
     return cached
   }
 
-  contentCache.set(uuid, { html: '', title: translate('editor-loading', undefined, 'Loading...'), icon: '📄', loading: true, error: false })
+  contentCache.set(uuid, { html: '', title: translate('editor-loading', undefined, 'Loading...'), icon: '📄', slug: null, loading: true, error: false })
 
   try {
     const response = await apiClient.get(`/documentation/pages/uuid/${uuid}/content`)
@@ -50,10 +61,11 @@ async function fetchDocumentContent(uuid: string): Promise<{ html: string; title
       html = `<p class="text-tertiary text-sm italic">${translate('editor-embed-empty-document', undefined, 'Empty document')}</p>`
     }
 
-    const result = {
+    const result: EmbeddedDocContent = {
       html,
       title: data.title || translate('docs-untitled-page', undefined, 'Untitled'),
       icon: data.icon || '📄',
+      slug: data.slug ?? null,
       loading: false,
       error: false,
     }
@@ -62,10 +74,11 @@ async function fetchDocumentContent(uuid: string): Promise<{ html: string; title
   } catch (err) {
     console.error(`Failed to fetch embedded document ${uuid}:`, err)
     const loadFailedMsg = translate('editor-embed-load-failed', undefined, "Couldn't load document")
-    const errorResult = {
+    const errorResult: EmbeddedDocContent = {
       html: `<p class="text-tertiary text-sm italic">${loadFailedMsg}</p>`,
       title: loadFailedMsg,
       icon: '⚠️',
+      slug: null,
       loading: false,
       error: true,
     }
@@ -140,6 +153,7 @@ class EmbeddedDocumentView implements NodeView {
   dom: HTMLElement
   private uuid: string
   private title: string
+  private slug: string | null = null
 
   constructor(node: ProseMirrorNode, _view: EditorView, _getPos: () => number | undefined) {
     this.uuid = node.attrs.documentUuid
@@ -168,7 +182,18 @@ class EmbeddedDocumentView implements NodeView {
   private async loadContent() {
     const data = await fetchDocumentContent(this.uuid)
     this.title = data.title
+    this.slug = data.slug
     this.render(data)
+  }
+
+  // Navigate to the embedded doc. Docs route by slug, so resolve it
+  // (cached after the content fetch) before navigating; without a slug
+  // there's nothing to open.
+  private async openDocument() {
+    if (!this.slug) {
+      this.slug = (await fetchDocumentContent(this.uuid)).slug
+    }
+    if (this.slug && navigateToDocument) navigateToDocument(this.slug)
   }
 
   private render(data: { html: string; title: string; icon: string }) {
@@ -206,17 +231,21 @@ class EmbeddedDocumentView implements NodeView {
           '<polyline points="15,3 21,3 21,9" />' +
           '<line x1="10" y1="14" x2="21" y2="3" />' +
         '</svg>'
+      // Real link so cmd/ctrl/middle-click opens the doc in a new tab;
+      // a plain click is intercepted for SPA navigation.
+      if (this.slug) openEl.setAttribute('href', `/documentation/${this.slug}`)
       openEl.addEventListener('click', (e) => {
-        e.preventDefault()
         e.stopPropagation()
-        if (navigateToDocument) navigateToDocument(this.uuid)
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return
+        e.preventDefault()
+        this.openDocument()
       })
       header.appendChild(openEl)
     }
 
     header.addEventListener('click', (e) => {
       if ((e.target as HTMLElement).closest('.embedded-doc-open')) return
-      if (navigateToDocument) navigateToDocument(this.uuid)
+      this.openDocument()
     })
 
     return header

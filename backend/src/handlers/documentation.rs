@@ -505,6 +505,7 @@ pub async fn get_documentation_page_content_by_uuid(
 
         Ok::<_, diesel::result::Error>(PageContentOutcome::Ok(json!({
             "uuid": page.uuid,
+            "slug": page.slug,
             "title": page.title,
             "icon": page.icon,
             "status": page.status,

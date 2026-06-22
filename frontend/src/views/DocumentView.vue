@@ -13,7 +13,6 @@ import { useDocumentPanelState } from '@/composables/useDocumentPanelState'
 import { useMyWorkspacesStore } from '@/stores/myWorkspaces'
 import { buildCollabDocId } from '@/utils/collabDocId'
 import documentationService from '@/services/documentationService'
-import ticketService from '@/services/ticketService'
 import type { Page, Article } from '@/services/documentationService'
 import CollaborativeEditor from '@/components/CollaborativeEditor.vue'
 import BackButton from '@/components/common/BackButton.vue'
@@ -107,13 +106,6 @@ watch(showInsights, (open) => {
   if (open) refreshInsightsText()
 })
 
-// Ticket note mode
-const isTicketNote = ref(false)
-const ticketId = ref<string | null>(null)
-// The ticket's immutable UUID, used to key the collab doc so a recycled
-// integer id can't inherit a previous ticket's cached note.
-const ticketUuid = ref<string | null>(null)
-
 // Subscription state
 const isSubscribed = ref(false)
 
@@ -122,7 +114,7 @@ const isStarred = ref(false)
 
 // Computed helpers
 const currentPageId = computed(() => document.value?.id ?? null)
-const isDocumentPage = computed(() => !!document.value && !isTicketNote.value)
+const isDocumentPage = computed(() => !!document.value)
 
 const handleCopyLink = () => {
   const slug = document.value?.slug || document.value?.id
@@ -149,11 +141,9 @@ const documentObj = computed(() => {
   }
 })
 
-// Doc ID for CollaborativeEditor. Pages own their Yjs doc directly;
-// ticket notes share the room with the originating ticket. Both
-// share the workspace-namespaced docId format (see
-// utils/collabDocId.ts) so stale IDB caches across a database reset
-// can't repopulate the new doc.
+// Doc ID for CollaborativeEditor. Pages own their Yjs doc, keyed by the
+// page's immutable UUID (see utils/collabDocId.ts) so stale IDB caches
+// across a database reset can't repopulate the new doc.
 //
 // Returns `null` (rather than a fabricated default) until the
 // workspace UUID resolves. The editor render is gated below so the
@@ -164,13 +154,6 @@ const workspaces = useMyWorkspacesStore()
 const docId = computed(() => {
   const uuid = workspaces.activeWorkspace?.workspace_uuid
   if (!uuid) return null
-  // Collab docs are keyed by the resource's immutable UUID, never the
-  // recyclable integer id (see utils/collabDocId.ts). Return null until
-  // the UUID is known so the editor waits rather than connecting under
-  // a wrong/temporary key.
-  if (isTicketNote.value) {
-    return ticketUuid.value ? buildCollabDocId(uuid, 'ticket', ticketUuid.value) : null
-  }
   if (document.value && 'uuid' in document.value && document.value.uuid) {
     return buildCollabDocId(uuid, 'doc', document.value.uuid)
   }
@@ -181,19 +164,9 @@ const docId = computed(() => {
 })
 
 // Navigation helpers
-const fallbackRoute = computed(() => {
-  if (isTicketNote.value && ticketId.value) {
-    return `/tickets/${ticketId.value}`
-  }
-  return '/documentation'
-})
+const fallbackRoute = computed(() => '/documentation')
 
-const backButtonLabel = computed(() => {
-  if (isTicketNote.value) {
-    return t('doc-detail-back-to-ticket')
-  }
-  return t('doc-detail-back-to-documentation')
-})
+const backButtonLabel = computed(() => t('doc-detail-back-to-documentation'))
 
 // Content update handler
 const updateContent = (newContent: string) => {
@@ -411,44 +384,6 @@ const fetchContent = async () => {
   }
   isLoading.value = true
 
-  // Check for ticket note mode
-  if (route.query.ticketId) {
-    const ticketIdParam = route.query.ticketId as string
-
-    try {
-      const ticket = await ticketService.getTicketById(Number(ticketIdParam))
-
-      if (ticket) {
-        document.value = {
-          id: `ticket-note-${ticketIdParam}`,
-          title: t('doc-detail-ticket-note-title', { id: ticket.id }),
-          description: t('doc-detail-ticket-note-description', { title: ticket.title }),
-          content: ticket.article_content || '',
-          author: ticket.assignee || t('doc-detail-ticket-note-author-system'),
-          lastUpdated: ticket.modified,
-          status: 'published',
-          slug: '',
-          parent_id: null,
-          icon: null,
-          children: [],
-        }
-
-        isTicketNote.value = true
-        ticketId.value = ticketIdParam
-        ticketUuid.value = ticket.uuid ?? null
-        editContent.value = document.value.content || ''
-        editTitle.value = document.value.title
-        documentIcon.value = document.value.icon || 'mdi-text-box-outline'
-
-        emit('update:title', document.value.title)
-        isLoading.value = false
-        return
-      }
-    } catch (error) {
-      console.error(`Error loading ticket ${ticketIdParam}:`, error)
-    }
-  }
-
   // Load document by path
   const path = route.params.path as string
 
@@ -493,7 +428,7 @@ const fetchContent = async () => {
     isLoading.value = false
 
     // Fetch subscription and starred status for the loaded page
-    if (currentPageId.value && !isTicketNote.value) {
+    if (currentPageId.value) {
       documentationService.getPageSubscription(Number(currentPageId.value)).then(subscribed => {
         isSubscribed.value = subscribed
       })
@@ -662,7 +597,7 @@ watch(documentObj, (newDocument) => {
 
         <!-- Publish button for unpublished pages -->
         <button
-          v-if="document && !isTicketNote && document.status !== 'published'"
+          v-if="document && document.status !== 'published'"
           @click="handlePublishPage"
           class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
         >
@@ -739,7 +674,6 @@ watch(documentObj, (newDocument) => {
           <div class="w-full max-w-3xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8 flex flex-col">
             <!-- Breadcrumb -->
             <DocumentationBreadcrumb
-              v-if="!isTicketNote"
               :page-id="document.id || ''"
               :parent-id="document.parent_id || null"
               class="mb-4"
@@ -780,7 +714,7 @@ watch(documentObj, (newDocument) => {
                     the author badge.
                   -->
                   <button
-                    v-if="!isTicketNote && document.created_by && document.requires_verification && !document.verified_at"
+                    v-if="document.created_by && document.requires_verification && !document.verified_at"
                     type="button"
                     class="text-[10px] px-1.5 py-0.5 rounded font-medium bg-accent/10 text-accent hover:bg-accent/20 transition-colors flex items-center gap-1"
                     :title="$t('doc-detail-needs-verification-title')"
@@ -790,7 +724,7 @@ watch(documentObj, (newDocument) => {
                     {{ $t('doc-detail-needs-verification') }}
                   </button>
                   <button
-                    v-else-if="!isTicketNote && document.is_stale"
+                    v-else-if="document.is_stale"
                     type="button"
                     class="text-[10px] px-1.5 py-0.5 rounded font-medium bg-amber-500/15 text-amber-700 dark:text-amber-300 hover:bg-amber-500/25 transition-colors flex items-center gap-1 animate-pulse"
                     :title="$t('doc-detail-verification-stale-title')"
@@ -806,7 +740,7 @@ watch(documentObj, (newDocument) => {
                        picker. Two-way bind on `open` lets the
                        sibling status chip open the same popover. -->
                   <DocumentAuthorBadge
-                    v-if="!isTicketNote && document.created_by"
+                    v-if="document.created_by"
                     v-model:open="verificationOpen"
                     :page="document"
                     :can-verify="authStore.isTechnician || authStore.isAdmin"
@@ -862,7 +796,7 @@ watch(documentObj, (newDocument) => {
               />
 
               <PageTicketLinksPanel
-                v-if="!isTicketNote && document.id"
+                v-if="document.id"
                 :page-id="document.id"
                 :can-edit="authStore.isTechnician || authStore.isAdmin"
               />
