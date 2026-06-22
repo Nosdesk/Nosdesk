@@ -89,7 +89,7 @@ function tooltipDetails(day: ContributionDay) {
 <template>
   <div class="flex flex-1 min-h-0 h-full w-full gap-1.5 px-1 py-1">
     <div
-      class="grid grid-rows-7 shrink-0 w-7 h-full gap-px text-[9px] leading-none text-tertiary tabular-nums"
+      class="grid grid-rows-7 shrink-0 w-7 h-full text-[9px] leading-none text-tertiary tabular-nums"
       aria-hidden="true"
     >
       <span
@@ -101,12 +101,12 @@ function tooltipDetails(day: ContributionDay) {
     </div>
 
     <div class="flex-1 min-h-0 min-w-0 overflow-x-auto overflow-y-hidden">
-      <div class="flex h-full min-h-0 gap-px" :class="loading ? '' : 'min-w-full'">
+      <div class="flex h-full min-h-0" :class="loading ? '' : 'min-w-full'">
         <template v-if="loading">
           <div
             v-for="(week, weekIndex) in weekColumns"
             :key="`sk-${weekIndex}`"
-            class="flex flex-1 min-w-[3px] flex-col h-full min-h-0 gap-px"
+            class="flex flex-1 min-w-[3px] flex-col h-full min-h-0"
           >
             <div
               v-for="dayIndex in 7"
@@ -120,7 +120,7 @@ function tooltipDetails(day: ContributionDay) {
           <div
             v-for="(week, weekIndex) in weekColumns"
             :key="weekIndex"
-            class="flex flex-1 min-w-[3px] flex-col h-full min-h-0 gap-px"
+            class="flex flex-1 min-w-[3px] flex-col h-full min-h-0"
           >
             <HeatmapTooltip
               v-for="(day, dayIndex) in week"
@@ -150,22 +150,30 @@ function tooltipDetails(day: ContributionDay) {
 </template>
 
 <style scoped>
+/* The hit cells tile edge-to-edge (no flex gap) so the pointer never
+   crosses a dead zone between dates and the tooltip tracks seamlessly.
+   The visual gap is faked by scaling each swatch down inside its full
+   cell, so the gap costs no hit area. */
 .heatmap-cell {
   border-radius: 2px;
+  transform: scale(0.85);
 }
 
 .heatmap-cell--interactive {
   transition:
     transform 140ms ease,
-    border-color 140ms ease,
-    box-shadow 140ms ease;
+    border-color 140ms ease;
 }
 
+/* Hover fills the swatch back out to its full cell (a bounded scale to
+   1, never beyond) so it grows into its own gap without overflowing the
+   scroll track or reflowing the grid. The highlight reuses the cell's
+   own border, recoloured to accent (the app's interactive colour, and
+   these cells are clickable), instead of stacking a second ring. */
 .heatmap-cell--interactive:hover {
-  transform: scale(1.12);
+  transform: scale(1);
   z-index: 1;
-  border-color: var(--color-border-default);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 25%, transparent);
+  border-color: var(--color-accent);
 }
 
 .heatmap-level-0 {
