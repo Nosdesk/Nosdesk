@@ -17,7 +17,6 @@ import ProjectDetailView from '../views/ProjectDetailView.vue'
 import CycleDetailView from '../views/CycleDetailView.vue'
 import ProjectGanttView from '../views/ProjectGanttView.vue'
 import ProjectCyclesView from '../views/ProjectCyclesView.vue'
-import AssetPlannerView from '../views/AssetPlannerView.vue'
 import UserProfileView from '../views/UserProfileView.vue'
 import DocumentationIndexView from '@/views/DocumentationIndexView.vue'
 import DocumentView from '@/views/DocumentView.vue'
@@ -302,15 +301,14 @@ const router = createRouter({
       }
     },
     {
-      // Planner moves to `/assets/planner` so `/assets` (singular)
-      // can be the inventory list page. Existing `/assets` deep
-      // links now hit a redirect via the route below.
-      path: '/assets/planner',
-      name: 'asset-planner',
-      component: AssetPlannerView,
+      // Make/model catalog. Agent-accessible (operational reference data),
+      // a sibling of the inventory view.
+      path: '/assets/catalog',
+      name: 'asset-catalog',
+      component: () => import('../views/AssetCatalogView.vue'),
       meta: {
         requiresAuth: true,
-        titleKey: 'route-title-asset-planner',
+        titleKey: 'route-title-asset-catalog',
       }
     },
     {
@@ -376,15 +374,6 @@ const router = createRouter({
       }
     },
     {
-      path: '/assets/new',
-      name: 'asset-create',
-      component: () => import('../views/AssetView.vue'),
-      meta: {
-        requiresAuth: true,
-        titleKey: 'route-title-asset-create'
-      }
-    },
-    {
       path: '/assets/:id',
       name: 'asset-view',
       component: () => import('../views/AssetView.vue'),
@@ -399,7 +388,7 @@ const router = createRouter({
     // migrated yet) bounces to the new /assets equivalent so the
     // rename is transparent.
     { path: '/devices', redirect: '/assets' },
-    { path: '/devices/new', redirect: '/assets/new' },
+    { path: '/devices/new', redirect: '/assets' },
     {
       path: '/devices/:id',
       redirect: (to) => ({ path: `/assets/${to.params.id}` }),

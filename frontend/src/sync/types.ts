@@ -28,6 +28,7 @@ export type SyncAggregate =
   | 'asset_lifecycle_event'
   | 'asset_usage'
   | 'asset_audit'
+  | 'asset_loan'
   | 'cycle'
   | 'notification'
   | 'documentation_page'

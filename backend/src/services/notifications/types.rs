@@ -19,6 +19,8 @@ pub enum NotificationTypeCode {
     DocPageUpdated,
     AssetLowStock,
     SlaBreached,
+    LoanDueSoon,
+    LoanOverdue,
 }
 
 impl NotificationTypeCode {
@@ -32,6 +34,8 @@ impl NotificationTypeCode {
             Self::DocPageUpdated => "doc_page_updated",
             Self::AssetLowStock => "asset_low_stock",
             Self::SlaBreached => "sla_breached",
+            Self::LoanDueSoon => "loan_due_soon",
+            Self::LoanOverdue => "loan_overdue",
         }
     }
 
@@ -45,6 +49,8 @@ impl NotificationTypeCode {
             "doc_page_updated" => Some(Self::DocPageUpdated),
             "asset_low_stock" => Some(Self::AssetLowStock),
             "sla_breached" => Some(Self::SlaBreached),
+            "loan_due_soon" => Some(Self::LoanDueSoon),
+            "loan_overdue" => Some(Self::LoanOverdue),
             _ => None,
         }
     }
@@ -60,6 +66,8 @@ impl NotificationTypeCode {
             Self::DocPageUpdated => "Documentation Page Updated",
             Self::AssetLowStock => "Low Stock Alert",
             Self::SlaBreached => "SLA Breached",
+            Self::LoanDueSoon => "Loan Due Soon",
+            Self::LoanOverdue => "Loan Overdue",
         }
     }
 }

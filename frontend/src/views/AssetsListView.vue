@@ -10,6 +10,9 @@ import DataTable from '@/components/common/DataTable.vue'
 import Icon from '@/components/common/Icon.vue'
 import PaginationControls from '@/components/common/PaginationControls.vue'
 import BulkConfirmDialog from '@/components/common/BulkConfirmDialog.vue'
+import ContextMenu, { type MenuItem } from '@/components/common/ContextMenu.vue'
+import { ICON_REGISTRY } from '@/components/common/icons'
+import { useClipboard } from '@/composables/useClipboard'
 import ListPageLayout, { type ListPageLayoutExpose } from '@/components/common/ListPageLayout.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ListViewToolbar from '@/components/views/ListViewToolbar.vue'
@@ -22,10 +25,14 @@ import { useAuthStore } from '@/stores/auth'
 import { TextCell, StatusBadgeCell, UserAvatarCell } from '@/components/common/cells'
 import AssetViewTabs from '@/components/assets/AssetViewTabs.vue'
 import AssetStatusBadge from '@/components/assets/AssetStatusBadge.vue'
+import CreateRolloutModal from '@/components/assets/CreateRolloutModal.vue'
+import AssetMobileRow from '@/components/assets/AssetMobileRow.vue'
+import AssetPlanningMobile from '@/components/assets/AssetPlanningMobile.vue'
+import type { GroupBucket } from '@/composables/useListGrouping'
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
-import { downloadAssetsCsv, getPaginatedAssets, bulkAction } from '@/services/assetService'
+import { downloadAssetsCsv, getPaginatedAssets, bulkAction, createEmptyAsset, getAssetGroupingDataset, type AssetGroupingRow } from '@/services/assetService'
 import { useAssetLocationsQuery } from '@/composables/useAssetLocationsQuery'
 import { assetsKeys } from '@/queries/assets'
 import type { Asset } from '@/types/asset'
@@ -66,8 +73,15 @@ const scrollContainerRef = computed<HTMLElement | null>(
   () => layoutRef.value?.scrollContainerRef ?? null,
 )
 
-const navigateToCreateAsset = () => {
-  void router.push('/assets/new')
+// Creation mirrors the ticket model: mint an empty asset and drop the
+// user on its detail page to fill it in inline. No separate form.
+const navigateToCreateAsset = async () => {
+  try {
+    const asset = await createEmptyAsset()
+    await router.push(`/assets/${asset.id}`)
+  } catch (err) {
+    toast.error(extractErrorMessage(err, t('assets-list-create-error')))
+  }
 }
 const navigateToAsset = (asset: Asset) => {
   void router.push(`/assets/${asset.id}`)
@@ -122,8 +136,24 @@ const assetFacets = computed<ChipFacetDef[]>(() => [
 
 // Group-by axes. Client-side bucketing of the loaded page; most
 // useful in infinite-scroll mode (default pageSize=0 → up to 50
-// rows in one shot).
+// rows in one shot). The fleet-planning axes (os_family /
+// warranty_window / compliance) instead source the complete
+// filtered set via `completeDataset` below, so their counts and
+// "select all in a bucket" cover the whole fleet.
 const WARRANTY_ORDER = ['Expired', 'Warning', 'Active', 'Unknown'] as const
+
+// Planning-lens orderings + labels. Bucket keys are server-derived
+// (os_family / warranty_window); compliance reads the raw attribute.
+const OS_ORDER = ['windows', 'macos', 'linux', 'ios', 'android', 'other'] as const
+const WARRANTY_WINDOW_ORDER = ['expired', 'expiring_30d', 'expiring_90d', 'active', 'unknown'] as const
+const PLANNING_AXES = ['os_family', 'warranty_window', 'compliance'] as const
+
+function osFamilyLabel(fam: string): string {
+  return t(`assets-list-os-${fam}`)
+}
+function warrantyWindowLabel(win: string): string {
+  return t(`assets-list-warranty-window-${win.replace(/_/g, '-')}`)
+}
 
 const groupAxes: GroupAxisDef<Asset>[] = [
   {
@@ -188,6 +218,45 @@ const groupAxes: GroupAxisDef<Asset>[] = [
       }
     },
   },
+  // Fleet-planning lenses. These only render over the complete dataset
+  // (see `completeDataset`), where each row carries the server-derived
+  // os_family / warranty_window buckets.
+  {
+    key: 'os_family',
+    labelKey: 'assets-list-grouping-os',
+    bucketFor: (asset) => {
+      const fam = (asset as AssetGroupingRow).os_family || 'other'
+      return { key: `os:${fam}`, label: osFamilyLabel(fam) }
+    },
+    sortBy: (bucketKey) => {
+      const i = OS_ORDER.indexOf(bucketKey.replace('os:', '') as (typeof OS_ORDER)[number])
+      return i === -1 ? 999 : i
+    },
+  },
+  {
+    key: 'warranty_window',
+    labelKey: 'assets-list-grouping-warranty-window',
+    bucketFor: (asset) => {
+      const win = (asset as AssetGroupingRow).warranty_window || 'unknown'
+      return { key: `ww:${win}`, label: warrantyWindowLabel(win) }
+    },
+    sortBy: (bucketKey) => {
+      const i = WARRANTY_WINDOW_ORDER.indexOf(
+        bucketKey.replace('ww:', '') as (typeof WARRANTY_WINDOW_ORDER)[number],
+      )
+      return i === -1 ? 999 : i
+    },
+  },
+  {
+    key: 'compliance',
+    labelKey: 'assets-list-grouping-compliance',
+    bucketFor: (asset) => {
+      const raw = (asset.attributes?.compliance_state as string | undefined) ?? ''
+      const key = raw || 'unknown'
+      const label = raw || t('assets-list-compliance-unknown')
+      return { key: `compliance:${key}`, label }
+    },
+  },
 ]
 
 // Available sortable fields: id, name, hostname, serial_number,
@@ -228,9 +297,47 @@ const listView = useListView({
   scrollContainerRef,
   facets: assetFacets,
   groupAxes,
+  completeDataset: {
+    axes: PLANNING_AXES,
+    fetch: (params) =>
+      getAssetGroupingDataset({
+        search: params.search as string | undefined,
+        status: params.status as string | undefined,
+        warranty: params.warranty as string | undefined,
+        location: params.location as string | undefined,
+        lowStock: params.lowStock as string | undefined,
+      }),
+    keyFor: (cacheKeyPart) => [...assetsKeys.root, 'grouping-dataset', cacheKeyPart],
+  },
   columns,
   pinnedColumnIds: ['name'],
 })
+
+// Display source: the complete planning dataset when a planning lens
+// is active, otherwise the paginated page. The loading flags fall back
+// to the complete query's status in that mode.
+const displayItems = computed(() => listView.effectiveItems.value)
+const displayTotal = computed(() =>
+  listView.completeActive.value
+    ? listView.effectiveItems.value.length
+    : listView.page.totalItems.value,
+)
+const displayFirstLoad = computed(() =>
+  listView.completeActive.value
+    ? listView.completeLoading.value && listView.effectiveItems.value.length === 0
+    : listView.page.isFirstLoad.value,
+)
+const displayBackgroundRefresh = computed(() =>
+  listView.completeActive.value
+    ? listView.completeLoading.value && listView.effectiveItems.value.length > 0
+    : listView.page.isBackgroundRefresh.value,
+)
+const displayLoadingMore = computed(() =>
+  listView.completeActive.value ? false : listView.page.isLoadingMore.value,
+)
+const displayError = computed(() =>
+  listView.completeActive.value ? null : listView.page.errorMessage.value,
+)
 
 // Bulk delete: irreversible (devices aren't soft-deleted), so a
 // confirm modal rather than the optimistic Undo-toast pattern.
@@ -263,6 +370,110 @@ async function confirmDelete() {
   await bulkDelete.mutateAsync(ids)
   listView.selection.clear()
 }
+
+// Create-rollout handoff: turn the selected devices into a project with
+// one ticket per device. Operates on the explicit selection so the count
+// shown is exactly what gets created.
+const showRollout = ref(false)
+const selectedAssetIds = computed(() =>
+  listView.selection.selectedIds.value.map((id) => parseInt(id)),
+)
+
+// Seed the rollout name from the bucket the selection sits in: when every
+// selected device falls in one group (the common "select a whole bucket"
+// case), suggest that bucket's label (e.g. "Expiring within 90 days").
+const rolloutDefaultName = computed<string>(() => {
+  const selected = new Set(listView.selection.selectedIds.value)
+  if (selected.size === 0) return ''
+  const covering = listView.buckets.value.filter((b) =>
+    b.items.some((it) => selected.has(String(it.id))),
+  )
+  if (covering.length !== 1) return ''
+  const bucket = covering[0]
+  const selectedInBucket = bucket.items.filter((it) => selected.has(String(it.id))).length
+  return selectedInBucket === selected.size ? bucket.label : ''
+})
+
+// The modal reads from these refs so both entry points (desktop bulk
+// selection, mobile whole-bucket) populate the same source.
+const rolloutAssetIds = ref<number[]>([])
+const rolloutName = ref('')
+
+function openRolloutFromSelection() {
+  rolloutAssetIds.value = selectedAssetIds.value
+  rolloutName.value = rolloutDefaultName.value
+  showRollout.value = true
+}
+
+function openRolloutForBucket(bucket: GroupBucket<Asset>) {
+  rolloutAssetIds.value = bucket.items.map((a) => a.id)
+  rolloutName.value = bucket.label
+  showRollout.value = true
+}
+
+function onRolloutCreated() {
+  showRollout.value = false
+  listView.selection.clear()
+}
+
+// Right-click row context menu (desktop), mirroring the tickets list.
+const { copy } = useClipboard()
+const showAssetContextMenu = ref(false)
+const contextMenuPos = ref({ x: 0, y: 0 })
+const contextAsset = ref<Asset | null>(null)
+const showContextDeleteConfirm = ref(false)
+
+const assetContextMenuItems = computed<MenuItem[]>(() => {
+  const items: MenuItem[] = [
+    { id: 'open', label: t('assets-list-context-open'), icon: ICON_REGISTRY.chevronRight.d },
+    { id: 'open-new-tab', label: t('assets-list-context-open-new-tab'), icon: ICON_REGISTRY.openExternal.d },
+    { id: 'copy-link', label: t('assets-list-context-copy-link'), icon: ICON_REGISTRY.link.d },
+    { id: 'copy-id', label: t('assets-list-context-copy-id'), icon: ICON_REGISTRY.copy.d },
+    { id: 'rollout', label: t('assets-list-context-rollout'), icon: ICON_REGISTRY.send.d, divider: true },
+  ]
+  if (contextAsset.value?.is_editable) {
+    items.push({ id: 'delete', label: t('assets-list-context-delete'), icon: ICON_REGISTRY.trash.d, danger: true, divider: true })
+  }
+  return items
+})
+
+function onAssetContextMenu(asset: Asset, event: MouseEvent) {
+  contextAsset.value = asset
+  contextMenuPos.value = { x: event.clientX, y: event.clientY }
+  showAssetContextMenu.value = true
+}
+
+async function onAssetContextSelect(actionId: string) {
+  const a = contextAsset.value
+  if (!a) return
+  const url = `/assets/${a.id}`
+  switch (actionId) {
+    case 'open': navigateToAsset(a); break
+    case 'open-new-tab': window.open(url, '_blank'); break
+    case 'copy-link': await copy(`${window.location.origin}${url}`); break
+    case 'copy-id': await copy(String(a.id)); break
+    case 'rollout':
+      rolloutAssetIds.value = [a.id]
+      rolloutName.value = a.name
+      showRollout.value = true
+      break
+    case 'delete': showContextDeleteConfirm.value = true; break
+  }
+}
+
+async function confirmContextDelete() {
+  showContextDeleteConfirm.value = false
+  const a = contextAsset.value
+  if (!a) return
+  await bulkDelete.mutateAsync([a.id])
+}
+
+// Mobile planning lens: when a planning axis is active, the mobile body
+// switches from the flat list to the summary -> drill-down view.
+const activeAxisLabel = computed<string>(() => {
+  const axis = groupAxes.find((a) => a.key === listView.grouping.groupBy.value)
+  return axis ? t(axis.labelKey) : ''
+})
 
 function filterString(value: string | number | undefined): string | undefined {
   if (value == null || value === '') return undefined
@@ -303,15 +514,16 @@ async function exportAssetsCsv() {
   <div class="h-full">
   <ListPageLayout
     ref="layout"
-    :items="listView.page.items.value"
-    :total-items="listView.page.totalItems.value"
-    :is-first-load="listView.page.isFirstLoad.value"
-    :is-background-refresh="listView.page.isBackgroundRefresh.value"
-    :is-loading-more="listView.page.isLoadingMore.value"
-    :error="listView.page.errorMessage.value"
+    :items="displayItems"
+    :total-items="displayTotal"
+    :is-first-load="displayFirstLoad"
+    :is-background-refresh="displayBackgroundRefresh"
+    :is-loading-more="displayLoadingMore"
+    :error="displayError"
     :search-query="listView.controls.searchQuery.value"
     :search-placeholder="$t('assets-list-search-placeholder')"
     :item-label="$t('assets-list-item-label')"
+    :mobile-slot-active="listView.completeActive.value"
     bulk-selection-copy-key="bulk-bar-devices-selected"
     bulk-all-selected-copy-key="bulk-bar-devices-all-selected"
     :bulk-selection="listView.selection"
@@ -370,6 +582,7 @@ async function exportAssetsCsv() {
         @toggle-selection="listView.dt.onToggleSelection"
         @toggle-all="listView.dt.onToggleAll"
         @row-click="navigateToAsset"
+        @row-contextmenu="onAssetContextMenu"
         @toggle-bucket="listView.grouping.toggleCollapsed"
       >
         <template #cell-name="{ item }">
@@ -446,66 +659,31 @@ async function exportAssetsCsv() {
       </DataTable>
     </template>
 
+    <!-- Planning lens (mobileSlotActive): glanceable bucket summary ->
+         drill-down -> whole-bucket rollout. The flat device list below
+         handles every other state with its default staggered entrance. -->
+    <template #mobile>
+      <AssetPlanningMobile
+        :buckets="listView.buckets.value"
+        :axis-label="activeAxisLabel"
+        @open="navigateToAsset"
+        @rollout="openRolloutForBucket"
+      />
+    </template>
+
     <template #mobile-row="{ item }">
-      <div
-        class="flex items-center gap-3 px-3 py-2.5 hover:bg-surface-hover active:bg-surface-alt transition-colors cursor-pointer border-t border-default first:border-t-0"
-        @click="navigateToAsset(item)"
-      >
-        <div class="w-10 h-10 rounded-lg bg-surface-alt flex items-center justify-center flex-shrink-0">
-          <Icon name="device" size="md" class="text-secondary" />
-        </div>
-
-        <div class="flex-1 min-w-0">
-          <div class="flex items-center gap-1.5">
-            <span class="text-sm text-primary font-medium truncate">{{ item.name }}</span>
-            <div v-if="item.groups?.length" class="flex items-center gap-1 flex-shrink-0">
-              <span
-                v-for="group in item.groups.slice(0, 3)"
-                :key="group.id"
-                class="w-1.5 h-1.5 rounded-full"
-                :style="{ backgroundColor: group.color || 'var(--color-text-tertiary)' }"
-                :title="group.name"
-              />
-            </div>
-          </div>
-
-          <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1 text-xs">
-            <span v-if="item.model" class="text-secondary">{{ item.model }}</span>
-            <span v-if="item.location" class="text-tertiary truncate max-w-[140px]">{{ item.location }}</span>
-            <span class="text-tertiary">{{ assetKindLabel(item.kind) }}</span>
-            <span v-if="item.serial_number" class="text-tertiary font-mono">{{ item.serial_number }}</span>
-          </div>
-
-          <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5 text-xs">
-            <span v-if="item.attributes?.hostname" class="text-tertiary font-mono truncate max-w-[160px]">{{ item.attributes.hostname }}</span>
-            <span v-if="item.primary_user" class="text-secondary truncate max-w-[120px]">{{ item.primary_user.name }}</span>
-            <span
-              v-if="isLowStock(item)"
-              class="inline-flex items-center px-1.5 py-0.5 rounded font-medium border bg-status-warning-muted text-status-warning border-status-warning/30"
-            >
-              {{ $t('assets-list-low-stock-badge') }}
-            </span>
-            <AssetStatusBadge :status="item.status || 'in_service'" />
-            <span
-              v-if="item.attributes?.warranty_status"
-              class="inline-flex items-center px-1.5 py-0.5 rounded font-medium border"
-              :class="{
-                'bg-status-success-muted text-status-success border-status-success/30': item.attributes.warranty_status === 'Active',
-                'bg-status-warning-muted text-status-warning border-status-warning/30': item.attributes.warranty_status === 'Warning',
-                'bg-status-error-muted text-status-error border-status-error/30': item.attributes.warranty_status === 'Expired',
-                'bg-surface-alt text-secondary border-default': item.attributes.warranty_status === 'Unknown'
-              }"
-            >
-              {{ item.attributes.warranty_status }}
-            </span>
-          </div>
-        </div>
-
-        <Icon name="chevronRight" size="sm" class="text-tertiary flex-shrink-0" />
-      </div>
+      <AssetMobileRow :asset="item" @open="navigateToAsset" />
     </template>
 
     <template #bulk-actions="{ selectedCount }">
+      <button
+        type="button"
+        class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-full text-accent hover:bg-accent/10 transition-colors whitespace-nowrap"
+        @click="openRolloutFromSelection"
+      >
+        <Icon name="send" size="sm" />
+        {{ $t('asset-rollout-bulk-action', { count: selectedCount }) }}
+      </button>
       <button
         type="button"
         class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-full text-status-error hover:bg-status-error/10 transition-colors whitespace-nowrap disabled:opacity-50"
@@ -519,7 +697,7 @@ async function exportAssetsCsv() {
 
     <template #footer>
       <PaginationControls
-        v-if="!isMobile"
+        v-if="!isMobile && !listView.completeActive.value"
         :current-page="listView.controls.currentPage.value"
         :total-pages="listView.page.totalPages.value"
         :total-items="listView.page.totalItems.value"
@@ -541,6 +719,32 @@ async function exportAssetsCsv() {
     :confirm-label="$t('assets-list-bulk-delete-count', { count: listView.selection.selectedCount.value })"
     @confirm="confirmDelete"
     @close="showDeleteConfirm = false"
+  />
+
+  <CreateRolloutModal
+    :show="showRollout"
+    :asset-ids="rolloutAssetIds"
+    :default-name="rolloutName"
+    @close="showRollout = false"
+    @created="onRolloutCreated"
+  />
+
+  <ContextMenu
+    :open="showAssetContextMenu"
+    :items="assetContextMenuItems"
+    :x="contextMenuPos.x"
+    :y="contextMenuPos.y"
+    @select="onAssetContextSelect"
+    @close="showAssetContextMenu = false"
+  />
+
+  <BulkConfirmDialog
+    :show="showContextDeleteConfirm"
+    :title="$t('assets-list-bulk-delete-title', { count: 1 })"
+    :message="$t('assets-list-bulk-delete-message', { count: 1 })"
+    :confirm-label="$t('assets-list-bulk-delete-count', { count: 1 })"
+    @confirm="confirmContextDelete"
+    @close="showContextDeleteConfirm = false"
   />
 
   <ListViewModals :list-view="listView" />

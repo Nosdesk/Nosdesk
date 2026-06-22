@@ -1,4 +1,3 @@
-import heic2any from 'heic2any';
 import { logger } from '@/utils/logger';
 
 /**
@@ -9,6 +8,25 @@ import { logger } from '@/utils/logger';
 interface FileValidationOptions {
   maxSizeMB?: number;
   allowedTypes?: string[];
+}
+
+/**
+ * heic2any bundles a libheif Emscripten runtime that self-initializes
+ * on module evaluation and builds its function-pointer wrappers with
+ * `new Function`. Under our production CSP (`script-src 'self'`, no
+ * `unsafe-eval`) that throws an uncaught EvalError. A static import
+ * would also place it in an eager vendor chunk, so the eval ran at app
+ * boot and broke unrelated UI. Importing it lazily here keeps the eval
+ * out of the startup path entirely: the module only evaluates when an
+ * actual HEIC file needs converting, behind the early-return guard
+ * below. Same intent as pdf.js's `isEvalSupported: false`.
+ */
+let heic2anyPromise: Promise<typeof import('heic2any')['default']> | null = null;
+function loadHeic2any(): Promise<typeof import('heic2any')['default']> {
+  if (!heic2anyPromise) {
+    heic2anyPromise = import('heic2any').then((m) => m.default);
+  }
+  return heic2anyPromise;
 }
 
 class UploadService {
@@ -30,6 +48,7 @@ class UploadService {
       logger.debug(message);
       if (onProgress) onProgress(message);
 
+      const heic2any = await loadHeic2any();
       const convertedBlob = await heic2any({
         blob: file,
         toType: 'image/webp',

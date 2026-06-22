@@ -33,6 +33,12 @@
      stack is not introduced. */
   --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', Consolas, Monaco, ui-monospace, monospace;
 
+  /* Container scale only ships up to 7xl (80rem) in Tailwind 4, but the
+     app's wide content shells use `max-w-8xl` in ~26 places. Without
+     this token that utility silently emits nothing and those layouts go
+     full-bleed. Define it so the intended max width actually applies. */
+  --container-8xl: 90rem;
+
   /* ===========================================================
      Metric type scale (dashboard KPI numerals + embedded stats).
      Distinct from the heading scale so KPI numbers can dominate a

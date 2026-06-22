@@ -1,15 +1,29 @@
 <!-- components/ticketComponents/DeviceSelectionModal.vue -->
 <script setup lang="ts">
 import { ref, watch, computed, nextTick } from 'vue';
+import { useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import Modal from '@/components/Modal.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
-import { getAssetsByUser, getPaginatedAssetsExcluding } from '@/services/assetService';
+import { getAssetsByUser, getPaginatedAssetsExcluding, createEmptyAsset } from '@/services/assetService';
 import type { Asset } from '@/types/asset';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
+const router = useRouter();
+
+// Mint an empty asset and open its detail page (mirrors the list
+// view's create action). The ticket can be re-attached once the new
+// asset has a name; navigating away closes the modal.
+async function createAndOpenAsset() {
+  try {
+    const asset = await createEmptyAsset();
+    await router.push(`/assets/${asset.id}`);
+  } catch (err) {
+    console.error('Failed to create asset:', err);
+  }
+}
 
 const props = defineProps<{
   show: boolean;
@@ -578,7 +592,7 @@ const formatLastUpdated = (dateString: string): string => {
       <button
         type="button"
         class="flex items-center justify-center gap-2 px-4 py-2 text-sm text-accent hover:bg-accent/10 rounded-lg transition-colors"
-        @click="$router.push('/assets/new')"
+        @click="createAndOpenAsset"
       >
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />

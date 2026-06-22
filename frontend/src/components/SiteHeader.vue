@@ -38,6 +38,9 @@ interface Props {
   /** When true, the (custom) title is rendered inline-editable, the same
    *  way a ticket title is. Used by project views to rename in-header. */
   customTitleEditable?: boolean;
+  /** When true, the device (asset) name is rendered inline-editable in
+   *  the header, the same way a ticket title is. */
+  deviceTitleEditable?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -51,9 +54,10 @@ const props = withDefaults(defineProps<Props>(), {
   pageUrl: undefined,
   navbarCollapsed: false,
   customTitleEditable: false,
+  deviceTitleEditable: false,
 });
 
-const emit = defineEmits(["updateDocumentTitle", "updateDocumentIcon", "previewDocumentTitle", "updateTicketTitle", "previewTicketTitle", "updateCustomTitle", "create"]);
+const emit = defineEmits(["updateDocumentTitle", "updateDocumentIcon", "previewDocumentTitle", "updateTicketTitle", "previewTicketTitle", "updateDeviceTitle", "previewDeviceTitle", "updateCustomTitle", "create"]);
 
 const resolvedCreateButtonText = computed(() => props.createButtonText ?? t('header-create-ticket'));
 
@@ -134,6 +138,14 @@ const handleUpdateCustomTitle = (newTitle: string) => {
   emit("updateCustomTitle", newTitle);
 };
 
+const handleUpdateDeviceTitle = (newTitle: string) => {
+  if (props.device) emit("updateDeviceTitle", newTitle);
+};
+
+const handlePreviewDeviceTitle = (newTitle: string) => {
+  if (props.device) emit("previewDeviceTitle", newTitle);
+};
+
 const showUserMenu = ref(false);
 const buttonRef = ref<HTMLElement | null>(null);
 
@@ -201,14 +213,24 @@ const handleCreateClick = () => {
         <template v-else-if="isDeviceView && props.device">
           <div class="flex items-center gap-2 min-w-0 flex-1">
             <ItemIdentifier :id="props.device.id" size="md" class="flex-shrink-0" />
-            <!-- Display device hostname as read-only in header.
-                 line-clamp-2 + leading-tight so a long hostname
-                 wraps once rather than ellipsing. -->
+            <!-- Editable asset name in header, mirroring the ticket
+                 title; falls back to read-only when no save handler is
+                 registered (e.g. a sync-owned asset). -->
+            <HeaderTitle
+              v-if="props.deviceTitleEditable"
+              :initialTitle="props.device.name || t('ui-site-header-untitled-asset')"
+              :placeholder-text="t('ui-site-header-asset-title-placeholder')"
+              :max-lines="2"
+              @update-title="handleUpdateDeviceTitle"
+              @update-title-preview="handlePreviewDeviceTitle"
+              class="min-w-0 flex-1"
+            />
             <h1
+              v-else
               class="text-xl font-semibold text-primary line-clamp-2 leading-tight break-words flex-1 min-w-0"
-              :title="(props.device.attributes?.hostname as string | undefined) || undefined"
+              :title="props.device.name || undefined"
             >
-              {{ (props.device.attributes?.hostname as string | undefined) || t('ui-site-header-unknown-device') }}
+              {{ props.device.name || t('ui-site-header-unknown-device') }}
             </h1>
           </div>
         </template>

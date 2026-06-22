@@ -82,15 +82,22 @@ fn default_category() -> String {
     "generic".to_string()
 }
 
-pub async fn list(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
-    if !auth.is_workspace_admin() {
-        return errors::forbidden("Admin required");
+/// `GET /api/asset-kinds` — read-only registry list for the
+/// asset create/edit pickers. Gated by `can_handle_tickets()` to
+/// match the asset-create guard: anyone allowed to create an
+/// asset must be able to see the kinds they can choose from. The
+/// admin CRUD list (`GET /api/admin/asset-kinds`) stays
+/// admin-only; this returns the identical rows so both share one
+/// frontend cache key. Workspace-scoped via the RLS pin.
+pub async fn list_for_picker(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
+    if !auth.can_handle_tickets() {
+        return errors::forbidden("Forbidden: technicians and administrators only");
     }
 
     match tc.run(repo::list_kinds) {
         Ok(kinds) => HttpResponse::Ok().json(kinds),
         Err(e) => {
-            error!(error = %e, "failed to list asset kinds");
+            error!(error = %e, "failed to list asset kinds for picker");
             errors::internal("Failed to list asset kinds")
         }
     }

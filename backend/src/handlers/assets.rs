@@ -15,7 +15,7 @@ use uuid::Uuid;
 use crate::models::{Asset, AssetUpdate, Group, NewAsset, User};
 use crate::repository;
 use crate::repository::groups as groups_repo;
-use crate::services::assets::{validate_for_kind, AssetValidationError};
+use crate::services::assets::{validate_for_kind, AssetValidationError, SYNC_OWNED_ATTRIBUTE_KEYS};
 use crate::services::imports::assets::write_assets_csv;
 use crate::services::search::indexing_tasks;
 use crate::services::search::SearchService;
@@ -123,6 +123,8 @@ pub struct AssetResponse {
     pub primary_user: Option<UserInfo>,
     pub groups: Vec<GroupInfo>,
     pub is_editable: bool,
+    /// Linked catalog model, or null for a model-less asset.
+    pub model_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -166,6 +168,7 @@ impl AssetResponse {
         // dedicated `external_sync_source` column so the answer
         // doesn't depend on a particular Microsoft Graph field.
         let is_editable = device.external_sync_source.is_none();
+        let model_id = device.model_id;
 
         Self {
             id: device.id,
@@ -197,6 +200,7 @@ impl AssetResponse {
             external_sync_source: device.external_sync_source,
             low_stock_threshold: device.low_stock_threshold.as_ref().map(|q| q.to_string()),
             is_editable,
+            model_id,
             primary_user: user.map(|u| {
                 let name = u.name.clone();
                 let role = repository::user_helpers::workspace_role(conn, u.uuid)
@@ -349,133 +353,173 @@ pub async fn calendar_overlay(
     }
 }
 
-/// One asset row as the rollout-planner consumes it. Derived
-/// fields (os_family / warranty_bucket) are bucketed at the
-/// boundary so the renderer can group / filter without a second
-/// pass over every row.
+use crate::services::assets::bucketing::{classify_os, classify_warranty_window};
+
+/// A full asset row augmented with the server-derived planning buckets.
+/// Flattens `AssetResponse` so the inventory list renders the same
+/// columns it always does, and adds `os_family` / `warranty_window` so
+/// the client groups by a stable key rather than re-deriving the OS /
+/// warranty heuristics. Compliance grouping reads
+/// `attributes.compliance_state` directly (already a categorical value),
+/// so it needs no derived field.
 #[derive(Debug, Serialize)]
-pub struct AssetPlannerRow {
-    pub id: i32,
-    pub name: String,
-    pub hostname: Option<String>,
-    pub manufacturer: Option<String>,
-    pub model: Option<String>,
-    pub operating_system: Option<String>,
-    pub os_version: Option<String>,
-    /// Bucketed os: 'windows' | 'macos' | 'linux' | 'ios' | 'android' | 'other'.
+pub struct AssetGroupingRow {
+    #[serde(flatten)]
+    pub asset: AssetResponse,
+    /// 'windows' | 'macos' | 'linux' | 'ios' | 'android' | 'other'.
     pub os_family: &'static str,
-    pub warranty_end_date: Option<String>,
     /// 'expired' | 'expiring_30d' | 'expiring_90d' | 'active' | 'unknown'.
-    pub warranty_bucket: &'static str,
-    pub compliance_state: Option<String>,
-    pub primary_user_uuid: Option<Uuid>,
-    pub asset_tag: Option<String>,
+    pub warranty_window: &'static str,
 }
 
-fn classify_os(raw: Option<&str>) -> &'static str {
-    let s = raw.unwrap_or("").to_lowercase();
-    if s.contains("windows") {
-        return "windows";
-    }
-    if s.contains("mac") || s.contains("os x") || s.contains("darwin") {
-        return "macos";
-    }
-    if s.contains("linux") || s.contains("ubuntu") || s.contains("fedora") || s.contains("debian") {
-        return "linux";
-    }
-    if s.contains("ios") || s.contains("iphone") || s.contains("ipad") {
-        return "ios";
-    }
-    if s.contains("android") {
-        return "android";
-    }
-    "other"
-}
-
-fn classify_warranty(end: Option<chrono::NaiveDate>, today: chrono::NaiveDate) -> &'static str {
-    let Some(end) = end else {
-        return "unknown";
-    };
-    let days = (end - today).num_days();
-    if days < 0 {
-        "expired"
-    } else if days <= 30 {
-        "expiring_30d"
-    } else if days <= 90 {
-        "expiring_90d"
-    } else {
-        "active"
-    }
-}
-
-/// `GET /api/assets/planner` — returns every device shaped for the
-/// asset rollout planner view. Bucketing happens server-side so
-/// the renderer doesn't repeat the OS-string heuristics.
-pub async fn asset_planner(mut tc: TenantConn, _auth: AuthContext) -> impl Responder {
+/// `GET /api/assets/grouping-dataset` — the complete set of assets
+/// matching the current inventory list filters, each tagged with the
+/// derived planning buckets. The inventory list switches to this source
+/// when a planning axis (OS family / warranty window / compliance) is
+/// active so group counts and "select all in a bucket" are fleet-true
+/// rather than reflecting only the rows scrolled into view. Same filter
+/// keys as the paginated list; RLS scopes rows to the workspace.
+pub async fn asset_grouping_dataset(
+    mut tc: TenantConn,
+    query: web::Query<AssetExportQuery>,
+    auth: AuthContext,
+) -> impl Responder {
     use crate::services::assets::it_attrs;
 
-    // The planner's axes (OS family, warranty bucket, compliance)
-    // only make sense for IT-managed hardware. Filter the asset
-    // set to kinds whose category is 'it' so non-IT workspaces
-    // (vehicles, licenses, materials) stay out of the planner
-    // view entirely instead of cluttering it with empty buckets.
-    let it_slugs: Vec<String> = match tc.run(|conn| {
-        use crate::schema::asset_kinds;
-        use diesel::prelude::*;
-        asset_kinds::table
-            .filter(asset_kinds::category.eq("it"))
-            .select(asset_kinds::slug)
-            .load(conn)
-    }) {
-        Ok(s) => s,
-        Err(e) => {
-            error!(error = ?e, "asset planner: failed to load IT-kind slugs");
-            return errors::internal("Failed to load assets");
-        }
+    if !auth.can_handle_tickets() {
+        return errors::forbidden("Forbidden: technicians and administrators only");
+    }
+
+    let filters = repository::assets::AssetListFilters {
+        search: query.search.as_deref(),
+        warranty: query.warranty.as_deref(),
+        location: query.location.as_deref(),
+        status: query.status.as_deref(),
+        low_stock_only: matches!(query.low_stock.as_deref(), Some("true") | Some("1")),
     };
 
-    let rows: Result<Vec<Asset>, Error> = tc.run(|conn| {
-        use crate::schema::assets;
-        use diesel::prelude::*;
-        assets::table
-            .filter(assets::kind.eq_any(&it_slugs))
-            .order(assets::name.asc())
-            .load(conn)
+    let result = tc.run(move |conn| {
+        let devices = repository::assets::list_for_export(conn, filters)?;
+        let today = chrono::Utc::now().date_naive();
+        // Derive the buckets from each device's attributes before the
+        // response builder consumes the row.
+        let rows: Vec<AssetGroupingRow> = devices
+            .into_iter()
+            .map(|d| {
+                let os_family = classify_os(it_attrs::operating_system(&d.attributes));
+                let warranty_window =
+                    classify_warranty_window(it_attrs::warranty_end_date(&d.attributes), today);
+                let user = d
+                    .primary_user_uuid
+                    .as_ref()
+                    .and_then(|uuid| get_user_by_uuid(conn, uuid));
+                let groups = groups_repo::get_groups_for_device(conn, d.id).unwrap_or_default();
+                let asset = AssetResponse::from_device_and_user(d, user, groups, conn);
+                AssetGroupingRow {
+                    asset,
+                    os_family,
+                    warranty_window,
+                }
+            })
+            .collect();
+        Ok::<_, Error>(rows)
     });
 
-    match rows {
-        Ok(devices) => {
-            let today = chrono::Utc::now().date_naive();
-            let payload: Vec<AssetPlannerRow> = devices
-                .into_iter()
-                .map(|d| {
-                    let os = it_attrs::operating_system(&d.attributes).map(str::to_string);
-                    let os_version = it_attrs::os_version(&d.attributes).map(str::to_string);
-                    let warranty_end = it_attrs::warranty_end_date(&d.attributes);
-                    let compliance = it_attrs::compliance_state(&d.attributes).map(str::to_string);
-                    let hostname = it_attrs::hostname(&d.attributes).map(str::to_string);
-                    AssetPlannerRow {
-                        id: d.id,
-                        name: d.name.clone(),
-                        hostname,
-                        manufacturer: d.manufacturer.clone(),
-                        model: d.model.clone(),
-                        os_family: classify_os(os.as_deref()),
-                        warranty_bucket: classify_warranty(warranty_end, today),
-                        operating_system: os,
-                        os_version,
-                        warranty_end_date: warranty_end.map(|dt| dt.format("%Y-%m-%d").to_string()),
-                        compliance_state: compliance,
-                        primary_user_uuid: d.primary_user_uuid,
-                        asset_tag: d.asset_tag,
-                    }
-                })
-                .collect();
-            HttpResponse::Ok().json(payload)
+    match result {
+        Ok(rows) => HttpResponse::Ok().json(rows),
+        Err(e) => {
+            error!(error = ?e, "asset grouping dataset load failed");
+            errors::internal("Failed to load assets")
+        }
+    }
+}
+
+/// Request body for `POST /api/assets/rollouts`. Mints a rollout project
+/// and one ticket per selected device, each ticket linked to its asset.
+#[derive(Debug, Deserialize)]
+pub struct CreateRolloutBody {
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Initial workflow state every rollout ticket starts in.
+    pub workflow_state_id: i32,
+    #[serde(default)]
+    pub priority: Option<crate::models::TicketPriority>,
+    /// Exact device ids to roll out. The client selects these from the
+    /// complete grouping dataset, so the set is authoritative.
+    pub asset_ids: Vec<i32>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreateRolloutResponse {
+    pub project_id: i32,
+    pub ticket_count: usize,
+}
+
+/// `POST /api/assets/rollouts` — the planner-to-projects handoff. Creates
+/// a project, then for every selected asset a ticket (linked to the
+/// project and to the asset) in one transaction, so a partial failure
+/// never leaves a half-built rollout. Agent-gated like ticket creation.
+pub async fn create_rollout(
+    mut tc: TenantConn,
+    body: web::Json<CreateRolloutBody>,
+    auth: AuthContext,
+) -> impl Responder {
+    use crate::services::assets::rollout::{self, RolloutSpec};
+
+    if !auth.can_handle_tickets() {
+        return errors::forbidden("Forbidden: technicians and administrators only");
+    }
+    let body = body.into_inner();
+
+    let name = body.name.trim().to_string();
+    if name.is_empty() || name.len() > 255 {
+        return errors::bad_request("name must be 1 to 255 characters");
+    }
+    if body.asset_ids.is_empty() {
+        return errors::bad_request("Select at least one device for the rollout");
+    }
+    // Bound the batch so a runaway selection can't open thousands of
+    // tickets in one synchronous request.
+    const MAX_ROLLOUT_DEVICES: usize = 500;
+    if body.asset_ids.len() > MAX_ROLLOUT_DEVICES {
+        return errors::bad_request(format!(
+            "A rollout can cover at most {MAX_ROLLOUT_DEVICES} devices at once"
+        ));
+    }
+
+    // Dedup while preserving order so a doubled id doesn't double-ticket.
+    let mut seen = std::collections::HashSet::new();
+    let asset_ids: Vec<i32> = body
+        .asset_ids
+        .into_iter()
+        .filter(|id| seen.insert(*id))
+        .collect();
+
+    let spec = RolloutSpec {
+        name,
+        description: body
+            .description
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty()),
+        workflow_state_id: body.workflow_state_id,
+        priority: body.priority.unwrap_or_default(),
+        asset_ids,
+    };
+
+    let result = tc.run(move |conn| rollout::create_rollout(conn, spec));
+
+    match result {
+        Ok(r) => HttpResponse::Created().json(CreateRolloutResponse {
+            project_id: r.project_id,
+            ticket_count: r.ticket_count,
+        }),
+        Err(Error::DatabaseError(diesel::result::DatabaseErrorKind::ForeignKeyViolation, _)) => {
+            errors::bad_request("Unknown workflow state")
         }
         Err(e) => {
-            error!(error = ?e, "asset planner load failed");
-            errors::internal("Failed to load assets")
+            error!(error = ?e, "rollout creation failed");
+            errors::internal("Failed to create rollout")
         }
     }
 }
@@ -767,6 +811,80 @@ pub async fn create_device(
     }
 }
 
+/// Mint an empty asset and return it (technician or admin only).
+///
+/// Mirrors `POST /tickets/empty`: creation is a one-click action that
+/// drops the user onto the asset's detail page, where they fill in the
+/// name, type, and any optional properties inline. The row starts as a
+/// `generic` kind with a placeholder name; everything else is added on
+/// the detail surface, so there is no separate create form.
+pub async fn create_empty_device(
+    mut tc: TenantConn,
+    auth: AuthContext,
+    search_service: web::Data<Arc<SearchService>>,
+) -> impl Responder {
+    if !auth.can_handle_tickets() {
+        return errors::forbidden(
+            "Forbidden: Only technicians and administrators can create assets",
+        );
+    }
+
+    let new_device = NewAsset {
+        name: "New asset".to_string(),
+        serial_number: None,
+        manufacturer: None,
+        model: None,
+        location: None,
+        notes: None,
+        primary_user_uuid: None,
+        purchase_date: None,
+        asset_tag: None,
+        kind: "generic".to_string(),
+        attributes: serde_json::json!({}),
+        quantity: None,
+        unit: None,
+        external_sync_source: None,
+        low_stock_threshold: None,
+    };
+
+    let result = tc.run(|conn| {
+        let device = repository::create_device(conn, new_device)?;
+        let device_response =
+            AssetResponse::from_device_and_user(device.clone(), None, vec![], conn);
+        Ok((device, device_response))
+    });
+
+    match result {
+        Ok((device, device_response)) => {
+            indexing_tasks::spawn_index_device(search_service.get_ref().clone(), device);
+            HttpResponse::Created().json(device_response)
+        }
+        Err(e) => {
+            error!(error = ?e, "Database error creating empty asset");
+            errors::internal("Failed to create asset")
+        }
+    }
+}
+
+/// Rebuild a sync-owned asset's attributes from the existing row,
+/// overlaying only the user-owned keys from `incoming`. Sync-owned keys
+/// keep their existing values no matter what the client sent, so a
+/// synced asset can never have its Graph-managed fields changed here.
+fn overlay_user_attributes(
+    existing: &serde_json::Value,
+    incoming: Option<&serde_json::Value>,
+) -> serde_json::Value {
+    let mut merged = existing.as_object().cloned().unwrap_or_default();
+    if let Some(obj) = incoming.and_then(|v| v.as_object()) {
+        for (key, value) in obj {
+            if !SYNC_OWNED_ATTRIBUTE_KEYS.contains(&key.as_str()) {
+                merged.insert(key.clone(), value.clone());
+            }
+        }
+    }
+    serde_json::Value::Object(merged)
+}
+
 /// Update a device (technician or admin only)
 pub async fn update_device(
     mut tc: TenantConn,
@@ -798,12 +916,30 @@ pub async fn update_device(
         }
     };
 
-    // Prevent editing assets owned by an external sync.
-    if existing_device.external_sync_source.is_some() {
-        return errors::forbidden("Cannot edit device synced from Microsoft Graph: This device is managed by Microsoft Intune/Entra and cannot be edited manually. Changes must be made in Microsoft Entra Admin Center or Intune.");
-    }
+    // Assets owned by an external sync (Intune / Entra) are managed by
+    // Microsoft Graph: their columns and sync-owned attribute keys are
+    // read-only here. We still allow edits to user-owned attribute keys
+    // (e.g. warranty) that the sync never writes. To keep that safe no
+    // matter what the client sends, re-scope a synced asset's update to
+    // attributes only, rebuilt from the existing row with just the
+    // non-sync keys overlaid.
+    let mut update_data = if existing_device.external_sync_source.is_some() {
+        let incoming = device_update.into_inner();
+        AssetUpdate {
+            attributes: Some(overlay_user_attributes(
+                &existing_device.attributes,
+                incoming.attributes.as_ref(),
+            )),
+            ..Default::default()
+        }
+    } else {
+        device_update.into_inner()
+    };
 
-    let update_data = device_update.into_inner();
+    // Model assignment goes through POST /assets/{id}/model, which stamps
+    // the manufacturer/model/kind/specs. Never let model_id ride the
+    // generic update un-stamped.
+    update_data.model_id = None;
 
     // Validate kind/attributes coherence if either is being
     // changed. Updates that only touch IT-desk columns don't
@@ -1078,5 +1214,242 @@ pub async fn bulk_devices(
             "code": "backend-error-bad-request",
             "message": format!("Unknown action: {}", action)
         })),
+    }
+}
+
+// === Asset model catalog: stamp-on-assignment ================
+
+#[derive(Debug, serde::Deserialize)]
+pub struct SetModelBody {
+    pub model_id: i32,
+}
+
+/// Merge a model's `default_attributes` onto an asset's attributes
+/// without clobbering values the asset already carries (per-unit data
+/// wins over a model default). A key counts as empty when it is absent,
+/// null, or an empty string.
+fn stamp_default_attributes(
+    existing: &serde_json::Value,
+    defaults: &serde_json::Value,
+) -> serde_json::Value {
+    let mut merged = existing.as_object().cloned().unwrap_or_default();
+    if let Some(obj) = defaults.as_object() {
+        for (key, value) in obj {
+            let occupied = merged
+                .get(key)
+                .map(|v| !v.is_null() && v.as_str() != Some(""))
+                .unwrap_or(false);
+            if !occupied {
+                merged.insert(key.clone(), value.clone());
+            }
+        }
+    }
+    serde_json::Value::Object(merged)
+}
+
+/// `POST /api/assets/{id}/model` — stamp a catalog model onto an asset:
+/// copy the model's manufacturer, model name, kind, and default specs
+/// (no-clobber) onto the row and link `model_id`. Copy-at-assignment, so
+/// later edits to the model never rewrite this asset. Refused on synced
+/// assets (Graph owns those fields).
+pub async fn set_asset_model(
+    mut tc: TenantConn,
+    auth: AuthContext,
+    path: web::Path<i32>,
+    body: web::Json<SetModelBody>,
+    search_service: web::Data<Arc<SearchService>>,
+) -> impl Responder {
+    if !auth.can_handle_tickets() {
+        return errors::forbidden("Forbidden: Only technicians and administrators can edit assets");
+    }
+    let asset_id = path.into_inner();
+    let model_id = body.into_inner().model_id;
+
+    let existing = match tc.run(|conn| repository::get_device_by_id(conn, asset_id)) {
+        Ok(d) => d,
+        Err(Error::NotFound) => {
+            return errors::not_found_msg(format!("Asset {asset_id} not found"))
+        }
+        Err(e) => {
+            error!(asset_id, error = ?e, "load asset for model stamp");
+            return errors::internal("Failed to load asset");
+        }
+    };
+    if existing.external_sync_source.is_some() {
+        return errors::forbidden("Cannot set a model on an asset synced from Microsoft Graph.");
+    }
+
+    let model = match tc.run(move |conn| crate::repository::asset_models::get(conn, model_id)) {
+        Ok(m) => m,
+        Err(Error::NotFound) => {
+            return errors::unprocessable_entity(format!("Unknown asset model: {model_id}"))
+        }
+        Err(e) => {
+            error!(model_id, error = ?e, "load model for stamp");
+            return errors::internal("Failed to load asset model");
+        }
+    };
+    let manufacturer_id = model.manufacturer_id;
+    let manufacturer =
+        match tc.run(move |conn| crate::repository::manufacturers::get(conn, manufacturer_id)) {
+            Ok(m) => m,
+            Err(e) => {
+                error!(manufacturer_id, error = ?e, "load manufacturer for stamp");
+                return errors::internal("Failed to load manufacturer");
+            }
+        };
+
+    let merged_attrs = stamp_default_attributes(&existing.attributes, &model.default_attributes);
+
+    // The stamped (kind, attributes) pair must be valid, or we'd write an
+    // asset that fails its own kind's schema.
+    let kind = model.kind.clone();
+    let attrs_for_validation = merged_attrs.clone();
+    match tc.run(move |conn| Ok::<_, Error>(validate_for_kind(conn, &kind, &attrs_for_validation)))
+    {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => return asset_validation_response(e),
+        Err(_) => return errors::internal("Failed to validate asset"),
+    }
+
+    let update = AssetUpdate {
+        manufacturer: Some(manufacturer.name),
+        model: Some(model.name.clone()),
+        kind: Some(model.kind.clone()),
+        attributes: Some(merged_attrs),
+        model_id: Some(Some(model_id)),
+        updated_at: Some(chrono::Utc::now().naive_utc()),
+        ..Default::default()
+    };
+
+    apply_asset_update_response(&mut tc, asset_id, update, &search_service)
+}
+
+/// `DELETE /api/assets/{id}/model` — unlink the catalog model. The
+/// stamped manufacturer/model/kind snapshot stays on the asset; only the
+/// link is cleared, so it becomes a model-less one-off.
+pub async fn clear_asset_model(
+    mut tc: TenantConn,
+    auth: AuthContext,
+    path: web::Path<i32>,
+    search_service: web::Data<Arc<SearchService>>,
+) -> impl Responder {
+    if !auth.can_handle_tickets() {
+        return errors::forbidden("Forbidden: Only technicians and administrators can edit assets");
+    }
+    let asset_id = path.into_inner();
+
+    let existing = match tc.run(|conn| repository::get_device_by_id(conn, asset_id)) {
+        Ok(d) => d,
+        Err(Error::NotFound) => {
+            return errors::not_found_msg(format!("Asset {asset_id} not found"))
+        }
+        Err(e) => {
+            error!(asset_id, error = ?e, "load asset for model clear");
+            return errors::internal("Failed to load asset");
+        }
+    };
+    if existing.external_sync_source.is_some() {
+        return errors::forbidden("Cannot edit an asset synced from Microsoft Graph.");
+    }
+
+    let update = AssetUpdate {
+        model_id: Some(None),
+        updated_at: Some(chrono::Utc::now().naive_utc()),
+        ..Default::default()
+    };
+    apply_asset_update_response(&mut tc, asset_id, update, &search_service)
+}
+
+/// Apply an `AssetUpdate` and render the full asset response, reindexing
+/// for search. Shared by the model stamp/clear endpoints.
+fn apply_asset_update_response(
+    tc: &mut TenantConn,
+    asset_id: i32,
+    update: AssetUpdate,
+    search_service: &web::Data<Arc<SearchService>>,
+) -> HttpResponse {
+    let result = tc.run(|conn| {
+        let device = repository::update_device(conn, asset_id, update)?;
+        let user = device
+            .primary_user_uuid
+            .as_ref()
+            .and_then(|uuid| get_user_by_uuid(conn, uuid));
+        let groups = groups_repo::get_groups_for_device(conn, asset_id).unwrap_or_default();
+        let response = AssetResponse::from_device_and_user(device.clone(), user, groups, conn);
+        Ok((device, response))
+    });
+    match result {
+        Ok((device, response)) => {
+            indexing_tasks::spawn_index_device(search_service.get_ref().clone(), device);
+            HttpResponse::Ok().json(response)
+        }
+        Err(e) => {
+            error!(asset_id, error = ?e, "apply asset update");
+            errors::internal("Failed to update asset")
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::overlay_user_attributes;
+    use serde_json::json;
+
+    #[test]
+    fn overlay_keeps_sync_keys_and_applies_user_keys() {
+        // A synced device: sync owns intune_device_id / hostname; the
+        // user is editing warranty_status and trying to spoof hostname.
+        let existing = json!({
+            "intune_device_id": "abc-123",
+            "hostname": "LAPTOP-1",
+            "warranty_status": "Unknown",
+        });
+        let incoming = json!({
+            "intune_device_id": "HACKED",   // sync-owned -> must be ignored
+            "hostname": "HACKED",           // sync-owned -> must be ignored
+            "warranty_status": "Active",    // user-owned -> applied
+            "warranty_end_date": "2027-01-01", // new user key -> applied
+        });
+
+        let merged = overlay_user_attributes(&existing, Some(&incoming));
+
+        assert_eq!(merged["intune_device_id"], "abc-123");
+        assert_eq!(merged["hostname"], "LAPTOP-1");
+        assert_eq!(merged["warranty_status"], "Active");
+        assert_eq!(merged["warranty_end_date"], "2027-01-01");
+    }
+
+    #[test]
+    fn overlay_with_no_incoming_is_identity() {
+        let existing = json!({ "intune_device_id": "abc-123", "warranty_status": "Active" });
+        let merged = overlay_user_attributes(&existing, None);
+        assert_eq!(merged, existing);
+    }
+
+    use super::stamp_default_attributes;
+
+    #[test]
+    fn stamp_fills_empty_keys_without_clobbering() {
+        // Asset already has a hostname and a blank warranty; the model
+        // defaults a warranty and an OS.
+        let existing = json!({
+            "hostname": "LAPTOP-1",
+            "warranty_status": "",
+            "os_version": null,
+        });
+        let defaults = json!({
+            "hostname": "MODEL-DEFAULT",   // occupied -> keep the asset's
+            "warranty_status": "Active",   // empty string -> fill
+            "os_version": "14.0",          // null -> fill
+            "operating_system": "macOS",   // absent -> fill
+        });
+
+        let merged = stamp_default_attributes(&existing, &defaults);
+
+        assert_eq!(merged["hostname"], "LAPTOP-1");
+        assert_eq!(merged["warranty_status"], "Active");
+        assert_eq!(merged["os_version"], "14.0");
+        assert_eq!(merged["operating_system"], "macOS");
     }
 }

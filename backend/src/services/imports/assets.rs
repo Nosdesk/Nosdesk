@@ -342,6 +342,9 @@ fn build_asset_update(row: &HashMap<String, String>) -> AssetUpdate {
         unit: Some(opt_string(row, "unit")),
         external_sync_source: None,
         low_stock_threshold: Some(opt_decimal(row, "low_stock_threshold")),
+        // CSV import doesn't link the model catalog (yet); leave the
+        // existing model link untouched.
+        model_id: None,
     }
 }
 
@@ -452,6 +455,7 @@ mod export_tests {
             low_stock_threshold: Some(BigDecimal::from_str("2").unwrap()),
             workspace_id: 1,
             status: "in_service".to_string(),
+            model_id: None,
         }
     }
 

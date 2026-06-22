@@ -28,9 +28,10 @@ import CommentsAndAttachments from "@/components/ticketComponents/CommentsAndAtt
 import MergedIntoBanner from "@/components/ticketComponents/MergedIntoBanner.vue";
 import SpamBanner from "@/components/ticketComponents/SpamBanner.vue";
 import MergedInField from "@/components/ticketComponents/MergedInField.vue";
-import LinkedTicketModal from "@/components/ticketComponents/LinkedTicketModal.vue";
+import TicketPickerModal from "@/components/ticketComponents/TicketPickerModal.vue";
 import ProjectSelectionModal from "@/components/ticketComponents/ProjectSelectionModal.vue";
 import TicketGapFlag from "@/components/ticketComponents/TicketGapFlag.vue";
+import TicketLoansCard from "@/components/ticketComponents/TicketLoansCard.vue";
 import documentationService from "@/services/documentationService";
 import { docUrl } from "@/utils/docUrl";
 import { pageTicketLinkKeys } from "@/composables/usePageTicketLinks";
@@ -662,6 +663,8 @@ useCreateTicketAction();
                         <template v-if="ticket">
                             <TicketGapFlag :ticket-id="ticket.id" />
 
+                            <TicketLoansCard :ticket-id="ticket.id" :requester-uuid="ticket.requester" :has-devices="devices.length > 0" />
+
                             <PluginSlot slot-name="ticket-sidebar" :ticket="pluginTicket" :actionActivatedMap="pluginActionActivatedMap" />
                         </template>
 
@@ -786,13 +789,12 @@ useCreateTicketAction();
                 @select-device="addDevice"
             />
 
-            <LinkedTicketModal
+            <TicketPickerModal
                 v-if="ticket"
                 :show="showLinkedTicketModal"
-                :current-ticket-id="ticket.id"
-                :existing-linked-tickets="ticket.linkedTickets"
+                :exclude-ids="[ticket.id, ...ticket.linkedTickets]"
                 @close="showLinkedTicketModal = false"
-                @select-ticket="linkTicket"
+                @select="(t) => linkTicket(t.id)"
             />
 
             <ProjectSelectionModal

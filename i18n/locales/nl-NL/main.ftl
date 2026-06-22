@@ -232,9 +232,8 @@ nav-assets = Activa
 nav-asset-planner = Activaplanner
 
 # Tab strip across the top of the asset section. Used in place
-# of duplicate sidebar entries for inventory list + planner.
 asset-tabs-inventory = Inventory
-asset-tabs-planner = Planner
+asset-tabs-catalog = Catalogus
 nav-users = Gebruikers
 nav-documentation = Documentatie
 nav-inbox = Postvak
@@ -2357,6 +2356,13 @@ assets-list-export-failed = Exporteren van assets mislukt. Probeer het opnieuw.
 assets-list-unassigned = Niet toegewezen
 assets-list-warranty-unknown = Onbekend
 assets-list-bulk-delete = Verwijderen
+# Row right-click context menu. Machine-translated, pending native review.
+assets-list-context-open = Openen
+assets-list-context-open-new-tab = Openen in nieuw tabblad
+assets-list-context-copy-link = Link kopiëren
+assets-list-context-copy-id = Asset-ID kopiëren
+assets-list-context-rollout = Uitrol aanmaken
+assets-list-context-delete = Verwijderen
 assets-list-bulk-delete-count = { $count } verwijderen
 assets-list-bulk-delete-title = { $count ->
     [one] Apparaat verwijderen?
@@ -2374,6 +2380,10 @@ assets-list-bulk-action-error = Verwijderen van activa mislukt. Probeer het opni
 asset-detail-back-to-ticket = Terug naar ticket #{ $id }
 asset-detail-back-to-devices = Terug
 asset-detail-readonly = Alleen-lezen
+# Machinevertaling, te controleren door moedertaalspreker.
+asset-detail-sync-source-intune = Gesynchroniseerd vanuit Intune
+asset-detail-sync-source-entra = Gesynchroniseerd vanuit Microsoft Entra
+asset-detail-sync-source-generic = Gesynchroniseerd vanuit externe bron
 asset-detail-delete-item-name = Activum
 asset-detail-error-invalid-id = Ongeldige activum-ID
 asset-detail-error-load = Activumgegevens konden niet worden geladen
@@ -2383,6 +2393,8 @@ asset-detail-error-unmanage = Beheer opheffen mislukt. Probeer het opnieuw.
 asset-detail-section-details = Activumgegevens
 asset-detail-section-kind = Activatype
 asset-detail-field-kind = Type
+# Machinevertaling, te controleren door moedertaalspreker.
+assets-list-create-error = Kan geen nieuw asset aanmaken. Probeer het opnieuw.
 asset-detail-field-name = Naam
 asset-detail-field-name-placeholder-create = Voer activumnaam in
 asset-detail-field-name-placeholder-edit = Voer naam in...
@@ -2402,6 +2414,8 @@ asset-detail-field-warranty-status = Garantiestatus
 asset-detail-field-warranty-start = Garantie begin
 asset-detail-field-warranty-end = Garantie einde
 asset-detail-field-purchase-date = Aankoopdatum
+# Garantiegroep (machine, na te kijken door moedertaalspreker).
+asset-detail-group-warranty = Garantie
 asset-detail-field-asset-tag = Inventarisnummer
 asset-detail-field-asset-tag-placeholder-create = Voer inventarisnummer in
 asset-detail-field-asset-tag-placeholder-edit = Voer inventarisnummer in...
@@ -2412,11 +2426,36 @@ asset-detail-warranty-unknown = Onbekend
 asset-detail-section-primary-user = Primaire gebruiker
 asset-detail-no-user-assigned = Geen gebruiker toegewezen aan dit activum
 asset-detail-action-assign-user = Gebruiker toewijzen
+# Machinevertaling, te controleren door moedertaalspreker.
+asset-detail-add-property = Eigenschap toevoegen
+# Asset-modelcatalogus (machinevertaling, te controleren door moedertaalspreker).
+asset-model-label = Model
+asset-model-change = Wijzigen
+asset-model-clear = Model verwijderen
+asset-model-choose = Kies een model
+asset-model-none = Geen model
+asset-model-search-placeholder = Modellen zoeken...
+asset-model-create-new = + Nieuw model
+asset-model-create-title = Nieuw model
+asset-model-field-manufacturer = Fabrikant
+asset-model-field-manufacturer-placeholder = Kies een fabrikant
+asset-model-new-manufacturer = + Nieuwe fabrikant
+asset-model-new-manufacturer-placeholder = Naam fabrikant
+asset-model-field-name = Modelnaam
+asset-model-field-name-placeholder = bijv. Latitude 5540
+asset-model-create-submit = Model aanmaken
+asset-model-set-failed = Kan het model niet instellen. Probeer het opnieuw.
+asset-model-clear-failed = Kan het model niet verwijderen. Probeer het opnieuw.
+asset-model-create-failed = Kan het model niet aanmaken. Probeer het opnieuw.
+asset-detail-clear-user = Eigenaar verwijderen
 asset-detail-action-change-user = Gebruiker wijzigen
 # asset-detail-action-track-stock (machine translation, pending native review).
 asset-detail-action-track-stock = Voorraad bijhouden
 asset-detail-section-device-information = Apparaatinformatie
 asset-detail-field-device-id = Apparaat-ID
+# Machinevertaling, te controleren door moedertaalspreker.
+asset-detail-section-record = Record
+asset-detail-field-asset-id = Asset-ID
 asset-detail-field-created = Aangemaakt
 asset-detail-field-last-updated = Laatst bijgewerkt
 asset-detail-manually-managed = Handmatig beheerd
@@ -2819,49 +2858,9 @@ doc-detail-ticket-note-title = Notities voor ticket #{ $id }
 doc-detail-ticket-note-description = Documentatie voor ticket { $title }
 doc-detail-ticket-note-author-system = Systeem
 
-# Asset planner (AssetPlannerView): kanban voor het plannen van
 # apparaat-uitrol, gegroepeerd op OS-familie, garantieperiode of
 # nalevingsstatus. Bevat de header, zijbalkfilters, groepkolommen
 # en chips op de apparaatkaarten.
-asset-planner-title = Apparatuur
-asset-planner-subtitle = Plan uitrol op OS, garantie of naleving.
-asset-planner-search-placeholder = Zoek op naam, hostnaam, model…
-asset-planner-group-by = Groeperen op
-asset-planner-axis-os = OS-familie
-asset-planner-axis-warranty = Garantie
-asset-planner-axis-compliance = Naleving
-asset-planner-loading = Apparatuur laden…
-asset-planner-load-error = Apparatuur laden mislukt
-asset-planner-filters-heading = Filters
-asset-planner-filters-clear = Wissen ({ $count })
-asset-planner-section-os = OS
-asset-planner-section-warranty = Garantie
-asset-planner-section-compliance = Naleving
-asset-planner-count = { $visible } van { $total ->
-    [one] { $total } apparaat
-   *[other] { $total } apparaten
-   }
-asset-planner-empty = Geen activa komen overeen met de huidige filters.
-asset-planner-warranty-ends = Garantie loopt af op { $date }
-asset-planner-no-warranty-data = Geen garantiegegevens
-asset-planner-warranty-unknown-short = n.v.t.
-asset-planner-card-host = Host
-asset-planner-card-os = OS
-asset-planner-card-model = Model
-asset-planner-card-tag = Label
-asset-planner-card-compliance = Naleving
-asset-planner-os-windows = Windows
-asset-planner-os-macos = macOS
-asset-planner-os-linux = Linux
-asset-planner-os-ios = iOS
-asset-planner-os-android = Android
-asset-planner-os-other = Overig
-asset-planner-warranty-expired = Verlopen
-asset-planner-warranty-expiring-30d = Verloopt binnen 30 dagen
-asset-planner-warranty-expiring-90d = Verloopt binnen 90 dagen
-asset-planner-warranty-active = Actief
-asset-planner-warranty-unknown = Onbekend
-asset-planner-compliance-unknown = Onbekend
 
 # Collection view (CollectionView): documentation collection
 # detail page with editable name/icon, an overview editor,
@@ -3287,13 +3286,6 @@ ticket-picker-user-section-all = Alle gebruikers
 ticket-picker-user-you-suffix = (jij)
 
 # Ticket picker: gekoppeld ticket modaal (LinkedTicketModal)
-ticket-picker-linked-title = Ticket koppelen
-ticket-picker-linked-search-placeholder = Tickets zoeken...
-ticket-picker-linked-loading = Tickets laden...
-ticket-picker-linked-error = Kan tickets niet laden
-ticket-picker-linked-try-again = Opnieuw proberen
-ticket-picker-linked-empty-search = Geen tickets gevonden voor je zoekopdracht
-ticket-picker-linked-empty = Geen tickets om te koppelen
 ticket-picker-linked-col-id = ID
 ticket-picker-linked-col-title = Titel
 ticket-picker-linked-col-status = Status
@@ -3303,7 +3295,6 @@ ticket-picker-linked-count = { $count ->
     [one] { $count } ticket
    *[other] { $count } tickets
 }
-ticket-picker-linked-cancel = Annuleren
 
 # Ticket picker: standaardantwoordenkiezer (CannedResponsePicker)
 ticket-picker-canned-trigger-aria = Standaardantwoord invoegen
@@ -4016,6 +4007,12 @@ ticket-activity-phrase-replied-via = heeft gereageerd via { $channel }
 ticket-activity-phrase-comment-via = heeft een reactie toegevoegd via { $channel }
 ticket-activity-phrase-commented = heeft op dit ticket gereageerd
 ticket-activity-phrase-comment-deleted = heeft een reactie verwijderd
+# MT: pending native review
+ticket-activity-phrase-loan-issued = heeft een apparaat uitgeleend aan { $borrower }
+# MT: pending native review
+ticket-activity-phrase-loan-issued-plain = heeft een apparaat uitgeleend
+# MT: pending native review
+ticket-activity-phrase-loan-returned = heeft een geleend apparaat teruggenomen
 ticket-activity-phrase-generic = heeft een wijziging aangebracht
 
 # Ticket: labelkiezer (TicketTagsField).
@@ -4129,6 +4126,99 @@ asset-lifecycle-heading = Levenscyclus
 asset-lifecycle-description = Volg operationele statuswijzigingen zoals reparaties, uitleningen en buiten gebruikstelling.
 asset-lifecycle-current-label = Huidige status
 asset-lifecycle-change-status = Status wijzigen
+# MT: pending native review
+asset-lifecycle-managed-by-loan = Beheerd door de actieve uitlening
+# MT: pending native review
+asset-loan-heading = Uitleningen
+# MT: pending native review
+asset-loan-description = Leen dit apparaat tijdelijk uit en volg de teruggave.
+# MT: pending native review
+asset-loan-loan-out = Uitlenen
+# MT: pending native review
+asset-loan-return = Terugnemen
+# MT: pending native review
+asset-loan-borrower = Lener
+# MT: pending native review
+asset-loan-select-borrower = Selecteer een lener
+# MT: pending native review
+asset-loan-due-back-optional = Terug verwacht (optioneel)
+# Uitleendatums (machine, na te kijken door moedertaalspreker).
+# Uitleenperiode (machine, na te kijken door moedertaalspreker).
+asset-loan-period-label = Uitleenperiode
+asset-loan-period-hint = Wanneer het apparaat is uitgereikt en wanneer het terug moet. Laat de retourdatum leeg voor een open uitlening.
+asset-loan-loaned-on = Uitgeleend op
+asset-loan-return-by-optional = Terugbrengen vóór (optioneel)
+# MT: pending native review
+asset-loan-ticket-field = Ticket
+# MT: pending native review
+asset-loan-ticket-field-placeholder = bijv. 1234
+# Ticketkiezer (machine, na te kijken door moedertaalspreker).
+asset-loan-ticket-link = Ticket koppelen
+asset-loan-ticket-clear = Ticket verwijderen
+ticket-picker-title = Selecteer een ticket
+ticket-picker-search-placeholder = Tickets zoeken…
+ticket-picker-create-new = Nieuw ticket maken
+ticket-picker-empty = Nog geen tickets
+ticket-picker-empty-search = Geen tickets komen overeen met je zoekopdracht
+ticket-picker-error = Laden van tickets mislukt
+ticket-picker-create-failed = Ticket maken mislukt
+ticket-picker-untitled = Naamloos ticket
+# MT: pending native review
+asset-loan-notes = Notities
+# MT: pending native review
+asset-loan-issue-title = Apparaat uitlenen
+# MT: pending native review
+asset-loan-return-title = Apparaat terugnemen
+# MT: pending native review
+asset-loan-return-body = Dit apparaat terugnemen van { $name }?
+# MT: pending native review
+asset-loan-return-notes = Notities bij teruggave (optioneel)
+# MT: pending native review
+asset-loan-cancel = Annuleren
+# MT: pending native review
+asset-loan-not-loanable = Dit apparaat kan alleen worden uitgeleend als het in gebruik of op voorraad is.
+# MT: pending native review
+asset-loan-empty-title = Nog geen uitleningen
+# MT: pending native review
+asset-loan-empty-description = Leen dit apparaat uit om bij te houden wie het heeft en wanneer het terug moet.
+# MT: pending native review
+asset-loan-history = Uitleengeschiedenis
+# MT: pending native review
+asset-loan-loaned-relative = Uitgeleend { $when }
+# MT: pending native review
+asset-loan-ticket = Ticket #{ $id }
+# MT: pending native review
+asset-loan-unknown-borrower = Onbekende lener
+# MT: pending native review
+asset-loan-due-overdue = Te laat
+# MT: pending native review
+asset-loan-due-today = Vandaag terug
+# MT: pending native review
+asset-loan-due-soon = Terug over { $days } dagen
+# MT: pending native review
+asset-loan-due-on = Terug op { $date }
+# MT: pending native review
+asset-loan-range = { $from } tot { $to }
+# MT: pending native review
+asset-loan-failed = Er is iets misgegaan. Probeer het opnieuw.
+# MT: pending native review
+asset-loan-ticket-heading = Geleende apparaten
+# MT: pending native review
+asset-loan-device-fallback = Apparaat #{ $id }
+# MT: pending native review
+asset-loan-returned-on = teruggenomen op { $date }
+# MT: pending native review
+asset-loan-device = Apparaat
+# MT: pending native review
+asset-loan-device-search = Apparaten zoeken…
+# MT: pending native review
+asset-loan-change = Wijzigen
+# MT: pending native review
+asset-loan-loading = Laden…
+# MT: pending native review
+asset-loan-no-loanable = Geen beschikbare apparaten
+# MT: pending native review
+asset-loan-load-error = Kan uitleningen niet laden.
 asset-lifecycle-empty-title = Nog geen overgangen
 asset-lifecycle-empty-description = Statuswijzigingen verschijnen hier zodra ze zijn vastgelegd.
 asset-lifecycle-transition-failed = Wijzigen van activumstatus mislukt
@@ -4972,6 +5062,9 @@ ui-site-header-untitled-ticket = Ticket zonder titel
 ui-site-header-untitled = Zonder titel
 ui-site-header-unknown-device = Onbekend apparaat
 ui-site-header-ticket-title-placeholder = Tickettitel invoeren...
+# Koptekst asset-titel (machine, na te kijken door moedertaalspreker).
+ui-site-header-untitled-asset = Naamloos asset
+ui-site-header-asset-title-placeholder = Assetnaam invoeren...
 ui-site-header-document-title-placeholder = Documenttitel invoeren...
 ui-site-header-create-aria = { $action } aanmaken
 ui-site-header-inbox-tooltip = Postvak
@@ -5195,7 +5288,6 @@ route-title-project-gantt = Gantt
 route-title-assets = Middelen
 route-title-asset-create = Activum aanmaken
 route-title-asset-view = Activumdetails
-route-title-asset-planner = Activaplanner
 route-title-project-detail = Projectdetails
 route-title-error = Fout
 route-title-users = Gebruikers
@@ -5217,6 +5309,42 @@ route-title-admin-categories = Categorieën
 route-title-admin-assignment-rules = Toewijzingsregels
 route-title-admin-workflow = Werkstroom
 route-title-admin-asset-kinds = Activatypen
+# Asset-catalogus (machinevertaling, te controleren door moedertaalspreker).
+route-title-asset-catalog = Asset-catalogus
+common-edit = Bewerken
+common-delete = Verwijderen
+common-save = Opslaan
+common-cancel = Annuleren
+asset-catalog-title = Asset-catalogus
+asset-catalog-description = Fabrikanten en de modellen waaruit assets worden gestempeld.
+asset-catalog-manufacturers-heading = Fabrikanten
+asset-catalog-add-manufacturer = Fabrikant toevoegen
+asset-catalog-edit-manufacturer = Fabrikant bewerken
+asset-catalog-manufacturers-empty = Nog geen fabrikanten
+asset-catalog-models-heading = Modellen
+asset-catalog-add-model = Model toevoegen
+asset-catalog-edit-model = Model bewerken
+asset-catalog-models-empty = Nog geen modellen
+asset-catalog-need-manufacturer = Voeg eerst een fabrikant toe
+asset-catalog-manufacturer-name = Naam
+asset-catalog-manufacturer-name-placeholder = bijv. Apple
+asset-catalog-part-number = Onderdeelnummer
+asset-catalog-part-number-placeholder = Optioneel
+# Standaardspecificaties van model (machine, na te kijken door moedertaalspreker).
+asset-catalog-default-specs = Standaardspecificaties
+asset-catalog-default-specs-hint = Vooraf ingevuld op elk asset dat van dit model wordt afgeleid. Laat leeg om over te slaan.
+asset-catalog-notes = Notities
+asset-catalog-delete-title = Verwijderen
+asset-catalog-manufacturer-delete-confirm = Fabrikant "{ $name }" verwijderen?
+asset-catalog-model-delete-confirm = Model "{ $name }" verwijderen? Assets die ervan zijn gestempeld behouden hun gegevens.
+asset-catalog-manufacturer-save-failed = Kan de fabrikant niet opslaan. Probeer het opnieuw.
+asset-catalog-model-save-failed = Kan het model niet opslaan. Probeer het opnieuw.
+asset-catalog-delete-failed = Verwijderen mislukt. Het wordt mogelijk nog gebruikt.
+asset-catalog-model-count = { $count ->
+    [0] Geen modellen
+    [one] 1 model
+   *[other] { $count } modellen
+}
 route-title-admin-asset-kinds-new = Nieuw activatype
 route-title-admin-asset-kinds-edit = Activatype bewerken
 route-title-admin-api-tokens = API-tokens
@@ -5688,6 +5816,53 @@ assets-list-grouping-manufacturer-none = No manufacturer
 assets-list-grouping-location = Location
 assets-list-grouping-location-none = No location
 assets-list-grouping-primary-user = Primary user
+# Vlootplanning-lenzen (machine, na te kijken door moedertaalspreker).
+assets-list-grouping-os = OS-familie
+assets-list-grouping-warranty-window = Garantievenster
+assets-list-grouping-compliance = Naleving
+assets-list-os-windows = Windows
+assets-list-os-macos = macOS
+assets-list-os-linux = Linux
+assets-list-os-ios = iOS / iPadOS
+assets-list-os-android = Android
+assets-list-os-other = Overig
+assets-list-warranty-window-expired = Verlopen
+assets-list-warranty-window-expiring-30d = Verloopt binnen 30 dagen
+assets-list-warranty-window-expiring-90d = Verloopt binnen 90 dagen
+assets-list-warranty-window-active = Onder garantie
+assets-list-warranty-window-unknown = Geen garantiedatum
+assets-list-compliance-unknown = Onbekend
+# Uitrol aanmaken (machine, na te kijken door moedertaalspreker).
+asset-rollout-bulk-action = {$count ->
+    [one] Uitrol aanmaken (1)
+   *[other] Uitrol aanmaken ({$count})
+  }
+asset-rollout-title = Uitrol aanmaken
+asset-rollout-summary = {$count ->
+    [one] 1 apparaat krijgt een ticket in een nieuw project.
+   *[other] {$count} apparaten krijgen elk een ticket in een nieuw project.
+  }
+asset-rollout-name-label = Naam van uitrol
+asset-rollout-name-placeholder = bijv. Windows 10-vernieuwing
+asset-rollout-state-label = Beginstatus
+asset-rollout-priority-label = Prioriteit
+asset-rollout-create-action = {$count ->
+    [one] Uitrol aanmaken (1 ticket)
+   *[other] Uitrol aanmaken ({$count} tickets)
+  }
+asset-rollout-created = {$count ->
+    [one] Uitrol aangemaakt met 1 ticket
+   *[other] Uitrol aangemaakt met {$count} tickets
+  }
+asset-rollout-create-failed = Uitrol aanmaken mislukt
+# Mobiele planning (machine, na te kijken door moedertaalspreker).
+asset-planning-mobile-hint = Tik op een { $axis }-groep om de apparaten te bekijken en uit te rollen.
+asset-planning-mobile-back = Terug
+# Mobiele lijst filter/groepeer-sheet (machine, na te kijken door moedertaalspreker).
+list-mobile-filter-group-title = Filteren en groeperen
+list-mobile-group-by = Groeperen op
+list-mobile-filters = Filters
+list-mobile-filter-done = Klaar
 tickets-grouping-all = Alle
 
 # T batch: final sweep
@@ -5917,3 +6092,8 @@ admin-rule-editor-error-save = Kan de regel niet opslaan.
 admin-rule-editor-error-conflict = Deze regel leest en schrijft naar dezelfde velden. Sla toch op om te negeren.
 admin-rule-editor-override-self-ref = Ik begrijp dat deze regel in een lus kan terechtkomen
 admin-rule-editor-priority-label = Prioriteit (lagere waarden eerst)
+asset-catalog-col-model = Model
+asset-catalog-col-type = Type
+asset-catalog-col-part-number = Onderdeelnummer
+asset-catalog-filter-all = Alle
+asset-catalog-manage-manufacturers = Fabrikanten

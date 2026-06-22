@@ -1386,13 +1386,27 @@ async fn main() -> std::io::Result<()> {
             move || jobs::detect_sla_breaches(p.clone(), ns.clone()),
         );
 
+        // Daily: remind borrowers about device loans due back soon or
+        // overdue, via NotificationService. Advisory-locked; scans all
+        // workspaces under BYPASSRLS and stamps each loan so a reminder
+        // fires once.
+        let p = pool.clone();
+        let ns = notification_service.clone().into_inner();
+        spawn_periodic(
+            "asset_loans.due_reminders",
+            Duration::from_secs(24 * 60 * 60),
+            scheduler_shutdown.clone(),
+            scheduler_status.clone(),
+            move || jobs::loan_due_reminders(p.clone(), ns.clone()),
+        );
+
         info!("scheduler: periodic jobs spawned");
     }
     let scheduler_status_data = web::Data::new(scheduler_status);
 
     // Pre-create the static-asset directories so `Files::new` can
     // canonicalize them at startup. Without this, if the backend
-    // boots before the frontend build has populated `./public/assets`
+    // boots before the frontend build has populated `./public/static`
     // (a common race in `compose up` where backend and frontend-watch
     // start in parallel), Actix's `Files` service fails its initial
     // canonicalize and silently falls through to the default_handler
@@ -1400,10 +1414,17 @@ async fn main() -> std::io::Result<()> {
     // The "Asset still missing after reload" dev fallback then takes
     // over and reload-loops the browser indefinitely.
     //
+    // These must match the actual `Files::new` mounts below
+    // (`/static`, `/pdfjs`). Pre-creating `./public/assets` instead was
+    // a stale leftover from the old Vite `assetsDir`: it both skipped
+    // the real `static` dir AND shadowed the `/assets` SPA route, so a
+    // hard refresh on `/assets` resolved to an empty directory and
+    // returned "unable to render directory without index file".
+    //
     // Idempotent: `create_dir_all` is a no-op when the directory
     // already exists. Safe in production where the build pipeline
     // populates these directories long before the binary starts.
-    for static_dir in ["./public/assets", "./public/pdfjs"] {
+    for static_dir in ["./public/static", "./public/pdfjs"] {
         if let Err(e) = std::fs::create_dir_all(static_dir) {
             error!(path = %static_dir, error = %e, "Failed to ensure static directory exists");
             return Err(std::io::Error::other(format!(
@@ -2083,7 +2104,6 @@ async fn main() -> std::io::Result<()> {
                     // Asset-kind registry. Admin-only CRUD over the
                     // runtime discriminator table that drives
                     // `assets.kind` validation.
-                    .route("/admin/asset-kinds", web::get().to(handlers::asset_kinds::list))
                     .route("/admin/asset-kinds/{id}", web::get().to(handlers::asset_kinds::get))
                     .route("/admin/asset-kinds", web::post().to(handlers::asset_kinds::create))
                     // Usage stat. Sits at /usage suffix on a numeric
@@ -2193,6 +2213,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/tickets/{id}/view", web::post().to(handlers::record_ticket_view))
                     .route("/tickets/{id}/view", web::delete().to(handlers::remove_recent_ticket))
                     .route("/tickets/{id}/activity", web::get().to(handlers::get_ticket_activity))
+                    .route("/tickets/{id}/loans", web::get().to(handlers::asset_loans::list_for_ticket))
                     .route("/tickets/{id}/field-preview", web::post().to(handlers::preview_ticket_field))
                     .route("/tickets/{id}/tags", web::put().to(handlers::tags::set_ticket_tags))
                     .route("/tickets/{id}/watchers", web::get().to(handlers::ticket_watchers::list_watchers))
@@ -2382,14 +2403,37 @@ async fn main() -> std::io::Result<()> {
                     .route("/assets/calendar-overlay", web::get().to(handlers::assets::calendar_overlay))
                     .route("/assets/export", web::get().to(handlers::export_assets))
                     .route("/assets/locations", web::get().to(handlers::get_asset_locations))
-                    .route("/assets/planner", web::get().to(handlers::assets::asset_planner))
+                    .route("/assets/grouping-dataset", web::get().to(handlers::assets::asset_grouping_dataset))
+                    .route("/assets/rollouts", web::post().to(handlers::assets::create_rollout))
+                    // Read-only kind registry for the asset create/edit
+                    // pickers. Technician-gated (matches asset create);
+                    // admin CRUD lives under /admin/asset-kinds.
+                    .route("/asset-kinds", web::get().to(handlers::asset_kinds::list_for_picker))
+                    // Asset model catalog (manufacturers + models). Technician-gated CRUD.
+                    .route("/manufacturers", web::get().to(handlers::manufacturers::list))
+                    .route("/manufacturers", web::post().to(handlers::manufacturers::create))
+                    .route("/manufacturers/{id:\\d+}", web::get().to(handlers::manufacturers::get))
+                    .route("/manufacturers/{id:\\d+}", web::put().to(handlers::manufacturers::update))
+                    .route("/manufacturers/{id:\\d+}", web::delete().to(handlers::manufacturers::delete))
+                    .route("/asset-models", web::get().to(handlers::asset_models::list))
+                    .route("/asset-models", web::post().to(handlers::asset_models::create))
+                    .route("/asset-models/{id:\\d+}", web::get().to(handlers::asset_models::get))
+                    .route("/asset-models/{id:\\d+}", web::put().to(handlers::asset_models::update))
+                    .route("/asset-models/{id:\\d+}", web::delete().to(handlers::asset_models::delete))
                     .route("/assets", web::post().to(handlers::create_device))
+                    .route("/assets/empty", web::post().to(handlers::create_empty_device))
+                    .route("/assets/{id:\\d+}/model", web::post().to(handlers::set_asset_model))
+                    .route("/assets/{id:\\d+}/model", web::delete().to(handlers::clear_asset_model))
                     .route("/assets/{id:\\d+}", web::get().to(handlers::get_device_by_id))
                     .route("/assets/{id:\\d+}", web::put().to(handlers::update_device))
                     .route("/assets/{id:\\d+}", web::delete().to(handlers::delete_device))
                     .route("/assets/{id:\\d+}/unmanage", web::post().to(handlers::unmanage_device))
                     .route("/assets/{id:\\d+}/lifecycle", web::get().to(handlers::asset_lifecycle::list_for_asset))
                     .route("/assets/{id:\\d+}/lifecycle", web::post().to(handlers::asset_lifecycle::create_transition))
+                    .route("/assets/{id:\\d+}/loans", web::get().to(handlers::asset_loans::list_for_asset))
+                    .route("/assets/{id:\\d+}/loans", web::post().to(handlers::asset_loans::issue))
+                    .route("/assets/{id:\\d+}/loans/{loan_id:\\d+}", web::patch().to(handlers::asset_loans::edit))
+                    .route("/assets/{id:\\d+}/loans/{loan_id:\\d+}/return", web::post().to(handlers::asset_loans::return_loan))
                     .route("/assets/{id:\\d+}/media", web::get().to(handlers::asset_media::list_for_asset))
                     .route("/assets/{id:\\d+}/media", web::post().to(handlers::asset_media::upload_for_asset))
                     .route("/assets/{id:\\d+}/media/{media_id}", web::put().to(handlers::asset_media::update_media))

@@ -46,6 +46,9 @@ const documentIconSaveHandler = ref<DocumentIconSaveHandler | null>(null);
 // registered, the site header renders the custom title inline-editable,
 // the same way ticket titles are edited there.
 const customTitleSaveHandler = ref<TicketTitleSaveHandler | null>(null);
+// Editable device (asset) title: registered by the asset detail view so
+// the header renders the asset name inline-editable, like a ticket title.
+const deviceTitleSaveHandler = ref<TicketTitleSaveHandler | null>(null);
 
 // Module-level computeds (no route/component dependency)
 const isTicketView = computed(() => currentTicket.value !== null);
@@ -53,6 +56,9 @@ const isDeviceView = computed(() => currentDevice.value !== null);
 const isDocumentView = computed(() => currentDocument.value !== null);
 const isCustomTitleEditable = computed(
   () => customTitle.value !== null && customTitleSaveHandler.value !== null,
+);
+const isDeviceTitleEditable = computed(
+  () => currentDevice.value !== null && deviceTitleSaveHandler.value !== null,
 );
 
 // Module-level watcher for recent tickets store (no route dependency)
@@ -91,7 +97,9 @@ export function useTitleManager() {
         return `#${currentTicket.value.id} ${currentTicket.value.title}`;
       }
       if (isDeviceView.value && currentDevice.value) {
-        return `#${currentDevice.value.id} ${(currentDevice.value.attributes?.hostname as string | undefined)}`;
+        const dev = currentDevice.value;
+        const label = dev.name || (dev.attributes?.hostname as string | undefined) || '';
+        return `#${dev.id} ${label}`.trim();
       }
       // Prefer `titleKey` (translatable). Routes that set a literal
       // `title` (e.g. a document title containing user content) still
@@ -112,7 +120,7 @@ export function useTitleManager() {
     }, { immediate: true });
 
     // Watch for route changes to clear stale state
-    const titleManagedRoutes = ['ticket', 'device', 'documentation-article'];
+    const titleManagedRoutes = ['ticket', 'asset-view', 'documentation-article'];
     watch(
       () => route.name,
       (newRouteName) => {
@@ -123,6 +131,7 @@ export function useTitleManager() {
           documentationTitle.value = null;
           customTitle.value = null;
           customTitleSaveHandler.value = null;
+          deviceTitleSaveHandler.value = null;
         }
       }
     );
@@ -187,6 +196,23 @@ export function useTitleManager() {
     // pre-setting its title here would defeat the handler's `r.title === title`
     // no-op guard (skipping the PATCH) and corrupt the rollback baseline.
     await ticketTitleSaveHandler.value?.(newTitle);
+  };
+
+  // Persist only, mirroring updateTicketTitle: the registered handler
+  // (asset view -> updateAsset) is the sole writer. previewDeviceTitle is
+  // a no-op (no live collaborators on an asset name); the header shows
+  // the in-progress draft from HeaderTitle's own local state.
+  const updateDeviceTitle = async (newTitle: string) => {
+    if (!currentDevice.value) return;
+    await deviceTitleSaveHandler.value?.(newTitle);
+  };
+
+  const previewDeviceTitle = (_newTitle: string) => {
+    // No-op: assets have no title-preview broadcast.
+  };
+
+  const onDeviceTitleSave = (handler: TicketTitleSaveHandler | null) => {
+    deviceTitleSaveHandler.value = handler;
   };
 
   const updateDocumentTitle = async (newTitle: string) => {
@@ -254,6 +280,7 @@ export function useTitleManager() {
     isDeviceView,
     isDocumentView,
     isCustomTitleEditable,
+    isDeviceTitleEditable,
 
     // Methods
     setCustomTitle,
@@ -265,6 +292,9 @@ export function useTitleManager() {
     previewTicketTitle,
     previewDocumentTitle,
     updateTicketTitle,
+    updateDeviceTitle,
+    previewDeviceTitle,
+    onDeviceTitleSave,
     updateDocumentTitle,
     updateDocumentIcon,
     onTicketTitleSave,

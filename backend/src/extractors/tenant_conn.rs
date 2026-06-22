@@ -80,6 +80,27 @@ impl TenantConn {
         session::with_actor_context(&mut conn, &self.actor, f)
     }
 
+    /// Like [`run`], but for closures that return a domain error type
+    /// (rather than a bare `diesel::Error`). The only requirement is that
+    /// the error can carry a `diesel::Error` (`E: From<diesel::Error>`),
+    /// so pool-acquire and transaction failures still surface. Used by
+    /// handlers whose repository returns a typed error the handler maps to
+    /// HTTP status codes.
+    ///
+    /// [`run`]: Self::run
+    pub fn run_result<T, E>(
+        &mut self,
+        f: impl FnOnce(&mut DbConnection) -> Result<T, E>,
+    ) -> Result<T, E>
+    where
+        E: From<diesel::result::Error>,
+    {
+        let mut conn = self.pool.get().map_err(|e| {
+            diesel::result::Error::QueryBuilderError(format!("pool acquire: {e}").into())
+        })?;
+        session::with_actor_context(&mut conn, &self.actor, f)
+    }
+
     /// Workspace the request actor is pinned to, if any. Mirrors
     /// the value set by auth middleware from `WorkspaceContext`.
     pub fn workspace_id(&self) -> Option<i32> {

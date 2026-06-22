@@ -28,6 +28,10 @@ const props = defineProps<{
   canEdit?: boolean;
 }>();
 
+// Emitted after a successful status transition so the parent can refresh
+// the asset (its `currentStatus` prop, and the status badge it drives).
+const emit = defineEmits<{ (e: 'transitioned', toStatus: string): void }>();
+
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 const { getUserHandle } = useUsersDirectory();
@@ -73,11 +77,14 @@ const repairVendor = ref('');
 const repairRma = ref('');
 const repairOffsite = ref(false);
 const repairExpectedReturn = ref('');
-const loanedTo = ref('');
-const loanDueBack = ref('');
 
+// On-loan is owned by the loan ledger (the Loans panel), not a manual
+// transition: you loan an asset out and return it there, which keeps the
+// loan record and the status in step. So it's not offered as a target, and
+// while an asset is on loan its status is changed by returning the loan.
+const isOnLoan = computed(() => props.currentStatus === 'on_loan');
 const statusOptions = computed(() =>
-  ASSET_STATUSES.filter((s) => s !== props.currentStatus),
+  ASSET_STATUSES.filter((s) => s !== props.currentStatus && s !== 'on_loan'),
 );
 const statusDropdownOptions = computed(() =>
   statusOptions.value.map((status) => ({
@@ -94,8 +101,6 @@ function resetForm() {
   repairRma.value = '';
   repairOffsite.value = false;
   repairExpectedReturn.value = '';
-  loanedTo.value = '';
-  loanDueBack.value = '';
   errorMessage.value = '';
 }
 
@@ -118,12 +123,6 @@ function buildMetadata(): Record<string, unknown> {
     if (repairExpectedReturn.value) meta.expected_return = repairExpectedReturn.value;
     return meta;
   }
-  if (toStatus.value === 'on_loan') {
-    const meta: Record<string, unknown> = {};
-    if (loanedTo.value.trim()) meta.loaned_to = loanedTo.value.trim();
-    if (loanDueBack.value) meta.due_back = loanDueBack.value;
-    return meta;
-  }
   return {};
 }
 
@@ -139,13 +138,15 @@ async function submitTransition() {
   submitting.value = true;
   errorMessage.value = '';
   try {
+    const newStatus = toStatus.value;
     await assetLifecycleService.transition(props.assetId, {
-      to_status: toStatus.value,
+      to_status: newStatus,
       reason: reason.value.trim() || null,
       ticket_id: parseTicketId(),
       metadata: buildMetadata(),
     });
     await invalidate();
+    emit('transitioned', newStatus);
     closeModal();
   } catch (e) {
     errorMessage.value = e instanceof Error ? e.message : t('asset-lifecycle-transition-failed');
@@ -201,18 +202,18 @@ function metadataLines(event: AssetLifecycleEvent): string[] {
 <template>
   <div class="flex flex-col gap-3">
     <div class="flex items-center justify-between gap-3 flex-wrap">
-      <div class="flex items-center gap-2">
-        <span class="text-xs text-tertiary">{{ $t('asset-lifecycle-current-label') }}</span>
-        <AssetStatusBadge :status="currentStatus" size="md" />
-      </div>
+      <AssetStatusBadge :status="currentStatus" size="md" />
       <Button
-        v-if="canEdit"
+        v-if="canEdit && !isOnLoan"
         size="sm"
         icon="refresh"
         @click="openModal"
       >
         {{ $t('asset-lifecycle-change-status') }}
       </Button>
+      <span v-else-if="canEdit && isOnLoan" class="text-xs text-tertiary">
+        {{ $t('asset-lifecycle-managed-by-loan') }}
+      </span>
     </div>
 
     <p class="text-xs text-tertiary">{{ $t('asset-lifecycle-description') }}</p>
@@ -302,17 +303,6 @@ function metadataLines(event: AssetLifecycleEvent): string[] {
           <DatePicker
             v-model="repairExpectedReturn"
             :label="$t('asset-lifecycle-meta-expected-return')"
-          />
-        </template>
-
-        <template v-if="toStatus === 'on_loan'">
-          <FormInput
-            v-model="loanedTo"
-            :label="$t('asset-lifecycle-meta-loaned-to')"
-          />
-          <DatePicker
-            v-model="loanDueBack"
-            :label="$t('asset-lifecycle-meta-due-back')"
           />
         </template>
 

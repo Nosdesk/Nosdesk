@@ -39,6 +39,61 @@ export type { PaginatedResponse } from '@/types/pagination';
  */
 const transformDeviceResponse = (backendDevice: Asset): Asset => backendDevice;
 
+/** An asset row tagged with the server-derived planning buckets. The
+ *  inventory list groups by these when a planning lens is active.
+ *  `compliance_state` is grouped from `attributes.compliance_state`. */
+export type AssetGroupingRow = Asset & {
+  /** 'windows' | 'macos' | 'linux' | 'ios' | 'android' | 'other'. */
+  os_family: string;
+  /** 'expired' | 'expiring_30d' | 'expiring_90d' | 'active' | 'unknown'. */
+  warranty_window: string;
+};
+
+/** Fetch the complete filtered asset set (no pagination) tagged with
+ *  planning buckets. Drives the inventory list's fleet-planning lenses,
+ *  where counts and selection must cover the whole fleet, not just the
+ *  rows scrolled into view. Accepts the same filter keys as the
+ *  paginated list. */
+export const getAssetGroupingDataset = async (filters: {
+  search?: string;
+  status?: string;
+  warranty?: string;
+  location?: string;
+  lowStock?: string;
+}): Promise<AssetGroupingRow[]> => {
+  const params: Record<string, string> = {};
+  if (filters.search) params.search = filters.search;
+  if (filters.status) params.status = filters.status;
+  if (filters.warranty) params.warranty = filters.warranty;
+  if (filters.location) params.location = filters.location;
+  if (filters.lowStock) params.lowStock = filters.lowStock;
+  const response = await apiClient.get('/assets/grouping-dataset', { params });
+  return response.data as AssetGroupingRow[];
+};
+
+/** Body for creating a rollout from a selected device group. */
+export interface CreateRolloutBody {
+  name: string;
+  description?: string | null;
+  workflow_state_id: number;
+  priority?: string;
+  asset_ids: number[];
+}
+
+export interface CreateRolloutResult {
+  project_id: number;
+  ticket_count: number;
+}
+
+/** Mint a rollout project with one ticket per selected device, each
+ *  ticket linked to its asset. One server-side transaction. */
+export const createAssetRollout = async (
+  body: CreateRolloutBody,
+): Promise<CreateRolloutResult> => {
+  const response = await apiClient.post('/assets/rollouts', body);
+  return response.data as CreateRolloutResult;
+};
+
 /**
  * Get all devices
  * @returns Promise<Asset[]> - A promise that resolves to an array of devices
@@ -225,6 +280,39 @@ export const createAsset = async (deviceData: AssetFormData): Promise<Asset> => 
     logger.error('Failed to create device', { error, deviceData });
     throw error;
   }
+};
+
+/**
+ * Mint an empty asset and return it. Mirrors `createEmptyTicket`:
+ * creation is a one-click action that drops the user on the asset's
+ * detail page to fill in name, type, and optional properties inline.
+ * There is no separate create form.
+ */
+export const createEmptyAsset = async (): Promise<Asset> => {
+  try {
+    const response = await apiClient.post('/assets/empty');
+    return transformDeviceResponse(response.data);
+  } catch (error) {
+    logger.error('Failed to create empty asset', { error });
+    throw error;
+  }
+};
+
+/**
+ * Stamp a catalog model onto an asset. The backend copies the model's
+ * manufacturer, model name, kind, and default specs onto the row (no
+ * clobber) and links model_id, returning the updated asset.
+ */
+export const setAssetModel = async (assetId: number, modelId: number): Promise<Asset> => {
+  const response = await apiClient.post(`/assets/${assetId}/model`, { model_id: modelId });
+  return transformDeviceResponse(response.data);
+};
+
+/** Unlink the catalog model. The stamped manufacturer/model snapshot
+ *  stays on the asset; it becomes a model-less one-off. */
+export const clearAssetModel = async (assetId: number): Promise<Asset> => {
+  const response = await apiClient.delete(`/assets/${assetId}/model`);
+  return transformDeviceResponse(response.data);
 };
 
 

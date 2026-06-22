@@ -28,6 +28,7 @@
  * is for the non-ticket private-view surfaces.
  */
 import { computed, ref, type ComputedRef, type Ref } from 'vue'
+import { useQuery } from '@pinia/colada'
 import { useListControls, type Filters } from '@/composables/useListControls'
 import {
   useListPage,
@@ -105,6 +106,23 @@ export interface UseListViewOptions<T extends object, C extends DataTableColumnL
   // -- Grouping -----------------------------------------------------
   groupAxes: GroupAxisDef<T>[]
 
+  // -- Complete-dataset source (optional) ---------------------------
+  /** Some group axes (e.g. fleet-planning lenses) only make sense
+   *  over the WHOLE filtered set: their bucket counts and
+   *  "select all in a bucket" must be fleet-true, not limited to the
+   *  rows scrolled into view. When one of `axes` is the active
+   *  group axis, the list sources its rows from `fetch` (the complete
+   *  filtered set, one request) instead of the paginated page.
+   *  Selection and grouping rebind to that set automatically. */
+  completeDataset?: {
+    axes: readonly string[]
+    fetch: (params: ListPageFetchParams) => Promise<T[]>
+    /** Cache key for the complete-dataset query, keyed by the
+     *  controls' filter cache-key part so it refetches on filter
+     *  change and dedupes across remounts. */
+    keyFor: (cacheKeyPart: string) => (string | number)[]
+  }
+
   // -- Columns ------------------------------------------------------
   columns: ComputedRef<readonly C[]>
   pinnedColumnIds?: readonly string[]
@@ -132,6 +150,13 @@ export interface UseListView<T extends object, C extends DataTableColumnLike, S 
   tableColumns: ReturnType<typeof useDataTableColumns<C>>
   savedViews: ReturnType<typeof useSavedListViews<S, Filters>>
   buckets: ComputedRef<GroupBucket<T>[]>
+  /** Rows currently displayed: the complete dataset when a planning
+   *  axis is active, otherwise the paginated page. */
+  effectiveItems: ComputedRef<T[]>
+  /** True while a complete-dataset (planning-lens) source is active. */
+  completeActive: ComputedRef<boolean>
+  /** True while the complete-dataset query is loading. */
+  completeLoading: ComputedRef<boolean>
   // Save-view modal state + handlers
   showSaveModal: Ref<boolean>
   editingView: Ref<SavedView<S, Filters> | null>
@@ -166,6 +191,7 @@ export function useListView<
     scrollContainerRef,
     facets,
     groupAxes,
+    completeDataset,
     columns,
     pinnedColumnIds,
     captureExtras,
@@ -193,22 +219,6 @@ export function useListView<
     urlSync: urlSyncParamKeys ? { paramKeys: urlSyncParamKeys } : undefined,
   })
 
-  // ---- Selection ------------------------------------------------
-  const selection = useBulkSelection<T>({
-    items: page.items,
-    cacheKey: controls.cacheKeyPart,
-    totalCount: page.totalItems,
-    itemId,
-  })
-  const dt = useBulkSelectionForDataTable(selection)
-
-  // ---- Chip filters ---------------------------------------------
-  const chipFilters = useChipFiltersFromControls({
-    controls,
-    facets,
-    t,
-  })
-
   // ---- Grouping -------------------------------------------------
   const grouping = useListGrouping<T>({
     axes: groupAxes,
@@ -221,6 +231,54 @@ export function useListView<
     t,
   })
 
+  // ---- Complete-dataset source ----------------------------------
+  // Active when the current group axis is one that needs the whole
+  // filtered set (planning lenses). The query only runs while active,
+  // so the normal paginated path pays nothing for this.
+  const completeActive = computed(
+    () => !!completeDataset && completeDataset.axes.includes(grouping.groupBy.value),
+  )
+  const completeQuery = completeDataset
+    ? useQuery<T[]>({
+        key: () => completeDataset.keyFor(controls.cacheKeyPart.value),
+        query: () => completeDataset.fetch(controls.requestParams.value),
+        enabled: () => completeActive.value,
+      })
+    : null
+  const completeItems = computed<T[]>(() => completeQuery?.data.value ?? [])
+  const completeLoading = computed(
+    () => completeActive.value && completeQuery?.asyncStatus.value === 'loading',
+  )
+
+  /** Rows the selection + grouping operate on: the complete set when
+   *  a planning axis is active, otherwise the paginated page. */
+  const effectiveItems = computed<T[]>(() =>
+    completeActive.value ? completeItems.value : page.items.value,
+  )
+
+  // ---- Selection ------------------------------------------------
+  const selection = useBulkSelection<T>({
+    items: effectiveItems,
+    // Fold the source mode into the cache key so switching into or
+    // out of a planning lens clears the selection (the "selected
+    // matching this query" set stops being meaningful).
+    cacheKey: computed(
+      () => `${controls.cacheKeyPart.value}|${completeActive.value ? 'complete' : 'page'}`,
+    ),
+    totalCount: computed(() =>
+      completeActive.value ? effectiveItems.value.length : page.totalItems.value,
+    ),
+    itemId,
+  })
+  const dt = useBulkSelectionForDataTable(selection)
+
+  // ---- Chip filters ---------------------------------------------
+  const chipFilters = useChipFiltersFromControls({
+    controls,
+    facets,
+    t,
+  })
+
   // ---- Columns --------------------------------------------------
   const tableColumns = useDataTableColumns({
     columns,
@@ -230,8 +288,7 @@ export function useListView<
   })
 
   // ---- Derived: buckets ----------------------------------------
-  const itemsRef = computed(() => page.items.value)
-  const buckets = grouping.buckets(itemsRef)
+  const buckets = grouping.buckets(effectiveItems)
 
   // ---- Saved views ---------------------------------------------
   const savedViews = useSavedListViews<S, Filters>({
@@ -335,6 +392,9 @@ export function useListView<
     tableColumns,
     savedViews,
     buckets,
+    effectiveItems,
+    completeActive,
+    completeLoading,
     showSaveModal,
     editingView,
     defaultSaveName,

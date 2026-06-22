@@ -120,6 +120,8 @@ notif-ticket-created-requester = [{ $app }] Ticket created: { $title }
 notif-doc-page-updated = [{ $app }] Page updated: { $title }
 notif-asset-low-stock = [{ $app }] Low stock: { $title }
 notif-sla-breached = [{ $app }] SLA breached: { $title }
+notif-loan-due-soon = [{ $app }] Loan due soon: { $title }
+notif-loan-overdue = [{ $app }] Loan overdue: { $title }
 # Notification email body. The user-authored payload (`body`)
 # stays verbatim, escaped at the Rust boundary. Only the
 # connector copy below gets translated.
@@ -280,9 +282,8 @@ nav-assets = Assets
 nav-asset-planner = Asset Planner
 
 # Tab strip across the top of the asset section. Used in place
-# of duplicate sidebar entries for inventory list + planner.
 asset-tabs-inventory = Inventory
-asset-tabs-planner = Planner
+asset-tabs-catalog = Catalog
 nav-users = Users
 nav-documentation = Documentation
 nav-inbox = Inbox
@@ -2433,6 +2434,13 @@ assets-list-export-failed = Failed to export assets. Please try again.
 assets-list-unassigned = Unassigned
 assets-list-warranty-unknown = Unknown
 assets-list-bulk-delete = Delete
+# Row right-click context menu.
+assets-list-context-open = Open
+assets-list-context-open-new-tab = Open in new tab
+assets-list-context-copy-link = Copy link
+assets-list-context-copy-id = Copy asset ID
+assets-list-context-rollout = Create rollout
+assets-list-context-delete = Delete
 assets-list-bulk-delete-count = Delete { $count }
 assets-list-bulk-delete-title = { $count ->
     [one] Delete device?
@@ -2450,6 +2458,9 @@ assets-list-bulk-action-error = Failed to delete assets. Please try again.
 asset-detail-back-to-ticket = Back to Ticket #{ $id }
 asset-detail-back-to-devices = Go back
 asset-detail-readonly = Read-only
+asset-detail-sync-source-intune = Synced from Intune
+asset-detail-sync-source-entra = Synced from Microsoft Entra
+asset-detail-sync-source-generic = Synced from external source
 asset-detail-delete-item-name = Asset
 asset-detail-error-invalid-id = Invalid asset ID
 asset-detail-error-load = Failed to load asset details
@@ -2459,6 +2470,7 @@ asset-detail-error-unmanage = Failed to unmanage device. Please try again.
 asset-detail-section-details = Asset details
 asset-detail-section-kind = Asset Kind
 asset-detail-field-kind = Kind
+assets-list-create-error = Could not create a new asset. Please try again.
 asset-detail-field-name = Name
 asset-detail-field-name-placeholder-create = Enter asset name
 asset-detail-field-name-placeholder-edit = Enter name...
@@ -2478,6 +2490,8 @@ asset-detail-field-warranty-status = Warranty Status
 asset-detail-field-warranty-start = Warranty Start
 asset-detail-field-warranty-end = Warranty End
 asset-detail-field-purchase-date = Purchase Date
+# Add-property group: reveals warranty status + start + end together.
+asset-detail-group-warranty = Warranty
 asset-detail-field-asset-tag = Asset Tag
 asset-detail-field-asset-tag-placeholder-create = Enter asset tag
 asset-detail-field-asset-tag-placeholder-edit = Enter asset tag...
@@ -2492,10 +2506,33 @@ asset-detail-warranty-unknown = Unknown
 asset-detail-section-primary-user = Primary User
 asset-detail-no-user-assigned = No user assigned to this asset
 asset-detail-action-assign-user = Assign User
+asset-detail-add-property = Add property
+# Asset model catalog (make/model picker).
+asset-model-label = Model
+asset-model-change = Change
+asset-model-clear = Remove model
+asset-model-choose = Choose a model
+asset-model-none = No model
+asset-model-search-placeholder = Search models...
+asset-model-create-new = + New model
+asset-model-create-title = New model
+asset-model-field-manufacturer = Manufacturer
+asset-model-field-manufacturer-placeholder = Choose a manufacturer
+asset-model-new-manufacturer = + New manufacturer
+asset-model-new-manufacturer-placeholder = Manufacturer name
+asset-model-field-name = Model name
+asset-model-field-name-placeholder = e.g. Latitude 5540
+asset-model-create-submit = Create model
+asset-model-set-failed = Could not set the model. Please try again.
+asset-model-clear-failed = Could not remove the model. Please try again.
+asset-model-create-failed = Could not create the model. Please try again.
+asset-detail-clear-user = Remove owner
 asset-detail-action-change-user = Change User
 asset-detail-action-track-stock = Track stock
 asset-detail-section-device-information = Device Information
 asset-detail-field-device-id = Device ID
+asset-detail-section-record = Record
+asset-detail-field-asset-id = Asset ID
 asset-detail-field-created = Created
 asset-detail-field-last-updated = Last Updated
 asset-detail-manually-managed = Manually Managed
@@ -2884,49 +2921,9 @@ doc-detail-ticket-note-title = Notes for Ticket #{ $id }
 doc-detail-ticket-note-description = Documentation for ticket { $title }
 doc-detail-ticket-note-author-system = System
 
-# Asset planner (AssetPlannerView): rollout-planning kanban for
 # devices, grouped by OS family, warranty bucket, or compliance
 # state. Covers the header, sidebar filters, group columns, and
 # device card chips.
-asset-planner-title = Assets
-asset-planner-subtitle = Plan rollouts by OS, warranty, or compliance state.
-asset-planner-search-placeholder = Search by name, hostname, model…
-asset-planner-group-by = Group by
-asset-planner-axis-os = OS family
-asset-planner-axis-warranty = Warranty
-asset-planner-axis-compliance = Compliance
-asset-planner-loading = Loading assets…
-asset-planner-load-error = Failed to load assets
-asset-planner-filters-heading = Filters
-asset-planner-filters-clear = Clear ({ $count })
-asset-planner-section-os = OS
-asset-planner-section-warranty = Warranty
-asset-planner-section-compliance = Compliance
-asset-planner-count = { $visible } of { $total ->
-    [one] { $total } device
-   *[other] { $total } devices
-   }
-asset-planner-empty = No assets match the current filters.
-asset-planner-warranty-ends = Warranty ends { $date }
-asset-planner-no-warranty-data = No warranty data
-asset-planner-warranty-unknown-short = n/a
-asset-planner-card-host = Host
-asset-planner-card-os = OS
-asset-planner-card-model = Model
-asset-planner-card-tag = Tag
-asset-planner-card-compliance = Compliance
-asset-planner-os-windows = Windows
-asset-planner-os-macos = macOS
-asset-planner-os-linux = Linux
-asset-planner-os-ios = iOS
-asset-planner-os-android = Android
-asset-planner-os-other = Other
-asset-planner-warranty-expired = Expired
-asset-planner-warranty-expiring-30d = Expiring in 30 days
-asset-planner-warranty-expiring-90d = Expiring in 90 days
-asset-planner-warranty-active = Active
-asset-planner-warranty-unknown = Unknown
-asset-planner-compliance-unknown = Unknown
 
 # Collection view (CollectionView): documentation collection
 # detail page with editable name/icon, an overview editor,
@@ -3355,13 +3352,6 @@ ticket-picker-user-section-all = All users
 ticket-picker-user-you-suffix = (you)
 
 # Ticket picker: linked ticket modal (LinkedTicketModal)
-ticket-picker-linked-title = Link Ticket
-ticket-picker-linked-search-placeholder = Search tickets...
-ticket-picker-linked-loading = Loading tickets...
-ticket-picker-linked-error = Failed to load tickets
-ticket-picker-linked-try-again = Try Again
-ticket-picker-linked-empty-search = No tickets match your search
-ticket-picker-linked-empty = No tickets available to link
 ticket-picker-linked-col-id = ID
 ticket-picker-linked-col-title = Title
 ticket-picker-linked-col-status = Status
@@ -3371,7 +3361,6 @@ ticket-picker-linked-count = { $count ->
     [one] { $count } ticket
    *[other] { $count } tickets
 }
-ticket-picker-linked-cancel = Cancel
 
 # Ticket picker: canned response picker (CannedResponsePicker)
 ticket-picker-canned-trigger-aria = Insert canned response
@@ -4087,6 +4076,9 @@ ticket-activity-phrase-replied-via = replied via { $channel }
 ticket-activity-phrase-comment-via = added a comment via { $channel }
 ticket-activity-phrase-commented = commented on this ticket
 ticket-activity-phrase-comment-deleted = deleted a comment
+ticket-activity-phrase-loan-issued = issued a loaner to { $borrower }
+ticket-activity-phrase-loan-issued-plain = issued a loaner
+ticket-activity-phrase-loan-returned = returned a loaner
 ticket-activity-phrase-merged = merged { $count ->
     [one] 1 ticket
    *[other] { $count } tickets
@@ -4236,6 +4228,64 @@ asset-lifecycle-heading = Lifecycle
 asset-lifecycle-description = Track operational status changes such as repairs, loans, and retirement.
 asset-lifecycle-current-label = Current status
 asset-lifecycle-change-status = Change status
+asset-lifecycle-managed-by-loan = Managed by the active loan
+
+# Asset loans
+asset-loan-heading = Loans
+asset-loan-description = Loan this device to someone temporarily and track its return.
+asset-loan-loan-out = Loan out
+asset-loan-return = Return
+asset-loan-borrower = Borrower
+asset-loan-select-borrower = Select a borrower
+asset-loan-due-back-optional = Due back (optional)
+asset-loan-period-label = Loan period
+asset-loan-period-hint = When the device was handed over, and when it's due back. Leave the return date blank for an open-ended loan.
+asset-loan-loaned-on = Loaned on
+asset-loan-return-by-optional = Return by (optional)
+asset-loan-ticket-field = Ticket
+asset-loan-ticket-field-placeholder = e.g. 1234
+asset-loan-ticket-link = Link a ticket
+asset-loan-ticket-clear = Remove ticket
+# Ticket picker (search + select, used by the loan flow).
+ticket-picker-title = Select a ticket
+ticket-picker-search-placeholder = Search tickets…
+ticket-picker-create-new = Create new ticket
+ticket-picker-empty = No tickets yet
+ticket-picker-empty-search = No tickets match your search
+ticket-picker-error = Failed to load tickets
+ticket-picker-create-failed = Failed to create ticket
+ticket-picker-untitled = Untitled ticket
+asset-loan-notes = Notes
+asset-loan-issue-title = Loan out device
+asset-loan-return-title = Return device
+asset-loan-return-body = Return this device from { $name }?
+asset-loan-return-notes = Return notes (optional)
+asset-loan-cancel = Cancel
+asset-loan-not-loanable = This device can only be loaned out while it's in service or in stock.
+asset-loan-empty-title = No loans yet
+asset-loan-empty-description = Loan this device out to track who has it and when it's due back.
+asset-loan-history = Loan history
+asset-loan-loaned-relative = Loaned { $when }
+asset-loan-ticket = Ticket #{ $id }
+asset-loan-unknown-borrower = Unknown borrower
+asset-loan-due-overdue = Overdue
+asset-loan-due-today = Due today
+asset-loan-due-soon = Due in { $days } { $days ->
+    [one] day
+   *[other] days
+}
+asset-loan-due-on = Due { $date }
+asset-loan-range = { $from } to { $to }
+asset-loan-failed = Something went wrong. Please try again.
+asset-loan-ticket-heading = Loaners
+asset-loan-device-fallback = Device #{ $id }
+asset-loan-returned-on = returned { $date }
+asset-loan-device = Device
+asset-loan-device-search = Search devices…
+asset-loan-change = Change
+asset-loan-loading = Loading…
+asset-loan-no-loanable = No available devices
+asset-loan-load-error = Couldn't load loans.
 asset-lifecycle-empty-title = No transitions yet
 asset-lifecycle-empty-description = Status changes will appear here once recorded.
 asset-lifecycle-transition-failed = Failed to change asset status
@@ -5144,6 +5194,8 @@ ui-site-header-untitled-ticket = Untitled Ticket
 ui-site-header-untitled = Untitled
 ui-site-header-unknown-device = Unknown Device
 ui-site-header-ticket-title-placeholder = Enter ticket title...
+ui-site-header-untitled-asset = Untitled asset
+ui-site-header-asset-title-placeholder = Enter asset name...
 ui-site-header-document-title-placeholder = Enter document title...
 ui-site-header-create-aria = Create { $action }
 ui-site-header-inbox-tooltip = Inbox
@@ -5358,7 +5410,6 @@ route-title-project-gantt = Gantt
 route-title-assets = Assets
 route-title-asset-create = Create asset
 route-title-asset-view = Asset details
-route-title-asset-planner = Asset planner
 route-title-project-detail = Project details
 route-title-error = Error
 route-title-users = Users
@@ -5380,6 +5431,40 @@ route-title-admin-categories = Categories
 route-title-admin-assignment-rules = Assignment rules
 route-title-admin-workflow = Workflow
 route-title-admin-asset-kinds = Asset kinds
+route-title-asset-catalog = Asset catalog
+common-edit = Edit
+common-delete = Delete
+common-save = Save
+common-cancel = Cancel
+asset-catalog-title = Asset catalog
+asset-catalog-description = Manufacturers and the models assets are stamped from.
+asset-catalog-manufacturers-heading = Manufacturers
+asset-catalog-add-manufacturer = Add manufacturer
+asset-catalog-edit-manufacturer = Edit manufacturer
+asset-catalog-manufacturers-empty = No manufacturers yet
+asset-catalog-models-heading = Models
+asset-catalog-add-model = Add model
+asset-catalog-edit-model = Edit model
+asset-catalog-models-empty = No models yet
+asset-catalog-need-manufacturer = Add a manufacturer first
+asset-catalog-manufacturer-name = Name
+asset-catalog-manufacturer-name-placeholder = e.g. Apple
+asset-catalog-part-number = Part number
+asset-catalog-part-number-placeholder = Optional
+asset-catalog-default-specs = Default specs
+asset-catalog-default-specs-hint = Pre-filled onto every asset stamped from this model. Leave blank to skip.
+asset-catalog-notes = Notes
+asset-catalog-delete-title = Delete
+asset-catalog-manufacturer-delete-confirm = Delete manufacturer "{ $name }"?
+asset-catalog-model-delete-confirm = Delete model "{ $name }"? Assets stamped from it keep their details.
+asset-catalog-manufacturer-save-failed = Could not save the manufacturer. Please try again.
+asset-catalog-model-save-failed = Could not save the model. Please try again.
+asset-catalog-delete-failed = Could not delete. It may still be in use.
+asset-catalog-model-count = { $count ->
+    [0] No models
+    [one] 1 model
+   *[other] { $count } models
+}
 route-title-admin-asset-kinds-new = New asset kind
 route-title-admin-asset-kinds-edit = Edit asset kind
 route-title-admin-api-tokens = API tokens
@@ -5853,6 +5938,52 @@ assets-list-grouping-manufacturer-none = No manufacturer
 assets-list-grouping-location = Location
 assets-list-grouping-location-none = No location
 assets-list-grouping-primary-user = Primary user
+# Fleet-planning lenses (group over the complete filtered set).
+assets-list-grouping-os = OS family
+assets-list-grouping-warranty-window = Warranty window
+assets-list-grouping-compliance = Compliance
+assets-list-os-windows = Windows
+assets-list-os-macos = macOS
+assets-list-os-linux = Linux
+assets-list-os-ios = iOS / iPadOS
+assets-list-os-android = Android
+assets-list-os-other = Other
+assets-list-warranty-window-expired = Expired
+assets-list-warranty-window-expiring-30d = Expiring within 30 days
+assets-list-warranty-window-expiring-90d = Expiring within 90 days
+assets-list-warranty-window-active = In warranty
+assets-list-warranty-window-unknown = No warranty date
+assets-list-compliance-unknown = Unknown
+# Create-rollout handoff (selected devices -> project + one ticket each).
+asset-rollout-bulk-action = {$count ->
+    [one] Create rollout (1)
+   *[other] Create rollout ({$count})
+  }
+asset-rollout-title = Create rollout
+asset-rollout-summary = {$count ->
+    [one] 1 device will get a ticket in a new project.
+   *[other] {$count} devices will each get a ticket in a new project.
+  }
+asset-rollout-name-label = Rollout name
+asset-rollout-name-placeholder = e.g. Windows 10 refresh
+asset-rollout-state-label = Initial status
+asset-rollout-priority-label = Priority
+asset-rollout-create-action = {$count ->
+    [one] Create rollout (1 ticket)
+   *[other] Create rollout ({$count} tickets)
+  }
+asset-rollout-created = {$count ->
+    [one] Rollout created with 1 ticket
+   *[other] Rollout created with {$count} tickets
+  }
+asset-rollout-create-failed = Failed to create rollout
+asset-planning-mobile-hint = Tap a { $axis } group to view its devices and roll them out.
+asset-planning-mobile-back = Back
+# Mobile list filter/group sheet (shared across list views).
+list-mobile-filter-group-title = Filter & group
+list-mobile-group-by = Group by
+list-mobile-filters = Filters
+list-mobile-filter-done = Done
 tickets-grouping-all = All
 
 # T batch: final sweep
@@ -6101,3 +6232,8 @@ dashboard-section-agents = Agents
 dashboard-section-categories = Categories
 dashboard-section-backlog-ageing = Backlog & Ageing
 dashboard-section-audit-activity = Audit Activity
+asset-catalog-col-model = Model
+asset-catalog-col-type = Type
+asset-catalog-col-part-number = Part number
+asset-catalog-filter-all = All
+asset-catalog-manage-manufacturers = Manufacturers

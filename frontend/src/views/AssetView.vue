@@ -1,36 +1,44 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, nextTick } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
+import { useRoute, useRouter, RouterLink } from 'vue-router';
 import { useFluent } from 'fluent-vue';
+import { useTitleManager } from '@/composables/useTitleManager';
 import { formatDateTime } from '@/utils/dateUtils';
 import BackButton from '@/components/common/BackButton.vue';
 import SearchableDropdown, { type DropdownOption } from '@/components/common/SearchableDropdown.vue';
+import BaseDropdown from '@/components/common/BaseDropdown.vue';
 import Button from '@/components/common/Button.vue';
 import DeleteButton from '@/components/common/DeleteButton.vue';
 import FormInput from '@/components/common/FormInput.vue';
 import InlineEdit from '@/components/common/InlineEdit.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
-import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import DatePicker from '@/components/common/DatePicker.vue';
 import { extractErrorMessage } from '@/utils/errors';
 import Icon from '@/components/common/Icon.vue';
-import UserCard from '@/components/UserCard.vue';
+import UserAvatar from '@/components/UserAvatar.vue';
 import UserSelectionModal from '@/components/UserSelectionModal.vue';
 import DeviceGroups from '@/components/AssetGroups.vue';
 import AssetMediaPanel from '@/components/assets/AssetMediaPanel.vue';
 import AssetLifecyclePanel from '@/components/assets/AssetLifecyclePanel.vue';
-import AssetStatusBadge from '@/components/assets/AssetStatusBadge.vue';
+import AssetLoanPanel from '@/components/assets/AssetLoanPanel.vue';
 import AssetUsageHistory from '@/components/assets/AssetUsageHistory.vue';
+import AssetModelField from '@/components/assets/AssetModelField.vue';
+import { kindIconName } from '@/components/assets/assetKindIcon';
+import {
+  SYNC_OWNED_ATTRIBUTE_KEYS,
+  userAttributeSchema as buildUserAttributeSchema,
+  syncAttributeSchema as buildSyncAttributeSchema,
+} from '@/components/assets/assetAttributeSchema';
 import PluginSlot from '@/plugins/components/PluginSlot.vue';
 import Modal from '@/components/Modal.vue';
-import { getAssetById, updateAsset, createAsset, deleteAsset, unmanageAsset } from '@/services/assetService';
+import { getAssetById, updateAsset, deleteAsset, unmanageAsset } from '@/services/assetService';
 import { type AssetKind } from '@/services/assetKindsService';
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery';
 import { useAssetLocationsQuery } from '@/composables/useAssetLocationsQuery';
 import { useSyncActions } from '@/composables/useSyncActions';
 import { useAuthStore } from '@/stores/auth';
-import type { Asset, AssetFormData } from '@/types/asset';
+import type { Asset } from '@/types/asset';
 import DynamicAttributeForm from '@/components/assets/DynamicAttributeForm.vue';
 
 const route = useRoute();
@@ -41,14 +49,13 @@ const emit = defineEmits(['update:device']);
 
 // State
 const device = ref<Asset | null>(null);
+const mediaPanelRef = ref<InstanceType<typeof AssetMediaPanel> | null>(null);
 const loading = ref(true);
 const error = ref<string | null>(null);
 const isSaving = ref(false);
 const showUserSelectionModal = ref(false);
 const showUnmanageModal = ref(false);
 const unmanageError = ref<string | null>(null);
-const hostnameRef = ref<HTMLInputElement | null>(null);
-const selectedUser = ref<{ uuid: string; name: string; email: string; role: string } | null>(null);
 const { locations: knownLocations } = useAssetLocationsQuery();
 
 const editValues = ref({
@@ -64,46 +71,16 @@ const editValues = ref({
   low_stock_threshold: '' as string,
 });
 
-// Asset-kind registry state. Loaded eagerly on mount so the
-// picker is populated before the create form renders; in edit
-// mode it backs the read-only "Kind" row at the bottom of the
-// details card.
-// Shared Pinia Colada cache so an admin edit on /admin/asset-kinds
-// invalidates this picker without us having to manually re-fetch.
-// Cold-start (no cached data) falls back to a single hard-coded
-// 'device' option below via the same defensive guard the previous
-// onMounted+try/catch had.
-const { kinds: kindsRef, error: kindsError } = useAssetKindsQuery();
+// Asset-kind registry (technician-gated list, shared cache).
+const { kinds: kindsRef } = useAssetKindsQuery();
 const kinds = computed<AssetKind[]>(() => kindsRef.value);
-const selectedKindSlug = ref<string>('device');
+const selectedKindSlug = ref<string>('generic');
 const attributeDraft = ref<Record<string, unknown>>({});
 
 const selectedKind = computed<AssetKind | null>(
   () => kinds.value.find((k) => k.slug === selectedKindSlug.value) ?? null,
 );
-
 const selectedKindCategory = computed(() => selectedKind.value?.category ?? 'generic');
-const canHavePrimaryUser = computed(() =>
-  selectedKindCategory.value === 'it' || selectedKindCategory.value === 'logical',
-);
-const showPrimaryUserPanel = computed(() =>
-  canHavePrimaryUser.value || (!isCreationMode.value && Boolean(device.value?.primary_user)),
-);
-const showCreateInventoryPanel = computed(
-  () =>
-    selectedKindCategory.value === 'bulk' ||
-    editValues.value.quantity.trim() !== '' ||
-    editValues.value.unit.trim() !== '' ||
-    editValues.value.low_stock_threshold.trim() !== '',
-);
-
-// Create-mode rail reveals the optional stock-tracking inputs for
-// kinds that aren't inherently bulk. Once any value is typed,
-// showCreateInventoryPanel keeps them visible on its own.
-const stockManuallyShown = ref(false);
-const showCreateStock = computed(
-  () => showCreateInventoryPanel.value || stockManuallyShown.value,
-);
 
 const kindOptions = computed<DropdownOption[]>(() =>
   kinds.value.map((k) => ({
@@ -118,50 +95,221 @@ const selectedKindSchema = computed(
   () => (selectedKind.value?.attribute_schema as Record<string, unknown>) ?? null,
 );
 
-// kinds are auto-fetched by useAssetKindsQuery; on error the
-// computed `kinds` ref stays empty and the picker falls back to
-// the static 'device' default below, preserving the previous
-// "non-fatal for non-admins / endpoint outage" behaviour.
-watch(kindsError, (err) => {
-  if (err) {
-    console.warn('asset-kinds list failed; defaulting to device only', err);
-  }
-});
-
-// Computed
-const isCreationMode = computed(() => !route.params.id || route.params.id === 'new');
-
-const fromTicket = computed(() =>
-  route.query.fromTicket ? Number(route.query.fromTicket) : null
-);
-
+const isEditable = computed(() => device.value?.is_editable ?? false);
 const isSynced = computed(() => device.value != null && !device.value.is_editable);
 
-// Primary-user rail block. Create mode stages the selection
-// locally (selectedUser); edit mode reads the persisted join and
-// only allows changes on editable rows.
-const primaryUserDisplay = computed(() =>
-  isCreationMode.value ? selectedUser.value : (device.value?.primary_user ?? null),
+// The user-editable and sync-owned slices of the kind's schema come
+// from the shared partition util. Sync-owned keys (Intune / Entra) are
+// written by the sync, never typed by a human; they render read-only in
+// a "Synced from …" panel, and only when the asset is actually
+// sync-owned. Everything else is a user-editable field.
+const userAttributeSchema = computed(() =>
+  buildUserAttributeSchema(selectedKindSchema.value),
 );
-const canEditPrimaryUser = computed(() =>
-  isCreationMode.value ? true : (device.value?.is_editable ?? false),
+const syncAttributeSchema = computed(() =>
+  buildSyncAttributeSchema(selectedKindSchema.value),
 );
-const displayName = computed(() => {
-  if (isCreationMode.value) {
-    return editValues.value.name || (attributeDraft.value.hostname as string | undefined) || '';
-  }
-  if (!device.value) return '';
-  return device.value.name || (device.value.attributes?.hostname as string | undefined) || `#${device.value.id}`;
+
+// Surface the sync panel when the asset is sync-owned, or defensively
+// when a sync attribute already carries a value.
+const hasSyncData = computed(() => {
+  const attrs = device.value?.attributes ?? {};
+  return Object.keys(attrs).some(
+    (k) => SYNC_OWNED_ATTRIBUTE_KEYS.has(k) && attrs[k] != null && attrs[k] !== '',
+  );
+});
+const showSyncPanel = computed(() => syncAttributeSchema.value != null && (isSynced.value || hasSyncData.value));
+
+const syncSourceLabel = computed(() => {
+  const src = device.value?.external_sync_source;
+  if (src === 'intune') return t('asset-detail-sync-source-intune');
+  if (src === 'entra') return t('asset-detail-sync-source-entra');
+  return t('asset-detail-sync-source-generic');
 });
 
-const displaySubtitle = computed(() => {
-  const parts = [
-    selectedKind.value?.label ?? selectedKindSlug.value,
-    editValues.value.model || device.value?.model,
-    editValues.value.serial_number || device.value?.serial_number,
-  ].filter(Boolean);
-  return parts.join(' · ');
-});
+// ---- Extend-on-demand properties --------------------------------
+//
+// Optional properties follow the ticket-detail model: a property is
+// shown when it already carries a value, when its kind expects it by
+// default (an owner for IT/logical, stock for bulk), or when the user
+// adds it from the "Add property" menu. A brand-new asset shows only
+// Type, so the surface stays straightforward until the user extends it.
+type PropKey =
+  | 'primary_user'
+  | 'serial_number'
+  | 'manufacturer'
+  | 'model'
+  | 'asset_tag'
+  | 'location'
+  | 'purchase_date'
+  | 'stock';
+
+const PROP_LABEL_KEY: Record<PropKey, string> = {
+  primary_user: 'asset-detail-section-primary-user',
+  serial_number: 'asset-detail-field-serial',
+  manufacturer: 'asset-detail-field-manufacturer',
+  model: 'asset-detail-field-model',
+  asset_tag: 'asset-detail-field-asset-tag',
+  location: 'asset-detail-field-location',
+  purchase_date: 'asset-detail-field-purchase-date',
+  stock: 'asset-detail-section-stock',
+};
+
+const PROP_ORDER: PropKey[] = [
+  'primary_user',
+  'serial_number',
+  'manufacturer',
+  'model',
+  'asset_tag',
+  'location',
+  'purchase_date',
+  'stock',
+];
+
+// Which universal properties are relevant per category. Drives the
+// "Add property" menu so a generic asset isn't offered hardware fields
+// (serial / make / model) and a consumable isn't offered an owner. A
+// property that already holds a value always shows regardless of this,
+// so changing an asset's type never hides existing data.
+const RELEVANT_PROPS: Record<string, PropKey[]> = {
+  it: ['primary_user', 'serial_number', 'manufacturer', 'model', 'asset_tag', 'location', 'purchase_date'],
+  physical: ['primary_user', 'serial_number', 'manufacturer', 'model', 'asset_tag', 'location', 'purchase_date'],
+  logical: ['primary_user', 'manufacturer', 'asset_tag', 'purchase_date'],
+  bulk: ['stock', 'manufacturer', 'asset_tag', 'location', 'purchase_date'],
+  generic: ['primary_user', 'location', 'asset_tag', 'purchase_date'],
+};
+
+const relevantSet = computed(
+  () => new Set<PropKey>(RELEVANT_PROPS[selectedKindCategory.value] ?? RELEVANT_PROPS.generic),
+);
+
+// Properties the chosen kind surfaces by default even when empty.
+function isDefaultProp(key: PropKey): boolean {
+  const cat = selectedKindCategory.value;
+  if (key === 'primary_user') return cat === 'it' || cat === 'logical';
+  if (key === 'stock') return cat === 'bulk';
+  return false;
+}
+
+function propHasValue(key: PropKey): boolean {
+  const d = device.value;
+  if (!d) return false;
+  switch (key) {
+    case 'primary_user':
+      return Boolean(d.primary_user_uuid);
+    case 'serial_number':
+      return Boolean(d.serial_number);
+    case 'manufacturer':
+      return Boolean(d.manufacturer);
+    case 'model':
+      return Boolean(d.model);
+    case 'asset_tag':
+      return Boolean(d.asset_tag);
+    case 'location':
+      return Boolean(d.location);
+    case 'purchase_date':
+      return Boolean(d.purchase_date);
+    case 'stock':
+      return d.quantity != null || Boolean(d.unit) || d.low_stock_threshold != null;
+  }
+}
+
+// Properties the user explicitly added this session.
+const revealed = ref<Set<PropKey>>(new Set());
+
+function isPropVisible(key: PropKey): boolean {
+  return propHasValue(key) || isDefaultProp(key) || revealed.value.has(key);
+}
+
+const visibleProps = computed(() => PROP_ORDER.filter((k) => isPropVisible(k)));
+const addableProps = computed(() =>
+  PROP_ORDER.filter((k) => relevantSet.value.has(k) && !isPropVisible(k)),
+);
+
+// User-owned kind attributes participate in the same extend-on-demand
+// list as the universal columns: each schema property is its own
+// addable property, rendered by a single-field DynamicAttributeForm.
+const userAttrKeys = computed<string[]>(() =>
+  Object.keys((userAttributeSchema.value?.properties as Record<string, unknown>) ?? {}),
+);
+function attrHasValue(key: string): boolean {
+  const v = device.value?.attributes?.[key];
+  return v != null && v !== '';
+}
+const revealedAttrs = ref<Set<string>>(new Set());
+function isAttrVisible(key: string): boolean {
+  return attrHasValue(key) || revealedAttrs.value.has(key);
+}
+const visibleAttrKeys = computed(() => userAttrKeys.value.filter(isAttrVisible));
+const addableAttrKeys = computed(() => userAttrKeys.value.filter((k) => !isAttrVisible(k)));
+function attrTitle(key: string): string {
+  const props = (userAttributeSchema.value?.properties as Record<string, { title?: string }>) ?? {};
+  return props[key]?.title ?? key;
+}
+function singleAttrSchema(key: string): Record<string, unknown> | null {
+  const props = (userAttributeSchema.value?.properties as Record<string, unknown>) ?? {};
+  if (!(key in props)) return null;
+  return { type: 'object', properties: { [key]: props[key] } };
+}
+
+// Attribute clusters that read as one concept: the menu offers them as
+// a single entry that reveals every field at once (e.g. warranty status
+// + start + end), instead of three separate picks.
+const ATTR_GROUPS: Record<string, string[]> = {
+  warranty: ['warranty_status', 'warranty_start_date', 'warranty_end_date'],
+};
+const groupedAttrKeys = new Set(Object.values(ATTR_GROUPS).flat());
+/** A group's keys that actually exist in the current kind's schema. */
+function groupKeysInSchema(group: string): string[] {
+  return (ATTR_GROUPS[group] ?? []).filter((k) => userAttrKeys.value.includes(k));
+}
+
+// The Add-property menu offers universal columns, grouped attribute
+// clusters, then any remaining individual attributes; values are
+// namespaced so the handler knows which.
+const addPropOptions = computed<DropdownOption[]>(() => [
+  // Columns are only addable on manual assets (synced columns are
+  // locked); user attributes are addable either way.
+  ...(isEditable.value
+    ? addableProps.value.map((k) => ({ value: `col:${k}`, label: t(PROP_LABEL_KEY[k]) }))
+    : []),
+  // A group shows while any of its fields is still hidden.
+  ...Object.keys(ATTR_GROUPS)
+    .filter((g) => groupKeysInSchema(g).some((k) => !isAttrVisible(k)))
+    .map((g) => ({ value: `group:${g}`, label: t(`asset-detail-group-${g}`) })),
+  ...addableAttrKeys.value
+    .filter((k) => !groupedAttrKeys.has(k))
+    .map((k) => ({ value: `attr:${k}`, label: attrTitle(k) })),
+]);
+
+const addPropModel = ref('');
+function onAddProp(value: string) {
+  if (!value) return;
+  if (value.startsWith('group:')) {
+    const next = new Set(revealedAttrs.value);
+    groupKeysInSchema(value.slice(6)).forEach((k) => next.add(k));
+    revealedAttrs.value = next;
+  } else if (value.startsWith('attr:')) {
+    revealedAttrs.value = new Set(revealedAttrs.value).add(value.slice(5));
+  } else {
+    const key = value.startsWith('col:') ? value.slice(4) : value;
+    revealed.value = new Set(revealed.value).add(key as PropKey);
+  }
+  addPropModel.value = '';
+}
+
+// User attributes autosave like the rest of the property list: edits
+// flow through the shared attributeDraft and commit (debounced) via
+// saveAttributes. The single-field forms only emit on real user input,
+// so programmatic resets (fetch / kind change) never trigger a save.
+let attrSaveTimer: ReturnType<typeof setTimeout> | null = null;
+function onAttrInput(next: Record<string, unknown>) {
+  attributeDraft.value = next;
+  if (attrSaveTimer) clearTimeout(attrSaveTimer);
+  attrSaveTimer = setTimeout(() => {
+    void saveAttributes();
+  }, 600);
+}
 
 const locationSuggestions = computed(() => {
   const query = editValues.value.location.trim().toLowerCase();
@@ -175,70 +323,30 @@ const locationSuggestions = computed(() => {
     .slice(0, 5);
 });
 
-const managementLabel = computed(() => {
-  if (isCreationMode.value) return t('asset-detail-manually-managed');
-  if (isSynced.value) {
-    return t('asset-detail-external-sync-source', { source: device.value?.external_sync_source || '' });
-  }
-  return t('asset-detail-manually-managed');
-});
-
-watch(
-  canHavePrimaryUser,
-  (canAssign) => {
-    if (isCreationMode.value && !canAssign) {
-      selectedUser.value = null;
-    }
-  },
+const managementLabel = computed(() =>
+  isSynced.value
+    ? t('asset-detail-external-sync-source', { source: device.value?.external_sync_source || '' })
+    : t('asset-detail-manually-managed'),
 );
 
-/** Kind picker + attribute form are editable in creation mode
- *  for any user, and in edit mode only when the row isn't owned
- *  by an external sync. Synced rows (Intune, Entra) stay locked
- *  because the next sync run would overwrite any manual edit. */
-const isKindOrAttributesEditable = computed(
-  () => isCreationMode.value || (device.value?.is_editable ?? false),
-);
+const isKindEditable = computed(() => isEditable.value);
 
-/** Attribute draft drifts from the saved value as the admin
- *  types in the dynamic form. Comparing the JSON serialisation
- *  is fine for the attribute payloads we ship (small,
- *  deterministic key ordering since the form rebuilds the
- *  object from the schema each time). */
 const attributesDirty = computed(() => {
   if (!device.value) return false;
   return (
-    JSON.stringify(attributeDraft.value) !==
-    JSON.stringify(device.value.attributes ?? {})
+    JSON.stringify(attributeDraft.value) !== JSON.stringify(device.value.attributes ?? {})
   );
 });
 
 const kindChangeError = ref<string | null>(null);
 const attributesError = ref<string | null>(null);
 
-// Kind change is deferred to an explicit confirm dialog (it clears the
-// row's attributes), so the picker change just stages the target slug.
-const showKindChangeConfirm = ref(false);
-const pendingKindSlug = ref<string | null>(null);
-const kindChangeConfirmMessage = computed(() =>
-  t('asset-detail-kind-change-confirm', {
-    newKind:
-      kinds.value.find((k) => k.slug === pendingKindSlug.value)?.label ??
-      pendingKindSlug.value ??
-      '',
-  }),
-);
-
-/** Persist the attribute draft against the existing kind. Used
- *  by the Save attributes button in edit mode. */
 async function saveAttributes() {
   if (!device.value || !attributesDirty.value) return;
   isSaving.value = true;
   attributesError.value = null;
   try {
-    const updated = await updateAsset(device.value.id, {
-      attributes: attributeDraft.value,
-    });
+    const updated = await updateAsset(device.value.id, { attributes: attributeDraft.value });
     device.value = { ...device.value, ...updated };
     attributeDraft.value = { ...(updated.attributes ?? {}) };
   } catch (err) {
@@ -248,58 +356,58 @@ async function saveAttributes() {
   }
 }
 
-function discardAttributes() {
-  if (!device.value) return;
-  attributeDraft.value = { ...(device.value.attributes ?? {}) };
-  attributesError.value = null;
+/**
+ * Change the asset's kind inline, non-destructively. The category
+ * swap changes which properties the kind surfaces by default, so we
+ * first pin everything currently visible into `revealed` to stop rows
+ * from collapsing out from under the user. Custom attributes are
+ * pruned to the keys the new schema accepts (the backend validator
+ * rejects unknown keys) rather than wiped, so compatible values carry
+ * across. No confirm dialog: this behaves like editing any property.
+ */
+/** Re-hydrate after the model picker stamps/clears a model: the backend
+ *  returns the updated asset with manufacturer/model/kind/attributes
+ *  already applied, so mirror it into local state. */
+function onAssetModelUpdated(asset: Asset) {
+  device.value = asset;
+  selectedKindSlug.value = asset.kind ?? 'generic';
+  attributeDraft.value = { ...(asset.attributes ?? {}) };
+  editValues.value = {
+    ...editValues.value,
+    name: asset.name,
+    manufacturer: asset.manufacturer || '',
+    model: asset.model,
+    serial_number: asset.serial_number,
+    location: asset.location || '',
+    asset_tag: asset.asset_tag || '',
+    purchase_date: asset.purchase_date || '',
+  };
 }
 
-function scrollToInventory() {
-  document
-    .getElementById('asset-inventory-panel')
-    ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
-/** Kind change is a bigger commit than a single field update:
- *  it almost certainly invalidates the row's current attributes
- *  (different schemas, different required keys). We require an
- *  explicit confirm, clear attributes to {} on save, and let
- *  the admin re-enter them against the new kind's schema. */
-function onKindPickerChange() {
+async function changeKind(newSlug: string) {
   if (!device.value) return;
-  if (isCreationMode.value) {
-    // Creation flow: kind/attributes get sent together on
-    // saveDevice; no per-change save here.
-    return;
-  }
-  const newSlug = selectedKindSlug.value;
   const currentSlug = device.value.kind ?? 'generic';
   if (newSlug === currentSlug) return;
 
-  // Stage the change and defer to the confirm dialog.
-  pendingKindSlug.value = newSlug;
-  showKindChangeConfirm.value = true;
-}
+  // Keep the visible property set stable across the category change.
+  revealed.value = new Set<PropKey>([...revealed.value, ...visibleProps.value]);
+  selectedKindSlug.value = newSlug;
 
-function cancelKindChange() {
-  showKindChangeConfirm.value = false;
-  pendingKindSlug.value = null;
-  // Revert the picker to the persisted kind.
-  selectedKindSlug.value = device.value?.kind ?? 'generic';
-}
-
-async function confirmKindChange() {
-  showKindChangeConfirm.value = false;
-  const newSlug = pendingKindSlug.value;
-  pendingKindSlug.value = null;
-  if (!device.value || !newSlug) return;
+  const newKind = kinds.value.find((k) => k.slug === newSlug);
+  const allowed = new Set(
+    Object.keys((newKind?.attribute_schema?.properties as Record<string, unknown>) ?? {}),
+  );
+  const prunedAttributes: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(attributeDraft.value)) {
+    if (allowed.has(key)) prunedAttributes[key] = val;
+  }
 
   isSaving.value = true;
   kindChangeError.value = null;
   try {
     const updated = await updateAsset(device.value.id, {
       kind: newSlug,
-      attributes: {},
+      attributes: prunedAttributes,
     });
     device.value = { ...device.value, ...updated };
     attributeDraft.value = { ...(updated.attributes ?? {}) };
@@ -316,28 +424,12 @@ const fetchDeviceData = async () => {
   try {
     loading.value = true;
     error.value = null;
-
-    if (isCreationMode.value) {
-      editValues.value = {
-        name: '', manufacturer: '', model: '',
-        serial_number: '', location: '',
-        purchase_date: '', asset_tag: '',
-        quantity: '', unit: '', low_stock_threshold: '',
-      };
-      emit('update:device', null);
-      loading.value = false;
-      await nextTick();
-      hostnameRef.value?.focus();
-      return;
-    }
-
     const deviceId = Number(route.params.id);
     if (isNaN(deviceId)) {
       error.value = t('asset-detail-error-invalid-id');
       loading.value = false;
       return;
     }
-
     device.value = await getAssetById(deviceId);
     editValues.value = {
       name: device.value.name,
@@ -351,10 +443,6 @@ const fetchDeviceData = async () => {
       unit: device.value.unit ?? '',
       low_stock_threshold: device.value.low_stock_threshold ?? '',
     };
-    // Hydrate the kind picker and attribute draft so the kind
-    // section + DynamicAttributeForm render the row's actual
-    // attributes (which is where hostname / OS / warranty etc.
-    // live after Pass B).
     selectedKindSlug.value = device.value.kind ?? 'generic';
     attributeDraft.value = { ...(device.value.attributes ?? {}) };
   } catch (e) {
@@ -367,20 +455,14 @@ const fetchDeviceData = async () => {
 
 async function selectLocationSuggestion(location: string) {
   editValues.value.location = location;
-  if (!isCreationMode.value) {
-    await saveField('location');
-  }
+  await saveField('location');
 }
 
-// Field saving (edit mode)
 const saveField = async (field: keyof typeof editValues.value) => {
   if (!device.value) return;
-
   try {
     isSaving.value = true;
-    const updatedDevice = await updateAsset(device.value.id, {
-      [field]: editValues.value[field]
-    });
+    const updatedDevice = await updateAsset(device.value.id, { [field]: editValues.value[field] });
     device.value = { ...device.value, ...updatedDevice };
   } catch (err) {
     console.error('Error saving device field:', err);
@@ -392,13 +474,8 @@ const saveField = async (field: keyof typeof editValues.value) => {
   }
 };
 
-/** Inline-edit a stock-tracking field (quantity, unit, or
- *  low_stock_threshold). Empty input is omitted from the PATCH
- *  body so the backend leaves the column untouched, since the
- *  Diesel AsChangeset can't distinguish "absent" from "null"
- *  without a serde double-Option helper. Clearing a value back
- *  to NULL isn't supported through this surface; admins who need
- *  that should use the API directly. */
+/** Inline-edit a stock-tracking field. Empty input is omitted from
+ *  the PATCH body so the backend leaves the column untouched. */
 const saveStockField = async (field: 'quantity' | 'unit' | 'low_stock_threshold') => {
   if (!device.value) return;
   const raw = editValues.value[field].trim();
@@ -418,65 +495,21 @@ const saveStockField = async (field: 'quantity' | 'unit' | 'low_stock_threshold'
   }
 };
 
-/** Derived low-stock flag for the warning row on AssetView. The
- *  backend is the source of truth for the SSE crossing event;
- *  this is a UI-only paint, OK to use parseFloat as a quick
- *  comparison since both strings come from the same NUMERIC(12,3)
- *  column. */
 const isLowStock = computed(() => {
-  const q = isCreationMode.value ? editValues.value.quantity : device.value?.quantity;
-  const t = isCreationMode.value ? editValues.value.low_stock_threshold : device.value?.low_stock_threshold;
-  if (q == null || t == null) return false;
-  if (q === '' || t === '') return false;
-  return parseFloat(q) <= parseFloat(t);
+  const q = device.value?.quantity;
+  const threshold = device.value?.low_stock_threshold;
+  if (q == null || threshold == null) return false;
+  if (q === '' || threshold === '') return false;
+  return parseFloat(q) <= parseFloat(threshold);
 });
 
-// Asset creation
-const saveDevice = async () => {
-  try {
-    isSaving.value = true;
-    const deviceData: AssetFormData = {
-      // Fall back to the hostname attribute for the row's display
-      // name if the admin hasn't typed one — IT-desk muscle memory
-      // sets the kind's hostname and lets the form auto-name.
-      name: editValues.value.name || (attributeDraft.value.hostname as string | undefined) || '',
-      manufacturer: editValues.value.manufacturer,
-      model: editValues.value.model,
-      serial_number: editValues.value.serial_number,
-      location: editValues.value.location || null,
-      purchase_date: editValues.value.purchase_date || null,
-      asset_tag: editValues.value.asset_tag || null,
-      primary_user_uuid: selectedUser.value?.uuid || undefined,
-      kind: selectedKindSlug.value,
-      attributes: attributeDraft.value,
-      quantity: editValues.value.quantity.trim() || null,
-      unit: editValues.value.unit.trim() || null,
-      low_stock_threshold: editValues.value.low_stock_threshold.trim() || null,
-    };
-    const newDevice = await createAsset(deviceData);
-    router.replace(`/assets/${newDevice.id}`);
-  } catch (err) {
-    console.error('Error creating device:', err);
-    error.value = t('asset-detail-error-create');
-  } finally {
-    isSaving.value = false;
-  }
-};
-
-// User selection
 const handleUserSelection = async (user: { uuid: string; name: string; email: string; role: string }) => {
-  if (isCreationMode.value) {
-    // In create mode, just store the selection locally
-    selectedUser.value = user.uuid ? user : null;
-    return;
-  }
-
   if (!device.value) return;
-
+  showUserSelectionModal.value = false;
   try {
     isSaving.value = true;
     const updatedDevice = await updateAsset(device.value.id, {
-      primary_user_uuid: user.uuid || null
+      primary_user_uuid: user.uuid || null,
     });
     device.value = { ...device.value, ...updatedDevice };
   } catch (err) {
@@ -486,10 +519,21 @@ const handleUserSelection = async (user: { uuid: string; name: string; email: st
   }
 };
 
-// Asset deletion
+async function clearPrimaryUser() {
+  if (!device.value) return;
+  try {
+    isSaving.value = true;
+    const updated = await updateAsset(device.value.id, { primary_user_uuid: null });
+    device.value = { ...device.value, ...updated };
+  } catch (err) {
+    console.error('Error clearing primary user:', err);
+  } finally {
+    isSaving.value = false;
+  }
+}
+
 const handleDeleteDevice = async () => {
   if (!device.value) return;
-
   try {
     await deleteAsset(device.value.id);
     router.push('/assets');
@@ -499,7 +543,6 @@ const handleDeleteDevice = async () => {
   }
 };
 
-// Unmanage device
 const handleUnmanageDevice = () => {
   if (!device.value) return;
   unmanageError.value = null;
@@ -508,7 +551,6 @@ const handleUnmanageDevice = () => {
 
 const confirmUnmanageDevice = async () => {
   if (!device.value) return;
-
   try {
     isSaving.value = true;
     unmanageError.value = null;
@@ -523,35 +565,50 @@ const confirmUnmanageDevice = async () => {
   }
 };
 
-// Watchers
 watch(device, (newDevice) => {
-  if (newDevice) {
-    emit('update:device', newDevice);
-  }
+  if (newDevice) emit('update:device', newDevice);
 }, { immediate: true, deep: true });
 
+// The asset name lives in the site header (like a ticket title). Register
+// the save handler only while the asset is editable, so a sync-owned
+// asset shows its name read-only.
+const titleManager = useTitleManager();
+const saveDeviceName = async (newName: string) => {
+  if (!device.value) return;
+  editValues.value.name = newName;
+  await saveField('name');
+};
+watch(isEditable, (editable) => {
+  titleManager.onDeviceTitleSave(editable ? saveDeviceName : null);
+}, { immediate: true });
+onBeforeUnmount(() => {
+  titleManager.onDeviceTitleSave(null);
+  titleManager.clearDevice();
+});
+
 watch(() => route.params.id, () => {
+  revealed.value = new Set();
+  revealedAttrs.value = new Set();
   fetchDeviceData();
 });
 
-// Real-time updates via the sync-action stream (cross-machine). The
-// detail view edits the full asset DTO, of which the sync payload is a
-// subset, so on a remote change we refetch the whole row rather than
-// patch fields. Skip actions authored by the current user — their own
-// edits are already applied locally by the save handlers (this is the
-// echo suppression the discrete SSE did via source_client_id).
 const auth = useAuthStore();
 const canChangeLifecycle = computed(() => auth.isTechnician);
+
+// A status transition from the lifecycle panel doesn't flow back through
+// the own-change sync filter, so reflect it optimistically (the status
+// badge updates at once) and refetch for the authoritative record.
+function onAssetTransitioned(toStatus: string) {
+  if (device.value) device.value = { ...device.value, status: toStatus };
+  void fetchDeviceData();
+}
 useSyncActions(
   (actions) => {
     const id = device.value?.id;
     if (id == null) return;
     const mine = auth.user?.uuid ?? null;
-    const relevant = actions.filter(
-      (a) => a.aggregate_id === String(id) && a.actor_uuid !== mine,
-    );
+    const relevant = actions.filter((a) => a.aggregate_id === String(id) && a.actor_uuid !== mine);
     if (relevant.length === 0) return;
-    // A delete of the open asset: leave the now-gone detail view.
     if (relevant.some((a) => a.op === 'D')) {
       router.push('/assets');
       return;
@@ -561,7 +618,6 @@ useSyncActions(
   { aggregates: ['asset'], debounceMs: 300 },
 );
 
-// Lifecycle
 onMounted(() => {
   fetchDeviceData();
 });
@@ -575,30 +631,14 @@ onMounted(() => {
     </div>
 
     <!-- Main content -->
-    <div v-else-if="device || isCreationMode" class="flex flex-col">
-      <!-- Top bar: back navigation on the left, record-level
-           actions (edit mode) on the right. -->
-      <div class="pt-4 px-4 sm:px-6 flex items-center justify-between gap-3">
-        <BackButton
-          v-if="fromTicket"
-          :fallbackRoute="`/tickets/${fromTicket}`"
-          :label="$t('asset-detail-back-to-ticket', { id: fromTicket })"
-          compact
-        />
-        <BackButton v-else fallbackRoute="/assets" :label="$t('asset-detail-back-to-devices')" compact />
-
-        <div v-if="!isCreationMode" class="flex items-center gap-2">
-          <Button
-            v-if="device?.quantity != null"
-            variant="secondary"
-            size="sm"
-            icon="history"
-            @click="scrollToInventory"
-          >
-            {{ $t('asset-usage-history-heading') }}
-          </Button>
+    <div v-else-if="device" class="flex flex-col">
+      <!-- Top bar. Shares the content's max width so the back button
+           lines up with the body on wide screens. -->
+      <div class="pt-4 px-4 sm:px-6 mx-auto w-full max-w-8xl flex items-center justify-between gap-3">
+        <BackButton fallbackRoute="/assets" :label="$t('asset-detail-back-to-devices')" compact />
+        <div class="flex items-center gap-2">
           <DeleteButton
-            v-if="device?.is_editable"
+            v-if="isEditable"
             fallbackRoute="/assets"
             :itemName="$t('asset-detail-delete-item-name')"
             @delete="handleDeleteDevice"
@@ -606,149 +646,342 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- Content area -->
       <div class="flex flex-col gap-4 px-4 py-4 sm:px-6 mx-auto w-full max-w-8xl">
         <AlertMessage v-if="error" type="error" :message="error" />
 
-        <div
-          class="asset-grid items-start"
-          :class="isCreationMode ? 'asset-grid--create' : 'asset-grid--detail'"
-        >
-          <!-- Rail: sticky sidebar in edit mode (identity, status,
-               assignment, record metadata); sticky summary + action
-               rail in creation mode. -->
+        <!-- Sync context. The name lives in the site header (like a
+             ticket title) and status is shown in the lifecycle panel. -->
+        <div v-if="isSynced" class="flex flex-wrap items-center gap-2">
+          <span
+            class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-surface-alt text-secondary border border-default"
+          >
+            <Icon name="lock" size="xs" />
+            {{ $t('asset-detail-readonly') }}
+          </span>
+        </div>
+
+        <div class="asset-grid items-start">
+          <!-- Primary column: the property list (extend on demand) and
+               the sub-record panels. Properties are the heart of the
+               asset, so they get the wide column, not a thin rail. -->
+          <div class="asset-main">
+            <SectionCard content-padding="p-4">
+              <template #title>{{ $t('asset-detail-section-details') }}</template>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-3">
+                <!-- Model. The primary "what is this?" control: pick a
+                     real make+model from the catalog and the asset is
+                     stamped (manufacturer, model, kind, specs). -->
+                <div class="sm:col-span-2">
+                  <AssetModelField
+                    :asset-id="device.id"
+                    :model-id="device.model_id ?? null"
+                    :kind="selectedKindSlug"
+                    :manufacturer-snapshot="device.manufacturer ?? null"
+                    :model-snapshot="device.model || null"
+                    :editable="isEditable"
+                    @updated="onAssetModelUpdated"
+                  />
+                </div>
+
+                <!-- Type. Owned by the model when one is linked; editable
+                     directly only for model-less assets. -->
+                <div class="flex flex-col gap-1 sm:col-span-2">
+                  <h3 class="text-xs font-medium text-tertiary">{{ $t('asset-detail-field-kind') }}</h3>
+                  <div class="flex items-center gap-2">
+                    <Icon
+                      :name="kindIconName(selectedKind)"
+                      size="sm"
+                      class="text-secondary flex-shrink-0"
+                    />
+                    <SearchableDropdown
+                      v-if="isKindEditable && kinds.length > 0 && !device.model_id"
+                      class="flex-1 min-w-0"
+                      :model-value="selectedKindSlug"
+                      :options="kindOptions"
+                      size="sm"
+                      @update:model-value="(value) => changeKind(String(value))"
+                    />
+                    <p v-else class="text-sm text-primary">{{ selectedKind?.label ?? selectedKindSlug }}</p>
+                  </div>
+                  <AlertMessage v-if="kindChangeError" type="error" :message="kindChangeError" />
+                </div>
+
+                <!-- Revealed optional properties, in canonical order. -->
+                <template v-for="key in visibleProps" :key="key">
+                  <!-- Primary user -->
+                  <div v-if="key === 'primary_user'" class="flex flex-col gap-1 sm:col-span-2">
+                    <div class="flex items-center justify-between min-h-6">
+                      <h3 class="text-xs font-medium text-tertiary">{{ $t('asset-detail-section-primary-user') }}</h3>
+                      <button
+                        v-if="device.primary_user && isEditable"
+                        type="button"
+                        class="p-1 text-tertiary hover:text-status-error hover:bg-status-error-muted rounded transition-colors"
+                        :title="$t('asset-detail-clear-user')"
+                        @click="clearPrimaryUser"
+                      >
+                        <Icon name="close" />
+                      </button>
+                    </div>
+                    <RouterLink
+                    v-if="device.primary_user"
+                    :to="`/users/${device.primary_user.uuid}`"
+                    class="group flex items-center gap-2.5 min-w-0"
+                  >
+                    <UserAvatar
+                      :uuid="device.primary_user.uuid"
+                      :fallback-name="device.primary_user.name"
+                      :fallback-avatar="device.primary_user.avatar_thumb || device.primary_user.avatar_url"
+                      size="sm"
+                      :clickable="false"
+                      :show-name="false"
+                    />
+                    <div class="min-w-0">
+                      <span class="block text-sm font-medium text-primary truncate group-hover:text-accent transition-colors">{{ device.primary_user.name }}</span>
+                      <span class="block text-xs text-tertiary truncate">{{ device.primary_user.email }}</span>
+                    </div>
+                  </RouterLink>
+                    <Button
+                      v-else-if="isEditable"
+                      block
+                      variant="secondary"
+                      size="sm"
+                      icon="user"
+                      @click="showUserSelectionModal = true"
+                    >
+                      {{ $t('asset-detail-action-assign-user') }}
+                    </Button>
+                  </div>
+
+                  <!-- Serial -->
+                  <div v-else-if="key === 'serial_number'" class="flex flex-col gap-1">
+                    <h3 class="text-xs font-medium text-tertiary">{{ $t('asset-detail-field-serial') }}</h3>
+                    <InlineEdit
+                      v-model="editValues.serial_number"
+                      :placeholder="$t('asset-detail-field-serial-placeholder-edit')"
+                      text-size="sm"
+                      :can-edit="isEditable"
+                      @update:modelValue="() => saveField('serial_number')"
+                    />
+                  </div>
+
+                  <!-- Manufacturer -->
+                  <div v-else-if="key === 'manufacturer'" class="flex flex-col gap-1">
+                    <h3 class="text-xs font-medium text-tertiary">{{ $t('asset-detail-field-manufacturer') }}</h3>
+                    <InlineEdit
+                      v-model="editValues.manufacturer"
+                      :placeholder="$t('asset-detail-field-manufacturer-placeholder-edit')"
+                      text-size="sm"
+                      :can-edit="isEditable"
+                      @update:modelValue="() => saveField('manufacturer')"
+                    />
+                  </div>
+
+                  <!-- Model -->
+                  <div v-else-if="key === 'model'" class="flex flex-col gap-1">
+                    <h3 class="text-xs font-medium text-tertiary">{{ $t('asset-detail-field-model') }}</h3>
+                    <InlineEdit
+                      v-model="editValues.model"
+                      :placeholder="$t('asset-detail-field-model-placeholder-edit')"
+                      text-size="sm"
+                      :can-edit="isEditable"
+                      @update:modelValue="() => saveField('model')"
+                    />
+                  </div>
+
+                  <!-- Asset tag -->
+                  <div v-else-if="key === 'asset_tag'" class="flex flex-col gap-1">
+                    <h3 class="text-xs font-medium text-tertiary">{{ $t('asset-detail-field-asset-tag') }}</h3>
+                    <InlineEdit
+                      v-model="editValues.asset_tag"
+                      :placeholder="$t('asset-detail-field-asset-tag-placeholder-edit')"
+                      text-size="sm"
+                      :can-edit="isEditable"
+                      @update:modelValue="() => saveField('asset_tag')"
+                    />
+                  </div>
+
+                  <!-- Location -->
+                  <div v-else-if="key === 'location'" class="flex flex-col gap-1 sm:col-span-2">
+                    <h3 class="text-xs font-medium text-tertiary">{{ $t('asset-detail-field-location') }}</h3>
+                    <InlineEdit
+                      v-model="editValues.location"
+                      :placeholder="$t('asset-detail-field-location-placeholder-edit')"
+                      text-size="sm"
+                      :can-edit="isEditable"
+                      @update:modelValue="() => saveField('location')"
+                    />
+                    <div
+                      v-if="isEditable && locationSuggestions.length"
+                      class="flex flex-wrap items-center gap-1.5"
+                    >
+                      <Button
+                        v-for="suggestion in locationSuggestions"
+                        :key="suggestion.location"
+                        variant="ghost"
+                        size="sm"
+                        class="!px-2 !py-1 border border-subtle"
+                        @click="selectLocationSuggestion(suggestion.location)"
+                      >
+                        {{ suggestion.location }}
+                      </Button>
+                    </div>
+                  </div>
+
+                  <!-- Purchase date -->
+                  <div v-else-if="key === 'purchase_date'" class="flex flex-col gap-1">
+                    <h3 class="text-xs font-medium text-tertiary">{{ $t('asset-detail-field-purchase-date') }}</h3>
+                    <DatePicker
+                      v-if="isEditable"
+                      v-model="editValues.purchase_date"
+                      size="sm"
+                      block
+                      :aria-label="$t('asset-detail-field-purchase-date')"
+                      @update:model-value="() => saveField('purchase_date')"
+                    />
+                    <p v-else class="text-primary text-sm">{{ device.purchase_date || '-' }}</p>
+                  </div>
+
+                  <!-- Stock tracking -->
+                  <div v-else-if="key === 'stock'" class="flex flex-col gap-2 sm:col-span-2">
+                    <h3 class="text-xs font-medium text-tertiary">{{ $t('asset-detail-section-stock') }}</h3>
+                    <div
+                      v-if="isLowStock"
+                      class="flex items-center gap-2 px-3 py-2 bg-status-warning/10 text-status-warning rounded-lg text-sm"
+                    >
+                      <Icon name="warning" />
+                      <span>{{ $t('asset-detail-low-stock-warning', { quantity: device.quantity ?? '', unit: device.unit ?? '', threshold: device.low_stock_threshold ?? '' }) }}</span>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                      <FormInput
+                        v-model="editValues.quantity"
+                        :label="$t('asset-detail-field-quantity')"
+                        :placeholder="$t('asset-detail-field-quantity-placeholder')"
+                        inputmode="decimal"
+                        size="sm"
+                        :disabled="!isEditable"
+                        @blur="saveStockField('quantity')"
+                        @keyup.enter="saveStockField('quantity')"
+                      />
+                      <FormInput
+                        v-model="editValues.unit"
+                        :label="$t('asset-detail-field-unit')"
+                        :placeholder="$t('asset-detail-field-unit-placeholder')"
+                        size="sm"
+                        :disabled="!isEditable"
+                        @blur="saveStockField('unit')"
+                        @keyup.enter="saveStockField('unit')"
+                      />
+                      <FormInput
+                        v-model="editValues.low_stock_threshold"
+                        class="col-span-2"
+                        :label="$t('asset-detail-field-low-stock-threshold')"
+                        :placeholder="$t('asset-detail-field-low-stock-threshold-placeholder')"
+                        inputmode="decimal"
+                        size="sm"
+                        :disabled="!isEditable"
+                        @blur="saveStockField('low_stock_threshold')"
+                        @keyup.enter="saveStockField('low_stock_threshold')"
+                      />
+                    </div>
+                  </div>
+                </template>
+
+                <!-- User-owned kind attributes (e.g. warranty), each its
+                     own extend-on-demand field. Editable even on synced
+                     assets: the backend only lets these keys change, with
+                     sync-owned keys staying locked. Autosaves on input. -->
+                <div
+                  v-for="key in visibleAttrKeys"
+                  :key="`attr-${key}`"
+                  class="sm:col-span-2"
+                >
+                  <DynamicAttributeForm
+                    :schema="singleAttrSchema(key)"
+                    :model-value="attributeDraft"
+                    @update:model-value="onAttrInput"
+                  />
+                </div>
+                <AlertMessage
+                  v-if="attributesError"
+                  type="error"
+                  :message="attributesError"
+                  class="sm:col-span-2"
+                />
+
+                <!-- Add property -->
+                <div v-if="addPropOptions.length > 0" class="sm:col-span-2">
+                  <BaseDropdown
+                    :model-value="addPropModel"
+                    :options="addPropOptions"
+                    :placeholder="$t('asset-detail-add-property')"
+                    size="sm"
+                    @update:model-value="(v) => onAddProp(v as string)"
+                  />
+                </div>
+              </div>
+            </SectionCard>
+
+            <!-- Sync-owned device telemetry (Intune / Entra). Read-only
+                 and shown only when the asset is sync-owned: this data
+                 comes from the Microsoft Graph sync, not manual entry. -->
+            <SectionCard v-if="showSyncPanel" content-padding="p-4">
+              <template #leading>
+                <Icon name="refresh" size="sm" class="text-secondary" />
+              </template>
+              <template #title>{{ syncSourceLabel }}</template>
+              <DynamicAttributeForm
+                :schema="syncAttributeSchema"
+                v-model="attributeDraft"
+                :disabled="true"
+              />
+            </SectionCard>
+
+            <!-- Sub-record panels: lifecycle, loans, usage, media,
+                 plugins. These accrue over an asset's life rather than
+                 being creation inputs, so they sit below the property
+                 list in the same wide column. -->
+            <SectionCard content-padding="p-4">
+              <template #title>{{ $t('asset-lifecycle-heading') }}</template>
+              <AssetLifecyclePanel
+                :asset-id="device.id"
+                :current-status="device.status"
+                :can-edit="canChangeLifecycle"
+                @transitioned="onAssetTransitioned"
+              />
+            </SectionCard>
+
+            <SectionCard content-padding="p-4">
+              <template #title>{{ $t('asset-loan-heading') }}</template>
+              <AssetLoanPanel
+                :asset-id="device.id"
+                :current-status="device.status"
+                :can-edit="canChangeLifecycle"
+              />
+            </SectionCard>
+
+            <SectionCard v-if="device.quantity != null" content-padding="p-4">
+              <template #title>{{ $t('asset-usage-history-heading') }}</template>
+              <AssetUsageHistory
+                :asset-id="device.id"
+                :unit="device.unit"
+                :current-quantity="device.quantity"
+                @recorded="fetchDeviceData"
+              />
+            </SectionCard>
+
+            <PluginSlot slot-name="asset-info-panels" :device="device" />
+          </div>
+
+          <!-- Rail: groups + record metadata (small, secondary facts). -->
           <aside class="asset-rail">
-            <!-- Identity / summary card -->
-            <div class="bg-surface rounded-xl border border-default p-4 flex flex-col gap-3">
-              <div class="flex items-start gap-3 min-w-0">
-                <div class="w-11 h-11 rounded-lg bg-surface-alt border border-default flex items-center justify-center flex-shrink-0">
-                  <Icon name="device" class="text-secondary" />
-                </div>
-                <div class="min-w-0">
-                  <p v-if="isCreationMode" class="text-[11px] font-medium uppercase tracking-wide text-tertiary">
-                    {{ $t('asset-detail-action-create') }}
-                  </p>
-                  <h1 class="text-lg font-semibold text-primary truncate">
-                    {{ displayName || $t('asset-detail-field-name-placeholder-create') }}
-                  </h1>
-                  <p v-if="displaySubtitle" class="text-xs text-secondary truncate mt-0.5">
-                    {{ displaySubtitle }}
-                  </p>
-                </div>
-              </div>
+            <DeviceGroups v-if="device.groups?.length" :groups="device.groups" />
 
-              <div class="flex flex-wrap items-center gap-2">
-                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-accent/10 text-accent">
-                  {{ selectedKind?.label ?? selectedKindSlug }}
-                </span>
-                <AssetStatusBadge v-if="!isCreationMode && device?.status" :status="device.status" />
-                <span
-                  v-if="isSynced"
-                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-surface-alt text-secondary border border-default"
-                >
-                  <Icon name="lock" size="xs" />
-                  {{ $t('asset-detail-readonly') }}
-                </span>
-              </div>
-            </div>
-
-            <!-- Primary user. Create mode stages the selection
-                 locally; edit mode persists it on change. -->
-            <SectionCard
-              v-if="(isCreationMode && canHavePrimaryUser) || (!isCreationMode && device && showPrimaryUserPanel)"
-              content-padding="p-4"
-            >
-              <template #title>{{ $t('asset-detail-section-primary-user') }}</template>
-
-              <div v-if="primaryUserDisplay" class="flex flex-col gap-3">
-                <UserCard :user="primaryUserDisplay" avatar-size="md" />
-                <Button
-                  v-if="canEditPrimaryUser"
-                  block
-                  variant="secondary"
-                  size="sm"
-                  icon="user"
-                  @click="showUserSelectionModal = true"
-                >
-                  {{ $t('asset-detail-action-change-user') }}
-                </Button>
-              </div>
-
-              <div v-else class="flex flex-col items-start gap-3">
-                <p class="text-sm text-secondary">{{ $t('asset-detail-no-user-assigned') }}</p>
-                <Button
-                  v-if="canEditPrimaryUser"
-                  block
-                  variant="secondary"
-                  size="sm"
-                  icon="add"
-                  @click="showUserSelectionModal = true"
-                >
-                  {{ $t('asset-detail-action-assign-user') }}
-                </Button>
-              </div>
-            </SectionCard>
-
-            <!-- Stock tracking (create mode). Optional for non-bulk
-                 kinds, revealed on demand to keep the rail compact. -->
-            <SectionCard v-if="isCreationMode" content-padding="p-4">
-              <template #title>{{ $t('asset-detail-section-stock') }}</template>
-
-              <div v-if="showCreateStock" class="flex flex-col gap-3">
-                <div v-if="isLowStock" class="flex items-center gap-2 px-3 py-2 bg-status-warning/10 text-status-warning rounded-lg text-sm">
-                  <Icon name="warning" />
-                  <span>{{ $t('asset-detail-low-stock-warning', { quantity: editValues.quantity, unit: editValues.unit, threshold: editValues.low_stock_threshold }) }}</span>
-                </div>
-
-                <FormInput
-                  v-model="editValues.quantity"
-                  :label="$t('asset-detail-field-quantity')"
-                  :placeholder="$t('asset-detail-field-quantity-placeholder')"
-                  inputmode="decimal"
-                  size="sm"
-                />
-                <FormInput
-                  v-model="editValues.unit"
-                  :label="$t('asset-detail-field-unit')"
-                  :placeholder="$t('asset-detail-field-unit-placeholder')"
-                  size="sm"
-                />
-                <FormInput
-                  v-model="editValues.low_stock_threshold"
-                  :label="$t('asset-detail-field-low-stock-threshold')"
-                  :placeholder="$t('asset-detail-field-low-stock-threshold-placeholder')"
-                  :description="$t('asset-detail-field-low-stock-threshold-help')"
-                  inputmode="decimal"
-                  size="sm"
-                />
-              </div>
-
-              <Button
-                v-else
-                block
-                variant="ghost"
-                size="sm"
-                icon="add"
-                class="border border-dashed border-default"
-                @click="stockManuallyShown = true"
-              >
-                {{ $t('asset-detail-action-track-stock') }}
-              </Button>
-            </SectionCard>
-
-            <!-- Groups (edit mode only) -->
-            <DeviceGroups v-if="!isCreationMode && device?.groups?.length" :groups="device.groups" />
-
-            <!-- Record metadata (edit mode). Folds the former
-                 Asset-Information / External-sync cards into a
-                 single compact panel; synced rows surface the
-                 sync source and the unmanage action here. -->
-            <SectionCard v-if="!isCreationMode && device" content-padding="p-4">
-              <template #title>{{ $t('asset-detail-section-device-information') }}</template>
-
+            <SectionCard content-padding="p-4">
+              <template #title>{{ $t('asset-detail-section-record') }}</template>
               <div class="flex flex-col gap-3 text-sm">
                 <div class="flex items-center justify-between gap-3">
-                  <span class="text-xs font-medium uppercase tracking-wide text-tertiary">{{ $t('asset-detail-field-device-id') }}</span>
+                  <span class="text-xs font-medium uppercase tracking-wide text-tertiary">{{ $t('asset-detail-field-asset-id') }}</span>
                   <span class="font-mono text-primary">{{ device.id }}</span>
                 </div>
                 <div class="flex items-center justify-between gap-3">
@@ -759,9 +992,8 @@ onMounted(() => {
                   <span class="text-xs font-medium uppercase tracking-wide text-tertiary">{{ $t('asset-detail-field-last-updated') }}</span>
                   <span class="text-primary text-right">{{ formatDateTime(device.updated_at) }}</span>
                 </div>
-
                 <div class="pt-3 border-t border-default flex items-start gap-2">
-                  <Icon :name="isSynced ? 'refresh' : 'device'" size="sm" class="text-secondary flex-shrink-0 mt-0.5" />
+                  <Icon :name="isSynced ? 'refresh' : 'info'" size="sm" class="text-secondary flex-shrink-0 mt-0.5" />
                   <div class="min-w-0">
                     <p class="font-medium text-primary">{{ managementLabel }}</p>
                     <p class="text-xs text-tertiary mt-0.5">
@@ -769,7 +1001,6 @@ onMounted(() => {
                     </p>
                   </div>
                 </div>
-
                 <template v-if="isSynced">
                   <Button
                     @click="handleUnmanageDevice"
@@ -787,308 +1018,31 @@ onMounted(() => {
               </div>
             </SectionCard>
 
-            <!-- Create-mode actions. Stay in view via the sticky
-                 rail so the primary CTA is always reachable. -->
-            <div v-if="isCreationMode" class="flex flex-col gap-2">
-              <Button
-                block
-                icon="add"
-                :disabled="isSaving || (!editValues.name && !(attributeDraft.hostname as string | undefined))"
-                :loading="isSaving"
-                @click="saveDevice"
-              >
-                {{ isSaving ? $t('asset-detail-action-create-processing') : $t('asset-detail-action-create') }}
-              </Button>
-              <Button
-                block
-                variant="secondary"
-                :disabled="isSaving"
-                @click="router.push('/assets')"
-              >
-                {{ $t('asset-detail-action-cancel') }}
-              </Button>
-            </div>
-          </aside>
-
-          <!-- Main column: type/attributes, core details, and (edit
-               mode) lifecycle, stock, usage, media, plugin panels. -->
-          <div class="asset-main">
-            <!-- Kind picker + dynamic attribute form. Editable in
-                 creation mode and for editable rows in edit mode;
-                 externally synced rows stay read-only because the
-                 next sync would overwrite manual edits anyway. -->
-            <SectionCard v-if="kinds.length > 0" content-padding="p-4">
-              <template #title>{{ $t('asset-detail-section-kind') }}</template>
-              <div class="flex flex-col gap-4">
-                <div class="flex flex-col gap-1.5">
-                  <SearchableDropdown
-                    v-if="isKindOrAttributesEditable"
-                    :model-value="selectedKindSlug"
-                    :options="kindOptions"
-                    :label="$t('asset-detail-field-kind')"
-                    size="sm"
-                    @update:model-value="(value) => { selectedKindSlug = String(value); onKindPickerChange() }"
-                  />
-                  <p v-else class="text-sm text-primary">
-                    {{ selectedKind?.label ?? selectedKindSlug }}
-                  </p>
-                  <p v-if="selectedKind?.description" class="text-xs text-tertiary">
-                    {{ selectedKind.description }}
-                  </p>
-                  <AlertMessage v-if="kindChangeError" type="error" :message="kindChangeError" />
-                </div>
-                <DynamicAttributeForm
-                  v-if="selectedKindSchema"
-                  :schema="selectedKindSchema"
-                  v-model="attributeDraft"
-                  :disabled="!isKindOrAttributesEditable"
-                />
-                <div
-                  v-if="!isCreationMode && isKindOrAttributesEditable && attributesDirty"
-                  class="flex items-center gap-2 pt-2"
-                >
-                  <Button size="sm" :disabled="isSaving" @click="saveAttributes">
-                    {{ $t('asset-detail-attributes-save') }}
-                  </Button>
-                  <Button size="sm" variant="secondary" :disabled="isSaving" @click="discardAttributes">
-                    {{ $t('asset-detail-attributes-discard') }}
-                  </Button>
-                </div>
-                <AlertMessage v-if="attributesError" type="error" :message="attributesError" />
-              </div>
-            </SectionCard>
-
-            <!-- Core details -->
+            <!-- Photos: a compact gallery in the rail. Reference imagery
+                 belongs alongside the record metadata, not in the wide
+                 primary column. The add control sits in the card header. -->
             <SectionCard content-padding="p-4">
-              <template #title>{{ $t('asset-detail-section-details') }}</template>
-
-              <div class="flex flex-col gap-4">
-                <!-- Name + serial side-by-side -->
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div class="flex flex-col gap-1.5">
-                    <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-name') }}</h3>
-                    <FormInput
-                      v-if="isCreationMode"
-                      v-model="editValues.name"
-                      :placeholder="$t('asset-detail-field-name-placeholder-create')"
-                      size="sm"
-                    />
-                    <InlineEdit
-                      v-else
-                      v-model="editValues.name"
-                      :placeholder="$t('asset-detail-field-name-placeholder-edit')"
-                      text-size="sm"
-                      :can-edit="device?.is_editable ?? false"
-                      @update:modelValue="() => saveField('name')"
-                    />
-                  </div>
-
-                  <div class="flex flex-col gap-1.5">
-                    <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-serial') }}</h3>
-                    <FormInput
-                      v-if="isCreationMode"
-                      v-model="editValues.serial_number"
-                      :placeholder="$t('asset-detail-field-serial-placeholder-create')"
-                      size="sm"
-                    />
-                    <InlineEdit
-                      v-else
-                      v-model="editValues.serial_number"
-                      :placeholder="device?.serial_number || $t('asset-detail-field-serial-placeholder-edit')"
-                      text-size="sm"
-                      :can-edit="device?.is_editable ?? false"
-                      @update:modelValue="() => saveField('serial_number')"
-                    />
-                  </div>
-                </div>
-
-                <!-- Manufacturer + Model side-by-side -->
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-default">
-                  <div class="flex flex-col gap-1.5">
-                    <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-manufacturer') }}</h3>
-                    <FormInput
-                      v-if="isCreationMode"
-                      v-model="editValues.manufacturer"
-                      :placeholder="$t('asset-detail-field-manufacturer-placeholder-create')"
-                      size="sm"
-                    />
-                    <InlineEdit
-                      v-else
-                      v-model="editValues.manufacturer"
-                      :placeholder="device?.manufacturer || $t('asset-detail-field-manufacturer-placeholder-edit')"
-                      text-size="sm"
-                      :can-edit="device?.is_editable ?? false"
-                      @update:modelValue="() => saveField('manufacturer')"
-                    />
-                  </div>
-
-                  <div class="flex flex-col gap-1.5">
-                    <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-model') }}</h3>
-                    <FormInput
-                      v-if="isCreationMode"
-                      v-model="editValues.model"
-                      :placeholder="$t('asset-detail-field-model-placeholder-create')"
-                      size="sm"
-                    />
-                    <InlineEdit
-                      v-else
-                      v-model="editValues.model"
-                      :placeholder="device?.model || $t('asset-detail-field-model-placeholder-edit')"
-                      text-size="sm"
-                      :can-edit="device?.is_editable ?? false"
-                      @update:modelValue="() => saveField('model')"
-                    />
-                  </div>
-                </div>
-
-                <!-- Purchase date + asset tag + location -->
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 border-t border-default">
-                  <div class="flex flex-col gap-1.5">
-                    <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-purchase-date') }}</h3>
-                    <DatePicker
-                      v-if="isCreationMode || device?.is_editable"
-                      v-model="editValues.purchase_date"
-                      size="sm"
-                      block
-                      :aria-label="$t('asset-detail-field-purchase-date')"
-                      @update:model-value="() => { if (!isCreationMode) saveField('purchase_date') }"
-                    />
-                    <p v-else class="text-primary text-sm">{{ device?.purchase_date || '-' }}</p>
-                  </div>
-                  <div class="flex flex-col gap-1.5">
-                    <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-asset-tag') }}</h3>
-                    <FormInput
-                      v-if="isCreationMode"
-                      v-model="editValues.asset_tag"
-                      :placeholder="$t('asset-detail-field-asset-tag-placeholder-create')"
-                      size="sm"
-                    />
-                    <InlineEdit
-                      v-else
-                      v-model="editValues.asset_tag"
-                      :placeholder="$t('asset-detail-field-asset-tag-placeholder-edit')"
-                      text-size="sm"
-                      :can-edit="device?.is_editable ?? false"
-                      @update:modelValue="() => saveField('asset_tag')"
-                    />
-                  </div>
-                  <div class="flex flex-col gap-1.5">
-                    <h3 class="text-xs font-medium text-secondary uppercase tracking-wide">{{ $t('asset-detail-field-location') }}</h3>
-                    <FormInput
-                      v-if="isCreationMode"
-                      v-model="editValues.location"
-                      :placeholder="$t('asset-detail-field-location-placeholder-create')"
-                      size="sm"
-                    />
-                    <InlineEdit
-                      v-else
-                      v-model="editValues.location"
-                      :placeholder="$t('asset-detail-field-location-placeholder-edit')"
-                      text-size="sm"
-                      :can-edit="device?.is_editable ?? false"
-                      @update:modelValue="() => saveField('location')"
-                    />
-                    <div
-                      v-if="(isCreationMode || device?.is_editable) && locationSuggestions.length"
-                      class="flex flex-wrap items-center gap-1.5"
-                    >
-                      <span class="text-[11px] text-tertiary">
-                        {{ $t('asset-detail-location-suggestions') }}
-                      </span>
-                      <Button
-                        v-for="suggestion in locationSuggestions"
-                        :key="suggestion.location"
-                        variant="ghost"
-                        size="sm"
-                        class="!px-2 !py-1 border border-subtle"
-                        @click="selectLocationSuggestion(suggestion.location)"
-                      >
-                        {{ suggestion.location }}
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </SectionCard>
-
-            <!-- Lifecycle (edit mode only) -->
-            <SectionCard v-if="!isCreationMode && device" content-padding="p-4">
-              <template #title>{{ $t('asset-lifecycle-heading') }}</template>
-              <AssetLifecyclePanel
-                :asset-id="device.id"
-                :current-status="device.status"
-                :can-edit="canChangeLifecycle"
-              />
-            </SectionCard>
-
-            <!-- Stock tracking (editable assets only, edit mode).
-                 Surfaces the three columns that drive consumable
-                 usage: quantity (on-hand count), unit (label), and
-                 the optional low_stock_threshold. -->
-            <SectionCard v-if="!isCreationMode && device?.is_editable" id="asset-inventory-panel" content-padding="p-4">
-              <template #title>{{ $t('asset-detail-section-stock') }}</template>
-
-              <div class="flex flex-col gap-4">
-                <div v-if="isLowStock" class="flex items-center gap-2 px-3 py-2 bg-status-warning/10 text-status-warning rounded-lg text-sm">
-                  <Icon name="warning" />
-                  <span>{{ $t('asset-detail-low-stock-warning', { quantity: device!.quantity!, unit: device!.unit ?? '', threshold: device!.low_stock_threshold! }) }}</span>
-                </div>
-
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <FormInput
-                    v-model="editValues.quantity"
-                    :label="$t('asset-detail-field-quantity')"
-                    :placeholder="$t('asset-detail-field-quantity-placeholder')"
-                    inputmode="decimal"
-                    size="sm"
-                    @blur="saveStockField('quantity')"
-                    @keyup.enter="saveStockField('quantity')"
-                  />
-                  <FormInput
-                    v-model="editValues.unit"
-                    :label="$t('asset-detail-field-unit')"
-                    :placeholder="$t('asset-detail-field-unit-placeholder')"
-                    size="sm"
-                    @blur="saveStockField('unit')"
-                    @keyup.enter="saveStockField('unit')"
-                  />
-                  <FormInput
-                    v-model="editValues.low_stock_threshold"
-                    :label="$t('asset-detail-field-low-stock-threshold')"
-                    :placeholder="$t('asset-detail-field-low-stock-threshold-placeholder')"
-                    :description="$t('asset-detail-field-low-stock-threshold-help')"
-                    inputmode="decimal"
-                    size="sm"
-                    @blur="saveStockField('low_stock_threshold')"
-                    @keyup.enter="saveStockField('low_stock_threshold')"
-                  />
-                </div>
-              </div>
-            </SectionCard>
-
-            <!-- Usage history (stock-tracked assets only) -->
-            <SectionCard v-if="!isCreationMode && device?.quantity != null" content-padding="p-4">
-              <template #title>{{ $t('asset-usage-history-heading') }}</template>
-              <AssetUsageHistory
-                :asset-id="device!.id"
-                :unit="device!.unit"
-                :current-quantity="device!.quantity"
-                @recorded="fetchDeviceData"
-              />
-            </SectionCard>
-
-            <!-- Media (edit mode only) -->
-            <SectionCard v-if="!isCreationMode && device" content-padding="p-4">
               <template #title>{{ $t('asset-media-heading') }}</template>
+              <template #headerActions>
+                <button
+                  v-if="device.is_editable"
+                  type="button"
+                  class="p-1 -mr-1 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
+                  :title="$t('asset-media-add')"
+                  :aria-label="$t('asset-media-add')"
+                  @click="mediaPanelRef?.openPicker()"
+                >
+                  <Icon name="add" size="sm" />
+                </button>
+              </template>
               <AssetMediaPanel
+                ref="mediaPanelRef"
                 :asset-id="device.id"
                 :can-edit="device.is_editable"
+                compact
               />
             </SectionCard>
-
-            <!-- Plugin panels for device info -->
-            <PluginSlot v-if="!isCreationMode && device" slot-name="asset-info-panels" :device="device" />
-          </div>
+          </aside>
         </div>
       </div>
     </div>
@@ -1101,7 +1055,7 @@ onMounted(() => {
     <!-- User Selection Modal -->
     <UserSelectionModal
       :show="showUserSelectionModal"
-      :currentUserId="isCreationMode ? (selectedUser?.uuid ?? null) : (device?.primary_user_uuid ?? null)"
+      :currentUserId="device?.primary_user_uuid ?? null"
       @close="showUserSelectionModal = false"
       @select-user="handleUserSelection"
     />
@@ -1114,73 +1068,38 @@ onMounted(() => {
     >
       <div class="flex flex-col items-center gap-4">
         <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-status-warning/20">
-          <svg class="h-6 w-6 text-status-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M18.84 12.25l1.72-1.71h-.02a5.004 5.004 0 00-.12-7.07 5.006 5.006 0 00-6.95 0l-1.72 1.71" />
-            <path d="M5.17 11.75l-1.71 1.71a5.004 5.004 0 00.12 7.07 5.006 5.006 0 006.95 0l1.71-1.71" />
-            <path d="M8 2v3" /><path d="M2 8h3" /><path d="M16 22v-3" /><path d="M22 16h-3" />
-          </svg>
+          <Icon name="refresh" size="lg" class="text-status-warning" />
         </div>
-
         <h3 class="text-xl font-medium text-primary">{{ $t('asset-detail-unmanage-heading') }}</h3>
         <p
           class="text-sm text-secondary text-center max-w-sm"
           v-html="$t('asset-detail-unmanage-confirm-body', { name: (device?.attributes?.hostname as string | undefined) || device?.name || '' })"
         ></p>
-        <p class="text-xs text-tertiary text-center max-w-sm">
-          {{ $t('asset-detail-unmanage-confirm-note') }}
-        </p>
-
+        <p class="text-xs text-tertiary text-center max-w-sm">{{ $t('asset-detail-unmanage-confirm-note') }}</p>
         <AlertMessage v-if="unmanageError" type="error" :message="unmanageError" />
-
         <div class="flex justify-center gap-3 mt-2 w-full">
           <Button block variant="secondary" @click="showUnmanageModal = false">
             {{ $t('asset-detail-action-cancel') }}
           </Button>
-          <Button
-            block
-            variant="danger"
-            :disabled="isSaving"
-            :loading="isSaving"
-            @click="confirmUnmanageDevice"
-          >
+          <Button block variant="danger" :disabled="isSaving" :loading="isSaving" @click="confirmUnmanageDevice">
             {{ isSaving ? $t('asset-detail-action-unmanage-processing') : $t('asset-detail-unmanage-action-confirm') }}
           </Button>
         </div>
       </div>
     </Modal>
-
-    <!-- Kind change: explicit confirm (clears the row's attributes) -->
-    <ConfirmModal
-      :show="showKindChangeConfirm"
-      variant="warning"
-      :title="$t('asset-detail-kind-change-title')"
-      :message="kindChangeConfirmMessage"
-      :confirm-label="$t('asset-detail-kind-change-confirm-label')"
-      @confirm="confirmKindChange"
-      @close="cancelKindChange"
-    />
   </div>
 </template>
 
 <style scoped>
-/*
- * Two-pane shell shared by both modes. Mobile stacks to a single
- * column; from lg the rail becomes a fixed-width sticky column and
- * the main content takes the remaining width.
- *
- *   Edit mode    (.asset-grid--detail) — rail on the LEFT: identity,
- *                 status, assignment, record metadata.
- *   Create mode  (.asset-grid--create) — rail on the RIGHT: live
- *                 summary, assignment, stock, and the Create/Cancel
- *                 actions, kept in view as the form scrolls.
- */
+/* Two-pane shell: the property list + panels take the wide primary
+ * column on the left; groups + record metadata sit in a compact rail
+ * on the right. Stacks to one column on mobile, primary first. */
 .asset-grid {
   display: flex;
   flex-direction: column;
   gap: 1rem;
   width: 100%;
 }
-
 .asset-rail,
 .asset-main {
   display: flex;
@@ -1189,40 +1108,24 @@ onMounted(() => {
   min-width: 0;
   width: 100%;
 }
-
-/* Mobile order: form/details first, rail (summary + actions) after. */
-.asset-main { order: 1; }
-.asset-rail { order: 2; }
-
 @media (min-width: 1024px) {
   .asset-grid {
     flex-direction: row;
     align-items: flex-start;
     gap: 1.5rem;
   }
-
-  /* Fixed-width rail. position: sticky keeps it (and the create
-   * actions) in view while the main column scrolls. top offset
-   * leaves a small gap below the top bar. */
-  .asset-rail {
-    flex: 0 0 320px;
-    max-width: 320px;
-    min-width: 300px;
-    position: sticky;
-    top: 1rem;
-  }
-
   .asset-main {
     flex: 1 1 0;
     min-width: 0;
+    order: 1;
   }
-
-  /* Edit mode: rail left, main right. */
-  .asset-grid--detail .asset-rail { order: 1; }
-  .asset-grid--detail .asset-main { order: 2; }
-
-  /* Create mode: main left, rail right. */
-  .asset-grid--create .asset-main { order: 1; }
-  .asset-grid--create .asset-rail { order: 2; }
+  .asset-rail {
+    flex: 0 0 300px;
+    max-width: 300px;
+    min-width: 280px;
+    position: sticky;
+    top: 1rem;
+    order: 2;
+  }
 }
 </style>

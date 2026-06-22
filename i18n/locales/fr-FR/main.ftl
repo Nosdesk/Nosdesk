@@ -235,9 +235,8 @@ nav-assets = Ressources matérielles
 nav-asset-planner = Planificateur d'actifs
 
 # Tab strip across the top of the asset section. Used in place
-# of duplicate sidebar entries for inventory list + planner.
 asset-tabs-inventory = Inventory
-asset-tabs-planner = Planner
+asset-tabs-catalog = Catalogue
 nav-users = Utilisateurs
 nav-documentation = Documentation
 nav-inbox = Boîte de réception
@@ -2360,6 +2359,13 @@ assets-list-export-failed = Échec de l'export des actifs. Veuillez réessayer.
 assets-list-unassigned = Non attribué
 assets-list-warranty-unknown = Inconnue
 assets-list-bulk-delete = Supprimer
+# Row right-click context menu. Machine-translated, pending native review.
+assets-list-context-open = Ouvrir
+assets-list-context-open-new-tab = Ouvrir dans un nouvel onglet
+assets-list-context-copy-link = Copier le lien
+assets-list-context-copy-id = Copier l'ID de l'actif
+assets-list-context-rollout = Créer un déploiement
+assets-list-context-delete = Supprimer
 assets-list-bulk-delete-count = Supprimer { $count }
 assets-list-bulk-delete-title = { $count ->
     [one] Supprimer l'appareil ?
@@ -2377,6 +2383,10 @@ assets-list-bulk-action-error = Échec de la suppression des actifs. Veuillez r�
 asset-detail-back-to-ticket = Retour au ticket n°{ $id }
 asset-detail-back-to-devices = Retour
 asset-detail-readonly = Lecture seule
+# Machine, à relire par un locuteur natif.
+asset-detail-sync-source-intune = Synchronisé depuis Intune
+asset-detail-sync-source-entra = Synchronisé depuis Microsoft Entra
+asset-detail-sync-source-generic = Synchronisé depuis une source externe
 asset-detail-delete-item-name = Actif
 asset-detail-error-invalid-id = ID d'actif invalide
 asset-detail-error-load = Échec du chargement des détails de l'actif
@@ -2386,6 +2396,8 @@ asset-detail-error-unmanage = Échec de la désinscription de l'appareil. Veuill
 asset-detail-section-details = Détails de l'actif
 asset-detail-section-kind = Type d'actif
 asset-detail-field-kind = Type
+# Machine, à relire par un locuteur natif.
+assets-list-create-error = Impossible de créer un nouvel actif. Veuillez réessayer.
 asset-detail-field-name = Nom
 asset-detail-field-name-placeholder-create = Saisissez le nom de l'actif
 asset-detail-field-name-placeholder-edit = Saisir un nom...
@@ -2405,6 +2417,8 @@ asset-detail-field-warranty-status = Statut de garantie
 asset-detail-field-warranty-start = Début de garantie
 asset-detail-field-warranty-end = Fin de garantie
 asset-detail-field-purchase-date = Date d'achat
+# Groupe garantie (machine, à relire par un locuteur natif).
+asset-detail-group-warranty = Garantie
 asset-detail-field-asset-tag = Étiquette d'inventaire
 asset-detail-field-asset-tag-placeholder-create = Saisir l'étiquette d'inventaire
 asset-detail-field-asset-tag-placeholder-edit = Saisir l'étiquette d'inventaire...
@@ -2415,11 +2429,36 @@ asset-detail-warranty-unknown = Inconnue
 asset-detail-section-primary-user = Utilisateur principal
 asset-detail-no-user-assigned = Aucun utilisateur assigné à cet actif
 asset-detail-action-assign-user = Attribuer un utilisateur
+# Machine, à relire par un locuteur natif.
+asset-detail-add-property = Ajouter une propriété
+# Catalogue de modèles d'actifs (machine, à relire par un locuteur natif).
+asset-model-label = Modèle
+asset-model-change = Changer
+asset-model-clear = Retirer le modèle
+asset-model-choose = Choisir un modèle
+asset-model-none = Aucun modèle
+asset-model-search-placeholder = Rechercher des modèles...
+asset-model-create-new = + Nouveau modèle
+asset-model-create-title = Nouveau modèle
+asset-model-field-manufacturer = Fabricant
+asset-model-field-manufacturer-placeholder = Choisir un fabricant
+asset-model-new-manufacturer = + Nouveau fabricant
+asset-model-new-manufacturer-placeholder = Nom du fabricant
+asset-model-field-name = Nom du modèle
+asset-model-field-name-placeholder = ex. Latitude 5540
+asset-model-create-submit = Créer le modèle
+asset-model-set-failed = Impossible de définir le modèle. Veuillez réessayer.
+asset-model-clear-failed = Impossible de retirer le modèle. Veuillez réessayer.
+asset-model-create-failed = Impossible de créer le modèle. Veuillez réessayer.
+asset-detail-clear-user = Retirer le propriétaire
 asset-detail-action-change-user = Changer d'utilisateur
 # asset-detail-action-track-stock (machine, à relire par un locuteur natif).
 asset-detail-action-track-stock = Suivre le stock
 asset-detail-section-device-information = Informations sur l'appareil
 asset-detail-field-device-id = ID de l'appareil
+# Machine, à relire par un locuteur natif.
+asset-detail-section-record = Enregistrement
+asset-detail-field-asset-id = ID de l'actif
 asset-detail-field-created = Créé
 asset-detail-field-last-updated = Dernière mise à jour
 asset-detail-manually-managed = Géré manuellement
@@ -2828,49 +2867,9 @@ doc-detail-ticket-note-title = Notes pour le ticket n°{ $id }
 doc-detail-ticket-note-description = Documentation pour le ticket { $title }
 doc-detail-ticket-note-author-system = Système
 
-# Asset planner (AssetPlannerView): kanban de planification des
 # déploiements d'équipements, regroupés par famille d'OS, période
 # de garantie ou état de conformité. Couvre l'en-tête, les filtres
 # latéraux, les colonnes et les puces des cartes.
-asset-planner-title = Équipements
-asset-planner-subtitle = Planifiez les déploiements par OS, garantie ou conformité.
-asset-planner-search-placeholder = Rechercher par nom, hôte, modèle…
-asset-planner-group-by = Grouper par
-asset-planner-axis-os = Famille d'OS
-asset-planner-axis-warranty = Garantie
-asset-planner-axis-compliance = Conformité
-asset-planner-loading = Chargement des équipements…
-asset-planner-load-error = Échec du chargement des équipements
-asset-planner-filters-heading = Filtres
-asset-planner-filters-clear = Effacer ({ $count })
-asset-planner-section-os = OS
-asset-planner-section-warranty = Garantie
-asset-planner-section-compliance = Conformité
-asset-planner-count = { $visible } sur { $total ->
-    [one] { $total } équipement
-   *[other] { $total } équipements
-   }
-asset-planner-empty = Aucun actif ne correspond aux filtres actuels.
-asset-planner-warranty-ends = Garantie expire le { $date }
-asset-planner-no-warranty-data = Pas de donnée de garantie
-asset-planner-warranty-unknown-short = n/d
-asset-planner-card-host = Hôte
-asset-planner-card-os = OS
-asset-planner-card-model = Modèle
-asset-planner-card-tag = Étiquette
-asset-planner-card-compliance = Conformité
-asset-planner-os-windows = Windows
-asset-planner-os-macos = macOS
-asset-planner-os-linux = Linux
-asset-planner-os-ios = iOS
-asset-planner-os-android = Android
-asset-planner-os-other = Autre
-asset-planner-warranty-expired = Expirée
-asset-planner-warranty-expiring-30d = Expire dans 30 jours
-asset-planner-warranty-expiring-90d = Expire dans 90 jours
-asset-planner-warranty-active = Active
-asset-planner-warranty-unknown = Inconnue
-asset-planner-compliance-unknown = Inconnue
 
 # Collection view (CollectionView): documentation collection
 # detail page with editable name/icon, an overview editor,
@@ -3296,13 +3295,6 @@ ticket-picker-user-section-all = Tous les utilisateurs
 ticket-picker-user-you-suffix = (vous)
 
 # Ticket picker: modale de ticket lié (LinkedTicketModal)
-ticket-picker-linked-title = Lier un ticket
-ticket-picker-linked-search-placeholder = Rechercher des tickets...
-ticket-picker-linked-loading = Chargement des tickets...
-ticket-picker-linked-error = Échec du chargement des tickets
-ticket-picker-linked-try-again = Réessayer
-ticket-picker-linked-empty-search = Aucun ticket ne correspond à votre recherche
-ticket-picker-linked-empty = Aucun ticket à lier
 ticket-picker-linked-col-id = ID
 ticket-picker-linked-col-title = Titre
 ticket-picker-linked-col-status = Statut
@@ -3312,7 +3304,6 @@ ticket-picker-linked-count = { $count ->
     [one] { $count } ticket
    *[other] { $count } tickets
 }
-ticket-picker-linked-cancel = Annuler
 
 # Ticket picker: réponses préenregistrées (CannedResponsePicker)
 ticket-picker-canned-trigger-aria = Insérer une réponse préenregistrée
@@ -4025,6 +4016,12 @@ ticket-activity-phrase-replied-via = a répondu via { $channel }
 ticket-activity-phrase-comment-via = a ajouté un commentaire via { $channel }
 ticket-activity-phrase-commented = a commenté ce ticket
 ticket-activity-phrase-comment-deleted = a supprimé un commentaire
+# MT: pending native review
+ticket-activity-phrase-loan-issued = a prêté un appareil à { $borrower }
+# MT: pending native review
+ticket-activity-phrase-loan-issued-plain = a prêté un appareil
+# MT: pending native review
+ticket-activity-phrase-loan-returned = a retourné un appareil prêté
 ticket-activity-phrase-generic = a effectué une modification
 
 # Ticket : sélecteur d'étiquettes (TicketTagsField).
@@ -4138,6 +4135,99 @@ asset-lifecycle-heading = Cycle de vie
 asset-lifecycle-description = Suivez les changements de statut opérationnel tels que les réparations, les prêts et la mise hors service.
 asset-lifecycle-current-label = Statut actuel
 asset-lifecycle-change-status = Changer le statut
+# MT: pending native review
+asset-lifecycle-managed-by-loan = Géré par le prêt en cours
+# MT: pending native review
+asset-loan-heading = Prêts
+# MT: pending native review
+asset-loan-description = Prêtez temporairement cet appareil à quelqu'un et suivez son retour.
+# MT: pending native review
+asset-loan-loan-out = Prêter
+# MT: pending native review
+asset-loan-return = Retourner
+# MT: pending native review
+asset-loan-borrower = Emprunteur
+# MT: pending native review
+asset-loan-select-borrower = Sélectionner un emprunteur
+# MT: pending native review
+asset-loan-due-back-optional = Date de retour (facultatif)
+# Dates de prêt (machine, à relire par un locuteur natif).
+# Période de prêt (machine, à relire par un locuteur natif).
+asset-loan-period-label = Période de prêt
+asset-loan-period-hint = Quand l'appareil a été remis, et quand il doit être rendu. Laissez la date de retour vide pour un prêt sans échéance.
+asset-loan-loaned-on = Prêté le
+asset-loan-return-by-optional = À rendre avant (facultatif)
+# MT: pending native review
+asset-loan-ticket-field = Ticket
+# MT: pending native review
+asset-loan-ticket-field-placeholder = ex. 1234
+# Sélecteur de ticket (machine, à relire par un locuteur natif).
+asset-loan-ticket-link = Associer un ticket
+asset-loan-ticket-clear = Retirer le ticket
+ticket-picker-title = Sélectionner un ticket
+ticket-picker-search-placeholder = Rechercher des tickets…
+ticket-picker-create-new = Créer un ticket
+ticket-picker-empty = Aucun ticket
+ticket-picker-empty-search = Aucun ticket ne correspond à votre recherche
+ticket-picker-error = Échec du chargement des tickets
+ticket-picker-create-failed = Échec de la création du ticket
+ticket-picker-untitled = Ticket sans titre
+# MT: pending native review
+asset-loan-notes = Notes
+# MT: pending native review
+asset-loan-issue-title = Prêter l'appareil
+# MT: pending native review
+asset-loan-return-title = Retourner l'appareil
+# MT: pending native review
+asset-loan-return-body = Retourner cet appareil de { $name } ?
+# MT: pending native review
+asset-loan-return-notes = Notes de retour (facultatif)
+# MT: pending native review
+asset-loan-cancel = Annuler
+# MT: pending native review
+asset-loan-not-loanable = Cet appareil ne peut être prêté que lorsqu'il est en service ou en stock.
+# MT: pending native review
+asset-loan-empty-title = Aucun prêt pour l'instant
+# MT: pending native review
+asset-loan-empty-description = Prêtez cet appareil pour suivre qui le détient et quand il doit être rendu.
+# MT: pending native review
+asset-loan-history = Historique des prêts
+# MT: pending native review
+asset-loan-loaned-relative = Prêté { $when }
+# MT: pending native review
+asset-loan-ticket = Ticket n°{ $id }
+# MT: pending native review
+asset-loan-unknown-borrower = Emprunteur inconnu
+# MT: pending native review
+asset-loan-due-overdue = En retard
+# MT: pending native review
+asset-loan-due-today = À rendre aujourd'hui
+# MT: pending native review
+asset-loan-due-soon = À rendre dans { $days } jours
+# MT: pending native review
+asset-loan-due-on = À rendre le { $date }
+# MT: pending native review
+asset-loan-range = { $from } à { $to }
+# MT: pending native review
+asset-loan-failed = Une erreur s'est produite. Veuillez réessayer.
+# MT: pending native review
+asset-loan-ticket-heading = Appareils prêtés
+# MT: pending native review
+asset-loan-device-fallback = Appareil n°{ $id }
+# MT: pending native review
+asset-loan-returned-on = retourné le { $date }
+# MT: pending native review
+asset-loan-device = Appareil
+# MT: pending native review
+asset-loan-device-search = Rechercher des appareils…
+# MT: pending native review
+asset-loan-change = Modifier
+# MT: pending native review
+asset-loan-loading = Chargement…
+# MT: pending native review
+asset-loan-no-loanable = Aucun appareil disponible
+# MT: pending native review
+asset-loan-load-error = Impossible de charger les prêts.
 asset-lifecycle-empty-title = Aucune transition pour le moment
 asset-lifecycle-empty-description = Les changements de statut apparaîtront ici une fois enregistrés.
 asset-lifecycle-transition-failed = Échec du changement de statut de l'actif
@@ -4981,6 +5071,9 @@ ui-site-header-untitled-ticket = Ticket sans titre
 ui-site-header-untitled = Sans titre
 ui-site-header-unknown-device = Appareil inconnu
 ui-site-header-ticket-title-placeholder = Saisir le titre du ticket...
+# En-tête titre d'actif (machine, à relire par un locuteur natif).
+ui-site-header-untitled-asset = Actif sans nom
+ui-site-header-asset-title-placeholder = Saisir le nom de l'actif...
 ui-site-header-document-title-placeholder = Saisir le titre du document...
 ui-site-header-create-aria = Créer { $action }
 ui-site-header-inbox-tooltip = Boîte de réception
@@ -5204,7 +5297,6 @@ route-title-project-gantt = Gantt
 route-title-assets = Ressources
 route-title-asset-create = Créer un actif
 route-title-asset-view = Détails de l'actif
-route-title-asset-planner = Planificateur d'actifs
 route-title-project-detail = Détails du projet
 route-title-error = Erreur
 route-title-users = Utilisateurs
@@ -5226,6 +5318,42 @@ route-title-admin-categories = Catégories
 route-title-admin-assignment-rules = Règles d'attribution
 route-title-admin-workflow = Flux de travail
 route-title-admin-asset-kinds = Types d'actifs
+# Catalogue d'actifs (machine, à relire par un locuteur natif).
+route-title-asset-catalog = Catalogue d'actifs
+common-edit = Modifier
+common-delete = Supprimer
+common-save = Enregistrer
+common-cancel = Annuler
+asset-catalog-title = Catalogue d'actifs
+asset-catalog-description = Fabricants et modèles à partir desquels les actifs sont créés.
+asset-catalog-manufacturers-heading = Fabricants
+asset-catalog-add-manufacturer = Ajouter un fabricant
+asset-catalog-edit-manufacturer = Modifier le fabricant
+asset-catalog-manufacturers-empty = Aucun fabricant pour le moment
+asset-catalog-models-heading = Modèles
+asset-catalog-add-model = Ajouter un modèle
+asset-catalog-edit-model = Modifier le modèle
+asset-catalog-models-empty = Aucun modèle pour le moment
+asset-catalog-need-manufacturer = Ajoutez d'abord un fabricant
+asset-catalog-manufacturer-name = Nom
+asset-catalog-manufacturer-name-placeholder = ex. Apple
+asset-catalog-part-number = Référence
+asset-catalog-part-number-placeholder = Facultatif
+# Specs par défaut du modèle (machine, à relire par un locuteur natif).
+asset-catalog-default-specs = Spécifications par défaut
+asset-catalog-default-specs-hint = Pré-remplies sur chaque actif créé à partir de ce modèle. Laisser vide pour ignorer.
+asset-catalog-notes = Notes
+asset-catalog-delete-title = Supprimer
+asset-catalog-manufacturer-delete-confirm = Supprimer le fabricant « { $name } » ?
+asset-catalog-model-delete-confirm = Supprimer le modèle « { $name } » ? Les actifs créés à partir de celui-ci conservent leurs informations.
+asset-catalog-manufacturer-save-failed = Impossible d'enregistrer le fabricant. Veuillez réessayer.
+asset-catalog-model-save-failed = Impossible d'enregistrer le modèle. Veuillez réessayer.
+asset-catalog-delete-failed = Suppression impossible. L'élément est peut-être encore utilisé.
+asset-catalog-model-count = { $count ->
+    [0] Aucun modèle
+    [one] 1 modèle
+   *[other] { $count } modèles
+}
 route-title-admin-asset-kinds-new = Nouveau type d'actif
 route-title-admin-asset-kinds-edit = Modifier le type d'actif
 route-title-admin-api-tokens = Jetons d'API
@@ -5697,6 +5825,53 @@ assets-list-grouping-manufacturer-none = No manufacturer
 assets-list-grouping-location = Location
 assets-list-grouping-location-none = No location
 assets-list-grouping-primary-user = Primary user
+# Lentilles de planification de parc (machine, à relire par un locuteur natif).
+assets-list-grouping-os = Famille d'OS
+assets-list-grouping-warranty-window = Fenêtre de garantie
+assets-list-grouping-compliance = Conformité
+assets-list-os-windows = Windows
+assets-list-os-macos = macOS
+assets-list-os-linux = Linux
+assets-list-os-ios = iOS / iPadOS
+assets-list-os-android = Android
+assets-list-os-other = Autre
+assets-list-warranty-window-expired = Expirée
+assets-list-warranty-window-expiring-30d = Expire sous 30 jours
+assets-list-warranty-window-expiring-90d = Expire sous 90 jours
+assets-list-warranty-window-active = Sous garantie
+assets-list-warranty-window-unknown = Pas de date de garantie
+assets-list-compliance-unknown = Inconnu
+# Création de déploiement (machine, à relire par un locuteur natif).
+asset-rollout-bulk-action = {$count ->
+    [one] Créer un déploiement (1)
+   *[other] Créer un déploiement ({$count})
+  }
+asset-rollout-title = Créer un déploiement
+asset-rollout-summary = {$count ->
+    [one] 1 appareil recevra un ticket dans un nouveau projet.
+   *[other] {$count} appareils recevront chacun un ticket dans un nouveau projet.
+  }
+asset-rollout-name-label = Nom du déploiement
+asset-rollout-name-placeholder = ex. Renouvellement Windows 10
+asset-rollout-state-label = Statut initial
+asset-rollout-priority-label = Priorité
+asset-rollout-create-action = {$count ->
+    [one] Créer le déploiement (1 ticket)
+   *[other] Créer le déploiement ({$count} tickets)
+  }
+asset-rollout-created = {$count ->
+    [one] Déploiement créé avec 1 ticket
+   *[other] Déploiement créé avec {$count} tickets
+  }
+asset-rollout-create-failed = Échec de la création du déploiement
+# Planification mobile (machine, à relire par un locuteur natif).
+asset-planning-mobile-hint = Touchez un groupe { $axis } pour voir ses appareils et les déployer.
+asset-planning-mobile-back = Retour
+# Feuille mobile filtres/regroupement (machine, à relire par un locuteur natif).
+list-mobile-filter-group-title = Filtrer et regrouper
+list-mobile-group-by = Regrouper par
+list-mobile-filters = Filtres
+list-mobile-filter-done = Terminé
 tickets-grouping-all = Tous
 
 # T batch: final sweep
@@ -5925,3 +6100,8 @@ admin-rule-editor-error-save = Impossible d'enregistrer la règle.
 admin-rule-editor-error-conflict = Cette règle lit et écrit dans les mêmes champs. Enregistrez quand même pour outrepasser.
 admin-rule-editor-override-self-ref = Je sais que cette règle peut boucler
 admin-rule-editor-priority-label = Priorité (la plus basse en premier)
+asset-catalog-col-model = Modèle
+asset-catalog-col-type = Type
+asset-catalog-col-part-number = Référence
+asset-catalog-filter-all = Tous
+asset-catalog-manage-manufacturers = Fabricants
