@@ -203,44 +203,94 @@ function tickY(value: number): number {
   return PAD_TOP + h - (value / max) * h
 }
 
-const xLabels = computed(() => {
+interface XTick {
+  x: number
+  label: string
+  anchor: 'start' | 'middle' | 'end'
+}
+
+// Span of the active window in whole days. Drives the axis tick unit
+// so labels stay legible from a week out to a multi-year range.
+const spanDays = computed(() =>
+  Math.max(
+    1,
+    Math.round(
+      (new Date(timeWindow.value.to).getTime() - new Date(timeWindow.value.from).getTime()) / 86_400_000,
+    ),
+  ),
+)
+
+// Minimum centre-to-centre gap between x labels. Sized for the widest
+// localised label plus breathing room so nothing collides even in a
+// narrow widget, regardless of how dense the buckets are.
+const MIN_LABEL_GAP = 64
+
+const xLabels = computed<XTick[]>(() => {
   const data = buckets.value
-  if (data.length === 0 || innerW.value <= 0)
-    return [] as { x: number; label: string; anchor: 'start' | 'middle' | 'end' }[]
-  const step = data.length > 1 ? innerW.value / (data.length - 1) : 0
-  // Render at most ~6 x-axis labels to avoid overdraw on long
-  // windows. Pick evenly-spaced indices including the first and
-  // last buckets.
-  const target = Math.min(6, data.length)
-  const indices: number[] = []
-  for (let i = 0; i < target; i += 1) {
-    const idx = Math.round(((data.length - 1) * i) / Math.max(target - 1, 1))
-    if (!indices.includes(idx)) indices.push(idx)
+  if (data.length === 0 || innerW.value <= 0) return []
+  const n = data.length
+  const step = n > 1 ? innerW.value / (n - 1) : 0
+  // Labels sit on bucket indices, matching how the line points are
+  // placed, so each tick lands under the curve it annotates.
+  const xAt = (i: number) => PAD_LEFT + i * step
+  const ts = (i: number) => new Date(data[i].ts)
+
+  // Pick the tick unit by span. Hourly (today) labels the time of
+  // day; short day windows label "Jun 15"; up to ~a year labels the
+  // month; beyond that labels just the year so a 3-year view reads as
+  // "2024 2025 2026" rather than crowded day stamps.
+  const coarse = seriesGrain.value !== 'hour' && spanDays.value > 45
+  const yearOnly = spanDays.value > 400
+  const fmt = (i: number): string => {
+    const d = ts(i)
+    if (seriesGrain.value === 'hour')
+      return d.toLocaleTimeString(dateStore.locale, { hour: 'numeric', timeZone: tz.value })
+    if (yearOnly) return d.toLocaleDateString(dateStore.locale, { year: 'numeric', timeZone: tz.value })
+    if (coarse) return d.toLocaleDateString(dateStore.locale, { month: 'short', timeZone: tz.value })
+    return d.toLocaleDateString(dateStore.locale, { month: 'short', day: 'numeric', timeZone: tz.value })
   }
-  return indices.map((i, k) => {
-    const bucket = data[i]
-    const date = new Date(bucket.ts)
-    // Format in the user's effective timezone (matching the backend
-    // bucketing) so the labels read in their local time, not the
-    // browser's. Hourly buckets show time of day (e.g. "9 AM"); daily
-    // and coarser buckets show the date (e.g. "Jun 2").
-    const label =
-      seriesGrain.value === 'hour'
-        ? date.toLocaleTimeString(dateStore.locale, { hour: 'numeric', timeZone: tz.value })
-        : date.toLocaleDateString(dateStore.locale, {
-            month: 'short',
-            day: 'numeric',
-            timeZone: tz.value,
-          })
-    // Anchor the edge labels inward (first start, last end) so they
-    // don't clip against the chart edges; interior labels centre.
-    const anchor = k === 0 ? 'start' : k === indices.length - 1 ? 'end' : 'middle'
-    return {
-      x: PAD_LEFT + i * step,
-      label,
-      anchor,
+
+  // Candidate indices. Fine tiers (hour / day) consider every bucket;
+  // coarse tiers consider only the first bucket of each month or year
+  // so a label is never repeated.
+  const period = (i: number) =>
+    yearOnly
+      ? ts(i).toLocaleDateString(dateStore.locale, { year: 'numeric', timeZone: tz.value })
+      : ts(i).toLocaleDateString(dateStore.locale, { month: 'numeric', year: 'numeric', timeZone: tz.value })
+  const candidates: number[] = []
+  if (coarse) {
+    let prev = ''
+    for (let i = 0; i < n; i += 1) {
+      const p = period(i)
+      if (p !== prev) {
+        candidates.push(i)
+        prev = p
+      }
     }
-  })
+  } else {
+    for (let i = 0; i < n; i += 1) candidates.push(i)
+  }
+
+  // Greedy left-to-right, keeping a candidate only once it clears the
+  // last kept label by the minimum gap.
+  const kept: number[] = []
+  for (const i of candidates) {
+    if (kept.length === 0 || xAt(i) - xAt(kept[kept.length - 1]) >= MIN_LABEL_GAP) kept.push(i)
+  }
+  // The fine tiers care about the latest value, so force the final
+  // bucket in (dropping the prior label if it would crowd it).
+  if (!coarse && kept[kept.length - 1] !== n - 1) {
+    if (kept.length > 0 && xAt(n - 1) - xAt(kept[kept.length - 1]) < MIN_LABEL_GAP) kept.pop()
+    kept.push(n - 1)
+  }
+
+  return kept.map((i, k) => ({
+    x: xAt(i),
+    label: fmt(i),
+    // Anchor the edge labels inward so they don't clip the chart
+    // edges; interior labels centre on their tick.
+    anchor: k === 0 ? 'start' : k === kept.length - 1 ? 'end' : 'middle',
+  }))
 })
 </script>
 
