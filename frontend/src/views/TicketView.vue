@@ -668,19 +668,18 @@ useCreateTicketAction();
                             <PluginSlot slot-name="ticket-sidebar" :ticket="pluginTicket" :actionActivatedMap="pluginActionActivatedMap" />
                         </template>
 
-                        <!-- Activity timeline. Sourced from the
-                             sync_actions event log; surfaces every
-                             status / assignee / priority / category
-                             change + comment events. Lives in the left
-                             reference rail, under the metadata it
-                             annotates: activity is a reference surface
-                             techs consult for "who did this and when",
-                             not a primary scan target, so it stays out
-                             of the conversation columns. Hidden on print
-                             — not useful in offline export. -->
-                        <div v-if="ticket" class="print:hidden">
-                            <TicketActivity :ticket-id="ticket.id" />
                         </div>
+                        <!-- Activity timeline (sync_actions event log: status,
+                             assignee, priority, category changes + comments).
+                             One instance, kept as a sibling of the details card
+                             in the sidebar track so it sits under the metadata
+                             on tablet/desktop. On mobile the columns flatten
+                             (display:contents) and `order` drops it to the very
+                             bottom, below the conversation — pure CSS, so
+                             resizing never remounts it or refetches. Hidden on
+                             print. -->
+                        <div v-if="ticket" class="ticket-activity print:hidden">
+                            <TicketActivity :ticket-id="ticket.id" />
                         </div>
                     </div>
 
@@ -884,20 +883,33 @@ useCreateTicketAction();
     width: 100%;
 }
 
-.ticket-content-column,
-.ticket-details-column {
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-    min-width: 0;
-    width: 100%;
+/* Mobile: dissolve the column wrappers so the details card, the
+ * conversation, and the activity log become one flat flow we can order,
+ * with the activity pinned to the very bottom. The activity is a single
+ * instance that simply reorders here — no teleport, no remount, so
+ * resizing the viewport never refetches it. */
+.ticket-details-column,
+.ticket-content-column {
+    display: contents;
 }
 
-/* Mobile order: details quick-scan first, then the conversation. */
-.ticket-details-column { order: 1; }
-.ticket-content-column { order: 2; }
+.ticket-details,
+.ticket-article,
+.ticket-comments,
+.ticket-activity {
+    width: 100%;
+    min-width: 0;
+}
 
-/* Tablet (lg): 2 columns — details left, conversation right. */
+.ticket-details  { order: 1; }
+.ticket-article  { order: 2; }
+.ticket-comments { order: 3; }
+.ticket-activity { order: 4; }
+
+/* Tablet (lg): 2 columns — details (with the activity beneath it) on
+ * the left, conversation on the right. The column wrappers come back as
+ * real flex columns; the order values above still apply within each, so
+ * the activity stays under the metadata. */
 @media (min-width: 1024px) {
     .ticket-grid {
         flex-direction: row;
@@ -909,10 +921,12 @@ useCreateTicketAction();
      * pinning the width keeps the content column's growth
      * predictable. */
     .ticket-details-column {
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
         flex: 0 0 360px;
         max-width: 360px;
         min-width: 320px;
-        order: 1;
     }
 
     /* Wide content column on the right, takes whatever's left after
@@ -920,16 +934,19 @@ useCreateTicketAction();
      * email body with a wide table, a `<pre>` with a long line)
      * scroll inside their container instead of pushing the column. */
     .ticket-content-column {
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
         flex: 1 1 0;
         min-width: 0;
-        order: 2;
     }
 }
 
-/* Desktop (xl): 3 columns — details | article | comments. The two
- * column wrappers dissolve via `display: contents` so the article
- * and comments inside the content column become direct grid items
- * with their own tracks. */
+/* Desktop (xl): 3 columns — details | article | comments. Only the
+ * conversation wrapper dissolves via `display: contents` so the article
+ * and comments get their own tracks. The details wrapper stays a real
+ * column in track 1, so the activity log remains glued beneath the
+ * metadata rather than dropping to the bottom of a tall shared row. */
 @media (min-width: 1536px) {
     .ticket-grid {
         display: grid;
@@ -937,29 +954,27 @@ useCreateTicketAction();
         gap: 1.5rem;
     }
 
-    .ticket-content-column,
     .ticket-details-column {
+        grid-column: 1;
+        max-width: none;
+    }
+
+    .ticket-content-column {
         display: contents;
     }
 
-    .ticket-details,
-    .ticket-article,
-    .ticket-comments {
-        width: auto; /* override the 100% from the flex layout */
-        min-width: 0;
-    }
-
-    .ticket-details {
-        grid-column: 1;
-        grid-row: 1;
-    }
     .ticket-article {
         grid-column: 2;
         grid-row: 1;
+        width: auto;
+        min-width: 0;
     }
+
     .ticket-comments {
         grid-column: 3;
         grid-row: 1;
+        width: auto;
+        min-width: 0;
     }
 }
 </style>
