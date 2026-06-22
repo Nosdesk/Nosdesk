@@ -94,6 +94,11 @@ const props = withDefaults(
      *  search (registered via `useListPage`'s mobileSearch
      *  option) is unaffected. */
     hideDesktopSearch?: boolean
+    /** Render the `#mobile` body override instead of the default flat
+     *  `#mobile-row` list. Lets a view keep the default (staggered)
+     *  list most of the time and swap to a bespoke mobile body only in
+     *  certain states (e.g. a grouped planning summary). */
+    mobileSlotActive?: boolean
   }>(),
   {
     error: null,
@@ -126,6 +131,10 @@ defineSlots<{
   'empty-state'(): unknown
   desktop(props: { items: readonly T[]; isBackgroundRefresh: boolean }): unknown
   'mobile-row'(props: { item: T; index: number }): unknown
+  /** Full override of the mobile body. When provided, replaces the
+   *  default flat `mobile-row` list entirely — for views that want a
+   *  bespoke mobile layout (e.g. a grouped summary). */
+  mobile(props: { items: readonly T[]; isBackgroundRefresh: boolean }): unknown
   'bulk-actions'(props: { selectedCount: number; isAllMatching: boolean }): unknown
   footer(): unknown
 }>()
@@ -262,7 +271,16 @@ function onClearSelection() {
          the view's `#mobile-row` template renders one row given
          `{ item, index }`. -->
     <div v-show="isMobile" class="flex h-full flex-col">
-      <TransitionGroup name="list-stagger" tag="div" class="flex flex-col">
+      <!-- A view can take over the whole mobile body via #mobile (e.g.
+           a grouped summary) when it flags `mobileSlotActive`.
+           Otherwise the default flat, staggered row list. -->
+      <slot
+        v-if="mobileSlotActive && $slots.mobile"
+        name="mobile"
+        :items="items"
+        :is-background-refresh="isBackgroundRefresh"
+      />
+      <TransitionGroup v-else name="list-stagger" tag="div" class="flex flex-col">
         <div
           v-for="(item, index) in items"
           :key="rowKey(item, index)"
@@ -273,7 +291,7 @@ function onClearSelection() {
       </TransitionGroup>
 
       <!-- Mobile also needs the bottom spinner during loadMore. -->
-      <div v-if="isLoadingMore" class="py-4 flex justify-center bg-app">
+      <div v-if="isLoadingMore && !(mobileSlotActive && $slots.mobile)" class="py-4 flex justify-center bg-app">
         <div
           class="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-accent"
           :aria-label="fluent.$t('common-loading-more-aria')"

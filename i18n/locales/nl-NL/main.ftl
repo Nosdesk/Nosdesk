@@ -5044,6 +5044,9 @@ ui-site-header-untitled-ticket = Ticket zonder titel
 ui-site-header-untitled = Zonder titel
 ui-site-header-unknown-device = Onbekend apparaat
 ui-site-header-ticket-title-placeholder = Tickettitel invoeren...
+# Koptekst asset-titel (machine, na te kijken door moedertaalspreker).
+ui-site-header-untitled-asset = Naamloos asset
+ui-site-header-asset-title-placeholder = Assetnaam invoeren...
 ui-site-header-document-title-placeholder = Documenttitel invoeren...
 ui-site-header-create-aria = { $action } aanmaken
 ui-site-header-inbox-tooltip = Postvak
@@ -5834,6 +5837,14 @@ asset-rollout-created = {$count ->
    *[other] Uitrol aangemaakt met {$count} tickets
   }
 asset-rollout-create-failed = Uitrol aanmaken mislukt
+# Mobiele planning (machine, na te kijken door moedertaalspreker).
+asset-planning-mobile-hint = Tik op een { $axis }-groep om de apparaten te bekijken en uit te rollen.
+asset-planning-mobile-back = Terug
+# Mobiele lijst filter/groepeer-sheet (machine, na te kijken door moedertaalspreker).
+list-mobile-filter-group-title = Filteren en groeperen
+list-mobile-group-by = Groeperen op
+list-mobile-filters = Filters
+list-mobile-filter-done = Klaar
 tickets-grouping-all = Alle
 
 # T batch: final sweep

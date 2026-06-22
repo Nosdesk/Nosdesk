@@ -5053,6 +5053,9 @@ ui-site-header-untitled-ticket = Ticket sans titre
 ui-site-header-untitled = Sans titre
 ui-site-header-unknown-device = Appareil inconnu
 ui-site-header-ticket-title-placeholder = Saisir le titre du ticket...
+# En-tête titre d'actif (machine, à relire par un locuteur natif).
+ui-site-header-untitled-asset = Actif sans nom
+ui-site-header-asset-title-placeholder = Saisir le nom de l'actif...
 ui-site-header-document-title-placeholder = Saisir le titre du document...
 ui-site-header-create-aria = Créer { $action }
 ui-site-header-inbox-tooltip = Boîte de réception
@@ -5843,6 +5846,14 @@ asset-rollout-created = {$count ->
    *[other] Déploiement créé avec {$count} tickets
   }
 asset-rollout-create-failed = Échec de la création du déploiement
+# Planification mobile (machine, à relire par un locuteur natif).
+asset-planning-mobile-hint = Touchez un groupe { $axis } pour voir ses appareils et les déployer.
+asset-planning-mobile-back = Retour
+# Feuille mobile filtres/regroupement (machine, à relire par un locuteur natif).
+list-mobile-filter-group-title = Filtrer et regrouper
+list-mobile-group-by = Regrouper par
+list-mobile-filters = Filtres
+list-mobile-filter-done = Terminé
 tickets-grouping-all = Tous
 
 # T batch: final sweep

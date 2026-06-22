@@ -5178,6 +5178,8 @@ ui-site-header-untitled-ticket = Untitled Ticket
 ui-site-header-untitled = Untitled
 ui-site-header-unknown-device = Unknown Device
 ui-site-header-ticket-title-placeholder = Enter ticket title...
+ui-site-header-untitled-asset = Untitled asset
+ui-site-header-asset-title-placeholder = Enter asset name...
 ui-site-header-document-title-placeholder = Enter document title...
 ui-site-header-create-aria = Create { $action }
 ui-site-header-inbox-tooltip = Inbox
@@ -5959,6 +5961,13 @@ asset-rollout-created = {$count ->
    *[other] Rollout created with {$count} tickets
   }
 asset-rollout-create-failed = Failed to create rollout
+asset-planning-mobile-hint = Tap a { $axis } group to view its devices and roll them out.
+asset-planning-mobile-back = Back
+# Mobile list filter/group sheet (shared across list views).
+list-mobile-filter-group-title = Filter & group
+list-mobile-group-by = Group by
+list-mobile-filters = Filters
+list-mobile-filter-done = Done
 tickets-grouping-all = All
 
 # T batch: final sweep

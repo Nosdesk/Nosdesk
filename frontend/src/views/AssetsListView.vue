@@ -23,6 +23,9 @@ import { TextCell, StatusBadgeCell, UserAvatarCell } from '@/components/common/c
 import AssetViewTabs from '@/components/assets/AssetViewTabs.vue'
 import AssetStatusBadge from '@/components/assets/AssetStatusBadge.vue'
 import CreateRolloutModal from '@/components/assets/CreateRolloutModal.vue'
+import AssetMobileRow from '@/components/assets/AssetMobileRow.vue'
+import AssetPlanningMobile from '@/components/assets/AssetPlanningMobile.vue'
+import type { GroupBucket } from '@/composables/useListGrouping'
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
@@ -388,10 +391,34 @@ const rolloutDefaultName = computed<string>(() => {
   return selectedInBucket === selected.size ? bucket.label : ''
 })
 
+// The modal reads from these refs so both entry points (desktop bulk
+// selection, mobile whole-bucket) populate the same source.
+const rolloutAssetIds = ref<number[]>([])
+const rolloutName = ref('')
+
+function openRolloutFromSelection() {
+  rolloutAssetIds.value = selectedAssetIds.value
+  rolloutName.value = rolloutDefaultName.value
+  showRollout.value = true
+}
+
+function openRolloutForBucket(bucket: GroupBucket<Asset>) {
+  rolloutAssetIds.value = bucket.items.map((a) => a.id)
+  rolloutName.value = bucket.label
+  showRollout.value = true
+}
+
 function onRolloutCreated() {
   showRollout.value = false
   listView.selection.clear()
 }
+
+// Mobile planning lens: when a planning axis is active, the mobile body
+// switches from the flat list to the summary -> drill-down view.
+const activeAxisLabel = computed<string>(() => {
+  const axis = groupAxes.find((a) => a.key === listView.grouping.groupBy.value)
+  return axis ? t(axis.labelKey) : ''
+})
 
 function filterString(value: string | number | undefined): string | undefined {
   if (value == null || value === '') return undefined
@@ -441,6 +468,7 @@ async function exportAssetsCsv() {
     :search-query="listView.controls.searchQuery.value"
     :search-placeholder="$t('assets-list-search-placeholder')"
     :item-label="$t('assets-list-item-label')"
+    :mobile-slot-active="listView.completeActive.value"
     bulk-selection-copy-key="bulk-bar-devices-selected"
     bulk-all-selected-copy-key="bulk-bar-devices-all-selected"
     :bulk-selection="listView.selection"
@@ -575,70 +603,27 @@ async function exportAssetsCsv() {
       </DataTable>
     </template>
 
+    <!-- Planning lens (mobileSlotActive): glanceable bucket summary ->
+         drill-down -> whole-bucket rollout. The flat device list below
+         handles every other state with its default staggered entrance. -->
+    <template #mobile>
+      <AssetPlanningMobile
+        :buckets="listView.buckets.value"
+        :axis-label="activeAxisLabel"
+        @open="navigateToAsset"
+        @rollout="openRolloutForBucket"
+      />
+    </template>
+
     <template #mobile-row="{ item }">
-      <div
-        class="flex items-center gap-3 px-3 py-2.5 hover:bg-surface-hover active:bg-surface-alt transition-colors cursor-pointer border-t border-default first:border-t-0"
-        @click="navigateToAsset(item)"
-      >
-        <div class="w-10 h-10 rounded-lg bg-surface-alt flex items-center justify-center flex-shrink-0">
-          <Icon name="device" size="md" class="text-secondary" />
-        </div>
-
-        <div class="flex-1 min-w-0">
-          <div class="flex items-center gap-1.5">
-            <span class="text-sm text-primary font-medium truncate">{{ item.name }}</span>
-            <div v-if="item.groups?.length" class="flex items-center gap-1 flex-shrink-0">
-              <span
-                v-for="group in item.groups.slice(0, 3)"
-                :key="group.id"
-                class="w-1.5 h-1.5 rounded-full"
-                :style="{ backgroundColor: group.color || 'var(--color-text-tertiary)' }"
-                :title="group.name"
-              />
-            </div>
-          </div>
-
-          <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1 text-xs">
-            <span v-if="item.model" class="text-secondary">{{ item.model }}</span>
-            <span v-if="item.location" class="text-tertiary truncate max-w-[140px]">{{ item.location }}</span>
-            <span class="text-tertiary">{{ assetKindLabel(item.kind) }}</span>
-            <span v-if="item.serial_number" class="text-tertiary font-mono">{{ item.serial_number }}</span>
-          </div>
-
-          <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5 text-xs">
-            <span v-if="item.attributes?.hostname" class="text-tertiary font-mono truncate max-w-[160px]">{{ item.attributes.hostname }}</span>
-            <span v-if="item.primary_user" class="text-secondary truncate max-w-[120px]">{{ item.primary_user.name }}</span>
-            <span
-              v-if="isLowStock(item)"
-              class="inline-flex items-center px-1.5 py-0.5 rounded font-medium border bg-status-warning-muted text-status-warning border-status-warning/30"
-            >
-              {{ $t('assets-list-low-stock-badge') }}
-            </span>
-            <AssetStatusBadge :status="item.status || 'in_service'" />
-            <span
-              v-if="item.attributes?.warranty_status"
-              class="inline-flex items-center px-1.5 py-0.5 rounded font-medium border"
-              :class="{
-                'bg-status-success-muted text-status-success border-status-success/30': item.attributes.warranty_status === 'Active',
-                'bg-status-warning-muted text-status-warning border-status-warning/30': item.attributes.warranty_status === 'Warning',
-                'bg-status-error-muted text-status-error border-status-error/30': item.attributes.warranty_status === 'Expired',
-                'bg-surface-alt text-secondary border-default': item.attributes.warranty_status === 'Unknown'
-              }"
-            >
-              {{ item.attributes.warranty_status }}
-            </span>
-          </div>
-        </div>
-
-        <Icon name="chevronRight" size="sm" class="text-tertiary flex-shrink-0" />
-      </div>
+      <AssetMobileRow :asset="item" @open="navigateToAsset" />
     </template>
 
     <template #bulk-actions="{ selectedCount }">
       <button
         type="button"
         class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-full text-accent hover:bg-accent/10 transition-colors whitespace-nowrap"
-        @click="showRollout = true"
+        @click="openRolloutFromSelection"
       >
         <Icon name="send" size="sm" />
         {{ $t('asset-rollout-bulk-action', { count: selectedCount }) }}
@@ -682,8 +667,8 @@ async function exportAssetsCsv() {
 
   <CreateRolloutModal
     :show="showRollout"
-    :asset-ids="selectedAssetIds"
-    :default-name="rolloutDefaultName"
+    :asset-ids="rolloutAssetIds"
+    :default-name="rolloutName"
     @close="showRollout = false"
     @created="onRolloutCreated"
   />
