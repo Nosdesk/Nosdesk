@@ -4141,10 +4141,24 @@ asset-loan-borrower = Lener
 asset-loan-select-borrower = Selecteer een lener
 # MT: pending native review
 asset-loan-due-back-optional = Terug verwacht (optioneel)
+# Uitleendatums (machine, na te kijken door moedertaalspreker).
+asset-loan-loaned-on = Uitgeleend op
+asset-loan-return-by-optional = Terugbrengen vóór (optioneel)
 # MT: pending native review
 asset-loan-ticket-field = Ticket
 # MT: pending native review
 asset-loan-ticket-field-placeholder = bijv. 1234
+# Ticketkiezer (machine, na te kijken door moedertaalspreker).
+asset-loan-ticket-link = Ticket koppelen
+asset-loan-ticket-clear = Ticket verwijderen
+ticket-picker-title = Selecteer een ticket
+ticket-picker-search-placeholder = Tickets zoeken…
+ticket-picker-create-new = Nieuw ticket maken
+ticket-picker-empty = Nog geen tickets
+ticket-picker-empty-search = Geen tickets komen overeen met je zoekopdracht
+ticket-picker-error = Laden van tickets mislukt
+ticket-picker-create-failed = Ticket maken mislukt
+ticket-picker-untitled = Naamloos ticket
 # MT: pending native review
 asset-loan-notes = Notities
 # MT: pending native review

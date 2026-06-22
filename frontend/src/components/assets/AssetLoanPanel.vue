@@ -4,13 +4,13 @@ import { RouterLink } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import { useQuery, useQueryCache } from '@pinia/colada';
 import Button from '@/components/common/Button.vue';
-import FormInput from '@/components/common/FormInput.vue';
 import FormTextarea from '@/components/common/FormTextarea.vue';
 import DatePicker from '@/components/common/DatePicker.vue';
 import Icon from '@/components/common/Icon.vue';
 import Modal from '@/components/Modal.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 import UserSelectionModal from '@/components/UserSelectionModal.vue';
+import TicketPickerModal from '@/components/ticketComponents/TicketPickerModal.vue';
 import { assetLoanKeys, assetLoanService } from '@/services/assetLoanService';
 import { useSyncActions } from '@/composables/useSyncActions';
 import { useUsersDirectory } from '@/composables/useUsersDirectory';
@@ -115,16 +115,19 @@ const today = new Date().toISOString().slice(0, 10);
 const showIssue = ref(false);
 const showBorrowerPicker = ref(false);
 const borrower = ref<{ uuid: string; name: string } | null>(null);
+const loanedOn = ref(today);
 const dueBack = ref('');
-const ticketIdInput = ref('');
+const linkedTicket = ref<{ id: number; title: string } | null>(null);
+const showTicketPicker = ref(false);
 const notes = ref('');
 const issueError = ref('');
 const submitting = ref(false);
 
 function openIssue() {
   borrower.value = null;
+  loanedOn.value = today;
   dueBack.value = '';
-  ticketIdInput.value = '';
+  linkedTicket.value = null;
   notes.value = '';
   issueError.value = '';
   showIssue.value = true;
@@ -135,11 +138,8 @@ function onSelectBorrower(user: { uuid: string; name: string }) {
   if (user.uuid) borrower.value = { uuid: user.uuid, name: user.name };
 }
 
-function parseTicketId(): number | null {
-  const raw = ticketIdInput.value.trim();
-  if (!raw) return null;
-  const n = Number.parseInt(raw, 10);
-  return Number.isFinite(n) && n > 0 ? n : null;
+function onSelectTicket(ticket: { id: number; title: string }) {
+  linkedTicket.value = ticket;
 }
 
 async function submitIssue() {
@@ -149,8 +149,9 @@ async function submitIssue() {
   try {
     await assetLoanService.issue(props.assetId, {
       borrower_user_uuid: borrower.value.uuid,
+      loaned_at: loanedOn.value || null,
       due_back: dueBack.value || null,
-      ticket_id: parseTicketId(),
+      ticket_id: linkedTicket.value?.id ?? null,
       notes: notes.value.trim() || null,
     });
     await invalidate();
@@ -311,14 +312,39 @@ async function submitReturn() {
           </button>
         </div>
 
-        <DatePicker v-model="dueBack" :label="$t('asset-loan-due-back-optional')" :min="today" />
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <DatePicker v-model="loanedOn" :label="$t('asset-loan-loaned-on')" :max="today" />
+          <DatePicker v-model="dueBack" :label="$t('asset-loan-return-by-optional')" :min="loanedOn || today" />
+        </div>
 
-        <FormInput
-          v-model="ticketIdInput"
-          :label="$t('asset-loan-ticket-field')"
-          :placeholder="$t('asset-loan-ticket-field-placeholder')"
-          inputmode="numeric"
-        />
+        <div class="flex flex-col gap-1">
+          <span class="text-xs font-medium text-tertiary">{{ $t('asset-loan-ticket-field') }}</span>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              class="flex-1 min-w-0 flex items-center gap-2 rounded-lg border border-default bg-surface px-3 py-2 text-left hover:border-strong transition-colors"
+              @click="showTicketPicker = true"
+            >
+              <template v-if="linkedTicket">
+                <span class="text-xs font-mono text-tertiary shrink-0">#{{ linkedTicket.id }}</span>
+                <span class="text-sm text-primary truncate">{{ linkedTicket.title || $t('ticket-picker-untitled') }}</span>
+              </template>
+              <template v-else>
+                <Icon name="ticket" size="sm" class="text-tertiary shrink-0" />
+                <span class="text-sm text-tertiary">{{ $t('asset-loan-ticket-link') }}</span>
+              </template>
+            </button>
+            <button
+              v-if="linkedTicket"
+              type="button"
+              class="p-1.5 text-tertiary hover:text-status-error hover:bg-status-error-muted rounded transition-colors"
+              :title="$t('asset-loan-ticket-clear')"
+              @click="linkedTicket = null"
+            >
+              <Icon name="close" size="sm" />
+            </button>
+          </div>
+        </div>
 
         <FormTextarea v-model="notes" :label="$t('asset-loan-notes')" :rows="2" />
 
@@ -357,6 +383,14 @@ async function submitReturn() {
       :current-user-id="borrower?.uuid ?? null"
       @close="showBorrowerPicker = false"
       @select-user="onSelectBorrower"
+    />
+
+    <!-- Ticket picker (search existing or create new), over the issue modal -->
+    <TicketPickerModal
+      :show="showTicketPicker"
+      allow-create
+      @close="showTicketPicker = false"
+      @select="onSelectTicket"
     />
   </div>
 </template>

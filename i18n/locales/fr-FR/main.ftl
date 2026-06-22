@@ -4150,10 +4150,24 @@ asset-loan-borrower = Emprunteur
 asset-loan-select-borrower = Sélectionner un emprunteur
 # MT: pending native review
 asset-loan-due-back-optional = Date de retour (facultatif)
+# Dates de prêt (machine, à relire par un locuteur natif).
+asset-loan-loaned-on = Prêté le
+asset-loan-return-by-optional = À rendre avant (facultatif)
 # MT: pending native review
 asset-loan-ticket-field = Ticket
 # MT: pending native review
 asset-loan-ticket-field-placeholder = ex. 1234
+# Sélecteur de ticket (machine, à relire par un locuteur natif).
+asset-loan-ticket-link = Associer un ticket
+asset-loan-ticket-clear = Retirer le ticket
+ticket-picker-title = Sélectionner un ticket
+ticket-picker-search-placeholder = Rechercher des tickets…
+ticket-picker-create-new = Créer un ticket
+ticket-picker-empty = Aucun ticket
+ticket-picker-empty-search = Aucun ticket ne correspond à votre recherche
+ticket-picker-error = Échec du chargement des tickets
+ticket-picker-create-failed = Échec de la création du ticket
+ticket-picker-untitled = Ticket sans titre
 # MT: pending native review
 asset-loan-notes = Notes
 # MT: pending native review

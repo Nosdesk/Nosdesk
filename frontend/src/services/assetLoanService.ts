@@ -10,6 +10,9 @@ export const assetLoanKeys = {
 
 export interface IssueLoanBody {
   borrower_user_uuid: string;
+  /** Start date (YYYY-MM-DD). Omit to start the loan now; a past date
+   *  backdates it. */
+  loaned_at?: string | null;
   /** ISO date (YYYY-MM-DD). Omit for an open-ended loan. */
   due_back?: string | null;
   ticket_id?: number | null;

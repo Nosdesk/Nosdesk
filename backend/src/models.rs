@@ -1555,6 +1555,7 @@ pub struct AssetLoan {
 pub struct NewAssetLoan {
     pub asset_id: i32,
     pub borrower_user_uuid: Uuid,
+    pub loaned_at: chrono::DateTime<chrono::Utc>,
     pub due_back: Option<NaiveDate>,
     pub ticket_id: Option<i32>,
     pub status_before: String,

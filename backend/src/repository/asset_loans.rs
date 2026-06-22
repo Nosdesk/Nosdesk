@@ -32,6 +32,8 @@ pub const LOANABLE_FROM: &[&str] = &["in_service", "in_stock"];
 pub struct IssueLoan {
     pub asset_id: i32,
     pub borrower_user_uuid: Uuid,
+    /// Start date. `None` starts the loan now; a past date backdates it.
+    pub loaned_at: Option<NaiveDate>,
     pub due_back: Option<NaiveDate>,
     pub ticket_id: Option<i32>,
     pub notes: Option<String>,
@@ -291,10 +293,24 @@ pub fn issue(conn: &mut DbConnection, input: IssueLoan) -> Result<AssetLoan, Loa
         // The partial unique index `(workspace_id, asset_id) WHERE
         // returned_at IS NULL` is the race-safe guard; map its violation to
         // a clean AlreadyOnLoan rather than a 500.
+        // Resolve the start timestamp. Today (or omitted) keeps the
+        // precise issue time; a backdated date anchors at noon UTC to
+        // avoid a timezone day-shift. The handler caps the date at today,
+        // so future starts don't reach here.
+        let now = chrono::Utc::now();
+        let loaned_at = match input.loaned_at {
+            Some(d) if d < now.date_naive() => {
+                let ndt = d.and_hms_opt(12, 0, 0).unwrap_or_default();
+                chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(ndt, chrono::Utc)
+            }
+            _ => now,
+        };
+
         let loan: AssetLoan = match diesel::insert_into(asset_loans::table)
             .values(&NewAssetLoan {
                 asset_id: input.asset_id,
                 borrower_user_uuid: input.borrower_user_uuid,
+                loaned_at,
                 due_back: input.due_back,
                 ticket_id: input.ticket_id,
                 status_before: asset.status.clone(),
@@ -456,6 +472,7 @@ mod tests {
         IssueLoan {
             asset_id,
             borrower_user_uuid: borrower,
+            loaned_at: None,
             due_back: None,
             ticket_id: None,
             notes: None,
@@ -546,6 +563,7 @@ mod tests {
             IssueLoan {
                 asset_id: a.id,
                 borrower_user_uuid: borrower.uuid,
+                loaned_at: None,
                 due_back: None,
                 ticket_id: Some(ticket.id),
                 notes: None,
@@ -570,6 +588,7 @@ mod tests {
             IssueLoan {
                 asset_id: a.id,
                 borrower_user_uuid: borrower.uuid,
+                loaned_at: None,
                 due_back: Some(past),
                 ticket_id: None,
                 notes: None,
@@ -605,6 +624,7 @@ mod tests {
             IssueLoan {
                 asset_id: soon.id,
                 borrower_user_uuid: borrower.uuid,
+                loaned_at: None,
                 due_back: Some(today + chrono::Duration::days(1)),
                 ticket_id: None,
                 notes: None,
@@ -617,6 +637,7 @@ mod tests {
             IssueLoan {
                 asset_id: far.id,
                 borrower_user_uuid: borrower.uuid,
+                loaned_at: None,
                 due_back: Some(today + chrono::Duration::days(10)),
                 ticket_id: None,
                 notes: None,

@@ -22,6 +22,9 @@ use crate::repository::{
 #[derive(Debug, Deserialize)]
 pub struct IssueBody {
     pub borrower_user_uuid: Uuid,
+    /// Start date (YYYY-MM-DD). Omit to start the loan now. A past date
+    /// backdates an already-handed-over loan.
+    pub loaned_at: Option<NaiveDate>,
     pub due_back: Option<NaiveDate>,
     pub ticket_id: Option<i32>,
     pub notes: Option<String>,
@@ -109,6 +112,7 @@ pub async fn issue(
     let input = IssueLoan {
         asset_id,
         borrower_user_uuid: body.borrower_user_uuid,
+        loaned_at: body.loaned_at,
         due_back: body.due_back,
         ticket_id: body.ticket_id,
         notes: body.notes,
