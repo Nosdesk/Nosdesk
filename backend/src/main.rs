@@ -1406,7 +1406,7 @@ async fn main() -> std::io::Result<()> {
 
     // Pre-create the static-asset directories so `Files::new` can
     // canonicalize them at startup. Without this, if the backend
-    // boots before the frontend build has populated `./public/assets`
+    // boots before the frontend build has populated `./public/static`
     // (a common race in `compose up` where backend and frontend-watch
     // start in parallel), Actix's `Files` service fails its initial
     // canonicalize and silently falls through to the default_handler
@@ -1414,10 +1414,17 @@ async fn main() -> std::io::Result<()> {
     // The "Asset still missing after reload" dev fallback then takes
     // over and reload-loops the browser indefinitely.
     //
+    // These must match the actual `Files::new` mounts below
+    // (`/static`, `/pdfjs`). Pre-creating `./public/assets` instead was
+    // a stale leftover from the old Vite `assetsDir`: it both skipped
+    // the real `static` dir AND shadowed the `/assets` SPA route, so a
+    // hard refresh on `/assets` resolved to an empty directory and
+    // returned "unable to render directory without index file".
+    //
     // Idempotent: `create_dir_all` is a no-op when the directory
     // already exists. Safe in production where the build pipeline
     // populates these directories long before the binary starts.
-    for static_dir in ["./public/assets", "./public/pdfjs"] {
+    for static_dir in ["./public/static", "./public/pdfjs"] {
         if let Err(e) = std::fs::create_dir_all(static_dir) {
             error!(path = %static_dir, error = %e, "Failed to ensure static directory exists");
             return Err(std::io::Error::other(format!(
