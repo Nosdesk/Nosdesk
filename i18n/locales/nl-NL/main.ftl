@@ -1519,6 +1519,13 @@ time-picker-hours-aria = Uren
 time-picker-minutes-aria = Minuten
 date-picker-prev-month-aria = Vorige maand
 date-picker-next-month-aria = Volgende maand
+# Machine-translated, pending native review.
+date-picker-prev-year-aria = Vorig jaar
+date-picker-next-year-aria = Volgend jaar
+date-picker-prev-years-aria = Vorige jaren
+date-picker-next-years-aria = Volgende jaren
+date-picker-select-month-aria = Maand selecteren
+date-picker-select-year-aria = Jaar selecteren
 admin-sla-priority-any = Alle
 admin-sla-category-any = Alle
 admin-sla-assignee-group-any = Alle
