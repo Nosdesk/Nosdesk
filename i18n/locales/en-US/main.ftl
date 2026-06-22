@@ -2483,6 +2483,8 @@ asset-detail-field-warranty-status = Warranty Status
 asset-detail-field-warranty-start = Warranty Start
 asset-detail-field-warranty-end = Warranty End
 asset-detail-field-purchase-date = Purchase Date
+# Add-property group: reveals warranty status + start + end together.
+asset-detail-group-warranty = Warranty
 asset-detail-field-asset-tag = Asset Tag
 asset-detail-field-asset-tag-placeholder-create = Enter asset tag
 asset-detail-field-asset-tag-placeholder-edit = Enter asset tag...

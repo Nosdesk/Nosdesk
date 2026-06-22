@@ -2410,6 +2410,8 @@ asset-detail-field-warranty-status = Statut de garantie
 asset-detail-field-warranty-start = Début de garantie
 asset-detail-field-warranty-end = Fin de garantie
 asset-detail-field-purchase-date = Date d'achat
+# Groupe garantie (machine, à relire par un locuteur natif).
+asset-detail-group-warranty = Garantie
 asset-detail-field-asset-tag = Étiquette d'inventaire
 asset-detail-field-asset-tag-placeholder-create = Saisir l'étiquette d'inventaire
 asset-detail-field-asset-tag-placeholder-edit = Saisir l'étiquette d'inventaire...

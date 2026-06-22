@@ -252,21 +252,44 @@ function singleAttrSchema(key: string): Record<string, unknown> | null {
   return { type: 'object', properties: { [key]: props[key] } };
 }
 
-// The Add-property menu offers both universal columns and the kind's
-// user attributes; values are namespaced so the handler knows which.
+// Attribute clusters that read as one concept: the menu offers them as
+// a single entry that reveals every field at once (e.g. warranty status
+// + start + end), instead of three separate picks.
+const ATTR_GROUPS: Record<string, string[]> = {
+  warranty: ['warranty_status', 'warranty_start_date', 'warranty_end_date'],
+};
+const groupedAttrKeys = new Set(Object.values(ATTR_GROUPS).flat());
+/** A group's keys that actually exist in the current kind's schema. */
+function groupKeysInSchema(group: string): string[] {
+  return (ATTR_GROUPS[group] ?? []).filter((k) => userAttrKeys.value.includes(k));
+}
+
+// The Add-property menu offers universal columns, grouped attribute
+// clusters, then any remaining individual attributes; values are
+// namespaced so the handler knows which.
 const addPropOptions = computed<DropdownOption[]>(() => [
   // Columns are only addable on manual assets (synced columns are
   // locked); user attributes are addable either way.
   ...(isEditable.value
     ? addableProps.value.map((k) => ({ value: `col:${k}`, label: t(PROP_LABEL_KEY[k]) }))
     : []),
-  ...addableAttrKeys.value.map((k) => ({ value: `attr:${k}`, label: attrTitle(k) })),
+  // A group shows while any of its fields is still hidden.
+  ...Object.keys(ATTR_GROUPS)
+    .filter((g) => groupKeysInSchema(g).some((k) => !isAttrVisible(k)))
+    .map((g) => ({ value: `group:${g}`, label: t(`asset-detail-group-${g}`) })),
+  ...addableAttrKeys.value
+    .filter((k) => !groupedAttrKeys.has(k))
+    .map((k) => ({ value: `attr:${k}`, label: attrTitle(k) })),
 ]);
 
 const addPropModel = ref('');
 function onAddProp(value: string) {
   if (!value) return;
-  if (value.startsWith('attr:')) {
+  if (value.startsWith('group:')) {
+    const next = new Set(revealedAttrs.value);
+    groupKeysInSchema(value.slice(6)).forEach((k) => next.add(k));
+    revealedAttrs.value = next;
+  } else if (value.startsWith('attr:')) {
     revealedAttrs.value = new Set(revealedAttrs.value).add(value.slice(5));
   } else {
     const key = value.startsWith('col:') ? value.slice(4) : value;

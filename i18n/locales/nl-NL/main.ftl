@@ -2407,6 +2407,8 @@ asset-detail-field-warranty-status = Garantiestatus
 asset-detail-field-warranty-start = Garantie begin
 asset-detail-field-warranty-end = Garantie einde
 asset-detail-field-purchase-date = Aankoopdatum
+# Garantiegroep (machine, na te kijken door moedertaalspreker).
+asset-detail-group-warranty = Garantie
 asset-detail-field-asset-tag = Inventarisnummer
 asset-detail-field-asset-tag-placeholder-create = Voer inventarisnummer in
 asset-detail-field-asset-tag-placeholder-edit = Voer inventarisnummer in...
