@@ -37,6 +37,7 @@ use ring::signature::Ed25519KeyPair;
 extern crate backend;
 
 use backend::db;
+use backend::repository::passkey_credentials;
 use backend::repository::user_auth_identities;
 use backend::repository::user_helpers;
 use backend::repository::users as users_repo;
@@ -272,6 +273,19 @@ enum AdminCommand {
     /// when an admin has lost their second factor and can't get
     /// back in.
     ClearMfa {
+        #[arg(value_name = "EMAIL", help = "User email")]
+        email: String,
+    },
+
+    /// Remove all of a user's passkeys. A registered passkey is a
+    /// hard second-factor gate at login, and WebAuthn only works in a
+    /// secure context (HTTPS or localhost) — so a passkey blocks login
+    /// from a plain-HTTP LAN origin with no way to complete it. Clearing
+    /// the passkeys drops that gate; the user re-enrols from a secure
+    /// origin. Sessions are revoked as a side-effect. Admin accounts
+    /// still owe a second factor, so the next login will require MFA
+    /// setup (use an authenticator app over plain HTTP).
+    ClearPasskeys {
         #[arg(value_name = "EMAIL", help = "User email")]
         email: String,
     },
@@ -540,6 +554,7 @@ fn run_admin(cmd: AdminCommand) -> Result<()> {
         } => admin_create(&name, &email, password_stdin),
         AdminCommand::ResetPassword { email } => admin_reset_password(&email),
         AdminCommand::ClearMfa { email } => admin_clear_mfa(&email),
+        AdminCommand::ClearPasskeys { email } => admin_clear_passkeys(&email),
     }
 }
 
@@ -709,6 +724,34 @@ fn admin_clear_mfa(email: &str) -> Result<()> {
 
     println!("cleared MFA for {} ({})", user.name, user.uuid);
     println!("user will re-enrol on next login");
+    Ok(())
+}
+
+fn admin_clear_passkeys(email: &str) -> Result<()> {
+    let mut conn = connect_db()?;
+
+    let user = user_helpers::get_user_by_email(email, &mut conn)
+        .map_err(|e| anyhow!("no user found for {email}: {e}"))?;
+
+    let removed = passkey_credentials::delete_all_for_user(&mut conn, &user.uuid)
+        .with_context(|| "deleting passkey credentials")?;
+
+    // Revoke sessions so a stale session can't keep the (now removed)
+    // passkey association alive; matches reset-password's behaviour.
+    let revoked =
+        backend::repository::active_sessions::revoke_other_sessions(&mut conn, &user.uuid, None)
+            .unwrap_or(0);
+
+    println!(
+        "removed {removed} passkey(s) for {} ({})",
+        user.name, user.uuid
+    );
+    println!("revoked {revoked} active session(s)");
+    if removed == 0 {
+        println!("(the user had no passkeys registered)");
+    } else {
+        println!("the user can re-enrol a passkey from a secure origin (HTTPS or localhost)");
+    }
     Ok(())
 }
 
