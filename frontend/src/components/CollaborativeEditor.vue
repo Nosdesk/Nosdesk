@@ -116,10 +116,10 @@ setTicketNavigationHandler((ticketId: number) => {
     router.push(`/tickets/${ticketId}`);
 });
 
-setDocumentNavigationHandler((uuid: string) => {
-    // Navigate to doc page by searching for it via the API
-    // For now, use the uuid directly - the router will handle lookup
-    router.push(`/documentation/${uuid}`);
+setDocumentNavigationHandler((slug: string) => {
+    // The documentation page route resolves by slug, so navigate by the
+    // doc's slug (resolved from its uuid by the embed before calling).
+    router.push(`/documentation/${slug}`);
 });
 
 // Document picker state
