@@ -47,13 +47,14 @@
  *   - `'close'` — dismiss instead of repositioning (good for
  *     click-anchored menus where the anchor is a stale point)
  */
-import { computed, nextTick, ref, shallowRef, watch } from 'vue'
+import { computed, nextTick, onScopeDispose, ref, shallowRef, watch } from 'vue'
 import {
   usePopover,
   type PopoverAnchor,
   type PopoverPlacement,
 } from '@/composables/usePopover'
 import { useEventListener } from '@/composables/useEventListener'
+import { registerPopover, unregisterPopover, isInNestedPopover } from '@/composables/usePopoverStack'
 
 interface Props {
   /** Open state. Parent owns it; we render conditionally on
@@ -146,8 +147,23 @@ function onMousedownOutside(event: MouseEvent): void {
     const el = a.element()
     if (el && el.contains(target)) return
   }
+  // Nested popovers: anything opened after us (deeper in the stack)
+  // is logically our child even though it teleports to body, so a
+  // click inside it must not dismiss us. A DatePicker's calendar
+  // opened from inside this popover is the canonical case.
+  if (isInNestedPopover(popoverRef.value, target)) return
   emit('close')
 }
+
+function registerOpen(): void {
+  if (popoverRef.value) registerPopover(popoverRef.value)
+}
+
+function unregisterOpen(): void {
+  if (popoverRef.value) unregisterPopover(popoverRef.value)
+}
+
+onScopeDispose(unregisterOpen)
 
 function onKeydown(event: KeyboardEvent): void {
   if (event.key !== 'Escape') return
@@ -203,6 +219,9 @@ watch(
       // wrapper is already in the right place — the transition
       // only animates the inner's transform / opacity / shadow.
       update()
+      // Now that popoverRef is mounted, join the open stack so any
+      // popover we open in turn nests beneath us.
+      registerOpen()
       if (props.noTransition) {
         visible.value = true
         if (props.autoFocus) popoverRef.value?.focus()
@@ -220,6 +239,9 @@ watch(
         })
       })
     } else {
+      // Leave the stack at once on close, before the leave
+      // transition plays, so we're not treated as open during it.
+      unregisterOpen()
       // Don't unmount immediately — let the leave transition
       // play first, then drop the v-if.
       visible.value = false

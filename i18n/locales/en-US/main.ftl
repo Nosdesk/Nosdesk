@@ -4246,8 +4246,6 @@ asset-loan-select-borrower = Select a borrower
 asset-loan-due-back-optional = Due back (optional)
 asset-loan-period-label = Loan period
 asset-loan-period-hint = When the device was handed over, and when it's due back. Leave the return date blank for an open-ended loan.
-asset-loan-loaned-on = Loaned on
-asset-loan-return-by-optional = Return by (optional)
 asset-loan-ticket-field = Ticket
 asset-loan-ticket-field-placeholder = e.g. 1234
 asset-loan-ticket-link = Link a ticket
@@ -6211,8 +6209,6 @@ dashboard-time-range-90d = 90d
 dashboard-time-range-1y = 1y
 dashboard-time-range-3y = 3y
 dashboard-time-range-custom = Custom
-dashboard-time-range-custom-from = From
-dashboard-time-range-custom-to = To
 dashboard-time-range-custom-apply = Apply
 dashboard-time-range-custom-cancel = Cancel
 

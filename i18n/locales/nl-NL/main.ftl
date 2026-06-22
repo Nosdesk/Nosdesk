@@ -176,8 +176,6 @@ dashboard-time-range-90d = 90 d
 dashboard-time-range-1y = 1 jr
 dashboard-time-range-3y = 3 jr
 dashboard-time-range-custom = Aangepast
-dashboard-time-range-custom-from = Van
-dashboard-time-range-custom-to = Tot
 dashboard-time-range-custom-apply = Toepassen
 dashboard-time-range-custom-cancel = Annuleren
 
@@ -4153,8 +4151,6 @@ asset-loan-due-back-optional = Terug verwacht (optioneel)
 # Uitleenperiode (machine, na te kijken door moedertaalspreker).
 asset-loan-period-label = Uitleenperiode
 asset-loan-period-hint = Wanneer het apparaat is uitgereikt en wanneer het terug moet. Laat de retourdatum leeg voor een open uitlening.
-asset-loan-loaned-on = Uitgeleend op
-asset-loan-return-by-optional = Terugbrengen vóór (optioneel)
 # MT: pending native review
 asset-loan-ticket-field = Ticket
 # MT: pending native review

@@ -179,8 +179,6 @@ dashboard-time-range-90d = 90 j
 dashboard-time-range-1y = 1 an
 dashboard-time-range-3y = 3 ans
 dashboard-time-range-custom = Personnalisé
-dashboard-time-range-custom-from = Du
-dashboard-time-range-custom-to = Au
 dashboard-time-range-custom-apply = Appliquer
 dashboard-time-range-custom-cancel = Annuler
 
@@ -4162,8 +4160,6 @@ asset-loan-due-back-optional = Date de retour (facultatif)
 # Période de prêt (machine, à relire par un locuteur natif).
 asset-loan-period-label = Période de prêt
 asset-loan-period-hint = Quand l'appareil a été remis, et quand il doit être rendu. Laissez la date de retour vide pour un prêt sans échéance.
-asset-loan-loaned-on = Prêté le
-asset-loan-return-by-optional = À rendre avant (facultatif)
 # MT: pending native review
 asset-loan-ticket-field = Ticket
 # MT: pending native review

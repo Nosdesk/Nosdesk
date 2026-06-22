@@ -317,10 +317,13 @@ async function submitReturn() {
             <Icon name="calendar" size="sm" class="text-tertiary" />
             <span class="text-xs font-medium text-tertiary">{{ $t('asset-loan-period-label') }}</span>
           </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <DatePicker v-model="loanedOn" :label="$t('asset-loan-loaned-on')" :max="today" />
-            <DatePicker v-model="dueBack" :label="$t('asset-loan-return-by-optional')" :min="loanedOn || today" />
-          </div>
+          <DatePicker
+            range
+            v-model:start="loanedOn"
+            v-model:end="dueBack"
+            :aria-label="$t('asset-loan-period-label')"
+            block
+          />
           <p class="text-xs text-tertiary">{{ $t('asset-loan-period-hint') }}</p>
         </div>
 

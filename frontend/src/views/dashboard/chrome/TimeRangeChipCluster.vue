@@ -135,24 +135,13 @@ function applyCustom(): void {
         <span class="text-[11px] uppercase tracking-wide text-tertiary font-medium">
           {{ t('dashboard-time-range-custom') }}
         </span>
-        <label class="flex flex-col gap-1 text-[11px] text-secondary">
-          {{ t('dashboard-time-range-custom-from') }}
-          <DatePicker
-            v-model="customFromInput"
-            :max="customToInput || undefined"
-            :aria-label="t('dashboard-time-range-custom-from')"
-            block
-          />
-        </label>
-        <label class="flex flex-col gap-1 text-[11px] text-secondary">
-          {{ t('dashboard-time-range-custom-to') }}
-          <DatePicker
-            v-model="customToInput"
-            :min="customFromInput || undefined"
-            :aria-label="t('dashboard-time-range-custom-to')"
-            block
-          />
-        </label>
+        <DatePicker
+          range
+          v-model:start="customFromInput"
+          v-model:end="customToInput"
+          :aria-label="t('dashboard-time-range-custom')"
+          block
+        />
         <div class="flex gap-2 justify-end">
           <button
             type="button"
