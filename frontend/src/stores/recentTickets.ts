@@ -180,6 +180,30 @@ export const useRecentTicketsStore = defineStore('recentTickets', () => {
     }
   }
 
+  // Bulk remove (e.g. "clear done & cancelled" from the context menu).
+  // One optimistic cache filter, then the server deletes fire together.
+  async function removeManyTickets(ticketIds: number[]) {
+    if (ticketIds.length === 0) return
+    const ids = new Set(ticketIds)
+    ticketIds.forEach((id) => removedTicketIds.value.add(id))
+    queryCache.setQueryData<RecentTicket[]>(recentKey(), (old) =>
+      (old ?? []).filter((t) => !ids.has(t.id)),
+    )
+    await Promise.allSettled(
+      ticketIds.map(async (id) => {
+        try {
+          await ticketService.removeRecentTicket(id)
+        } catch (err) {
+          logger.error(`Error removing ticket #${id} from recent:`, err)
+          // Server rejected; refetch to restore truth for this row.
+          queryCache.invalidateQueries({ key: RECENT_TICKETS_KEY })
+        } finally {
+          removedTicketIds.value.delete(id)
+        }
+      }),
+    )
+  }
+
   function reorderTickets(fromIndex: number, toIndex: number) {
     const current = recentTickets.value
     if (fromIndex < 0 || fromIndex >= current.length) return
@@ -200,6 +224,7 @@ export const useRecentTicketsStore = defineStore('recentTickets', () => {
     recordTicketView,
     updateTicketData,
     removeTicket,
+    removeManyTickets,
     reorderTickets,
   }
 })

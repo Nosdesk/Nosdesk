@@ -26,6 +26,11 @@ const t = (key: string) => fluent.$t(key)
 
 const bucket = computed(() => coarseStatusBucket(props.category))
 
+// Cancelled collapses into the `closed` bucket for coarse purposes, but
+// visually it should read as abandoned (muted grey), not done (green),
+// so we special-case it ahead of the bucket colour/shape.
+const isCancelled = computed(() => props.category === 'cancelled')
+
 // Size classes for the indicator - larger when in color blind mode for better visibility
 const sizeClasses = computed(() => {
   if (themeStore.effectiveColorBlindMode) {
@@ -56,6 +61,7 @@ const sizeClasses = computed(() => {
 
 // Color classes for standard mode
 const colorClasses = computed(() => {
+  if (isCancelled.value) return 'bg-tertiary'
   switch (bucket.value) {
     case 'open':
       return 'bg-status-open'
@@ -70,6 +76,7 @@ const colorClasses = computed(() => {
 
 // Status labels for accessibility
 const statusLabel = computed(() => {
+  if (isCancelled.value) return t('status-cancelled')
   switch (bucket.value) {
     case 'open':
       return t('status-open')
@@ -93,9 +100,21 @@ const statusLabel = computed(() => {
     :aria-label="statusLabel"
     role="img"
   >
+    <!-- Cancelled: hollow circle with a diagonal slash (the universal
+         "no/cancelled" mark), distinct from the done circle. -->
+    <svg
+      v-if="isCancelled"
+      viewBox="0 0 10 10"
+      class="w-full h-full text-tertiary"
+      fill="none"
+    >
+      <circle cx="5" cy="5" r="4" stroke="currentColor" stroke-width="1.5" />
+      <line x1="2.2" y1="7.8" x2="7.8" y2="2.2" stroke="currentColor" stroke-width="1.5" />
+    </svg>
+
     <!-- Open: hollow circle (ring only) -->
     <svg
-      v-if="bucket === 'open'"
+      v-else-if="bucket === 'open'"
       viewBox="0 0 10 10"
       class="w-full h-full"
       fill="none"

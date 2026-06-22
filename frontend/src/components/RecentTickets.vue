@@ -38,14 +38,32 @@ const contextMenuTicket = ref<RecentTicket | null>(null)
 const contextMenuPos = ref({ x: 0, y: 0 })
 const showContextMenu = ref(false)
 
+// Recent tickets currently sitting in a terminal state (done or
+// cancelled). Drives the "clear done & cancelled" bulk action.
+const terminalRecentIds = computed(() =>
+  recentTicketsStore.recentTickets
+    .filter((t) => {
+      const category = wf.findById(t.workflow_state_id ?? -1)?.category
+      return category === 'done' || category === 'cancelled'
+    })
+    .map((t) => t.id),
+)
+
 // Context menu items. Labels resolve through Fluent so the menu
 // reads in the active locale. Icon paths stay literal SVG d-attrs;
 // `id` values are stable action keys.
-const ticketContextMenuItems = computed<MenuItem[]>(() => [
-  { id: 'open-new-tab', label: fluent.$t('recent-tickets-context-open-new-tab'), icon: 'M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25' },
-  { id: 'copy-link', label: fluent.$t('recent-tickets-context-copy-link'), icon: 'M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244' },
-  { id: 'remove-recent', label: fluent.$t('recent-tickets-context-remove'), icon: 'M6 18L18 6M6 6l12 12', danger: true, divider: true },
-])
+const ticketContextMenuItems = computed<MenuItem[]>(() => {
+  const items: MenuItem[] = [
+    { id: 'open-new-tab', label: fluent.$t('recent-tickets-context-open-new-tab'), icon: 'M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25' },
+    { id: 'copy-link', label: fluent.$t('recent-tickets-context-copy-link'), icon: 'M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244' },
+    { id: 'remove-recent', label: fluent.$t('recent-tickets-context-remove'), icon: 'M6 18L18 6M6 6l12 12', danger: true, divider: true },
+  ]
+  // Only offer the bulk clear when there's something terminal to clear.
+  if (terminalRecentIds.value.length > 0) {
+    items.push({ id: 'clear-terminal', label: fluent.$t('recent-tickets-context-clear-done', { count: terminalRecentIds.value.length }), icon: 'M6 7.5l.75 11.25a1.5 1.5 0 001.5 1.4h7.5a1.5 1.5 0 001.5-1.4L19.5 7.5M9.75 7.5V5.25A1.5 1.5 0 0111.25 3.75h1.5a1.5 1.5 0 011.5 1.5V7.5M4.5 7.5h15', danger: true, divider: true })
+  }
+  return items
+})
 
 const handleTicketContextMenu = (ticket: RecentTicket, event: MouseEvent) => {
   event.preventDefault()
@@ -73,6 +91,10 @@ const handleTicketContextMenuSelect = async (actionId: string) => {
 
     case 'remove-recent':
       await recentTicketsStore.removeTicket(ticket.id)
+      break
+
+    case 'clear-terminal':
+      await recentTicketsStore.removeManyTickets(terminalRecentIds.value)
       break
   }
 }

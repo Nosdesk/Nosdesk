@@ -4627,6 +4627,8 @@ recent-tickets-empty = Geen recente tickets
 recent-tickets-context-open-new-tab = Openen in nieuw tabblad
 recent-tickets-context-copy-link = Link kopiëren
 recent-tickets-context-remove = Verwijderen uit recent
+# Machine-translated, pending native review.
+recent-tickets-context-clear-done = Voltooid en geannuleerd wissen ({ $count })
 
 # Plugin admin: lifecycle state pills (PluginStateBadge)
 plugin-state-active = Actief
@@ -5426,6 +5428,7 @@ sla-none = Geen SLA
 status-open = Open
 status-in-progress = In behandeling
 status-closed = Gesloten
+status-cancelled = Geannuleerd
 status-unknown = Onbekend
 color-red = Rood
 color-orange = Oranje
