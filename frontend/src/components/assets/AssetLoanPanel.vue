@@ -283,7 +283,7 @@ async function submitReturn() {
       v-else-if="!activeLoan && canLoan && !isFirstLoad"
       class="rounded-lg border border-dashed border-default bg-surface-alt p-4 flex items-start gap-3"
     >
-      <Icon name="history" class="text-tertiary flex-shrink-0 mt-0.5" />
+      <Icon name="calendar" class="text-tertiary flex-shrink-0 mt-0.5" />
       <div class="min-w-0">
         <p class="text-sm font-medium text-primary">{{ $t('asset-loan-empty-title') }}</p>
         <p class="text-xs text-tertiary mt-1">{{ $t('asset-loan-empty-description') }}</p>

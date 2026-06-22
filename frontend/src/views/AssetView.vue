@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
+import { useRoute, useRouter, RouterLink } from 'vue-router';
 import { useFluent } from 'fluent-vue';
+import { useTitleManager } from '@/composables/useTitleManager';
 import { formatDateTime } from '@/utils/dateUtils';
 import BackButton from '@/components/common/BackButton.vue';
 import SearchableDropdown, { type DropdownOption } from '@/components/common/SearchableDropdown.vue';
@@ -15,13 +16,12 @@ import AlertMessage from '@/components/common/AlertMessage.vue';
 import DatePicker from '@/components/common/DatePicker.vue';
 import { extractErrorMessage } from '@/utils/errors';
 import Icon from '@/components/common/Icon.vue';
-import UserCard from '@/components/UserCard.vue';
+import UserAvatar from '@/components/UserAvatar.vue';
 import UserSelectionModal from '@/components/UserSelectionModal.vue';
 import DeviceGroups from '@/components/AssetGroups.vue';
 import AssetMediaPanel from '@/components/assets/AssetMediaPanel.vue';
 import AssetLifecyclePanel from '@/components/assets/AssetLifecyclePanel.vue';
 import AssetLoanPanel from '@/components/assets/AssetLoanPanel.vue';
-import AssetStatusBadge from '@/components/assets/AssetStatusBadge.vue';
 import AssetUsageHistory from '@/components/assets/AssetUsageHistory.vue';
 import AssetModelField from '@/components/assets/AssetModelField.vue';
 import { kindIconName } from '@/components/assets/assetKindIcon';
@@ -49,6 +49,7 @@ const emit = defineEmits(['update:device']);
 
 // State
 const device = ref<Asset | null>(null);
+const mediaPanelRef = ref<InstanceType<typeof AssetMediaPanel> | null>(null);
 const loading = ref(true);
 const error = ref<string | null>(null);
 const isSaving = ref(false);
@@ -124,15 +125,6 @@ const syncSourceLabel = computed(() => {
   if (src === 'intune') return t('asset-detail-sync-source-intune');
   if (src === 'entra') return t('asset-detail-sync-source-entra');
   return t('asset-detail-sync-source-generic');
-});
-
-const displayName = computed(() => {
-  if (!device.value) return '';
-  return (
-    device.value.name ||
-    (device.value.attributes?.hostname as string | undefined) ||
-    `#${device.value.id}`
-  );
 });
 
 // ---- Extend-on-demand properties --------------------------------
@@ -554,6 +546,23 @@ watch(device, (newDevice) => {
   if (newDevice) emit('update:device', newDevice);
 }, { immediate: true, deep: true });
 
+// The asset name lives in the site header (like a ticket title). Register
+// the save handler only while the asset is editable, so a sync-owned
+// asset shows its name read-only.
+const titleManager = useTitleManager();
+const saveDeviceName = async (newName: string) => {
+  if (!device.value) return;
+  editValues.value.name = newName;
+  await saveField('name');
+};
+watch(isEditable, (editable) => {
+  titleManager.onDeviceTitleSave(editable ? saveDeviceName : null);
+}, { immediate: true });
+onBeforeUnmount(() => {
+  titleManager.onDeviceTitleSave(null);
+  titleManager.clearDevice();
+});
+
 watch(() => route.params.id, () => {
   revealed.value = new Set();
   revealedAttrs.value = new Set();
@@ -562,6 +571,14 @@ watch(() => route.params.id, () => {
 
 const auth = useAuthStore();
 const canChangeLifecycle = computed(() => auth.isTechnician);
+
+// A status transition from the lifecycle panel doesn't flow back through
+// the own-change sync filter, so reflect it optimistically (the status
+// badge updates at once) and refetch for the authoritative record.
+function onAssetTransitioned(toStatus: string) {
+  if (device.value) device.value = { ...device.value, status: toStatus };
+  void fetchDeviceData();
+}
 useSyncActions(
   (actions) => {
     const id = device.value?.id;
@@ -592,8 +609,9 @@ onMounted(() => {
 
     <!-- Main content -->
     <div v-else-if="device" class="flex flex-col">
-      <!-- Top bar -->
-      <div class="pt-4 px-4 sm:px-6 flex items-center justify-between gap-3">
+      <!-- Top bar. Shares the content's max width so the back button
+           lines up with the body on wide screens. -->
+      <div class="pt-4 px-4 sm:px-6 mx-auto w-full max-w-8xl flex items-center justify-between gap-3">
         <BackButton fallbackRoute="/assets" :label="$t('asset-detail-back-to-devices')" compact />
         <div class="flex items-center gap-2">
           <DeleteButton
@@ -608,33 +626,15 @@ onMounted(() => {
       <div class="flex flex-col gap-4 px-4 py-4 sm:px-6 mx-auto w-full max-w-8xl">
         <AlertMessage v-if="error" type="error" :message="error" />
 
-        <!-- Title row: editable name + type/status summary. -->
-        <div class="flex items-start gap-3">
-          <div class="w-11 h-11 rounded-lg bg-surface-alt border border-default flex items-center justify-center flex-shrink-0">
-            <Icon :name="kindIconName(selectedKind)" class="text-secondary" />
-          </div>
-          <div class="min-w-0 flex-1">
-            <InlineEdit
-              v-model="editValues.name"
-              :placeholder="displayName || $t('asset-detail-field-name-placeholder-edit')"
-              text-size="xl"
-              :can-edit="isEditable"
-              @update:modelValue="() => saveField('name')"
-            />
-            <div class="flex flex-wrap items-center gap-2 mt-1">
-              <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-accent/10 text-accent">
-                {{ selectedKind?.label ?? selectedKindSlug }}
-              </span>
-              <AssetStatusBadge v-if="device.status" :status="device.status" />
-              <span
-                v-if="isSynced"
-                class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-surface-alt text-secondary border border-default"
-              >
-                <Icon name="lock" size="xs" />
-                {{ $t('asset-detail-readonly') }}
-              </span>
-            </div>
-          </div>
+        <!-- Sync context. The name lives in the site header (like a
+             ticket title) and status is shown in the lifecycle panel. -->
+        <div v-if="isSynced" class="flex flex-wrap items-center gap-2">
+          <span
+            class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-surface-alt text-secondary border border-default"
+          >
+            <Icon name="lock" size="xs" />
+            {{ $t('asset-detail-readonly') }}
+          </span>
         </div>
 
         <div class="asset-grid items-start">
@@ -665,14 +665,22 @@ onMounted(() => {
                      directly only for model-less assets. -->
                 <div class="flex flex-col gap-1 sm:col-span-2">
                   <h3 class="text-xs font-medium text-tertiary">{{ $t('asset-detail-field-kind') }}</h3>
-                  <SearchableDropdown
-                    v-if="isKindEditable && kinds.length > 0 && !device.model_id"
-                    :model-value="selectedKindSlug"
-                    :options="kindOptions"
-                    size="sm"
-                    @update:model-value="(value) => changeKind(String(value))"
-                  />
-                  <p v-else class="text-sm text-primary">{{ selectedKind?.label ?? selectedKindSlug }}</p>
+                  <div class="flex items-center gap-2">
+                    <Icon
+                      :name="kindIconName(selectedKind)"
+                      size="sm"
+                      class="text-secondary flex-shrink-0"
+                    />
+                    <SearchableDropdown
+                      v-if="isKindEditable && kinds.length > 0 && !device.model_id"
+                      class="flex-1 min-w-0"
+                      :model-value="selectedKindSlug"
+                      :options="kindOptions"
+                      size="sm"
+                      @update:model-value="(value) => changeKind(String(value))"
+                    />
+                    <p v-else class="text-sm text-primary">{{ selectedKind?.label ?? selectedKindSlug }}</p>
+                  </div>
                   <AlertMessage v-if="kindChangeError" type="error" :message="kindChangeError" />
                 </div>
 
@@ -692,7 +700,24 @@ onMounted(() => {
                         <Icon name="close" />
                       </button>
                     </div>
-                    <UserCard v-if="device.primary_user" :user="device.primary_user" avatar-size="sm" />
+                    <RouterLink
+                    v-if="device.primary_user"
+                    :to="`/users/${device.primary_user.uuid}`"
+                    class="group flex items-center gap-2.5 min-w-0"
+                  >
+                    <UserAvatar
+                      :uuid="device.primary_user.uuid"
+                      :fallback-name="device.primary_user.name"
+                      :fallback-avatar="device.primary_user.avatar_thumb || device.primary_user.avatar_url"
+                      size="sm"
+                      :clickable="false"
+                      :show-name="false"
+                    />
+                    <div class="min-w-0">
+                      <span class="block text-sm font-medium text-primary truncate group-hover:text-accent transition-colors">{{ device.primary_user.name }}</span>
+                      <span class="block text-xs text-tertiary truncate">{{ device.primary_user.email }}</span>
+                    </div>
+                  </RouterLink>
                     <Button
                       v-else-if="isEditable"
                       block
@@ -899,6 +924,7 @@ onMounted(() => {
                 :asset-id="device.id"
                 :current-status="device.status"
                 :can-edit="canChangeLifecycle"
+                @transitioned="onAssetTransitioned"
               />
             </SectionCard>
 
@@ -919,11 +945,6 @@ onMounted(() => {
                 :current-quantity="device.quantity"
                 @recorded="fetchDeviceData"
               />
-            </SectionCard>
-
-            <SectionCard content-padding="p-4">
-              <template #title>{{ $t('asset-media-heading') }}</template>
-              <AssetMediaPanel :asset-id="device.id" :can-edit="device.is_editable" />
             </SectionCard>
 
             <PluginSlot slot-name="asset-info-panels" :device="device" />
@@ -972,6 +993,31 @@ onMounted(() => {
                   <p class="text-xs text-tertiary">{{ $t('asset-detail-unmanage-conversion-note') }}</p>
                 </template>
               </div>
+            </SectionCard>
+
+            <!-- Photos: a compact gallery in the rail. Reference imagery
+                 belongs alongside the record metadata, not in the wide
+                 primary column. The add control sits in the card header. -->
+            <SectionCard content-padding="p-4">
+              <template #title>{{ $t('asset-media-heading') }}</template>
+              <template #headerActions>
+                <button
+                  v-if="device.is_editable"
+                  type="button"
+                  class="p-1 -mr-1 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
+                  :title="$t('asset-media-add')"
+                  :aria-label="$t('asset-media-add')"
+                  @click="mediaPanelRef?.openPicker()"
+                >
+                  <Icon name="add" size="sm" />
+                </button>
+              </template>
+              <AssetMediaPanel
+                ref="mediaPanelRef"
+                :asset-id="device.id"
+                :can-edit="device.is_editable"
+                compact
+              />
             </SectionCard>
           </aside>
         </div>

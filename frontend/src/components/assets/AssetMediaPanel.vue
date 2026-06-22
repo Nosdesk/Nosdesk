@@ -2,7 +2,6 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { useQuery, useQueryCache } from '@pinia/colada';
-import Button from '@/components/common/Button.vue';
 import FormInput from '@/components/common/FormInput.vue';
 import Icon from '@/components/common/Icon.vue';
 import Modal from '@/components/Modal.vue';
@@ -13,6 +12,10 @@ import type { AssetMedia } from '@/types/asset';
 const props = defineProps<{
   assetId: number;
   canEdit?: boolean;
+  /** Render a tighter 2-column grid for narrow placements (e.g. the
+   *  asset detail rail), instead of widening to 3 columns on larger
+   *  viewports. */
+  compact?: boolean;
 }>();
 
 const fluent = useFluent();
@@ -60,6 +63,10 @@ function gridSrc(item: AssetMedia): string {
 function openPicker() {
   fileInputRef.value?.click();
 }
+
+// The add control lives in the host card header (AssetView's
+// SectionCard #headerActions), so expose the trigger + upload state.
+defineExpose({ openPicker, uploading });
 
 async function onFileChange(event: Event) {
   const input = event.target as HTMLInputElement;
@@ -226,30 +233,22 @@ useSyncActions(
 
 <template>
   <div class="flex flex-col gap-3">
-    <div class="flex items-center justify-between gap-3">
-      <p class="text-xs text-tertiary">
-        {{ $t('asset-media-description') }}
-      </p>
-      <Button
-        v-if="canEdit"
-        size="sm"
-        icon="paperclip"
-        :loading="uploading"
-        @click="openPicker"
-      >
-        {{ $t('asset-media-add') }}
-      </Button>
-      <input
-        ref="fileInputRef"
-        type="file"
-        accept="image/*"
-        multiple
-        class="hidden"
-        @change="onFileChange"
-      />
-    </div>
+    <!-- The add control lives in the SectionCard header (see AssetView);
+         this panel exposes openPicker() for it to call. -->
+    <input
+      ref="fileInputRef"
+      type="file"
+      accept="image/*"
+      multiple
+      class="hidden"
+      @change="onFileChange"
+    />
 
     <p v-if="errorMessage" class="text-sm text-status-error">{{ errorMessage }}</p>
+
+    <div v-if="uploading" class="flex justify-center py-1">
+      <span class="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-accent" />
+    </div>
 
     <div
       v-if="media.length === 0 && !isFirstLoad"
@@ -262,7 +261,7 @@ useSyncActions(
       </div>
     </div>
 
-    <div v-else class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+    <div v-else class="grid gap-2" :class="compact ? 'grid-cols-3' : 'grid-cols-2 sm:grid-cols-3'">
       <div
         v-for="(item, index) in media"
         :key="item.id"

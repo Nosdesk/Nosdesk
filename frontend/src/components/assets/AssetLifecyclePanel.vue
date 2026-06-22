@@ -28,6 +28,10 @@ const props = defineProps<{
   canEdit?: boolean;
 }>();
 
+// Emitted after a successful status transition so the parent can refresh
+// the asset (its `currentStatus` prop, and the status badge it drives).
+const emit = defineEmits<{ (e: 'transitioned', toStatus: string): void }>();
+
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 const { getUserHandle } = useUsersDirectory();
@@ -134,13 +138,15 @@ async function submitTransition() {
   submitting.value = true;
   errorMessage.value = '';
   try {
+    const newStatus = toStatus.value;
     await assetLifecycleService.transition(props.assetId, {
-      to_status: toStatus.value,
+      to_status: newStatus,
       reason: reason.value.trim() || null,
       ticket_id: parseTicketId(),
       metadata: buildMetadata(),
     });
     await invalidate();
+    emit('transitioned', newStatus);
     closeModal();
   } catch (e) {
     errorMessage.value = e instanceof Error ? e.message : t('asset-lifecycle-transition-failed');
@@ -196,10 +202,7 @@ function metadataLines(event: AssetLifecycleEvent): string[] {
 <template>
   <div class="flex flex-col gap-3">
     <div class="flex items-center justify-between gap-3 flex-wrap">
-      <div class="flex items-center gap-2">
-        <span class="text-xs text-tertiary">{{ $t('asset-lifecycle-current-label') }}</span>
-        <AssetStatusBadge :status="currentStatus" size="md" />
-      </div>
+      <AssetStatusBadge :status="currentStatus" size="md" />
       <Button
         v-if="canEdit && !isOnLoan"
         size="sm"
