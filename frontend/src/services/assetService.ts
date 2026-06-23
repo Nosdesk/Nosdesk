@@ -13,6 +13,8 @@ export interface AssetPaginationParams extends PaginationParams {
   status?: string;
   warranty?: string;
   location?: string;
+  /** Comma-separated native asset-group ids; matches assets in ANY of them. */
+  groups?: string;
   /** Set to `'true'` to restrict the page to stock-tracked
    *  assets at or below their low-stock threshold. Backend
    *  treats anything else as off. */

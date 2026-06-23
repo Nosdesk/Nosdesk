@@ -12,7 +12,7 @@ use std::sync::Arc;
 use tracing::{debug, error, warn};
 use uuid::Uuid;
 
-use crate::models::{Asset, AssetUpdate, Group, NewAsset, User};
+use crate::models::{Asset, AssetGroupRef, AssetUpdate, Group, NewAsset, User};
 use crate::repository;
 use crate::repository::groups as groups_repo;
 use crate::services::assets::{validate_for_kind, AssetValidationError, SYNC_OWNED_ATTRIBUTE_KEYS};
@@ -56,6 +56,8 @@ pub struct PaginationParams {
     status: Option<String>,
     warranty: Option<String>,
     location: Option<String>,
+    /// Comma-separated native asset-group ids; matches assets in ANY of them.
+    groups: Option<String>,
     /// Restrict the page to assets whose on-hand quantity is at
     /// or below their `low_stock_threshold`. Accepts the strings
     /// `"true"` / `"1"`; anything else is treated as off so the
@@ -74,6 +76,7 @@ pub struct AssetExportQuery {
     status: Option<String>,
     warranty: Option<String>,
     location: Option<String>,
+    groups: Option<String>,
     #[serde(rename = "lowStock")]
     low_stock: Option<String>,
 }
@@ -123,7 +126,11 @@ pub struct AssetResponse {
     pub external_sync_source: Option<String>,
     pub low_stock_threshold: Option<String>,
     pub primary_user: Option<UserInfo>,
+    /// Directory-group memberships (Intune/Entra-synced or manual).
     pub groups: Vec<GroupInfo>,
+    /// Native asset groups this asset belongs to. Populated by the list and
+    /// detail paths; empty elsewhere (callers that don't enrich).
+    pub asset_groups: Vec<AssetGroupRef>,
     pub is_editable: bool,
     /// Linked catalog model, or null for a model-less asset.
     pub model_id: Option<i32>,
@@ -223,6 +230,8 @@ impl AssetResponse {
                 }
             }),
             groups: groups.into_iter().map(GroupInfo::from).collect(),
+            // Enriched by the list / detail callers; empty by default.
+            asset_groups: Vec::new(),
         }
     }
 }
@@ -238,6 +247,11 @@ fn devices_to_responses(
     conn: &mut crate::db::DbConnection,
     devices: Vec<Asset>,
 ) -> Vec<AssetResponse> {
+    // Batch the native-group lookup for the whole page (one query) rather than
+    // per row.
+    let ids: Vec<i32> = devices.iter().map(|d| d.id).collect();
+    let mut native_groups =
+        crate::repository::asset_groups::group_refs_for_assets(conn, &ids).unwrap_or_default();
     devices
         .into_iter()
         .map(|device| {
@@ -246,7 +260,10 @@ fn devices_to_responses(
                 .as_ref()
                 .and_then(|uuid| get_user_by_uuid(conn, uuid));
             let groups = groups_repo::get_groups_for_device(conn, device.id).unwrap_or_default();
-            AssetResponse::from_device_and_user(device, user, groups, conn)
+            let asset_groups = native_groups.remove(&device.id).unwrap_or_default();
+            let mut resp = AssetResponse::from_device_and_user(device, user, groups, conn);
+            resp.asset_groups = asset_groups;
+            resp
         })
         .collect()
 }
@@ -397,6 +414,7 @@ pub async fn asset_grouping_dataset(
         warranty: query.warranty.as_deref(),
         location: query.location.as_deref(),
         status: query.status.as_deref(),
+        groups: query.groups.as_deref(),
         low_stock_only: matches!(query.low_stock.as_deref(), Some("true") | Some("1")),
     };
 
@@ -581,6 +599,7 @@ pub async fn export_assets(
         status: query.status.as_deref(),
         warranty: query.warranty.as_deref(),
         location: query.location.as_deref(),
+        groups: query.groups.as_deref(),
         low_stock_only: matches!(query.low_stock.as_deref(), Some("true") | Some("1")),
     };
 
@@ -654,6 +673,7 @@ pub async fn get_paginated_devices(
     let status = query.status.clone();
     let warranty = query.warranty.clone();
     let location = query.location.clone();
+    let groups = query.groups.clone();
     let low_stock = matches!(query.low_stock.as_deref(), Some("true") | Some("1"));
 
     let result = tc.run(|conn| {
@@ -667,6 +687,7 @@ pub async fn get_paginated_devices(
             status,
             warranty,
             location,
+            groups,
             low_stock,
         )?;
         let device_responses = devices_to_responses(conn, devices);
@@ -712,9 +733,19 @@ pub async fn get_device_by_id(
             group_count = groups.len(),
             "Fetched groups for device"
         );
-        Ok(AssetResponse::from_device_and_user(
-            device, user, groups, conn,
-        ))
+        let asset_groups =
+            crate::repository::asset_groups::groups_for_asset(conn, device_id).unwrap_or_default();
+        let mut resp = AssetResponse::from_device_and_user(device, user, groups, conn);
+        resp.asset_groups = asset_groups
+            .into_iter()
+            .map(|g| crate::models::AssetGroupRef {
+                id: g.id,
+                uuid: g.uuid,
+                name: g.name,
+                color: g.color,
+            })
+            .collect();
+        Ok(resp)
     });
 
     match result {

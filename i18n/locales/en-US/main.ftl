@@ -2490,6 +2490,12 @@ assets-list-filter-location-count =
         [one] 1 asset
        *[other] { $count } assets
     }
+assets-list-filter-groups-label = Group
+assets-list-filter-groups-count =
+    { $count ->
+        [one] 1 asset
+       *[other] { $count } assets
+    }
 assets-list-column-device = Asset
 assets-list-column-serial = Serial
 assets-list-column-hostname = Hostname
@@ -2607,6 +2613,11 @@ asset-detail-action-track-stock = Track stock
 asset-detail-section-device-information = Device Information
 asset-detail-field-device-id = Device ID
 asset-detail-section-record = Record
+asset-detail-groups-title = Asset groups
+asset-detail-groups-empty = Not in any group.
+asset-detail-groups-add-placeholder = Add to a group
+asset-detail-groups-remove = Remove from { $name }
+asset-detail-groups-save-error = Failed to update asset groups
 asset-detail-field-asset-id = Asset ID
 asset-detail-field-created = Created
 asset-detail-field-last-updated = Last Updated
@@ -5723,6 +5734,7 @@ admin-branding-aria-favicon = Favicon
 # store action fails. Keep these short; they appear alongside the
 # raw error.message when one is available.
 error-store-workflow-states-load = Failed to load workflow states.
+error-store-asset-groups-load = Failed to load asset groups.
 error-store-public-settings-load = Failed to load public settings.
 error-store-feature-flags-load = Failed to load feature flags.
 error-store-recent-tickets-load = Failed to fetch recent tickets.

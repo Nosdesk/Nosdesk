@@ -1,3 +1,6 @@
+/** Compact group reference. Shared shape for both the directory groups an
+ *  asset is synced into (`Asset.groups`) and the native asset groups it is
+ *  classified under (`Asset.asset_groups`). */
 export interface AssetGroup {
   id: number;
   uuid: string;
@@ -66,7 +69,10 @@ export interface Asset {
     avatar_url?: string | null;
     avatar_thumb?: string | null;
   } | null;
+  /** Directory-group memberships (Intune/Entra-synced or manual). */
   groups?: AssetGroup[];
+  /** Native asset groups (workspace-local classification). */
+  asset_groups?: AssetGroup[];
 }
 
 /** Canonical asset lifecycle states. Mirrors the backend

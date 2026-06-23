@@ -6324,3 +6324,16 @@ user-addresses-confirm-message = Supprimer cette adresse ?
 user-addresses-error-load = Échec du chargement des adresses
 user-addresses-error-save = Échec de l'enregistrement de l'adresse
 user-addresses-error-delete = Échec de la suppression de l'adresse
+# MACHINE TRANSLATION, pending native review (native asset groups)
+assets-list-filter-groups-label = Groupe
+assets-list-filter-groups-count =
+    { $count ->
+        [one] 1 actif
+       *[other] { $count } actifs
+    }
+asset-detail-groups-title = Groupes d'actifs
+asset-detail-groups-empty = Dans aucun groupe.
+asset-detail-groups-add-placeholder = Ajouter à un groupe
+asset-detail-groups-remove = Retirer de { $name }
+asset-detail-groups-save-error = Échec de la mise à jour des groupes d'actifs
+error-store-asset-groups-load = Échec du chargement des groupes d'actifs.

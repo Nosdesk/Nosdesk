@@ -85,6 +85,7 @@ fn apply_device_filters<'a>(
     manufacturer_filter: Option<&'a str>,
     location_filter: Option<&'a str>,
     status_filter: Option<&'a str>,
+    group_filter: Option<&'a str>,
     low_stock_only: bool,
 ) -> AssetBoxedQuery<'a> {
     if let Some(search_term) = search {
@@ -185,6 +186,26 @@ fn apply_device_filters<'a>(
             }
         }
     }
+    if let Some(g) = group_filter {
+        // CSV of native asset-group ids; an asset matches if it belongs to ANY
+        // of them. Sub-select keeps the membership join out of the row shape so
+        // the boxed query stays composable and rows don't fan out per group.
+        if g != "all" && !g.is_empty() {
+            let ids: Vec<i32> = g
+                .split(',')
+                .filter_map(|s| s.trim().parse::<i32>().ok())
+                .collect();
+            if !ids.is_empty() {
+                query = query.filter(
+                    assets::id.eq_any(
+                        asset_group_assignments::table
+                            .filter(asset_group_assignments::group_id.eq_any(ids))
+                            .select(asset_group_assignments::asset_id),
+                    ),
+                );
+            }
+        }
+    }
     if low_stock_only {
         // Both columns must be set, and current quantity must be
         // at or below the threshold. NUMERIC comparison is exact.
@@ -204,6 +225,7 @@ pub struct AssetListFilters<'a> {
     pub warranty: Option<&'a str>,
     pub location: Option<&'a str>,
     pub status: Option<&'a str>,
+    pub groups: Option<&'a str>,
     pub low_stock_only: bool,
 }
 
@@ -221,6 +243,7 @@ pub fn list_for_export(
         None,
         filters.location,
         filters.status,
+        filters.groups,
         filters.low_stock_only,
     )
     .order(assets::name.asc())
@@ -238,6 +261,7 @@ pub fn get_paginated_devices(
     status: Option<String>,
     warranty: Option<String>,
     location: Option<String>,
+    groups: Option<String>,
     low_stock_only: bool,
 ) -> Result<(Vec<Asset>, i64), Error> {
     // manufacturer slot is `None`: there is no manufacturer-filter
@@ -250,6 +274,7 @@ pub fn get_paginated_devices(
         None,
         location.as_deref(),
         status.as_deref(),
+        groups.as_deref(),
         low_stock_only,
     )
     .count()
@@ -262,6 +287,7 @@ pub fn get_paginated_devices(
         None,
         location.as_deref(),
         status.as_deref(),
+        groups.as_deref(),
         low_stock_only,
     );
 
@@ -452,6 +478,7 @@ pub fn get_paginated_devices_excluding_ids(
         None,
         None,
         None,
+        None,
         false,
     );
     if !exclude_ids.is_empty() {
@@ -462,6 +489,7 @@ pub fn get_paginated_devices_excluding_ids(
     let mut data_query = apply_device_filters(
         assets::table.into_boxed(),
         search,
+        None,
         None,
         None,
         None,

@@ -4972,6 +4972,17 @@ pub struct AssetGroupResponse {
     pub asset_count: i64,
 }
 
+/// Compact group reference for "groups this asset is in" — matches the
+/// frontend `AssetGroup` type. Lighter than the full row for per-asset
+/// rendering across a list page.
+#[derive(Debug, Serialize, Queryable)]
+pub struct AssetGroupRef {
+    pub id: i32,
+    pub uuid: Uuid,
+    pub name: String,
+    pub color: Option<String>,
+}
+
 // ============================================================================
 // Ticket Categories - Category Management
 // ============================================================================

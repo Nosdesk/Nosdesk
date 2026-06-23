@@ -6316,3 +6316,16 @@ user-addresses-confirm-message = Dit adres verwijderen?
 user-addresses-error-load = Laden van adressen mislukt
 user-addresses-error-save = Opslaan van adres mislukt
 user-addresses-error-delete = Verwijderen van adres mislukt
+# MACHINE TRANSLATION, pending native review (native asset groups)
+assets-list-filter-groups-label = Groep
+assets-list-filter-groups-count =
+    { $count ->
+        [one] 1 activum
+       *[other] { $count } activa
+    }
+asset-detail-groups-title = Activagroepen
+asset-detail-groups-empty = In geen enkele groep.
+asset-detail-groups-add-placeholder = Aan een groep toevoegen
+asset-detail-groups-remove = Verwijderen uit { $name }
+asset-detail-groups-save-error = Bijwerken van activagroepen mislukt
+error-store-asset-groups-load = Laden van activagroepen mislukt.

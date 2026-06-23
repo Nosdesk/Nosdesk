@@ -18,7 +18,7 @@ use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::{
-    Asset, AssetGroup, AssetGroupResponse, AssetGroupUpdate, NewAssetGroup,
+    Asset, AssetGroup, AssetGroupRef, AssetGroupResponse, AssetGroupUpdate, NewAssetGroup,
     NewAssetGroupAssignment, SyncAggregate, SyncOp,
 };
 use crate::schema::{asset_group_assignments, asset_groups, assets};
@@ -129,6 +129,37 @@ pub fn group_ids_for_assets(
     let mut out: HashMap<i32, Vec<i32>> = HashMap::new();
     for (asset_id, group_id) in rows {
         out.entry(asset_id).or_default().push(group_id);
+    }
+    Ok(out)
+}
+
+/// Batched map asset_id → compact group refs for list/detail enrichment (one
+/// query per page). Archived groups are excluded; ordered for stable chips.
+pub fn group_refs_for_assets(
+    conn: &mut DbConnection,
+    asset_ids: &[i32],
+) -> QueryResult<HashMap<i32, Vec<AssetGroupRef>>> {
+    let rows: Vec<(i32, i32, Uuid, String, Option<String>)> = asset_group_assignments::table
+        .inner_join(asset_groups::table.on(asset_groups::id.eq(asset_group_assignments::group_id)))
+        .filter(asset_group_assignments::asset_id.eq_any(asset_ids))
+        .filter(asset_groups::archived_at.is_null())
+        .order((asset_groups::display_order.asc(), asset_groups::name.asc()))
+        .select((
+            asset_group_assignments::asset_id,
+            asset_groups::id,
+            asset_groups::uuid,
+            asset_groups::name,
+            asset_groups::color,
+        ))
+        .load(conn)?;
+    let mut out: HashMap<i32, Vec<AssetGroupRef>> = HashMap::new();
+    for (asset_id, id, uuid, name, color) in rows {
+        out.entry(asset_id).or_default().push(AssetGroupRef {
+            id,
+            uuid,
+            name,
+            color,
+        });
     }
     Ok(out)
 }

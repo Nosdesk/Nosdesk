@@ -34,6 +34,7 @@ import { useMobileDetection } from '@/composables/useMobileDetection'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
 import { downloadAssetsCsv, getPaginatedAssets, bulkAction, createEmptyAsset, getAssetGroupingDataset, type AssetGroupingRow } from '@/services/assetService'
 import { useAssetLocationsQuery } from '@/composables/useAssetLocationsQuery'
+import { useAssetGroupsStore } from '@/stores/assetGroups'
 import { assetsKeys } from '@nosdesk/core/queries/assets'
 import type { Asset } from '@nosdesk/core/types/asset'
 import {
@@ -55,6 +56,15 @@ const userUuid = computed<string | null>(() => auth.user?.uuid ?? null)
 const { kinds } = useAssetKindsQuery()
 const kindLabelBySlug = computed(() => new Map(kinds.value.map((kind) => [kind.slug, kind.label])))
 const { locations: knownLocations } = useAssetLocationsQuery()
+const assetGroupsStore = useAssetGroupsStore()
+void assetGroupsStore.load()
+const groupOptions = computed(() =>
+  assetGroupsStore.active.map((group) => ({
+    value: String(group.id),
+    label: group.name,
+    hint: t('assets-list-filter-groups-count', { count: group.asset_count }),
+  })),
+)
 
 function assetKindLabel(kind: string): string {
   return kindLabelBySlug.value.get(kind) ?? kind
@@ -131,6 +141,12 @@ const assetFacets = computed<ChipFacetDef[]>(() => [
     labelKey: 'assets-list-filter-location-label',
     kind: 'multi',
     options: () => locationOptions.value,
+  },
+  {
+    key: 'groups',
+    labelKey: 'assets-list-filter-groups-label',
+    kind: 'multi',
+    options: () => groupOptions.value,
   },
 ])
 
@@ -293,7 +309,7 @@ const listView = useListView({
     createIcon: 'device',
     onCreate: navigateToCreateAsset,
   },
-  urlSyncParamKeys: ['status', 'warranty', 'lowStock', 'location'],
+  urlSyncParamKeys: ['status', 'warranty', 'lowStock', 'location', 'groups'],
   scrollContainerRef,
   facets: assetFacets,
   groupAxes,

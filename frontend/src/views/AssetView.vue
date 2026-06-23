@@ -19,6 +19,7 @@ import Icon from '@/components/common/Icon.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 import UserSelectionModal from '@/components/UserSelectionModal.vue';
 import DeviceGroups from '@/components/AssetGroups.vue';
+import AssetGroupEditor from '@/components/assets/AssetGroupEditor.vue';
 import AssetMediaPanel from '@/components/assets/AssetMediaPanel.vue';
 import AssetLifecyclePanel from '@/components/assets/AssetLifecyclePanel.vue';
 import AssetLoanPanel from '@/components/assets/AssetLoanPanel.vue';
@@ -942,6 +943,14 @@ useSyncActions(
 
           <!-- Rail: groups + record metadata (small, secondary facts). -->
           <aside class="asset-rail">
+            <AssetGroupEditor
+              :asset-id="device.id"
+              :groups="device.asset_groups ?? []"
+              :editable="isEditable"
+              @update:groups="(groups) => { if (device) device.asset_groups = groups }"
+            />
+
+            <!-- Directory (Intune/Entra) memberships, read-only. -->
             <DeviceGroups v-if="device.groups?.length" :groups="device.groups" />
 
             <SectionCard content-padding="p-4">
