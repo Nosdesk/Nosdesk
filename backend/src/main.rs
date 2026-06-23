@@ -2487,6 +2487,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/asset-groups", web::post().to(handlers::asset_groups::create_group))
                     .route("/asset-groups/{id:\\d+}", web::put().to(handlers::asset_groups::update_group))
                     .route("/asset-groups/{id:\\d+}/archive", web::post().to(handlers::asset_groups::archive_group))
+                    .route("/asset-groups/{id:\\d+}/restore", web::post().to(handlers::asset_groups::restore_group))
                     .route("/assets", web::post().to(handlers::create_device))
                     .route("/assets/empty", web::post().to(handlers::create_empty_device))
                     .route("/assets/{id:\\d+}/model", web::post().to(handlers::set_asset_model))

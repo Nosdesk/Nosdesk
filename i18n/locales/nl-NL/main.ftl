@@ -6329,3 +6329,34 @@ asset-detail-groups-add-placeholder = Aan een groep toevoegen
 asset-detail-groups-remove = Verwijderen uit { $name }
 asset-detail-groups-save-error = Bijwerken van activagroepen mislukt
 error-store-asset-groups-load = Laden van activagroepen mislukt.
+
+# MACHINE TRANSLATION, pending native review (asset groups admin)
+route-title-admin-asset-groups = Activagroepen
+admin-nav-asset-groups-title = Activagroepen
+admin-nav-asset-groups-description = Benoemde, kleurgecodeerde groepen om activa te ordenen en te filteren
+admin-asset-groups-title = Activagroepen
+admin-asset-groups-description = Benoemde, kleurgecodeerde groepen om activa te ordenen en te filteren. Wijs activa toe aan groepen vanaf de detailpagina van elk activum.
+admin-asset-groups-back-label = Terug naar beheer
+admin-asset-groups-new = Nieuwe groep
+admin-asset-groups-error-load = Laden van activagroepen mislukt
+admin-asset-groups-error-save = Opslaan van activagroep mislukt
+admin-asset-groups-error-archive = Archiveren van activagroep mislukt
+admin-asset-groups-error-restore = Herstellen van activagroep mislukt
+admin-asset-groups-empty-title = Nog geen activagroepen
+admin-asset-groups-empty-description = Maak een groep om activa te ordenen en wijs er vervolgens activa aan toe vanaf hun detailpagina's.
+admin-asset-groups-member-count =
+    { $count ->
+        [one] 1 activum
+       *[other] { $count } activa
+    }
+admin-asset-groups-action-edit = Groep bewerken
+admin-asset-groups-action-archive = Groep archiveren
+admin-asset-groups-action-restore = Herstellen
+admin-asset-groups-archived-heading = Gearchiveerd
+admin-asset-groups-modal-create-title = Nieuwe activagroep
+admin-asset-groups-modal-edit-title = Activagroep bewerken
+admin-asset-groups-field-name = Naam
+admin-asset-groups-field-name-placeholder = bijv. Uitleenpool
+admin-asset-groups-field-description = Beschrijving
+admin-asset-groups-field-description-placeholder = Optioneel
+admin-asset-groups-field-color = Kleur

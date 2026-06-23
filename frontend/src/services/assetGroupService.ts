@@ -50,6 +50,11 @@ export const archiveAssetGroup = async (id: number): Promise<AssetGroupSummary> 
   return response.data as AssetGroupSummary;
 };
 
+export const restoreAssetGroup = async (id: number): Promise<AssetGroupSummary> => {
+  const response = await apiClient.post(`/asset-groups/${id}/restore`);
+  return response.data as AssetGroupSummary;
+};
+
 /** Replace an asset's native group set (assigned from the asset side). Returns
  *  the resulting group-id list. */
 export const setAssetGroupsForAsset = async (

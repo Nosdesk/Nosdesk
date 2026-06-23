@@ -94,6 +94,24 @@ pub async fn archive_group(
     }
 }
 
+pub async fn restore_group(
+    mut tc: TenantConn,
+    params: web::Path<i32>,
+    auth: AuthContext,
+) -> impl Responder {
+    if !auth.is_workspace_admin() {
+        return errors::forbidden("Only admins can restore asset groups");
+    }
+    let id = params.into_inner();
+    match tc.run(|conn| repo::restore_group(conn, id)) {
+        Ok(group) => HttpResponse::Ok().json(group),
+        Err(e) => {
+            error!(error = %e, "restore asset group failed");
+            errors::internal("Failed to restore asset group")
+        }
+    }
+}
+
 /// `GET /api/assets/{id}/groups` — the native groups an asset belongs to.
 pub async fn get_asset_groups(
     mut tc: TenantConn,

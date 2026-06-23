@@ -6337,3 +6337,34 @@ asset-detail-groups-add-placeholder = Ajouter à un groupe
 asset-detail-groups-remove = Retirer de { $name }
 asset-detail-groups-save-error = Échec de la mise à jour des groupes d'actifs
 error-store-asset-groups-load = Échec du chargement des groupes d'actifs.
+
+# MACHINE TRANSLATION, pending native review (asset groups admin)
+route-title-admin-asset-groups = Groupes d'actifs
+admin-nav-asset-groups-title = Groupes d'actifs
+admin-nav-asset-groups-description = Groupes nommés et colorés pour organiser et filtrer les actifs
+admin-asset-groups-title = Groupes d'actifs
+admin-asset-groups-description = Groupes nommés et colorés pour organiser et filtrer les actifs. Attribuez des actifs aux groupes depuis la page de détail de chaque actif.
+admin-asset-groups-back-label = Retour à l'administration
+admin-asset-groups-new = Nouveau groupe
+admin-asset-groups-error-load = Échec du chargement des groupes d'actifs
+admin-asset-groups-error-save = Échec de l'enregistrement du groupe d'actifs
+admin-asset-groups-error-archive = Échec de l'archivage du groupe d'actifs
+admin-asset-groups-error-restore = Échec de la restauration du groupe d'actifs
+admin-asset-groups-empty-title = Aucun groupe d'actifs pour l'instant
+admin-asset-groups-empty-description = Créez un groupe pour organiser les actifs, puis attribuez-y des actifs depuis leurs pages de détail.
+admin-asset-groups-member-count =
+    { $count ->
+        [one] 1 actif
+       *[other] { $count } actifs
+    }
+admin-asset-groups-action-edit = Modifier le groupe
+admin-asset-groups-action-archive = Archiver le groupe
+admin-asset-groups-action-restore = Restaurer
+admin-asset-groups-archived-heading = Archivés
+admin-asset-groups-modal-create-title = Nouveau groupe d'actifs
+admin-asset-groups-modal-edit-title = Modifier le groupe d'actifs
+admin-asset-groups-field-name = Nom
+admin-asset-groups-field-name-placeholder = ex. Pool de prêt
+admin-asset-groups-field-description = Description
+admin-asset-groups-field-description-placeholder = Facultatif
+admin-asset-groups-field-color = Couleur

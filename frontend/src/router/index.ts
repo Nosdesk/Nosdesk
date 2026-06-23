@@ -614,6 +614,12 @@ const router = createRouter({
           meta: { titleKey: 'route-title-admin-asset-kinds' }
         },
         {
+          path: 'asset-groups',
+          name: 'admin-asset-groups',
+          component: () => import('../views/admin/AssetGroupsView.vue'),
+          meta: { titleKey: 'route-title-admin-asset-groups' }
+        },
+        {
           path: 'asset-kinds/new',
           name: 'admin-asset-kinds-new',
           component: () => import('../views/admin/AssetKindEditView.vue'),

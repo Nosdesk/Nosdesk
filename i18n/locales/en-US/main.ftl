@@ -794,6 +794,34 @@ admin-workflow-states-sla-now-running-flash = { $name } now runs the SLA clock
 # kinds of assets they track and the attributes each kind carries.
 admin-asset-kinds-title = Asset Kinds
 admin-asset-kinds-description = Define the kinds of assets you track. Each kind has a slug (used internally), a label, and an attribute schema in the JSON Schema subset that describes the fields you want to collect when an asset of that kind is created.
+
+# Asset groups management (admin)
+admin-asset-groups-title = Asset groups
+admin-asset-groups-description = Named, color-coded groups for organizing and filtering assets. Assign assets to groups from each asset's detail page.
+admin-asset-groups-back-label = Back to administration
+admin-asset-groups-new = New group
+admin-asset-groups-error-load = Failed to load asset groups
+admin-asset-groups-error-save = Failed to save asset group
+admin-asset-groups-error-archive = Failed to archive asset group
+admin-asset-groups-error-restore = Failed to restore asset group
+admin-asset-groups-empty-title = No asset groups yet
+admin-asset-groups-empty-description = Create a group to organize assets, then assign assets to it from their detail pages.
+admin-asset-groups-member-count =
+    { $count ->
+        [one] 1 asset
+       *[other] { $count } assets
+    }
+admin-asset-groups-action-edit = Edit group
+admin-asset-groups-action-archive = Archive group
+admin-asset-groups-action-restore = Restore
+admin-asset-groups-archived-heading = Archived
+admin-asset-groups-modal-create-title = New asset group
+admin-asset-groups-modal-edit-title = Edit asset group
+admin-asset-groups-field-name = Name
+admin-asset-groups-field-name-placeholder = e.g. Loaner pool
+admin-asset-groups-field-description = Description
+admin-asset-groups-field-description-placeholder = Optional
+admin-asset-groups-field-color = Color
 admin-asset-kinds-builtin-heading = Built-in kinds
 admin-asset-kinds-builtin-description = These kinds ship with Nosdesk. You can edit the label, description, and attribute schema, but the slug stays fixed so existing assets keep resolving.
 admin-asset-kinds-builtin-tag = built-in
@@ -1001,6 +1029,8 @@ admin-nav-workflow-title = Workflow
 admin-nav-workflow-description = Add named ticket states inside the standard workflow categories
 admin-nav-asset-kinds-title = Asset Kinds
 admin-nav-asset-kinds-description = Define the kinds of assets you track and the attributes each kind carries
+admin-nav-asset-groups-title = Asset Groups
+admin-nav-asset-groups-description = Named, color-coded groups for organizing and filtering assets
 admin-nav-sla-title = SLA
 admin-nav-sla-description = Service-level policies and working-hours calendars
 admin-nav-canned-responses-title = Canned Responses
@@ -5512,6 +5542,7 @@ route-title-admin-categories = Categories
 route-title-admin-assignment-rules = Assignment rules
 route-title-admin-workflow = Workflow
 route-title-admin-asset-kinds = Asset kinds
+route-title-admin-asset-groups = Asset groups
 route-title-asset-catalog = Asset catalog
 common-edit = Edit
 common-delete = Delete

@@ -96,6 +96,16 @@ pub fn archive_group(conn: &mut DbConnection, id: i32) -> QueryResult<AssetGroup
         .get_result(conn)
 }
 
+// sync-audit-only: asset-group definitions are NOT a sync aggregate (workspace config, picker re-fetches). Asset↔group assignment IS sync-wired via `asset.groups_changed` in `set_groups_for_asset`
+/// Clear `archived_at`, returning a group to the picker. May fail the active-
+/// name unique index if the name was reused while archived; the caller
+/// surfaces that.
+pub fn restore_group(conn: &mut DbConnection, id: i32) -> QueryResult<AssetGroup> {
+    diesel::update(asset_groups::table.find(id))
+        .set(asset_groups::archived_at.eq(None::<chrono::NaiveDateTime>))
+        .get_result(conn)
+}
+
 // ---- Asset ↔ group assignment ----------------------------------
 
 /// Full (non-archived) group rows an asset belongs to, ordered for stable
