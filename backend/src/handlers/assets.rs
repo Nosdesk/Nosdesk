@@ -733,18 +733,12 @@ pub async fn get_device_by_id(
             group_count = groups.len(),
             "Fetched groups for device"
         );
-        let asset_groups =
-            crate::repository::asset_groups::groups_for_asset(conn, device_id).unwrap_or_default();
         let mut resp = AssetResponse::from_device_and_user(device, user, groups, conn);
-        resp.asset_groups = asset_groups
-            .into_iter()
-            .map(|g| crate::models::AssetGroupRef {
-                id: g.id,
-                uuid: g.uuid,
-                name: g.name,
-                color: g.color,
-            })
-            .collect();
+        resp.asset_groups =
+            crate::repository::asset_groups::group_refs_for_assets(conn, &[device_id])
+                .unwrap_or_default()
+                .remove(&device_id)
+                .unwrap_or_default();
         Ok(resp)
     });
 

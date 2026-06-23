@@ -32,6 +32,7 @@ export async function resetWorkspaceScopedState(): Promise<void> {
     ),
     import('@nosdesk/core/stores/cycles').then((m) => m.useCyclesStore().reset()),
     import('@/stores/savedViews').then((m) => m.useSavedViewsStore().reset()),
+    import('@/stores/assetGroups').then((m) => m.useAssetGroupsStore().reset()),
   ]);
   for (const r of storeResets) {
     if (r.status === 'rejected') {

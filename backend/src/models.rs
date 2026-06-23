@@ -4975,7 +4975,7 @@ pub struct AssetGroupResponse {
 /// Compact group reference for "groups this asset is in" — matches the
 /// frontend `AssetGroup` type. Lighter than the full row for per-asset
 /// rendering across a list page.
-#[derive(Debug, Serialize, Queryable)]
+#[derive(Debug, Serialize)]
 pub struct AssetGroupRef {
     pub id: i32,
     pub uuid: Uuid,

@@ -58,14 +58,15 @@ pub fn list_groups(
         .collect())
 }
 
-pub fn get_group(conn: &mut DbConnection, id: i32) -> QueryResult<AssetGroup> {
-    asset_groups::table.find(id).first(conn)
-}
-
-pub fn get_group_by_uuid(conn: &mut DbConnection, uuid: Uuid) -> QueryResult<AssetGroup> {
-    asset_groups::table
-        .filter(asset_groups::uuid.eq(uuid))
-        .first(conn)
+/// Load one group plus its member count, the shape the list returns. Lets the
+/// CRUD handlers answer with the same `AssetGroupResponse` the list does.
+pub fn group_response(conn: &mut DbConnection, id: i32) -> QueryResult<AssetGroupResponse> {
+    let group: AssetGroup = asset_groups::table.find(id).first(conn)?;
+    let asset_count: i64 = asset_group_assignments::table
+        .filter(asset_group_assignments::group_id.eq(id))
+        .count()
+        .get_result(conn)?;
+    Ok(AssetGroupResponse { group, asset_count })
 }
 
 // sync-audit-only: asset-group definitions are NOT a sync aggregate (workspace config, picker re-fetches). Asset↔group assignment IS sync-wired via `asset.groups_changed` in `set_groups_for_asset`
@@ -118,29 +119,6 @@ pub fn groups_for_asset(conn: &mut DbConnection, asset_id: i32) -> QueryResult<V
         .select(asset_groups::all_columns)
         .order((asset_groups::display_order.asc(), asset_groups::name.asc()))
         .load(conn)
-}
-
-/// Batched map asset_id → group_ids for the list enrichment (one query for a
-/// whole page rather than per-asset). Archived groups are excluded.
-pub fn group_ids_for_assets(
-    conn: &mut DbConnection,
-    asset_ids: &[i32],
-) -> QueryResult<HashMap<i32, Vec<i32>>> {
-    let rows: Vec<(i32, i32)> = asset_group_assignments::table
-        .inner_join(asset_groups::table.on(asset_groups::id.eq(asset_group_assignments::group_id)))
-        .filter(asset_group_assignments::asset_id.eq_any(asset_ids))
-        .filter(asset_groups::archived_at.is_null())
-        .order(asset_group_assignments::group_id.asc())
-        .select((
-            asset_group_assignments::asset_id,
-            asset_group_assignments::group_id,
-        ))
-        .load(conn)?;
-    let mut out: HashMap<i32, Vec<i32>> = HashMap::new();
-    for (asset_id, group_id) in rows {
-        out.entry(asset_id).or_default().push(group_id);
-    }
-    Ok(out)
 }
 
 /// Batched map asset_id → compact group refs for list/detail enrichment (one
@@ -198,7 +176,17 @@ pub fn set_groups_for_asset(
             .load::<i32>(conn)?
             .into_iter()
             .collect();
-        let desired: HashSet<i32> = desired_group_ids.iter().copied().collect();
+        // Keep only ids that name a live group in this workspace (RLS scopes
+        // the query). Drops archived / unknown / cross-workspace ids so the PUT
+        // can't record a membership that the archived-excluding reads would
+        // then hide.
+        let desired: HashSet<i32> = asset_groups::table
+            .filter(asset_groups::id.eq_any(desired_group_ids))
+            .filter(asset_groups::archived_at.is_null())
+            .select(asset_groups::id)
+            .load::<i32>(conn)?
+            .into_iter()
+            .collect();
 
         let to_add: Vec<i32> = desired.difference(&current).copied().collect();
         let to_remove: Vec<i32> = current.difference(&desired).copied().collect();
@@ -358,5 +346,25 @@ mod tests {
             .iter()
             .any(|r| r.group.id == g1.id));
         assert!(groups_for_asset(&mut conn, a1).unwrap().is_empty());
+    }
+
+    #[test]
+    fn assigning_archived_or_unknown_group_is_dropped() {
+        let mut conn = setup_test_connection();
+        let live = make_group(&mut conn, "Live");
+        let stale = make_group(&mut conn, "Stale");
+        let asset = make_asset(&mut conn, "laptop-9");
+        archive_group(&mut conn, stale.id).unwrap();
+
+        // Archived (`stale`) and unknown (`999999`) ids are silently dropped;
+        // only the live group is recorded, so the read-back matches the write.
+        let saved =
+            set_groups_for_asset(&mut conn, asset, &[live.id, stale.id, 999_999], None).unwrap();
+        assert_eq!(saved, vec![live.id]);
+        let groups = groups_for_asset(&mut conn, asset).unwrap();
+        assert_eq!(
+            groups.iter().map(|g| g.id).collect::<Vec<_>>(),
+            vec![live.id]
+        );
     }
 }

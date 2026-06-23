@@ -2511,7 +2511,6 @@ async fn main() -> std::io::Result<()> {
                     .route("/assets/{id:\\d+}/audit", web::post().to(handlers::asset_audits::record))
                     .route("/assets/{id:\\d+}/audits", web::get().to(handlers::asset_audits::list_for_asset))
                     // Native asset-group membership, assigned from the asset side.
-                    .route("/assets/{id:\\d+}/groups", web::get().to(handlers::asset_groups::get_asset_groups))
                     .route("/assets/{id:\\d+}/groups", web::put().to(handlers::asset_groups::set_asset_groups))
                     .route("/users/{uuid}/assets", web::get().to(handlers::get_user_devices))
 

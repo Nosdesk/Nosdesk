@@ -4475,7 +4475,7 @@ ui-heatmap-tooltip-more = ...and { $count ->
         [one] { $count } more
        *[other] { $count } more
     }
-ui-device-groups-title = Groups
+ui-device-groups-title = Directory groups
 ui-header-title-placeholder = Title...
 
 # Search + ticket remnants

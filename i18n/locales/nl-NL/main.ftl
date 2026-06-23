@@ -5126,7 +5126,7 @@ ui-heatmap-tooltip-more = ...en nog { $count ->
         [one] { $count } meer
        *[other] { $count } meer
     }
-ui-device-groups-title = Groepen
+ui-device-groups-title = Directorygroepen
 ui-header-title-placeholder = Titel invoeren...
 
 # Search + ticket remnants

@@ -48,8 +48,11 @@ pub async fn create_group(
     }
     let mut new_group = body.into_inner();
     new_group.created_by = Some(auth.user_uuid);
-    match tc.run(|conn| repo::create_group(conn, new_group)) {
-        Ok(group) => HttpResponse::Ok().json(group),
+    match tc.run(|conn| {
+        let group = repo::create_group(conn, new_group)?;
+        repo::group_response(conn, group.id)
+    }) {
+        Ok(resp) => HttpResponse::Ok().json(resp),
         Err(e) => {
             error!(error = %e, "create asset group failed");
             errors::internal("Failed to create asset group")
@@ -67,8 +70,12 @@ pub async fn update_group(
         return errors::forbidden("Only admins can update asset groups");
     }
     let id = params.into_inner();
-    match tc.run(|conn| repo::update_group(conn, id, body.into_inner())) {
-        Ok(group) => HttpResponse::Ok().json(group),
+    match tc.run(|conn| {
+        repo::update_group(conn, id, body.into_inner())?;
+        repo::group_response(conn, id)
+    }) {
+        Ok(resp) => HttpResponse::Ok().json(resp),
+        Err(diesel::result::Error::NotFound) => errors::not_found("Asset group"),
         Err(e) => {
             error!(error = %e, "update asset group failed");
             errors::internal("Failed to update asset group")
@@ -85,8 +92,12 @@ pub async fn archive_group(
         return errors::forbidden("Only admins can archive asset groups");
     }
     let id = params.into_inner();
-    match tc.run(|conn| repo::archive_group(conn, id)) {
-        Ok(group) => HttpResponse::Ok().json(group),
+    match tc.run(|conn| {
+        repo::archive_group(conn, id)?;
+        repo::group_response(conn, id)
+    }) {
+        Ok(resp) => HttpResponse::Ok().json(resp),
+        Err(diesel::result::Error::NotFound) => errors::not_found("Asset group"),
         Err(e) => {
             error!(error = %e, "archive asset group failed");
             errors::internal("Failed to archive asset group")
@@ -103,27 +114,15 @@ pub async fn restore_group(
         return errors::forbidden("Only admins can restore asset groups");
     }
     let id = params.into_inner();
-    match tc.run(|conn| repo::restore_group(conn, id)) {
-        Ok(group) => HttpResponse::Ok().json(group),
+    match tc.run(|conn| {
+        repo::restore_group(conn, id)?;
+        repo::group_response(conn, id)
+    }) {
+        Ok(resp) => HttpResponse::Ok().json(resp),
+        Err(diesel::result::Error::NotFound) => errors::not_found("Asset group"),
         Err(e) => {
             error!(error = %e, "restore asset group failed");
             errors::internal("Failed to restore asset group")
-        }
-    }
-}
-
-/// `GET /api/assets/{id}/groups` — the native groups an asset belongs to.
-pub async fn get_asset_groups(
-    mut tc: TenantConn,
-    params: web::Path<i32>,
-    _auth: AuthContext,
-) -> impl Responder {
-    let asset_id = params.into_inner();
-    match tc.run(|conn| repo::groups_for_asset(conn, asset_id)) {
-        Ok(groups) => HttpResponse::Ok().json(groups),
-        Err(e) => {
-            error!(error = %e, asset_id, "get asset groups failed");
-            errors::internal("Failed to load asset groups")
         }
     }
 }
@@ -137,7 +136,8 @@ pub struct SetAssetGroupsBody {
 }
 
 /// `PUT /api/assets/{id}/groups` — set an asset's native groups (from the
-/// asset side). Agent-tier, mirroring asset write permissions.
+/// asset side). Agent-tier, mirroring asset write permissions. Returns the
+/// resulting group refs so the caller can render them without reconstruction.
 pub async fn set_asset_groups(
     mut tc: TenantConn,
     params: web::Path<i32>,
@@ -150,8 +150,13 @@ pub async fn set_asset_groups(
     let asset_id = params.into_inner();
     let group_ids = body.group_ids.clone();
     let actor: Option<Uuid> = Some(auth.user_uuid);
-    match tc.run(|conn| repo::set_groups_for_asset(conn, asset_id, &group_ids, actor)) {
-        Ok(group_ids) => HttpResponse::Ok().json(serde_json::json!({ "group_ids": group_ids })),
+    match tc.run(|conn| {
+        repo::set_groups_for_asset(conn, asset_id, &group_ids, actor)?;
+        Ok(repo::group_refs_for_assets(conn, &[asset_id])?
+            .remove(&asset_id)
+            .unwrap_or_default())
+    }) {
+        Ok(refs) => HttpResponse::Ok().json(refs),
         Err(e) => {
             error!(error = %e, asset_id, "set asset groups failed");
             errors::internal("Failed to update asset groups")

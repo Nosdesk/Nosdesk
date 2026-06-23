@@ -5135,7 +5135,7 @@ ui-heatmap-tooltip-more = ...et { $count ->
         [one] { $count } de plus
        *[other] { $count } de plus
     }
-ui-device-groups-title = Groupes
+ui-device-groups-title = Groupes d'annuaire
 ui-header-title-placeholder = Saisir un titre...
 
 # Search + ticket remnants

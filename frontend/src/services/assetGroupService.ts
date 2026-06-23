@@ -22,9 +22,6 @@ export interface AssetGroupInput {
   display_order?: number;
 }
 
-/** Shared Pinia Colada / store cache key for the asset-groups list. */
-export const ASSET_GROUPS_QUERY_KEY = ['asset-groups'] as const;
-
 export const listAssetGroups = async (includeArchived = false): Promise<AssetGroupSummary[]> => {
   const response = await apiClient.get('/asset-groups', {
     params: includeArchived ? { include_archived: true } : undefined,
@@ -56,22 +53,16 @@ export const restoreAssetGroup = async (id: number): Promise<AssetGroupSummary> 
 };
 
 /** Replace an asset's native group set (assigned from the asset side). Returns
- *  the resulting group-id list. */
+ *  the resulting group refs so the caller can render them without rebuilding. */
 export const setAssetGroupsForAsset = async (
   assetId: number,
   groupIds: number[],
-): Promise<number[]> => {
+): Promise<AssetGroup[]> => {
   try {
     const response = await apiClient.put(`/assets/${assetId}/groups`, { group_ids: groupIds });
-    return (response.data?.group_ids ?? []) as number[];
+    return (response.data ?? []) as AssetGroup[];
   } catch (error) {
     logger.error('Failed to set asset groups', { error, assetId });
     throw error;
   }
-};
-
-/** Compact refs for the groups an asset belongs to (drives the detail pill). */
-export const getAssetGroupsForAsset = async (assetId: number): Promise<AssetGroup[]> => {
-  const response = await apiClient.get(`/assets/${assetId}/groups`);
-  return response.data as AssetGroup[];
 };

@@ -38,23 +38,14 @@ const addOptions = computed<DropdownOption[]>(() =>
     .map((g) => ({ value: String(g.id), label: g.name })),
 )
 
-/** Resolve the id set to compact refs, preferring fresh store rows. */
-function refsFor(ids: number[]): AssetGroup[] {
-  return ids.map((id) => {
-    const fromStore = store.findById(id)
-    if (fromStore) {
-      return { id: fromStore.id, uuid: fromStore.uuid, name: fromStore.name, color: fromStore.color }
-    }
-    return props.groups.find((g) => g.id === id) ?? { id, uuid: '', name: String(id) }
-  })
-}
-
 async function persist(ids: number[]) {
   if (saving.value) return
   saving.value = true
   try {
+    // The PUT returns the resulting refs, so the parent renders exactly what
+    // was saved without reconstructing rows client-side.
     const saved = await setAssetGroupsForAsset(props.assetId, ids)
-    emit('update:groups', refsFor(saved))
+    emit('update:groups', saved)
   } catch (err) {
     toast.error(extractErrorMessage(err, t('asset-detail-groups-save-error')))
   } finally {
