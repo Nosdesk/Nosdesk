@@ -2,6 +2,7 @@
 pub mod analytics;
 pub mod article_content;
 pub mod asset_audits;
+pub mod asset_groups;
 pub mod asset_kinds;
 pub mod asset_lifecycle;
 pub mod asset_loans;

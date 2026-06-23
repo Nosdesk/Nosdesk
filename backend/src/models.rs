@@ -4871,13 +4871,15 @@ pub struct NewUserGroup {
     pub created_by: Option<Uuid>,
 }
 
-// Asset-Group junction table
+// Asset ↔ directory-group junction. Links an asset to a directory `Group`
+// (Intune/Entra-synced or manual). Named for what it is now that the native
+// `asset_groups` entity below owns the unqualified "asset group" concept.
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations)]
-#[diesel(table_name = crate::schema::asset_groups)]
+#[diesel(table_name = crate::schema::asset_directory_memberships)]
 #[diesel(belongs_to(Group))]
 #[diesel(belongs_to(Asset, foreign_key = asset_id))]
 #[diesel(primary_key(asset_id, group_id))]
-pub struct AssetGroup {
+pub struct AssetDirectoryMembership {
     pub asset_id: i32,
     pub group_id: i32,
     pub created_at: NaiveDateTime,
@@ -4887,12 +4889,87 @@ pub struct AssetGroup {
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
-#[diesel(table_name = crate::schema::asset_groups)]
-pub struct NewAssetGroup {
+#[diesel(table_name = crate::schema::asset_directory_memberships)]
+pub struct NewAssetDirectoryMembership {
     pub asset_id: i32,
     pub group_id: i32,
     pub created_by: Option<Uuid>,
     pub external_source: Option<String>,
+}
+
+// ============================================================================
+// Asset Groups - native, workspace-local asset classification
+// ============================================================================
+//
+// Tag-style UX (multi-assign, assigned from the asset, a list filter facet)
+// over an entity-shaped schema so future depth stays additive. Distinct from
+// the directory groups above: no Entra/security semantics.
+
+#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Clone)]
+#[diesel(table_name = crate::schema::asset_groups)]
+pub struct AssetGroup {
+    pub id: i32,
+    pub uuid: Uuid,
+    pub name: String,
+    pub description: Option<String>,
+    pub color: Option<String>,
+    pub display_order: i32,
+    pub archived_at: Option<NaiveDateTime>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+    pub created_by: Option<Uuid>,
+    pub workspace_id: i32,
+}
+
+#[derive(Debug, Deserialize, Insertable)]
+#[diesel(table_name = crate::schema::asset_groups)]
+pub struct NewAssetGroup {
+    pub name: String,
+    pub description: Option<String>,
+    pub color: Option<String>,
+    #[serde(default)]
+    pub display_order: i32,
+    #[serde(skip_deserializing)]
+    pub created_by: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize, AsChangeset)]
+#[diesel(table_name = crate::schema::asset_groups)]
+pub struct AssetGroupUpdate {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub color: Option<String>,
+    pub display_order: Option<i32>,
+}
+
+// Asset ↔ asset-group membership (native).
+#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations)]
+#[diesel(table_name = crate::schema::asset_group_assignments)]
+#[diesel(belongs_to(AssetGroup, foreign_key = group_id))]
+#[diesel(belongs_to(Asset, foreign_key = asset_id))]
+#[diesel(primary_key(group_id, asset_id))]
+pub struct AssetGroupAssignment {
+    pub group_id: i32,
+    pub asset_id: i32,
+    pub added_at: NaiveDateTime,
+    pub added_by: Option<Uuid>,
+    pub workspace_id: i32,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = crate::schema::asset_group_assignments)]
+pub struct NewAssetGroupAssignment {
+    pub group_id: i32,
+    pub asset_id: i32,
+    pub added_by: Option<Uuid>,
+}
+
+/// List/picker DTO: a group plus its current member count.
+#[derive(Debug, Serialize)]
+pub struct AssetGroupResponse {
+    #[serde(flatten)]
+    pub group: AssetGroup,
+    pub asset_count: i64,
 }
 
 // ============================================================================

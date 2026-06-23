@@ -2481,6 +2481,12 @@ async fn main() -> std::io::Result<()> {
                     .route("/asset-models/{id:\\d+}", web::get().to(handlers::asset_models::get))
                     .route("/asset-models/{id:\\d+}", web::put().to(handlers::asset_models::update))
                     .route("/asset-models/{id:\\d+}", web::delete().to(handlers::asset_models::delete))
+                    // Native asset groups: picker/list is agent-tier, CRUD is
+                    // admin-only (see handlers::asset_groups).
+                    .route("/asset-groups", web::get().to(handlers::asset_groups::list_groups))
+                    .route("/asset-groups", web::post().to(handlers::asset_groups::create_group))
+                    .route("/asset-groups/{id:\\d+}", web::put().to(handlers::asset_groups::update_group))
+                    .route("/asset-groups/{id:\\d+}/archive", web::post().to(handlers::asset_groups::archive_group))
                     .route("/assets", web::post().to(handlers::create_device))
                     .route("/assets/empty", web::post().to(handlers::create_empty_device))
                     .route("/assets/{id:\\d+}/model", web::post().to(handlers::set_asset_model))
@@ -2503,6 +2509,9 @@ async fn main() -> std::io::Result<()> {
                     .route("/assets/{id:\\d+}/usage", web::get().to(handlers::asset_usage::list_for_asset))
                     .route("/assets/{id:\\d+}/audit", web::post().to(handlers::asset_audits::record))
                     .route("/assets/{id:\\d+}/audits", web::get().to(handlers::asset_audits::list_for_asset))
+                    // Native asset-group membership, assigned from the asset side.
+                    .route("/assets/{id:\\d+}/groups", web::get().to(handlers::asset_groups::get_asset_groups))
+                    .route("/assets/{id:\\d+}/groups", web::put().to(handlers::asset_groups::set_asset_groups))
                     .route("/users/{uuid}/assets", web::get().to(handlers::get_user_devices))
 
                     // ===== DOCUMENTATION SYSTEM =====

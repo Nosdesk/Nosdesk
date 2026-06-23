@@ -4,6 +4,7 @@ pub mod analytics;
 pub mod api_tokens;
 pub mod app_config;
 pub mod asset_audits;
+pub mod asset_groups;
 pub mod asset_kinds;
 pub mod asset_lifecycle;
 pub mod asset_loans;

@@ -37,9 +37,12 @@ pub fn get_groups_with_member_counts(
         .load(conn)?;
 
     // Batch: all device counts per group
-    let device_counts: Vec<(i32, i64)> = asset_groups::table
-        .group_by(asset_groups::group_id)
-        .select((asset_groups::group_id, diesel::dsl::count_star()))
+    let device_counts: Vec<(i32, i64)> = asset_directory_memberships::table
+        .group_by(asset_directory_memberships::group_id)
+        .select((
+            asset_directory_memberships::group_id,
+            diesel::dsl::count_star(),
+        ))
         .load(conn)?;
 
     // Build lookup maps
@@ -1022,17 +1025,17 @@ pub fn set_group_includes(
 
 /// Get all devices in a group
 pub fn get_devices_in_group(conn: &mut DbConnection, group_id: i32) -> QueryResult<Vec<Asset>> {
-    asset_groups::table
-        .filter(asset_groups::group_id.eq(group_id))
-        .inner_join(assets::table.on(assets::id.eq(asset_groups::asset_id)))
+    asset_directory_memberships::table
+        .filter(asset_directory_memberships::group_id.eq(group_id))
+        .inner_join(assets::table.on(assets::id.eq(asset_directory_memberships::asset_id)))
         .select(assets::all_columns)
         .load(conn)
 }
 
 /// Get all groups for a device
 pub fn get_groups_for_device(conn: &mut DbConnection, device_id: i32) -> QueryResult<Vec<Group>> {
-    asset_groups::table
-        .filter(asset_groups::asset_id.eq(device_id))
+    asset_directory_memberships::table
+        .filter(asset_directory_memberships::asset_id.eq(device_id))
         .inner_join(groups::table)
         .select(groups::all_columns)
         .order(groups::name.asc())
@@ -1046,28 +1049,29 @@ pub fn add_device_to_group(
     group_id: i32,
     created_by: Option<Uuid>,
     external_source: Option<&str>,
-) -> QueryResult<AssetGroup> {
+) -> QueryResult<AssetDirectoryMembership> {
     conn.transaction(|conn| {
         // Check if already exists
-        let existing = asset_groups::table
-            .filter(asset_groups::asset_id.eq(device_id))
-            .filter(asset_groups::group_id.eq(group_id))
-            .first::<AssetGroup>(conn);
+        let existing = asset_directory_memberships::table
+            .filter(asset_directory_memberships::asset_id.eq(device_id))
+            .filter(asset_directory_memberships::group_id.eq(group_id))
+            .first::<AssetDirectoryMembership>(conn);
 
         if let Ok(membership) = existing {
             return Ok(membership);
         }
 
-        let new_membership = NewAssetGroup {
+        let new_membership = NewAssetDirectoryMembership {
             asset_id: device_id,
             group_id,
             created_by,
             external_source: external_source.map(String::from),
         };
 
-        let membership: AssetGroup = diesel::insert_into(asset_groups::table)
-            .values(&new_membership)
-            .get_result(conn)?;
+        let membership: AssetDirectoryMembership =
+            diesel::insert_into(asset_directory_memberships::table)
+                .values(&new_membership)
+                .get_result(conn)?;
 
         emit::record(
             conn,
@@ -1097,9 +1101,9 @@ pub fn remove_device_from_group(
 ) -> QueryResult<usize> {
     conn.transaction(|conn| {
         let result = diesel::delete(
-            asset_groups::table
-                .filter(asset_groups::asset_id.eq(device_id))
-                .filter(asset_groups::group_id.eq(group_id)),
+            asset_directory_memberships::table
+                .filter(asset_directory_memberships::asset_id.eq(device_id))
+                .filter(asset_directory_memberships::group_id.eq(group_id)),
         )
         .execute(conn)?;
         if result > 0 {
@@ -1125,9 +1129,9 @@ pub fn remove_device_from_group(
 
 /// Get device IDs for a group (simple list)
 pub fn get_device_ids_for_group(conn: &mut DbConnection, group_id: i32) -> QueryResult<Vec<i32>> {
-    asset_groups::table
-        .filter(asset_groups::group_id.eq(group_id))
-        .select(asset_groups::asset_id)
+    asset_directory_memberships::table
+        .filter(asset_directory_memberships::group_id.eq(group_id))
+        .select(asset_directory_memberships::asset_id)
         .load(conn)
 }
 
@@ -1137,10 +1141,10 @@ pub fn get_synced_device_ids_for_group(
     group_id: i32,
     external_source: &str,
 ) -> QueryResult<Vec<i32>> {
-    asset_groups::table
-        .filter(asset_groups::group_id.eq(group_id))
-        .filter(asset_groups::external_source.eq(external_source))
-        .select(asset_groups::asset_id)
+    asset_directory_memberships::table
+        .filter(asset_directory_memberships::group_id.eq(group_id))
+        .filter(asset_directory_memberships::external_source.eq(external_source))
+        .select(asset_directory_memberships::asset_id)
         .load(conn)
 }
 
@@ -1151,21 +1155,21 @@ pub fn set_group_devices(
     group_id: i32,
     device_ids: Vec<i32>,
     created_by: Option<Uuid>,
-) -> QueryResult<Vec<AssetGroup>> {
+) -> QueryResult<Vec<AssetDirectoryMembership>> {
     conn.transaction(|conn| {
         // Delete all existing devices that were NOT synced from an external source
         // This preserves Microsoft-synced device memberships
         diesel::delete(
-            asset_groups::table
-                .filter(asset_groups::group_id.eq(group_id))
-                .filter(asset_groups::external_source.is_null()),
+            asset_directory_memberships::table
+                .filter(asset_directory_memberships::group_id.eq(group_id))
+                .filter(asset_directory_memberships::external_source.is_null()),
         )
         .execute(conn)?;
 
         // Add new devices (manually added, so no external_source)
-        let new_memberships: Vec<NewAssetGroup> = device_ids
+        let new_memberships: Vec<NewAssetDirectoryMembership> = device_ids
             .iter()
-            .map(|device_id| NewAssetGroup {
+            .map(|device_id| NewAssetDirectoryMembership {
                 asset_id: *device_id,
                 group_id,
                 created_by,
@@ -1175,16 +1179,19 @@ pub fn set_group_devices(
 
         if !new_memberships.is_empty() {
             // Use ON CONFLICT DO NOTHING to handle devices that are already in the group via sync
-            diesel::insert_into(asset_groups::table)
+            diesel::insert_into(asset_directory_memberships::table)
                 .values(&new_memberships)
-                .on_conflict((asset_groups::asset_id, asset_groups::group_id))
+                .on_conflict((
+                    asset_directory_memberships::asset_id,
+                    asset_directory_memberships::group_id,
+                ))
                 .do_nothing()
                 .execute(conn)?;
         }
 
         // Return the current state of device memberships
-        let current: Vec<AssetGroup> = asset_groups::table
-            .filter(asset_groups::group_id.eq(group_id))
+        let current: Vec<AssetDirectoryMembership> = asset_directory_memberships::table
+            .filter(asset_directory_memberships::group_id.eq(group_id))
             .load(conn)?;
 
         emit::record(

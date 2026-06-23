@@ -127,13 +127,41 @@ diesel::table! {
 }
 
 diesel::table! {
-    asset_groups (asset_id, group_id) {
+    asset_directory_memberships (asset_id, group_id) {
         asset_id -> Int4,
         group_id -> Int4,
         created_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
         #[max_length = 50]
         external_source -> Nullable<Varchar>,
+        workspace_id -> Int4,
+    }
+}
+
+diesel::table! {
+    asset_group_assignments (group_id, asset_id) {
+        group_id -> Int4,
+        asset_id -> Int4,
+        added_at -> Timestamptz,
+        added_by -> Nullable<Uuid>,
+        workspace_id -> Int4,
+    }
+}
+
+diesel::table! {
+    asset_groups (id) {
+        id -> Int4,
+        uuid -> Uuid,
+        #[max_length = 255]
+        name -> Varchar,
+        description -> Nullable<Text>,
+        #[max_length = 7]
+        color -> Nullable<Varchar>,
+        display_order -> Int4,
+        archived_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
         workspace_id -> Int4,
     }
 }
@@ -2120,8 +2148,14 @@ diesel::joinable!(article_contents -> workspaces (workspace_id));
 diesel::joinable!(asset_audits -> assets (asset_id));
 diesel::joinable!(asset_audits -> users (recorded_by));
 diesel::joinable!(asset_audits -> workspaces (workspace_id));
-diesel::joinable!(asset_groups -> assets (asset_id));
-diesel::joinable!(asset_groups -> groups (group_id));
+diesel::joinable!(asset_directory_memberships -> assets (asset_id));
+diesel::joinable!(asset_directory_memberships -> groups (group_id));
+diesel::joinable!(asset_directory_memberships -> users (created_by));
+diesel::joinable!(asset_directory_memberships -> workspaces (workspace_id));
+diesel::joinable!(asset_group_assignments -> asset_groups (group_id));
+diesel::joinable!(asset_group_assignments -> assets (asset_id));
+diesel::joinable!(asset_group_assignments -> users (added_by));
+diesel::joinable!(asset_group_assignments -> workspaces (workspace_id));
 diesel::joinable!(asset_groups -> users (created_by));
 diesel::joinable!(asset_groups -> workspaces (workspace_id));
 diesel::joinable!(asset_kinds -> users (created_by));
@@ -2350,6 +2384,8 @@ diesel::allow_tables_to_appear_in_same_query!(
     article_content_revisions,
     article_contents,
     asset_audits,
+    asset_directory_memberships,
+    asset_group_assignments,
     asset_groups,
     asset_kinds,
     asset_lifecycle_events,
