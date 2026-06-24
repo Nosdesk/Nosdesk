@@ -15,8 +15,8 @@ use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::{
-    NewUserAddress, NewUserPhoneNumber, NewUserProfile, UserAddress, UserAddressInput,
-    UserPhoneInput, UserPhoneNumber, UserProfile, UserProfileInput,
+    DirectoryContact, NewUserAddress, NewUserPhoneNumber, NewUserProfile, UserAddress,
+    UserAddressInput, UserPhoneInput, UserPhoneNumber, UserProfile, UserProfileInput,
 };
 use crate::schema::{user_addresses, user_field_schema, user_phone_numbers, user_profiles};
 
@@ -266,4 +266,105 @@ pub fn update_address(
 // sync-audit-only: user address is per-(user,workspace) contact data (audited); folds into the user sync payload in a later phase
 pub fn delete_address(conn: &mut DbConnection, id: i32) -> QueryResult<usize> {
     diesel::delete(user_addresses::table.find(id)).execute(conn)
+}
+
+// ---- Directory sync surfacing ----------------------------------------------
+
+// sync-audit-only: directory sync writes contact data (audited); folds into the user sync payload in a later phase
+/// Apply directory-imported contact fields for a user: the standard profile
+/// columns + `office_location` (merged into custom_fields, preserving manual
+/// keys) with `directory_synced=true`, and the source='microsoft' phone/address
+/// rows (replaced wholesale; manual rows are left untouched). One transaction.
+pub fn apply_directory_contact(
+    conn: &mut DbConnection,
+    user_uuid: Uuid,
+    contact: &DirectoryContact,
+    actor: Option<Uuid>,
+) -> QueryResult<()> {
+    conn.transaction(|conn| {
+        // Profile: standard cols + office_location into custom_fields (preserve
+        // manual keys), flagged directory_synced.
+        let existing = get_profile(conn, user_uuid)?;
+        let mut cf = existing
+            .as_ref()
+            .map(|p| p.custom_fields.clone())
+            .unwrap_or_else(|| json!({}));
+        if let Some(obj) = cf.as_object_mut() {
+            match &contact.office_location {
+                Some(v) => {
+                    obj.insert("office_location".to_string(), json!(v));
+                }
+                None => {
+                    obj.remove("office_location");
+                }
+            }
+        }
+        diesel::insert_into(user_profiles::table)
+            .values(NewUserProfile {
+                user_uuid,
+                job_title: contact.job_title.clone(),
+                organization: contact.organization.clone(),
+                department: contact.department.clone(),
+                custom_fields: cf.clone(),
+                directory_synced: true,
+                created_by: actor,
+            })
+            .on_conflict((user_profiles::workspace_id, user_profiles::user_uuid))
+            .do_update()
+            .set((
+                user_profiles::job_title.eq(contact.job_title.clone()),
+                user_profiles::organization.eq(contact.organization.clone()),
+                user_profiles::department.eq(contact.department.clone()),
+                user_profiles::custom_fields.eq(cf),
+                user_profiles::directory_synced.eq(true),
+            ))
+            .execute(conn)?;
+
+        // Phones: replace the microsoft-sourced rows, leave manual ones.
+        diesel::delete(
+            user_phone_numbers::table
+                .filter(user_phone_numbers::user_uuid.eq(user_uuid))
+                .filter(user_phone_numbers::source.eq("microsoft")),
+        )
+        .execute(conn)?;
+        for (phone, phone_type) in &contact.phones {
+            diesel::insert_into(user_phone_numbers::table)
+                .values(NewUserPhoneNumber {
+                    user_uuid,
+                    phone: phone.clone(),
+                    phone_type: phone_type.clone(),
+                    is_primary: false,
+                    source: Some("microsoft".to_string()),
+                    label: None,
+                    created_by: actor,
+                })
+                .execute(conn)?;
+        }
+
+        // Address: replace the microsoft-sourced row, leave manual ones.
+        diesel::delete(
+            user_addresses::table
+                .filter(user_addresses::user_uuid.eq(user_uuid))
+                .filter(user_addresses::source.eq("microsoft")),
+        )
+        .execute(conn)?;
+        if let Some(addr) = &contact.address {
+            diesel::insert_into(user_addresses::table)
+                .values(NewUserAddress {
+                    user_uuid,
+                    address_type: "work".to_string(),
+                    is_primary: false,
+                    street: addr.street.clone(),
+                    city: addr.city.clone(),
+                    region: addr.region.clone(),
+                    postal_code: addr.postal_code.clone(),
+                    country: addr.country.clone(),
+                    source: Some("microsoft".to_string()),
+                    label: None,
+                    created_by: actor,
+                })
+                .execute(conn)?;
+        }
+        Ok(())
+    })
 }

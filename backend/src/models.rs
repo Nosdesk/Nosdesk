@@ -2570,6 +2570,29 @@ pub struct UserAddressInput {
     pub label: Option<String>,
 }
 
+/// Contact fields imported from a directory sync (Entra/Graph), mapped into a
+/// user's profile (standard cols + `office_location`) and source='microsoft'
+/// phone/address rows. Plain struct — no Graph-layer dependency in the repo.
+#[derive(Debug, Default)]
+pub struct DirectoryContact {
+    pub job_title: Option<String>,
+    pub organization: Option<String>,
+    pub department: Option<String>,
+    pub office_location: Option<String>,
+    /// (number, phone_type)
+    pub phones: Vec<(String, String)>,
+    pub address: Option<DirectoryAddress>,
+}
+
+#[derive(Debug)]
+pub struct DirectoryAddress {
+    pub street: Option<String>,
+    pub city: Option<String>,
+    pub region: Option<String>,
+    pub postal_code: Option<String>,
+    pub country: Option<String>,
+}
+
 /// Partial update payload. Each field uses the `Option<Option<T>>`
 /// convention so the API can distinguish "leave as-is" (outer
 /// None) from "clear back to site default / role default"

@@ -195,6 +195,15 @@ pub struct MicrosoftGraphUser {
     pub mobile_phone: Option<String>,
     #[serde(rename = "businessPhones")]
     pub business_phones: Option<Vec<String>>,
+    #[serde(rename = "companyName")]
+    pub company_name: Option<String>,
+    #[serde(rename = "streetAddress")]
+    pub street_address: Option<String>,
+    pub city: Option<String>,
+    pub state: Option<String>,
+    #[serde(rename = "postalCode")]
+    pub postal_code: Option<String>,
+    pub country: Option<String>,
     #[serde(rename = "proxyAddresses")]
     pub proxy_addresses: Option<Vec<String>>,
     #[serde(rename = "otherMails")]
@@ -2042,7 +2051,7 @@ async fn fetch_microsoft_graph_users_optimized(
     // Build the Microsoft Graph API request for users
     // Select fields for MicrosoftGraphUser struct
     // Important: Include proxyAddresses and otherMails for email aliases, and accountEnabled for filtering
-    let select_fields = "id,displayName,givenName,surname,mail,userPrincipalName,jobTitle,department,officeLocation,mobilePhone,businessPhones,proxyAddresses,otherMails,accountEnabled";
+    let select_fields = "id,displayName,givenName,surname,mail,userPrincipalName,jobTitle,department,officeLocation,mobilePhone,businessPhones,companyName,streetAddress,city,state,postalCode,country,proxyAddresses,otherMails,accountEnabled";
 
     // Skip disabled accounts by default for performance
     let skip_disabled_accounts = std::env::var("MSGRAPH_SKIP_DISABLED_ACCOUNTS")
@@ -2196,7 +2205,7 @@ async fn fetch_microsoft_graph_users_delta(
     let (client, access_token) = get_msgraph_client_and_token().await?;
 
     // Select fields for MicrosoftGraphUser struct
-    let select_fields = "id,displayName,givenName,surname,mail,userPrincipalName,jobTitle,department,officeLocation,mobilePhone,businessPhones,proxyAddresses,otherMails,accountEnabled";
+    let select_fields = "id,displayName,givenName,surname,mail,userPrincipalName,jobTitle,department,officeLocation,mobilePhone,businessPhones,companyName,streetAddress,city,state,postalCode,country,proxyAddresses,otherMails,accountEnabled";
 
     // Check for existing delta token
     let delta_token = if use_delta {
@@ -2492,6 +2501,58 @@ fn update_identity_data(
 }
 
 /// Update existing user who already has Microsoft identity (optimized version)
+/// Map a Graph user onto the directory-contact shape the contact repo applies
+/// (job title / company / department / office + work/mobile phones + the work
+/// address). Trims and drops empties.
+fn build_directory_contact(ms: &MicrosoftGraphUser) -> crate::models::DirectoryContact {
+    use crate::models::{DirectoryAddress, DirectoryContact};
+    let clean = |s: &Option<String>| {
+        s.as_ref()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+    };
+
+    let mut phones: Vec<(String, String)> = Vec::new();
+    if let Some(bp) = &ms.business_phones {
+        for p in bp {
+            let p = p.trim();
+            if !p.is_empty() {
+                phones.push((p.to_string(), "work".to_string()));
+            }
+        }
+    }
+    if let Some(m) = clean(&ms.mobile_phone) {
+        phones.push((m, "mobile".to_string()));
+    }
+
+    let street = clean(&ms.street_address);
+    let city = clean(&ms.city);
+    let region = clean(&ms.state);
+    let postal_code = clean(&ms.postal_code);
+    let country = clean(&ms.country);
+    let address = (street.is_some()
+        || city.is_some()
+        || region.is_some()
+        || postal_code.is_some()
+        || country.is_some())
+    .then_some(DirectoryAddress {
+        street,
+        city,
+        region,
+        postal_code,
+        country,
+    });
+
+    DirectoryContact {
+        job_title: clean(&ms.job_title),
+        organization: clean(&ms.company_name),
+        department: clean(&ms.department),
+        office_location: clean(&ms.office_location),
+        phones,
+        address,
+    }
+}
+
 #[instrument(level = "debug", skip(conn, ms_user, stats, access_token, client), fields(user_uuid = %existing_identity.user_uuid))]
 async fn update_existing_microsoft_user_optimized(
     conn: &mut DbConnection,
@@ -2545,6 +2606,14 @@ async fn update_existing_microsoft_user_optimized(
     // Update user if there are changes
     if user_update.name.is_some() || user_update.microsoft_uuid.is_some() {
         user_repo::update_user(&user.uuid, user_update, conn, None)?;
+
+        // Surface directory contact fields (read-only on the manual side).
+        crate::repository::user_contact::apply_directory_contact(
+            conn,
+            user.uuid,
+            &build_directory_contact(ms_user),
+            None,
+        )?;
         debug!(user_name = %user.name, "Updated user information");
     }
 
@@ -2826,6 +2895,14 @@ async fn create_new_user_from_microsoft_optimized(
     // DbConflict and infrastructural failures to DbInfra; `?`
     // classifies at the source.
     let created_user = user_repo::create_user(new_user, conn)?;
+
+    // Surface directory contact fields onto the new user.
+    crate::repository::user_contact::apply_directory_contact(
+        conn,
+        created_user.uuid,
+        &build_directory_contact(ms_user),
+        None,
+    )?;
 
     // Store all email addresses
     let email_data: Vec<(String, String, bool, String)> = emails
@@ -5306,6 +5383,14 @@ async fn update_existing_microsoft_user_no_photos(
 
     if user_update.name.is_some() || user_update.microsoft_uuid.is_some() {
         user_repo::update_user(&user.uuid, user_update, conn, None)?;
+
+        // Surface directory contact fields (read-only on the manual side).
+        crate::repository::user_contact::apply_directory_contact(
+            conn,
+            user.uuid,
+            &build_directory_contact(ms_user),
+            None,
+        )?;
     }
 
     if !emails.is_empty() {
@@ -5416,6 +5501,14 @@ async fn create_new_user_from_microsoft_no_photos(
     .build();
 
     let created_user = user_repo::create_user(new_user, conn)?;
+
+    // Surface directory contact fields onto the new user.
+    crate::repository::user_contact::apply_directory_contact(
+        conn,
+        created_user.uuid,
+        &build_directory_contact(ms_user),
+        None,
+    )?;
 
     let identity_data = serde_json::to_value(ms_user)?;
 
