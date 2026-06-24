@@ -11,7 +11,7 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useFluent } from 'fluent-vue';
 
-import BackButton from '@/components/common/BackButton.vue';
+import AssetViewTabs from '@/components/assets/AssetViewTabs.vue';
 import Button from '@/components/common/Button.vue';
 import FormInput from '@/components/common/FormInput.vue';
 import FormTextarea from '@/components/common/FormTextarea.vue';
@@ -137,18 +137,18 @@ async function restore(group: AssetGroupSummary): Promise<void> {
 
 <template>
   <div class="flex-1">
+    <div class="px-4 sm:px-6 pt-4">
+      <AssetViewTabs />
+    </div>
     <div class="flex flex-col gap-4 px-4 sm:px-6 py-4 mx-auto w-full max-w-5xl">
-      <div class="flex flex-col gap-2">
-        <BackButton :fallback-route="'/admin'" :label="t('admin-asset-groups-back-label')" compact />
-        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div class="flex flex-col gap-1">
-            <h1 class="text-xl sm:text-2xl font-bold text-primary">{{ t('admin-asset-groups-title') }}</h1>
-            <p class="text-secondary text-sm sm:text-base">{{ t('admin-asset-groups-description') }}</p>
-          </div>
-          <Button icon="add" class="self-start sm:self-auto" @click="openCreate">
-            {{ t('admin-asset-groups-new') }}
-          </Button>
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div class="flex flex-col gap-1">
+          <h1 class="text-xl sm:text-2xl font-bold text-primary">{{ t('admin-asset-groups-title') }}</h1>
+          <p class="text-secondary text-sm sm:text-base">{{ t('admin-asset-groups-description') }}</p>
         </div>
+        <Button icon="add" class="self-start sm:self-auto" @click="openCreate">
+          {{ t('admin-asset-groups-new') }}
+        </Button>
       </div>
 
       <AlertMessage v-if="loadError" type="error" :message="loadError" />

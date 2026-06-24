@@ -6331,12 +6331,9 @@ asset-detail-groups-save-error = Bijwerken van activagroepen mislukt
 error-store-asset-groups-load = Laden van activagroepen mislukt.
 
 # MACHINE TRANSLATION, pending native review (asset groups admin)
-route-title-admin-asset-groups = Activagroepen
-admin-nav-asset-groups-title = Activagroepen
-admin-nav-asset-groups-description = Benoemde, kleurgecodeerde groepen om activa te ordenen en te filteren
+route-title-asset-groups = Activagroepen
 admin-asset-groups-title = Activagroepen
 admin-asset-groups-description = Benoemde, kleurgecodeerde groepen om activa te ordenen en te filteren. Wijs activa toe aan groepen vanaf de detailpagina van elk activum.
-admin-asset-groups-back-label = Terug naar beheer
 admin-asset-groups-new = Nieuwe groep
 admin-asset-groups-error-load = Laden van activagroepen mislukt
 admin-asset-groups-error-save = Opslaan van activagroep mislukt
@@ -6360,3 +6357,10 @@ admin-asset-groups-field-name-placeholder = bijv. Uitleenpool
 admin-asset-groups-field-description = Beschrijving
 admin-asset-groups-field-description-placeholder = Optioneel
 admin-asset-groups-field-color = Kleur
+
+# MACHINE TRANSLATION, pending native review (asset groups agent surface)
+asset-tabs-groups = Groepen
+asset-detail-groups-create-new = Nieuwe groep
+asset-detail-groups-create-placeholder = Groepsnaam
+asset-detail-groups-create-confirm = Aanmaken
+asset-detail-groups-create-error = Aanmaken van groep mislukt

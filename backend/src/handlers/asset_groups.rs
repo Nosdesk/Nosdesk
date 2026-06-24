@@ -1,9 +1,10 @@
 //! Native asset-group handlers.
 //!
-//! Group management (create / rename / recolor / archive) is admin-only,
-//! mirroring tag and ticket-category governance. Reading the picker list and
-//! assigning groups to an asset are agent-tier, mirroring how asset writes
-//! (`create_device` / `update_device`) gate on `can_handle_tickets`.
+//! Asset groups are operational asset-reference data, like the make/model
+//! catalog: management (create / rename / recolor / archive) and assignment are
+//! both agent-tier (`can_handle_tickets`), mirroring how asset writes
+//! (`create_device` / `update_device`) gate. Reading the picker list is open to
+//! any authenticated member.
 
 use actix_web::{web, HttpResponse, Responder};
 use serde::Deserialize;
@@ -43,8 +44,8 @@ pub async fn create_group(
     body: web::Json<NewAssetGroup>,
     auth: AuthContext,
 ) -> impl Responder {
-    if !auth.is_workspace_admin() {
-        return errors::forbidden("Only admins can create asset groups");
+    if !auth.can_handle_tickets() {
+        return errors::forbidden("Forbidden: technicians and administrators only");
     }
     let mut new_group = body.into_inner();
     new_group.created_by = Some(auth.user_uuid);
@@ -66,8 +67,8 @@ pub async fn update_group(
     body: web::Json<AssetGroupUpdate>,
     auth: AuthContext,
 ) -> impl Responder {
-    if !auth.is_workspace_admin() {
-        return errors::forbidden("Only admins can update asset groups");
+    if !auth.can_handle_tickets() {
+        return errors::forbidden("Forbidden: technicians and administrators only");
     }
     let id = params.into_inner();
     match tc.run(|conn| {
@@ -88,8 +89,8 @@ pub async fn archive_group(
     params: web::Path<i32>,
     auth: AuthContext,
 ) -> impl Responder {
-    if !auth.is_workspace_admin() {
-        return errors::forbidden("Only admins can archive asset groups");
+    if !auth.can_handle_tickets() {
+        return errors::forbidden("Forbidden: technicians and administrators only");
     }
     let id = params.into_inner();
     match tc.run(|conn| {
@@ -110,8 +111,8 @@ pub async fn restore_group(
     params: web::Path<i32>,
     auth: AuthContext,
 ) -> impl Responder {
-    if !auth.is_workspace_admin() {
-        return errors::forbidden("Only admins can restore asset groups");
+    if !auth.can_handle_tickets() {
+        return errors::forbidden("Forbidden: technicians and administrators only");
     }
     let id = params.into_inner();
     match tc.run(|conn| {

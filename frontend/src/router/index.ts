@@ -312,6 +312,17 @@ const router = createRouter({
       }
     },
     {
+      // Native asset groups. Agent-accessible operational reference data,
+      // a sibling of the inventory + catalog views.
+      path: '/assets/groups',
+      name: 'asset-groups',
+      component: () => import('../views/AssetGroupsView.vue'),
+      meta: {
+        requiresAuth: true,
+        titleKey: 'route-title-asset-groups',
+      }
+    },
+    {
       path: '/projects/:id',
       name: 'project-detail',
       component: ProjectDetailView,
@@ -612,12 +623,6 @@ const router = createRouter({
           name: 'admin-asset-kinds',
           component: () => import('../views/admin/AssetKindsView.vue'),
           meta: { titleKey: 'route-title-admin-asset-kinds' }
-        },
-        {
-          path: 'asset-groups',
-          name: 'admin-asset-groups',
-          component: () => import('../views/admin/AssetGroupsView.vue'),
-          meta: { titleKey: 'route-title-admin-asset-groups' }
         },
         {
           path: 'asset-kinds/new',

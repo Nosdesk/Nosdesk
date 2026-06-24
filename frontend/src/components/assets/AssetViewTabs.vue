@@ -23,6 +23,7 @@ interface Tab {
 const tabs: Tab[] = [
   { to: '/assets', labelKey: 'asset-tabs-inventory' },
   { to: '/assets/catalog', labelKey: 'asset-tabs-catalog', exact: true },
+  { to: '/assets/groups', labelKey: 'asset-tabs-groups', exact: true },
 ]
 
 function isActive(tab: Tab): boolean {

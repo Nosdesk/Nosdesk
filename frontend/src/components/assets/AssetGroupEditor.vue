@@ -3,12 +3,14 @@ import { computed, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
 import SectionCard from '@/components/common/SectionCard.vue'
 import SearchableDropdown, { type DropdownOption } from '@/components/common/SearchableDropdown.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import Button from '@/components/common/Button.vue'
 import Icon from '@/components/common/Icon.vue'
 import { useColorFilter } from '@/composables/useColorFilter'
 import { useToastStore } from '@/stores/toast'
 import { extractErrorMessage } from '@/utils/errors'
 import { useAssetGroupsStore } from '@/stores/assetGroups'
-import { setAssetGroupsForAsset } from '@/services/assetGroupService'
+import { createAssetGroup, setAssetGroupsForAsset } from '@/services/assetGroupService'
 import type { AssetGroup } from '@/types/asset'
 
 const props = defineProps<{
@@ -63,6 +65,35 @@ function onAdd(value: string) {
 function removeGroup(id: number) {
   void persist(props.groups.filter((g) => g.id !== id).map((g) => g.id))
 }
+
+// Inline create: agents organize inventory without leaving the asset.
+const creating = ref(false)
+const newName = ref('')
+const createBusy = ref(false)
+
+function startCreate() {
+  creating.value = true
+  newName.value = ''
+}
+function cancelCreate() {
+  creating.value = false
+  newName.value = ''
+}
+async function confirmCreate() {
+  const name = newName.value.trim()
+  if (!name || createBusy.value) return
+  createBusy.value = true
+  try {
+    const created = await createAssetGroup({ name })
+    await store.load(true) // surface the new group in the picker + list facet
+    cancelCreate()
+    await persist([...props.groups.map((g) => g.id), created.id])
+  } catch (err) {
+    toast.error(extractErrorMessage(err, t('asset-detail-groups-create-error')))
+  } finally {
+    createBusy.value = false
+  }
+}
 </script>
 
 <template>
@@ -95,14 +126,44 @@ function removeGroup(id: number) {
       </div>
       <p v-else class="text-sm text-tertiary">{{ t('asset-detail-groups-empty') }}</p>
 
-      <SearchableDropdown
-        v-if="editable"
-        :model-value="pendingAdd"
-        :options="addOptions"
-        :placeholder="t('asset-detail-groups-add-placeholder')"
-        :disabled="saving"
-        @update:model-value="onAdd"
-      />
+      <template v-if="editable">
+        <!-- Inline create: name + confirm/cancel. -->
+        <div v-if="creating" class="flex items-center gap-2">
+          <FormInput
+            v-model="newName"
+            :placeholder="t('asset-detail-groups-create-placeholder')"
+            class="flex-1"
+            @keyup.enter="confirmCreate"
+          />
+          <Button size="sm" :loading="createBusy" :disabled="!newName.trim()" @click="confirmCreate">
+            {{ t('asset-detail-groups-create-confirm') }}
+          </Button>
+          <button
+            type="button"
+            class="p-1.5 text-tertiary hover:text-primary transition-colors"
+            :aria-label="t('common-cancel')"
+            @click="cancelCreate"
+          >
+            <Icon name="close" class="w-4 h-4" />
+          </button>
+        </div>
+        <template v-else>
+          <SearchableDropdown
+            :model-value="pendingAdd"
+            :options="addOptions"
+            :placeholder="t('asset-detail-groups-add-placeholder')"
+            :disabled="saving"
+            @update:model-value="onAdd"
+          />
+          <button
+            type="button"
+            class="self-start text-sm text-accent hover:underline"
+            @click="startCreate"
+          >
+            {{ t('asset-detail-groups-create-new') }}
+          </button>
+        </template>
+      </template>
     </div>
   </SectionCard>
 </template>
