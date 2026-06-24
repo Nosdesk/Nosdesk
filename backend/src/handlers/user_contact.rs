@@ -14,9 +14,69 @@ use uuid::Uuid;
 
 use crate::extractors::{AuthContext, TenantConn};
 use crate::handlers::errors;
-use crate::models::{UserAddressInput, UserPhoneInput, UserProfileInput};
+use crate::models::{
+    UserAddress, UserAddressInput, UserPhoneInput, UserPhoneNumber, UserProfileInput,
+};
 use crate::repository::user_contact as repo;
 use crate::services::custom_fields::schema as field_schema;
+
+/// Self-or-admin gate shared by the contact mutation handlers. Returns the
+/// forbidden response to early-return, or None when the caller is authorized.
+fn guard_self_or_admin(auth: &AuthContext, user_uuid: Uuid) -> Option<HttpResponse> {
+    (auth.user_uuid != user_uuid && !auth.is_workspace_admin())
+        .then(|| errors::forbidden("You can only edit your own contact details"))
+}
+
+/// A satellite contact row carrying ownership + sync provenance.
+trait ContactRow {
+    fn owner(&self) -> Uuid;
+    fn source(&self) -> Option<&str>;
+}
+impl ContactRow for UserPhoneNumber {
+    fn owner(&self) -> Uuid {
+        self.user_uuid
+    }
+    fn source(&self) -> Option<&str> {
+        self.source.as_deref()
+    }
+}
+impl ContactRow for UserAddress {
+    fn owner(&self) -> Uuid {
+        self.user_uuid
+    }
+    fn source(&self) -> Option<&str> {
+        self.source.as_deref()
+    }
+}
+
+/// Guard a loaded row before a mutation: it must exist, belong to the path
+/// user, and be manually-owned (not directory-synced). Returns the sentinel the
+/// finish_* mappers turn into a 404/403.
+fn guard_editable<T: ContactRow>(row: Option<T>, user_uuid: Uuid) -> Result<(), &'static str> {
+    let row = row.ok_or("not_found")?;
+    if row.owner() != user_uuid {
+        return Err("not_found");
+    }
+    if row.source().is_some() {
+        return Err("sync_owned");
+    }
+    Ok(())
+}
+
+/// Custom-field keys a schema marks `synced` (directory-owned, read-only).
+fn synced_property_keys(schema: &Value) -> Vec<String> {
+    schema
+        .get("properties")
+        .and_then(Value::as_object)
+        .map(|props| {
+            props
+                .iter()
+                .filter(|(_, v)| v.get("synced").and_then(Value::as_bool).unwrap_or(false))
+                .map(|(k, _)| k.clone())
+                .collect()
+        })
+        .unwrap_or_default()
+}
 
 // ---- Workspace user custom-field schema (admin) ----------------------------
 
@@ -97,14 +157,28 @@ pub async fn set_user_profile_fields(
     let mut input = body.into_inner();
 
     let result = tc.run(|conn| {
-        // Validate the custom-field values against the effective schema.
         let schema = repo::get_field_schema(conn)?;
+        let existing = repo::get_profile(conn, user_uuid)?;
+
+        // The directory owns `synced` custom-field keys: drop any manual attempt
+        // to set them and restore the stored values. The UI hides them, but a
+        // direct API call must not forge or clear them either.
+        for key in synced_property_keys(&schema) {
+            if let Some(obj) = input.custom_fields.as_object_mut() {
+                obj.remove(&key);
+                if let Some(v) = existing.as_ref().and_then(|p| p.custom_fields.get(&key)) {
+                    obj.insert(key, v.clone());
+                }
+            }
+        }
+
+        // Validate the custom-field values against the effective schema.
         if let Err(e) = field_schema::validate_attributes(&schema, &input.custom_fields) {
             return Ok(Err(format!("Invalid custom fields: {e}")));
         }
         // Preserve directory-synced standard columns: a manual edit can't
         // change job_title/organization/department on a Graph-owned profile.
-        if let Some(existing) = repo::get_profile(conn, user_uuid)? {
+        if let Some(existing) = existing {
             if existing.directory_synced {
                 input.job_title = existing.job_title.clone();
                 input.organization = existing.organization.clone();
@@ -149,8 +223,8 @@ pub async fn add_user_phone(
     auth: AuthContext,
 ) -> impl Responder {
     let user_uuid = params.into_inner();
-    if auth.user_uuid != user_uuid && !auth.is_workspace_admin() {
-        return errors::forbidden("You can only edit your own contact details");
+    if let Some(resp) = guard_self_or_admin(&auth, user_uuid) {
+        return resp;
     }
     let input = body.into_inner();
     match tc.run(|conn| repo::create_phone(conn, user_uuid, &input, None, Some(auth.user_uuid))) {
@@ -169,19 +243,13 @@ pub async fn update_user_phone(
     auth: AuthContext,
 ) -> impl Responder {
     let (user_uuid, id) = params.into_inner();
-    if auth.user_uuid != user_uuid && !auth.is_workspace_admin() {
-        return errors::forbidden("You can only edit your own contact details");
+    if let Some(resp) = guard_self_or_admin(&auth, user_uuid) {
+        return resp;
     }
     let input = body.into_inner();
     let result = tc.run(|conn| {
-        let Some(existing) = repo::get_phone(conn, id)? else {
-            return Ok(Err("not_found"));
-        };
-        if existing.user_uuid != user_uuid {
-            return Ok(Err("not_found"));
-        }
-        if existing.source.is_some() {
-            return Ok(Err("sync_owned"));
+        if let Err(e) = guard_editable(repo::get_phone(conn, id)?, user_uuid) {
+            return Ok(Err(e));
         }
         Ok(Ok(repo::update_phone(conn, id, user_uuid, &input)?))
     });
@@ -198,18 +266,12 @@ pub async fn delete_user_phone(
     auth: AuthContext,
 ) -> impl Responder {
     let (user_uuid, id) = params.into_inner();
-    if auth.user_uuid != user_uuid && !auth.is_workspace_admin() {
-        return errors::forbidden("You can only edit your own contact details");
+    if let Some(resp) = guard_self_or_admin(&auth, user_uuid) {
+        return resp;
     }
     let result = tc.run(|conn| {
-        let Some(existing) = repo::get_phone(conn, id)? else {
-            return Ok(Err("not_found"));
-        };
-        if existing.user_uuid != user_uuid {
-            return Ok(Err("not_found"));
-        }
-        if existing.source.is_some() {
-            return Ok(Err("sync_owned"));
+        if let Err(e) = guard_editable(repo::get_phone(conn, id)?, user_uuid) {
+            return Ok(Err(e));
         }
         repo::delete_phone(conn, id)?;
         Ok(Ok(()))
@@ -245,8 +307,8 @@ pub async fn add_user_address(
     auth: AuthContext,
 ) -> impl Responder {
     let user_uuid = params.into_inner();
-    if auth.user_uuid != user_uuid && !auth.is_workspace_admin() {
-        return errors::forbidden("You can only edit your own contact details");
+    if let Some(resp) = guard_self_or_admin(&auth, user_uuid) {
+        return resp;
     }
     let input = body.into_inner();
     match tc.run(|conn| repo::create_address(conn, user_uuid, &input, None, Some(auth.user_uuid))) {
@@ -265,19 +327,13 @@ pub async fn update_user_address(
     auth: AuthContext,
 ) -> impl Responder {
     let (user_uuid, id) = params.into_inner();
-    if auth.user_uuid != user_uuid && !auth.is_workspace_admin() {
-        return errors::forbidden("You can only edit your own contact details");
+    if let Some(resp) = guard_self_or_admin(&auth, user_uuid) {
+        return resp;
     }
     let input = body.into_inner();
     let result = tc.run(|conn| {
-        let Some(existing) = repo::get_address(conn, id)? else {
-            return Ok(Err("not_found"));
-        };
-        if existing.user_uuid != user_uuid {
-            return Ok(Err("not_found"));
-        }
-        if existing.source.is_some() {
-            return Ok(Err("sync_owned"));
+        if let Err(e) = guard_editable(repo::get_address(conn, id)?, user_uuid) {
+            return Ok(Err(e));
         }
         Ok(Ok(repo::update_address(conn, id, user_uuid, &input)?))
     });
@@ -294,18 +350,12 @@ pub async fn delete_user_address(
     auth: AuthContext,
 ) -> impl Responder {
     let (user_uuid, id) = params.into_inner();
-    if auth.user_uuid != user_uuid && !auth.is_workspace_admin() {
-        return errors::forbidden("You can only edit your own contact details");
+    if let Some(resp) = guard_self_or_admin(&auth, user_uuid) {
+        return resp;
     }
     let result = tc.run(|conn| {
-        let Some(existing) = repo::get_address(conn, id)? else {
-            return Ok(Err("not_found"));
-        };
-        if existing.user_uuid != user_uuid {
-            return Ok(Err("not_found"));
-        }
-        if existing.source.is_some() {
-            return Ok(Err("sync_owned"));
+        if let Err(e) = guard_editable(repo::get_address(conn, id)?, user_uuid) {
+            return Ok(Err(e));
         }
         repo::delete_address(conn, id)?;
         Ok(Ok(()))

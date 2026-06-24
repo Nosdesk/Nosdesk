@@ -7,91 +7,61 @@ import SectionCard from '@/components/common/SectionCard.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import Button from '@/components/common/Button.vue';
 import FormInput from '@/components/common/FormInput.vue';
+import Checkbox from '@/components/common/Checkbox.vue';
+import BaseDropdown, { type DropdownOption } from '@/components/common/BaseDropdown.vue';
 import Icon from '@/components/common/Icon.vue';
-import { extractErrorMessage } from '@/utils/errors';
-import { useToastStore } from '@/stores/toast';
+import ContactBadges from '@/components/settings/ContactBadges.vue';
+import { useContactList } from '@/composables/useContactList';
 import {
   listUserPhones,
   addUserPhone,
   updateUserPhone,
   deleteUserPhone,
   type UserPhone,
+  type UserPhoneInput,
 } from '@/services/userContactService';
 
 const props = defineProps<{ uuid: string; editable: boolean }>();
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
-const toast = useToastStore();
 
-const phones = ref<UserPhone[]>([]);
-const showAddForm = ref(false);
-const saving = ref(false);
-const draft = ref<{ phone: string; phone_type: string; is_primary: boolean }>({
-  phone: '',
-  phone_type: 'work',
-  is_primary: false,
-});
-const pendingDelete = ref<UserPhone | null>(null);
-
-const TYPES = ['work', 'mobile', 'other'];
-
-async function load(): Promise<void> {
-  try {
-    phones.value = await listUserPhones(props.uuid);
-  } catch (err) {
-    toast.error(extractErrorMessage(err, t('user-phones-error-load')));
-  }
-}
+const { items: phones, showAddForm, saving, pendingDelete, load, add, setPrimary, doDelete } =
+  useContactList<UserPhone, UserPhoneInput>({
+    uuid: () => props.uuid,
+    api: { list: listUserPhones, add: addUserPhone, update: updateUserPhone, remove: deleteUserPhone },
+    errorKeys: {
+      load: 'user-phones-error-load',
+      save: 'user-phones-error-save',
+      delete: 'user-phones-error-delete',
+    },
+    toInput: (p) => ({ phone: p.phone, phone_type: p.phone_type, label: p.label }),
+  });
 watch(() => props.uuid, load, { immediate: true });
 
-function resetDraft(): void {
-  draft.value = { phone: '', phone_type: 'work', is_primary: false };
+const TYPES = ['work', 'mobile', 'other'];
+const typeOptions = computed<DropdownOption[]>(() =>
+  TYPES.map((ty) => ({ value: ty, label: t(`user-phones-type-${ty}`) })),
+);
+
+function blankDraft() {
+  return { phone: '', phone_type: 'work', is_primary: false };
+}
+const draft = ref(blankDraft());
+
+function cancel(): void {
+  draft.value = blankDraft();
   showAddForm.value = false;
 }
 
-async function add(): Promise<void> {
+async function submit(): Promise<void> {
   if (!draft.value.phone.trim()) return;
-  saving.value = true;
-  try {
-    await addUserPhone(props.uuid, {
-      phone: draft.value.phone.trim(),
-      phone_type: draft.value.phone_type,
-      is_primary: draft.value.is_primary,
-    });
-    resetDraft();
-    await load();
-  } catch (err) {
-    toast.error(extractErrorMessage(err, t('user-phones-error-save')));
-  } finally {
-    saving.value = false;
-  }
-}
-
-async function setPrimary(p: UserPhone): Promise<void> {
-  try {
-    await updateUserPhone(props.uuid, p.id, {
-      phone: p.phone,
-      phone_type: p.phone_type,
-      is_primary: true,
-      label: p.label,
-    });
-    await load();
-  } catch (err) {
-    toast.error(extractErrorMessage(err, t('user-phones-error-save')));
-  }
-}
-
-async function doDelete(): Promise<void> {
-  const target = pendingDelete.value;
-  pendingDelete.value = null;
-  if (!target) return;
-  try {
-    await deleteUserPhone(props.uuid, target.id);
-    await load();
-  } catch (err) {
-    toast.error(extractErrorMessage(err, t('user-phones-error-delete')));
-  }
+  const ok = await add({
+    phone: draft.value.phone.trim(),
+    phone_type: draft.value.phone_type,
+    is_primary: draft.value.is_primary,
+  });
+  if (ok) draft.value = blankDraft();
 }
 
 const confirmMessage = computed(() =>
@@ -110,30 +80,23 @@ const confirmMessage = computed(() =>
 
     <div
       v-if="showAddForm && editable"
-      class="mb-3 p-3 bg-surface-alt rounded-lg border border-subtle flex flex-col sm:flex-row gap-2"
+      class="mb-3 p-3 bg-surface-alt rounded-lg border border-subtle flex flex-col sm:flex-row sm:items-center gap-2"
     >
-      <select
-        v-model="draft.phone_type"
-        class="bg-surface border border-default rounded-lg px-2 text-sm text-primary focus:outline-none focus:border-accent"
-      >
-        <option v-for="ty in TYPES" :key="ty" :value="ty">{{ t(`user-phones-type-${ty}`) }}</option>
-      </select>
+      <BaseDropdown v-model="draft.phone_type" :options="typeOptions" class="shrink-0" />
       <FormInput
         v-model="draft.phone"
         type="tel"
         class="flex-1"
         :placeholder="t('user-phones-add-placeholder')"
         size="sm"
-        @keyup.enter="add"
+        @keyup.enter="submit"
       />
-      <label class="flex items-center gap-1.5 text-sm text-secondary whitespace-nowrap">
-        <input v-model="draft.is_primary" type="checkbox" /> {{ t('user-phones-primary') }}
-      </label>
+      <Checkbox v-model="draft.is_primary" :label="t('user-phones-primary')" />
       <div class="flex gap-2 shrink-0">
-        <Button size="sm" :loading="saving" :disabled="!draft.phone.trim()" @click="add">
+        <Button size="sm" :loading="saving" :disabled="!draft.phone.trim()" @click="submit">
           {{ t('user-phones-add') }}
         </Button>
-        <Button variant="secondary" size="sm" @click="resetDraft">{{ t('common-cancel') }}</Button>
+        <Button variant="secondary" size="sm" @click="cancel">{{ t('common-cancel') }}</Button>
       </div>
     </div>
 
@@ -149,14 +112,11 @@ const confirmMessage = computed(() =>
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-2 flex-wrap">
             <span class="text-sm font-medium text-primary truncate">{{ p.phone }}</span>
-            <span
-              v-if="p.is_primary"
-              class="px-2 py-0.5 rounded-full text-xs font-medium bg-accent/20 text-accent shrink-0"
-            >{{ t('user-phones-primary') }}</span>
-            <span
-              v-if="p.source"
-              class="px-2 py-0.5 rounded-full text-xs bg-surface-hover text-tertiary shrink-0"
-            >{{ t('user-contact-synced-badge') }}</span>
+            <ContactBadges
+              :primary="p.is_primary"
+              :primary-label="t('user-phones-primary')"
+              :synced="!!p.source"
+            />
           </div>
           <span class="text-xs text-tertiary">{{ t(`user-phones-type-${p.phone_type}`) }}</span>
         </div>

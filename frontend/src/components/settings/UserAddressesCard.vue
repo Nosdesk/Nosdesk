@@ -7,29 +7,55 @@ import SectionCard from '@/components/common/SectionCard.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import Button from '@/components/common/Button.vue';
 import FormInput from '@/components/common/FormInput.vue';
+import Checkbox from '@/components/common/Checkbox.vue';
+import BaseDropdown, { type DropdownOption } from '@/components/common/BaseDropdown.vue';
 import Icon from '@/components/common/Icon.vue';
-import { extractErrorMessage } from '@/utils/errors';
-import { useToastStore } from '@/stores/toast';
+import ContactBadges from '@/components/settings/ContactBadges.vue';
+import { useContactList } from '@/composables/useContactList';
 import {
   listUserAddresses,
   addUserAddress,
   updateUserAddress,
   deleteUserAddress,
   type UserAddress,
+  type UserAddressInput,
 } from '@/services/userContactService';
 
 const props = defineProps<{ uuid: string; editable: boolean }>();
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
-const toast = useToastStore();
 
-const addresses = ref<UserAddress[]>([]);
-const showAddForm = ref(false);
-const saving = ref(false);
-const pendingDelete = ref<UserAddress | null>(null);
+const { items: addresses, showAddForm, saving, pendingDelete, load, add, setPrimary, doDelete } =
+  useContactList<UserAddress, UserAddressInput>({
+    uuid: () => props.uuid,
+    api: {
+      list: listUserAddresses,
+      add: addUserAddress,
+      update: updateUserAddress,
+      remove: deleteUserAddress,
+    },
+    errorKeys: {
+      load: 'user-addresses-error-load',
+      save: 'user-addresses-error-save',
+      delete: 'user-addresses-error-delete',
+    },
+    toInput: (a) => ({
+      address_type: a.address_type,
+      street: a.street,
+      city: a.city,
+      region: a.region,
+      postal_code: a.postal_code,
+      country: a.country,
+      label: a.label,
+    }),
+  });
+watch(() => props.uuid, load, { immediate: true });
 
 const TYPES = ['work', 'home', 'other'];
+const typeOptions = computed<DropdownOption[]>(() =>
+  TYPES.map((ty) => ({ value: ty, label: t(`user-addresses-type-${ty}`) })),
+);
 
 function blankDraft() {
   return {
@@ -44,71 +70,24 @@ function blankDraft() {
 }
 const draft = ref(blankDraft());
 
-async function load(): Promise<void> {
-  try {
-    addresses.value = await listUserAddresses(props.uuid);
-  } catch (err) {
-    toast.error(extractErrorMessage(err, t('user-addresses-error-load')));
-  }
-}
-watch(() => props.uuid, load, { immediate: true });
-
-function resetDraft(): void {
+function cancel(): void {
   draft.value = blankDraft();
   showAddForm.value = false;
 }
 
 const draftEmpty = computed(
   () =>
-    !draft.value.street?.trim() &&
-    !draft.value.city?.trim() &&
-    !draft.value.region?.trim() &&
-    !draft.value.postal_code?.trim() &&
-    !draft.value.country?.trim(),
+    !draft.value.street.trim() &&
+    !draft.value.city.trim() &&
+    !draft.value.region.trim() &&
+    !draft.value.postal_code.trim() &&
+    !draft.value.country.trim(),
 );
 
-async function add(): Promise<void> {
+async function submit(): Promise<void> {
   if (draftEmpty.value) return;
-  saving.value = true;
-  try {
-    await addUserAddress(props.uuid, { ...draft.value });
-    resetDraft();
-    await load();
-  } catch (err) {
-    toast.error(extractErrorMessage(err, t('user-addresses-error-save')));
-  } finally {
-    saving.value = false;
-  }
-}
-
-async function setPrimary(a: UserAddress): Promise<void> {
-  try {
-    await updateUserAddress(props.uuid, a.id, {
-      address_type: a.address_type,
-      is_primary: true,
-      street: a.street,
-      city: a.city,
-      region: a.region,
-      postal_code: a.postal_code,
-      country: a.country,
-      label: a.label,
-    });
-    await load();
-  } catch (err) {
-    toast.error(extractErrorMessage(err, t('user-addresses-error-save')));
-  }
-}
-
-async function doDelete(): Promise<void> {
-  const target = pendingDelete.value;
-  pendingDelete.value = null;
-  if (!target) return;
-  try {
-    await deleteUserAddress(props.uuid, target.id);
-    await load();
-  } catch (err) {
-    toast.error(extractErrorMessage(err, t('user-addresses-error-delete')));
-  }
+  const ok = await add({ ...draft.value });
+  if (ok) draft.value = blankDraft();
 }
 
 function formatAddress(a: UserAddress): string {
@@ -129,16 +108,9 @@ function formatAddress(a: UserAddress): string {
       v-if="showAddForm && editable"
       class="mb-3 p-3 bg-surface-alt rounded-lg border border-subtle flex flex-col gap-2"
     >
-      <div class="flex items-center gap-2">
-        <select
-          v-model="draft.address_type"
-          class="bg-surface border border-default rounded-lg px-2 py-1.5 text-sm text-primary focus:outline-none focus:border-accent"
-        >
-          <option v-for="ty in TYPES" :key="ty" :value="ty">{{ t(`user-addresses-type-${ty}`) }}</option>
-        </select>
-        <label class="flex items-center gap-1.5 text-sm text-secondary whitespace-nowrap">
-          <input v-model="draft.is_primary" type="checkbox" /> {{ t('user-addresses-primary') }}
-        </label>
+      <div class="flex items-center gap-3">
+        <BaseDropdown v-model="draft.address_type" :options="typeOptions" class="shrink-0" />
+        <Checkbox v-model="draft.is_primary" :label="t('user-addresses-primary')" />
       </div>
       <FormInput v-model="draft.street" :placeholder="t('user-addresses-field-street')" size="sm" />
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -148,10 +120,10 @@ function formatAddress(a: UserAddress): string {
         <FormInput v-model="draft.country" :placeholder="t('user-addresses-field-country')" size="sm" />
       </div>
       <div class="flex justify-end gap-2">
-        <Button size="sm" :loading="saving" :disabled="draftEmpty" @click="add">
+        <Button size="sm" :loading="saving" :disabled="draftEmpty" @click="submit">
           {{ t('user-addresses-add') }}
         </Button>
-        <Button variant="secondary" size="sm" @click="resetDraft">{{ t('common-cancel') }}</Button>
+        <Button variant="secondary" size="sm" @click="cancel">{{ t('common-cancel') }}</Button>
       </div>
     </div>
 
@@ -167,14 +139,11 @@ function formatAddress(a: UserAddress): string {
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-2 flex-wrap">
             <span class="text-xs text-tertiary">{{ t(`user-addresses-type-${a.address_type}`) }}</span>
-            <span
-              v-if="a.is_primary"
-              class="px-2 py-0.5 rounded-full text-xs font-medium bg-accent/20 text-accent shrink-0"
-            >{{ t('user-addresses-primary') }}</span>
-            <span
-              v-if="a.source"
-              class="px-2 py-0.5 rounded-full text-xs bg-surface-hover text-tertiary shrink-0"
-            >{{ t('user-contact-synced-badge') }}</span>
+            <ContactBadges
+              :primary="a.is_primary"
+              :primary-label="t('user-addresses-primary')"
+              :synced="!!a.source"
+            />
           </div>
           <span class="text-sm text-primary">{{ formatAddress(a) || '—' }}</span>
         </div>
