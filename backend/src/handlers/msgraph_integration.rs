@@ -2563,6 +2563,7 @@ fn surface_contact(
     crate::repository::user_contact::apply_directory_contact(
         conn,
         user_uuid,
+        "microsoft",
         &build_directory_contact(ms_user),
         None,
     )

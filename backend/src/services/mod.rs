@@ -11,6 +11,7 @@ pub mod dns_diagnostics;
 pub mod email_queue;
 pub mod imports;
 pub mod inbound_email;
+pub mod ldap;
 pub mod msgraph;
 pub mod notifications;
 pub mod oauth_provisioning;
