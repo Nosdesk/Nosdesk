@@ -38,6 +38,13 @@ export const adminNavGroups: AdminNavGroup[] = [
         keywords: ['categories', 'tags', 'ticket types', 'visibility']
       },
       {
+        titleKey: 'admin-nav-user-fields-title',
+        descriptionKey: 'admin-nav-user-fields-description',
+        icon: 'account',
+        route: '/admin/user-fields',
+        keywords: ['user', 'fields', 'custom', 'contact', 'profile', 'properties', 'directory']
+      },
+      {
         titleKey: 'admin-nav-assignment-rules-title',
         descriptionKey: 'admin-nav-assignment-rules-description',
         icon: 'lightning',

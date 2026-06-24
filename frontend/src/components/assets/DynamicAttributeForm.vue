@@ -24,7 +24,7 @@ import AssetAttributePicker from '@/components/assets/AssetAttributePicker.vue';
  * reject anyway) falls through to a plain text input.
  */
 
-type SchemaProperty = {
+export type SchemaProperty = {
   type?: string;
   enum?: unknown[];
   title?: string;
@@ -42,9 +42,12 @@ type SchemaProperty = {
    * a specific asset-kind slug for the picker. The backend
    * validator allows but doesn't enforce this. */
   assetKind?: string;
+  /** Custom Nosdesk extension: the field is fed read-only by a
+   * directory/asset sync rather than typed by a human. */
+  synced?: boolean;
 };
 
-type Schema = {
+export type Schema = {
   type?: string;
   properties?: Record<string, SchemaProperty>;
   required?: string[];

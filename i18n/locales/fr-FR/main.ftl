@@ -6111,3 +6111,23 @@ asset-catalog-col-type = Type
 asset-catalog-col-part-number = Référence
 asset-catalog-filter-all = Tous
 asset-catalog-manage-manufacturers = Fabricants
+
+# MACHINE TRANSLATION, pending native review (user contact fields)
+admin-nav-user-fields-title = Champs utilisateur
+admin-nav-user-fields-description = Définir des champs de contact personnalisés affichés sur le profil de chaque utilisateur
+route-title-admin-user-fields = Champs utilisateur
+admin-user-fields-title = Champs utilisateur
+admin-user-fields-description = Définissez les champs de contact personnalisés du profil de chaque utilisateur. Les champs standards (nom, e-mail, téléphone, adresse, fonction, service) sont toujours disponibles ; ajoutez les vôtres ici. Les champs alimentés par la synchronisation d'annuaire sont en lecture seule.
+admin-user-fields-back-label = Retour à l'administration
+admin-user-fields-saved = Champs utilisateur enregistrés
+admin-user-fields-error-load = Échec du chargement des champs utilisateur
+admin-user-fields-error-save = Échec de l'enregistrement des champs utilisateur
+user-contact-title = Coordonnées
+user-contact-synced-badge = Synchronisé depuis l'annuaire
+user-contact-field-job-title = Fonction
+user-contact-field-organization = Organisation
+user-contact-field-department = Service
+user-contact-no-custom-fields = Aucun champ personnalisé défini. Les administrateurs peuvent en ajouter dans Champs utilisateur.
+user-contact-saved = Coordonnées enregistrées
+user-contact-error-load = Échec du chargement des coordonnées
+user-contact-error-save = Échec de l'enregistrement des coordonnées

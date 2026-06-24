@@ -590,6 +590,12 @@ const router = createRouter({
           meta: { titleKey: 'route-title-admin-categories' }
         },
         {
+          path: 'user-fields',
+          name: 'admin-user-fields',
+          component: () => import('../views/admin/UserFieldsView.vue'),
+          meta: { titleKey: 'route-title-admin-user-fields' }
+        },
+        {
           path: 'assignment-rules',
           name: 'admin-assignment-rules',
           component: () => import('../views/AssignmentRulesView.vue'),

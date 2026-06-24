@@ -928,6 +928,26 @@ admin-nav-groups-title = Groups
 admin-nav-groups-description = Manage user groups and memberships
 admin-nav-categories-title = Categories
 admin-nav-categories-description = Configure ticket categories and group visibility
+admin-nav-user-fields-title = User Fields
+admin-nav-user-fields-description = Define custom contact fields that appear on every user's profile
+
+# User fields (admin) + user contact profile
+route-title-admin-user-fields = User fields
+admin-user-fields-title = User fields
+admin-user-fields-description = Define the custom contact fields on every user's profile. Standard fields (name, email, phone, address, title, department) are always available; add your own here. Fields fed by directory sync are read-only.
+admin-user-fields-back-label = Back to administration
+admin-user-fields-saved = User fields saved
+admin-user-fields-error-load = Failed to load user fields
+admin-user-fields-error-save = Failed to save user fields
+user-contact-title = Contact details
+user-contact-synced-badge = Synced from directory
+user-contact-field-job-title = Job title
+user-contact-field-organization = Organization
+user-contact-field-department = Department
+user-contact-no-custom-fields = No custom fields defined. Admins can add them under User fields.
+user-contact-saved = Contact details saved
+user-contact-error-load = Failed to load contact details
+user-contact-error-save = Failed to save contact details
 admin-nav-assignment-rules-title = Assignment Rules
 admin-nav-assignment-rules-description = Configure automatic ticket assignment based on rules
 admin-nav-workflow-title = Workflow

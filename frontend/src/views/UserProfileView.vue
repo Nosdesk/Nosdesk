@@ -10,6 +10,7 @@ import { useAuthStore } from "@/stores/auth";
 import BackButton from "@/components/common/BackButton.vue";
 import UserProfileCard from "@/components/settings/UserProfileCard.vue";
 import UserEmailsCard from "@/components/settings/UserEmailsCard.vue";
+import UserContactCard from "@/components/settings/UserContactCard.vue";
 import UserAssignedTickets from "@/components/UserAssignedTickets.vue";
 import BaseDropdown from "@/components/common/BaseDropdown.vue";
 import Icon from "@/components/common/Icon.vue";
@@ -655,6 +656,13 @@ watch(
                             v-if="userProfile?.uuid"
                             :user-uuid="userProfile.uuid"
                             :can-edit="false"
+                        />
+
+                        <!-- Contact details: standard + custom fields -->
+                        <UserContactCard
+                            v-if="userProfile?.uuid"
+                            :uuid="userProfile.uuid"
+                            :editable="canEdit"
                         />
 
                         <!-- Devices Section -->

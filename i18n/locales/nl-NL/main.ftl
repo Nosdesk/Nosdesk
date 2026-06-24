@@ -6103,3 +6103,23 @@ asset-catalog-col-type = Type
 asset-catalog-col-part-number = Onderdeelnummer
 asset-catalog-filter-all = Alle
 asset-catalog-manage-manufacturers = Fabrikanten
+
+# MACHINE TRANSLATION, pending native review (user contact fields)
+admin-nav-user-fields-title = Gebruikersvelden
+admin-nav-user-fields-description = Definieer aangepaste contactvelden die op elk gebruikersprofiel verschijnen
+route-title-admin-user-fields = Gebruikersvelden
+admin-user-fields-title = Gebruikersvelden
+admin-user-fields-description = Definieer de aangepaste contactvelden op elk gebruikersprofiel. Standaardvelden (naam, e-mail, telefoon, adres, functie, afdeling) zijn altijd beschikbaar; voeg hier je eigen velden toe. Velden die door directorysynchronisatie worden gevuld, zijn alleen-lezen.
+admin-user-fields-back-label = Terug naar beheer
+admin-user-fields-saved = Gebruikersvelden opgeslagen
+admin-user-fields-error-load = Laden van gebruikersvelden mislukt
+admin-user-fields-error-save = Opslaan van gebruikersvelden mislukt
+user-contact-title = Contactgegevens
+user-contact-synced-badge = Gesynchroniseerd vanuit directory
+user-contact-field-job-title = Functie
+user-contact-field-organization = Organisatie
+user-contact-field-department = Afdeling
+user-contact-no-custom-fields = Geen aangepaste velden gedefinieerd. Beheerders kunnen ze toevoegen onder Gebruikersvelden.
+user-contact-saved = Contactgegevens opgeslagen
+user-contact-error-load = Laden van contactgegevens mislukt
+user-contact-error-save = Opslaan van contactgegevens mislukt
