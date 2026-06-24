@@ -2593,6 +2593,40 @@ pub struct DirectoryAddress {
     pub country: Option<String>,
 }
 
+/// A workspace's LDAP/directory configuration (one row per workspace). The bind
+/// password is stored KEK-encrypted; the encrypted columns are `serde(skip)` so
+/// the secret can never leave the process in a serialized response (the handler
+/// also returns a redacted DTO).
+#[derive(Debug, Serialize, Queryable, Identifiable)]
+#[diesel(table_name = crate::schema::workspace_ldap_settings)]
+#[diesel(primary_key(workspace_id))]
+pub struct WorkspaceLdapSettings {
+    pub workspace_id: i32,
+    pub enabled: bool,
+    pub host: String,
+    pub port: i32,
+    pub tls_mode: String,
+    pub verify_certs: bool,
+    pub ca_cert_pem: Option<String>,
+    pub follow_referrals: bool,
+    pub connect_timeout_secs: i32,
+    pub auth_mode: String,
+    pub bind_dn: String,
+    #[serde(skip)]
+    pub encrypted_bind_password: Option<Vec<u8>>,
+    #[serde(skip)]
+    pub encrypted_kek_id: Option<i16>,
+    pub user_base_dn: String,
+    pub username_attribute: String,
+    pub user_filter: String,
+    pub page_size: i32,
+    pub attribute_map: serde_json::Value,
+    pub group_config: serde_json::Value,
+    pub provisioning: serde_json::Value,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
 /// Partial update payload. Each field uses the `Option<Option<T>>`
 /// convention so the API can distinguish "leave as-is" (outer
 /// None) from "clear back to site default / role default"

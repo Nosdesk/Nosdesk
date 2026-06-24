@@ -2027,6 +2027,39 @@ diesel::table! {
 }
 
 diesel::table! {
+    workspace_ldap_settings (workspace_id) {
+        workspace_id -> Int4,
+        enabled -> Bool,
+        #[max_length = 255]
+        host -> Varchar,
+        port -> Int4,
+        #[max_length = 16]
+        tls_mode -> Varchar,
+        verify_certs -> Bool,
+        ca_cert_pem -> Nullable<Text>,
+        follow_referrals -> Bool,
+        connect_timeout_secs -> Int4,
+        #[max_length = 16]
+        auth_mode -> Varchar,
+        #[max_length = 512]
+        bind_dn -> Varchar,
+        encrypted_bind_password -> Nullable<Bytea>,
+        encrypted_kek_id -> Nullable<Int2>,
+        #[max_length = 512]
+        user_base_dn -> Varchar,
+        #[max_length = 64]
+        username_attribute -> Varchar,
+        user_filter -> Text,
+        page_size -> Int4,
+        attribute_map -> Jsonb,
+        group_config -> Jsonb,
+        provisioning -> Jsonb,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     workspace_members (workspace_id, user_uuid) {
         workspace_id -> Int4,
         user_uuid -> Uuid,
@@ -2294,6 +2327,7 @@ diesel::joinable!(working_calendar_holidays -> workspaces (workspace_id));
 diesel::joinable!(working_calendars -> users (created_by));
 diesel::joinable!(working_calendars -> workspaces (workspace_id));
 diesel::joinable!(workspace_email_settings -> workspaces (workspace_id));
+diesel::joinable!(workspace_ldap_settings -> workspaces (workspace_id));
 diesel::joinable!(workspace_members -> users (user_uuid));
 diesel::joinable!(workspace_members -> workspaces (workspace_id));
 diesel::joinable!(yjs_snapshots -> workspaces (workspace_id));
@@ -2410,6 +2444,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     working_calendar_holidays,
     working_calendars,
     workspace_email_settings,
+    workspace_ldap_settings,
     workspace_members,
     workspaces,
     yjs_snapshots,
