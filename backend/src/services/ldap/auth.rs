@@ -14,9 +14,9 @@
 //! the user, and the user bind isn't left on a pooled/shared connection.
 
 use ldap3::{LdapResult, Scope, SearchEntry};
-use serde_json::Value;
 
 use crate::models::WorkspaceLdapSettings;
+use crate::services::ldap::attrs::{attr_name, first_value};
 use crate::services::ldap::connector::{self, LdapConnectError};
 use crate::services::ldap::escape::escape_filter_value;
 
@@ -52,32 +52,10 @@ pub struct LdapAuthnResult {
     pub display_name: Option<String>,
 }
 
-fn attr_name(map: &Value, key: &str, default: &str) -> String {
-    map.get(key)
-        .and_then(Value::as_str)
-        .filter(|s| !s.is_empty())
-        .unwrap_or(default)
-        .to_string()
-}
-
 /// Substitute the (RFC-4515-escaped) login into the filter template. Public for
 /// the injection test; never build a filter by raw concatenation.
 pub fn build_user_filter(template: &str, username: &str) -> String {
     template.replace("{username}", &escape_filter_value(username))
-}
-
-/// Pull a string attribute, falling back to a binary attribute rendered as
-/// lowercase hex (AD's objectGUID is a 16-byte binary value; hex is stable and
-/// unique, which is all the external_id needs).
-fn first_value(entry: &SearchEntry, attr: &str) -> Option<String> {
-    if let Some(v) = entry.attrs.get(attr).and_then(|v| v.first()) {
-        return Some(v.clone());
-    }
-    entry
-        .bin_attrs
-        .get(attr)
-        .and_then(|v| v.first())
-        .map(|bytes| bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
 fn is_success(res: &LdapResult) -> bool {
@@ -178,16 +156,6 @@ mod tests {
             build_user_filter("(uid={username})", "alice"),
             "(uid=alice)"
         );
-    }
-
-    #[test]
-    fn attr_name_falls_back_to_default() {
-        let map = json!({ "email": "userPrincipalName" });
-        assert_eq!(attr_name(&map, "email", "mail"), "userPrincipalName");
-        assert_eq!(attr_name(&map, "external_id", "entryUUID"), "entryUUID");
-        // Empty string is treated as unset.
-        let map = json!({ "email": "" });
-        assert_eq!(attr_name(&map, "email", "mail"), "mail");
     }
 
     fn settings() -> WorkspaceLdapSettings {
