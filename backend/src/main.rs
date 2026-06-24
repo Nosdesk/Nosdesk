@@ -2400,6 +2400,10 @@ async fn main() -> std::io::Result<()> {
                     // Workspace user custom-field schema (read staff, write admin).
                     .route("/admin/user-fields", web::get().to(handlers::user_contact::get_user_field_schema))
                     .route("/admin/user-fields", web::put().to(handlers::user_contact::set_user_field_schema))
+                    // Per-workspace LDAP/directory config (admin-gated in the handlers).
+                    .route("/ldap/settings", web::get().to(handlers::ldap_integration::get_ldap_settings))
+                    .route("/ldap/settings", web::put().to(handlers::ldap_integration::set_ldap_settings))
+                    .route("/ldap/presets", web::get().to(handlers::ldap_integration::get_ldap_presets))
                     .route("/users/{uuid}/with-emails", web::get().to(handlers::get_user_with_emails))
                     .route("/users/{uuid}/profile", web::get().to(handlers::users::get_user_profile_bundle))
                     .route("/users/{uuid}/auth-identities", web::get().to(handlers::get_user_auth_identities_by_uuid))

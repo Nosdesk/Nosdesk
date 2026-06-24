@@ -47,6 +47,7 @@ pub mod inbound_email;
 pub mod internal_workspaces;
 pub mod invitation;
 pub mod knowledge_gaps;
+pub mod ldap_integration;
 pub mod manufacturers;
 pub mod microsoft_graph;
 pub mod msgraph_integration;
