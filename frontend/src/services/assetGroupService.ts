@@ -22,6 +22,9 @@ export interface AssetGroupInput {
   display_order?: number;
 }
 
+/** Pinia Colada key for the management list (all groups, incl. archived). */
+export const ASSET_GROUPS_ALL_QUERY_KEY = ['asset-groups', 'all'] as const;
+
 export const listAssetGroups = async (includeArchived = false): Promise<AssetGroupSummary[]> => {
   const response = await apiClient.get('/asset-groups', {
     params: includeArchived ? { include_archived: true } : undefined,

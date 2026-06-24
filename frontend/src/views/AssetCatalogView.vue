@@ -266,13 +266,13 @@ async function confirmDelete() {
 
 <template>
   <div class="h-full flex flex-col">
-    <div class="px-4 sm:px-6 pt-3">
-      <AssetViewTabs />
-    </div>
-
-    <!-- Toolbar: manufacturer filter chips + actions -->
-    <div class="shrink-0 flex items-center gap-2 px-4 sm:px-6 py-2.5 border-b border-subtle">
-      <div class="flex items-center gap-1 overflow-x-auto flex-1 min-w-0">
+    <!-- Header band: view tabs inline at the start, then view controls.
+         Mirrors ListPageLayout (inventory) so the tab strip sits in the
+         same place across Inventory / Catalog / Groups. -->
+    <div class="shrink-0 bg-surface border-b border-subtle">
+      <div class="px-4 py-3 flex items-center gap-2 sm:gap-3 flex-wrap">
+        <AssetViewTabs />
+        <div class="flex items-center gap-1 overflow-x-auto flex-1 min-w-0">
         <button
           type="button"
           class="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap shrink-0"
@@ -306,6 +306,7 @@ async function confirmDelete() {
       >
         {{ $t('asset-catalog-add-model') }}
       </Button>
+      </div>
     </div>
 
     <!-- Empty -->

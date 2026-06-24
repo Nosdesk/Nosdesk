@@ -796,10 +796,13 @@ admin-workflow-states-sla-now-running-flash = { $name } now runs the SLA clock
 admin-asset-kinds-title = Asset Kinds
 admin-asset-kinds-description = Define the kinds of assets you track. Each kind has a slug (used internally), a label, and an attribute schema in the JSON Schema subset that describes the fields you want to collect when an asset of that kind is created.
 
-# Asset groups management (admin)
-admin-asset-groups-title = Asset groups
-admin-asset-groups-description = Named, color-coded groups for organizing and filtering assets. Assign assets to groups from each asset's detail page.
+# Asset groups management (agent-facing, /assets/groups)
 admin-asset-groups-new = New group
+admin-asset-groups-filter-all = All
+admin-asset-groups-filter-active = Active
+admin-asset-groups-filter-archived = Archived
+admin-asset-groups-filter-empty = No groups match this filter.
+admin-asset-groups-col-members = Assets
 admin-asset-groups-error-load = Failed to load asset groups
 admin-asset-groups-error-save = Failed to save asset group
 admin-asset-groups-error-archive = Failed to archive asset group
@@ -814,7 +817,6 @@ admin-asset-groups-member-count =
 admin-asset-groups-action-edit = Edit group
 admin-asset-groups-action-archive = Archive group
 admin-asset-groups-action-restore = Restore
-admin-asset-groups-archived-heading = Archived
 admin-asset-groups-modal-create-title = New asset group
 admin-asset-groups-modal-edit-title = Edit asset group
 admin-asset-groups-field-name = Name

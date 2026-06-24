@@ -6332,8 +6332,6 @@ error-store-asset-groups-load = Laden van activagroepen mislukt.
 
 # MACHINE TRANSLATION, pending native review (asset groups admin)
 route-title-asset-groups = Activagroepen
-admin-asset-groups-title = Activagroepen
-admin-asset-groups-description = Benoemde, kleurgecodeerde groepen om activa te ordenen en te filteren. Wijs activa toe aan groepen vanaf de detailpagina van elk activum.
 admin-asset-groups-new = Nieuwe groep
 admin-asset-groups-error-load = Laden van activagroepen mislukt
 admin-asset-groups-error-save = Opslaan van activagroep mislukt
@@ -6349,7 +6347,6 @@ admin-asset-groups-member-count =
 admin-asset-groups-action-edit = Groep bewerken
 admin-asset-groups-action-archive = Groep archiveren
 admin-asset-groups-action-restore = Herstellen
-admin-asset-groups-archived-heading = Gearchiveerd
 admin-asset-groups-modal-create-title = Nieuwe activagroep
 admin-asset-groups-modal-edit-title = Activagroep bewerken
 admin-asset-groups-field-name = Naam
@@ -6364,3 +6361,10 @@ asset-detail-groups-create-new = Nieuwe groep
 asset-detail-groups-create-placeholder = Groepsnaam
 asset-detail-groups-create-confirm = Aanmaken
 asset-detail-groups-create-error = Aanmaken van groep mislukt
+
+# MACHINE TRANSLATION, pending native review (asset groups layout)
+admin-asset-groups-filter-all = Alle
+admin-asset-groups-filter-active = Actief
+admin-asset-groups-filter-archived = Gearchiveerd
+admin-asset-groups-filter-empty = Geen groepen komen overeen met dit filter.
+admin-asset-groups-col-members = Activa

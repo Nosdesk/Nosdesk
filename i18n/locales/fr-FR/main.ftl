@@ -6340,8 +6340,6 @@ error-store-asset-groups-load = Échec du chargement des groupes d'actifs.
 
 # MACHINE TRANSLATION, pending native review (asset groups admin)
 route-title-asset-groups = Groupes d'actifs
-admin-asset-groups-title = Groupes d'actifs
-admin-asset-groups-description = Groupes nommés et colorés pour organiser et filtrer les actifs. Attribuez des actifs aux groupes depuis la page de détail de chaque actif.
 admin-asset-groups-new = Nouveau groupe
 admin-asset-groups-error-load = Échec du chargement des groupes d'actifs
 admin-asset-groups-error-save = Échec de l'enregistrement du groupe d'actifs
@@ -6357,7 +6355,6 @@ admin-asset-groups-member-count =
 admin-asset-groups-action-edit = Modifier le groupe
 admin-asset-groups-action-archive = Archiver le groupe
 admin-asset-groups-action-restore = Restaurer
-admin-asset-groups-archived-heading = Archivés
 admin-asset-groups-modal-create-title = Nouveau groupe d'actifs
 admin-asset-groups-modal-edit-title = Modifier le groupe d'actifs
 admin-asset-groups-field-name = Nom
@@ -6372,3 +6369,10 @@ asset-detail-groups-create-new = Nouveau groupe
 asset-detail-groups-create-placeholder = Nom du groupe
 asset-detail-groups-create-confirm = Créer
 asset-detail-groups-create-error = Échec de la création du groupe
+
+# MACHINE TRANSLATION, pending native review (asset groups layout)
+admin-asset-groups-filter-all = Tous
+admin-asset-groups-filter-active = Actifs
+admin-asset-groups-filter-archived = Archivés
+admin-asset-groups-filter-empty = Aucun groupe ne correspond à ce filtre.
+admin-asset-groups-col-members = Actifs
