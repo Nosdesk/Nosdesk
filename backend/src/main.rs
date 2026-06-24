@@ -2385,6 +2385,12 @@ async fn main() -> std::io::Result<()> {
                     .route("/users/{uuid}/emails", web::post().to(handlers::add_user_email))
                     .route("/users/{uuid}/emails/{email_id}", web::put().to(handlers::update_user_email))
                     .route("/users/{uuid}/emails/{email_id}", web::delete().to(handlers::delete_user_email))
+                    // User contact profile (standard cols + custom-field values).
+                    .route("/users/{uuid}/profile-fields", web::get().to(handlers::user_contact::get_user_profile_fields))
+                    .route("/users/{uuid}/profile-fields", web::put().to(handlers::user_contact::set_user_profile_fields))
+                    // Workspace user custom-field schema (read staff, write admin).
+                    .route("/admin/user-fields", web::get().to(handlers::user_contact::get_user_field_schema))
+                    .route("/admin/user-fields", web::put().to(handlers::user_contact::set_user_field_schema))
                     .route("/users/{uuid}/with-emails", web::get().to(handlers::get_user_with_emails))
                     .route("/users/{uuid}/profile", web::get().to(handlers::users::get_user_profile_bundle))
                     .route("/users/{uuid}/auth-identities", web::get().to(handlers::get_user_auth_identities_by_uuid))

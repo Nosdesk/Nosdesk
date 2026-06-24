@@ -1741,6 +1741,16 @@ diesel::table! {
 }
 
 diesel::table! {
+    user_field_schema (workspace_id) {
+        workspace_id -> Int4,
+        schema -> Jsonb,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
     user_groups (user_uuid, group_id) {
         user_uuid -> Uuid,
         group_id -> Int4,
@@ -1761,6 +1771,24 @@ diesel::table! {
         timezone -> Nullable<Text>,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    user_profiles (workspace_id, user_uuid) {
+        user_uuid -> Uuid,
+        workspace_id -> Int4,
+        #[max_length = 255]
+        job_title -> Nullable<Varchar>,
+        #[max_length = 255]
+        organization -> Nullable<Varchar>,
+        #[max_length = 255]
+        department -> Nullable<Varchar>,
+        custom_fields -> Jsonb,
+        directory_synced -> Bool,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
     }
 }
 
@@ -2195,7 +2223,10 @@ diesel::joinable!(tickets -> workflow_states (workflow_state_id));
 diesel::joinable!(tickets -> workspaces (workspace_id));
 diesel::joinable!(user_groups -> groups (group_id));
 diesel::joinable!(user_groups -> workspaces (workspace_id));
+diesel::joinable!(user_field_schema -> users (created_by));
+diesel::joinable!(user_field_schema -> workspaces (workspace_id));
 diesel::joinable!(user_preferences -> users (user_uuid));
+diesel::joinable!(user_profiles -> workspaces (workspace_id));
 diesel::joinable!(user_recovery_codes -> users (user_uuid));
 diesel::joinable!(user_ticket_views -> tickets (ticket_id));
 diesel::joinable!(user_ticket_views -> users (user_uuid));
@@ -2311,8 +2342,10 @@ diesel::allow_tables_to_appear_in_same_query!(
     tickets,
     user_auth_identities,
     user_emails,
+    user_field_schema,
     user_groups,
     user_preferences,
+    user_profiles,
     user_recovery_codes,
     user_ticket_views,
     users,

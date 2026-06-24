@@ -2411,6 +2411,67 @@ pub struct UserPreferences {
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
+// ============================================================================
+// User contact fields: per-workspace custom-field schema + per-user profile
+// ============================================================================
+
+/// The workspace's user custom-field schema (override row). Absent → the code
+/// default applies.
+#[derive(Debug, Serialize, Queryable, Identifiable)]
+#[diesel(table_name = crate::schema::user_field_schema)]
+#[diesel(primary_key(workspace_id))]
+pub struct UserFieldSchema {
+    pub workspace_id: i32,
+    pub schema: serde_json::Value,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub created_by: Option<Uuid>,
+}
+
+/// A per-(user × workspace) contact record: SCIM-Enterprise standard columns
+/// + the custom-field values. `directory_synced` marks the standard columns as
+/// Graph-owned (read-only) for that user.
+#[derive(Debug, Serialize, Queryable, Identifiable)]
+#[diesel(table_name = crate::schema::user_profiles)]
+#[diesel(primary_key(workspace_id, user_uuid))]
+pub struct UserProfile {
+    pub user_uuid: Uuid,
+    pub workspace_id: i32,
+    pub job_title: Option<String>,
+    pub organization: Option<String>,
+    pub department: Option<String>,
+    pub custom_fields: serde_json::Value,
+    pub directory_synced: bool,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub created_by: Option<Uuid>,
+}
+
+/// Insert form for a profile row (workspace_id defaults from the GUC).
+#[derive(Debug, Insertable)]
+#[diesel(table_name = crate::schema::user_profiles)]
+pub struct NewUserProfile {
+    pub user_uuid: Uuid,
+    pub job_title: Option<String>,
+    pub organization: Option<String>,
+    pub department: Option<String>,
+    pub custom_fields: serde_json::Value,
+    pub directory_synced: bool,
+    pub created_by: Option<Uuid>,
+}
+
+/// Editable profile fields from the user-side (manual surface; directory_synced
+/// standard cols are rejected when sync-owned). `custom_fields` is validated
+/// against the workspace schema before write.
+#[derive(Debug, Deserialize)]
+pub struct UserProfileInput {
+    pub job_title: Option<String>,
+    pub organization: Option<String>,
+    pub department: Option<String>,
+    #[serde(default)]
+    pub custom_fields: serde_json::Value,
+}
+
 /// Partial update payload. Each field uses the `Option<Option<T>>`
 /// convention so the API can distinguish "leave as-is" (outer
 /// None) from "clear back to site default / role default"
