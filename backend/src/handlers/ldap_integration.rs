@@ -6,14 +6,15 @@
 //! config shape, upsert the settings, then set/clear the bind password
 //! separately so editing settings never disturbs a stored secret.
 
-use actix_web::{web, HttpResponse, Responder};
+use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use serde::Deserialize;
 use serde_json::json;
 use tracing::error;
 
 use crate::extractors::{AuthContext, TenantConn};
-use crate::handlers::errors;
-use crate::models::UpsertWorkspaceLdapSettings;
+use crate::handlers::{errors, helpers};
+use crate::models::{NewSyncHistory, SyncHistoryUpdate, UpsertWorkspaceLdapSettings};
+use crate::repository::sync_history as sync_history_repo;
 use crate::repository::workspace_ldap_settings as repo;
 use crate::services::ldap::auth::{self as ldap_auth, LdapAuthError};
 use crate::services::ldap::connector::LdapConnectError;
@@ -156,6 +157,110 @@ pub async fn test_ldap_connection(mut tc: TenantConn, auth: AuthContext) -> impl
                 );
             }
             HttpResponse::Ok().json(json!({ "ok": false, "error": message }))
+        }
+    }
+}
+
+/// POST /ldap/sync — run a full LDAP user sync for the request's workspace,
+/// recording it in sync_history, and return the run stats (admin).
+///
+/// Synchronous for v1: the admin triggers it and waits for the result. It runs
+/// on a request-pinned `nosdesk_app` connection (no elevation) -- the provisioner
+/// already writes under exactly this context in the login path (the membership
+/// write self-bypasses), and apply_directory_contact's RLS writes pass under the
+/// workspace pin. Backgrounding + DirSync incremental are later P3 chunks.
+pub async fn run_ldap_sync(
+    db_pool: web::Data<crate::db::Pool>,
+    request: HttpRequest,
+    auth: AuthContext,
+) -> impl Responder {
+    if !auth.is_workspace_admin() {
+        return errors::forbidden("Only admins can run an LDAP sync");
+    }
+    let Some(workspace_id) = helpers::request_workspace_id(&request) else {
+        return errors::forbidden("A resolved workspace is required");
+    };
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
+    helpers::pin_request_workspace(&request, &mut conn);
+
+    let settings = match repo::get_for_workspace(&mut conn, workspace_id) {
+        Ok(Some(s)) if s.enabled => s,
+        Ok(_) => return errors::unprocessable_entity("Enable LDAP before running a sync"),
+        Err(e) => {
+            error!(error = %e, "load ldap settings for sync failed");
+            return errors::internal("Failed to load LDAP settings");
+        }
+    };
+    let bind_password = repo::decrypt_bind_password(&settings)
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+
+    let started_at = chrono::Utc::now().naive_utc();
+    let history = match sync_history_repo::create_sync_history(
+        &mut conn,
+        NewSyncHistory {
+            sync_type: "ldap_users".to_string(),
+            status: "running".to_string(),
+            started_at,
+            completed_at: None,
+            error_message: None,
+            records_processed: None,
+            records_created: None,
+            records_updated: None,
+            records_failed: None,
+            tenant_id: None,
+            is_delta: false,
+        },
+    ) {
+        Ok(h) => h,
+        Err(e) => {
+            error!(error = %e, "create ldap sync_history failed");
+            return errors::internal("Failed to start the sync");
+        }
+    };
+
+    let result =
+        crate::services::ldap::sync::sync_users(&mut conn, &settings, workspace_id, &bind_password)
+            .await;
+    let completed_at = Some(Some(chrono::Utc::now().naive_utc()));
+
+    match result {
+        Ok(stats) => {
+            let _ = sync_history_repo::update_sync_history(
+                &mut conn,
+                history.id,
+                SyncHistoryUpdate {
+                    status: Some("completed".to_string()),
+                    completed_at,
+                    error_message: None,
+                    records_processed: Some(stats.seen as i32),
+                    records_created: None,
+                    records_updated: Some(stats.synced as i32),
+                    records_failed: Some((stats.errors + stats.skipped) as i32),
+                },
+            );
+            HttpResponse::Ok().json(json!({ "session_id": history.id, "stats": stats }))
+        }
+        Err(e) => {
+            error!(error = %e, workspace_id, "ldap sync failed");
+            let _ = sync_history_repo::update_sync_history(
+                &mut conn,
+                history.id,
+                SyncHistoryUpdate {
+                    status: Some("failed".to_string()),
+                    completed_at,
+                    error_message: Some(e.to_string()),
+                    records_processed: None,
+                    records_created: None,
+                    records_updated: None,
+                    records_failed: None,
+                },
+            );
+            errors::internal("LDAP sync failed; see server logs")
         }
     }
 }
