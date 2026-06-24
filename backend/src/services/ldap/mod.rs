@@ -2,5 +2,6 @@
 pub mod attrs;
 pub mod auth;
 pub mod connector;
+pub mod dirsync;
 pub mod escape;
 pub mod sync;
