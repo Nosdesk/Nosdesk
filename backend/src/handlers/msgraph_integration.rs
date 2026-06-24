@@ -2553,6 +2553,21 @@ fn build_directory_contact(ms: &MicrosoftGraphUser) -> crate::models::DirectoryC
     }
 }
 
+/// Apply the directory-imported contact fields onto a synced user. Shared by
+/// the create + update sync paths so the four call sites can't drift.
+fn surface_contact(
+    conn: &mut DbConnection,
+    user_uuid: Uuid,
+    ms_user: &MicrosoftGraphUser,
+) -> diesel::QueryResult<()> {
+    crate::repository::user_contact::apply_directory_contact(
+        conn,
+        user_uuid,
+        &build_directory_contact(ms_user),
+        None,
+    )
+}
+
 #[instrument(level = "debug", skip(conn, ms_user, stats, access_token, client), fields(user_uuid = %existing_identity.user_uuid))]
 async fn update_existing_microsoft_user_optimized(
     conn: &mut DbConnection,
@@ -2608,12 +2623,7 @@ async fn update_existing_microsoft_user_optimized(
         user_repo::update_user(&user.uuid, user_update, conn, None)?;
 
         // Surface directory contact fields (read-only on the manual side).
-        crate::repository::user_contact::apply_directory_contact(
-            conn,
-            user.uuid,
-            &build_directory_contact(ms_user),
-            None,
-        )?;
+        surface_contact(conn, user.uuid, ms_user)?;
         debug!(user_name = %user.name, "Updated user information");
     }
 
@@ -2897,12 +2907,7 @@ async fn create_new_user_from_microsoft_optimized(
     let created_user = user_repo::create_user(new_user, conn)?;
 
     // Surface directory contact fields onto the new user.
-    crate::repository::user_contact::apply_directory_contact(
-        conn,
-        created_user.uuid,
-        &build_directory_contact(ms_user),
-        None,
-    )?;
+    surface_contact(conn, created_user.uuid, ms_user)?;
 
     // Store all email addresses
     let email_data: Vec<(String, String, bool, String)> = emails
@@ -5385,12 +5390,7 @@ async fn update_existing_microsoft_user_no_photos(
         user_repo::update_user(&user.uuid, user_update, conn, None)?;
 
         // Surface directory contact fields (read-only on the manual side).
-        crate::repository::user_contact::apply_directory_contact(
-            conn,
-            user.uuid,
-            &build_directory_contact(ms_user),
-            None,
-        )?;
+        surface_contact(conn, user.uuid, ms_user)?;
     }
 
     if !emails.is_empty() {
@@ -5503,12 +5503,7 @@ async fn create_new_user_from_microsoft_no_photos(
     let created_user = user_repo::create_user(new_user, conn)?;
 
     // Surface directory contact fields onto the new user.
-    crate::repository::user_contact::apply_directory_contact(
-        conn,
-        created_user.uuid,
-        &build_directory_contact(ms_user),
-        None,
-    )?;
+    surface_contact(conn, created_user.uuid, ms_user)?;
 
     let identity_data = serde_json::to_value(ms_user)?;
 

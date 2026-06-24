@@ -68,8 +68,13 @@ export const getUserFieldSchema = async (): Promise<UserFieldSchema> => {
   return response.data as UserFieldSchema;
 };
 
-export const setUserFieldSchema = async (schema: UserFieldSchema): Promise<UserFieldSchema> => {
-  const response = await apiClient.put('/admin/user-fields', schema);
+export const setUserFieldSchema = async (
+  schema: UserFieldSchema,
+  force = false,
+): Promise<UserFieldSchema> => {
+  const response = await apiClient.put('/admin/user-fields', schema, {
+    params: force ? { force: 'true' } : undefined,
+  });
   return response.data as UserFieldSchema;
 };
 

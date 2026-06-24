@@ -90,9 +90,16 @@ pub async fn get_user_field_schema(mut tc: TenantConn, _auth: AuthContext) -> im
     }
 }
 
+#[derive(serde::Deserialize)]
+pub struct SchemaWriteQuery {
+    /// `true`/`1` applies a schema change even if it invalidates stored values.
+    pub force: Option<String>,
+}
+
 pub async fn set_user_field_schema(
     mut tc: TenantConn,
     body: web::Json<Value>,
+    query: web::Query<SchemaWriteQuery>,
     auth: AuthContext,
 ) -> impl Responder {
     if !auth.is_workspace_admin() {
@@ -105,6 +112,46 @@ pub async fn set_user_field_schema(
     let Some(workspace_id) = tc.workspace_id() else {
         return errors::forbidden("A resolved workspace is required");
     };
+    let force = matches!(query.force.as_deref(), Some("true") | Some("1"));
+
+    // Unless forced, reject a schema change that would invalidate values already
+    // stored on user profiles, mirroring the asset-kind conflict guard.
+    if !force {
+        const SAMPLE_LIMIT: usize = 5;
+        let schema_clone = schema.clone();
+        let counted = tc.run(|conn| {
+            let mut invalid = 0usize;
+            let mut sample: Vec<Value> = Vec::new();
+            for (user_uuid, custom_fields) in repo::list_profile_custom_fields(conn)? {
+                if let Err(e) = field_schema::validate_attributes(&schema_clone, &custom_fields) {
+                    invalid += 1;
+                    if sample.len() < SAMPLE_LIMIT {
+                        sample.push(json!({ "user_uuid": user_uuid, "error": e.to_string() }));
+                    }
+                }
+            }
+            Ok::<_, diesel::result::Error>((invalid, sample))
+        });
+        match counted {
+            Ok((invalid, sample)) if invalid > 0 => {
+                return HttpResponse::Conflict().json(json!({
+                    "error": "schema_invalidates_existing_profiles",
+                    "message": format!(
+                        "{invalid} user profile(s) have values that would no longer validate. \
+                         Pass ?force=true to apply anyway, then fix or clear the affected values."
+                    ),
+                    "invalid_count": invalid,
+                    "sample": sample,
+                }));
+            }
+            Ok(_) => {}
+            Err(e) => {
+                error!(error = %e, "revalidate user profiles failed");
+                return errors::internal("Failed to revalidate user profiles");
+            }
+        }
+    }
+
     let actor = Some(auth.user_uuid);
     match tc.run(|conn| repo::set_field_schema(conn, workspace_id, &schema, actor)) {
         Ok(stored) => HttpResponse::Ok().json(stored),
@@ -253,8 +300,9 @@ pub async fn update_user_phone(
         }
         Ok(Ok(repo::update_phone(conn, id, user_uuid, &input)?))
     });
-    finish_row(
+    finish(
         result,
+        |row| HttpResponse::Ok().json(row),
         "update user phone failed",
         "Failed to update phone number",
     )
@@ -276,8 +324,9 @@ pub async fn delete_user_phone(
         repo::delete_phone(conn, id)?;
         Ok(Ok(()))
     });
-    finish_unit(
+    finish(
         result,
+        |_| HttpResponse::NoContent().finish(),
         "delete user phone failed",
         "Failed to delete phone number",
     )
@@ -337,8 +386,9 @@ pub async fn update_user_address(
         }
         Ok(Ok(repo::update_address(conn, id, user_uuid, &input)?))
     });
-    finish_row(
+    finish(
         result,
+        |row| HttpResponse::Ok().json(row),
         "update user address failed",
         "Failed to update address",
     )
@@ -360,8 +410,9 @@ pub async fn delete_user_address(
         repo::delete_address(conn, id)?;
         Ok(Ok(()))
     });
-    finish_unit(
+    finish(
         result,
+        |_| HttpResponse::NoContent().finish(),
         "delete user address failed",
         "Failed to delete address",
     )
@@ -369,32 +420,16 @@ pub async fn delete_user_address(
 
 // ---- Shared result mapping for the load-guard-mutate pattern ----------------
 
-fn finish_row<T: serde::Serialize>(
+/// Map a load-guard-mutate outcome to a response: the guard sentinels become
+/// 404/403, infra errors 500, and `ok` renders the success body.
+fn finish<T>(
     result: diesel::QueryResult<Result<T, &'static str>>,
+    ok: impl FnOnce(T) -> HttpResponse,
     log_msg: &str,
     err_msg: &str,
 ) -> HttpResponse {
     match result {
-        Ok(Ok(row)) => HttpResponse::Ok().json(row),
-        Ok(Err("not_found")) => errors::not_found("Contact entry"),
-        Ok(Err("sync_owned")) => {
-            errors::forbidden("Directory-synced contact details are read-only")
-        }
-        Ok(Err(_)) => errors::internal(err_msg),
-        Err(e) => {
-            error!(error = %e, "{log_msg}");
-            errors::internal(err_msg)
-        }
-    }
-}
-
-fn finish_unit(
-    result: diesel::QueryResult<Result<(), &'static str>>,
-    log_msg: &str,
-    err_msg: &str,
-) -> HttpResponse {
-    match result {
-        Ok(Ok(())) => HttpResponse::NoContent().finish(),
+        Ok(Ok(value)) => ok(value),
         Ok(Err("not_found")) => errors::not_found("Contact entry"),
         Ok(Err("sync_owned")) => {
             errors::forbidden("Directory-synced contact details are read-only")

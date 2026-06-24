@@ -75,6 +75,14 @@ pub fn get_profile(conn: &mut DbConnection, user_uuid: Uuid) -> QueryResult<Opti
         .optional()
 }
 
+/// (user_uuid, custom_fields) for every profile in the workspace. Used to
+/// revalidate stored values before applying a schema change.
+pub fn list_profile_custom_fields(conn: &mut DbConnection) -> QueryResult<Vec<(Uuid, Value)>> {
+    user_profiles::table
+        .select((user_profiles::user_uuid, user_profiles::custom_fields))
+        .load(conn)
+}
+
 // sync-audit-only: user profile is per-(user,workspace) contact data (audited); contact fields fold into the user sync payload in a later phase
 /// Upsert the manual side of a user's profile. `directory_synced` is never
 /// changed here (Graph owns it); the caller preserves synced standard columns.

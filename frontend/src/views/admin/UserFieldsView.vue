@@ -12,6 +12,7 @@ import { useFluent } from 'fluent-vue';
 import BackButton from '@/components/common/BackButton.vue';
 import Button from '@/components/common/Button.vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
+import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import AttributeEditor from '@/components/assetKindComponents/AttributeEditor.vue';
 import { getUserFieldSchema, setUserFieldSchema } from '@/services/userContactService';
 import { extractErrorMessage } from '@/utils/errors';
@@ -25,6 +26,7 @@ const schema = ref<Record<string, unknown>>({ type: 'object', properties: {} });
 const isLoading = ref(true);
 const loadError = ref('');
 const saving = ref(false);
+const conflictCount = ref<number | null>(null);
 
 onMounted(async () => {
   try {
@@ -40,17 +42,28 @@ onMounted(async () => {
   }
 });
 
-async function save(): Promise<void> {
+async function persist(force: boolean): Promise<void> {
   saving.value = true;
   try {
-    schema.value = await setUserFieldSchema(schema.value);
+    schema.value = await setUserFieldSchema(schema.value, force);
+    conflictCount.value = null;
     toast.success(t('admin-user-fields-saved'));
   } catch (err) {
+    const response = (err as { response?: { status?: number; data?: { invalid_count?: number } } })
+      .response;
+    if (response?.status === 409) {
+      // Existing profile values would be invalidated; confirm before forcing.
+      conflictCount.value = response.data?.invalid_count ?? 0;
+      return;
+    }
     toast.error(extractErrorMessage(err, t('admin-user-fields-error-save')));
   } finally {
     saving.value = false;
   }
 }
+
+const save = () => persist(false);
+const confirmForce = () => persist(true);
 </script>
 
 <template>
@@ -75,5 +88,16 @@ async function save(): Promise<void> {
         <AttributeEditor v-model="schema" />
       </div>
     </div>
+
+    <ConfirmModal
+      :show="conflictCount !== null"
+      variant="warning"
+      :title="t('admin-user-fields-conflict-title')"
+      :message="t('admin-user-fields-conflict-message', { count: conflictCount ?? 0 })"
+      :confirm-label="t('admin-user-fields-conflict-confirm')"
+      :loading="saving"
+      @confirm="confirmForce"
+      @close="conflictCount = null"
+    />
   </div>
 </template>
