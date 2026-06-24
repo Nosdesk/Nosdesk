@@ -367,6 +367,8 @@ pub async fn upsert_projected_user(
     let input = ProjectedUserInput {
         iss,
         sub,
+        // OIDC seat identity is a global platform identity, not workspace-scoped.
+        identity_workspace_id: None,
         email,
         // The control plane provisions verified seat emails, so the
         // email-fallback link is authorised here. The (iss, sub) is

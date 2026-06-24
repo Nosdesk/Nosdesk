@@ -3228,6 +3228,9 @@ pub struct NewUserAuthIdentity {
     pub email: Option<String>,
     pub metadata: Option<serde_json::Value>,
     pub password_hash: Option<String>,
+    /// NULL = global login identity (local/microsoft/oidc); set = directory
+    /// identity (ldap/scim) scoped to that workspace.
+    pub workspace_id: Option<i32>,
 }
 
 // For displaying auth identities in the user profile

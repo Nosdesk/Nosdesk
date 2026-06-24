@@ -6,7 +6,9 @@ use crate::db::DbConnection;
 use crate::models::{NewUserAuthIdentity, UserAuthIdentity, UserAuthIdentityDisplay};
 use crate::schema::user_auth_identities;
 
-// Create a new user auth identity
+// Create a user auth identity. `NewUserAuthIdentity.workspace_id` is NULL for a
+// global login identity (local/microsoft/oidc) or set for a workspace-scoped
+// directory identity (ldap/scim).
 // sync-pending-wire: needs sync aggregate wiring
 pub fn create_identity(
     new_identity: NewUserAuthIdentity,
@@ -185,6 +187,7 @@ mod tests {
             email: None,
             metadata: None,
             password_hash: None,
+            workspace_id: None,
         }
     }
 

@@ -846,6 +846,7 @@ pub async fn create_user(
                 email: Some(email.clone()),
                 metadata: None,
                 password_hash,
+                workspace_id: None,
             };
 
             match repository::user_auth_identities::create_identity(new_identity, &mut conn) {
@@ -1893,6 +1894,7 @@ pub async fn update_user_by_uuid(
                         email: identity.email.clone(),
                         metadata: identity.metadata.clone(),
                         password_hash: Some(password_hash),
+                        workspace_id: None,
                     }
                 }
                 None => NewUserAuthIdentity {
@@ -1902,6 +1904,7 @@ pub async fn update_user_by_uuid(
                     email: None, // Email in user_emails table
                     metadata: None,
                     password_hash: Some(password_hash),
+                    workspace_id: None,
                 },
             };
             repository::user_auth_identities::create_identity(new_auth_identity, conn)?;
