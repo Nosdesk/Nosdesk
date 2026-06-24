@@ -1747,6 +1747,7 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
+        workspace_id -> Nullable<Int4>,
     }
 }
 
@@ -2270,6 +2271,7 @@ diesel::joinable!(tickets -> ticket_categories (category_id));
 diesel::joinable!(tickets -> workflow_states (workflow_state_id));
 diesel::joinable!(tickets -> workspaces (workspace_id));
 diesel::joinable!(user_addresses -> workspaces (workspace_id));
+diesel::joinable!(user_auth_identities -> workspaces (workspace_id));
 diesel::joinable!(user_groups -> groups (group_id));
 diesel::joinable!(user_groups -> workspaces (workspace_id));
 diesel::joinable!(user_field_schema -> users (created_by));

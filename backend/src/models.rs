@@ -3214,6 +3214,9 @@ pub struct UserAuthIdentity {
     pub created_at: chrono::NaiveDateTime,
     pub updated_at: chrono::NaiveDateTime,
     pub created_by: Option<Uuid>,
+    /// NULL = global login identity (local/microsoft/oidc); set = directory
+    /// identity (ldap/scim) scoped to that workspace.
+    pub workspace_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
