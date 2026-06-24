@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use crate::extractors::{AuthContext, TenantConn};
 use crate::handlers::errors;
-use crate::models::UserProfileInput;
+use crate::models::{UserAddressInput, UserPhoneInput, UserProfileInput};
 use crate::repository::user_contact as repo;
 use crate::services::custom_fields::schema as field_schema;
 
@@ -121,6 +121,238 @@ pub async fn set_user_profile_fields(
         Err(e) => {
             error!(error = %e, "set user profile fields failed");
             errors::internal("Failed to save user profile")
+        }
+    }
+}
+
+// ---- Phones ----------------------------------------------------------------
+
+pub async fn list_user_phones(
+    mut tc: TenantConn,
+    params: web::Path<Uuid>,
+    _auth: AuthContext,
+) -> impl Responder {
+    let user_uuid = params.into_inner();
+    match tc.run(|conn| repo::list_phones(conn, user_uuid)) {
+        Ok(rows) => HttpResponse::Ok().json(rows),
+        Err(e) => {
+            error!(error = %e, "list user phones failed");
+            errors::internal("Failed to load phone numbers")
+        }
+    }
+}
+
+pub async fn add_user_phone(
+    mut tc: TenantConn,
+    params: web::Path<Uuid>,
+    body: web::Json<UserPhoneInput>,
+    auth: AuthContext,
+) -> impl Responder {
+    let user_uuid = params.into_inner();
+    if auth.user_uuid != user_uuid && !auth.is_workspace_admin() {
+        return errors::forbidden("You can only edit your own contact details");
+    }
+    let input = body.into_inner();
+    match tc.run(|conn| repo::create_phone(conn, user_uuid, &input, None, Some(auth.user_uuid))) {
+        Ok(row) => HttpResponse::Ok().json(row),
+        Err(e) => {
+            error!(error = %e, "add user phone failed");
+            errors::internal("Failed to add phone number")
+        }
+    }
+}
+
+pub async fn update_user_phone(
+    mut tc: TenantConn,
+    params: web::Path<(Uuid, i32)>,
+    body: web::Json<UserPhoneInput>,
+    auth: AuthContext,
+) -> impl Responder {
+    let (user_uuid, id) = params.into_inner();
+    if auth.user_uuid != user_uuid && !auth.is_workspace_admin() {
+        return errors::forbidden("You can only edit your own contact details");
+    }
+    let input = body.into_inner();
+    let result = tc.run(|conn| {
+        let Some(existing) = repo::get_phone(conn, id)? else {
+            return Ok(Err("not_found"));
+        };
+        if existing.user_uuid != user_uuid {
+            return Ok(Err("not_found"));
+        }
+        if existing.source.is_some() {
+            return Ok(Err("sync_owned"));
+        }
+        Ok(Ok(repo::update_phone(conn, id, user_uuid, &input)?))
+    });
+    finish_row(
+        result,
+        "update user phone failed",
+        "Failed to update phone number",
+    )
+}
+
+pub async fn delete_user_phone(
+    mut tc: TenantConn,
+    params: web::Path<(Uuid, i32)>,
+    auth: AuthContext,
+) -> impl Responder {
+    let (user_uuid, id) = params.into_inner();
+    if auth.user_uuid != user_uuid && !auth.is_workspace_admin() {
+        return errors::forbidden("You can only edit your own contact details");
+    }
+    let result = tc.run(|conn| {
+        let Some(existing) = repo::get_phone(conn, id)? else {
+            return Ok(Err("not_found"));
+        };
+        if existing.user_uuid != user_uuid {
+            return Ok(Err("not_found"));
+        }
+        if existing.source.is_some() {
+            return Ok(Err("sync_owned"));
+        }
+        repo::delete_phone(conn, id)?;
+        Ok(Ok(()))
+    });
+    finish_unit(
+        result,
+        "delete user phone failed",
+        "Failed to delete phone number",
+    )
+}
+
+// ---- Addresses -------------------------------------------------------------
+
+pub async fn list_user_addresses(
+    mut tc: TenantConn,
+    params: web::Path<Uuid>,
+    _auth: AuthContext,
+) -> impl Responder {
+    let user_uuid = params.into_inner();
+    match tc.run(|conn| repo::list_addresses(conn, user_uuid)) {
+        Ok(rows) => HttpResponse::Ok().json(rows),
+        Err(e) => {
+            error!(error = %e, "list user addresses failed");
+            errors::internal("Failed to load addresses")
+        }
+    }
+}
+
+pub async fn add_user_address(
+    mut tc: TenantConn,
+    params: web::Path<Uuid>,
+    body: web::Json<UserAddressInput>,
+    auth: AuthContext,
+) -> impl Responder {
+    let user_uuid = params.into_inner();
+    if auth.user_uuid != user_uuid && !auth.is_workspace_admin() {
+        return errors::forbidden("You can only edit your own contact details");
+    }
+    let input = body.into_inner();
+    match tc.run(|conn| repo::create_address(conn, user_uuid, &input, None, Some(auth.user_uuid))) {
+        Ok(row) => HttpResponse::Ok().json(row),
+        Err(e) => {
+            error!(error = %e, "add user address failed");
+            errors::internal("Failed to add address")
+        }
+    }
+}
+
+pub async fn update_user_address(
+    mut tc: TenantConn,
+    params: web::Path<(Uuid, i32)>,
+    body: web::Json<UserAddressInput>,
+    auth: AuthContext,
+) -> impl Responder {
+    let (user_uuid, id) = params.into_inner();
+    if auth.user_uuid != user_uuid && !auth.is_workspace_admin() {
+        return errors::forbidden("You can only edit your own contact details");
+    }
+    let input = body.into_inner();
+    let result = tc.run(|conn| {
+        let Some(existing) = repo::get_address(conn, id)? else {
+            return Ok(Err("not_found"));
+        };
+        if existing.user_uuid != user_uuid {
+            return Ok(Err("not_found"));
+        }
+        if existing.source.is_some() {
+            return Ok(Err("sync_owned"));
+        }
+        Ok(Ok(repo::update_address(conn, id, user_uuid, &input)?))
+    });
+    finish_row(
+        result,
+        "update user address failed",
+        "Failed to update address",
+    )
+}
+
+pub async fn delete_user_address(
+    mut tc: TenantConn,
+    params: web::Path<(Uuid, i32)>,
+    auth: AuthContext,
+) -> impl Responder {
+    let (user_uuid, id) = params.into_inner();
+    if auth.user_uuid != user_uuid && !auth.is_workspace_admin() {
+        return errors::forbidden("You can only edit your own contact details");
+    }
+    let result = tc.run(|conn| {
+        let Some(existing) = repo::get_address(conn, id)? else {
+            return Ok(Err("not_found"));
+        };
+        if existing.user_uuid != user_uuid {
+            return Ok(Err("not_found"));
+        }
+        if existing.source.is_some() {
+            return Ok(Err("sync_owned"));
+        }
+        repo::delete_address(conn, id)?;
+        Ok(Ok(()))
+    });
+    finish_unit(
+        result,
+        "delete user address failed",
+        "Failed to delete address",
+    )
+}
+
+// ---- Shared result mapping for the load-guard-mutate pattern ----------------
+
+fn finish_row<T: serde::Serialize>(
+    result: diesel::QueryResult<Result<T, &'static str>>,
+    log_msg: &str,
+    err_msg: &str,
+) -> HttpResponse {
+    match result {
+        Ok(Ok(row)) => HttpResponse::Ok().json(row),
+        Ok(Err("not_found")) => errors::not_found("Contact entry"),
+        Ok(Err("sync_owned")) => {
+            errors::forbidden("Directory-synced contact details are read-only")
+        }
+        Ok(Err(_)) => errors::internal(err_msg),
+        Err(e) => {
+            error!(error = %e, "{log_msg}");
+            errors::internal(err_msg)
+        }
+    }
+}
+
+fn finish_unit(
+    result: diesel::QueryResult<Result<(), &'static str>>,
+    log_msg: &str,
+    err_msg: &str,
+) -> HttpResponse {
+    match result {
+        Ok(Ok(())) => HttpResponse::NoContent().finish(),
+        Ok(Err("not_found")) => errors::not_found("Contact entry"),
+        Ok(Err("sync_owned")) => {
+            errors::forbidden("Directory-synced contact details are read-only")
+        }
+        Ok(Err(_)) => errors::internal(err_msg),
+        Err(e) => {
+            error!(error = %e, "{log_msg}");
+            errors::internal(err_msg)
         }
     }
 }

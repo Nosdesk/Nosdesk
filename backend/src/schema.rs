@@ -1704,6 +1704,34 @@ diesel::table! {
 }
 
 diesel::table! {
+    user_addresses (id) {
+        id -> Int4,
+        user_uuid -> Uuid,
+        workspace_id -> Int4,
+        #[max_length = 16]
+        address_type -> Varchar,
+        is_primary -> Bool,
+        #[max_length = 255]
+        street -> Nullable<Varchar>,
+        #[max_length = 128]
+        city -> Nullable<Varchar>,
+        #[max_length = 128]
+        region -> Nullable<Varchar>,
+        #[max_length = 32]
+        postal_code -> Nullable<Varchar>,
+        #[max_length = 128]
+        country -> Nullable<Varchar>,
+        #[max_length = 32]
+        source -> Nullable<Varchar>,
+        #[max_length = 100]
+        label -> Nullable<Varchar>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
     user_auth_identities (id) {
         id -> Int4,
         user_uuid -> Uuid,
@@ -1757,6 +1785,26 @@ diesel::table! {
         created_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
         workspace_id -> Int4,
+    }
+}
+
+diesel::table! {
+    user_phone_numbers (id) {
+        id -> Int4,
+        user_uuid -> Uuid,
+        workspace_id -> Int4,
+        #[max_length = 64]
+        phone -> Varchar,
+        #[max_length = 16]
+        phone_type -> Varchar,
+        is_primary -> Bool,
+        #[max_length = 32]
+        source -> Nullable<Varchar>,
+        #[max_length = 100]
+        label -> Nullable<Varchar>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        created_by -> Nullable<Uuid>,
     }
 }
 
@@ -2221,10 +2269,12 @@ diesel::joinable!(tickets -> channels (origin_channel_id));
 diesel::joinable!(tickets -> ticket_categories (category_id));
 diesel::joinable!(tickets -> workflow_states (workflow_state_id));
 diesel::joinable!(tickets -> workspaces (workspace_id));
+diesel::joinable!(user_addresses -> workspaces (workspace_id));
 diesel::joinable!(user_groups -> groups (group_id));
 diesel::joinable!(user_groups -> workspaces (workspace_id));
 diesel::joinable!(user_field_schema -> users (created_by));
 diesel::joinable!(user_field_schema -> workspaces (workspace_id));
+diesel::joinable!(user_phone_numbers -> workspaces (workspace_id));
 diesel::joinable!(user_preferences -> users (user_uuid));
 diesel::joinable!(user_profiles -> workspaces (workspace_id));
 diesel::joinable!(user_recovery_codes -> users (user_uuid));
@@ -2340,10 +2390,12 @@ diesel::allow_tables_to_appear_in_same_query!(
     ticket_tags,
     ticket_watchers,
     tickets,
+    user_addresses,
     user_auth_identities,
     user_emails,
     user_field_schema,
     user_groups,
+    user_phone_numbers,
     user_preferences,
     user_profiles,
     user_recovery_codes,

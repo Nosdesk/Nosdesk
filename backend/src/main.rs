@@ -2388,6 +2388,15 @@ async fn main() -> std::io::Result<()> {
                     // User contact profile (standard cols + custom-field values).
                     .route("/users/{uuid}/profile-fields", web::get().to(handlers::user_contact::get_user_profile_fields))
                     .route("/users/{uuid}/profile-fields", web::put().to(handlers::user_contact::set_user_profile_fields))
+                    // Multi-valued contact: phones + addresses (self or admin; synced rows read-only).
+                    .route("/users/{uuid}/phones", web::get().to(handlers::user_contact::list_user_phones))
+                    .route("/users/{uuid}/phones", web::post().to(handlers::user_contact::add_user_phone))
+                    .route("/users/{uuid}/phones/{id}", web::put().to(handlers::user_contact::update_user_phone))
+                    .route("/users/{uuid}/phones/{id}", web::delete().to(handlers::user_contact::delete_user_phone))
+                    .route("/users/{uuid}/addresses", web::get().to(handlers::user_contact::list_user_addresses))
+                    .route("/users/{uuid}/addresses", web::post().to(handlers::user_contact::add_user_address))
+                    .route("/users/{uuid}/addresses/{id}", web::put().to(handlers::user_contact::update_user_address))
+                    .route("/users/{uuid}/addresses/{id}", web::delete().to(handlers::user_contact::delete_user_address))
                     // Workspace user custom-field schema (read staff, write admin).
                     .route("/admin/user-fields", web::get().to(handlers::user_contact::get_user_field_schema))
                     .route("/admin/user-fields", web::put().to(handlers::user_contact::set_user_field_schema))

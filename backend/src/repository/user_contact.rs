@@ -14,8 +14,11 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::db::DbConnection;
-use crate::models::{NewUserProfile, UserProfile, UserProfileInput};
-use crate::schema::{user_field_schema, user_profiles};
+use crate::models::{
+    NewUserAddress, NewUserPhoneNumber, NewUserProfile, UserAddress, UserAddressInput,
+    UserPhoneInput, UserPhoneNumber, UserProfile, UserProfileInput,
+};
+use crate::schema::{user_addresses, user_field_schema, user_phone_numbers, user_profiles};
 
 /// The built-in user custom-field schema applied when a workspace hasn't
 /// customised one. vCard-aligned keys (office_location→ORG unit, gender→GENDER,
@@ -100,4 +103,167 @@ pub fn upsert_profile(
             user_profiles::custom_fields.eq(input.custom_fields.clone()),
         ))
         .get_result(conn)
+}
+
+// ---- Phones (multi-valued, typed, workspace-scoped) ------------------------
+
+pub fn list_phones(conn: &mut DbConnection, user_uuid: Uuid) -> QueryResult<Vec<UserPhoneNumber>> {
+    user_phone_numbers::table
+        .filter(user_phone_numbers::user_uuid.eq(user_uuid))
+        .order((
+            user_phone_numbers::is_primary.desc(),
+            user_phone_numbers::id.asc(),
+        ))
+        .load(conn)
+}
+
+pub fn get_phone(conn: &mut DbConnection, id: i32) -> QueryResult<Option<UserPhoneNumber>> {
+    user_phone_numbers::table.find(id).first(conn).optional()
+}
+
+fn clear_primary_phones(conn: &mut DbConnection, user_uuid: Uuid) -> QueryResult<usize> {
+    diesel::update(
+        user_phone_numbers::table
+            .filter(user_phone_numbers::user_uuid.eq(user_uuid))
+            .filter(user_phone_numbers::is_primary.eq(true)),
+    )
+    .set(user_phone_numbers::is_primary.eq(false))
+    .execute(conn)
+}
+
+// sync-audit-only: user phone is per-(user,workspace) contact data (audited); folds into the user sync payload in a later phase
+pub fn create_phone(
+    conn: &mut DbConnection,
+    user_uuid: Uuid,
+    input: &UserPhoneInput,
+    source: Option<String>,
+    actor: Option<Uuid>,
+) -> QueryResult<UserPhoneNumber> {
+    conn.transaction(|conn| {
+        if input.is_primary {
+            clear_primary_phones(conn, user_uuid)?;
+        }
+        diesel::insert_into(user_phone_numbers::table)
+            .values(NewUserPhoneNumber {
+                user_uuid,
+                phone: input.phone.clone(),
+                phone_type: input.phone_type.clone(),
+                is_primary: input.is_primary,
+                source,
+                label: input.label.clone(),
+                created_by: actor,
+            })
+            .get_result(conn)
+    })
+}
+
+// sync-audit-only: user phone is per-(user,workspace) contact data (audited); folds into the user sync payload in a later phase
+pub fn update_phone(
+    conn: &mut DbConnection,
+    id: i32,
+    user_uuid: Uuid,
+    input: &UserPhoneInput,
+) -> QueryResult<UserPhoneNumber> {
+    conn.transaction(|conn| {
+        if input.is_primary {
+            clear_primary_phones(conn, user_uuid)?;
+        }
+        diesel::update(user_phone_numbers::table.find(id))
+            .set((
+                user_phone_numbers::phone.eq(input.phone.clone()),
+                user_phone_numbers::phone_type.eq(input.phone_type.clone()),
+                user_phone_numbers::is_primary.eq(input.is_primary),
+                user_phone_numbers::label.eq(input.label.clone()),
+            ))
+            .get_result(conn)
+    })
+}
+
+// sync-audit-only: user phone is per-(user,workspace) contact data (audited); folds into the user sync payload in a later phase
+pub fn delete_phone(conn: &mut DbConnection, id: i32) -> QueryResult<usize> {
+    diesel::delete(user_phone_numbers::table.find(id)).execute(conn)
+}
+
+// ---- Addresses (multi-valued, typed, workspace-scoped) ---------------------
+
+pub fn list_addresses(conn: &mut DbConnection, user_uuid: Uuid) -> QueryResult<Vec<UserAddress>> {
+    user_addresses::table
+        .filter(user_addresses::user_uuid.eq(user_uuid))
+        .order((user_addresses::is_primary.desc(), user_addresses::id.asc()))
+        .load(conn)
+}
+
+pub fn get_address(conn: &mut DbConnection, id: i32) -> QueryResult<Option<UserAddress>> {
+    user_addresses::table.find(id).first(conn).optional()
+}
+
+fn clear_primary_addresses(conn: &mut DbConnection, user_uuid: Uuid) -> QueryResult<usize> {
+    diesel::update(
+        user_addresses::table
+            .filter(user_addresses::user_uuid.eq(user_uuid))
+            .filter(user_addresses::is_primary.eq(true)),
+    )
+    .set(user_addresses::is_primary.eq(false))
+    .execute(conn)
+}
+
+// sync-audit-only: user address is per-(user,workspace) contact data (audited); folds into the user sync payload in a later phase
+pub fn create_address(
+    conn: &mut DbConnection,
+    user_uuid: Uuid,
+    input: &UserAddressInput,
+    source: Option<String>,
+    actor: Option<Uuid>,
+) -> QueryResult<UserAddress> {
+    conn.transaction(|conn| {
+        if input.is_primary {
+            clear_primary_addresses(conn, user_uuid)?;
+        }
+        diesel::insert_into(user_addresses::table)
+            .values(NewUserAddress {
+                user_uuid,
+                address_type: input.address_type.clone(),
+                is_primary: input.is_primary,
+                street: input.street.clone(),
+                city: input.city.clone(),
+                region: input.region.clone(),
+                postal_code: input.postal_code.clone(),
+                country: input.country.clone(),
+                source,
+                label: input.label.clone(),
+                created_by: actor,
+            })
+            .get_result(conn)
+    })
+}
+
+// sync-audit-only: user address is per-(user,workspace) contact data (audited); folds into the user sync payload in a later phase
+pub fn update_address(
+    conn: &mut DbConnection,
+    id: i32,
+    user_uuid: Uuid,
+    input: &UserAddressInput,
+) -> QueryResult<UserAddress> {
+    conn.transaction(|conn| {
+        if input.is_primary {
+            clear_primary_addresses(conn, user_uuid)?;
+        }
+        diesel::update(user_addresses::table.find(id))
+            .set((
+                user_addresses::address_type.eq(input.address_type.clone()),
+                user_addresses::is_primary.eq(input.is_primary),
+                user_addresses::street.eq(input.street.clone()),
+                user_addresses::city.eq(input.city.clone()),
+                user_addresses::region.eq(input.region.clone()),
+                user_addresses::postal_code.eq(input.postal_code.clone()),
+                user_addresses::country.eq(input.country.clone()),
+                user_addresses::label.eq(input.label.clone()),
+            ))
+            .get_result(conn)
+    })
+}
+
+// sync-audit-only: user address is per-(user,workspace) contact data (audited); folds into the user sync payload in a later phase
+pub fn delete_address(conn: &mut DbConnection, id: i32) -> QueryResult<usize> {
+    diesel::delete(user_addresses::table.find(id)).execute(conn)
 }
