@@ -376,3 +376,196 @@ pub fn apply_directory_contact(
         Ok(())
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{DirectoryAddress, UserPhoneInput};
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
+
+    #[test]
+    fn field_schema_defaults_then_overrides() {
+        let mut conn = setup_test_connection();
+        // Default applies until an admin stores an override.
+        let def = get_field_schema(&mut conn).unwrap();
+        assert_eq!(def["properties"]["office_location"]["synced"], json!(true));
+
+        let custom = json!({
+            "type": "object",
+            "properties": { "year_level": { "type": "string", "title": "Year level" } }
+        });
+        let stored = set_field_schema(&mut conn, 1, &custom, None).unwrap();
+        assert_eq!(stored["properties"]["year_level"]["title"], "Year level");
+        assert_eq!(get_field_schema(&mut conn).unwrap(), custom);
+    }
+
+    #[test]
+    fn profile_upsert_roundtrip() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "Profile User", "user");
+        assert!(get_profile(&mut conn, user.uuid).unwrap().is_none());
+
+        let saved = upsert_profile(
+            &mut conn,
+            user.uuid,
+            &UserProfileInput {
+                job_title: Some("Tech".into()),
+                organization: Some("Acme".into()),
+                department: Some("IT".into()),
+                custom_fields: json!({ "gender": "x" }),
+            },
+            Some(user.uuid),
+        )
+        .unwrap();
+        assert_eq!(saved.job_title.as_deref(), Some("Tech"));
+        assert!(!saved.directory_synced);
+
+        let updated = upsert_profile(
+            &mut conn,
+            user.uuid,
+            &UserProfileInput {
+                job_title: Some("Lead".into()),
+                organization: None,
+                department: Some("IT".into()),
+                custom_fields: json!({ "gender": "y" }),
+            },
+            Some(user.uuid),
+        )
+        .unwrap();
+        assert_eq!(updated.job_title.as_deref(), Some("Lead"));
+        assert_eq!(updated.organization, None);
+        assert_eq!(updated.custom_fields["gender"], "y");
+    }
+
+    fn phone(value: &str, ty: &str, primary: bool) -> UserPhoneInput {
+        UserPhoneInput {
+            phone: value.into(),
+            phone_type: ty.into(),
+            is_primary: primary,
+            label: None,
+        }
+    }
+
+    #[test]
+    fn phone_create_enforces_single_primary() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "Phone User", "user");
+
+        create_phone(
+            &mut conn,
+            user.uuid,
+            &phone("111", "work", true),
+            None,
+            None,
+        )
+        .unwrap();
+        create_phone(
+            &mut conn,
+            user.uuid,
+            &phone("222", "mobile", true),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let phones = list_phones(&mut conn, user.uuid).unwrap();
+        assert_eq!(phones.len(), 2);
+        assert_eq!(
+            phones.iter().filter(|p| p.is_primary).count(),
+            1,
+            "the partial-unique index + clear_primary keep exactly one primary"
+        );
+        assert_eq!(phones.iter().find(|p| p.is_primary).unwrap().phone, "222");
+    }
+
+    #[test]
+    fn directory_contact_replaces_synced_keeps_manual() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "Sync User", "user");
+
+        // A manually-added phone the sync must never touch.
+        create_phone(
+            &mut conn,
+            user.uuid,
+            &phone("manual", "mobile", false),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let contact = DirectoryContact {
+            job_title: Some("Engineer".into()),
+            organization: Some("Acme".into()),
+            department: Some("R&D".into()),
+            office_location: Some("B12".into()),
+            phones: vec![("555".into(), "work".into())],
+            address: Some(DirectoryAddress {
+                street: Some("1 St".into()),
+                city: Some("Town".into()),
+                region: None,
+                postal_code: None,
+                country: None,
+            }),
+        };
+        apply_directory_contact(&mut conn, user.uuid, &contact, None).unwrap();
+
+        let prof = get_profile(&mut conn, user.uuid).unwrap().unwrap();
+        assert!(prof.directory_synced);
+        assert_eq!(prof.job_title.as_deref(), Some("Engineer"));
+        assert_eq!(prof.custom_fields["office_location"], "B12");
+
+        let phones = list_phones(&mut conn, user.uuid).unwrap();
+        assert_eq!(phones.len(), 2);
+        assert!(phones
+            .iter()
+            .any(|p| p.phone == "manual" && p.source.is_none()));
+        assert!(phones
+            .iter()
+            .any(|p| p.phone == "555" && p.source.as_deref() == Some("microsoft")));
+        assert_eq!(list_addresses(&mut conn, user.uuid).unwrap().len(), 1);
+
+        // Re-sync: the microsoft phone is replaced, the manual one stays, and a
+        // now-absent office_location is cleared.
+        let contact2 = DirectoryContact {
+            phones: vec![("777".into(), "work".into())],
+            ..Default::default()
+        };
+        apply_directory_contact(&mut conn, user.uuid, &contact2, None).unwrap();
+
+        let phones2 = list_phones(&mut conn, user.uuid).unwrap();
+        assert_eq!(phones2.len(), 2);
+        assert!(phones2.iter().any(|p| p.phone == "manual"));
+        assert!(phones2.iter().any(|p| p.phone == "777"));
+        assert!(!phones2.iter().any(|p| p.phone == "555"));
+
+        let prof2 = get_profile(&mut conn, user.uuid).unwrap().unwrap();
+        assert!(prof2
+            .custom_fields
+            .get("office_location")
+            .map(|v| v.is_null())
+            .unwrap_or(true));
+    }
+
+    #[test]
+    fn list_profile_custom_fields_returns_stored() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "CF User", "user");
+        upsert_profile(
+            &mut conn,
+            user.uuid,
+            &UserProfileInput {
+                job_title: None,
+                organization: None,
+                department: None,
+                custom_fields: json!({ "gender": "z" }),
+            },
+            None,
+        )
+        .unwrap();
+
+        let rows = list_profile_custom_fields(&mut conn).unwrap();
+        assert!(rows
+            .iter()
+            .any(|(u, cf)| *u == user.uuid && cf["gender"] == "z"));
+    }
+}
