@@ -319,6 +319,98 @@ pub(crate) fn hosted_local_auth_disabled() -> bool {
 }
 
 // Authentication handlers
+/// Try LDAP authentication for the request's workspace when local password auth
+/// missed. Returns the resolved user on a successful directory bind, or `None`
+/// to fall through to the standard failed-login handling (the caller's lockout
+/// already bounds how many binds reach the directory, since this runs after the
+/// lockout gate). Self-hosted only by construction: the hosted login endpoint is
+/// disabled above, and cloud directory sync is SCIM, not LDAP login.
+async fn try_ldap_login(
+    conn: &mut DbConnection,
+    request: &HttpRequest,
+    login_data: &LoginRequest,
+) -> Option<crate::models::User> {
+    let workspace_id = helpers::request_workspace_id(request)?;
+    let settings = match repository::workspace_ldap_settings::get_for_workspace(conn, workspace_id)
+    {
+        Ok(Some(s)) if s.enabled => s,
+        Ok(_) => return None, // not configured or disabled
+        Err(e) => {
+            error!(error = %e, "load ldap settings during login failed");
+            return None;
+        }
+    };
+    let bind_password = repository::workspace_ldap_settings::decrypt_bind_password(&settings)
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+
+    use crate::services::ldap::auth::{authenticate, LdapAuthError};
+    match authenticate(
+        &settings,
+        &bind_password,
+        &login_data.email,
+        &login_data.password,
+    )
+    .await
+    {
+        Ok(result) => {
+            let input = crate::services::oauth_provisioning::ProjectedUserInput {
+                iss: "ldap".to_string(),
+                sub: result.external_id,
+                identity_workspace_id: Some(workspace_id),
+                email: result
+                    .email
+                    .clone()
+                    .unwrap_or_else(|| login_data.email.clone()),
+                // The directory is authoritative for the address, so the
+                // email-fallback link to a pre-existing local/SSO account is
+                // authorised (the "operator created the user, LDAP now signs in"
+                // migration case).
+                email_verified: true,
+                name: result.display_name.clone(),
+                // Group->role mapping lands in P4; until then a new LDAP user
+                // gets the baseline member role.
+                role: "member".to_string(),
+                workspace_id,
+                password_hash: None,
+                metadata: None,
+            };
+            match crate::services::oauth_provisioning::find_or_create_projected_user(conn, input) {
+                Ok(outcome) => Some(outcome.into_user()),
+                Err(e) => {
+                    error!(error = %e, workspace_id, "ldap user provisioning failed");
+                    None
+                }
+            }
+        }
+        // Authentication misses fall through silently to the standard failure
+        // path (which records the attempt + counts toward the lockout).
+        Err(LdapAuthError::EmptyPassword)
+        | Err(LdapAuthError::InvalidCredentials)
+        | Err(LdapAuthError::UserNotFound)
+        | Err(LdapAuthError::AmbiguousUser(_)) => None,
+        // A config / connectivity / service-bind problem is logged + recorded as
+        // a security event so a broken LDAP setup is visible, then treated as a
+        // miss rather than a hard login error.
+        Err(e) => {
+            error!(error = %e, workspace_id, "ldap login error");
+            let _ = crate::utils::security_events::record_security_event(
+                conn,
+                crate::utils::security_events::SecurityEventInput {
+                    user_uuid: None,
+                    event_type: "ldap_login_error",
+                    severity: "warning",
+                    details: Some(json!({ "error": e.to_string() })),
+                    request: Some(request),
+                    session_id: None,
+                },
+            );
+            None
+        }
+    }
+}
+
 pub async fn login(
     db_pool: web::Data<crate::db::Pool>,
     login_data: web::Json<LoginRequest>,
@@ -380,11 +472,21 @@ pub async fn login(
     // AUD-007: lookup + bcrypt verify happen as one equal-work
     // call. Missing users, SSO-only users, and wrong passwords
     // are indistinguishable in wall-clock time.
-    let user = match crate::utils::login_timing::verify_credentials(
+    //
+    // Local password first; if it misses and LDAP is enabled for this workspace,
+    // try the directory before declaring failure. LDAP runs only on a local
+    // miss, so it's a fallback (a user with a working local password never hits
+    // the directory), and it's past the lockout gate so the rate limit bounds
+    // how many binds reach the DC.
+    let resolved_user = match crate::utils::login_timing::verify_credentials(
         &mut conn,
         &login_data.email,
         &login_data.password,
     ) {
+        Some(u) => Some(u),
+        None => try_ldap_login(&mut conn, &request, &login_data).await,
+    };
+    let user = match resolved_user {
         Some(u) => u,
         None => {
             // W2: persist the failed attempt. user_uuid is None — the
