@@ -15,6 +15,8 @@ use crate::extractors::{AuthContext, TenantConn};
 use crate::handlers::errors;
 use crate::models::UpsertWorkspaceLdapSettings;
 use crate::repository::workspace_ldap_settings as repo;
+use crate::services::ldap::auth::{self as ldap_auth, LdapAuthError};
+use crate::services::ldap::connector::LdapConnectError;
 
 /// PUT body: the editable settings plus the out-of-band bind-password controls.
 #[derive(Debug, Deserialize)]
@@ -114,6 +116,46 @@ pub async fn set_ldap_settings(
         Err(e) => {
             error!(error = %e, "set ldap settings failed");
             errors::internal("Failed to save LDAP settings")
+        }
+    }
+}
+
+/// POST /ldap/test-connection — connect + service-bind only, reporting the
+/// outcome so an admin can validate the config (admin).
+pub async fn test_ldap_connection(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
+    if !auth.is_workspace_admin() {
+        return errors::forbidden("Only admins can test the LDAP connection");
+    }
+    let row = match tc.run(|conn| repo::get(conn)) {
+        Ok(Some(r)) => r,
+        Ok(None) => return errors::unprocessable_entity("Configure LDAP settings before testing"),
+        Err(e) => {
+            error!(error = %e, "load ldap settings for test failed");
+            return errors::internal("Failed to load LDAP settings");
+        }
+    };
+    let bind_password = match repo::decrypt_bind_password(&row) {
+        Ok(pw) => pw.unwrap_or_default(),
+        Err(e) => {
+            error!(error = %e, "decrypt ldap bind password failed");
+            return errors::internal("Failed to read the stored bind password");
+        }
+    };
+
+    match ldap_auth::test_connection(&row, &bind_password).await {
+        Ok(()) => HttpResponse::Ok().json(json!({ "ok": true })),
+        Err(e) => {
+            // The egress rejection is the common self-host footgun (the DC sits on
+            // RFC1918, which the policy rejects unless allowlisted), so spell out
+            // the fix rather than leaving a bare "rejected" message.
+            let mut message = e.to_string();
+            if matches!(e, LdapAuthError::Connect(LdapConnectError::Egress(_))) {
+                message.push_str(
+                    ". If this is an on-prem directory, add the host to \
+                     NOSDESK_OUTBOUND_ALLOWED_HOSTS.",
+                );
+            }
+            HttpResponse::Ok().json(json!({ "ok": false, "error": message }))
         }
     }
 }
