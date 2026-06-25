@@ -179,6 +179,116 @@
           </div>
         </SectionCard>
 
+        <!-- Groups & roles -->
+        <SectionCard content-padding="p-4 sm:p-5">
+          <template #title>{{ $t('admin-ldap-section-groups') }}</template>
+          <div class="flex flex-col gap-5">
+            <FormInput
+              v-model="groupBaseDn"
+              :label="$t('admin-ldap-groupbase-label')"
+              :placeholder="$t('admin-ldap-groupbase-placeholder')"
+              :description="$t('admin-ldap-groupbase-desc')"
+            />
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <FormInput
+                v-model="groupObjectClass"
+                :label="$t('admin-ldap-group-objectclass-label')"
+                placeholder="group"
+              />
+              <FormInput
+                v-model="groupMemberAttr"
+                :label="$t('admin-ldap-group-member-label')"
+                placeholder="member"
+              />
+              <FormInput
+                v-model="groupNameAttr"
+                :label="$t('admin-ldap-group-name-label')"
+                placeholder="cn"
+              />
+            </div>
+
+            <!-- Group -> role mapping (safe-by-design) -->
+            <div class="flex flex-col gap-3 border-t border-default pt-4">
+              <div class="flex flex-col gap-1">
+                <span class="font-medium text-primary">{{ $t('admin-ldap-roles-heading') }}</span>
+                <p class="text-xs text-tertiary">{{ $t('admin-ldap-roles-help') }}</p>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  :loading="discovering"
+                  :disabled="!groupSyncConfigured || isDirty || discovering"
+                  @click="discoverGroups"
+                >
+                  {{ discovering ? $t('admin-ldap-discovering') : $t('admin-ldap-discover') }}
+                </Button>
+                <span v-if="discoveredGroups.length" class="text-xs text-tertiary">
+                  {{ $t('admin-ldap-discover-found', { count: discoveredGroups.length }) }}
+                </span>
+                <span v-else-if="isDirty" class="text-xs text-tertiary">
+                  {{ $t('admin-ldap-discover-save-first') }}
+                </span>
+                <span v-if="discoverError" class="text-xs text-status-error" :title="discoverError">
+                  {{ discoverError }}
+                </span>
+              </div>
+
+              <div v-if="roleMappings.length" class="flex flex-col gap-2">
+                <div
+                  v-for="(rule, idx) in roleMappings"
+                  :key="idx"
+                  class="flex flex-wrap sm:flex-nowrap items-end gap-2"
+                >
+                  <div class="flex-1 min-w-[12rem]">
+                    <SearchableDropdown
+                      :model-value="rule.group"
+                      :options="groupOptions"
+                      :label="idx === 0 ? $t('admin-ldap-role-group-label') : ''"
+                      :placeholder="$t('admin-ldap-role-group-placeholder')"
+                      :empty-message="$t('admin-ldap-discover-hint')"
+                      size="sm"
+                      @update:model-value="(v: string | string[]) => setRuleGroup(idx, v)"
+                    />
+                  </div>
+                  <span class="text-tertiary text-sm pb-2 hidden sm:inline">&rarr;</span>
+                  <div class="w-full sm:w-40">
+                    <BaseDropdown
+                      :model-value="rule.role"
+                      :options="roleOptions"
+                      :label="idx === 0 ? $t('admin-ldap-role-role-label') : ''"
+                      size="sm"
+                      @update:model-value="(v: string | string[]) => setRuleRole(idx, v)"
+                    />
+                  </div>
+                  <Button
+                    variant="ghost-danger"
+                    size="sm"
+                    icon="trash"
+                    :aria-label="$t('admin-ldap-role-remove')"
+                    @click="removeRule(idx)"
+                  />
+                </div>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-2">
+                <Button variant="secondary" size="sm" icon="add" @click="addRule">
+                  {{ $t('admin-ldap-role-add') }}
+                </Button>
+                <span class="text-xs text-tertiary">{{ $t('admin-ldap-role-default-note') }}</span>
+              </div>
+
+              <p
+                v-if="hasAdminRule"
+                class="text-xs text-status-warning bg-status-warning/10 rounded px-2.5 py-1.5"
+              >
+                {{ $t('admin-ldap-role-admin-warning') }}
+              </p>
+            </div>
+          </div>
+        </SectionCard>
+
         <!-- Sync & status -->
         <SectionCard content-padding="p-4 sm:p-5">
           <template #title>{{ $t('admin-ldap-section-status') }}</template>
@@ -324,6 +434,7 @@ import SectionCard from '@/components/common/SectionCard.vue';
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
 import SegmentedControl from '@/components/common/SegmentedControl.vue';
 import BaseDropdown from '@/components/common/BaseDropdown.vue';
+import SearchableDropdown from '@/components/common/SearchableDropdown.vue';
 import FormInput from '@/components/common/FormInput.vue';
 import FormNumber from '@/components/common/FormNumber.vue';
 import FormTextarea from '@/components/common/FormTextarea.vue';
@@ -337,6 +448,8 @@ import {
   type LdapPreset,
   type LdapSyncRun,
   type UpsertLdapSettings,
+  type DiscoveredGroup,
+  type RoleMapping,
 } from '@/services/ldapService';
 import { useToastStore } from '@/stores/toast';
 import { createErrorFromResponse } from '@/utils/errors';
@@ -546,7 +659,9 @@ const isDirty = computed(() => {
     f.user_base_dn !== s.user_base_dn ||
     f.username_attribute !== s.username_attribute ||
     f.user_filter !== s.user_filter ||
-    f.page_size !== s.page_size
+    f.page_size !== s.page_size ||
+    JSON.stringify(f.group_config) !== JSON.stringify(s.group_config ?? {}) ||
+    JSON.stringify(f.attribute_map) !== JSON.stringify(s.attribute_map ?? {})
   );
 });
 
@@ -575,6 +690,79 @@ watch(
     testErrorMessage.value = '';
   },
 );
+
+// --- Groups & roles (stored inside the group_config JSONB) ----------------
+function gcStr(key: string): string {
+  const v = form.value.group_config[key];
+  return typeof v === 'string' ? v : '';
+}
+function setGc(key: string, val: string) {
+  form.value.group_config = { ...form.value.group_config, [key]: val };
+}
+const groupBaseDn = computed({ get: () => gcStr('group_base_dn'), set: (v) => setGc('group_base_dn', v) });
+const groupObjectClass = computed({ get: () => gcStr('object_class'), set: (v) => setGc('object_class', v) });
+const groupMemberAttr = computed({ get: () => gcStr('member_attribute'), set: (v) => setGc('member_attribute', v) });
+const groupNameAttr = computed({ get: () => gcStr('name_attribute'), set: (v) => setGc('name_attribute', v) });
+const roleMappings = computed<RoleMapping[]>({
+  get: () => (Array.isArray(form.value.group_config.role_mappings)
+    ? (form.value.group_config.role_mappings as RoleMapping[])
+    : []),
+  set: (v) => {
+    form.value.group_config = { ...form.value.group_config, role_mappings: v };
+  },
+});
+const groupSyncConfigured = computed(() => groupBaseDn.value.trim().length > 0);
+const hasAdminRule = computed(() => roleMappings.value.some((r) => r.role === 'admin'));
+
+const roleOptions = computed(() => [
+  { value: 'member', label: t('admin-ldap-role-member') },
+  { value: 'agent', label: t('admin-ldap-role-agent') },
+  { value: 'admin', label: t('admin-ldap-role-admin') },
+]);
+
+// Discovered directory groups feed the rule picker so the admin selects real
+// groups rather than typing a CN blind. Saved rule names are merged in so they
+// always show even before a discovery run.
+const discoveredGroups = ref<DiscoveredGroup[]>([]);
+const discovering = ref(false);
+const discoverError = ref('');
+const groupOptions = computed(() => {
+  const names = new Set<string>(discoveredGroups.value.map((g) => g.name));
+  for (const r of roleMappings.value) if (r.group) names.add(r.group);
+  return Array.from(names)
+    .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()))
+    .map((n) => ({ value: n, label: n }));
+});
+
+async function discoverGroups() {
+  if (discovering.value) return;
+  discovering.value = true;
+  discoverError.value = '';
+  try {
+    const res = await ldapService.discoverGroups();
+    if (res.ok) discoveredGroups.value = res.groups;
+    else discoverError.value = res.error ?? t('admin-ldap-discover-failed');
+  } catch (e) {
+    discoverError.value = createErrorFromResponse(e).getUserMessage() || t('admin-ldap-discover-failed');
+  } finally {
+    discovering.value = false;
+  }
+}
+
+function addRule() {
+  roleMappings.value = [...roleMappings.value, { group: '', role: 'agent' }];
+}
+function removeRule(idx: number) {
+  roleMappings.value = roleMappings.value.filter((_, i) => i !== idx);
+}
+function setRuleGroup(idx: number, group: string | string[]) {
+  const g = Array.isArray(group) ? (group[0] ?? '') : group;
+  roleMappings.value = roleMappings.value.map((r, i) => (i === idx ? { ...r, group: g } : r));
+}
+function setRuleRole(idx: number, role: string | string[]) {
+  const ro = (Array.isArray(role) ? role[0] : role) as RoleMapping['role'];
+  roleMappings.value = roleMappings.value.map((r, i) => (i === idx ? { ...r, role: ro } : r));
+}
 
 async function save() {
   if (!canSave.value || saving.value) return;

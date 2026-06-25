@@ -194,6 +194,60 @@ pub async fn test_ldap_connection(mut tc: TenantConn, auth: AuthContext) -> impl
     }
 }
 
+/// GET /ldap/discover-groups — browse directory groups under the configured
+/// group base DN, for the role-mapping picker (admin). Uses the SAVED config so
+/// it reflects what a sync would actually see; read-only, no provisioning.
+pub async fn discover_ldap_groups(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
+    if !auth.is_workspace_admin() {
+        return errors::forbidden("Only admins can browse LDAP groups");
+    }
+    let row = match tc.run(|conn| repo::get(conn)) {
+        Ok(Some(r)) => r,
+        Ok(None) => {
+            return errors::unprocessable_entity("Configure LDAP settings before browsing groups")
+        }
+        Err(e) => {
+            error!(error = %e, "load ldap settings for discovery failed");
+            return errors::internal("Failed to load LDAP settings");
+        }
+    };
+    let has_base = row
+        .group_config
+        .get("group_base_dn")
+        .and_then(|v| v.as_str())
+        .map(|s| !s.is_empty())
+        .unwrap_or(false);
+    if !has_base {
+        return HttpResponse::Ok()
+            .json(json!({ "ok": false, "error": "Set a group base DN first.", "groups": [] }));
+    }
+    let bind_password = match repo::decrypt_bind_password(&row) {
+        Ok(pw) => pw.unwrap_or_default(),
+        Err(e) => {
+            error!(error = %e, "decrypt ldap bind password failed");
+            return errors::internal("Failed to read the stored bind password");
+        }
+    };
+    match crate::services::ldap::groups::discover_groups(&row, &bind_password, 500).await {
+        Ok(groups) => HttpResponse::Ok().json(json!({ "ok": true, "groups": groups })),
+        Err(e) => {
+            let mut message = e.to_string();
+            if matches!(
+                e,
+                crate::services::ldap::sync::SyncError::Auth(LdapAuthError::Connect(
+                    LdapConnectError::Egress(_)
+                ))
+            ) {
+                message.push_str(
+                    ". If this is an on-prem directory, add the host to \
+                     NOSDESK_OUTBOUND_ALLOWED_HOSTS.",
+                );
+            }
+            HttpResponse::Ok().json(json!({ "ok": false, "error": message, "groups": [] }))
+        }
+    }
+}
+
 /// POST /ldap/sync — run a full LDAP user sync for the request's workspace,
 /// recording it in sync_history, and return the run stats (admin).
 ///

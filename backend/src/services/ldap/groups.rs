@@ -54,6 +54,64 @@ pub fn is_configured(settings: &WorkspaceLdapSettings) -> bool {
         .unwrap_or(false)
 }
 
+/// A group found by discovery (for the admin's role-mapping picker).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DiscoveredGroup {
+    pub name: String,
+    pub dn: String,
+    pub external_id: Option<String>,
+}
+
+/// Read-only browse of directory groups under the configured group base DN, for
+/// the role-mapping editor (so the admin picks real groups instead of typing a
+/// CN blind). Capped at `limit`; no provisioning happens.
+pub async fn discover_groups(
+    settings: &WorkspaceLdapSettings,
+    bind_password: &str,
+    limit: usize,
+) -> Result<Vec<DiscoveredGroup>, SyncError> {
+    let base = cfg(settings, "group_base_dn", &settings.user_base_dn).to_string();
+    let object_class = cfg(settings, "object_class", "group");
+    let name_attr = cfg(settings, "name_attribute", "cn");
+    let ext_id_attr = attr_name(&settings.attribute_map, "external_id", "objectGUID");
+    let filter = format!("(objectClass={object_class})");
+
+    let mut svc = connect_and_bind(settings, bind_password).await?;
+    let page = settings.page_size.max(1) as i32;
+    let adapters: Vec<Box<dyn Adapter<_, _>>> = vec![
+        Box::new(EntriesOnly::new()),
+        Box::new(PagedResults::new(page)),
+    ];
+    let mut stream = svc
+        .with_timeout(connector::OP_TIMEOUT)
+        .streaming_search_with(
+            adapters,
+            &base,
+            Scope::Subtree,
+            &filter,
+            vec![name_attr, ext_id_attr.as_str()],
+        )
+        .await?;
+
+    let mut groups: Vec<DiscoveredGroup> = Vec::new();
+    while let Some(re) = stream.next().await? {
+        if groups.len() >= limit {
+            break;
+        }
+        let entry = SearchEntry::construct(re);
+        if let Some(name) = first_value(&entry, name_attr) {
+            groups.push(DiscoveredGroup {
+                name,
+                dn: entry.dn.clone(),
+                external_id: first_value(&entry, &ext_id_attr),
+            });
+        }
+    }
+    let _ = stream.finish().await;
+    groups.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    Ok(groups)
+}
+
 /// Sync groups + membership for `workspace_id`. `conn` MUST be pinned to it.
 pub async fn sync_groups(
     conn: &mut DbConnection,

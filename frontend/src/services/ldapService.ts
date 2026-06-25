@@ -124,6 +124,29 @@ export const ldapService = {
   async getSyncHistory(): Promise<LdapSyncHistory> {
     return (await apiClient.get<LdapSyncHistory>('/ldap/sync-history')).data;
   },
+
+  /** Browse directory groups under the saved group base DN (role-rule picker). */
+  async discoverGroups(): Promise<DiscoverGroupsResult> {
+    return (await apiClient.get<DiscoverGroupsResult>('/ldap/discover-groups')).data;
+  },
 };
+
+export interface DiscoveredGroup {
+  name: string;
+  dn: string;
+  external_id: string | null;
+}
+
+export interface DiscoverGroupsResult {
+  ok: boolean;
+  groups: DiscoveredGroup[];
+  error?: string;
+}
+
+/** A single group->role rule, stored in group_config.role_mappings. */
+export interface RoleMapping {
+  group: string;
+  role: 'member' | 'agent' | 'admin';
+}
 
 export default ldapService;
