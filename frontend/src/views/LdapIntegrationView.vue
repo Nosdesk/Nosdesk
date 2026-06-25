@@ -2,14 +2,14 @@
   <div class="flex-1">
     <div class="flex flex-col gap-4 px-4 sm:px-6 py-4 mx-auto w-full max-w-8xl">
       <!-- Header -->
-      <header class="flex flex-wrap items-start gap-3">
-        <div class="flex flex-col gap-1 min-w-0">
+      <header class="flex flex-wrap items-start gap-x-3 gap-y-2">
+        <div class="flex flex-col gap-1 min-w-0 flex-1">
           <h1 class="text-xl sm:text-2xl font-bold text-primary">
             {{ $t('admin-ldap-title') }}
           </h1>
           <p class="text-secondary text-sm">{{ $t('admin-ldap-subtitle') }}</p>
         </div>
-        <div class="ml-auto flex items-center gap-2">
+        <div class="flex items-center justify-end gap-2 w-full sm:w-auto shrink-0">
           <StatusPill
             v-if="hasLoadedData"
             :label="savedEnabled ? $t('admin-ldap-status-enabled') : $t('admin-ldap-status-disabled')"
