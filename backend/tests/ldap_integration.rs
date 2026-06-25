@@ -100,16 +100,17 @@ fn test_settings() -> WorkspaceLdapSettings {
         encrypted_bind_password: None,
         encrypted_kek_id: None,
         user_base_dn: env_or("LDAP_BASE_DN", "DC=acme,DC=test"),
-        username_attribute: "sAMAccountName".into(),
+        username_attribute: env_or("LDAP_USERNAME_ATTR", "sAMAccountName"),
         user_filter: env_or(
             "LDAP_USER_FILTER",
             "(&(objectCategory=person)(objectClass=user)(sAMAccountName={username}))",
         ),
         page_size: 500,
         attribute_map: json!({
-            "email": "mail",
-            "display_name": "displayName",
-            "external_id": "objectGUID"
+            "email": env_or("LDAP_EMAIL_ATTR", "mail"),
+            "display_name": env_or("LDAP_DISPLAY_NAME_ATTR", "displayName"),
+            // OpenLDAP keys identities on entryUUID, AD on objectGUID.
+            "external_id": env_or("LDAP_EXTERNAL_ID_ATTR", "objectGUID")
         }),
         group_config: json!({}),
         provisioning: json!({}),

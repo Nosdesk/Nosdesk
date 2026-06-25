@@ -20,9 +20,12 @@ services:
       LDAP_ORGANISATION: "Acme"
       LDAP_DOMAIN: "acme.test"
       LDAP_ADMIN_PASSWORD: "admin"
-    volumes:
-      # osixia applies custom bootstrap LDIF on first boot (empty DB only).
-      - ./scripts/ldap-test/seed.ldif:/container/service/slapd/assets/config/bootstrap/ldif/custom/seed.ldif:ro
+      # osixia defaults to demanding a CLIENT cert on TLS, which closes the
+      # handshake for a normal LDAPS client. Don't.
+      LDAP_TLS_VERIFY_CLIENT: "never"
+    # Seeded by `make ldap-test` via `ldapadd` once slapd is up, rather than
+    # osixia's bootstrap-LDIF mount (which chowns/sed-i/rm's the mount path and
+    # fails on a bind mount). Keeps the container config stock + reliable.
     networks:
       - nosdesk-network
     ports:

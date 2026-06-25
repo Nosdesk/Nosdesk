@@ -129,6 +129,9 @@ test-frontend: ## Run the frontend type-check (vue-tsc)
 # docs/ldap-testing.md for the walkthrough + the Samba/Windows AD options.
 ldap-test: ## Start the dev stack + a seeded test LDAP for /admin/ldap
 	$(LDAP_COMPOSE) up -d --build
+	@echo "Waiting for the test directory..."
+	@for i in $$(seq 1 30); do docker exec nosdesk-ldap-test ldapsearch -x -H ldap://localhost -b dc=acme,dc=test >/dev/null 2>&1 && break; sleep 2; done
+	@docker exec -i nosdesk-ldap-test ldapadd -x -c -D cn=admin,dc=acme,dc=test -w admin < scripts/ldap-test/seed.ldif >/dev/null 2>&1 || true
 	@echo ""
 	@echo "Test LDAP up. Open http://localhost:8080/admin/ldap, apply the OpenLDAP preset, then:"
 	@echo "  Host           ldap          Encryption  LDAPS (Verify TLS certificate OFF)"

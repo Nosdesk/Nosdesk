@@ -280,10 +280,10 @@ pub async fn sync_users(
             }
             Ok(stats)
         }
-        // The directory can't do DirSync (no Replicating-Directory-Changes right,
-        // or not AD): drop the unusable cursor and fall back to a full paged scan.
-        Err(SyncError::DirSyncNotHonored) => {
-            warn!("ldap DirSync not honored; falling back to a full paged scan");
+        // The directory can't do DirSync: drop the unusable cursor and fall back
+        // to a full paged scan, which works against any directory.
+        Err(e) if dirsync_unsupported(&e) => {
+            warn!(error = %e, "ldap DirSync not honored; falling back to a full paged scan");
             let _ = workspace_ldap_settings::set_cookie(conn, workspace_id, "dirsync", None);
             full_scan_pass(&mut svc, conn, settings, &attrs, &filter, workspace_id).await
         }
@@ -318,6 +318,23 @@ async fn read_default_naming_context(svc: &mut Ldap) -> Result<Option<String>, S
         .into_iter()
         .next()
         .and_then(|e| first_value(&SearchEntry::construct(e), "defaultNamingContext")))
+}
+
+/// True when an error means the directory doesn't support the (critical) DirSync
+/// control, so we should fall back to a full scan rather than fail the run:
+///   * our own DirSyncNotHonored signal (rc==0 but no response control),
+///   * `unavailableCriticalExtension` (rc 12) — the directory has no DirSync
+///     (every non-AD server, e.g. OpenLDAP, rejects the critical control this way),
+///   * `insufficientAccessRights` (rc 50) — an AD service account without the
+///     Replicating-Directory-Changes right.
+fn dirsync_unsupported(e: &SyncError) -> bool {
+    match e {
+        SyncError::DirSyncNotHonored => true,
+        SyncError::Ldap(ldap3::LdapError::LdapResult { result }) => {
+            result.rc == 12 || result.rc == 50
+        }
+        _ => false,
+    }
 }
 
 /// DirSync incremental: search at `base` (the NC root, required by the control),
