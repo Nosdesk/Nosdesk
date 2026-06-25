@@ -503,6 +503,23 @@ pub async fn run_recorded_sync(
                     ),
                     Err(e) => warn!(error = %e, "ldap group sync failed"),
                 }
+                // Group->role mapping runs after memberships are fresh. No-op
+                // unless role_mappings are configured.
+                match crate::services::ldap::role_mapping::apply_role_mappings(
+                    conn,
+                    settings,
+                    workspace_id,
+                ) {
+                    Ok(r) if r.changed > 0 || r.errors > 0 => {
+                        info!(
+                            changed = r.changed,
+                            errors = r.errors,
+                            "ldap role mapping applied"
+                        )
+                    }
+                    Ok(_) => {}
+                    Err(e) => warn!(error = %e, "ldap role mapping failed"),
+                }
             }
             Ok(RecordedSync {
                 history_id: history.id,

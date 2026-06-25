@@ -193,6 +193,17 @@ pub fn set_ldap_dn(
     .execute(conn)
 }
 
+/// All `user_uuid`s that have an `ldap` identity in the workspace. Used by the
+/// group->role mapper to scope role management to directory-sourced users (a
+/// locally-created account, with no ldap identity, is never touched).
+pub fn ldap_user_uuids(conn: &mut DbConnection, workspace_id: i32) -> Result<Vec<Uuid>, Error> {
+    user_auth_identities::table
+        .filter(user_auth_identities::workspace_id.eq(workspace_id))
+        .filter(user_auth_identities::provider_type.eq("ldap"))
+        .select(user_auth_identities::user_uuid)
+        .load(conn)
+}
+
 /// `(lowercased DN -> user_uuid)` for the workspace's `ldap` identities. DNs are
 /// case-insensitive, so keys are lowercased for matching against group member
 /// DNs. Used by the group sync to resolve membership.

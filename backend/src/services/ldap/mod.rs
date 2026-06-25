@@ -6,4 +6,5 @@ pub mod dirsync;
 pub mod escape;
 pub mod groups;
 pub mod reconcile;
+pub mod role_mapping;
 pub mod sync;
