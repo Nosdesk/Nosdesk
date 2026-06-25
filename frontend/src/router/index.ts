@@ -841,6 +841,12 @@ const router = createRouter({
           meta: { titleKey: 'route-title-admin-microsoft-graph' }
         },
         {
+          path: 'ldap',
+          name: 'admin-ldap',
+          component: () => import('../views/LdapIntegrationView.vue'),
+          meta: { titleKey: 'route-title-admin-ldap' }
+        },
+        {
           path: 'data-import/csv',
           name: 'admin-csv-import',
           component: () => import('../views/CsvImportView.vue'),

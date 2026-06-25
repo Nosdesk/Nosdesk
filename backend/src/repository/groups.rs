@@ -370,6 +370,26 @@ pub fn get_groups_for_user(conn: &mut DbConnection, user_uuid: &Uuid) -> QueryRe
         .load(conn)
 }
 
+/// A user's groups from a specific external source that are still sync-enabled.
+/// The group->role mapper uses this so a group deleted/renamed in the directory
+/// (left as `sync_enabled = false`, its stale membership rows intact) stops
+/// counting toward the user's role, and so internal / other-source groups with a
+/// colliding name can't match a directory rule.
+pub fn get_synced_groups_for_user(
+    conn: &mut DbConnection,
+    user_uuid: &Uuid,
+    external_source: &str,
+) -> QueryResult<Vec<Group>> {
+    user_groups::table
+        .filter(user_groups::user_uuid.eq(user_uuid))
+        .inner_join(groups::table)
+        .filter(groups::external_source.eq(external_source))
+        .filter(groups::sync_enabled.eq(true))
+        .select(groups::all_columns)
+        .order(groups::name.asc())
+        .load(conn)
+}
+
 /// Add a user to a group
 pub fn add_user_to_group(
     conn: &mut DbConnection,

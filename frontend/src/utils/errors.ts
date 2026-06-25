@@ -71,11 +71,32 @@ export class NetworkError extends AppError {
   }
 
   getUserMessage(): string {
-    return translate('error-network', undefined, 'Unable to connect to the server. Please check your internet connection.')
+    // Deliberately does NOT mention "internet": this fires whenever a request
+    // got no response, which on an internal deployment (admin tools talking to
+    // on-prem services) is usually the app server being down/unreachable, not
+    // the operator's connectivity.
+    return translate('error-network', undefined, "Couldn't reach the server. It may be offline or unreachable.")
   }
 
   getLogLevel(): LogLevel {
     return LogLevel.ERROR
+  }
+}
+
+/** A request that got no response because it ran past the client timeout. The
+ *  operation may still be completing on the server (e.g. a long directory sync),
+ *  so this is distinct from an unreachable server. */
+export class TimeoutError extends AppError {
+  constructor(message: string = 'Request timed out', context?: Record<string, any>) {
+    super(message, context)
+  }
+
+  getUserMessage(): string {
+    return translate('error-timeout', undefined, 'The request timed out. The server may still be processing it.')
+  }
+
+  getLogLevel(): LogLevel {
+    return LogLevel.WARN
   }
 }
 
@@ -119,6 +140,9 @@ interface AxiosLikeError {
     };
     config: { url?: string };
   };
+  /** Axios sets ECONNABORTED on a client timeout, ERR_NETWORK on an unreachable
+   *  server. We split these into TimeoutError vs NetworkError. */
+  code?: string;
   message?: string;
 }
 
@@ -145,9 +169,14 @@ export function extractErrorMessage(error: unknown, fallback: string): string {
 export function createErrorFromResponse(error: unknown): AppError {
   const axiosError = error as AxiosLikeError;
   if (!axiosError.response) {
-    return new NetworkError('Network request failed', {
-      originalError: axiosError.message
-    })
+    // No HTTP response. Split a client-side timeout (the op may still be running
+    // server-side) from a genuinely unreachable server, so they read differently.
+    const code = axiosError.code
+    const timedOut =
+      code === 'ECONNABORTED' || code === 'ETIMEDOUT' || /timeout/i.test(axiosError.message ?? '')
+    return timedOut
+      ? new TimeoutError('Request timed out', { originalError: axiosError.message })
+      : new NetworkError('Network request failed', { originalError: axiosError.message })
   }
 
   const { status, data, config } = axiosError.response

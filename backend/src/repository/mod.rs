@@ -74,6 +74,7 @@ pub mod site_settings;
 
 // Per-workspace outbound email identity
 pub mod workspace_email_settings;
+pub mod workspace_ldap_settings;
 
 // Backup and restore
 pub mod backup;

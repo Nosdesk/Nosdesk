@@ -201,6 +201,10 @@ tantivy = "0.26"           # Fast full-text search engine (Rust equivalent of Lu
 async-imap = { version = "0.11", default-features = false, features = ["runtime-tokio"] }  # Async IMAP client for pull-based email ingestion
 tokio-native-tls = "0.3"   # TLS transport for async-imap over 993 (tokio io traits)
 native-tls = "0.2"         # Underlying TLS connector type
+
+# LDAP / directory integration. native-tls features only (match the existing
+# TLS stack above; do NOT enable a rustls feature).
+ldap3 = { version = "0.11", default-features = false, features = ["tls-native"] }
 mailparse = "0.16"         # RFC 5322 parser — headers, attachments, References chain
 
 # Application metrics. No recorder is installed by default — `counter!`

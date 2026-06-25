@@ -1,6 +1,15 @@
-//! Shared user-provisioning core for OIDC / OAuth flows.
+//! Shared user-provisioning core, keyed on `(provider_type, external_id)`.
 //!
-//! Two callers exercise the same code path:
+//! Transport-neutral: the OIDC/OAuth login + control-plane paths provision
+//! GLOBAL login identities (`identity_workspace_id = None`, the (iss, sub)
+//! pair), and the directory-sync transports (LDAP/SCIM) provision
+//! WORKSPACE-SCOPED identities (`identity_workspace_id = Some(ws)`, an
+//! entryUUID/objectGUID/externalId). The scope drives both the identity lookup
+//! and the insert; everything downstream (user creation, the verified-email
+//! fallback link, workspace membership, role) is identical, so the transports
+//! share ONE provisioning + role path rather than forking it.
+//!
+//! The OIDC/OAuth callers exercise this code path two ways:
 //!
 //!  * **Lazy** — `handlers::auth_providers::find_or_create_oauth_user`,
 //!    invoked when an OIDC user logs in for the first time. The
@@ -50,11 +59,20 @@ use crate::utils::user::NewUserBuilder;
 /// one of these and hand it off; the function has no side
 /// dependencies on the request context.
 pub struct ProjectedUserInput {
-    /// OIDC `iss` claim. Mapped onto `user_auth_identities.provider_type`.
+    /// The identity provider key. Mapped onto
+    /// `user_auth_identities.provider_type`. For OIDC this is the `iss` claim;
+    /// for directory sync it is "ldap"/"scim".
     pub iss: String,
-    /// OIDC `sub` claim — the provider-stable user identifier.
-    /// Mapped onto `user_auth_identities.external_id`.
+    /// The provider-stable user identifier. Mapped onto
+    /// `user_auth_identities.external_id`. For OIDC this is the `sub` claim; for
+    /// directory sync it is the entryUUID/objectGUID/SCIM externalId.
     pub sub: String,
+    /// Identity scope. `None` = a GLOBAL login identity (OIDC/local/microsoft),
+    /// unique on (provider_type, external_id) instance-wide. `Some(ws)` = a
+    /// directory identity scoped to that workspace, so the same external_id can
+    /// belong to a different user in another workspace. Drives both the lookup
+    /// and the insert.
+    pub identity_workspace_id: Option<i32>,
     pub email: String,
     /// Whether the provider asserts this email is verified. Gates the
     /// email-fallback account link in [`resolve_user_by_identity_or_email`]:
@@ -130,16 +148,24 @@ impl ProjectionOutcome {
 /// `(iss, sub)` to an existing user on an UNVERIFIED email lets anyone who can
 /// make the IdP assert a victim's address take over that account. Step 1 is a
 /// cryptographic identity match and is never gated.
+#[allow(clippy::too_many_arguments)]
 pub fn resolve_user_by_identity_or_email(
     conn: &mut DbConnection,
     iss: &str,
     sub: &str,
+    identity_workspace_id: Option<i32>,
     email: &str,
     email_verified: bool,
     metadata: &Option<serde_json::Value>,
     password_hash: &Option<String>,
 ) -> Result<Option<User>, String> {
-    match user_auth_identities::find_user_by_identity(iss, sub, conn) {
+    // Global login identities look up across the instance; directory identities
+    // look up within their workspace.
+    let identity_lookup = match identity_workspace_id {
+        Some(ws) => user_auth_identities::find_user_by_scoped_identity(ws, iss, sub, conn),
+        None => user_auth_identities::find_user_by_identity(iss, sub, conn),
+    };
+    match identity_lookup {
         Ok(Some(user_uuid)) => {
             let user = users_repo::find_active_by_uuid(&user_uuid, conn)
                 .map_err(|e| format!("identity {iss}/{sub} resolved a user that's gone: {e:?}"))?;
@@ -165,6 +191,7 @@ pub fn resolve_user_by_identity_or_email(
                     email: Some(email.to_string()),
                     metadata: metadata.clone(),
                     password_hash: password_hash.clone(),
+                    workspace_id: identity_workspace_id,
                 };
                 // Step 1 found no identity under (iss, sub), so a
                 // UniqueViolation here means a SEPARATE identity row already
@@ -209,6 +236,7 @@ pub fn find_or_create_projected_user(
     let ProjectedUserInput {
         iss,
         sub,
+        identity_workspace_id,
         email,
         email_verified,
         name,
@@ -224,6 +252,7 @@ pub fn find_or_create_projected_user(
         conn,
         &iss,
         &sub,
+        identity_workspace_id,
         &email,
         email_verified,
         &metadata,
@@ -277,6 +306,7 @@ pub fn find_or_create_projected_user(
                 email: Some(email),
                 metadata,
                 password_hash,
+                workspace_id: identity_workspace_id,
             };
             if let Err(e) = user_auth_identities::create_identity(new_identity, conn) {
                 return Err(format!("created user but failed to attach identity: {e:?}"));
@@ -394,6 +424,7 @@ mod tests {
         let eager = ProjectedUserInput {
             iss: iss.to_string(),
             sub: sub.clone(),
+            identity_workspace_id: None,
             email: email.clone(),
             email_verified: true,
             name: Some("Owner One".to_string()),
@@ -409,6 +440,7 @@ mod tests {
         let lazy = ProjectedUserInput {
             iss: iss.to_string(),
             sub: sub.clone(),
+            identity_workspace_id: None,
             email: email.clone(),
             email_verified: true,
             name: Some("Owner One renamed by IdP".to_string()),
@@ -449,6 +481,7 @@ mod tests {
         let eager = ProjectedUserInput {
             iss: iss_canonical.to_string(),
             sub: sub.clone(),
+            identity_workspace_id: None,
             email: email.clone(),
             email_verified: true,
             name: Some("Owner Two".to_string()),
@@ -463,6 +496,7 @@ mod tests {
         let drifted = ProjectedUserInput {
             iss: iss_drifted.to_string(),
             sub: sub.clone(),
+            identity_workspace_id: None,
             email: email.clone(),
             email_verified: true,
             name: Some("Owner Two".to_string()),
@@ -513,6 +547,7 @@ mod tests {
         let owner = ProjectedUserInput {
             iss: iss.to_string(),
             sub: owner_sub,
+            identity_workspace_id: None,
             email: email.clone(),
             email_verified: true,
             name: Some("Victim".to_string()),
@@ -532,6 +567,7 @@ mod tests {
             &mut conn,
             iss,
             &attacker_sub,
+            None,
             &email,
             false,
             &None,
@@ -548,6 +584,7 @@ mod tests {
             &mut conn,
             iss,
             &attacker_sub,
+            None,
             &email,
             true,
             &None,
@@ -559,5 +596,76 @@ mod tests {
             verified.uuid, owner_uuid,
             "a verified email links the new identity to the email-matched user"
         );
+    }
+
+    /// A directory transport (`identity_workspace_id = Some(ws)`) provisions a
+    /// WORKSPACE-SCOPED identity through the same core: the identity row carries
+    /// the workspace, a global lookup can't see it, the scoped lookup resolves
+    /// it, and re-provisioning the same (provider, external_id) in the workspace
+    /// returns the same user rather than minting a second. This is the entryUUID
+    /// path the directory sync (P3/P5) drives.
+    #[test]
+    fn scoped_directory_identity_provisions_and_resolves() {
+        let mut conn = setup_test_connection();
+        let provider = "ldap";
+        let external_id = format!("entryuuid-{}", uuid::Uuid::new_v4());
+        let email = format!("dir+{}@acme.example", uuid::Uuid::new_v4());
+
+        let make_input = || ProjectedUserInput {
+            iss: provider.to_string(),
+            sub: external_id.clone(),
+            identity_workspace_id: Some(1),
+            email: email.clone(),
+            email_verified: true,
+            name: Some("Directory User".to_string()),
+            role: "member".to_string(),
+            workspace_id: 1,
+            password_hash: None,
+            metadata: None,
+        };
+
+        let first =
+            find_or_create_projected_user(&mut conn, make_input()).expect("scoped provision");
+        assert!(first.is_created(), "first scoped provision mints the user");
+        let user_uuid = first.into_user().uuid;
+
+        // The identity row carries its workspace scope.
+        use crate::schema::user_auth_identities::dsl as i;
+        let ws: Option<i32> = i::user_auth_identities
+            .filter(i::user_uuid.eq(user_uuid))
+            .filter(i::provider_type.eq(provider))
+            .select(i::workspace_id)
+            .first(&mut conn)
+            .expect("identity row exists");
+        assert_eq!(
+            ws,
+            Some(1),
+            "directory identity must store its workspace scope"
+        );
+
+        // The global lookup can't see a scoped identity; the scoped one resolves it.
+        assert_eq!(
+            user_auth_identities::find_user_by_identity(provider, &external_id, &mut conn).unwrap(),
+            None,
+            "a scoped directory identity must not leak into the global login lookup"
+        );
+        assert_eq!(
+            user_auth_identities::find_user_by_scoped_identity(
+                1,
+                provider,
+                &external_id,
+                &mut conn
+            )
+            .unwrap(),
+            Some(user_uuid)
+        );
+
+        // Re-provisioning the same scoped identity resolves the same user.
+        let second = find_or_create_projected_user(&mut conn, make_input()).expect("re-provision");
+        assert!(
+            !second.is_created(),
+            "the scoped identity must resolve on re-sync, not mint a duplicate"
+        );
+        assert_eq!(second.into_user().uuid, user_uuid);
     }
 }

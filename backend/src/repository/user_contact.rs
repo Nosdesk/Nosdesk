@@ -281,11 +281,14 @@ pub fn delete_address(conn: &mut DbConnection, id: i32) -> QueryResult<usize> {
 // sync-audit-only: directory sync writes contact data (audited); folds into the user sync payload in a later phase
 /// Apply directory-imported contact fields for a user: the standard profile
 /// columns + `office_location` (merged into custom_fields, preserving manual
-/// keys) with `directory_synced=true`, and the source='microsoft' phone/address
-/// rows (replaced wholesale; manual rows are left untouched). One transaction.
+/// keys) with `directory_synced=true`, and the phone/address rows tagged with
+/// this transport's `source` (e.g. "microsoft", "ldap", "scim"), replaced
+/// wholesale. Manual rows and rows owned by OTHER transports are left untouched,
+/// so a workspace can run more than one directory source. One transaction.
 pub fn apply_directory_contact(
     conn: &mut DbConnection,
     user_uuid: Uuid,
+    source: &str,
     contact: &DirectoryContact,
     actor: Option<Uuid>,
 ) -> QueryResult<()> {
@@ -328,11 +331,11 @@ pub fn apply_directory_contact(
             ))
             .execute(conn)?;
 
-        // Phones: replace the microsoft-sourced rows, leave manual ones.
+        // Phones: replace this source's rows, leave manual + other sources.
         diesel::delete(
             user_phone_numbers::table
                 .filter(user_phone_numbers::user_uuid.eq(user_uuid))
-                .filter(user_phone_numbers::source.eq("microsoft")),
+                .filter(user_phone_numbers::source.eq(source)),
         )
         .execute(conn)?;
         for (phone, phone_type) in &contact.phones {
@@ -342,18 +345,18 @@ pub fn apply_directory_contact(
                     phone: phone.clone(),
                     phone_type: phone_type.clone(),
                     is_primary: false,
-                    source: Some("microsoft".to_string()),
+                    source: Some(source.to_string()),
                     label: None,
                     created_by: actor,
                 })
                 .execute(conn)?;
         }
 
-        // Address: replace the microsoft-sourced row, leave manual ones.
+        // Address: replace this source's row, leave manual + other sources.
         diesel::delete(
             user_addresses::table
                 .filter(user_addresses::user_uuid.eq(user_uuid))
-                .filter(user_addresses::source.eq("microsoft")),
+                .filter(user_addresses::source.eq(source)),
         )
         .execute(conn)?;
         if let Some(addr) = &contact.address {
@@ -367,7 +370,7 @@ pub fn apply_directory_contact(
                     region: addr.region.clone(),
                     postal_code: addr.postal_code.clone(),
                     country: addr.country.clone(),
-                    source: Some("microsoft".to_string()),
+                    source: Some(source.to_string()),
                     label: None,
                     created_by: actor,
                 })
@@ -507,7 +510,7 @@ mod tests {
                 country: None,
             }),
         };
-        apply_directory_contact(&mut conn, user.uuid, &contact, None).unwrap();
+        apply_directory_contact(&mut conn, user.uuid, "microsoft", &contact, None).unwrap();
 
         let prof = get_profile(&mut conn, user.uuid).unwrap().unwrap();
         assert!(prof.directory_synced);
@@ -530,7 +533,7 @@ mod tests {
             phones: vec![("777".into(), "work".into())],
             ..Default::default()
         };
-        apply_directory_contact(&mut conn, user.uuid, &contact2, None).unwrap();
+        apply_directory_contact(&mut conn, user.uuid, "microsoft", &contact2, None).unwrap();
 
         let phones2 = list_phones(&mut conn, user.uuid).unwrap();
         assert_eq!(phones2.len(), 2);
@@ -567,5 +570,44 @@ mod tests {
         assert!(rows
             .iter()
             .any(|(u, cf)| *u == user.uuid && cf["gender"] == "z"));
+    }
+
+    #[test]
+    fn multiple_directory_sources_coexist() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "Multi Source", "user");
+
+        let ms = DirectoryContact {
+            phones: vec![("ms-phone".into(), "work".into())],
+            ..Default::default()
+        };
+        let ldap = DirectoryContact {
+            phones: vec![("ldap-phone".into(), "work".into())],
+            ..Default::default()
+        };
+        apply_directory_contact(&mut conn, user.uuid, "microsoft", &ms, None).unwrap();
+        apply_directory_contact(&mut conn, user.uuid, "ldap", &ldap, None).unwrap();
+
+        // Both sources' rows are present — neither pass wiped the other's.
+        let phones = list_phones(&mut conn, user.uuid).unwrap();
+        assert_eq!(phones.len(), 2);
+        assert!(phones
+            .iter()
+            .any(|p| p.phone == "ms-phone" && p.source.as_deref() == Some("microsoft")));
+        assert!(phones
+            .iter()
+            .any(|p| p.phone == "ldap-phone" && p.source.as_deref() == Some("ldap")));
+
+        // Re-running one source replaces only its own rows.
+        let ldap2 = DirectoryContact {
+            phones: vec![("ldap-phone-2".into(), "mobile".into())],
+            ..Default::default()
+        };
+        apply_directory_contact(&mut conn, user.uuid, "ldap", &ldap2, None).unwrap();
+        let phones2 = list_phones(&mut conn, user.uuid).unwrap();
+        assert_eq!(phones2.len(), 2);
+        assert!(phones2.iter().any(|p| p.phone == "ms-phone"));
+        assert!(phones2.iter().any(|p| p.phone == "ldap-phone-2"));
+        assert!(!phones2.iter().any(|p| p.phone == "ldap-phone"));
     }
 }

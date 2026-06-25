@@ -2563,6 +2563,7 @@ fn surface_contact(
     crate::repository::user_contact::apply_directory_contact(
         conn,
         user_uuid,
+        "microsoft",
         &build_directory_contact(ms_user),
         None,
     )
@@ -2747,6 +2748,7 @@ async fn link_existing_user_to_microsoft_optimized(
         email: ms_user.mail.clone(),
         metadata: Some(identity_data),
         password_hash: None,
+        workspace_id: None,
     };
 
     identity_repo::create_identity(new_identity, conn)?;
@@ -2946,6 +2948,7 @@ async fn create_new_user_from_microsoft_optimized(
         email: ms_user.mail.clone(),
         metadata: Some(identity_data),
         password_hash: None,
+        workspace_id: None,
     };
 
     identity_repo::create_identity(new_identity, conn)?;
@@ -5430,6 +5433,7 @@ async fn link_existing_user_to_microsoft_no_photos(
         email: ms_user.mail.clone(),
         metadata: Some(identity_data),
         password_hash: None,
+        workspace_id: None,
     };
 
     identity_repo::create_identity(new_identity, conn)?;
@@ -5514,6 +5518,7 @@ async fn create_new_user_from_microsoft_no_photos(
         email: ms_user.mail.clone(),
         metadata: Some(identity_data),
         password_hash: None,
+        workspace_id: None,
     };
 
     identity_repo::create_identity(new_identity, conn)?;

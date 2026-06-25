@@ -11,13 +11,21 @@ use tracing::{error, info, warn};
 pub type Pool = r2d2::Pool<ResettingManager>;
 pub type DbConnection = r2d2::PooledConnection<ResettingManager>;
 
-/// Clear every per-request `app.*` GUC in one round-trip.
+/// Clear every per-request `app.*` GUC and reset any leaked `SET ROLE` on
+/// checkout.
 ///
 /// Empty-string is equivalent to unset everywhere these GUCs are read
 /// (every reader goes through `NULLIF(current_setting(...), '')`), matching
 /// `sync::session::reset_session_role`. Executing the statement also proves
 /// the backend is live, which is why this doubles as the pool's checkout
 /// validity check (see [`ResettingManager::is_valid`]).
+///
+/// `RESET ROLE` fails the pool CLOSED regardless of caller discipline: a
+/// background job that elevates to the BYPASSRLS role (`elevate_session_role`)
+/// and then panics before its `reset_session_role` runs would otherwise return
+/// an RLS-bypassing, unscoped session to the pool, and the next consumer would
+/// inherit it. Resetting on every checkout makes that leak unreachable instead
+/// of relying on every caller's unwind path.
 ///
 /// `app.bypass_workspace_check` is a retired isolation switch (no RLS policy
 /// reads it since the 2026-06-12 migration) but stays in the scrub list so a
@@ -32,8 +40,8 @@ fn clear_app_gucs(conn: &mut PgConnection) -> diesel::QueryResult<()> {
                 set_config('app.client_tx_id', '', false), \
                 set_config('app.bypass_workspace_check', '', false)",
     )
-    .execute(conn)
-    .map(|_| ())
+    .execute(conn)?;
+    diesel::sql_query("RESET ROLE").execute(conn).map(|_| ())
 }
 
 /// Pool connection manager that scrubs per-request GUCs on every checkout.

@@ -820,6 +820,7 @@ pub async fn oauth_callback(
                             "display_name": display_name
                         })),
                         password_hash: None,
+                        workspace_id: None,
                     };
                     match user_auth_identities::create_identity(new_identity, &mut conn) {
                         Ok(_) => {
@@ -1420,6 +1421,8 @@ fn resolve_existing_seat_user(
         conn,
         iss,
         &sub,
+        // Global OIDC login identity (central-origin agent), not workspace-scoped.
+        None,
         &email,
         email_verified,
         &None,
@@ -1485,6 +1488,8 @@ async fn find_or_create_oauth_user(
     let input = ProjectedUserInput {
         iss: iss.to_string(),
         sub: provider_user_id,
+        // OIDC login is a global platform identity, not workspace-scoped.
+        identity_workspace_id: None,
         email,
         email_verified,
         name: Some(name),
@@ -1551,6 +1556,7 @@ async fn add_oauth_identity_to_user(
         email: email.clone(),
         metadata: Some(user_info.clone()),
         password_hash: None, // No password for OAuth identities
+        workspace_id: None,
     };
 
     // Save the identity to the database

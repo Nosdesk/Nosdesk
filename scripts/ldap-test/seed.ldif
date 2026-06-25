@@ -1,0 +1,52 @@
+# Seed data for the opt-in test LDAP (compose.ldap-test.yaml).
+# Applied by osixia/openldap on first boot (empty DB only) -- to re-seed,
+# `make ldap-test-down` wipes the volume so the next `make ldap-test` re-applies.
+#
+# Gives three users and two role-mappable groups, enough to exercise the whole
+# /admin/ldap flow: Test, Discover groups, group->role mapping, Preview, Sync.
+
+dn: ou=People,dc=acme,dc=test
+objectClass: organizationalUnit
+ou: People
+
+dn: ou=Groups,dc=acme,dc=test
+objectClass: organizationalUnit
+ou: Groups
+
+dn: uid=alice,ou=People,dc=acme,dc=test
+objectClass: inetOrgPerson
+uid: alice
+cn: Alice Smith
+sn: Smith
+givenName: Alice
+mail: alice@acme.test
+userPassword: Alice#2026
+
+dn: uid=bob,ou=People,dc=acme,dc=test
+objectClass: inetOrgPerson
+uid: bob
+cn: Bob Jones
+sn: Jones
+givenName: Bob
+mail: bob@acme.test
+userPassword: Bob#2026
+
+dn: uid=carol,ou=People,dc=acme,dc=test
+objectClass: inetOrgPerson
+uid: carol
+cn: Carol Lee
+sn: Lee
+givenName: Carol
+mail: carol@acme.test
+userPassword: Carol#2026
+
+dn: cn=Helpdesk-Admins,ou=Groups,dc=acme,dc=test
+objectClass: groupOfNames
+cn: Helpdesk-Admins
+member: uid=alice,ou=People,dc=acme,dc=test
+
+dn: cn=Agents,ou=Groups,dc=acme,dc=test
+objectClass: groupOfNames
+cn: Agents
+member: uid=bob,ou=People,dc=acme,dc=test
+member: uid=carol,ou=People,dc=acme,dc=test

@@ -1222,6 +1222,18 @@ async fn main() -> std::io::Result<()> {
             move || jobs::msgraph_delta_sync(p.clone()),
         );
 
+        // Daily: LDAP full reconcile (resets the DirSync cursor + re-snapshots
+        // the directory to catch drift the incremental stream missed). Skipped
+        // at runtime when LDAP isn't enabled.
+        let p = pool.clone();
+        spawn_periodic(
+            "ldap.nightly_reconcile",
+            Duration::from_secs(24 * 60 * 60),
+            scheduler_shutdown.clone(),
+            scheduler_status.clone(),
+            move || jobs::ldap_nightly_reconcile(p.clone()),
+        );
+
         // Daily: roll the sync_actions / audit_log monthly partitions
         // forward. Inserts after the last provisioned month would
         // otherwise fail; the substrate migration provides the first
@@ -2400,6 +2412,15 @@ async fn main() -> std::io::Result<()> {
                     // Workspace user custom-field schema (read staff, write admin).
                     .route("/admin/user-fields", web::get().to(handlers::user_contact::get_user_field_schema))
                     .route("/admin/user-fields", web::put().to(handlers::user_contact::set_user_field_schema))
+                    // Per-workspace LDAP/directory config (admin-gated in the handlers).
+                    .route("/ldap/settings", web::get().to(handlers::ldap_integration::get_ldap_settings))
+                    .route("/ldap/sync-history", web::get().to(handlers::ldap_integration::get_ldap_sync_history))
+                    .route("/ldap/settings", web::put().to(handlers::ldap_integration::set_ldap_settings))
+                    .route("/ldap/presets", web::get().to(handlers::ldap_integration::get_ldap_presets))
+                    .route("/ldap/test-connection", web::post().to(handlers::ldap_integration::test_ldap_connection))
+                    .route("/ldap/discover-groups", web::get().to(handlers::ldap_integration::discover_ldap_groups))
+                    .route("/ldap/preview", web::post().to(handlers::ldap_integration::preview_ldap))
+                    .route("/ldap/sync", web::post().to(handlers::ldap_integration::run_ldap_sync))
                     .route("/users/{uuid}/with-emails", web::get().to(handlers::get_user_with_emails))
                     .route("/users/{uuid}/profile", web::get().to(handlers::users::get_user_profile_bundle))
                     .route("/users/{uuid}/auth-identities", web::get().to(handlers::get_user_auth_identities_by_uuid))

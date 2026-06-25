@@ -604,6 +604,21 @@ pub enum UpdateMembershipRoleResult {
     LastOwner,
 }
 
+/// The persisted workspace role for a member, or `None` if the user isn't a
+/// member. A read; used by the group->role mapper to skip no-op role writes.
+pub fn get_membership_role(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    user_uuid: Uuid,
+) -> QueryResult<Option<String>> {
+    workspace_members::table
+        .filter(workspace_members::workspace_id.eq(workspace_id))
+        .filter(workspace_members::user_uuid.eq(user_uuid))
+        .select(workspace_members::role)
+        .first::<String>(conn)
+        .optional()
+}
+
 // sync-audit-only: role changes are recorded by the tr_audit_workspace_members audit_log trigger (P1.4); no sync_actions aggregate. This is the sanctioned path to CORRECT a wrong role (projection grants are first-write-wins / immutable, see oauth_provisioning::add_membership)
 /// Change a member's role. Refuses to demote the last `owner` for
 /// the same reason [`remove_membership`] refuses to delete it.
