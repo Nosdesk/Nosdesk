@@ -179,6 +179,41 @@
           </div>
         </SectionCard>
 
+        <!-- Attribute mapping -->
+        <SectionCard content-padding="p-4 sm:p-5">
+          <template #title>{{ $t('admin-ldap-section-attrs') }}</template>
+          <div class="flex flex-col gap-4">
+            <p class="text-xs text-tertiary">{{ $t('admin-ldap-attrs-help') }}</p>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormInput
+                v-for="f in ATTR_CORE"
+                :key="f.key"
+                :model-value="amStr(f.key)"
+                :label="$t(`admin-ldap-attr-${f.key}`)"
+                :placeholder="f.def"
+                @update:model-value="(v: string) => setAm(f.key, v)"
+              />
+            </div>
+            <div v-if="showMoreAttrs" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormInput
+                v-for="f in ATTR_MORE"
+                :key="f.key"
+                :model-value="amStr(f.key)"
+                :label="$t(`admin-ldap-attr-${f.key}`)"
+                :placeholder="f.def"
+                @update:model-value="(v: string) => setAm(f.key, v)"
+              />
+            </div>
+            <button
+              type="button"
+              class="text-xs text-accent hover:underline self-start"
+              @click="showMoreAttrs = !showMoreAttrs"
+            >
+              {{ showMoreAttrs ? $t('admin-ldap-attrs-less') : $t('admin-ldap-attrs-more') }}
+            </button>
+          </div>
+        </SectionCard>
+
         <!-- Groups & roles -->
         <SectionCard content-padding="p-4 sm:p-5">
           <template #title>{{ $t('admin-ldap-section-groups') }}</template>
@@ -762,6 +797,38 @@ function setRuleGroup(idx: number, group: string | string[]) {
 function setRuleRole(idx: number, role: string | string[]) {
   const ro = (Array.isArray(role) ? role[0] : role) as RoleMapping['role'];
   roleMappings.value = roleMappings.value.map((r, i) => (i === idx ? { ...r, role: ro } : r));
+}
+
+// --- Attribute mapping (stored in the attribute_map JSONB) ----------------
+// Logical field -> LDAP attribute name; the placeholder is the AD default the
+// backend falls back to when a value is blank.
+const ATTR_CORE = [
+  { key: 'external_id', def: 'objectGUID' },
+  { key: 'email', def: 'mail' },
+  { key: 'display_name', def: 'displayName' },
+  { key: 'first_name', def: 'givenName' },
+  { key: 'last_name', def: 'sn' },
+] as const;
+const ATTR_MORE = [
+  { key: 'title', def: 'title' },
+  { key: 'department', def: 'department' },
+  { key: 'organization', def: 'company' },
+  { key: 'office_location', def: 'physicalDeliveryOfficeName' },
+  { key: 'phone', def: 'telephoneNumber' },
+  { key: 'mobile', def: 'mobile' },
+  { key: 'street', def: 'streetAddress' },
+  { key: 'city', def: 'l' },
+  { key: 'region', def: 'st' },
+  { key: 'postal_code', def: 'postalCode' },
+  { key: 'country', def: 'co' },
+] as const;
+const showMoreAttrs = ref(false);
+function amStr(key: string): string {
+  const v = form.value.attribute_map[key];
+  return typeof v === 'string' ? v : '';
+}
+function setAm(key: string, val: string) {
+  form.value.attribute_map = { ...form.value.attribute_map, [key]: val };
 }
 
 async function save() {
