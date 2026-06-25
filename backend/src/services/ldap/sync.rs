@@ -398,6 +398,93 @@ fn extract_dirsync_response(ctrls: &[Control]) -> Option<dirsync::DirSyncRespons
     })
 }
 
+/// A sync run recorded in `sync_history`.
+pub struct RecordedSync {
+    pub history_id: i32,
+    pub stats: SyncStats,
+}
+
+/// Run a sync bracketed by a `sync_history` row (running -> completed /
+/// completed_with_errors / failed). The single home for the run-recording, used
+/// by BOTH the admin trigger and the nightly reconcile. `conn` MUST be pinned to
+/// `workspace_id` (the writes are RLS/audit-scoped). On a sync failure the row is
+/// recorded as `failed` and the error returned.
+pub async fn run_recorded_sync(
+    conn: &mut DbConnection,
+    settings: &WorkspaceLdapSettings,
+    workspace_id: i32,
+    bind_password: &str,
+    sync_type: &str,
+) -> Result<RecordedSync, SyncError> {
+    use crate::models::{NewSyncHistory, SyncHistoryUpdate};
+    use crate::repository::sync_history;
+
+    let history = sync_history::create_sync_history(
+        conn,
+        NewSyncHistory {
+            sync_type: sync_type.to_string(),
+            status: "running".to_string(),
+            started_at: chrono::Utc::now().naive_utc(),
+            completed_at: None,
+            error_message: None,
+            records_processed: None,
+            records_created: None,
+            records_updated: None,
+            records_failed: None,
+            tenant_id: None,
+            is_delta: false,
+        },
+    )?;
+
+    let result = sync_users(conn, settings, workspace_id, bind_password).await;
+    let completed_at = Some(Some(chrono::Utc::now().naive_utc()));
+
+    match result {
+        Ok(stats) => {
+            // A green "completed" must not hide per-entry failures; skips
+            // (entries legitimately lacking email/external_id) are benign.
+            let status = if stats.errors > 0 {
+                "completed_with_errors"
+            } else {
+                "completed"
+            };
+            sync_history::update_sync_history(
+                conn,
+                history.id,
+                SyncHistoryUpdate {
+                    status: Some(status.to_string()),
+                    completed_at,
+                    error_message: None,
+                    records_processed: Some(stats.seen as i32),
+                    records_created: None,
+                    records_updated: Some(stats.synced as i32),
+                    records_failed: Some(stats.errors as i32),
+                },
+            )?;
+            Ok(RecordedSync {
+                history_id: history.id,
+                stats,
+            })
+        }
+        Err(e) => {
+            let _ = sync_history::update_sync_history(
+                conn,
+                history.id,
+                SyncHistoryUpdate {
+                    status: Some("failed".to_string()),
+                    completed_at,
+                    error_message: Some(e.to_string()),
+                    records_processed: None,
+                    records_created: None,
+                    records_updated: None,
+                    records_failed: None,
+                },
+            );
+            Err(e)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

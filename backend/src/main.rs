@@ -1222,6 +1222,18 @@ async fn main() -> std::io::Result<()> {
             move || jobs::msgraph_delta_sync(p.clone()),
         );
 
+        // Daily: LDAP full reconcile (resets the DirSync cursor + re-snapshots
+        // the directory to catch drift the incremental stream missed). Skipped
+        // at runtime when LDAP isn't enabled.
+        let p = pool.clone();
+        spawn_periodic(
+            "ldap.nightly_reconcile",
+            Duration::from_secs(24 * 60 * 60),
+            scheduler_shutdown.clone(),
+            scheduler_status.clone(),
+            move || jobs::ldap_nightly_reconcile(p.clone()),
+        );
+
         // Daily: roll the sync_actions / audit_log monthly partitions
         // forward. Inserts after the last provisioned month would
         // otherwise fail; the substrate migration provides the first

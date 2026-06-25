@@ -13,8 +13,7 @@ use tracing::error;
 
 use crate::extractors::{AuthContext, TenantConn};
 use crate::handlers::{errors, helpers};
-use crate::models::{NewSyncHistory, SyncHistoryUpdate, UpsertWorkspaceLdapSettings};
-use crate::repository::sync_history as sync_history_repo;
+use crate::models::UpsertWorkspaceLdapSettings;
 use crate::repository::workspace_ldap_settings as repo;
 use crate::services::ldap::auth::{self as ldap_auth, LdapAuthError};
 use crate::services::ldap::connector::LdapConnectError;
@@ -199,75 +198,21 @@ pub async fn run_ldap_sync(
         .flatten()
         .unwrap_or_default();
 
-    let started_at = chrono::Utc::now().naive_utc();
-    let history = match sync_history_repo::create_sync_history(
+    match crate::services::ldap::sync::run_recorded_sync(
         &mut conn,
-        NewSyncHistory {
-            sync_type: "ldap_users".to_string(),
-            status: "running".to_string(),
-            started_at,
-            completed_at: None,
-            error_message: None,
-            records_processed: None,
-            records_created: None,
-            records_updated: None,
-            records_failed: None,
-            tenant_id: None,
-            is_delta: false,
-        },
-    ) {
-        Ok(h) => h,
-        Err(e) => {
-            error!(error = %e, "create ldap sync_history failed");
-            return errors::internal("Failed to start the sync");
-        }
-    };
-
-    let result =
-        crate::services::ldap::sync::sync_users(&mut conn, &settings, workspace_id, &bind_password)
-            .await;
-    let completed_at = Some(Some(chrono::Utc::now().naive_utc()));
-
-    match result {
-        Ok(stats) => {
-            // A green "completed" must not hide per-entry write failures. Skips
-            // (entries legitimately lacking email/external_id) are benign and
-            // are NOT counted as failures.
-            let status = if stats.errors > 0 {
-                "completed_with_errors"
-            } else {
-                "completed"
-            };
-            let _ = sync_history_repo::update_sync_history(
-                &mut conn,
-                history.id,
-                SyncHistoryUpdate {
-                    status: Some(status.to_string()),
-                    completed_at,
-                    error_message: None,
-                    records_processed: Some(stats.seen as i32),
-                    records_created: None,
-                    records_updated: Some(stats.synced as i32),
-                    records_failed: Some(stats.errors as i32),
-                },
-            );
-            HttpResponse::Ok().json(json!({ "session_id": history.id, "stats": stats }))
-        }
+        &settings,
+        workspace_id,
+        &bind_password,
+        "ldap_users",
+    )
+    .await
+    {
+        Ok(rec) => HttpResponse::Ok().json(json!({
+            "session_id": rec.history_id,
+            "stats": rec.stats,
+        })),
         Err(e) => {
             error!(error = %e, workspace_id, "ldap sync failed");
-            let _ = sync_history_repo::update_sync_history(
-                &mut conn,
-                history.id,
-                SyncHistoryUpdate {
-                    status: Some("failed".to_string()),
-                    completed_at,
-                    error_message: Some(e.to_string()),
-                    records_processed: None,
-                    records_created: None,
-                    records_updated: None,
-                    records_failed: None,
-                },
-            );
             errors::internal("LDAP sync failed; see server logs")
         }
     }

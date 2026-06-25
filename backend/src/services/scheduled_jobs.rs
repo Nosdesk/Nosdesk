@@ -33,6 +33,7 @@ use crate::services::search::SearchService;
 const MSGRAPH_DELTA_SYNC_LOCK: i64 = 0x004e_6f73_4d53_4744;
 const THUMBNAIL_BACKFILL_LOCK: i64 = 0x004e_6f73_5448_4d42;
 const LOAN_REMINDER_LOCK: i64 = 0x004e_6f73_4c6f_616e;
+const LDAP_RECONCILE_LOCK: i64 = 0x004e_6f73_4c44_5243;
 
 /// Holds a per-job Postgres advisory lock for the duration of one
 /// scheduler tick, releasing it on drop — including on an unwinding panic,
@@ -171,6 +172,24 @@ pub async fn msgraph_delta_sync(pool: Pool) -> Result<()> {
         }
     };
     crate::handlers::msgraph_integration::run_scheduled_delta_sync(&pool).await
+}
+
+/// Nightly LDAP full reconcile. Resets the DirSync cursor and runs a full sync
+/// for the LDAP-enabled bootstrap workspace, catching drift the incremental
+/// DirSync stream missed (and priming the complete current-directory set for the
+/// future deprovision pass). No-op when LDAP isn't configured — see
+/// [`crate::services::ldap::reconcile::run_scheduled_reconcile`].
+pub async fn ldap_nightly_reconcile(pool: Pool) -> Result<()> {
+    // Single-machine guard: concurrent runs would race the cursor cookie (last
+    // writer wins, silently dropping the other run's progress).
+    let _lock = match try_job_lock(&pool, LDAP_RECONCILE_LOCK, "ldap.nightly_reconcile")? {
+        Some(lock) => lock,
+        None => {
+            info!("scheduler: ldap.nightly_reconcile skipped — another machine holds the lock");
+            return Ok(());
+        }
+    };
+    crate::services::ldap::reconcile::run_scheduled_reconcile(&pool).await
 }
 
 /// Prune CSP violation reports older than the configured retention
