@@ -30,9 +30,26 @@
 //!      cargo test --test ldap_integration -- --ignored
 //!    ```
 //!
+//!    Or against the seeded OpenLDAP rig (`make ldap-test`), which also exercises
+//!    the non-AD full-scan fallback + group sync + role mapping:
+//!
+//!    ```sh
+//!    cd backend && \
+//!      LDAP_HOST=127.0.0.1 LDAP_PORT=636 \
+//!      LDAP_BASE_DN='ou=People,dc=acme,dc=test' \
+//!      LDAP_BIND_DN='cn=admin,dc=acme,dc=test' LDAP_BIND_PASSWORD='admin' \
+//!      LDAP_TEST_USER=alice LDAP_TEST_USER_PASSWORD='Alice#2026' \
+//!      LDAP_USERNAME_ATTR=uid LDAP_EXTERNAL_ID_ATTR=entryUUID \
+//!      LDAP_USER_FILTER='(&(objectClass=inetOrgPerson)(uid={username}))' \
+//!      LDAP_GROUP_BASE_DN='ou=Groups,dc=acme,dc=test' \
+//!      LDAP_GROUP_OBJECT_CLASS=groupOfNames \
+//!      cargo test --test ldap_integration -- --ignored --test-threads=1
+//!    ```
+//!
+//! The DB-backed tests share workspace 1, so run them with `--test-threads=1`.
 //! The connector's egress guard rejects the loopback/RFC1918 directory host by
 //! default, exactly as it would a real on-prem DC; the fixture opts the host
-//! into `NOSDESK_OUTBOUND_ALLOWED_HOSTS` just as a self-hoster would. Samba
+//! into `NOSDESK_OUTBOUND_ALLOWED_HOSTS` just as a self-hoster would. The server
 //! self-signs LDAPS, so the settings set `verify_certs=false`, which the
 //! connector honours only because the run is non-production.
 
@@ -44,7 +61,8 @@ use diesel_migrations::MigrationHarness;
 use serde_json::json;
 
 use backend::db::{DbConnection, Pool, ResettingManager, MIGRATIONS};
-use backend::models::WorkspaceLdapSettings;
+use backend::models::{Group, WorkspaceLdapSettings};
+use backend::repository::{groups as groups_repo, workspaces as ws_repo};
 use backend::services::ldap::{auth as ldap_auth, sync as ldap_sync};
 
 fn env_or(key: &str, default: &str) -> String {
@@ -117,6 +135,29 @@ fn test_settings() -> WorkspaceLdapSettings {
         created_at: now,
         updated_at: now,
     }
+}
+
+fn ldap_group_base_dn() -> String {
+    env_or("LDAP_GROUP_BASE_DN", "")
+}
+
+/// `test_settings` plus group sync + a role mapping, for the groups-and-roles
+/// test. The group object class is env-configurable so the AD-default harness can
+/// also point at OpenLDAP (`groupOfNames`). The mapping matches the seed:
+/// Helpdesk-Admins -> admin, Agents -> agent.
+fn test_settings_with_groups() -> WorkspaceLdapSettings {
+    let mut s = test_settings();
+    s.group_config = json!({
+        "group_base_dn": ldap_group_base_dn(),
+        "object_class": env_or("LDAP_GROUP_OBJECT_CLASS", "group"),
+        "member_attribute": "member",
+        "name_attribute": "cn",
+        "role_mappings": [
+            { "group": "Helpdesk-Admins", "role": "admin" },
+            { "group": "Agents", "role": "agent" },
+        ],
+    });
+    s
 }
 
 fn build_pool() -> Pool {
@@ -232,4 +273,99 @@ async fn sync_provisions_a_directory_user() {
         ldap_identities >= 1,
         "sync must create scoped ldap identities"
     );
+}
+
+/// Make workspace 1 unlimited-seat so the role mapping's staff promotions aren't
+/// capped by the seat-limit trigger -- a deterministic precondition, not luck.
+fn ensure_unlimited_seats(conn: &mut DbConnection) {
+    diesel::sql_query("UPDATE workspaces SET seat_limit = NULL WHERE id = 1")
+        .execute(conn)
+        .expect("clear workspace 1 seat limit");
+}
+
+fn find_ldap_group(conn: &mut DbConnection, name: &str) -> Group {
+    use backend::schema::groups::dsl as g;
+    g::groups
+        .filter(g::name.eq(name))
+        .filter(g::external_source.eq("ldap"))
+        .filter(g::workspace_id.eq(1))
+        .first::<Group>(conn)
+        .unwrap_or_else(|e| panic!("ldap group {name:?} should exist after sync: {e}"))
+}
+
+/// The full directory pipeline against a live server: `run_recorded_sync` is the
+/// SAME entry point the admin trigger + the nightly reconcile use, so this
+/// exercises user sync -> group sync (DN-resolved membership) -> group->role
+/// mapping in one go, and asserts the result through the repository layer the app
+/// reads from. Needs a directory with the seeded groups + `TEST_DATABASE_URL`.
+#[tokio::test]
+#[ignore = "requires a directory with groups + TEST_DATABASE_URL — see file header"]
+async fn sync_provisions_groups_and_roles() {
+    if !ldap_reachable() {
+        eprintln!("skipping: no directory reachable at {}", ldap_host());
+        return;
+    }
+    if ldap_group_base_dn().is_empty() {
+        eprintln!("skipping: LDAP_GROUP_BASE_DN not set (no group base to sync)");
+        return;
+    }
+    allow_ldap_egress();
+    let pool = build_pool();
+    let mut conn: DbConnection = pool.get().expect("pooled conn");
+    ensure_unlimited_seats(&mut conn);
+
+    let rec = ldap_sync::run_recorded_sync(
+        &mut conn,
+        &test_settings_with_groups(),
+        1,
+        &bind_password(),
+        "ldap_users",
+    )
+    .await
+    .expect("recorded sync should complete");
+    assert!(
+        rec.stats.synced >= 3,
+        "expected the 3 seeded users provisioned, got {:?}",
+        rec.stats
+    );
+
+    // Both directory groups landed as ldap-sourced groups in the workspace.
+    let admins = find_ldap_group(&mut conn, "Helpdesk-Admins");
+    let agents = find_ldap_group(&mut conn, "Agents");
+
+    // Membership was resolved from the directory's member DNs via the persisted
+    // DN map (the subtle path): alice in Helpdesk-Admins; bob + carol in Agents.
+    let admin_members =
+        groups_repo::get_member_uuids_for_group(&mut conn, admins.id).expect("admins members");
+    let agent_members =
+        groups_repo::get_member_uuids_for_group(&mut conn, agents.id).expect("agents members");
+    assert_eq!(
+        admin_members.len(),
+        1,
+        "Helpdesk-Admins should resolve to its 1 directory member, got {admin_members:?}"
+    );
+    assert_eq!(
+        agent_members.len(),
+        2,
+        "Agents should resolve to its 2 directory members, got {agent_members:?}"
+    );
+
+    // The group->role mapping applied: the admin-group member is an admin, and
+    // each agent-group member is an agent.
+    assert_eq!(
+        ws_repo::get_membership_role(&mut conn, 1, admin_members[0])
+            .expect("admin role")
+            .as_deref(),
+        Some("admin"),
+        "the Helpdesk-Admins member should be promoted to admin"
+    );
+    for member in agent_members {
+        assert_eq!(
+            ws_repo::get_membership_role(&mut conn, 1, member)
+                .expect("agent role")
+                .as_deref(),
+            Some("agent"),
+            "each Agents member should be promoted to agent"
+        );
+    }
 }
