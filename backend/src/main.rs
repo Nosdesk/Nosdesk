@@ -2414,6 +2414,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/admin/user-fields", web::put().to(handlers::user_contact::set_user_field_schema))
                     // Per-workspace LDAP/directory config (admin-gated in the handlers).
                     .route("/ldap/settings", web::get().to(handlers::ldap_integration::get_ldap_settings))
+                    .route("/ldap/sync-history", web::get().to(handlers::ldap_integration::get_ldap_sync_history))
                     .route("/ldap/settings", web::put().to(handlers::ldap_integration::set_ldap_settings))
                     .route("/ldap/presets", web::get().to(handlers::ldap_integration::get_ldap_presets))
                     .route("/ldap/test-connection", web::post().to(handlers::ldap_integration::test_ldap_connection))

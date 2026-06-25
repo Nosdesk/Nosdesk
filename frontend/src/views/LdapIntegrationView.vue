@@ -179,6 +179,86 @@
           </div>
         </SectionCard>
 
+        <!-- Sync & status -->
+        <SectionCard content-padding="p-4 sm:p-5">
+          <template #title>{{ $t('admin-ldap-section-status') }}</template>
+          <div class="flex flex-col gap-4">
+            <!-- Sync mode + last reconcile -->
+            <div class="flex flex-wrap items-center gap-2 text-sm">
+              <StatusPill
+                :label="cursor?.incremental_active ? $t('admin-ldap-mode-incremental') : $t('admin-ldap-mode-full')"
+                :tone="cursor?.incremental_active ? 'info' : 'neutral'"
+                size="sm"
+              />
+              <span v-if="cursor?.last_full_reconcile_at" class="text-tertiary">
+                {{ $t('admin-ldap-last-reconcile', { when: formatRelativeTime(cursor.last_full_reconcile_at) }) }}
+              </span>
+            </div>
+
+            <!-- Last run -->
+            <div v-if="lastRun" class="flex flex-col gap-3">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="font-medium text-primary">{{ $t('admin-ldap-last-run') }}</span>
+                <StatusPill
+                  :label="runStatusLabel(lastRun.status)"
+                  :tone="runStatusTone(lastRun.status)"
+                  size="sm"
+                />
+                <span class="text-tertiary text-xs">{{ runTypeLabel(lastRun) }}</span>
+              </div>
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div class="flex flex-col">
+                  <span class="text-tertiary text-xs">{{ $t('admin-ldap-run-started') }}</span>
+                  <span class="text-primary text-sm font-medium">{{ formatRelativeTime(lastRun.started_at) }}</span>
+                </div>
+                <div class="flex flex-col">
+                  <span class="text-tertiary text-xs">{{ $t('admin-ldap-run-duration') }}</span>
+                  <span class="text-primary text-sm font-medium">{{ formatDuration(lastRun) }}</span>
+                </div>
+                <div class="flex flex-col">
+                  <span class="text-tertiary text-xs">{{ $t('admin-ldap-run-synced') }}</span>
+                  <span class="text-primary text-sm font-medium">{{ lastRun.records_updated ?? 0 }}</span>
+                </div>
+                <div class="flex flex-col">
+                  <span class="text-tertiary text-xs">{{ $t('admin-ldap-run-errors') }}</span>
+                  <span
+                    class="text-sm font-medium"
+                    :class="(lastRun.records_failed ?? 0) > 0 ? 'text-status-error' : 'text-primary'"
+                  >{{ lastRun.records_failed ?? 0 }}</span>
+                </div>
+              </div>
+              <div
+                v-if="lastRun.error_message"
+                class="text-xs text-secondary bg-surface-alt rounded px-2.5 py-1.5 break-words"
+              >
+                {{ lastRun.error_message }}
+              </div>
+            </div>
+            <p v-else class="text-sm text-tertiary">{{ $t('admin-ldap-no-runs') }}</p>
+
+            <!-- Older runs -->
+            <div v-if="runs.length > 1" class="flex flex-col gap-1.5 border-t border-default pt-3">
+              <span class="text-tertiary text-xs uppercase font-medium">{{ $t('admin-ldap-history') }}</span>
+              <div
+                v-for="run in runs.slice(1)"
+                :key="run.id"
+                class="flex items-center gap-2.5 text-sm py-0.5"
+              >
+                <StatusPill
+                  :label="runStatusLabel(run.status)"
+                  :tone="runStatusTone(run.status)"
+                  size="xs"
+                />
+                <span class="text-secondary">{{ formatRelativeTime(run.started_at) }}</span>
+                <span class="text-tertiary text-xs hidden sm:inline">{{ runTypeLabel(run) }}</span>
+                <span class="ml-auto text-tertiary text-xs">
+                  {{ $t('admin-ldap-run-counts', { synced: run.records_updated ?? 0, errors: run.records_failed ?? 0 }) }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </SectionCard>
+
         <!-- Actions: test + save -->
         <div
           class="flex flex-wrap items-center gap-3 sticky bottom-0 bg-app/80 backdrop-blur border-t border-default py-3"
@@ -255,10 +335,12 @@ import {
   type LdapSettings,
   type LdapSettingsResponse,
   type LdapPreset,
+  type LdapSyncRun,
   type UpsertLdapSettings,
 } from '@/services/ldapService';
 import { useToastStore } from '@/stores/toast';
 import { createErrorFromResponse } from '@/utils/errors';
+import { formatRelativeTime } from '@/utils/dateUtils';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -301,6 +383,34 @@ const settingsQuery = useQuery({
   query: () => ldapService.getSettings(),
 });
 const presetsQuery = useQuery({ key: ['ldap-presets'], query: () => ldapService.getPresets() });
+
+// Sync runs + cursor state for the status panel (refreshed after a manual sync).
+const HISTORY_KEY = ['ldap-sync-history'] as const;
+const historyQuery = useQuery({ key: HISTORY_KEY, query: () => ldapService.getSyncHistory() });
+const runs = computed<LdapSyncRun[]>(() => historyQuery.data.value?.runs ?? []);
+const lastRun = computed<LdapSyncRun | null>(() => runs.value[0] ?? null);
+const cursor = computed(() => historyQuery.data.value?.cursor ?? null);
+
+function runStatusTone(status: string): 'positive' | 'caution' | 'critical' | 'neutral' {
+  if (status === 'completed') return 'positive';
+  if (status === 'completed_with_errors') return 'caution';
+  if (status === 'failed' || status === 'error') return 'critical';
+  return 'neutral';
+}
+function runStatusLabel(status: string): string {
+  return t(`admin-ldap-run-status-${status}`);
+}
+function runTypeLabel(run: LdapSyncRun): string {
+  return t(run.sync_type === 'ldap_reconcile' ? 'admin-ldap-run-reconcile' : 'admin-ldap-run-sync');
+}
+function formatDuration(run: LdapSyncRun): string {
+  if (!run.completed_at) return '—';
+  const ms = new Date(run.completed_at).getTime() - new Date(run.started_at).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return '—';
+  const secs = Math.round(ms / 1000);
+  if (secs < 60) return `${secs}s`;
+  return `${Math.floor(secs / 60)}m ${secs % 60}s`;
+}
 
 const saved = computed<LdapSettings | null>(() => settingsQuery.data.value?.settings ?? null);
 const hasBindPassword = computed(() => settingsQuery.data.value?.has_bind_password ?? false);
@@ -516,6 +626,7 @@ async function runSync() {
     toast.success(
       t('admin-ldap-sync-done', { synced: s.synced, seen: s.seen, errors: s.errors }),
     );
+    await queryCache.invalidateQueries({ key: HISTORY_KEY });
   } catch (e) {
     errorMessage.value = createErrorFromResponse(e).getUserMessage() || t('admin-ldap-error-sync');
   } finally {

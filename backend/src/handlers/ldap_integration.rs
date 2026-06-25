@@ -63,6 +63,40 @@ pub async fn get_ldap_presets(auth: AuthContext) -> impl Responder {
     HttpResponse::Ok().json(provider_presets())
 }
 
+/// GET /ldap/sync-history — recent sync runs + cursor state for this workspace
+/// (admin). Backs the "last run / history" panel in the admin UI.
+pub async fn get_ldap_sync_history(mut tc: TenantConn, auth: AuthContext) -> impl Responder {
+    if !auth.is_workspace_admin() {
+        return errors::forbidden("Only admins can view LDAP sync history");
+    }
+    let Some(workspace_id) = tc.workspace_id() else {
+        return errors::forbidden("A resolved workspace is required");
+    };
+    let result = tc.run(|conn| {
+        let runs = crate::repository::sync_history::list_recent_for_workspace(
+            conn,
+            workspace_id,
+            &["ldap_users", "ldap_reconcile"],
+            10,
+        )?;
+        let state = repo::get_sync_state(conn)?;
+        Ok::<_, diesel::result::Error>((runs, state))
+    });
+    match result {
+        Ok((runs, state)) => HttpResponse::Ok().json(json!({
+            "runs": runs,
+            "cursor": {
+                "incremental_active": state.as_ref().map(|s| s.cookie.is_some()).unwrap_or(false),
+                "last_full_reconcile_at": state.and_then(|s| s.last_full_reconcile_at),
+            },
+        })),
+        Err(e) => {
+            error!(error = %e, "get ldap sync history failed");
+            errors::internal("Failed to load LDAP sync history")
+        }
+    }
+}
+
 /// PUT /ldap/settings — validate, upsert, then apply the bind-password controls.
 pub async fn set_ldap_settings(
     mut tc: TenantConn,

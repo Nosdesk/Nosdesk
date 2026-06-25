@@ -63,6 +63,29 @@ export interface LdapSyncResult {
   stats: LdapSyncStats;
 }
 
+/** A past sync run (a sync_history row), as shown in the admin UI. */
+export interface LdapSyncRun {
+  id: number;
+  sync_type: string; // 'ldap_users' | 'ldap_reconcile'
+  status: string; // 'completed' | 'completed_with_errors' | 'failed' | 'running'
+  started_at: string;
+  completed_at: string | null;
+  error_message: string | null;
+  records_processed: number | null;
+  records_updated: number | null;
+  records_failed: number | null;
+  is_delta: boolean;
+}
+
+export interface LdapSyncHistory {
+  runs: LdapSyncRun[];
+  cursor: {
+    /** True once a DirSync cursor exists, i.e. incremental sync is active. */
+    incremental_active: boolean;
+    last_full_reconcile_at: string | null;
+  };
+}
+
 export const ldapService = {
   async getSettings(): Promise<LdapSettingsResponse> {
     return (await apiClient.get<LdapSettingsResponse>('/ldap/settings')).data;
@@ -95,6 +118,11 @@ export const ldapService = {
   /** Run a full sync now (synchronous; returns the run stats). */
   async runSync(): Promise<LdapSyncResult> {
     return (await apiClient.post<LdapSyncResult>('/ldap/sync')).data;
+  },
+
+  /** Recent sync runs + cursor state. */
+  async getSyncHistory(): Promise<LdapSyncHistory> {
+    return (await apiClient.get<LdapSyncHistory>('/ldap/sync-history')).data;
   },
 };
 

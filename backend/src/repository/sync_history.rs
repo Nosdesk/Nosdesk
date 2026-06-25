@@ -28,6 +28,23 @@ pub fn update_sync_history(
         .get_result(conn)
 }
 
+/// Recent sync runs of the given types for a workspace, newest first. Used by
+/// the LDAP admin UI to show the last run + history. Workspace-scoped explicitly
+/// so it can't surface another tenant's runs.
+pub fn list_recent_for_workspace(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    sync_types: &[&str],
+    limit: i64,
+) -> QueryResult<Vec<SyncHistory>> {
+    sync_history::table
+        .filter(sync_history::workspace_id.eq(workspace_id))
+        .filter(sync_history::sync_type.eq_any(sync_types))
+        .order(sync_history::started_at.desc())
+        .limit(limit)
+        .load(conn)
+}
+
 /// Get the most recent completed sync
 pub fn get_last_completed_sync(conn: &mut DbConnection) -> QueryResult<SyncHistory> {
     sync_history::table
