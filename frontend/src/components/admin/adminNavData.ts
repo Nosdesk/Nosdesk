@@ -131,6 +131,13 @@ export const adminNavGroups: AdminNavGroup[] = [
         route: '/admin/data-import',
         keywords: ['import', 'data', 'intune', 'csv', 'microsoft', 'graph', 'migration']
       },
+      {
+        titleKey: 'admin-nav-ldap-title',
+        descriptionKey: 'admin-nav-ldap-description',
+        icon: 'directory',
+        route: '/admin/ldap',
+        keywords: ['ldap', 'active directory', 'directory', 'ad', 'sync', 'sso', 'entra', 'openldap']
+      },
     ]
   },
   {
