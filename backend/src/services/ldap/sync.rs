@@ -30,7 +30,7 @@ use tracing::{info, warn};
 use crate::db::DbConnection;
 use crate::models::{DirectoryAddress, DirectoryContact, WorkspaceLdapSettings};
 use crate::repository::workspace_ldap_settings;
-use crate::services::ldap::attrs::{all_values, attr_name, first_value};
+use crate::services::ldap::attrs::{all_values, attr_name, first_bin_value, first_value};
 use crate::services::ldap::auth::{ensure_bind_creds, LdapAuthError};
 use crate::services::ldap::{connector, dirsync};
 use crate::services::oauth_provisioning::{find_or_create_projected_user, ProjectedUserInput};
@@ -76,6 +76,9 @@ struct AttrNames {
     region: String,
     postal: String,
     country: String,
+    /// AD `objectSid` + `primaryGroupID`, for primary-group resolution.
+    object_sid: String,
+    primary_group_id: String,
 }
 
 fn resolve_attrs(map: &Value) -> AttrNames {
@@ -94,6 +97,8 @@ fn resolve_attrs(map: &Value) -> AttrNames {
         region: attr_name(map, "region", "st"),
         postal: attr_name(map, "postal_code", "postalCode"),
         country: attr_name(map, "country", "co"),
+        object_sid: attr_name(map, "object_sid", "objectSid"),
+        primary_group_id: attr_name(map, "primary_group_id", "primaryGroupID"),
     }
 }
 
@@ -115,6 +120,8 @@ impl AttrNames {
             &self.region,
             &self.postal,
             &self.country,
+            &self.object_sid,
+            &self.primary_group_id,
         ]
     }
 }
@@ -125,6 +132,10 @@ pub struct MappedUser {
     /// The entry's DN, persisted so group membership (AD lists members by DN)
     /// can resolve back to this user.
     pub dn: String,
+    /// Hex of this user's PRIMARY group SID (computed from objectSid +
+    /// primaryGroupID), so the group sync can add the primary-group membership
+    /// AD omits from the `member` list. `None` for non-AD directories.
+    pub primary_group_sid: Option<String>,
     pub email: String,
     pub display_name: Option<String>,
     pub contact: DirectoryContact,
@@ -135,6 +146,13 @@ pub struct MappedUser {
 fn map_entry(entry: &SearchEntry, a: &AttrNames) -> Option<MappedUser> {
     let external_id = first_value(entry, &a.external_id)?;
     let email = first_value(entry, &a.email)?;
+
+    // Primary group: objectSid (binary) + primaryGroupID (the group RID) ->
+    // the primary group's SID, which the group sync matches against group SIDs.
+    let primary_group_sid = first_bin_value(entry, &a.object_sid)
+        .zip(first_value(entry, &a.primary_group_id).and_then(|s| s.parse::<u32>().ok()))
+        .and_then(|(sid, rid)| crate::services::ldap::sid::primary_group_sid(&sid, rid))
+        .map(|sid| crate::services::ldap::sid::to_hex(&sid));
 
     let mut phones: Vec<(String, String)> = Vec::new();
     for v in all_values(entry, &a.phone) {
@@ -165,6 +183,7 @@ fn map_entry(entry: &SearchEntry, a: &AttrNames) -> Option<MappedUser> {
     Some(MappedUser {
         external_id,
         dn: entry.dn.clone(),
+        primary_group_sid,
         email,
         display_name: first_value(entry, &a.display_name),
         contact: DirectoryContact {
@@ -365,6 +384,7 @@ fn provision_entry(
     };
     let external_id = mapped.external_id.clone();
     let dn = mapped.dn.clone();
+    let primary_group_sid = mapped.primary_group_sid.clone();
     let input = ProjectedUserInput {
         iss: "ldap".to_string(),
         sub: mapped.external_id,
@@ -382,11 +402,12 @@ fn provision_entry(
             let uuid = outcome.into_user().uuid;
             // Refresh the DN (in the identity's metadata) so the group sync can
             // resolve membership back to this user even after an OU move.
-            let _ = crate::repository::user_auth_identities::set_ldap_dn(
+            let _ = crate::repository::user_auth_identities::set_ldap_identity_meta(
                 conn,
                 workspace_id,
                 &external_id,
                 &dn,
+                primary_group_sid.as_deref(),
             );
             if let Err(e) = crate::repository::user_contact::apply_directory_contact(
                 conn,

@@ -37,6 +37,13 @@ pub fn all_values(entry: &SearchEntry, attr: &str) -> Vec<String> {
     entry.attrs.get(attr).cloned().unwrap_or_default()
 }
 
+/// The first value of `attr` as raw bytes (binary attributes like AD
+/// `objectSid`, which we need unhexed to compute the primary-group SID). `None`
+/// when absent or present only as a non-binary string.
+pub fn first_bin_value(entry: &SearchEntry, attr: &str) -> Option<Vec<u8>> {
+    entry.bin_attrs.get(attr).and_then(|v| v.first()).cloned()
+}
+
 fn hex_lower(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }

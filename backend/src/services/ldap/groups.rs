@@ -10,7 +10,7 @@
 //! v1 does a full paged scan each run (groups are far fewer than users and
 //! change rarely); DirSync for groups is a possible later refinement.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use ldap3::adapters::{Adapter, EntriesOnly, PagedResults};
 use ldap3::{Scope, SearchEntry};
@@ -66,16 +66,27 @@ pub async fn sync_groups(
     let member_attr = cfg(settings, "member_attribute", "member");
     let name_attr = cfg(settings, "name_attribute", "cn");
     let ext_id_attr = attr_name(&settings.attribute_map, "external_id", "objectGUID");
+    let object_sid_attr = attr_name(&settings.attribute_map, "object_sid", "objectSid");
     let filter = format!("(objectClass={object_class})");
 
-    // DN -> user_uuid (lowercased; DNs are case-insensitive).
+    // DN -> user_uuid (lowercased) for explicit `member` entries; primary-group
+    // SID -> [user_uuid] for the primary group AD omits from that list.
     let dn_map: HashMap<String, Uuid> = user_auth_identities::ldap_dn_map(conn, workspace_id)?
         .into_iter()
         .collect();
+    let mut primary_map: HashMap<String, Vec<Uuid>> = HashMap::new();
+    for (sid, uuid) in user_auth_identities::ldap_primary_group_members(conn, workspace_id)? {
+        primary_map.entry(sid).or_default().push(uuid);
+    }
 
     let mut svc = connect_and_bind(settings, bind_password).await?;
     let page = settings.page_size.max(1) as i32;
-    let attrs: Vec<&str> = vec![ext_id_attr.as_str(), name_attr, member_attr];
+    let attrs: Vec<&str> = vec![
+        ext_id_attr.as_str(),
+        name_attr,
+        member_attr,
+        object_sid_attr.as_str(),
+    ];
     let adapters: Vec<Box<dyn Adapter<_, _>>> = vec![
         Box::new(EntriesOnly::new()),
         Box::new(PagedResults::new(page)),
@@ -113,20 +124,29 @@ pub async fn sync_groups(
         };
         synced_ext_ids.push(ext_id);
 
-        // Resolve members (DNs) to user_uuids via the map.
-        let member_uuids: Vec<Uuid> = all_values(&entry, member_attr)
-            .into_iter()
-            .filter_map(|dn| match dn_map.get(&dn.to_lowercase()) {
+        // Explicit members: resolve each member DN to a user_uuid via the map.
+        let mut members: HashSet<Uuid> = HashSet::new();
+        for dn in all_values(&entry, member_attr) {
+            match dn_map.get(&dn.to_lowercase()) {
                 Some(uuid) => {
+                    members.insert(*uuid);
                     stats.members_resolved += 1;
-                    Some(*uuid)
                 }
-                None => {
-                    stats.members_unresolved += 1;
-                    None
+                None => stats.members_unresolved += 1,
+            }
+        }
+        // Primary-group members (e.g. Domain Users): users whose primaryGroupID
+        // resolves to THIS group's SID, which AD leaves out of `member`.
+        if let Some(sid) = first_value(&entry, &object_sid_attr) {
+            if let Some(primaries) = primary_map.get(&sid) {
+                for &uuid in primaries {
+                    if members.insert(uuid) {
+                        stats.members_resolved += 1;
+                    }
                 }
-            })
-            .collect();
+            }
+        }
+        let member_uuids: Vec<Uuid> = members.into_iter().collect();
         if let Err(e) = groups_repo::set_group_members(conn, group.id, member_uuids, None) {
             warn!(error = %e, group = %name, "ldap group sync: set members failed");
         }

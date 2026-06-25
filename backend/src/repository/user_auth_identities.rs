@@ -173,24 +173,57 @@ pub fn get_user_uuids_by_external_ids(
         .load::<(String, Uuid)>(conn)
 }
 
-// sync-pending-wire: directory DN refreshed each sync for group membership resolution
-/// Store/refresh the LDAP DN (in metadata) on a workspace-scoped `ldap`
-/// identity, so the group sync (AD lists members by DN) can resolve it back to
-/// the user. Idempotent; called for every user on each sync.
-pub fn set_ldap_dn(
+// sync-pending-wire: directory DN/SID refreshed each sync for group membership resolution
+/// Store/refresh the LDAP DN + primary-group SID (in metadata) on a
+/// workspace-scoped `ldap` identity, so the group sync can resolve membership:
+/// the DN for explicit `member` entries, the primary-group SID for the primary
+/// group AD omits from that list. Idempotent; called for every user each sync.
+pub fn set_ldap_identity_meta(
     conn: &mut DbConnection,
     workspace_id: i32,
     external_id: &str,
     dn: &str,
+    primary_group_sid: Option<&str>,
 ) -> Result<usize, Error> {
+    let mut meta = serde_json::Map::new();
+    meta.insert("ldap_dn".into(), serde_json::Value::from(dn));
+    if let Some(sid) = primary_group_sid {
+        meta.insert("primary_group_sid".into(), serde_json::Value::from(sid));
+    }
     diesel::update(
         user_auth_identities::table
             .filter(user_auth_identities::workspace_id.eq(workspace_id))
             .filter(user_auth_identities::provider_type.eq("ldap"))
             .filter(user_auth_identities::external_id.eq(external_id)),
     )
-    .set(user_auth_identities::metadata.eq(serde_json::json!({ "ldap_dn": dn })))
+    .set(user_auth_identities::metadata.eq(serde_json::Value::Object(meta)))
     .execute(conn)
+}
+
+/// `(primary-group SID hex -> user_uuid)` for the workspace's `ldap` identities.
+/// The group sync matches a group's own `objectSid` against these to add the
+/// primary-group membership (Domain Users etc.) that isn't in the member list.
+pub fn ldap_primary_group_members(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+) -> Result<Vec<(String, Uuid)>, Error> {
+    let rows: Vec<(Option<serde_json::Value>, Uuid)> = user_auth_identities::table
+        .filter(user_auth_identities::workspace_id.eq(workspace_id))
+        .filter(user_auth_identities::provider_type.eq("ldap"))
+        .select((
+            user_auth_identities::metadata,
+            user_auth_identities::user_uuid,
+        ))
+        .load(conn)?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|(meta, uuid)| {
+            meta.as_ref()
+                .and_then(|m| m.get("primary_group_sid"))
+                .and_then(|v| v.as_str())
+                .map(|sid| (sid.to_string(), uuid))
+        })
+        .collect())
 }
 
 /// All `user_uuid`s that have an `ldap` identity in the workspace. Used by the
@@ -333,21 +366,37 @@ mod tests {
             .execute(&mut conn)
             .unwrap();
 
-        // Refresh the DN; the map lowercases it so case-varying group member DNs
-        // still resolve (LDAP DNs are case-insensitive).
-        let rows = set_ldap_dn(&mut conn, 1, "guid-1", "CN=Jane Doe,OU=Staff,DC=corp").unwrap();
+        // Refresh the DN + primary-group SID; the DN map lowercases so
+        // case-varying group member DNs still resolve (DNs are case-insensitive).
+        let rows = set_ldap_identity_meta(
+            &mut conn,
+            1,
+            "guid-1",
+            "CN=Jane Doe,OU=Staff,DC=corp",
+            Some("0102abcd"),
+        )
+        .unwrap();
         assert_eq!(rows, 1);
 
         let map: std::collections::HashMap<_, _> =
             ldap_dn_map(&mut conn, 1).unwrap().into_iter().collect();
         assert_eq!(map.get("cn=jane doe,ou=staff,dc=corp"), Some(&user.uuid));
 
+        // The primary-group SID is keyed for the group sync to match.
+        let pg: std::collections::HashMap<_, _> = ldap_primary_group_members(&mut conn, 1)
+            .unwrap()
+            .into_iter()
+            .collect();
+        assert_eq!(pg.get("0102abcd"), Some(&user.uuid));
+
         // A later sync moves the user's OU; the DN refreshes in place.
-        set_ldap_dn(&mut conn, 1, "guid-1", "CN=Jane Doe,OU=Eng,DC=corp").unwrap();
+        set_ldap_identity_meta(&mut conn, 1, "guid-1", "CN=Jane Doe,OU=Eng,DC=corp", None).unwrap();
         let map: std::collections::HashMap<_, _> =
             ldap_dn_map(&mut conn, 1).unwrap().into_iter().collect();
         assert_eq!(map.get("cn=jane doe,ou=eng,dc=corp"), Some(&user.uuid));
         assert!(map.get("cn=jane doe,ou=staff,dc=corp").is_none());
+        // Dropping the SID clears it from the primary-group map.
+        assert!(ldap_primary_group_members(&mut conn, 1).unwrap().is_empty());
     }
 
     #[test]
