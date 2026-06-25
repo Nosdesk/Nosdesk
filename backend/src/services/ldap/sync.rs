@@ -248,6 +248,15 @@ pub async fn sync_users(
 
     let mut svc = connect_and_bind(settings, bind_password).await?;
 
+    // DirSync must search at the directory NC root (MS-ADTS 3.1.1.3.4.1.3): a
+    // subtree base returns insufficientAccessRights. Read defaultNamingContext
+    // from RootDSE; dirsync_pass filters entries back to user_base_dn client-
+    // side. Falls back to user_base_dn if RootDSE can't be read (non-AD).
+    let dirsync_base = read_default_naming_context(&mut svc)
+        .await
+        .unwrap_or(None)
+        .unwrap_or_else(|| settings.user_base_dn.clone());
+
     let prior_cookie = workspace_ldap_settings::get_sync_state(conn)?
         .and_then(|s| s.cookie)
         .unwrap_or_default();
@@ -257,6 +266,7 @@ pub async fn sync_users(
         &mut svc,
         conn,
         settings,
+        &dirsync_base,
         &attrs,
         &filter,
         workspace_id,
@@ -270,55 +280,108 @@ pub async fn sync_users(
             }
             Ok(stats)
         }
-        Err(e) => {
-            warn!(error = %e, "ldap DirSync sync failed; falling back to a full paged scan");
-            // Reset the cursor and do a full paged scan against any directory.
+        // The directory can't do DirSync (no Replicating-Directory-Changes right,
+        // or not AD): drop the unusable cursor and fall back to a full paged scan.
+        Err(SyncError::DirSyncNotHonored) => {
+            warn!("ldap DirSync not honored; falling back to a full paged scan");
             let _ = workspace_ldap_settings::set_cookie(conn, workspace_id, "dirsync", None);
             full_scan_pass(&mut svc, conn, settings, &attrs, &filter, workspace_id).await
+        }
+        // Transient (timeout / dropped stream / DB / server limit): keep the
+        // last-known-good cursor and surface the failure as a failed run, so one
+        // blip doesn't cost two full scans + lose incremental sync.
+        Err(e) => {
+            warn!(error = %e, "ldap DirSync sync failed; cursor preserved");
+            Err(e)
         }
     }
 }
 
-/// DirSync incremental: loop the search carrying the cookie until MoreResults is
-/// clear, persisting the final cookie only on clean completion.
+/// Backstop against a non-conforming DC that never clears MoreResults; the
+/// non-advancing-cookie check below is the primary guard, this is the ceiling.
+const MAX_DIRSYNC_ROUNDS: usize = 100_000;
+
+/// Read defaultNamingContext (the domain NC root) from RootDSE. `None` if the
+/// directory doesn't expose it (non-AD), so the caller falls back to user_base_dn.
+async fn read_default_naming_context(svc: &mut Ldap) -> Result<Option<String>, SyncError> {
+    let (entries, _res) = svc
+        .with_timeout(connector::OP_TIMEOUT)
+        .search(
+            "",
+            Scope::Base,
+            "(objectClass=*)",
+            vec!["defaultNamingContext"],
+        )
+        .await?
+        .success()?;
+    Ok(entries
+        .into_iter()
+        .next()
+        .and_then(|e| first_value(&SearchEntry::construct(e), "defaultNamingContext")))
+}
+
+/// DirSync incremental: search at `base` (the NC root, required by the control),
+/// keeping only entries under the configured user_base_dn, looping the cookie
+/// until MoreResults is clear. The cookie is persisted ONLY on clean completion.
 async fn dirsync_pass(
     svc: &mut Ldap,
     conn: &mut DbConnection,
     settings: &WorkspaceLdapSettings,
+    base: &str,
     attrs: &AttrNames,
     filter: &str,
     workspace_id: i32,
     mut cookie: Vec<u8>,
 ) -> Result<SyncStats, SyncError> {
+    // The NC-root search returns changed users across the domain; keep only
+    // those under user_base_dn (DN suffix match, DNs are case-insensitive).
+    let subtree = settings.user_base_dn.to_lowercase();
     let mut stats = SyncStats::default();
+    let mut rounds = 0usize;
     loop {
+        rounds += 1;
+        if rounds > MAX_DIRSYNC_ROUNDS {
+            warn!(
+                rounds,
+                "ldap DirSync exceeded the round cap; treating as not honored"
+            );
+            return Err(SyncError::DirSyncNotHonored);
+        }
         let mut search = svc
             .with_timeout(connector::OP_TIMEOUT)
             .with_controls(vec![dirsync::request_control(&cookie)])
             .streaming_search_with(
                 vec![Box::new(EntriesOnly::new()) as Box<dyn Adapter<_, _>>],
-                &settings.user_base_dn,
+                base,
                 Scope::Subtree,
                 filter,
                 attrs.request_list(),
             )
             .await?;
         while let Some(re) = search.next().await? {
-            provision_entry(
-                conn,
-                attrs,
-                workspace_id,
-                SearchEntry::construct(re),
-                &mut stats,
-            );
+            let entry = SearchEntry::construct(re);
+            if entry.dn.to_lowercase().ends_with(&subtree) {
+                provision_entry(conn, attrs, workspace_id, entry, &mut stats);
+            }
         }
         let res = search.finish().await;
-        // A critical DirSync control means a successful search MUST carry the
-        // response control; its absence signals the server didn't honor it ->
-        // fall back.
+        // insufficientAccessRights (50) = no DirSync right / wrong base -> fall
+        // back to a full scan. Any OTHER non-success rc (a server limit, a
+        // transient condition) propagates as SyncError::Ldap and must NOT wipe
+        // the cursor. rc==0 with no response control = the server ignored the
+        // control = genuinely not honored.
+        if res.rc == 50 {
+            return Err(SyncError::DirSyncNotHonored);
+        }
+        let res = res.success()?;
         let resp = extract_dirsync_response(&res.ctrls).ok_or(SyncError::DirSyncNotHonored)?;
+        let advanced = resp.cookie != cookie;
         cookie = resp.cookie;
         if !resp.more_results {
+            break;
+        }
+        if !advanced {
+            warn!("ldap DirSync: MoreResults set but the cookie did not advance; stopping");
             break;
         }
     }
@@ -402,13 +465,18 @@ fn provision_entry(
             let uuid = outcome.into_user().uuid;
             // Refresh the DN (in the identity's metadata) so the group sync can
             // resolve membership back to this user even after an OU move.
-            let _ = crate::repository::user_auth_identities::set_ldap_identity_meta(
+            if let Err(e) = crate::repository::user_auth_identities::set_ldap_identity_meta(
                 conn,
                 workspace_id,
                 &external_id,
                 &dn,
                 primary_group_sid.as_deref(),
-            );
+            ) {
+                // A stale DN silently drops the user from explicit-member groups
+                // until the next clean sync; surface it rather than swallow it.
+                warn!(error = %e, "ldap sync: DN/SID metadata refresh failed");
+                stats.errors += 1;
+            }
             if let Err(e) = crate::repository::user_contact::apply_directory_contact(
                 conn,
                 uuid,
@@ -516,30 +584,33 @@ pub async fn run_recorded_sync(
                 )
                 .await
                 {
-                    Ok(g) => info!(
-                        groups = g.groups_synced,
-                        members = g.members_resolved,
-                        unresolved = g.members_unresolved,
-                        "ldap group sync completed"
-                    ),
-                    Err(e) => warn!(error = %e, "ldap group sync failed"),
-                }
-                // Group->role mapping runs after memberships are fresh. No-op
-                // unless role_mappings are configured.
-                match crate::services::ldap::role_mapping::apply_role_mappings(
-                    conn,
-                    settings,
-                    workspace_id,
-                ) {
-                    Ok(r) if r.changed > 0 || r.errors > 0 => {
+                    Ok(g) => {
                         info!(
-                            changed = r.changed,
-                            errors = r.errors,
-                            "ldap role mapping applied"
-                        )
+                            groups = g.groups_synced,
+                            members = g.members_resolved,
+                            unresolved = g.members_unresolved,
+                            "ldap group sync completed"
+                        );
+                        // Role mapping runs ONLY on a COMPLETE group sync, so a
+                        // failed/partial sync can't apply authoritative roles off
+                        // stale memberships. No-op unless role_mappings are set.
+                        match crate::services::ldap::role_mapping::apply_role_mappings(
+                            conn,
+                            settings,
+                            workspace_id,
+                        ) {
+                            Ok(r) if r.changed > 0 || r.errors > 0 => {
+                                info!(
+                                    changed = r.changed,
+                                    errors = r.errors,
+                                    "ldap role mapping applied"
+                                )
+                            }
+                            Ok(_) => {}
+                            Err(e) => warn!(error = %e, "ldap role mapping failed"),
+                        }
                     }
-                    Ok(_) => {}
-                    Err(e) => warn!(error = %e, "ldap role mapping failed"),
+                    Err(e) => warn!(error = %e, "ldap group sync failed; skipping role mapping"),
                 }
             }
             Ok(RecordedSync {

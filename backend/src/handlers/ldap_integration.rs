@@ -269,6 +269,35 @@ fn validate_settings(s: &UpsertWorkspaceLdapSettings) -> Result<(), String> {
             return Err("user_base_dn is required when LDAP is enabled".into());
         }
     }
+    validate_group_role_config(&s.group_config)?;
+    Ok(())
+}
+
+/// Guard the group->role mapping config against privilege-escalation footguns.
+/// The `default_role` is applied to EVERY directory user who matches no mapped
+/// group, so a mistyped `"admin"` there would blanket-elevate the whole
+/// directory on the next sync. Keep the default least-privilege, and never let
+/// the directory mint owners.
+fn validate_group_role_config(gc: &serde_json::Value) -> Result<(), String> {
+    if let Some(default_role) = gc.get("default_role").and_then(|v| v.as_str()) {
+        if default_role != "member" {
+            return Err(format!(
+                "default_role must be 'member' (the unmatched-user fallback is least-privilege); \
+                 map an explicit group to grant a higher role, got '{default_role}'"
+            ));
+        }
+    }
+    if let Some(mappings) = gc.get("role_mappings").and_then(|v| v.as_array()) {
+        for m in mappings {
+            let role = m.get("role").and_then(|v| v.as_str()).unwrap_or("");
+            if !matches!(role, "member" | "agent" | "admin") {
+                return Err(format!(
+                    "role_mappings role must be one of member/agent/admin (the directory cannot \
+                     mint owners), got '{role}'"
+                ));
+            }
+        }
+    }
     Ok(())
 }
 
@@ -367,6 +396,29 @@ mod tests {
         let mut s = valid();
         s.auth_mode = "kerberos".into();
         assert!(validate_settings(&s).is_err());
+    }
+
+    #[test]
+    fn rejects_privileged_group_role_config() {
+        // A privileged default_role would blanket-elevate the unmatched directory.
+        let mut s = valid();
+        s.group_config = serde_json::json!({ "default_role": "admin" });
+        assert!(validate_settings(&s).is_err());
+        let mut s = valid();
+        s.group_config = serde_json::json!({ "default_role": "owner" });
+        assert!(validate_settings(&s).is_err());
+        // The directory can't mint owners via a mapping.
+        let mut s = valid();
+        s.group_config =
+            serde_json::json!({ "role_mappings": [{ "group": "X", "role": "owner" }] });
+        assert!(validate_settings(&s).is_err());
+        // A least-privilege default + agent/admin mappings are fine.
+        let mut s = valid();
+        s.group_config = serde_json::json!({
+            "default_role": "member",
+            "role_mappings": [{ "group": "Admins", "role": "admin" }],
+        });
+        assert!(validate_settings(&s).is_ok());
     }
 
     #[test]

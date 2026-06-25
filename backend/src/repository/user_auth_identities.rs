@@ -237,9 +237,12 @@ pub fn ldap_user_uuids(conn: &mut DbConnection, workspace_id: i32) -> Result<Vec
         .load(conn)
 }
 
-/// `(lowercased DN -> user_uuid)` for the workspace's `ldap` identities. DNs are
-/// case-insensitive, so keys are lowercased for matching against group member
-/// DNs. Used by the group sync to resolve membership.
+/// `(lowercased DN -> user_uuid)` for the workspace's `ldap` identities. Keys
+/// are lowercased because AD returns a group's member DNs identical (modulo
+/// case) to each object's own distinguishedName, so a case-fold suffices here;
+/// this is an AD referential-consistency shortcut, not full RFC 4514 DN
+/// normalization (which also folds insignificant whitespace/escaping). Used by
+/// the group sync to resolve membership.
 pub fn ldap_dn_map(
     conn: &mut DbConnection,
     workspace_id: i32,

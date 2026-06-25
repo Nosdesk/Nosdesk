@@ -16,6 +16,14 @@
 //!
 //! Runs after the group sync (so memberships are fresh). Pure `role_for` is unit
 //! tested; the apply loop is DB-backed. Reused by SCIM later.
+//!
+//! v1 limitations (documented, not bugs): rules match a group's COMMON NAME
+//! case-insensitively, so two groups with the same CN in different OUs collide
+//! (map by a CN that's unique under your base). Membership is FLAT: a member
+//! that is itself a nested group isn't expanded, so map leaf groups, not
+//! umbrella groups whose members are other groups. Only live (`sync_enabled`)
+//! ldap groups count, so a group deleted/renamed in the directory stops
+//! granting its role on the next sync.
 
 use serde_json::Value;
 use tracing::{info, warn};
@@ -59,17 +67,35 @@ impl RoleMapConfig {
             .filter_map(|m| {
                 let group = m.get("group")?.as_str()?.trim().to_string();
                 let role = WorkspaceRole::from_db(m.get("role")?.as_str()?);
+                // The directory never mints owners. validate_settings rejects
+                // this at write; clamp here too, for a row written directly.
+                if role == WorkspaceRole::Owner {
+                    warn!(group, "ldap role mapping: ignoring an 'owner' rule");
+                    return None;
+                }
                 (!group.is_empty()).then_some(RoleRule { group, role })
             })
             .collect();
         if rules.is_empty() {
             return None;
         }
-        let default_role = gc
+        // The default applies to EVERY unmatched user, so it is always clamped to
+        // the least-privilege Member (validate_settings rejects a higher default
+        // at write; this is the defense-in-depth backstop).
+        let default_role = match gc
             .get("default_role")
             .and_then(Value::as_str)
             .map(WorkspaceRole::from_db)
-            .unwrap_or(WorkspaceRole::Member);
+        {
+            Some(other) if other != WorkspaceRole::Member => {
+                warn!(
+                    role = other.as_str(),
+                    "ldap role mapping: clamping default_role to member"
+                );
+                WorkspaceRole::Member
+            }
+            _ => WorkspaceRole::Member,
+        };
         Some(RoleMapConfig {
             rules,
             default_role,
@@ -111,14 +137,18 @@ pub fn apply_role_mappings(
             continue;
         }
 
-        let group_names: Vec<String> = match groups_repo::get_groups_for_user(conn, &user_uuid) {
-            Ok(groups) => groups.into_iter().map(|g| g.name).collect(),
-            Err(e) => {
-                warn!(error = %e, %user_uuid, "ldap role mapping: load groups failed");
-                stats.errors += 1;
-                continue;
-            }
-        };
+        // Only LIVE ldap groups count: a group deleted/renamed in AD is left
+        // sync_enabled=false and must stop granting its role; internal /
+        // other-source groups with a colliding name must not match a rule.
+        let group_names: Vec<String> =
+            match groups_repo::get_synced_groups_for_user(conn, &user_uuid, "ldap") {
+                Ok(groups) => groups.into_iter().map(|g| g.name).collect(),
+                Err(e) => {
+                    warn!(error = %e, %user_uuid, "ldap role mapping: load groups failed");
+                    stats.errors += 1;
+                    continue;
+                }
+            };
         let target = cfg.role_for(&group_names);
         if current.as_deref() == Some(target.as_str()) {
             continue; // already correct; skip the write (no audit churn)
@@ -180,12 +210,27 @@ mod tests {
     }
 
     #[test]
-    fn default_role_is_configurable() {
+    fn default_role_is_clamped_to_member() {
+        // A privileged default would blanket-elevate the unmatched directory, so
+        // it's clamped to Member regardless of what the config says.
         let c = cfg(json!({
             "role_mappings": [{ "group": "Admins", "role": "admin" }],
-            "default_role": "agent",
+            "default_role": "admin",
         }));
-        assert_eq!(c.role_for(&["Nothing".into()]), WorkspaceRole::Agent);
+        assert_eq!(c.role_for(&["Nothing".into()]), WorkspaceRole::Member);
+        assert_eq!(c.role_for(&["Admins".into()]), WorkspaceRole::Admin);
+    }
+
+    #[test]
+    fn owner_rules_are_ignored() {
+        // The directory never mints owners.
+        let c = cfg(json!({
+            "role_mappings": [
+                { "group": "Admins", "role": "admin" },
+                { "group": "Bosses", "role": "owner" },
+            ]
+        }));
+        assert_eq!(c.role_for(&["Bosses".into()]), WorkspaceRole::Member);
         assert_eq!(c.role_for(&["Admins".into()]), WorkspaceRole::Admin);
     }
 }

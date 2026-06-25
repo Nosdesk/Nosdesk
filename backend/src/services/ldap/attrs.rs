@@ -38,10 +38,21 @@ pub fn all_values(entry: &SearchEntry, attr: &str) -> Vec<String> {
 }
 
 /// The first value of `attr` as raw bytes (binary attributes like AD
-/// `objectSid`, which we need unhexed to compute the primary-group SID). `None`
-/// when absent or present only as a non-binary string.
+/// `objectSid`, which we need unhexed to compute the primary-group SID).
+///
+/// ldap3 routes each value to `attrs` vs `bin_attrs` by UTF-8 validity, so a
+/// binary attribute whose bytes happen to be valid UTF-8 lands in `attrs`. We
+/// check both maps so the user side (this) and the group side derive the SAME
+/// hex byte-for-byte; otherwise the primary-group union would silently miss.
 pub fn first_bin_value(entry: &SearchEntry, attr: &str) -> Option<Vec<u8>> {
-    entry.bin_attrs.get(attr).and_then(|v| v.first()).cloned()
+    if let Some(b) = entry.bin_attrs.get(attr).and_then(|v| v.first()) {
+        return Some(b.clone());
+    }
+    entry
+        .attrs
+        .get(attr)
+        .and_then(|v| v.first())
+        .map(|s| s.as_bytes().to_vec())
 }
 
 fn hex_lower(bytes: &[u8]) -> String {

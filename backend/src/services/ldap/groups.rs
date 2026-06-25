@@ -21,7 +21,7 @@ use uuid::Uuid;
 use crate::db::DbConnection;
 use crate::models::WorkspaceLdapSettings;
 use crate::repository::{groups as groups_repo, user_auth_identities};
-use crate::services::ldap::attrs::{all_values, attr_name, first_value};
+use crate::services::ldap::attrs::{all_values, attr_name, first_bin_value, first_value};
 use crate::services::ldap::connector;
 use crate::services::ldap::sync::{connect_and_bind, SyncError};
 
@@ -136,8 +136,12 @@ pub async fn sync_groups(
             }
         }
         // Primary-group members (e.g. Domain Users): users whose primaryGroupID
-        // resolves to THIS group's SID, which AD leaves out of `member`.
-        if let Some(sid) = first_value(&entry, &object_sid_attr) {
+        // resolves to THIS group's SID, which AD leaves out of `member`. Read
+        // objectSid as raw bytes -> hex via the SAME path the user side uses, so
+        // the two SIDs compare byte-for-byte (see attrs::first_bin_value).
+        let group_sid = first_bin_value(&entry, &object_sid_attr)
+            .map(|b| crate::services::ldap::sid::to_hex(&b));
+        if let Some(sid) = group_sid {
             if let Some(primaries) = primary_map.get(&sid) {
                 for &uuid in primaries {
                     if members.insert(uuid) {
@@ -155,10 +159,17 @@ pub async fn sync_groups(
     let _ = stream.finish().await;
 
     // Groups no longer present in the directory: mark not-synced (kept, not
-    // deleted, so any manual membership / metadata survives).
-    let ext_id_refs: Vec<&str> = synced_ext_ids.iter().map(String::as_str).collect();
-    if let Err(e) = groups_repo::mark_groups_not_synced(conn, "ldap", &ext_id_refs) {
-        warn!(error = %e, "ldap group sync: mark-not-synced failed");
+    // deleted, so any manual membership / metadata survives). Circuit-breaker: a
+    // scan that returned ZERO groups is far more likely a misconfigured base or
+    // object_class than "every group was deleted", so don't disable them all in
+    // one shot off an empty result.
+    if synced_ext_ids.is_empty() {
+        warn!("ldap group sync: scan returned no groups; skipping the not-synced sweep");
+    } else {
+        let ext_id_refs: Vec<&str> = synced_ext_ids.iter().map(String::as_str).collect();
+        if let Err(e) = groups_repo::mark_groups_not_synced(conn, "ldap", &ext_id_refs) {
+            warn!(error = %e, "ldap group sync: mark-not-synced failed");
+        }
     }
 
     Ok(stats)
