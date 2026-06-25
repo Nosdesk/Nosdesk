@@ -81,8 +81,12 @@ pub async fn authenticate(
     let name_attr = attr_name(&settings.attribute_map, "display_name", "cn");
 
     // 2. Service bind.
+    ensure_bind_creds(settings, bind_password)?;
     let mut svc = connector::connect(settings).await?;
-    let svc_bind = svc.simple_bind(&settings.bind_dn, bind_password).await?;
+    let svc_bind = svc
+        .with_timeout(connector::OP_TIMEOUT)
+        .simple_bind(&settings.bind_dn, bind_password)
+        .await?;
     if !is_success(&svc_bind) {
         return Err(LdapAuthError::ServiceBind);
     }
@@ -91,6 +95,7 @@ pub async fn authenticate(
     let filter = build_user_filter(&settings.user_filter, username);
     let attrs = vec![ext_id_attr.clone(), email_attr.clone(), name_attr.clone()];
     let (entries, _res) = svc
+        .with_timeout(connector::OP_TIMEOUT)
         .search(&settings.user_base_dn, Scope::Subtree, &filter, attrs)
         .await?
         .success()?;
@@ -110,7 +115,10 @@ pub async fn authenticate(
 
     // 4. Fresh connection, user bind = the authentication proof.
     let mut user_conn = connector::connect(settings).await?;
-    let user_bind = user_conn.simple_bind(&dn, user_password).await?;
+    let user_bind = user_conn
+        .with_timeout(connector::OP_TIMEOUT)
+        .simple_bind(&dn, user_password)
+        .await?;
     let _ = user_conn.unbind().await;
     if !is_success(&user_bind) {
         return Err(LdapAuthError::InvalidCredentials);
@@ -130,10 +138,28 @@ pub async fn test_connection(
     settings: &WorkspaceLdapSettings,
     bind_password: &str,
 ) -> Result<(), LdapAuthError> {
+    ensure_bind_creds(settings, bind_password)?;
     let mut svc = connector::connect(settings).await?;
-    let res = svc.simple_bind(&settings.bind_dn, bind_password).await?;
+    let res = svc
+        .with_timeout(connector::OP_TIMEOUT)
+        .simple_bind(&settings.bind_dn, bind_password)
+        .await?;
     let _ = svc.unbind().await;
     if !is_success(&res) {
+        return Err(LdapAuthError::ServiceBind);
+    }
+    Ok(())
+}
+
+/// A `bind_dn` with no password would degrade to an anonymous bind (RFC 4513
+/// §5.1.2), masking a broken config — and the password-load path must surface a
+/// KEK/decrypt error rather than silently passing an empty string here. Require
+/// a non-empty password whenever a bind_dn is configured.
+pub(crate) fn ensure_bind_creds(
+    settings: &WorkspaceLdapSettings,
+    bind_password: &str,
+) -> Result<(), LdapAuthError> {
+    if !settings.bind_dn.trim().is_empty() && bind_password.is_empty() {
         return Err(LdapAuthError::ServiceBind);
     }
     Ok(())

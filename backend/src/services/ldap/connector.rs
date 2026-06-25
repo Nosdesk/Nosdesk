@@ -28,6 +28,13 @@ use tracing::warn;
 use crate::models::WorkspaceLdapSettings;
 use crate::utils::egress::{self, EgressError};
 
+/// Per-operation timeout for binds + searches. `set_conn_timeout` only bounds
+/// the TCP/TLS connect; ldap3 defaults the live handle to NO op timeout, so a
+/// DC that completes the handshake then stalls a BIND/SEARCH would hang the
+/// await forever. Callers apply this via `ldap.with_timeout(OP_TIMEOUT)` before
+/// each op (ldap3 consumes the timeout per operation).
+pub const OP_TIMEOUT: Duration = Duration::from_secs(30);
+
 #[derive(Debug, thiserror::Error)]
 pub enum LdapConnectError {
     #[error("LDAP host rejected by egress policy: {0}")]
@@ -51,10 +58,19 @@ pub async fn connect(settings: &WorkspaceLdapSettings) -> Result<Ldap, LdapConne
     // host (the on-prem DC) passes even though it's on RFC1918.
     egress::resolve_and_validate(host, port).await?;
 
+    // Only encrypted transports: LDAPS wraps TLS from the first byte, StartTLS
+    // upgrades a plain ldap:// connection BEFORE the bind. A cleartext "plain"
+    // bind is never offered — it would ship the service + user passwords over an
+    // unencrypted socket (RFC 4513 §5.1.3), so it's rejected here as well as in
+    // the admin validator.
     let scheme = match settings.tls_mode.as_str() {
         "ldaps" => "ldaps",
-        "starttls" | "plain" => "ldap",
-        other => return Err(LdapConnectError::Tls(format!("unknown tls_mode '{other}'"))),
+        "starttls" => "ldap",
+        other => {
+            return Err(LdapConnectError::Tls(format!(
+                "unsupported tls_mode '{other}' (must be 'ldaps' or 'starttls')"
+            )))
+        }
     };
     let url = format!("{scheme}://{host}:{port}");
 

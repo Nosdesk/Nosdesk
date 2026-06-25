@@ -14,10 +14,14 @@ use ldap3::controls::RawControl;
 
 pub const DIRSYNC_OID: &str = "1.2.840.113556.1.4.841";
 
-/// Standard DirSync: full attribute values for changed objects (no
-/// INCREMENTAL_VALUES), and let the server pick the page size.
+/// Standard DirSync: full attribute values for changed objects, i.e. no
+/// LDAP_DIRSYNC_INCREMENTAL_VALUES (which would return only changed values of
+/// multi-valued attrs) and no OBJECT_SECURITY. `MAX_BYTES` is the per-reply byte
+/// cap (MS-ADTS 3.1.1.3.4.1.3); AD clamps it up to a 0x100000 floor, and
+/// batching is handled by the MoreResults + cookie loop regardless, so we send
+/// the floor explicitly.
 const FLAGS: i32 = 0;
-const MAX_BYTES: i32 = 0;
+const MAX_BYTES: i32 = 0x100000;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DirSyncError {

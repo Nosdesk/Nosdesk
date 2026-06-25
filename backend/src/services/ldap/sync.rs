@@ -6,6 +6,18 @@
 //! v1 is a FULL scan (paged via RFC 2696 so AD's MaxPageSize doesn't truncate).
 //! Incremental DirSync + the run model (sync_history, scheduling) land in later
 //! P3 chunks; this chunk is the scan + mapping core.
+//!
+//! DEPROVISIONING is a deliberate v1 no-op: this provisions/refreshes only and
+//! never disables users who vanished from the directory (plan open decision #5).
+//! A terminated AD account fails its bind so it can't log in regardless.
+//!
+//! INTERLOCK for the future deprovision pass (review finding): each entry here
+//! commits independently with no outer transaction, and `sync_users` returns
+//! `Ok` ONLY on a clean stream EOF (a mid-scan error short-circuits via `?`), so
+//! the caller's `completed` status is a genuine scan-complete signal. A
+//! deprovision pass that disables "users not seen this scan" MUST gate on that
+//! signal AND apply a mass-deletion circuit-breaker, or a scan that died after N
+//! of M users would mass-disable the unseen M-N real users.
 
 use ldap3::adapters::{Adapter, EntriesOnly, PagedResults};
 use ldap3::{Scope, SearchEntry};
@@ -15,7 +27,7 @@ use tracing::warn;
 use crate::db::DbConnection;
 use crate::models::{DirectoryAddress, DirectoryContact, WorkspaceLdapSettings};
 use crate::services::ldap::attrs::{all_values, attr_name, first_value};
-use crate::services::ldap::auth::LdapAuthError;
+use crate::services::ldap::auth::{ensure_bind_creds, LdapAuthError};
 use crate::services::ldap::connector;
 use crate::services::oauth_provisioning::{find_or_create_projected_user, ProjectedUserInput};
 
@@ -174,10 +186,17 @@ pub async fn sync_users(
     let attrs = resolve_attrs(&settings.attribute_map);
     let filter = build_sync_filter(&settings.user_filter);
 
+    ensure_bind_creds(settings, bind_password).map_err(SyncError::Auth)?;
     let mut svc = connector::connect(settings)
         .await
         .map_err(LdapAuthError::Connect)?;
-    if svc.simple_bind(&settings.bind_dn, bind_password).await?.rc != 0 {
+    if svc
+        .with_timeout(connector::OP_TIMEOUT)
+        .simple_bind(&settings.bind_dn, bind_password)
+        .await?
+        .rc
+        != 0
+    {
         return Err(SyncError::Auth(LdapAuthError::ServiceBind));
     }
 
@@ -187,6 +206,7 @@ pub async fn sync_users(
         Box::new(PagedResults::new(page)),
     ];
     let mut stream = svc
+        .with_timeout(connector::OP_TIMEOUT)
         .streaming_search_with(
             adapters,
             &settings.user_base_dn,

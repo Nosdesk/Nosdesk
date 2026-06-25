@@ -367,6 +367,17 @@ async fn try_ldap_login(
                 // email-fallback link to a pre-existing local/SSO account is
                 // authorised (the "operator created the user, LDAP now signs in"
                 // migration case).
+                //
+                // INTERLOCK (review finding): because email_verified is always
+                // true here, a directory bind whose `mail` matches an EXISTING
+                // workspace member links onto that seat, and ensure_membership's
+                // ON CONFLICT DO NOTHING PRESERVES that member's current role. So
+                // `member` below applies only to brand-new users; an existing
+                // admin/owner keeps their role. The risk is bounded (the bind
+                // needs a valid AD credential, and `mail` is directory-admin-
+                // controlled), but when the P4 group->role mapping lands it
+                // should scope the email link to in-workspace users and/or audit
+                // a directory login that resolves onto an above-baseline role.
                 email_verified: true,
                 name: result.display_name.clone(),
                 // Group->role mapping lands in P4; until then a new LDAP user

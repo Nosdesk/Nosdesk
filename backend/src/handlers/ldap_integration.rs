@@ -230,17 +230,25 @@ pub async fn run_ldap_sync(
 
     match result {
         Ok(stats) => {
+            // A green "completed" must not hide per-entry write failures. Skips
+            // (entries legitimately lacking email/external_id) are benign and
+            // are NOT counted as failures.
+            let status = if stats.errors > 0 {
+                "completed_with_errors"
+            } else {
+                "completed"
+            };
             let _ = sync_history_repo::update_sync_history(
                 &mut conn,
                 history.id,
                 SyncHistoryUpdate {
-                    status: Some("completed".to_string()),
+                    status: Some(status.to_string()),
                     completed_at,
                     error_message: None,
                     records_processed: Some(stats.seen as i32),
                     records_created: None,
                     records_updated: Some(stats.synced as i32),
-                    records_failed: Some((stats.errors + stats.skipped) as i32),
+                    records_failed: Some(stats.errors as i32),
                 },
             );
             HttpResponse::Ok().json(json!({ "session_id": history.id, "stats": stats }))
@@ -267,7 +275,10 @@ pub async fn run_ldap_sync(
 
 // ---- Validation ------------------------------------------------------------
 
-const TLS_MODES: [&str; 3] = ["ldaps", "starttls", "plain"];
+// Cleartext "plain" is intentionally not accepted: a plain bind ships the
+// service + user passwords unencrypted (RFC 4513 §5.1.3). Only LDAPS and
+// StartTLS (which upgrades before the bind) are allowed.
+const TLS_MODES: [&str; 2] = ["ldaps", "starttls"];
 const AUTH_MODES: [&str; 2] = ["simple_bind", "mtls"];
 
 /// Validate the editable settings before they are persisted. The DB also CHECKs
