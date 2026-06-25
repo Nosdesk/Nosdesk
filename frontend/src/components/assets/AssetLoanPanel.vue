@@ -7,6 +7,8 @@ import Button from '@/components/common/Button.vue';
 import FormTextarea from '@/components/common/FormTextarea.vue';
 import DatePicker from '@/components/common/DatePicker.vue';
 import Icon from '@/components/common/Icon.vue';
+import StatusPill from '@/components/common/StatusPill.vue';
+import type { StatusPillTone } from '@/components/common/statusPillTone';
 import Modal from '@/components/Modal.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 import UserSelectionModal from '@/components/UserSelectionModal.vue';
@@ -89,12 +91,11 @@ function loanRange(loan: AssetLoan): string {
 
 interface DueInfo {
   label: string;
-  tone: 'overdue' | 'soon' | 'normal';
+  tone: StatusPillTone;
 }
 
-/** Due-date pill/text for the active loan. `null` when the loan is
- * open-ended (no due date). Overdue and due-soon get a coloured pill; a
- * comfortable due date renders as quiet text. */
+/** Due-date pill for the active loan, mapped straight to a StatusPill tone.
+ * `null` when the loan is open-ended (no due date). */
 const activeDue = computed<DueInfo | null>(() => {
   const loan = activeLoan.value;
   if (!loan?.due_back) return null;
@@ -102,10 +103,10 @@ const activeDue = computed<DueInfo | null>(() => {
   today.setHours(0, 0, 0, 0);
   const due = new Date(`${loan.due_back}T00:00:00`);
   const days = Math.round((due.getTime() - today.getTime()) / 86_400_000);
-  if (days < 0) return { label: t('asset-loan-due-overdue'), tone: 'overdue' };
-  if (days === 0) return { label: t('asset-loan-due-today'), tone: 'soon' };
-  if (days <= 2) return { label: t('asset-loan-due-soon', { days }), tone: 'soon' };
-  return { label: t('asset-loan-due-on', { date: formatCompactDate(loan.due_back) }), tone: 'normal' };
+  if (days < 0) return { label: t('asset-loan-due-overdue'), tone: 'critical' };
+  if (days === 0) return { label: t('asset-loan-due-today'), tone: 'caution' };
+  if (days <= 2) return { label: t('asset-loan-due-soon', { days }), tone: 'caution' };
+  return { label: t('asset-loan-due-on', { date: formatCompactDate(loan.due_back) }), tone: 'neutral' };
 });
 
 const today = new Date().toISOString().slice(0, 10);
@@ -196,7 +197,8 @@ async function submitReturn() {
 
 <template>
   <div class="flex flex-col gap-3">
-    <div class="flex items-center justify-between gap-3 flex-wrap">
+    <!-- Header: description + loan-out action (hidden once a loan is active) -->
+    <div v-if="!activeLoan" class="flex items-center justify-between gap-3 flex-wrap">
       <p class="text-xs text-tertiary">{{ $t('asset-loan-description') }}</p>
       <Button v-if="canEdit && canLoan" size="sm" icon="userPlus" @click="openIssue">
         {{ $t('asset-loan-loan-out') }}
@@ -205,50 +207,63 @@ async function submitReturn() {
 
     <p v-if="loadError" class="text-xs text-status-error">{{ loadError }}</p>
 
-    <!-- Active loan -->
+    <!-- Active loan: one vertically-centered identity row (avatar · borrower+meta ·
+         due · action), with notes dropped beneath and aligned to the name. -->
     <div
       v-if="activeLoan"
-      class="rounded-lg border border-default bg-surface-alt p-3 flex flex-col gap-2"
+      class="rounded-lg border border-default bg-surface-alt p-3 flex flex-col gap-2.5"
     >
-      <div class="flex items-start justify-between gap-3">
-        <div class="flex items-center gap-2 min-w-0">
-          <UserAvatar :uuid="activeLoan.borrower_user_uuid" size="sm" :clickable="false" />
-          <div class="min-w-0">
-            <p class="text-sm font-medium text-primary truncate">{{ borrowerName(activeLoan) }}</p>
-            <p class="text-xs text-tertiary">
-              {{ $t('asset-loan-loaned-relative', { when: relative(activeLoan.loaned_at) }) }}
-            </p>
+      <div class="flex items-center gap-3">
+        <UserAvatar
+          :uuid="activeLoan.borrower_user_uuid"
+          size="md"
+          :show-name="false"
+          :clickable="false"
+          class="shrink-0"
+        />
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold text-primary truncate leading-tight">
+            {{ borrowerName(activeLoan) }}
+          </p>
+          <div class="flex items-center gap-x-1.5 text-xs text-tertiary leading-tight mt-0.5 overflow-hidden">
+            <span class="truncate">{{ $t('asset-loan-fact-loaned') }} {{ formatCompactDate(activeLoan.loaned_at) }}</span>
+            <span aria-hidden="true" class="shrink-0">·</span>
+            <span class="shrink-0">{{ relative(activeLoan.loaned_at) }}</span>
+            <template v-if="activeLoan.ticket_id">
+              <span aria-hidden="true" class="shrink-0">·</span>
+              <RouterLink
+                :to="`/tickets/${activeLoan.ticket_id}`"
+                class="shrink-0 text-accent hover:underline"
+              >{{ $t('asset-loan-ticket', { id: activeLoan.ticket_id }) }}</RouterLink>
+            </template>
           </div>
         </div>
-        <span
+        <StatusPill
           v-if="activeDue"
-          class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap"
-          :class="{
-            'bg-status-error-muted text-status-error': activeDue.tone === 'overdue',
-            'bg-status-warning-bg text-status-warning': activeDue.tone === 'soon',
-            'text-tertiary': activeDue.tone === 'normal',
-          }"
+          :label="activeDue.label"
+          :tone="activeDue.tone"
+          size="sm"
+          class="shrink-0"
+        />
+        <Button
+          v-if="canEdit"
+          size="sm"
+          variant="secondary"
+          icon="check"
+          class="shrink-0"
+          @click="openReturn"
         >
-          <Icon name="calendar" class="w-3 h-3" />
-          {{ activeDue.label }}
-        </span>
-      </div>
-
-      <p v-if="activeLoan.notes" class="text-xs text-secondary">{{ activeLoan.notes }}</p>
-
-      <div class="flex items-center justify-between gap-2">
-        <RouterLink
-          v-if="activeLoan.ticket_id"
-          :to="`/tickets/${activeLoan.ticket_id}`"
-          class="inline-flex items-center px-1.5 py-0.5 rounded border border-default bg-surface text-accent text-xs hover:underline"
-        >
-          {{ $t('asset-loan-ticket', { id: activeLoan.ticket_id }) }}
-        </RouterLink>
-        <span v-else />
-        <Button v-if="canEdit" size="sm" variant="secondary" icon="check" @click="openReturn">
           {{ $t('asset-loan-return') }}
         </Button>
       </div>
+
+      <!-- Notes, aligned to the borrower name (md avatar 2rem + gap-3 0.75rem) -->
+      <p
+        v-if="activeLoan.notes"
+        class="text-sm text-secondary whitespace-pre-line break-words pl-11"
+      >
+        {{ activeLoan.notes }}
+      </p>
     </div>
 
     <!-- Not loanable (no active loan, wrong status) -->
@@ -259,29 +274,9 @@ async function submitReturn() {
       {{ $t('asset-loan-not-loanable') }}
     </div>
 
-    <!-- History -->
-    <div v-if="pastLoans.length > 0" class="flex flex-col gap-1">
-      <p class="text-xs font-medium text-tertiary uppercase tracking-wide">
-        {{ $t('asset-loan-history') }}
-      </p>
-      <div class="divide-y divide-default">
-        <div
-          v-for="loan in pastLoans"
-          :key="loan.id"
-          class="py-2 flex items-baseline justify-between gap-3"
-        >
-          <div class="min-w-0 flex items-baseline gap-1.5">
-            <span class="text-sm text-primary truncate">{{ borrowerName(loan) }}</span>
-            <span class="text-xs text-tertiary whitespace-nowrap">· {{ loanRange(loan) }}</span>
-          </div>
-          <span class="text-xs text-tertiary whitespace-nowrap">{{ relative(loan.returned_at) }}</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Empty: no active loan, loanable, no history -->
+    <!-- Empty: loanable, no active loan, no history -->
     <div
-      v-else-if="!activeLoan && canLoan && !isFirstLoad"
+      v-else-if="canLoan && pastLoans.length === 0 && !isFirstLoad"
       class="rounded-lg border border-dashed border-default bg-surface-alt p-4 flex items-start gap-3"
     >
       <Icon name="calendar" class="text-tertiary flex-shrink-0 mt-0.5" />
@@ -291,32 +286,61 @@ async function submitReturn() {
       </div>
     </div>
 
+    <!-- History -->
+    <div v-if="pastLoans.length > 0" class="flex flex-col gap-1.5">
+      <p class="text-xs font-medium text-tertiary uppercase tracking-wide">
+        {{ $t('asset-loan-history') }}
+      </p>
+      <div class="flex flex-col">
+        <div
+          v-for="loan in pastLoans"
+          :key="loan.id"
+          class="flex items-center gap-2.5 py-2 border-t border-subtle first:border-t-0"
+        >
+          <UserAvatar
+            :uuid="loan.borrower_user_uuid"
+            size="xs"
+            :show-name="false"
+            :clickable="false"
+            class="shrink-0"
+          />
+          <div class="min-w-0 flex-1">
+            <p class="text-sm text-primary truncate">{{ borrowerName(loan) }}</p>
+            <p class="text-xs text-tertiary truncate">{{ loanRange(loan) }}</p>
+          </div>
+          <span class="text-xs text-tertiary whitespace-nowrap shrink-0">
+            {{ relative(loan.returned_at) }}
+          </span>
+        </div>
+      </div>
+    </div>
+
     <!-- Issue modal -->
     <Modal :show="showIssue" :title="$t('asset-loan-issue-title')" size="md" @close="showIssue = false">
       <div class="flex flex-col gap-4">
+        <!-- Borrower selector -->
         <div class="flex flex-col gap-1.5">
-          <span class="text-xs font-medium text-tertiary">{{ $t('asset-loan-borrower') }}</span>
+          <span class="text-xs font-medium text-tertiary uppercase tracking-wide">{{ $t('asset-loan-borrower') }}</span>
           <button
             type="button"
-            class="flex items-center gap-2 rounded-lg border border-default bg-surface px-3 py-2 text-left hover:bg-surface-hover transition-colors"
+            class="flex items-center gap-2 rounded-lg border border-default bg-surface px-3 py-2 text-left hover:border-strong transition-colors"
             @click="showBorrowerPicker = true"
           >
             <template v-if="borrower">
-              <UserAvatar :uuid="borrower.uuid" size="xs" :clickable="false" />
-              <span class="text-sm text-primary">{{ borrower.name }}</span>
+              <UserAvatar :uuid="borrower.uuid" size="xs" :show-name="false" :clickable="false" class="shrink-0" />
+              <span class="text-sm text-primary truncate">{{ borrower.name }}</span>
             </template>
             <template v-else>
-              <Icon name="userPlus" class="w-4 h-4 text-tertiary" />
+              <Icon name="userPlus" class="w-4 h-4 text-tertiary shrink-0" />
               <span class="text-sm text-tertiary">{{ $t('asset-loan-select-borrower') }}</span>
             </template>
+            <Icon name="chevronDown" class="ml-auto w-4 h-4 text-tertiary shrink-0" />
           </button>
         </div>
 
-        <div class="flex flex-col gap-1.5 rounded-lg border border-default bg-surface-alt/40 p-3">
-          <div class="flex items-center gap-2">
-            <Icon name="calendar" size="sm" class="text-tertiary" />
-            <span class="text-xs font-medium text-tertiary">{{ $t('asset-loan-period-label') }}</span>
-          </div>
+        <!-- Loan period -->
+        <div class="flex flex-col gap-1.5">
+          <span class="text-xs font-medium text-tertiary uppercase tracking-wide">{{ $t('asset-loan-period-label') }}</span>
           <DatePicker
             range
             v-model:start="loanedOn"
@@ -327,8 +351,9 @@ async function submitReturn() {
           <p class="text-xs text-tertiary">{{ $t('asset-loan-period-hint') }}</p>
         </div>
 
-        <div class="flex flex-col gap-1">
-          <span class="text-xs font-medium text-tertiary">{{ $t('asset-loan-ticket-field') }}</span>
+        <!-- Linked ticket selector -->
+        <div class="flex flex-col gap-1.5">
+          <span class="text-xs font-medium text-tertiary uppercase tracking-wide">{{ $t('asset-loan-ticket-field') }}</span>
           <div class="flex items-center gap-2">
             <button
               type="button"
@@ -343,11 +368,12 @@ async function submitReturn() {
                 <Icon name="ticket" size="sm" class="text-tertiary shrink-0" />
                 <span class="text-sm text-tertiary">{{ $t('asset-loan-ticket-link') }}</span>
               </template>
+              <Icon v-if="!linkedTicket" name="chevronDown" class="ml-auto w-4 h-4 text-tertiary shrink-0" />
             </button>
             <button
               v-if="linkedTicket"
               type="button"
-              class="p-1.5 text-tertiary hover:text-status-error hover:bg-status-error-muted rounded transition-colors"
+              class="p-2 text-tertiary hover:text-status-error hover:bg-status-error-muted rounded-lg transition-colors shrink-0"
               :title="$t('asset-loan-ticket-clear')"
               @click="linkedTicket = null"
             >

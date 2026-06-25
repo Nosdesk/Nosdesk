@@ -4200,6 +4200,8 @@ asset-loan-due-soon = Terug over { $days } dagen
 asset-loan-due-on = Terug op { $date }
 # MT: pending native review
 asset-loan-range = { $from } tot { $to }
+# asset-loan-fact-loaned (machine, nog na te kijken door moedertaalspreker).
+asset-loan-fact-loaned = Uitgeleend
 # MT: pending native review
 asset-loan-failed = Er is iets misgegaan. Probeer het opnieuw.
 # MT: pending native review

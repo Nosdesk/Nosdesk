@@ -4333,6 +4333,7 @@ asset-loan-due-soon = Due in { $days } { $days ->
 }
 asset-loan-due-on = Due { $date }
 asset-loan-range = { $from } to { $to }
+asset-loan-fact-loaned = Loaned
 asset-loan-failed = Something went wrong. Please try again.
 asset-loan-ticket-heading = Loaners
 asset-loan-device-fallback = Device #{ $id }

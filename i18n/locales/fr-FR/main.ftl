@@ -4209,6 +4209,8 @@ asset-loan-due-soon = À rendre dans { $days } jours
 asset-loan-due-on = À rendre le { $date }
 # MT: pending native review
 asset-loan-range = { $from } à { $to }
+# asset-loan-fact-loaned (machine, à relire par un locuteur natif).
+asset-loan-fact-loaned = Prêté le
 # MT: pending native review
 asset-loan-failed = Une erreur s'est produite. Veuillez réessayer.
 # MT: pending native review
