@@ -24,7 +24,7 @@ import AssetAttributePicker from '@/components/assets/AssetAttributePicker.vue';
  * reject anyway) falls through to a plain text input.
  */
 
-type SchemaProperty = {
+export type SchemaProperty = {
   type?: string;
   enum?: unknown[];
   title?: string;
@@ -42,9 +42,17 @@ type SchemaProperty = {
    * a specific asset-kind slug for the picker. The backend
    * validator allows but doesn't enforce this. */
   assetKind?: string;
+  /** Custom Nosdesk extension: the field is fed read-only by a
+   * directory/asset sync rather than typed by a human. */
+  synced?: boolean;
+  /** Custom Nosdesk extension: pair with `enum` to render a pick-or-type
+   * control (the enum values are suggestions, any value is allowed) instead
+   * of a strict select. Good for "common options + free custom value" fields
+   * like gender. */
+  'x-allow-custom'?: boolean;
 };
 
-type Schema = {
+export type Schema = {
   type?: string;
   properties?: Record<string, SchemaProperty>;
   required?: string[];
@@ -170,6 +178,24 @@ function enumOptions(prop: SchemaProperty): { value: string; label: string }[] {
         :disabled="disabled"
         @update:model-value="(v) => updateField(key, v)"
       />
+
+      <!-- enum + allow-custom -> pick-or-type (suggestions, any value). Must
+           precede the strict-enum select so the more specific case wins. -->
+      <template
+        v-else-if="Array.isArray(prop.enum) && prop.enum.length > 0 && prop['x-allow-custom']"
+      >
+        <input
+          type="text"
+          :list="`dyn-${key}`"
+          :disabled="disabled"
+          :value="stringValue(key)"
+          class="bg-surface-alt rounded-lg border border-default px-3 py-2 text-primary text-sm"
+          @input="(e) => updateField(key, (e.target as HTMLInputElement).value)"
+        />
+        <datalist :id="`dyn-${key}`">
+          <option v-for="opt in prop.enum" :key="String(opt)" :value="String(opt)" />
+        </datalist>
+      </template>
 
       <!-- enum -> select -->
       <BaseDropdown

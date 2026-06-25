@@ -50,6 +50,7 @@ pub mod ticket_visibility;
 pub mod ticket_watchers;
 pub mod tickets;
 pub mod user_auth_identities;
+pub mod user_contact;
 pub mod user_emails;
 pub mod user_helpers; // Helper functions for user/email operations
 pub mod user_locale;

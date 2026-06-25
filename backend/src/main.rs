@@ -2385,6 +2385,21 @@ async fn main() -> std::io::Result<()> {
                     .route("/users/{uuid}/emails", web::post().to(handlers::add_user_email))
                     .route("/users/{uuid}/emails/{email_id}", web::put().to(handlers::update_user_email))
                     .route("/users/{uuid}/emails/{email_id}", web::delete().to(handlers::delete_user_email))
+                    // User contact profile (standard cols + custom-field values).
+                    .route("/users/{uuid}/profile-fields", web::get().to(handlers::user_contact::get_user_profile_fields))
+                    .route("/users/{uuid}/profile-fields", web::put().to(handlers::user_contact::set_user_profile_fields))
+                    // Multi-valued contact: phones + addresses (self or admin; synced rows read-only).
+                    .route("/users/{uuid}/phones", web::get().to(handlers::user_contact::list_user_phones))
+                    .route("/users/{uuid}/phones", web::post().to(handlers::user_contact::add_user_phone))
+                    .route("/users/{uuid}/phones/{id}", web::put().to(handlers::user_contact::update_user_phone))
+                    .route("/users/{uuid}/phones/{id}", web::delete().to(handlers::user_contact::delete_user_phone))
+                    .route("/users/{uuid}/addresses", web::get().to(handlers::user_contact::list_user_addresses))
+                    .route("/users/{uuid}/addresses", web::post().to(handlers::user_contact::add_user_address))
+                    .route("/users/{uuid}/addresses/{id}", web::put().to(handlers::user_contact::update_user_address))
+                    .route("/users/{uuid}/addresses/{id}", web::delete().to(handlers::user_contact::delete_user_address))
+                    // Workspace user custom-field schema (read staff, write admin).
+                    .route("/admin/user-fields", web::get().to(handlers::user_contact::get_user_field_schema))
+                    .route("/admin/user-fields", web::put().to(handlers::user_contact::set_user_field_schema))
                     .route("/users/{uuid}/with-emails", web::get().to(handlers::get_user_with_emails))
                     .route("/users/{uuid}/profile", web::get().to(handlers::users::get_user_profile_bundle))
                     .route("/users/{uuid}/auth-identities", web::get().to(handlers::get_user_auth_identities_by_uuid))
