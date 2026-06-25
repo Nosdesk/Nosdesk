@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 use uuid::Uuid;
 
 use crate::models::{Asset, AssetUpdate, Group, NewAsset, User};
@@ -27,9 +27,11 @@ use crate::services::search::SearchService;
 fn asset_validation_response(err: AssetValidationError) -> HttpResponse {
     match err {
         AssetValidationError::UnknownKind(slug) => {
+            warn!(kind = %slug, "Asset write rejected: unknown asset kind");
             errors::unprocessable_entity(format!("Unknown asset kind: {slug}"))
         }
         AssetValidationError::Attributes(inner) => {
+            warn!(error = %inner, "Asset write rejected: invalid attributes");
             errors::unprocessable_entity(format!("Invalid asset attributes: {inner}"))
         }
         AssetValidationError::Database(e) => {
@@ -968,35 +970,67 @@ pub async fn update_device(
         }
     }
 
-    let result = tc.run(|conn| {
-        let device = repository::update_device(conn, device_id, update_data)?;
+    // The write runs in its OWN transaction, with nothing else inside it. A
+    // failure assembling the response below (e.g. an enrichment read against a
+    // drifted schema) must never be able to abort and silently roll this back:
+    // an aborted transaction turns the implicit COMMIT into a ROLLBACK that
+    // still looks like success, so the client's change would vanish with a 200.
+    let device = match tc.run(|conn| repository::update_device(conn, device_id, update_data)) {
+        Ok(device) => device,
+        Err(e) => {
+            return match e {
+                Error::NotFound => errors::not_found_msg(format!("Asset {device_id} not found")),
+                _ => {
+                    error!(device_id, error = ?e, "Database error updating device");
+                    errors::internal(format!("Failed to update device {device_id}"))
+                }
+            }
+        }
+    };
+
+    // Re-index in search. The update reaches clients through the sync pool (the
+    // repository write emits `asset.updated`); no discrete SSE.
+    indexing_tasks::spawn_index_device(search_service.get_ref().clone(), device.clone());
+
+    // Assemble the response from the committed row in a SEPARATE transaction.
+    // Enrichment reads propagate their errors (no silent `unwrap_or_default`),
+    // but because the write already committed, a failure here only costs the
+    // enrichment, never the write.
+    let response = tc.run(|conn| {
         let user = device
             .primary_user_uuid
             .as_ref()
             .and_then(|uuid| get_user_by_uuid(conn, uuid));
-        let groups = groups_repo::get_groups_for_device(conn, device_id).unwrap_or_default();
-        let device_response =
-            AssetResponse::from_device_and_user(device.clone(), user, groups, conn);
-        Ok((device, device_response))
+        let groups = groups_repo::get_groups_for_device(conn, device_id)?;
+        Ok::<_, Error>(AssetResponse::from_device_and_user(
+            device.clone(),
+            user,
+            groups,
+            conn,
+        ))
     });
 
-    match result {
-        Ok((device, device_response)) => {
-            // Re-index the updated device in search
-            indexing_tasks::spawn_index_device(search_service.get_ref().clone(), device);
-
-            // The update reaches clients through the sync pool (the
-            // repository write emits `asset.updated`); no discrete SSE.
-
-            HttpResponse::Ok().json(device_response)
-        }
-        Err(e) => match e {
-            Error::NotFound => errors::not_found_msg(format!("Asset {device_id} not found")),
-            _ => {
-                error!(device_id, error = ?e, "Database error updating device");
-                errors::internal(format!("Failed to update device {device_id}"))
+    match response {
+        Ok(device_response) => HttpResponse::Ok().json(device_response),
+        Err(e) => {
+            warn!(device_id, error = ?e, "Asset updated, but enriching the response failed; returning a minimal response");
+            // The write is durable. Return the saved row without the enrichment
+            // reads that just failed (no owner, no groups) so the client still
+            // sees its change reflected.
+            match tc.run(|conn| {
+                Ok::<_, Error>(AssetResponse::from_device_and_user(
+                    device.clone(),
+                    None,
+                    Vec::new(),
+                    conn,
+                ))
+            }) {
+                Ok(minimal) => HttpResponse::Ok().json(minimal),
+                Err(_) => errors::internal(format!(
+                    "Asset {device_id} updated, but the response could not be built"
+                )),
             }
-        },
+        }
     }
 }
 
@@ -1081,23 +1115,46 @@ pub async fn unmanage_device(
         ..Default::default()
     };
 
-    let result = tc.run(|conn| {
-        let device = repository::update_device(conn, device_id, update_data)?;
+    // Write in its own transaction (see `update_device`: response-assembly
+    // reads must not be able to abort and silently roll back the write).
+    let device = match tc.run(|conn| repository::update_device(conn, device_id, update_data)) {
+        Ok(device) => device,
+        Err(e) => {
+            error!(device_id, error = ?e, "Database error unmanaging device");
+            return errors::internal(format!("Failed to unmanage device {device_id}"));
+        }
+    };
+
+    let response = tc.run(|conn| {
         let user = device
             .primary_user_uuid
             .as_ref()
             .and_then(|uuid| get_user_by_uuid(conn, uuid));
-        let groups = groups_repo::get_groups_for_device(conn, device_id).unwrap_or_default();
-        Ok(AssetResponse::from_device_and_user(
-            device, user, groups, conn,
+        let groups = groups_repo::get_groups_for_device(conn, device_id)?;
+        Ok::<_, Error>(AssetResponse::from_device_and_user(
+            device.clone(),
+            user,
+            groups,
+            conn,
         ))
     });
-
-    match result {
-        Ok(device_response) => HttpResponse::Ok().json(device_response),
+    match response {
+        Ok(resp) => HttpResponse::Ok().json(resp),
         Err(e) => {
-            error!(device_id, error = ?e, "Database error unmanaging device");
-            errors::internal(format!("Failed to unmanage device {device_id}"))
+            warn!(device_id, error = ?e, "Asset unmanaged, but enriching the response failed; returning a minimal response");
+            match tc.run(|conn| {
+                Ok::<_, Error>(AssetResponse::from_device_and_user(
+                    device.clone(),
+                    None,
+                    Vec::new(),
+                    conn,
+                ))
+            }) {
+                Ok(minimal) => HttpResponse::Ok().json(minimal),
+                Err(_) => errors::internal(format!(
+                    "Asset {device_id} unmanaged, but the response could not be built"
+                )),
+            }
         }
     }
 }
@@ -1369,24 +1426,45 @@ fn apply_asset_update_response(
     update: AssetUpdate,
     search_service: &web::Data<Arc<SearchService>>,
 ) -> HttpResponse {
-    let result = tc.run(|conn| {
-        let device = repository::update_device(conn, asset_id, update)?;
+    // Write in its own transaction (see `update_device`: response-assembly
+    // reads must not be able to abort and silently roll back the write).
+    let device = match tc.run(|conn| repository::update_device(conn, asset_id, update)) {
+        Ok(device) => device,
+        Err(e) => {
+            error!(asset_id, error = ?e, "apply asset update");
+            return errors::internal("Failed to update asset");
+        }
+    };
+    indexing_tasks::spawn_index_device(search_service.get_ref().clone(), device.clone());
+
+    let response = tc.run(|conn| {
         let user = device
             .primary_user_uuid
             .as_ref()
             .and_then(|uuid| get_user_by_uuid(conn, uuid));
-        let groups = groups_repo::get_groups_for_device(conn, asset_id).unwrap_or_default();
-        let response = AssetResponse::from_device_and_user(device.clone(), user, groups, conn);
-        Ok((device, response))
+        let groups = groups_repo::get_groups_for_device(conn, asset_id)?;
+        Ok::<_, Error>(AssetResponse::from_device_and_user(
+            device.clone(),
+            user,
+            groups,
+            conn,
+        ))
     });
-    match result {
-        Ok((device, response)) => {
-            indexing_tasks::spawn_index_device(search_service.get_ref().clone(), device);
-            HttpResponse::Ok().json(response)
-        }
+    match response {
+        Ok(resp) => HttpResponse::Ok().json(resp),
         Err(e) => {
-            error!(asset_id, error = ?e, "apply asset update");
-            errors::internal("Failed to update asset")
+            warn!(asset_id, error = ?e, "Asset updated, but enriching the response failed; returning a minimal response");
+            match tc.run(|conn| {
+                Ok::<_, Error>(AssetResponse::from_device_and_user(
+                    device.clone(),
+                    None,
+                    Vec::new(),
+                    conn,
+                ))
+            }) {
+                Ok(minimal) => HttpResponse::Ok().json(minimal),
+                Err(_) => errors::internal("Asset updated, but the response could not be built"),
+            }
         }
     }
 }

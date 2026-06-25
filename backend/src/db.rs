@@ -100,6 +100,9 @@ where
             if !applied.is_empty() {
                 info!("Applied {} database migration(s)", applied.len());
             }
+            // Same (migration-capable) connection, so the applied-migrations read
+            // has the privileges the runtime pool role lacks.
+            assert_no_migration_drift(conn)?;
             Ok(())
         }
         Err(e) => {
@@ -153,6 +156,65 @@ fn run_migrations(pool: &Pool) -> Result<(), Box<dyn std::error::Error + Send + 
     }
 }
 
+/// Refuse to start if the database has applied migrations this binary does not
+/// embed — i.e. the DB schema is *ahead* of the code. That happens on a rollback
+/// to an older release, or (in a shared dev DB) when another branch's migration
+/// gets applied and then you switch away from it. Serving old code against a
+/// newer schema silently corrupts writes: a stale-column read inside a write
+/// transaction aborts the transaction, and the subsequent `COMMIT` becomes a
+/// `ROLLBACK` that Diesel reports as success — the write is lost with a 200.
+///
+/// Fail-closed by default. `NOSDESK_ALLOW_MIGRATION_DRIFT=1` overrides it (e.g.
+/// an intentional staged rollback where you accept the risk).
+fn assert_no_migration_drift<C>(
+    conn: &mut C,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+where
+    C: MigrationHarness<diesel::pg::Pg>,
+{
+    use diesel::migration::MigrationSource;
+
+    let embedded: std::collections::HashSet<String> =
+        MigrationSource::<diesel::pg::Pg>::migrations(&MIGRATIONS)
+            .map_err(|e| format!("migration-drift check: listing embedded migrations: {e}"))?
+            .iter()
+            .map(|m| m.name().version().to_string())
+            .collect();
+
+    let unknown: Vec<String> = conn
+        .applied_migrations()
+        .map_err(|e| format!("migration-drift check: reading applied migrations: {e}"))?
+        .into_iter()
+        .map(|v| v.to_string())
+        .filter(|v| !embedded.contains(v))
+        .collect();
+
+    if unknown.is_empty() {
+        return Ok(());
+    }
+
+    let allow = env::var("NOSDESK_ALLOW_MIGRATION_DRIFT")
+        .map(|v| matches!(v.trim(), "1" | "true" | "TRUE"))
+        .unwrap_or(false);
+    if allow {
+        warn!(
+            unknown_migrations = ?unknown,
+            "Migration drift: the database has migrations this binary does not embed. \
+             Continuing because NOSDESK_ALLOW_MIGRATION_DRIFT is set."
+        );
+        return Ok(());
+    }
+
+    Err(format!(
+        "Migration drift: the database has {} applied migration(s) this binary does not embed: {unknown:?}. \
+         The DB is AHEAD of this build (a rollback to an older release, or a foreign migration applied to a \
+         shared dev database). Serving this code against a newer schema risks silent write loss, so refusing \
+         to start. Resync the database to this build, or set NOSDESK_ALLOW_MIGRATION_DRIFT=1 to override.",
+        unknown.len()
+    )
+    .into())
+}
+
 /// Initialize the database by running migrations
 /// This function is designed to be called only once
 pub async fn initialize_database(
@@ -187,6 +249,8 @@ pub async fn initialize_database(
     // Run migrations. Uses MIGRATION_DATABASE_URL (a privileged role) when set,
     // since the schema migrations need CREATE ROLE / ALTER OWNER / CREATE
     // EXTENSION / GRANT that the runtime nosdesk_app role intentionally lacks.
+    // Runs pending migrations and asserts the DB isn't ahead of this binary
+    // (the drift guard, on the same privileged connection).
     run_migrations(pool)?;
 
     // Post-migration bookkeeping runs as the runtime role on the pool — the
