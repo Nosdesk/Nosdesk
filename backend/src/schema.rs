@@ -2060,6 +2060,17 @@ diesel::table! {
 }
 
 diesel::table! {
+    workspace_ldap_sync_state (workspace_id) {
+        workspace_id -> Int4,
+        #[max_length = 16]
+        mechanism -> Varchar,
+        cookie -> Nullable<Bytea>,
+        last_full_reconcile_at -> Nullable<Timestamptz>,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     workspace_members (workspace_id, user_uuid) {
         workspace_id -> Int4,
         user_uuid -> Uuid,
@@ -2328,6 +2339,7 @@ diesel::joinable!(working_calendars -> users (created_by));
 diesel::joinable!(working_calendars -> workspaces (workspace_id));
 diesel::joinable!(workspace_email_settings -> workspaces (workspace_id));
 diesel::joinable!(workspace_ldap_settings -> workspaces (workspace_id));
+diesel::joinable!(workspace_ldap_sync_state -> workspaces (workspace_id));
 diesel::joinable!(workspace_members -> users (user_uuid));
 diesel::joinable!(workspace_members -> workspaces (workspace_id));
 diesel::joinable!(yjs_snapshots -> workspaces (workspace_id));
@@ -2445,6 +2457,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     working_calendars,
     workspace_email_settings,
     workspace_ldap_settings,
+    workspace_ldap_sync_state,
     workspace_members,
     workspaces,
     yjs_snapshots,

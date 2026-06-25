@@ -3,9 +3,11 @@
 //! transport-neutral sinks the Graph path uses: the scoped identity provisioner
 //! (`provider_type="ldap"`) and `apply_directory_contact(source="ldap")`.
 //!
-//! v1 is a FULL scan (paged via RFC 2696 so AD's MaxPageSize doesn't truncate).
-//! Incremental DirSync + the run model (sync_history, scheduling) land in later
-//! P3 chunks; this chunk is the scan + mapping core.
+//! Sync uses AD DirSync incremental sync (the cursor cookie lives in
+//! workspace_ldap_sync_state); the first run sends an empty cookie and gets a
+//! full snapshot. A full RFC-2696 paged scan (so AD's MaxPageSize doesn't
+//! truncate) is the directory-agnostic fallback when DirSync isn't honored. See
+//! `sync_users` for the flow. The scheduler (nightly reconcile) is a fast-follow.
 //!
 //! DEPROVISIONING is a deliberate v1 no-op: this provisions/refreshes only and
 //! never disables users who vanished from the directory (plan open decision #5).
@@ -20,15 +22,17 @@
 //! of M users would mass-disable the unseen M-N real users.
 
 use ldap3::adapters::{Adapter, EntriesOnly, PagedResults};
-use ldap3::{Scope, SearchEntry};
+use ldap3::controls::Control;
+use ldap3::{Ldap, Scope, SearchEntry};
 use serde_json::Value;
 use tracing::warn;
 
 use crate::db::DbConnection;
 use crate::models::{DirectoryAddress, DirectoryContact, WorkspaceLdapSettings};
+use crate::repository::workspace_ldap_settings;
 use crate::services::ldap::attrs::{all_values, attr_name, first_value};
 use crate::services::ldap::auth::{ensure_bind_creds, LdapAuthError};
-use crate::services::ldap::connector;
+use crate::services::ldap::{connector, dirsync};
 use crate::services::oauth_provisioning::{find_or_create_projected_user, ProjectedUserInput};
 
 #[derive(Debug, Default, Clone, serde::Serialize)]
@@ -49,6 +53,10 @@ pub enum SyncError {
     Auth(#[from] LdapAuthError),
     #[error("LDAP error: {0}")]
     Ldap(#[from] ldap3::LdapError),
+    #[error("the directory did not return a DirSync response control")]
+    DirSyncNotHonored,
+    #[error("database error: {0}")]
+    Db(#[from] diesel::result::Error),
 }
 
 /// The LDAP attribute names to read, resolved once from the workspace's
@@ -174,9 +182,17 @@ fn build_sync_filter(template: &str) -> String {
     template.replace("{username}", "*")
 }
 
-/// Run a full user sync for `workspace_id`. `conn` MUST be pinned to that
-/// workspace (the provisioning + contact writes are RLS/audit-scoped). Returns
-/// the run stats; per-entry errors are counted, not fatal.
+/// Run a user sync for `workspace_id`. `conn` MUST be pinned to that workspace
+/// (the provisioning + contact writes are RLS/audit-scoped). Returns the run
+/// stats; per-entry errors are counted, not fatal.
+///
+/// Uses AD DirSync: the first run (no stored cookie) sends an EMPTY cookie and
+/// AD returns ALL matching objects + a fresh cookie; later runs send the stored
+/// cookie and get only the changes since. The cookie is persisted only on a
+/// clean completion. If the directory rejects DirSync (the service account
+/// lacks the Replicating-Directory-Changes right, or it isn't AD), it falls back
+/// to a full RFC-2696 paged scan, which works against any directory; the
+/// idempotent sinks make the re-scan safe.
 pub async fn sync_users(
     conn: &mut DbConnection,
     settings: &WorkspaceLdapSettings,
@@ -200,6 +216,93 @@ pub async fn sync_users(
         return Err(SyncError::Auth(LdapAuthError::ServiceBind));
     }
 
+    let prior_cookie = workspace_ldap_settings::get_sync_state(conn)?
+        .and_then(|s| s.cookie)
+        .unwrap_or_default();
+    let full_run = prior_cookie.is_empty();
+
+    match dirsync_pass(
+        &mut svc,
+        conn,
+        settings,
+        &attrs,
+        &filter,
+        workspace_id,
+        prior_cookie,
+    )
+    .await
+    {
+        Ok(stats) => {
+            if full_run {
+                let _ = workspace_ldap_settings::mark_full_reconcile(conn, workspace_id);
+            }
+            Ok(stats)
+        }
+        Err(e) => {
+            warn!(error = %e, "ldap DirSync sync failed; falling back to a full paged scan");
+            // Reset the cursor and do a full paged scan against any directory.
+            let _ = workspace_ldap_settings::set_cookie(conn, workspace_id, "dirsync", None);
+            full_scan_pass(&mut svc, conn, settings, &attrs, &filter, workspace_id).await
+        }
+    }
+}
+
+/// DirSync incremental: loop the search carrying the cookie until MoreResults is
+/// clear, persisting the final cookie only on clean completion.
+async fn dirsync_pass(
+    svc: &mut Ldap,
+    conn: &mut DbConnection,
+    settings: &WorkspaceLdapSettings,
+    attrs: &AttrNames,
+    filter: &str,
+    workspace_id: i32,
+    mut cookie: Vec<u8>,
+) -> Result<SyncStats, SyncError> {
+    let mut stats = SyncStats::default();
+    loop {
+        let mut search = svc
+            .with_timeout(connector::OP_TIMEOUT)
+            .with_controls(vec![dirsync::request_control(&cookie)])
+            .streaming_search_with(
+                vec![Box::new(EntriesOnly::new()) as Box<dyn Adapter<_, _>>],
+                &settings.user_base_dn,
+                Scope::Subtree,
+                filter,
+                attrs.request_list(),
+            )
+            .await?;
+        while let Some(re) = search.next().await? {
+            provision_entry(
+                conn,
+                attrs,
+                workspace_id,
+                SearchEntry::construct(re),
+                &mut stats,
+            );
+        }
+        let res = search.finish().await;
+        // A critical DirSync control means a successful search MUST carry the
+        // response control; its absence signals the server didn't honor it ->
+        // fall back.
+        let resp = extract_dirsync_response(&res.ctrls).ok_or(SyncError::DirSyncNotHonored)?;
+        cookie = resp.cookie;
+        if !resp.more_results {
+            break;
+        }
+    }
+    workspace_ldap_settings::set_cookie(conn, workspace_id, "dirsync", Some(&cookie))?;
+    Ok(stats)
+}
+
+/// Full RFC-2696 paged scan (the directory-agnostic fallback).
+async fn full_scan_pass(
+    svc: &mut Ldap,
+    conn: &mut DbConnection,
+    settings: &WorkspaceLdapSettings,
+    attrs: &AttrNames,
+    filter: &str,
+    workspace_id: i32,
+) -> Result<SyncStats, SyncError> {
     let page = settings.page_size.max(1) as i32;
     let adapters: Vec<Box<dyn Adapter<_, _>>> = vec![
         Box::new(EntriesOnly::new()),
@@ -211,59 +314,88 @@ pub async fn sync_users(
             adapters,
             &settings.user_base_dn,
             Scope::Subtree,
-            &filter,
+            filter,
             attrs.request_list(),
         )
         .await?;
-
     let mut stats = SyncStats::default();
     while let Some(re) = stream.next().await? {
-        stats.seen += 1;
-        let entry = SearchEntry::construct(re);
-        let mapped = match map_entry(&entry, &attrs) {
-            Some(m) => m,
-            None => {
-                stats.skipped += 1;
-                continue;
-            }
-        };
-
-        let input = ProjectedUserInput {
-            iss: "ldap".to_string(),
-            sub: mapped.external_id,
-            identity_workspace_id: Some(workspace_id),
-            email: mapped.email,
-            email_verified: true,
-            name: mapped.display_name,
-            role: "member".to_string(),
+        provision_entry(
+            conn,
+            attrs,
             workspace_id,
-            password_hash: None,
-            metadata: None,
-        };
-        match find_or_create_projected_user(conn, input) {
-            Ok(outcome) => {
-                let uuid = outcome.into_user().uuid;
-                if let Err(e) = crate::repository::user_contact::apply_directory_contact(
-                    conn,
-                    uuid,
-                    "ldap",
-                    &mapped.contact,
-                    None,
-                ) {
-                    warn!(error = %e, "ldap sync: apply contact failed");
-                    stats.errors += 1;
-                } else {
-                    stats.synced += 1;
-                }
-            }
-            Err(e) => {
-                warn!(error = %e, "ldap sync: provision failed");
-                stats.errors += 1;
-            }
-        }
+            SearchEntry::construct(re),
+            &mut stats,
+        );
     }
     let _ = stream.finish().await;
+    let _ = workspace_ldap_settings::mark_full_reconcile(conn, workspace_id);
     Ok(stats)
+}
+
+/// Map + provision one directory entry, updating the run stats. Per-entry
+/// failures are counted, never fatal to the run.
+fn provision_entry(
+    conn: &mut DbConnection,
+    attrs: &AttrNames,
+    workspace_id: i32,
+    entry: SearchEntry,
+    stats: &mut SyncStats,
+) {
+    stats.seen += 1;
+    let mapped = match map_entry(&entry, attrs) {
+        Some(m) => m,
+        None => {
+            stats.skipped += 1;
+            return;
+        }
+    };
+    let input = ProjectedUserInput {
+        iss: "ldap".to_string(),
+        sub: mapped.external_id,
+        identity_workspace_id: Some(workspace_id),
+        email: mapped.email,
+        email_verified: true,
+        name: mapped.display_name,
+        role: "member".to_string(),
+        workspace_id,
+        password_hash: None,
+        metadata: None,
+    };
+    match find_or_create_projected_user(conn, input) {
+        Ok(outcome) => {
+            let uuid = outcome.into_user().uuid;
+            if let Err(e) = crate::repository::user_contact::apply_directory_contact(
+                conn,
+                uuid,
+                "ldap",
+                &mapped.contact,
+                None,
+            ) {
+                warn!(error = %e, "ldap sync: apply contact failed");
+                stats.errors += 1;
+            } else {
+                stats.synced += 1;
+            }
+        }
+        Err(e) => {
+            warn!(error = %e, "ldap sync: provision failed");
+            stats.errors += 1;
+        }
+    }
+}
+
+/// Find + decode the DirSync response control among a result's controls.
+fn extract_dirsync_response(ctrls: &[Control]) -> Option<dirsync::DirSyncResponse> {
+    ctrls.iter().find_map(|c| {
+        if c.1.ctype == dirsync::DIRSYNC_OID {
+            c.1.val
+                .as_deref()
+                .and_then(|v| dirsync::decode_response_value(v).ok())
+        } else {
+            None
+        }
+    })
 }
 
 #[cfg(test)]

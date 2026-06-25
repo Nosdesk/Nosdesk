@@ -2652,6 +2652,19 @@ pub struct UpsertWorkspaceLdapSettings {
     pub provisioning: serde_json::Value,
 }
 
+/// A workspace's DirSync cursor state. The opaque cookie is client-held and must
+/// survive restarts; NULL means no cursor yet (next run is a full sync).
+#[derive(Debug, Queryable, Selectable, Identifiable)]
+#[diesel(table_name = crate::schema::workspace_ldap_sync_state)]
+#[diesel(primary_key(workspace_id))]
+pub struct WorkspaceLdapSyncState {
+    pub workspace_id: i32,
+    pub mechanism: String,
+    pub cookie: Option<Vec<u8>>,
+    pub last_full_reconcile_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
 /// Partial update payload. Each field uses the `Option<Option<T>>`
 /// convention so the API can distinguish "leave as-is" (outer
 /// None) from "clear back to site default / role default"

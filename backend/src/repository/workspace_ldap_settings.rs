@@ -13,7 +13,7 @@
 use diesel::prelude::*;
 
 use crate::db::DbConnection;
-use crate::models::{UpsertWorkspaceLdapSettings, WorkspaceLdapSettings};
+use crate::models::{UpsertWorkspaceLdapSettings, WorkspaceLdapSettings, WorkspaceLdapSyncState};
 use crate::repository::channels::CredentialError;
 use crate::utils::encryption;
 
@@ -180,11 +180,84 @@ pub fn decrypt_bind_password(
     Ok(Some(s))
 }
 
+// ---- DirSync cursor state --------------------------------------------------
+
+/// The DirSync cursor state for the current workspace, if any. RLS scopes it.
+pub fn get_sync_state(conn: &mut DbConnection) -> QueryResult<Option<WorkspaceLdapSyncState>> {
+    use crate::schema::workspace_ldap_sync_state::dsl as s;
+    s::workspace_ldap_sync_state
+        .select(WorkspaceLdapSyncState::as_select())
+        .first(conn)
+        .optional()
+}
+
+// sync-audit-only: operational DirSync cursor (opaque cookie); not a sync aggregate
+/// Persist the DirSync cookie for the workspace (upsert). `None` clears the
+/// cursor so the next run is a full sync.
+pub fn set_cookie(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    mechanism: &str,
+    cookie: Option<&[u8]>,
+) -> QueryResult<()> {
+    use crate::schema::workspace_ldap_sync_state::dsl as s;
+    use diesel::upsert::excluded;
+    diesel::insert_into(s::workspace_ldap_sync_state)
+        .values((
+            s::workspace_id.eq(workspace_id),
+            s::mechanism.eq(mechanism),
+            s::cookie.eq(cookie.map(|c| c.to_vec())),
+        ))
+        .on_conflict(s::workspace_id)
+        .do_update()
+        .set((
+            s::mechanism.eq(excluded(s::mechanism)),
+            s::cookie.eq(excluded(s::cookie)),
+            s::updated_at.eq(diesel::dsl::now),
+        ))
+        .execute(conn)?;
+    Ok(())
+}
+
+// sync-audit-only: operational DirSync reconcile timestamp; not a sync aggregate
+/// Stamp the last-full-reconcile time for the workspace. The state row must
+/// already exist (set_cookie creates it on the first sync).
+pub fn mark_full_reconcile(conn: &mut DbConnection, workspace_id: i32) -> QueryResult<()> {
+    use crate::schema::workspace_ldap_sync_state::dsl as s;
+    diesel::update(s::workspace_ldap_sync_state.find(workspace_id))
+        .set(s::last_full_reconcile_at.eq(diesel::dsl::now))
+        .execute(conn)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_helpers::setup_test_connection;
     use serde_json::json;
+
+    #[test]
+    fn sync_state_cookie_roundtrips() {
+        let mut conn = setup_test_connection();
+        assert!(get_sync_state(&mut conn).unwrap().is_none());
+
+        set_cookie(&mut conn, 1, "dirsync", Some(&[0xca, 0xfe])).unwrap();
+        let st = get_sync_state(&mut conn).unwrap().unwrap();
+        assert_eq!(st.cookie.as_deref(), Some(&[0xca, 0xfe][..]));
+        assert_eq!(st.mechanism, "dirsync");
+        assert!(st.last_full_reconcile_at.is_none());
+
+        // Upsert advances the cookie in place.
+        set_cookie(&mut conn, 1, "dirsync", Some(&[0xbe, 0xef])).unwrap();
+        mark_full_reconcile(&mut conn, 1).unwrap();
+        let st = get_sync_state(&mut conn).unwrap().unwrap();
+        assert_eq!(st.cookie.as_deref(), Some(&[0xbe, 0xef][..]));
+        assert!(st.last_full_reconcile_at.is_some());
+
+        // Clearing the cookie resets to a full sync.
+        set_cookie(&mut conn, 1, "dirsync", None).unwrap();
+        assert!(get_sync_state(&mut conn).unwrap().unwrap().cookie.is_none());
+    }
 
     fn sample_fields() -> UpsertWorkspaceLdapSettings {
         UpsertWorkspaceLdapSettings {
