@@ -9,12 +9,13 @@
 # is composed from it. See DEVELOPMENT.md for the full workflow doc.
 
 COMPOSE := docker compose -f compose.yaml -f compose.dev.yaml
+LDAP_COMPOSE := $(COMPOSE) -f compose.ldap-test.yaml
 
 .DEFAULT_GOAL := help
 
 .PHONY: help dev dev-bg dev-lan dev-bg-lan watch down clean clean-db restart restart-frontend migrate schema \
         test test-frontend logs logs-frontend shell psql mailpit token \
-        install-hooks
+        ldap-test ldap-test-down install-hooks
 
 help: ## Show this help message
 	@echo "Available options:"
@@ -122,6 +123,24 @@ test: ## Run backend tests (inside the container)
 # tool versions.
 test-frontend: ## Run the frontend type-check (vue-tsc)
 	cd frontend && npm run type-check
+
+# Bring up the dev stack plus a seeded test OpenLDAP for the /admin/ldap UI.
+# Detached so the directory + seed can settle; follow with `make logs`. See
+# docs/ldap-testing.md for the walkthrough + the Samba/Windows AD options.
+ldap-test: ## Start the dev stack + a seeded test LDAP for /admin/ldap
+	$(LDAP_COMPOSE) up -d --build
+	@echo ""
+	@echo "Test LDAP up. Open http://localhost:8080/admin/ldap, apply the OpenLDAP preset, then:"
+	@echo "  Host           ldap          Encryption  LDAPS (Verify TLS certificate OFF)"
+	@echo "  Bind DN        cn=admin,dc=acme,dc=test     Bind password  admin"
+	@echo "  User base DN   ou=People,dc=acme,dc=test    Group base DN  ou=Groups,dc=acme,dc=test"
+	@echo "Save -> Test -> Discover groups -> map Helpdesk-Admins=admin / Agents=agent -> Preview -> Sync."
+	@echo "Re-seed: make ldap-test-down (wipes the directory volume), then make ldap-test."
+
+# Wipe the test LDAP + its data volume so the next `make ldap-test` re-applies
+# the seed (osixia only bootstraps a fresh DB).
+ldap-test-down: ## Stop + wipe the test LDAP (re-seeds on next ldap-test)
+	$(LDAP_COMPOSE) rm -sfv ldap
 
 # Follow nosdesk logs in the current terminal.
 logs: ## Follow nosdesk logs

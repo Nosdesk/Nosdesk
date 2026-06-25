@@ -1,0 +1,36 @@
+# Opt-in test directory for the LDAP admin UI (/admin/ldap).
+#
+# Brings up a seeded OpenLDAP on the dev network and allowlists it for the
+# backend's SSRF egress guard. Run the dev stack WITH this overlay:
+#
+#   make ldap-test
+#   # or: docker compose -f compose.yaml -f compose.dev.yaml -f compose.ldap-test.yaml up -d --build
+#
+# OpenLDAP gives a reliable, deterministic test of the WHOLE admin flow (config,
+# test, discover, role mapping, preview, sync) plus the connector, search-then-
+# bind auth, and the full-scan user/group sync. It is NOT Active Directory: it
+# has no objectSid / primaryGroupID and no DirSync, so the AD-specific paths
+# (primary-group membership, incremental DirSync) need a Samba AD-DC or a real
+# Windows AD -- see docs/ldap-testing.md.
+services:
+  ldap:
+    image: osixia/openldap:1.5.0
+    container_name: nosdesk-ldap-test
+    environment:
+      LDAP_ORGANISATION: "Acme"
+      LDAP_DOMAIN: "acme.test"
+      LDAP_ADMIN_PASSWORD: "admin"
+    volumes:
+      # osixia applies custom bootstrap LDIF on first boot (empty DB only).
+      - ./scripts/ldap-test/seed.ldif:/container/service/slapd/assets/config/bootstrap/ldif/custom/seed.ldif:ro
+    networks:
+      - nosdesk-network
+    ports:
+      - "127.0.0.1:389:389"   # StartTLS
+      - "127.0.0.1:636:636"   # LDAPS (self-signed)
+
+  nosdesk:
+    environment:
+      # Allowlist the test directory for the egress guard (which otherwise
+      # rejects its private docker IP). Appends to any existing allowlist.
+      NOSDESK_OUTBOUND_ALLOWED_HOSTS: "${NOSDESK_OUTBOUND_ALLOWED_HOSTS:+${NOSDESK_OUTBOUND_ALLOWED_HOSTS},}ldap"
