@@ -25,7 +25,7 @@ use ldap3::adapters::{Adapter, EntriesOnly, PagedResults};
 use ldap3::controls::Control;
 use ldap3::{Ldap, Scope, SearchEntry};
 use serde_json::Value;
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::db::DbConnection;
 use crate::models::{DirectoryAddress, DirectoryContact, WorkspaceLdapSettings};
@@ -122,6 +122,9 @@ impl AttrNames {
 /// A directory entry mapped to the identity + contact shapes the sinks consume.
 pub struct MappedUser {
     pub external_id: String,
+    /// The entry's DN, persisted so group membership (AD lists members by DN)
+    /// can resolve back to this user.
+    pub dn: String,
     pub email: String,
     pub display_name: Option<String>,
     pub contact: DirectoryContact,
@@ -161,6 +164,7 @@ fn map_entry(entry: &SearchEntry, a: &AttrNames) -> Option<MappedUser> {
 
     Some(MappedUser {
         external_id,
+        dn: entry.dn.clone(),
         email,
         display_name: first_value(entry, &a.display_name),
         contact: DirectoryContact {
@@ -180,6 +184,27 @@ fn map_entry(entry: &SearchEntry, a: &AttrNames) -> Option<MappedUser> {
 /// all-users `(sAMAccountName=*)`.
 fn build_sync_filter(template: &str) -> String {
     template.replace("{username}", "*")
+}
+
+/// Connect + service-bind, shared by the user + group syncs.
+pub(crate) async fn connect_and_bind(
+    settings: &WorkspaceLdapSettings,
+    bind_password: &str,
+) -> Result<Ldap, SyncError> {
+    ensure_bind_creds(settings, bind_password).map_err(SyncError::Auth)?;
+    let mut svc = connector::connect(settings)
+        .await
+        .map_err(LdapAuthError::Connect)?;
+    if svc
+        .with_timeout(connector::OP_TIMEOUT)
+        .simple_bind(&settings.bind_dn, bind_password)
+        .await?
+        .rc
+        != 0
+    {
+        return Err(SyncError::Auth(LdapAuthError::ServiceBind));
+    }
+    Ok(svc)
 }
 
 /// Run a user sync for `workspace_id`. `conn` MUST be pinned to that workspace
@@ -202,19 +227,7 @@ pub async fn sync_users(
     let attrs = resolve_attrs(&settings.attribute_map);
     let filter = build_sync_filter(&settings.user_filter);
 
-    ensure_bind_creds(settings, bind_password).map_err(SyncError::Auth)?;
-    let mut svc = connector::connect(settings)
-        .await
-        .map_err(LdapAuthError::Connect)?;
-    if svc
-        .with_timeout(connector::OP_TIMEOUT)
-        .simple_bind(&settings.bind_dn, bind_password)
-        .await?
-        .rc
-        != 0
-    {
-        return Err(SyncError::Auth(LdapAuthError::ServiceBind));
-    }
+    let mut svc = connect_and_bind(settings, bind_password).await?;
 
     let prior_cookie = workspace_ldap_settings::get_sync_state(conn)?
         .and_then(|s| s.cookie)
@@ -350,6 +363,8 @@ fn provision_entry(
             return;
         }
     };
+    let external_id = mapped.external_id.clone();
+    let dn = mapped.dn.clone();
     let input = ProjectedUserInput {
         iss: "ldap".to_string(),
         sub: mapped.external_id,
@@ -365,6 +380,14 @@ fn provision_entry(
     match find_or_create_projected_user(conn, input) {
         Ok(outcome) => {
             let uuid = outcome.into_user().uuid;
+            // Refresh the DN (in the identity's metadata) so the group sync can
+            // resolve membership back to this user even after an OU move.
+            let _ = crate::repository::user_auth_identities::set_ldap_dn(
+                conn,
+                workspace_id,
+                &external_id,
+                &dn,
+            );
             if let Err(e) = crate::repository::user_contact::apply_directory_contact(
                 conn,
                 uuid,
@@ -461,6 +484,26 @@ pub async fn run_recorded_sync(
                     records_failed: Some(stats.errors as i32),
                 },
             )?;
+            // Group sync runs AFTER users so the DN->uuid map is complete.
+            // Best-effort: a group failure doesn't fail the user sync run.
+            if crate::services::ldap::groups::is_configured(settings) {
+                match crate::services::ldap::groups::sync_groups(
+                    conn,
+                    settings,
+                    workspace_id,
+                    bind_password,
+                )
+                .await
+                {
+                    Ok(g) => info!(
+                        groups = g.groups_synced,
+                        members = g.members_resolved,
+                        unresolved = g.members_unresolved,
+                        "ldap group sync completed"
+                    ),
+                    Err(e) => warn!(error = %e, "ldap group sync failed"),
+                }
+            }
             Ok(RecordedSync {
                 history_id: history.id,
                 stats,

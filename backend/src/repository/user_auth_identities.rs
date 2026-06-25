@@ -173,6 +173,52 @@ pub fn get_user_uuids_by_external_ids(
         .load::<(String, Uuid)>(conn)
 }
 
+// sync-pending-wire: directory DN refreshed each sync for group membership resolution
+/// Store/refresh the LDAP DN (in metadata) on a workspace-scoped `ldap`
+/// identity, so the group sync (AD lists members by DN) can resolve it back to
+/// the user. Idempotent; called for every user on each sync.
+pub fn set_ldap_dn(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    external_id: &str,
+    dn: &str,
+) -> Result<usize, Error> {
+    diesel::update(
+        user_auth_identities::table
+            .filter(user_auth_identities::workspace_id.eq(workspace_id))
+            .filter(user_auth_identities::provider_type.eq("ldap"))
+            .filter(user_auth_identities::external_id.eq(external_id)),
+    )
+    .set(user_auth_identities::metadata.eq(serde_json::json!({ "ldap_dn": dn })))
+    .execute(conn)
+}
+
+/// `(lowercased DN -> user_uuid)` for the workspace's `ldap` identities. DNs are
+/// case-insensitive, so keys are lowercased for matching against group member
+/// DNs. Used by the group sync to resolve membership.
+pub fn ldap_dn_map(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+) -> Result<Vec<(String, Uuid)>, Error> {
+    let rows: Vec<(Option<serde_json::Value>, Uuid)> = user_auth_identities::table
+        .filter(user_auth_identities::workspace_id.eq(workspace_id))
+        .filter(user_auth_identities::provider_type.eq("ldap"))
+        .select((
+            user_auth_identities::metadata,
+            user_auth_identities::user_uuid,
+        ))
+        .load(conn)?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|(meta, uuid)| {
+            meta.as_ref()
+                .and_then(|m| m.get("ldap_dn"))
+                .and_then(|v| v.as_str())
+                .map(|dn| (dn.to_lowercase(), uuid))
+        })
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,6 +306,37 @@ mod tests {
             find_user_by_scoped_identity(1, "ldap", "uid-shared", &mut conn).unwrap(),
             Some(scoped_user.uuid)
         );
+    }
+
+    #[test]
+    fn ldap_dn_map_stores_and_lowercases() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "ldapdn", "user");
+        diesel::insert_into(user_auth_identities::table)
+            .values((
+                user_auth_identities::user_uuid.eq(user.uuid),
+                user_auth_identities::provider_type.eq("ldap"),
+                user_auth_identities::external_id.eq("guid-1"),
+                user_auth_identities::workspace_id.eq(Some(1)),
+            ))
+            .execute(&mut conn)
+            .unwrap();
+
+        // Refresh the DN; the map lowercases it so case-varying group member DNs
+        // still resolve (LDAP DNs are case-insensitive).
+        let rows = set_ldap_dn(&mut conn, 1, "guid-1", "CN=Jane Doe,OU=Staff,DC=corp").unwrap();
+        assert_eq!(rows, 1);
+
+        let map: std::collections::HashMap<_, _> =
+            ldap_dn_map(&mut conn, 1).unwrap().into_iter().collect();
+        assert_eq!(map.get("cn=jane doe,ou=staff,dc=corp"), Some(&user.uuid));
+
+        // A later sync moves the user's OU; the DN refreshes in place.
+        set_ldap_dn(&mut conn, 1, "guid-1", "CN=Jane Doe,OU=Eng,DC=corp").unwrap();
+        let map: std::collections::HashMap<_, _> =
+            ldap_dn_map(&mut conn, 1).unwrap().into_iter().collect();
+        assert_eq!(map.get("cn=jane doe,ou=eng,dc=corp"), Some(&user.uuid));
+        assert!(map.get("cn=jane doe,ou=staff,dc=corp").is_none());
     }
 
     #[test]
