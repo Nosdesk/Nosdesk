@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, watch, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter, RouterLink } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import { useTitleManager } from '@/composables/useTitleManager';
@@ -32,11 +32,12 @@ import {
 } from '@/components/assets/assetAttributeSchema';
 import PluginSlot from '@/plugins/components/PluginSlot.vue';
 import Modal from '@/components/Modal.vue';
-import { getAssetById, updateAsset, deleteAsset, unmanageAsset } from '@/services/assetService';
+import { deleteAsset, unmanageAsset } from '@/services/assetService';
 import { type AssetKind } from '@/services/assetKindsService';
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery';
 import { useAssetLocationsQuery } from '@/composables/useAssetLocationsQuery';
 import { useSyncActions } from '@/composables/useSyncActions';
+import { useAssetDetail } from '@/composables/useAssetDetail';
 import { useAuthStore } from '@/stores/auth';
 import type { Asset } from '@/types/asset';
 import DynamicAttributeForm from '@/components/assets/DynamicAttributeForm.vue';
@@ -47,10 +48,24 @@ const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 const emit = defineEmits(['update:device']);
 
-// State
-const device = ref<Asset | null>(null);
+// State. The asset record and its persistence live in a single Pinia Colada
+// cache (useAssetDetail): `device` is the read-only cached source of truth and
+// `patchAsset` is the only writer (optimistic + rollback + invalidate). There
+// is no local copy of the record. The old dual source of truth (a `device` ref
+// plus `attributeDraft`/`editValues` drafts that every refetch reset) was racy:
+// a debounced PUT could be clobbered by a concurrent refetch and silently
+// no-op. One source of truth removes the race and surfaces save failures.
+const assetId = computed(() => Number(route.params.id));
+const {
+  asset: device,
+  isFirstLoad: loading,
+  error: loadError,
+  invalidate: invalidateAsset,
+  setAsset,
+  patchAsset,
+} = useAssetDetail(assetId);
+
 const mediaPanelRef = ref<InstanceType<typeof AssetMediaPanel> | null>(null);
-const loading = ref(true);
 const error = ref<string | null>(null);
 const isSaving = ref(false);
 const showUserSelectionModal = ref(false);
@@ -58,6 +73,9 @@ const showUnmanageModal = ref(false);
 const unmanageError = ref<string | null>(null);
 const { locations: knownLocations } = useAssetLocationsQuery();
 
+// Edit buffer for the inline column fields, seeded from the cached record by a
+// watch (below). InlineEdit/DatePicker guard their own buffers against mid-edit
+// re-sync, and every commit persists through `patchAsset`.
 const editValues = ref({
   name: '',
   manufacturer: '',
@@ -75,7 +93,6 @@ const editValues = ref({
 const { kinds: kindsRef } = useAssetKindsQuery();
 const kinds = computed<AssetKind[]>(() => kindsRef.value);
 const selectedKindSlug = ref<string>('generic');
-const attributeDraft = ref<Record<string, unknown>>({});
 
 const selectedKind = computed<AssetKind | null>(
   () => kinds.value.find((k) => k.slug === selectedKindSlug.value) ?? null,
@@ -298,17 +315,19 @@ function onAddProp(value: string) {
   addPropModel.value = '';
 }
 
-// User attributes autosave like the rest of the property list: edits
-// flow through the shared attributeDraft and commit (debounced) via
-// saveAttributes. The single-field forms only emit on real user input,
-// so programmatic resets (fetch / kind change) never trigger a save.
-let attrSaveTimer: ReturnType<typeof setTimeout> | null = null;
-function onAttrInput(next: Record<string, unknown>) {
-  attributeDraft.value = next;
-  if (attrSaveTimer) clearTimeout(attrSaveTimer);
-  attrSaveTimer = setTimeout(() => {
-    void saveAttributes();
-  }, 600);
+// User-owned attributes (warranty etc.) commit eagerly: each change persists
+// immediately through the optimistic mutation, with no debounce window to lose
+// and no shared draft for a concurrent refetch to clobber. DynamicAttributeForm
+// emits the full attribute object with the edited key applied.
+const attributesError = ref<string | null>(null);
+async function commitAttribute(next: Record<string, unknown>) {
+  if (!device.value) return;
+  attributesError.value = null;
+  try {
+    await patchAsset({ attributes: next });
+  } catch (err) {
+    attributesError.value = extractErrorMessage(err, t('asset-detail-attributes-save-failed'));
+  }
 }
 
 const locationSuggestions = computed(() => {
@@ -331,30 +350,7 @@ const managementLabel = computed(() =>
 
 const isKindEditable = computed(() => isEditable.value);
 
-const attributesDirty = computed(() => {
-  if (!device.value) return false;
-  return (
-    JSON.stringify(attributeDraft.value) !== JSON.stringify(device.value.attributes ?? {})
-  );
-});
-
 const kindChangeError = ref<string | null>(null);
-const attributesError = ref<string | null>(null);
-
-async function saveAttributes() {
-  if (!device.value || !attributesDirty.value) return;
-  isSaving.value = true;
-  attributesError.value = null;
-  try {
-    const updated = await updateAsset(device.value.id, { attributes: attributeDraft.value });
-    device.value = { ...device.value, ...updated };
-    attributeDraft.value = { ...(updated.attributes ?? {}) };
-  } catch (err) {
-    attributesError.value = extractErrorMessage(err, t('asset-detail-attributes-save-failed'));
-  } finally {
-    isSaving.value = false;
-  }
-}
 
 /**
  * Change the asset's kind inline, non-destructively. The category
@@ -365,23 +361,11 @@ async function saveAttributes() {
  * rejects unknown keys) rather than wiped, so compatible values carry
  * across. No confirm dialog: this behaves like editing any property.
  */
-/** Re-hydrate after the model picker stamps/clears a model: the backend
- *  returns the updated asset with manufacturer/model/kind/attributes
- *  already applied, so mirror it into local state. */
+/** Re-hydrate after the model picker stamps/clears a model: the backend returns
+ *  the updated asset (manufacturer/model/kind/attributes applied). Push it into
+ *  the cache as the authoritative record; the watch below reseeds the buffer. */
 function onAssetModelUpdated(asset: Asset) {
-  device.value = asset;
-  selectedKindSlug.value = asset.kind ?? 'generic';
-  attributeDraft.value = { ...(asset.attributes ?? {}) };
-  editValues.value = {
-    ...editValues.value,
-    name: asset.name,
-    manufacturer: asset.manufacturer || '',
-    model: asset.model,
-    serial_number: asset.serial_number,
-    location: asset.location || '',
-    asset_tag: asset.asset_tag || '',
-    purchase_date: asset.purchase_date || '',
-  };
+  setAsset(asset);
 }
 
 async function changeKind(newSlug: string) {
@@ -398,60 +382,41 @@ async function changeKind(newSlug: string) {
     Object.keys((newKind?.attribute_schema?.properties as Record<string, unknown>) ?? {}),
   );
   const prunedAttributes: Record<string, unknown> = {};
-  for (const [key, val] of Object.entries(attributeDraft.value)) {
+  for (const [key, val] of Object.entries(device.value?.attributes ?? {})) {
     if (allowed.has(key)) prunedAttributes[key] = val;
   }
 
   isSaving.value = true;
   kindChangeError.value = null;
   try {
-    const updated = await updateAsset(device.value.id, {
-      kind: newSlug,
-      attributes: prunedAttributes,
-    });
-    device.value = { ...device.value, ...updated };
-    attributeDraft.value = { ...(updated.attributes ?? {}) };
+    await patchAsset({ kind: newSlug, attributes: prunedAttributes });
   } catch (err) {
     kindChangeError.value = extractErrorMessage(err, t('asset-detail-kind-change-failed'));
-    selectedKindSlug.value = device.value.kind ?? 'generic';
+    selectedKindSlug.value = device.value?.kind ?? 'generic';
   } finally {
     isSaving.value = false;
   }
 }
 
-// Data fetching
-const fetchDeviceData = async () => {
-  try {
-    loading.value = true;
-    error.value = null;
-    const deviceId = Number(route.params.id);
-    if (isNaN(deviceId)) {
-      error.value = t('asset-detail-error-invalid-id');
-      loading.value = false;
-      return;
-    }
-    device.value = await getAssetById(deviceId);
-    editValues.value = {
-      name: device.value.name,
-      manufacturer: device.value.manufacturer || '',
-      model: device.value.model,
-      serial_number: device.value.serial_number,
-      location: device.value.location || '',
-      purchase_date: device.value.purchase_date || '',
-      asset_tag: device.value.asset_tag || '',
-      quantity: device.value.quantity ?? '',
-      unit: device.value.unit ?? '',
-      low_stock_threshold: device.value.low_stock_threshold ?? '',
-    };
-    selectedKindSlug.value = device.value.kind ?? 'generic';
-    attributeDraft.value = { ...(device.value.attributes ?? {}) };
-  } catch (e) {
-    error.value = t('asset-detail-error-load');
-    console.error('Error loading device:', e);
-  } finally {
-    loading.value = false;
-  }
-};
+// Seed the inline-field edit buffer + kind selector from the cached record.
+// Runs on initial load and whenever the authoritative record changes (a save's
+// reconciliation, a model stamp, or an external SSE update). InlineEdit /
+// DatePicker guard their own buffers, so a reseed never interrupts an edit.
+function seedFromAsset(a: Asset) {
+  editValues.value = {
+    name: a.name,
+    manufacturer: a.manufacturer || '',
+    model: a.model,
+    serial_number: a.serial_number,
+    location: a.location || '',
+    purchase_date: a.purchase_date || '',
+    asset_tag: a.asset_tag || '',
+    quantity: a.quantity ?? '',
+    unit: a.unit ?? '',
+    low_stock_threshold: a.low_stock_threshold ?? '',
+  };
+  selectedKindSlug.value = a.kind ?? 'generic';
+}
 
 async function selectLocationSuggestion(location: string) {
   editValues.value.location = location;
@@ -462,10 +427,10 @@ const saveField = async (field: keyof typeof editValues.value) => {
   if (!device.value) return;
   try {
     isSaving.value = true;
-    const updatedDevice = await updateAsset(device.value.id, { [field]: editValues.value[field] });
-    device.value = { ...device.value, ...updatedDevice };
+    await patchAsset({ [field]: editValues.value[field] });
   } catch (err) {
     console.error('Error saving device field:', err);
+    // patchAsset rolled the cache back; re-sync the buffer to the stored value.
     if (device.value) {
       editValues.value[field] = (device.value[field as keyof Asset] as string) || '';
     }
@@ -485,11 +450,10 @@ const saveStockField = async (field: 'quantity' | 'unit' | 'low_stock_threshold'
   }
   try {
     isSaving.value = true;
-    const updatedDevice = await updateAsset(device.value.id, { [field]: raw });
-    device.value = { ...device.value, ...updatedDevice };
+    await patchAsset({ [field]: raw });
   } catch (err) {
     console.error('Error saving stock field:', err);
-    editValues.value[field] = (device.value[field] as string | null | undefined) ?? '';
+    editValues.value[field] = (device.value?.[field] as string | null | undefined) ?? '';
   } finally {
     isSaving.value = false;
   }
@@ -508,10 +472,7 @@ const handleUserSelection = async (user: { uuid: string; name: string; email: st
   showUserSelectionModal.value = false;
   try {
     isSaving.value = true;
-    const updatedDevice = await updateAsset(device.value.id, {
-      primary_user_uuid: user.uuid || null,
-    });
-    device.value = { ...device.value, ...updatedDevice };
+    await patchAsset({ primary_user_uuid: user.uuid || null });
   } catch (err) {
     console.error('Error updating device user:', err);
   } finally {
@@ -523,8 +484,7 @@ async function clearPrimaryUser() {
   if (!device.value) return;
   try {
     isSaving.value = true;
-    const updated = await updateAsset(device.value.id, { primary_user_uuid: null });
-    device.value = { ...device.value, ...updated };
+    await patchAsset({ primary_user_uuid: null });
   } catch (err) {
     console.error('Error clearing primary user:', err);
   } finally {
@@ -555,7 +515,7 @@ const confirmUnmanageDevice = async () => {
     isSaving.value = true;
     unmanageError.value = null;
     const updatedDevice = await unmanageAsset(device.value.id);
-    device.value = updatedDevice;
+    setAsset(updatedDevice);
     showUnmanageModal.value = false;
   } catch (err) {
     console.error('Error unmanaging device:', err);
@@ -565,9 +525,19 @@ const confirmUnmanageDevice = async () => {
   }
 };
 
+// Reseed the inline-field buffer whenever the authoritative record changes
+// (initial load, a save's reconciliation, a model stamp, or an external update).
+watch(device, (d) => { if (d) seedFromAsset(d); }, { immediate: true });
+
+// Propagate the full record to the layout (drives the header title).
 watch(device, (newDevice) => {
   if (newDevice) emit('update:device', newDevice);
 }, { immediate: true, deep: true });
+
+// Surface a load failure (the query owns the fetch).
+watch(loadError, (e) => {
+  if (e) error.value = t('asset-detail-error-load');
+});
 
 // The asset name lives in the site header (like a ticket title). Register
 // the save handler only while the asset is editable, so a sync-owned
@@ -586,10 +556,11 @@ onBeforeUnmount(() => {
   titleManager.clearDevice();
 });
 
+// The query keys on `assetId`, so navigating to a different asset refetches
+// automatically; just reset the per-session reveal state.
 watch(() => route.params.id, () => {
   revealed.value = new Set();
   revealedAttrs.value = new Set();
-  fetchDeviceData();
 });
 
 const auth = useAuthStore();
@@ -599,8 +570,8 @@ const canChangeLifecycle = computed(() => auth.isTechnician);
 // the own-change sync filter, so reflect it optimistically (the status
 // badge updates at once) and refetch for the authoritative record.
 function onAssetTransitioned(toStatus: string) {
-  if (device.value) device.value = { ...device.value, status: toStatus };
-  void fetchDeviceData();
+  if (device.value) setAsset({ ...device.value, status: toStatus });
+  void invalidateAsset();
 }
 useSyncActions(
   (actions) => {
@@ -613,14 +584,10 @@ useSyncActions(
       router.push('/assets');
       return;
     }
-    void fetchDeviceData();
+    void invalidateAsset();
   },
   { aggregates: ['asset'], debounceMs: 300 },
 );
-
-onMounted(() => {
-  fetchDeviceData();
-});
 </script>
 
 <template>
@@ -898,8 +865,8 @@ onMounted(() => {
                 >
                   <DynamicAttributeForm
                     :schema="singleAttrSchema(key)"
-                    :model-value="attributeDraft"
-                    @update:model-value="onAttrInput"
+                    :model-value="device?.attributes ?? {}"
+                    @update:model-value="commitAttribute"
                   />
                 </div>
                 <AlertMessage
@@ -932,7 +899,7 @@ onMounted(() => {
               <template #title>{{ syncSourceLabel }}</template>
               <DynamicAttributeForm
                 :schema="syncAttributeSchema"
-                v-model="attributeDraft"
+                :model-value="device?.attributes ?? {}"
                 :disabled="true"
               />
             </SectionCard>
@@ -966,7 +933,7 @@ onMounted(() => {
                 :asset-id="device.id"
                 :unit="device.unit"
                 :current-quantity="device.quantity"
-                @recorded="fetchDeviceData"
+                @recorded="invalidateAsset"
               />
             </SectionCard>
 
