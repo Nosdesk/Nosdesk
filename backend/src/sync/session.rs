@@ -132,7 +132,17 @@ where
 
     conn.transaction(|conn| {
         set_actor(conn, actor)?;
-        f(conn)
+        let value = f(conn)?;
+        // Backstop against silent write loss. If `f` returned Ok but left the
+        // transaction in an aborted state (a query error that was swallowed
+        // rather than propagated — e.g. a stale-schema read behind an
+        // `unwrap_or_default`), the COMMIT that `transaction` is about to issue
+        // gets downgraded to a ROLLBACK by Postgres while still reporting
+        // success: the writes vanish behind a 2xx. Probe with a trivial
+        // statement so an aborted transaction surfaces as a real error here and
+        // rolls back loudly instead of committing nothing.
+        diesel::sql_query("SELECT 1").execute(conn)?;
+        Ok(value)
     })
 }
 
