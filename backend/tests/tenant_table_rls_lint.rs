@@ -32,7 +32,16 @@ use common::TestDb;
 /// Tables that have a `workspace_id` column but intentionally do not carry
 /// the workspace-isolation RLS policy. Add an entry only with a
 /// justification, e.g. `"some_global_table", // platform-scoped, not tenant`.
-const RLS_EXEMPT_ALLOWLIST: &[&str] = &[];
+const RLS_EXEMPT_ALLOWLIST: &[&str] = &[
+    // Holds BOTH instance-global login identities (workspace_id NULL: local /
+    // microsoft / oidc, shared across the instance and resolved at login before
+    // a workspace is pinned) AND workspace-scoped directory identities (ldap /
+    // scim). Standard workspace RLS would hide the NULL-workspace global rows
+    // from a pinned session and break login; the scoped rows are isolated by the
+    // explicit workspace_id filters in repository::user_auth_identities
+    // (find_user_by_identity filters workspace_id IS NULL, find_user_by_scoped_identity filters = ws).
+    "user_auth_identities",
+];
 
 #[derive(QueryableByName, Debug)]
 struct TableRls {
