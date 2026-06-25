@@ -29,7 +29,7 @@ pub fn default_user_field_schema() -> Value {
         "type": "object",
         "properties": {
             "office_location": { "type": "string", "title": "Office location", "synced": true },
-            "gender": { "type": "string", "title": "Gender" },
+            "gender": { "type": "string", "title": "Gender", "enum": ["Male", "Female"], "x-allow-custom": true },
             "birthday": { "type": "string", "format": "date", "title": "Birthday" }
         }
     })

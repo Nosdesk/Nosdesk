@@ -40,18 +40,25 @@ const saving = ref(false);
 
 const properties = computed(() => (schema.value.properties ?? {}) as Record<string, SchemaProperty>);
 
-/** Schema minus synced fields — the user-editable form. */
+/** The user-editable form. A `synced` field is only excluded (read-only) when
+ *  THIS user is actually directory-synced; for a local user there's no directory
+ *  feeding it, so it's an ordinary editable field. */
 const editableSchema = computed<Schema>(() => {
   const out: Record<string, SchemaProperty> = {};
-  for (const [k, v] of Object.entries(properties.value)) if (!v.synced) out[k] = v;
+  for (const [k, v] of Object.entries(properties.value)) {
+    if (!v.synced || !directorySynced.value) out[k] = v;
+  }
   return { type: 'object', properties: out, required: schema.value.required };
 });
 
-/** Synced fields rendered read-only (fed by the directory). */
+/** Synced fields rendered read-only — only when the directory actually feeds
+ *  this user. */
 const syncedFields = computed(() =>
-  Object.entries(properties.value)
-    .filter(([, v]) => v.synced)
-    .map(([key, v]) => ({ key, title: v.title ?? key })),
+  directorySynced.value
+    ? Object.entries(properties.value)
+        .filter(([, v]) => v.synced)
+        .map(([key, v]) => ({ key, title: v.title ?? key }))
+    : [],
 );
 
 const hasCustomFields = computed(() => Object.keys(properties.value).length > 0);

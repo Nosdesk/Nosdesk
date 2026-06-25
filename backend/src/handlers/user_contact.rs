@@ -206,15 +206,23 @@ pub async fn set_user_profile_fields(
     let result = tc.run(|conn| {
         let schema = repo::get_field_schema(conn)?;
         let existing = repo::get_profile(conn, user_uuid)?;
+        let is_directory_synced = existing
+            .as_ref()
+            .map(|p| p.directory_synced)
+            .unwrap_or(false);
 
-        // The directory owns `synced` custom-field keys: drop any manual attempt
-        // to set them and restore the stored values. The UI hides them, but a
-        // direct API call must not forge or clear them either.
-        for key in synced_property_keys(&schema) {
-            if let Some(obj) = input.custom_fields.as_object_mut() {
-                obj.remove(&key);
-                if let Some(v) = existing.as_ref().and_then(|p| p.custom_fields.get(&key)) {
-                    obj.insert(key, v.clone());
+        // The directory owns `synced` custom-field keys ONLY when this profile is
+        // actually directory-managed: drop manual attempts to set them and
+        // restore the stored values (the UI hides them, and a direct API call
+        // must not forge or clear them). For a local profile there's no directory
+        // feeding them, so they're ordinary editable fields and pass through.
+        if is_directory_synced {
+            for key in synced_property_keys(&schema) {
+                if let Some(obj) = input.custom_fields.as_object_mut() {
+                    obj.remove(&key);
+                    if let Some(v) = existing.as_ref().and_then(|p| p.custom_fields.get(&key)) {
+                        obj.insert(key, v.clone());
+                    }
                 }
             }
         }
