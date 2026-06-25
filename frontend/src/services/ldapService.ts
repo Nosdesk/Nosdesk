@@ -129,7 +129,32 @@ export const ldapService = {
   async discoverGroups(): Promise<DiscoverGroupsResult> {
     return (await apiClient.get<DiscoverGroupsResult>('/ldap/discover-groups')).data;
   },
+
+  /** Blast-radius preview for the saved config (read-only). */
+  async previewSync(): Promise<PreviewResult> {
+    return (await apiClient.post<PreviewResult>('/ldap/preview')).data;
+  },
 };
+
+export interface RolePreviewRule {
+  group: string;
+  role: string;
+  found: boolean;
+  member_count: number;
+  member_capped: boolean;
+}
+
+export interface RolePreview {
+  user_count: number;
+  user_capped: boolean;
+  rules: RolePreviewRule[];
+}
+
+export interface PreviewResult {
+  ok: boolean;
+  preview?: RolePreview;
+  error?: string;
+}
 
 export interface DiscoveredGroup {
   name: string;

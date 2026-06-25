@@ -320,6 +320,52 @@
               >
                 {{ $t('admin-ldap-role-admin-warning') }}
               </p>
+
+              <!-- Blast-radius preview -->
+              <div class="flex flex-wrap items-center gap-2 border-t border-default pt-3">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  :loading="previewing"
+                  :disabled="!canTest || previewing"
+                  :title="isDirty ? $t('admin-ldap-preview-save-first') : ''"
+                  @click="previewSync"
+                >
+                  {{ previewing ? $t('admin-ldap-previewing') : $t('admin-ldap-preview') }}
+                </Button>
+                <span v-if="previewError" class="text-xs text-status-error" :title="previewError">
+                  {{ previewError }}
+                </span>
+              </div>
+              <div
+                v-if="previewData"
+                class="flex flex-col gap-2 rounded-lg bg-surface-alt p-3 text-sm"
+              >
+                <p class="text-primary font-medium">
+                  {{ $t('admin-ldap-preview-users', { count: countDisplay(previewData.user_count, previewData.user_capped) }) }}
+                </p>
+                <div v-if="previewData.rules.length" class="flex flex-col gap-1.5">
+                  <div
+                    v-for="(rule, idx) in previewData.rules"
+                    :key="idx"
+                    class="flex items-center gap-2 flex-wrap"
+                  >
+                    <StatusPill
+                      :label="$t(`admin-ldap-role-${rule.role}`)"
+                      :tone="rule.role === 'admin' ? 'caution' : rule.role === 'agent' ? 'info' : 'neutral'"
+                      size="xs"
+                    />
+                    <span class="text-secondary">{{ rule.group }}</span>
+                    <span v-if="rule.found" class="text-tertiary text-xs">
+                      {{ $t('admin-ldap-preview-members', { count: countDisplay(rule.member_count, rule.member_capped) }) }}
+                    </span>
+                    <span v-else class="text-status-error text-xs">
+                      {{ $t('admin-ldap-preview-not-found') }}
+                    </span>
+                  </div>
+                </div>
+                <p class="text-tertiary text-xs">{{ $t('admin-ldap-preview-default') }}</p>
+              </div>
             </div>
           </div>
         </SectionCard>
@@ -485,6 +531,7 @@ import {
   type UpsertLdapSettings,
   type DiscoveredGroup,
   type RoleMapping,
+  type RolePreview,
 } from '@/services/ldapService';
 import { useToastStore } from '@/stores/toast';
 import { createErrorFromResponse } from '@/utils/errors';
@@ -723,6 +770,8 @@ watch(
   () => {
     testResult.value = 'idle';
     testErrorMessage.value = '';
+    // The preview reflects the saved config; an edit makes it stale.
+    previewData.value = null;
   },
 );
 
@@ -797,6 +846,31 @@ function setRuleGroup(idx: number, group: string | string[]) {
 function setRuleRole(idx: number, role: string | string[]) {
   const ro = (Array.isArray(role) ? role[0] : role) as RoleMapping['role'];
   roleMappings.value = roleMappings.value.map((r, i) => (i === idx ? { ...r, role: ro } : r));
+}
+
+// --- Blast-radius preview --------------------------------------------------
+function countDisplay(n: number, capped: boolean): string {
+  return capped ? `${n}+` : `${n}`;
+}
+const previewing = ref(false);
+const previewError = ref('');
+const previewData = ref<RolePreview | null>(null);
+async function previewSync() {
+  if (previewing.value || !canTest.value) return;
+  previewing.value = true;
+  previewError.value = '';
+  try {
+    const res = await ldapService.previewSync();
+    if (res.ok && res.preview) {
+      previewData.value = res.preview;
+    } else {
+      previewError.value = res.error ?? t('admin-ldap-preview-failed');
+    }
+  } catch (e) {
+    previewError.value = createErrorFromResponse(e).getUserMessage() || t('admin-ldap-preview-failed');
+  } finally {
+    previewing.value = false;
+  }
 }
 
 // --- Attribute mapping (stored in the attribute_map JSONB) ----------------

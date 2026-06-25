@@ -112,6 +112,110 @@ pub async fn discover_groups(
     Ok(groups)
 }
 
+/// A role rule's blast radius (one row of the preview).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RolePreviewRule {
+    pub group: String,
+    pub role: String,
+    pub found: bool,
+    /// Direct member count of the group (an estimate: excludes primary-group +
+    /// nested members, and is capped).
+    pub member_count: usize,
+    pub member_capped: bool,
+}
+
+/// What a sync would do, for the admin to review before committing.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RolePreview {
+    pub user_count: usize,
+    pub user_capped: bool,
+    pub rules: Vec<RolePreviewRule>,
+}
+
+const PREVIEW_USER_CAP: usize = 5000;
+const PREVIEW_MEMBER_CAP: usize = 5000;
+
+/// Read-only blast-radius preview: count the users a sync would see, and the
+/// direct member count of each role-mapped group. No provisioning happens.
+pub async fn preview_roles(
+    settings: &WorkspaceLdapSettings,
+    bind_password: &str,
+    rules: &[(String, String)],
+) -> Result<RolePreview, SyncError> {
+    let mut svc = connect_and_bind(settings, bind_password).await?;
+
+    // User count: search the user base with no attributes ("1.1") for a light
+    // count, capped so a huge directory can't stall the preview.
+    let user_filter = settings.user_filter.replace("{username}", "*");
+    let page = settings.page_size.max(1) as i32;
+    let adapters: Vec<Box<dyn Adapter<_, _>>> = vec![
+        Box::new(EntriesOnly::new()),
+        Box::new(PagedResults::new(page)),
+    ];
+    let mut stream = svc
+        .with_timeout(connector::OP_TIMEOUT)
+        .streaming_search_with(
+            adapters,
+            &settings.user_base_dn,
+            Scope::Subtree,
+            &user_filter,
+            vec!["1.1"],
+        )
+        .await?;
+    let mut user_count = 0usize;
+    let mut user_capped = false;
+    while (stream.next().await?).is_some() {
+        user_count += 1;
+        if user_count >= PREVIEW_USER_CAP {
+            user_capped = true;
+            break;
+        }
+    }
+    let _ = stream.finish().await;
+
+    // Per-rule: find the group by name, count its direct members.
+    let group_base = cfg(settings, "group_base_dn", &settings.user_base_dn).to_string();
+    let object_class = cfg(settings, "object_class", "group");
+    let member_attr = cfg(settings, "member_attribute", "member");
+    let name_attr = cfg(settings, "name_attribute", "cn");
+    let mut rule_results = Vec::with_capacity(rules.len());
+    for (group_name, role) in rules {
+        let filter = format!(
+            "(&(objectClass={object_class})({name_attr}={}))",
+            crate::services::ldap::escape::escape_filter_value(group_name)
+        );
+        let (entries, _res) = svc
+            .with_timeout(connector::OP_TIMEOUT)
+            .search(&group_base, Scope::Subtree, &filter, vec![member_attr])
+            .await?
+            .success()?;
+        let (found, member_count, member_capped) = match entries.into_iter().next() {
+            Some(e) => {
+                let total = all_values(&SearchEntry::construct(e), member_attr).len();
+                (
+                    true,
+                    total.min(PREVIEW_MEMBER_CAP),
+                    total >= PREVIEW_MEMBER_CAP,
+                )
+            }
+            None => (false, 0, false),
+        };
+        rule_results.push(RolePreviewRule {
+            group: group_name.clone(),
+            role: role.clone(),
+            found,
+            member_count,
+            member_capped,
+        });
+    }
+
+    Ok(RolePreview {
+        user_count,
+        user_capped,
+        rules: rule_results,
+    })
+}
+
 /// Sync groups + membership for `workspace_id`. `conn` MUST be pinned to it.
 pub async fn sync_groups(
     conn: &mut DbConnection,

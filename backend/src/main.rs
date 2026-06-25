@@ -2419,6 +2419,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/ldap/presets", web::get().to(handlers::ldap_integration::get_ldap_presets))
                     .route("/ldap/test-connection", web::post().to(handlers::ldap_integration::test_ldap_connection))
                     .route("/ldap/discover-groups", web::get().to(handlers::ldap_integration::discover_ldap_groups))
+                    .route("/ldap/preview", web::post().to(handlers::ldap_integration::preview_ldap))
                     .route("/ldap/sync", web::post().to(handlers::ldap_integration::run_ldap_sync))
                     .route("/users/{uuid}/with-emails", web::get().to(handlers::get_user_with_emails))
                     .route("/users/{uuid}/profile", web::get().to(handlers::users::get_user_profile_bundle))
