@@ -8,7 +8,7 @@
  */
 import { ref, watch, watchEffect } from 'vue'
 import { useFluent } from 'fluent-vue'
-import type { TicketPriority } from '@/constants/ticketOptions'
+import type { TicketPriority } from '@nosdesk/core/constants/ticketOptions'
 import Modal from '@/components/Modal.vue'
 import Button from '@/components/common/Button.vue'
 import StatusBadge from '@/components/StatusBadge.vue'

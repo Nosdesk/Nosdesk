@@ -176,5 +176,8 @@ jobs:
       - name: vue-tsc
         run: pnpm --filter nosdesk-frontend run type-check
 
+      - name: Core type-check (@nosdesk/core)
+        run: pnpm --filter @nosdesk/core run type-check
+
       - name: Audit
         run: pnpm audit --prod

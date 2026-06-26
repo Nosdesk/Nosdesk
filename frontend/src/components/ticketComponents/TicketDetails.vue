@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router';
 import { shareableRouteUrl } from '@/utils/shareUrl';
 import { useFluent } from 'fluent-vue';
 import { stripHtml } from '@/composables/useSanitise';
-import type { TicketPriority } from '@/constants/ticketOptions';
+import type { TicketPriority } from '@nosdesk/core/constants/ticketOptions';
 import { useWorkflowStatesStore } from '@/stores/workflowStates';
 import {
   buildWorkflowDropdownOptions,

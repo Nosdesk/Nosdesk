@@ -53,7 +53,7 @@ import {
 } from '@/composables/useDataTableColumns'
 import { useSavedListViews } from '@/composables/useSavedListViews'
 import type { SyncAggregate } from '@/sync/types'
-import type { ListKeys } from '@/queries/listKeys'
+import type { ListKeys } from '@nosdesk/core/queries/listKeys'
 import type { SavedView, SavedViewDataset } from '@/services/savedViewsService'
 import { useToastStore } from '@/stores/toast'
 

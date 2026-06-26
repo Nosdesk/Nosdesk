@@ -4,7 +4,7 @@ import { computed, onMounted, onUnmounted, watch, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useFluent } from "fluent-vue";
 import { useAuthStore } from "@/stores/auth";
-import { PRIORITY_OPTIONS } from "@/constants/ticketOptions";
+import { PRIORITY_OPTIONS } from "@nosdesk/core/constants/ticketOptions";
 import { categoryService } from "@/services/categoryService";
 import type { TicketCategory } from "@/types/category";
 import type { Ticket } from "@/types/ticket";

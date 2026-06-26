@@ -13,7 +13,7 @@ import UserAvatar from '@/components/UserAvatar.vue';
 import type { IconName } from '@/components/common/icons';
 import { formatDate, formatDateTime, formatRelativeTime } from '@/utils/dateUtils';
 import { auditService, type AuditEntry, type AuditPage, type AuditQuery } from '@/services/auditService';
-import { auditKeys } from '@/queries/audit';
+import { auditKeys } from '@nosdesk/core/queries/audit';
 import { extractErrorMessage } from '@/utils/errors';
 
 const fluent = useFluent();

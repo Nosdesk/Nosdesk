@@ -12,7 +12,11 @@
  *    URL query is converted into the params shape that
  *    `serializeListCacheKey` accepts.
  */
-import type { LocationQuery } from 'vue-router'
+// Structural equivalent of vue-router's `LocationQuery` (parsed URL query
+// params), inlined so @nosdesk/core carries no router dependency. The frontend
+// passes vue-router's own `LocationQuery`, which is assignable to this shape.
+type LocationQueryValue = string | null
+type LocationQuery = Record<string, LocationQueryValue | LocationQueryValue[]>
 
 import { listKeys } from './listKeys'
 import type { ListRequestParams } from './listSerialization'

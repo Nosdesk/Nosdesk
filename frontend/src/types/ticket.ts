@@ -3,7 +3,7 @@
  * Canonical ticket interface matching backend contract
  */
 
-import type { TicketPriority } from '@/constants/ticketOptions'
+import type { TicketPriority } from '@nosdesk/core/constants/ticketOptions'
 import type { Asset } from './asset'
 import type { Comment, Attachment } from './comment'
 import type { Project } from './project'

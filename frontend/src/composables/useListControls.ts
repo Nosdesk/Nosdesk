@@ -12,7 +12,7 @@
  * composable. The data half lives in Pinia Colada now.
  */
 import { computed, ref, type Ref } from 'vue'
-import { serializeListCacheKey, type ListRequestParams } from '@/queries/listSerialization'
+import { serializeListCacheKey, type ListRequestParams } from '@nosdesk/core/queries/listSerialization'
 
 export type FilterValue = string | string[]
 export type Filters = Record<string, FilterValue>

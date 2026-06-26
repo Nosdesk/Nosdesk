@@ -34,7 +34,7 @@ import { useMobileDetection } from '@/composables/useMobileDetection'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
 import { downloadAssetsCsv, getPaginatedAssets, bulkAction, createEmptyAsset, getAssetGroupingDataset, type AssetGroupingRow } from '@/services/assetService'
 import { useAssetLocationsQuery } from '@/composables/useAssetLocationsQuery'
-import { assetsKeys } from '@/queries/assets'
+import { assetsKeys } from '@nosdesk/core/queries/assets'
 import type { Asset } from '@/types/asset'
 import {
   assetStatusChipOptions,

@@ -6,7 +6,7 @@
  * Uses canvas for performant rendering of many snowflakes.
  */
 import { ref, onMounted, onUnmounted } from 'vue'
-import { Z_INDEX } from '@/constants/zIndex'
+import { Z_INDEX } from '@nosdesk/core/constants/zIndex'
 
 interface Snowflake {
   x: number
