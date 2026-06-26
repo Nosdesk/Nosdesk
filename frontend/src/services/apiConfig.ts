@@ -6,11 +6,11 @@ import { getSSEClientId } from '@/services/sseService';
 import { workspaceHeaders } from '@/services/activeWorkspace';
 import { getSessionId as getDiagnosticsSessionId } from '@/services/diagnostics/session';
 import { pushApi as pushApiBreadcrumb } from '@/services/diagnostics/breadcrumbs';
-import { getCsrfToken } from '@/utils/csrf';
-// Shared, in-flight-deduplicated access-token refresh, used by both this
-// axios client and the raw-fetch sync runtime so the two never fire two
-// concurrent (token-rotating) refreshes against each other.
-import { refreshAccessToken } from './authRefresh';
+// Transport seam: base URL, credential mode, and auth headers are resolved at
+// request time so the same axios client serves both the web (cookie + CSRF)
+// and mobile (bearer) surfaces. The host wires the active strategy at
+// bootstrap (web: services/transport.ts).
+import { apiBaseUrl, transport } from '@nosdesk/core/transport';
 
 // API Configuration with Structured Logging and Error Handling
 //
@@ -18,9 +18,6 @@ import { refreshAccessToken } from './authRefresh';
 // - Production: ERROR level only, structured logs sent to backend
 // - Development: DEBUG level, verbose logging when localStorage['api-verbose-logging'] = 'true'
 // - To enable verbose logging: localStorage.setItem('api-verbose-logging', 'true')
-
-// Set API URL based on environment
-export const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 // Correlation ID management for request tracing
 let currentCorrelationId: string | null = null;
@@ -34,10 +31,10 @@ export function setCorrelationId(id: string) {
   logger.setCorrelationId(id);
 }
 
-// Create axios instance with default config
+// Create axios instance with default config. baseURL and credential mode are
+// set per-request from the transport seam (below), not here: the seam is
+// configured at bootstrap, after this module loads.
 const apiClient = axios.create({
-  baseURL: API_URL,
-  withCredentials: true, // Enable sending cookies with requests
   headers: {
     'Content-Type': 'application/json',
   },
@@ -103,6 +100,11 @@ function redirectToLogin() {
 // Add request interceptor for CSRF token and correlation ID
 apiClient.interceptors.request.use(
   (config) => {
+    // Resolve base URL and credential mode from the active transport (web:
+    // same-origin + cookies; mobile: absolute base + bearer, no cookies).
+    config.baseURL = apiBaseUrl();
+    config.withCredentials = transport().auth.useCredentials;
+
     // Generate correlation ID for request tracing
     if (!currentCorrelationId) {
       currentCorrelationId = generateCorrelationId();
@@ -114,11 +116,8 @@ apiClient.interceptors.request.use(
     // every backend request from the same tab.
     config.headers['X-Nosdesk-Trace-Id'] = getDiagnosticsSessionId();
 
-    // Add CSRF token to header for state-changing requests
-    const csrfToken = getCsrfToken();
-    if (csrfToken) {
-      config.headers['X-CSRF-Token'] = csrfToken;
-    }
+    // Auth headers from the active strategy (web: CSRF; mobile: bearer).
+    Object.assign(config.headers, transport().auth.authHeaders());
 
     // Auth provider header (if available in localStorage)
     const authProvider = localStorage.getItem('authProvider');
@@ -310,7 +309,7 @@ apiClient.interceptors.response.use(
       isRefreshing = true;
 
       try {
-        const refreshSuccess = await refreshAccessToken();
+        const refreshSuccess = await transport().auth.refresh();
 
         if (refreshSuccess) {
           logger.debug('Token refreshed successfully', { correlationId });

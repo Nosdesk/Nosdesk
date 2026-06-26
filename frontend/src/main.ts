@@ -1,4 +1,5 @@
 import './assets/main.css'
+import './services/transport' // Configure the @nosdesk/core transport seam (web)
 import './services/apiConfig' // Import axios configuration
 
 // Initialise remote logging for debugging (can be disabled via localStorage)

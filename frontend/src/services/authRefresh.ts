@@ -14,8 +14,7 @@
  * without an import cycle through apiConfig.
  */
 import axios from 'axios'
-
-const API_URL = (import.meta.env.VITE_API_URL as string | undefined) || '/api'
+import { apiBaseUrl, transport } from '@nosdesk/core/transport'
 
 let inFlight: Promise<boolean> | null = null
 
@@ -30,7 +29,11 @@ export function refreshAccessToken(): Promise<boolean> {
   if (inFlight) return inFlight
   inFlight = (async () => {
     try {
-      const res = await axios.post(`${API_URL}/auth/refresh`, {}, { withCredentials: true })
+      const res = await axios.post(
+        `${apiBaseUrl()}/auth/refresh`,
+        {},
+        { withCredentials: transport().auth.useCredentials },
+      )
       return res.status === 200
     } catch {
       return false
