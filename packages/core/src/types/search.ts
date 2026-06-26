@@ -1,3 +1,5 @@
+import { translate } from '../i18n';
+
 /**
  * Entity types that can be searched
  */
@@ -90,8 +92,6 @@ export interface GroupedSearchResults {
   users: SearchResult[];
   projects: SearchResult[];
 }
-
-import { translate } from '../i18n';
 
 // A frontend icon-registry key (@/components/common/icons in the web app).
 // Loosened to `string` here so @nosdesk/core stays headless; the host's
