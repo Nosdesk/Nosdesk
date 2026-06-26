@@ -209,9 +209,15 @@ importers:
       '@vue/tsconfig':
         specifier: ^0.9.0
         version: 0.9.1(typescript@6.0.3)(vue@3.5.39(typescript@6.0.3))
+      eslint:
+        specifier: ^10.2.1
+        version: 10.5.0(jiti@2.7.0)
       typescript:
         specifier: ^6.0.0
         version: 6.0.3
+      typescript-eslint:
+        specifier: ^8.59.1
+        version: 8.62.0(eslint@10.5.0(jiti@2.7.0))(typescript@6.0.3)
       vue-tsc:
         specifier: ^3.2.0
         version: 3.3.5(typescript@6.0.3)

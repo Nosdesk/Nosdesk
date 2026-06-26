@@ -179,5 +179,8 @@ jobs:
       - name: Core type-check (@nosdesk/core)
         run: pnpm --filter @nosdesk/core run type-check
 
+      - name: Core boundary guard (@nosdesk/core)
+        run: pnpm --filter @nosdesk/core run lint
+
       - name: Audit
         run: pnpm audit --prod
