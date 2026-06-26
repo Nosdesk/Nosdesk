@@ -7,8 +7,8 @@ import { useDocPages } from '@/composables/useDocPages'
 import BackButton from '@/components/common/BackButton.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Icon from '@/components/common/Icon.vue'
-import { formatDate } from '@/utils/dateUtils'
-import { docUrl } from '@/utils/docUrl'
+import { formatDate } from '@nosdesk/core/utils/dateUtils'
+import { docUrl } from '@nosdesk/core/utils/docUrl'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)

@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import type { Page } from '@/services/documentationService'
-import { docUrl } from '@/utils/docUrl'
+import { docUrl } from '@nosdesk/core/utils/docUrl'
 
 const props = defineProps<{
   page: Page

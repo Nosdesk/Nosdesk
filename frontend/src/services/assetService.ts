@@ -2,7 +2,7 @@ import apiClient from './apiConfig';
 import type { Asset, AssetFormData } from '@nosdesk/core/types/asset';
 import type { PaginationParams, PaginatedResponse } from '@nosdesk/core/types/pagination';
 import { logger } from '@/utils/logger';
-import { RequestManager } from '@/utils/requestManager';
+import { RequestManager } from '@nosdesk/core/utils/requestManager';
 
 // Request cancellation manager instance
 const requestManager = new RequestManager();

@@ -1,7 +1,7 @@
 import axios from 'axios';
 import apiClient from './apiConfig';
 import { logger } from '@/utils/logger';
-import { RequestManager } from '@/utils/requestManager';
+import { RequestManager } from '@nosdesk/core/utils/requestManager';
 import type { PaginationParams, PaginatedResponse } from '@nosdesk/core/types/pagination';
 import type { User, UserRole, UserSecurityInfo } from '@nosdesk/core/types/user';
 import type { Asset } from '@nosdesk/core/types/asset';

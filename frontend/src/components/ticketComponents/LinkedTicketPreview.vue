@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { formatDate } from '@/utils/dateUtils';
+import { formatDate } from '@nosdesk/core/utils/dateUtils';
 import { ref, onMounted, onBeforeUnmount, computed } from "vue";
 import { useRouter } from "vue-router";
 import { useFluent } from 'fluent-vue';

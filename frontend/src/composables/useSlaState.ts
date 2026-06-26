@@ -23,7 +23,7 @@
  */
 import { computed, onMounted, onUnmounted, ref, type ComputedRef, type Ref } from 'vue'
 import type { CardData } from '@/sync/views/types'
-import { getDateConfig } from '@/utils/dateUtils'
+import { getDateConfig } from '@nosdesk/core/utils/dateUtils'
 
 // Single shared tick: re-emits the wall clock so every consumer's
 // computed re-evaluates together. 30s is a sweet spot — fast enough

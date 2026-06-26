@@ -15,7 +15,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { logger } from '@/utils/logger'
 import { translate } from '@/i18n'
-import { dedupeInFlight } from '@/utils/dedupeInFlight'
+import { dedupeInFlight } from '@nosdesk/core/utils/dedupeInFlight'
 import {
   savedViewsService,
   type SavedView,

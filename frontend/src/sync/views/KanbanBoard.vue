@@ -37,8 +37,8 @@ import {
   type WorkflowStateCategory,
   type WorkflowState,
 } from '@nosdesk/core/types/workflow'
-import { paletteForColor } from '@/utils/workflowColors'
-import { formatDateTime } from '@/utils/dateUtils'
+import { paletteForColor } from '@nosdesk/core/utils/workflowColors'
+import { formatDateTime } from '@nosdesk/core/utils/dateUtils'
 import { useDragDrop } from './drag'
 import type { CardData } from './types'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'

@@ -3,7 +3,7 @@ import { ref, computed, watch, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter, RouterLink } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import { useTitleManager } from '@/composables/useTitleManager';
-import { formatDateTime } from '@/utils/dateUtils';
+import { formatDateTime } from '@nosdesk/core/utils/dateUtils';
 import BackButton from '@/components/common/BackButton.vue';
 import SearchableDropdown, { type DropdownOption } from '@/components/common/SearchableDropdown.vue';
 import BaseDropdown from '@/components/common/BaseDropdown.vue';

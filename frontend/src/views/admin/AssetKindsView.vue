@@ -30,7 +30,7 @@ import {
   type AssetKind,
 } from '@/services/assetKindsService';
 import { extractErrorMessage } from '@/utils/errors';
-import { highlightTerms } from '@/utils/highlight';
+import { highlightTerms } from '@nosdesk/core/utils/highlight';
 import { useToastStore } from '@/stores/toast';
 import { useQueryCache } from '@pinia/colada';
 

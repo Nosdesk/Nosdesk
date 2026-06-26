@@ -35,7 +35,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
 import { logger } from '@/utils/logger'
-import { SafePermanentUserData } from '@/utils/safePermanentUserData'
+import { SafePermanentUserData } from '@nosdesk/core/utils/safePermanentUserData'
 import { getCollabWsUrl } from '@/utils/collabWsUrl'
 
 /**

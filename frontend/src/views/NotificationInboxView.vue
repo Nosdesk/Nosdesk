@@ -29,7 +29,7 @@ import {
   useNotificationFilterTabs,
   type NotificationFilter,
 } from '@/composables/useNotificationFeed'
-import { formatInboxTime, parseDate } from '@/utils/dateUtils'
+import { formatInboxTime, parseDate } from '@nosdesk/core/utils/dateUtils'
 import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
 import Checkbox from '@/components/common/Checkbox.vue'

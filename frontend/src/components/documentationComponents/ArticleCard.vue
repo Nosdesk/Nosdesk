@@ -2,8 +2,8 @@
 import { RouterLink } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import StatusBadge from '@/components/StatusBadge.vue'
-import { formatDate } from '@/utils/dateUtils'
-import { docUrl } from '@/utils/docUrl'
+import { formatDate } from '@nosdesk/core/utils/dateUtils'
+import { docUrl } from '@nosdesk/core/utils/docUrl'
 
 // fluent-vue registers $t on the template render context; the
 // composable call ensures the plugin is initialised before render.

@@ -11,7 +11,7 @@
  * before the `<mark>` wrapping runs.
  */
 
-import { escapeHtml, escapeRegex } from '@/utils/escape';
+import { escapeHtml, escapeRegex } from './escape';
 
 export function highlightTerms(text: string, terms: string[]): string {
   if (terms.length === 0) return escapeHtml(text);

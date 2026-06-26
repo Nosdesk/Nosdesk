@@ -33,7 +33,7 @@ import ProjectSelectionModal from "@/components/ticketComponents/ProjectSelectio
 import TicketGapFlag from "@/components/ticketComponents/TicketGapFlag.vue";
 import TicketLoansCard from "@/components/ticketComponents/TicketLoansCard.vue";
 import documentationService from "@/services/documentationService";
-import { docUrl } from "@/utils/docUrl";
+import { docUrl } from "@nosdesk/core/utils/docUrl";
 import { pageTicketLinkKeys } from "@/composables/usePageTicketLinks";
 import { useFlagTicketMutation } from "@/composables/useKnowledgeGaps";
 import { useQueryCache } from "@pinia/colada";

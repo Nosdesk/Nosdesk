@@ -31,7 +31,7 @@ import {
   useNotificationFilterTabs,
   type NotificationFilter,
 } from '@/composables/useNotificationFeed'
-import { formatInboxTime, parseDate } from '@/utils/dateUtils'
+import { formatInboxTime, parseDate } from '@nosdesk/core/utils/dateUtils'
 import { useFluent } from 'fluent-vue'
 import ResponsiveMenu from './common/ResponsiveMenu.vue'
 import Icon from './common/Icon.vue'

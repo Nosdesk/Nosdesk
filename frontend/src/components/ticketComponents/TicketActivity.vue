@@ -32,7 +32,7 @@ import {
 import { useWorkflowStatesStore } from '@/stores/workflowStates'
 import { useUsersDirectory } from '@/composables/useUsersDirectory'
 import { useTicketActivitySSE } from '@/composables/useTicketActivitySSE'
-import { formatCompactRelativeTime } from '@/utils/dateUtils'
+import { formatCompactRelativeTime } from '@nosdesk/core/utils/dateUtils'
 import UserAvatar from '@/components/UserAvatar.vue'
 import Spinner from '@/components/common/Spinner.vue'
 import Icon from '@/components/common/Icon.vue'

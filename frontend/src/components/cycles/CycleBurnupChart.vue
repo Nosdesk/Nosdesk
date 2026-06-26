@@ -25,8 +25,8 @@
 import { computed, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
 import type { BurnupSeries } from '@/services/cyclesService'
-import { formatCompactDate } from '@/utils/dateUtils'
-import { parseDayMs, buildPaceSeries, buildForecast, type SeriesPoint } from '@/utils/burnupModel'
+import { formatCompactDate } from '@nosdesk/core/utils/dateUtils'
+import { parseDayMs, buildPaceSeries, buildForecast, type SeriesPoint } from '@nosdesk/core/utils/burnupModel'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)

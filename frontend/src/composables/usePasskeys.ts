@@ -2,7 +2,7 @@ import { ref, computed, onMounted } from 'vue';
 import passkeyService, { type PasskeyInfo, type PasskeyLoginResult } from '@/services/passkeyService';
 import { translate } from '@/i18n';
 import { logger } from '@/utils/logger';
-import { formatDateTime } from '@/utils/dateUtils';
+import { formatDateTime } from '@nosdesk/core/utils/dateUtils';
 
 /**
  * Composable for passkey functionality following Vue 3 best practices

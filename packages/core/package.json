@@ -13,7 +13,9 @@
     "lint": "eslint src"
   },
   "dependencies": {
-    "fluent-vue": "^3.8.2"
+    "date-fns": "^4.1.0",
+    "fluent-vue": "^3.8.2",
+    "yjs": "^13.6.29"
   },
   "devDependencies": {
     "@vue/tsconfig": "^0.9.0",

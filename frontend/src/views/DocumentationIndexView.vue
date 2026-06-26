@@ -16,8 +16,8 @@ import EmptyState from '@/components/common/EmptyState.vue'
 import SectionCard from '@/components/common/SectionCard.vue'
 import Icon from '@/components/common/Icon.vue'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
-import { docUrl } from '@/utils/docUrl'
-import { formatRelativeTime } from '@/utils/dateUtils'
+import { docUrl } from '@nosdesk/core/utils/docUrl'
+import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
 import {
   pageNeedsVerificationAttention,
   pageVerificationState,

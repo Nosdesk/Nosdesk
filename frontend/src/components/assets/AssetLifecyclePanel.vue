@@ -19,7 +19,7 @@ import {
 import { useSyncActions } from '@/composables/useSyncActions';
 import { useUsersDirectory } from '@/composables/useUsersDirectory';
 import { metaForAssetStatus } from '@/utils/assetStatusMeta';
-import { formatRelativeTime } from '@/utils/dateUtils';
+import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
 import { ASSET_STATUSES, type AssetLifecycleEvent, type AssetStatus } from '@nosdesk/core/types/asset';
 
 const props = defineProps<{

@@ -32,7 +32,7 @@ import LinkedTicketChip from "@/components/ticketComponents/LinkedTicketChip.vue
 import { useTicketDocs } from "@/composables/usePageTicketLinks";
 import SlaExplainPopover from "@/components/sla/SlaExplainPopover.vue";
 import DatePicker from "@/components/common/DatePicker.vue";
-import { getDateConfig } from "@/utils/dateUtils";
+import { getDateConfig } from "@nosdesk/core/utils/dateUtils";
 import type { Asset } from "@nosdesk/core/types/asset";
 import type { CommentWithAttachments } from "@nosdesk/core/types/comment";
 import LogoIcon from "@/components/icons/LogoIcon.vue";
@@ -41,7 +41,7 @@ import { useTagsStore } from "@/stores/tags";
 import type { Tag } from "@nosdesk/core/types/tag";
 import { useAuthStore } from "@/stores/auth";
 import { deriveSlaState, type SlaPayload } from "@/composables/useSlaState";
-import { formatCompactDate, formatCompactRelativeTime, formatRelativeTime } from "@/utils/dateUtils";
+import { formatCompactDate, formatCompactRelativeTime, formatRelativeTime } from "@nosdesk/core/utils/dateUtils";
 import { useUsersDirectory } from "@/composables/useUsersDirectory";
 
 const fluent = useFluent();

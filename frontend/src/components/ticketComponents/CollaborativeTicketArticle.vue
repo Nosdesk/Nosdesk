@@ -9,7 +9,7 @@ import SectionCard from '@/components/common/SectionCard.vue';
 import Icon from '@/components/common/Icon.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import apiClient from '@/services/apiConfig';
-import { docUrl } from '@/utils/docUrl';
+import { docUrl } from '@nosdesk/core/utils/docUrl';
 import { listDocsForTicket, createPageFromTicket, type TicketDocLink } from '@/services/documentationService';
 import { useCollabDocId } from '@/composables/useCollabDocId';
 import { useSyncTicketsStore } from '@/sync/stores/tickets';

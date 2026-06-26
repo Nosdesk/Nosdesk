@@ -15,7 +15,7 @@ import * as Y from "yjs";
 import { PermanentUserData } from "yjs";
 import { WebsocketProvider } from "y-websocket";
 import { useCollabSessionStore, type ConnectionStatus } from "@/stores/collabSession";
-import { SafePermanentUserData } from "@/utils/safePermanentUserData";
+import { SafePermanentUserData } from "@nosdesk/core/utils/safePermanentUserData";
 import { getCollabWsUrl } from "@/utils/collabWsUrl";
 import { EditorView } from "prosemirror-view";
 import { EditorState, Selection, type Command } from "prosemirror-state";

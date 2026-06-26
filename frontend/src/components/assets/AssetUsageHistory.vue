@@ -29,7 +29,7 @@ import { assetUsageService, type AssetUsage } from '@/services/assetUsageService
 import { assetAuditService, type AssetAudit } from '@/services/assetAuditService';
 import { useSyncActions } from '@/composables/useSyncActions';
 import { RouterLink } from 'vue-router';
-import { formatDateTime } from '@/utils/dateUtils';
+import { formatDateTime } from '@nosdesk/core/utils/dateUtils';
 
 const props = defineProps<{
   assetId: number;

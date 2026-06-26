@@ -23,7 +23,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { assetUsageService, type AssetUsage } from '@/services/assetUsageService';
-import { formatDate } from '@/utils/dateUtils';
+import { formatDate } from '@nosdesk/core/utils/dateUtils';
 import { useSyncActions } from '@/composables/useSyncActions';
 import type { Asset } from '@nosdesk/core/types/asset';
 import Icon from '@/components/common/Icon.vue';

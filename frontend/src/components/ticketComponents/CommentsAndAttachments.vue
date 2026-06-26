@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { formatDate, formatDateTime } from '@/utils/dateUtils';
+import { formatDate, formatDateTime } from '@nosdesk/core/utils/dateUtils';
 import { computed, ref } from "vue";
 import { useFluent } from 'fluent-vue';
 import UserAvatar from "@/components/UserAvatar.vue";

@@ -7,7 +7,7 @@ import { computed } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useQuery } from '@pinia/colada'
 import { channelsService, type Channel, type ImapRuntimeState } from '@/services/channelsService'
-import { formatRelativeTime } from '@/utils/dateUtils'
+import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
 import DashboardWidgetShell from './DashboardWidgetShell.vue'
 
 const fluent = useFluent()

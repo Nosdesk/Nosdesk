@@ -2,7 +2,7 @@
 import { ref, onMounted, computed, watch } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { extractErrorMessage } from '@/utils/errors';
-import { formatDate } from '@/utils/dateUtils';
+import { formatDate } from '@nosdesk/core/utils/dateUtils';
 import SectionCard from '@/components/common/SectionCard.vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import Checkbox from '@/components/common/Checkbox.vue';

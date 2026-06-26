@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { formatDate, formatRelativeTime, formatSmartDate, formatCompactDate, formatCleanRelativeTime } from '@/utils/dateUtils'
+import { formatDate, formatRelativeTime, formatSmartDate, formatCompactDate, formatCleanRelativeTime } from '@nosdesk/core/utils/dateUtils'
 import { useDateStore } from '@/stores/dateStore'
 
 interface Props {

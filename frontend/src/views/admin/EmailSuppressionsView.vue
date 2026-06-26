@@ -20,7 +20,7 @@ import AlertMessage from '@/components/common/AlertMessage.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import Spinner from '@/components/common/Spinner.vue';
-import { formatDateTime as formatDateTimeTz } from '@/utils/dateUtils';
+import { formatDateTime as formatDateTimeTz } from '@nosdesk/core/utils/dateUtils';
 import {
   emailSuppressionsService,
   type EmailSuppression,

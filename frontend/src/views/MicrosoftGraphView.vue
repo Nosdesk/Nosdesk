@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { formatDateTime } from '@/utils/dateUtils';
+import { formatDateTime } from '@nosdesk/core/utils/dateUtils';
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { useFluent } from 'fluent-vue';
 import apiClient from "@/services/apiConfig";

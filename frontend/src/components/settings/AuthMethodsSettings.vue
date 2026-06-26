@@ -4,7 +4,7 @@ import { useFluent } from 'fluent-vue';
 import { useAuthStore } from '@/stores/auth';
 import authService from '@/services/authService';
 import userService from '@/services/userService';
-import { formatDate } from '@/utils/dateUtils';
+import { formatDate } from '@nosdesk/core/utils/dateUtils';
 import { extractErrorMessage } from '@/utils/errors';
 import { logger } from '@/utils/logger';
 import Icon from '@/components/common/Icon.vue';

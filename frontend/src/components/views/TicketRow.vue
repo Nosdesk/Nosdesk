@@ -31,7 +31,7 @@ import {
   formatCompactRelativeTime,
   formatCompactDate,
   formatDateTime,
-} from '@/utils/dateUtils'
+} from '@nosdesk/core/utils/dateUtils'
 import type { ListColumn } from '@/sync/views/ticketColumns'
 import type { CardData } from '@/sync/views/types'
 

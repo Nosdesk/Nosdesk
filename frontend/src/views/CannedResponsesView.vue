@@ -28,7 +28,7 @@ import cannedResponsesService, {
   type CannedResponseStarter,
 } from '@/services/cannedResponsesService';
 import { extractErrorMessage } from '@/utils/errors';
-import { highlightTerms } from '@/utils/highlight';
+import { highlightTerms } from '@nosdesk/core/utils/highlight';
 import { useToastStore } from '@/stores/toast';
 
 const fluent = useFluent();

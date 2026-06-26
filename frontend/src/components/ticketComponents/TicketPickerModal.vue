@@ -16,7 +16,7 @@ import UserAvatar from '@/components/UserAvatar.vue'
 import DebouncedSearchInput from '@/components/common/DebouncedSearchInput.vue'
 import ticketService from '@/services/ticketService'
 import type { Ticket } from '@nosdesk/core/types/ticket'
-import { formatRelativeTime } from '@/utils/dateUtils'
+import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
 import { useWorkflowStatesStore } from '@/stores/workflowStates'
 
 const { $t } = useFluent()

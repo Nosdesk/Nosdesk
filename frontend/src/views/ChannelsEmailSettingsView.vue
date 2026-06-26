@@ -350,7 +350,7 @@ import brandingService, { type BrandingConfig } from '@/services/brandingService
 import apiClient from '@/services/apiConfig';
 import { useToastStore } from '@/stores/toast';
 import { createErrorFromResponse } from '@/utils/errors';
-import { formatRelativeTime } from '@/utils/dateUtils';
+import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
 import FormTextarea from '@/components/common/FormTextarea.vue';
 
 const fluent = useFluent();

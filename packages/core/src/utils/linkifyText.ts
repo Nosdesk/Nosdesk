@@ -12,7 +12,7 @@
  * form for an href attribute.
  */
 
-import { escapeHtml } from '@/utils/escape';
+import { escapeHtml } from './escape';
 
 const URL_RE = /https?:\/\/[^\s<>"']+/g;
 

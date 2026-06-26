@@ -41,7 +41,7 @@ import { useMyWorkspacesStore } from '@/stores/myWorkspaces'
 import { useSyncTicketsStore } from '@/sync/stores/tickets'
 import { RECENT_TICKETS_KEY } from '@/stores/recentTickets'
 import { ticketDetailKey } from '@/loaders/ticketDetailLoader'
-import { buildCollabDocId } from '@/utils/collabDocId'
+import { buildCollabDocId } from '@nosdesk/core/utils/collabDocId'
 
 export function useTicketDeletionCleanup(): void {
   const collab = useCollabSessionStore()

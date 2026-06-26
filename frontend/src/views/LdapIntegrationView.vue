@@ -535,7 +535,7 @@ import {
 } from '@/services/ldapService';
 import { useToastStore } from '@/stores/toast';
 import { createErrorFromResponse } from '@/utils/errors';
-import { formatRelativeTime } from '@/utils/dateUtils';
+import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);

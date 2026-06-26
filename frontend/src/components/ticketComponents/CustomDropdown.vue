@@ -21,7 +21,7 @@ import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
 import WorkflowStateGlyph from '@/components/views/WorkflowStateGlyph.vue'
 import type { WorkflowDropdownOption } from '@nosdesk/core/types/workflow'
-import { paletteForColor } from '@/utils/workflowColors'
+import { paletteForColor } from '@nosdesk/core/utils/workflowColors'
 import { priorityForBadge } from '@/utils/priorityHelpers'
 import type { Priority as CardPriority } from '@/sync/views/types'
 

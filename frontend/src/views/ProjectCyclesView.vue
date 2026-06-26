@@ -36,7 +36,7 @@ import ProjectViewHeader from '@/components/projectComponents/ProjectViewHeader.
 import SectionCard from '@/components/common/SectionCard.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import DatePicker from '@/components/common/DatePicker.vue'
-import { formatDate } from '@/utils/dateUtils'
+import { formatDate } from '@nosdesk/core/utils/dateUtils'
 
 const props = defineProps<{ id: string }>()
 

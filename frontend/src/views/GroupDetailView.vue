@@ -10,7 +10,7 @@ import AsyncBoundary from '@/components/common/AsyncBoundary.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 import { groupService } from '@/services/groupService';
-import { formatDate } from '@/utils/dateUtils';
+import { formatDate } from '@nosdesk/core/utils/dateUtils';
 import { useAuthStore } from '@/stores/auth';
 import { useColorFilter } from '@/composables/useColorFilter';
 import type { GroupDetails } from '@nosdesk/core/types/group';

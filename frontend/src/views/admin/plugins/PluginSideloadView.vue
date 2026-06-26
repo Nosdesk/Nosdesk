@@ -18,7 +18,7 @@ import AlertMessage from '@/components/common/AlertMessage.vue';
 import pluginService from '@/services/pluginService';
 import { usePluginAdminConfig } from '@/composables/usePluginAdminConfig';
 import { logger } from '@/utils/logger';
-import { formatFileSize } from '@/utils/formatFileSize';
+import { formatFileSize } from '@nosdesk/core/utils/formatFileSize';
 import { extractErrorMessage } from '@/utils/errors';
 
 const router = useRouter();

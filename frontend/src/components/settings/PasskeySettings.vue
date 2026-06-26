@@ -9,7 +9,7 @@ import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
 import { extractErrorMessage } from '@/utils/errors';
-import { formatDate as formatDateOnly } from '@/utils/dateUtils';
+import { formatDate as formatDateOnly } from '@nosdesk/core/utils/dateUtils';
 import Button from '@/components/common/Button.vue';
 import FormInput from '@/components/common/FormInput.vue';
 import Modal from '@/components/Modal.vue';

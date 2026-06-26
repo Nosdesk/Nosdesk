@@ -17,8 +17,8 @@ import { useSyncDocsStore } from '@/sync/stores/documentation'
 import {
   slugFromCollectionTitle,
   slugifyCollectionTitle,
-} from '@/utils/collectionSlug'
-import { randomAccentColor } from '@/utils/accentColor'
+} from '@nosdesk/core/utils/collectionSlug'
+import { randomAccentColor } from '@nosdesk/core/utils/accentColor'
 import Modal from '@/components/Modal.vue'
 import Button from '@/components/common/Button.vue'
 import Checkbox from '@/components/common/Checkbox.vue'

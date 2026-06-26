@@ -7,7 +7,7 @@
  * called, what options it offers, and how to summarise its
  * current selection.
  */
-import { paletteForColor } from '@/utils/workflowColors'
+import { paletteForColor } from '@nosdesk/core/utils/workflowColors'
 import { translate } from '@/i18n'
 import type { CardData, Priority } from '@/sync/views/types'
 import type { FilterFacet, SlaFilter } from '@/composables/useTicketsFilters'

@@ -156,7 +156,7 @@ import {
   type CannedResponseListItem,
   type TemplateVars,
 } from '@/services/cannedResponsesService';
-import { highlightTerms } from '@/utils/highlight';
+import { highlightTerms } from '@nosdesk/core/utils/highlight';
 
 const { $t } = useFluent();
 

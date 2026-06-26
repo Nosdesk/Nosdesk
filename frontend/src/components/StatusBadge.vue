@@ -4,7 +4,7 @@ import { computed } from 'vue'
 import { useFluent } from 'fluent-vue'
 import type { FluentVariable } from '@fluent/bundle'
 import type { WorkflowState } from '@nosdesk/core/types/workflow'
-import { paletteForColor } from '@/utils/workflowColors'
+import { paletteForColor } from '@nosdesk/core/utils/workflowColors'
 
 const fluent = useFluent()
 const t = (k: string, args?: Record<string, FluentVariable>) => fluent.$t(k, args)

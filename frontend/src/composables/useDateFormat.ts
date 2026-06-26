@@ -14,7 +14,7 @@ import {
   formatSmartDate,
   formatDateTime,
   formatTime
-} from '@/utils/dateUtils'
+} from '@nosdesk/core/utils/dateUtils'
 import { useDateStore } from '@/stores/dateStore'
 
 export interface UseDateFormatOptions {

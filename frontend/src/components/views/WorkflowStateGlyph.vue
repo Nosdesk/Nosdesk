@@ -31,7 +31,7 @@
  * The glyph carries that information in the shape itself.
  */
 import { computed } from 'vue'
-import { paletteForColor } from '@/utils/workflowColors'
+import { paletteForColor } from '@nosdesk/core/utils/workflowColors'
 import type { WorkflowStateCategory } from '@nosdesk/core/types/workflow'
 
 const props = withDefaults(defineProps<{

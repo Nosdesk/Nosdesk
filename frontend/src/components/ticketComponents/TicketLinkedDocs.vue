@@ -13,7 +13,7 @@ import { useFluent } from 'fluent-vue'
 import PropertyChipRow from '@/components/ticketComponents/PropertyChipRow.vue'
 import PropertyChip from '@/components/ticketComponents/PropertyChip.vue'
 import { useTicketDocs } from '@/composables/usePageTicketLinks'
-import { docUrl } from '@/utils/docUrl'
+import { docUrl } from '@nosdesk/core/utils/docUrl'
 
 const props = defineProps<{
   ticketId: number

@@ -11,7 +11,7 @@ import LoadingSpinner from '@/components/common/LoadingSpinner.vue';
 import BaseDropdown, { type DropdownOption } from '@/components/common/BaseDropdown.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 import type { IconName } from '@/components/common/icons';
-import { formatDate, formatDateTime, formatRelativeTime } from '@/utils/dateUtils';
+import { formatDate, formatDateTime, formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
 import { auditService, type AuditEntry, type AuditPage, type AuditQuery } from '@/services/auditService';
 import { auditKeys } from '@nosdesk/core/queries/audit';
 import { extractErrorMessage } from '@/utils/errors';

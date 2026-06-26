@@ -1,7 +1,7 @@
 import { useRouter } from 'vue-router'
 import documentationService from '@/services/documentationService'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
-import { docUrl } from '@/utils/docUrl'
+import { docUrl } from '@nosdesk/core/utils/docUrl'
 import { docsEmitter } from '@/services/docsEmitter'
 
 /**

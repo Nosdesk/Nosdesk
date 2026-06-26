@@ -13,7 +13,7 @@ import BaseDropdown, { type DropdownOption } from '@/components/common/BaseDropd
 import UserPicker from '@/components/ticketComponents/UserPicker.vue';
 import Modal from '@/components/Modal.vue';
 import apiTokenService from '@/services/apiTokenService';
-import { formatRelativeTime } from '@/utils/dateUtils';
+import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
 import type { ApiToken, ApiTokenCreated, CreateApiTokenRequest } from '@nosdesk/core/types/apiToken';
 
 const fluent = useFluent();

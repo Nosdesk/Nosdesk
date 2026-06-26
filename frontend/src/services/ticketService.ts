@@ -1,6 +1,6 @@
 import apiClient from './apiConfig';
 import { logger } from '@/utils/logger';
-import { RequestManager } from '@/utils/requestManager';
+import { RequestManager } from '@nosdesk/core/utils/requestManager';
 import type {
   Ticket,
   RecentTicket,

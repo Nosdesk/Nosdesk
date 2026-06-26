@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { formatDate as formatDateUtil } from '@/utils/dateUtils';
+import { formatDate as formatDateUtil } from '@nosdesk/core/utils/dateUtils';
 import { effectiveRole, type UserRole } from '@nosdesk/core/types/user';
 import { ref, computed, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";

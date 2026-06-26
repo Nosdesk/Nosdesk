@@ -6,8 +6,8 @@
  */
 import { computed } from 'vue'
 import { RouterLink, type RouteLocationRaw } from 'vue-router'
-import { docUrl } from '@/utils/docUrl'
-import { formatCompactRelativeTime, formatRelativeTime } from '@/utils/dateUtils'
+import { docUrl } from '@nosdesk/core/utils/docUrl'
+import { formatCompactRelativeTime, formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
 import type { Page } from '@/services/documentationService'
 import type { UserInfo } from '@nosdesk/core/types/user'
 import UserAvatar from '@/components/UserAvatar.vue'

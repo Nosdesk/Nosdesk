@@ -17,7 +17,7 @@
 import { computed, type DeepReadonly } from 'vue';
 import { useFluent } from 'fluent-vue';
 import type { Plugin } from '@nosdesk/core/types/plugin';
-import { formatDate } from '@/utils/dateUtils';
+import { formatDate } from '@nosdesk/core/utils/dateUtils';
 import PluginIcon from './PluginIcon.vue';
 import PluginStateBadge from './PluginStateBadge.vue';
 import PluginTrustBadge from './PluginTrustBadge.vue';

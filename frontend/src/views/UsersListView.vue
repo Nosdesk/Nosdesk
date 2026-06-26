@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { useMutation, useQueryCache } from '@pinia/colada'
 import { useFluent } from 'fluent-vue'
 import { extractErrorMessage } from '@/utils/errors'
-import { formatDate } from '@/utils/dateUtils'
+import { formatDate } from '@nosdesk/core/utils/dateUtils'
 import { useToastStore } from '@/stores/toast'
 
 import DataTable from '@/components/common/DataTable.vue'

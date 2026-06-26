@@ -4,7 +4,7 @@ import { RouterLink } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import { getCollectionsForPage, getCollection } from '@/services/collectionService'
 import { getAncestorChain } from '@/utils/treeUtils'
-import { docUrl } from '@/utils/docUrl'
+import { docUrl } from '@nosdesk/core/utils/docUrl'
 import CollectionIcon from '@/components/documentationComponents/CollectionIcon.vue'
 
 const fluent = useFluent()

@@ -34,7 +34,7 @@ import { useSlaState, useSlaTimers, type SlaState } from '@/composables/useSlaSt
 import {
   formatCleanRelativeTime,
   formatDateTime,
-} from '@/utils/dateUtils'
+} from '@nosdesk/core/utils/dateUtils'
 import type { CardData, Priority } from '@/sync/views/types'
 import {
   buildPriorityDropdownOptions,

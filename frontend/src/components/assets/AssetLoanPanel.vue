@@ -16,7 +16,7 @@ import TicketPickerModal from '@/components/ticketComponents/TicketPickerModal.v
 import { assetLoanKeys, assetLoanService } from '@/services/assetLoanService';
 import { useSyncActions } from '@/composables/useSyncActions';
 import { useUsersDirectory } from '@/composables/useUsersDirectory';
-import { formatCompactDate, formatRelativeTime } from '@/utils/dateUtils';
+import { formatCompactDate, formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
 import type { AssetLoan } from '@nosdesk/core/types/asset';
 
 const props = defineProps<{
