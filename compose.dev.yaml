@@ -230,23 +230,30 @@ services:
   # Frontend Build Service - Development (for live reloading)
   frontend-watch:
     image: node:24-alpine
-    working_dir: /app
+    working_dir: /repo/frontend
     networks:
       - nosdesk-network
     volumes:
-      - ./frontend:/app
-      - ./backend/public:/app/dist # Mount the backend public directory to dist
-      - frontend_node_modules:/app/node_modules
-      # Shared Fluent catalogues — same files the backend
-      # include_str!s. Mounted read-only so Vite can resolve
-      # `import.meta.glob('../../../i18n/locales/*/main.ftl')`
-      # from frontend/src/i18n/index.ts (three `..` from there
-      # reach `/`, where this mount lives).
-      - ./i18n:/i18n:ro
-    command: sh -c "npm install && npm run dev:unified"
+      - ./frontend:/repo/frontend
+      - ./backend/public:/repo/frontend/dist # vite --watch writes here; backend serves it
+      # pnpm workspace node_modules live in volumes (not on the host bind
+      # mount) so the symlinked store resolves and host artifacts don't collide.
+      - frontend_node_modules:/repo/node_modules
+      - frontend_pkg_node_modules:/repo/frontend/node_modules
+      # Workspace manifests + lockfile — the install runs against the root.
+      - ./pnpm-workspace.yaml:/repo/pnpm-workspace.yaml:ro
+      - ./package.json:/repo/package.json:ro
+      - ./pnpm-lock.yaml:/repo/pnpm-lock.yaml:ro
+      # Shared Fluent catalogues — same files the backend include_str!s. Vite
+      # resolves `import.meta.glob('../../../i18n/locales/*/main.ftl')` three
+      # `..` up from /repo/frontend/src/i18n/, which lands at /repo.
+      - ./i18n:/repo/i18n:ro
+    command: sh -c "corepack enable && pnpm install --filter nosdesk-frontend... && pnpm run dev:unified"
 
 volumes:
   frontend_node_modules:
+    driver: local
+  frontend_pkg_node_modules:
     driver: local
   backend_cargo_cache:
     driver: local

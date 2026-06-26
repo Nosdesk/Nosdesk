@@ -160,24 +160,21 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache: pnpm
 
-      - name: npm ci
-        working-directory: frontend
-        run: npm ci
+      - name: Install
+        run: pnpm install --frozen-lockfile
 
       - name: ESLint (+ view-root check)
-        working-directory: frontend
-        run: npm run lint
+        run: pnpm --filter nosdesk-frontend run lint
 
       - name: vue-tsc
-        working-directory: frontend
-        run: npm run type-check
+        run: pnpm --filter nosdesk-frontend run type-check
 
-      - name: npm audit
-        working-directory: frontend
-        run: npm audit
+      - name: Audit
+        run: pnpm audit --prod
