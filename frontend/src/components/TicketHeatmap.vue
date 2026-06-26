@@ -4,7 +4,7 @@ import { useRouter } from "vue-router";
 import { useFluent } from 'fluent-vue';
 import { getTickets } from "@/services/ticketService";
 import { useWorkflowStatesStore } from "@/stores/workflowStates";
-import { TERMINAL_CATEGORIES } from "@/types/workflow";
+import { TERMINAL_CATEGORIES } from "@nosdesk/core/types/workflow";
 import DashboardWidgetShell from "@/views/dashboard/DashboardWidgetShell.vue";
 import ContributionHeatmapPlot, {
     type ContributionDay,

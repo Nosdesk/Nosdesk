@@ -27,7 +27,7 @@ import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import rulesService from '@/services/rulesService';
 import { useToastStore } from '@/stores/toast';
 import { extractErrorMessage } from '@/utils/errors';
-import type { Rule, RuleState, RuleTriggerKind } from '@/types/rule';
+import type { Rule, RuleState, RuleTriggerKind } from '@nosdesk/core/types/rule';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);

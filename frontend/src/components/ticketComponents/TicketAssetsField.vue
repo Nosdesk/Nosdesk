@@ -5,7 +5,7 @@
  * device detail page; the trailing X detaches it.
  */
 import { useFluent } from 'fluent-vue'
-import type { Asset } from '@/types/asset'
+import type { Asset } from '@nosdesk/core/types/asset'
 import PropertyChipRow from '@/components/ticketComponents/PropertyChipRow.vue'
 import PropertyChip from '@/components/ticketComponents/PropertyChip.vue'
 

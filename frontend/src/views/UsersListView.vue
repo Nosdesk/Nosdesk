@@ -26,7 +26,7 @@ import { useMobileDetection } from '@/composables/useMobileDetection'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
 import userService from '@/services/userService'
 import { usersKeys } from '@nosdesk/core/queries/users'
-import { effectiveRole, type User, type UserRole } from '@/types/user'
+import { effectiveRole, type User, type UserRole } from '@nosdesk/core/types/user'
 
 defineOptions({ name: 'UsersListView' })
 

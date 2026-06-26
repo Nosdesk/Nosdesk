@@ -29,7 +29,7 @@ import { useWorkflowStatesStore } from '@/stores/workflowStates'
 import {
   buildWorkflowDropdownOptions,
   isCategoryHeaderValue,
-} from '@/types/workflow'
+} from '@nosdesk/core/types/workflow'
 import { useSlaState, useSlaTimers, type SlaState } from '@/composables/useSlaState'
 import {
   formatCleanRelativeTime,

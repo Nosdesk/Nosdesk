@@ -30,7 +30,7 @@ import {
 } from '@/services/assetCatalogService'
 import { setAssetModel, clearAssetModel } from '@/services/assetService'
 import { extractErrorMessage } from '@/utils/errors'
-import type { Asset } from '@/types/asset'
+import type { Asset } from '@nosdesk/core/types/asset'
 
 const props = defineProps<{
   assetId: number

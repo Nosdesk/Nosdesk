@@ -1,5 +1,5 @@
 import apiClient from './apiConfig';
-import type { AssetLoan } from '@/types/asset';
+import type { AssetLoan } from '@nosdesk/core/types/asset';
 
 /** Pinia Colada cache keys for an asset's loan ledger. */
 export const assetLoanKeys = {

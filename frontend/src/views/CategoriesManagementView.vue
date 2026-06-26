@@ -23,8 +23,8 @@ import { categoryService } from '@/services/categoryService';
 import { groupService } from '@/services/groupService';
 import { useListReorder } from '@/composables/useListReorder';
 import { useMobileDetection } from '@/composables/useMobileDetection';
-import type { CategoryWithVisibility, CreateCategoryRequest, UpdateCategoryRequest } from '@/types/category';
-import type { GroupWithMemberCount } from '@/types/group';
+import type { CategoryWithVisibility, CreateCategoryRequest, UpdateCategoryRequest } from '@nosdesk/core/types/category';
+import type { GroupWithMemberCount } from '@nosdesk/core/types/group';
 import { extractErrorMessage } from '@/utils/errors';
 
 const { isMobile } = useMobileDetection('xl');

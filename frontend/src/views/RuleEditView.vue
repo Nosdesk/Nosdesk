@@ -34,7 +34,7 @@ import type {
   RuleAction,
   RuleTriggerKind,
   UpdateRuleRequest,
-} from '@/types/rule';
+} from '@nosdesk/core/types/rule';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);

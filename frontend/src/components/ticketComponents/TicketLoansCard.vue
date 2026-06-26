@@ -9,7 +9,7 @@ import { useSyncActions } from '@/composables/useSyncActions';
 import Button from '@/components/common/Button.vue';
 import TicketLoanRow from './TicketLoanRow.vue';
 import IssueLoanerModal from './IssueLoanerModal.vue';
-import type { AssetLoan } from '@/types/asset';
+import type { AssetLoan } from '@nosdesk/core/types/asset';
 
 const props = defineProps<{
   ticketId: number;

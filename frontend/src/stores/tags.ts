@@ -12,7 +12,7 @@ import { defineStore } from 'pinia'
 import { computed } from 'vue'
 import { useQuery } from '@pinia/colada'
 import { tagService } from '@/services/tagService'
-import type { Tag } from '@/types/tag'
+import type { Tag } from '@nosdesk/core/types/tag'
 
 const TAGS_KEY = ['tags', 'list', 'active'] as const
 

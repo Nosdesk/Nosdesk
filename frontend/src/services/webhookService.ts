@@ -6,7 +6,7 @@ import type {
   CreateWebhookRequest,
   UpdateWebhookRequest,
   WebhookDelivery,
-} from '@/types/webhook';
+} from '@nosdesk/core/types/webhook';
 
 /**
  * Webhook Service

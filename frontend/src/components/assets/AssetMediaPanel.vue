@@ -7,7 +7,7 @@ import Icon from '@/components/common/Icon.vue';
 import Modal from '@/components/Modal.vue';
 import { assetMediaService, assetMediaKeys } from '@/services/assetMediaService';
 import { useSyncActions } from '@/composables/useSyncActions';
-import type { AssetMedia } from '@/types/asset';
+import type { AssetMedia } from '@nosdesk/core/types/asset';
 
 const props = defineProps<{
   assetId: number;

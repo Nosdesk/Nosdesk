@@ -36,7 +36,7 @@ import {
   getCategoryLabel,
   type WorkflowStateCategory,
   type WorkflowState,
-} from '@/types/workflow'
+} from '@nosdesk/core/types/workflow'
 import { paletteForColor } from '@/utils/workflowColors'
 import { formatDateTime } from '@/utils/dateUtils'
 import { useDragDrop } from './drag'

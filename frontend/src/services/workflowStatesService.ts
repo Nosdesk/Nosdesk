@@ -1,5 +1,5 @@
 import apiClient from './apiConfig'
-import type { WorkflowState, WorkflowStateCategory } from '@/types/workflow'
+import type { WorkflowState, WorkflowStateCategory } from '@nosdesk/core/types/workflow'
 
 interface ListResponse {
   states: WorkflowState[]

@@ -34,7 +34,7 @@ import {
 } from '@/services/assetCatalogService';
 import { extractErrorMessage } from '@/utils/errors';
 import { useToastStore } from '@/stores/toast';
-import type { AssetModel } from '@/types/asset';
+import type { AssetModel } from '@nosdesk/core/types/asset';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);

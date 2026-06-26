@@ -19,7 +19,7 @@ import GroupConfigurationPanel from '@/components/admin/GroupConfigurationPanel.
 import { groupService } from '@/services/groupService';
 import { useColorFilter } from '@/composables/useColorFilter';
 import { GROUPS_QUERY_KEY } from '@/composables/useAssignmentPickerQueries';
-import type { GroupWithMemberCount, CreateGroupRequest } from '@/types/group';
+import type { GroupWithMemberCount, CreateGroupRequest } from '@nosdesk/core/types/group';
 import { extractErrorMessage } from '@/utils/errors';
 
 const router = useRouter();

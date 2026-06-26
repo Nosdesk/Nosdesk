@@ -4,7 +4,7 @@
  * direct callers exist for the admin tag-management UI.
  */
 import apiClient from './apiConfig'
-import type { Tag, NewTagPayload, TagUpdatePayload } from '@/types/tag'
+import type { Tag, NewTagPayload, TagUpdatePayload } from '@nosdesk/core/types/tag'
 
 export const tagService = {
   async list(includeArchived = false): Promise<Tag[]> {

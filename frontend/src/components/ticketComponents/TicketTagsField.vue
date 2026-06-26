@@ -26,7 +26,7 @@ import { useAuthStore } from '@/stores/auth'
 import { tagService } from '@/services/tagService'
 import { useQueryCache } from '@pinia/colada'
 import { TAGS_QUERY_KEY } from '@/stores/tags'
-import type { Tag } from '@/types/tag'
+import type { Tag } from '@nosdesk/core/types/tag'
 import Icon from '@/components/common/Icon.vue'
 
 const fluent = useFluent()

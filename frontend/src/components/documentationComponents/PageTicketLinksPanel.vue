@@ -17,7 +17,7 @@ import { RouterLink } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
 import TicketPickerModal from '@/components/ticketComponents/TicketPickerModal.vue'
-import { coarseStatusBucket, type WorkflowStateCategory } from '@/types/workflow'
+import { coarseStatusBucket, type WorkflowStateCategory } from '@nosdesk/core/types/workflow'
 
 const fluent = useFluent()
 const t = (key: string) => fluent.$t(key)

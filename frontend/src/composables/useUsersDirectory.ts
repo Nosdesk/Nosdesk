@@ -32,7 +32,7 @@
 import { computed, type ComputedRef } from 'vue'
 import * as pool from '@/sync/pool'
 import { useReference } from '@/sync/composables'
-import type { User } from '@/types/user'
+import type { User } from '@nosdesk/core/types/user'
 
 export type UserStatus = 'loading' | 'resolved' | 'missing'
 

@@ -24,7 +24,7 @@ import {
   TERMINAL_CATEGORIES,
   getCategoryLabel,
   type WorkflowStateCategory,
-} from '@/types/workflow'
+} from '@nosdesk/core/types/workflow'
 import CycleBurndown from '@/components/cycles/CycleBurndown.vue'
 import CycleCard from '@/components/cycles/CycleCard.vue'
 import DataTable from '@/components/common/DataTable.vue'

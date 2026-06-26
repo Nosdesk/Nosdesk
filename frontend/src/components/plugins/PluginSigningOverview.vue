@@ -16,7 +16,7 @@ import type {
   PluginTrustLevel,
   SigningOverview,
   TrustLevelCount,
-} from '@/types/plugin';
+} from '@nosdesk/core/types/plugin';
 import PluginTrustBadge from './PluginTrustBadge.vue';
 
 const overview = ref<SigningOverview | null>(null);

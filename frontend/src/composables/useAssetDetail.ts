@@ -18,7 +18,7 @@ import { computed, type Ref } from 'vue';
 import { useQuery, useMutation, useQueryCache } from '@pinia/colada';
 import { getAssetById, updateAsset } from '@/services/assetService';
 import { assetDetailKey } from '@nosdesk/core/queries/assets';
-import type { Asset } from '@/types/asset';
+import type { Asset } from '@nosdesk/core/types/asset';
 
 interface PatchContext {
   previous?: Asset;

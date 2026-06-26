@@ -18,8 +18,8 @@ import type {
   CreateWebhookRequest,
   UpdateWebhookRequest,
   WebhookDelivery,
-} from '@/types/webhook';
-import { WEBHOOK_EVENT_CATEGORIES } from '@/types/webhook';
+} from '@nosdesk/core/types/webhook';
+import { WEBHOOK_EVENT_CATEGORIES } from '@nosdesk/core/types/webhook';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);

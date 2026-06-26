@@ -13,7 +13,7 @@
  * status dropdowns / kanban columns) excludes it while the type and
  * the `byCategory` store getter must still account for it.
  */
-import { translate } from '@/i18n'
+import { translate } from '../i18n'
 
 export type WorkflowStateCategory =
   | 'triage'

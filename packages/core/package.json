@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./types": "./src/types/index.ts",
     "./*": "./src/*.ts",
     "./package.json": "./package.json"
   },

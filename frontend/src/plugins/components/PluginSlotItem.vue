@@ -11,8 +11,8 @@ import { getLoadedPlugin, type PluginSlotRegistration } from '../loader';
 import { getHostApiForPlugin } from '../api';
 import { createPluginComponent, canRenderComponent } from '../componentLoader';
 import { logger } from '@/utils/logger';
-import type { Ticket } from '@/types/ticket';
-import type { Asset } from '@/types/asset';
+import type { Ticket } from '@nosdesk/core/types/ticket';
+import type { Asset } from '@nosdesk/core/types/asset';
 
 const props = defineProps<{
   registration: PluginSlotRegistration;

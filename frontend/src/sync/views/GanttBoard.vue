@@ -26,7 +26,7 @@ import {
 import type { CardData } from './types'
 import type { DependencyEdge } from '@/services/dependenciesService'
 import type { Cycle } from '@/services/cyclesService'
-import { TERMINAL_CATEGORIES, coarseStatusBucket } from '@/types/workflow'
+import { TERMINAL_CATEGORIES, coarseStatusBucket } from '@nosdesk/core/types/workflow'
 import { startOfDay, type GanttViewport } from '@/composables/useGanttViewport'
 import EmptyState from '@/components/common/EmptyState.vue'
 

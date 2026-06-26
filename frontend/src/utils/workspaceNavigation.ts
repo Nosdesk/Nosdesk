@@ -1,4 +1,4 @@
-import type { MyWorkspaceEntry } from '@/types/workspace';
+import type { MyWorkspaceEntry } from '@nosdesk/core/types/workspace';
 
 /** Hostname without port, lowercased. */
 function hostLabel(): string {

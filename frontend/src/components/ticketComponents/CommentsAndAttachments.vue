@@ -18,7 +18,7 @@ import { useTicketUiStore } from "@/stores/ticketUi";
 
 // Local re-export of the canonical types so this component can use
 // them without churn through every consumer.
-import type { CommentWithAttachments } from '@/types/comment';
+import type { CommentWithAttachments } from '@nosdesk/core/types/comment';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);

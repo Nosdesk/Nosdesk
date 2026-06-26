@@ -10,7 +10,7 @@
  */
 import { logger } from '@/utils/logger'
 import { useSSE } from '@/services/sseService'
-import { unwrapEventData } from '@/types/sse'
+import { unwrapEventData } from '@nosdesk/core/types/sse'
 import { applySseFrame } from './lifecycle'
 import type { SyncAction } from './types'
 

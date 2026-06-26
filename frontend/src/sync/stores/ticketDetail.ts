@@ -38,12 +38,12 @@ import apiClient from '@/services/apiConfig'
 import { projectService } from '@/services/projectService'
 import type { TicketPriority } from '@nosdesk/core/constants/ticketOptions'
 import type { CardWorkflowState } from '@/sync/views/types'
-import type { Asset } from '@/types/asset'
-import type { Project } from '@/types/project'
-import type { CommentWithAttachments, Attachment } from '@/types/comment'
-import type { PlatformRole } from '@/types/user'
-import type { WorkspaceRole } from '@/types/workspace'
-import type { TicketCategory } from '@/types/category'
+import type { Asset } from '@nosdesk/core/types/asset'
+import type { Project } from '@nosdesk/core/types/project'
+import type { CommentWithAttachments, Attachment } from '@nosdesk/core/types/comment'
+import type { PlatformRole } from '@nosdesk/core/types/user'
+import type { WorkspaceRole } from '@nosdesk/core/types/workspace'
+import type { TicketCategory } from '@nosdesk/core/types/category'
 
 /** Ticket row as it lands in the pool for the detail view: the board
  * `SyncTicket` plus the detail-only scalars Stage 1 added to the
@@ -63,7 +63,7 @@ interface SyncTicketDetail {
   tag_ids?: number[]
   watcher_uuids?: string[]
   cycle_id?: number | null
-  sla?: import('@/types/sla').SlaPill | null
+  sla?: import('@nosdesk/core/types/sla').SlaPill | null
   created_by?: string | null
   closed_by?: string | null
   closed_at?: string | null

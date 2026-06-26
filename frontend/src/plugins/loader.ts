@@ -10,8 +10,8 @@ import pluginService from '@/services/pluginService';
 import { logger } from '@/utils/logger';
 import { translate } from '@/i18n';
 import { preloadPluginBundle } from './componentLoader';
-import type { Plugin, PluginSlot, PluginManifest } from '@/types/plugin';
-import { PLUGIN_SLOTS } from '@/types/plugin';
+import type { Plugin, PluginSlot, PluginManifest } from '@nosdesk/core/types/plugin';
+import { PLUGIN_SLOTS } from '@nosdesk/core/types/plugin';
 
 // =============================================================================
 // Types

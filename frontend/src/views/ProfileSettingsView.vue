@@ -30,9 +30,9 @@ import {
 import UserEmailsCard from '@/components/settings/UserEmailsCard.vue';
 import userService from '@/services/userService';
 import type { User } from '@/services/userService';
-import { effectiveRole, rolesFromTier, type UserRole } from '@/types/user';
+import { effectiveRole, rolesFromTier, type UserRole } from '@nosdesk/core/types/user';
 import { groupService } from '@/services/groupService';
-import type { Group } from '@/types/group';
+import type { Group } from '@nosdesk/core/types/group';
 import apiClient from '@/services/apiConfig';
 import { useMfa } from '@/composables/useMfa';
 import { useColorFilter } from '@/composables/useColorFilter';

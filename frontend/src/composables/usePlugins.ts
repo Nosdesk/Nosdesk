@@ -15,7 +15,7 @@ import pluginService from '@/services/pluginService';
 import { unloadPlugin } from '@/plugins/loader';
 import { logger } from '@/utils/logger';
 import { translate } from '@/i18n';
-import type { Plugin } from '@/types/plugin';
+import type { Plugin } from '@nosdesk/core/types/plugin';
 
 export function usePlugins() {
   const plugins = ref<Plugin[]>([]);

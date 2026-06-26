@@ -7,7 +7,7 @@ import UserAvatar from '@/components/UserAvatar.vue';
 import { useReference } from '@/sync/composables';
 import { useUsersDirectory } from '@/composables/useUsersDirectory';
 import { formatCompactDate } from '@/utils/dateUtils';
-import type { Asset, AssetLoan } from '@/types/asset';
+import type { Asset, AssetLoan } from '@nosdesk/core/types/asset';
 
 const props = defineProps<{ loan: AssetLoan; canReturn?: boolean }>();
 const emit = defineEmits<{ (e: 'return'): void }>();

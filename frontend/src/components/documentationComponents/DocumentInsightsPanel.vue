@@ -21,7 +21,7 @@ import { useFluent } from 'fluent-vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 import ResponsivePanel from '@/components/common/ResponsivePanel.vue'
 import * as syncPool from '@/sync/pool'
-import type { User } from '@/types/user'
+import type { User } from '@nosdesk/core/types/user'
 import apiClient from '@/services/apiConfig'
 
 const fluent = useFluent()

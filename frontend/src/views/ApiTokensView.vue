@@ -14,7 +14,7 @@ import UserPicker from '@/components/ticketComponents/UserPicker.vue';
 import Modal from '@/components/Modal.vue';
 import apiTokenService from '@/services/apiTokenService';
 import { formatRelativeTime } from '@/utils/dateUtils';
-import type { ApiToken, ApiTokenCreated, CreateApiTokenRequest } from '@/types/apiToken';
+import type { ApiToken, ApiTokenCreated, CreateApiTokenRequest } from '@nosdesk/core/types/apiToken';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);

@@ -2,7 +2,7 @@ import { computed, onUnmounted, ref, watch, type ComputedRef, type Ref } from 'v
 import userService from '@/services/userService'
 import * as syncPool from '@/sync/pool'
 import { useAuthStore } from '@/stores/auth'
-import { effectiveRole, type User } from '@/types/user'
+import { effectiveRole, type User } from '@nosdesk/core/types/user'
 import { useRecentUsersStore, type RecentScope } from '@/stores/recentUsers'
 import { useDebouncedRef } from '@/composables/useDebouncedRef'
 

@@ -16,7 +16,7 @@ import { dispatchOptimistic } from '@/sync/queue'
 import * as pool from '@/sync/pool'
 import ticketService from '@/services/ticketService'
 import { logger } from '@/utils/logger'
-import type { Ticket } from '@/types/ticket'
+import type { Ticket } from '@nosdesk/core/types/ticket'
 import type { CardWorkflowState, Priority } from '@/sync/views/types'
 
 /**
@@ -64,7 +64,7 @@ export interface SyncTicket {
   /** SLA pill payload from the backend SLA engine. Top-level fields
    *  reflect the most-urgent active timer (primary); nested `response`
    *  + `resolution` carry both timers for the preview-pane stack. */
-  sla?: import('@/types/sla').SlaPill | null
+  sla?: import('@nosdesk/core/types/sla').SlaPill | null
   /** RFC 5545 RRULE string. Closing a ticket with a rule spawns
    * the next occurrence (services/recurrence on the backend). */
   recurrence_rule?: string | null

@@ -6,7 +6,7 @@ import { defineStore } from 'pinia';
 import { computed } from 'vue';
 import { useQuery } from '@pinia/colada';
 import workspacesService from '@/services/workspacesService';
-import type { MyWorkspaceEntry } from '@/types/workspace';
+import type { MyWorkspaceEntry } from '@nosdesk/core/types/workspace';
 import { resolveActiveWorkspaceId } from '@/utils/workspaceNavigation';
 import { useAuthStore } from '@/stores/auth';
 import { getWorkspaceRouting } from '@/services/instanceConfig';

@@ -9,7 +9,7 @@ import type {
   AddMemberRequest,
   UpdateMemberRoleRequest,
   EditionInfo,
-} from '@/types/workspace';
+} from '@nosdesk/core/types/workspace';
 
 /**
  * Workspaces service — backs the Phase 4 W1/W3 admin UI plus the

@@ -15,7 +15,7 @@ import type {
   RegistryState,
   InstallFromRegistryRequest,
   SigningOverview,
-} from '@/types/plugin';
+} from '@nosdesk/core/types/plugin';
 
 /**
  * Plugin Service

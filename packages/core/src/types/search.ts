@@ -91,8 +91,12 @@ export interface GroupedSearchResults {
   projects: SearchResult[];
 }
 
-import type { IconName } from '@/components/common/icons';
-import { translate } from '@/i18n';
+import { translate } from '../i18n';
+
+// A frontend icon-registry key (@/components/common/icons in the web app).
+// Loosened to `string` here so @nosdesk/core stays headless; the host's
+// `<Icon>` component resolves and validates the name at render.
+type IconName = string;
 
 /**
  * Entity type metadata, single source of truth for display

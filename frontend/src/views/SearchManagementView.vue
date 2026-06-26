@@ -162,7 +162,7 @@ import Icon from '@/components/common/Icon.vue'
 import Spinner from '@/components/common/Spinner.vue'
 import Skeleton from '@/components/common/Skeleton.vue'
 import SkeletonBar from '@/components/common/SkeletonBar.vue'
-import type { IndexStats, RebuildResponse } from '@/types/search'
+import type { IndexStats, RebuildResponse } from '@nosdesk/core/types/search'
 
 const authStore = useAuthStore()
 const router = useRouter()

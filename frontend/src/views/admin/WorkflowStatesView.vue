@@ -17,7 +17,7 @@ import {
   WORKFLOW_CATEGORIES,
   type WorkflowState,
   type WorkflowStateCategory,
-} from '@/types/workflow'
+} from '@nosdesk/core/types/workflow'
 import { paletteForColor, SUPPORTED_COLOR_TOKENS } from '@/utils/workflowColors'
 
 const store = useWorkflowStatesStore()

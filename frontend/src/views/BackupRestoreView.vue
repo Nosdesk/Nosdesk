@@ -339,7 +339,7 @@ import backupService from '@/services/backupService';
 import { useToastStore } from '@/stores/toast';
 import { formatDateTime } from '@/utils/dateUtils';
 import { downloadDocumentationExport, type ExportProgress } from '@/services/markdownExportService';
-import type { BackupJob, RestorePreview } from '@/types/backup';
+import type { BackupJob, RestorePreview } from '@nosdesk/core/types/backup';
 import { formatFileSize } from '@/utils/formatFileSize';
 
 const fluent = useFluent();

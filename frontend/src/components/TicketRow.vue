@@ -20,8 +20,8 @@ import { useMyWorkspacesStore } from '@/stores/myWorkspaces'
 import { useWorkflowStatesStore } from '@/stores/workflowStates'
 import { useSyncTicketsStore } from '@/sync/stores/tickets'
 import { buildCollabDocId } from '@/utils/collabDocId'
-import { TERMINAL_CATEGORIES } from '@/types/workflow'
-import type { UserInfo } from '@/types/user'
+import { TERMINAL_CATEGORIES } from '@nosdesk/core/types/workflow'
+import type { UserInfo } from '@nosdesk/core/types/user'
 
 const fluent = useFluent()
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)

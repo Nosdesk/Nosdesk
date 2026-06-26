@@ -7,7 +7,7 @@ import Modal from '@/components/Modal.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import { getAssetsByUser, getPaginatedAssetsExcluding, createEmptyAsset } from '@/services/assetService';
-import type { Asset } from '@/types/asset';
+import type { Asset } from '@nosdesk/core/types/asset';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);

@@ -15,7 +15,7 @@ import StatusBadge from '@/components/StatusBadge.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 import DebouncedSearchInput from '@/components/common/DebouncedSearchInput.vue'
 import ticketService from '@/services/ticketService'
-import type { Ticket } from '@/types/ticket'
+import type { Ticket } from '@nosdesk/core/types/ticket'
 import { formatRelativeTime } from '@/utils/dateUtils'
 import { useWorkflowStatesStore } from '@/stores/workflowStates'
 

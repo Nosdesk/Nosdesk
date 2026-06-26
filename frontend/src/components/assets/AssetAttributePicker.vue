@@ -19,7 +19,7 @@ import SearchableDropdown, {
   type DropdownOption,
 } from '@/components/common/SearchableDropdown.vue';
 import { getAssets } from '@/services/assetService';
-import type { Asset } from '@/types/asset';
+import type { Asset } from '@nosdesk/core/types/asset';
 
 const { $t } = useFluent();
 

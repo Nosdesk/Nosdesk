@@ -5,7 +5,7 @@ import axios from 'axios';
 import apiClient, { setLoggingOut } from '@/services/apiConfig';
 import authService from '@/services/authService';
 import router from '@/router';
-import type { User, LoginCredentials } from '@/types';
+import type { User, LoginCredentials } from '@nosdesk/core/types';
 import { useThemeStore } from './theme';
 import { useDateStore } from './dateStore';
 import { translate } from '@/i18n';

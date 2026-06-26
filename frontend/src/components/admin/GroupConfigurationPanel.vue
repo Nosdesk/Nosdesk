@@ -17,9 +17,9 @@ import { groupService } from '@/services/groupService';
 import { getPaginatedAssets } from '@/services/assetService';
 import userService from '@/services/userService';
 import { useColorFilter } from '@/composables/useColorFilter';
-import type { GroupDetails, GroupWithMemberCount, UpdateGroupRequest } from '@/types/group';
-import type { User } from '@/types/user';
-import type { Asset } from '@/types/asset';
+import type { GroupDetails, GroupWithMemberCount, UpdateGroupRequest } from '@nosdesk/core/types/group';
+import type { User } from '@nosdesk/core/types/user';
+import type { Asset } from '@nosdesk/core/types/asset';
 
 const props = defineProps<{
   groupUuid: string;

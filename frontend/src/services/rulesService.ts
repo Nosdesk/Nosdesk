@@ -21,7 +21,7 @@ import type {
   RuleVersion,
   StateTransitionRequest,
   UpdateRuleRequest,
-} from '@/types/rule';
+} from '@nosdesk/core/types/rule';
 
 function toQueryString(params: object | undefined): string {
   if (!params) return '';

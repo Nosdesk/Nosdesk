@@ -24,10 +24,10 @@ import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import UserPicker from '@/components/ticketComponents/UserPicker.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 import workspacesService from '@/services/workspacesService';
-import type { WorkspaceMember, WorkspaceRole } from '@/types/workspace';
+import type { WorkspaceMember, WorkspaceRole } from '@nosdesk/core/types/workspace';
 import { extractErrorMessage } from '@/utils/errors';
 import * as syncPool from '@/sync/pool';
-import type { User } from '@/types/user';
+import type { User } from '@nosdesk/core/types/user';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);

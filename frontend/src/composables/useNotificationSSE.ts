@@ -13,7 +13,7 @@
 import { useAuthStore } from '@/stores/auth';
 import { useToastStore } from '@/stores/toast';
 import { useSyncActions } from '@/composables/useSyncActions';
-import type { NotificationReceivedEventData } from '@/types/sse';
+import type { NotificationReceivedEventData } from '@nosdesk/core/types/sse';
 
 type NotificationEventData = NotificationReceivedEventData['notification'];
 

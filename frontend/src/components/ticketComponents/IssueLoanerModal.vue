@@ -13,7 +13,7 @@ import { getPaginatedAssets, type AssetPaginationParams } from '@/services/asset
 import { assetLoanService } from '@/services/assetLoanService';
 import { useUsersDirectory } from '@/composables/useUsersDirectory';
 import { metaForAssetStatus } from '@/utils/assetStatusMeta';
-import type { Asset } from '@/types/asset';
+import type { Asset } from '@nosdesk/core/types/asset';
 
 const props = defineProps<{
   show: boolean;

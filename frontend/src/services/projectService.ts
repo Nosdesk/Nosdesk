@@ -1,6 +1,6 @@
 import apiClient from './apiConfig';
 import { logger } from '@/utils/logger';
-import type { Project } from '@/types/project';
+import type { Project } from '@nosdesk/core/types/project';
 
 // Define the types for API responses
 interface ProjectResponse {

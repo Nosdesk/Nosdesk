@@ -4,7 +4,7 @@ import { useFluent } from 'fluent-vue';
 import { useQuery } from "@pinia/colada";
 import { useAuthStore } from "@/stores/auth";
 import { useWorkflowStatesStore } from "@/stores/workflowStates";
-import { TERMINAL_CATEGORIES } from "@/types/workflow";
+import { TERMINAL_CATEGORIES } from "@nosdesk/core/types/workflow";
 import { useSyncActions } from "@/composables/useSyncActions";
 import { useWidgetConfigState } from "@/composables/useWidgetConfigState";
 import TicketRow from "@/components/TicketRow.vue";

@@ -4,7 +4,7 @@ import type {
   SearchResponse,
   IndexStats,
   RebuildResponse,
-} from '@/types/search';
+} from '@nosdesk/core/types/search';
 
 /**
  * Search service for full-text search across the application

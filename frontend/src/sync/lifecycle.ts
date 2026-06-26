@@ -523,7 +523,7 @@ async function fetchMissingUsers(uuids: string[]): Promise<void> {
  * drops; `toAssetCacheRow` is the single projection point so
  * the lazy path can't drift from the live event stream.
  */
-function toAssetCacheRow(asset: import('@/types/asset').Asset): Record<string, unknown> {
+function toAssetCacheRow(asset: import('@nosdesk/core/types/asset').Asset): Record<string, unknown> {
   return {
     id: asset.id,
     name: asset.name,

@@ -4,7 +4,7 @@
  */
 
 import { escapeHtml } from '@/utils/escape';
-import { coarseStatusBucket, type WorkflowStateCategory } from '@/types/workflow';
+import { coarseStatusBucket, type WorkflowStateCategory } from '@nosdesk/core/types/workflow';
 
 export interface TicketCardData {
   id: number

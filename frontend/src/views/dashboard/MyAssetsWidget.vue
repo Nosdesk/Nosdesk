@@ -7,7 +7,7 @@ import { useFluent } from 'fluent-vue'
 import { useQuery } from '@pinia/colada'
 import { useAuthStore } from '@/stores/auth'
 import { getAssetsByUser } from '@/services/assetService'
-import type { Asset } from '@/types'
+import type { Asset } from '@nosdesk/core/types'
 import DashboardWidgetShell from './DashboardWidgetShell.vue'
 
 const fluent = useFluent()

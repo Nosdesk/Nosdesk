@@ -17,7 +17,7 @@ import { assetLoanKeys, assetLoanService } from '@/services/assetLoanService';
 import { useSyncActions } from '@/composables/useSyncActions';
 import { useUsersDirectory } from '@/composables/useUsersDirectory';
 import { formatCompactDate, formatRelativeTime } from '@/utils/dateUtils';
-import type { AssetLoan } from '@/types/asset';
+import type { AssetLoan } from '@nosdesk/core/types/asset';
 
 const props = defineProps<{
   assetId: number;

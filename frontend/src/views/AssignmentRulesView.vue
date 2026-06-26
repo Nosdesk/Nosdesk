@@ -20,10 +20,10 @@ import type {
   CreateAssignmentRuleRequest,
   UpdateAssignmentRuleRequest,
   AssignmentMethod
-} from '@/types/assignmentRule'
-import type { GroupWithMemberCount } from '@/types/group'
-import type { TicketCategory } from '@/types/category'
-import type { User } from '@/types/user'
+} from '@nosdesk/core/types/assignmentRule'
+import type { GroupWithMemberCount } from '@nosdesk/core/types/group'
+import type { TicketCategory } from '@nosdesk/core/types/category'
+import type { User } from '@nosdesk/core/types/user'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)

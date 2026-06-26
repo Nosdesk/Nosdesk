@@ -9,7 +9,7 @@ import SidebarCard from "@/components/ticketComponents/SidebarCard.vue";
 import ticketService from "@/services/ticketService";
 import type { Ticket } from "@/services/ticketService";
 import { useWorkflowStatesStore } from "@/stores/workflowStates";
-import { coarseStatusBucket } from "@/types/workflow";
+import { coarseStatusBucket } from "@nosdesk/core/types/workflow";
 
 const wf = useWorkflowStatesStore();
 

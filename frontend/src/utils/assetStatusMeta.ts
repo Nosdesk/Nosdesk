@@ -1,5 +1,5 @@
 import type { IconName } from '@/components/common/icons';
-import { ASSET_STATUSES, type AssetStatus } from '@/types/asset';
+import { ASSET_STATUSES, type AssetStatus } from '@nosdesk/core/types/asset';
 
 export interface AssetStatusMeta {
   labelKey: string;

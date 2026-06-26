@@ -10,10 +10,10 @@ import type {
   Project,
   MergeResponse,
   MergeHistory,
-} from '@/types/ticket';
-import type { UserInfo } from '@/types/user';
-import type { PaginatedResponse } from '@/types/pagination';
-import type { CommentWithAttachments } from '@/types/comment';
+} from '@nosdesk/core/types/ticket';
+import type { UserInfo } from '@nosdesk/core/types/user';
+import type { PaginatedResponse } from '@nosdesk/core/types/pagination';
+import type { CommentWithAttachments } from '@nosdesk/core/types/comment';
 
 // Request cancellation manager instance
 const requestManager = new RequestManager();

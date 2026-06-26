@@ -11,7 +11,7 @@ import type {
   SetUserGroupsRequest,
   SetGroupDevicesRequest,
   SetGroupIncludesRequest
-} from '@/types/group';
+} from '@nosdesk/core/types/group';
 
 export const groupService = {
   // Get all groups with member counts (admin only)

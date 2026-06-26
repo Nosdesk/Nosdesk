@@ -106,7 +106,7 @@ import EmailHtmlBody from '@/components/ticketComponents/EmailHtmlBody.vue';
 import { splitQuotedReply } from '@/utils/quotedReply';
 import { splitQuotedHtml } from '@/utils/quotedReplyHtml';
 import { linkifyText } from '@/utils/linkifyText';
-import type { CommentContentFormat, CommentRenderKind } from '@/types/comment';
+import type { CommentContentFormat, CommentRenderKind } from '@nosdesk/core/types/comment';
 
 const props = defineProps<{
   content: string;

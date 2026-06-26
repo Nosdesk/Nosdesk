@@ -1,8 +1,8 @@
 import { logger } from '@/utils/logger';
 import apiClient from './apiConfig';
 import { translate } from '@/i18n';
-import type { UserInfo } from '@/types/user';
-import type { WorkflowStateCategory } from '@/types/workflow';
+import type { UserInfo } from '@nosdesk/core/types/user';
+import type { WorkflowStateCategory } from '@nosdesk/core/types/workflow';
 
 // Note: apiClient already has baseURL set to '/api', so routes need no prefix
 

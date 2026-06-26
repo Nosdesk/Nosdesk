@@ -3,13 +3,13 @@
  * Canonical ticket interface matching backend contract
  */
 
-import type { TicketPriority } from '@nosdesk/core/constants/ticketOptions'
+import type { TicketPriority } from '../constants/ticketOptions'
 import type { Asset } from './asset'
 import type { Comment, Attachment } from './comment'
 import type { Project } from './project'
 import type { UserInfo } from './user'
 import type { WorkflowState } from './workflow'
-import type { SlaPayload } from '@/composables/useSlaState'
+import type { SlaPill } from './sla'
 
 // Re-export for convenience
 export type { Asset, Comment, Attachment, Project }
@@ -89,7 +89,7 @@ export interface Ticket {
    *  detail handler computes this on read so the sidebar can show
    *  the same Breached / At Risk / On Track / Paused state as
    *  the list. Null when no policy / calendar applies. */
-  sla?: SlaPayload | null
+  sla?: SlaPill | null
   /** Free-text "what fixed this?" capture. Surfaced prominently
    *  on the detail view once the ticket lands in a terminal
    *  workflow state. Distinct from the comment thread because

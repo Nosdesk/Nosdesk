@@ -13,7 +13,7 @@ import { groupService } from '@/services/groupService';
 import { formatDate } from '@/utils/dateUtils';
 import { useAuthStore } from '@/stores/auth';
 import { useColorFilter } from '@/composables/useColorFilter';
-import type { GroupDetails } from '@/types/group';
+import type { GroupDetails } from '@nosdesk/core/types/group';
 
 const route = useRoute();
 const router = useRouter();

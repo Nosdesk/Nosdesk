@@ -1,6 +1,6 @@
 // Central User Type Definitions
 
-import type { WorkspaceRole } from '@/types/workspace';
+import type { WorkspaceRole } from './workspace';
 
 /** Legacy effective-role tier, kept as the vocabulary the role-picker
  * UI and dashboard widget system speak. It is no longer a wire field;

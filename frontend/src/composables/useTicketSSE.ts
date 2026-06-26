@@ -7,7 +7,7 @@ import {
   type ViewerInfo,
   type ViewersChangedEventData,
   type TicketFieldPreviewedEventData,
-} from "@/types/sse";
+} from "@nosdesk/core/types/sse";
 
 // Enable debug logging only in development
 const DEBUG_SSE = import.meta.env.DEV && import.meta.env.VITE_DEBUG_SSE === 'true';

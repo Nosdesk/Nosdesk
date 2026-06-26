@@ -13,7 +13,7 @@ import FormTextarea from '@/components/common/FormTextarea.vue'
 import Button from '@/components/common/Button.vue'
 import { projectService } from '@/services/projectService'
 import { logger } from '@/utils/logger'
-import type { Project } from '@/types/project'
+import type { Project } from '@nosdesk/core/types/project'
 
 const emit = defineEmits<{ close: []; created: [project: Project] }>()
 

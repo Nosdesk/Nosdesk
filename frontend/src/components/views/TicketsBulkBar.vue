@@ -31,7 +31,7 @@ import type { PopoverAnchor } from '@/composables/usePopover'
 import { useWorkflowStatesStore } from '@/stores/workflowStates'
 import { PRIORITY_OPTIONS } from '@nosdesk/core/constants/ticketOptions'
 import type { TicketPriority } from '@nosdesk/core/constants/ticketOptions'
-import { WORKFLOW_CATEGORIES, getCategoryLabel, type WorkflowStateCategory } from '@/types/workflow'
+import { WORKFLOW_CATEGORIES, getCategoryLabel, type WorkflowStateCategory } from '@nosdesk/core/types/workflow'
 import { useSyncTicketsStore } from '@/sync/stores/tickets'
 
 const props = defineProps<{

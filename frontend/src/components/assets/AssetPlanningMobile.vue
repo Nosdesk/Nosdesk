@@ -12,7 +12,7 @@ import Icon from '@/components/common/Icon.vue'
 import Button from '@/components/common/Button.vue'
 import AssetMobileRow from '@/components/assets/AssetMobileRow.vue'
 import type { GroupBucket } from '@/composables/useListGrouping'
-import type { Asset } from '@/types/asset'
+import type { Asset } from '@nosdesk/core/types/asset'
 
 const props = defineProps<{
   buckets: GroupBucket<Asset>[]

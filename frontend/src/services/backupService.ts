@@ -5,7 +5,7 @@ import type {
   ExecuteRestoreRequest,
   RestorePreview,
   RestoreResult,
-} from '@/types/backup';
+} from '@nosdesk/core/types/backup';
 
 export const backupService = {
   /**

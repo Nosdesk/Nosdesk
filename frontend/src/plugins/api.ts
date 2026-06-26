@@ -22,9 +22,9 @@ import { getTicketById, getTickets, addCommentToTicket } from '@/services/ticket
 import { getAssetById, getAssets } from '@/services/assetService';
 import { logger } from '@/utils/logger';
 import { useToastStore } from '@/stores/toast';
-import type { Plugin, PluginPermission, PluginProxyRequest, PluginEvent, CollectionRow, CollectionListResponse } from '@/types/plugin';
-import type { Ticket } from '@/types/ticket';
-import type { Asset } from '@/types/asset';
+import type { Plugin, PluginPermission, PluginProxyRequest, PluginEvent, CollectionRow, CollectionListResponse } from '@nosdesk/core/types/plugin';
+import type { Ticket } from '@nosdesk/core/types/ticket';
+import type { Asset } from '@nosdesk/core/types/asset';
 
 // =============================================================================
 // Types

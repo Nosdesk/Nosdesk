@@ -22,7 +22,7 @@ import Skeleton from '@/components/common/Skeleton.vue';
 import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import Modal from '@/components/Modal.vue';
 import workspacesService from '@/services/workspacesService';
-import type { Workspace } from '@/types/workspace';
+import type { Workspace } from '@nosdesk/core/types/workspace';
 import { extractErrorMessage } from '@/utils/errors';
 
 const fluent = useFluent();

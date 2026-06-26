@@ -20,7 +20,7 @@ import { useSyncActions } from '@/composables/useSyncActions';
 import { useUsersDirectory } from '@/composables/useUsersDirectory';
 import { metaForAssetStatus } from '@/utils/assetStatusMeta';
 import { formatRelativeTime } from '@/utils/dateUtils';
-import { ASSET_STATUSES, type AssetLifecycleEvent, type AssetStatus } from '@/types/asset';
+import { ASSET_STATUSES, type AssetLifecycleEvent, type AssetStatus } from '@nosdesk/core/types/asset';
 
 const props = defineProps<{
   assetId: number;

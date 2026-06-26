@@ -5,8 +5,8 @@ import ColorHueSlider from '@/components/common/ColorHueSlider.vue';
 import Icon from '@/components/common/Icon.vue';
 import Checkbox from '@/components/common/Checkbox.vue';
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
-import type { CategoryWithVisibility } from '@/types/category';
-import type { GroupWithMemberCount } from '@/types/group';
+import type { CategoryWithVisibility } from '@nosdesk/core/types/category';
+import type { GroupWithMemberCount } from '@nosdesk/core/types/group';
 
 const fluent = useFluent();
 

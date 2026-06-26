@@ -1,5 +1,5 @@
 import apiClient from './apiConfig'
-import type { Manufacturer, AssetModel } from '@/types/asset'
+import type { Manufacturer, AssetModel } from '@nosdesk/core/types/asset'
 
 /** Shared Pinia Colada cache keys for the make/model catalog. Inline
  *  quick-create invalidates these so every open picker refreshes. */

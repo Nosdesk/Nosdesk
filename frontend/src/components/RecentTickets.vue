@@ -13,8 +13,8 @@ import type { MenuItem } from '@/components/common/ContextMenu.vue'
 import { useTicketDrag, type DraggableTicket, shouldSuppressTicketDrop } from '@/composables/useTicketDrag'
 import { useClipboard } from '@/composables/useClipboard'
 import { useSyncTicketsStore } from '@/sync/stores/tickets'
-import type { RecentTicket } from '@/types/ticket'
-import type { WorkflowStateCategory } from '@/types/workflow'
+import type { RecentTicket } from '@nosdesk/core/types/ticket'
+import type { WorkflowStateCategory } from '@nosdesk/core/types/workflow'
 
 const router = useRouter()
 const recentTicketsStore = useRecentTicketsStore()

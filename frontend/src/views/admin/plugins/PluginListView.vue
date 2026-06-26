@@ -34,7 +34,7 @@ import PluginCard from '@/components/plugins/PluginCard.vue';
 import PluginSigningOverview from '@/components/plugins/PluginSigningOverview.vue';
 import { usePlugins } from '@/composables/usePlugins';
 import { usePluginAdminConfig } from '@/composables/usePluginAdminConfig';
-import type { Plugin, PluginState } from '@/types/plugin';
+import type { Plugin, PluginState } from '@nosdesk/core/types/plugin';
 
 const router = useRouter();
 const brandingStore = useBrandingStore();

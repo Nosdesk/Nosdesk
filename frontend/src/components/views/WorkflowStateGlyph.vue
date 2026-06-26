@@ -32,7 +32,7 @@
  */
 import { computed } from 'vue'
 import { paletteForColor } from '@/utils/workflowColors'
-import type { WorkflowStateCategory } from '@/types/workflow'
+import type { WorkflowStateCategory } from '@nosdesk/core/types/workflow'
 
 const props = withDefaults(defineProps<{
   category: WorkflowStateCategory

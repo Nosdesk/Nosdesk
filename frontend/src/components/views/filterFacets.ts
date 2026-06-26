@@ -11,7 +11,7 @@ import { paletteForColor } from '@/utils/workflowColors'
 import { translate } from '@/i18n'
 import type { CardData, Priority } from '@/sync/views/types'
 import type { FilterFacet, SlaFilter } from '@/composables/useTicketsFilters'
-import type { User } from '@/types/user'
+import type { User } from '@nosdesk/core/types/user'
 
 export interface FilterOption {
   value: string

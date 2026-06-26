@@ -4,7 +4,7 @@ import { ref, computed, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
 import Modal from '@/components/Modal.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
-import type { Project, ProjectStatus } from '@/types/project'
+import type { Project, ProjectStatus } from '@nosdesk/core/types/project'
 import { useSyncProjectsStore, type SyncProject } from '@/sync/stores/projects'
 import { useAggregate } from '@/sync/composables'
 

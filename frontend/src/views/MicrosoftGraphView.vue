@@ -14,7 +14,7 @@ import type {
   SyncResult,
   ActiveSync,
   LastSyncDetails,
-} from "@/types";
+} from "@nosdesk/core/types";
 import { extractErrorMessage } from "@/utils/errors";
 
 const fluent = useFluent();

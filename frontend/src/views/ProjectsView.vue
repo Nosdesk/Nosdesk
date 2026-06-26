@@ -37,7 +37,7 @@ import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import type { MenuItem } from '@/components/common/ContextMenu.vue'
-import type { Project } from '@/types/project'
+import type { Project } from '@nosdesk/core/types/project'
 import { buildProjectMenuItems } from '@/utils/projectMenuItems'
 
 const router = useRouter()

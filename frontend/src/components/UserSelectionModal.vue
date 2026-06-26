@@ -7,7 +7,7 @@ import UserAvatar from '@/components/UserAvatar.vue';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
 import userService from '@/services/userService';
-import { effectiveRole, type UserInfo } from '@/types/user';
+import { effectiveRole, type UserInfo } from '@nosdesk/core/types/user';
 
 const fluent = useFluent();
 const t = (k: string, args?: Record<string, FluentVariable>) => fluent.$t(k, args);

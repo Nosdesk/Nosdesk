@@ -8,7 +8,7 @@ import type {
   PreviewAssignmentRequest,
   PreviewAssignmentResponse,
   AssignmentLog
-} from '@/types/assignmentRule'
+} from '@nosdesk/core/types/assignmentRule'
 
 export const assignmentRuleService = {
   // Get all assignment rules with details (admin only)

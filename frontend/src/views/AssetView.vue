@@ -39,7 +39,7 @@ import { useAssetLocationsQuery } from '@/composables/useAssetLocationsQuery';
 import { useSyncActions } from '@/composables/useSyncActions';
 import { useAssetDetail } from '@/composables/useAssetDetail';
 import { useAuthStore } from '@/stores/auth';
-import type { Asset } from '@/types/asset';
+import type { Asset } from '@nosdesk/core/types/asset';
 import DynamicAttributeForm from '@/components/assets/DynamicAttributeForm.vue';
 
 const route = useRoute();

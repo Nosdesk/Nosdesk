@@ -24,7 +24,7 @@ import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import rulesService from '@/services/rulesService';
 import { useToastStore } from '@/stores/toast';
 import { extractErrorMessage } from '@/utils/errors';
-import type { Rule, RuleAction } from '@/types/rule';
+import type { Rule, RuleAction } from '@nosdesk/core/types/rule';
 
 const props = defineProps<{
   show: boolean;

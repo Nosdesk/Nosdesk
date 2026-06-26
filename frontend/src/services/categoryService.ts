@@ -7,7 +7,7 @@ import type {
   UpdateCategoryRequest,
   ReorderCategoriesRequest,
   SetCategoryVisibilityRequest
-} from '@/types/category';
+} from '@nosdesk/core/types/category';
 
 export const categoryService = {
   // Get categories visible to the current user

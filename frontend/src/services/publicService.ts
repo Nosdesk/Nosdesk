@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { WorkflowStateCategory } from '@/types/workflow';
+import type { WorkflowStateCategory } from '@nosdesk/core/types/workflow';
 
 export interface PublicSiteSettings {
   app_name: string;

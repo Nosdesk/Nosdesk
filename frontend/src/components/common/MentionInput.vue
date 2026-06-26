@@ -12,7 +12,7 @@
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { useUserMentionSearch } from '@/composables/useUserMentionSearch';
-import { effectiveRole, type User } from '@/types/user';
+import { effectiveRole, type User } from '@nosdesk/core/types/user';
 
 const fluent = useFluent();
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args);

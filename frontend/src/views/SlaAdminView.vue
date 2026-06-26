@@ -38,9 +38,9 @@ import {
   type PolicyMatchCounts,
 } from '@/services/slaService'
 import { categoryService } from '@/services/categoryService'
-import type { TicketCategory } from '@/types/category'
+import type { TicketCategory } from '@nosdesk/core/types/category'
 import { groupService } from '@/services/groupService'
-import type { GroupWithMemberCount } from '@/types/group'
+import type { GroupWithMemberCount } from '@nosdesk/core/types/group'
 import BaseDropdown from '@/components/common/BaseDropdown.vue'
 import Checkbox from '@/components/common/Checkbox.vue'
 import Button from '@/components/common/Button.vue'

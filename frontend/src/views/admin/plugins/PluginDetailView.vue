@@ -33,7 +33,7 @@ import PluginTrustBadge from '@/components/plugins/PluginTrustBadge.vue';
 import pluginService from '@/services/pluginService';
 import { unloadPlugin } from '@/plugins/loader';
 import { logger } from '@/utils/logger';
-import type { Plugin, PluginSetting } from '@/types/plugin';
+import type { Plugin, PluginSetting } from '@nosdesk/core/types/plugin';
 
 const route = useRoute();
 const router = useRouter();

@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { logger } from '@/utils/logger'
 import { translate } from '@/i18n'
 import { workflowStatesService } from '@/services/workflowStatesService'
-import type { WorkflowState, WorkflowStateCategory } from '@/types/workflow'
+import type { WorkflowState, WorkflowStateCategory } from '@nosdesk/core/types/workflow'
 
 /**
  * Workflow states are a small, slow-moving set — typically 6 to ~20

@@ -38,7 +38,7 @@ import type {
   RegistryPlugin,
   RegistryPublisher,
   PluginTrustLevel,
-} from '@/types/plugin';
+} from '@nosdesk/core/types/plugin';
 
 const router = useRouter();
 const fluent = useFluent();

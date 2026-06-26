@@ -10,7 +10,7 @@ import {
   buildWorkflowDropdownOptions,
   isCategoryHeaderValue,
   coarseStatusBucket,
-} from '@/types/workflow';
+} from '@nosdesk/core/types/workflow';
 import QRCode from 'qrcode';
 import UserPicker from "@/components/ticketComponents/UserPicker.vue";
 import CustomDropdown from "@/components/ticketComponents/CustomDropdown.vue";
@@ -33,12 +33,12 @@ import { useTicketDocs } from "@/composables/usePageTicketLinks";
 import SlaExplainPopover from "@/components/sla/SlaExplainPopover.vue";
 import DatePicker from "@/components/common/DatePicker.vue";
 import { getDateConfig } from "@/utils/dateUtils";
-import type { Asset } from "@/types/asset";
-import type { CommentWithAttachments } from "@/types/comment";
+import type { Asset } from "@nosdesk/core/types/asset";
+import type { CommentWithAttachments } from "@nosdesk/core/types/comment";
 import LogoIcon from "@/components/icons/LogoIcon.vue";
 import { useBrandingStore } from "@/stores/branding";
 import { useTagsStore } from "@/stores/tags";
-import type { Tag } from "@/types/tag";
+import type { Tag } from "@nosdesk/core/types/tag";
 import { useAuthStore } from "@/stores/auth";
 import { deriveSlaState, type SlaPayload } from "@/composables/useSlaState";
 import { formatCompactDate, formatCompactRelativeTime, formatRelativeTime } from "@/utils/dateUtils";

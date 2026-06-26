@@ -16,7 +16,7 @@ import { useRouter } from 'vue-router';
 import { getWorkspaceRouting } from '@/services/instanceConfig';
 import { navigateToWorkspace } from '@/utils/workspaceNavigation';
 import { logger } from '@/utils/logger';
-import type { MyWorkspaceEntry } from '@/types/workspace';
+import type { MyWorkspaceEntry } from '@nosdesk/core/types/workspace';
 
 /** Shared so the app shell can mask the content while a switch is in flight. */
 const isSwitchingWorkspace = ref(false);
