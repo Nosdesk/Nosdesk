@@ -13,7 +13,7 @@
  * next boot.
  */
 import { logger } from '@/utils/logger'
-import { getCsrfToken } from '@/utils/csrf'
+import { apiBaseUrl, transport } from '@nosdesk/core/transport'
 import { workspaceHeaders } from '@/services/activeWorkspace'
 import * as pool from './pool'
 import * as idb from './idb'
@@ -169,22 +169,20 @@ export async function flush(): Promise<void> {
 
       let response: PushResponse | null = null
       try {
-        // Raw fetch (not apiClient) by design, but the global CSRF
-        // middleware still requires the double-submit header on this
-        // POST, so echo the token the same way apiClient does. The
-        // selection header is added here too (the interceptor doesn't see
-        // this fetch); empty in host mode, where the Host resolves it.
+        // Raw fetch (not apiClient) by design, so resolve base URL, auth
+        // headers (the global CSRF middleware requires the double-submit
+        // header on this POST), the selection header (empty in host mode),
+        // and credential mode from the transport seam directly.
         const headers: Record<string, string> = {
           'Content-Type': 'application/json',
           ...workspaceHeaders(),
+          ...transport().auth.authHeaders(),
         }
-        const csrfToken = getCsrfToken()
-        if (csrfToken) headers['X-CSRF-Token'] = csrfToken
-        const res = await fetch('/api/sync/push', {
+        const res = await fetch(`${apiBaseUrl()}/sync/push`, {
           method: 'POST',
           headers,
           body: JSON.stringify(wirePayload),
-          credentials: 'include',
+          credentials: transport().auth.useCredentials ? 'include' : 'omit',
         })
         if (!res.ok) {
           throw new Error(`push failed: ${res.status}`)

@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { apiBaseUrl } from '@nosdesk/core/transport';
 import type { WorkflowStateCategory } from '@nosdesk/core/types/workflow';
 
 export interface PublicSiteSettings {
@@ -80,13 +81,17 @@ export interface PublicDoc extends PublicDocSummary {
 
 // Dedicated axios instance with no credentials — we do not want the session
 // cookie leaking into public endpoints, and we do not want 401 refresh
-// interceptors running on anonymous flows.
+// interceptors running on anonymous flows. The base URL is resolved from the
+// transport seam per-request (the seam is configured at bootstrap, after this
+// module loads); no auth strategy is applied here by design.
 const publicApi = axios.create({
-  baseURL: import.meta.env.VITE_API_URL
-    ? `${import.meta.env.VITE_API_URL}/public`
-    : '/api/public',
   withCredentials: false,
   headers: { 'Content-Type': 'application/json' }
+});
+
+publicApi.interceptors.request.use((config) => {
+  config.baseURL = `${apiBaseUrl()}/public`;
+  return config;
 });
 
 export const publicService = {

@@ -19,7 +19,7 @@ import { setReferenceFetcher } from './composables'
 import { notifySyncActions } from './observers'
 import { applyWorkspaceCapabilities } from '@/composables/useWorkspaceCapabilities'
 import { purgeAllCollabDocs } from '@/utils/collabLocalCache'
-import { refreshAccessToken } from '@/services/authRefresh'
+import { apiBaseUrl, transport } from '@nosdesk/core/transport'
 import { workspaceHeaders } from '@/services/activeWorkspace'
 import type {
   BootstrapLine,
@@ -237,15 +237,18 @@ export async function hydrate(
  * failure the original 401 response is returned and the caller backs
  * off (the axios client owns redirect-to-login for a dead session).
  */
-async function syncFetch(url: string): Promise<Response> {
-  // The sync engine uses raw fetch (streaming JSONL), so the axios interceptor's
-  // selection header doesn't apply here; add it explicitly (empty in host mode).
-  const headers = workspaceHeaders()
-  const res = await fetch(url, { credentials: 'include', headers })
+async function syncFetch(path: string): Promise<Response> {
+  // The sync engine uses raw fetch (streaming JSONL), so the axios interceptor
+  // doesn't apply here; resolve base URL, auth headers, the selection header
+  // (empty in host mode), and credential mode from the transport seam directly.
+  const url = `${apiBaseUrl()}${path}`
+  const credentials: RequestCredentials = transport().auth.useCredentials ? 'include' : 'omit'
+  const headers = { ...workspaceHeaders(), ...transport().auth.authHeaders() }
+  const res = await fetch(url, { credentials, headers })
   if (res.status !== 401) return res
-  const refreshed = await refreshAccessToken()
+  const refreshed = await transport().auth.refresh()
   if (!refreshed) return res
-  return fetch(url, { credentials: 'include', headers })
+  return fetch(url, { credentials, headers })
 }
 
 export async function fetchServerIdentity(): Promise<{
@@ -253,7 +256,7 @@ export async function fetchServerIdentity(): Promise<{
   instanceId: string
 }> {
   try {
-    const res = await syncFetch('/api/sync/schema')
+    const res = await syncFetch('/sync/schema')
     if (!res.ok) return { schemaHash: 'unknown', instanceId: '' }
     const body = (await res.json()) as { server_schema?: string; instance_id?: string }
     return {
@@ -261,7 +264,7 @@ export async function fetchServerIdentity(): Promise<{
       instanceId: body.instance_id ?? '',
     }
   } catch (e) {
-    logger.warn('Failed to fetch /api/sync/schema; falling back to "unknown"', { error: e })
+    logger.warn('Failed to fetch /sync/schema; falling back to "unknown"', { error: e })
     return { schemaHash: 'unknown', instanceId: '' }
   }
 }
@@ -296,7 +299,7 @@ export async function pullDelta(): Promise<void> {
   // the cursor. Until then (fresh client, or a pre-upgrade cache) omit
   // it so the server serves the legacy horizon-gated catch-up rather
   // than re-streaming all of history from xid8 0.
-  let url = `/api/sync/delta?from=${from}&groups=${encodeURIComponent(groups.join(','))}`
+  let url = `/sync/delta?from=${from}&groups=${encodeURIComponent(groups.join(','))}`
   if (fromXid8 > 0) url += `&from_xid8=${fromXid8}`
   try {
     const res = await syncFetch(url)
@@ -327,7 +330,7 @@ export async function pullDelta(): Promise<void> {
  */
 async function runBootstrap(groups: string[]): Promise<void> {
   if (!state.handle) return
-  const url = `/api/sync/bootstrap?groups=${encodeURIComponent(groups.join(','))}&schema=${encodeURIComponent(state.schemaHash)}`
+  const url = `/sync/bootstrap?groups=${encodeURIComponent(groups.join(','))}&schema=${encodeURIComponent(state.schemaHash)}`
   let res: Response
   try {
     res = await syncFetch(url)
