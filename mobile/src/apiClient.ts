@@ -1,0 +1,53 @@
+/**
+ * Registers the transport interceptors on `@nosdesk/core`'s shared axios
+ * instance, the mobile counterpart of the web's `apiConfig`.
+ *
+ * Scope is deliberately the transport concerns only: base URL, credential mode,
+ * auth headers (from the seam), and the 401 -> refresh -> retry path. The web
+ * `apiConfig` also registers correlation-id / diagnostics / SSE-client-id /
+ * workspace-selection headers and richer error handling; those are app-level
+ * concerns layered on later, not part of the bootstrap.
+ */
+import apiClient from '@nosdesk/core/apiClient'
+import { apiBaseUrl, transport } from '@nosdesk/core/transport'
+import type { AxiosError, InternalAxiosRequestConfig } from 'axios'
+
+type RetryConfig = InternalAxiosRequestConfig & { _retry?: boolean }
+
+let registered = false
+// Single in-flight refresh shared across concurrent 401s, so a burst of
+// requests triggers exactly one token rotation.
+let refreshing: Promise<boolean> | null = null
+
+export function setupApiClient(): void {
+  if (registered) return
+  registered = true
+
+  apiClient.interceptors.request.use((config) => {
+    config.baseURL = apiBaseUrl()
+    config.withCredentials = transport().auth.useCredentials
+    Object.assign(config.headers, transport().auth.authHeaders())
+    return config
+  })
+
+  apiClient.interceptors.response.use(
+    (response) => response,
+    async (error: AxiosError) => {
+      const original = error.config as RetryConfig | undefined
+      if (error.response?.status !== 401 || !original || original._retry) {
+        return Promise.reject(error)
+      }
+      original._retry = true
+      refreshing ??= transport()
+        .auth.refresh()
+        .finally(() => {
+          refreshing = null
+        })
+      const refreshed = await refreshing
+      if (refreshed) return apiClient(original)
+      // Session can't be renewed: clear local state and surface the 401.
+      transport().auth.onSessionLost()
+      return Promise.reject(error)
+    },
+  )
+}
