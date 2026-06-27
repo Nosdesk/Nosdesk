@@ -148,6 +148,18 @@ login-subtitle = Sign in to your account
 login-title = Welcome back
 # Brand hero pill on the onboarding page.
 auth-hero-pill = Self-hosted
+# Native-app first-run "choose your Nosdesk server" screen.
+connect-title = Connect to Nosdesk
+connect-subtitle = Choose the server to sign in to.
+connect-hero-title = Your helpdesk, everywhere
+connect-hero-subtitle = Connect the app to Nosdesk Cloud or your own self-hosted instance.
+connect-cloud = Nosdesk Cloud
+connect-cloud-hint = The official hosted service
+connect-self-hosted = Use a self-hosted server
+connect-server-label = Server URL
+connect-server-placeholder = https://help.yourcompany.com
+connect-submit = Connect
+connect-back = Back
 login-email-label = Email
 login-email-placeholder = Enter your email
 login-password-label = Password

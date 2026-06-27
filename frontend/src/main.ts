@@ -1,5 +1,6 @@
 import './assets/main.css'
 import { configurePlatform } from './platform'
+import { initServerGate } from './platform/serverGate'
 
 import { interceptConsole } from './utils/remoteLogger'
 
@@ -21,6 +22,10 @@ async function bootstrap() {
   // Configure the @nosdesk/core seams for the current platform (web: cookies +
   // localStorage; Tauri: bearer + native HTTP) before anything uses them.
   await configurePlatform()
+
+  // Native app: decide whether the first-run "choose your server" screen is
+  // needed before the app renders (no-op on the web).
+  await initServerGate()
 
   // Remote logging for debugging (can be disabled via localStorage).
   interceptConsole()
