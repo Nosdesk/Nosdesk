@@ -1,8 +1,8 @@
-import apiClient from './apiConfig';
-import type { Asset, AssetFormData } from '@/types/asset';
-import type { PaginationParams, PaginatedResponse } from '@/types/pagination';
-import { logger } from '@/utils/logger';
-import { RequestManager } from '@/utils/requestManager';
+import apiClient from '@nosdesk/core/apiClient';
+import type { Asset, AssetFormData } from '@nosdesk/core/types/asset';
+import type { PaginationParams, PaginatedResponse } from '@nosdesk/core/types/pagination';
+import { logger } from '@nosdesk/core/utils/logger';
+import { RequestManager } from '@nosdesk/core/utils/requestManager';
 
 // Request cancellation manager instance
 const requestManager = new RequestManager();
@@ -28,7 +28,7 @@ export interface AssetLocationOption {
 export const ASSET_LOCATIONS_QUERY_KEY = ['asset-locations'] as const;
 
 // Re-export for backwards compatibility
-export type { PaginatedResponse } from '@/types/pagination';
+export type { PaginatedResponse } from '@nosdesk/core/types/pagination';
 
 /**
  * Pass-through: the backend response shape now matches the

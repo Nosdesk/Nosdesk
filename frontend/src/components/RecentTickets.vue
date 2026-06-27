@@ -2,10 +2,10 @@
 import { useRouter } from 'vue-router'
 import { shareableRouteUrl } from '@/utils/shareUrl'
 import { useRecentTicketsStore } from '@/stores/recentTickets'
-import { useWorkflowStatesStore } from '@/stores/workflowStates'
+import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates'
 import { ref, onMounted, computed } from 'vue'
 import { useFluent } from 'fluent-vue'
-import { formatCompactRelativeTime } from '@/utils/dateUtils'
+import { formatCompactRelativeTime } from '@nosdesk/core/utils/dateUtils'
 import StatusIndicator from '@/components/common/StatusIndicator.vue'
 import TicketDragPreview from '@/components/common/TicketDragPreview.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
@@ -13,8 +13,8 @@ import type { MenuItem } from '@/components/common/ContextMenu.vue'
 import { useTicketDrag, type DraggableTicket, shouldSuppressTicketDrop } from '@/composables/useTicketDrag'
 import { useClipboard } from '@/composables/useClipboard'
 import { useSyncTicketsStore } from '@/sync/stores/tickets'
-import type { RecentTicket } from '@/types/ticket'
-import type { WorkflowStateCategory } from '@/types/workflow'
+import type { RecentTicket } from '@nosdesk/core/types/ticket'
+import type { WorkflowStateCategory } from '@nosdesk/core/types/workflow'
 
 const router = useRouter()
 const recentTicketsStore = useRecentTicketsStore()

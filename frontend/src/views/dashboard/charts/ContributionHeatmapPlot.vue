@@ -9,7 +9,7 @@ Used by TicketHeatmap on the dashboard and anywhere else a 365-day
 activity grid is needed inside a bounded card body.
 -->
 <script setup lang="ts">
-import { formatDate } from '@/utils/dateUtils'
+import { formatDate } from '@nosdesk/core/utils/dateUtils'
 import { computed } from 'vue'
 import { useFluent } from 'fluent-vue'
 import HeatmapTooltip from '@/components/HeatmapTooltip.vue'

@@ -12,7 +12,7 @@ import { computed } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { RouterLink } from 'vue-router'
 import { useInjectedDashboardStats } from '@/composables/useDashboardStats'
-import { formatRelativeTime } from '@/utils/dateUtils'
+import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
 import DashboardWidgetShell from './DashboardWidgetShell.vue'
 import Icon from '@/components/common/Icon.vue'
 

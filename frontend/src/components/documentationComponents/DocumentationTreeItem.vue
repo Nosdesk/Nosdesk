@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
-import type { Page } from '@/services/documentationService'
+import type { Page } from '@nosdesk/core/services/documentationService'
 import { computed } from 'vue'
 import { useFluent } from 'fluent-vue'
-import { formatDate } from '@/utils/dateUtils'
-import { docUrl } from '@/utils/docUrl'
+import { formatDate } from '@nosdesk/core/utils/dateUtils'
+import { docUrl } from '@nosdesk/core/utils/docUrl'
 import Icon from '@/components/common/Icon.vue'
 
 useFluent()

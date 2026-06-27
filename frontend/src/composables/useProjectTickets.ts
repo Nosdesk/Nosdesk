@@ -1,8 +1,8 @@
 import { computed, toValue, type ComputedRef, type MaybeRefOrGetter } from 'vue'
 import { useSyncTicketsStore, type SyncTicket } from '@/sync/stores/tickets'
-import { useAggregate } from '@/sync/composables'
+import { useAggregate } from '@nosdesk/core/sync/composables'
 import { toCardData } from '@/sync/views/cardData'
-import type { CardData } from '@/sync/views/types'
+import type { CardData } from '@nosdesk/core/sync/views/types'
 
 /** A project<->ticket association row as it lands in the sync pool. */
 export interface ProjectTicketAssoc {

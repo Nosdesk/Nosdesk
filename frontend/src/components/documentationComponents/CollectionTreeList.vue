@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useFluent } from 'fluent-vue'
-import type { CollectionPage } from '@/services/collectionService'
+import type { CollectionPage } from '@nosdesk/core/services/collectionService'
 import { buildCollectionTree } from '@/utils/treeUtils'
 import CollectionTreeItem from './CollectionTreeItem.vue'
 import { useStaggeredList } from '@/composables/useStaggeredList'

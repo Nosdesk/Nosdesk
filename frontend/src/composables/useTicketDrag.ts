@@ -1,5 +1,5 @@
 import { ref, readonly } from 'vue'
-import type { WorkflowStateCategory } from '@/types/workflow'
+import type { WorkflowStateCategory } from '@nosdesk/core/types/workflow'
 import { shareableRouteUrl } from '@/utils/shareUrl'
 import { createDragEdgeScroller } from '@/composables/useDragEdgeScroll'
 

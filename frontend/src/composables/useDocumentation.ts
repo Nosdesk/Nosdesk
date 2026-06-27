@@ -1,8 +1,8 @@
 import { useRouter } from 'vue-router'
-import documentationService from '@/services/documentationService'
+import documentationService from '@nosdesk/core/services/documentationService'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
-import { docUrl } from '@/utils/docUrl'
-import { docsEmitter } from '@/services/docsEmitter'
+import { docUrl } from '@nosdesk/core/utils/docUrl'
+import { docsEmitter } from '@nosdesk/core/services/docsEmitter'
 
 /**
  * Documentation mutations + shared nav store access.

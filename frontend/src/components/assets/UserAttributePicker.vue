@@ -19,7 +19,7 @@ import SearchableDropdown, {
   type DropdownOption,
 } from '@/components/common/SearchableDropdown.vue';
 import userService from '@/services/userService';
-import type { User } from '@/types/user';
+import type { User } from '@nosdesk/core/types/user';
 
 const { $t } = useFluent();
 

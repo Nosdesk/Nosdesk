@@ -19,7 +19,7 @@
  * (clear it rather than ghost-select an invisible row).
  */
 import { computed, ref, type ComputedRef } from 'vue'
-import type { CardData } from '@/sync/views/types'
+import type { CardData } from '@nosdesk/core/sync/views/types'
 
 export function useTicketSelection(visibleCards: ComputedRef<CardData[]>) {
   const selectedId = ref<number | null>(null)

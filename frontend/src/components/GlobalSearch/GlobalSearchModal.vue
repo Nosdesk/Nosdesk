@@ -3,7 +3,7 @@ import { ref, watch, nextTick, computed } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { useGlobalSearch } from '@/composables/useGlobalSearch';
 import SearchResultGroup from './SearchResultGroup.vue';
-import { ENTITY_DISPLAY_ORDER, ENTITY_TYPE_CONFIG } from '@/types/search';
+import { ENTITY_DISPLAY_ORDER, ENTITY_TYPE_CONFIG } from '@nosdesk/core/types/search';
 import Icon from '@/components/common/Icon.vue';
 
 const fluent = useFluent();

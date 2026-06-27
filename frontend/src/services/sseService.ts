@@ -1,8 +1,9 @@
 import { ref, computed } from "vue";
-import { logger } from '@/utils/logger';
-import { translate } from '@/i18n';
+import { logger } from '@nosdesk/core/utils/logger';
+import { translate } from '@nosdesk/core/i18n';
 import { useAuthStore } from "@/stores/auth";
-import apiClient from "./apiConfig";
+import { sseStreamUrl } from "@nosdesk/core/transport";
+import apiClient from "@nosdesk/core/apiClient";
 
 // Event handler type - uses unknown since SSE events have varying shapes
 type EventHandler = (data: unknown) => void;
@@ -299,7 +300,7 @@ class SSEService {
         sse_token: sseToken,
         topics: topicTokens.join(","),
       });
-      const url = `/api/events/stream?${params.toString()}`;
+      const url = sseStreamUrl(params.toString());
 
       // Create EventSource
       this.eventSource = new EventSource(url);

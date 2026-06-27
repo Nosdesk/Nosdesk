@@ -1,5 +1,5 @@
-import { translate } from '@/i18n'
-import { LogLevel } from './logger'
+import { translate } from '../i18n'
+import { LogLevel } from '@nosdesk/core/utils/logger'
 
 export abstract class AppError extends Error {
   public readonly timestamp: Date

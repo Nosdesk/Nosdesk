@@ -5,9 +5,9 @@ import { useQuery, useQueryCache } from '@pinia/colada';
 import FormInput from '@/components/common/FormInput.vue';
 import Icon from '@/components/common/Icon.vue';
 import Modal from '@/components/Modal.vue';
-import { assetMediaService, assetMediaKeys } from '@/services/assetMediaService';
+import { assetMediaService, assetMediaKeys } from '@nosdesk/core/services/assetMediaService';
 import { useSyncActions } from '@/composables/useSyncActions';
-import type { AssetMedia } from '@/types/asset';
+import type { AssetMedia } from '@nosdesk/core/types/asset';
 
 const props = defineProps<{
   assetId: number;

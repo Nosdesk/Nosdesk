@@ -4,13 +4,13 @@ import { useRouter } from 'vue-router';
 import { shareableRouteUrl } from '@/utils/shareUrl';
 import { useFluent } from 'fluent-vue';
 import { stripHtml } from '@/composables/useSanitise';
-import type { TicketPriority } from '@/constants/ticketOptions';
-import { useWorkflowStatesStore } from '@/stores/workflowStates';
+import type { TicketPriority } from '@nosdesk/core/constants/ticketOptions';
+import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates';
 import {
   buildWorkflowDropdownOptions,
   isCategoryHeaderValue,
   coarseStatusBucket,
-} from '@/types/workflow';
+} from '@nosdesk/core/types/workflow';
 import QRCode from 'qrcode';
 import UserPicker from "@/components/ticketComponents/UserPicker.vue";
 import CustomDropdown from "@/components/ticketComponents/CustomDropdown.vue";
@@ -32,16 +32,16 @@ import LinkedTicketChip from "@/components/ticketComponents/LinkedTicketChip.vue
 import { useTicketDocs } from "@/composables/usePageTicketLinks";
 import SlaExplainPopover from "@/components/sla/SlaExplainPopover.vue";
 import DatePicker from "@/components/common/DatePicker.vue";
-import { getDateConfig } from "@/utils/dateUtils";
-import type { Asset } from "@/types/asset";
-import type { CommentWithAttachments } from "@/types/comment";
+import { getDateConfig } from "@nosdesk/core/utils/dateUtils";
+import type { Asset } from "@nosdesk/core/types/asset";
+import type { CommentWithAttachments } from "@nosdesk/core/types/comment";
 import LogoIcon from "@/components/icons/LogoIcon.vue";
 import { useBrandingStore } from "@/stores/branding";
-import { useTagsStore } from "@/stores/tags";
-import type { Tag } from "@/types/tag";
+import { useTagsStore } from "@nosdesk/core/stores/tags";
+import type { Tag } from "@nosdesk/core/types/tag";
 import { useAuthStore } from "@/stores/auth";
 import { deriveSlaState, type SlaPayload } from "@/composables/useSlaState";
-import { formatCompactDate, formatCompactRelativeTime, formatRelativeTime } from "@/utils/dateUtils";
+import { formatCompactDate, formatCompactRelativeTime, formatRelativeTime } from "@nosdesk/core/utils/dateUtils";
 import { useUsersDirectory } from "@/composables/useUsersDirectory";
 
 const fluent = useFluent();

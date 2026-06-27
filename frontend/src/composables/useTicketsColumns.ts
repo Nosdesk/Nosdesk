@@ -23,10 +23,10 @@ import {
   DEFAULT_VISIBLE_COLUMNS,
   type ColumnId,
   type ListColumn,
-} from '@/sync/views/ticketColumns'
+} from '@nosdesk/core/sync/views/ticketColumns'
 import { useColumnLayout } from '@/composables/useColumnLayout'
 import type { ResolvedView } from '@/composables/useTicketsViewResolution'
-import type { CardData, ListViewShape } from '@/sync/views/types'
+import type { CardData, ListViewShape } from '@nosdesk/core/sync/views/types'
 
 const STORAGE_PREFIX = 'tickets-columns:'
 

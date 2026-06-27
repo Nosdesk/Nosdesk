@@ -8,8 +8,8 @@ import authService, {
   type MFALoginEnableRequest,
   type QrMatrix,
   type LoginResponse
-} from '@/services/authService';
-import { logger } from '@/utils/logger';
+} from '@nosdesk/core/services/authService';
+import { logger } from '@nosdesk/core/utils/logger';
 import { translate } from '@/i18n';
 
 /**

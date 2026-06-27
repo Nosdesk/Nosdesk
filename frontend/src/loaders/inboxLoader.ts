@@ -28,7 +28,7 @@ import { setInfiniteQueryData, useQueryCache } from '@pinia/colada'
 import {
   getNotifications,
   getUnreadCount,
-} from '@/services/notificationService'
+} from '@nosdesk/core/services/notificationService'
 import { NOTIFICATIONS_KEYS } from '@/stores/notifications'
 
 const PAGE_SIZE = 20

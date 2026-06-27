@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { formatDate, formatRelativeTime, formatSmartDate, formatCompactDate, formatCleanRelativeTime } from '@/utils/dateUtils'
-import { useDateStore } from '@/stores/dateStore'
+import { formatDate, formatRelativeTime, formatSmartDate, formatCompactDate, formatCleanRelativeTime } from '@nosdesk/core/utils/dateUtils'
+import { useDateStore } from '@nosdesk/core/stores/dateStore'
 
 interface Props {
   value: string | Date | null | undefined

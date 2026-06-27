@@ -11,8 +11,8 @@
  * component gives every bucket its own instance + cache.
  */
 import TicketRow from '@/components/views/TicketRow.vue'
-import { rowMemoKey, type ListColumn } from '@/sync/views/ticketColumns'
-import type { CardData } from '@/sync/views/types'
+import { rowMemoKey, type ListColumn } from '@nosdesk/core/sync/views/ticketColumns'
+import type { CardData } from '@nosdesk/core/sync/views/types'
 import type { BulkSelection } from '@/composables/useBulkSelection'
 
 defineProps<{

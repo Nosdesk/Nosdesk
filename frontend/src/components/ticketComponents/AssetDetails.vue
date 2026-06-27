@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useFluent } from 'fluent-vue';
-import type { Asset } from '@/types/ticket';
+import type { Asset } from '@nosdesk/core/types/ticket';
 import SidebarCard from "@/components/ticketComponents/SidebarCard.vue";
 
 const props = defineProps<{

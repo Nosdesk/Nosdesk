@@ -9,9 +9,9 @@
  */
 import { computed } from 'vue'
 import { useFluent } from 'fluent-vue'
-import type { Cycle } from '@/services/cyclesService'
+import type { Cycle } from '@nosdesk/core/services/cyclesService'
 import { cycleHealth, cycleHealthPresentation } from '@/utils/cycleHealth'
-import { formatDate } from '@/utils/dateUtils'
+import { formatDate } from '@nosdesk/core/utils/dateUtils'
 import StatusPill from '@/components/common/StatusPill.vue'
 import type { StatusPillTone } from '@/components/common/statusPillTone'
 import Icon from '@/components/common/Icon.vue'

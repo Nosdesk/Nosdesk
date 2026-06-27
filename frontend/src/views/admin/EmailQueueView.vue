@@ -7,14 +7,14 @@ import AlertMessage from '@/components/common/AlertMessage.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import Spinner from '@/components/common/Spinner.vue';
-import { formatDateTime } from '@/utils/dateUtils';
+import { formatDateTime } from '@nosdesk/core/utils/dateUtils';
 import {
   emailQueueService,
   type OutboundEmailQuery,
   type OutboundEmailRow,
   type OutboundEmailStats,
   type OutboundEmailStatus,
-} from '@/services/emailQueueService';
+} from '@nosdesk/core/services/emailQueueService';
 
 // `embedded`: render as the Activity tab inside the Email delivery page.
 const props = withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false });

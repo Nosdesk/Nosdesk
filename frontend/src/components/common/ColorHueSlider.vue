@@ -2,7 +2,7 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { useThemeStore } from '@/stores/theme';
-import { ACCENT_LIGHTNESS, ACCENT_SATURATION, hslToHex } from '@/utils/accentColor';
+import { ACCENT_LIGHTNESS, ACCENT_SATURATION, hslToHex } from '@nosdesk/core/utils/accentColor';
 
 const props = withDefaults(defineProps<{
   modelValue: string;

@@ -23,19 +23,19 @@ import DatePicker from '@/components/common/DatePicker.vue'
 import CustomDropdown from '@/components/ticketComponents/CustomDropdown.vue'
 import UserPicker from '@/components/ticketComponents/UserPicker.vue'
 import UserCell from '@/components/views/UserCell.vue'
-import { useReference } from '@/sync/composables'
+import { useReference } from '@nosdesk/core/sync/composables'
 import { useSyncTicketsStore } from '@/sync/stores/tickets'
-import { useWorkflowStatesStore } from '@/stores/workflowStates'
+import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates'
 import {
   buildWorkflowDropdownOptions,
   isCategoryHeaderValue,
-} from '@/types/workflow'
+} from '@nosdesk/core/types/workflow'
 import { useSlaState, useSlaTimers, type SlaState } from '@/composables/useSlaState'
 import {
   formatCleanRelativeTime,
   formatDateTime,
-} from '@/utils/dateUtils'
-import type { CardData, Priority } from '@/sync/views/types'
+} from '@nosdesk/core/utils/dateUtils'
+import type { CardData, Priority } from '@nosdesk/core/sync/views/types'
 import {
   buildPriorityDropdownOptions,
   priorityForBadge,

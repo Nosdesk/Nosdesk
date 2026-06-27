@@ -11,7 +11,7 @@
 import { computed } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useThemeStore } from '@/stores/theme'
-import { coarseStatusBucket, type WorkflowStateCategory } from '@/types/workflow'
+import { coarseStatusBucket, type WorkflowStateCategory } from '@nosdesk/core/types/workflow'
 
 const props = withDefaults(defineProps<{
   category: WorkflowStateCategory

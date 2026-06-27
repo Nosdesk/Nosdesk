@@ -19,7 +19,7 @@ import { useFluent } from 'fluent-vue'
 import type { FluentVariable } from '@fluent/bundle'
 import UserAvatar from '@/components/UserAvatar.vue'
 import { useUsersDirectory } from '@/composables/useUsersDirectory'
-import type { ViewerInfo } from '@/types/sse'
+import type { ViewerInfo } from '@nosdesk/core/types/sse'
 
 const fluent = useFluent()
 const t = (k: string, args?: Record<string, FluentVariable>) => fluent.$t(k, args)

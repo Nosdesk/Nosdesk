@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useFluent } from 'fluent-vue';
-import type { SearchResult, SearchEntityType } from '@/types/search';
-import { getEntityTypeLabel } from '@/types/search';
+import type { SearchResult, SearchEntityType } from '@nosdesk/core/types/search';
+import { getEntityTypeLabel } from '@nosdesk/core/types/search';
 import SearchResultItem from './SearchResultItem.vue';
 
 const fluent = useFluent();

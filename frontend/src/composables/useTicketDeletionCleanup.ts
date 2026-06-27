@@ -35,13 +35,13 @@ import { useQueryCache } from '@pinia/colada'
 
 import { useSyncActions } from '@/composables/useSyncActions'
 import { useCollabSessionStore } from '@/stores/collabSession'
-import { useTicketDraftsStore } from '@/stores/ticketDrafts'
-import { useTicketUiStore } from '@/stores/ticketUi'
+import { useTicketDraftsStore } from '@nosdesk/core/stores/ticketDrafts'
+import { useTicketUiStore } from '@nosdesk/core/stores/ticketUi'
 import { useMyWorkspacesStore } from '@/stores/myWorkspaces'
 import { useSyncTicketsStore } from '@/sync/stores/tickets'
 import { RECENT_TICKETS_KEY } from '@/stores/recentTickets'
 import { ticketDetailKey } from '@/loaders/ticketDetailLoader'
-import { buildCollabDocId } from '@/utils/collabDocId'
+import { buildCollabDocId } from '@nosdesk/core/utils/collabDocId'
 
 export function useTicketDeletionCleanup(): void {
   const collab = useCollabSessionStore()

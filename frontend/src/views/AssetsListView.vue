@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import { useMutation, useQueryCache } from '@pinia/colada'
 import { extractErrorMessage } from '@/utils/errors'
-import { useToastStore } from '@/stores/toast'
+import { useToastStore } from '@nosdesk/core/stores/toast'
 
 import DataTable from '@/components/common/DataTable.vue'
 import Icon from '@/components/common/Icon.vue'
@@ -34,8 +34,8 @@ import { useMobileDetection } from '@/composables/useMobileDetection'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
 import { downloadAssetsCsv, getPaginatedAssets, bulkAction, createEmptyAsset, getAssetGroupingDataset, type AssetGroupingRow } from '@/services/assetService'
 import { useAssetLocationsQuery } from '@/composables/useAssetLocationsQuery'
-import { assetsKeys } from '@/queries/assets'
-import type { Asset } from '@/types/asset'
+import { assetsKeys } from '@nosdesk/core/queries/assets'
+import type { Asset } from '@nosdesk/core/types/asset'
 import {
   assetStatusChipOptions,
   assetStatusLabel,

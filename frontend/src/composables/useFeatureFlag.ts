@@ -1,6 +1,6 @@
 import { computed, type ComputedRef } from 'vue';
-import { useFeatureFlagsStore } from '@/stores/featureFlags';
-import type { FeatureFlagValue } from '@/services/featureFlagsService';
+import { useFeatureFlagsStore } from '@nosdesk/core/stores/featureFlags';
+import type { FeatureFlagValue } from '@nosdesk/core/services/featureFlagsService';
 
 /**
  * Reactive boolean for a feature flag. The value tracks the

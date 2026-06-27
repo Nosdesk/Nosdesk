@@ -3,8 +3,8 @@
  * Used by both ticketLinkPlugin and ticketDropIndicatorPlugin.
  */
 
-import { escapeHtml } from '@/utils/escape';
-import { coarseStatusBucket, type WorkflowStateCategory } from '@/types/workflow';
+import { escapeHtml } from '@nosdesk/core/utils/escape';
+import { coarseStatusBucket, type WorkflowStateCategory } from '@nosdesk/core/types/workflow';
 
 export interface TicketCardData {
   id: number

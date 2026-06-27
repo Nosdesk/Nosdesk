@@ -22,7 +22,7 @@ nothing rather than a misleading default.
 -->
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { WorkflowStateCategory } from '@/types/workflow'
+import type { WorkflowStateCategory } from '@nosdesk/core/types/workflow'
 
 const props = defineProps<{
   category?: WorkflowStateCategory

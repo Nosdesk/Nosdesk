@@ -6,7 +6,7 @@
  */
 import { computed } from 'vue';
 import { useFluent } from 'fluent-vue';
-import type { PluginTrustLevel } from '@/types/plugin';
+import type { PluginTrustLevel } from '@nosdesk/core/types/plugin';
 
 interface Props {
   level: PluginTrustLevel;

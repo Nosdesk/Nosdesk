@@ -10,15 +10,15 @@ import {
   workflowStatesService,
   type CreateWorkflowStateBody,
   type UpdateWorkflowStateBody,
-} from '@/services/workflowStatesService'
-import { useWorkflowStatesStore } from '@/stores/workflowStates'
+} from '@nosdesk/core/services/workflowStatesService'
+import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates'
 import {
   getCategoryLabel,
   WORKFLOW_CATEGORIES,
   type WorkflowState,
   type WorkflowStateCategory,
-} from '@/types/workflow'
-import { paletteForColor, SUPPORTED_COLOR_TOKENS } from '@/utils/workflowColors'
+} from '@nosdesk/core/types/workflow'
+import { paletteForColor, SUPPORTED_COLOR_TOKENS } from '@nosdesk/core/utils/workflowColors'
 
 const store = useWorkflowStatesStore()
 const fluent = useFluent()

@@ -9,8 +9,8 @@
  * actions menu stop propagation.
  */
 import { useInlineRename } from '@/composables/useInlineRename'
-import { projectStatusDot } from '@/utils/projectStatus'
-import { formatRelativeTime } from '@/utils/dateUtils'
+import { projectStatusDot } from '@nosdesk/core/utils/projectStatus'
+import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
 import type { SyncProject } from '@/sync/stores/projects'
 import type { ProjectRollup } from '@/composables/useProjectRollups'
 import type { ActiveCycleSummary } from '@/composables/useActiveCycleSummaries'

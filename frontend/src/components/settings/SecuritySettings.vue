@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { useAuthStore } from '@/stores/auth';
-import authService from '@/services/authService';
+import authService from '@nosdesk/core/services/authService';
 import userService from '@/services/userService';
 import { extractErrorMessage } from '@/utils/errors';
 import SectionCard from '@/components/common/SectionCard.vue';

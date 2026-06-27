@@ -11,12 +11,12 @@
  * read-only; remediation flows live on PluginDetailView.
  */
 import { computed, onMounted, ref } from 'vue';
-import pluginService from '@/services/pluginService';
+import pluginService from '@nosdesk/core/services/pluginService';
 import type {
   PluginTrustLevel,
   SigningOverview,
   TrustLevelCount,
-} from '@/types/plugin';
+} from '@nosdesk/core/types/plugin';
 import PluginTrustBadge from './PluginTrustBadge.vue';
 
 const overview = ref<SigningOverview | null>(null);

@@ -532,10 +532,10 @@ import {
   type DiscoveredGroup,
   type RoleMapping,
   type RolePreview,
-} from '@/services/ldapService';
-import { useToastStore } from '@/stores/toast';
+} from '@nosdesk/core/services/ldapService';
+import { useToastStore } from '@nosdesk/core/stores/toast';
 import { createErrorFromResponse } from '@/utils/errors';
-import { formatRelativeTime } from '@/utils/dateUtils';
+import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);

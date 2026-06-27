@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
-import apiClient from '@/services/apiConfig';
+import apiClient from '@nosdesk/core/apiClient';
 import { useFluent } from 'fluent-vue';
 import { useQuery, useQueryCache } from '@pinia/colada';
 
@@ -13,9 +13,9 @@ import Spinner from '@/components/common/Spinner.vue';
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
 import FormTextarea from '@/components/common/FormTextarea.vue';
 import Button from '@/components/common/Button.vue';
-import brandingService, { type BrandingConfig } from '@/services/brandingService';
+import brandingService, { type BrandingConfig } from '@nosdesk/core/services/brandingService';
 import { extractErrorMessage } from '@/utils/errors';
-import { useToastStore } from '@/stores/toast';
+import { useToastStore } from '@nosdesk/core/stores/toast';
 
 // `embedded`: render as a section inside the consolidated Email delivery page
 // (no page header / outer padding), vs. the standalone admin route.

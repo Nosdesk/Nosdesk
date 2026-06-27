@@ -20,10 +20,10 @@ import { useFluent } from 'fluent-vue'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
 import WorkflowStateGlyph from '@/components/views/WorkflowStateGlyph.vue'
-import type { WorkflowDropdownOption } from '@/types/workflow'
-import { paletteForColor } from '@/utils/workflowColors'
+import type { WorkflowDropdownOption } from '@nosdesk/core/types/workflow'
+import { paletteForColor } from '@nosdesk/core/utils/workflowColors'
 import { priorityForBadge } from '@/utils/priorityHelpers'
-import type { Priority as CardPriority } from '@/sync/views/types'
+import type { Priority as CardPriority } from '@nosdesk/core/sync/views/types'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)

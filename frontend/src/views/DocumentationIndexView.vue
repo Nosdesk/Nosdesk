@@ -5,7 +5,7 @@ import { useFluent } from 'fluent-vue'
 import { useTitleManager } from '@/composables/useTitleManager'
 import { useDocumentation } from '@/composables/useDocumentation'
 import { useDocPages, toPage } from '@/composables/useDocPages'
-import { useSyncDocsStore, isActivePage } from '@/sync/stores/documentation'
+import { useSyncDocsStore, isActivePage } from '@nosdesk/core/sync/stores/documentation'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
 import { useKnowledgeGaps } from '@/composables/useKnowledgeGaps'
 import CollectionBrowser from '@/components/documentationComponents/CollectionBrowser.vue'
@@ -16,14 +16,14 @@ import EmptyState from '@/components/common/EmptyState.vue'
 import SectionCard from '@/components/common/SectionCard.vue'
 import Icon from '@/components/common/Icon.vue'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
-import { docUrl } from '@/utils/docUrl'
-import { formatRelativeTime } from '@/utils/dateUtils'
+import { docUrl } from '@nosdesk/core/utils/docUrl'
+import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
 import {
   pageNeedsVerificationAttention,
   pageVerificationState,
 } from '@/utils/pageVerification'
-import type { Page } from '@/services/documentationService'
-import type { KnowledgeGap } from '@/services/knowledgeGapsService'
+import type { Page } from '@nosdesk/core/services/documentationService'
+import type { KnowledgeGap } from '@nosdesk/core/services/knowledgeGapsService'
 
 defineOptions({ name: 'DocumentationIndexView' })
 

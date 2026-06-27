@@ -14,7 +14,7 @@
  * shipping a new widget is a no-op for existing users.
  */
 import type { Component } from 'vue'
-import type { DashboardLayout, UserRole } from '@/types/user'
+import type { DashboardLayout, UserRole } from '@nosdesk/core/types/user'
 import UserAssignedTickets from '@/components/UserAssignedTickets.vue'
 import TicketHeatmap from '@/components/TicketHeatmap.vue'
 import RecentlyViewedWidget from './RecentlyViewedWidget.vue'

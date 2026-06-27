@@ -8,8 +8,8 @@
  * This prevents Yjs/WebSocket sync issues with large binary data.
  */
 
-import uploadService from './uploadService';
-import { logger } from '@/utils/logger';
+import uploadService from '@/services/uploadService';
+import { logger } from '@nosdesk/core/utils/logger';
 
 export interface EditorImageUploadResult {
   url: string;

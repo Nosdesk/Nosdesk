@@ -26,7 +26,13 @@ import { createFluentVue, type FluentVue } from 'fluent-vue'
 import { watch } from 'vue'
 import type { Pinia } from 'pinia'
 
-import { useDateStore } from '@/stores/dateStore'
+import { useDateStore } from '@nosdesk/core/stores/dateStore'
+import { setActiveFluent } from '@nosdesk/core/i18n'
+
+// `translate()` now lives in @nosdesk/core (headless, so the mobile app shares
+// it). Re-exported here so the many `import { translate } from '@/i18n'` call
+// sites keep working; this file still owns catalogue loading + `createI18n`.
+export { translate } from '@nosdesk/core/i18n'
 
 const DEFAULT_LOCALE = 'en-US'
 
@@ -99,41 +105,11 @@ export function createI18n(pinia: Pinia): FluentVue {
     },
   )
 
-  // Stash the instance so non-component callers (the router, Pinia
-  // stores, standalone utilities) can translate without going through
-  // useFluent(), which requires an active Vue inject context.
-  activeFluent = fluent
+  // Register the instance with @nosdesk/core so non-component callers (the
+  // router, Pinia stores, standalone utilities) can `translate()` without an
+  // active Vue inject context.
+  setActiveFluent(fluent)
   return fluent
-}
-
-// Module-level handle to the active fluent-vue instance. Set by
-// createI18n during bootstrap; null until then. Callers go through
-// the `translate` helper below rather than touching this directly.
-let activeFluent: FluentVue | null = null
-
-/**
- * Translate a Fluent key from non-component code (the router,
- * services). Falls back to the supplied `fallback` string (or the
- * key itself) if i18n hasn't been initialised yet, which keeps unit
- * tests and pre-bootstrap call sites from crashing. Args use
- * `FluentVariable`-compatible primitives.
- *
- * Prefer `useFluent().$t` inside components; this is the escape
- * hatch for code paths that run outside a Vue setup context.
- */
-export function translate(
-  key: string,
-  args?: Record<string, string | number>,
-  fallback?: string,
-): string {
-  if (!activeFluent) return fallback ?? key
-  const out = activeFluent.format(key, args)
-  // fluent-vue returns the bare key id when the message is missing from
-  // every bundle. Prefer the caller's fallback copy in that case so a
-  // not-yet-bundled or mistyped key degrades to readable English instead
-  // of surfacing "some-key-name" to the user.
-  if (out === key && fallback !== undefined) return fallback
-  return out
 }
 
 /** Locales we ship catalogues for. Exposed so the settings UI

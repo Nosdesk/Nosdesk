@@ -3,13 +3,13 @@ import { computed, ref } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { useQuery, useQueryCache } from '@pinia/colada';
 import { useAuthStore } from '@/stores/auth';
-import { useToastStore } from '@/stores/toast';
-import { assetLoanKeys, assetLoanService } from '@/services/assetLoanService';
+import { useToastStore } from '@nosdesk/core/stores/toast';
+import { assetLoanKeys, assetLoanService } from '@nosdesk/core/services/assetLoanService';
 import { useSyncActions } from '@/composables/useSyncActions';
 import Button from '@/components/common/Button.vue';
 import TicketLoanRow from './TicketLoanRow.vue';
 import IssueLoanerModal from './IssueLoanerModal.vue';
-import type { AssetLoan } from '@/types/asset';
+import type { AssetLoan } from '@nosdesk/core/types/asset';
 
 const props = defineProps<{
   ticketId: number;

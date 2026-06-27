@@ -16,14 +16,14 @@ import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import { useTitleManager } from '@/composables/useTitleManager'
 import Icon from '@/components/common/Icon.vue'
-import { formatRelativeTime } from '@/utils/dateUtils'
+import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
 import {
   useKnowledgeGaps,
   useKnowledgeGap,
   useDismissGapMutation,
   useDetectClustersMutation,
 } from '@/composables/useKnowledgeGaps'
-import type { KnowledgeGapSignal } from '@/services/knowledgeGapsService'
+import type { KnowledgeGapSignal } from '@nosdesk/core/services/knowledgeGapsService'
 
 defineOptions({ name: 'DocumentationGapsView' })
 

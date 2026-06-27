@@ -28,10 +28,10 @@ import {
   assetKindsService,
   ASSET_KINDS_QUERY_KEY,
   type AssetKind,
-} from '@/services/assetKindsService';
+} from '@nosdesk/core/services/assetKindsService';
 import { extractErrorMessage } from '@/utils/errors';
-import { highlightTerms } from '@/utils/highlight';
-import { useToastStore } from '@/stores/toast';
+import { highlightTerms } from '@nosdesk/core/utils/highlight';
+import { useToastStore } from '@nosdesk/core/stores/toast';
 import { useQueryCache } from '@pinia/colada';
 
 const fluent = useFluent();

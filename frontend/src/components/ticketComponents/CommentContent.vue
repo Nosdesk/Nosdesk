@@ -103,10 +103,10 @@ import { computed } from 'vue';
 import { useFluent } from 'fluent-vue';
 import MarkdownRenderer from '@/components/common/MarkdownRenderer.vue';
 import EmailHtmlBody from '@/components/ticketComponents/EmailHtmlBody.vue';
-import { splitQuotedReply } from '@/utils/quotedReply';
-import { splitQuotedHtml } from '@/utils/quotedReplyHtml';
-import { linkifyText } from '@/utils/linkifyText';
-import type { CommentContentFormat, CommentRenderKind } from '@/types/comment';
+import { splitQuotedReply } from '@nosdesk/core/utils/quotedReply';
+import { splitQuotedHtml } from '@nosdesk/core/utils/quotedReplyHtml';
+import { linkifyText } from '@nosdesk/core/utils/linkifyText';
+import type { CommentContentFormat, CommentRenderKind } from '@nosdesk/core/types/comment';
 
 const props = defineProps<{
   content: string;

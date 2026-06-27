@@ -26,24 +26,24 @@
  */
 import { computed, ref, toValue, type MaybeRefOrGetter } from 'vue'
 import { useRouter } from 'vue-router'
-import { useEntity, useReference, useAggregate } from '@/sync/composables'
-import * as pool from '@/sync/pool'
+import { useEntity, useReference, useAggregate } from '@nosdesk/core/sync/composables'
+import * as pool from '@nosdesk/core/sync/pool'
 import { dispatchOptimistic } from '@/sync/queue'
-import { useWorkflowStatesStore } from '@/stores/workflowStates'
+import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates'
 import { useRecentTicketsStore } from '@/stores/recentTickets'
-import { logger } from '@/utils/logger'
-import { formatDateTime } from '@/utils/dateUtils'
-import ticketService, { getCommentsByTicketId } from '@/services/ticketService'
-import apiClient from '@/services/apiConfig'
-import { projectService } from '@/services/projectService'
-import type { TicketPriority } from '@/constants/ticketOptions'
-import type { CardWorkflowState } from '@/sync/views/types'
-import type { Asset } from '@/types/asset'
-import type { Project } from '@/types/project'
-import type { CommentWithAttachments, Attachment } from '@/types/comment'
-import type { PlatformRole } from '@/types/user'
-import type { WorkspaceRole } from '@/types/workspace'
-import type { TicketCategory } from '@/types/category'
+import { logger } from '@nosdesk/core/utils/logger'
+import { formatDateTime } from '@nosdesk/core/utils/dateUtils'
+import ticketService, { getCommentsByTicketId } from '@nosdesk/core/services/ticketService'
+import apiClient from '@nosdesk/core/apiClient'
+import { projectService } from '@nosdesk/core/services/projectService'
+import type { TicketPriority } from '@nosdesk/core/constants/ticketOptions'
+import type { CardWorkflowState } from '@nosdesk/core/sync/views/types'
+import type { Asset } from '@nosdesk/core/types/asset'
+import type { Project } from '@nosdesk/core/types/project'
+import type { CommentWithAttachments, Attachment } from '@nosdesk/core/types/comment'
+import type { PlatformRole } from '@nosdesk/core/types/user'
+import type { WorkspaceRole } from '@nosdesk/core/types/workspace'
+import type { TicketCategory } from '@nosdesk/core/types/category'
 
 /** Ticket row as it lands in the pool for the detail view: the board
  * `SyncTicket` plus the detail-only scalars Stage 1 added to the
@@ -63,7 +63,7 @@ interface SyncTicketDetail {
   tag_ids?: number[]
   watcher_uuids?: string[]
   cycle_id?: number | null
-  sla?: import('@/types/sla').SlaPill | null
+  sla?: import('@nosdesk/core/types/sla').SlaPill | null
   created_by?: string | null
   closed_by?: string | null
   closed_at?: string | null
@@ -379,7 +379,7 @@ export function useTicketDetail(
     const previous = r?.tag_ids ?? []
     pool.patch<SyncTicketDetail>('ticket', id.value, { tag_ids: tagIds })
     try {
-      const { tagService } = await import('@/services/tagService')
+      const { tagService } = await import('@nosdesk/core/services/tagService')
       const next = await tagService.setForTicket(id.value, tagIds)
       pool.patch<SyncTicketDetail>('ticket', id.value, { tag_ids: next })
     } catch (err) {
@@ -398,7 +398,7 @@ export function useTicketDetail(
       : [...current, currentUserUuid]
     pool.patch<SyncTicketDetail>('ticket', id.value, { watcher_uuids: optimistic })
     try {
-      const { watcherService } = await import('@/services/watcherService')
+      const { watcherService } = await import('@nosdesk/core/services/watcherService')
       if (isWatching) await watcherService.unwatch(id.value)
       else await watcherService.watch(id.value)
     } catch (err) {

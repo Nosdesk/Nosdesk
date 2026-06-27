@@ -4,10 +4,10 @@ import { RouterLink } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import Button from '@/components/common/Button.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
-import { useReference } from '@/sync/composables';
+import { useReference } from '@nosdesk/core/sync/composables';
 import { useUsersDirectory } from '@/composables/useUsersDirectory';
-import { formatCompactDate } from '@/utils/dateUtils';
-import type { Asset, AssetLoan } from '@/types/asset';
+import { formatCompactDate } from '@nosdesk/core/utils/dateUtils';
+import type { Asset, AssetLoan } from '@nosdesk/core/types/asset';
 
 const props = defineProps<{ loan: AssetLoan; canReturn?: boolean }>();
 const emit = defineEmits<{ (e: 'return'): void }>();

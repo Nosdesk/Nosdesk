@@ -1,7 +1,7 @@
 import { ref, onScopeDispose } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
-import { useMfaSetupStore } from '@/stores/mfaSetup';
+import { useMfaSetupStore } from '@nosdesk/core/stores/mfaSetup';
 import { translate } from '@/i18n';
 
 export interface AutoLoginOptions {

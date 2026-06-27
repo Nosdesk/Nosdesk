@@ -1,0 +1,9 @@
+{
+  "name": "nosdesk",
+  "version": "0.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "packageManager": "pnpm@10.30.3"
+}

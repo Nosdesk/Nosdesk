@@ -15,8 +15,8 @@
  *   useSyncActions(() => query.refetch(), { aggregates: ['ticket'], debounceMs: 250 })
  */
 import { onMounted, onUnmounted } from 'vue'
-import { onSyncActions } from '@/sync/observers'
-import type { SyncAction, SyncAggregate } from '@/sync/types'
+import { onSyncActions } from '@nosdesk/core/sync/observers'
+import type { SyncAction, SyncAggregate } from '@nosdesk/core/sync/types'
 
 interface UseSyncActionsOptions {
   /** Only fire for actions on these aggregates. Omit to receive all. */

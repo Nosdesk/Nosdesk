@@ -37,8 +37,8 @@ import type { useListControls } from '@/composables/useListControls'
 import { useInfiniteScroll } from '@/composables/useInfiniteScroll'
 import { useMobileSearch, type CreateButtonIcon } from '@/composables/useMobileSearch'
 import { useSyncActions } from '@/composables/useSyncActions'
-import type { SyncAggregate } from '@/sync/types'
-import type { ListKeys } from '@/queries/listKeys'
+import type { SyncAggregate } from '@nosdesk/core/sync/types'
+import type { ListKeys } from '@nosdesk/core/queries/listKeys'
 
 /**
  * Per-tab scroll-position cache, keyed by route fullPath. Lost on

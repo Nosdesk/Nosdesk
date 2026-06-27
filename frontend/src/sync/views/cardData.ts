@@ -8,7 +8,7 @@
  * route's per-view computed.
  */
 import type { SyncTicket } from '@/sync/stores/tickets'
-import type { CardData } from './types'
+import type { CardData } from '@nosdesk/core/sync/views/types'
 
 /** Returns null when the ticket has no resolved workflow_state.
  * Renderers expect a populated workflow_state on every card; the

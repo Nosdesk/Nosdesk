@@ -11,9 +11,9 @@ import Modal from '@/components/Modal.vue'
 import FormInput from '@/components/common/FormInput.vue'
 import FormTextarea from '@/components/common/FormTextarea.vue'
 import Button from '@/components/common/Button.vue'
-import { projectService } from '@/services/projectService'
-import { logger } from '@/utils/logger'
-import type { Project } from '@/types/project'
+import { projectService } from '@nosdesk/core/services/projectService'
+import { logger } from '@nosdesk/core/utils/logger'
+import type { Project } from '@nosdesk/core/types/project'
 
 const emit = defineEmits<{ close: []; created: [project: Project] }>()
 

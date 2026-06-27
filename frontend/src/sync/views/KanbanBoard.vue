@@ -30,17 +30,17 @@ const fluent = useFluent()
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
 
 import { useSyncTicketsStore, type SyncTicket } from '@/sync/stores/tickets'
-import { useWorkflowStatesStore } from '@/stores/workflowStates'
+import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates'
 import {
   WORKFLOW_CATEGORIES,
   getCategoryLabel,
   type WorkflowStateCategory,
   type WorkflowState,
-} from '@/types/workflow'
-import { paletteForColor } from '@/utils/workflowColors'
-import { formatDateTime } from '@/utils/dateUtils'
+} from '@nosdesk/core/types/workflow'
+import { paletteForColor } from '@nosdesk/core/utils/workflowColors'
+import { formatDateTime } from '@nosdesk/core/utils/dateUtils'
 import { useDragDrop } from './drag'
-import type { CardData } from './types'
+import type { CardData } from '@nosdesk/core/sync/views/types'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import Icon from '@/components/common/Icon.vue'
 import TicketDragPreview from '@/components/common/TicketDragPreview.vue'

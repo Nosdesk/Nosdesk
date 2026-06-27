@@ -2,7 +2,7 @@ import { ref, computed } from 'vue';
 import type { Ref } from 'vue';
 import versionHistoryService from '@/services/versionHistoryService';
 import type { ArticleRevision, ArticleRevisionDetail } from '@/services/versionHistoryService';
-import { logger } from '@/utils/logger';
+import { logger } from '@nosdesk/core/utils/logger';
 
 export function useVersionHistory(ticketId: Ref<number> | number) {
   const revisions = ref<ArticleRevision[]>([]);

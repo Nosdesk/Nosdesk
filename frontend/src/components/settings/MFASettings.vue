@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { logger } from "@/utils/logger";
+import { logger } from "@nosdesk/core/utils/logger";
 import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import { useFluent } from "fluent-vue";
 import ToggleSwitch from "@/components/common/ToggleSwitch.vue";
@@ -10,7 +10,7 @@ import SectionCard from "@/components/common/SectionCard.vue";
 import { extractErrorMessage } from "@/utils/errors";
 import Button from "@/components/common/Button.vue";
 import { useAuthStore } from "@/stores/auth";
-import { useMfaSetupStore } from "@/stores/mfaSetup";
+import { useMfaSetupStore } from "@nosdesk/core/stores/mfaSetup";
 import { useMfa } from "@/composables/useMfa";
 import { useRecoveryCodesFile } from "@/composables/useRecoveryCodesFile";
 import userService from "@/services/userService";

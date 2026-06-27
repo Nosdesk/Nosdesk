@@ -11,8 +11,8 @@ import {
   assetModelsService,
   MANUFACTURERS_QUERY_KEY,
   ASSET_MODELS_QUERY_KEY,
-} from '@/services/assetCatalogService'
-import type { Manufacturer, AssetModel } from '@/types/asset'
+} from '@nosdesk/core/services/assetCatalogService'
+import type { Manufacturer, AssetModel } from '@nosdesk/core/types/asset'
 
 export function useManufacturersQuery() {
   const query = useQuery({

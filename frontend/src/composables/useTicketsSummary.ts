@@ -10,8 +10,8 @@
  * Queue right now while I'm hiding the closed ones."
  */
 import { computed, type ComputedRef } from 'vue'
-import { TERMINAL_CATEGORIES } from '@/types/workflow'
-import type { CardData } from '@/sync/views/types'
+import { TERMINAL_CATEGORIES } from '@nosdesk/core/types/workflow'
+import type { CardData } from '@nosdesk/core/sync/views/types'
 
 export interface QueueSummary {
   total: number

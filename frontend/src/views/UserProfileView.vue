@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { formatDate as formatDateUtil } from '@/utils/dateUtils';
-import { effectiveRole, type UserRole } from '@/types/user';
+import { formatDate as formatDateUtil } from '@nosdesk/core/utils/dateUtils';
+import { effectiveRole, type UserRole } from '@nosdesk/core/types/user';
 import { ref, computed, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useUserProfileBundle } from '@/composables/useUserProfileBundle';
@@ -22,8 +22,8 @@ import { RouterLink } from "vue-router";
 import userService from "@/services/userService";
 import { useColorFilter } from "@/composables/useColorFilter";
 import type { User } from "@/services/userService";
-import type { Asset } from "@/types/asset";
-import type { Group } from "@/types/group";
+import type { Asset } from "@nosdesk/core/types/asset";
+import type { Group } from "@nosdesk/core/types/group";
 
 interface UserProfile extends User {
     department?: string;

@@ -2,8 +2,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useFluent } from 'fluent-vue';
-import type { Project } from '@/services/ticketService';
-import { projectService } from '@/services/projectService';
+import type { Project } from '@nosdesk/core/services/ticketService';
+import { projectService } from '@nosdesk/core/services/projectService';
 import SidebarCard from "@/components/ticketComponents/SidebarCard.vue";
 
 const fluent = useFluent();

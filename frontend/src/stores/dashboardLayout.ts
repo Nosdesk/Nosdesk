@@ -2,8 +2,8 @@ import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { useAuthStore } from '@/stores/auth'
 import userService from '@/services/userService'
-import { useEntity } from '@/sync/composables'
-import { effectiveRole, type DashboardLayout, type UserRole } from '@/types/user'
+import { useEntity } from '@nosdesk/core/sync/composables'
+import { effectiveRole, type DashboardLayout, type UserRole } from '@nosdesk/core/types/user'
 import {
   defaultLayoutFor,
   mergeWithRegistry,

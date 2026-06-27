@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useFluent } from 'fluent-vue'
-import { setCollectionVisibility } from '@/services/collectionService'
-import type { VisibleUser } from '@/services/collectionService'
+import { setCollectionVisibility } from '@nosdesk/core/services/collectionService'
+import type { VisibleUser } from '@nosdesk/core/services/collectionService'
 import AssignmentPicker from '@/components/common/AssignmentPicker.vue'
 import type { SelectedPrincipal } from '@/components/common/AssignmentPicker.vue'
 import Modal from '@/components/Modal.vue'
@@ -61,7 +61,7 @@ onMounted(async () => {
   // collection data which already has visible_to_groups with names.
   // The parent (CollectionView) passes currentGroupIds, but we can also get names
   // from the collection's visible_to_groups. Let's load them via the groupService.
-  const { groupService } = await import('@/services/groupService')
+  const { groupService } = await import('@nosdesk/core/services/groupService')
   const allGroups = await groupService.getGroups()
   const groupMap = new Map(allGroups.map(g => [g.id, g.name]))
 

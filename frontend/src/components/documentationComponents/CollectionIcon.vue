@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import Emoji from '@/components/common/Emoji.vue'
-import { collectionIconBackgroundStyle } from '@/utils/collectionIconStyle'
+import { collectionIconBackgroundStyle } from '@nosdesk/core/utils/collectionIconStyle'
 
 const props = withDefaults(defineProps<{
   icon?: string | null

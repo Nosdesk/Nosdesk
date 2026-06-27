@@ -30,7 +30,7 @@ import {
   MY_OPEN_VIEW,
   resolveDashboardViewFilter,
   type BuiltInView,
-} from '@/sync/views/builtinViews'
+} from '@nosdesk/core/sync/views/builtinViews'
 import type { ViewSwitcherItem } from '@/components/views/ViewSwitcher.vue'
 import type { ViewTabItem } from '@/components/views/TicketsViewTabs.vue'
 import type { IconName } from '@/components/common/icons'
@@ -40,7 +40,7 @@ import type {
   FilterState,
   ListViewShape,
   ViewShape,
-} from '@/sync/views/types'
+} from '@nosdesk/core/sync/views/types'
 
 export interface ResolvedView {
   id: string

@@ -4,8 +4,8 @@ import { useRouter } from 'vue-router'
 import { useMutation, useQueryCache } from '@pinia/colada'
 import { useFluent } from 'fluent-vue'
 import { extractErrorMessage } from '@/utils/errors'
-import { formatDate } from '@/utils/dateUtils'
-import { useToastStore } from '@/stores/toast'
+import { formatDate } from '@nosdesk/core/utils/dateUtils'
+import { useToastStore } from '@nosdesk/core/stores/toast'
 
 import DataTable from '@/components/common/DataTable.vue'
 import PaginationControls from '@/components/common/PaginationControls.vue'
@@ -25,8 +25,8 @@ import UserAvatar from '@/components/UserAvatar.vue'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
 import userService from '@/services/userService'
-import { usersKeys } from '@/queries/users'
-import { effectiveRole, type User, type UserRole } from '@/types/user'
+import { usersKeys } from '@nosdesk/core/queries/users'
+import { effectiveRole, type User, type UserRole } from '@nosdesk/core/types/user'
 
 defineOptions({ name: 'UsersListView' })
 

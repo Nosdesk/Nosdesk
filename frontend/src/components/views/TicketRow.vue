@@ -31,9 +31,9 @@ import {
   formatCompactRelativeTime,
   formatCompactDate,
   formatDateTime,
-} from '@/utils/dateUtils'
-import type { ListColumn } from '@/sync/views/ticketColumns'
-import type { CardData } from '@/sync/views/types'
+} from '@nosdesk/core/utils/dateUtils'
+import type { ListColumn } from '@nosdesk/core/sync/views/ticketColumns'
+import type { CardData } from '@nosdesk/core/sync/views/types'
 
 const fluent = useFluent()
 

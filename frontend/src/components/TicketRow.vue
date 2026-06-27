@@ -12,16 +12,16 @@ row degrades gracefully — missing fields simply aren't rendered.
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useFluent } from 'fluent-vue'
-import { formatCompactRelativeTime, formatDateTime } from '@/utils/dateUtils'
+import { formatCompactRelativeTime, formatDateTime } from '@nosdesk/core/utils/dateUtils'
 import UserAvatar from './UserAvatar.vue'
 import TicketStatusIcon from './TicketStatusIcon.vue'
 import { useCollabSessionStore } from '@/stores/collabSession'
 import { useMyWorkspacesStore } from '@/stores/myWorkspaces'
-import { useWorkflowStatesStore } from '@/stores/workflowStates'
+import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates'
 import { useSyncTicketsStore } from '@/sync/stores/tickets'
-import { buildCollabDocId } from '@/utils/collabDocId'
-import { TERMINAL_CATEGORIES } from '@/types/workflow'
-import type { UserInfo } from '@/types/user'
+import { buildCollabDocId } from '@nosdesk/core/utils/collabDocId'
+import { TERMINAL_CATEGORIES } from '@nosdesk/core/types/workflow'
+import type { UserInfo } from '@nosdesk/core/types/user'
 
 const fluent = useFluent()
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)

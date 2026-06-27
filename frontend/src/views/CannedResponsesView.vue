@@ -26,10 +26,10 @@ import StarterCatalogModal from '@/components/cannedResponseComponents/StarterCa
 import cannedResponsesService, {
   type CannedResponseListItem,
   type CannedResponseStarter,
-} from '@/services/cannedResponsesService';
+} from '@nosdesk/core/services/cannedResponsesService';
 import { extractErrorMessage } from '@/utils/errors';
-import { highlightTerms } from '@/utils/highlight';
-import { useToastStore } from '@/stores/toast';
+import { highlightTerms } from '@nosdesk/core/utils/highlight';
+import { useToastStore } from '@nosdesk/core/stores/toast';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);

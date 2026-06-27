@@ -15,10 +15,10 @@ import { useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 
 import AlertMessage from '@/components/common/AlertMessage.vue';
-import pluginService from '@/services/pluginService';
+import pluginService from '@nosdesk/core/services/pluginService';
 import { usePluginAdminConfig } from '@/composables/usePluginAdminConfig';
-import { logger } from '@/utils/logger';
-import { formatFileSize } from '@/utils/formatFileSize';
+import { logger } from '@nosdesk/core/utils/logger';
+import { formatFileSize } from '@nosdesk/core/utils/formatFileSize';
 import { extractErrorMessage } from '@/utils/errors';
 
 const router = useRouter();

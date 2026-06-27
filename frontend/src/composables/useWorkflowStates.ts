@@ -1,6 +1,6 @@
 import { computed, type ComputedRef } from 'vue'
-import { useWorkflowStatesStore } from '@/stores/workflowStates'
-import type { WorkflowState, WorkflowStateCategory } from '@/types/workflow'
+import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates'
+import type { WorkflowState, WorkflowStateCategory } from '@nosdesk/core/types/workflow'
 
 /**
  * Reactive workflow state lookup by id. Returns `undefined` while the

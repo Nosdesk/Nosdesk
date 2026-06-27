@@ -13,17 +13,17 @@
  *
  * Cache-key construction routes through the shared
  * `ticketsKeys.list(...)` + `serializeListCacheKey(...)` helpers
- * (in `@/queries/tickets`, `@/queries/listSerialization`) so the
+ * (in `@nosdesk/core/queries/tickets`, `@nosdesk/core/queries/listSerialization`) so the
  * loader's prime hits the same key the view's first request
  * produces. Drift here used to silently orphan the prime.
  */
 import { defineColadaLoader } from 'vue-router/experimental/pinia-colada'
 import { setInfiniteQueryData, useQueryCache } from '@pinia/colada'
-import ticketService from '@/services/ticketService'
+import ticketService from '@nosdesk/core/services/ticketService'
 import { savedViewsService } from '@/services/savedViewsService'
 import { useSavedViewsStore } from '@/stores/savedViews'
-import { ticketsKeys, ticketsListParamsFromQuery } from '@/queries/tickets'
-import { serializeListCacheKey } from '@/queries/listSerialization'
+import { ticketsKeys, ticketsListParamsFromQuery } from '@nosdesk/core/queries/tickets'
+import { serializeListCacheKey } from '@nosdesk/core/queries/listSerialization'
 
 const PAGESIZE_STORAGE_KEY = 'tickets-page-size'
 const DEFAULT_PAGE_SIZE = 25

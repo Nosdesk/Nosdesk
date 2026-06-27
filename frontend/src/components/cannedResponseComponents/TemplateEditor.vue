@@ -32,7 +32,7 @@ import { keymap } from 'prosemirror-keymap';
 import { baseKeymap } from 'prosemirror-commands';
 import { history, undo, redo } from 'prosemirror-history';
 import { inputRules } from 'prosemirror-inputrules';
-import { CANNED_RESPONSE_VARIABLES } from '@/services/cannedResponsesService';
+import { CANNED_RESPONSE_VARIABLES } from '@nosdesk/core/services/cannedResponsesService';
 import {
   templateSchema,
   variableInputRule,

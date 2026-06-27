@@ -36,11 +36,11 @@ import {
   type WorkingCalendarHoliday,
   type SlaPolicyBody,
   type PolicyMatchCounts,
-} from '@/services/slaService'
-import { categoryService } from '@/services/categoryService'
-import type { TicketCategory } from '@/types/category'
-import { groupService } from '@/services/groupService'
-import type { GroupWithMemberCount } from '@/types/group'
+} from '@nosdesk/core/services/slaService'
+import { categoryService } from '@nosdesk/core/services/categoryService'
+import type { TicketCategory } from '@nosdesk/core/types/category'
+import { groupService } from '@nosdesk/core/services/groupService'
+import type { GroupWithMemberCount } from '@nosdesk/core/types/group'
 import BaseDropdown from '@/components/common/BaseDropdown.vue'
 import Checkbox from '@/components/common/Checkbox.vue'
 import Button from '@/components/common/Button.vue'

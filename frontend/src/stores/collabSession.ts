@@ -34,9 +34,9 @@ import { COLLAB_IDB_TOUCH_KEY } from '@/utils/collabLocalCache'
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
-import { logger } from '@/utils/logger'
-import { SafePermanentUserData } from '@/utils/safePermanentUserData'
-import { getCollabWsUrl } from '@/utils/collabWsUrl'
+import { logger } from '@nosdesk/core/utils/logger'
+import { SafePermanentUserData } from '@nosdesk/core/utils/safePermanentUserData'
+import { collabWsBaseUrl } from '@nosdesk/core/transport'
 
 /**
  * How long after refcount hits 0 we keep the websocket open
@@ -487,7 +487,7 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
   function warm(docId: string, options?: CollabSessionAcquireOptions): void {
     if (sessions.has(docId)) return
     const opts: CollabSessionAcquireOptions = options ?? {
-      baseWsUrl: getCollabWsUrl(),
+      baseWsUrl: collabWsBaseUrl(),
       providerParams: { resyncInterval: 20000, disableBc: true },
     }
     // Same path as `acquire` but we drop the refcount immediately

@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory, type RouteLocationNormalized } from 'vue-router'
 import { withWorkspaceRouting, installWorkspaceGuard, workspaceSlugOf } from './workspaceRouting'
-import { getWorkspaceRouting } from '@/services/instanceConfig'
+import { getWorkspaceRouting } from '@nosdesk/core/services/instanceConfig'
 import { lastWorkspaceSlug } from '@/services/activeWorkspace'
 import DashboardView from '../views/DashboardView.vue'
 import TicketView from '../views/TicketView.vue'
@@ -22,12 +22,12 @@ import DocumentationIndexView from '@/views/DocumentationIndexView.vue'
 import DocumentView from '@/views/DocumentView.vue'
 import ProfileSettingsView from '@/views/ProfileSettingsView.vue'
 import PDFViewerView from '@/views/PDFViewerView.vue'
-import authService from '@/services/authService'
+import authService from '@nosdesk/core/services/authService'
 import { useInboxLoader } from '@/loaders/inboxLoader'
 import { useTicketsListLoader } from '@/loaders/ticketsListLoader'
 import { translate } from '@/i18n'
 import { useBrandingStore } from '@/stores/branding'
-import type { Page, Article } from '@/services/documentationService'
+import type { Page, Article } from '@nosdesk/core/services/documentationService'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -480,7 +480,7 @@ const router = createRouter({
         const path = to.params.path?.toString();
         if (path) {
           try {
-            const { getPageByPath, getArticleById } = await import('@/services/documentationService');
+            const { getPageByPath, getArticleById } = await import('@nosdesk/core/services/documentationService');
             const result = await getPageByPath(path);
 
             if (result) {
@@ -1092,13 +1092,13 @@ async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLoca
   // Load feature flags once per session for any authenticated route. Failures
   // are swallowed inside the store; the app falls back to flags-disabled.
   if (authStore.isAuthenticated && authStore.user) {
-    const { useFeatureFlagsStore } = await import('@/stores/featureFlags');
+    const { useFeatureFlagsStore } = await import('@nosdesk/core/stores/featureFlags');
     const flagsStore = useFeatureFlagsStore();
     if (!flagsStore.loaded && !flagsStore.loading) {
       void flagsStore.load();
     }
 
-    const { useWorkflowStatesStore } = await import('@/stores/workflowStates');
+    const { useWorkflowStatesStore } = await import('@nosdesk/core/stores/workflowStates');
     const wfStore = useWorkflowStatesStore();
     if (!wfStore.loaded && !wfStore.loading) {
       void wfStore.load();

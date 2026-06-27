@@ -59,7 +59,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import { useFluent } from 'fluent-vue';
-import authService from '@/services/authService';
+import authService from '@nosdesk/core/services/authService';
 import { extractErrorMessage } from '@/utils/errors';
 import Modal from '@/components/Modal.vue';
 import Button from '@/components/common/Button.vue';

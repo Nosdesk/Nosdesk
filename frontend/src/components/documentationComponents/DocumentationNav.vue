@@ -2,10 +2,10 @@
 import { ref, watch, watchEffect, onMounted, onUnmounted, reactive, computed, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
-import documentationService, { getStarredPages, createArticle } from '@/services/documentationService'
+import documentationService, { getStarredPages, createArticle } from '@nosdesk/core/services/documentationService'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
 import { useAuthStore } from '@/stores/auth'
-import type { Page } from '@/services/documentationService'
+import type { Page } from '@nosdesk/core/services/documentationService'
 import DocumentationNavItem from './DocumentationNavItem.vue'
 import NavRowActions from './NavRowActions.vue'
 import CollectionModal from './CollectionModal.vue'
@@ -19,21 +19,21 @@ import ContextMenu from '@/components/common/ContextMenu.vue'
 import type { MenuItem } from '@/components/common/ContextMenu.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import { storeToRefs } from 'pinia'
-import { updateCollection, deleteCollection } from '@/services/collectionService'
-import type { CollectionWithDetails } from '@/services/collectionService'
+import { updateCollection, deleteCollection } from '@nosdesk/core/services/collectionService'
+import type { CollectionWithDetails } from '@nosdesk/core/services/collectionService'
 import { findInTree } from '@/utils/treeUtils'
-import { docUrl } from '@/utils/docUrl'
+import { docUrl } from '@nosdesk/core/utils/docUrl'
 import { subscribe } from '@/sync/lifecycle'
 import { useDelayedFlag } from '@/composables/useDelayedFlag'
 import { useClipboard } from '@/composables/useClipboard'
-import { docsEmitter } from '@/services/docsEmitter'
+import { docsEmitter } from '@nosdesk/core/services/docsEmitter'
 import type { NavPage } from '@/stores/documentationNav'
 import {
   useSyncDocsStore,
   buildPageTree,
   isActivePage,
   type DocCollectionRow,
-} from '@/sync/stores/documentation'
+} from '@nosdesk/core/sync/stores/documentation'
 import { nodeToPage } from '@/composables/useDocPages'
 
 const route = useRoute()

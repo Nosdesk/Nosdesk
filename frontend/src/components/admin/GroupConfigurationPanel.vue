@@ -2,7 +2,7 @@
 import { ref, onMounted, computed, watch } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { extractErrorMessage } from '@/utils/errors';
-import { formatDate } from '@/utils/dateUtils';
+import { formatDate } from '@nosdesk/core/utils/dateUtils';
 import SectionCard from '@/components/common/SectionCard.vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import Checkbox from '@/components/common/Checkbox.vue';
@@ -13,13 +13,13 @@ import UserAvatar from '@/components/UserAvatar.vue';
 import DeviceOsIcon from '@/components/common/AssetOsIcon.vue';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
-import { groupService } from '@/services/groupService';
+import { groupService } from '@nosdesk/core/services/groupService';
 import { getPaginatedAssets } from '@/services/assetService';
 import userService from '@/services/userService';
 import { useColorFilter } from '@/composables/useColorFilter';
-import type { GroupDetails, GroupWithMemberCount, UpdateGroupRequest } from '@/types/group';
-import type { User } from '@/types/user';
-import type { Asset } from '@/types/asset';
+import type { GroupDetails, GroupWithMemberCount, UpdateGroupRequest } from '@nosdesk/core/types/group';
+import type { User } from '@nosdesk/core/types/user';
+import type { Asset } from '@nosdesk/core/types/asset';
 
 const props = defineProps<{
   groupUuid: string;

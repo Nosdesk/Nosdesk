@@ -1,11 +1,11 @@
 import axios from 'axios';
-import apiClient from './apiConfig';
-import { logger } from '@/utils/logger';
-import { RequestManager } from '@/utils/requestManager';
-import type { PaginationParams, PaginatedResponse } from '@/types/pagination';
-import type { User, UserRole, UserSecurityInfo } from '@/types/user';
-import type { Asset } from '@/types/asset';
-import type { Group } from '@/types/group';
+import apiClient from '@nosdesk/core/apiClient';
+import { logger } from '@nosdesk/core/utils/logger';
+import { RequestManager } from '@nosdesk/core/utils/requestManager';
+import type { PaginationParams, PaginatedResponse } from '@nosdesk/core/types/pagination';
+import type { User, UserRole, UserSecurityInfo } from '@nosdesk/core/types/user';
+import type { Asset } from '@nosdesk/core/types/asset';
+import type { Group } from '@nosdesk/core/types/group';
 import { extractErrorMessage } from '@/utils/errors';
 
 // Re-export for backwards compatibility
@@ -22,7 +22,7 @@ export interface UserPaginationParams extends PaginationParams {
 }
 
 // Re-export for backwards compatibility
-export type { PaginatedResponse } from '@/types/pagination';
+export type { PaginatedResponse } from '@nosdesk/core/types/pagination';
 
 // User Email interface matching the backend model
 export interface UserEmail {

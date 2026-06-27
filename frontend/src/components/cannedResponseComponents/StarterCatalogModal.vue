@@ -19,7 +19,7 @@ import Skeleton from '@/components/common/Skeleton.vue';
 import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import cannedResponsesService, {
   type CannedResponseStarter,
-} from '@/services/cannedResponsesService';
+} from '@nosdesk/core/services/cannedResponsesService';
 
 const { $t } = useFluent();
 

@@ -13,11 +13,11 @@ import Modal from '@/components/Modal.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 import UserSelectionModal from '@/components/UserSelectionModal.vue';
 import TicketPickerModal from '@/components/ticketComponents/TicketPickerModal.vue';
-import { assetLoanKeys, assetLoanService } from '@/services/assetLoanService';
+import { assetLoanKeys, assetLoanService } from '@nosdesk/core/services/assetLoanService';
 import { useSyncActions } from '@/composables/useSyncActions';
 import { useUsersDirectory } from '@/composables/useUsersDirectory';
-import { formatCompactDate, formatRelativeTime } from '@/utils/dateUtils';
-import type { AssetLoan } from '@/types/asset';
+import { formatCompactDate, formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
+import type { AssetLoan } from '@nosdesk/core/types/asset';
 
 const props = defineProps<{
   assetId: number;

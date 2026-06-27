@@ -23,12 +23,12 @@ import { computed, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
 import Popover from '@/components/common/Popover.vue'
-import { formatDate, formatRelativeTime } from '@/utils/dateUtils'
+import { formatDate, formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
 import {
   useVerifyPageMutation,
   useUnverifyPageMutation,
 } from '@/composables/usePageVerification'
-import type { Page, Article } from '@/services/documentationService'
+import type { Page, Article } from '@nosdesk/core/services/documentationService'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)

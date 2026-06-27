@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useFluent } from 'fluent-vue'
-import { getPageVisibility, setPageVisibility } from '@/services/documentationService'
-import { getCollectionsForPage } from '@/services/collectionService'
-import type { Collection } from '@/services/collectionService'
+import { getPageVisibility, setPageVisibility } from '@nosdesk/core/services/documentationService'
+import { getCollectionsForPage } from '@nosdesk/core/services/collectionService'
+import type { Collection } from '@nosdesk/core/services/collectionService'
 import AssignmentPicker from '@/components/common/AssignmentPicker.vue'
 import type { SelectedPrincipal } from '@/components/common/AssignmentPicker.vue'
 import Modal from '@/components/Modal.vue'

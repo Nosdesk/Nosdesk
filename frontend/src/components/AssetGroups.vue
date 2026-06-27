@@ -3,7 +3,7 @@ import { useFluent } from 'fluent-vue'
 import type { FluentVariable } from '@fluent/bundle'
 import SectionCard from '@/components/common/SectionCard.vue'
 import { useColorFilter } from '@/composables/useColorFilter'
-import type { AssetGroup } from '@/types/asset'
+import type { AssetGroup } from '@nosdesk/core/types/asset'
 
 defineProps<{
   groups: AssetGroup[] | undefined

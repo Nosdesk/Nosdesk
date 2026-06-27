@@ -20,11 +20,11 @@ import AlertMessage from '@/components/common/AlertMessage.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import Spinner from '@/components/common/Spinner.vue';
-import { formatDateTime as formatDateTimeTz } from '@/utils/dateUtils';
+import { formatDateTime as formatDateTimeTz } from '@nosdesk/core/utils/dateUtils';
 import {
   emailSuppressionsService,
   type EmailSuppression,
-} from '@/services/emailSuppressionsService';
+} from '@nosdesk/core/services/emailSuppressionsService';
 
 // `embedded`: render as part of the Activity tab inside the Email delivery page.
 const props = withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false });

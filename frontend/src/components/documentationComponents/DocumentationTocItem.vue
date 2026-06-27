@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useFluent } from "fluent-vue";
-import type { Page } from "@/services/documentationService";
+import type { Page } from "@nosdesk/core/services/documentationService";
 
 const fluent = useFluent();
 

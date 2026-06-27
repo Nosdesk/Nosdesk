@@ -15,7 +15,7 @@
  * restore flow in one place while letting each context choose
  * its own layout.
  */
-import { formatDate, parseDate } from '@/utils/dateUtils';
+import { formatDate, parseDate } from '@nosdesk/core/utils/dateUtils';
 import { ref, onMounted, watch, computed } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useVersionHistory } from '@/composables/useVersionHistory'
@@ -25,7 +25,7 @@ import Spinner from '@/components/common/Spinner.vue'
 import Icon from '@/components/common/Icon.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import { useUsersDirectory } from '@/composables/useUsersDirectory'
-import apiClient from '@/services/apiConfig'
+import apiClient from '@nosdesk/core/apiClient'
 
 interface DocumentationRevisionResponse {
   id: number;

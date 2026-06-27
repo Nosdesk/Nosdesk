@@ -7,9 +7,9 @@
  */
 import { computed, provide } from 'vue';
 import { slotRegistrations } from '../loader';
-import type { PluginSlot as SlotType } from '@/types/plugin';
-import type { Ticket } from '@/types/ticket';
-import type { Asset } from '@/types/asset';
+import type { PluginSlot as SlotType } from '@nosdesk/core/types/plugin';
+import type { Ticket } from '@nosdesk/core/types/ticket';
+import type { Asset } from '@nosdesk/core/types/asset';
 import PluginSlotItem from './PluginSlotItem.vue';
 
 const props = defineProps<{

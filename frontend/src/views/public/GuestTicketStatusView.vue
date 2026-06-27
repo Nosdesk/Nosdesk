@@ -97,9 +97,9 @@ import PublicLayout from './PublicLayout.vue';
 import SkeletonBlock from './SkeletonBlock.vue';
 import FeatureDisabledNotice from './FeatureDisabledNotice.vue';
 import Icon from '@/components/common/Icon.vue';
-import { usePublicSettingsStore } from '@/stores/publicSettings';
-import { publicService, type GuestTicketStatus } from '@/services/publicService';
-import { coarseStatusBucket } from '@/types/workflow';
+import { usePublicSettingsStore } from '@nosdesk/core/stores/publicSettings';
+import { publicService, type GuestTicketStatus } from '@nosdesk/core/services/publicService';
+import { coarseStatusBucket } from '@nosdesk/core/types/workflow';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);

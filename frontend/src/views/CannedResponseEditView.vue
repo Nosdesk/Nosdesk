@@ -26,9 +26,9 @@ import SamplePreview from '@/components/cannedResponseComponents/SamplePreview.v
 import cannedResponsesService, {
   findUnknownVariables,
   type CannedResponseListItem,
-} from '@/services/cannedResponsesService';
+} from '@nosdesk/core/services/cannedResponsesService';
 import { extractErrorMessage } from '@/utils/errors';
-import { useToastStore } from '@/stores/toast';
+import { useToastStore } from '@nosdesk/core/stores/toast';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);

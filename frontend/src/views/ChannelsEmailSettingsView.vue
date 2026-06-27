@@ -345,12 +345,12 @@ import {
   type Channel,
   type ImapChannelConfig,
   type ImapRuntimeState
-} from '@/services/channelsService';
-import brandingService, { type BrandingConfig } from '@/services/brandingService';
-import apiClient from '@/services/apiConfig';
-import { useToastStore } from '@/stores/toast';
+} from '@nosdesk/core/services/channelsService';
+import brandingService, { type BrandingConfig } from '@nosdesk/core/services/brandingService';
+import apiClient from '@nosdesk/core/apiClient';
+import { useToastStore } from '@nosdesk/core/stores/toast';
 import { createErrorFromResponse } from '@/utils/errors';
-import { formatRelativeTime } from '@/utils/dateUtils';
+import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
 import FormTextarea from '@/components/common/FormTextarea.vue';
 
 const fluent = useFluent();

@@ -30,9 +30,9 @@
  * within a single SSE round-trip, no manual cache coordination.
  */
 import { computed, type ComputedRef } from 'vue'
-import * as pool from '@/sync/pool'
-import { useReference } from '@/sync/composables'
-import type { User } from '@/types/user'
+import * as pool from '@nosdesk/core/sync/pool'
+import { useReference } from '@nosdesk/core/sync/composables'
+import type { User } from '@nosdesk/core/types/user'
 
 export type UserStatus = 'loading' | 'resolved' | 'missing'
 

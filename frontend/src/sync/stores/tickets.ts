@@ -11,13 +11,13 @@
  */
 import { defineStore } from 'pinia'
 import { computed, toValue, type ComputedRef, type MaybeRefOrGetter } from 'vue'
-import { useEntity, useAggregate } from '@/sync/composables'
+import { useEntity, useAggregate } from '@nosdesk/core/sync/composables'
 import { dispatchOptimistic } from '@/sync/queue'
-import * as pool from '@/sync/pool'
-import ticketService from '@/services/ticketService'
-import { logger } from '@/utils/logger'
-import type { Ticket } from '@/types/ticket'
-import type { CardWorkflowState, Priority } from '@/sync/views/types'
+import * as pool from '@nosdesk/core/sync/pool'
+import ticketService from '@nosdesk/core/services/ticketService'
+import { logger } from '@nosdesk/core/utils/logger'
+import type { Ticket } from '@nosdesk/core/types/ticket'
+import type { CardWorkflowState, Priority } from '@nosdesk/core/sync/views/types'
 
 /**
  * Ticket row as it lands in the pool. Bootstrap denormalises
@@ -64,7 +64,7 @@ export interface SyncTicket {
   /** SLA pill payload from the backend SLA engine. Top-level fields
    *  reflect the most-urgent active timer (primary); nested `response`
    *  + `resolution` carry both timers for the preview-pane stack. */
-  sla?: import('@/types/sla').SlaPill | null
+  sla?: import('@nosdesk/core/types/sla').SlaPill | null
   /** RFC 5545 RRULE string. Closing a ticket with a rule spawns
    * the next occurrence (services/recurrence on the backend). */
   recurrence_rule?: string | null

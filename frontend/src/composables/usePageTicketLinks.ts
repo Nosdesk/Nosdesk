@@ -20,7 +20,7 @@ import { useQuery, useMutation, useQueryCache } from '@pinia/colada'
 import documentationService, {
   type PageTicketLink,
   type TicketDocLink,
-} from '@/services/documentationService'
+} from '@nosdesk/core/services/documentationService'
 
 export const pageTicketLinkKeys = {
   root: ['page-ticket-links'] as const,

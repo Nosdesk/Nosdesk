@@ -3,7 +3,7 @@ import { EditorView } from 'prosemirror-view'
 import type { NodeView } from 'prosemirror-view'
 import { Node as ProseMirrorNode } from 'prosemirror-model'
 import { InputRule } from 'prosemirror-inputrules'
-import { getTicketById } from '@/services/ticketService'
+import { getTicketById } from '@nosdesk/core/services/ticketService'
 import { translate } from '@/i18n'
 import { shareableRouteUrl } from '@/utils/shareUrl'
 import {

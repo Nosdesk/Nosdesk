@@ -1,5 +1,5 @@
-import type { CollectionPage, CollectionPageTreeNode } from '@/services/collectionService'
-import type { Page } from '@/services/documentationService'
+import type { CollectionPage, CollectionPageTreeNode } from '@nosdesk/core/services/collectionService'
+import type { Page } from '@nosdesk/core/services/documentationService'
 
 /**
  * Generic recursive tree search by ID.

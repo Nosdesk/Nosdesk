@@ -26,7 +26,7 @@
  *   })
  */
 import { translate } from '@/i18n'
-import { useToastStore } from '@/stores/toast'
+import { useToastStore } from '@nosdesk/core/stores/toast'
 
 export interface OptimisticBulkActionOptions {
   /** Already-localised success toast title (e.g. "12 tickets archived").

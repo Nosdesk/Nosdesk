@@ -13,8 +13,8 @@ import Modal from '@/components/Modal.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import DebouncedSearchInput from '@/components/common/DebouncedSearchInput.vue'
 import { useSyncTicketsStore, type SyncTicket } from '@/sync/stores/tickets'
-import { paletteForColor } from '@/utils/workflowColors'
-import { formatRelativeTime } from '@/utils/dateUtils'
+import { paletteForColor } from '@nosdesk/core/utils/workflowColors'
+import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
 
 const { $t } = useFluent()
 

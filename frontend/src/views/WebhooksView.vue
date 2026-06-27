@@ -10,7 +10,7 @@ import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import Icon from '@/components/common/Icon.vue';
 import Modal from '@/components/Modal.vue';
-import webhookService from '@/services/webhookService';
+import webhookService from '@nosdesk/core/services/webhookService';
 import { formatDistanceToNow } from 'date-fns';
 import type {
   Webhook,
@@ -18,8 +18,8 @@ import type {
   CreateWebhookRequest,
   UpdateWebhookRequest,
   WebhookDelivery,
-} from '@/types/webhook';
-import { WEBHOOK_EVENT_CATEGORIES } from '@/types/webhook';
+} from '@nosdesk/core/types/webhook';
+import { WEBHOOK_EVENT_CATEGORIES } from '@nosdesk/core/types/webhook';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);

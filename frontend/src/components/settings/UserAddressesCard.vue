@@ -19,7 +19,7 @@ import {
   deleteUserAddress,
   type UserAddress,
   type UserAddressInput,
-} from '@/services/userContactService';
+} from '@nosdesk/core/services/userContactService';
 
 const props = defineProps<{ uuid: string; editable: boolean }>();
 

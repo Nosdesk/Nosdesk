@@ -8,7 +8,7 @@
  */
 import { computed } from 'vue'
 import { useFluent } from 'fluent-vue'
-import { formatDate, formatRelativeTime } from '@/utils/dateUtils'
+import { formatDate, formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
 import { cycleHealth, cycleHealthPresentation } from '@/utils/cycleHealth'
 import Icon from '@/components/common/Icon.vue'
 import type { ActiveCycleSummary } from '@/composables/useActiveCycleSummaries'

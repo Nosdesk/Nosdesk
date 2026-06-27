@@ -2,7 +2,7 @@
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { useSpeechRecognition } from '@/composables/useSpeechRecognition';
-import { useToastStore } from '@/stores/toast';
+import { useToastStore } from '@nosdesk/core/stores/toast';
 import Icon from '@/components/common/Icon.vue';
 
 const toast = useToastStore();

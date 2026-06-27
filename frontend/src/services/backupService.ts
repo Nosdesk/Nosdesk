@@ -1,11 +1,11 @@
-import apiClient from './apiConfig';
+import apiClient from '@nosdesk/core/apiClient';
 import type {
   BackupJob,
   StartBackupExportRequest,
   ExecuteRestoreRequest,
   RestorePreview,
   RestoreResult,
-} from '@/types/backup';
+} from '@nosdesk/core/types/backup';
 
 export const backupService = {
   /**

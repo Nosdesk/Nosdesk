@@ -4,7 +4,7 @@ import type { NodeView } from 'prosemirror-view'
 import { Node as ProseMirrorNode, DOMSerializer } from 'prosemirror-model'
 import { schema } from './schema'
 import { sanitiseHtml } from '@/composables/useSanitise'
-import apiClient from '@/services/apiConfig'
+import apiClient from '@nosdesk/core/apiClient'
 import { translate } from '@/i18n'
 import * as Y from 'yjs'
 

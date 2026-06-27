@@ -11,7 +11,7 @@ import FormInput from "@/components/common/FormInput.vue";
 import FormTextarea from "@/components/common/FormTextarea.vue";
 import userService from "@/services/userService";
 import uploadService from "@/services/uploadService";
-import { effectiveRole, type User } from "@/types/user";
+import { effectiveRole, type User } from "@nosdesk/core/types/user";
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);

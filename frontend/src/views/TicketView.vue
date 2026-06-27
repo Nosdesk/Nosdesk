@@ -4,15 +4,15 @@ import { computed, onMounted, onUnmounted, watch, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useFluent } from "fluent-vue";
 import { useAuthStore } from "@/stores/auth";
-import { PRIORITY_OPTIONS } from "@/constants/ticketOptions";
-import { categoryService } from "@/services/categoryService";
-import type { TicketCategory } from "@/types/category";
-import type { Ticket } from "@/types/ticket";
+import { PRIORITY_OPTIONS } from "@nosdesk/core/constants/ticketOptions";
+import { categoryService } from "@nosdesk/core/services/categoryService";
+import type { TicketCategory } from "@nosdesk/core/types/category";
+import type { Ticket } from "@nosdesk/core/types/ticket";
 
 // Composables
 import { useTicketDetail } from "@/sync/stores/ticketDetail";
 import { subscribe } from "@/sync/lifecycle";
-import { useTicketUiStore } from "@/stores/ticketUi";
+import { useTicketUiStore } from "@nosdesk/core/stores/ticketUi";
 import { useTicketSSE } from "@/composables/useTicketSSE";
 import { useTitleManager } from "@/composables/useTitleManager";
 import { useTicketDrag, shouldSuppressTicketDrop } from "@/composables/useTicketDrag";
@@ -32,8 +32,8 @@ import TicketPickerModal from "@/components/ticketComponents/TicketPickerModal.v
 import ProjectSelectionModal from "@/components/ticketComponents/ProjectSelectionModal.vue";
 import TicketGapFlag from "@/components/ticketComponents/TicketGapFlag.vue";
 import TicketLoansCard from "@/components/ticketComponents/TicketLoansCard.vue";
-import documentationService from "@/services/documentationService";
-import { docUrl } from "@/utils/docUrl";
+import documentationService from "@nosdesk/core/services/documentationService";
+import { docUrl } from "@nosdesk/core/utils/docUrl";
 import { pageTicketLinkKeys } from "@/composables/usePageTicketLinks";
 import { useFlagTicketMutation } from "@/composables/useKnowledgeGaps";
 import { useQueryCache } from "@pinia/colada";

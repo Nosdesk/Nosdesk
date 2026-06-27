@@ -120,36 +120,36 @@ RUN NOSDESK_ROOT_PUBKEY="$NOSDESK_ROOT_PUBKEY" \
       cargo build --profile "$CARGO_PROFILE" --bin backend --bin nosdesk-cli; \
     fi'
 
-# Stage 4: Build frontend
+# Stage 4: Build frontend (pnpm workspace)
 FROM node:24-bookworm-slim AS frontend-builder
+RUN corepack enable
 
-WORKDIR /frontend
+WORKDIR /repo
 
-# Copy frontend package files
-COPY frontend/package*.json ./
+# Workspace manifests + lockfile first, for a cached dependency layer.
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
+COPY frontend/package.json ./frontend/
+RUN pnpm install --frozen-lockfile --filter nosdesk-frontend...
 
-# Install ALL dependencies (including dev dependencies for build)
-RUN npm ci
-
-# Copy frontend source
-COPY frontend .
+# Frontend source.
+COPY frontend ./frontend
 # Shared Fluent catalogues. Vite's `import.meta.glob` in
-# src/i18n/index.ts resolves `../../../i18n/locales/...` to `/i18n`
-# from inside `/frontend/src/i18n/`, so mirror the workspace
-# layout there.
-COPY i18n /i18n
+# src/i18n/index.ts resolves `../../../i18n/locales/...` three levels up
+# from /repo/frontend/src/i18n/, which lands at /repo, so the catalogues
+# live at /repo/i18n.
+COPY i18n ./i18n
 
 # Build_sha stamped into the bundle so bug reports can identify
 # which deployment a client was running. Passed in by the operator's
 # build pipeline via `--build-arg VITE_BUILD_SHA=$(git rev-parse --short HEAD)`.
 # Defaults to "unknown" if unset so the build never fails on a
-# missing arg. Placed after `npm ci` and the source COPY so
-# changing the SHA does not invalidate the dependency layer cache.
+# missing arg. Placed after the install + source COPY so changing the
+# SHA does not invalidate the dependency layer cache.
 ARG VITE_BUILD_SHA=unknown
 ENV VITE_BUILD_SHA=$VITE_BUILD_SHA
 
-# Build frontend for production (skip type checking for faster builds)
-RUN npm run build-only
+# Build frontend for production (type-checking handled in CI).
+RUN pnpm --filter nosdesk-frontend run build-only
 
 # Stage 5: Runtime image
 FROM debian:bookworm-slim AS runtime
@@ -209,7 +209,7 @@ COPY --from=builder /app/migrations ./migrations
 COPY backend/seeds ./seeds
 
 # Copy built frontend assets
-COPY --from=frontend-builder /frontend/dist ./public
+COPY --from=frontend-builder /repo/frontend/dist ./public
 
 # Create upload directories with proper permissions. /app/state holds
 # operator state that must never sit under the user-content upload tree

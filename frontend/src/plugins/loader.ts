@@ -6,12 +6,12 @@
  */
 
 import { ref, shallowRef, reactive, type ShallowRef } from 'vue';
-import pluginService from '@/services/pluginService';
-import { logger } from '@/utils/logger';
+import pluginService from '@nosdesk/core/services/pluginService';
+import { logger } from '@nosdesk/core/utils/logger';
 import { translate } from '@/i18n';
 import { preloadPluginBundle } from './componentLoader';
-import type { Plugin, PluginSlot, PluginManifest } from '@/types/plugin';
-import { PLUGIN_SLOTS } from '@/types/plugin';
+import type { Plugin, PluginSlot, PluginManifest } from '@nosdesk/core/types/plugin';
+import { PLUGIN_SLOTS } from '@nosdesk/core/types/plugin';
 
 // =============================================================================
 // Types

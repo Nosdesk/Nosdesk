@@ -13,8 +13,8 @@ import { computed } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { useQuery } from '@pinia/colada';
 
-import { inboundDeadLettersService, type DeadLetterRow } from '@/services/inboundDeadLettersService';
-import { formatDateTime } from '@/utils/dateUtils';
+import { inboundDeadLettersService, type DeadLetterRow } from '@nosdesk/core/services/inboundDeadLettersService';
+import { formatDateTime } from '@nosdesk/core/utils/dateUtils';
 import EmptyState from '@/components/common/EmptyState.vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
 

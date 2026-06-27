@@ -12,7 +12,7 @@
  *     docs/plans/collab-stale-cache-fence.md.
  */
 import { clearDocument as clearIdbDocument } from 'y-indexeddb'
-import { logger } from '@/utils/logger'
+import { logger } from '@nosdesk/core/utils/logger'
 
 /**
  * localStorage key holding `{ docId: lastTouchedMs }` for every collab

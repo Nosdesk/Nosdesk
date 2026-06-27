@@ -18,7 +18,7 @@
  */
 import { computed, type ComputedRef, type MaybeRefOrGetter, toValue } from 'vue'
 import { useMyWorkspacesStore } from '@/stores/myWorkspaces'
-import { buildCollabDocId, type CollabDocKind } from '@/utils/collabDocId'
+import { buildCollabDocId, type CollabDocKind } from '@nosdesk/core/utils/collabDocId'
 
 export function useCollabDocId(
   kind: CollabDocKind,

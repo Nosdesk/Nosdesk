@@ -40,8 +40,8 @@ import {
   markAllNotificationsRead,
   markNotificationsRead,
   type Notification,
-} from '@/services/notificationService'
-import { onSyncActions } from '@/sync/observers'
+} from '@nosdesk/core/services/notificationService'
+import { onSyncActions } from '@nosdesk/core/sync/observers'
 
 const PAGE_SIZE = 20
 

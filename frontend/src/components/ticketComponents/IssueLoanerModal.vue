@@ -10,10 +10,10 @@ import Icon from '@/components/common/Icon.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
 import UserSelectionModal from '@/components/UserSelectionModal.vue';
 import { getPaginatedAssets, type AssetPaginationParams } from '@/services/assetService';
-import { assetLoanService } from '@/services/assetLoanService';
+import { assetLoanService } from '@nosdesk/core/services/assetLoanService';
 import { useUsersDirectory } from '@/composables/useUsersDirectory';
 import { metaForAssetStatus } from '@/utils/assetStatusMeta';
-import type { Asset } from '@/types/asset';
+import type { Asset } from '@nosdesk/core/types/asset';
 
 const props = defineProps<{
   show: boolean;

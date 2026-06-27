@@ -55,14 +55,14 @@ import {
   type FilterOption,
 } from '@/components/views/filterFacets'
 import { useUsersDirectory } from '@/composables/useUsersDirectory'
-import type { ColumnId, ListColumn } from '@/sync/views/ticketColumns'
+import type { ColumnId, ListColumn } from '@nosdesk/core/sync/views/ticketColumns'
 import type { Density } from '@/composables/useTicketsDensity'
 import type { GroupBy } from '@/composables/useTicketsGrouping'
 import type {
   FilterFacet,
   SlaFilter,
 } from '@/composables/useTicketsFilters'
-import type { CardData, Priority } from '@/sync/views/types'
+import type { CardData, Priority } from '@nosdesk/core/sync/views/types'
 
 const props = defineProps<{
   /** PRIMARY built-in views (My Open / My Active / All Active /

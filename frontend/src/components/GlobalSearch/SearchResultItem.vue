@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useFluent } from 'fluent-vue';
-import type { SearchResult, SearchEntityType } from '@/types/search';
-import { ENTITY_TYPE_CONFIG } from '@/types/search';
+import type { SearchResult, SearchEntityType } from '@nosdesk/core/types/search';
+import { ENTITY_TYPE_CONFIG } from '@nosdesk/core/types/search';
 import Icon from '@/components/common/Icon.vue';
+import type { IconName } from '@/components/common/icons';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -17,7 +18,12 @@ const emit = defineEmits<{
   select: [result: SearchResult];
 }>();
 
-const iconName = computed(() => ENTITY_TYPE_CONFIG[props.result.entity_type]?.icon ?? 'search');
+// ENTITY_TYPE_CONFIG (headless core) types `icon` as a plain string; assert it
+// back to the frontend's IconName union for <Icon> (the names are valid by
+// construction in the config).
+const iconName = computed<IconName>(
+  () => (ENTITY_TYPE_CONFIG[props.result.entity_type]?.icon ?? 'search') as IconName,
+);
 
 // Per-type colour for the leading icon. The selected row's full-row
 // accent background is enough on its own — no ring on the icon, no

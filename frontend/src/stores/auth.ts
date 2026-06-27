@@ -1,13 +1,14 @@
 import { defineStore } from 'pinia';
-import { logger } from '@/utils/logger';
+import { logger } from '@nosdesk/core/utils/logger';
 import { ref, computed } from 'vue';
 import axios from 'axios';
-import apiClient, { setLoggingOut } from '@/services/apiConfig';
-import authService from '@/services/authService';
+import apiClient from '@nosdesk/core/apiClient';
+import { setLoggingOut } from '@/services/apiConfig';
+import authService from '@nosdesk/core/services/authService';
 import router from '@/router';
-import type { User, LoginCredentials } from '@/types';
+import type { User, LoginCredentials } from '@nosdesk/core/types';
 import { useThemeStore } from './theme';
-import { useDateStore } from './dateStore';
+import { useDateStore } from '@nosdesk/core/stores/dateStore';
 import { translate } from '@/i18n';
 import { extractErrorMessage } from '@/utils/errors';
 

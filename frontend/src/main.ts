@@ -1,4 +1,7 @@
 import './assets/main.css'
+import './utils/loggerSetup' // Configure the @nosdesk/core logger (web)
+import './utils/storageSetup' // Configure the @nosdesk/core storage seam (web)
+import './services/transport' // Configure the @nosdesk/core transport seam (web)
 import './services/apiConfig' // Import axios configuration
 
 // Initialise remote logging for debugging (can be disabled via localStorage)
@@ -55,7 +58,7 @@ useThemeStore(pinia)
 // Fetch instance config (routing topology) in parallel with the initial route
 // resolution so its value is settled before first paint. The fetch defaults to
 // 'host' and never rejects, so it can't block or break the mount.
-import { fetchInstanceConfig } from './services/instanceConfig'
+import { fetchInstanceConfig } from '@nosdesk/core/services/instanceConfig'
 
 Promise.all([fetchInstanceConfig(), router.isReady()]).then(() => {
   app.mount('#app')

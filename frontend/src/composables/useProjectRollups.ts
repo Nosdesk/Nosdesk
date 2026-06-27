@@ -11,9 +11,9 @@
  * materialised yet); bucket + assignee data come from resolved tickets.
  */
 import { computed, type ComputedRef } from 'vue'
-import { useAggregate } from '@/sync/composables'
+import { useAggregate } from '@nosdesk/core/sync/composables'
 import type { SyncTicket } from '@/sync/stores/tickets'
-import { coarseStatusBucket } from '@/types/workflow'
+import { coarseStatusBucket } from '@nosdesk/core/types/workflow'
 import type { ProjectTicketAssoc } from '@/composables/useProjectTickets'
 
 export interface ProjectRollup {

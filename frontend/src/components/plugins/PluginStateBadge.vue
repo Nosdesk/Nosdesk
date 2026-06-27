@@ -7,7 +7,7 @@
  */
 import { computed } from 'vue';
 import { useFluent } from 'fluent-vue';
-import type { PluginState } from '@/types/plugin';
+import type { PluginState } from '@nosdesk/core/types/plugin';
 
 interface Props {
   state: PluginState;

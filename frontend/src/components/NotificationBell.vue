@@ -22,7 +22,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
-import type { Notification } from '@/services/notificationService'
+import type { Notification } from '@nosdesk/core/services/notificationService'
 import { useNotificationsStore } from '@/stores/notifications'
 import {
   applyNotificationFilter,
@@ -31,7 +31,7 @@ import {
   useNotificationFilterTabs,
   type NotificationFilter,
 } from '@/composables/useNotificationFeed'
-import { formatInboxTime, parseDate } from '@/utils/dateUtils'
+import { formatInboxTime, parseDate } from '@nosdesk/core/utils/dateUtils'
 import { useFluent } from 'fluent-vue'
 import ResponsiveMenu from './common/ResponsiveMenu.vue'
 import Icon from './common/Icon.vue'

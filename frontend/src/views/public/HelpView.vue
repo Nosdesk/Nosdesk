@@ -46,7 +46,7 @@ import { RouterLink } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import PublicLayout from './PublicLayout.vue';
 import FeatureDisabledNotice from './FeatureDisabledNotice.vue';
-import { usePublicSettingsStore } from '@/stores/publicSettings';
+import { usePublicSettingsStore } from '@nosdesk/core/stores/publicSettings';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);

@@ -16,7 +16,7 @@
 import { computed, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useAuthStore } from '@/stores/auth'
-import { useDateStore } from '@/stores/dateStore'
+import { useDateStore } from '@nosdesk/core/stores/dateStore'
 import { SUPPORTED_LOCALES } from '@/i18n'
 import userService from '@/services/userService'
 import SectionCard from '@/components/common/SectionCard.vue'

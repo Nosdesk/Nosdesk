@@ -2,7 +2,7 @@
 import { computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
-import { useToastStore, type Toast } from '@/stores/toast';
+import { useToastStore, type Toast } from '@nosdesk/core/stores/toast';
 import Icon from '@/components/common/Icon.vue';
 
 const fluent = useFluent();

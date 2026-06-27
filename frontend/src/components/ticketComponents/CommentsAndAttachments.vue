@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { formatDate, formatDateTime } from '@/utils/dateUtils';
+import { formatDate, formatDateTime } from '@nosdesk/core/utils/dateUtils';
 import { computed, ref } from "vue";
 import { useFluent } from 'fluent-vue';
 import UserAvatar from "@/components/UserAvatar.vue";
@@ -13,12 +13,12 @@ import { sanitiseHtml } from "@/composables/useSanitise";
 import CannedResponsePicker from "@/components/ticketComponents/CannedResponsePicker.vue";
 import uploadService from "@/services/uploadService";
 import { convertToAuthenticatedPath } from '@/services/fileService';
-import { useTicketDraftsStore } from "@/stores/ticketDrafts";
-import { useTicketUiStore } from "@/stores/ticketUi";
+import { useTicketDraftsStore } from "@nosdesk/core/stores/ticketDrafts";
+import { useTicketUiStore } from "@nosdesk/core/stores/ticketUi";
 
 // Local re-export of the canonical types so this component can use
 // them without churn through every consumer.
-import type { CommentWithAttachments } from '@/types/comment';
+import type { CommentWithAttachments } from '@nosdesk/core/types/comment';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);

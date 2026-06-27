@@ -14,8 +14,8 @@ import {
   formatSmartDate,
   formatDateTime,
   formatTime
-} from '@/utils/dateUtils'
-import { useDateStore } from '@/stores/dateStore'
+} from '@nosdesk/core/utils/dateUtils'
+import { useDateStore } from '@nosdesk/core/stores/dateStore'
 
 export interface UseDateFormatOptions {
   /** Update relative time every N seconds */

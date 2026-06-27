@@ -14,7 +14,7 @@
  * making the user reason about pill colours.
  */
 import { computed, ref, type ComputedRef, type Ref } from 'vue'
-import type { CardData, Priority } from '@/sync/views/types'
+import type { CardData, Priority } from '@nosdesk/core/sync/views/types'
 
 export type SlaFilter = 'breached' | 'at-risk' | 'on-track' | 'paused' | 'none'
 

@@ -16,8 +16,8 @@ import Button from '@/components/common/Button.vue'
 import FormTextarea from '@/components/common/FormTextarea.vue'
 import FormInput from '@/components/common/FormInput.vue'
 import Checkbox from '@/components/common/Checkbox.vue'
-import { useToastStore } from '@/stores/toast'
-import { mergeTickets } from '@/services/ticketService'
+import { useToastStore } from '@nosdesk/core/stores/toast'
+import { mergeTickets } from '@nosdesk/core/services/ticketService'
 
 /** Minimal ticket shape the dialog needs. Both the API `Ticket` and the
  *  sync store's `SyncTicket` satisfy it, so the bulk bar can pass either.

@@ -10,7 +10,7 @@
  * Only active when the specified theme is applied (default: red-horizon).
  */
 import { ref, onMounted, onUnmounted } from 'vue'
-import { Z_INDEX } from '@/constants/zIndex'
+import { Z_INDEX } from '@nosdesk/core/constants/zIndex'
 
 interface CrtEffectOptions {
   theme?: string

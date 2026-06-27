@@ -4,7 +4,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import StatusIndicator from '@/components/common/StatusIndicator.vue'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
-import type { WorkflowStateCategory } from '@/types/workflow'
+import type { WorkflowStateCategory } from '@nosdesk/core/types/workflow'
 
 const props = defineProps<{
   ticket: {

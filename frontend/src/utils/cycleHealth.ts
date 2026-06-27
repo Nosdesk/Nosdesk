@@ -14,7 +14,7 @@
  * card already has, so callers don't need the daily series to get a
  * health read.
  */
-import { countWorkingDays, dayMsOf } from '@/utils/burnupModel'
+import { countWorkingDays, dayMsOf } from '@nosdesk/core/utils/burnupModel'
 import type { StatusPillTone } from '@/components/common/statusPillTone'
 
 export type CycleHealth =

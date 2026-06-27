@@ -11,19 +11,19 @@ import Icon from '@/components/common/Icon.vue'
 import Checkbox from '@/components/common/Checkbox.vue'
 import BaseDropdown from '@/components/common/BaseDropdown.vue'
 import Modal from '@/components/Modal.vue'
-import { assignmentRuleService } from '@/services/assignmentRuleService'
-import { groupService } from '@/services/groupService'
-import { categoryService } from '@/services/categoryService'
+import { assignmentRuleService } from '@nosdesk/core/services/assignmentRuleService'
+import { groupService } from '@nosdesk/core/services/groupService'
+import { categoryService } from '@nosdesk/core/services/categoryService'
 import userService from '@/services/userService'
 import type {
   AssignmentRuleWithDetails,
   CreateAssignmentRuleRequest,
   UpdateAssignmentRuleRequest,
   AssignmentMethod
-} from '@/types/assignmentRule'
-import type { GroupWithMemberCount } from '@/types/group'
-import type { TicketCategory } from '@/types/category'
-import type { User } from '@/types/user'
+} from '@nosdesk/core/types/assignmentRule'
+import type { GroupWithMemberCount } from '@nosdesk/core/types/group'
+import type { TicketCategory } from '@nosdesk/core/types/category'
+import type { User } from '@nosdesk/core/types/user'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)

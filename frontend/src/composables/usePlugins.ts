@@ -11,11 +11,11 @@
  * lives here.
  */
 import { ref, readonly } from 'vue';
-import pluginService from '@/services/pluginService';
+import pluginService from '@nosdesk/core/services/pluginService';
 import { unloadPlugin } from '@/plugins/loader';
-import { logger } from '@/utils/logger';
+import { logger } from '@nosdesk/core/utils/logger';
 import { translate } from '@/i18n';
-import type { Plugin } from '@/types/plugin';
+import type { Plugin } from '@nosdesk/core/types/plugin';
 
 export function usePlugins() {
   const plugins = ref<Plugin[]>([]);

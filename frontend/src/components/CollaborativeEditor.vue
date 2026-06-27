@@ -15,8 +15,8 @@ import * as Y from "yjs";
 import { PermanentUserData } from "yjs";
 import { WebsocketProvider } from "y-websocket";
 import { useCollabSessionStore, type ConnectionStatus } from "@/stores/collabSession";
-import { SafePermanentUserData } from "@/utils/safePermanentUserData";
-import { getCollabWsUrl } from "@/utils/collabWsUrl";
+import { SafePermanentUserData } from "@nosdesk/core/utils/safePermanentUserData";
+import { apiBaseUrl, collabWsBaseUrl } from "@nosdesk/core/transport";
 import { EditorView } from "prosemirror-view";
 import { EditorState, Selection, type Command } from "prosemirror-state";
 import { schema } from "@/components/editor/schema";
@@ -35,7 +35,7 @@ import {
 import { createTicketLinkPlugin, setTicketNavigationHandler } from "./editor/ticketLinkPlugin";
 import { createEmbeddedDocumentPlugin, setDocumentNavigationHandler } from "./editor/embeddedDocumentPlugin";
 import DocumentPicker from "./editor/DocumentPicker.vue";
-import apiClient from "@/services/apiConfig";
+import apiClient from "@nosdesk/core/apiClient";
 import {
     ySyncPlugin,
     yCursorPlugin,
@@ -578,10 +578,10 @@ const initEditor = async () => {
     try {
         log.info("Initializing collaborative editor with docId:", props.docId);
 
-        // Single source of truth for the WS URL is `getCollabWsUrl`
-        // so prewarm callers (RouterLink @mouseenter handlers) and
-        // this editor agree on what to connect to.
-        const baseWsUrl = getCollabWsUrl();
+        // Single source of truth for the WS URL is the transport seam's
+        // `collabWsBaseUrl` so prewarm callers (RouterLink @mouseenter
+        // handlers) and this editor agree on what to connect to.
+        const baseWsUrl = collabWsBaseUrl();
 
         const authStore = useAuthStore();
         if (!authStore.isAuthenticated) {
@@ -1597,18 +1597,9 @@ watch(
 const diagnoseConnectionIssue = () => {
     log.info("=== WebSocket Connection Diagnostics ===");
 
-    // Environment configuration - derive WebSocket URL from API URL
-    const apiUrl = import.meta.env.VITE_API_URL || '/api';
-    let baseWsUrl = import.meta.env.VITE_WS_SERVER_URL;
-
-    if (!baseWsUrl) {
-        if (apiUrl.startsWith('/')) {
-            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            baseWsUrl = `${wsProtocol}//${window.location.host}${apiUrl}/collaboration/ws`;
-        } else {
-            baseWsUrl = apiUrl.replace(/^http/, 'ws') + '/collaboration/ws';
-        }
-    }
+    // Environment configuration - resolved via the transport seam.
+    const apiUrl = apiBaseUrl();
+    const baseWsUrl = collabWsBaseUrl();
 
     log.info("Environment Configuration:", {
         nodeEnv: import.meta.env.NODE_ENV,

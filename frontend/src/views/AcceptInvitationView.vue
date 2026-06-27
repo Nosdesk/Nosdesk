@@ -229,7 +229,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRouter, useRoute, RouterLink } from 'vue-router';
 import { useFluent } from 'fluent-vue';
-import authService from '@/services/authService';
+import authService from '@nosdesk/core/services/authService';
 import { useAutoLogin } from '@/composables/useAutoLogin';
 import { usePasswordForm } from '@/composables/usePasswordForm';
 import { useBrandingStore } from '@/stores/branding';

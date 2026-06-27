@@ -15,7 +15,7 @@
 
 import { Schema, type Node as PMNode } from 'prosemirror-model';
 import { InputRule } from 'prosemirror-inputrules';
-import { CANNED_RESPONSE_VARIABLES } from '@/services/cannedResponsesService';
+import { CANNED_RESPONSE_VARIABLES } from '@nosdesk/core/services/cannedResponsesService';
 
 const ALLOWED: ReadonlyArray<string> = CANNED_RESPONSE_VARIABLES;
 

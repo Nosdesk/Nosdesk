@@ -17,26 +17,26 @@ import { useFluent } from 'fluent-vue'
 import { subscribe } from '@/sync/lifecycle'
 import { useSyncProjectsStore } from '@/sync/stores/projects'
 import { type SyncTicket } from '@/sync/stores/tickets'
-import { useCyclesStore } from '@/stores/cycles'
+import { useCyclesStore } from '@nosdesk/core/stores/cycles'
 import { useProjectTickets } from '@/composables/useProjectTickets'
 import {
   WORKFLOW_CATEGORIES,
   TERMINAL_CATEGORIES,
   getCategoryLabel,
   type WorkflowStateCategory,
-} from '@/types/workflow'
+} from '@nosdesk/core/types/workflow'
 import CycleBurndown from '@/components/cycles/CycleBurndown.vue'
 import CycleCard from '@/components/cycles/CycleCard.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import StatusPill from '@/components/common/StatusPill.vue'
 import type { StatusPillTone } from '@/components/common/statusPillTone'
-import type { Cycle } from '@/services/cyclesService'
+import type { Cycle } from '@nosdesk/core/services/cyclesService'
 import ProjectTabBar from '@/components/views/ProjectTabBar.vue'
 import ProjectViewHeader from '@/components/projectComponents/ProjectViewHeader.vue'
 import SectionCard from '@/components/common/SectionCard.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import DatePicker from '@/components/common/DatePicker.vue'
-import { formatDate } from '@/utils/dateUtils'
+import { formatDate } from '@nosdesk/core/utils/dateUtils'
 
 const props = defineProps<{ id: string }>()
 

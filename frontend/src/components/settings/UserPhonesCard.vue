@@ -19,7 +19,7 @@ import {
   deleteUserPhone,
   type UserPhone,
   type UserPhoneInput,
-} from '@/services/userContactService';
+} from '@nosdesk/core/services/userContactService';
 
 const props = defineProps<{ uuid: string; editable: boolean }>();
 

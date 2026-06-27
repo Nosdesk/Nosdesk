@@ -25,16 +25,16 @@ import Checkbox from '@/components/common/Checkbox.vue';
 import FormInput from '@/components/common/FormInput.vue';
 import FormTextarea from '@/components/common/FormTextarea.vue';
 import Icon from '@/components/common/Icon.vue';
-import rulesService from '@/services/rulesService';
+import rulesService from '@nosdesk/core/services/rulesService';
 import { extractErrorMessage } from '@/utils/errors';
-import { useToastStore } from '@/stores/toast';
+import { useToastStore } from '@nosdesk/core/stores/toast';
 import type {
   CreateRuleRequest,
   Rule,
   RuleAction,
   RuleTriggerKind,
   UpdateRuleRequest,
-} from '@/types/rule';
+} from '@nosdesk/core/types/rule';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);

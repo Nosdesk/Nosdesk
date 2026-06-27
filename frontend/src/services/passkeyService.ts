@@ -1,5 +1,5 @@
-import apiClient from './apiConfig';
-import { logger } from '@/utils/logger';
+import apiClient from '@nosdesk/core/apiClient';
+import { logger } from '@nosdesk/core/utils/logger';
 import {
   startRegistration,
   startAuthentication,

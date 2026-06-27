@@ -6,7 +6,7 @@
  * vocabulary on each *Metric / *Measure / *TimeField type is the
  * canonical enum.
  */
-import apiClient from './apiConfig'
+import apiClient from '@nosdesk/core/apiClient'
 
 export type KpiMetric = 'tickets_created' | 'tickets_resolved' | 'tickets_open'
 

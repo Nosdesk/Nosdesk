@@ -162,7 +162,7 @@
 import { ref, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useFluent } from 'fluent-vue';
-import authService from '@/services/authService';
+import authService from '@nosdesk/core/services/authService';
 import { usePasswordForm } from '@/composables/usePasswordForm';
 import LogoIcon from '@/components/icons/LogoIcon.vue';
 import Icon from '@/components/common/Icon.vue';

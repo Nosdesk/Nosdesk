@@ -28,7 +28,7 @@
 
 import { onScopeDispose, ref, watch, type Ref } from 'vue'
 import userService from '@/services/userService'
-import type { User } from '@/types/user'
+import type { User } from '@nosdesk/core/types/user'
 
 export interface UseUserMentionSearchOptions {
   /** Max results to fetch per query. Defaults to 10. Dropdown

@@ -156,13 +156,13 @@ import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 
-import { searchService } from '@/services/searchService'
+import { searchService } from '@nosdesk/core/services/searchService'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import Icon from '@/components/common/Icon.vue'
 import Spinner from '@/components/common/Spinner.vue'
 import Skeleton from '@/components/common/Skeleton.vue'
 import SkeletonBar from '@/components/common/SkeletonBar.vue'
-import type { IndexStats, RebuildResponse } from '@/types/search'
+import type { IndexStats, RebuildResponse } from '@nosdesk/core/types/search'
 
 const authStore = useAuthStore()
 const router = useRouter()

@@ -20,7 +20,7 @@
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import type { Notification } from '@/services/notificationService'
+import type { Notification } from '@nosdesk/core/services/notificationService'
 import { useDeleteManyMutation, useNotificationsStore } from '@/stores/notifications'
 import {
   applyNotificationFilter,
@@ -29,7 +29,7 @@ import {
   useNotificationFilterTabs,
   type NotificationFilter,
 } from '@/composables/useNotificationFeed'
-import { formatInboxTime, parseDate } from '@/utils/dateUtils'
+import { formatInboxTime, parseDate } from '@nosdesk/core/utils/dateUtils'
 import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
 import Checkbox from '@/components/common/Checkbox.vue'

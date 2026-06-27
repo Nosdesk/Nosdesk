@@ -5,11 +5,11 @@
 import { defineStore } from 'pinia';
 import { computed } from 'vue';
 import { useQuery } from '@pinia/colada';
-import workspacesService from '@/services/workspacesService';
-import type { MyWorkspaceEntry } from '@/types/workspace';
+import workspacesService from '@nosdesk/core/services/workspacesService';
+import type { MyWorkspaceEntry } from '@nosdesk/core/types/workspace';
 import { resolveActiveWorkspaceId } from '@/utils/workspaceNavigation';
 import { useAuthStore } from '@/stores/auth';
-import { getWorkspaceRouting } from '@/services/instanceConfig';
+import { getWorkspaceRouting } from '@nosdesk/core/services/instanceConfig';
 import { activeWorkspaceSlugRef } from '@/services/activeWorkspace';
 
 export const MY_WORKSPACES_KEY = ['my-workspaces'] as const;

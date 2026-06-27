@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Page } from '@/services/documentationService'
+import type { Page } from '@nosdesk/core/services/documentationService'
 import DocumentationCard from './DocumentationCard.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import { useStaggeredList } from '@/composables/useStaggeredList'

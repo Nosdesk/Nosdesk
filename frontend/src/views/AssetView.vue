@@ -3,7 +3,7 @@ import { ref, computed, watch, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter, RouterLink } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import { useTitleManager } from '@/composables/useTitleManager';
-import { formatDateTime } from '@/utils/dateUtils';
+import { formatDateTime } from '@nosdesk/core/utils/dateUtils';
 import BackButton from '@/components/common/BackButton.vue';
 import SearchableDropdown, { type DropdownOption } from '@/components/common/SearchableDropdown.vue';
 import BaseDropdown from '@/components/common/BaseDropdown.vue';
@@ -33,13 +33,13 @@ import {
 import PluginSlot from '@/plugins/components/PluginSlot.vue';
 import Modal from '@/components/Modal.vue';
 import { deleteAsset, unmanageAsset } from '@/services/assetService';
-import { type AssetKind } from '@/services/assetKindsService';
+import { type AssetKind } from '@nosdesk/core/services/assetKindsService';
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery';
 import { useAssetLocationsQuery } from '@/composables/useAssetLocationsQuery';
 import { useSyncActions } from '@/composables/useSyncActions';
 import { useAssetDetail } from '@/composables/useAssetDetail';
 import { useAuthStore } from '@/stores/auth';
-import type { Asset } from '@/types/asset';
+import type { Asset } from '@nosdesk/core/types/asset';
 import DynamicAttributeForm from '@/components/assets/DynamicAttributeForm.vue';
 
 const route = useRoute();

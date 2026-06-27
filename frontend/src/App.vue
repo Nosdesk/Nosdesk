@@ -20,11 +20,11 @@ import { useFavicon } from '@/composables/useFavicon'
 import { useNotificationSSE } from '@/composables/useNotificationSSE'
 import { useTicketDeletionCleanup } from '@/composables/useTicketDeletionCleanup'
 import { setMentionNavigationHandler } from '@/plugins/prosemirror-mention-view'
-import authService from '@/services/authService'
+import authService from '@nosdesk/core/services/authService'
 import { useBrandingStore } from '@/stores/branding'
 import { loadPlugins, initializeEventDispatcher } from '@/plugins'
 import { useAuthStore } from '@/stores/auth'
-import { usePageActionsStore } from '@/stores/pageActions'
+import { usePageActionsStore } from '@nosdesk/core/stores/pageActions'
 
 const fluent = useFluent()
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)

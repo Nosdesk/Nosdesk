@@ -19,18 +19,18 @@
  * Modules are imported dynamically (like `logout()`), keeping load order loose
  * and avoiding static import cycles with the stores this touches.
  */
-import { logger } from '@/utils/logger';
+import { logger } from '@nosdesk/core/utils/logger';
 
 export async function resetWorkspaceScopedState(): Promise<void> {
   // Config stores that cache a slow-moving, workspace-scoped set. Reset
   // independently so one failure doesn't skip the rest.
   const storeResets = await Promise.allSettled([
-    import('@/stores/featureFlags').then((m) => m.useFeatureFlagsStore().reset()),
-    import('@/stores/workflowStates').then((m) => m.useWorkflowStatesStore().reset()),
+    import('@nosdesk/core/stores/featureFlags').then((m) => m.useFeatureFlagsStore().reset()),
+    import('@nosdesk/core/stores/workflowStates').then((m) => m.useWorkflowStatesStore().reset()),
     import('@/composables/useWorkspaceCapabilities').then((m) =>
       m.resetWorkspaceCapabilities(),
     ),
-    import('@/stores/cycles').then((m) => m.useCyclesStore().reset()),
+    import('@nosdesk/core/stores/cycles').then((m) => m.useCyclesStore().reset()),
     import('@/stores/savedViews').then((m) => m.useSavedViewsStore().reset()),
   ]);
   for (const r of storeResets) {

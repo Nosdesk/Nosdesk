@@ -2,9 +2,9 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
-import type { Page } from '@/services/documentationService'
-import { formatDate } from '@/utils/dateUtils'
-import { docUrl } from '@/utils/docUrl'
+import type { Page } from '@nosdesk/core/services/documentationService'
+import { formatDate } from '@nosdesk/core/utils/dateUtils'
+import { docUrl } from '@nosdesk/core/utils/docUrl'
 import UserAvatar from '@/components/UserAvatar.vue'
 import DocumentationChildCard from './DocumentationChildCard.vue'
 

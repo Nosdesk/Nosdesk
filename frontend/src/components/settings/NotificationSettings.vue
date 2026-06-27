@@ -12,7 +12,7 @@ import {
   NOTIFICATION_TYPES,
   NOTIFICATION_CHANNELS,
   type NotificationPreference,
-} from '@/services/notificationService';
+} from '@nosdesk/core/services/notificationService';
 import { requestNotificationPermission } from '@/composables/useNotificationSSE';
 
 const fluent = useFluent();

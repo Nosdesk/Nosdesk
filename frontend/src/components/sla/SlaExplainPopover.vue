@@ -19,7 +19,7 @@ import { computed, ref, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
 import Popover from '@/components/common/Popover.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
-import { slaService, type SlaExplain, type SlaExplainFilter } from '@/services/slaService'
+import { slaService, type SlaExplain, type SlaExplainFilter } from '@nosdesk/core/services/slaService'
 
 interface Props {
   /** Element to anchor against. Parent passes a template ref; Vue

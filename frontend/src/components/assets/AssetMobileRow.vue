@@ -9,7 +9,7 @@ import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
 import AssetStatusBadge from '@/components/assets/AssetStatusBadge.vue'
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery'
-import type { Asset } from '@/types/asset'
+import type { Asset } from '@nosdesk/core/types/asset'
 
 const props = defineProps<{ asset: Asset }>()
 const emit = defineEmits<{ (e: 'open', asset: Asset): void }>()

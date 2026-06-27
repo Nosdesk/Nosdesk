@@ -8,16 +8,16 @@
  */
 import { ref, watch, watchEffect } from 'vue'
 import { useFluent } from 'fluent-vue'
-import type { TicketPriority } from '@/constants/ticketOptions'
+import type { TicketPriority } from '@nosdesk/core/constants/ticketOptions'
 import Modal from '@/components/Modal.vue'
 import Button from '@/components/common/Button.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 import DebouncedSearchInput from '@/components/common/DebouncedSearchInput.vue'
-import ticketService from '@/services/ticketService'
-import type { Ticket } from '@/types/ticket'
-import { formatRelativeTime } from '@/utils/dateUtils'
-import { useWorkflowStatesStore } from '@/stores/workflowStates'
+import ticketService from '@nosdesk/core/services/ticketService'
+import type { Ticket } from '@nosdesk/core/types/ticket'
+import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
+import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates'
 
 const { $t } = useFluent()
 const wf = useWorkflowStatesStore()
