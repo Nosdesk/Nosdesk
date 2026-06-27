@@ -10,7 +10,7 @@ import { onErrorCaptured, ref, watchEffect } from 'vue';
 import { getLoadedPlugin, type PluginSlotRegistration } from '../loader';
 import { getHostApiForPlugin } from '../api';
 import { createPluginComponent, canRenderComponent } from '../componentLoader';
-import { logger } from '@/utils/logger';
+import { logger } from '@nosdesk/core/utils/logger';
 import type { Ticket } from '@nosdesk/core/types/ticket';
 import type { Asset } from '@nosdesk/core/types/asset';
 

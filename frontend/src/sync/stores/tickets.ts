@@ -15,7 +15,7 @@ import { useEntity, useAggregate } from '@/sync/composables'
 import { dispatchOptimistic } from '@/sync/queue'
 import * as pool from '@/sync/pool'
 import ticketService from '@/services/ticketService'
-import { logger } from '@/utils/logger'
+import { logger } from '@nosdesk/core/utils/logger'
 import type { Ticket } from '@nosdesk/core/types/ticket'
 import type { CardWorkflowState, Priority } from '@/sync/views/types'
 

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { logger } from '@/utils/logger'
+import { logger } from '@nosdesk/core/utils/logger'
 import { translate } from '@/i18n'
 import { workflowStatesService } from '@nosdesk/core/services/workflowStatesService'
 import type { WorkflowState, WorkflowStateCategory } from '@nosdesk/core/types/workflow'

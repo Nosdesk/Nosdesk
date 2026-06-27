@@ -6,7 +6,7 @@
  * workspace); per-workspace config lives behind auth.
  */
 import apiClient from '@nosdesk/core/apiClient';
-import { logger } from '@/utils/logger';
+import { logger } from '@nosdesk/core/utils/logger';
 
 /** Where the selected workspace lives in the URL. */
 export type WorkspaceRouting = 'host' | 'path';

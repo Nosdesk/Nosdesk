@@ -19,7 +19,7 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
 
-import { logger } from '@/utils/logger'
+import { logger } from '@nosdesk/core/utils/logger'
 
 export interface TicketDraft {
   /** HTML content from the rich-text composer. */

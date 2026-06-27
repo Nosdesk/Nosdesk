@@ -11,7 +11,7 @@
  * - `tearDown()` releases the IndexedDB handle and resets the pool;
  *   called on sign-out.
  */
-import { logger } from '@/utils/logger'
+import { logger } from '@nosdesk/core/utils/logger'
 import * as pool from './pool'
 import * as idb from './idb'
 import * as queue from './queue'

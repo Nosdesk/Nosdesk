@@ -1,4 +1,4 @@
-import { logger } from '@/utils/logger';
+import { logger } from '@nosdesk/core/utils/logger';
 import apiClient from '@nosdesk/core/apiClient';
 
 export interface Collection {

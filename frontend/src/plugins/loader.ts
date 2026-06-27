@@ -7,7 +7,7 @@
 
 import { ref, shallowRef, reactive, type ShallowRef } from 'vue';
 import pluginService from '@/services/pluginService';
-import { logger } from '@/utils/logger';
+import { logger } from '@nosdesk/core/utils/logger';
 import { translate } from '@/i18n';
 import { preloadPluginBundle } from './componentLoader';
 import type { Plugin, PluginSlot, PluginManifest } from '@nosdesk/core/types/plugin';

@@ -6,7 +6,7 @@ import authService from '@/services/authService';
 import userService from '@/services/userService';
 import { formatDate } from '@nosdesk/core/utils/dateUtils';
 import { extractErrorMessage } from '@/utils/errors';
-import { logger } from '@/utils/logger';
+import { logger } from '@nosdesk/core/utils/logger';
 import Icon from '@/components/common/Icon.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
 import Button from '@/components/common/Button.vue';

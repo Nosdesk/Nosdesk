@@ -13,7 +13,7 @@
 import { ref, readonly } from 'vue';
 import pluginService from '@/services/pluginService';
 import { unloadPlugin } from '@/plugins/loader';
-import { logger } from '@/utils/logger';
+import { logger } from '@nosdesk/core/utils/logger';
 import { translate } from '@/i18n';
 import type { Plugin } from '@nosdesk/core/types/plugin';
 

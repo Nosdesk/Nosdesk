@@ -32,7 +32,7 @@ import PluginStateBadge from '@/components/plugins/PluginStateBadge.vue';
 import PluginTrustBadge from '@/components/plugins/PluginTrustBadge.vue';
 import pluginService from '@/services/pluginService';
 import { unloadPlugin } from '@/plugins/loader';
-import { logger } from '@/utils/logger';
+import { logger } from '@nosdesk/core/utils/logger';
 import type { Plugin, PluginSetting } from '@nosdesk/core/types/plugin';
 
 const route = useRoute();

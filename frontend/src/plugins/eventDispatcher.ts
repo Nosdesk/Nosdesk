@@ -12,7 +12,7 @@ import { onSyncActions } from '@/sync/observers';
 import type { SyncAction } from '@/sync/types';
 import { getLoadedPlugins } from './loader';
 import { getHostApiForPlugin } from './api';
-import { logger } from '@/utils/logger';
+import { logger } from '@nosdesk/core/utils/logger';
 import type { PluginEvent } from '@nosdesk/core/types/plugin';
 
 // =============================================================================

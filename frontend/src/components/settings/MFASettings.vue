@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { logger } from "@/utils/logger";
+import { logger } from "@nosdesk/core/utils/logger";
 import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import { useFluent } from "fluent-vue";
 import ToggleSwitch from "@/components/common/ToggleSwitch.vue";

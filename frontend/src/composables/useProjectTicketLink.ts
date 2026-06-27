@@ -1,7 +1,7 @@
 import { useAggregate } from '@/sync/composables'
 import * as pool from '@/sync/pool'
 import { projectService } from '@/services/projectService'
-import { logger } from '@/utils/logger'
+import { logger } from '@nosdesk/core/utils/logger'
 import type { ProjectTicketAssoc } from '@/composables/useProjectTickets'
 
 export function projectTicketLinkKey(projectId: number, ticketId: number): string {

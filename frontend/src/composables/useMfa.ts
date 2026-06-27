@@ -9,7 +9,7 @@ import authService, {
   type QrMatrix,
   type LoginResponse
 } from '@/services/authService';
-import { logger } from '@/utils/logger';
+import { logger } from '@nosdesk/core/utils/logger';
 import { translate } from '@/i18n';
 
 /**

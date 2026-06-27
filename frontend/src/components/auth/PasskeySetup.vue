@@ -7,7 +7,7 @@ import { useRecoveryCodesFile } from '@/composables/useRecoveryCodesFile';
 import { useAuthStore } from '@/stores/auth';
 import { useMfaSetupStore } from '@/stores/mfaSetup';
 import { passkeySetupService } from '@/services/passkeyService';
-import { logger } from '@/utils/logger';
+import { logger } from '@nosdesk/core/utils/logger';
 import { extractErrorMessage } from '@/utils/errors';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';

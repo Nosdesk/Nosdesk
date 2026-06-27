@@ -1,6 +1,6 @@
 import axios from 'axios';
 import apiClient from '@nosdesk/core/apiClient';
-import { logger } from '@/utils/logger';
+import { logger } from '@nosdesk/core/utils/logger';
 import { createErrorFromResponse } from '@/utils/errors';
 import { ErrorTracker } from '@/utils/errorTracking';
 import { getSSEClientId } from '@/services/sseService';

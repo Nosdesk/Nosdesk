@@ -30,7 +30,7 @@ import PluginIcon from '@/components/plugins/PluginIcon.vue';
 import PluginTrustBadge from '@/components/plugins/PluginTrustBadge.vue';
 import { usePluginAdminConfig } from '@/composables/usePluginAdminConfig';
 import pluginService from '@/services/pluginService';
-import { logger } from '@/utils/logger';
+import { logger } from '@nosdesk/core/utils/logger';
 import type {
   Plugin,
   RegistryState,

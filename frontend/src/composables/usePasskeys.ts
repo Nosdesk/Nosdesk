@@ -1,7 +1,7 @@
 import { ref, computed, onMounted } from 'vue';
 import passkeyService, { type PasskeyInfo, type PasskeyLoginResult } from '@/services/passkeyService';
 import { translate } from '@/i18n';
-import { logger } from '@/utils/logger';
+import { logger } from '@nosdesk/core/utils/logger';
 import { formatDateTime } from '@nosdesk/core/utils/dateUtils';
 
 /**

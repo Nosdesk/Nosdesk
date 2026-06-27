@@ -8,7 +8,7 @@
  * We accept `unknown` and validate at the boundary so a server typo
  * can't crash the sync engine.
  */
-import { logger } from '@/utils/logger'
+import { logger } from '@nosdesk/core/utils/logger'
 import { useSSE } from '@/services/sseService'
 import { unwrapEventData } from '@nosdesk/core/types/sse'
 import { applySseFrame } from './lifecycle'

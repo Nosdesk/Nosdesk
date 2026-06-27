@@ -6,7 +6,7 @@
  */
 import { ref } from 'vue';
 import pluginService from '@/services/pluginService';
-import { logger } from '@/utils/logger';
+import { logger } from '@nosdesk/core/utils/logger';
 
 interface PluginAdminConfig {
   web_sideload_enabled: boolean;

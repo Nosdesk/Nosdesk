@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { logger } from '@/utils/logger';
+import { logger } from '@nosdesk/core/utils/logger';
 import { ref, computed } from 'vue';
 import axios from 'axios';
 import apiClient from '@nosdesk/core/apiClient';

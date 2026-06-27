@@ -24,7 +24,7 @@
 
 import { defineAsyncComponent, type Component } from 'vue';
 import { getLoadedPlugin } from './loader';
-import { logger } from '@/utils/logger';
+import { logger } from '@nosdesk/core/utils/logger';
 import PluginLoading from './components/PluginLoading.vue';
 import PluginError from './components/PluginError.vue';
 

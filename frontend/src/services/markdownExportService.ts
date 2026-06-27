@@ -1,4 +1,4 @@
-import { logger } from '@/utils/logger';
+import { logger } from '@nosdesk/core/utils/logger';
 import * as Y from 'yjs';
 import { yDocToProsemirrorJSON } from 'y-prosemirror';
 import { schema } from '@/components/editor/schema';

@@ -19,7 +19,7 @@
  * Modules are imported dynamically (like `logout()`), keeping load order loose
  * and avoiding static import cycles with the stores this touches.
  */
-import { logger } from '@/utils/logger';
+import { logger } from '@nosdesk/core/utils/logger';
 
 export async function resetWorkspaceScopedState(): Promise<void> {
   // Config stores that cache a slow-moving, workspace-scoped set. Reset

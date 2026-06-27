@@ -23,7 +23,7 @@ import ProjectTabBar from '@/components/views/ProjectTabBar.vue'
 import ProjectViewHeader from '@/components/projectComponents/ProjectViewHeader.vue'
 import BaseDropdown from '@/components/common/BaseDropdown.vue'
 import { projectService } from '@/services/projectService'
-import { logger } from '@/utils/logger'
+import { logger } from '@nosdesk/core/utils/logger'
 
 const props = defineProps<{ id: string }>()
 

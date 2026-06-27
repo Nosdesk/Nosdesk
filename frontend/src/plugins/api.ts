@@ -20,7 +20,7 @@
 import pluginService from '@/services/pluginService';
 import { getTicketById, getTickets, addCommentToTicket } from '@/services/ticketService';
 import { getAssetById, getAssets } from '@/services/assetService';
-import { logger } from '@/utils/logger';
+import { logger } from '@nosdesk/core/utils/logger';
 import { useToastStore } from '@/stores/toast';
 import type { Plugin, PluginPermission, PluginProxyRequest, PluginEvent, CollectionRow, CollectionListResponse } from '@nosdesk/core/types/plugin';
 import type { Ticket } from '@nosdesk/core/types/ticket';

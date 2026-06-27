@@ -13,7 +13,7 @@
  *   (the lifecycle layer detects the mismatch and wipes via
  *   `wipe(currentDb)`).
  */
-import { logger } from '@/utils/logger'
+import { logger } from '@nosdesk/core/utils/logger'
 import type { PushTransaction, SyncAggregate } from './types'
 
 interface ModelRow {

@@ -34,7 +34,7 @@ import { COLLAB_IDB_TOUCH_KEY } from '@/utils/collabLocalCache'
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
-import { logger } from '@/utils/logger'
+import { logger } from '@nosdesk/core/utils/logger'
 import { SafePermanentUserData } from '@nosdesk/core/utils/safePermanentUserData'
 import { collabWsBaseUrl } from '@nosdesk/core/transport'
 

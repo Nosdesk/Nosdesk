@@ -12,7 +12,7 @@
  * AND the IDB queue has the pending tx ready to be retried on
  * next boot.
  */
-import { logger } from '@/utils/logger'
+import { logger } from '@nosdesk/core/utils/logger'
 import { apiBaseUrl, transport } from '@nosdesk/core/transport'
 import { workspaceHeaders } from '@/services/activeWorkspace'
 import * as pool from './pool'

@@ -8,7 +8,7 @@
  * - Primary color
  * - Applying branding to the DOM (favicon, title)
  */
-import { logger } from '@/utils/logger'
+import { logger } from '@nosdesk/core/utils/logger'
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import brandingService, { type BrandingConfig } from '@/services/brandingService'

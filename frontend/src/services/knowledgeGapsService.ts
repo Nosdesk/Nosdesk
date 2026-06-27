@@ -8,7 +8,7 @@
  * type and source_kind change.
  */
 import apiClient from '@nosdesk/core/apiClient'
-import { logger } from '@/utils/logger'
+import { logger } from '@nosdesk/core/utils/logger'
 
 export type KnowledgeGapStatus = 'open' | 'drafting' | 'resolved' | 'dismissed'
 export type KnowledgeGapSignalType =

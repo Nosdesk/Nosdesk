@@ -9,7 +9,7 @@
  */
 
 import uploadService from './uploadService';
-import { logger } from '@/utils/logger';
+import { logger } from '@nosdesk/core/utils/logger';
 
 export interface EditorImageUploadResult {
   url: string;

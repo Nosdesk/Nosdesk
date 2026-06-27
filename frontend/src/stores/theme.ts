@@ -7,7 +7,7 @@
  * - Theme application to DOM
  * - Backend synchronization
  */
-import { logger } from '@/utils/logger'
+import { logger } from '@nosdesk/core/utils/logger'
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import userService from '@/services/userService'
