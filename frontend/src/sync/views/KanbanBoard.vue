@@ -40,7 +40,7 @@ import {
 import { paletteForColor } from '@nosdesk/core/utils/workflowColors'
 import { formatDateTime } from '@nosdesk/core/utils/dateUtils'
 import { useDragDrop } from './drag'
-import type { CardData } from './types'
+import type { CardData } from '@nosdesk/core/sync/views/types'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import Icon from '@/components/common/Icon.vue'
 import TicketDragPreview from '@/components/common/TicketDragPreview.vue'

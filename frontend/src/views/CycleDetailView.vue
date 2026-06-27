@@ -30,7 +30,7 @@ import Modal from '@/components/Modal.vue'
 import DatePicker from '@/components/common/DatePicker.vue'
 import Icon from '@/components/common/Icon.vue'
 import { toCardData } from '@/sync/views/cardData'
-import type { CardData } from '@/sync/views/types'
+import type { CardData } from '@nosdesk/core/sync/views/types'
 
 const props = defineProps<{ uuid: string }>()
 

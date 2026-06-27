@@ -12,11 +12,11 @@
  *   called on sign-out.
  */
 import { logger } from '@nosdesk/core/utils/logger'
-import * as pool from './pool'
+import * as pool from '@nosdesk/core/sync/pool'
 import * as idb from './idb'
 import * as queue from './queue'
-import { setReferenceFetcher } from './composables'
-import { notifySyncActions } from './observers'
+import { setReferenceFetcher } from '@nosdesk/core/sync/composables'
+import { notifySyncActions } from '@nosdesk/core/sync/observers'
 import { applyWorkspaceCapabilities } from '@/composables/useWorkspaceCapabilities'
 import { purgeAllCollabDocs } from '@/utils/collabLocalCache'
 import { apiBaseUrl, transport } from '@nosdesk/core/transport'
@@ -27,7 +27,7 @@ import type {
   DeltaResponse,
   SyncAction,
   SyncAggregate,
-} from './types'
+} from '@nosdesk/core/sync/types'
 
 interface LifecycleState {
   handle: idb.IdbHandle | null

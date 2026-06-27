@@ -12,7 +12,7 @@ import { logger } from '@nosdesk/core/utils/logger'
 import { useSSE } from '@/services/sseService'
 import { unwrapEventData } from '@nosdesk/core/types/sse'
 import { applySseFrame } from './lifecycle'
-import type { SyncAction } from './types'
+import type { SyncAction } from '@nosdesk/core/sync/types'
 
 interface SyncActionsFrame {
   actions: SyncAction[]

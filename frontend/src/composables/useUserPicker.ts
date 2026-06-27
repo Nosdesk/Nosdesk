@@ -1,6 +1,6 @@
 import { computed, onUnmounted, ref, watch, type ComputedRef, type Ref } from 'vue'
 import userService from '@/services/userService'
-import * as syncPool from '@/sync/pool'
+import * as syncPool from '@nosdesk/core/sync/pool'
 import { useAuthStore } from '@/stores/auth'
 import { effectiveRole, type User } from '@nosdesk/core/types/user'
 import { useRecentUsersStore, type RecentScope } from '@/stores/recentUsers'

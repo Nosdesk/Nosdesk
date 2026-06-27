@@ -39,8 +39,8 @@ import { paletteForColor } from '@nosdesk/core/utils/workflowColors'
 import { inlinePriorityClass } from '@/utils/priorityHelpers'
 import { rowSlaToneClass } from '@/utils/priorityHelpers'
 import { formatCompactRelativeTime } from '@nosdesk/core/utils/dateUtils'
-import { rowMemoKey } from '@/sync/views/ticketColumns'
-import type { CardData } from '@/sync/views/types'
+import { rowMemoKey } from '@nosdesk/core/sync/views/ticketColumns'
+import type { CardData } from '@nosdesk/core/sync/views/types'
 
 defineProps<{
   cards: CardData[]

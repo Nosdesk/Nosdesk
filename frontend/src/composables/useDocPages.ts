@@ -13,14 +13,14 @@
  * showed it (the old REST mappers passed `content: ''` too).
  */
 import { computed, toValue, type ComputedRef, type MaybeRefOrGetter } from 'vue'
-import * as pool from '@/sync/pool'
+import * as pool from '@nosdesk/core/sync/pool'
 import {
   useSyncDocsStore,
   buildPageTree,
   isActivePage,
   type DocPageRow,
   type DocPageNode,
-} from '@/sync/stores/documentation'
+} from '@nosdesk/core/sync/stores/documentation'
 import type { Page } from '@nosdesk/core/services/documentationService'
 import type { UserInfo, PlatformRole } from '@nosdesk/core/types/user'
 import type { WorkspaceRole } from '@nosdesk/core/types/workspace'

@@ -1,4 +1,4 @@
-import type { DocPageRow } from '@/sync/stores/documentation'
+import type { DocPageRow } from '@nosdesk/core/sync/stores/documentation'
 
 export type PageVerificationState = 'never' | 'fresh' | 'stale'
 

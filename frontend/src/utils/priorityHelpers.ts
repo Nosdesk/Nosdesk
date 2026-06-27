@@ -8,7 +8,7 @@
  * file edit.
  */
 import { translate } from '@/i18n'
-import type { CardData, Priority } from '@/sync/views/types'
+import type { CardData, Priority } from '@nosdesk/core/sync/views/types'
 
 /** PriorityIndicator only knows about three levels; collapse
  * `urgent` to `high` for that visualization, and `none` to null. */

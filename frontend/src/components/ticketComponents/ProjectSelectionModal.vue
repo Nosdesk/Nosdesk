@@ -6,7 +6,7 @@ import Modal from '@/components/Modal.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import type { Project, ProjectStatus } from '@nosdesk/core/types/project'
 import { useSyncProjectsStore, type SyncProject } from '@/sync/stores/projects'
-import { useAggregate } from '@/sync/composables'
+import { useAggregate } from '@nosdesk/core/sync/composables'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)

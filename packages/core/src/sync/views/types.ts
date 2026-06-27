@@ -13,7 +13,7 @@
  * renderer in this commit.
  */
 
-import type { WorkflowStateCategory } from '@nosdesk/core/types/workflow'
+import type { WorkflowStateCategory } from '../../types/workflow'
 
 // ===================== CardData =====================
 //
@@ -92,7 +92,7 @@ export interface CardData {
    * fields reflect the most-urgent active timer (primary); nested
    * `response` + `resolution` sub-objects carry both timers for the
    * preview-pane stack. Null when no policy applies to the ticket. */
-  sla?: import('@nosdesk/core/types/sla').SlaPill | null
+  sla?: import('../../types/sla').SlaPill | null
   /** RFC 5545 RRULE string when the ticket is part of a recurring
    * series; the kanban surfaces a small recurrence pill so the
    * pattern is visible at a glance. */

@@ -13,7 +13,7 @@ import {
   type Collection,
   type CollectionWithDetails,
 } from '@nosdesk/core/services/collectionService'
-import { useSyncDocsStore } from '@/sync/stores/documentation'
+import { useSyncDocsStore } from '@nosdesk/core/sync/stores/documentation'
 import {
   slugFromCollectionTitle,
   slugifyCollectionTitle,

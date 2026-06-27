@@ -9,7 +9,7 @@
  */
 import { paletteForColor } from '@nosdesk/core/utils/workflowColors'
 import { translate } from '@/i18n'
-import type { CardData, Priority } from '@/sync/views/types'
+import type { CardData, Priority } from '@nosdesk/core/sync/views/types'
 import type { FilterFacet, SlaFilter } from '@/composables/useTicketsFilters'
 import type { User } from '@nosdesk/core/types/user'
 

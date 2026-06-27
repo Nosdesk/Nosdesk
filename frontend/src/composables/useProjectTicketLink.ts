@@ -1,5 +1,5 @@
-import { useAggregate } from '@/sync/composables'
-import * as pool from '@/sync/pool'
+import { useAggregate } from '@nosdesk/core/sync/composables'
+import * as pool from '@nosdesk/core/sync/pool'
 import { projectService } from '@nosdesk/core/services/projectService'
 import { logger } from '@nosdesk/core/utils/logger'
 import type { ProjectTicketAssoc } from '@/composables/useProjectTickets'

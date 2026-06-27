@@ -20,7 +20,7 @@ import { computed, ref, onMounted, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 import ResponsivePanel from '@/components/common/ResponsivePanel.vue'
-import * as syncPool from '@/sync/pool'
+import * as syncPool from '@nosdesk/core/sync/pool'
 import type { User } from '@nosdesk/core/types/user'
 import apiClient from '@nosdesk/core/apiClient'
 

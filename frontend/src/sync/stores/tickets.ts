@@ -11,13 +11,13 @@
  */
 import { defineStore } from 'pinia'
 import { computed, toValue, type ComputedRef, type MaybeRefOrGetter } from 'vue'
-import { useEntity, useAggregate } from '@/sync/composables'
+import { useEntity, useAggregate } from '@nosdesk/core/sync/composables'
 import { dispatchOptimistic } from '@/sync/queue'
-import * as pool from '@/sync/pool'
+import * as pool from '@nosdesk/core/sync/pool'
 import ticketService from '@nosdesk/core/services/ticketService'
 import { logger } from '@nosdesk/core/utils/logger'
 import type { Ticket } from '@nosdesk/core/types/ticket'
-import type { CardWorkflowState, Priority } from '@/sync/views/types'
+import type { CardWorkflowState, Priority } from '@nosdesk/core/sync/views/types'
 
 /**
  * Ticket row as it lands in the pool. Bootstrap denormalises

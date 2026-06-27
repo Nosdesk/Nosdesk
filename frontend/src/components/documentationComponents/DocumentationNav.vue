@@ -33,7 +33,7 @@ import {
   buildPageTree,
   isActivePage,
   type DocCollectionRow,
-} from '@/sync/stores/documentation'
+} from '@nosdesk/core/sync/stores/documentation'
 import { nodeToPage } from '@/composables/useDocPages'
 
 const route = useRoute()

@@ -23,7 +23,7 @@ import {
   startOfQuarter,
   startOfWeek,
 } from 'date-fns'
-import type { CardData } from './types'
+import type { CardData } from '@nosdesk/core/sync/views/types'
 import type { DependencyEdge } from '@nosdesk/core/services/dependenciesService'
 import type { Cycle } from '@nosdesk/core/services/cyclesService'
 import { TERMINAL_CATEGORIES, coarseStatusBucket } from '@nosdesk/core/types/workflow'

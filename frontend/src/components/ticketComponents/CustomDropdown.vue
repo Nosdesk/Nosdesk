@@ -23,7 +23,7 @@ import WorkflowStateGlyph from '@/components/views/WorkflowStateGlyph.vue'
 import type { WorkflowDropdownOption } from '@nosdesk/core/types/workflow'
 import { paletteForColor } from '@nosdesk/core/utils/workflowColors'
 import { priorityForBadge } from '@/utils/priorityHelpers'
-import type { Priority as CardPriority } from '@/sync/views/types'
+import type { Priority as CardPriority } from '@nosdesk/core/sync/views/types'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)

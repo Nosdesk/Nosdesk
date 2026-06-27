@@ -15,9 +15,9 @@
 import { logger } from '@nosdesk/core/utils/logger'
 import { apiBaseUrl, transport } from '@nosdesk/core/transport'
 import { workspaceHeaders } from '@/services/activeWorkspace'
-import * as pool from './pool'
+import * as pool from '@nosdesk/core/sync/pool'
 import * as idb from './idb'
-import type { PushResponse, PushTransaction, SyncAggregate } from './types'
+import type { PushResponse, PushTransaction, SyncAggregate } from '@nosdesk/core/sync/types'
 
 let handle: idb.IdbHandle | null = null
 let flushing = false

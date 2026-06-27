@@ -20,7 +20,7 @@
  */
 import { computed, ref, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
-import type { CardData } from './types'
+import type { CardData } from '@nosdesk/core/sync/views/types'
 import BaseDropdown from '@/components/common/BaseDropdown.vue'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import { priorityForBadge } from '@/utils/priorityHelpers'

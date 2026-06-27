@@ -14,7 +14,7 @@
  *   `wipe(currentDb)`).
  */
 import { logger } from '@nosdesk/core/utils/logger'
-import type { PushTransaction, SyncAggregate } from './types'
+import type { PushTransaction, SyncAggregate } from '@nosdesk/core/sync/types'
 
 interface ModelRow {
   aggregate: SyncAggregate

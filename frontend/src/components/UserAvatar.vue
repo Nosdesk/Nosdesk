@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { useReference } from '@/sync/composables'
+import { useReference } from '@nosdesk/core/sync/composables'
 import type { User } from '@nosdesk/core/types/user'
 
 interface Props {

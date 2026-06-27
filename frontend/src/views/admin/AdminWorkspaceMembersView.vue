@@ -26,7 +26,7 @@ import UserAvatar from '@/components/UserAvatar.vue';
 import workspacesService from '@nosdesk/core/services/workspacesService';
 import type { WorkspaceMember, WorkspaceRole } from '@nosdesk/core/types/workspace';
 import { extractErrorMessage } from '@/utils/errors';
-import * as syncPool from '@/sync/pool';
+import * as syncPool from '@nosdesk/core/sync/pool';
 import type { User } from '@nosdesk/core/types/user';
 
 const fluent = useFluent();

@@ -32,7 +32,7 @@ import { useAuthStore } from '@/stores/auth';
 import type { WorkspaceMember, WorkspaceRole } from '@nosdesk/core/types/workspace';
 import type { User } from '@nosdesk/core/types/user';
 import { extractErrorMessage } from '@/utils/errors';
-import * as syncPool from '@/sync/pool';
+import * as syncPool from '@nosdesk/core/sync/pool';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);

@@ -29,7 +29,7 @@ import {
   TICKET_COLUMNS,
   type ColumnId,
   type ListColumn,
-} from '@/sync/views/ticketColumns'
+} from '@nosdesk/core/sync/views/ticketColumns'
 import { useDragGesture } from '@/composables/useDragGesture'
 import { useColumnReorder } from '@/composables/useColumnReorder'
 

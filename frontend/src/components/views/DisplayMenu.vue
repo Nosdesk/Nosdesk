@@ -21,7 +21,7 @@ import {
   TICKET_COLUMNS,
   type ColumnId,
   type ListColumn,
-} from '@/sync/views/ticketColumns'
+} from '@nosdesk/core/sync/views/ticketColumns'
 import type { Density } from '@/composables/useTicketsDensity'
 import type { GroupBy } from '@/composables/useTicketsGrouping'
 

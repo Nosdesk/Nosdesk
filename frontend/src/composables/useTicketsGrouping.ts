@@ -20,7 +20,7 @@ import {
   type GroupAxisDef,
   type GroupBucket,
 } from '@/composables/useListGrouping'
-import type { CardData, Priority } from '@/sync/views/types'
+import type { CardData, Priority } from '@nosdesk/core/sync/views/types'
 
 export type GroupBy =
   | 'none'

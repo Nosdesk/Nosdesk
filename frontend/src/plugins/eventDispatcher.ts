@@ -8,8 +8,8 @@
  * `event_type` to the plugin event format.
  */
 
-import { onSyncActions } from '@/sync/observers';
-import type { SyncAction } from '@/sync/types';
+import { onSyncActions } from '@nosdesk/core/sync/observers';
+import type { SyncAction } from '@nosdesk/core/sync/types';
 import { getLoadedPlugins } from './loader';
 import { getHostApiForPlugin } from './api';
 import { logger } from '@nosdesk/core/utils/logger';

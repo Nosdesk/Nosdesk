@@ -22,7 +22,7 @@
  * are on screen.
  */
 import { computed, onMounted, onUnmounted, ref, type ComputedRef, type Ref } from 'vue'
-import type { CardData } from '@/sync/views/types'
+import type { CardData } from '@nosdesk/core/sync/views/types'
 import { getDateConfig } from '@nosdesk/core/utils/dateUtils'
 
 // Single shared tick: re-emits the wall clock so every consumer's

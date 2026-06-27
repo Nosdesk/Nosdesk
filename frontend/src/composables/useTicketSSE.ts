@@ -1,7 +1,7 @@
 import { ref, computed, onMounted, onUnmounted, type Ref } from "vue";
 import { useSSE } from "@/services/sseService";
 import { useAuthStore } from "@/stores/auth";
-import * as pool from "@/sync/pool";
+import * as pool from "@nosdesk/core/sync/pool";
 import {
   unwrapEventData,
   type ViewerInfo,

@@ -19,7 +19,7 @@ import {
   type BreakdownGroupBy,
 } from '@/services/analyticsService'
 import { priorityForBadge, priorityLabel } from '@/utils/priorityHelpers'
-import type { Priority } from '@/sync/views/types'
+import type { Priority } from '@nosdesk/core/sync/views/types'
 
 const props = withDefaults(
   defineProps<{

@@ -1,6 +1,6 @@
 import { onUnmounted, type Ref } from 'vue'
 import { useSyncActions } from '@/composables/useSyncActions'
-import type { SyncAction } from '@/sync/types'
+import type { SyncAction } from '@nosdesk/core/sync/types'
 
 /**
  * Live-refresh hook for the ticket Activity Log.

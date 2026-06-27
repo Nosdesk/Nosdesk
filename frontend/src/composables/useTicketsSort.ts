@@ -9,7 +9,7 @@
  */
 import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
 import type { ResolvedView } from '@/composables/useTicketsViewResolution'
-import type { CardData } from '@/sync/views/types'
+import type { CardData } from '@nosdesk/core/sync/views/types'
 
 function readSortField(card: CardData, field: string): string | number | null {
   const parts = field.split('.')

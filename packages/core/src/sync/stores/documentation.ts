@@ -15,7 +15,7 @@
  */
 import { defineStore } from 'pinia'
 import { computed, toValue, type ComputedRef, type MaybeRefOrGetter } from 'vue'
-import { useEntity, useAggregate } from '@/sync/composables'
+import { useEntity, useAggregate } from '../composables'
 
 /** A documentation_page sync row — mirrors `page_sync_payload`. */
 export interface DocPageRow {

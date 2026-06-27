@@ -31,10 +31,10 @@ import { subscribe } from '@/sync/lifecycle'
 import { useSyncTicketsStore } from '@/sync/stores/tickets'
 import { useAuthStore } from '@/stores/auth'
 import { useSavedViewsStore } from '@/stores/savedViews'
-import { buildPredicate } from './filter'
+import { buildPredicate } from '@nosdesk/core/sync/views/filter'
 import { toCardData } from './cardData'
-import { ALL_ACTIVE_VIEW, MY_OPEN_VIEW } from './builtinViews'
-import type { CardData, Priority } from './types'
+import { ALL_ACTIVE_VIEW, MY_OPEN_VIEW } from '@nosdesk/core/sync/views/builtinViews'
+import type { CardData, Priority } from '@nosdesk/core/sync/views/types'
 import {
   calendarOverlaysService,
   type CalendarOverlayEntry,
@@ -77,7 +77,7 @@ import { onScopeDispose } from 'vue'
 import { useTicketSelection } from '@/composables/useTicketSelection'
 import { useWorkspaceCapabilities } from '@/composables/useWorkspaceCapabilities'
 import { FACET_ORDER } from '@/components/views/filterFacets'
-import { TICKET_COLUMNS } from '@/sync/views/ticketColumns'
+import { TICKET_COLUMNS } from '@nosdesk/core/sync/views/ticketColumns'
 
 const router = useRouter()
 const route = useRoute()

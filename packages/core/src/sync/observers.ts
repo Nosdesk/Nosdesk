@@ -16,7 +16,7 @@
  *
  * Not fired on initial hydrate: that is a bulk load, not a live change.
  */
-import { logger } from '@nosdesk/core/utils/logger'
+import { logger } from '../utils/logger'
 import type { SyncAction } from './types'
 
 type SyncActionsHandler = (actions: SyncAction[]) => void
