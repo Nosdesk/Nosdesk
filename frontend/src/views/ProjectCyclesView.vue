@@ -17,7 +17,7 @@ import { useFluent } from 'fluent-vue'
 import { subscribe } from '@/sync/lifecycle'
 import { useSyncProjectsStore } from '@/sync/stores/projects'
 import { type SyncTicket } from '@/sync/stores/tickets'
-import { useCyclesStore } from '@/stores/cycles'
+import { useCyclesStore } from '@nosdesk/core/stores/cycles'
 import { useProjectTickets } from '@/composables/useProjectTickets'
 import {
   WORKFLOW_CATEGORIES,

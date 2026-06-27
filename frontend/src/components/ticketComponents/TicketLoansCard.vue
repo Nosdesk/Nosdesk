@@ -3,7 +3,7 @@ import { computed, ref } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { useQuery, useQueryCache } from '@pinia/colada';
 import { useAuthStore } from '@/stores/auth';
-import { useToastStore } from '@/stores/toast';
+import { useToastStore } from '@nosdesk/core/stores/toast';
 import { assetLoanKeys, assetLoanService } from '@nosdesk/core/services/assetLoanService';
 import { useSyncActions } from '@/composables/useSyncActions';
 import Button from '@/components/common/Button.vue';

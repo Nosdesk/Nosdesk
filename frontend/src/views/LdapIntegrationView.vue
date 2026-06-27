@@ -533,7 +533,7 @@ import {
   type RoleMapping,
   type RolePreview,
 } from '@nosdesk/core/services/ldapService';
-import { useToastStore } from '@/stores/toast';
+import { useToastStore } from '@nosdesk/core/stores/toast';
 import { createErrorFromResponse } from '@/utils/errors';
 import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
 

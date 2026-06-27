@@ -28,7 +28,7 @@ import MergeTicketsDialog, {
   type MergeDialogTicket,
 } from '@/components/ticketComponents/MergeTicketsDialog.vue'
 import type { PopoverAnchor } from '@/composables/usePopover'
-import { useWorkflowStatesStore } from '@/stores/workflowStates'
+import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates'
 import { PRIORITY_OPTIONS } from '@nosdesk/core/constants/ticketOptions'
 import type { TicketPriority } from '@nosdesk/core/constants/ticketOptions'
 import { WORKFLOW_CATEGORIES, getCategoryLabel, type WorkflowStateCategory } from '@nosdesk/core/types/workflow'

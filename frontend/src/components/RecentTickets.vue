@@ -2,7 +2,7 @@
 import { useRouter } from 'vue-router'
 import { shareableRouteUrl } from '@/utils/shareUrl'
 import { useRecentTicketsStore } from '@/stores/recentTickets'
-import { useWorkflowStatesStore } from '@/stores/workflowStates'
+import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates'
 import { ref, onMounted, computed } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { formatCompactRelativeTime } from '@nosdesk/core/utils/dateUtils'

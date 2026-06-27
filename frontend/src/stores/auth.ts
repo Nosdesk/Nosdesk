@@ -8,7 +8,7 @@ import authService from '@nosdesk/core/services/authService';
 import router from '@/router';
 import type { User, LoginCredentials } from '@nosdesk/core/types';
 import { useThemeStore } from './theme';
-import { useDateStore } from './dateStore';
+import { useDateStore } from '@nosdesk/core/stores/dateStore';
 import { translate } from '@/i18n';
 import { extractErrorMessage } from '@/utils/errors';
 

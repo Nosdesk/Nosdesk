@@ -15,7 +15,7 @@
  */
 import { onMounted, onUnmounted } from 'vue'
 
-import { usePageActionsStore, type CreateAction } from '@/stores/pageActions'
+import { usePageActionsStore, type CreateAction } from '@nosdesk/core/stores/pageActions'
 
 export function usePageCreateAction(
   action: CreateAction | (() => void | Promise<void>),

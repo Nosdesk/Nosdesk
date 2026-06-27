@@ -11,7 +11,7 @@
  */
 
 import { useAuthStore } from '@/stores/auth';
-import { useToastStore } from '@/stores/toast';
+import { useToastStore } from '@nosdesk/core/stores/toast';
 import { useSyncActions } from '@/composables/useSyncActions';
 import type { NotificationReceivedEventData } from '@nosdesk/core/types/sse';
 

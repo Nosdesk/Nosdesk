@@ -277,7 +277,7 @@ import Button from '@/components/common/Button.vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import FormInput from '@/components/common/FormInput.vue';
 import FormTextarea from '@/components/common/FormTextarea.vue';
-import { usePublicSettingsStore } from '@/stores/publicSettings';
+import { usePublicSettingsStore } from '@nosdesk/core/stores/publicSettings';
 import {
   publicService,
   type GuestAttachmentUpload,

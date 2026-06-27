@@ -348,7 +348,7 @@ import {
 } from '@nosdesk/core/services/channelsService';
 import brandingService, { type BrandingConfig } from '@nosdesk/core/services/brandingService';
 import apiClient from '@nosdesk/core/apiClient';
-import { useToastStore } from '@/stores/toast';
+import { useToastStore } from '@nosdesk/core/stores/toast';
 import { createErrorFromResponse } from '@/utils/errors';
 import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
 import FormTextarea from '@/components/common/FormTextarea.vue';

@@ -86,7 +86,7 @@ import { useFluent } from 'fluent-vue';
 import PublicLayout from './PublicLayout.vue';
 import SkeletonBlock from './SkeletonBlock.vue';
 import FeatureDisabledNotice from './FeatureDisabledNotice.vue';
-import { usePublicSettingsStore } from '@/stores/publicSettings';
+import { usePublicSettingsStore } from '@nosdesk/core/stores/publicSettings';
 import { publicService, type PublicDoc } from '@nosdesk/core/services/publicService';
 
 const fluent = useFluent();

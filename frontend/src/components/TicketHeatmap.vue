@@ -3,7 +3,7 @@ import { ref, onMounted, computed, onActivated } from "vue";
 import { useRouter } from "vue-router";
 import { useFluent } from 'fluent-vue';
 import { getTickets } from "@nosdesk/core/services/ticketService";
-import { useWorkflowStatesStore } from "@/stores/workflowStates";
+import { useWorkflowStatesStore } from "@nosdesk/core/stores/workflowStates";
 import { TERMINAL_CATEGORIES } from "@nosdesk/core/types/workflow";
 import DashboardWidgetShell from "@/views/dashboard/DashboardWidgetShell.vue";
 import ContributionHeatmapPlot, {

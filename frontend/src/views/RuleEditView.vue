@@ -27,7 +27,7 @@ import FormTextarea from '@/components/common/FormTextarea.vue';
 import Icon from '@/components/common/Icon.vue';
 import rulesService from '@nosdesk/core/services/rulesService';
 import { extractErrorMessage } from '@/utils/errors';
-import { useToastStore } from '@/stores/toast';
+import { useToastStore } from '@nosdesk/core/stores/toast';
 import type {
   CreateRuleRequest,
   Rule,

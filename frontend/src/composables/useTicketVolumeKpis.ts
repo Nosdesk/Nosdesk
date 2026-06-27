@@ -8,7 +8,7 @@
 import { computed } from 'vue'
 import { useQuery } from '@pinia/colada'
 import { useTimeRange } from '@/composables/useTimeRange'
-import { useDateStore } from '@/stores/dateStore'
+import { useDateStore } from '@nosdesk/core/stores/dateStore'
 import {
   analyticsService,
   type KpiSummaryResult,

@@ -336,7 +336,7 @@ import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
 import backupService from '@/services/backupService';
-import { useToastStore } from '@/stores/toast';
+import { useToastStore } from '@nosdesk/core/stores/toast';
 import { formatDateTime } from '@nosdesk/core/utils/dateUtils';
 import { downloadDocumentationExport, type ExportProgress } from '@/services/markdownExportService';
 import type { BackupJob, RestorePreview } from '@nosdesk/core/types/backup';

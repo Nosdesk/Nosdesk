@@ -1,12 +1,12 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import { logger } from '@nosdesk/core/utils/logger';
-import { translate } from '@/i18n';
+import { logger } from '../utils/logger';
+import { translate } from '../i18n';
 import {
   featureFlagsService,
   type FeatureFlagMap,
   type FeatureFlagValue,
-} from '@nosdesk/core/services/featureFlagsService';
+} from '../services/featureFlagsService';
 
 export const useFeatureFlagsStore = defineStore('featureFlags', () => {
   const flags = ref<FeatureFlagMap>({});

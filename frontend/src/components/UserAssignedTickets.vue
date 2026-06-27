@@ -3,7 +3,7 @@ import { ref, computed, onMounted } from "vue";
 import { useFluent } from 'fluent-vue';
 import { useQuery } from "@pinia/colada";
 import { useAuthStore } from "@/stores/auth";
-import { useWorkflowStatesStore } from "@/stores/workflowStates";
+import { useWorkflowStatesStore } from "@nosdesk/core/stores/workflowStates";
 import { TERMINAL_CATEGORIES } from "@nosdesk/core/types/workflow";
 import { useSyncActions } from "@/composables/useSyncActions";
 import { useWidgetConfigState } from "@/composables/useWidgetConfigState";

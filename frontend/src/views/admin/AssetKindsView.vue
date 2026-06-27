@@ -31,7 +31,7 @@ import {
 } from '@nosdesk/core/services/assetKindsService';
 import { extractErrorMessage } from '@/utils/errors';
 import { highlightTerms } from '@nosdesk/core/utils/highlight';
-import { useToastStore } from '@/stores/toast';
+import { useToastStore } from '@nosdesk/core/stores/toast';
 import { useQueryCache } from '@pinia/colada';
 
 const fluent = useFluent();

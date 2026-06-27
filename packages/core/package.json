@@ -16,6 +16,8 @@
     "axios": "^1.6.2",
     "date-fns": "^4.1.0",
     "fluent-vue": "^3.8.2",
+    "pinia": "^3.0.4",
+    "vue": "^3.3.4",
     "yjs": "^13.6.29"
   },
   "devDependencies": {

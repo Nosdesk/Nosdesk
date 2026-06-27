@@ -15,7 +15,7 @@ nothing.
 import { ref } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useDashboardLayoutStore } from '@/stores/dashboardLayout'
-import { useToastStore } from '@/stores/toast'
+import { useToastStore } from '@nosdesk/core/stores/toast'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import AddWidgetModal from './AddWidgetModal.vue'
 import Icon from '@/components/common/Icon.vue'

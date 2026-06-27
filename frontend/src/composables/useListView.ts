@@ -55,7 +55,7 @@ import { useSavedListViews } from '@/composables/useSavedListViews'
 import type { SyncAggregate } from '@/sync/types'
 import type { ListKeys } from '@nosdesk/core/queries/listKeys'
 import type { SavedView, SavedViewDataset } from '@/services/savedViewsService'
-import { useToastStore } from '@/stores/toast'
+import { useToastStore } from '@nosdesk/core/stores/toast'
 
 /** Standard fields the shell round-trips through saved views.
  *  Consumers that need extras pass `captureExtras` / `applyExtras`. */

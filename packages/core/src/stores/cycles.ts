@@ -12,15 +12,15 @@
  */
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { logger } from '@nosdesk/core/utils/logger'
-import { translate } from '@/i18n'
-import { dedupeInFlight } from '@nosdesk/core/utils/dedupeInFlight'
+import { logger } from '../utils/logger'
+import { translate } from '../i18n'
+import { dedupeInFlight } from '../utils/dedupeInFlight'
 import {
   cyclesService,
   type Cycle,
   type CreateCycleBody,
   type UpdateCycleBody,
-} from '@nosdesk/core/services/cyclesService'
+} from '../services/cyclesService'
 
 export const useCyclesStore = defineStore('cycles', () => {
   const cache = ref<Map<number, Cycle[]>>(new Map())

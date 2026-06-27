@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import { publicService, type PublicSiteSettings } from '@nosdesk/core/services/publicService';
-import { translate } from '@/i18n';
+import { publicService, type PublicSiteSettings } from '../services/publicService';
+import { translate } from '../i18n';
 
 export const usePublicSettingsStore = defineStore('publicSettings', () => {
   const settings = ref<PublicSiteSettings | null>(null);

@@ -52,7 +52,7 @@ import { useFluent } from 'fluent-vue';
 import LogoIcon from '@/components/icons/LogoIcon.vue';
 import { useBrandingStore } from '@/stores/branding';
 import { useThemeStore } from '@/stores/theme';
-import { usePublicSettingsStore } from '@/stores/publicSettings';
+import { usePublicSettingsStore } from '@nosdesk/core/stores/publicSettings';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);

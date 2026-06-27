@@ -21,7 +21,7 @@ import pluginService from '@nosdesk/core/services/pluginService';
 import { getTicketById, getTickets, addCommentToTicket } from '@nosdesk/core/services/ticketService';
 import { getAssetById, getAssets } from '@/services/assetService';
 import { logger } from '@nosdesk/core/utils/logger';
-import { useToastStore } from '@/stores/toast';
+import { useToastStore } from '@nosdesk/core/stores/toast';
 import type { Plugin, PluginPermission, PluginProxyRequest, PluginEvent, CollectionRow, CollectionListResponse } from '@nosdesk/core/types/plugin';
 import type { Ticket } from '@nosdesk/core/types/ticket';
 import type { Asset } from '@nosdesk/core/types/asset';

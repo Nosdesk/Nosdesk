@@ -97,7 +97,7 @@ import PublicLayout from './PublicLayout.vue';
 import SkeletonBlock from './SkeletonBlock.vue';
 import FeatureDisabledNotice from './FeatureDisabledNotice.vue';
 import Icon from '@/components/common/Icon.vue';
-import { usePublicSettingsStore } from '@/stores/publicSettings';
+import { usePublicSettingsStore } from '@nosdesk/core/stores/publicSettings';
 import { publicService, type GuestTicketStatus } from '@nosdesk/core/services/publicService';
 import { coarseStatusBucket } from '@nosdesk/core/types/workflow';
 

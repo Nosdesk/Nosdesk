@@ -21,7 +21,7 @@ import {
   setUserProfileFields,
 } from '@nosdesk/core/services/userContactService';
 import { extractErrorMessage } from '@/utils/errors';
-import { useToastStore } from '@/stores/toast';
+import { useToastStore } from '@nosdesk/core/stores/toast';
 
 const props = defineProps<{ uuid: string; editable: boolean }>();
 

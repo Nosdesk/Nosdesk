@@ -29,7 +29,7 @@ import {
   getTicketActivity,
   type TicketActivityEvent,
 } from '@nosdesk/core/services/ticketService'
-import { useWorkflowStatesStore } from '@/stores/workflowStates'
+import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates'
 import { useUsersDirectory } from '@/composables/useUsersDirectory'
 import { useTicketActivitySSE } from '@/composables/useTicketActivitySSE'
 import { formatCompactRelativeTime } from '@nosdesk/core/utils/dateUtils'

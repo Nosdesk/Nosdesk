@@ -25,7 +25,7 @@ import UserPicker from '@/components/ticketComponents/UserPicker.vue'
 import UserCell from '@/components/views/UserCell.vue'
 import { useReference } from '@/sync/composables'
 import { useSyncTicketsStore } from '@/sync/stores/tickets'
-import { useWorkflowStatesStore } from '@/stores/workflowStates'
+import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates'
 import {
   buildWorkflowDropdownOptions,
   isCategoryHeaderValue,

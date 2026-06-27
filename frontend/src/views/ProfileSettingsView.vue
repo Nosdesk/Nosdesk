@@ -6,7 +6,7 @@ import { useQuery } from '@pinia/colada';
 import { useUserProfileBundle } from '@/composables/useUserProfileBundle';
 import { useAuthStore } from '@/stores/auth';
 import { useBrandingStore } from '@/stores/branding';
-import { useToastStore } from '@/stores/toast';
+import { useToastStore } from '@nosdesk/core/stores/toast';
 import BackButton from '@/components/common/BackButton.vue';
 import Callout from '@/components/common/Callout.vue';
 import Spinner from '@/components/common/Spinner.vue';

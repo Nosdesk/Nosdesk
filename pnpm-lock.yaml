@@ -215,6 +215,12 @@ importers:
       fluent-vue:
         specifier: ^3.8.2
         version: 3.8.2(@fluent/bundle@0.19.1)(vue@3.5.39(typescript@6.0.3))
+      pinia:
+        specifier: ^3.0.4
+        version: 3.0.4(typescript@6.0.3)(vue@3.5.39(typescript@6.0.3))
+      vue:
+        specifier: ^3.3.4
+        version: 3.5.39(typescript@6.0.3)
       yjs:
         specifier: ^13.6.29
         version: 13.6.31

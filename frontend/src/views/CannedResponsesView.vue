@@ -29,7 +29,7 @@ import cannedResponsesService, {
 } from '@nosdesk/core/services/cannedResponsesService';
 import { extractErrorMessage } from '@/utils/errors';
 import { highlightTerms } from '@nosdesk/core/utils/highlight';
-import { useToastStore } from '@/stores/toast';
+import { useToastStore } from '@nosdesk/core/stores/toast';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);

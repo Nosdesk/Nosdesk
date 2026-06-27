@@ -17,7 +17,7 @@ import DebouncedSearchInput from '@/components/common/DebouncedSearchInput.vue'
 import ticketService from '@nosdesk/core/services/ticketService'
 import type { Ticket } from '@nosdesk/core/types/ticket'
 import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
-import { useWorkflowStatesStore } from '@/stores/workflowStates'
+import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates'
 
 const { $t } = useFluent()
 const wf = useWorkflowStatesStore()

@@ -16,7 +16,7 @@ import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import AttributeEditor from '@/components/assetKindComponents/AttributeEditor.vue';
 import { getUserFieldSchema, setUserFieldSchema } from '@nosdesk/core/services/userContactService';
 import { extractErrorMessage } from '@/utils/errors';
-import { useToastStore } from '@/stores/toast';
+import { useToastStore } from '@nosdesk/core/stores/toast';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);

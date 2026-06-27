@@ -5,7 +5,7 @@ import { useMutation, useQueryCache } from '@pinia/colada'
 import { useFluent } from 'fluent-vue'
 import { extractErrorMessage } from '@/utils/errors'
 import { formatDate } from '@nosdesk/core/utils/dateUtils'
-import { useToastStore } from '@/stores/toast'
+import { useToastStore } from '@nosdesk/core/stores/toast'
 
 import DataTable from '@/components/common/DataTable.vue'
 import PaginationControls from '@/components/common/PaginationControls.vue'

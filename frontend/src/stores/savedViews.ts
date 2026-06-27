@@ -14,7 +14,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { logger } from '@nosdesk/core/utils/logger'
-import { translate } from '@/i18n'
+import { translate } from '@nosdesk/core/i18n'
 import { dedupeInFlight } from '@nosdesk/core/utils/dedupeInFlight'
 import {
   savedViewsService,
@@ -70,7 +70,7 @@ export const useSavedViewsStore = defineStore('savedViews', () => {
 
   function findByUuid(uuid: string): SavedView | undefined {
     for (const rows of cache.value.values()) {
-      const hit = rows.find((v) => v.uuid === uuid)
+      const hit = rows.find((v: SavedView) => v.uuid === uuid)
       if (hit) return hit
     }
     return undefined
@@ -81,19 +81,19 @@ export const useSavedViewsStore = defineStore('savedViews', () => {
    * `removeFromCache` since there's no row to merge in. */
   function applyMutation(view: SavedView): void {
     for (const [key, rows] of cache.value) {
-      const idx = rows.findIndex((v) => v.uuid === view.uuid)
+      const idx = rows.findIndex((v: SavedView) => v.uuid === view.uuid)
       if (idx >= 0) {
         rows[idx] = view
       } else if (cacheKeyMatches(key, view)) {
         rows.push(view)
-        rows.sort((a, b) => a.name.localeCompare(b.name))
+        rows.sort((a: SavedView, b: SavedView) => a.name.localeCompare(b.name))
       }
     }
   }
 
   function removeFromCache(uuid: string): void {
     for (const rows of cache.value.values()) {
-      const idx = rows.findIndex((v) => v.uuid === uuid)
+      const idx = rows.findIndex((v: SavedView) => v.uuid === uuid)
       if (idx >= 0) rows.splice(idx, 1)
     }
   }

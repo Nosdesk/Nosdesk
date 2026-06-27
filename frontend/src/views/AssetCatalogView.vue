@@ -33,7 +33,7 @@ import {
   ASSET_MODELS_QUERY_KEY,
 } from '@nosdesk/core/services/assetCatalogService';
 import { extractErrorMessage } from '@/utils/errors';
-import { useToastStore } from '@/stores/toast';
+import { useToastStore } from '@nosdesk/core/stores/toast';
 import type { AssetModel } from '@nosdesk/core/types/asset';
 
 const fluent = useFluent();

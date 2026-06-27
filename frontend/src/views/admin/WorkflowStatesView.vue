@@ -11,7 +11,7 @@ import {
   type CreateWorkflowStateBody,
   type UpdateWorkflowStateBody,
 } from '@nosdesk/core/services/workflowStatesService'
-import { useWorkflowStatesStore } from '@/stores/workflowStates'
+import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates'
 import {
   getCategoryLabel,
   WORKFLOW_CATEGORIES,

@@ -26,7 +26,7 @@ import { createFluentVue, type FluentVue } from 'fluent-vue'
 import { watch } from 'vue'
 import type { Pinia } from 'pinia'
 
-import { useDateStore } from '@/stores/dateStore'
+import { useDateStore } from '@nosdesk/core/stores/dateStore'
 import { setActiveFluent } from '@nosdesk/core/i18n'
 
 // `translate()` now lives in @nosdesk/core (headless, so the mobile app shares

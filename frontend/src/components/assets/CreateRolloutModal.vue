@@ -15,10 +15,10 @@ import Button from '@/components/common/Button.vue'
 import FormInput from '@/components/common/FormInput.vue'
 import SearchableDropdown, { type DropdownOption } from '@/components/common/SearchableDropdown.vue'
 import AlertMessage from '@/components/common/AlertMessage.vue'
-import { useWorkflowStatesStore } from '@/stores/workflowStates'
+import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates'
 import { createAssetRollout } from '@/services/assetService'
 import { extractErrorMessage } from '@/utils/errors'
-import { useToastStore } from '@/stores/toast'
+import { useToastStore } from '@nosdesk/core/stores/toast'
 
 const props = defineProps<{
   show: boolean

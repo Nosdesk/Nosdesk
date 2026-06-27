@@ -1092,13 +1092,13 @@ async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLoca
   // Load feature flags once per session for any authenticated route. Failures
   // are swallowed inside the store; the app falls back to flags-disabled.
   if (authStore.isAuthenticated && authStore.user) {
-    const { useFeatureFlagsStore } = await import('@/stores/featureFlags');
+    const { useFeatureFlagsStore } = await import('@nosdesk/core/stores/featureFlags');
     const flagsStore = useFeatureFlagsStore();
     if (!flagsStore.loaded && !flagsStore.loading) {
       void flagsStore.load();
     }
 
-    const { useWorkflowStatesStore } = await import('@/stores/workflowStates');
+    const { useWorkflowStatesStore } = await import('@nosdesk/core/stores/workflowStates');
     const wfStore = useWorkflowStatesStore();
     if (!wfStore.loaded && !wfStore.loading) {
       void wfStore.load();

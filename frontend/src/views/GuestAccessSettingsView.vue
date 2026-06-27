@@ -181,7 +181,7 @@ import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import Skeleton from '@/components/common/Skeleton.vue';
 import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
-import { useToastStore } from '@/stores/toast';
+import { useToastStore } from '@nosdesk/core/stores/toast';
 import { useUnsavedChanges } from '@/composables/useUnsavedChanges';
 import {
   adminGuestSettingsService,

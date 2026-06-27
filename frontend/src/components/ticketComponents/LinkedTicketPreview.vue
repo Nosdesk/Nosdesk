@@ -8,7 +8,7 @@ import UserAvatar from "@/components/UserAvatar.vue";
 import SidebarCard from "@/components/ticketComponents/SidebarCard.vue";
 import ticketService from "@nosdesk/core/services/ticketService";
 import type { Ticket } from "@nosdesk/core/services/ticketService";
-import { useWorkflowStatesStore } from "@/stores/workflowStates";
+import { useWorkflowStatesStore } from "@nosdesk/core/stores/workflowStates";
 import { coarseStatusBucket } from "@nosdesk/core/types/workflow";
 
 const wf = useWorkflowStatesStore();

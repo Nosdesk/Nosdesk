@@ -15,7 +15,7 @@
  * sentinel prepended) and by SlaAdminView (raw IANA list).
  */
 import { computed, onBeforeUnmount, onMounted, ref, type ComputedRef } from 'vue'
-import { useDateStore } from '@/stores/dateStore'
+import { useDateStore } from '@nosdesk/core/stores/dateStore'
 import type { DropdownOption } from '@/components/common/BaseDropdown.vue'
 
 export function useTimezoneOptions(): ComputedRef<DropdownOption[]> {

@@ -1,5 +1,5 @@
 import { computed, type ComputedRef } from 'vue'
-import { useWorkflowStatesStore } from '@/stores/workflowStates'
+import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates'
 import type { WorkflowState, WorkflowStateCategory } from '@nosdesk/core/types/workflow'
 
 /**

@@ -18,7 +18,7 @@
 
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { setDateConfig, getUserTimezone } from '@nosdesk/core/utils/dateUtils'
+import { setDateConfig, getUserTimezone } from '../utils/dateUtils'
 
 const DEFAULT_LOCALE = 'en-US'
 

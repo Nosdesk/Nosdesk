@@ -14,7 +14,7 @@ import workspaceEmailService, {
   type RecordCheck,
 } from '@nosdesk/core/services/workspaceEmailService';
 import { extractErrorMessage } from '@/utils/errors';
-import { useToastStore } from '@/stores/toast';
+import { useToastStore } from '@nosdesk/core/stores/toast';
 
 // `embedded`: render as a section inside the consolidated Email delivery page
 // (no page header / outer padding), vs. the standalone admin route.

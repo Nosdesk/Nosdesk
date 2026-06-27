@@ -34,7 +34,7 @@ import {
   type CreateAssetKindBody,
 } from '@nosdesk/core/services/assetKindsService';
 import { extractErrorMessage } from '@/utils/errors';
-import { useToastStore } from '@/stores/toast';
+import { useToastStore } from '@nosdesk/core/stores/toast';
 import { RouterLink } from 'vue-router';
 import AttributeEditor from '@/components/assetKindComponents/AttributeEditor.vue';
 import BaseDropdown from '@/components/common/BaseDropdown.vue';

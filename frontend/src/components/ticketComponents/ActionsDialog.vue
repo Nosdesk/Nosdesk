@@ -22,7 +22,7 @@ import FormTextarea from '@/components/common/FormTextarea.vue';
 import Skeleton from '@/components/common/Skeleton.vue';
 import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import rulesService from '@nosdesk/core/services/rulesService';
-import { useToastStore } from '@/stores/toast';
+import { useToastStore } from '@nosdesk/core/stores/toast';
 import { extractErrorMessage } from '@/utils/errors';
 import type { Rule, RuleAction } from '@nosdesk/core/types/rule';
 

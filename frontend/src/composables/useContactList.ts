@@ -1,7 +1,7 @@
 import { ref, type Ref } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { extractErrorMessage } from '@/utils/errors';
-import { useToastStore } from '@/stores/toast';
+import { useToastStore } from '@nosdesk/core/stores/toast';
 
 /** Shared shape of a multi-valued contact row (phone, address). */
 export interface ContactRow {

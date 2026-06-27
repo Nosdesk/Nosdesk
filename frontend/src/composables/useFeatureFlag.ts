@@ -1,5 +1,5 @@
 import { computed, type ComputedRef } from 'vue';
-import { useFeatureFlagsStore } from '@/stores/featureFlags';
+import { useFeatureFlagsStore } from '@nosdesk/core/stores/featureFlags';
 import type { FeatureFlagValue } from '@nosdesk/core/services/featureFlagsService';
 
 /**

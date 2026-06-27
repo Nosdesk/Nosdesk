@@ -20,7 +20,7 @@ import { computed, type ComputedRef } from 'vue'
 import { useRoute, useRouter, type LocationQuery } from 'vue-router'
 import { TZDate } from '@date-fns/tz'
 import { startOfDay, endOfDay, subDays, subYears } from 'date-fns'
-import { useDateStore } from '@/stores/dateStore'
+import { useDateStore } from '@nosdesk/core/stores/dateStore'
 
 /** The six preset chips + the Custom escape hatch. */
 export type TimeRangePreset =

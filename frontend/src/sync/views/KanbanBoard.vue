@@ -30,7 +30,7 @@ const fluent = useFluent()
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
 
 import { useSyncTicketsStore, type SyncTicket } from '@/sync/stores/tickets'
-import { useWorkflowStatesStore } from '@/stores/workflowStates'
+import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates'
 import {
   WORKFLOW_CATEGORIES,
   getCategoryLabel,

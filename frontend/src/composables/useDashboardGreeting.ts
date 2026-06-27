@@ -8,7 +8,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, type Ref } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useBrandingStore } from '@/stores/branding'
-import { useDateStore } from '@/stores/dateStore'
+import { useDateStore } from '@nosdesk/core/stores/dateStore'
 
 interface WeightedMessage {
   message: string

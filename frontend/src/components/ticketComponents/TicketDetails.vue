@@ -5,7 +5,7 @@ import { shareableRouteUrl } from '@/utils/shareUrl';
 import { useFluent } from 'fluent-vue';
 import { stripHtml } from '@/composables/useSanitise';
 import type { TicketPriority } from '@nosdesk/core/constants/ticketOptions';
-import { useWorkflowStatesStore } from '@/stores/workflowStates';
+import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates';
 import {
   buildWorkflowDropdownOptions,
   isCategoryHeaderValue,
