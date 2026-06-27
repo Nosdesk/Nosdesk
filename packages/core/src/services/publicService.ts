@@ -1,6 +1,6 @@
 import axios from 'axios';
-import { apiBaseUrl } from '@nosdesk/core/transport';
-import type { WorkflowStateCategory } from '@nosdesk/core/types/workflow';
+import { apiBaseUrl } from '../transport';
+import type { WorkflowStateCategory } from '../types/workflow';
 
 export interface PublicSiteSettings {
   app_name: string;
@@ -137,7 +137,7 @@ export const publicService = {
 };
 
 // ---- Admin-side guest settings service (uses authenticated client) ----
-import apiClient from '@nosdesk/core/apiClient';
+import apiClient from '../apiClient';
 
 export interface AdminGuestSettings {
   guest_tickets_enabled: boolean;

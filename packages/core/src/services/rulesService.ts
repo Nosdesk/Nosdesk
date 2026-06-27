@@ -9,7 +9,7 @@
  * from the views; mutations call the service directly and invalidate
  * the relevant query key.
  */
-import apiClient from '@nosdesk/core/apiClient';
+import apiClient from '../apiClient';
 import type {
   ApplyRuleRequest,
   ApplyRuleResponse,
@@ -21,7 +21,7 @@ import type {
   RuleVersion,
   StateTransitionRequest,
   UpdateRuleRequest,
-} from '@nosdesk/core/types/rule';
+} from '../types/rule';
 
 function toQueryString(params: object | undefined): string {
   if (!params) return '';

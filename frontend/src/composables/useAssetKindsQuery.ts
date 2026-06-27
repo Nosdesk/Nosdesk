@@ -16,7 +16,7 @@ import {
   assetKindsService,
   ASSET_KINDS_QUERY_KEY,
   type AssetKind,
-} from '@/services/assetKindsService'
+} from '@nosdesk/core/services/assetKindsService'
 
 export function useAssetKindsQuery() {
   const query = useQuery({

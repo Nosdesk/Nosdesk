@@ -14,7 +14,7 @@ without a page reload.
 import { computed, onBeforeUnmount, onMounted } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useQuery } from '@pinia/colada'
-import { slaService } from '@/services/slaService'
+import { slaService } from '@nosdesk/core/services/slaService'
 import DashboardWidgetShell from './DashboardWidgetShell.vue'
 import KpiRail, { type Kpi } from './KpiRail.vue'
 import KpiRailSkeleton from './KpiRailSkeleton.vue'

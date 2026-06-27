@@ -32,7 +32,7 @@
 import { computed, ref, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useAuthStore } from '@/stores/auth'
-import { watcherService } from '@/services/watcherService'
+import { watcherService } from '@nosdesk/core/services/watcherService'
 import UserAvatar from '@/components/UserAvatar.vue'
 import Icon from '@/components/common/Icon.vue'
 import Popover from '@/components/common/Popover.vue'

@@ -1,7 +1,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useDebouncedRef } from '@/composables/useDebouncedRef';
-import { searchService } from '@/services/searchService';
+import { searchService } from '@nosdesk/core/services/searchService';
 import type { SearchResult, SearchResponse, GroupedSearchResults } from '@nosdesk/core/types/search';
 import { groupResultsByType, emptyGroupedResults, ENTITY_DISPLAY_ORDER, ENTITY_TYPE_CONFIG } from '@nosdesk/core/types/search';
 import { translate } from '@/i18n';

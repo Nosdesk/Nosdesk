@@ -379,7 +379,7 @@ export function useTicketDetail(
     const previous = r?.tag_ids ?? []
     pool.patch<SyncTicketDetail>('ticket', id.value, { tag_ids: tagIds })
     try {
-      const { tagService } = await import('@/services/tagService')
+      const { tagService } = await import('@nosdesk/core/services/tagService')
       const next = await tagService.setForTicket(id.value, tagIds)
       pool.patch<SyncTicketDetail>('ticket', id.value, { tag_ids: next })
     } catch (err) {
@@ -398,7 +398,7 @@ export function useTicketDetail(
       : [...current, currentUserUuid]
     pool.patch<SyncTicketDetail>('ticket', id.value, { watcher_uuids: optimistic })
     try {
-      const { watcherService } = await import('@/services/watcherService')
+      const { watcherService } = await import('@nosdesk/core/services/watcherService')
       if (isWatching) await watcherService.unwatch(id.value)
       else await watcherService.watch(id.value)
     } catch (err) {

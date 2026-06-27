@@ -1,5 +1,5 @@
-import apiClient from '@nosdesk/core/apiClient';
-import type { AssetMedia } from '@nosdesk/core/types/asset';
+import apiClient from '../apiClient';
+import type { AssetMedia } from '../types/asset';
 
 /** Pinia Colada cache keys for an asset's media list. */
 export const assetMediaKeys = {

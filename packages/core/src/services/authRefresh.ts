@@ -14,7 +14,7 @@
  * without an import cycle through apiConfig.
  */
 import axios from 'axios'
-import { apiBaseUrl, transport } from '@nosdesk/core/transport'
+import { apiBaseUrl, transport } from '../transport'
 
 let inFlight: Promise<boolean> | null = null
 

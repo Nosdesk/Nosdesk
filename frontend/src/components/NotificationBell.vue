@@ -22,7 +22,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
-import type { Notification } from '@/services/notificationService'
+import type { Notification } from '@nosdesk/core/services/notificationService'
 import { useNotificationsStore } from '@/stores/notifications'
 import {
   applyNotificationFilter,

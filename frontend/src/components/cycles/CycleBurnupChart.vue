@@ -24,7 +24,7 @@
  */
 import { computed, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
-import type { BurnupSeries } from '@/services/cyclesService'
+import type { BurnupSeries } from '@nosdesk/core/services/cyclesService'
 import { formatCompactDate } from '@nosdesk/core/utils/dateUtils'
 import { parseDayMs, buildPaceSeries, buildForecast, type SeriesPoint } from '@nosdesk/core/utils/burnupModel'
 

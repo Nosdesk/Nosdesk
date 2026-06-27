@@ -33,7 +33,7 @@ import {
 import PluginSlot from '@/plugins/components/PluginSlot.vue';
 import Modal from '@/components/Modal.vue';
 import { deleteAsset, unmanageAsset } from '@/services/assetService';
-import { type AssetKind } from '@/services/assetKindsService';
+import { type AssetKind } from '@nosdesk/core/services/assetKindsService';
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery';
 import { useAssetLocationsQuery } from '@/composables/useAssetLocationsQuery';
 import { useSyncActions } from '@/composables/useSyncActions';

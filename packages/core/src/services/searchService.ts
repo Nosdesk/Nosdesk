@@ -1,10 +1,10 @@
-import apiClient from '@nosdesk/core/apiClient';
+import apiClient from '../apiClient';
 import type {
   SearchParams,
   SearchResponse,
   IndexStats,
   RebuildResponse,
-} from '@nosdesk/core/types/search';
+} from '../types/search';
 
 /**
  * Search service for full-text search across the application

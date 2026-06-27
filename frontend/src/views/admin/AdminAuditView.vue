@@ -12,7 +12,7 @@ import BaseDropdown, { type DropdownOption } from '@/components/common/BaseDropd
 import UserAvatar from '@/components/UserAvatar.vue';
 import type { IconName } from '@/components/common/icons';
 import { formatDate, formatDateTime, formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
-import { auditService, type AuditEntry, type AuditPage, type AuditQuery } from '@/services/auditService';
+import { auditService, type AuditEntry, type AuditPage, type AuditQuery } from '@nosdesk/core/services/auditService';
 import { auditKeys } from '@nosdesk/core/queries/audit';
 import { extractErrorMessage } from '@/utils/errors';
 

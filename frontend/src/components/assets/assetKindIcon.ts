@@ -1,5 +1,5 @@
 import { ICON_REGISTRY, type IconName } from '@/components/common/icons'
-import type { AssetKindCategory } from '@/services/assetKindsService'
+import type { AssetKindCategory } from '@nosdesk/core/services/assetKindsService'
 
 /** Per-category fallback when a kind's stored `icon` isn't a real
  *  registry key. Every value here must be a valid IconName. */

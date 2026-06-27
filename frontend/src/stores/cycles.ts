@@ -20,7 +20,7 @@ import {
   type Cycle,
   type CreateCycleBody,
   type UpdateCycleBody,
-} from '@/services/cyclesService'
+} from '@nosdesk/core/services/cyclesService'
 
 export const useCyclesStore = defineStore('cycles', () => {
   const cache = ref<Map<number, Cycle[]>>(new Map())

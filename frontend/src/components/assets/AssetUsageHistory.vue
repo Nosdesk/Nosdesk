@@ -25,8 +25,8 @@
  */
 import { computed, onMounted, ref } from 'vue';
 import { useFluent } from 'fluent-vue';
-import { assetUsageService, type AssetUsage } from '@/services/assetUsageService';
-import { assetAuditService, type AssetAudit } from '@/services/assetAuditService';
+import { assetUsageService, type AssetUsage } from '@nosdesk/core/services/assetUsageService';
+import { assetAuditService, type AssetAudit } from '@nosdesk/core/services/assetAuditService';
 import { useSyncActions } from '@/composables/useSyncActions';
 import { RouterLink } from 'vue-router';
 import { formatDateTime } from '@nosdesk/core/utils/dateUtils';

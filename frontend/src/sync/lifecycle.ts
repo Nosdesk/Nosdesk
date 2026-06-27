@@ -572,7 +572,7 @@ async function fetchMissingAssets(ids: string[]): Promise<void> {
  * pool deliberately drops.
  */
 function toCycleCacheRow(
-  c: import('@/services/cyclesService').Cycle,
+  c: import('@nosdesk/core/services/cyclesService').Cycle,
 ): Record<string, unknown> {
   return {
     id: c.id,
@@ -585,7 +585,7 @@ function toCycleCacheRow(
 
 async function fetchMissingCycles(ids: string[]): Promise<void> {
   if (ids.length === 0) return
-  const { cyclesService } = await import('@/services/cyclesService')
+  const { cyclesService } = await import('@nosdesk/core/services/cyclesService')
   try {
     const cycles = await cyclesService.listWorkspace(['planned', 'active', 'completed'])
     for (const c of cycles) {

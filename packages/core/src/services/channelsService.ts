@@ -9,7 +9,7 @@
  * single `email_imap` row and calls this service as if the list
  * always has length 0 or 1.
  */
-import apiClient from '@nosdesk/core/apiClient';
+import apiClient from '../apiClient';
 
 /**
  * Serialized channel row. Mirrors the backend's `ChannelResponse`

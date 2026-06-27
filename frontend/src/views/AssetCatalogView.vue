@@ -31,7 +31,7 @@ import {
   assetModelsService,
   MANUFACTURERS_QUERY_KEY,
   ASSET_MODELS_QUERY_KEY,
-} from '@/services/assetCatalogService';
+} from '@nosdesk/core/services/assetCatalogService';
 import { extractErrorMessage } from '@/utils/errors';
 import { useToastStore } from '@/stores/toast';
 import type { AssetModel } from '@nosdesk/core/types/asset';

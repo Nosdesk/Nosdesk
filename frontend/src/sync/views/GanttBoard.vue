@@ -24,8 +24,8 @@ import {
   startOfWeek,
 } from 'date-fns'
 import type { CardData } from './types'
-import type { DependencyEdge } from '@/services/dependenciesService'
-import type { Cycle } from '@/services/cyclesService'
+import type { DependencyEdge } from '@nosdesk/core/services/dependenciesService'
+import type { Cycle } from '@nosdesk/core/services/cyclesService'
 import { TERMINAL_CATEGORIES, coarseStatusBucket } from '@nosdesk/core/types/workflow'
 import { startOfDay, type GanttViewport } from '@/composables/useGanttViewport'
 import EmptyState from '@/components/common/EmptyState.vue'

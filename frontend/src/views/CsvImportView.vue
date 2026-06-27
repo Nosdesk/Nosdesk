@@ -30,7 +30,7 @@ import {
   importService,
   type ImportJob,
   type ImportJobType,
-} from '@/services/importService'
+} from '@nosdesk/core/services/importService'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)

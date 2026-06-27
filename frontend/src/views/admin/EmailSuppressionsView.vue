@@ -24,7 +24,7 @@ import { formatDateTime as formatDateTimeTz } from '@nosdesk/core/utils/dateUtil
 import {
   emailSuppressionsService,
   type EmailSuppression,
-} from '@/services/emailSuppressionsService';
+} from '@nosdesk/core/services/emailSuppressionsService';
 
 // `embedded`: render as part of the Activity tab inside the Email delivery page.
 const props = withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false });

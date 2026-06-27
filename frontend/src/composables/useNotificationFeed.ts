@@ -18,7 +18,7 @@ import {
   useNotificationsList,
   useUnreadCount,
 } from '@/stores/notifications'
-import type { Notification } from '@/services/notificationService'
+import type { Notification } from '@nosdesk/core/services/notificationService'
 import type { IconName } from '@/components/common/icons'
 import type { AsyncBoundaryOp } from '@/components/common/AsyncBoundary.vue'
 

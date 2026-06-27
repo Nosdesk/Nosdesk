@@ -345,7 +345,7 @@ import {
   type Channel,
   type ImapChannelConfig,
   type ImapRuntimeState
-} from '@/services/channelsService';
+} from '@nosdesk/core/services/channelsService';
 import brandingService, { type BrandingConfig } from '@/services/brandingService';
 import apiClient from '@nosdesk/core/apiClient';
 import { useToastStore } from '@/stores/toast';

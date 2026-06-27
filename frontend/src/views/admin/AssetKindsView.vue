@@ -28,7 +28,7 @@ import {
   assetKindsService,
   ASSET_KINDS_QUERY_KEY,
   type AssetKind,
-} from '@/services/assetKindsService';
+} from '@nosdesk/core/services/assetKindsService';
 import { extractErrorMessage } from '@/utils/errors';
 import { highlightTerms } from '@nosdesk/core/utils/highlight';
 import { useToastStore } from '@/stores/toast';

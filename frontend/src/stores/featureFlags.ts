@@ -6,7 +6,7 @@ import {
   featureFlagsService,
   type FeatureFlagMap,
   type FeatureFlagValue,
-} from '@/services/featureFlagsService';
+} from '@nosdesk/core/services/featureFlagsService';
 
 export const useFeatureFlagsStore = defineStore('featureFlags', () => {
   const flags = ref<FeatureFlagMap>({});

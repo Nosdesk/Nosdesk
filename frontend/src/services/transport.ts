@@ -10,7 +10,7 @@
  */
 import { configureTransport, type AuthStrategy } from '@nosdesk/core/transport'
 import { getCsrfToken } from '@/utils/csrf'
-import { refreshAccessToken } from './authRefresh'
+import { refreshAccessToken } from '@nosdesk/core/services/authRefresh'
 
 // Same-origin by default; an explicit absolute base overrides it.
 const baseUrl = import.meta.env.VITE_API_URL || '/api'

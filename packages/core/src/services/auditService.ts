@@ -1,7 +1,7 @@
 // Admin / audit-reviewer client for the unified audit feed.
 // Mirrors backend/src/handlers/audit.rs + repository/audit.rs.
 
-import apiClient from '@nosdesk/core/apiClient';
+import apiClient from '../apiClient';
 
 export type AuditSource = 'tier1' | 'tier2' | 'tier3';
 

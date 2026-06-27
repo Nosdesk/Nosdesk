@@ -20,7 +20,7 @@
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import type { Notification } from '@/services/notificationService'
+import type { Notification } from '@nosdesk/core/services/notificationService'
 import { useDeleteManyMutation, useNotificationsStore } from '@/stores/notifications'
 import {
   applyNotificationFilter,

@@ -1,4 +1,4 @@
-import apiClient from '@nosdesk/core/apiClient';
+import apiClient from '../apiClient';
 
 export interface DkimRecord {
   name: string;

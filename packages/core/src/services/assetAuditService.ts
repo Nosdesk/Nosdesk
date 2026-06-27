@@ -1,4 +1,4 @@
-import apiClient from '@nosdesk/core/apiClient'
+import apiClient from '../apiClient'
 
 /** One row of the asset audit ledger. Decimal fields are
  *  serialised as strings to avoid lossy f64 round-tripping.

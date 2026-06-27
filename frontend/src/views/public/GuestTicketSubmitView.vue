@@ -282,7 +282,7 @@ import {
   publicService,
   type GuestAttachmentUpload,
   type SubmitGuestTicketResponse
-} from '@/services/publicService';
+} from '@nosdesk/core/services/publicService';
 import axios from 'axios';
 
 const fluent = useFluent();

@@ -32,7 +32,7 @@ import {
   type AssetKind,
   type AssetKindCategory,
   type CreateAssetKindBody,
-} from '@/services/assetKindsService';
+} from '@nosdesk/core/services/assetKindsService';
 import { extractErrorMessage } from '@/utils/errors';
 import { useToastStore } from '@/stores/toast';
 import { RouterLink } from 'vue-router';

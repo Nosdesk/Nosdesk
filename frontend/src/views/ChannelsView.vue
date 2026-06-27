@@ -11,7 +11,7 @@ import { useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import { useQuery } from '@pinia/colada';
 
-import { channelsService, type Channel, type ImapRuntimeState } from '@/services/channelsService';
+import { channelsService, type Channel, type ImapRuntimeState } from '@nosdesk/core/services/channelsService';
 import { isInboundForwardingEnabled } from '@/services/instanceConfig';
 import type { IconName } from '@/components/common/icons';
 import Icon from '@/components/common/Icon.vue';

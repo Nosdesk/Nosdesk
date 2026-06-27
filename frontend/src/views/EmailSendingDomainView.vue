@@ -12,7 +12,7 @@ import workspaceEmailService, {
   type OutboundSettings,
   type EmailAuthReport,
   type RecordCheck,
-} from '@/services/workspaceEmailService';
+} from '@nosdesk/core/services/workspaceEmailService';
 import { extractErrorMessage } from '@/utils/errors';
 import { useToastStore } from '@/stores/toast';
 

@@ -98,7 +98,7 @@ import SkeletonBlock from './SkeletonBlock.vue';
 import FeatureDisabledNotice from './FeatureDisabledNotice.vue';
 import Icon from '@/components/common/Icon.vue';
 import { usePublicSettingsStore } from '@/stores/publicSettings';
-import { publicService, type GuestTicketStatus } from '@/services/publicService';
+import { publicService, type GuestTicketStatus } from '@nosdesk/core/services/publicService';
 import { coarseStatusBucket } from '@nosdesk/core/types/workflow';
 
 const fluent = useFluent();

@@ -36,7 +36,7 @@ import {
   type WorkingCalendarHoliday,
   type SlaPolicyBody,
   type PolicyMatchCounts,
-} from '@/services/slaService'
+} from '@nosdesk/core/services/slaService'
 import { categoryService } from '@/services/categoryService'
 import type { TicketCategory } from '@nosdesk/core/types/category'
 import { groupService } from '@/services/groupService'

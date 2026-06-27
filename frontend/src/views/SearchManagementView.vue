@@ -156,7 +156,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 
-import { searchService } from '@/services/searchService'
+import { searchService } from '@nosdesk/core/services/searchService'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import Icon from '@/components/common/Icon.vue'
 import Spinner from '@/components/common/Spinner.vue'

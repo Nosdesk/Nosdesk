@@ -25,7 +25,7 @@ import Checkbox from '@/components/common/Checkbox.vue';
 import FormInput from '@/components/common/FormInput.vue';
 import FormTextarea from '@/components/common/FormTextarea.vue';
 import Icon from '@/components/common/Icon.vue';
-import rulesService from '@/services/rulesService';
+import rulesService from '@nosdesk/core/services/rulesService';
 import { extractErrorMessage } from '@/utils/errors';
 import { useToastStore } from '@/stores/toast';
 import type {

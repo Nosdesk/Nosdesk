@@ -26,7 +26,7 @@ import SamplePreview from '@/components/cannedResponseComponents/SamplePreview.v
 import cannedResponsesService, {
   findUnknownVariables,
   type CannedResponseListItem,
-} from '@/services/cannedResponsesService';
+} from '@nosdesk/core/services/cannedResponsesService';
 import { extractErrorMessage } from '@/utils/errors';
 import { useToastStore } from '@/stores/toast';
 

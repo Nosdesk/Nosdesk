@@ -38,7 +38,7 @@ import type { CardData, Priority } from './types'
 import {
   calendarOverlaysService,
   type CalendarOverlayEntry,
-} from '@/services/calendarOverlaysService'
+} from '@nosdesk/core/services/calendarOverlaysService'
 import CalendarBoard, { type CalendarOverlay } from './CalendarBoard.vue'
 import TicketsHeader from '@/components/views/TicketsHeader.vue'
 import TicketsTable from '@/components/views/TicketsTable.vue'

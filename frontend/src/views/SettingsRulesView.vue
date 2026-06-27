@@ -24,7 +24,7 @@ import Icon from '@/components/common/Icon.vue';
 import SearchInput from '@/components/common/SearchInput.vue';
 import Skeleton from '@/components/common/Skeleton.vue';
 import SkeletonBar from '@/components/common/SkeletonBar.vue';
-import rulesService from '@/services/rulesService';
+import rulesService from '@nosdesk/core/services/rulesService';
 import { useToastStore } from '@/stores/toast';
 import { extractErrorMessage } from '@/utils/errors';
 import type { Rule, RuleState, RuleTriggerKind } from '@nosdesk/core/types/rule';

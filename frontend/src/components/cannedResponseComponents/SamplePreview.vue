@@ -12,7 +12,7 @@
  */
 import { computed } from 'vue';
 import { useFluent } from 'fluent-vue';
-import { renderTemplate, type TemplateVars } from '@/services/cannedResponsesService';
+import { renderTemplate, type TemplateVars } from '@nosdesk/core/services/cannedResponsesService';
 
 const { $t } = useFluent();
 

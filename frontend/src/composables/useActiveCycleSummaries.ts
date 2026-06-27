@@ -17,7 +17,7 @@ import { computed } from 'vue'
 import { useQuery } from '@pinia/colada'
 import { useAggregate } from '@/sync/composables'
 import type { SyncTicket } from '@/sync/stores/tickets'
-import { cyclesService, type Cycle } from '@/services/cyclesService'
+import { cyclesService, type Cycle } from '@nosdesk/core/services/cyclesService'
 import { TERMINAL_CATEGORIES } from '@nosdesk/core/types/workflow'
 
 export interface ActiveCycleSummary {

@@ -26,7 +26,7 @@ import StarterCatalogModal from '@/components/cannedResponseComponents/StarterCa
 import cannedResponsesService, {
   type CannedResponseListItem,
   type CannedResponseStarter,
-} from '@/services/cannedResponsesService';
+} from '@nosdesk/core/services/cannedResponsesService';
 import { extractErrorMessage } from '@/utils/errors';
 import { highlightTerms } from '@nosdesk/core/utils/highlight';
 import { useToastStore } from '@/stores/toast';

@@ -14,7 +14,7 @@ import {
   type OutboundEmailRow,
   type OutboundEmailStats,
   type OutboundEmailStatus,
-} from '@/services/emailQueueService';
+} from '@nosdesk/core/services/emailQueueService';
 
 // `embedded`: render as the Activity tab inside the Email delivery page.
 const props = withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false });

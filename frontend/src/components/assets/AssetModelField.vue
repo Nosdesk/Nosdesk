@@ -27,7 +27,7 @@ import {
   assetModelsService,
   MANUFACTURERS_QUERY_KEY,
   ASSET_MODELS_QUERY_KEY,
-} from '@/services/assetCatalogService'
+} from '@nosdesk/core/services/assetCatalogService'
 import { setAssetModel, clearAssetModel } from '@/services/assetService'
 import { extractErrorMessage } from '@/utils/errors'
 import type { Asset } from '@nosdesk/core/types/asset'

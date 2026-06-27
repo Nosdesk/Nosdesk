@@ -87,7 +87,7 @@ import PublicLayout from './PublicLayout.vue';
 import SkeletonBlock from './SkeletonBlock.vue';
 import FeatureDisabledNotice from './FeatureDisabledNotice.vue';
 import { usePublicSettingsStore } from '@/stores/publicSettings';
-import { publicService, type PublicDoc } from '@/services/publicService';
+import { publicService, type PublicDoc } from '@nosdesk/core/services/publicService';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);

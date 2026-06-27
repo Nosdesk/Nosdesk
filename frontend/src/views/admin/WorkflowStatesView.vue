@@ -10,7 +10,7 @@ import {
   workflowStatesService,
   type CreateWorkflowStateBody,
   type UpdateWorkflowStateBody,
-} from '@/services/workflowStatesService'
+} from '@nosdesk/core/services/workflowStatesService'
 import { useWorkflowStatesStore } from '@/stores/workflowStates'
 import {
   getCategoryLabel,

@@ -1,5 +1,5 @@
-import apiClient from '@nosdesk/core/apiClient';
-import type { AssetLifecycleEvent } from '@nosdesk/core/types/asset';
+import apiClient from '../apiClient';
+import type { AssetLifecycleEvent } from '../types/asset';
 
 /** Pinia Colada cache keys for an asset's lifecycle timeline. */
 export const assetLifecycleKeys = {

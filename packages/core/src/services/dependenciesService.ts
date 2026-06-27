@@ -1,4 +1,4 @@
-import apiClient from '@nosdesk/core/apiClient'
+import apiClient from '../apiClient'
 
 export type RelationType = 'blocks' | 'blocked_by' | 'related' | 'duplicate_of'
 

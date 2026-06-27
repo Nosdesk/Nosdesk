@@ -25,7 +25,7 @@ import EmptyState from '@/components/common/EmptyState.vue';
 import Icon from '@/components/common/Icon.vue';
 import Skeleton from '@/components/common/Skeleton.vue';
 import SkeletonBar from '@/components/common/SkeletonBar.vue';
-import rulesService from '@/services/rulesService';
+import rulesService from '@nosdesk/core/services/rulesService';
 import type { RuleApplication, RuleApplicationStatus } from '@nosdesk/core/types/rule';
 
 const fluent = useFluent();

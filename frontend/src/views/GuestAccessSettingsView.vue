@@ -186,7 +186,7 @@ import { useUnsavedChanges } from '@/composables/useUnsavedChanges';
 import {
   adminGuestSettingsService,
   type AdminGuestSettings
-} from '@/services/publicService';
+} from '@nosdesk/core/services/publicService';
 
 const fluent = useFluent();
 const t = (key: string) => fluent.$t(key);
