@@ -567,6 +567,8 @@ pub mod helpers {
             mfa_backup_code_used: None,
             requires_backup_code_regeneration: None,
             backup_codes: None,
+            access_token: None,
+            refresh_token: None,
         };
 
         Ok((response, tokens))
@@ -586,6 +588,8 @@ pub mod helpers {
             mfa_backup_code_used: None,
             requires_backup_code_regeneration: None,
             backup_codes: None,
+            access_token: None,
+            refresh_token: None,
         }
     }
 
@@ -607,6 +611,8 @@ pub mod helpers {
             mfa_backup_code_used: None,
             requires_backup_code_regeneration: None,
             backup_codes: None,
+            access_token: None,
+            refresh_token: None,
         }
     }
 
@@ -626,6 +632,8 @@ pub mod helpers {
             mfa_backup_code_used: None,
             requires_backup_code_regeneration: None,
             backup_codes: None,
+            access_token: None,
+            refresh_token: None,
         }
     }
 
@@ -661,6 +669,8 @@ pub mod helpers {
             mfa_backup_code_used: Some(backup_code_used),
             requires_backup_code_regeneration: Some(requires_regeneration),
             backup_codes: None,
+            access_token: None,
+            refresh_token: None,
         };
 
         Ok((response, tokens))

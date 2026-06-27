@@ -682,7 +682,8 @@ pub async fn finish_passkey_login(
     match jwt_helpers::create_login_response(user, &session.session_id, &family_id, &mut conn) {
         Ok((response, tokens)) => {
             info!("Passkey login successful for user {}", user_uuid);
-            super::auth::build_auth_cookie_response(
+            super::auth::build_auth_response(
+                &req,
                 json!({
                     "success": true,
                     "csrf_token": response.csrf_token,
@@ -1349,7 +1350,7 @@ pub async fn finish_passkey_setup_login(
                 response_json["backup_codes"] = json!(&*plaintext_codes);
             }
 
-            super::auth::build_auth_cookie_response(response_json, &tokens)
+            super::auth::build_auth_response(&req, response_json, &tokens)
         }
         Err(error_response) => error_response,
     }
