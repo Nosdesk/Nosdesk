@@ -13,7 +13,7 @@
  */
 import { ref, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
-import { getWorkspaceRouting } from '@/services/instanceConfig';
+import { getWorkspaceRouting } from '@nosdesk/core/services/instanceConfig';
 import { navigateToWorkspace } from '@/utils/workspaceNavigation';
 import { logger } from '@nosdesk/core/utils/logger';
 import type { MyWorkspaceEntry } from '@nosdesk/core/types/workspace';

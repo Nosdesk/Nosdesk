@@ -6,8 +6,8 @@ import { useFluent } from 'fluent-vue';
 import StatusBadge from "@/components/StatusBadge.vue";
 import UserAvatar from "@/components/UserAvatar.vue";
 import SidebarCard from "@/components/ticketComponents/SidebarCard.vue";
-import ticketService from "@/services/ticketService";
-import type { Ticket } from "@/services/ticketService";
+import ticketService from "@nosdesk/core/services/ticketService";
+import type { Ticket } from "@nosdesk/core/services/ticketService";
 import { useWorkflowStatesStore } from "@/stores/workflowStates";
 import { coarseStatusBucket } from "@nosdesk/core/types/workflow";
 

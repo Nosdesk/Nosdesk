@@ -13,7 +13,7 @@ import { useFluent } from 'fluent-vue';
 import { useQuery, useQueryCache } from '@pinia/colada';
 
 import { channelsService, type Channel } from '@nosdesk/core/services/channelsService';
-import { isInboundForwardingEnabled } from '@/services/instanceConfig';
+import { isInboundForwardingEnabled } from '@nosdesk/core/services/instanceConfig';
 import Button from '@/components/common/Button.vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
 

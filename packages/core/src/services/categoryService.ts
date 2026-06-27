@@ -1,5 +1,5 @@
-import apiClient from '@nosdesk/core/apiClient';
-import { logger } from '@nosdesk/core/utils/logger';
+import apiClient from '../apiClient';
+import { logger } from '../utils/logger';
 import type {
   TicketCategory,
   CategoryWithVisibility,
@@ -7,7 +7,7 @@ import type {
   UpdateCategoryRequest,
   ReorderCategoriesRequest,
   SetCategoryVisibilityRequest
-} from '@nosdesk/core/types/category';
+} from '../types/category';
 
 export const categoryService = {
   // Get categories visible to the current user

@@ -9,7 +9,7 @@ no merges target this ticket.
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useQuery } from '@pinia/colada'
-import { fetchMergeHistory } from '@/services/ticketService'
+import { fetchMergeHistory } from '@nosdesk/core/services/ticketService'
 
 const props = defineProps<{ ticketId: number }>()
 

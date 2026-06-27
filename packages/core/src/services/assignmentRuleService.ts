@@ -1,5 +1,5 @@
-import apiClient from '@nosdesk/core/apiClient'
-import { logger } from '@nosdesk/core/utils/logger'
+import apiClient from '../apiClient'
+import { logger } from '../utils/logger'
 import type {
   AssignmentRuleWithDetails,
   CreateAssignmentRuleRequest,
@@ -8,7 +8,7 @@ import type {
   PreviewAssignmentRequest,
   PreviewAssignmentResponse,
   AssignmentLog
-} from '@nosdesk/core/types/assignmentRule'
+} from '../types/assignmentRule'
 
 export const assignmentRuleService = {
   // Get all assignment rules with details (admin only)

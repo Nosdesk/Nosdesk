@@ -14,7 +14,7 @@ they'll dedup into a single network request per session.
 import { computed } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useQuery } from '@pinia/colada'
-import { getRecentTickets, type RecentTicket } from '@/services/ticketService'
+import { getRecentTickets, type RecentTicket } from '@nosdesk/core/services/ticketService'
 import DashboardWidgetShell from './DashboardWidgetShell.vue'
 import TicketRow from '@/components/TicketRow.vue'
 

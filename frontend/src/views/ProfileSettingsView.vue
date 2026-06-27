@@ -31,7 +31,7 @@ import UserEmailsCard from '@/components/settings/UserEmailsCard.vue';
 import userService from '@/services/userService';
 import type { User } from '@/services/userService';
 import { effectiveRole, rolesFromTier, type UserRole } from '@nosdesk/core/types/user';
-import { groupService } from '@/services/groupService';
+import { groupService } from '@nosdesk/core/services/groupService';
 import type { Group } from '@nosdesk/core/types/group';
 import apiClient from '@nosdesk/core/apiClient';
 import { useMfa } from '@/composables/useMfa';

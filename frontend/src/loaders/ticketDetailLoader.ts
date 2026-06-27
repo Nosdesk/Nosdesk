@@ -26,7 +26,7 @@
  */
 import { defineColadaLoader } from 'vue-router/experimental/pinia-colada'
 import { useQueryCache } from '@pinia/colada'
-import ticketService from '@/services/ticketService'
+import ticketService from '@nosdesk/core/services/ticketService'
 import type { Ticket } from '@nosdesk/core/types/ticket'
 
 /** Build the cache key for a single ticket's detail payload.

@@ -1,5 +1,5 @@
-import { logger } from '@nosdesk/core/utils/logger';
-import apiClient from '@nosdesk/core/apiClient';
+import { logger } from '../utils/logger';
+import apiClient from '../apiClient';
 
 export interface Collection {
   id: number;

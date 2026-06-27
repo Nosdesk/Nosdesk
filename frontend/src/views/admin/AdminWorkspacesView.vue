@@ -21,7 +21,7 @@ import Icon from '@/components/common/Icon.vue';
 import Skeleton from '@/components/common/Skeleton.vue';
 import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import Modal from '@/components/Modal.vue';
-import workspacesService from '@/services/workspacesService';
+import workspacesService from '@nosdesk/core/services/workspacesService';
 import type { Workspace } from '@nosdesk/core/types/workspace';
 import { extractErrorMessage } from '@/utils/errors';
 

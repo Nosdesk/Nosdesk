@@ -2,7 +2,7 @@
 import { ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useFluent } from 'fluent-vue'
-import { getCollectionsForPage, getCollection } from '@/services/collectionService'
+import { getCollectionsForPage, getCollection } from '@nosdesk/core/services/collectionService'
 import { getAncestorChain } from '@/utils/treeUtils'
 import { docUrl } from '@nosdesk/core/utils/docUrl'
 import CollectionIcon from '@/components/documentationComponents/CollectionIcon.vue'

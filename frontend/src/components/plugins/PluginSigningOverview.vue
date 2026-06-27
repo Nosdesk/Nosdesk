@@ -11,7 +11,7 @@
  * read-only; remediation flows live on PluginDetailView.
  */
 import { computed, onMounted, ref } from 'vue';
-import pluginService from '@/services/pluginService';
+import pluginService from '@nosdesk/core/services/pluginService';
 import type {
   PluginTrustLevel,
   SigningOverview,

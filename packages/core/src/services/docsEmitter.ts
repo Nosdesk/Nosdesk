@@ -5,7 +5,7 @@
  * Used to update sidebar navigation and other components when docs are created/updated/deleted
  */
 
-import { logger } from '@nosdesk/core/utils/logger';
+import { logger } from '../utils/logger';
 
 type DocumentEvent = {
   id: number | string;

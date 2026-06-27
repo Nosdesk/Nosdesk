@@ -23,7 +23,7 @@ import {
   pageVerificationState,
 } from '@/utils/pageVerification'
 import type { Page } from '@/services/documentationService'
-import type { KnowledgeGap } from '@/services/knowledgeGapsService'
+import type { KnowledgeGap } from '@nosdesk/core/services/knowledgeGapsService'
 
 defineOptions({ name: 'DocumentationIndexView' })
 

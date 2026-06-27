@@ -11,9 +11,9 @@ import Icon from '@/components/common/Icon.vue'
 import Checkbox from '@/components/common/Checkbox.vue'
 import BaseDropdown from '@/components/common/BaseDropdown.vue'
 import Modal from '@/components/Modal.vue'
-import { assignmentRuleService } from '@/services/assignmentRuleService'
-import { groupService } from '@/services/groupService'
-import { categoryService } from '@/services/categoryService'
+import { assignmentRuleService } from '@nosdesk/core/services/assignmentRuleService'
+import { groupService } from '@nosdesk/core/services/groupService'
+import { categoryService } from '@nosdesk/core/services/categoryService'
 import userService from '@/services/userService'
 import type {
   AssignmentRuleWithDetails,

@@ -21,7 +21,7 @@ is instant; revokes invalidate the query to refetch.
 import { ref, computed, onMounted } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { useQuery, useQueryCache } from '@pinia/colada';
-import authService, { type SessionInfo } from '@/services/authService';
+import authService, { type SessionInfo } from '@nosdesk/core/services/authService';
 import { extractErrorMessage } from '@/utils/errors';
 import { logger } from '@nosdesk/core/utils/logger';
 import { formatRelativeTime, formatDate } from '@nosdesk/core/utils/dateUtils';

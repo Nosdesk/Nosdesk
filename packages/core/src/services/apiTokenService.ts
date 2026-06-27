@@ -1,6 +1,6 @@
-import apiClient from '@nosdesk/core/apiClient';
-import { logger } from '@nosdesk/core/utils/logger';
-import type { ApiToken, ApiTokenCreated, CreateApiTokenRequest } from '@nosdesk/core/types/apiToken';
+import apiClient from '../apiClient';
+import { logger } from '../utils/logger';
+import type { ApiToken, ApiTokenCreated, CreateApiTokenRequest } from '../types/apiToken';
 
 /**
  * API Token Service

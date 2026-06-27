@@ -4,7 +4,7 @@ import { ref, computed } from 'vue';
 import axios from 'axios';
 import apiClient from '@nosdesk/core/apiClient';
 import { setLoggingOut } from '@/services/apiConfig';
-import authService from '@/services/authService';
+import authService from '@nosdesk/core/services/authService';
 import router from '@/router';
 import type { User, LoginCredentials } from '@nosdesk/core/types';
 import { useThemeStore } from './theme';

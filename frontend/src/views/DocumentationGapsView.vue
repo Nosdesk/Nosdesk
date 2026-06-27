@@ -23,7 +23,7 @@ import {
   useDismissGapMutation,
   useDetectClustersMutation,
 } from '@/composables/useKnowledgeGaps'
-import type { KnowledgeGapSignal } from '@/services/knowledgeGapsService'
+import type { KnowledgeGapSignal } from '@nosdesk/core/services/knowledgeGapsService'
 
 defineOptions({ name: 'DocumentationGapsView' })
 

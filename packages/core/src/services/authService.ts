@@ -1,6 +1,6 @@
-import apiClient from '@nosdesk/core/apiClient';
-import { logger } from '@nosdesk/core/utils/logger';
-import type { User, LoginCredentials } from '@nosdesk/core/types/user';
+import apiClient from '../apiClient';
+import { logger } from '../utils/logger';
+import type { User, LoginCredentials } from '../types/user';
 
 export interface OnboardingStatus {
   requires_setup: boolean;
@@ -43,7 +43,7 @@ export interface AdminSetupResponse {
 }
 
 // Re-export for backwards compatibility
-export type { LoginCredentials } from '@nosdesk/core/types/user';
+export type { LoginCredentials } from '../types/user';
 
 /// Mirrors `backend::models::LoginResponse`. The token isn't in the
 /// body — access + refresh travel via httpOnly cookies. Only the

@@ -26,7 +26,7 @@ import type {
   Router,
   RouteLocationNormalized,
 } from 'vue-router';
-import { fetchInstanceConfig, getWorkspaceRouting } from '@/services/instanceConfig';
+import { fetchInstanceConfig, getWorkspaceRouting } from '@nosdesk/core/services/instanceConfig';
 import { setActiveWorkspaceSlug } from '@/services/activeWorkspace';
 
 const WORKSPACE_PARAM = 'workspace';

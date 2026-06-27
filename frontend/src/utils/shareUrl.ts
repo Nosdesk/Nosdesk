@@ -9,7 +9,7 @@
  */
 import router from '@/router';
 import { activeWorkspaceSlug } from '@/services/activeWorkspace';
-import { getWorkspaceRouting } from '@/services/instanceConfig';
+import { getWorkspaceRouting } from '@nosdesk/core/services/instanceConfig';
 
 export function shareableRouteUrl(
   name: string,

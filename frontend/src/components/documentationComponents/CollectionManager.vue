@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useFluent } from 'fluent-vue'
-import { getCollections, setPageCollections } from '@/services/collectionService'
-import type { CollectionWithDetails } from '@/services/collectionService'
+import { getCollections, setPageCollections } from '@nosdesk/core/services/collectionService'
+import type { CollectionWithDetails } from '@nosdesk/core/services/collectionService'
 import Icon from '@/components/common/Icon.vue'
 import CollectionIcon from '@/components/documentationComponents/CollectionIcon.vue'
 import Modal from '@/components/Modal.vue'

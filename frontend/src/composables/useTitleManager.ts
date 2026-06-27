@@ -3,7 +3,7 @@ import { useRoute } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import { useRecentTicketsStore } from '@/stores/recentTickets';
 import { useBrandingStore } from '@/stores/branding';
-import { previewTicketField } from '@/services/ticketService';
+import { previewTicketField } from '@nosdesk/core/services/ticketService';
 
 export interface TitleableDocument {
   id: string;

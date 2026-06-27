@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { useFluent } from 'fluent-vue'
-import type { CollectionPageTreeNode } from '@/services/collectionService'
+import type { CollectionPageTreeNode } from '@nosdesk/core/services/collectionService'
 import { docUrl } from '@nosdesk/core/utils/docUrl'
 
 useFluent()

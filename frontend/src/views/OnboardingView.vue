@@ -13,7 +13,7 @@ import PasswordInput from '@/components/common/PasswordInput.vue';
 import CodeBlock from '@/components/common/CodeBlock.vue';
 import authService, {
   type AdminSetupRequest,
-} from '@/services/authService';
+} from '@nosdesk/core/services/authService';
 import { useThemeStore } from '@/stores/theme';
 
 const fluent = useFluent();

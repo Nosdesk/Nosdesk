@@ -16,7 +16,7 @@ import ColorHueSlider from '@/components/common/ColorHueSlider.vue';
 import Modal from '@/components/Modal.vue';
 import SplitPanelLayout from '@/components/admin/SplitPanelLayout.vue';
 import GroupConfigurationPanel from '@/components/admin/GroupConfigurationPanel.vue';
-import { groupService } from '@/services/groupService';
+import { groupService } from '@nosdesk/core/services/groupService';
 import { useColorFilter } from '@/composables/useColorFilter';
 import { GROUPS_QUERY_KEY } from '@/composables/useAssignmentPickerQueries';
 import type { GroupWithMemberCount, CreateGroupRequest } from '@nosdesk/core/types/group';

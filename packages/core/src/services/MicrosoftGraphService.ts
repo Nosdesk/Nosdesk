@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { logger } from '@nosdesk/core/utils/logger';
+import { logger } from '../utils/logger';
 
 /**
  * Microsoft Graph Service

@@ -13,7 +13,7 @@ import UserAvatar from '@/components/UserAvatar.vue';
 import DeviceOsIcon from '@/components/common/AssetOsIcon.vue';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
-import { groupService } from '@/services/groupService';
+import { groupService } from '@nosdesk/core/services/groupService';
 import { getPaginatedAssets } from '@/services/assetService';
 import userService from '@/services/userService';
 import { useColorFilter } from '@/composables/useColorFilter';

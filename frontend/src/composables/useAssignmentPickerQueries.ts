@@ -2,7 +2,7 @@ import { computed, type Ref } from 'vue'
 import { useQuery } from '@pinia/colada'
 import { useDebouncedRef } from '@/composables/useDebouncedRef'
 import userService from '@/services/userService'
-import { groupService } from '@/services/groupService'
+import { groupService } from '@nosdesk/core/services/groupService'
 
 /** Shared with GroupsManagementView / SlaAdminView so picker modals reuse cached groups. */
 export const GROUPS_QUERY_KEY = ['groups'] as const

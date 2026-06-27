@@ -1,4 +1,4 @@
-import type { CollectionPage, CollectionPageTreeNode } from '@/services/collectionService'
+import type { CollectionPage, CollectionPageTreeNode } from '@nosdesk/core/services/collectionService'
 import type { Page } from '@/services/documentationService'
 
 /**

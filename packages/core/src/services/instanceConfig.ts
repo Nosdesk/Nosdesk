@@ -5,8 +5,8 @@
  * the URL before it wires up routing. Instance-global (identical for every
  * workspace); per-workspace config lives behind auth.
  */
-import apiClient from '@nosdesk/core/apiClient';
-import { logger } from '@nosdesk/core/utils/logger';
+import apiClient from '../apiClient';
+import { logger } from '../utils/logger';
 
 /** Where the selected workspace lives in the URL. */
 export type WorkspaceRouting = 'host' | 'path';

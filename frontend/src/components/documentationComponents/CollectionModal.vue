@@ -12,7 +12,7 @@ import {
   setCollectionVisibility,
   type Collection,
   type CollectionWithDetails,
-} from '@/services/collectionService'
+} from '@nosdesk/core/services/collectionService'
 import { useSyncDocsStore } from '@/sync/stores/documentation'
 import {
   slugFromCollectionTitle,

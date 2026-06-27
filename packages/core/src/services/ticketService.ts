@@ -1,6 +1,6 @@
-import apiClient from '@nosdesk/core/apiClient';
-import { logger } from '@nosdesk/core/utils/logger';
-import { RequestManager } from '@nosdesk/core/utils/requestManager';
+import apiClient from '../apiClient';
+import { logger } from '../utils/logger';
+import { RequestManager } from '../utils/requestManager';
 import type {
   Ticket,
   RecentTicket,
@@ -10,10 +10,10 @@ import type {
   Project,
   MergeResponse,
   MergeHistory,
-} from '@nosdesk/core/types/ticket';
-import type { UserInfo } from '@nosdesk/core/types/user';
-import type { PaginatedResponse } from '@nosdesk/core/types/pagination';
-import type { CommentWithAttachments } from '@nosdesk/core/types/comment';
+} from '../types/ticket';
+import type { UserInfo } from '../types/user';
+import type { PaginatedResponse } from '../types/pagination';
+import type { CommentWithAttachments } from '../types/comment';
 
 // Request cancellation manager instance
 const requestManager = new RequestManager();

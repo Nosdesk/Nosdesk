@@ -7,8 +7,8 @@
  * served by the same list/detail endpoints — only the signal
  * type and source_kind change.
  */
-import apiClient from '@nosdesk/core/apiClient'
-import { logger } from '@nosdesk/core/utils/logger'
+import apiClient from '../apiClient'
+import { logger } from '../utils/logger'
 
 export type KnowledgeGapStatus = 'open' | 'drafting' | 'resolved' | 'dismissed'
 export type KnowledgeGapSignalType =

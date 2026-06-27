@@ -19,7 +19,7 @@
  */
 import { defineColadaLoader } from 'vue-router/experimental/pinia-colada'
 import { setInfiniteQueryData, useQueryCache } from '@pinia/colada'
-import ticketService from '@/services/ticketService'
+import ticketService from '@nosdesk/core/services/ticketService'
 import { savedViewsService } from '@/services/savedViewsService'
 import { useSavedViewsStore } from '@/stores/savedViews'
 import { ticketsKeys, ticketsListParamsFromQuery } from '@nosdesk/core/queries/tickets'

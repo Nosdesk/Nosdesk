@@ -19,7 +19,7 @@ import {
   getUserFieldSchema,
   getUserProfileFields,
   setUserProfileFields,
-} from '@/services/userContactService';
+} from '@nosdesk/core/services/userContactService';
 import { extractErrorMessage } from '@/utils/errors';
 import { useToastStore } from '@/stores/toast';
 

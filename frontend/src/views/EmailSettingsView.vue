@@ -13,7 +13,7 @@ import Spinner from '@/components/common/Spinner.vue';
 import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
 import FormTextarea from '@/components/common/FormTextarea.vue';
 import Button from '@/components/common/Button.vue';
-import brandingService, { type BrandingConfig } from '@/services/brandingService';
+import brandingService, { type BrandingConfig } from '@nosdesk/core/services/brandingService';
 import { extractErrorMessage } from '@/utils/errors';
 import { useToastStore } from '@/stores/toast';
 

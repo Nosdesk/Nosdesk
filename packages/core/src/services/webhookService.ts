@@ -1,12 +1,12 @@
-import apiClient from '@nosdesk/core/apiClient';
-import { logger } from '@nosdesk/core/utils/logger';
+import apiClient from '../apiClient';
+import { logger } from '../utils/logger';
 import type {
   Webhook,
   WebhookCreated,
   CreateWebhookRequest,
   UpdateWebhookRequest,
   WebhookDelivery,
-} from '@nosdesk/core/types/webhook';
+} from '../types/webhook';
 
 /**
  * Webhook Service

@@ -15,7 +15,7 @@ import { useMutation, useQuery, useQueryCache } from '@pinia/colada'
 import knowledgeGapsService, {
   type KnowledgeGap,
   type KnowledgeGapStatus,
-} from '@/services/knowledgeGapsService'
+} from '@nosdesk/core/services/knowledgeGapsService'
 
 export const knowledgeGapKeys = {
   root: ['knowledge-gaps'] as const,

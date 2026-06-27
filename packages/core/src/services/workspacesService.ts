@@ -1,5 +1,5 @@
-import apiClient from '@nosdesk/core/apiClient';
-import { logger } from '@nosdesk/core/utils/logger';
+import apiClient from '../apiClient';
+import { logger } from '../utils/logger';
 import type {
   Workspace,
   WorkspaceMember,
@@ -9,7 +9,7 @@ import type {
   AddMemberRequest,
   UpdateMemberRoleRequest,
   EditionInfo,
-} from '@nosdesk/core/types/workspace';
+} from '../types/workspace';
 
 /**
  * Workspaces service — backs the Phase 4 W1/W3 admin UI plus the

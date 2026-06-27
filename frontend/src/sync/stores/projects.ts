@@ -15,7 +15,7 @@ import { computed, toValue, type ComputedRef, type MaybeRefOrGetter } from 'vue'
 import { useEntity, useAggregate } from '@/sync/composables'
 import { dispatchOptimistic } from '@/sync/queue'
 import { upsert, remove as poolRemove, patch as poolPatch } from '@/sync/pool'
-import { projectService } from '@/services/projectService'
+import { projectService } from '@nosdesk/core/services/projectService'
 import type { Project } from '@nosdesk/core/types/project'
 
 export interface SyncProject {

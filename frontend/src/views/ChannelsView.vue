@@ -12,7 +12,7 @@ import { useFluent } from 'fluent-vue';
 import { useQuery } from '@pinia/colada';
 
 import { channelsService, type Channel, type ImapRuntimeState } from '@nosdesk/core/services/channelsService';
-import { isInboundForwardingEnabled } from '@/services/instanceConfig';
+import { isInboundForwardingEnabled } from '@nosdesk/core/services/instanceConfig';
 import type { IconName } from '@/components/common/icons';
 import Icon from '@/components/common/Icon.vue';
 import Button from '@/components/common/Button.vue';

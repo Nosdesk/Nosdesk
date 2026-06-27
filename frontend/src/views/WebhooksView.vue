@@ -10,7 +10,7 @@ import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 import Icon from '@/components/common/Icon.vue';
 import Modal from '@/components/Modal.vue';
-import webhookService from '@/services/webhookService';
+import webhookService from '@nosdesk/core/services/webhookService';
 import { formatDistanceToNow } from 'date-fns';
 import type {
   Webhook,

@@ -14,7 +14,7 @@ import Button from '@/components/common/Button.vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
 import AttributeEditor from '@/components/assetKindComponents/AttributeEditor.vue';
-import { getUserFieldSchema, setUserFieldSchema } from '@/services/userContactService';
+import { getUserFieldSchema, setUserFieldSchema } from '@nosdesk/core/services/userContactService';
 import { extractErrorMessage } from '@/utils/errors';
 import { useToastStore } from '@/stores/toast';
 

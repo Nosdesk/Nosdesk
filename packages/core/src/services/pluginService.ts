@@ -1,5 +1,5 @@
-import apiClient from '@nosdesk/core/apiClient';
-import { logger } from '@nosdesk/core/utils/logger';
+import apiClient from '../apiClient';
+import { logger } from '../utils/logger';
 import type {
   Plugin,
   PluginSetting,
@@ -15,7 +15,7 @@ import type {
   RegistryState,
   InstallFromRegistryRequest,
   SigningOverview,
-} from '@nosdesk/core/types/plugin';
+} from '../types/plugin';
 
 /**
  * Plugin Service

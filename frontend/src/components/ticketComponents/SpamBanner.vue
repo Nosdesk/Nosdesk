@@ -11,7 +11,7 @@
  */
 import { ref } from 'vue';
 import { useFluent } from 'fluent-vue';
-import { updateTicket } from '@/services/ticketService';
+import { updateTicket } from '@nosdesk/core/services/ticketService';
 import Icon from '@/components/common/Icon.vue';
 
 const props = defineProps<{ ticketId: number }>();

@@ -11,7 +11,7 @@ import { usePasskeys } from "@/composables/usePasskeys";
 import type { PasskeyLoginResult } from "@/services/passkeyService";
 import ForgotPasswordModal from "@/components/auth/ForgotPasswordModal.vue";
 import AuthLayout from "@/components/auth/AuthLayout.vue";
-import authService from "@/services/authService";
+import authService from "@nosdesk/core/services/authService";
 import apiClient from "@nosdesk/core/apiClient";
 import LogoIcon from "@/components/icons/LogoIcon.vue";
 import Icon from "@/components/common/Icon.vue";

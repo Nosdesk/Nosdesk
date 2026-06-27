@@ -11,7 +11,7 @@
  * lives here.
  */
 import { ref, readonly } from 'vue';
-import pluginService from '@/services/pluginService';
+import pluginService from '@nosdesk/core/services/pluginService';
 import { unloadPlugin } from '@/plugins/loader';
 import { logger } from '@nosdesk/core/utils/logger';
 import { translate } from '@/i18n';

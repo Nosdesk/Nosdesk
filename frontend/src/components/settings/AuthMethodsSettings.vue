@@ -2,7 +2,7 @@
 import { ref, onMounted, computed } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { useAuthStore } from '@/stores/auth';
-import authService from '@/services/authService';
+import authService from '@nosdesk/core/services/authService';
 import userService from '@/services/userService';
 import { formatDate } from '@nosdesk/core/utils/dateUtils';
 import { extractErrorMessage } from '@/utils/errors';

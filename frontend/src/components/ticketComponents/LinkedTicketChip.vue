@@ -7,7 +7,7 @@
  */
 import { computed, ref, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
-import ticketService from '@/services/ticketService'
+import ticketService from '@nosdesk/core/services/ticketService'
 import PropertyChip from '@/components/ticketComponents/PropertyChip.vue'
 
 const props = defineProps<{

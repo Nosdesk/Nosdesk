@@ -17,8 +17,8 @@
  * `getHostApiForPlugin` factory below.
  */
 
-import pluginService from '@/services/pluginService';
-import { getTicketById, getTickets, addCommentToTicket } from '@/services/ticketService';
+import pluginService from '@nosdesk/core/services/pluginService';
+import { getTicketById, getTickets, addCommentToTicket } from '@nosdesk/core/services/ticketService';
 import { getAssetById, getAssets } from '@/services/assetService';
 import { logger } from '@nosdesk/core/utils/logger';
 import { useToastStore } from '@/stores/toast';

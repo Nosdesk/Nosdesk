@@ -12,7 +12,7 @@ import TicketRowSkeleton from "@/components/TicketRowSkeleton.vue";
 import BaseDropdown, { type DropdownOption } from "@/components/common/BaseDropdown.vue";
 import FilterToggle from "@/components/common/FilterToggle.vue";
 import DashboardWidgetShell from "@/views/dashboard/DashboardWidgetShell.vue";
-import ticketService, { getRecentTickets, type Ticket } from "@/services/ticketService";
+import ticketService, { getRecentTickets, type Ticket } from "@nosdesk/core/services/ticketService";
 
 const props = withDefaults(defineProps<{
     limit?: number;

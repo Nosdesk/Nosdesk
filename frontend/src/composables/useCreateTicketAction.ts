@@ -10,7 +10,7 @@
  * modal create flow, adding a toast on failure) a one-file edit.
  */
 import { useRouter } from 'vue-router'
-import ticketService from '@/services/ticketService'
+import ticketService from '@nosdesk/core/services/ticketService'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
 
 export function useCreateTicketAction(): void {

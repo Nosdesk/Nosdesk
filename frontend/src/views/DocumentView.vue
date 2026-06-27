@@ -23,7 +23,7 @@ import MoveDocumentModal from '@/components/documentationComponents/MoveDocument
 import DocumentationBreadcrumb from '@/components/documentationComponents/DocumentationBreadcrumb.vue'
 import CollectionManager from '@/components/documentationComponents/CollectionManager.vue'
 import PagePermissionsModal from '@/components/documentationComponents/PagePermissionsModal.vue'
-import { docsEmitter } from '@/services/docsEmitter'
+import { docsEmitter } from '@nosdesk/core/services/docsEmitter'
 import RevisionHistory from '@/components/editor/RevisionHistory.vue'
 import DocumentInsightsPanel from '@/components/documentationComponents/DocumentInsightsPanel.vue'
 import DocumentAuthorBadge from '@/components/documentationComponents/DocumentAuthorBadge.vue'

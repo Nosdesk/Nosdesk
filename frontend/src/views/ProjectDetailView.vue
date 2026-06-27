@@ -22,7 +22,7 @@ import KanbanBoard from '@/sync/views/KanbanBoard.vue'
 import ProjectTabBar from '@/components/views/ProjectTabBar.vue'
 import ProjectViewHeader from '@/components/projectComponents/ProjectViewHeader.vue'
 import BaseDropdown from '@/components/common/BaseDropdown.vue'
-import { projectService } from '@/services/projectService'
+import { projectService } from '@nosdesk/core/services/projectService'
 import { logger } from '@nosdesk/core/utils/logger'
 
 const props = defineProps<{ id: string }>()

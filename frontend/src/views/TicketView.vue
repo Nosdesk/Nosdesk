@@ -5,7 +5,7 @@ import { useRoute, useRouter } from "vue-router";
 import { useFluent } from "fluent-vue";
 import { useAuthStore } from "@/stores/auth";
 import { PRIORITY_OPTIONS } from "@nosdesk/core/constants/ticketOptions";
-import { categoryService } from "@/services/categoryService";
+import { categoryService } from "@nosdesk/core/services/categoryService";
 import type { TicketCategory } from "@nosdesk/core/types/category";
 import type { Ticket } from "@nosdesk/core/types/ticket";
 

@@ -23,7 +23,7 @@ import Skeleton from '@/components/common/Skeleton.vue';
 import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import UserPicker from '@/components/ticketComponents/UserPicker.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
-import workspacesService from '@/services/workspacesService';
+import workspacesService from '@nosdesk/core/services/workspacesService';
 import type { WorkspaceMember, WorkspaceRole } from '@nosdesk/core/types/workspace';
 import { extractErrorMessage } from '@/utils/errors';
 import * as syncPool from '@/sync/pool';

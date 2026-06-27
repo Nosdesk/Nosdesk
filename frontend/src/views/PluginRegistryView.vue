@@ -29,7 +29,7 @@ import Modal from '@/components/Modal.vue';
 import PluginIcon from '@/components/plugins/PluginIcon.vue';
 import PluginTrustBadge from '@/components/plugins/PluginTrustBadge.vue';
 import { usePluginAdminConfig } from '@/composables/usePluginAdminConfig';
-import pluginService from '@/services/pluginService';
+import pluginService from '@nosdesk/core/services/pluginService';
 import { logger } from '@nosdesk/core/utils/logger';
 import type {
   Plugin,

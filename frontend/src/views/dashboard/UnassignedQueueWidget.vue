@@ -8,7 +8,7 @@ the fetch parameters (open + unassigned + oldest first).
 import { computed } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useQuery } from '@pinia/colada'
-import ticketService, { type Ticket } from '@/services/ticketService'
+import ticketService, { type Ticket } from '@nosdesk/core/services/ticketService'
 import DashboardWidgetShell from './DashboardWidgetShell.vue'
 import TicketRow from '@/components/TicketRow.vue'
 

@@ -28,7 +28,7 @@ import { useFluent } from 'fluent-vue'
 import {
   getTicketActivity,
   type TicketActivityEvent,
-} from '@/services/ticketService'
+} from '@nosdesk/core/services/ticketService'
 import { useWorkflowStatesStore } from '@/stores/workflowStates'
 import { useUsersDirectory } from '@/composables/useUsersDirectory'
 import { useTicketActivitySSE } from '@/composables/useTicketActivitySSE'

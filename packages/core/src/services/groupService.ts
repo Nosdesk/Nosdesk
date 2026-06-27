@@ -1,5 +1,5 @@
-import apiClient from '@nosdesk/core/apiClient';
-import { logger } from '@nosdesk/core/utils/logger';
+import apiClient from '../apiClient';
+import { logger } from '../utils/logger';
 import type {
   Group,
   GroupWithMemberCount,
@@ -11,7 +11,7 @@ import type {
   SetUserGroupsRequest,
   SetGroupDevicesRequest,
   SetGroupIncludesRequest
-} from '@nosdesk/core/types/group';
+} from '../types/group';
 
 export const groupService = {
   // Get all groups with member counts (admin only)

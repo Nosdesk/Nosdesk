@@ -12,7 +12,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { useQuery, useQueryCache } from '@pinia/colada'
-import ticketService from '@/services/ticketService'
+import ticketService from '@nosdesk/core/services/ticketService'
 import type { RecentTicket } from '@nosdesk/core/types/ticket'
 import { logger } from '@nosdesk/core/utils/logger'
 import { translate } from '@/i18n'
