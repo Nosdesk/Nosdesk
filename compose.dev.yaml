@@ -236,6 +236,13 @@ services:
     volumes:
       - ./frontend:/repo/frontend
       - ./backend/public:/repo/frontend/dist # vite --watch writes here; backend serves it
+      # Workspace packages the frontend imports (raw .ts, resolved from source by
+      # vite). Their node_modules are shadowed by volumes so the host's macOS
+      # symlinks don't leak in and the container install links them correctly.
+      - ./packages/core:/repo/packages/core
+      - core_node_modules:/repo/packages/core/node_modules
+      - ./mobile:/repo/mobile
+      - mobile_node_modules:/repo/mobile/node_modules
       # pnpm workspace node_modules live in volumes (not on the host bind
       # mount) so the symlinked store resolves and host artifacts don't collide.
       - frontend_node_modules:/repo/node_modules
@@ -254,6 +261,10 @@ volumes:
   frontend_node_modules:
     driver: local
   frontend_pkg_node_modules:
+    driver: local
+  core_node_modules:
+    driver: local
+  mobile_node_modules:
     driver: local
   backend_cargo_cache:
     driver: local
