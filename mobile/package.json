@@ -3,14 +3,22 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
   "scripts": {
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "tauri": "tauri"
   },
   "dependencies": {
     "@nosdesk/core": "workspace:*",
+    "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-http": "^2.0.0",
     "axios": "^1.6.2"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
     "typescript": "^6.0.0"
   }
 }

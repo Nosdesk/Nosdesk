@@ -22,6 +22,7 @@
     "@date-fns/tz": "^1.4.1",
     "@fluent/bundle": "^0.19.1",
     "@nosdesk/core": "workspace:*",
+    "@nosdesk/mobile": "workspace:*",
     "@pinia/colada": "^1.2.0",
     "@simplewebauthn/browser": "^13.2.2",
     "@simplewebauthn/types": "^12.0.0",
