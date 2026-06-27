@@ -99,6 +99,18 @@ login-subtitle = Connectez-vous à votre compte
 # Titre et hero d'authentification (machine, à relire par un locuteur natif).
 login-title = Bon retour
 auth-hero-pill = Auto-hébergé
+# Écran natif « choisir votre serveur » (machine, à relire par un locuteur natif).
+connect-title = Se connecter à Nosdesk
+connect-subtitle = Choisissez le serveur de connexion.
+connect-hero-title = Votre assistance, partout
+connect-hero-subtitle = Connectez l'application à Nosdesk Cloud ou à votre propre instance auto-hébergée.
+connect-cloud = Nosdesk Cloud
+connect-cloud-hint = Le service hébergé officiel
+connect-self-hosted = Utiliser un serveur auto-hébergé
+connect-server-label = URL du serveur
+connect-server-placeholder = https://aide.votreentreprise.com
+connect-submit = Se connecter
+connect-back = Retour
 login-email-label = E-mail
 login-email-placeholder = Saisissez votre e-mail
 login-password-label = Mot de passe

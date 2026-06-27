@@ -96,6 +96,18 @@ login-subtitle = Log in op uw account
 # Auth-titel en hero (machine, na te kijken door moedertaalspreker).
 login-title = Welkom terug
 auth-hero-pill = Zelf-gehost
+# Native "kies je server"-scherm (machine, nog na te kijken).
+connect-title = Verbinden met Nosdesk
+connect-subtitle = Kies de server om in te loggen.
+connect-hero-title = Je helpdesk, overal
+connect-hero-subtitle = Verbind de app met Nosdesk Cloud of je eigen zelf-gehoste instantie.
+connect-cloud = Nosdesk Cloud
+connect-cloud-hint = De officiële gehoste dienst
+connect-self-hosted = Een zelf-gehoste server gebruiken
+connect-server-label = Server-URL
+connect-server-placeholder = https://help.jouwbedrijf.com
+connect-submit = Verbinden
+connect-back = Terug
 login-email-label = E-mail
 login-email-placeholder = Voer uw e-mailadres in
 login-password-label = Wachtwoord

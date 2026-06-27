@@ -1,7 +1,10 @@
 // App.vue
 <script setup lang="ts">
 import { RouterView, useRoute, useRouter } from 'vue-router'
-import { computed, ref, onMounted, watch, nextTick } from 'vue'
+import { computed, ref, onMounted, watch, nextTick, defineAsyncComponent } from 'vue'
+import { needsServerSelection } from '@/platform/serverGate'
+// Native first-run server picker; lazy so the web bundle doesn't carry it.
+const ConnectServerView = defineAsyncComponent(() => import('@/views/ConnectServerView.vue'))
 import { useFluent } from 'fluent-vue'
 import Navbar from './components/Navbar.vue'
 import PageHeader from './components/SiteHeader.vue'
@@ -191,8 +194,12 @@ onMounted(async () => {
 </script>
 
 <template>
+  <!-- Native app first run: choose a Nosdesk server before anything else.
+       Always false on the web. -->
+  <ConnectServerView v-if="needsServerSelection" />
+
   <!-- Blank layout for login -->
-  <RouterView v-if="isBlankLayout" />
+  <RouterView v-else-if="isBlankLayout" />
 
   <!-- Default layout with responsive navigation - Simple flexbox layout -->
   <div v-else v-twemoji class="flex w-full h-full bg-app overflow-hidden">
