@@ -28,7 +28,7 @@ import {
   useVerifyPageMutation,
   useUnverifyPageMutation,
 } from '@/composables/usePageVerification'
-import type { Page, Article } from '@/services/documentationService'
+import type { Page, Article } from '@nosdesk/core/services/documentationService'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)

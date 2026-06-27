@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useTitleManager } from '@/composables/useTitleManager'
-import { restorePage, permanentlyDeletePage } from '@/services/documentationService'
+import { restorePage, permanentlyDeletePage } from '@nosdesk/core/services/documentationService'
 import { useDocPages } from '@/composables/useDocPages'
 import BackButton from '@/components/common/BackButton.vue'
 import EmptyState from '@/components/common/EmptyState.vue'

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
-import type { Page } from '@/services/documentationService'
+import type { Page } from '@nosdesk/core/services/documentationService'
 import { computed } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { formatDate } from '@nosdesk/core/utils/dateUtils'

@@ -9,7 +9,7 @@
  * banner refreshes off the new state.
  */
 import { useMutation, useQueryCache } from '@pinia/colada'
-import documentationService from '@/services/documentationService'
+import documentationService from '@nosdesk/core/services/documentationService'
 
 interface VerifyPayload {
   pageId: string | number

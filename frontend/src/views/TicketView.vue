@@ -32,7 +32,7 @@ import TicketPickerModal from "@/components/ticketComponents/TicketPickerModal.v
 import ProjectSelectionModal from "@/components/ticketComponents/ProjectSelectionModal.vue";
 import TicketGapFlag from "@/components/ticketComponents/TicketGapFlag.vue";
 import TicketLoansCard from "@/components/ticketComponents/TicketLoansCard.vue";
-import documentationService from "@/services/documentationService";
+import documentationService from "@nosdesk/core/services/documentationService";
 import { docUrl } from "@nosdesk/core/utils/docUrl";
 import { pageTicketLinkKeys } from "@/composables/usePageTicketLinks";
 import { useFlagTicketMutation } from "@/composables/useKnowledgeGaps";

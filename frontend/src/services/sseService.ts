@@ -1,6 +1,6 @@
 import { ref, computed } from "vue";
 import { logger } from '@nosdesk/core/utils/logger';
-import { translate } from '@/i18n';
+import { translate } from '@nosdesk/core/i18n';
 import { useAuthStore } from "@/stores/auth";
 import { sseStreamUrl } from "@nosdesk/core/transport";
 import apiClient from "@nosdesk/core/apiClient";

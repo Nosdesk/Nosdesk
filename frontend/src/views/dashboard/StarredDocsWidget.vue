@@ -9,7 +9,7 @@ import { useQuery } from '@pinia/colada'
 import {
   getStarredPages,
   type StarredPageInfo,
-} from '@/services/documentationService'
+} from '@nosdesk/core/services/documentationService'
 import DashboardWidgetShell from './DashboardWidgetShell.vue'
 
 const fluent = useFluent()

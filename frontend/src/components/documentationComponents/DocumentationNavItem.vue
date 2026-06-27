@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useRoute } from 'vue-router'
 import { useDocumentationNavStore } from '@/stores/documentationNav'
-import type { Page } from '@/services/documentationService'
+import type { Page } from '@nosdesk/core/services/documentationService'
 import { computed, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
 import NavRowActions from './NavRowActions.vue'

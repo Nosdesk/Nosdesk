@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
-import type { StarredPageInfo } from '@/services/documentationService'
+import type { StarredPageInfo } from '@nosdesk/core/services/documentationService'
 import { findInTree } from '@/utils/treeUtils'
 import { BREAKPOINTS } from '@/composables/useMobileDetection'
 

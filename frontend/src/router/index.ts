@@ -27,7 +27,7 @@ import { useInboxLoader } from '@/loaders/inboxLoader'
 import { useTicketsListLoader } from '@/loaders/ticketsListLoader'
 import { translate } from '@/i18n'
 import { useBrandingStore } from '@/stores/branding'
-import type { Page, Article } from '@/services/documentationService'
+import type { Page, Article } from '@nosdesk/core/services/documentationService'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -480,7 +480,7 @@ const router = createRouter({
         const path = to.params.path?.toString();
         if (path) {
           try {
-            const { getPageByPath, getArticleById } = await import('@/services/documentationService');
+            const { getPageByPath, getArticleById } = await import('@nosdesk/core/services/documentationService');
             const result = await getPageByPath(path);
 
             if (result) {

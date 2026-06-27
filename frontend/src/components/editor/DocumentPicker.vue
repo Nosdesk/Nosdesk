@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useFluent } from 'fluent-vue'
-import { getPages } from '@/services/documentationService'
-import type { Page } from '@/services/documentationService'
+import { getPages } from '@nosdesk/core/services/documentationService'
+import type { Page } from '@nosdesk/core/services/documentationService'
 import Modal from '@/components/Modal.vue'
 
 const fluent = useFluent()

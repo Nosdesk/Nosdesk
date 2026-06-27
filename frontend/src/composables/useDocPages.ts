@@ -21,7 +21,7 @@ import {
   type DocPageRow,
   type DocPageNode,
 } from '@/sync/stores/documentation'
-import type { Page } from '@/services/documentationService'
+import type { Page } from '@nosdesk/core/services/documentationService'
 import type { UserInfo, PlatformRole } from '@nosdesk/core/types/user'
 import type { WorkspaceRole } from '@nosdesk/core/types/workspace'
 
