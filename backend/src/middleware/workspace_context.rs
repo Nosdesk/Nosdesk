@@ -408,6 +408,21 @@ fn slug_under_tenant_domain<'a>(host: &'a str, tenant_domain: &str) -> Option<&'
 mod tests {
     use super::*;
 
+    /// Serializes the tests that mutate the process-global
+    /// `NOSDESK_DEPLOYMENT_MODE` / `NOSDESK_WORKSPACE_SELECTION` env vars.
+    /// `std::env` is process-wide and cargo runs tests in parallel threads, so
+    /// without this their set -> read -> restore sequences interleave and read
+    /// each other's values (the flaky `left: SelfHosted, right: Hosted`).
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Acquire the env lock, recovering from poisoning so one failing test
+    /// doesn't cascade-fail every other env-dependent test.
+    fn lock_env() -> std::sync::MutexGuard<'static, ()> {
+        ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     #[test]
     fn subdomain_extracts_first_label() {
         assert_eq!(subdomain_from_host("acme.nosdesk.com"), Some("acme"));
@@ -466,6 +481,7 @@ mod tests {
 
     #[test]
     fn deployment_mode_defaults_to_self_hosted() {
+        let _env = lock_env();
         // Snapshot + restore — std::env mutation is process-
         // wide and tests run in the same process, so we have
         // to put the variable back.
@@ -479,6 +495,7 @@ mod tests {
 
     #[test]
     fn deployment_mode_hosted_recognised() {
+        let _env = lock_env();
         let prev = std::env::var("NOSDESK_DEPLOYMENT_MODE").ok();
         std::env::set_var("NOSDESK_DEPLOYMENT_MODE", "hosted");
         assert_eq!(DeploymentMode::from_env(), DeploymentMode::Hosted);
@@ -493,6 +510,7 @@ mod tests {
     /// with them set to the given values. std::env is process-wide, so tests
     /// that touch it must put it back.
     fn with_selection_env(mode: Option<&str>, flag: Option<&str>, body: impl FnOnce()) {
+        let _env = lock_env();
         let prev_mode = std::env::var("NOSDESK_DEPLOYMENT_MODE").ok();
         let prev_flag = std::env::var("NOSDESK_WORKSPACE_SELECTION").ok();
         match mode {
