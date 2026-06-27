@@ -3052,6 +3052,13 @@ pub struct LoginResponse {
     pub mfa_backup_code_used: Option<bool>,
     pub requires_backup_code_regeneration: Option<bool>,
     pub backup_codes: Option<Vec<String>>, // Present when MFA is enabled during login setup
+    // Native/bearer clients (X-Auth-Mode: bearer) receive the session tokens in
+    // the body instead of httpOnly cookies. Omitted entirely for web clients, so
+    // the cookie-flow JSON is byte-identical.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub access_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
 }
 
 /// Request for MFA verification during login
@@ -3093,11 +3100,24 @@ pub struct MfaEnableLoginRequest {
 }
 
 /// Response for token refresh
-/// Note: tokens are now in httpOnly cookies, only CSRF token is in response
+/// Web clients get rotated tokens in httpOnly cookies (only CSRF is in the body).
+/// Native/bearer clients get the rotated session tokens in the body instead.
 #[derive(Debug, Serialize)]
 pub struct RefreshTokenResponse {
     pub success: bool,
     pub csrf_token: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub access_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
+}
+
+/// Optional body for `POST /api/auth/refresh`. Native/bearer clients send the
+/// rotating refresh token here (web clients send it in the httpOnly cookie).
+#[derive(Debug, Deserialize, Default)]
+pub struct RefreshRequest {
+    #[serde(default)]
+    pub refresh_token: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]

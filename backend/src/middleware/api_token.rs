@@ -3,9 +3,26 @@
 //! Provides Bearer token authentication for programmatic API access.
 //! Works alongside cookie-based authentication.
 
-use actix_web::{dev::ServiceRequest, web, Error, HttpMessage};
+use actix_web::{dev::ServiceRequest, web, Error, HttpMessage, HttpResponse};
 use std::net::IpAddr;
 use tracing::{debug, error, info, warn};
+
+/// Build an RFC 6750 `401` carrying a `WWW-Authenticate: Bearer` challenge.
+///
+/// Per §3, include `error="invalid_token"` only when a credential was presented
+/// and failed; send a bare `Bearer` challenge when none was presented (so a
+/// client isn't told *why* auth is needed when it offered nothing).
+fn bearer_unauthorized(invalid_token: bool, message: &'static str) -> Error {
+    let challenge = if invalid_token {
+        "Bearer error=\"invalid_token\""
+    } else {
+        "Bearer"
+    };
+    let response = HttpResponse::Unauthorized()
+        .insert_header(("WWW-Authenticate", challenge))
+        .body(message);
+    actix_web::error::InternalError::from_response(message, response).into()
+}
 
 use crate::db::Pool;
 use crate::middleware::request_context;
@@ -182,33 +199,61 @@ pub async fn dual_auth_middleware(
         .ok_or_else(|| actix_web::error::ErrorInternalServerError("Database pool not found"))?
         .clone();
 
-    // Try Bearer token authentication first
-    match try_bearer_auth(&req, &pool)? {
-        Some(claims) => {
-            // Item U: workspace membership 403 gate. Bearer-token
-            // requests go through the same check as cookie-auth so an
-            // API token issued in workspace A can't be used to probe
-            // workspace B's subdomain. (The control-plane provisioning
-            // surface is no longer an api_token, so there's no
-            // cross-workspace token kind to exempt here.)
+    use crate::utils::jwt::JwtUtils;
+
+    // A Bearer credential can be either a personal API token (`nsk_…`, looked up
+    // in the DB) or a session JWT (native/mobile clients, who can't use the
+    // cookie jar). Branch on the unambiguous prefix; a JWT never starts `nsk_`.
+    if let Some(raw) = extract_bearer_token(&req) {
+        if raw.starts_with("nsk_") {
+            // Personal API token — unchanged behaviour.
+            let claims = try_bearer_auth(&req, &pool)?
+                .ok_or_else(|| bearer_unauthorized(true, "Invalid API token"))?;
             let mut conn = pool.get().map_err(|_| {
                 actix_web::error::ErrorInternalServerError("Database connection failed")
             })?;
+            // Item U: workspace membership 403 gate. Bearer-token requests go
+            // through the same check as cookie-auth so a token issued in
+            // workspace A can't be used to probe workspace B's subdomain.
             crate::middleware::cookie_auth::enforce_workspace_membership(&req, &mut conn, &claims)?;
-            // Release before the handler — see the cookie-fallback path below.
             drop(conn);
             request_context::populate(&req, &claims);
             req.extensions_mut().insert(claims);
             return next.call(req).await;
         }
-        None => {
-            // No Bearer token, fall through to cookie auth.
+
+        // Session-JWT bearer (native/mobile). Validate via the SAME path the
+        // cookie flow uses, so the active_sessions session check applies and
+        // logout / reuse-detection revoke mobile access too.
+        let mut conn = pool.get().map_err(|_| {
+            actix_web::error::ErrorInternalServerError("Database connection failed")
+        })?;
+        let (claims, _user) = JwtUtils::authenticate_with_token(&raw, &mut conn)
+            .await
+            .map_err(|err| {
+                error!(error = ?err, "Bearer JWT auth: token validation failed");
+                bearer_unauthorized(true, "Invalid or expired token")
+            })?;
+
+        // Scope guard (MANDATORY): only genuine agent sessions carry scope
+        // "full". SSE tokens ("sse") skip the session check and portal tokens
+        // ("portal") belong to the customer surface; either replayed as a
+        // bearer could over-authorize on routes the scope middleware classes
+        // `Any`. The cookie path can't receive these tokens (they're never in
+        // the access_token cookie); the bearer path must reject them here.
+        if claims.scope != "full" {
+            warn!(path = %req.path(), scope = %claims.scope, "Rejected non-session JWT on bearer path");
+            return Err(bearer_unauthorized(true, "Token not valid for this API"));
         }
+
+        crate::middleware::cookie_auth::enforce_workspace_membership(&req, &mut conn, &claims)?;
+        drop(conn);
+        request_context::populate(&req, &claims);
+        req.extensions_mut().insert(claims);
+        return next.call(req).await;
     }
 
-    // Fall back to cookie-based authentication.
-    use crate::utils::jwt::JwtUtils;
-
+    // No Bearer token — fall back to cookie-based authentication.
     let mut conn = pool
         .get()
         .map_err(|_| actix_web::error::ErrorInternalServerError("Database connection failed"))?;
@@ -217,14 +262,14 @@ pub async fn dual_auth_middleware(
         .cookie(crate::utils::cookies::ACCESS_TOKEN_COOKIE)
         .ok_or_else(|| {
             warn!(path = %req.path(), "No access_token cookie and no Bearer token");
-            actix_web::error::ErrorUnauthorized("Authentication required")
+            bearer_unauthorized(false, "Authentication required")
         })?;
 
     let (claims, _user) = JwtUtils::authenticate_with_token(token.value(), &mut conn)
         .await
         .map_err(|err| {
             error!(error = ?err, "Cookie auth: token validation failed");
-            actix_web::error::ErrorUnauthorized("Invalid or expired token")
+            bearer_unauthorized(true, "Invalid or expired token")
         })?;
 
     info!(user = %claims.sub, "Cookie auth: user authenticated successfully");

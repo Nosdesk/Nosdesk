@@ -151,7 +151,7 @@ pub(crate) fn complete_login(
     conn: &mut DbConnection,
 ) -> HttpResponse {
     match establish_login_session(user, request, conn) {
-        Ok((response, tokens)) => build_auth_cookie_response(response, &tokens),
+        Ok((response, tokens)) => build_auth_response(request, response, &tokens),
         Err(error_response) => error_response,
     }
 }
@@ -261,27 +261,62 @@ fn complete_mfa_login(
         &family_id,
         conn,
     ) {
-        Ok((response, tokens)) => build_auth_cookie_response(response, &tokens),
+        Ok((response, tokens)) => build_auth_response(request, response, &tokens),
         Err(error_response) => error_response,
     }
 }
 
-/// Attach auth cookies to an HTTP response.
-pub(crate) fn build_auth_cookie_response(
+/// Finish a login response, delivering the session tokens the way the client
+/// asked for (see `utils::auth_mode`).
+///
+/// - Cookie mode (web, the default): set the three httpOnly auth cookies and
+///   return `body` unchanged. Byte-identical to the historical behaviour.
+/// - Bearer mode (native, `X-Auth-Mode: bearer`): set NO cookies and inject the
+///   `access_token` + `refresh_token` into the JSON body, marked `no-store`.
+///
+/// The body is injected as a `serde_json::Value` rather than via typed fields so
+/// the same helper serves both the `LoginResponse` callers and the passkey
+/// finishers, which pass an ad-hoc `json!` value.
+pub(crate) fn build_auth_response(
+    request: &HttpRequest,
     body: impl serde::Serialize,
     tokens: &jwt_helpers::LoginTokens,
 ) -> HttpResponse {
-    HttpResponse::Ok()
-        .cookie(crate::utils::cookies::create_access_token_cookie(
-            &tokens.access_token,
-        ))
-        .cookie(crate::utils::cookies::create_refresh_token_cookie(
-            &tokens.refresh_token,
-        ))
-        .cookie(crate::utils::cookies::create_csrf_token_cookie(
-            &tokens.csrf_token,
-        ))
-        .json(body)
+    use crate::utils::auth_mode::{auth_mode_from_request, AuthMode};
+
+    match auth_mode_from_request(request) {
+        AuthMode::Cookie => HttpResponse::Ok()
+            .cookie(crate::utils::cookies::create_access_token_cookie(
+                &tokens.access_token,
+            ))
+            .cookie(crate::utils::cookies::create_refresh_token_cookie(
+                &tokens.refresh_token,
+            ))
+            .cookie(crate::utils::cookies::create_csrf_token_cookie(
+                &tokens.csrf_token,
+            ))
+            .json(body),
+        AuthMode::Bearer => {
+            // Native clients can't use the cookie jar, so hand them the tokens
+            // in the body and set no cookies. Inject into the serialized value
+            // so both LoginResponse and the passkey json! bodies pick them up.
+            let mut value = match serde_json::to_value(&body) {
+                Ok(v) => v,
+                Err(e) => {
+                    tracing::error!("Failed to serialize bearer login body: {}", e);
+                    return errors::internal("Failed to build authentication response");
+                }
+            };
+            if let Some(obj) = value.as_object_mut() {
+                obj.insert("access_token".to_string(), json!(tokens.access_token));
+                obj.insert("refresh_token".to_string(), json!(tokens.refresh_token));
+            }
+            HttpResponse::Ok()
+                // The body now carries session secrets; keep them out of caches.
+                .insert_header(("Cache-Control", "no-store"))
+                .json(value)
+        }
+    }
 }
 
 /// Set the auth cookies and redirect (302) to `location`. The browser
@@ -2006,7 +2041,7 @@ pub async fn mfa_enable_login(
                     // the source allocation still gets wiped via
                     // the wrapper's Drop on handler exit.
                     response.backup_codes = Some((*backup_codes_plaintext).clone());
-                    build_auth_cookie_response(response, &tokens)
+                    build_auth_response(&http_request, response, &tokens)
                 }
                 Err(error_response) => error_response,
             }
@@ -2259,22 +2294,39 @@ pub async fn revoke_all_other_sessions(
 /// Refresh access token using refresh token (with reuse detection + grace period)
 pub async fn refresh_token(
     db_pool: web::Data<crate::db::Pool>,
+    // Optional so web clients, which POST an empty body and carry the refresh
+    // token in the httpOnly cookie, still bind.
+    body: Option<web::Json<crate::models::RefreshRequest>>,
     request: HttpRequest,
 ) -> impl Responder {
+    use crate::utils::auth_mode::{auth_mode_from_request, AuthMode};
+
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
         Err(e) => return e,
     };
 
-    // 1. Read refresh cookie → hash → lookup
-    let refresh_cookie = match request.cookie(crate::utils::cookies::REFRESH_TOKEN_COOKIE) {
-        Some(cookie) => cookie.value().to_string(),
+    // 1. Source the refresh token: native clients send it in the body, web
+    //    clients in the httpOnly cookie. Reply in body-token (bearer) mode when
+    //    the token came from the body or the client asked via X-Auth-Mode, so a
+    //    native caller never gets Set-Cookie back.
+    let from_body = body
+        .as_ref()
+        .and_then(|b| b.refresh_token.clone())
+        .filter(|t| !t.is_empty());
+    let bearer_mode = from_body.is_some() || auth_mode_from_request(&request) == AuthMode::Bearer;
+    let refresh_raw = match from_body.or_else(|| {
+        request
+            .cookie(crate::utils::cookies::REFRESH_TOKEN_COOKIE)
+            .map(|c| c.value().to_string())
+    }) {
+        Some(token) => token,
         None => {
             return errors::unauthorized("Refresh token not found");
         }
     };
 
-    let token_hash = JwtUtils::hash_refresh_token(&refresh_cookie);
+    let token_hash = JwtUtils::hash_refresh_token(&refresh_raw);
 
     let old_token = match crate::repository::refresh_tokens::get_refresh_token_by_hash(
         &mut conn,
@@ -2397,12 +2449,28 @@ pub async fn refresh_token(
         tracing::warn!("Failed to update session activity: {}", e);
     }
 
-    // 11. Return new tokens
+    // 11. Return new tokens, the way the client asked for them.
     let new_csrf_token = crate::utils::csrf::generate_csrf_token();
 
+    if bearer_mode {
+        // Native: rotated tokens in the body, no cookies, kept out of caches.
+        let response = crate::models::RefreshTokenResponse {
+            success: true,
+            csrf_token: new_csrf_token,
+            access_token: Some(new_access_token),
+            refresh_token: Some(new_refresh_raw),
+        };
+        return HttpResponse::Ok()
+            .insert_header(("Cache-Control", "no-store"))
+            .json(response);
+    }
+
+    // Web: rotated tokens in httpOnly cookies, only CSRF in the body (unchanged).
     let response = crate::models::RefreshTokenResponse {
         success: true,
         csrf_token: new_csrf_token.clone(),
+        access_token: None,
+        refresh_token: None,
     };
 
     HttpResponse::Ok()
@@ -2550,5 +2618,77 @@ mod tests {
             Some(user_uuid.to_string().as_str())
         );
         assert_eq!(json.get("name").and_then(|v| v.as_str()), Some("authuser"));
+    }
+}
+
+/// Serde invariants for bearer-mode tokens. Kept in a separate module so the
+/// standard `#[test]` attribute isn't shadowed by the `actix_web::test` import
+/// in the main `tests` module above. No DB needed.
+#[cfg(test)]
+mod bearer_serde_tests {
+    /// Web (cookie) flow leaves the token fields `None`; they must then be
+    /// omitted from the JSON entirely so the response is byte-identical to
+    /// before bearer support. A regression here leaks session tokens into the
+    /// web body, defeating the httpOnly cookies.
+    #[test]
+    fn login_response_omits_token_fields_when_none() {
+        let response = crate::models::LoginResponse {
+            success: true,
+            mfa_required: Some(false),
+            mfa_setup_required: Some(false),
+            passkey_mfa_required: None,
+            user_uuid: Some("u".into()),
+            csrf_token: Some("csrf".into()),
+            user: None,
+            message: None,
+            mfa_backup_code_used: None,
+            requires_backup_code_regeneration: None,
+            backup_codes: None,
+            access_token: None,
+            refresh_token: None,
+        };
+        let json = serde_json::to_value(&response).unwrap();
+        assert!(
+            json.get("access_token").is_none(),
+            "web login leaked access_token"
+        );
+        assert!(
+            json.get("refresh_token").is_none(),
+            "web login leaked refresh_token"
+        );
+        assert_eq!(
+            json.get("csrf_token").and_then(|v| v.as_str()),
+            Some("csrf")
+        );
+    }
+
+    /// Bearer mode surfaces both rotated tokens in the refresh body.
+    #[test]
+    fn refresh_response_includes_tokens_in_bearer_mode() {
+        let web = crate::models::RefreshTokenResponse {
+            success: true,
+            csrf_token: "csrf".into(),
+            access_token: None,
+            refresh_token: None,
+        };
+        let web_json = serde_json::to_value(&web).unwrap();
+        assert!(web_json.get("access_token").is_none());
+        assert!(web_json.get("refresh_token").is_none());
+
+        let native = crate::models::RefreshTokenResponse {
+            success: true,
+            csrf_token: "csrf".into(),
+            access_token: Some("at".into()),
+            refresh_token: Some("rt".into()),
+        };
+        let native_json = serde_json::to_value(&native).unwrap();
+        assert_eq!(
+            native_json.get("access_token").and_then(|v| v.as_str()),
+            Some("at")
+        );
+        assert_eq!(
+            native_json.get("refresh_token").and_then(|v| v.as_str()),
+            Some("rt")
+        );
     }
 }
