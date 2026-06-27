@@ -12,7 +12,7 @@ import type { Ticket } from "@nosdesk/core/types/ticket";
 // Composables
 import { useTicketDetail } from "@/sync/stores/ticketDetail";
 import { subscribe } from "@/sync/lifecycle";
-import { useTicketUiStore } from "@/stores/ticketUi";
+import { useTicketUiStore } from "@nosdesk/core/stores/ticketUi";
 import { useTicketSSE } from "@/composables/useTicketSSE";
 import { useTitleManager } from "@/composables/useTitleManager";
 import { useTicketDrag, shouldSuppressTicketDrop } from "@/composables/useTicketDrag";

@@ -3,7 +3,7 @@
 import { ref, onMounted, nextTick, computed } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
-import { useMfaSetupStore } from "@/stores/mfaSetup";
+import { useMfaSetupStore } from "@nosdesk/core/stores/mfaSetup";
 import { useBrandingStore } from "@/stores/branding";
 import { useThemeStore } from "@/stores/theme";
 import { useMicrosoftAuth } from "@/composables/useMicrosoftAuth";

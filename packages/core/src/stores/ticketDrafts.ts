@@ -19,7 +19,8 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
 
-import { logger } from '@nosdesk/core/utils/logger'
+import { logger } from '../utils/logger'
+import { storage } from '../storage'
 
 export interface TicketDraft {
   /** HTML content from the rich-text composer. */
@@ -37,9 +38,8 @@ const EMPTY_DRAFT: TicketDraft = Object.freeze({
 })
 
 function loadFromStorage(): Map<number, TicketDraft> {
-  if (typeof localStorage === 'undefined') return new Map()
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = storage().getItem(STORAGE_KEY)
     if (!raw) return new Map()
     const parsed = JSON.parse(raw) as Record<string, TicketDraft>
     const out = new Map<number, TicketDraft>()
@@ -57,15 +57,14 @@ function loadFromStorage(): Map<number, TicketDraft> {
 }
 
 function persistToStorage(drafts: Map<number, TicketDraft>): void {
-  if (typeof localStorage === 'undefined') return
   try {
     if (drafts.size === 0) {
-      localStorage.removeItem(STORAGE_KEY)
+      storage().removeItem(STORAGE_KEY)
       return
     }
     const obj: Record<string, TicketDraft> = {}
     for (const [id, draft] of drafts) obj[String(id)] = draft
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(obj))
+    storage().setItem(STORAGE_KEY, JSON.stringify(obj))
   } catch (err) {
     // QuotaExceededError, JSON failure, or sandboxed storage.
     // Drafts still work in memory; just no persistence.

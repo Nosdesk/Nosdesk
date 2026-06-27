@@ -199,7 +199,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import { useAuthStore } from '@/stores/auth';
-import { useMfaSetupStore } from '@/stores/mfaSetup';
+import { useMfaSetupStore } from '@nosdesk/core/stores/mfaSetup';
 import MFASettings from '@/components/settings/MFASettings.vue';
 import PasskeySetup from '@/components/auth/PasskeySetup.vue';
 import AuthLayout from '@/components/auth/AuthLayout.vue';

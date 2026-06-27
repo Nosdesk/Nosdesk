@@ -5,7 +5,7 @@ import { usePasskeys } from '@/composables/usePasskeys';
 import { useClipboard } from '@/composables/useClipboard';
 import { useRecoveryCodesFile } from '@/composables/useRecoveryCodesFile';
 import { useAuthStore } from '@/stores/auth';
-import { useMfaSetupStore } from '@/stores/mfaSetup';
+import { useMfaSetupStore } from '@nosdesk/core/stores/mfaSetup';
 import { passkeySetupService } from '@/services/passkeyService';
 import { logger } from '@nosdesk/core/utils/logger';
 import { extractErrorMessage } from '@/utils/errors';

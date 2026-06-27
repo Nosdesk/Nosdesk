@@ -13,8 +13,8 @@ import { sanitiseHtml } from "@/composables/useSanitise";
 import CannedResponsePicker from "@/components/ticketComponents/CannedResponsePicker.vue";
 import uploadService from "@/services/uploadService";
 import { convertToAuthenticatedPath } from '@/services/fileService';
-import { useTicketDraftsStore } from "@/stores/ticketDrafts";
-import { useTicketUiStore } from "@/stores/ticketUi";
+import { useTicketDraftsStore } from "@nosdesk/core/stores/ticketDrafts";
+import { useTicketUiStore } from "@nosdesk/core/stores/ticketUi";
 
 // Local re-export of the canonical types so this component can use
 // them without churn through every consumer.

@@ -21,11 +21,11 @@
  */
 import { computed, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
-import { useTagsStore } from '@/stores/tags'
+import { useTagsStore } from '@nosdesk/core/stores/tags'
 import { useAuthStore } from '@/stores/auth'
 import { tagService } from '@nosdesk/core/services/tagService'
 import { useQueryCache } from '@pinia/colada'
-import { TAGS_QUERY_KEY } from '@/stores/tags'
+import { TAGS_QUERY_KEY } from '@nosdesk/core/stores/tags'
 import type { Tag } from '@nosdesk/core/types/tag'
 import Icon from '@/components/common/Icon.vue'
 

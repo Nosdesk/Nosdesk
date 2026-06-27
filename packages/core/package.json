@@ -13,6 +13,7 @@
     "lint": "eslint src"
   },
   "dependencies": {
+    "@pinia/colada": "^1.2.0",
     "axios": "^1.6.2",
     "date-fns": "^4.1.0",
     "fluent-vue": "^3.8.2",

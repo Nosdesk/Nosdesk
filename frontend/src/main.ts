@@ -1,5 +1,6 @@
 import './assets/main.css'
 import './utils/loggerSetup' // Configure the @nosdesk/core logger (web)
+import './utils/storageSetup' // Configure the @nosdesk/core storage seam (web)
 import './services/transport' // Configure the @nosdesk/core transport seam (web)
 import './services/apiConfig' // Import axios configuration
 

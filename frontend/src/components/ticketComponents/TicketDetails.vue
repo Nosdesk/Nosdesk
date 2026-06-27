@@ -37,7 +37,7 @@ import type { Asset } from "@nosdesk/core/types/asset";
 import type { CommentWithAttachments } from "@nosdesk/core/types/comment";
 import LogoIcon from "@/components/icons/LogoIcon.vue";
 import { useBrandingStore } from "@/stores/branding";
-import { useTagsStore } from "@/stores/tags";
+import { useTagsStore } from "@nosdesk/core/stores/tags";
 import type { Tag } from "@nosdesk/core/types/tag";
 import { useAuthStore } from "@/stores/auth";
 import { deriveSlaState, type SlaPayload } from "@/composables/useSlaState";
