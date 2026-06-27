@@ -347,7 +347,7 @@ import {
   type ImapRuntimeState
 } from '@/services/channelsService';
 import brandingService, { type BrandingConfig } from '@/services/brandingService';
-import apiClient from '@/services/apiConfig';
+import apiClient from '@nosdesk/core/apiClient';
 import { useToastStore } from '@/stores/toast';
 import { createErrorFromResponse } from '@/utils/errors';
 import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils';

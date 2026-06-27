@@ -1,5 +1,5 @@
 import { logger } from '@/utils/logger';
-import apiClient from './apiConfig';
+import apiClient from '@nosdesk/core/apiClient';
 import { translate } from '@/i18n';
 import type { UserInfo } from '@nosdesk/core/types/user';
 import type { WorkflowStateCategory } from '@nosdesk/core/types/workflow';

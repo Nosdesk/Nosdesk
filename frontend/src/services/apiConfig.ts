@@ -1,4 +1,5 @@
 import axios from 'axios';
+import apiClient from '@nosdesk/core/apiClient';
 import { logger } from '@/utils/logger';
 import { createErrorFromResponse } from '@/utils/errors';
 import { ErrorTracker } from '@/utils/errorTracking';
@@ -31,14 +32,10 @@ export function setCorrelationId(id: string) {
   logger.setCorrelationId(id);
 }
 
-// Create axios instance with default config. baseURL and credential mode are
-// set per-request from the transport seam (below), not here: the seam is
-// configured at bootstrap, after this module loads.
-const apiClient = axios.create({
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
+// The axios instance lives in @nosdesk/core (headless, so core services can
+// import it). This module owns its behaviour: it registers the interceptors
+// below onto the shared instance at bootstrap. baseURL and credential mode are
+// set per-request from the transport seam, configured before any request.
 
 // Token refresh state to prevent multiple simultaneous refresh attempts
 let isRefreshing = false;
@@ -362,5 +359,3 @@ apiClient.interceptors.response.use(
     return Promise.reject(appError);
   }
 );
-
-export default apiClient; 

@@ -22,7 +22,7 @@ import UserAvatar from '@/components/UserAvatar.vue'
 import ResponsivePanel from '@/components/common/ResponsivePanel.vue'
 import * as syncPool from '@/sync/pool'
 import type { User } from '@nosdesk/core/types/user'
-import apiClient from '@/services/apiConfig'
+import apiClient from '@nosdesk/core/apiClient'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)

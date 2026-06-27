@@ -7,7 +7,7 @@
  * endpoint is platform-admin gated server-side; this service is only reachable
  * from the platform-admin-only Unrouted Inbound view.
  */
-import apiClient from './apiConfig';
+import apiClient from '@nosdesk/core/apiClient';
 
 export interface DeadLetterRow {
   id: number;

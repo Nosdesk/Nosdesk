@@ -1,4 +1,4 @@
-import apiClient from './apiConfig'
+import apiClient from '@nosdesk/core/apiClient'
 
 export interface CalendarOverlayEntry {
   kind: 'warranty_expiry' | 'maintenance' | 'os_cutoff'

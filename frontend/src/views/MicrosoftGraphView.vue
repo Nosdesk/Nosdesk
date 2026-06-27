@@ -2,7 +2,7 @@
 import { formatDateTime } from '@nosdesk/core/utils/dateUtils';
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { useFluent } from 'fluent-vue';
-import apiClient from "@/services/apiConfig";
+import apiClient from "@nosdesk/core/apiClient";
 import BackButton from "@/components/common/BackButton.vue";
 import Modal from "@/components/Modal.vue";
 import AlertMessage from "@/components/common/AlertMessage.vue";

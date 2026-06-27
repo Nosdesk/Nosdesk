@@ -2,7 +2,7 @@
  * Dashboard API client. Backed by Pinia Colada at the call site
  * (see `composables/useDashboardStats.ts`).
  */
-import apiClient from './apiConfig'
+import apiClient from '@nosdesk/core/apiClient'
 import type { DashboardStatsGroup } from '@/views/dashboard/widgets'
 
 export interface QueueStats {

@@ -5,7 +5,7 @@ import { schema } from '@/components/editor/schema';
 import { defaultMarkdownSerializer } from 'prosemirror-markdown';
 import { Node } from 'prosemirror-model';
 import JSZip from 'jszip';
-import apiClient from './apiConfig';
+import apiClient from '@nosdesk/core/apiClient';
 
 interface DocumentationPageExport {
   id: number;

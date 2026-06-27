@@ -9,7 +9,7 @@
  * That keeps the backend free of ticket-specific lookups for the
  * common case, and lets the tech see the final text before sending.
  */
-import apiClient from './apiConfig';
+import apiClient from '@nosdesk/core/apiClient';
 
 export interface CannedResponse {
   id: number;

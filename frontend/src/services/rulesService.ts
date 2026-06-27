@@ -9,7 +9,7 @@
  * from the views; mutations call the service directly and invalidate
  * the relevant query key.
  */
-import apiClient from './apiConfig';
+import apiClient from '@nosdesk/core/apiClient';
 import type {
   ApplyRuleRequest,
   ApplyRuleResponse,

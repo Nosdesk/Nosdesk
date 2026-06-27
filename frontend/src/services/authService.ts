@@ -1,4 +1,4 @@
-import apiClient from './apiConfig';
+import apiClient from '@nosdesk/core/apiClient';
 import { logger } from '@/utils/logger';
 import type { User, LoginCredentials } from '@nosdesk/core/types/user';
 

@@ -1,5 +1,5 @@
 import { ref } from 'vue';
-import apiClient from '@/services/apiConfig';
+import apiClient from '@nosdesk/core/apiClient';
 import { translate } from '@/i18n';
 import { extractErrorMessage } from '@/utils/errors';
 

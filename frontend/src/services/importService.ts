@@ -1,4 +1,4 @@
-import apiClient from './apiConfig'
+import apiClient from '@nosdesk/core/apiClient'
 
 export type ImportJobType = 'assets' | 'users' | 'tickets'
 

@@ -35,7 +35,7 @@ import {
 import { createTicketLinkPlugin, setTicketNavigationHandler } from "./editor/ticketLinkPlugin";
 import { createEmbeddedDocumentPlugin, setDocumentNavigationHandler } from "./editor/embeddedDocumentPlugin";
 import DocumentPicker from "./editor/DocumentPicker.vue";
-import apiClient from "@/services/apiConfig";
+import apiClient from "@nosdesk/core/apiClient";
 import {
     ySyncPlugin,
     yCursorPlugin,

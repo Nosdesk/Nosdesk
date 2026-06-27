@@ -6,7 +6,7 @@
  * GET never returns it (a `has_bind_password` flag tells the UI whether one is
  * stored), and the PUT sends it only when rotating or clearing it.
  */
-import apiClient from './apiConfig';
+import apiClient from '@nosdesk/core/apiClient';
 
 /** The persisted, editable LDAP config (mirrors the backend row, minus the
  *  serde-skipped encrypted columns). */

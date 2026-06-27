@@ -4,7 +4,7 @@
  * API client for notification preferences and history.
  */
 
-import apiClient from './apiConfig';
+import apiClient from '@nosdesk/core/apiClient';
 
 export interface NotificationPreference {
   notification_type: string;

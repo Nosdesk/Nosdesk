@@ -3,7 +3,7 @@
  * (`stores/tags.ts`) which caches the list across the session;
  * direct callers exist for the admin tag-management UI.
  */
-import apiClient from './apiConfig'
+import apiClient from '@nosdesk/core/apiClient'
 import type { Tag, NewTagPayload, TagUpdatePayload } from '@nosdesk/core/types/tag'
 
 export const tagService = {

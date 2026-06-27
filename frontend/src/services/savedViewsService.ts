@@ -14,7 +14,7 @@
  * workspace / project scope for non-ticket datasets so the
  * permission model stays ticket-specific.
  */
-import apiClient from './apiConfig'
+import apiClient from '@nosdesk/core/apiClient'
 import type { ViewShape, FilterState } from '@/sync/views/types'
 
 export type SavedViewDataset = 'tickets' | 'assets' | 'users'

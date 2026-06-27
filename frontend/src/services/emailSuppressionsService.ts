@@ -3,7 +3,7 @@
  * automatically by hard-bounce detection (J Pass 2.2b) and
  * manually managed by admins from the suppression view.
  */
-import apiClient from './apiConfig'
+import apiClient from '@nosdesk/core/apiClient'
 
 export interface EmailSuppression {
   email: string

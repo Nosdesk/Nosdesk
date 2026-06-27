@@ -1,7 +1,7 @@
 // Admin-only client for the outbound email queue (Item J Pass 1).
 // Mirrors the response shapes in backend/src/handlers/email_queue.rs.
 
-import apiClient from './apiConfig';
+import apiClient from '@nosdesk/core/apiClient';
 
 export type OutboundEmailStatus =
   | 'pending'

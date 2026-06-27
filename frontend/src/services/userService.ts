@@ -1,5 +1,5 @@
 import axios from 'axios';
-import apiClient from './apiConfig';
+import apiClient from '@nosdesk/core/apiClient';
 import { logger } from '@/utils/logger';
 import { RequestManager } from '@nosdesk/core/utils/requestManager';
 import type { PaginationParams, PaginatedResponse } from '@nosdesk/core/types/pagination';

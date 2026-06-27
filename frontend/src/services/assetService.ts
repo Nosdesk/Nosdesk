@@ -1,4 +1,4 @@
-import apiClient from './apiConfig';
+import apiClient from '@nosdesk/core/apiClient';
 import type { Asset, AssetFormData } from '@nosdesk/core/types/asset';
 import type { PaginationParams, PaginatedResponse } from '@nosdesk/core/types/pagination';
 import { logger } from '@/utils/logger';

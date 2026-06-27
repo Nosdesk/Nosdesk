@@ -1,4 +1,4 @@
-import apiClient from './apiConfig'
+import apiClient from '@nosdesk/core/apiClient'
 
 /** Closed set, mirrored from the backend DB CHECK constraint
  *  on asset_kinds.category. Drives which IT-flavoured form

@@ -137,7 +137,7 @@ export const publicService = {
 };
 
 // ---- Admin-side guest settings service (uses authenticated client) ----
-import apiClient from './apiConfig';
+import apiClient from '@nosdesk/core/apiClient';
 
 export interface AdminGuestSettings {
   guest_tickets_enabled: boolean;

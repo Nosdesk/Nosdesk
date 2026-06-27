@@ -12,7 +12,7 @@ import type { PasskeyLoginResult } from "@/services/passkeyService";
 import ForgotPasswordModal from "@/components/auth/ForgotPasswordModal.vue";
 import AuthLayout from "@/components/auth/AuthLayout.vue";
 import authService from "@/services/authService";
-import apiClient from "@/services/apiConfig";
+import apiClient from "@nosdesk/core/apiClient";
 import LogoIcon from "@/components/icons/LogoIcon.vue";
 import Icon from "@/components/common/Icon.vue";
 import Spinner from "@/components/common/Spinner.vue";

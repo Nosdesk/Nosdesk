@@ -206,6 +206,9 @@ importers:
 
   packages/core:
     dependencies:
+      axios:
+        specifier: ^1.6.2
+        version: 1.18.1
       date-fns:
         specifier: ^4.1.0
         version: 4.4.0

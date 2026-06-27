@@ -33,7 +33,7 @@ import type { User } from '@/services/userService';
 import { effectiveRole, rolesFromTier, type UserRole } from '@nosdesk/core/types/user';
 import { groupService } from '@/services/groupService';
 import type { Group } from '@nosdesk/core/types/group';
-import apiClient from '@/services/apiConfig';
+import apiClient from '@nosdesk/core/apiClient';
 import { useMfa } from '@/composables/useMfa';
 import { useColorFilter } from '@/composables/useColorFilter';
 import { extractErrorMessage } from '@/utils/errors';

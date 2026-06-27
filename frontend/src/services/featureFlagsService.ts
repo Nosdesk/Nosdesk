@@ -1,4 +1,4 @@
-import apiClient from './apiConfig';
+import apiClient from '@nosdesk/core/apiClient';
 
 export type FeatureFlagValue = boolean | string | number | null | Record<string, unknown>;
 export type FeatureFlagMap = Record<string, FeatureFlagValue>;

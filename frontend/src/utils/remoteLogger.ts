@@ -3,7 +3,7 @@
  * Useful for mobile development where DevTools isn't accessible
  */
 
-import apiClient from '@/services/apiConfig';
+import apiClient from '@nosdesk/core/apiClient';
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 

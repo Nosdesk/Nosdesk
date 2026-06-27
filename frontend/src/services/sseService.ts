@@ -3,7 +3,7 @@ import { logger } from '@/utils/logger';
 import { translate } from '@/i18n';
 import { useAuthStore } from "@/stores/auth";
 import { sseStreamUrl } from "@nosdesk/core/transport";
-import apiClient from "./apiConfig";
+import apiClient from "@nosdesk/core/apiClient";
 
 // Event handler type - uses unknown since SSE events have varying shapes
 type EventHandler = (data: unknown) => void;

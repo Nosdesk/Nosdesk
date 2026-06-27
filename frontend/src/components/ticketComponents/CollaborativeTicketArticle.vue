@@ -8,7 +8,7 @@ import RevisionList from '@/components/editor/RevisionList.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
 import Icon from '@/components/common/Icon.vue';
 import ConfirmModal from '@/components/common/ConfirmModal.vue';
-import apiClient from '@/services/apiConfig';
+import apiClient from '@nosdesk/core/apiClient';
 import { docUrl } from '@nosdesk/core/utils/docUrl';
 import { listDocsForTicket, createPageFromTicket, type TicketDocLink } from '@/services/documentationService';
 import { useCollabDocId } from '@/composables/useCollabDocId';

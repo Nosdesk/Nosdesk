@@ -1,4 +1,4 @@
-import apiClient from './apiConfig'
+import apiClient from '@nosdesk/core/apiClient'
 
 /** One ledger row from the asset usage log. Decimal fields are
  *  serialised as strings to avoid lossy f64 round-tripping

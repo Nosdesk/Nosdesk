@@ -3,7 +3,7 @@
  * authenticated user; the JWT identifies the watcher so no body
  * is required for those calls.
  */
-import apiClient from './apiConfig'
+import apiClient from '@nosdesk/core/apiClient'
 
 export interface MyWatchState {
   watching: boolean
