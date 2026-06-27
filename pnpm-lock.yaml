@@ -204,6 +204,19 @@ importers:
         specifier: ^3.2.0
         version: 3.3.5(typescript@6.0.3)
 
+  mobile:
+    dependencies:
+      '@nosdesk/core':
+        specifier: workspace:*
+        version: link:../packages/core
+      axios:
+        specifier: ^1.6.2
+        version: 1.18.1
+    devDependencies:
+      typescript:
+        specifier: ^6.0.0
+        version: 6.0.3
+
   packages/core:
     dependencies:
       '@pinia/colada':

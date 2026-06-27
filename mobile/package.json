@@ -1,0 +1,16 @@
+{
+  "name": "@nosdesk/mobile",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@nosdesk/core": "workspace:*",
+    "axios": "^1.6.2"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.0"
+  }
+}
