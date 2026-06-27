@@ -11,6 +11,7 @@
 import apiClient from '@nosdesk/core/apiClient'
 import { apiBaseUrl, transport } from '@nosdesk/core/transport'
 import type { AxiosError, InternalAxiosRequestConfig } from 'axios'
+import { tauriHttpAdapter } from './tauriHttpAdapter'
 
 type RetryConfig = InternalAxiosRequestConfig & { _retry?: boolean }
 
@@ -22,6 +23,16 @@ let refreshing: Promise<boolean> | null = null
 export function setupApiClient(): void {
   if (registered) return
   registered = true
+
+  // Route the shared axios instance through Tauri's native HTTP client.
+  apiClient.defaults.adapter = tauriHttpAdapter
+
+  // The web apiConfig auto-registers its (cookie-oriented) interceptors when it
+  // loads via stores/auth.ts, even in Tauri mode. Clear them so only the
+  // bearer-mode interceptors below apply. Safe: this runs at bootstrap, before
+  // any request fires.
+  apiClient.interceptors.request.clear()
+  apiClient.interceptors.response.clear()
 
   apiClient.interceptors.request.use((config) => {
     config.baseURL = apiBaseUrl()
