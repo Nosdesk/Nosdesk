@@ -9,8 +9,9 @@
     "core:default",
     {
       "identifier": "http:default",
+      "comment": "Any HTTPS host: the user picks their Nosdesk server (cloud or self-hosted). Still HTTPS-only and only ever the server the user configured.",
       "allow": [
-        { "url": "https://app.nosdesk.com/*" }
+        { "url": "https://**" }
       ]
     }
   ]
