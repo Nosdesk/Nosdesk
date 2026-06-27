@@ -19,6 +19,9 @@ UI; `@nosdesk/core` is what lets the one UI run in both hosts.
   - `tauriHttpAdapter.ts` — axios adapter over `@tauri-apps/plugin-http` (the
     `tauri://` origin can't reach the API cross-origin from the webview).
   - `storageSetup.ts` / `loggerSetup.ts` — the general-KV + logger seams.
+  - `serverConfig.ts` — the server picker: persist the chosen origin (cloud or
+    self-hosted), derive the base URLs, and `validateServer()` (HTTPS + probes
+    `/api/auth/setup/status` to confirm it's a Nosdesk instance).
   - `secureStore.ts` — the keychain `SecureStore` contract + an in-memory impl.
 
 The frontend chooses the host at startup in `frontend/src/platform/index.ts`
@@ -40,11 +43,16 @@ branch is a lazy chunk, so the web bundle stays Tauri-free.
 - **Keychain `SecureStore`** (`secureStore.ts`): only `memorySecureStore` ships
   (no cold-start persistence). Pick a non-biometric-gated keychain plugin
   on-device, NOT Stronghold (deprecated) or the plaintext store plugin.
-- **Tune** the placeholder API host (`com.nosdesk.app` identifier, the CSP
-  `connect-src` and the `http` capability `allow` URL all point at
-  `app.nosdesk.com`) and confirm SSE (EventSource) + collab WS against the real
-  deployment, the backend must allowlist the Tauri origin for those (the http
-  plugin handles REST natively, but SSE/WS go through the webview).
+- **Connect screen (Vue UI)** — the plumbing is here (`validateServer` /
+  `setServer` / `getStoredServer` / `DEFAULT_SERVER`); the actual first-run
+  "choose your Nosdesk server" screen + a settings entry to switch servers is
+  frontend work. Cloud is the default until then. To support arbitrary
+  self-hosted servers the `http` capability allows any `https://**` and the CSP
+  `connect-src` allows `https:`/`wss:` (still HTTPS-only, only the server the
+  user picks).
+- **Backend** must allowlist the Tauri origin for SSE (EventSource) + collab WS
+  per server (the http plugin handles REST natively, but SSE/WS go through the
+  webview).
 - App icons (placeholders), signing, store metadata; native enhancements (push,
   biometric unlock, deep links, native passkeys); on-device smoke test
   (login → `/me` → ticket list).

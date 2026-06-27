@@ -21,13 +21,9 @@ async function setupWebPlatform(): Promise<void> {
 
 async function setupTauriPlatform(): Promise<void> {
   const { bootstrapMobile, memorySecureStore } = await import('@nosdesk/mobile')
+  // The server (cloud or self-hosted) comes from the persisted choice / the
+  // connect screen, not a build constant. bootstrapMobile resolves it.
   await bootstrapMobile({
-    // Tauri talks to the absolute hosted API; the web build uses relative `/api`.
-    apiBaseUrl:
-      (import.meta.env.VITE_TAURI_API_URL as string | undefined) ?? 'https://app.nosdesk.com/api',
-    collabWsBaseUrl:
-      (import.meta.env.VITE_TAURI_WS_URL as string | undefined) ??
-      'wss://app.nosdesk.com/api/collaboration/ws',
     // TODO(tauri): swap memorySecureStore for a keychain-backed SecureStore once
     // chosen on-device (see mobile/src/secureStore.ts). memory = login each cold start.
     secureStore: memorySecureStore(),

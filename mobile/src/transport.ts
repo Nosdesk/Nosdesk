@@ -1,28 +1,32 @@
 /**
- * Bearer-token transport wiring for the Tauri app, the mobile twin of the
- * web's `frontend/src/services/transport.ts`.
+ * Bearer-token transport wiring for the Tauri app, the mobile twin of the web's
+ * `frontend/src/services/transport.ts`.
  *
  * The app authenticates with a session JWT in `Authorization: Bearer` plus
- * `X-Auth-Mode: bearer` (so the backend returns tokens in the body instead of
- * setting cookies). The short-lived access token lives in memory so
- * `authHeaders()` can read it synchronously per request; the long-lived refresh
- * token is mirrored in memory for `hasSession()` and persisted to the keychain
- * (see SecureStore) so a cold start can re-establish the session.
+ * `X-Auth-Mode: bearer` (so the backend returns tokens in the body, not
+ * cookies). The short-lived access token lives in memory so `authHeaders()` can
+ * read it synchronously per request; the long-lived refresh token is mirrored
+ * in memory for `hasSession()` and persisted to the keychain (SecureStore) for
+ * cold starts. The base URL comes from the selected server (see serverConfig).
  */
-import axios from 'axios'
-import { configureTransport, type AuthStrategy } from '@nosdesk/core/transport'
+import { fetch as tauriFetch } from '@tauri-apps/plugin-http'
+import { apiBaseUrl, configureTransport, type AuthStrategy } from '@nosdesk/core/transport'
+import { apiBaseUrlFor, collabWsBaseUrlFor, storeServer } from './serverConfig'
 import type { SecureStore } from './secureStore'
 
 // In-memory session state (see module doc for why access stays in memory).
 let accessToken: string | null = null
 let refreshToken: string | null = null
-
-let baseUrl = ''
 let store: SecureStore | null = null
 
 interface BearerTokens {
   access_token?: string
   refresh_token?: string
+}
+
+/** Register the keychain store. Called once at bootstrap, before configureServer. */
+export function setSecureStore(secureStore: SecureStore): void {
+  store = secureStore
 }
 
 /**
@@ -35,7 +39,7 @@ export async function setSession(access: string, refresh: string): Promise<void>
   await store?.save(refresh)
 }
 
-/** Clear the session locally (sign-out). */
+/** Clear the session locally (sign-out, or before switching servers). */
 export async function clearSession(): Promise<void> {
   accessToken = null
   refreshToken = null
@@ -53,17 +57,18 @@ const bearerAuthStrategy: AuthStrategy = {
   async refresh() {
     if (!refreshToken) return false
     try {
-      const res = await axios.post<BearerTokens>(
-        `${baseUrl}/auth/refresh`,
-        { refresh_token: refreshToken },
-        { headers: { 'X-Auth-Mode': 'bearer' }, withCredentials: false },
-      )
-      const access = res.data.access_token
-      const refresh = res.data.refresh_token
-      if (!access || !refresh) return false
-      accessToken = access
-      refreshToken = refresh
-      await store?.save(refresh)
+      // Native fetch (off the webview / off the axios interceptor stack).
+      const res = await tauriFetch(`${apiBaseUrl()}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Auth-Mode': 'bearer' },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      })
+      if (!res.ok) return false
+      const data = (await res.json()) as BearerTokens
+      if (!data.access_token || !data.refresh_token) return false
+      accessToken = data.access_token
+      refreshToken = data.refresh_token
+      await store?.save(data.refresh_token)
       return true
     } catch {
       return false
@@ -80,27 +85,30 @@ const bearerAuthStrategy: AuthStrategy = {
   },
 }
 
-export interface MobileTransportOptions {
-  /** Absolute REST base, e.g. `https://app.nosdesk.com/api`. */
-  apiBaseUrl: string
-  /** Absolute collab y-websocket base, including the `/collaboration/ws` suffix. */
-  collabWsBaseUrl: string
-  /** Keychain-backed store for the refresh token. */
-  secureStore: SecureStore
+/**
+ * Point the transport at a server origin. Loads that server's persisted refresh
+ * token so a returning user can transparently refresh into an access token.
+ * Does NOT persist the choice (bootstrap uses the stored/default server;
+ * `setServer` is the explicit, persisted user choice).
+ */
+export async function configureServer(origin: string): Promise<void> {
+  accessToken = null
+  refreshToken = (await store?.load()) ?? null
+  configureTransport({
+    baseUrl: apiBaseUrlFor(origin),
+    collabWsBaseUrl: collabWsBaseUrlFor(origin),
+    auth: bearerAuthStrategy,
+  })
 }
 
 /**
- * Register the bearer transport with `@nosdesk/core`. Loads any persisted
- * refresh token from the keychain first, so a returning user's first
- * authenticated request can transparently refresh into an access token.
+ * The explicit "connect to this server" action for the connect / settings
+ * screen: drop any existing session (a different server needs a fresh login),
+ * persist the choice, and point the transport at it. Validate the origin with
+ * `validateServer` first.
  */
-export async function setupTransport(opts: MobileTransportOptions): Promise<void> {
-  baseUrl = opts.apiBaseUrl
-  store = opts.secureStore
-  refreshToken = await store.load()
-  configureTransport({
-    baseUrl: opts.apiBaseUrl,
-    collabWsBaseUrl: opts.collabWsBaseUrl,
-    auth: bearerAuthStrategy,
-  })
+export async function setServer(origin: string): Promise<void> {
+  await clearSession()
+  storeServer(origin)
+  await configureServer(origin)
 }

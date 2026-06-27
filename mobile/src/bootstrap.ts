@@ -1,17 +1,23 @@
 /**
  * Single entry point that wires `@nosdesk/core` for the Tauri host. Call once
- * at app start, before any request or store access.
+ * at app start, before anything uses a seam.
  *
- * Order matters: logger + storage are synchronous; transport loads the
- * persisted refresh token from the keychain (async) and registers the seam;
- * the api-client interceptors then read that seam per request.
+ * Order: logger + storage are synchronous; the api-client interceptors +
+ * native HTTP adapter are installed; then the transport is pointed at the
+ * persisted server (or the default cloud) so a returning user lands on login.
+ * A first-run user with no stored server gets the default; the connect /
+ * settings screen calls `setServer()` to override (see serverConfig + transport).
  */
 import { setupLogger, type MobileLoggerOptions } from './loggerSetup'
 import { setupStorage } from './storageSetup'
-import { setupTransport, type MobileTransportOptions } from './transport'
+import { configureServer, setSecureStore } from './transport'
 import { setupApiClient } from './apiClient'
+import { DEFAULT_SERVER, getStoredServer } from './serverConfig'
+import type { SecureStore } from './secureStore'
 
-export interface MobileBootstrapOptions extends MobileTransportOptions {
+export interface MobileBootstrapOptions {
+  /** Keychain-backed store for the refresh token. */
+  secureStore: SecureStore
   /** Logger config; defaults to dev (DEBUG level, no user id). */
   logger?: MobileLoggerOptions
 }
@@ -19,6 +25,9 @@ export interface MobileBootstrapOptions extends MobileTransportOptions {
 export async function bootstrapMobile(opts: MobileBootstrapOptions): Promise<void> {
   setupLogger(opts.logger ?? { isProd: false })
   setupStorage()
-  await setupTransport(opts)
+  setSecureStore(opts.secureStore)
   setupApiClient()
+  // Use the persisted server, else the default cloud. The connect/settings
+  // screen can later override via setServer().
+  await configureServer(getStoredServer() ?? DEFAULT_SERVER)
 }
