@@ -124,6 +124,10 @@ where
             || path == "/api/auth/oauth/authorize"
             || path == "/api/auth/oauth/callback"
             || path == "/api/auth/oauth/logout"
+            // Native-app OIDC login: a pre-session bearer POST with no cookies,
+            // so there's no session for CSRF to protect (same as the login
+            // endpoints above).
+            || path == "/api/auth/oidc/native-login"
             || path == "/api/auth/setup/admin"
             || path == "/api/auth/setup/status"
             || path.starts_with("/api/auth/setup/restore/")
