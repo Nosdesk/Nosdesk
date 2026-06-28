@@ -2537,7 +2537,7 @@ pub async fn get_collab_token(req: HttpRequest) -> impl Responder {
     ) {
         Ok(token) => HttpResponse::Ok().json(json!({
             "token": token,
-            "expires_in": 3600,
+            "expires_in": crate::utils::jwt::CONNECTION_TOKEN_TTL_SECS,
         })),
         Err(_) => errors::internal("Failed to create collab token"),
     }
