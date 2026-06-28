@@ -17,5 +17,5 @@ export {
   DEFAULT_SERVER,
   type ServerValidation,
 } from './serverConfig'
-export { memorySecureStore, type SecureStore } from './secureStore'
+export { memorySecureStore, tauriSecureStore, type SecureStore } from './secureStore'
 export type { MobileLoggerOptions } from './loggerSetup'

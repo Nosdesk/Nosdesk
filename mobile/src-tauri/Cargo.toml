@@ -26,3 +26,9 @@ tauri = { version = "2.11.3", features = [] }
 # tauri:// origin, so REST goes through this (see mobile/src/tauriHttpAdapter.ts).
 tauri-plugin-http = "2"
 tauri-plugin-log = "2"
+
+# OS keychain for the refresh token (see src/keychain.rs). The iOS Keychain
+# (and macOS for `tauri dev`) via SecItem, with explicit accessibility control.
+[target.'cfg(any(target_os = "ios", target_os = "macos"))'.dependencies]
+security-framework = "3"
+security-framework-sys = "2"

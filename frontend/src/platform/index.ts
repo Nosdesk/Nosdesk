@@ -20,13 +20,13 @@ async function setupWebPlatform(): Promise<void> {
 }
 
 async function setupTauriPlatform(): Promise<void> {
-  const { bootstrapMobile, memorySecureStore } = await import('@nosdesk/mobile')
+  const { bootstrapMobile, tauriSecureStore } = await import('@nosdesk/mobile')
   // The server (cloud or self-hosted) comes from the persisted choice / the
   // connect screen, not a build constant. bootstrapMobile resolves it.
   await bootstrapMobile({
-    // TODO(tauri): swap memorySecureStore for a keychain-backed SecureStore once
-    // chosen on-device (see mobile/src/secureStore.ts). memory = login each cold start.
-    secureStore: memorySecureStore(),
+    // OS keychain (iOS Keychain / macOS) for the refresh token, so the session
+    // survives a cold app restart.
+    secureStore: tauriSecureStore(),
     logger: { isProd: import.meta.env.PROD },
   })
 }

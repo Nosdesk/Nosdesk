@@ -6,6 +6,8 @@
  * OS keychain (iOS Keychain / Android Keystore), never in `localStorage`. The
  * interface is async because native keychain access is.
  */
+import { invoke } from '@tauri-apps/api/core'
+
 export interface SecureStore {
   /** Read the persisted refresh token, or null if none. */
   load(): Promise<string | null>
@@ -32,22 +34,17 @@ export function memorySecureStore(): SecureStore {
   }
 }
 
-// Production keychain implementation (the one piece that genuinely needs
-// on-device evaluation before it's wired):
-//
-//   export function tauriSecureStore(): SecureStore {
-//     // Back the refresh token with the OS keychain (iOS Keychain / Android
-//     // Keystore). NOT Stronghold — the Tauri docs mark it deprecated/removed
-//     // in v3; NOT `@tauri-apps/plugin-store`, which is plaintext.
-//     //
-//     // `@impierce/tauri-plugin-keystore` exposes store()/retrieve()/remove(),
-//     // but it gates EVERY read behind biometrics — wrong for transparent
-//     // token refresh (it would prompt Face ID on each silent 401-refresh).
-//     // Pick a keychain plugin whose read is NOT biometric-gated (biometrics,
-//     // if wanted, belong on an explicit app-unlock, not on token reads), and
-//     // map it onto this interface.
-//   }
-//
-// Until then `memorySecureStore` is the default: the app works (no cold-start
-// persistence — a restart returns to login), which is fine for desktop dev and
-// the simulator smoke test. The interface makes the keychain swap one file.
+/**
+ * OS-keychain-backed store (iOS Keychain / macOS keychain), via the Rust
+ * `secure_store_*` Tauri commands (see mobile/src-tauri/src/keychain.rs). The
+ * token is held device-only, non-synced, readable without a biometric prompt so
+ * refresh stays silent. This is the production store; `memorySecureStore` is the
+ * dev/test fallback (no cold-start persistence).
+ */
+export function tauriSecureStore(): SecureStore {
+  return {
+    load: () => invoke<string | null>('secure_store_load'),
+    save: (token) => invoke<void>('secure_store_save', { token }),
+    clear: () => invoke<void>('secure_store_clear'),
+  }
+}
