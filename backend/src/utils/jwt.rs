@@ -60,15 +60,20 @@ impl JwtUtils {
         .map_err(JwtError::EncodingError)
     }
 
-    /// Create a short-lived SSE token (1 hour expiry)
-    /// These tokens are specifically for Server-Sent Events and have reduced scope.
-    /// `workspace_uuid` binds the selected workspace into the token (Model C) so
-    /// the stream — which can't receive the selection header over EventSource —
-    /// authorizes against it; `None` for Host-derived / self-hosted callers.
-    pub fn create_sse_token(
+    /// Mint a short-lived (1h), sessionless "connection token" for a URL-only
+    /// channel that can't send an `Authorization` header (EventSource SSE,
+    /// WebSocket collab), so the token rides in the query string instead.
+    /// `workspace_uuid` binds the selected workspace (Model C) so the channel
+    /// authorizes against it without the selection header; `None` for
+    /// Host-derived / self-hosted callers. `scope` distinguishes what a channel
+    /// accepts (read-only `sse` vs write-capable `collab`); the per-channel
+    /// handler enforces the scope it requires.
+    fn create_connection_token(
         user_id: &str,
         platform_role: &str,
         workspace_uuid: Option<uuid::Uuid>,
+        scope: &str,
+        name: &str,
     ) -> Result<String, JwtError> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -77,10 +82,10 @@ impl JwtUtils {
 
         let claims = Claims {
             sub: user_id.to_string(),
-            name: "SSE_TOKEN".to_string(),
+            name: name.to_string(),
             email: String::new(),
             platform_role: platform_role.to_string(),
-            scope: "sse".to_string(),
+            scope: scope.to_string(),
             sid: None,
             workspace_uuid,
             exp: now + 3600,
@@ -93,6 +98,32 @@ impl JwtUtils {
             &EncodingKey::from_secret(JWT_SECRET.as_bytes()),
         )
         .map_err(JwtError::EncodingError)
+    }
+
+    /// Read-only connection token for Server-Sent Events.
+    pub fn create_sse_token(
+        user_id: &str,
+        platform_role: &str,
+        workspace_uuid: Option<uuid::Uuid>,
+    ) -> Result<String, JwtError> {
+        Self::create_connection_token(user_id, platform_role, workspace_uuid, "sse", "SSE_TOKEN")
+    }
+
+    /// Write-capable connection token for the collaborative-editing WebSocket.
+    /// Authorization is still per-document (workspace membership + visibility,
+    /// enforced in the WS handler); this token only attests who + which workspace.
+    pub fn create_collab_token(
+        user_id: &str,
+        platform_role: &str,
+        workspace_uuid: Option<uuid::Uuid>,
+    ) -> Result<String, JwtError> {
+        Self::create_connection_token(
+            user_id,
+            platform_role,
+            workspace_uuid,
+            "collab",
+            "COLLAB_TOKEN",
+        )
     }
 
     /// Create a customer-portal session access token (15 minutes).
@@ -184,10 +215,12 @@ impl JwtUtils {
             });
         }
 
-        // Skip session validation for SSE tokens (short-lived, not stored in active_sessions)
-        let is_sse_token = claims.name == "SSE_TOKEN";
+        // Connection tokens (sse / collab streams) are short-lived and
+        // sessionless (never written to active_sessions), so skip the session
+        // lookup. The per-channel handler enforces the scope it accepts.
+        let is_connection_token = matches!(claims.scope.as_str(), "sse" | "collab");
 
-        if !is_sse_token {
+        if !is_connection_token {
             // Use sid claim to look up session by stable UUID
             let sid_str = claims.sid.as_deref().ok_or(JwtError::SessionRevoked)?;
 
@@ -216,7 +249,11 @@ impl JwtUtils {
                 }
             }
         } else {
-            tracing::debug!("Validating SSE token for user {}", user_uuid);
+            tracing::debug!(
+                scope = %claims.scope,
+                "Validating sessionless connection token for user {}",
+                user_uuid
+            );
         }
 
         Ok((claims, user))

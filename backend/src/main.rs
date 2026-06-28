@@ -2206,6 +2206,11 @@ async fn main() -> std::io::Result<()> {
                     // ===== SERVER-SENT EVENTS (SSE) =====
                     .route("/events/token", web::post().to(handlers::sse::get_sse_token))
 
+                    // ===== COLLAB WEBSOCKET CONNECTION TOKEN =====
+                    // Same auth as the SSE token: mints a short-lived, workspace-
+                    // bound token the browser WebSocket carries in its query string.
+                    .route("/collaboration/token", web::post().to(handlers::collaboration::get_collab_token))
+
                     // ===== SEARCH =====
                     .route("/search", web::get().to(handlers::search::search))
                     .route("/search/rebuild", web::post().to(handlers::search::rebuild_index))

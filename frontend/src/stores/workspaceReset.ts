@@ -62,6 +62,15 @@ export async function resetWorkspaceScopedState(): Promise<void> {
     logger.error('Failed to clear the active workspace slug', e);
   }
 
+  // Drop the cached collab WS token: it's workspace-bound, so a token minted for
+  // the old workspace would be refused when opening a doc in the new one.
+  try {
+    const { resetCollabToken } = await import('@/services/collabToken');
+    resetCollabToken();
+  } catch (e) {
+    logger.error('Failed to clear the collab token', e);
+  }
+
   // Sync runtime, SSE bridge, and collab IndexedDB. The sync pool's IDB is keyed
   // by (user, schema) with no workspace today, so a full teardown is the only
   // way to keep one workspace's rows from bleeding into the next; re-hydration
