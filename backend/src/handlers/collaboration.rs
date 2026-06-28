@@ -3615,7 +3615,12 @@ pub async fn handshake(
 /// Keeping them in one configurer means `config` applies that auth in a
 /// single place, so a new endpoint can't accidentally land outside it.
 fn rest_routes(cfg: &mut web::ServiceConfig) {
-    cfg.route("/handshake/{doc_id}", web::get().to(handshake))
+    // Mint the collab connection token. Must live INSIDE this scope (not the
+    // `/api` scope): the `/api/collaboration` scope is registered first and would
+    // shadow `/api/collaboration/token` registered elsewhere. dual_auth (wrapping
+    // this scope) supplies the Claims + WorkspaceContext the handler reads.
+    cfg.route("/token", web::post().to(get_collab_token))
+        .route("/handshake/{doc_id}", web::get().to(handshake))
         .route("/article/{doc_id}", web::get().to(get_article_content))
         .route(
             "/tickets/{ticket_id}/revisions",
