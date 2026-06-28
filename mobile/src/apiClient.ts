@@ -37,7 +37,12 @@ export function setupApiClient(): void {
   apiClient.interceptors.request.use((config) => {
     config.baseURL = apiBaseUrl()
     config.withCredentials = transport().auth.useCredentials
-    Object.assign(config.headers, transport().auth.authHeaders())
+    // Use AxiosHeaders.set (not Object.assign) so values land in the instance's
+    // canonical store that the native adapter serialises via toJSON.
+    const authHeaders = transport().auth.authHeaders()
+    for (const [key, value] of Object.entries(authHeaders)) {
+      config.headers.set(key, value)
+    }
     return config
   })
 

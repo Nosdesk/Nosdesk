@@ -211,23 +211,42 @@ pub async fn cookie_auth_middleware(
         "Cookie auth middleware processing request"
     );
 
-    let token = req
-        .cookie(crate::utils::cookies::ACCESS_TOKEN_COOKIE)
-        .ok_or_else(|| {
-            warn!(path = %req.path(), "Cookie auth: no access_token cookie found");
-            actix_web::error::ErrorUnauthorized("Authentication required")
-        })?;
+    // Accept a session-JWT Bearer (native/mobile clients have no cookie jar) OR
+    // the access_token cookie (web). `nsk_` personal API tokens are NOT accepted
+    // here — those go through dual_auth_middleware on their designated routes.
+    let bearer =
+        crate::middleware::api_token::extract_bearer_token(&req).filter(|t| !t.starts_with("nsk_"));
+    let from_bearer = bearer.is_some();
+    let token_value = match bearer {
+        Some(t) => t,
+        None => req
+            .cookie(crate::utils::cookies::ACCESS_TOKEN_COOKIE)
+            .map(|c| c.value().to_string())
+            .ok_or_else(|| {
+                warn!(path = %req.path(), "Cookie auth: no access_token cookie or session bearer");
+                actix_web::error::ErrorUnauthorized("Authentication required")
+            })?,
+    };
 
-    debug!("Cookie auth: validating token from cookie");
-
-    let (claims, _user) = JwtUtils::authenticate_with_token(token.value(), &mut conn)
+    let (claims, _user) = JwtUtils::authenticate_with_token(&token_value, &mut conn)
         .await
         .map_err(|err| {
-            error!(error = ?err, "Cookie auth: token validation failed");
+            error!(error = ?err, "Auth: token validation failed");
             actix_web::error::ErrorUnauthorized("Invalid or expired token")
         })?;
 
-    info!(user = %claims.sub, "Cookie auth: user authenticated successfully");
+    // A Bearer session JWT must be a full-scope agent session; SSE ("sse") and
+    // portal ("portal") tokens could over-authorize if replayed as a bearer.
+    // The access_token cookie only ever carries a full session token, so it's
+    // exempt from this check.
+    if from_bearer && claims.scope != "full" {
+        warn!(path = %req.path(), scope = %claims.scope, "Rejected non-session JWT on bearer path");
+        return Err(actix_web::error::ErrorUnauthorized(
+            "Token not valid for this API",
+        ));
+    }
+
+    info!(user = %claims.sub, "Auth: user authenticated successfully");
 
     enforce_workspace_membership(&req, &mut conn, &claims)?;
 
