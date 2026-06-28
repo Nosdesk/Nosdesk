@@ -52,12 +52,13 @@ export interface TransportConfig {
 
 let config: TransportConfig | null = null
 
-// Host-supplied per-request headers beyond auth, currently the Model-C
-// workspace-selection header (`X-Nosdesk-Workspace`). The web `apiConfig`
-// interceptor reads the same source directly; the mobile interceptor reads it
-// through this seam because its bootstrap clears the web interceptor. Defaults
-// to none, so a host that never registers a provider is unaffected.
-let selectionHeadersProvider: () => Record<string, string> = () => ({})
+// Host-supplied per-request headers beyond auth: the Model-C workspace-selection
+// header (`X-Nosdesk-Workspace`) and request-tracing/diagnostics headers
+// (correlation id, trace id, SSE client id, auth provider). Each host concern
+// registers its own provider and they compose, so both the web `apiConfig`
+// interceptor and the mobile interceptor (whose bootstrap clears apiConfig) can
+// apply the same union. Empty until a host registers, so a bare config sends none.
+const requestHeaderProviders: Array<() => Record<string, string>> = []
 
 /** Wire the active transport. Called once at host bootstrap, before any request. */
 export function configureTransport(c: TransportConfig): void {
@@ -65,16 +66,20 @@ export function configureTransport(c: TransportConfig): void {
 }
 
 /**
- * Register the host's selection-header provider (which workspace this client is
- * acting in). Called once at bootstrap; read per-request via `selectionHeaders()`.
+ * Register a provider of extra per-request headers (workspace selection,
+ * diagnostics, …). Providers compose in registration order; read per-request via
+ * `requestHeaders()`. Each owner registers near its source so the timing matches
+ * when its value becomes available.
  */
-export function setSelectionHeaders(provider: () => Record<string, string>): void {
-  selectionHeadersProvider = provider
+export function addRequestHeaderProvider(provider: () => Record<string, string>): void {
+  requestHeaderProviders.push(provider)
 }
 
-/** The host's current selection headers (workspace-selection, etc.) for a request. */
-export function selectionHeaders(): Record<string, string> {
-  return selectionHeadersProvider()
+/** The union of every registered host per-request header, for one request. */
+export function requestHeaders(): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const provider of requestHeaderProviders) Object.assign(out, provider())
+  return out
 }
 
 function active(): TransportConfig {
