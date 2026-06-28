@@ -68,7 +68,6 @@ async function connectSelfHosted() {
         <Button variant="primary" block :loading="busy" @click="chooseCloud">
           {{ $t('connect-cloud') }}
         </Button>
-        <p class="-mt-2 text-center text-xs text-tertiary">{{ $t('connect-cloud-hint') }}</p>
         <button
           type="button"
           class="text-sm font-medium text-accent hover:underline disabled:opacity-50"
