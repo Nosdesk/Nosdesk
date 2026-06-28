@@ -126,13 +126,22 @@ RUN corepack enable
 
 WORKDIR /repo
 
-# Workspace manifests + lockfile first, for a cached dependency layer.
+# Workspace manifests + lockfile first, for a cached dependency layer. The
+# frontend imports the @nosdesk/core (and, via a lazy chunk, @nosdesk/mobile)
+# workspace packages, so their manifests must be present for the workspace-aware
+# `--filter ...` install to resolve them.
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY frontend/package.json ./frontend/
+COPY packages/core/package.json ./packages/core/
+COPY mobile/package.json ./mobile/
 RUN pnpm install --frozen-lockfile --filter nosdesk-frontend...
 
-# Frontend source.
+# Frontend source + the workspace package sources it resolves from (raw .ts,
+# consumed directly by vite). mobile/src only — mobile/src-tauri is the native
+# shell and irrelevant to the web build.
 COPY frontend ./frontend
+COPY packages/core ./packages/core
+COPY mobile/src ./mobile/src
 # Shared Fluent catalogues. Vite's `import.meta.glob` in
 # src/i18n/index.ts resolves `../../../i18n/locales/...` three levels up
 # from /repo/frontend/src/i18n/, which lands at /repo, so the catalogues
