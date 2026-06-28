@@ -9,7 +9,7 @@
  * concerns layered on later, not part of the bootstrap.
  */
 import apiClient from '@nosdesk/core/apiClient'
-import { apiBaseUrl, transport } from '@nosdesk/core/transport'
+import { apiBaseUrl, selectionHeaders, transport } from '@nosdesk/core/transport'
 import type { AxiosError, InternalAxiosRequestConfig } from 'axios'
 import { tauriHttpAdapter } from './tauriHttpAdapter'
 
@@ -41,6 +41,12 @@ export function setupApiClient(): void {
     // canonical store that the native adapter serialises via toJSON.
     const authHeaders = transport().auth.authHeaders()
     for (const [key, value] of Object.entries(authHeaders)) {
+      config.headers.set(key, value)
+    }
+    // Selection headers (Model-C workspace) from the seam: the web apiConfig
+    // attaches these, but this bootstrap cleared it, so apply them here.
+    const selection = selectionHeaders()
+    for (const [key, value] of Object.entries(selection)) {
       config.headers.set(key, value)
     }
     return config

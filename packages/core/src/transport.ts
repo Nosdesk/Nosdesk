@@ -52,9 +52,29 @@ export interface TransportConfig {
 
 let config: TransportConfig | null = null
 
+// Host-supplied per-request headers beyond auth, currently the Model-C
+// workspace-selection header (`X-Nosdesk-Workspace`). The web `apiConfig`
+// interceptor reads the same source directly; the mobile interceptor reads it
+// through this seam because its bootstrap clears the web interceptor. Defaults
+// to none, so a host that never registers a provider is unaffected.
+let selectionHeadersProvider: () => Record<string, string> = () => ({})
+
 /** Wire the active transport. Called once at host bootstrap, before any request. */
 export function configureTransport(c: TransportConfig): void {
   config = c
+}
+
+/**
+ * Register the host's selection-header provider (which workspace this client is
+ * acting in). Called once at bootstrap; read per-request via `selectionHeaders()`.
+ */
+export function setSelectionHeaders(provider: () => Record<string, string>): void {
+  selectionHeadersProvider = provider
+}
+
+/** The host's current selection headers (workspace-selection, etc.) for a request. */
+export function selectionHeaders(): Record<string, string> {
+  return selectionHeadersProvider()
 }
 
 function active(): TransportConfig {
