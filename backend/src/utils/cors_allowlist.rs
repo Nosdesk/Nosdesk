@@ -23,6 +23,37 @@ use std::sync::OnceLock;
 use regex::Regex;
 use tracing::warn;
 
+/// Origins the official native (Tauri) app's webview presents, by platform:
+/// macOS / iOS / Linux use `tauri://localhost`; Windows / Android use
+/// `http://tauri.localhost` (or `https://tauri.localhost` with `useHttpsScheme`).
+/// These are fixed Tauri platform constants, not deployment values.
+///
+/// Trusted by default so the app's SSE stream and collab WebSocket work, both
+/// run in the webview (unlike REST, which uses the native HTTP client and never
+/// touches this allowlist). Safe to trust: a web page cannot forge these origins
+/// (the browser sets `Origin` to the real page origin), and every SSE / WS
+/// connection is still token / bearer authenticated, so the origin check is
+/// defense-in-depth, not the auth gate. Operators who don't want it set
+/// `NOSDESK_ALLOW_NATIVE_APP=false`.
+pub const NATIVE_APP_ORIGINS: [&str; 3] = [
+    "tauri://localhost",
+    "http://tauri.localhost",
+    "https://tauri.localhost",
+];
+
+/// Whether the native-app origins are trusted. Default `true`; disabled only by
+/// `NOSDESK_ALLOW_NATIVE_APP` set to an explicit falsey value
+/// (`false` / `0` / `no` / `off`). Unset or anything else stays enabled.
+pub fn native_app_allowed_from_env() -> bool {
+    match std::env::var("NOSDESK_ALLOW_NATIVE_APP") {
+        Ok(v) => !matches!(
+            v.trim().to_ascii_lowercase().as_str(),
+            "false" | "0" | "no" | "off"
+        ),
+        Err(_) => true,
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct CorsAllowlist {
     /// Scheme+host[:port] of every exact-match allowed origin
@@ -45,8 +76,18 @@ impl CorsAllowlist {
     pub fn new<'a>(
         exact_origins: impl IntoIterator<Item = &'a str>,
         tenant_domain: Option<&str>,
+        allow_native_app: bool,
     ) -> Self {
         let mut exact = HashSet::new();
+        // The native app's webview origins are fixed platform constants, so they
+        // go straight in as literals (no URL parse, which is unreliable for the
+        // `tauri://` custom scheme). Both the HTTP CORS layer and the collab WS
+        // origin guard read this set, so this is the only wiring needed.
+        if allow_native_app {
+            for origin in NATIVE_APP_ORIGINS {
+                exact.insert(origin.to_string());
+            }
+        }
         for raw in exact_origins {
             match url::Url::parse(raw) {
                 Ok(u) => {
@@ -127,6 +168,7 @@ impl CorsAllowlist {
         Self::new(
             std::iter::once(frontend_url.as_str()).chain(additional.iter().map(String::as_str)),
             tenant.as_deref(),
+            native_app_allowed_from_env(),
         )
     }
 }
@@ -158,7 +200,13 @@ mod tests {
     use super::*;
 
     fn build(tenant: Option<&str>) -> CorsAllowlist {
-        CorsAllowlist::new(["https://app.nosdesk.com", "http://localhost:3000"], tenant)
+        // Native-app origins off here so the existing assertions stay focused on
+        // exact/tenant matching; the native-app behaviour has its own tests.
+        CorsAllowlist::new(
+            ["https://app.nosdesk.com", "http://localhost:3000"],
+            tenant,
+            false,
+        )
     }
 
     #[test]
@@ -224,6 +272,7 @@ mod tests {
         let allow = CorsAllowlist::new(
             ["https://helpdesk.school.internal", "https://10.0.5.20:8443"],
             None,
+            false,
         );
         assert!(allow.allows("https://helpdesk.school.internal"));
         assert!(allow.allows("https://10.0.5.20:8443"));
@@ -244,12 +293,46 @@ mod tests {
         // If an operator accidentally sets the tenant domain with a
         // regex meta-character, the escape pass means it still only
         // matches the literal.
-        let allow = CorsAllowlist::new(["https://app.nosdesk.com"], Some("foo|nosdesk.app"));
+        let allow = CorsAllowlist::new(["https://app.nosdesk.com"], Some("foo|nosdesk.app"), false);
         // The literal suffix is `foo|nosdesk.app`; only origins
         // ending in exactly that string pass. The pipe shouldn't
         // act as a regex alternation.
         assert!(!allow.allows("https://acme.foo"));
         assert!(!allow.allows("https://acme.nosdesk.app"));
         assert!(allow.allows("https://acme.foo|nosdesk.app"));
+    }
+
+    #[test]
+    fn native_app_origins_allowed_when_enabled() {
+        // The collab WS guard and the HTTP CORS layer share this allowlist, so
+        // this pins that the native app's webview origins (all platforms) pass
+        // when enabled, alongside the normal exact origins.
+        let allow = CorsAllowlist::new(["https://app.nosdesk.com"], Some("nosdesk.app"), true);
+        assert!(allow.allows("tauri://localhost")); // macOS / iOS / Linux
+        assert!(allow.allows("http://tauri.localhost")); // Windows / Android
+        assert!(allow.allows("https://tauri.localhost")); // useHttpsScheme
+                                                          // Normal origins still work.
+        assert!(allow.allows("https://app.nosdesk.com"));
+        assert!(allow.allows("https://acme.nosdesk.app"));
+    }
+
+    #[test]
+    fn native_app_origins_blocked_when_disabled() {
+        let allow = CorsAllowlist::new(["https://app.nosdesk.com"], Some("nosdesk.app"), false);
+        assert!(!allow.allows("tauri://localhost"));
+        assert!(!allow.allows("http://tauri.localhost"));
+        assert!(!allow.allows("https://tauri.localhost"));
+        // The real origins are unaffected by the toggle.
+        assert!(allow.allows("https://app.nosdesk.com"));
+    }
+
+    #[test]
+    fn native_app_lookalike_origin_not_trusted() {
+        // Enabling the native app must not trust an attacker host that merely
+        // contains the literal (exact-match only, no substring/suffix matching).
+        let allow = CorsAllowlist::new(["https://app.nosdesk.com"], None, true);
+        assert!(!allow.allows("tauri://localhost.attacker.com"));
+        assert!(!allow.allows("https://tauri.localhost.evil.com"));
+        assert!(!allow.allows("https://nottauri.localhost"));
     }
 }
