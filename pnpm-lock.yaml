@@ -221,6 +221,9 @@ importers:
       axios:
         specifier: ^1.6.2
         version: 1.18.1
+      tauri-plugin-web-auth-api:
+        specifier: ^1.0.0
+        version: 1.0.0
     devDependencies:
       '@tauri-apps/cli':
         specifier: ^2.0.0
@@ -2076,6 +2079,9 @@ packages:
   tapable@2.3.3:
     resolution: {integrity: sha512-uxc/zpqFg6x7C8vOE7lh6Lbda8eEL9zmVm/PLeTPBRhh1xCgdWaQ+J1CUieGpIfm2HdtsUpRv+HshiasBMcc6A==}
     engines: {node: '>=6'}
+
+  tauri-plugin-web-auth-api@1.0.0:
+    resolution: {integrity: sha512-g1uPl2OvFlDZBPUz+4B+AEPsGSMdH6BdnCl7UKXWu0sApRaoe+84rukh3C5o+QgZMVBUf1SyDYZB1hoL2UZwRA==}
 
   tinyglobby@0.2.17:
     resolution: {integrity: sha512-wXR/dYpcqKmfWpEdZjiKJOwCNFndD0DMnrW/cYjVGttEkBfVgcLFHoNrlj47mjOVic9yyNu65alsgF4NQyTa2g==}
@@ -4048,6 +4054,10 @@ snapshots:
   tailwindcss@4.3.1: {}
 
   tapable@2.3.3: {}
+
+  tauri-plugin-web-auth-api@1.0.0:
+    dependencies:
+      '@tauri-apps/api': 2.11.1
 
   tinyglobby@0.2.17:
     dependencies:

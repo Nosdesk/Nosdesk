@@ -13,6 +13,8 @@
       "allow": [
         { "url": "https://**" }
       ]
-    }
+    },
+    "web-auth:default",
+    "web-auth:allow-authenticate"
   ]
 }
