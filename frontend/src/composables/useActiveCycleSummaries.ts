@@ -3,8 +3,8 @@
  *
  * One workspace-wide fetch of active cycles (at most one per project)
  * for their name / end date, with ticket + completed counts derived
- * from the sync pool, the list subscribes to `workspace:1`, which
- * carries every ticket, and each ticket denormalises its `cycle_id`.
+ * from the sync pool, the list subscribes to the active workspace's
+ * group, which carries every ticket, and each ticket denormalises its `cycle_id`.
  * So the whole glance costs a single request; the counts come for free
  * from the same pool the rest of the card reads.
  *

@@ -10,11 +10,11 @@
  * with persisted layout for free; mobile keeps the enriched cards.
  * Rename/status/delete side effects are owned here.
  */
-import { onMounted, computed, ref, type ComponentPublicInstance } from 'vue'
+import { computed, ref, type ComponentPublicInstance } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useFluent } from 'fluent-vue'
-import { subscribe } from '@/sync/lifecycle'
+import { useWorkspaceGroupSubscription } from '@/sync/useWorkspaceGroup'
 import { useSyncProjectsStore, type SyncProject } from '@/sync/stores/projects'
 import { useProjectRollups } from '@/composables/useProjectRollups'
 import { useActiveCycleSummaries } from '@/composables/useActiveCycleSummaries'
@@ -47,13 +47,10 @@ const t = (key: string) => fluent.$t(key)
 const projectsStore = useSyncProjectsStore()
 const { sortedByName } = storeToRefs(projectsStore)
 
-const bootstrapped = ref(false)
 const createOpen = ref(false)
 
-onMounted(async () => {
-  await subscribe('workspace:1')
-  bootstrapped.value = true
-})
+// Subscribe to the active workspace's sync group (re-subscribes on switch).
+const { ready: bootstrapped } = useWorkspaceGroupSubscription()
 
 usePageCreateAction(() => {
   createOpen.value = true

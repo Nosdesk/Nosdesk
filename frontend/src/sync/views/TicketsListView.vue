@@ -27,7 +27,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import { useCreateTicketAction } from '@/composables/useCreateTicketAction'
-import { subscribe } from '@/sync/lifecycle'
+import { useWorkspaceGroupSubscription } from '@/sync/useWorkspaceGroup'
 import { useSyncTicketsStore } from '@/sync/stores/tickets'
 import { useAuthStore } from '@/stores/auth'
 import { useSavedViewsStore } from '@/stores/savedViews'
@@ -87,13 +87,11 @@ const ticketsStore = useSyncTicketsStore()
 const authStore = useAuthStore()
 const savedViewsStore = useSavedViewsStore()
 
-const bootstrapped = ref(false)
-
-onMounted(async () => {
-  await subscribe('workspace:1')
-  await savedViewsStore.ensureLoaded(null)
-  bootstrapped.value = true
-})
+// Subscribe to the active workspace's sync group (re-subscribes on switch) and
+// load that workspace's saved views once its bootstrap settles.
+const { ready: bootstrapped } = useWorkspaceGroupSubscription(() =>
+  savedViewsStore.ensureLoaded(null),
+)
 
 const { activeView, tabItems, overflowItems, allViewItems, selectViewById } = useTicketsViewResolution()
 const { sortField, sortDir, toggleSort, applySort } = useTicketsSort(activeView)

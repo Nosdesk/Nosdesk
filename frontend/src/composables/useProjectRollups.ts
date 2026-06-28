@@ -1,7 +1,7 @@
 /**
  * Per-project ticket rollup for the projects list, derived entirely
- * from the sync pool (the list subscribes to `workspace:1`, which
- * carries every ticket). One pass over the `project_ticket` aggregate
+ * from the sync pool (the list subscribes to the active workspace's
+ * group, which carries every ticket). One pass over the `project_ticket` aggregate
  * joined against the ticket pool yields, per project: the total, the
  * coarse status breakdown (open / in-progress / closed buckets), and
  * the distinct assignees, so a card/row can show how far along a
