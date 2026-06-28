@@ -17,6 +17,12 @@ lazy_static::lazy_static! {
         std::env::var("JWT_SECRET").expect("JWT_SECRET environment variable must be set");
 }
 
+/// Lifetime of a sessionless connection token (SSE + collab WebSocket). Single
+/// source of truth: it sets both the JWT `exp` (in `create_connection_token`)
+/// and the `expires_in` the mint endpoints report to the client, so the client's
+/// refresh-before-expiry cache can never disagree with the real expiry.
+pub const CONNECTION_TOKEN_TTL_SECS: usize = 3600;
+
 /// JWT token creation and validation utilities
 pub struct JwtUtils;
 
@@ -88,7 +94,7 @@ impl JwtUtils {
             scope: scope.to_string(),
             sid: None,
             workspace_uuid,
-            exp: now + 3600,
+            exp: now + CONNECTION_TOKEN_TTL_SECS,
             iat: now,
         };
 

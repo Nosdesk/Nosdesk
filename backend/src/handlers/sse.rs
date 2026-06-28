@@ -912,7 +912,7 @@ pub async fn get_sse_token(
 
     HttpResponse::Ok().json(json!({
         "sse_token": sse_token,
-        "expires_in": 3600,
+        "expires_in": crate::utils::jwt::CONNECTION_TOKEN_TTL_SECS,
         "user_id": user_info.sub
     }))
 }
