@@ -1743,6 +1743,16 @@ async fn main() -> std::io::Result<()> {
                     .route("/oauth/authorize", web::post().to(handlers::oauth_authorize))
                     .route("/oauth/callback", web::get().to(handlers::oauth_callback))
                     .route("/oauth/logout", web::post().to(handlers::oauth_logout))
+                    // Native (mobile app) OIDC: the app runs its own PKCE flow
+                    // against the IdP, then logs in with the resulting id_token.
+                    .route(
+                        "/native-oidc-config",
+                        web::get().to(handlers::native_oidc_config),
+                    )
+                    .route(
+                        "/oidc/native-login",
+                        web::post().to(handlers::native_oidc_login),
+                    )
                     // Protected auth routes
                     .route("/me", web::get().to(handlers::get_current_user).wrap(actix_web::middleware::from_fn(cookie_auth_middleware)))
                     .route("/change-password", web::post().to(handlers::change_password).wrap(actix_web::middleware::from_fn(cookie_auth_middleware)))

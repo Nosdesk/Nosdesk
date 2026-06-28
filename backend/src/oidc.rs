@@ -573,6 +573,53 @@ pub async fn exchange_code(
     Ok(user_info)
 }
 
+/// Verify an ID token presented by the native (mobile) app and return its user
+/// info.
+///
+/// The app is its own *public* OIDC client (`native_client_id`, no secret): it
+/// runs the Authorization-Code + PKCE flow against the IdP itself and posts the
+/// resulting ID token to the product, which trusts it only after this check. The
+/// token's audience is the native client, not the confidential web
+/// `OIDC_CLIENT_ID`, so we build a verifier for that audience (reusing the
+/// issuer's discovery + JWKS). We verify signature, issuer, audience and expiry.
+/// The `nonce` is the app's replay protection (it generated and verifies it),
+/// so it is intentionally not re-checked here.
+pub async fn verify_native_id_token(
+    id_token_str: &str,
+    native_client_id: &str,
+) -> Result<OidcUserInfo, String> {
+    use std::str::FromStr;
+
+    let config = OidcConfig::from_env()?;
+    let issuer_url = config
+        .issuer_url
+        .clone()
+        .ok_or_else(|| "Native OIDC login requires OIDC_ISSUER_URL (auto-discovery)".to_string())?;
+    let issuer = IssuerUrl::new(issuer_url).map_err(|e| format!("Invalid issuer URL: {e}"))?;
+
+    let core_metadata = CoreProviderMetadata::discover_async(issuer, &*OIDC_HTTP_CLIENT)
+        .await
+        .map_err(|e| format!("OIDC discovery failed: {e}"))?;
+
+    // Public client (no secret); the verifier checks the signature against the
+    // discovered JWKS plus issuer and audience (== native_client_id).
+    let native_client = CoreClient::from_provider_metadata(
+        core_metadata,
+        ClientId::new(native_client_id.to_string()),
+        None,
+    );
+
+    let id_token =
+        CoreIdToken::from_str(id_token_str).map_err(|e| format!("Malformed ID token: {e}"))?;
+
+    let verifier = native_client.id_token_verifier();
+    let claims = id_token
+        .claims(&verifier, |_: Option<&Nonce>| Ok::<(), String>(()))
+        .map_err(|e| format!("ID token verification failed: {e}"))?;
+
+    extract_user_info(claims, &config)
+}
+
 /// Verify ID token signature and claims
 fn verify_id_token(
     client: &OidcClientKind,

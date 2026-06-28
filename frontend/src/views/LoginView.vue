@@ -20,6 +20,7 @@ import Button from "@/components/common/Button.vue";
 import FormInput from "@/components/common/FormInput.vue";
 import PasswordInput from "@/components/common/PasswordInput.vue";
 import { extractErrorMessage } from "@/utils/errors";
+import { isTauriRuntime } from "@/platform";
 
 // Get branding and theme stores
 const brandingStore = useBrandingStore();
@@ -385,6 +386,25 @@ const handleOidcLoginClick = async () => {
   loadingAction.value = 'oidc';
   errorMessage.value = "";
   successMessage.value = "";
+
+  // Native app: the web redirect flow can't return to the app, so run the
+  // RFC 8252 native OIDC flow (system browser + PKCE) to get a bearer session,
+  // then hydrate the auth store from /me and route in. (No-op import on web.)
+  if (isTauriRuntime()) {
+    try {
+      const { loginWithOidc } = await import('@nosdesk/mobile');
+      await loginWithOidc();
+      await authStore.fetchUserData();
+      authStore.setAuthProvider('oidc');
+      const redirectPath = router.currentRoute.value.query.redirect?.toString() || "/";
+      router.push(redirectPath);
+    } catch (error) {
+      const err = error as Error;
+      errorMessage.value = err.message || "Sign-in failed";
+      loadingAction.value = null;
+    }
+    return;
+  }
 
   try {
     const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
