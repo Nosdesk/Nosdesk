@@ -37,6 +37,7 @@ import { ref } from 'vue'
 import { logger } from '@nosdesk/core/utils/logger'
 import { SafePermanentUserData } from '@nosdesk/core/utils/safePermanentUserData'
 import { collabWsBaseUrl } from '@nosdesk/core/transport'
+import { getCollabToken } from '@/services/collabToken'
 
 /**
  * How long after refcount hits 0 we keep the websocket open
@@ -486,15 +487,35 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
    */
   function warm(docId: string, options?: CollabSessionAcquireOptions): void {
     if (sessions.has(docId)) return
-    const opts: CollabSessionAcquireOptions = options ?? {
-      baseWsUrl: collabWsBaseUrl(),
-      providerParams: { resyncInterval: 20000, disableBc: true },
+
+    // Same path as `acquire` but we drop the refcount immediately and start the
+    // grace timer, so the session disconnects on its own if the user never
+    // actually navigates here.
+    const warmWith = (opts: CollabSessionAcquireOptions) => {
+      if (sessions.has(docId)) return // editor (or a prior warm) already acquired
+      acquire(docId, opts)
+      release(docId)
     }
-    // Same path as `acquire` but we drop the refcount immediately
-    // and start the grace timer, so the session disconnects on
-    // its own if the user never actually navigates here.
-    acquire(docId, opts)
-    release(docId)
+
+    if (options) {
+      warmWith(options)
+      return
+    }
+
+    // The WS authenticates with the collab connection token, so the prewarm must
+    // carry it too — otherwise it opens a tokenless socket that the editor's
+    // later acquire just reuses (and never re-auths). Async because the token is
+    // fetched; if the user navigates in first, the editor's acquire wins.
+    void getCollabToken()
+      .then((token) =>
+        warmWith({
+          baseWsUrl: collabWsBaseUrl(),
+          providerParams: { resyncInterval: 20000, disableBc: true, params: { token } },
+        }),
+      )
+      .catch(() => {
+        // Prewarm is best-effort; the editor fetches the token + connects on mount.
+      })
   }
 
   /**
