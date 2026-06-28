@@ -1472,13 +1472,16 @@ async fn main() -> std::io::Result<()> {
     // every tenant subdomain preflight failed. `CorsAllowlist`
     // adds an anchored tenant-subdomain regex; substring bypasses
     // (`https://acme.nosdesk.app.attacker.com`) can't slip in.
+    let allow_native_app = crate::utils::cors_allowlist::native_app_allowed_from_env();
     let cors_allowlist = crate::utils::cors_allowlist::CorsAllowlist::new(
         std::iter::once(frontend_url.as_str()).chain(additional_origins.iter().map(|s| s.as_str())),
         tenant_domain.as_deref(),
+        allow_native_app,
     );
     info!(
         host_count = cors_allowlist.exact_count(),
         tenant_domain = ?tenant_domain,
+        allow_native_app,
         "CORS allowlist initialised"
     );
     // Install as the process-wide allowlist. Both the CORS layer below and
