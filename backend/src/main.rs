@@ -1510,7 +1510,14 @@ async fn main() -> std::io::Result<()> {
                 "Accept",
                 "Origin",
                 "X-Requested-With",
-                "X-CSRF-Token"
+                "X-CSRF-Token",
+                // Bearer mode + Model-C workspace selection: the native app's
+                // sync engine uses cross-origin (tauri://localhost) raw fetch,
+                // which preflights these. The REST path goes through the native
+                // HTTP plugin and bypasses CORS, but the streaming sync fetch
+                // does not, so the preflight must allow them.
+                "X-Auth-Mode",
+                "X-Nosdesk-Workspace",
             ])
             .expose_headers(vec!["content-disposition"])
             .supports_credentials()
