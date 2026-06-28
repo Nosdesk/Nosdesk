@@ -17,7 +17,6 @@ import { WebsocketProvider } from "y-websocket";
 import { useCollabSessionStore, type ConnectionStatus } from "@/stores/collabSession";
 import { SafePermanentUserData } from "@nosdesk/core/utils/safePermanentUserData";
 import { apiBaseUrl, collabWsBaseUrl } from "@nosdesk/core/transport";
-import { getCollabToken } from "@/services/collabToken";
 import { EditorView } from "prosemirror-view";
 import { EditorState, Selection, type Command } from "prosemirror-state";
 import { schema } from "@/components/editor/schema";
@@ -605,12 +604,8 @@ const initEditor = async () => {
         // awareness setLocalStateField, editor view) re-runs on
         // every mount, the previous editor instance's listeners
         // were torn off in `cleanup()`.
-        // The collab WebSocket authenticates with a query-param connection
-        // token (it can't send an Authorization header or a cross-origin
-        // cookie). Cached + workspace-bound; y-websocket appends `params` to the
-        // socket URL.
-        const collabToken = await getCollabToken();
-
+        // The collab session store owns WS auth (it fetches the connection
+        // token and sets it on the provider), so the editor just acquires.
         const session = collab.acquire(props.docId, {
             baseWsUrl,
             providerParams: {
@@ -618,7 +613,6 @@ const initEditor = async () => {
                 // Same-tab BC isn't needed in this SPA and removes
                 // a class of duplicate-message edge cases.
                 disableBc: true,
-                params: { token: collabToken },
             },
         });
         ydoc = session.ydoc;

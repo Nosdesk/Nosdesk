@@ -37,6 +37,7 @@ import { ref } from 'vue'
 import { logger } from '@nosdesk/core/utils/logger'
 import { SafePermanentUserData } from '@nosdesk/core/utils/safePermanentUserData'
 import { collabWsBaseUrl } from '@nosdesk/core/transport'
+import { getCollabToken } from '@/services/collabToken'
 
 /**
  * How long after refcount hits 0 we keep the websocket open
@@ -108,6 +109,30 @@ function deriveConnectionStatus(provider: WebsocketProvider): ConnectionStatus {
   if (provider.wsconnected) return 'connected'
   if (provider.wsconnecting) return 'connecting'
   return 'disconnected'
+}
+
+/**
+ * Fetch the collab connection token, set it on the provider's `params`, and
+ * connect. `params` is a plain object the y-websocket URL getter re-reads on
+ * every (re)connect, so refreshing it on `connection-close` means a session that
+ * outlives the ~1h token reconnects with a fresh one. Owned here so callers
+ * (editor, prewarm) never deal with the token.
+ */
+async function attachCollabToken(provider: WebsocketProvider): Promise<void> {
+  const setToken = async () => {
+    try {
+      provider.params = { token: await getCollabToken() }
+    } catch (err) {
+      logger.warn('Collab session: token fetch failed; socket will retry', { err })
+    }
+  }
+  await setToken()
+  provider.connect()
+  // Refresh before the auto-reconnect reads the URL again (cached within the
+  // hour, so this only re-fetches once the token has actually expired).
+  provider.on('connection-close', () => {
+    void setToken()
+  })
 }
 
 interface SessionEntry {
@@ -416,12 +441,14 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
       }
     }
 
-    const provider = new WebsocketProvider(
-      options.baseWsUrl,
-      docId,
-      ydoc,
-      options.providerParams,
-    )
+    // Create disconnected: the collab WS authenticates with a connection token
+    // in the URL query (a browser WebSocket can't send a header or cross-origin
+    // cookie). The store owns fetching it (callers don't), then connects.
+    const provider = new WebsocketProvider(options.baseWsUrl, docId, ydoc, {
+      ...options.providerParams,
+      connect: false,
+    })
+    void attachCollabToken(provider)
     const permanentUserData = new SafePermanentUserData(ydoc)
     // One subscription per provider. Derives status from live socket
     // flags on every transition; seeded synchronously so a provider
@@ -490,9 +517,9 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
       baseWsUrl: collabWsBaseUrl(),
       providerParams: { resyncInterval: 20000, disableBc: true },
     }
-    // Same path as `acquire` but we drop the refcount immediately
-    // and start the grace timer, so the session disconnects on
-    // its own if the user never actually navigates here.
+    // Same path as `acquire` (which fetches the token + connects); we drop the
+    // refcount immediately and start the grace timer, so the session disconnects
+    // on its own if the user never actually navigates here.
     acquire(docId, opts)
     release(docId)
   }

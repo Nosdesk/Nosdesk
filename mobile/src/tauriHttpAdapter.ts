@@ -25,7 +25,12 @@ function buildUrl(config: InternalAxiosRequestConfig): string {
     ? path
     : `${base.replace(/\/$/, '')}/${path.replace(/^\//, '')}`
   if (config.params) {
-    const qs = new URLSearchParams(config.params as Record<string, string>).toString()
+    // Drop null/undefined params (don't serialise them as the string
+    // "undefined"); axios's default serializer omits them, so match it.
+    const entries = Object.entries(config.params as Record<string, unknown>)
+      .filter(([, v]) => v != null)
+      .map(([k, v]) => [k, String(v)] as [string, string])
+    const qs = new URLSearchParams(entries).toString()
     if (qs) url += (url.includes('?') ? '&' : '?') + qs
   }
   return url
