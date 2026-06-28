@@ -211,9 +211,12 @@ onMounted(async () => {
 
     <!-- Main content area - takes remaining space -->
     <div class="flex flex-col flex-1 min-w-0">
-      <!-- Header - sticky at top of content area (hidden on print) -->
+      <!-- Header - sticky at top of content area (hidden on print). The
+           safe-area-inset-top padding lets the header's own background fill the
+           notch / Dynamic Island area on iOS (the standard top-bar pattern);
+           a no-op on the web, where the inset is 0. -->
       <PageHeader
-        class="print:hidden flex-shrink-0 border-b border-default bg-surface"
+        class="print:hidden flex-shrink-0 border-b border-default bg-surface pt-[env(safe-area-inset-top)]"
         :useRouteTitle="!isDocumentationPage"
         :title="titleManager.pageTitle.value"
         :titleIcon="titleIcon"
