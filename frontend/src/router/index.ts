@@ -1046,13 +1046,19 @@ async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLoca
   if (requiresAuth && !authStore.isAuthenticated && !authStore.loading && to.name !== 'login') {
     try {
       await authStore.fetchUserData();
-      if (authStore.user) {
-        return; // Session restored via refresh token
-      }
     } catch {
       // Refresh token expired or invalid — session cannot be restored
     }
-    return { name: 'login', query: { redirect: to.fullPath } };
+    if (!authStore.user) {
+      return { name: 'login', query: { redirect: to.fullPath } };
+    }
+    // Session restored. Deliberately do NOT return here: fall through to the
+    // post-login landing branch below. A Tauri relaunch always restores its
+    // session at the bare `tauri://localhost/` route (no slug in the URL), so
+    // without falling through the workspace-selection header would never engage
+    // and every tenant request would 404. On web the URL already carries the
+    // slug, so this only affects the bare-route case. (fetchUserData set
+    // user.value, so isAuthenticated is now true and the checks below pass.)
   }
 
   // Redirect unauthenticated users from protected routes
