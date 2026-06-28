@@ -10,7 +10,7 @@
  * resolves the workspace from the Host, as today.
  */
 import { readonly, ref, type Ref } from 'vue';
-import { setSelectionHeaders } from '@nosdesk/core/transport';
+import { addRequestHeaderProvider } from '@nosdesk/core/transport';
 
 const LAST_WORKSPACE_KEY = 'nosdesk:last-workspace';
 
@@ -47,13 +47,12 @@ export function workspaceHeaders(): Record<string, string> {
   return slug.value ? { 'X-Nosdesk-Workspace': slug.value } : {};
 }
 
-// Publish the selection header through the core transport seam so the mobile
-// apiClient (whose bootstrap clears the web apiConfig interceptor that would
-// otherwise attach it) sends it too. The web apiConfig calls workspaceHeaders()
-// directly; this exposes the same source to any seam consumer. Module-load
-// registration: this module is imported by the router's workspace guard before
-// any request fires.
-setSelectionHeaders(workspaceHeaders);
+// Publish the selection header through the core transport seam so every consumer
+// (the web apiConfig interceptor and the mobile interceptor, whose bootstrap
+// clears apiConfig) attaches it. Registered at module load: the router's
+// workspace guard imports this module before any request fires, so the workspace
+// header is available early — ahead of the diagnostics provider apiConfig adds.
+addRequestHeaderProvider(workspaceHeaders);
 
 /** The last workspace slug this device was on, for the post-login landing. */
 export function lastWorkspaceSlug(): string | null {

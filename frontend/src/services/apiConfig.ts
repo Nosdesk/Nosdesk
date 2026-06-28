@@ -4,14 +4,13 @@ import { logger } from '@nosdesk/core/utils/logger';
 import { createErrorFromResponse } from '@/utils/errors';
 import { ErrorTracker } from '@/utils/errorTracking';
 import { getSSEClientId } from '@/services/sseService';
-import { workspaceHeaders } from '@/services/activeWorkspace';
 import { getSessionId as getDiagnosticsSessionId } from '@/services/diagnostics/session';
 import { pushApi as pushApiBreadcrumb } from '@/services/diagnostics/breadcrumbs';
 // Transport seam: base URL, credential mode, and auth headers are resolved at
 // request time so the same axios client serves both the web (cookie + CSRF)
 // and mobile (bearer) surfaces. The host wires the active strategy at
 // bootstrap (web: services/transport.ts).
-import { apiBaseUrl, transport } from '@nosdesk/core/transport';
+import { addRequestHeaderProvider, apiBaseUrl, requestHeaders, transport } from '@nosdesk/core/transport';
 
 // API Configuration with Structured Logging and Error Handling
 //
@@ -31,6 +30,33 @@ export function setCorrelationId(id: string) {
   currentCorrelationId = id;
   logger.setCorrelationId(id);
 }
+
+// Per-request diagnostics headers: request-tracing (correlation + per-tab trace
+// id), SSE echo suppression (the client id so the backend doesn't echo a client
+// its own writes), and the auth provider. Registered with the transport seam so
+// the mobile interceptor (which clears the interceptor below) attaches them too;
+// workspace selection is registered separately by activeWorkspace.
+function diagnosticsHeaders(): Record<string, string> {
+  if (!currentCorrelationId) {
+    currentCorrelationId = generateCorrelationId();
+  }
+  const headers: Record<string, string> = {
+    'X-Correlation-ID': currentCorrelationId,
+    // Backend tracing spans pick this up so `grep <session_id>` ties a bug
+    // report's session to every request from the same tab.
+    'X-Nosdesk-Trace-Id': getDiagnosticsSessionId(),
+  };
+  const authProvider = localStorage.getItem('authProvider');
+  if (authProvider) {
+    headers['X-Auth-Provider'] = authProvider;
+  }
+  const sseClientId = getSSEClientId();
+  if (sseClientId) {
+    headers['X-SSE-Client-Id'] = sseClientId;
+  }
+  return headers;
+}
+addRequestHeaderProvider(diagnosticsHeaders);
 
 // The axios instance lives in @nosdesk/core (headless, so core services can
 // import it). This module owns its behaviour: it registers the interceptors
@@ -102,36 +128,15 @@ apiClient.interceptors.request.use(
     config.baseURL = apiBaseUrl();
     config.withCredentials = transport().auth.useCredentials;
 
-    // Generate correlation ID for request tracing
-    if (!currentCorrelationId) {
-      currentCorrelationId = generateCorrelationId();
-    }
-    config.headers['X-Correlation-ID'] = currentCorrelationId;
-
-    // Per-tab diagnostics session id. Backend tracing spans pick it
-    // up so `grep <session_id>` correlates a bug report's session to
-    // every backend request from the same tab.
-    config.headers['X-Nosdesk-Trace-Id'] = getDiagnosticsSessionId();
-
     // Auth headers from the active strategy (web: CSRF; mobile: bearer).
     Object.assign(config.headers, transport().auth.authHeaders());
 
-    // Auth provider header (if available in localStorage)
-    const authProvider = localStorage.getItem('authProvider');
-    if (authProvider) {
-      config.headers['X-Auth-Provider'] = authProvider;
-    }
-
-    // SSE client ID for echo suppression (Pusher-style pattern)
-    const sseClientId = getSSEClientId();
-    if (sseClientId) {
-      config.headers['X-SSE-Client-Id'] = sseClientId;
-    }
-
-    // Selected workspace (Model C single-origin / path mode). The router keeps
-    // this in sync with the URL slug; it's empty in host mode, where the backend
-    // resolves the workspace from the Host instead and ignores this header.
-    Object.assign(config.headers, workspaceHeaders());
+    // App per-request headers — workspace selection + diagnostics (correlation
+    // id, trace id, SSE client id, auth provider) — composed via the transport
+    // seam so the mobile interceptor (which clears this one) sends the identical
+    // set. The diagnostics provider registered below sets currentCorrelationId,
+    // which the logging just below reads.
+    Object.assign(config.headers, requestHeaders());
 
     // Verbose logging (development only)
     if (import.meta.env.DEV && localStorage.getItem('api-verbose-logging') === 'true') {

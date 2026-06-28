@@ -9,7 +9,7 @@
  * concerns layered on later, not part of the bootstrap.
  */
 import apiClient from '@nosdesk/core/apiClient'
-import { apiBaseUrl, selectionHeaders, transport } from '@nosdesk/core/transport'
+import { apiBaseUrl, requestHeaders, transport } from '@nosdesk/core/transport'
 import type { AxiosError, InternalAxiosRequestConfig } from 'axios'
 import { tauriHttpAdapter } from './tauriHttpAdapter'
 
@@ -43,10 +43,10 @@ export function setupApiClient(): void {
     for (const [key, value] of Object.entries(authHeaders)) {
       config.headers.set(key, value)
     }
-    // Selection headers (Model-C workspace) from the seam: the web apiConfig
-    // attaches these, but this bootstrap cleared it, so apply them here.
-    const selection = selectionHeaders()
-    for (const [key, value] of Object.entries(selection)) {
+    // Host per-request headers (workspace selection + diagnostics) from the
+    // seam: the web apiConfig attaches these, but this bootstrap cleared it, so
+    // apply the composed union here.
+    for (const [key, value] of Object.entries(requestHeaders())) {
       config.headers.set(key, value)
     }
     return config
