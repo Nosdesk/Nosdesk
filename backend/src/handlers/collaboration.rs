@@ -2512,6 +2512,44 @@ impl YjsAppState {
 // Stream/Handler/run_interval triplet.
 // =================================================================
 
+/// Mint a short-lived collab connection token for the WebSocket, which can't
+/// send an `Authorization` header or a cross-origin cookie. Mirrors the SSE
+/// token endpoint (`/api/events/token`): the auth middleware has already
+/// authenticated the user and resolved + membership-gated the workspace, so we
+/// bind that workspace into the token (Model C) and the WS authorizes against it.
+pub async fn get_collab_token(req: HttpRequest) -> impl Responder {
+    use actix_web::HttpMessage;
+
+    let user_info = match req.extensions().get::<crate::models::Claims>() {
+        Some(claims) => claims.clone(),
+        None => return errors::unauthorized("Authentication required"),
+    };
+
+    let workspace_uuid = req
+        .extensions()
+        .get::<crate::extractors::WorkspaceContext>()
+        .map(|w| w.workspace_uuid);
+
+    match crate::utils::jwt::JwtUtils::create_collab_token(
+        &user_info.sub,
+        &user_info.platform_role,
+        workspace_uuid,
+    ) {
+        Ok(token) => HttpResponse::Ok().json(json!({
+            "token": token,
+            "expires_in": 3600,
+        })),
+        Err(_) => errors::internal("Failed to create collab token"),
+    }
+}
+
+/// Query string of the collab WebSocket URL. The token rides here because a
+/// browser WebSocket can't set an `Authorization` header or a cross-origin cookie.
+#[derive(serde::Deserialize)]
+pub struct CollabWsQuery {
+    token: Option<String>,
+}
+
 /// WebSocket connection handler — entry point for WebSocket requests.
 pub async fn ws_handler(
     req: HttpRequest,
@@ -2519,6 +2557,7 @@ pub async fn ws_handler(
     app_state: web::Data<YjsAppState>,
     ws: Option<crate::extractors::WorkspaceContext>,
     path: web::Path<String>,
+    query: web::Query<CollabWsQuery>,
 ) -> Result<HttpResponse, Error> {
     let doc_id = path.into_inner();
     debug!(doc_id = %doc_id, "WebSocket connection request");
@@ -2576,10 +2615,15 @@ pub async fn ws_handler(
         }
     }
 
-    // Extract and validate JWT token from httpOnly cookie
-    let token = req
-        .cookie(crate::utils::cookies::ACCESS_TOKEN_COOKIE)
-        .ok_or_else(|| actix_web::error::ErrorUnauthorized("No authentication cookie"))?;
+    // The collab connection token (POST /api/collaboration/token) rides in the
+    // query string: a browser WebSocket can't set an Authorization header or a
+    // cross-origin cookie. Token-everywhere — web and mobile both use it, like
+    // the SSE token. Per-doc authorization (membership + visibility) is below.
+    let token = query
+        .token
+        .as_deref()
+        .filter(|t| !t.is_empty())
+        .ok_or_else(|| actix_web::error::ErrorUnauthorized("Missing connection token"))?;
 
     // Parse the workspace-namespaced doc_id up front; its embedded
     // workspace_uuid is the tenancy anchor. Rejects legacy bare ids
@@ -2662,8 +2706,25 @@ pub async fn ws_handler(
         crate::handlers::helpers::pin_workspace(&mut conn, workspace_id);
 
         use crate::utils::jwt::JwtUtils;
-        match JwtUtils::validate_token_with_user_check(token.value(), &mut conn).await {
+        match JwtUtils::validate_token_with_user_check(token, &mut conn).await {
             Ok((claims, user)) => {
+                // Only a write-capable collab token opens the editing socket; a
+                // read-only SSE token (or any other) is refused, preserving the
+                // read/write split the separate scopes exist for.
+                if claims.scope != "collab" {
+                    return Err(actix_web::error::ErrorForbidden(
+                        "Token not valid for collaboration",
+                    ));
+                }
+                // The token is workspace-bound (Model C): it must match the doc's
+                // workspace, so a token minted for workspace A can't open a B doc.
+                if let Some(token_ws) = claims.workspace_uuid {
+                    if token_ws != parsed.workspace_uuid {
+                        return Err(actix_web::error::ErrorForbidden(
+                            "Token workspace does not match the document",
+                        ));
+                    }
+                }
                 let accessor = DocAccessor::from_claims(&claims, &mut conn)
                     .ok_or_else(|| actix_web::error::ErrorUnauthorized("Invalid token subject"))?;
                 // Membership gate: the collab WS bypasses the auth
