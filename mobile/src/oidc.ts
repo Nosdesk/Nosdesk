@@ -83,13 +83,30 @@ function parseCallback(callbackUrl: string): { code: string; state: string } {
 }
 
 /**
+ * Wrap one step of the flow so a hang surfaces as a labelled, user-readable
+ * error (`Timed out: <label>`) instead of an indefinite spinner. tauri's HTTP
+ * fetch doesn't reliably honour AbortController, so we race a timer.
+ */
+async function step<T>(label: string, ms: number, run: () => Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Timed out: ${label}`)), ms)
+  })
+  try {
+    return await Promise.race([run(), timeout])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+/**
  * Run the full native OIDC login against the connected server. On success the
  * session is set (refresh token persisted in the keychain) and the app is
  * authenticated. Throws with a user-presentable message on failure.
  */
 export async function loginWithOidc(): Promise<void> {
-  const cfg = await fetchConfig()
-  const endpoints = await discover(cfg.issuer)
+  const cfg = await step('config', 15000, () => fetchConfig())
+  const endpoints = await step('discovery', 15000, () => discover(cfg.issuer))
 
   const verifier = randomString(32)
   const challenge = await pkceChallenge(verifier)
@@ -108,37 +125,47 @@ export async function loginWithOidc(): Promise<void> {
     code_challenge_method: 'S256',
   }).toString()
 
-  // System browser; returns the nosdesk://auth/callback URL inline.
-  const { callbackUrl } = await authenticate({ url: authUrl.toString(), callbackScheme: CALLBACK_SCHEME })
+  // System browser; returns the nosdesk://auth/callback URL inline. Long
+  // timeout: the user is logging in.
+  const { callbackUrl } = await step('browser', 300000, () =>
+    authenticate({ url: authUrl.toString(), callbackScheme: CALLBACK_SCHEME }),
+  )
   const { code, state: returnedState } = parseCallback(callbackUrl)
   if (returnedState !== state) throw new Error('Sign-in failed (state mismatch)')
 
   // Public-client code exchange at the IdP (PKCE, no secret).
-  const tokenRes = await tauriFetch(endpoints.token_endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'authorization_code',
-      code,
-      redirect_uri: REDIRECT_URI,
-      client_id: cfg.client_id,
-      code_verifier: verifier,
-    }).toString(),
-  })
-  if (!tokenRes.ok) throw new Error(`Sign-in failed at the identity provider (${tokenRes.status})`)
+  const tokenRes = await step('token-exchange', 20000, () =>
+    tauriFetch(endpoints.token_endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: REDIRECT_URI,
+        client_id: cfg.client_id,
+        code_verifier: verifier,
+      }).toString(),
+    }),
+  )
+  if (!tokenRes.ok) {
+    const body = await tokenRes.text().catch(() => '')
+    throw new Error(`token-exchange ${tokenRes.status}: ${body.slice(0, 160)}`)
+  }
   const tokenData = (await tokenRes.json()) as { id_token?: string }
   if (!tokenData.id_token) throw new Error('Identity provider returned no ID token')
   if (idTokenNonce(tokenData.id_token) !== nonce) throw new Error('Sign-in failed (nonce mismatch)')
 
   // Trade the id_token for a product bearer session.
-  const loginRes = await tauriFetch(`${apiBaseUrl()}/auth/oidc/native-login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Auth-Mode': 'bearer' },
-    body: JSON.stringify({ id_token: tokenData.id_token }),
-  })
+  const loginRes = await step('native-login', 20000, () =>
+    tauriFetch(`${apiBaseUrl()}/auth/oidc/native-login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Auth-Mode': 'bearer' },
+      body: JSON.stringify({ id_token: tokenData.id_token }),
+    }),
+  )
   if (!loginRes.ok) {
-    if (loginRes.status === 403) throw new Error('Your account has no access on this server')
-    throw new Error(`Sign-in failed (${loginRes.status})`)
+    const body = await loginRes.text().catch(() => '')
+    throw new Error(`native-login ${loginRes.status}: ${body.slice(0, 160)}`)
   }
   const session = (await loginRes.json()) as { access_token?: string; refresh_token?: string }
   if (!session.access_token || !session.refresh_token) throw new Error('No session returned')
