@@ -23,7 +23,7 @@ import { updateCollection, deleteCollection } from '@nosdesk/core/services/colle
 import type { CollectionWithDetails } from '@nosdesk/core/services/collectionService'
 import { findInTree } from '@/utils/treeUtils'
 import { docUrl } from '@nosdesk/core/utils/docUrl'
-import { subscribe } from '@/sync/lifecycle'
+import { useWorkspaceGroupSubscription } from '@/sync/useWorkspaceGroup'
 import { useDelayedFlag } from '@/composables/useDelayedFlag'
 import { useClipboard } from '@/composables/useClipboard'
 import { docsEmitter } from '@nosdesk/core/services/docsEmitter'
@@ -738,7 +738,11 @@ const pageParentMap = ref<Record<string, string | null>>({})
 // docs"), so we hold off on the empty state. The pool is cache-first
 // (IndexedDB), so on a warm refresh the rows are already here and this
 // flips true without the user ever seeing a loading state.
-const docsReady = ref(false)
+// Subscribe to the active workspace's sync group (which streams the docs
+// collections + pages into the pool) and gate the loading state on it.
+// Re-subscribes on a workspace switch; `ready` releases even on a bootstrap
+// error so the nav never stays stuck blank.
+const { ready: docsReady } = useWorkspaceGroupSubscription()
 
 // Show the skeleton only when a cold bootstrap is genuinely slow
 // (>300ms with nothing cached yet). Warm refreshes hydrate from the
@@ -1181,14 +1185,6 @@ onMounted(async () => {
 
   docNavStore.updateSidebarForScreenSize()
   window.addEventListener('resize', handleResize)
-
-  // Mark docs ready once the workspace bootstrap (which streams the
-  // documentation collections + pages into the pool) settles. Idempotent
-  // and cache-first: resolves immediately on a warm refresh, so the empty
-  // state only ever appears when there genuinely are no collections.
-  // `.finally` so a bootstrap error still releases the loading gate
-  // rather than leaving the nav stuck blank.
-  subscribe('workspace:1').finally(() => { docsReady.value = true });
 })
 
 onUnmounted(() => {

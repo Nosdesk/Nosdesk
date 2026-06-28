@@ -118,6 +118,11 @@ pub enum TenantConnError {
     /// Couldn't get a connection from the pool. Usually means the
     /// DB is unreachable or the pool is exhausted.
     PoolError(String),
+    /// Selection mode is active but the request resolved no workspace to pin.
+    /// A `TenantConn` route is always workspace-scoped, so an unpinned actor
+    /// would read every tenant query as empty (RLS) — fail closed with a clear
+    /// 400 rather than degrade into empty results or a downstream panic.
+    NoWorkspaceSelected,
 }
 
 impl std::fmt::Display for TenantConnError {
@@ -125,6 +130,7 @@ impl std::fmt::Display for TenantConnError {
         match self {
             Self::MissingRequestContext => write!(f, "Authentication required"),
             Self::PoolError(e) => write!(f, "Database error: {e}"),
+            Self::NoWorkspaceSelected => write!(f, "No workspace selected"),
         }
     }
 }
@@ -137,6 +143,8 @@ impl actix_web::ResponseError for TenantConnError {
                 .json(serde_json::json!({"error": "Authentication required"})),
             Self::PoolError(_) => HttpResponse::InternalServerError()
                 .json(serde_json::json!({"error": "Internal server error"})),
+            Self::NoWorkspaceSelected => HttpResponse::BadRequest()
+                .json(serde_json::json!({"error": "No workspace selected"})),
         }
     }
 }
@@ -181,6 +189,19 @@ impl FromRequest for TenantConn {
                 return ready(Err(TenantConnError::MissingRequestContext));
             }
         };
+
+        // Under selection mode (hosted single-origin agent app), the workspace
+        // is carried per-request via the `X-Nosdesk-Workspace` header. A
+        // `TenantConn` route with no resolved workspace means the header was
+        // absent or didn't resolve: fail closed with 400 here, before any
+        // RLS-empty read reaches a handler. Host mode (self-hosted / subdomain)
+        // always has a Host-derived workspace, so this branch is unreachable
+        // there and self-hosted is unaffected.
+        if actor.workspace_id.is_none()
+            && crate::middleware::workspace_context::selection_resolution_enabled()
+        {
+            return ready(Err(TenantConnError::NoWorkspaceSelected));
+        }
 
         let pool = match req.app_data::<web::Data<Pool>>() {
             Some(p) => p.clone(),
