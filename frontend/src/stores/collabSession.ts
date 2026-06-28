@@ -111,6 +111,30 @@ function deriveConnectionStatus(provider: WebsocketProvider): ConnectionStatus {
   return 'disconnected'
 }
 
+/**
+ * Fetch the collab connection token, set it on the provider's `params`, and
+ * connect. `params` is a plain object the y-websocket URL getter re-reads on
+ * every (re)connect, so refreshing it on `connection-close` means a session that
+ * outlives the ~1h token reconnects with a fresh one. Owned here so callers
+ * (editor, prewarm) never deal with the token.
+ */
+async function attachCollabToken(provider: WebsocketProvider): Promise<void> {
+  const setToken = async () => {
+    try {
+      provider.params = { token: await getCollabToken() }
+    } catch (err) {
+      logger.warn('Collab session: token fetch failed; socket will retry', { err })
+    }
+  }
+  await setToken()
+  provider.connect()
+  // Refresh before the auto-reconnect reads the URL again (cached within the
+  // hour, so this only re-fetches once the token has actually expired).
+  provider.on('connection-close', () => {
+    void setToken()
+  })
+}
+
 interface SessionEntry {
   docId: string
   ydoc: Y.Doc
@@ -417,12 +441,14 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
       }
     }
 
-    const provider = new WebsocketProvider(
-      options.baseWsUrl,
-      docId,
-      ydoc,
-      options.providerParams,
-    )
+    // Create disconnected: the collab WS authenticates with a connection token
+    // in the URL query (a browser WebSocket can't send a header or cross-origin
+    // cookie). The store owns fetching it (callers don't), then connects.
+    const provider = new WebsocketProvider(options.baseWsUrl, docId, ydoc, {
+      ...options.providerParams,
+      connect: false,
+    })
+    void attachCollabToken(provider)
     const permanentUserData = new SafePermanentUserData(ydoc)
     // One subscription per provider. Derives status from live socket
     // flags on every transition; seeded synchronously so a provider
@@ -487,35 +513,15 @@ export const useCollabSessionStore = defineStore('collabSession', () => {
    */
   function warm(docId: string, options?: CollabSessionAcquireOptions): void {
     if (sessions.has(docId)) return
-
-    // Same path as `acquire` but we drop the refcount immediately and start the
-    // grace timer, so the session disconnects on its own if the user never
-    // actually navigates here.
-    const warmWith = (opts: CollabSessionAcquireOptions) => {
-      if (sessions.has(docId)) return // editor (or a prior warm) already acquired
-      acquire(docId, opts)
-      release(docId)
+    const opts: CollabSessionAcquireOptions = options ?? {
+      baseWsUrl: collabWsBaseUrl(),
+      providerParams: { resyncInterval: 20000, disableBc: true },
     }
-
-    if (options) {
-      warmWith(options)
-      return
-    }
-
-    // The WS authenticates with the collab connection token, so the prewarm must
-    // carry it too — otherwise it opens a tokenless socket that the editor's
-    // later acquire just reuses (and never re-auths). Async because the token is
-    // fetched; if the user navigates in first, the editor's acquire wins.
-    void getCollabToken()
-      .then((token) =>
-        warmWith({
-          baseWsUrl: collabWsBaseUrl(),
-          providerParams: { resyncInterval: 20000, disableBc: true, params: { token } },
-        }),
-      )
-      .catch(() => {
-        // Prewarm is best-effort; the editor fetches the token + connects on mount.
-      })
+    // Same path as `acquire` (which fetches the token + connects); we drop the
+    // refcount immediately and start the grace timer, so the session disconnects
+    // on its own if the user never actually navigates here.
+    acquire(docId, opts)
+    release(docId)
   }
 
   /**
