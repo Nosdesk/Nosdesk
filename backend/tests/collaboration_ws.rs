@@ -31,7 +31,6 @@ use backend::extractors::WorkspaceContext;
 use backend::handlers::collaboration::{ws_handler, CollabRoutingMode, YjsAppState};
 use backend::handlers::sse::SseState;
 use backend::services::search::SearchService;
-use backend::utils::cookies::ACCESS_TOKEN_COOKIE;
 use backend::utils::jwt::JwtUtils;
 use backend::utils::redis_yjs_cache::create_redis_cache;
 
@@ -212,25 +211,16 @@ async fn handshake_broadcast_and_clean_disconnect() {
         .expect("seed workspace membership");
     }
 
-    // ws_handler's JWT validation also checks `active_sessions`: the
-    // token's `sid` claim must reference a live session row owned by
-    // this user. The `session_id` column has a DB-side default, so
-    // we insert first and read back the generated UUID, then mint
-    // the JWT against it — same shape as the production login path.
-    let session_row = backend::repository::active_sessions::create_session(
-        &mut pool.get().expect("conn"),
-        backend::models::NewActiveSession {
-            user_uuid: user.uuid,
-            device_name: Some("ws-test".into()),
-            ip_address: None,
-            user_agent: Some("ws-test-client".into()),
-            location: None,
-            expires_at: (chrono::Utc::now() + chrono::Duration::hours(1)).naive_utc(),
-            is_current: true,
-        },
+    // The collab WS authenticates with a sessionless, workspace-bound connection
+    // token carried in the query string (a browser WebSocket sets no cookie or
+    // Authorization header). Bind it to the doc's workspace so the handler's
+    // token-workspace match passes.
+    let token = JwtUtils::create_collab_token(
+        &user.uuid.to_string(),
+        &user.platform_role,
+        Some(test_workspace().workspace_uuid),
     )
-    .expect("create active session");
-    let token = JwtUtils::create_token(&user, &session_row.session_id).expect("mint JWT");
+    .expect("mint collab token");
 
     // Seed a ticket so the WS visibility gate admits the handshake
     // (see the doc_id construction below).
@@ -271,18 +261,15 @@ async fn handshake_broadcast_and_clean_disconnect() {
         "ws-{}_ticket-{ticket_uuid}",
         test_workspace().workspace_uuid
     );
-    let url = srv.url(&format!("/ws/{doc_id}"));
+    // The connection token rides in the query string (the WS can't send a cookie
+    // or Authorization header).
+    let url = srv.url(&format!("/ws/{doc_id}?token={token}"));
 
-    // Own our own awc::Client so we can attach the auth cookie.
-    // actix-test's `ws_at` convenience method skips cookie support
-    // (it uses an internal client we can't reach for chaining).
     let client = awc::Client::new();
-    let cookie = awc::cookie::Cookie::new(ACCESS_TOKEN_COOKIE, token.clone());
 
     // --- Client A connects ---
     let (_resp_a, mut conn_a) = client
         .ws(&url)
-        .cookie(cookie.clone())
         .connect()
         .await
         .expect("client A WS handshake");
@@ -300,10 +287,9 @@ async fn handshake_broadcast_and_clean_disconnect() {
         other => panic!("client A: expected Binary SyncStep1, got {other:?}"),
     }
 
-    // --- Client B connects ---
+    // --- Client B connects (same connection token in the URL) ---
     let (_resp_b, mut conn_b) = client
         .ws(&url)
-        .cookie(cookie.clone())
         .connect()
         .await
         .expect("client B WS handshake");
@@ -424,25 +410,14 @@ async fn handshake_resolves_workspace_from_doc_id_without_host_context() {
         .expect("seed membership");
     }
 
-    let cookie_for = |user: &backend::models::User| {
-        let session = backend::repository::active_sessions::create_session(
-            &mut pool.get().expect("conn"),
-            backend::models::NewActiveSession {
-                user_uuid: user.uuid,
-                device_name: Some("ws-sel".into()),
-                ip_address: None,
-                user_agent: Some("ws-sel-client".into()),
-                location: None,
-                expires_at: (chrono::Utc::now() + chrono::Duration::hours(1)).naive_utc(),
-                is_current: true,
-            },
-        )
-        .expect("create session");
-        let token = JwtUtils::create_token(user, &session.session_id).expect("mint JWT");
-        awc::cookie::Cookie::new(ACCESS_TOKEN_COOKIE, token)
+    // Sessionless, workspace-bound connection token per user; the WS reads it
+    // from the query string (no cookie / Authorization header on a browser WS).
+    let token_for = |user: &backend::models::User| {
+        JwtUtils::create_collab_token(&user.uuid.to_string(), &user.platform_role, Some(ws1_uuid))
+            .expect("mint collab token")
     };
-    let member_cookie = cookie_for(&member);
-    let stranger_cookie = cookie_for(&stranger);
+    let member_token = token_for(&member);
+    let stranger_token = token_for(&stranger);
 
     let ticket_uuid = seed_ticket(&mut pool.get().expect("conn"));
 
@@ -460,13 +435,13 @@ async fn handshake_resolves_workspace_from_doc_id_without_host_context() {
 
     // docId carries workspace 1's real uuid so find_by_uuid resolves it.
     let doc_id = format!("ws-{ws1_uuid}_ticket-{ticket_uuid}");
-    let url = srv.url(&format!("/ws/{doc_id}"));
+    let member_url = srv.url(&format!("/ws/{doc_id}?token={member_token}"));
+    let stranger_url = srv.url(&format!("/ws/{doc_id}?token={stranger_token}"));
     let client = awc::Client::new();
 
     // Member: handshake succeeds and the initial SyncStep1 frame arrives.
     let (_resp, mut conn) = client
-        .ws(&url)
-        .cookie(member_cookie)
+        .ws(&member_url)
         .connect()
         .await
         .expect("member handshake should succeed via docId-derived workspace");
@@ -481,7 +456,7 @@ async fn handshake_resolves_workspace_from_doc_id_without_host_context() {
     );
 
     // Non-member: rejected at the handshake (403 -> connect errors).
-    let denied = client.ws(&url).cookie(stranger_cookie).connect().await;
+    let denied = client.ws(&stranger_url).connect().await;
     assert!(
         denied.is_err(),
         "non-member must be rejected at the docId-derived handshake"
