@@ -177,7 +177,7 @@ pub(crate) fn complete_login_redirect(
 
 /// Create the session record, log the success event, and mint the login
 /// tokens. Shared by the JSON and redirect login finishers.
-fn establish_login_session(
+pub(crate) fn establish_login_session(
     user: crate::models::User,
     request: &HttpRequest,
     conn: &mut DbConnection,

@@ -63,6 +63,13 @@ pub fn get_oidc_client_id() -> Result<String, ConfigError> {
     get_env_var("OIDC_CLIENT_ID")
 }
 
+/// Get the native-app OIDC client id: the *public* client the mobile app uses
+/// for its own Authorization-Code + PKCE flow against the IdP, distinct from the
+/// confidential web `OIDC_CLIENT_ID`. Defaults to `nosdesk-app`.
+pub fn get_oidc_native_client_id() -> String {
+    env::var("OIDC_NATIVE_CLIENT_ID").unwrap_or_else(|_| "nosdesk-app".to_string())
+}
+
 /// Get OIDC client secret
 pub fn get_oidc_client_secret() -> Result<String, ConfigError> {
     get_env_var("OIDC_CLIENT_SECRET")

@@ -1297,6 +1297,90 @@ fn safe_post_login_location(redirect_uri: &str) -> String {
 /// The issuer is used verbatim (no normalisation): it must byte-match the
 /// `iss` the control plane stored at projection time, which is the same
 /// string operators set as `OIDC_ISSUER_URL`.
+// ===== Native (mobile app) OIDC login =====
+
+/// Public OIDC config the native app needs to run its OWN Authorization-Code +
+/// PKCE flow against the IdP: the issuer (for discovery), the app's public
+/// client id, and the scopes. The app fetches this from whichever server it's
+/// connected to, so it targets the right IdP (staging vs prod) automatically.
+pub async fn native_oidc_config() -> HttpResponse {
+    if !config_utils::is_oidc_enabled() {
+        return errors::not_found("OIDC is not enabled");
+    }
+    let issuer = match config_utils::get_oidc_issuer_url() {
+        Ok(i) => i,
+        Err(_) => return errors::not_found("Native OIDC requires OIDC_ISSUER_URL"),
+    };
+    HttpResponse::Ok().json(json!({
+        "issuer": issuer,
+        "client_id": config_utils::get_oidc_native_client_id(),
+        "scopes": config_utils::get_oidc_scopes(),
+    }))
+}
+
+#[derive(Deserialize)]
+pub struct NativeOidcLoginRequest {
+    pub id_token: String,
+}
+
+/// Native-app OIDC login: the app has already run the Authorization-Code + PKCE
+/// flow against the IdP (as a public client) and posts the resulting ID token.
+/// We verify it (signature / issuer / audience / expiry), resolve the existing
+/// seat by `(issuer, sub)` — the same hosted resolution the web callback uses —
+/// and mint a normal product session, delivered as body tokens (bearer mode).
+pub async fn native_oidc_login(
+    db_pool: web::Data<Pool>,
+    body: web::Json<NativeOidcLoginRequest>,
+    request: HttpRequest,
+) -> impl Responder {
+    let native_client_id = config_utils::get_oidc_native_client_id();
+    let user_info = match oidc::verify_native_id_token(&body.id_token, &native_client_id).await {
+        Ok(u) => u,
+        Err(e) => {
+            warn!(error = %e, "native OIDC login: ID token rejected");
+            return errors::unauthorized("Invalid ID token");
+        }
+    };
+
+    let mut conn = match helpers::db_conn(&db_pool) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
+
+    let iss = oidc_identity_issuer();
+    let email = user_info.email.clone().unwrap_or_default();
+    let email_verified = user_info.email_verified.unwrap_or(false);
+
+    let user = match crate::services::oauth_provisioning::resolve_user_by_identity_or_email(
+        &mut conn,
+        &iss,
+        &user_info.sub,
+        // Global login identity (central IdP), not workspace-scoped.
+        None,
+        &email,
+        email_verified,
+        &None,
+        &None,
+    ) {
+        Ok(Some(user)) => user,
+        Ok(None) => {
+            warn!(%email, "native OIDC login denied: no seat for this identity");
+            return errors::forbidden(CENTRAL_LOGIN_NO_SEAT_MSG);
+        }
+        Err(e) => {
+            error!(error = %e, "native OIDC login: seat resolution failed");
+            return errors::internal("Failed to authenticate user");
+        }
+    };
+
+    match crate::handlers::auth::establish_login_session(user, &request, &mut conn) {
+        Ok((response, tokens)) => {
+            crate::handlers::auth::build_auth_response(&request, response, &tokens)
+        }
+        Err(resp) => resp,
+    }
+}
+
 fn oidc_identity_issuer() -> String {
     issuer_for_identity(
         crate::middleware::DeploymentMode::current(),
