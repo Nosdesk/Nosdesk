@@ -13,13 +13,11 @@
 
 use actix_web::body::MessageBody;
 use actix_web::dev::{ServiceRequest, ServiceResponse};
-use actix_web::{web, Error};
-use tracing::{debug, error, info, warn};
+use actix_web::Error;
+use tracing::{error, warn};
 
-use crate::db::{DbConnection, Pool};
-use crate::middleware::request_context;
+use crate::db::DbConnection;
 use crate::models::Claims;
-use crate::utils::jwt::JwtUtils;
 use actix_web::HttpMessage;
 
 /// Token scope for an authenticated CUSTOMER PORTAL session (a baseline user
@@ -189,76 +187,15 @@ pub fn require_workspace_membership(
     }
 }
 
+/// Cookie OR session-JWT bearer (native/mobile), but NOT `nsk_` personal API
+/// tokens — those need [`crate::middleware::dual_auth_middleware`] on their
+/// designated routes. A thin wrapper over the shared
+/// [`crate::middleware::api_token::authenticate`] path (`accept_api_tokens =
+/// false`), which is the single source of truth for credential validation,
+/// the scope guard, the membership gate, and context population.
 pub async fn cookie_auth_middleware(
     req: ServiceRequest,
     next: actix_web::middleware::Next<impl MessageBody>,
 ) -> Result<ServiceResponse<impl MessageBody>, Error> {
-    let pool = req
-        .app_data::<web::Data<Pool>>()
-        .ok_or_else(|| actix_web::error::ErrorInternalServerError("Database pool not found"))?;
-
-    let mut conn = pool
-        .get()
-        .map_err(|_| actix_web::error::ErrorInternalServerError("Database connection failed"))?;
-
-    let cookie_names: Vec<String> = req
-        .cookies()
-        .map(|jar| jar.iter().map(|c| c.name().to_string()).collect())
-        .unwrap_or_default();
-    debug!(
-        path = %req.path(),
-        cookies = ?cookie_names,
-        "Cookie auth middleware processing request"
-    );
-
-    // Accept a session-JWT Bearer (native/mobile clients have no cookie jar) OR
-    // the access_token cookie (web). `nsk_` personal API tokens are NOT accepted
-    // here — those go through dual_auth_middleware on their designated routes.
-    let bearer =
-        crate::middleware::api_token::extract_bearer_token(&req).filter(|t| !t.starts_with("nsk_"));
-    let from_bearer = bearer.is_some();
-    let token_value = match bearer {
-        Some(t) => t,
-        None => req
-            .cookie(crate::utils::cookies::ACCESS_TOKEN_COOKIE)
-            .map(|c| c.value().to_string())
-            .ok_or_else(|| {
-                warn!(path = %req.path(), "Cookie auth: no access_token cookie or session bearer");
-                actix_web::error::ErrorUnauthorized("Authentication required")
-            })?,
-    };
-
-    let (claims, _user) = JwtUtils::authenticate_with_token(&token_value, &mut conn)
-        .await
-        .map_err(|err| {
-            error!(error = ?err, "Auth: token validation failed");
-            actix_web::error::ErrorUnauthorized("Invalid or expired token")
-        })?;
-
-    // A Bearer session JWT must be a full-scope agent session; SSE ("sse") and
-    // portal ("portal") tokens could over-authorize if replayed as a bearer.
-    // The access_token cookie only ever carries a full session token, so it's
-    // exempt from this check.
-    if from_bearer && claims.scope != "full" {
-        warn!(path = %req.path(), scope = %claims.scope, "Rejected non-session JWT on bearer path");
-        return Err(actix_web::error::ErrorUnauthorized(
-            "Token not valid for this API",
-        ));
-    }
-
-    info!(user = %claims.sub, "Auth: user authenticated successfully");
-
-    enforce_workspace_membership(&req, &mut conn, &claims)?;
-
-    // Release the pooled connection BEFORE running the handler. Held across
-    // next.call() it would pin a connection for the whole request, and since
-    // handlers acquire their own, a burst of concurrent requests near the
-    // pool size deadlocks (every connection held by a waiting middleware
-    // while its handler blocks for a second one).
-    drop(conn);
-
-    request_context::populate(&req, &claims);
-    req.extensions_mut().insert(claims);
-
-    next.call(req).await
+    crate::middleware::api_token::authenticate(req, next, false).await
 }
