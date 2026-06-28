@@ -106,8 +106,12 @@ pub fn default_state(conn: &mut DbConnection) -> QueryResult<WorkflowState> {
                     .cloned()
             })
             .or_else(|| map.values().next().cloned())
-            .expect("workflow_states must have at least one row after migration")
-    })
+    })?
+    // Empty means the workspace-scoped read returned no rows: either an
+    // unseeded workspace or (the common case under selection mode) a request
+    // that reached here with no workspace pinned. Fail closed with NotFound so
+    // callers return a clean error instead of panicking the worker.
+    .ok_or(diesel::result::Error::NotFound)
 }
 
 /// Lowest-position non-archived state in the given category. Used by the
