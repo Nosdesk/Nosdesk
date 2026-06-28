@@ -38,3 +38,16 @@ export async function connectTo(input: string): Promise<{ ok: boolean; error?: s
   needsServerSelection.value = false
   return { ok: true }
 }
+
+/**
+ * Leave the current server and go back to the connect screen. Drops the session
+ * and the stored server, then reloads so bootstrap re-runs cleanly against a
+ * blank slate (no stale stores/router state from the previous server) and the
+ * connect gate shows again.
+ */
+export async function returnToConnect(): Promise<void> {
+  const { clearSession, clearStoredServer } = await import('@nosdesk/mobile')
+  await clearSession()
+  clearStoredServer()
+  window.location.reload()
+}

@@ -2,3 +2,15 @@
 # will have compiled files and executables
 /target/
 /gen/schemas
+
+# The Xcode project is regenerated from gen/apple/project.yml on every
+# `tauri ios build`, and it carries a per-developer Apple DEVELOPMENT_TEAM.
+# Don't track it: it churns and would leak the signing team. project.yml (the
+# durable source, incl. the Homebrew/cargo PATH fix in the build script) IS
+# tracked, so a build regenerates a correct project.
+/gen/apple/app.xcodeproj/
+
+# Android isn't set up yet (`tauri android init` not run); these are orphan
+# icon outputs from `tauri icon`. Revisit when Android is added.
+/gen/android/
+/icons/android/

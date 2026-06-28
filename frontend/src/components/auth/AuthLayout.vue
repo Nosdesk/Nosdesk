@@ -28,6 +28,8 @@ import { computed } from 'vue';
 import { useThemeStore } from '@/stores/theme';
 import LogoIcon from '@/components/icons/LogoIcon.vue';
 import AuthHeroCanvas from '@/components/auth/AuthHeroCanvas.vue';
+import { isTauriRuntime } from '@/platform';
+import { needsServerSelection, returnToConnect } from '@/platform/serverGate';
 
 withDefaults(
   defineProps<{
@@ -37,6 +39,11 @@ withDefaults(
   }>(),
   { wide: false },
 );
+
+// Native (Tauri) app only: a way back to the server picker from any auth page,
+// so a user who picked the wrong server isn't trapped. Hidden on the web and on
+// the connect screen itself (where `needsServerSelection` is already true).
+const showSwitchServer = computed(() => isTauriRuntime() && !needsServerSelection.value);
 
 // Hero panel base, shared with the canvas (which uses the same #f5f6f8 in
 // its light-mode re-composite) and the CSS edge fades below. Dark mode
@@ -63,7 +70,7 @@ const heroStyle = computed(() => ({
       :class="wide ? 'lg:max-w-[760px] lg:basis-[55%]' : 'lg:max-w-[560px] lg:basis-[45%]'"
     >
       <div
-        class="flex min-h-full flex-col gap-10 px-6 py-10 sm:px-10 lg:px-16 lg:py-14"
+        class="flex min-h-full flex-col gap-10 px-6 pb-10 pt-[calc(2.5rem+env(safe-area-inset-top))] sm:px-10 lg:px-16 lg:pb-14 lg:pt-[calc(3.5rem+env(safe-area-inset-top))]"
       >
         <div class="w-fit">
           <slot name="logo">
@@ -80,6 +87,15 @@ const heroStyle = computed(() => ({
         <p v-if="$slots.footer" class="text-xs leading-relaxed text-tertiary">
           <slot name="footer" />
         </p>
+
+        <button
+          v-if="showSwitchServer"
+          type="button"
+          class="w-fit text-xs text-tertiary hover:text-secondary hover:underline"
+          @click="returnToConnect"
+        >
+          {{ $t('connect-switch-server') }}
+        </button>
       </div>
     </section>
 
