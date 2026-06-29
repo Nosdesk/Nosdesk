@@ -1,5 +1,3 @@
-mod keychain;
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -7,12 +5,8 @@ pub fn run() {
     .plugin(tauri_plugin_http::init())
     // System-browser OAuth (ASWebAuthenticationSession) for native OIDC login.
     .plugin(tauri_plugin_web_auth::init())
-    // OS-keychain storage for the auth refresh token.
-    .invoke_handler(tauri::generate_handler![
-      keychain::secure_store_save,
-      keychain::secure_store_load,
-      keychain::secure_store_clear,
-    ])
+    // Keystore/Keychain-backed storage for the auth refresh token.
+    .plugin(tauri_plugin_secure_store::init())
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(

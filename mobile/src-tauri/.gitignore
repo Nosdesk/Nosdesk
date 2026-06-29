@@ -10,7 +10,13 @@
 # tracked, so a build regenerates a correct project.
 /gen/apple/app.xcodeproj/
 
-# Android isn't set up yet (`tauri android init` not run); these are orphan
-# icon outputs from `tauri icon`. Revisit when Android is added.
-/gen/android/
+# The Android Studio project is tracked (like gen/apple) so the manifest
+# customization (the nosdesk:// OIDC intent-filter) and the adaptive launcher
+# icons are reproducible. The nested gen/android/.gitignore + app/.gitignore
+# already exclude build output (build/, .gradle, .cxx, jniLibs *.so) and the
+# per-machine generated files (tauri.settings.gradle carries absolute paths,
+# local.properties the SDK path). icons/android is the `tauri icon` intermediate,
+# not used by the build (gen/android/.../res holds the committed icons).
 /icons/android/
+# Kotlin compiler caches not covered by the nested .gitignores.
+/gen/android/**/.kotlin/

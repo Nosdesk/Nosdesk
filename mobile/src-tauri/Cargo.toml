@@ -29,9 +29,6 @@ tauri-plugin-log = "2"
 # System-browser OAuth (ASWebAuthenticationSession / Custom Tabs) for the native
 # OIDC login against the central IdP (see mobile/src/oidc.ts).
 tauri-plugin-web-auth = "1"
-
-# OS keychain for the refresh token (see src/keychain.rs). The iOS Keychain
-# (and macOS for `tauri dev`) via SecItem, with explicit accessibility control.
-[target.'cfg(any(target_os = "ios", target_os = "macos"))'.dependencies]
-security-framework = "3"
-security-framework-sys = "2"
+# Keystore/Keychain-backed secure storage for the refresh token, native iOS +
+# Android plugin code (see ../tauri-plugin-secure-store).
+tauri-plugin-secure-store = { path = "../tauri-plugin-secure-store" }

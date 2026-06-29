@@ -35,16 +35,17 @@ export function memorySecureStore(): SecureStore {
 }
 
 /**
- * OS-keychain-backed store (iOS Keychain / macOS keychain), via the Rust
- * `secure_store_*` Tauri commands (see mobile/src-tauri/src/keychain.rs). The
+ * OS-secure-store-backed store, via the `secure-store` Tauri plugin
+ * (iOS Keychain / Android Keystore; see mobile/tauri-plugin-secure-store). The
  * token is held device-only, non-synced, readable without a biometric prompt so
  * refresh stays silent. This is the production store; `memorySecureStore` is the
- * dev/test fallback (no cold-start persistence).
+ * dev/test fallback (no cold-start persistence, and desktop `tauri dev`).
  */
 export function tauriSecureStore(): SecureStore {
   return {
-    load: () => invoke<string | null>('secure_store_load'),
-    save: (token) => invoke<void>('secure_store_save', { token }),
-    clear: () => invoke<void>('secure_store_clear'),
+    load: () =>
+      invoke<{ value: string | null }>('plugin:secure-store|load').then((r) => r.value),
+    save: (token) => invoke<void>('plugin:secure-store|save', { payload: { token } }),
+    clear: () => invoke<void>('plugin:secure-store|clear'),
   }
 }
