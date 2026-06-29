@@ -1,0 +1,17 @@
+[package]
+name = "tauri-plugin-secure-store"
+version = "0.1.0"
+authors = ["Nosdesk"]
+description = "Keystore/Keychain-backed secure storage for the mobile app's auth refresh token"
+edition = "2021"
+rust-version = "1.77.2"
+exclude = ["/examples", "/dist-js", "/guest-js", "/node_modules"]
+links = "tauri-plugin-secure-store"
+
+[dependencies]
+tauri = "2"
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "2"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }

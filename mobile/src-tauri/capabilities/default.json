@@ -15,6 +15,7 @@
       ]
     },
     "web-auth:default",
-    "web-auth:allow-authenticate"
+    "web-auth:allow-authenticate",
+    "secure-store:default"
   ]
 }
