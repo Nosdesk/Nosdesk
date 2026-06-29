@@ -36,6 +36,7 @@ import { formatDateTime } from '@nosdesk/core/utils/dateUtils'
 import ticketService, { getCommentsByTicketId } from '@nosdesk/core/services/ticketService'
 import apiClient from '@nosdesk/core/apiClient'
 import { projectService } from '@nosdesk/core/services/projectService'
+import { stashPreview } from '@/services/attachmentPreviewCache'
 import type { TicketPriority } from '@nosdesk/core/constants/ticketOptions'
 import type { CardWorkflowState } from '@nosdesk/core/sync/views/types'
 import type { Asset } from '@nosdesk/core/types/asset'
@@ -235,8 +236,31 @@ export function useTicketDetail(
 
   const comments = computed<CommentWithAttachments[]>(() => {
     if (id.value == null) return []
-    return commentAgg.value
-      .filter((c) => c.ticket_id === id.value)
+    const rows = commentAgg.value.filter((c) => c.ticket_id === id.value)
+    // De-dup the server echo of a still-pending optimistic comment: while a temp
+    // (negative id) row is present, hide the authoritative row the sync stream
+    // can deliver before the REST reconcile swaps the temp (else the echo flashes
+    // in, attachment-less, beside the optimistic bubble). Match on author +
+    // visibility and same content or near-simultaneous. Self-clears once the
+    // reconcile removes the temp.
+    const temps = rows.filter((c) => c.id < 0)
+    const visible =
+      temps.length === 0
+        ? rows
+        : rows.filter(
+            (c) =>
+              c.id < 0 ||
+              !temps.some(
+                (t) =>
+                  t.user_uuid === c.user_uuid &&
+                  t.is_internal === c.is_internal &&
+                  (t.content === c.content ||
+                    Math.abs(
+                      new Date(c.created_at).getTime() - new Date(t.created_at).getTime(),
+                    ) < 60_000),
+              ),
+          )
+    return visible
       .map((c) => {
         const author = pool.get<PoolUser>('user', c.user_uuid)
         const attachments = attachmentAgg.value
@@ -449,6 +473,23 @@ export function useTicketDetail(
       created_at: nowIso,
     })
 
+    // Optimistic attachment rows carrying local blob previews so images render
+    // instantly (negative id = pending). After upload each image's blob is
+    // handed to its reconciled server URL via the preview cache; the rest are
+    // revoked. See attachmentPreviewCache + useSmoothImageSrc.
+    const files = data.files ?? []
+    const previews = files.map((f) => URL.createObjectURL(f))
+    previews.forEach((url, i) => {
+      pool.upsert<PoolAttachment>('attachment', tempId - i - 1, {
+        id: tempId - i - 1,
+        comment_id: tempId,
+        name: files[i].name,
+        url,
+        mime_type: files[i].type || null,
+        file_size: files[i].size ?? null,
+      })
+    })
+
     try {
       let attachments: UploadedFile[] = []
       if (data.files?.length > 0) {
@@ -478,9 +519,12 @@ export function useTicketDetail(
         data.is_internal === true,
       )
 
-      // Drop the optimistic temp row; upsert the authoritative comment
-      // (idempotent with the incoming sync action) and its attachments.
+      // Drop the optimistic temp rows; upsert the authoritative comment
+      // (idempotent with the incoming sync action) and its attachments. Hand
+      // each image's local blob to its reconciled row (keyed by server URL) so
+      // it shows with no reload flash; revoke the rest.
       pool.remove('comment', tempId)
+      previews.forEach((_, i) => pool.remove('attachment', tempId - i - 1))
       pool.upsert<PoolComment>('comment', newComment.id, {
         id: newComment.id,
         ticket_id: newComment.ticket_id,
@@ -491,7 +535,13 @@ export function useTicketDetail(
         render_kind: newComment.render_kind,
         created_at: newComment.created_at,
       })
-      for (const a of newComment.attachments ?? []) {
+      const finals = newComment.attachments ?? []
+      finals.forEach((a, i) => {
+        const blob = previews[i]
+        if (blob) {
+          if (files[i]?.type.startsWith('image/')) stashPreview(a.url, blob)
+          else URL.revokeObjectURL(blob)
+        }
         pool.upsert<PoolAttachment>('attachment', a.id, {
           id: a.id,
           comment_id: newComment.id,
@@ -500,11 +550,17 @@ export function useTicketDetail(
           mime_type: a.mime_type ?? null,
           file_size: a.file_size ?? null,
         })
-      }
+      })
+      // Revoke any previews without a reconciled row (count mismatch).
+      for (let i = finals.length; i < previews.length; i++) URL.revokeObjectURL(previews[i])
       highlightComment(newComment.id)
     } catch (err) {
       logger.error('Error adding comment', { ticketId, error: err })
       pool.remove('comment', tempId)
+      previews.forEach((url, i) => {
+        pool.remove('attachment', tempId - i - 1)
+        URL.revokeObjectURL(url)
+      })
     }
   }
 

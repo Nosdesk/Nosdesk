@@ -9,6 +9,8 @@ import Modal from "@/components/Modal.vue";
 import { convertToAuthenticatedPath } from '@/services/fileService';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
+import { useSmoothImageSrc } from '@/composables/useSmoothImageSrc';
+import { takePreview } from '@/services/attachmentPreviewCache';
 
 const router = useRouter();
 const { $t } = useFluent();
@@ -43,6 +45,14 @@ const emit = defineEmits<{
 const authenticatedUrl = computed(() => {
   return convertToAuthenticatedPath(props.attachment.url)
 })
+
+// Show the file's local blob preview (handed off by a just-sent attachment via
+// the preview cache) until the server image decodes, then swap, no reload
+// flash. Plain server URL when there's no preview. See useSmoothImageSrc.
+const displaySrc = useSmoothImageSrc(() => authenticatedUrl.value, takePreview(props.attachment.url));
+
+// Negative ids are optimistic rows still uploading.
+const isPending = computed(() => (props.attachment.id ?? 0) < 0);
 
 const showPreviewModal = ref(false);
 const previewImageSrc = ref('');
@@ -453,7 +463,7 @@ const generatePdfThumbnail = async () => {
         <!-- Regular image display with native lazy loading -->
         <img
           v-else
-          :src="authenticatedUrl"
+          :src="displaySrc"
           :alt="attachment.name"
           loading="lazy"
           class="w-full h-full object-cover bg-transparent attachment-image"
@@ -461,6 +471,14 @@ const generatePdfThumbnail = async () => {
             'animated-preview': isAnimatedImage(attachment.name)
           }"
         >
+
+        <!-- Uploading indicator for optimistic (still-sending) rows -->
+        <div
+          v-if="isPending"
+          class="absolute inset-0 z-20 flex items-center justify-center bg-surface/40 pointer-events-none"
+        >
+          <Spinner />
+        </div>
 
         <!-- Preview hover overlay -->
         <div
