@@ -50,6 +50,17 @@ export const tauriHttpAdapter: AxiosAdapter = async (config) => {
   const init: RequestInit = { method, headers: toHeaderRecord(config) }
   if (config.data != null && method !== 'GET' && method !== 'HEAD') {
     init.body = config.data as BodyInit
+    // For a FormData body, drop any caller-set Content-Type so the native fetch
+    // generates `multipart/form-data; boundary=...` itself. Axios hard-codes
+    // `multipart/form-data` (no boundary) on uploads; the browser's XHR silently
+    // replaces it, but this native path would forward it verbatim and the server
+    // rejects the body with "Multipart boundary is not found".
+    if (config.data instanceof FormData) {
+      const headers = init.headers as Record<string, string>
+      for (const key of Object.keys(headers)) {
+        if (key.toLowerCase() === 'content-type') delete headers[key]
+      }
+    }
   }
 
   let response: Response
