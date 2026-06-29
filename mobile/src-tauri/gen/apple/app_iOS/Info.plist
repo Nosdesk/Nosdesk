@@ -40,5 +40,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Nosdesk uses the microphone to record voice notes for tickets.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Nosdesk uses the camera to take photos to attach to tickets.</string>
 </dict>
 </plist>
