@@ -110,3 +110,24 @@ export function sseStreamUrl(queryString: string): string {
 export function collabWsBaseUrl(): string {
   return active().collabWsBaseUrl
 }
+
+/**
+ * Resolve a file path for use as an `<img>` / `<audio>` / `<video>` src.
+ *
+ * Defaults to identity: on web a relative `/api/files/...` resolves against the
+ * app origin and the cookie authenticates the direct load. The mobile app
+ * overrides this (`configureAssetUrl`) to rewrite the path to the `nosdesk-asset`
+ * scheme, which the Tauri Rust handler proxies to the API with the bearer, the
+ * webview can't carry auth on a direct resource load and a relative URL would
+ * resolve against the wrong (`tauri://localhost`) origin. See
+ * mobile/src-tauri/src/asset_proxy.rs.
+ */
+let assetUrlResolver: (path: string) => string = (path) => path
+
+export function configureAssetUrl(resolver: (path: string) => string): void {
+  assetUrlResolver = resolver
+}
+
+export function assetUrl(path: string): string {
+  return assetUrlResolver(path)
+}

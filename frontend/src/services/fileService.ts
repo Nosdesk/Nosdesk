@@ -1,5 +1,6 @@
 // Service for handling authenticated file access
 import { logger } from '@nosdesk/core/utils/logger';
+import { assetUrl } from '@nosdesk/core/transport';
 
 // Generate an authenticated URL for a file
 // Note: Authentication is handled via httpOnly cookies automatically by the browser
@@ -11,25 +12,18 @@ export const getAuthenticatedFileUrl = (filePath: string): string => {
 
 // Convert old upload paths to new authenticated API paths
 export const convertToAuthenticatedPath = (originalPath: string): string => {
-  // Handle paths that already use /api/files
-  if (originalPath.startsWith('/api/files/')) {
-    return originalPath
-  }
-
-  // Convert /uploads/tickets/... to /api/files/tickets/...
+  // Normalise legacy /uploads paths to the authenticated /api/files endpoint.
+  let path = originalPath
   if (originalPath.startsWith('/uploads/tickets/')) {
-    const filename = originalPath.replace('/uploads/tickets/', '')
-    return `/api/files/tickets/${filename}`
+    path = `/api/files/tickets/${originalPath.replace('/uploads/tickets/', '')}`
+  } else if (originalPath.startsWith('/uploads/temp/')) {
+    path = `/api/files/temp/${originalPath.replace('/uploads/temp/', '')}`
   }
 
-  // Convert /uploads/temp/... to /api/files/temp/...
-  if (originalPath.startsWith('/uploads/temp/')) {
-    const filename = originalPath.replace('/uploads/temp/', '')
-    return `/api/files/temp/${filename}`
-  }
-
-  // For other paths (like user avatars), return as-is since they're public
-  return originalPath
+  // Identity on web (a relative path resolves to the app origin and the cookie
+  // authenticates). On mobile this rewrites to the `nosdesk-asset` scheme so the
+  // webview can load the file with auth (see core transport `assetUrl`).
+  return assetUrl(path)
 }
 
 // Download a file with authentication

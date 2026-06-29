@@ -32,3 +32,6 @@ tauri-plugin-web-auth = "1"
 # Keystore/Keychain-backed secure storage for the refresh token, native iOS +
 # Android plugin code (see ../tauri-plugin-secure-store).
 tauri-plugin-secure-store = { path = "../tauri-plugin-secure-store" }
+# Rust HTTP client for the authenticated asset proxy (see src/asset_proxy.rs).
+# rustls-tls matches tauri-plugin-http, already proven on iOS + Android.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }

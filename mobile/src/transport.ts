@@ -10,7 +10,13 @@
  * cold starts. The base URL comes from the selected server (see serverConfig).
  */
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http'
-import { apiBaseUrl, configureTransport, type AuthStrategy } from '@nosdesk/core/transport'
+import { invoke } from '@tauri-apps/api/core'
+import {
+  apiBaseUrl,
+  configureAssetUrl,
+  configureTransport,
+  type AuthStrategy,
+} from '@nosdesk/core/transport'
 import { apiBaseUrlFor, collabWsBaseUrlFor, storeServer } from './serverConfig'
 import type { SecureStore } from './secureStore'
 
@@ -22,6 +28,31 @@ let store: SecureStore | null = null
 interface BearerTokens {
   access_token?: string
   refresh_token?: string
+}
+
+// Asset proxy: a webview <img>/<audio>/<video> load of a workspace-scoped file
+// can't carry the bearer, and a relative URL resolves against tauri://localhost.
+// So file paths are rewritten to a custom scheme that the Rust handler proxies
+// to the API with auth (see src-tauri/src/asset_proxy.rs). iOS sees the scheme
+// directly; Android rewrites it to an http://<scheme>.localhost origin.
+const ASSET_SCHEME_PREFIX = /android/i.test(navigator.userAgent)
+  ? 'http://nosdesk-asset.localhost'
+  : 'nosdesk-asset://localhost'
+
+configureAssetUrl((path) => (path.startsWith('/') ? `${ASSET_SCHEME_PREFIX}${path}` : path))
+
+/**
+ * Push the current bearer + API origin to the Rust asset proxy so it can
+ * authenticate proxied file fetches. Called on every session change.
+ */
+function syncAssetProxy(): void {
+  let baseUrl: string | null = null
+  try {
+    baseUrl = new URL(apiBaseUrl()).origin
+  } catch {
+    // Transport not configured yet; the proxy keeps its last base.
+  }
+  void invoke('set_asset_proxy_session', { token: accessToken, baseUrl }).catch(() => {})
 }
 
 /** Register the keychain store. Called once at bootstrap, before configureServer. */
@@ -37,6 +68,7 @@ export async function setSession(access: string, refresh: string): Promise<void>
   accessToken = access
   refreshToken = refresh
   await store?.save(refresh)
+  syncAssetProxy()
 }
 
 /** Clear the session locally (sign-out, or before switching servers). */
@@ -44,6 +76,7 @@ export async function clearSession(): Promise<void> {
   accessToken = null
   refreshToken = null
   await store?.clear()
+  syncAssetProxy()
 }
 
 const bearerAuthStrategy: AuthStrategy = {
@@ -69,6 +102,7 @@ const bearerAuthStrategy: AuthStrategy = {
       accessToken = data.access_token
       refreshToken = data.refresh_token
       await store?.save(data.refresh_token)
+      syncAssetProxy()
       return true
     } catch {
       return false
@@ -82,6 +116,7 @@ const bearerAuthStrategy: AuthStrategy = {
     refreshToken = null
     // Fire-and-forget: the interface is synchronous, keychain clear is async.
     void store?.clear()
+    syncAssetProxy()
   },
 }
 
@@ -99,6 +134,7 @@ export async function configureServer(origin: string): Promise<void> {
     collabWsBaseUrl: collabWsBaseUrlFor(origin),
     auth: bearerAuthStrategy,
   })
+  syncAssetProxy()
 }
 
 /**

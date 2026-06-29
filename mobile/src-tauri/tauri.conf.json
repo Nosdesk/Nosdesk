@@ -20,7 +20,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https: wss:"
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: nosdesk-asset: http://nosdesk-asset.localhost; media-src 'self' blob: nosdesk-asset: http://nosdesk-asset.localhost; font-src 'self' data:; connect-src 'self' https: wss: nosdesk-asset: http://nosdesk-asset.localhost"
     }
   },
   "bundle": {

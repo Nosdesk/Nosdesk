@@ -1,3 +1,5 @@
+mod asset_proxy;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -7,6 +9,12 @@ pub fn run() {
     .plugin(tauri_plugin_web_auth::init())
     // Keystore/Keychain-backed storage for the auth refresh token.
     .plugin(tauri_plugin_secure_store::init())
+    // Authenticated asset proxy: the webview loads workspace-scoped files via
+    // the `nosdesk-asset` scheme; Rust forwards them to the API with the bearer
+    // and Range header. See src/asset_proxy.rs.
+    .manage(asset_proxy::AssetProxy::new())
+    .register_asynchronous_uri_scheme_protocol(asset_proxy::SCHEME, asset_proxy::handle)
+    .invoke_handler(tauri::generate_handler![asset_proxy::set_asset_proxy_session])
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(
