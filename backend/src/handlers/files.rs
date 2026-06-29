@@ -15,7 +15,7 @@ use crate::repository::user_helpers;
 use crate::sync::actor::ActorContext;
 use crate::sync::session;
 use crate::utils::file_validation::FileValidator;
-use crate::utils::storage::Storage;
+use crate::utils::storage::{Storage, WorkspaceScopedStorage};
 
 // Upload files using the storage abstraction
 pub async fn upload_files(
@@ -214,7 +214,7 @@ pub async fn serve_ticket_file(
     req: actix_web::HttpRequest,
     pool: web::Data<Pool>,
     auth: AuthContext,
-    storage: ScopedStorage,
+    base_storage: web::Data<Arc<dyn Storage>>,
 ) -> Result<HttpResponse, actix_web::Error> {
     let filename = path.into_inner();
 
@@ -227,10 +227,13 @@ pub async fn serve_ticket_file(
         .and_then(|s| s.parse::<i32>().ok())
         .ok_or_else(|| actix_web::error::ErrorNotFound("File not found"))?;
 
-    authorize_ticket_file_access(&pool, &auth, ticket_id)?;
+    // Resource-derived: the ticket's workspace both gates access and scopes
+    // storage (the direct file load carries no workspace context).
+    let workspace_id = authorize_ticket_file_access(&pool, &auth, ticket_id)?;
+    let storage = WorkspaceScopedStorage::arc(base_storage.get_ref().clone(), workspace_id);
 
     let file_path = format!("tickets/{filename}");
-    serve_or_not_found(storage.get(), &file_path, &req).await
+    serve_or_not_found(storage, &file_path, &req).await
 }
 
 // Serve temp (pre-attachment staging) files.
@@ -244,15 +247,16 @@ pub async fn serve_temp_file(
     req: actix_web::HttpRequest,
     pool: web::Data<Pool>,
     auth: AuthContext,
-    storage: ScopedStorage,
+    base_storage: web::Data<Arc<dyn Storage>>,
 ) -> Result<HttpResponse, actix_web::Error> {
     let filename = path.into_inner();
 
     let public_url = format!("/uploads/temp/{filename}");
-    authorize_temp_file_access(&pool, &auth, &public_url)?;
+    let workspace_id = authorize_temp_file_access(&pool, &auth, &public_url)?;
+    let storage = WorkspaceScopedStorage::arc(base_storage.get_ref().clone(), workspace_id);
 
     let file_path = format!("temp/{filename}");
-    serve_or_not_found(storage.get(), &file_path, &req).await
+    serve_or_not_found(storage, &file_path, &req).await
 }
 
 /// Authorize access to a ticket's files: the caller must be able to view the
@@ -298,7 +302,7 @@ fn authorize_ticket_file_access(
     pool: &Pool,
     auth: &AuthContext,
     ticket_id: i32,
-) -> Result<(), actix_web::Error> {
+) -> Result<i32, actix_web::Error> {
     let mut conn = pool.get().map_err(|e| {
         error!(error = ?e, "file access: pool acquire failed");
         actix_web::error::ErrorInternalServerError("Database error")
@@ -340,7 +344,7 @@ fn authorize_ticket_file_access(
     if !allowed {
         return Err(actix_web::error::ErrorNotFound("File not found"));
     }
-    Ok(())
+    Ok(workspace_id)
 }
 
 /// Authorize access to a staging (temp) file, whose owning workspace comes from
@@ -351,7 +355,7 @@ fn authorize_temp_file_access(
     pool: &Pool,
     auth: &AuthContext,
     public_url: &str,
-) -> Result<(), actix_web::Error> {
+) -> Result<i32, actix_web::Error> {
     let mut conn = pool.get().map_err(|e| {
         error!(error = ?e, "temp file access: pool acquire failed");
         actix_web::error::ErrorInternalServerError("Database error")
@@ -385,7 +389,7 @@ fn authorize_temp_file_access(
     if !is_member {
         return Err(actix_web::error::ErrorNotFound("File not found"));
     }
-    Ok(())
+    Ok(workspace_id)
 }
 
 /// Serve a stored object, mapping any storage error to a 404.
@@ -527,18 +531,19 @@ pub async fn serve_ticket_note_image(
     req: actix_web::HttpRequest,
     pool: web::Data<Pool>,
     auth: AuthContext,
-    storage: ScopedStorage,
+    base_storage: web::Data<Arc<dyn Storage>>,
 ) -> Result<HttpResponse, actix_web::Error> {
     let (ticket_id, filename) = path.into_inner();
 
     // Same workspace + visibility gate as ticket attachments; the route
     // carries the ticket id directly. Resource-derived so the direct image
     // load works without a selection header (see authorize_ticket_file_access).
-    authorize_ticket_file_access(&pool, &auth, ticket_id)?;
+    let workspace_id = authorize_ticket_file_access(&pool, &auth, ticket_id)?;
+    let storage = WorkspaceScopedStorage::arc(base_storage.get_ref().clone(), workspace_id);
 
     // Serve from tickets/{ticket_id}/notes/ folder
     let file_path = format!("tickets/{ticket_id}/notes/{filename}");
-    serve_or_not_found(storage.get(), &file_path, &req).await
+    serve_or_not_found(storage, &file_path, &req).await
 }
 
 /// Clean up temp files older than 24 hours (admin endpoint)
