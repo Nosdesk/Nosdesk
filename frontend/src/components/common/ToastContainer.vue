@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import { useToastStore, type Toast } from '@nosdesk/core/stores/toast';
@@ -53,6 +53,9 @@ const getIconClasses = (type: Toast['type']) => {
 };
 
 const handleToastClick = (toast: Toast) => {
+  // A swipe ends with touchend then a synthetic click; ignore that click so a
+  // half-swipe on a notification toast doesn't also navigate (see onTouchEnd).
+  if (Date.now() < suppressClickUntil) return;
   if (toast.notification) {
     const { ticketId } = toast.notification;
     if (ticketId) {
@@ -79,13 +82,78 @@ const invokeAction = async (toast: Toast, event: Event) => {
     toastStore.removeToast(toast.id);
   }
 };
+
+// --- Swipe to dismiss (touch) ---
+// Toasts slide in from the right, so a rightward swipe past the threshold
+// dismisses; a shorter drag snaps back. Mouse devices never fire these.
+const SWIPE_DISMISS_PX = 80;
+const swipe = ref<{ id: string; startX: number; dx: number; dragging: boolean } | null>(null);
+let suppressClickUntil = 0;
+
+const onTouchStart = (toast: Toast, event: TouchEvent) => {
+  swipe.value = { id: toast.id, startX: event.touches[0].clientX, dx: 0, dragging: true };
+};
+
+const onTouchMove = (event: TouchEvent) => {
+  if (!swipe.value) return;
+  swipe.value.dx = Math.max(0, event.touches[0].clientX - swipe.value.startX);
+};
+
+const onTouchEnd = (toast: Toast) => {
+  const s = swipe.value;
+  if (!s || s.id !== toast.id) {
+    swipe.value = null;
+    return;
+  }
+  if (s.dx > SWIPE_DISMISS_PX) {
+    toastStore.removeToast(toast.id);
+    swipe.value = null;
+    return;
+  }
+  // A real drag (not a tap): suppress the click that follows touchend.
+  if (s.dx > 8) suppressClickUntil = Date.now() + 300;
+  // Snap back with a transition, then clear the swipe state.
+  s.dragging = false;
+  setTimeout(() => {
+    if (swipe.value?.id === toast.id) swipe.value = null;
+  }, 200);
+};
+
+const swipeStyle = (toast: Toast) => {
+  const cursor = toast.notification ? 'pointer' : 'default';
+  const s = swipe.value;
+  if (s && s.id === toast.id) {
+    return {
+      cursor,
+      transform: `translateX(${s.dx}px)`,
+      opacity: String(Math.max(0.25, 1 - s.dx / 240)),
+      transition: s.dragging ? 'none' : 'transform 0.2s ease, opacity 0.2s ease',
+    };
+  }
+  return { cursor };
+};
+
+const getProgressBarClass = (type: Toast['type']) => {
+  switch (type) {
+    case 'success':
+      return 'bg-status-success';
+    case 'warning':
+      return 'bg-status-warning';
+    case 'error':
+      return 'bg-status-error';
+    case 'notification':
+      return 'bg-accent';
+    default:
+      return 'bg-accent';
+  }
+};
 </script>
 
 <template>
   <Teleport to="body">
     <div
       aria-live="assertive"
-      class="pointer-events-none fixed inset-0 flex flex-col items-end px-4 py-6 sm:p-6 z-overlay gap-3"
+      class="pointer-events-none fixed inset-0 flex flex-col items-end px-4 pb-6 sm:px-6 sm:pb-6 z-overlay gap-3 pt-[max(1.5rem,calc(env(safe-area-inset-top)+0.75rem))]"
     >
       <TransitionGroup
         name="toast"
@@ -97,7 +165,10 @@ const invokeAction = async (toast: Toast, event: Event) => {
           :key="toast.id"
           :class="getToastClasses(toast.type)"
           @click="toast.notification ? handleToastClick(toast) : undefined"
-          :style="{ cursor: toast.notification ? 'pointer' : 'default' }"
+          @touchstart.passive="onTouchStart(toast, $event)"
+          @touchmove.passive="onTouchMove($event)"
+          @touchend="onTouchEnd(toast)"
+          :style="swipeStyle(toast)"
           role="alert"
         >
           <div class="p-4">
@@ -127,10 +198,10 @@ const invokeAction = async (toast: Toast, event: Event) => {
 
               <!-- Content -->
               <div class="flex-1 pt-0.5 min-w-0">
-                <p class="text-sm font-medium text-primary truncate">
+                <p class="text-sm font-medium text-primary break-words">
                   {{ toast.title }}
                 </p>
-                <p v-if="toast.message" class="mt-1 text-sm text-secondary line-clamp-2">
+                <p v-if="toast.message" class="mt-1 text-sm text-secondary break-words">
                   {{ toast.message }}
                 </p>
 
@@ -191,6 +262,13 @@ const invokeAction = async (toast: Toast, event: Event) => {
               </div>
             </div>
           </div>
+          <!-- Auto-dismiss progress bar (only for toasts that time out). -->
+          <div
+            v-if="toast.duration > 0"
+            class="toast-progress h-1 w-full origin-right"
+            :class="getProgressBarClass(toast.type)"
+            :style="{ animationDuration: toast.duration + 'ms' }"
+          ></div>
         </div>
       </TransitionGroup>
     </div>
@@ -220,11 +298,20 @@ const invokeAction = async (toast: Toast, event: Event) => {
   transition: transform 0.3s ease;
 }
 
-/* Limit message to 2 lines */
-.line-clamp-2 {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+/* Auto-dismiss countdown bar: shrink from full to empty over the toast's
+   duration (set inline via animation-duration). */
+.toast-progress {
+  animation-name: toast-progress;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+@keyframes toast-progress {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
 }
 </style>
