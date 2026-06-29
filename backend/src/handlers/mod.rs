@@ -341,6 +341,9 @@ pub async fn add_comment_to_ticket(
         // legacy-html iframe path). `render_kind` is otherwise set only
         // by the inbound email pipeline.
         render_kind: Some("simple".to_string()),
+        // Honor the composer's internal-note toggle. Was dropped before
+        // (defaulted to false), which saved every note as public.
+        is_internal: comment_data.is_internal,
         // Email body parts only apply to inbound channel comments,
         // not UI-authored ones.
         ..Default::default()

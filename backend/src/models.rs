@@ -2979,6 +2979,12 @@ pub struct NewCommentWithAttachments {
     /// back to the `ContentFormat` default (HTML).
     #[serde(default)]
     pub content_format: ContentFormat,
+    /// Internal note flag from the composer's toggle. Optional on the wire
+    /// (defaults to a public comment). Was previously absent here, so the
+    /// value the client sent was silently dropped and every note saved as
+    /// public, leaking internal notes to requester-facing views + outbound.
+    #[serde(default)]
+    pub is_internal: bool,
 }
 
 // JWT Claims structure
