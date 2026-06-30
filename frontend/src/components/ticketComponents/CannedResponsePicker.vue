@@ -38,22 +38,24 @@ the panel; Enter inserts the active item.
     </button>
 
     <!--
-      Dropdown panel teleported to <body> so it escapes any ancestor
-      `overflow: hidden` (the surrounding `SectionCard` clips its
-      contents). Positioning is computed from the trigger's bounding
-      rect every time the panel opens and on resize / scroll, mirroring
-      the pattern already used by `SimpleEditor`'s mention dropdown.
-
-      `bottom`/`right` anchor the panel's bottom-right to the trigger's
-      top-right so it opens upward and right-aligned, matching the
-      original anchor without the clipping problem.
+      Dropdown panel via the shared <Popover>: teleports to <body> (escaping
+      the SectionCard's `overflow: hidden`), stays anchored to the trigger on
+      scroll/resize, clamps to the viewport so it never trails off an edge, and
+      dismisses on outside-click. The inner div keeps the listbox semantics,
+      scroll, and keyboard navigation.
     -->
-    <Teleport to="body">
+    <Popover
+      :open="isOpen"
+      :anchor="anchor"
+      placement="top-start"
+      react-to-scroll="reposition"
+      :auto-focus="false"
+      popover-class="w-72 max-w-[calc(100vw-1rem)] bg-surface border border-default rounded-lg shadow-lg overflow-hidden"
+      @close="closePicker(false)"
+    >
       <div
-        v-if="isOpen"
         ref="panelEl"
-        :style="panelStyle"
-        class="w-72 max-w-[calc(100vw-1rem)] max-h-80 overflow-y-auto bg-surface border border-default rounded-lg shadow-lg flex flex-col"
+        class="max-h-80 overflow-y-auto flex flex-col"
         role="listbox"
         tabindex="-1"
         :aria-label="$t('ticket-picker-canned-listbox-aria')"
@@ -141,7 +143,7 @@ the panel; Enter inserts the active item.
           </div>
         </template>
       </div>
-    </Teleport>
+    </Popover>
   </div>
 </template>
 
@@ -157,6 +159,8 @@ import {
   type TemplateVars,
 } from '@nosdesk/core/services/cannedResponsesService';
 import { highlightTerms } from '@nosdesk/core/utils/highlight';
+import Popover from '@/components/common/Popover.vue';
+import type { PopoverAnchor } from '@/composables/usePopover';
 
 const { $t } = useFluent();
 
@@ -271,52 +275,24 @@ const highlightPreview = (text: string): string => highlightTerms(text, searchTe
 watch(searchQuery, () => {
   activeIndex.value = 0;
 });
-/**
- * Live bounding rect of the trigger button. Updated whenever the
- * panel opens, the window resizes, or any ancestor scrolls — keeping
- * the teleported panel anchored to the button it logically belongs to.
- */
-const triggerRect = ref<DOMRect | null>(null);
-/**
- * Inline style for the teleported dropdown. Positions the panel's
- * bottom-right against the trigger's top-right with an 8px gap so it
- * opens upward + right-aligned, the same anchor the absolute version
- * had before. Falls back to `display: none` between renders so the
- * teleported node doesn't briefly flash at (0,0) before the rect is
- * read on first open.
- */
-const panelStyle = computed(() => {
-  if (!isOpen.value || !triggerRect.value) return { display: 'none' };
-  const rect = triggerRect.value;
-  const GAP_PX = 8;
-  return {
-    position: 'fixed' as const,
-    bottom: `${window.innerHeight - rect.top + GAP_PX}px`,
-    right: `${window.innerWidth - rect.right}px`,
-    zIndex: 50,
-  };
-});
-
-function captureTriggerRect() {
-  triggerRect.value = triggerEl.value?.getBoundingClientRect() ?? null;
-}
-
 const uid = Math.random().toString(36).slice(2, 8);
 const optionId = (i: number) => `canned-response-opt-${uid}-${i}`;
 const activeOptionId = computed(() =>
   filteredResponses.value.length > 0 ? optionId(activeIndex.value) : undefined,
 );
 
+// Anchor the Popover to the trigger button (resolved lazily so it tracks the
+// live element across re-renders).
+const anchor = computed<PopoverAnchor>(() => ({
+  type: 'element',
+  element: () => triggerEl.value,
+}));
+
 async function toggleOpen() {
   if (isOpen.value) {
     closePicker(false);
     return;
   }
-  // Read the rect synchronously before flipping `isOpen` so the
-  // teleported panel renders in the right place on its first paint
-  // (instead of briefly flashing at the document origin while we
-  // wait for the next tick).
-  captureTriggerRect();
   isOpen.value = true;
   activeIndex.value = 0;
   // The list query auto-fetches on first picker mount; nothing to
@@ -420,40 +396,6 @@ function onKeydown(e: KeyboardEvent) {
 onMounted(() => window.addEventListener('keydown', onKeydown));
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown);
-  document.removeEventListener('pointerdown', onOutsidePointerDown, true);
-  // Symmetric cleanup of the anchor-tracking listeners in case the
-  // component unmounts while the panel is still open.
-  window.removeEventListener('resize', captureTriggerRect);
-  window.removeEventListener('scroll', captureTriggerRect, { capture: true } as EventListenerOptions);
-});
-
-// Close on outside pointer-down. `pointerdown` covers mouse + touch
-// in one listener, and firing on the down-edge avoids the case where
-// a click on the trigger slips through between open and listener-
-// attachment. Using capture phase so we run before app click handlers.
-function onOutsidePointerDown(ev: PointerEvent) {
-  if (!isOpen.value) return;
-  const target = ev.target as Node | null;
-  if (!target) return;
-  if (panelEl.value?.contains(target)) return;
-  if (triggerEl.value?.contains(target)) return;
-  isOpen.value = false;
-}
-
-watch(isOpen, (open) => {
-  if (open) {
-    document.addEventListener('pointerdown', onOutsidePointerDown, true);
-    // Keep the teleported panel anchored to the trigger as the user
-    // scrolls or resizes. `passive: true` keeps scroll smooth — we
-    // only read the rect, never call `preventDefault`. Capture phase
-    // catches scrolls inside any ancestor, not just the document.
-    window.addEventListener('resize', captureTriggerRect, { passive: true });
-    window.addEventListener('scroll', captureTriggerRect, { capture: true, passive: true });
-  } else {
-    document.removeEventListener('pointerdown', onOutsidePointerDown, true);
-    window.removeEventListener('resize', captureTriggerRect);
-    window.removeEventListener('scroll', captureTriggerRect, { capture: true } as EventListenerOptions);
-  }
 });
 </script>
 
