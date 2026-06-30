@@ -186,6 +186,12 @@ function insertCannedResponse(text: string) {
         : html;
 }
 
+// There is something to send: real text or at least one staged attachment.
+// Greys out + disables the send button otherwise (mirrors the addComment guard).
+const canSubmit = computed<boolean>(
+    () => hasTextContent(newCommentContent.value) || newAttachments.value.length > 0,
+);
+
 const addComment = () => {
     if (!hasTextContent(newCommentContent.value) && newAttachments.value.length === 0)
         return;
@@ -298,6 +304,14 @@ const handleRecordingCancel = () => {
 };
 
 const deleteAttachment = (commentId: number, attachmentIndex: number) => {
+    const comment = props.comments.find((c) => c.id === commentId);
+    // Removing a comment's only content (last attachment, no text) would leave
+    // an empty husk behind; delete the whole comment instead. Also covers the
+    // voice-note case: an audio-only comment's delete routes here.
+    if (comment && !hasRealContent(comment) && (comment.attachments?.length ?? 0) <= 1) {
+        emit("deleteComment", commentId);
+        return;
+    }
     emit("deleteAttachment", { commentId, attachmentIndex });
 };
 
@@ -475,12 +489,11 @@ const handlePastedFiles = async (files: File[]) => {
                 -->
                 <div
                     v-if="!readonly"
-                    class="print:hidden border-b relative p-3 transition-colors"
-                    :class="
-                        isInternal
-                            ? 'bg-status-warning-bg/40 border-status-warning-border/60'
-                            : 'bg-surface border-default'
-                    "
+                    class="print:hidden relative p-3 transition-colors"
+                    :class="[
+                        isInternal ? 'bg-status-warning-bg/40' : 'bg-surface',
+                        props.comments.length > 0 ? 'border-b border-default' : ''
+                    ]"
                     @dragenter="handleDragEnter"
                     @dragleave="handleDragLeave"
                     @dragover="handleDragOver"
@@ -514,25 +527,6 @@ const handlePastedFiles = async (files: File[]) => {
                         @submit.prevent="addComment"
                         class="flex flex-col gap-2"
                     >
-                        <div
-                            v-if="isInternal"
-                            class="flex items-center gap-2 text-xs font-medium text-status-warning"
-                        >
-                            <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                class="h-4 w-4 flex-shrink-0"
-                                viewBox="0 0 20 20"
-                                fill="currentColor"
-                                aria-hidden="true"
-                            >
-                                <path
-                                    fill-rule="evenodd"
-                                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm0-13a1 1 0 011 1v4a1 1 0 11-2 0V6a1 1 0 011-1zm0 9a1 1 0 100-2 1 1 0 000 2z"
-                                    clip-rule="evenodd"
-                                />
-                            </svg>
-                            <span>{{ $t('ticket-comments-internal-banner') }}</span>
-                        </div>
                         <SimpleEditor
                             v-model="newCommentContent"
                             :placeholder="isInternal ? $t('ticket-comments-placeholder-internal') : $t('ticket-comments-placeholder-public')"
@@ -607,7 +601,7 @@ const handlePastedFiles = async (files: File[]) => {
                             <button
                                 type="button"
                                 @click="startVoiceRecording"
-                                class="touch-target sm:h-9 px-3 sm:px-2.5 bg-surface-alt border border-default text-secondary rounded-md hover:bg-surface-hover hover:text-primary transition-colors flex items-center justify-center"
+                                class="h-9 px-2.5 bg-surface-alt border border-default text-secondary rounded-md hover:bg-surface-hover hover:text-primary transition-colors flex items-center justify-center"
                                 :class="{ 'text-error': showRecordingInterface }"
                                 :aria-label="$t('ticket-comments-record-voice')"
                                 :title="$t('ticket-comments-record-voice')"
@@ -629,7 +623,7 @@ const handlePastedFiles = async (files: File[]) => {
                             <button
                                 type="button"
                                 @click="triggerFileUpload"
-                                class="touch-target sm:h-9 px-3 sm:px-2.5 bg-surface-alt border border-default text-secondary rounded-md hover:bg-surface-hover hover:text-primary transition-colors flex items-center justify-center"
+                                class="h-9 px-2.5 bg-surface-alt border border-default text-secondary rounded-md hover:bg-surface-hover hover:text-primary transition-colors flex items-center justify-center"
                                 :aria-label="$t('ticket-comments-upload-file')"
                                 :title="$t('ticket-comments-upload-file')"
                             >
@@ -653,12 +647,9 @@ const handlePastedFiles = async (files: File[]) => {
                                 @insert="insertCannedResponse"
                             />
 
-                            <!-- Pushes the submit cluster to the right edge. -->
-                            <div class="flex-1"></div>
-
                             <!-- Public reply / Internal note segmented control -->
                             <div
-                                class="flex items-center rounded-md bg-surface-alt border border-default p-0.5 text-xs font-medium"
+                                class="flex items-stretch h-9 rounded-md bg-surface-alt border border-default p-0.5 text-xs font-medium"
                                 role="group"
                                 :aria-label="$t('ticket-comments-visibility-group')"
                             >
@@ -666,7 +657,7 @@ const handlePastedFiles = async (files: File[]) => {
                                     type="button"
                                     @click="isInternal = false"
                                     :class="[
-                                        'px-2.5 py-1 rounded transition-colors',
+                                        'px-2.5 rounded transition-colors flex items-center justify-center',
                                         !isInternal
                                             ? 'bg-accent text-on-accent'
                                             : 'text-secondary hover:text-primary'
@@ -679,7 +670,7 @@ const handlePastedFiles = async (files: File[]) => {
                                     type="button"
                                     @click="isInternal = true"
                                     :class="[
-                                        'px-2.5 py-1 rounded transition-colors',
+                                        'px-2.5 rounded transition-colors flex items-center justify-center',
                                         isInternal
                                             ? 'bg-status-warning text-white'
                                             : 'text-secondary hover:text-primary'
@@ -690,17 +681,29 @@ const handlePastedFiles = async (files: File[]) => {
                                 </button>
                             </div>
 
-                            <!-- Submit. Colour follows the visibility
-                                 mode so the click's effect matches the
-                                 segmented control immediately above. -->
+                            <!-- Pushes the submit to the right edge. -->
+                            <div class="flex-1"></div>
+
+                            <!-- Submit. Icon-only (send) to keep the toolbar on
+                                 one row; colour follows the visibility mode so
+                                 the click's effect matches the segmented control
+                                 immediately above. The mode-aware label lives on
+                                 aria-label + title for screen readers + hover. -->
                             <button
                                 type="submit"
+                                :disabled="!canSubmit"
                                 :class="[
-                                    'h-9 px-4 rounded-md text-white text-sm font-medium hover:opacity-90 transition-colors',
-                                    isInternal ? 'bg-status-warning' : 'bg-accent'
+                                    'h-9 w-9 rounded-md transition-colors flex items-center justify-center flex-shrink-0',
+                                    !canSubmit
+                                        ? 'bg-surface-hover text-tertiary cursor-not-allowed'
+                                        : isInternal
+                                            ? 'bg-status-warning text-white hover:opacity-90'
+                                            : 'bg-accent text-white hover:opacity-90'
                                 ]"
+                                :aria-label="isInternal ? $t('ticket-comments-submit-note') : $t('ticket-comments-submit-reply')"
+                                :title="isInternal ? $t('ticket-comments-submit-note') : $t('ticket-comments-submit-reply')"
                             >
-                                {{ isInternal ? $t('ticket-comments-submit-note') : $t('ticket-comments-submit-reply') }}
+                                <Icon name="arrowUp" size="md" />
                             </button>
                         </div>
                     </form>
@@ -832,7 +835,6 @@ const handlePastedFiles = async (files: File[]) => {
                                         </svg>
                                     </a>
                                     <button
-                                        v-if="hasRealContent(comment) || isAudioOnlyComment(comment)"
                                         type="button"
                                         @click="isAudioOnlyComment(comment) ? deleteAttachment(comment.id, 0) : deleteComment(comment.id)"
                                         class="inline-flex items-center justify-center p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
@@ -933,7 +935,6 @@ const handlePastedFiles = async (files: File[]) => {
                                                 </svg>
                                             </a>
                                             <button
-                                                v-if="hasRealContent(comment) || isAudioOnlyComment(comment)"
                                                 type="button"
                                                 @click="isAudioOnlyComment(comment) ? deleteAttachment(comment.id, 0) : deleteComment(comment.id)"
                                                 class="p-1.5 text-tertiary hover:text-status-error hover:bg-status-error/10 rounded-md transition-colors"

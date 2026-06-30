@@ -53,6 +53,9 @@ export const ICON_REGISTRY = {
     d: 'M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75',
   },
   add: { d: 'M12 4.5v15m7.5-7.5h-15' },
+  /** Up arrow, "send / submit" — the composer's send action. Straight lines
+   * (no paper-plane curves) for the sleek, real-time feel. */
+  arrowUp: { d: 'M4.5 10.5 12 3m0 0 7.5 7.5M12 3v18' },
   /** 2x2 grid, "administration / system control panel". The
    * established control-panel convention (Vercel, Supabase, most
    * cloud consoles). Reads as "see and manage everything at once",
