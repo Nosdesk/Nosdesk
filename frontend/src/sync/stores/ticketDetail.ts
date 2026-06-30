@@ -38,6 +38,7 @@ import apiClient from '@nosdesk/core/apiClient'
 import { projectService } from '@nosdesk/core/services/projectService'
 import { stashPreview } from '@/services/attachmentPreviewCache'
 import { registerOptimisticCreate, clearOptimisticCreate, isEchoSuppressed } from '@/sync/optimisticCreates'
+import { isNotFoundError } from '@/utils/errors'
 import type { TicketPriority } from '@nosdesk/core/constants/ticketOptions'
 import type { CardWorkflowState } from '@nosdesk/core/sync/views/types'
 import type { Asset } from '@nosdesk/core/types/asset'
@@ -567,6 +568,9 @@ export function useTicketDetail(
     try {
       await ticketService.deleteComment(commentId)
     } catch (err) {
+      // 404 = already gone server-side (a stale local copy); keep it removed
+      // rather than resurrecting a phantom the user can never delete.
+      if (isNotFoundError(err)) return
       logger.error('Error deleting comment', { commentId, error: err })
       if (snapshot) pool.upsert<PoolComment>('comment', commentId, { ...snapshot })
     }
@@ -595,6 +599,7 @@ export function useTicketDetail(
     try {
       await ticketService.deleteAttachment(att.id)
     } catch (err) {
+      if (isNotFoundError(err)) return
       logger.error('Error deleting attachment', { error: err })
       if (snapshot) pool.upsert<PoolAttachment>('attachment', att.id, { ...snapshot })
     }

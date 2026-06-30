@@ -210,3 +210,13 @@ export function createErrorFromResponse(error: unknown): AppError {
     { data }
   )
 }
+
+/**
+ * True when an error (already mapped through `createErrorFromResponse` by the
+ * apiClient interceptor) is an HTTP 404. Used by optimistic deletes to treat a
+ * "not found" as already-deleted (keep the row removed) rather than rolling the
+ * removal back, which would resurrect a row the server no longer has.
+ */
+export function isNotFoundError(err: unknown): boolean {
+  return err instanceof ApiError && err.statusCode === 404
+}
