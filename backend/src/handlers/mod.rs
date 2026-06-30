@@ -349,6 +349,15 @@ pub async fn add_comment_to_ticket(
         ..Default::default()
     };
 
+    // Stamp the client-minted id (if any) so the comment.created sync action
+    // carries it as `correlation_id`, letting the client reconcile its
+    // optimistic row structurally rather than by a temp-id swap + heuristic
+    // dedup. Applies to this comment's write and its attachment writes below
+    // (one logical mutation).
+    if let Some(cid) = comment_data.client_id {
+        tc.set_correlation_id(cid);
+    }
+
     // Insert the comment, attributed to the authenticated user.
     // TenantConn primes the actor and workspace GUCs around the
     // repo's own transaction, so observers and RLS both see the

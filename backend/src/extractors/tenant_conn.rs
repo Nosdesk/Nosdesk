@@ -106,6 +106,14 @@ impl TenantConn {
     pub fn workspace_id(&self) -> Option<i32> {
         self.actor.workspace_id
     }
+
+    /// Stamp a client-minted correlation id onto the sync actions emitted by
+    /// the next `run` / `run_result` (for optimistic-create reconciliation:
+    /// the client matches the echoed `correlation_id` to its pending row). The
+    /// actor carries no correlation otherwise.
+    pub fn set_correlation_id(&mut self, id: uuid::Uuid) {
+        self.actor.correlation_id = Some(id);
+    }
 }
 
 /// Error type for `TenantConn` extraction failures.
