@@ -10,6 +10,8 @@ const { $t } = useFluent();
 const props = defineProps<{
   src: string;
   transcription?: string;
+  /** Attachment is still uploading: show a spinner where the duration goes. */
+  pending?: boolean;
 }>();
 
 defineEmits<{
@@ -683,8 +685,11 @@ onUnmounted(() => {
         ></canvas>
       </div>
 
-      <!-- Duration -->
-      <span class="text-xs font-mono text-tertiary tabular-nums flex-shrink-0 w-8">{{ formattedDuration }}</span>
+      <!-- Duration, or a spinner in its place while the attachment uploads -->
+      <span class="text-xs font-mono text-tertiary tabular-nums flex-shrink-0 w-8 flex items-center justify-center">
+        <Spinner v-if="props.pending" size="xs" />
+        <template v-else>{{ formattedDuration }}</template>
+      </span>
     </div>
 
     <!-- Transcription display -->

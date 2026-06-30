@@ -404,7 +404,7 @@ const generatePdfThumbnail = async () => {
       v-if="showDelete"
       type="button"
       @click.stop="emit('delete')"
-      class="absolute top-0.5 right-0.5 z-30 p-1 rounded bg-surface/70 text-tertiary hover:text-status-error opacity-0 group-hover:opacity-100 transition-opacity"
+      class="hidden sm:block absolute top-0.5 right-0.5 z-30 p-1 rounded bg-surface/70 text-tertiary hover:text-status-error opacity-0 group-hover:opacity-100 transition-opacity"
       :title="$t('ticket-media-attachment-delete-image')"
     >
       <Icon name="close" class="w-3 h-3" />
@@ -460,12 +460,7 @@ const generatePdfThumbnail = async () => {
 
     <!-- Content -->
     <template v-if="attachmentType === 'audio'">
-      <div class="relative" :class="isPending ? 'opacity-70' : ''">
-        <AudioPlayer :src="mediaSrc" :transcription="attachment.transcription" />
-        <div v-if="isPending" class="absolute top-1 right-1 z-10 pointer-events-none">
-          <Spinner />
-        </div>
-      </div>
+      <AudioPlayer :src="mediaSrc" :transcription="attachment.transcription" :pending="isPending" />
     </template>
     <template v-else-if="attachmentType === 'video'">
       <VideoPlayer
@@ -720,6 +715,17 @@ const generatePdfThumbnail = async () => {
             <Icon name="download" />
             {{ isAnimatedImage(attachment.name) ? $t('ticket-media-attachment-download-animated') : $t('ticket-media-attachment-download-image') }}
           </a>
+          <!-- Delete lives in the preview (not on the thumbnail on mobile, where
+               the hover-only thumbnail button is invisible yet tappable). -->
+          <button
+            v-if="showDelete"
+            type="button"
+            @click="closeImagePreview(); emit('delete')"
+            class="px-4 py-2 bg-surface-alt text-status-error text-sm rounded hover:bg-status-error/10 transition-colors flex items-center gap-2"
+          >
+            <Icon name="trash" />
+            {{ $t('ticket-media-attachment-delete-image') }}
+          </button>
         </div>
       </div>
     </Modal>
