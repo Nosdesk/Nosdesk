@@ -232,7 +232,8 @@ export const addCommentToTicket = async (
   ticketId: number,
   content: string,
   attachments: { url: string; name: string }[] = [],
-  isInternal: boolean = false
+  isInternal: boolean = false,
+  clientId?: string
 ): Promise<Comment> => {
   try {
     const response = await apiClient.post(`/tickets/${ticketId}/comments`, {
@@ -251,6 +252,10 @@ export const addCommentToTicket = async (
       // defaults to `html` when the field is missing, so older
       // bundles keep working — explicit is just clearer.
       content_format: 'html',
+      // Client-minted id echoed back as the sync action's correlation_id so the
+      // optimistic create reconciles structurally (see sync/optimisticCreates).
+      // Omitted (undefined) by callers that don't opt in; backend defaults None.
+      client_id: clientId,
     });
     return response.data;
   } catch (error) {

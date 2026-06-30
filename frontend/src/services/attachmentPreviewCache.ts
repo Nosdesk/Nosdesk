@@ -7,8 +7,9 @@
  * whose `<img>` would otherwise reload from the network and flash.
  *
  * `addComment` stashes the local blob here keyed by the final server URL; the
- * reconciled `AttachmentPreview` takes it (one-shot) and shows it until the
- * server image has decoded, then revokes it (see `useSmoothImageSrc`).
+ * reconciled `AttachmentPreview` takes it (one-shot) via `useAttachmentSource`
+ * and keeps rendering it (byte-identical to the server copy, so no swap),
+ * revoking on unmount.
  */
 const previews = new Map<string, string>()
 

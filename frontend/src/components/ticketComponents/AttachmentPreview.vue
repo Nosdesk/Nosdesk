@@ -9,8 +9,7 @@ import Modal from "@/components/Modal.vue";
 import { convertToAuthenticatedPath } from '@/services/fileService';
 import Icon from '@/components/common/Icon.vue';
 import Spinner from '@/components/common/Spinner.vue';
-import { useSmoothImageSrc } from '@/composables/useSmoothImageSrc';
-import { takePreview } from '@/services/attachmentPreviewCache';
+import { useAttachmentSource } from '@/composables/useAttachmentSource';
 
 const router = useRouter();
 const { $t } = useFluent();
@@ -22,12 +21,15 @@ interface Props {
   isNew?: boolean;
   showDelete?: boolean;
   hideHeader?: boolean; // Hide the header (title + buttons) - parent handles it
+  /** Render as a small square thumbnail tile for the comment attachment grid. */
+  compact?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   isNew: false,
   showDelete: false,
-  hideHeader: false
+  hideHeader: false,
+  compact: false
 });
 
 // Debug logging
@@ -46,10 +48,9 @@ const authenticatedUrl = computed(() => {
   return convertToAuthenticatedPath(props.attachment.url)
 })
 
-// Show the file's local blob preview (handed off by a just-sent attachment via
-// the preview cache) until the server image decodes, then swap, no reload
-// flash. Plain server URL when there's no preview. See useSmoothImageSrc.
-const displaySrc = useSmoothImageSrc(() => authenticatedUrl.value, takePreview(props.attachment.url));
+// One source for every type: the just-sent local blob if we have one, else the
+// authenticated server URL (see useAttachmentSource). No per-type src logic.
+const mediaSrc = useAttachmentSource(() => props.attachment.url);
 
 // Negative ids are optimistic rows still uploading.
 const isPending = computed(() => (props.attachment.id ?? 0) < 0);
@@ -376,7 +377,41 @@ const generatePdfThumbnail = async () => {
 </script>
 
 <template>
-  <div :class="[
+  <!-- Compact thumbnail tile for the comment attachment grid. Reuses the
+       optimistic image display (displaySrc / isPending) and the shared preview
+       modal below; non-image files show an icon tile. -->
+  <div
+    v-if="compact"
+    class="relative group w-20 h-20 rounded-md overflow-hidden bg-surface-alt flex-shrink-0"
+    :class="(attachmentType === 'image' || attachmentType === 'pdf') ? 'cursor-pointer' : ''"
+    @click="(attachmentType === 'image' || attachmentType === 'pdf') && openImagePreview(authenticatedUrl)"
+  >
+    <img
+      v-if="attachmentType === 'image' && !needsConversion(attachment.name)"
+      :src="mediaSrc"
+      :alt="attachment.name"
+      loading="lazy"
+      class="w-full h-full object-cover"
+    />
+    <div v-else class="w-full h-full flex flex-col items-center justify-center gap-1 p-1 text-center">
+      <Icon :name="attachmentType === 'pdf' ? 'book' : attachmentType === 'video' ? 'eye' : 'paperclip'" class="w-5 h-5 text-tertiary" />
+      <span class="text-[10px] text-tertiary leading-tight line-clamp-2 break-all">{{ getDisplayName(attachment.name) }}</span>
+    </div>
+    <div v-if="isPending" class="absolute inset-0 z-20 flex items-center justify-center bg-surface/40 pointer-events-none">
+      <Spinner />
+    </div>
+    <button
+      v-if="showDelete"
+      type="button"
+      @click.stop="emit('delete')"
+      class="absolute top-0.5 right-0.5 z-30 p-1 rounded bg-surface/70 text-tertiary hover:text-status-error opacity-0 group-hover:opacity-100 transition-opacity"
+      :title="$t('ticket-media-attachment-delete-image')"
+    >
+      <Icon name="close" class="w-3 h-3" />
+    </button>
+  </div>
+
+  <div v-else :class="[
     'flex flex-col gap-2',
     attachmentType === 'audio' ? 'w-full' : '',
     attachmentType === 'video' ? 'w-full' : '',
@@ -425,7 +460,12 @@ const generatePdfThumbnail = async () => {
 
     <!-- Content -->
     <template v-if="attachmentType === 'audio'">
-      <AudioPlayer :src="authenticatedUrl" :transcription="attachment.transcription" />
+      <div class="relative" :class="isPending ? 'opacity-70' : ''">
+        <AudioPlayer :src="mediaSrc" :transcription="attachment.transcription" />
+        <div v-if="isPending" class="absolute top-1 right-1 z-10 pointer-events-none">
+          <Spinner />
+        </div>
+      </div>
     </template>
     <template v-else-if="attachmentType === 'video'">
       <VideoPlayer
@@ -463,7 +503,7 @@ const generatePdfThumbnail = async () => {
         <!-- Regular image display with native lazy loading -->
         <img
           v-else
-          :src="displaySrc"
+          :src="mediaSrc"
           :alt="attachment.name"
           loading="lazy"
           class="w-full h-full object-cover bg-transparent attachment-image"
@@ -633,6 +673,8 @@ const generatePdfThumbnail = async () => {
       </button>
     </div>
     
+  </div>
+
     <!-- Image Preview Modal (PDFs open in full page view) -->
     <Modal
       :show="showPreviewModal"
@@ -681,7 +723,6 @@ const generatePdfThumbnail = async () => {
         </div>
       </div>
     </Modal>
-  </div>
 </template>
 
 <style scoped>

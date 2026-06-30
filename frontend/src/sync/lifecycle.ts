@@ -15,6 +15,7 @@ import { logger } from '@nosdesk/core/utils/logger'
 import * as pool from '@nosdesk/core/sync/pool'
 import * as idb from './idb'
 import * as queue from './queue'
+import { noteServerEcho } from './optimisticCreates'
 import { setReferenceFetcher } from '@nosdesk/core/sync/composables'
 import { notifySyncActions } from '@nosdesk/core/sync/observers'
 import { applyWorkspaceCapabilities } from '@/composables/useWorkspaceCapabilities'
@@ -436,6 +437,13 @@ function applyActions(actions: SyncAction[]): void {
     // notifySyncActions for consumers that care.
     const id = rowKey(action.aggregate, action.data)
     if (id == null) continue
+    // A comment's server echo carrying a correlation_id is a pending optimistic
+    // create: suppress it from the view (it arrives without its attachments)
+    // until the REST reply swaps the temp for the complete row. Structural, by
+    // id, no dedup heuristic.
+    if (action.aggregate === 'comment' && action.correlation_id) {
+      noteServerEcho(action.correlation_id, Number(id))
+    }
     pool.upsert(action.aggregate, id, action.data)
     if (state.handle && SCHEMA_VERSIONS[action.aggregate] != null) {
       void idb.putModels(state.handle, [

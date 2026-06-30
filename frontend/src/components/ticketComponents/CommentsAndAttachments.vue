@@ -6,6 +6,7 @@ import UserAvatar from "@/components/UserAvatar.vue";
 import VoiceRecorder from "@/components/ticketComponents/VoiceRecorder.vue";
 import AttachmentPreview from "@/components/ticketComponents/AttachmentPreview.vue";
 import SectionCard from "@/components/common/SectionCard.vue";
+import Icon from "@/components/common/Icon.vue";
 import SimpleEditor from "@/components/common/SimpleEditor.vue";
 import MarkdownRenderer from "@/components/common/MarkdownRenderer.vue";
 import CommentContent from "@/components/ticketComponents/CommentContent.vue";
@@ -267,8 +268,17 @@ const handleRecordingComplete = (recording: {
 }) => {
     console.log('[CommentsAndAttachments] Recording complete, transcription:', recording.transcription);
 
-    // Auto-stage the voice note as an attachment
-    const fileName = `${t('ticket-comments-voice-note-filename', { date: formatDate(new Date(), 'MMM d, yyyy') })}.webm`;
+    // Auto-stage the voice note as an attachment. The extension follows the
+    // recorded format (iOS records mp4/m4a, others webm) so playback works and
+    // the server stamps the matching Content-Type.
+    const mime = recording.blob.type;
+    const ext = mime.includes('webm') ? 'webm'
+        : mime.includes('mp4') || mime.includes('aac') ? 'm4a'
+        : mime.includes('mpeg') ? 'mp3'
+        : mime.includes('ogg') ? 'ogg'
+        : mime.includes('wav') ? 'wav'
+        : 'webm';
+    const fileName = `${t('ticket-comments-voice-note-filename', { date: formatDate(new Date(), 'MMM d, yyyy') })}.${ext}`;
     const audioFile = new File([recording.blob], fileName, {
         type: recording.blob.type,
     }) as File & { _transcription?: string };
@@ -699,7 +709,7 @@ const handlePastedFiles = async (files: File[]) => {
                 <!-- List of Comments - Screen layout -->
                 <div
                     v-if="props.comments.length > 0"
-                    class="print:hidden flex flex-col gap-2 px-2 py-3"
+                    class="print:hidden flex flex-col gap-3 px-2 py-3"
                 >
                     <!-- Visibility pivot: hidden when the ticket has
                          no internal notes yet (nothing to filter).
@@ -751,15 +761,24 @@ const handlePastedFiles = async (files: File[]) => {
                     <div
                         v-for="comment in filteredComments"
                         :key="comment.id"
-                        class="flex flex-col gap-2 sm:gap-3 p-2 sm:p-3 rounded-lg border transition-all duration-300"
+                        class="group relative overflow-hidden flex flex-col gap-1.5 px-3 py-2 rounded-lg transition-colors"
                         :class="[
                             props.recentlyAddedCommentIds?.has(comment.id)
-                                ? 'bg-accent/20 border-accent/50 animate-pulse'
+                                ? 'bg-accent/10 border border-accent/40'
                                 : comment.is_internal
-                                    ? 'bg-status-warning-bg/30 border-status-warning-border/50'
-                                    : 'bg-surface-alt border-subtle',
+                                    ? 'bg-status-warning-muted/40 border border-subtle'
+                                    : 'bg-surface-alt border border-subtle',
                         ]"
                     >
+                        <!-- Internal-note marker: the same active-indicator bar
+                             the sidebar nav uses (Navbar.vue), in the warning
+                             hue. overflow-hidden on the bubble clips it to the
+                             rounded corners, exactly like the nav item. -->
+                        <div
+                            v-if="comment.is_internal"
+                            class="absolute left-0 top-0 bottom-0 w-1 bg-status-warning"
+                            aria-hidden="true"
+                        ></div>
                         <!-- Mobile: Compact header with avatar, name, date, and actions inline -->
                         <!-- Desktop: Avatar on left, content beside it -->
                         <div class="flex flex-col sm:flex-row gap-2">
@@ -774,23 +793,26 @@ const handlePastedFiles = async (files: File[]) => {
                                     class="flex-shrink-0"
                                 />
                                 <div class="flex-1 min-w-0">
-                                    <span class="text-sm text-primary font-medium truncate">
-                                        {{ comment.user?.name || comment.user_uuid }}
-                                    </span>
-                                    <span
-                                        v-if="comment.is_internal"
-                                        class="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-status-warning text-white"
-                                    >
-                                        {{ $t('ticket-comments-badge-internal') }}
-                                    </span>
-                                    <span
-                                        v-if="comment.channel_metadata?.forwarded_by_user_uuid"
-                                        class="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-accent-muted text-accent"
-                                        :title="$t('ticket-comments-badge-forwarded-title')"
-                                    >
-                                        {{ $t('ticket-comments-badge-forwarded') }}
-                                    </span>
-                                    <span class="text-xs text-tertiary block">
+                                    <div class="flex items-center gap-1.5 min-w-0">
+                                        <span class="text-sm text-primary font-medium truncate leading-tight">
+                                            {{ comment.user?.name || comment.user_uuid }}
+                                        </span>
+                                        <span
+                                            v-if="comment.is_internal"
+                                            class="inline-flex items-center gap-1 px-1 py-0.5 rounded text-[11px] font-medium bg-status-warning-muted text-status-warning flex-shrink-0"
+                                        >
+                                            <Icon name="lock" class="w-3 h-3" />
+                                            {{ $t('ticket-comments-badge-internal') }}
+                                        </span>
+                                        <span
+                                            v-if="comment.channel_metadata?.forwarded_by_user_uuid"
+                                            class="inline-flex items-center px-1 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-accent-muted text-accent flex-shrink-0"
+                                            :title="$t('ticket-comments-badge-forwarded-title')"
+                                        >
+                                            {{ $t('ticket-comments-badge-forwarded') }}
+                                        </span>
+                                    </div>
+                                    <span class="text-xs text-tertiary block leading-tight">
                                         {{ formattedDate(comment.createdAt ?? comment.created_at) }}
                                     </span>
                                 </div>
@@ -801,7 +823,7 @@ const handlePastedFiles = async (files: File[]) => {
                                         :href="convertToAuthenticatedPath(comment.attachments?.[0]?.url ?? '')"
                                         :download="comment.attachments?.[0]?.name"
                                         target="_blank"
-                                        class="inline-flex items-center justify-center touch-target text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
+                                        class="inline-flex items-center justify-center p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
                                         :title="$t('ticket-comments-action-download')"
                                         @click.stop
                                     >
@@ -813,7 +835,7 @@ const handlePastedFiles = async (files: File[]) => {
                                         v-if="hasRealContent(comment) || isAudioOnlyComment(comment)"
                                         type="button"
                                         @click="isAudioOnlyComment(comment) ? deleteAttachment(comment.id, 0) : deleteComment(comment.id)"
-                                        class="inline-flex items-center justify-center touch-target text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
+                                        class="inline-flex items-center justify-center p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
                                         :title="isAudioOnlyComment(comment) ? $t('ticket-comments-action-delete-voice') : $t('ticket-comments-action-delete-comment')"
                                     >
                                         <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
@@ -882,20 +904,21 @@ const handlePastedFiles = async (files: File[]) => {
                                         -->
                                     <div class="flex items-center justify-between gap-2 min-w-0">
                                         <div class="flex items-center gap-2 min-w-0">
-                                            <span class="text-sm text-primary font-medium truncate">
+                                            <span class="text-sm text-primary font-medium truncate leading-tight">
                                                 {{ comment.user?.name || comment.user_uuid }}
                                             </span>
                                             <span
                                                 v-if="comment.is_internal"
-                                                class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-status-warning text-white flex-shrink-0"
+                                                class="inline-flex items-center gap-1 px-1 py-0.5 rounded text-[11px] font-medium bg-status-warning-muted text-status-warning flex-shrink-0"
                                             >
-                                                Internal
+                                                <Icon name="lock" class="w-3 h-3" />
+                                                {{ $t('ticket-comments-badge-internal') }}
                                             </span>
                                             <span class="text-xs text-tertiary whitespace-nowrap flex-shrink-0">
                                                 {{ formattedDate(comment.createdAt ?? comment.created_at) }}
                                             </span>
                                         </div>
-                                        <div class="print:hidden flex items-center gap-1 flex-shrink-0 -mr-[14px] sm:-mr-[18px]">
+                                        <div class="print:hidden flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
                                             <a
                                                 v-if="isAudioOnlyComment(comment)"
                                                 :href="convertToAuthenticatedPath(comment.attachments?.[0]?.url ?? '')"
@@ -913,7 +936,7 @@ const handlePastedFiles = async (files: File[]) => {
                                                 v-if="hasRealContent(comment) || isAudioOnlyComment(comment)"
                                                 type="button"
                                                 @click="isAudioOnlyComment(comment) ? deleteAttachment(comment.id, 0) : deleteComment(comment.id)"
-                                                class="p-1.5 text-tertiary hover:text-primary hover:bg-surface-hover rounded-md transition-colors"
+                                                class="p-1.5 text-tertiary hover:text-status-error hover:bg-status-error/10 rounded-md transition-colors"
                                                 :title="isAudioOnlyComment(comment) ? $t('ticket-comments-action-delete-voice') : $t('ticket-comments-action-delete-comment')"
                                             >
                                                 <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
@@ -986,7 +1009,7 @@ const handlePastedFiles = async (files: File[]) => {
                         <!-- Attachment previews section -->
                         <div
                             v-if="comment.attachments && comment.attachments.length > 0"
-                            class="flex flex-col gap-2"
+                            class="flex flex-wrap gap-2"
                         >
                             <template v-for="(attachment, index) in comment.attachments" :key="attachment.url">
                                 <AttachmentPreview
@@ -995,6 +1018,7 @@ const handlePastedFiles = async (files: File[]) => {
                                     :timestamp="formattedDate(comment.createdAt ?? comment.created_at)"
                                     :show-delete="!isAudioOnlyComment(comment)"
                                     :hide-header="isAudioOnlyComment(comment)"
+                                    :compact="!isAudioOnlyComment(comment)"
                                     @delete="deleteAttachment(comment.id, index)"
                                 />
                             </template>

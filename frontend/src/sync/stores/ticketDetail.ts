@@ -37,6 +37,7 @@ import ticketService, { getCommentsByTicketId } from '@nosdesk/core/services/tic
 import apiClient from '@nosdesk/core/apiClient'
 import { projectService } from '@nosdesk/core/services/projectService'
 import { stashPreview } from '@/services/attachmentPreviewCache'
+import { registerOptimisticCreate, clearOptimisticCreate, isEchoSuppressed } from '@/sync/optimisticCreates'
 import type { TicketPriority } from '@nosdesk/core/constants/ticketOptions'
 import type { CardWorkflowState } from '@nosdesk/core/sync/views/types'
 import type { Asset } from '@nosdesk/core/types/asset'
@@ -236,31 +237,13 @@ export function useTicketDetail(
 
   const comments = computed<CommentWithAttachments[]>(() => {
     if (id.value == null) return []
-    const rows = commentAgg.value.filter((c) => c.ticket_id === id.value)
-    // De-dup the server echo of a still-pending optimistic comment: while a temp
-    // (negative id) row is present, hide the authoritative row the sync stream
-    // can deliver before the REST reconcile swaps the temp (else the echo flashes
-    // in, attachment-less, beside the optimistic bubble). Match on author +
-    // visibility and same content or near-simultaneous. Self-clears once the
-    // reconcile removes the temp.
-    const temps = rows.filter((c) => c.id < 0)
-    const visible =
-      temps.length === 0
-        ? rows
-        : rows.filter(
-            (c) =>
-              c.id < 0 ||
-              !temps.some(
-                (t) =>
-                  t.user_uuid === c.user_uuid &&
-                  t.is_internal === c.is_internal &&
-                  (t.content === c.content ||
-                    Math.abs(
-                      new Date(c.created_at).getTime() - new Date(t.created_at).getTime(),
-                    ) < 60_000),
-              ),
-          )
-    return visible
+    // A server echo of a still-pending optimistic create is suppressed (it
+    // arrives without its attachments); the temp keeps rendering until the REST
+    // reply swaps it for the complete row. Structural, by id (see
+    // sync/optimisticCreates + lifecycle.applyActions). No dedup heuristic.
+    return commentAgg.value
+      .filter((c) => c.ticket_id === id.value)
+      .filter((c) => !isEchoSuppressed(c.id))
       .map((c) => {
         const author = pool.get<PoolUser>('user', c.user_uuid)
         const attachments = attachmentAgg.value
@@ -456,6 +439,10 @@ export function useTicketDetail(
 
     const ticketId = id.value
     const tempId = -Date.now()
+    // Client-minted id sent on the create + echoed back as the comment.created
+    // sync action's correlation_id, so the optimistic row reconciles
+    // structurally (no temp-id swap heuristic). See sync/optimisticCreates.
+    const clientId = crypto.randomUUID()
     const nowIso = new Date().toISOString()
     // Optimistic comment row in the pool. The real `comment.created`
     // sync action reconciles it (or the REST response below does, if
@@ -473,10 +460,10 @@ export function useTicketDetail(
       created_at: nowIso,
     })
 
-    // Optimistic attachment rows carrying local blob previews so images render
-    // instantly (negative id = pending). After upload each image's blob is
-    // handed to its reconciled server URL via the preview cache; the rest are
-    // revoked. See attachmentPreviewCache + useSmoothImageSrc.
+    // Optimistic attachment rows carrying local blob previews so any type
+    // renders instantly (negative id = pending). After upload each blob is
+    // handed to its reconciled server URL via the preview cache; the renderer
+    // takes it via useAttachmentSource (localBlob ?? server URL).
     const files = data.files ?? []
     const previews = files.map((f) => URL.createObjectURL(f))
     previews.forEach((url, i) => {
@@ -489,6 +476,11 @@ export function useTicketDetail(
         file_size: files[i].size ?? null,
       })
     })
+
+    // Track this pending create so the server's echo (delivered without its
+    // attachments) is suppressed from the view until the REST reply below swaps
+    // the temp for the complete row. See sync/optimisticCreates.
+    registerOptimisticCreate(clientId)
 
     try {
       let attachments: UploadedFile[] = []
@@ -517,6 +509,7 @@ export function useTicketDetail(
         data.content,
         attachments,
         data.is_internal === true,
+        clientId,
       )
 
       // Drop the optimistic temp rows; upsert the authoritative comment
@@ -538,10 +531,10 @@ export function useTicketDetail(
       const finals = newComment.attachments ?? []
       finals.forEach((a, i) => {
         const blob = previews[i]
-        if (blob) {
-          if (files[i]?.type.startsWith('image/')) stashPreview(a.url, blob)
-          else URL.revokeObjectURL(blob)
-        }
+        // Bridge every type's blob across the reconcile; the renderer takes it
+        // via useAttachmentSource (localBlob ?? server URL) and revokes on
+        // unmount.
+        if (blob) stashPreview(a.url, blob)
         pool.upsert<PoolAttachment>('attachment', a.id, {
           id: a.id,
           comment_id: newComment.id,
@@ -553,9 +546,13 @@ export function useTicketDetail(
       })
       // Revoke any previews without a reconciled row (count mismatch).
       for (let i = finals.length; i < previews.length; i++) URL.revokeObjectURL(previews[i])
+      // The REST path reconciled the temp itself; drop the registry entry so the
+      // SSE echo's correlation match is a no-op (the real row is already in).
+      clearOptimisticCreate(clientId)
       highlightComment(newComment.id)
     } catch (err) {
       logger.error('Error adding comment', { ticketId, error: err })
+      clearOptimisticCreate(clientId)
       pool.remove('comment', tempId)
       previews.forEach((url, i) => {
         pool.remove('attachment', tempId - i - 1)
