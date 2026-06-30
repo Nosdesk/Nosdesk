@@ -285,7 +285,7 @@ onMounted(() => {
       createMentionViewPlugin(),
       createTicketLinkPlugin(),
       createTicketDropIndicatorPlugin(),
-      createPlaceholderPlugin(props.placeholder),
+      createPlaceholderPlugin(() => props.placeholder),
       twemojiPlugin,
     ],
   });
@@ -338,6 +338,15 @@ watch(() => props.modelValue, (newValue) => {
 watch(() => props.disabled, () => {
   if (view) {
     view.setProps({ editable: () => !props.disabled });
+  }
+});
+
+// Watch placeholder: it changes reactively (e.g. public <-> internal). The
+// plugin re-reads it via getter on the next doc change; update the live
+// attribute now so an empty editor reflects the switch immediately.
+watch(() => props.placeholder, (newPlaceholder) => {
+  if (view && view.dom.hasAttribute('data-placeholder')) {
+    view.dom.setAttribute('data-placeholder', newPlaceholder);
   }
 });
 

@@ -22,10 +22,13 @@ function isDocEmpty(view: EditorView): boolean {
   return true;
 }
 
-export function createPlaceholderPlugin(text: string): Plugin {
+export function createPlaceholderPlugin(text: string | (() => string)): Plugin {
+  // Accept a getter so the text can change reactively (re-read on every update)
+  // rather than being baked in at creation.
+  const getText = typeof text === 'function' ? text : () => text;
   const update = (view: EditorView) => {
     if (isDocEmpty(view)) {
-      view.dom.setAttribute('data-placeholder', text);
+      view.dom.setAttribute('data-placeholder', getText());
     } else {
       view.dom.removeAttribute('data-placeholder');
     }
