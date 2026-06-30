@@ -127,7 +127,13 @@ async fn workspaces_create_full_contract() {
         resp.status()
     );
 
-    // --- 4: slug collision -> 409 ---
+    // --- 4: live-slug collision under a fresh key -> 200 ensure-exists ---
+    // A different Idempotency-Key bypasses the middleware cache, so the handler
+    // runs and finds the existing live workspace. Ensure-exists returns it as
+    // 200 with the SAME workspace_uuid as #1 (not 409), so the control plane can
+    // call create unconditionally and a re-provision self-heals a product-side
+    // loss. (An archived or hard-deleted slug still 409s — covered at the repo
+    // layer in repository/workspaces.rs.)
     let key_collision = format!("provision-{}", uuid::Uuid::new_v4());
     let mut resp = client
         .post(&url)
@@ -142,15 +148,18 @@ async fn workspaces_create_full_contract() {
         }))
         .await
         .expect("send collision");
-    assert_eq!(resp.status(), 409, "slug collision must 409");
-    let collision_body: serde_json::Value =
+    assert_eq!(
+        resp.status(),
+        200,
+        "live-slug collision must ensure-exists 200 (got {:?})",
+        resp.status()
+    );
+    let ensure_body: serde_json::Value =
         serde_json::from_slice(&resp.body().await.expect("body")).expect("json");
-    assert_eq!(collision_body["error"], "slug_taken");
-    assert!(
-        collision_body["message"]
-            .as_str()
-            .is_some_and(|m| m.contains("unavailable")),
-        "collision message should be non-enumerable: got {collision_body}"
+    assert_eq!(ensure_body["slug"], "acme-co");
+    assert_eq!(
+        ensure_body["workspace_uuid"], body_first["workspace_uuid"],
+        "ensure-exists must return the existing workspace, not a new one"
     );
 
     // --- 5: idempotent retry returns cached 201 + same body ---

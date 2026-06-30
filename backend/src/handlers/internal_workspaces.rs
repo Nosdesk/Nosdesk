@@ -114,8 +114,11 @@ struct CreateWorkspaceResponse {
 }
 
 /// `POST /api/internal/v1/workspaces/create` — see module docs.
-/// Returns 201 on first call, 409 on slug collision, 400 on a
-/// missing Idempotency-Key or malformed slug.
+/// Ensure-exists: 201 the first time, 200 if a *live* workspace with this
+/// slug already exists (so the control plane can call this unconditionally
+/// and a re-provision self-heals a product-side loss like a reset dev DB),
+/// 409 only when the slug is reserved by an archived or hard-deleted
+/// workspace, 400 on a missing Idempotency-Key or malformed slug.
 pub async fn create_workspace(
     req: HttpRequest,
     _: PlatformAuth,
@@ -204,14 +207,40 @@ pub async fn create_workspace(
             })
         }
         Err(CreateWorkspaceError::SlugTaken) => {
-            // Non-enumerable wording: don't distinguish active vs
-            // tombstoned slugs (per handoff doc + the W4 slug
-            // never-reuse policy).
-            warn!(slug = %slug, "workspaces/create: slug collision");
-            HttpResponse::Conflict().json(json!({
-                "error": "slug_taken",
-                "message": format!("slug '{slug}' is unavailable, please choose another"),
-            }))
+            // Ensure-exists: a *live* workspace with this slug means a prior
+            // provision already created it (or a concurrent create won the
+            // race). Return it idempotently as 200 rather than 409, so the
+            // control plane calls create unconditionally and a re-provision
+            // after a product-side loss (e.g. a reset dev DB) self-heals.
+            // `find_by_slug` filters archived rows, so `None` here means the
+            // slug is reserved by an archived or hard-deleted workspace — that
+            // stays a genuine 409 (the W4 slug never-reuse policy), with the
+            // same non-enumerable wording.
+            match workspaces::find_by_slug(&mut conn, &slug) {
+                Ok(Some(ws)) => {
+                    info!(
+                        workspace_uuid = %ws.uuid,
+                        slug = %ws.slug,
+                        "workspaces/create: ensure-exists hit, returning existing workspace"
+                    );
+                    HttpResponse::Ok().json(CreateWorkspaceResponse {
+                        workspace_uuid: ws.uuid,
+                        slug: ws.slug,
+                        created_at: ws.created_at,
+                    })
+                }
+                Ok(None) => {
+                    warn!(slug = %slug, "workspaces/create: slug reserved (archived or retired)");
+                    HttpResponse::Conflict().json(json!({
+                        "error": "slug_taken",
+                        "message": format!("slug '{slug}' is unavailable, please choose another"),
+                    }))
+                }
+                Err(e) => {
+                    error!(error = ?e, slug = %slug, "workspaces/create: find_by_slug after SlugTaken failed");
+                    errors::internal("Failed to create workspace")
+                }
+            }
         }
         Err(CreateWorkspaceError::Db(e)) => {
             error!(error = ?e, "workspaces/create: db insert failed");
