@@ -1841,6 +1841,14 @@ async fn main() -> std::io::Result<()> {
                         "/workspaces/{slug}/provisioning",
                         web::get().to(handlers::internal_workspaces::workspace_provisioning),
                     )
+                    .route(
+                        "/workspaces/{slug}/restore",
+                        web::post().to(handlers::internal_workspaces::restore_workspace),
+                    )
+                    .route(
+                        "/workspaces/{slug}",
+                        web::delete().to(handlers::internal_workspaces::deprovision_workspace),
+                    )
             )
 
             // === PROTECTED ROUTES (AUTHENTICATION REQUIRED) ===

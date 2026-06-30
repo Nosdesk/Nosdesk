@@ -249,6 +249,145 @@ pub async fn create_workspace(
     }
 }
 
+/// Response for the deprovision / restore lifecycle endpoints.
+#[derive(Debug, Serialize)]
+struct WorkspaceLifecycleResponse {
+    workspace_uuid: Uuid,
+    slug: String,
+    /// True once the workspace is soft-archived (deprovisioned). The
+    /// scheduler hard-deletes after the grace window; `restore` clears it.
+    archived: bool,
+    archived_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+fn lifecycle_response(ws: &Workspace) -> HttpResponse {
+    HttpResponse::Ok().json(WorkspaceLifecycleResponse {
+        workspace_uuid: ws.uuid,
+        slug: ws.slug.clone(),
+        archived: ws.archived_at.is_some(),
+        archived_at: ws.archived_at,
+    })
+}
+
+/// `DELETE /api/internal/v1/workspaces/{slug}` — soft-deprovision a
+/// workspace (sets `archived_at`). It drops out of routing immediately
+/// but rows persist, reversible via `restore` until the grace window
+/// elapses and the scheduler hard-deletes. Naturally idempotent: an
+/// already-archived workspace is a 200 no-op (the timestamp is NOT
+/// reset, so a repeat call can't push back the purge). 404 only if no
+/// workspace ever had this slug.
+pub async fn deprovision_workspace(
+    _: PlatformAuth,
+    pool: web::Data<Pool>,
+    path: web::Path<String>,
+) -> impl Responder {
+    let slug = path.into_inner();
+    let mut conn = match pool_conn(&pool, "workspaces/deprovision") {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+
+    let ws = match workspaces::find_by_slug_any_state(&mut conn, &slug) {
+        Ok(Some(ws)) => ws,
+        Ok(None) => {
+            warn!(slug = %slug, "workspaces/deprovision: slug not found");
+            return errors::not_found_msg(format!("workspace '{slug}' not found"));
+        }
+        Err(e) => {
+            error!(error = ?e, slug = %slug, "workspaces/deprovision: lookup failed");
+            return errors::internal("Workspace lookup failed");
+        }
+    };
+
+    // Already deprovisioned: no-op, so a repeat call doesn't reset the
+    // archive clock and delay the scheduler's hard delete.
+    if ws.archived_at.is_some() {
+        info!(slug = %slug, "workspaces/deprovision: already archived, no-op");
+        return lifecycle_response(&ws);
+    }
+
+    // UPDATE workspaces runs under the BYPASSRLS role (nosdesk_app has
+    // SELECT only on this parent table), same as create.
+    let actor = crate::sync::actor::ActorContext::system("workspace:deprovision");
+    let result = crate::sync::session::with_actor_bypass_context::<
+        Option<Workspace>,
+        diesel::result::Error,
+    >(&mut conn, &actor, |c| {
+        workspaces::archive_workspace(c, ws.id)
+    });
+    match result {
+        Ok(Some(archived)) => {
+            info!(slug = %slug, workspace_id = archived.id, "workspaces/deprovision: archived");
+            lifecycle_response(&archived)
+        }
+        Ok(None) => {
+            warn!(slug = %slug, "workspaces/deprovision: row vanished mid-archive");
+            errors::not_found_msg(format!("workspace '{slug}' not found"))
+        }
+        Err(e) => {
+            error!(error = ?e, slug = %slug, "workspaces/deprovision: archive failed");
+            errors::internal("Failed to deprovision workspace")
+        }
+    }
+}
+
+/// `POST /api/internal/v1/workspaces/{slug}/restore` — clear
+/// `archived_at` so a deprovisioned workspace routes again (reactivation
+/// after a cancel reversal). Idempotent: restoring an active workspace is
+/// a 200 no-op. 404 if the slug never existed; a hard-deleted workspace
+/// can't be restored (its row is gone and the slug is retired), which
+/// also surfaces as 404.
+pub async fn restore_workspace(
+    _: PlatformAuth,
+    pool: web::Data<Pool>,
+    path: web::Path<String>,
+) -> impl Responder {
+    let slug = path.into_inner();
+    let mut conn = match pool_conn(&pool, "workspaces/restore") {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+
+    let ws = match workspaces::find_by_slug_any_state(&mut conn, &slug) {
+        Ok(Some(ws)) => ws,
+        Ok(None) => {
+            warn!(slug = %slug, "workspaces/restore: slug not found");
+            return errors::not_found_msg(format!("workspace '{slug}' not found"));
+        }
+        Err(e) => {
+            error!(error = ?e, slug = %slug, "workspaces/restore: lookup failed");
+            return errors::internal("Workspace lookup failed");
+        }
+    };
+
+    if ws.archived_at.is_none() {
+        info!(slug = %slug, "workspaces/restore: already active, no-op");
+        return lifecycle_response(&ws);
+    }
+
+    let actor = crate::sync::actor::ActorContext::system("workspace:restore");
+    let result = crate::sync::session::with_actor_bypass_context::<
+        Option<Workspace>,
+        diesel::result::Error,
+    >(&mut conn, &actor, |c| {
+        workspaces::restore_workspace(c, ws.id)
+    });
+    match result {
+        Ok(Some(restored)) => {
+            info!(slug = %slug, workspace_id = restored.id, "workspaces/restore: restored");
+            lifecycle_response(&restored)
+        }
+        Ok(None) => {
+            warn!(slug = %slug, "workspaces/restore: row vanished mid-restore");
+            errors::not_found_msg(format!("workspace '{slug}' not found"))
+        }
+        Err(e) => {
+            error!(error = ?e, slug = %slug, "workspaces/restore: restore failed");
+            errors::internal("Failed to restore workspace")
+        }
+    }
+}
+
 /// Request body for `POST /api/internal/v1/workspaces/{slug}/seat_limit`.
 /// `seat_limit: null` clears the cap (unlimited).
 #[derive(Debug, Deserialize)]

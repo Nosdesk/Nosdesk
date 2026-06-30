@@ -122,6 +122,20 @@ pub fn find_by_slug(conn: &mut DbConnection, slug: &str) -> QueryResult<Option<W
         .optional()
 }
 
+/// Load a workspace by slug regardless of archive state. The
+/// deprovision/restore lifecycle endpoints need this to tell "already
+/// archived" (idempotent no-op) apart from "never existed" (404);
+/// `find_by_slug` filters archived rows and so can't make that call.
+pub fn find_by_slug_any_state(
+    conn: &mut DbConnection,
+    slug: &str,
+) -> QueryResult<Option<Workspace>> {
+    workspaces::table
+        .filter(workspaces::slug.eq(slug))
+        .first(conn)
+        .optional()
+}
+
 /// Load a workspace by its custom domain hostname (e.g.
 /// `support.acme.com`). Used by the hosted-mode middleware to
 /// route requests on customer-owned domains to their workspace
