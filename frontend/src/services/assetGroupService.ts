@@ -1,6 +1,6 @@
-import apiClient from './apiConfig';
-import type { AssetGroup } from '@/types/asset';
-import { logger } from '@/utils/logger';
+import apiClient from '@nosdesk/core/apiClient';
+import type { AssetGroup } from '@nosdesk/core/types/asset';
+import { logger } from '@nosdesk/core/utils/logger';
 
 /** A group definition plus its current member count (the `GET /asset-groups`
  *  row). Richer than the compact `AssetGroup` ref carried on an asset. */

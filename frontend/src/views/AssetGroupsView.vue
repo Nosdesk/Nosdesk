@@ -32,7 +32,7 @@ import {
   type AssetGroupSummary,
 } from '@/services/assetGroupService';
 import { useAssetGroupsStore } from '@/stores/assetGroups';
-import { useToastStore } from '@/stores/toast';
+import { useToastStore } from '@nosdesk/core/stores/toast';
 import { extractErrorMessage } from '@/utils/errors';
 
 const fluent = useFluent();

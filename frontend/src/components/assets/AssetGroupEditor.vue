@@ -7,11 +7,11 @@ import FormInput from '@/components/common/FormInput.vue'
 import Button from '@/components/common/Button.vue'
 import Icon from '@/components/common/Icon.vue'
 import { useColorFilter } from '@/composables/useColorFilter'
-import { useToastStore } from '@/stores/toast'
+import { useToastStore } from '@nosdesk/core/stores/toast'
 import { extractErrorMessage } from '@/utils/errors'
 import { useAssetGroupsStore } from '@/stores/assetGroups'
 import { createAssetGroup, setAssetGroupsForAsset } from '@/services/assetGroupService'
-import type { AssetGroup } from '@/types/asset'
+import type { AssetGroup } from '@nosdesk/core/types/asset'
 
 const props = defineProps<{
   assetId: number
