@@ -32,6 +32,8 @@
     "axios": "^1.6.2",
     "date-fns": "^4.1.0",
     "dompurify": "^3.3.0",
+    "extendable-media-recorder": "^9.2.38",
+    "extendable-media-recorder-wav-encoder": "^7.0.139",
     "fluent-vue": "^3.8.2",
     "heic2any": "^0.0.4",
     "highlight.js": "^11.9.0",

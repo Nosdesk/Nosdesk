@@ -313,49 +313,66 @@ const loadAudioData = async () => {
     if (audioRef.value) {
       audioRef.value.src = blobUrl.value;
     }
-
-    // Convert blob to ArrayBuffer for waveform analysis
-    const arrayBuffer = await blob.arrayBuffer();
-    const audioBuffer = await audioContext.value!.decodeAudioData(arrayBuffer);
-
-    // Set duration immediately and mark as loaded
-    if (audioBuffer.duration && isFinite(audioBuffer.duration)) {
-      duration.value = audioBuffer.duration;
-      durationLoaded.value = true;
-    }
-
-    const rawData = audioBuffer.getChannelData(0);
-    const samples = 2000;
-    const blockSize = Math.floor(rawData.length / samples);
-    const filteredData = new Float32Array(samples);
-
-    let maxAmp = 0;
-    for (let i = 0; i < rawData.length; i += blockSize) {
-      const sampleAmp = Math.abs(rawData[i]);
-      if (sampleAmp > maxAmp) maxAmp = sampleAmp;
-    }
-
-    for (let i = 0; i < samples; i++) {
-      const blockStart = blockSize * i;
-      let sum = 0;
-      let count = 0;
-
-      for (let j = 0; j < blockSize && (blockStart + j) < rawData.length; j++) {
-        sum += Math.abs(rawData[blockStart + j]);
-        count++;
-      }
-
-      filteredData[i] = count > 0 ? (sum / count) / (maxAmp || 1) : 0;
-    }
-
-    audioData.value = filteredData;
-    drawWaveform();
+    // Playback is possible now; the waveform below is best-effort.
     isLoading.value = false;
 
-    // Force a redraw after a short delay to ensure canvas is properly sized
-    setTimeout(() => {
+    // Waveform analysis decodes the blob, which some engines (notably iOS
+    // WKWebView) can't do for a recording they can nonetheless PLAY via the
+    // <audio> element (fragmented mp4 / webm). A decode failure must not block
+    // playback, so isolate it and fall back to the element's own duration.
+    try {
+      const arrayBuffer = await blob.arrayBuffer();
+      const audioBuffer = await audioContext.value!.decodeAudioData(arrayBuffer);
+
+      if (audioBuffer.duration && isFinite(audioBuffer.duration)) {
+        duration.value = audioBuffer.duration;
+        durationLoaded.value = true;
+      }
+
+      const rawData = audioBuffer.getChannelData(0);
+      const samples = 2000;
+      const blockSize = Math.floor(rawData.length / samples);
+      const filteredData = new Float32Array(samples);
+
+      let maxAmp = 0;
+      for (let i = 0; i < rawData.length; i += blockSize) {
+        const sampleAmp = Math.abs(rawData[i]);
+        if (sampleAmp > maxAmp) maxAmp = sampleAmp;
+      }
+
+      for (let i = 0; i < samples; i++) {
+        const blockStart = blockSize * i;
+        let sum = 0;
+        let count = 0;
+
+        for (let j = 0; j < blockSize && (blockStart + j) < rawData.length; j++) {
+          sum += Math.abs(rawData[blockStart + j]);
+          count++;
+        }
+
+        filteredData[i] = count > 0 ? (sum / count) / (maxAmp || 1) : 0;
+      }
+
+      audioData.value = filteredData;
       drawWaveform();
-    }, 100);
+      setTimeout(() => {
+        drawWaveform();
+      }, 100);
+    } catch (waveErr) {
+      // Playback still works via the <audio> element; just no waveform.
+      console.warn('Waveform decode failed; playback unaffected:', waveErr);
+      const a = audioRef.value;
+      if (a) {
+        const setDur = () => {
+          if (isFinite(a.duration) && a.duration > 0) {
+            duration.value = a.duration;
+            durationLoaded.value = true;
+          }
+        };
+        if (a.readyState >= 1) setDur();
+        else a.addEventListener('loadedmetadata', setDur, { once: true });
+      }
+    }
   } catch (err) {
     console.error('Error loading audio:', err);
     // Browser audio decode errors come back as English DOMException

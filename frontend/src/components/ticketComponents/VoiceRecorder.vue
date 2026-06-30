@@ -4,6 +4,8 @@ import { useFluent } from 'fluent-vue';
 import { useSpeechRecognition } from '@/composables/useSpeechRecognition';
 import { useToastStore } from '@nosdesk/core/stores/toast';
 import Icon from '@/components/common/Icon.vue';
+import { MediaRecorder as WavMediaRecorder, type IMediaRecorder } from 'extendable-media-recorder';
+import { ensureWavEncoder } from '@/utils/wavEncoder';
 
 const toast = useToastStore();
 
@@ -30,7 +32,7 @@ const liveTranscript = computed(() => fullTranscript.value);
 // Define states for recording
 const isRecording = ref(false);
 const recordingTime = ref(0);
-const mediaRecorder = ref<MediaRecorder | null>(null);
+const mediaRecorder = ref<IMediaRecorder | null>(null);
 const audioChunks = ref<Blob[]>([]);
 const recordingTimer = ref<number | null>(null);
 
@@ -293,26 +295,11 @@ const drawWaveform = () => {
 };
 
 // Get the best supported audio MIME type for recording
-const getSupportedMimeType = (): string => {
-  // Prefer formats in order of compatibility and quality
-  const types = [
-    'audio/webm;codecs=opus',  // Best quality, Chrome/Firefox/Edge
-    'audio/webm',               // Fallback WebM
-    'audio/mp4',                // iOS Safari
-    'audio/aac',                // iOS fallback
-    'audio/mpeg',               // Broad compatibility
-    'audio/ogg;codecs=opus',    // Firefox
-  ];
-
-  for (const type of types) {
-    if (MediaRecorder.isTypeSupported(type)) {
-      return type;
-    }
-  }
-
-  // Return empty string to let browser choose default
-  return '';
-};
+// Record WAV on every surface (via extendable-media-recorder's WAV encoder).
+// It's the one container that both PLAYS and DECODES a recorded blob on iOS
+// WKWebView, where the native MediaRecorder only emits unplayable fragmented
+// mp4. See utils/wavEncoder.
+const getSupportedMimeType = (): string => 'audio/wav';
 
 // Track the MIME type used for recording
 const recordingMimeType = ref<string>('');
@@ -320,24 +307,22 @@ const recordingMimeType = ref<string>('');
 // Start recording
 const startRecording = async () => {
   try {
+    // The WAV encoder is an AudioWorklet and must be registered before the
+    // recorder is constructed.
+    await ensureWavEncoder();
+
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
         noiseSuppression: true,
-        autoGainControl: true
+        autoGainControl: true,
+        channelCount: 1
       }
     });
 
-    // Detect and use the best supported MIME type
     recordingMimeType.value = getSupportedMimeType();
-    const recorderOptions: MediaRecorderOptions = {};
-    if (recordingMimeType.value) {
-      recorderOptions.mimeType = recordingMimeType.value;
-    }
-
-    mediaRecorder.value = new MediaRecorder(stream, recorderOptions);
-    // Store the actual MIME type being used (browser may adjust it)
-    recordingMimeType.value = mediaRecorder.value.mimeType || recordingMimeType.value || 'audio/webm';
+    mediaRecorder.value = new WavMediaRecorder(stream, { mimeType: recordingMimeType.value });
+    recordingMimeType.value = mediaRecorder.value.mimeType || 'audio/wav';
 
     audioChunks.value = [];
     isRecording.value = true;
@@ -369,7 +354,7 @@ const startRecording = async () => {
       });
     };
 
-    mediaRecorder.value.start(250);
+    mediaRecorder.value.start();
     setupVisualization(stream);
 
     // Start speech recognition if supported

@@ -80,6 +80,7 @@ pub fn set_asset_proxy_session(
 fn respond_status(responder: UriSchemeResponder, status: StatusCode) {
     if let Ok(resp) = Response::builder()
         .status(status)
+        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
         .body(Cow::<[u8]>::Owned(Vec::new()))
     {
         responder.respond(resp);
@@ -146,6 +147,16 @@ pub fn handle<R: Runtime>(
                 builder = builder.header(name, value);
             }
         }
+        // The webview `fetch()`es audio (the player reads the bytes for its
+        // waveform) from the tauri://localhost origin, so the proxied response
+        // needs CORS. Plain `<img>`/`<audio>` resource loads don't, but fetch
+        // enforces it, which is why audio failed while images worked.
+        builder = builder
+            .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+            .header(
+                header::ACCESS_CONTROL_EXPOSE_HEADERS,
+                "Content-Range, Accept-Ranges, Content-Length",
+            );
 
         match builder.body(Cow::<[u8]>::Owned(body)) {
             Ok(resp) => responder.respond(resp),
