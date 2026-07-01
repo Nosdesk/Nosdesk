@@ -147,3 +147,20 @@ pub fn disposal_for_asset(
         .first(conn)
         .optional()
 }
+
+/// Every lifecycle event for the given assets, grouped by asset and newest-first
+/// within each, for the history export. Actor + ticket stay as ids (the ticket
+/// id is the correlation handle); RLS scopes rows to the workspace as usual. No
+/// LIMIT: the export never silently truncates.
+pub fn history_for_export(
+    conn: &mut DbConnection,
+    asset_ids: &[i32],
+) -> QueryResult<Vec<AssetLifecycleEvent>> {
+    asset_lifecycle_events::table
+        .filter(asset_lifecycle_events::asset_id.eq_any(asset_ids))
+        .order((
+            asset_lifecycle_events::asset_id.asc(),
+            asset_lifecycle_events::occurred_at.desc(),
+        ))
+        .load(conn)
+}

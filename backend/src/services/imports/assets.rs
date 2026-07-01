@@ -16,7 +16,7 @@ use bigdecimal::BigDecimal;
 use diesel::prelude::*;
 
 use crate::db::DbConnection;
-use crate::models::{Asset, AssetUpdate, NewAsset};
+use crate::models::{Asset, AssetLifecycleEvent, AssetUpdate, NewAsset};
 use crate::repository::asset_kinds as kind_repo;
 use crate::repository::assets as asset_repo;
 use crate::services::assets::kinds as schema_validator;
@@ -422,6 +422,50 @@ pub fn write_assets_csv(assets: &[Asset]) -> Result<Vec<u8>, csv::Error> {
     Ok(buf)
 }
 
+/// Columns of the lifecycle-history export. One row per event.
+const HISTORY_HEADERS: &[&str] = &[
+    "asset_tag",
+    "asset_name",
+    "occurred_at",
+    "from_status",
+    "to_status",
+    "reason",
+    "actor_uuid",
+    "ticket_id",
+    "metadata",
+];
+
+/// CSV of lifecycle history: one row per event, enriched with its asset's tag +
+/// name (looked up from `assets`). Actor + ticket are ids (the ticket id is the
+/// correlation handle); `metadata` is the raw JSON. Mirrors `write_assets_csv`.
+pub fn write_history_csv(
+    assets: &[Asset],
+    events: &[AssetLifecycleEvent],
+) -> Result<Vec<u8>, csv::Error> {
+    let by_id: HashMap<i32, &Asset> = assets.iter().map(|a| (a.id, a)).collect();
+    let mut buf = Vec::new();
+    {
+        let mut wtr = csv::Writer::from_writer(&mut buf);
+        wtr.write_record(HISTORY_HEADERS)?;
+        for e in events {
+            let asset = by_id.get(&e.asset_id);
+            wtr.write_record([
+                asset.and_then(|a| a.asset_tag.clone()).unwrap_or_default(),
+                asset.map(|a| a.name.clone()).unwrap_or_default(),
+                e.occurred_at.to_rfc3339(),
+                e.from_status.clone().unwrap_or_default(),
+                e.to_status.clone(),
+                e.reason.clone().unwrap_or_default(),
+                e.actor_uuid.map(|u| u.to_string()).unwrap_or_default(),
+                e.ticket_id.map(|t| t.to_string()).unwrap_or_default(),
+                e.metadata.to_string(),
+            ])?;
+        }
+        wtr.flush()?;
+    }
+    Ok(buf)
+}
+
 #[cfg(test)]
 mod export_tests {
     use super::*;
@@ -469,6 +513,35 @@ mod export_tests {
             header,
             "name,kind,asset_tag,serial_number,manufacturer,model,location,notes,quantity,unit,low_stock_threshold,status,attributes"
         );
+    }
+
+    #[test]
+    fn history_csv_header_and_row() {
+        let asset = sample_asset();
+        let occurred_at: chrono::DateTime<chrono::Utc> = "2024-02-01T00:00:00Z".parse().unwrap();
+        let event = AssetLifecycleEvent {
+            id: 1,
+            asset_id: 1,
+            from_status: Some("in_service".to_string()),
+            to_status: "in_repair".to_string(),
+            reason: Some("screen".to_string()),
+            ticket_id: Some(42),
+            metadata: json!({"vendor": "Acme"}),
+            actor_uuid: None,
+            occurred_at,
+            workspace_id: 1,
+        };
+        let csv = write_history_csv(&[asset], &[event]).unwrap();
+        let text = String::from_utf8(csv).unwrap();
+        let mut lines = text.lines();
+        assert_eq!(
+            lines.next().unwrap(),
+            "asset_tag,asset_name,occurred_at,from_status,to_status,reason,actor_uuid,ticket_id,metadata"
+        );
+        let row = lines.next().unwrap();
+        assert!(row.starts_with("TAG-1,Laptop,"));
+        // reason, empty actor, ticket id in order (the ticket id is the correlation).
+        assert!(row.contains(",in_service,in_repair,screen,,42,"));
     }
 
     #[test]
