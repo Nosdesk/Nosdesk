@@ -456,6 +456,7 @@ mod export_tests {
             workspace_id: 1,
             status: "in_service".to_string(),
             model_id: None,
+            managed_by_user_uuid: None,
         }
     }
 
