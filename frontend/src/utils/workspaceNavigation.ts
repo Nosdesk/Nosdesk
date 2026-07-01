@@ -5,16 +5,14 @@ function hostLabel(): string {
   return window.location.hostname.toLowerCase();
 }
 
-/** First label of a multi-part host (`acme` from `acme.nosdesk.app`). */
-function subdomainSlug(): string | null {
-  const labels = hostLabel().split('.');
-  if (labels.length < 3) return null;
-  return labels[0] ?? null;
-}
-
 /**
- * Match the caller's current host to one of their workspace
- * memberships. Custom domain wins over subdomain slug.
+ * Match the caller's current host to one of their workspace memberships.
+ *
+ * The hosted agent app is a single central origin (Model C:
+ * `app.nosdesk.dev/<slug>`), so the workspace is selected by path/header,
+ * not by a per-tenant subdomain. This resolver only covers the host-mode
+ * cases that remain: a verified custom domain (its own origin) and the
+ * single-workspace self-hosted deployment.
  */
 export function resolveActiveWorkspaceId(
   workspaces: MyWorkspaceEntry[],
@@ -27,19 +25,16 @@ export function resolveActiveWorkspaceId(
   );
   if (byDomain) return byDomain.workspace_id;
 
-  const slug = subdomainSlug();
-  if (slug) {
-    const bySlug = workspaces.find((w) => w.slug === slug);
-    if (bySlug) return bySlug.workspace_id;
-  }
-
+  // Self-hosted single-workspace deployment: the sole workspace is active.
   if (workspaces.length === 1) return workspaces[0].workspace_id;
   return workspaces[0]?.workspace_id ?? null;
 }
 
 /**
- * Origin to load when switching into `entry`, preserving the
- * current page path on navigation.
+ * Origin to load when switching into `entry`, preserving the current page
+ * path. A verified custom domain is a distinct origin; otherwise the switch
+ * stays on the current origin (the central agent app switches workspace
+ * in-app via the path, not by navigating to another origin).
  */
 export function workspaceSwitchUrl(
   entry: MyWorkspaceEntry,
@@ -51,24 +46,6 @@ export function workspaceSwitchUrl(
     const origin = port
       ? `${protocol}//${entry.custom_domain}:${port}`
       : `${protocol}//${entry.custom_domain}`;
-    return new URL(path, origin).href;
-  }
-
-  const labels = hostLabel().split('.');
-  if (labels.length >= 3) {
-    labels[0] = entry.slug;
-    const host = labels.join('.');
-    const origin = port ? `${protocol}//${host}:${port}` : `${protocol}//${host}`;
-    return new URL(path, origin).href;
-  }
-
-  // Dev / self-hosted: same origin (single workspace) or
-  // `slug.localhost` when the browser supports it.
-  if (hostLabel() === 'localhost' || hostLabel() === '127.0.0.1') {
-    const devHost = port
-      ? `${entry.slug}.${hostLabel()}:${port}`
-      : `${entry.slug}.${hostLabel()}`;
-    const origin = `${protocol}//${devHost}`;
     return new URL(path, origin).href;
   }
 
