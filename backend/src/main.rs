@@ -2506,6 +2506,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/assets/{id:\\d+}/unmanage", web::post().to(handlers::unmanage_device))
                     .route("/assets/{id:\\d+}/lifecycle", web::get().to(handlers::asset_lifecycle::list_for_asset))
                     .route("/assets/{id:\\d+}/lifecycle", web::post().to(handlers::asset_lifecycle::create_transition))
+                    .route("/assets/{id:\\d+}/disposal", web::get().to(handlers::asset_lifecycle::get_disposal))
                     .route("/assets/{id:\\d+}/loans", web::get().to(handlers::asset_loans::list_for_asset))
                     .route("/assets/{id:\\d+}/loans", web::post().to(handlers::asset_loans::issue))
                     .route("/assets/{id:\\d+}/loans/{loan_id:\\d+}", web::patch().to(handlers::asset_loans::edit))

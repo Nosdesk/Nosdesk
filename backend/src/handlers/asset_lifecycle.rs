@@ -15,7 +15,7 @@ use crate::extractors::{AuthContext, TenantConn};
 use crate::handlers::errors;
 use crate::models::AssetStatus;
 use crate::repository::{
-    asset_lifecycle::{self as repo, TransitionInput},
+    asset_lifecycle::{self as repo, DisposalInput, TransitionInput},
     assets as assets_repo,
 };
 
@@ -30,6 +30,21 @@ pub struct TransitionBody {
     /// recipient / due-back). Stored verbatim; defaults to `{}`.
     #[serde(default)]
     pub metadata: serde_json::Value,
+    /// Disposal record, sent only when `to_status` is `disposed`. Captured
+    /// atomically with the transition for the compliance / export trail.
+    pub disposal: Option<DisposalBody>,
+}
+
+/// Disposal detail submitted with a transition to `disposed`. Maps to the
+/// repository `DisposalInput`.
+#[derive(Debug, Deserialize)]
+pub struct DisposalBody {
+    /// NIST SP 800-88 category: clear | purge | destroy | none.
+    pub sanitization_method: String,
+    pub data_bearing: bool,
+    pub certificate_file_id: Option<i32>,
+    pub itad_vendor: Option<String>,
+    pub notes: Option<String>,
 }
 
 pub async fn list_for_asset(
@@ -96,6 +111,13 @@ pub async fn create_transition(
                 ticket_id: body.ticket_id,
                 metadata: metadata.clone(),
                 actor_uuid,
+                disposal: body.disposal.as_ref().map(|d| DisposalInput {
+                    sanitization_method: d.sanitization_method.clone(),
+                    data_bearing: d.data_bearing,
+                    certificate_file_id: d.certificate_file_id,
+                    itad_vendor: d.itad_vendor.clone(),
+                    notes: d.notes.clone(),
+                }),
             },
         )
         .map(Some)
@@ -110,6 +132,30 @@ pub async fn create_transition(
         Err(e) => {
             error!(asset_id, error = ?e, "failed to record asset lifecycle transition");
             errors::internal("Failed to change asset status")
+        }
+    }
+}
+
+/// GET the disposal record for an asset (`None` -> 404). Read on demand for the
+/// asset detail + the record-card export; disposal detail is not synced.
+pub async fn get_disposal(
+    mut tc: TenantConn,
+    _auth: AuthContext,
+    path: web::Path<i32>,
+) -> impl Responder {
+    let asset_id = path.into_inner();
+    match tc.run(|conn| {
+        assets_repo::get_device_by_id(conn, asset_id)?;
+        repo::disposal_for_asset(conn, asset_id)
+    }) {
+        Ok(Some(d)) => HttpResponse::Ok().json(d),
+        Ok(None) => errors::not_found_msg(format!("Asset {asset_id} has no disposal record")),
+        Err(diesel::result::Error::NotFound) => {
+            errors::not_found_msg(format!("Asset {asset_id} not found"))
+        }
+        Err(e) => {
+            error!(asset_id, error = ?e, "failed to load asset disposal");
+            errors::internal("Failed to load asset disposal")
         }
     }
 }

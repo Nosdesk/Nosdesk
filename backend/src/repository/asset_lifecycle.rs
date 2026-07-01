@@ -12,9 +12,12 @@ use diesel::QueryResult;
 use serde_json::json;
 
 use crate::db::DbConnection;
-use crate::models::{Asset, AssetLifecycleEvent, NewAssetLifecycleEvent, SyncAggregate, SyncOp};
+use crate::models::{
+    Asset, AssetDisposal, AssetLifecycleEvent, NewAssetDisposal, NewAssetLifecycleEvent,
+    SyncAggregate, SyncOp,
+};
 use crate::repository::assets::emit_asset_event;
-use crate::schema::{asset_lifecycle_events, assets};
+use crate::schema::{asset_disposals, asset_lifecycle_events, assets};
 use crate::sync::emit::{self, SyncEmit};
 use crate::sync::groups;
 
@@ -51,6 +54,20 @@ pub struct TransitionInput {
     pub ticket_id: Option<i32>,
     pub metadata: serde_json::Value,
     pub actor_uuid: Option<uuid::Uuid>,
+    /// Disposal record to capture in the same transaction. Only meaningful for
+    /// a transition to `disposed`; `None` for every other transition.
+    pub disposal: Option<DisposalInput>,
+}
+
+/// The disposal fields captured alongside a transition to `disposed`. Mirrors
+/// the settable columns of `asset_disposals`; the asset, event link, and actor
+/// are filled in from the transition itself.
+pub struct DisposalInput {
+    pub sanitization_method: String,
+    pub data_bearing: bool,
+    pub certificate_file_id: Option<i32>,
+    pub itad_vendor: Option<String>,
+    pub notes: Option<String>,
 }
 
 /// Move an asset to `to_status` and log the transition. Returns the
@@ -96,6 +113,37 @@ pub fn transition(
             },
         )?;
 
+        // Capture the disposal record in the same transaction, linked to the
+        // event just written. Detail lives only here (not duplicated into the
+        // event metadata); it is read on demand for the asset detail + exports.
+        if let Some(d) = input.disposal {
+            diesel::insert_into(asset_disposals::table)
+                .values(&NewAssetDisposal {
+                    asset_id: input.asset_id,
+                    lifecycle_event_id: Some(event.id),
+                    sanitization_method: d.sanitization_method,
+                    data_bearing: d.data_bearing,
+                    certificate_file_id: d.certificate_file_id,
+                    itad_vendor: d.itad_vendor,
+                    notes: d.notes,
+                    actor_uuid: input.actor_uuid,
+                })
+                .execute(conn)?;
+        }
+
         Ok((updated, event))
     })
+}
+
+/// The disposal record for an asset, if it has been disposed. Disposal is
+/// terminal, so there is at most one; ordered newest-first for safety.
+pub fn disposal_for_asset(
+    conn: &mut DbConnection,
+    asset_id: i32,
+) -> QueryResult<Option<AssetDisposal>> {
+    asset_disposals::table
+        .filter(asset_disposals::asset_id.eq(asset_id))
+        .order(asset_disposals::occurred_at.desc())
+        .first(conn)
+        .optional()
 }

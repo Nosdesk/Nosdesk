@@ -139,6 +139,23 @@ diesel::table! {
 }
 
 diesel::table! {
+    asset_disposals (id) {
+        id -> Int4,
+        asset_id -> Int4,
+        lifecycle_event_id -> Nullable<Int4>,
+        #[max_length = 16]
+        sanitization_method -> Varchar,
+        data_bearing -> Bool,
+        certificate_file_id -> Nullable<Int4>,
+        itad_vendor -> Nullable<Text>,
+        notes -> Nullable<Text>,
+        actor_uuid -> Nullable<Uuid>,
+        occurred_at -> Timestamptz,
+        workspace_id -> Int4,
+    }
+}
+
+diesel::table! {
     asset_group_assignments (group_id, asset_id) {
         group_id -> Int4,
         asset_id -> Int4,
@@ -322,6 +339,7 @@ diesel::table! {
         #[max_length = 32]
         status -> Varchar,
         model_id -> Nullable<Int4>,
+        managed_by_user_uuid -> Nullable<Uuid>,
     }
 }
 
@@ -2152,6 +2170,10 @@ diesel::joinable!(asset_directory_memberships -> assets (asset_id));
 diesel::joinable!(asset_directory_memberships -> groups (group_id));
 diesel::joinable!(asset_directory_memberships -> users (created_by));
 diesel::joinable!(asset_directory_memberships -> workspaces (workspace_id));
+diesel::joinable!(asset_disposals -> asset_lifecycle_events (lifecycle_event_id));
+diesel::joinable!(asset_disposals -> assets (asset_id));
+diesel::joinable!(asset_disposals -> users (actor_uuid));
+diesel::joinable!(asset_disposals -> workspaces (workspace_id));
 diesel::joinable!(asset_group_assignments -> asset_groups (group_id));
 diesel::joinable!(asset_group_assignments -> assets (asset_id));
 diesel::joinable!(asset_group_assignments -> users (added_by));
@@ -2385,6 +2407,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     article_contents,
     asset_audits,
     asset_directory_memberships,
+    asset_disposals,
     asset_group_assignments,
     asset_groups,
     asset_kinds,
