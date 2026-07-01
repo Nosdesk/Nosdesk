@@ -16,7 +16,7 @@ use crate::models::{Asset, AssetGroupRef, AssetUpdate, Group, NewAsset, User};
 use crate::repository;
 use crate::repository::groups as groups_repo;
 use crate::services::assets::{validate_for_kind, AssetValidationError, SYNC_OWNED_ATTRIBUTE_KEYS};
-use crate::services::imports::assets::{write_assets_csv, write_history_csv};
+use crate::services::imports::assets::{build_history_rows, write_assets_csv, write_history_csv};
 use crate::services::search::indexing_tasks;
 use crate::services::search::SearchService;
 
@@ -597,8 +597,8 @@ pub async fn export_assets(
     };
 
     let format = query.format.as_deref().unwrap_or("csv");
-    if format != "csv" {
-        return errors::bad_request("Only format=csv is supported");
+    if format != "csv" && format != "json" {
+        return errors::bad_request("format must be csv or json");
     }
     let want_history = query.scope.as_deref() == Some("history");
 
@@ -636,27 +636,38 @@ pub async fn export_assets(
         }
     };
 
-    let (body, kind) = match events {
-        Some(events) => match write_history_csv(&rows, &events) {
-            Ok(bytes) => (bytes, "asset-history"),
-            Err(e) => {
-                error!(error = ?e, "Failed to serialize asset history CSV");
-                return errors::internal("Failed to build asset export");
-            }
-        },
-        None => match write_assets_csv(&rows) {
-            Ok(bytes) => (bytes, "assets"),
-            Err(e) => {
-                error!(error = ?e, "Failed to serialize asset export CSV");
-                return errors::internal("Failed to build asset export");
-            }
-        },
+    let kind = if events.is_some() {
+        "asset-history"
+    } else {
+        "assets"
+    };
+    let built: Result<(Vec<u8>, &'static str, &'static str), String> = if format == "json" {
+        match &events {
+            Some(events) => serde_json::to_vec(&build_history_rows(&rows, events)),
+            None => serde_json::to_vec(&rows),
+        }
+        .map(|b| (b, "application/json; charset=utf-8", "json"))
+        .map_err(|e| e.to_string())
+    } else {
+        match &events {
+            Some(events) => write_history_csv(&rows, events),
+            None => write_assets_csv(&rows),
+        }
+        .map(|b| (b, "text/csv; charset=utf-8", "csv"))
+        .map_err(|e| e.to_string())
+    };
+    let (body, content_type, ext) = match built {
+        Ok(v) => v,
+        Err(e) => {
+            error!(error = %e, "Failed to serialize asset export");
+            return errors::internal("Failed to build asset export");
+        }
     };
 
     let date = chrono::Utc::now().format("%Y%m%d");
-    let filename = format!("{kind}-{slug}-{date}.csv");
+    let filename = format!("{kind}-{slug}-{date}.{ext}");
     HttpResponse::Ok()
-        .insert_header((header::CONTENT_TYPE, "text/csv; charset=utf-8"))
+        .insert_header((header::CONTENT_TYPE, content_type))
         .insert_header((
             header::CONTENT_DISPOSITION,
             format!("attachment; filename=\"{filename}\""),

@@ -436,30 +436,70 @@ const HISTORY_HEADERS: &[&str] = &[
     "metadata",
 ];
 
-/// CSV of lifecycle history: one row per event, enriched with its asset's tag +
-/// name (looked up from `assets`). Actor + ticket are ids (the ticket id is the
-/// correlation handle); `metadata` is the raw JSON. Mirrors `write_assets_csv`.
+/// A lifecycle-history export row: an event enriched with its asset's tag +
+/// name. Shared by the CSV and JSON exports. Actor + ticket stay as ids (the
+/// ticket id is the correlation handle); `metadata` is the raw JSON.
+#[derive(serde::Serialize)]
+pub struct AssetHistoryExportRow {
+    pub asset_tag: Option<String>,
+    pub asset_name: String,
+    pub occurred_at: chrono::DateTime<chrono::Utc>,
+    pub from_status: Option<String>,
+    pub to_status: String,
+    pub reason: Option<String>,
+    pub actor_uuid: Option<uuid::Uuid>,
+    pub ticket_id: Option<i32>,
+    pub metadata: serde_json::Value,
+}
+
+/// Enrich lifecycle events with their asset's tag + name, in the given order.
+/// The single source for both the CSV and JSON history exports.
+pub fn build_history_rows(
+    assets: &[Asset],
+    events: &[AssetLifecycleEvent],
+) -> Vec<AssetHistoryExportRow> {
+    let by_id: HashMap<i32, &Asset> = assets.iter().map(|a| (a.id, a)).collect();
+    events
+        .iter()
+        .map(|e| {
+            let asset = by_id.get(&e.asset_id);
+            AssetHistoryExportRow {
+                asset_tag: asset.and_then(|a| a.asset_tag.clone()),
+                asset_name: asset.map(|a| a.name.clone()).unwrap_or_default(),
+                occurred_at: e.occurred_at,
+                from_status: e.from_status.clone(),
+                to_status: e.to_status.clone(),
+                reason: e.reason.clone(),
+                actor_uuid: e.actor_uuid,
+                ticket_id: e.ticket_id,
+                metadata: e.metadata.clone(),
+            }
+        })
+        .collect()
+}
+
+/// CSV of lifecycle history (one row per event). Mirrors `write_assets_csv`;
+/// shares `build_history_rows` with the JSON export.
 pub fn write_history_csv(
     assets: &[Asset],
     events: &[AssetLifecycleEvent],
 ) -> Result<Vec<u8>, csv::Error> {
-    let by_id: HashMap<i32, &Asset> = assets.iter().map(|a| (a.id, a)).collect();
+    let rows = build_history_rows(assets, events);
     let mut buf = Vec::new();
     {
         let mut wtr = csv::Writer::from_writer(&mut buf);
         wtr.write_record(HISTORY_HEADERS)?;
-        for e in events {
-            let asset = by_id.get(&e.asset_id);
+        for r in &rows {
             wtr.write_record([
-                asset.and_then(|a| a.asset_tag.clone()).unwrap_or_default(),
-                asset.map(|a| a.name.clone()).unwrap_or_default(),
-                e.occurred_at.to_rfc3339(),
-                e.from_status.clone().unwrap_or_default(),
-                e.to_status.clone(),
-                e.reason.clone().unwrap_or_default(),
-                e.actor_uuid.map(|u| u.to_string()).unwrap_or_default(),
-                e.ticket_id.map(|t| t.to_string()).unwrap_or_default(),
-                e.metadata.to_string(),
+                r.asset_tag.clone().unwrap_or_default(),
+                r.asset_name.clone(),
+                r.occurred_at.to_rfc3339(),
+                r.from_status.clone().unwrap_or_default(),
+                r.to_status.clone(),
+                r.reason.clone().unwrap_or_default(),
+                r.actor_uuid.map(|u| u.to_string()).unwrap_or_default(),
+                r.ticket_id.map(|t| t.to_string()).unwrap_or_default(),
+                r.metadata.to_string(),
             ])?;
         }
         wtr.flush()?;
