@@ -12,7 +12,7 @@ import { useDateStore } from '@nosdesk/core/stores/dateStore';
 import { translate } from '@/i18n';
 import { extractErrorMessage } from '@/utils/errors';
 import { activeWorkspaceSlug } from '@/services/activeWorkspace';
-import { getWorkspaceRouting } from '@/services/instanceConfig';
+import { getWorkspaceRouting } from '@nosdesk/core/services/instanceConfig';
 
 // Configure axios to use relative URLs and send cookies
 // This will make requests go to the same server that served the frontend
