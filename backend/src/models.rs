@@ -1243,6 +1243,8 @@ pub struct AssetUpdate {
     pub location: Option<String>,
     pub notes: Option<String>,
     pub primary_user_uuid: Option<Uuid>,
+    /// The accountable "managed by" custodian. `None` leaves it unchanged.
+    pub managed_by_user_uuid: Option<Uuid>,
     pub purchase_date: Option<NaiveDate>,
     pub asset_tag: Option<String>,
     pub updated_at: Option<NaiveDateTime>,

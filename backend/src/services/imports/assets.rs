@@ -333,6 +333,7 @@ fn build_asset_update(row: &HashMap<String, String>) -> AssetUpdate {
         location: opt_string(row, "location"),
         notes: opt_string(row, "notes"),
         primary_user_uuid: None,
+        managed_by_user_uuid: None,
         purchase_date: None,
         asset_tag: opt_string(row, "asset_tag"),
         updated_at: Some(chrono::Utc::now().naive_utc()),

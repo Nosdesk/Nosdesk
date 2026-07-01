@@ -120,6 +120,7 @@ pub struct AssetResponse {
     pub location: Option<String>,
     pub status: String,
     pub primary_user_uuid: Option<String>,
+    pub managed_by_user_uuid: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub purchase_date: Option<String>,
@@ -194,6 +195,9 @@ impl AssetResponse {
             status: device.status,
             primary_user_uuid: device
                 .primary_user_uuid
+                .map(|uuid| utils::uuid_to_string(&uuid)),
+            managed_by_user_uuid: device
+                .managed_by_user_uuid
                 .map(|uuid| utils::uuid_to_string(&uuid)),
             created_at: device
                 .created_at
@@ -1020,6 +1024,9 @@ pub async fn update_device(
                 &existing_device.attributes,
                 incoming.attributes.as_ref(),
             )),
+            // managed_by is Nosdesk-local custody, not owned by the sync, so it
+            // stays settable even on externally-synced assets.
+            managed_by_user_uuid: incoming.managed_by_user_uuid,
             ..Default::default()
         }
     } else {

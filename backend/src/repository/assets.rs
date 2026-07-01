@@ -39,6 +39,7 @@ fn asset_sync_payload(device: &Asset) -> serde_json::Value {
         "location": device.location,
         "status": device.status,
         "primary_user_uuid": device.primary_user_uuid,
+        "managed_by_user_uuid": device.managed_by_user_uuid,
         "attributes": device.attributes,
         "quantity": device.quantity,
         "unit": device.unit,
