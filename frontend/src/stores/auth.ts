@@ -11,6 +11,8 @@ import { useThemeStore } from './theme';
 import { useDateStore } from '@nosdesk/core/stores/dateStore';
 import { translate } from '@/i18n';
 import { extractErrorMessage } from '@/utils/errors';
+import { activeWorkspaceSlug } from '@/services/activeWorkspace';
+import { getWorkspaceRouting } from '@/services/instanceConfig';
 
 // Configure axios to use relative URLs and send cookies
 // This will make requests go to the same server that served the frontend
@@ -29,6 +31,15 @@ export const useAuthStore = defineStore('auth', () => {
   const loading = ref(false);
   const error = ref<string | null>(null);
   const authProvider = ref<string | null>(localStorage.getItem('authProvider'));
+
+  // The workspace slug the current `user.workspace_role` was resolved
+  // under. `workspace_role` is workspace-scoped (an RLS read of the
+  // pinned workspace), so on the central app it must be re-resolved
+  // whenever the active workspace is established or changed — not trusted
+  // from the workspace-agnostic login response. `null` means "not yet
+  // resolved for a workspace" (e.g. straight after login). See
+  // `ensureWorkspaceIdentity`.
+  const resolvedWorkspaceSlug = ref<string | null>(null);
 
   // Track ongoing fetchUserData requests to prevent duplicates
   let fetchUserDataPromise: Promise<User | null> | null = null;
@@ -80,20 +91,26 @@ export const useAuthStore = defineStore('auth', () => {
   // NOTE: No CSRF cookie guard here. When cookies expire (15 min), the API call
   // will get a 401, and the interceptor in apiConfig.ts will automatically attempt
   // a refresh using the 7-day refresh token before failing.
-  async function fetchUserData() {
+  async function fetchUserData(opts?: { force?: boolean }) {
+    // `force` bypasses the dedup + failure cooldown — used when the active
+    // workspace changed (a legitimate context switch, not a retry), where
+    // an in-flight fetch under the old pin would return the wrong role.
+    const force = opts?.force ?? false;
+
     // Return existing promise if already fetching
-    if (fetchUserDataPromise) {
+    if (!force && fetchUserDataPromise) {
       return fetchUserDataPromise;
     }
 
     // Check cooldown period to prevent rapid retries after failures
-    const now = Date.now();
-    if (now - lastFetchAttempt < FETCH_COOLDOWN_MS) {
-      logger.debug('Fetch user data on cooldown, skipping request');
-      return null;
+    if (!force) {
+      const now = Date.now();
+      if (now - lastFetchAttempt < FETCH_COOLDOWN_MS) {
+        logger.debug('Fetch user data on cooldown, skipping request');
+        return null;
+      }
+      lastFetchAttempt = now;
     }
-
-    lastFetchAttempt = now;
 
     // Create and cache the promise
     fetchUserDataPromise = (async () => {
@@ -108,6 +125,10 @@ export const useAuthStore = defineStore('auth', () => {
         // A confirmed authenticated session ends any prior teardown window.
         setLoggingOut(false);
         user.value = userData;
+        // /auth/me is resolved under the request's pinned workspace, so the
+        // role we just got belongs to the active workspace. Record it so
+        // `ensureWorkspaceIdentity` knows the identity is current.
+        resolvedWorkspaceSlug.value = activeWorkspaceSlug();
 
         // Load theme from user profile
         const themeStore = useThemeStore();
@@ -164,6 +185,34 @@ export const useAuthStore = defineStore('auth', () => {
     })();
 
     return fetchUserDataPromise;
+  }
+
+  /**
+   * Ensure `user.workspace_role` is resolved for the *active* workspace.
+   *
+   * On the central agent app (path mode) the workspace is selected after
+   * auth, so the login response is workspace-agnostic (`workspace_role:
+   * null`). This re-resolves the role under the active workspace at the
+   * post-login landing, on a hard refresh, and on a workspace switch —
+   * one pinned `/auth/me` for all three. Host mode / self-hosted always
+   * pins the single workspace, so the role is already correct and this is
+   * a no-op (no extra request).
+   *
+   * The route guard awaits this before the role-gated guards and any
+   * workspace-scoped view renders, so the first paint already carries the
+   * correct role.
+   */
+  async function ensureWorkspaceIdentity(): Promise<void> {
+    if (getWorkspaceRouting() !== 'path') return; // host mode: always pinned
+    const active = activeWorkspaceSlug();
+    if (!active) return; // no workspace selected yet (pre-landing)
+    if (user.value && resolvedWorkspaceSlug.value === active) return; // current
+    try {
+      await fetchUserData({ force: true });
+    } catch {
+      // fetchUserData handles its own errors (401/403 → logout, others
+      // surfaced); never break navigation here.
+    }
   }
 
   // Simplified login - returns boolean, sets MFA state if needed
@@ -320,6 +369,11 @@ export const useAuthStore = defineStore('auth', () => {
       // window, so 401-suppression no longer applies.
       setLoggingOut(false);
       user.value = userData;
+      // The login/MFA response is workspace-agnostic on the central app
+      // (no workspace pinned at login), so its `workspace_role` isn't
+      // trustworthy. Mark the identity unresolved so `ensureWorkspaceIdentity`
+      // re-resolves it under the landed workspace before any role-gated UI.
+      resolvedWorkspaceSlug.value = null;
       authProvider.value = 'local';
       localStorage.setItem('authProvider', 'local');
       axios.defaults.headers.common['X-Auth-Provider'] = 'local';
@@ -393,6 +447,10 @@ export const useAuthStore = defineStore('auth', () => {
   // Handle external auth (Microsoft, etc.) - tokens now in httpOnly cookies
   async function setExternalAuth(tokenStr: string, userData: User | null, provider: string = 'microsoft') {
     user.value = userData;
+    // External-auth user (if provided) is workspace-agnostic too; re-resolve
+    // under the landed workspace. When `userData` is null we fetch below,
+    // which sets the resolved slug itself.
+    resolvedWorkspaceSlug.value = null;
     authProvider.value = provider;
 
     localStorage.setItem('authProvider', provider);
@@ -438,6 +496,7 @@ export const useAuthStore = defineStore('auth', () => {
 
     // Clear user data
     user.value = null;
+    resolvedWorkspaceSlug.value = null;
     authProvider.value = null;
 
     // Tear down everything workspace-scoped (config stores, query cache, sync
@@ -522,6 +581,7 @@ export const useAuthStore = defineStore('auth', () => {
     clearMfaState,
     logout,
     fetchUserData,
+    ensureWorkspaceIdentity,
     setExternalAuth,
     setAuthProvider
   };

@@ -1106,6 +1106,17 @@ async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLoca
     return { name: 'no-workspace-access' };
   }
 
+  // Workspace-scoped identity. `workspace_role` is resolved per the pinned
+  // workspace, so once a workspace is active (path mode, slug now in the URL),
+  // resolve the user under it BEFORE the role-gated guards (checkAdminAccess /
+  // checkWorkspaceAdminAccess, registered after this one) and any
+  // workspace-scoped view renders. Awaiting here is the gate: login, refresh,
+  // and switch all converge on one pinned /auth/me and the first paint already
+  // carries the correct role. No-op in host mode and once already resolved.
+  if (authStore.isAuthenticated && authStore.user) {
+    await authStore.ensureWorkspaceIdentity();
+  }
+
   // Load feature flags once per session for any authenticated route. Failures
   // are swallowed inside the store; the app falls back to flags-disabled.
   if (authStore.isAuthenticated && authStore.user) {
