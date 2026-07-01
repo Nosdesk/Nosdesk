@@ -4421,6 +4421,16 @@ asset-lifecycle-meta-vendor = Repair vendor
 asset-lifecycle-meta-rma = RMA number
 asset-lifecycle-meta-offsite = Sent offsite
 asset-lifecycle-meta-expected-return = Expected return
+
+# Asset disposal (transition to disposed) fields.
+asset-disposal-method = Sanitization method
+asset-disposal-method-clear = Clear
+asset-disposal-method-purge = Purge
+asset-disposal-method-destroy = Destroy
+asset-disposal-method-none = None
+asset-disposal-data-bearing = Data-bearing
+asset-disposal-itad-vendor = ITAD vendor
+asset-disposal-notes = Notes
 asset-lifecycle-meta-loaned-to = Loaned to
 asset-lifecycle-meta-due-back = Due back
 

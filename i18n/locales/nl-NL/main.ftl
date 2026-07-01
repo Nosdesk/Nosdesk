@@ -4254,6 +4254,16 @@ asset-lifecycle-meta-vendor = Reparatieleverancier
 asset-lifecycle-meta-rma = RMA-nummer
 asset-lifecycle-meta-offsite = Offsite verzonden
 asset-lifecycle-meta-expected-return = Verwachte terugkeer
+
+# Asset disposal fields. DRAFT: machine-translated, pending native review.
+asset-disposal-method = Wismethode
+asset-disposal-method-clear = Wissen
+asset-disposal-method-purge = Zuiveren
+asset-disposal-method-destroy = Vernietigen
+asset-disposal-method-none = Geen
+asset-disposal-data-bearing = Bevat gegevens
+asset-disposal-itad-vendor = ITAD-leverancier
+asset-disposal-notes = Notities
 asset-lifecycle-meta-loaned-to = Uitgeleend aan
 asset-lifecycle-meta-due-back = Terug verwacht
 

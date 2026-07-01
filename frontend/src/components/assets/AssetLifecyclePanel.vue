@@ -77,6 +77,10 @@ const repairVendor = ref('');
 const repairRma = ref('');
 const repairOffsite = ref(false);
 const repairExpectedReturn = ref('');
+const sanitizationMethod = ref('clear');
+const dataBearing = ref(true);
+const itadVendor = ref('');
+const disposalNotes = ref('');
 
 // On-loan is owned by the loan ledger (the Loans panel), not a manual
 // transition: you loan an asset out and return it there, which keeps the
@@ -92,6 +96,12 @@ const statusDropdownOptions = computed(() =>
     label: t(metaForAssetStatus(status).labelKey),
   })),
 );
+const sanitizationOptions = computed(() =>
+  ['clear', 'purge', 'destroy', 'none'].map((m) => ({
+    value: m,
+    label: t(`asset-disposal-method-${m}`),
+  })),
+);
 
 function resetForm() {
   toStatus.value = statusOptions.value[0] ?? '';
@@ -101,6 +111,10 @@ function resetForm() {
   repairRma.value = '';
   repairOffsite.value = false;
   repairExpectedReturn.value = '';
+  sanitizationMethod.value = 'clear';
+  dataBearing.value = true;
+  itadVendor.value = '';
+  disposalNotes.value = '';
   errorMessage.value = '';
 }
 
@@ -126,6 +140,16 @@ function buildMetadata(): Record<string, unknown> {
   return {};
 }
 
+function buildDisposal() {
+  if (toStatus.value !== 'disposed') return undefined;
+  return {
+    sanitization_method: sanitizationMethod.value,
+    data_bearing: dataBearing.value,
+    itad_vendor: itadVendor.value.trim() || null,
+    notes: disposalNotes.value.trim() || null,
+  };
+}
+
 function parseTicketId(): number | null {
   const raw = ticketIdInput.value.trim();
   if (!raw) return null;
@@ -144,6 +168,7 @@ async function submitTransition() {
       reason: reason.value.trim() || null,
       ticket_id: parseTicketId(),
       metadata: buildMetadata(),
+      disposal: buildDisposal(),
     });
     await invalidate();
     emit('transitioned', newStatus);
@@ -303,6 +328,29 @@ function metadataLines(event: AssetLifecycleEvent): string[] {
           <DatePicker
             v-model="repairExpectedReturn"
             :label="$t('asset-lifecycle-meta-expected-return')"
+          />
+        </template>
+
+        <template v-if="toStatus === 'disposed'">
+          <BaseDropdown
+            :model-value="sanitizationMethod"
+            :options="sanitizationOptions"
+            :label="$t('asset-disposal-method')"
+            size="sm"
+            @update:model-value="sanitizationMethod = String($event)"
+          />
+          <Checkbox
+            v-model="dataBearing"
+            :label="$t('asset-disposal-data-bearing')"
+          />
+          <FormInput
+            v-model="itadVendor"
+            :label="$t('asset-disposal-itad-vendor')"
+          />
+          <FormTextarea
+            v-model="disposalNotes"
+            :label="$t('asset-disposal-notes')"
+            :rows="2"
           />
         </template>
 

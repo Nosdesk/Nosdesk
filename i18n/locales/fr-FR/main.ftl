@@ -4263,6 +4263,16 @@ asset-lifecycle-meta-vendor = Prestataire de réparation
 asset-lifecycle-meta-rma = Numéro RMA
 asset-lifecycle-meta-offsite = Envoyé hors site
 asset-lifecycle-meta-expected-return = Retour prévu
+
+# Asset disposal fields. DRAFT: machine-translated, pending native review.
+asset-disposal-method = Méthode d'effacement
+asset-disposal-method-clear = Effacement
+asset-disposal-method-purge = Purge
+asset-disposal-method-destroy = Destruction
+asset-disposal-method-none = Aucune
+asset-disposal-data-bearing = Contient des données
+asset-disposal-itad-vendor = Prestataire ITAD
+asset-disposal-notes = Notes
 asset-lifecycle-meta-loaned-to = Prêté à
 asset-lifecycle-meta-due-back = Date de retour
 
