@@ -42,6 +42,9 @@ export interface Asset {
    *  not a plain asset edit. */
   status: string;
   primary_user_uuid?: string | null;
+  /** The accountable "managed by" custodian, distinct from
+   *  primary_user_uuid (the "used by" holder). */
+  managed_by_user_uuid?: string | null;
   created_at: string;
   updated_at: string;
   purchase_date?: string | null;

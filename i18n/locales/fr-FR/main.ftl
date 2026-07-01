@@ -2447,6 +2447,10 @@ asset-detail-warranty-warning = Avertissement
 asset-detail-warranty-expired = Expirée
 asset-detail-warranty-unknown = Inconnue
 asset-detail-section-primary-user = Utilisateur principal
+asset-detail-section-managed-by = Géré par
+asset-detail-action-assign-managed-by = Attribuer un responsable
+asset-detail-clear-managed-by = Retirer le responsable
+asset-detail-record-card = Télécharger la fiche
 asset-detail-no-user-assigned = Aucun utilisateur assigné à cet actif
 asset-detail-action-assign-user = Attribuer un utilisateur
 # Machine, à relire par un locuteur natif.

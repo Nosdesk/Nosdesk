@@ -2444,6 +2444,10 @@ asset-detail-warranty-warning = Waarschuwing
 asset-detail-warranty-expired = Verlopen
 asset-detail-warranty-unknown = Onbekend
 asset-detail-section-primary-user = Primaire gebruiker
+asset-detail-section-managed-by = Beheerd door
+asset-detail-action-assign-managed-by = Beheerder toewijzen
+asset-detail-clear-managed-by = Beheerder wissen
+asset-detail-record-card = Recordkaart downloaden
 asset-detail-no-user-assigned = Geen gebruiker toegewezen aan dit activum
 asset-detail-action-assign-user = Gebruiker toewijzen
 # Machinevertaling, te controleren door moedertaalspreker.
