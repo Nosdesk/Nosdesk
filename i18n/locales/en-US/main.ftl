@@ -2540,6 +2540,7 @@ assets-list-filter-low-stock-all = All stock
 assets-list-filter-low-stock-on = Low stock only
 assets-list-add-action = Add asset
 assets-list-export-csv = Export CSV
+assets-list-export-history = Export history
 assets-list-export-empty = No assets to export. Add assets first, or adjust your filters.
 assets-list-export-failed = Failed to export assets. Please try again.
 assets-list-unassigned = Unassigned
@@ -4332,6 +4333,8 @@ asset-media-reorder-failed = Failed to reorder photos
 # Asset lifecycle status labels.
 asset-status-in-service = In service
 asset-status-in-stock = In stock
+asset-status-on-order = On order
+asset-status-in-transit = In transit
 asset-status-in-repair = In repair
 asset-status-on-loan = On loan
 asset-status-retired = Retired

@@ -2373,6 +2373,7 @@ assets-list-filter-low-stock-all = All stock
 assets-list-filter-low-stock-on = Low stock only
 assets-list-add-action = Ajouter un actif
 assets-list-export-csv = Exporter en CSV
+assets-list-export-history = Exporter l'historique
 assets-list-export-empty = Aucun actif à exporter. Ajoutez des actifs ou ajustez vos filtres.
 assets-list-export-failed = Échec de l'export des actifs. Veuillez réessayer.
 assets-list-unassigned = Non attribué
@@ -4139,6 +4140,8 @@ asset-low-stock-toast-body = { $quantity } { $unit } remaining (threshold { $thr
 # Asset lifecycle status labels. DRAFT: machine-translated, pending native review.
 asset-status-in-service = En service
 asset-status-in-stock = En stock
+asset-status-on-order = En commande
+asset-status-in-transit = En transit
 asset-status-in-repair = En réparation
 asset-status-on-loan = En prêt
 asset-status-retired = Retiré

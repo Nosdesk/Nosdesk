@@ -81,6 +81,8 @@ export interface Asset {
 export type AssetStatus =
   | 'in_service'
   | 'in_stock'
+  | 'on_order'
+  | 'in_transit'
   | 'in_repair'
   | 'on_loan'
   | 'retired'
@@ -90,6 +92,8 @@ export type AssetStatus =
 export const ASSET_STATUSES: AssetStatus[] = [
   'in_service',
   'in_stock',
+  'on_order',
+  'in_transit',
   'in_repair',
   'on_loan',
   'retired',

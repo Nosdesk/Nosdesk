@@ -496,7 +496,7 @@ function filterString(value: string | number | undefined): string | undefined {
   return String(value)
 }
 
-async function exportAssetsCsv() {
+async function exportAssetsCsv(scope?: 'history') {
   if (listView.page.totalItems.value === 0) {
     toast.info(t('assets-list-export-empty'));
     return;
@@ -510,7 +510,7 @@ async function exportAssetsCsv() {
       warranty: filterString(p.warranty),
       location: filterString(p.location),
       lowStock: filterString(p.lowStock),
-    })
+    }, scope)
   } catch (error) {
     toast.error(extractErrorMessage(error, t('assets-list-export-failed')))
   }
@@ -564,9 +564,18 @@ async function exportAssetsCsv() {
             class="inline-flex items-center text-[11px] px-2 h-6 rounded-md border border-default text-secondary hover:text-primary hover:bg-surface-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-secondary"
             :title="listView.page.totalItems.value === 0 ? $t('assets-list-export-empty') : $t('assets-list-export-csv')"
             :disabled="listView.page.totalItems.value === 0"
-            @click="exportAssetsCsv"
+            @click="exportAssetsCsv()"
           >
             {{ $t('assets-list-export-csv') }}
+          </button>
+          <button
+            type="button"
+            class="inline-flex items-center text-[11px] px-2 h-6 rounded-md border border-default text-secondary hover:text-primary hover:bg-surface-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-secondary"
+            :title="listView.page.totalItems.value === 0 ? $t('assets-list-export-empty') : $t('assets-list-export-history')"
+            :disabled="listView.page.totalItems.value === 0"
+            @click="exportAssetsCsv('history')"
+          >
+            {{ $t('assets-list-export-history') }}
           </button>
         </template>
       </ListViewToolbar>
