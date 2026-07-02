@@ -276,35 +276,45 @@ function metadataLines(event: AssetLifecycleEvent): string[] {
       </span>
     </div>
 
-    <p class="text-xs text-tertiary">{{ $t('asset-lifecycle-description') }}</p>
-
-    <!-- Disposal record: shown once the asset is disposed so the compliance
-         detail (method, data-bearing, ITAD vendor, notes) is visible here. -->
+    <!-- Disposal record: the compliance detail, surfaced on the asset once it
+         is disposed. Compact + wrapping so it stays readable on a narrow rail;
+         the who/when lives in the timeline below rather than being repeated. -->
     <div
       v-if="disposal"
-      class="rounded-lg border border-default bg-surface-alt p-3 flex flex-col gap-2"
+      class="rounded-lg border border-default bg-surface-alt px-3 py-2.5 flex flex-col gap-2"
     >
-      <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">
-        {{ $t('asset-disposal-record-heading') }}
-      </h3>
-      <dl class="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-sm">
-        <dt class="text-tertiary">{{ $t('asset-disposal-method') }}</dt>
-        <dd class="text-primary">
-          {{ $t(`asset-disposal-method-${disposal.sanitization_method}`) }}
-        </dd>
-        <dt class="text-tertiary">{{ $t('asset-disposal-data-bearing') }}</dt>
-        <dd class="text-primary">
-          {{ disposal.data_bearing ? $t('asset-disposal-data-bearing-yes') : $t('asset-disposal-data-bearing-no') }}
-        </dd>
-        <template v-if="disposal.itad_vendor">
-          <dt class="text-tertiary">{{ $t('asset-disposal-itad-vendor') }}</dt>
-          <dd class="text-primary">{{ disposal.itad_vendor }}</dd>
-        </template>
-        <template v-if="disposal.notes">
-          <dt class="text-tertiary">{{ $t('asset-disposal-notes') }}</dt>
-          <dd class="text-primary whitespace-pre-wrap">{{ disposal.notes }}</dd>
-        </template>
-      </dl>
+      <div class="flex items-center gap-1.5 text-tertiary">
+        <Icon name="trash" size="sm" class="flex-shrink-0" />
+        <h3 class="text-xs font-medium uppercase tracking-wide">
+          {{ $t('asset-disposal-record-heading') }}
+        </h3>
+      </div>
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm">
+        <span class="inline-flex items-center gap-1.5">
+          <span class="text-tertiary">{{ $t('asset-disposal-method') }}</span>
+          <span class="px-1.5 py-0.5 rounded bg-surface text-primary text-xs font-medium">
+            {{ $t(`asset-disposal-method-${disposal.sanitization_method}`) }}
+          </span>
+        </span>
+        <span class="inline-flex items-center gap-1.5">
+          <span class="text-tertiary">{{ $t('asset-disposal-data-bearing') }}</span>
+          <span
+            class="px-1.5 py-0.5 rounded text-xs font-medium"
+            :class="
+              disposal.data_bearing ? 'bg-accent-muted text-accent' : 'bg-surface text-secondary'
+            "
+          >
+            {{ disposal.data_bearing ? $t('asset-disposal-data-bearing-yes') : $t('asset-disposal-data-bearing-no') }}
+          </span>
+        </span>
+        <span v-if="disposal.itad_vendor" class="inline-flex items-center gap-1.5 min-w-0">
+          <span class="text-tertiary flex-shrink-0">{{ $t('asset-disposal-itad-vendor') }}</span>
+          <span class="text-primary truncate">{{ disposal.itad_vendor }}</span>
+        </span>
+      </div>
+      <p v-if="disposal.notes" class="text-sm text-secondary whitespace-pre-wrap">
+        {{ disposal.notes }}
+      </p>
     </div>
 
     <div
