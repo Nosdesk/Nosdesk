@@ -116,6 +116,9 @@ const disposalNotes = ref('');
 // loan record and the status in step. So it's not offered as a target, and
 // while an asset is on loan its status is changed by returning the loan.
 const isOnLoan = computed(() => props.currentStatus === 'on_loan');
+// Disposed is a terminal state: still correctable, but the transition action is
+// demoted from the primary CTA to a subdued "correct" affordance.
+const isTerminal = computed(() => props.currentStatus === 'disposed');
 const statusOptions = computed(() =>
   ASSET_STATUSES.filter((s) => {
     if (s === props.currentStatus) return false;
@@ -267,9 +270,10 @@ function metadataLines(event: AssetLifecycleEvent): string[] {
         v-if="canEdit && !isOnLoan"
         size="sm"
         icon="refresh"
+        :variant="isTerminal ? 'secondary' : 'primary'"
         @click="openModal"
       >
-        {{ $t('asset-lifecycle-change-status') }}
+        {{ isTerminal ? $t('asset-lifecycle-correct-status') : $t('asset-lifecycle-change-status') }}
       </Button>
       <span v-else-if="canEdit && isOnLoan" class="text-xs text-tertiary">
         {{ $t('asset-lifecycle-managed-by-loan') }}
@@ -332,16 +336,18 @@ function metadataLines(event: AssetLifecycleEvent): string[] {
       <div
         v-for="event in events"
         :key="event.id"
-        class="py-2.5 flex flex-col gap-1"
+        class="py-2 flex flex-col gap-0.5"
       >
-        <div class="flex items-baseline justify-between gap-3">
+        <div class="flex items-baseline justify-between gap-3 flex-wrap">
           <span class="text-sm font-medium text-primary">{{ transitionSummary(event) }}</span>
           <span class="text-xs text-tertiary whitespace-nowrap">
-            {{ formatRelativeTime(event.occurred_at, { addSuffix: true }) }}
+            {{ actorLabel(event.actor_uuid) }} · {{ formatRelativeTime(event.occurred_at, { addSuffix: true }) }}
           </span>
         </div>
-        <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs">
-          <span class="text-tertiary">{{ $t('asset-lifecycle-timeline-actor', { name: actorLabel(event.actor_uuid) }) }}</span>
+        <div
+          v-if="event.ticket_id || event.reason || metadataLines(event).length"
+          class="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-secondary"
+        >
           <RouterLink
             v-if="event.ticket_id"
             :to="`/tickets/${event.ticket_id}`"
@@ -349,9 +355,7 @@ function metadataLines(event: AssetLifecycleEvent): string[] {
           >
             {{ $t('asset-lifecycle-timeline-ticket', { id: event.ticket_id }) }}
           </RouterLink>
-          <span v-if="event.reason" class="text-secondary">{{ event.reason }}</span>
-        </div>
-        <div v-if="metadataLines(event).length" class="flex flex-col gap-0.5 text-xs text-secondary">
+          <span v-if="event.reason">{{ event.reason }}</span>
           <span v-for="(line, idx) in metadataLines(event)" :key="idx">{{ line }}</span>
         </div>
       </div>

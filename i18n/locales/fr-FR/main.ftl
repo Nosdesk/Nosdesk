@@ -4157,6 +4157,7 @@ asset-lifecycle-heading = Cycle de vie
 asset-lifecycle-description = Suivez les changements de statut opérationnel tels que les réparations, les prêts et la mise hors service.
 asset-lifecycle-current-label = Statut actuel
 asset-lifecycle-change-status = Changer le statut
+asset-lifecycle-correct-status = Corriger le statut
 # MT: pending native review
 asset-lifecycle-managed-by-loan = Géré par le prêt en cours
 # MT: pending native review
