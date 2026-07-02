@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import { useQuery, useQueryCache } from '@pinia/colada';
+import Autocomplete from '@/components/common/Autocomplete.vue';
 import BaseDropdown from '@/components/common/BaseDropdown.vue';
 import Button from '@/components/common/Button.vue';
 import Checkbox from '@/components/common/Checkbox.vue';
@@ -369,14 +370,11 @@ function metadataLines(event: AssetLifecycleEvent): string[] {
             v-model="dataBearing"
             :label="$t('asset-disposal-data-bearing')"
           />
-          <FormInput
+          <Autocomplete
             v-model="itadVendor"
+            :options="itadVendors"
             :label="$t('asset-disposal-itad-vendor')"
-            list="asset-itad-vendors"
           />
-          <datalist id="asset-itad-vendors">
-            <option v-for="v in itadVendors" :key="v" :value="v" />
-          </datalist>
           <FormTextarea
             v-model="disposalNotes"
             :label="$t('asset-disposal-notes')"
