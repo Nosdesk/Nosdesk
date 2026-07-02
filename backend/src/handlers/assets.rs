@@ -16,7 +16,7 @@ use crate::models::{Asset, AssetGroupRef, AssetUpdate, Group, NewAsset, User};
 use crate::repository;
 use crate::repository::groups as groups_repo;
 use crate::services::assets::{validate_for_kind, AssetValidationError, SYNC_OWNED_ATTRIBUTE_KEYS};
-use crate::services::imports::assets::write_assets_csv;
+use crate::services::imports::assets::{build_history_rows, write_assets_csv, write_history_csv};
 use crate::services::search::indexing_tasks;
 use crate::services::search::SearchService;
 
@@ -79,6 +79,9 @@ pub struct AssetExportQuery {
     groups: Option<String>,
     #[serde(rename = "lowStock")]
     low_stock: Option<String>,
+    /// `snapshot` (default) exports current-state rows; `history` exports the
+    /// lifecycle event log (one row per transition, ticket-correlated).
+    scope: Option<String>,
 }
 
 // Paginated response
@@ -117,6 +120,7 @@ pub struct AssetResponse {
     pub location: Option<String>,
     pub status: String,
     pub primary_user_uuid: Option<String>,
+    pub managed_by_user_uuid: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub purchase_date: Option<String>,
@@ -191,6 +195,9 @@ impl AssetResponse {
             status: device.status,
             primary_user_uuid: device
                 .primary_user_uuid
+                .map(|uuid| utils::uuid_to_string(&uuid)),
+            managed_by_user_uuid: device
+                .managed_by_user_uuid
                 .map(|uuid| utils::uuid_to_string(&uuid)),
             created_at: device
                 .created_at
@@ -590,9 +597,10 @@ pub async fn export_assets(
     };
 
     let format = query.format.as_deref().unwrap_or("csv");
-    if format != "csv" {
-        return errors::bad_request("Only format=csv is supported");
+    if format != "csv" && format != "json" {
+        return errors::bad_request("format must be csv or json");
     }
+    let want_history = query.scope.as_deref() == Some("history");
 
     let filters = repository::assets::AssetListFilters {
         search: query.search.as_deref(),
@@ -605,15 +613,22 @@ pub async fn export_assets(
 
     let export_result = tc.run(|conn| {
         let rows = repository::assets::list_for_export(conn, filters)?;
+        // History exports the lifecycle log for the same filtered assets.
+        let events = if want_history {
+            let ids: Vec<i32> = rows.iter().map(|a| a.id).collect();
+            Some(repository::asset_lifecycle::history_for_export(conn, &ids)?)
+        } else {
+            None
+        };
         let slug = repository::workspaces::find_by_id(conn, workspace_id)
             .ok()
             .flatten()
             .map(|w| w.slug)
             .unwrap_or_else(|| "workspace".to_string());
-        Ok((rows, slug))
+        Ok((rows, events, slug))
     });
 
-    let (rows, slug) = match export_result {
+    let (rows, events, slug) = match export_result {
         Ok(v) => v,
         Err(e) => {
             error!(error = ?e, "Database error exporting assets");
@@ -621,16 +636,79 @@ pub async fn export_assets(
         }
     };
 
-    let body = match write_assets_csv(&rows) {
-        Ok(bytes) => bytes,
+    let kind = if events.is_some() {
+        "asset-history"
+    } else {
+        "assets"
+    };
+    let built: Result<(Vec<u8>, &'static str, &'static str), String> = if format == "json" {
+        match &events {
+            Some(events) => serde_json::to_vec(&build_history_rows(&rows, events)),
+            None => serde_json::to_vec(&rows),
+        }
+        .map(|b| (b, "application/json; charset=utf-8", "json"))
+        .map_err(|e| e.to_string())
+    } else {
+        match &events {
+            Some(events) => write_history_csv(&rows, events),
+            None => write_assets_csv(&rows),
+        }
+        .map(|b| (b, "text/csv; charset=utf-8", "csv"))
+        .map_err(|e| e.to_string())
+    };
+    let (body, content_type, ext) = match built {
+        Ok(v) => v,
         Err(e) => {
-            error!(error = ?e, "Failed to serialize asset export CSV");
+            error!(error = %e, "Failed to serialize asset export");
             return errors::internal("Failed to build asset export");
         }
     };
 
     let date = chrono::Utc::now().format("%Y%m%d");
-    let filename = format!("assets-{}-{}.csv", slug, date);
+    let filename = format!("{kind}-{slug}-{date}.{ext}");
+    HttpResponse::Ok()
+        .insert_header((header::CONTENT_TYPE, content_type))
+        .insert_header((
+            header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{filename}\""),
+        ))
+        .body(body)
+}
+
+/// `GET /api/assets/{id}/record-card` — the asset's full lifecycle history as a
+/// CSV (offboarding / disposal / dispute evidence). Same rows as the bulk
+/// history export, scoped to one asset. Any authenticated workspace member.
+pub async fn record_card(
+    mut tc: TenantConn,
+    _auth: AuthContext,
+    path: web::Path<i32>,
+) -> impl Responder {
+    let asset_id = path.into_inner();
+    let result = tc.run(|conn| {
+        let asset = repository::get_device_by_id(conn, asset_id)?;
+        let events = repository::asset_lifecycle::history_for_export(conn, &[asset_id])?;
+        Ok((asset, events))
+    });
+    let (asset, events) = match result {
+        Ok(v) => v,
+        Err(diesel::result::Error::NotFound) => {
+            return errors::not_found_msg(format!("Asset {asset_id} not found"));
+        }
+        Err(e) => {
+            error!(asset_id, error = ?e, "Database error building asset record card");
+            return errors::internal("Failed to build asset record card");
+        }
+    };
+    let body = match write_history_csv(std::slice::from_ref(&asset), &events) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            error!(asset_id, error = ?e, "Failed to serialize asset record card CSV");
+            return errors::internal("Failed to build asset record card");
+        }
+    };
+    let tag = asset.asset_tag.as_deref().unwrap_or("asset");
+    let date = chrono::Utc::now().format("%Y%m%d");
+    let filename = format!("record-card-{tag}-{date}.csv");
     HttpResponse::Ok()
         .insert_header((header::CONTENT_TYPE, "text/csv; charset=utf-8"))
         .insert_header((
@@ -957,6 +1035,9 @@ pub async fn update_device(
                 &existing_device.attributes,
                 incoming.attributes.as_ref(),
             )),
+            // managed_by is Nosdesk-local custody, not owned by the sync, so it
+            // stays settable even on externally-synced assets.
+            managed_by_user_uuid: incoming.managed_by_user_uuid,
             ..Default::default()
         }
     } else {

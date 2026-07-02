@@ -2373,6 +2373,7 @@ assets-list-filter-low-stock-all = All stock
 assets-list-filter-low-stock-on = Low stock only
 assets-list-add-action = Ajouter un actif
 assets-list-export-csv = Exporter en CSV
+assets-list-export-history = Exporter l'historique
 assets-list-export-empty = Aucun actif à exporter. Ajoutez des actifs ou ajustez vos filtres.
 assets-list-export-failed = Échec de l'export des actifs. Veuillez réessayer.
 assets-list-unassigned = Non attribué
@@ -2446,6 +2447,10 @@ asset-detail-warranty-warning = Avertissement
 asset-detail-warranty-expired = Expirée
 asset-detail-warranty-unknown = Inconnue
 asset-detail-section-primary-user = Utilisateur principal
+asset-detail-section-managed-by = Géré par
+asset-detail-action-assign-managed-by = Attribuer un responsable
+asset-detail-clear-managed-by = Retirer le responsable
+asset-detail-record-card = Télécharger la fiche
 asset-detail-no-user-assigned = Aucun utilisateur assigné à cet actif
 asset-detail-action-assign-user = Attribuer un utilisateur
 # Machine, à relire par un locuteur natif.
@@ -4139,6 +4144,8 @@ asset-low-stock-toast-body = { $quantity } { $unit } remaining (threshold { $thr
 # Asset lifecycle status labels. DRAFT: machine-translated, pending native review.
 asset-status-in-service = En service
 asset-status-in-stock = En stock
+asset-status-on-order = En commande
+asset-status-in-transit = En transit
 asset-status-in-repair = En réparation
 asset-status-on-loan = En prêt
 asset-status-retired = Retiré
@@ -4150,6 +4157,7 @@ asset-lifecycle-heading = Cycle de vie
 asset-lifecycle-description = Suivez les changements de statut opérationnel tels que les réparations, les prêts et la mise hors service.
 asset-lifecycle-current-label = Statut actuel
 asset-lifecycle-change-status = Changer le statut
+asset-lifecycle-correct-status = Corriger le statut
 # MT: pending native review
 asset-lifecycle-managed-by-loan = Géré par le prêt en cours
 # MT: pending native review
@@ -4260,6 +4268,19 @@ asset-lifecycle-meta-vendor = Prestataire de réparation
 asset-lifecycle-meta-rma = Numéro RMA
 asset-lifecycle-meta-offsite = Envoyé hors site
 asset-lifecycle-meta-expected-return = Retour prévu
+
+# Asset disposal fields. DRAFT: machine-translated, pending native review.
+asset-disposal-method = Méthode d'effacement
+asset-disposal-method-clear = Effacement
+asset-disposal-method-purge = Purge
+asset-disposal-method-destroy = Destruction
+asset-disposal-method-none = Aucune
+asset-disposal-data-bearing = Contient des données
+asset-disposal-itad-vendor = Prestataire ITAD
+asset-disposal-notes = Notes
+asset-disposal-record-heading = Fiche d'élimination
+asset-disposal-data-bearing-yes = Oui
+asset-disposal-data-bearing-no = Non
 asset-lifecycle-meta-loaned-to = Prêté à
 asset-lifecycle-meta-due-back = Date de retour
 

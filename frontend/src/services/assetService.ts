@@ -154,30 +154,28 @@ async function messageFromErrorBlob(blob: Blob): Promise<string | null> {
   }
 }
 
-/** Download workspace assets as CSV, honouring the same filters as
- *  the paginated list. Uses the authenticated API client so errors
- *  surface in-app instead of replacing the page with raw text. */
-export async function downloadAssetsCsv(
-  filters: Pick<AssetPaginationParams, 'search' | 'status' | 'warranty' | 'location' | 'lowStock'>,
+/** Shared blob-download: GET a CSV via the authenticated client and
+ *  save it, surfacing server errors in-app instead of replacing the
+ *  page with raw text. */
+async function downloadCsv(
+  url: string,
+  params: URLSearchParams | undefined,
+  fallbackName: string,
 ): Promise<void> {
   try {
-    const response = await apiClient.get('/assets/export', {
-      params: assetExportParams(filters),
-      responseType: 'blob',
-    });
+    const response = await apiClient.get(url, { params, responseType: 'blob' });
     const blob = response.data as Blob;
     const filename = filenameFromContentDisposition(
       response.headers['content-disposition'] as string | undefined,
-      'assets-export.csv',
+      fallbackName,
     );
-    const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.href = url;
+    link.href = URL.createObjectURL(blob);
     link.download = filename;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    URL.revokeObjectURL(link.href);
   } catch (error) {
     const err = error as { response?: { data?: Blob } };
     if (err.response?.data instanceof Blob) {
@@ -186,9 +184,31 @@ export async function downloadAssetsCsv(
         throw new Error(message);
       }
     }
-    logger.error('Failed to export assets CSV', { error });
+    logger.error('Failed to download asset CSV', { url, error });
     throw error;
   }
+}
+
+/** Download workspace assets as CSV, honouring the same filters as the
+ *  paginated list. `scope: 'history'` exports the lifecycle event log
+ *  (one row per transition) instead of the current-state snapshot. */
+export async function downloadAssetsCsv(
+  filters: Pick<AssetPaginationParams, 'search' | 'status' | 'warranty' | 'location' | 'lowStock'>,
+  scope?: 'history',
+): Promise<void> {
+  const params = assetExportParams(filters);
+  if (scope) params.set('scope', scope);
+  await downloadCsv(
+    '/assets/export',
+    params,
+    scope === 'history' ? 'asset-history.csv' : 'assets-export.csv',
+  );
+}
+
+/** Download one asset's full lifecycle history as a CSV record card
+ *  (offboarding / disposal / dispute evidence). */
+export async function downloadAssetRecordCard(assetId: number): Promise<void> {
+  await downloadCsv(`/assets/${assetId}/record-card`, undefined, `record-card-${assetId}.csv`);
 }
 
 // Get paginated assets

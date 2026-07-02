@@ -2540,6 +2540,7 @@ assets-list-filter-low-stock-all = All stock
 assets-list-filter-low-stock-on = Low stock only
 assets-list-add-action = Add asset
 assets-list-export-csv = Export CSV
+assets-list-export-history = Export history
 assets-list-export-empty = No assets to export. Add assets first, or adjust your filters.
 assets-list-export-failed = Failed to export assets. Please try again.
 assets-list-unassigned = Unassigned
@@ -2615,6 +2616,10 @@ asset-detail-warranty-warning = Warning
 asset-detail-warranty-expired = Expired
 asset-detail-warranty-unknown = Unknown
 asset-detail-section-primary-user = Primary User
+asset-detail-section-managed-by = Managed by
+asset-detail-action-assign-managed-by = Assign custodian
+asset-detail-clear-managed-by = Clear custodian
+asset-detail-record-card = Download record card
 asset-detail-no-user-assigned = No user assigned to this asset
 asset-detail-action-assign-user = Assign User
 asset-detail-add-property = Add property
@@ -4332,6 +4337,8 @@ asset-media-reorder-failed = Failed to reorder photos
 # Asset lifecycle status labels.
 asset-status-in-service = In service
 asset-status-in-stock = In stock
+asset-status-on-order = On order
+asset-status-in-transit = In transit
 asset-status-in-repair = In repair
 asset-status-on-loan = On loan
 asset-status-retired = Retired
@@ -4344,6 +4351,7 @@ asset-lifecycle-heading = Lifecycle
 asset-lifecycle-description = Track operational status changes such as repairs, loans, and retirement.
 asset-lifecycle-current-label = Current status
 asset-lifecycle-change-status = Change status
+asset-lifecycle-correct-status = Correct status
 asset-lifecycle-managed-by-loan = Managed by the active loan
 
 # Asset loans
@@ -4418,6 +4426,19 @@ asset-lifecycle-meta-vendor = Repair vendor
 asset-lifecycle-meta-rma = RMA number
 asset-lifecycle-meta-offsite = Sent offsite
 asset-lifecycle-meta-expected-return = Expected return
+
+# Asset disposal (transition to disposed) fields.
+asset-disposal-method = Sanitization method
+asset-disposal-method-clear = Clear
+asset-disposal-method-purge = Purge
+asset-disposal-method-destroy = Destroy
+asset-disposal-method-none = None
+asset-disposal-data-bearing = Data-bearing
+asset-disposal-itad-vendor = ITAD vendor
+asset-disposal-notes = Notes
+asset-disposal-record-heading = Disposal record
+asset-disposal-data-bearing-yes = Yes
+asset-disposal-data-bearing-no = No
 asset-lifecycle-meta-loaned-to = Loaned to
 asset-lifecycle-meta-due-back = Due back
 

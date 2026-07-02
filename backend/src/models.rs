@@ -1126,6 +1126,9 @@ pub struct Asset {
     /// Optional link to the `asset_models` catalog row this asset was
     /// stamped from. NULL for model-less / hand-entered assets.
     pub model_id: Option<i32>,
+    /// The accountable "managed by" custodian, distinct from the holder
+    /// (`primary_user_uuid`, "used by"). NULL when unassigned.
+    pub managed_by_user_uuid: Option<Uuid>,
 }
 
 /// Canonical asset lifecycle states. Stored as snake_case strings in
@@ -1143,6 +1146,8 @@ pub enum AssetStatus {
     Retired,
     Lost,
     Disposed,
+    OnOrder,
+    InTransit,
 }
 
 impl AssetStatus {
@@ -1155,6 +1160,8 @@ impl AssetStatus {
             Self::Retired => "retired",
             Self::Lost => "lost",
             Self::Disposed => "disposed",
+            Self::OnOrder => "on_order",
+            Self::InTransit => "in_transit",
         }
     }
 
@@ -1167,6 +1174,8 @@ impl AssetStatus {
             "retired" => Some(Self::Retired),
             "lost" => Some(Self::Lost),
             "disposed" => Some(Self::Disposed),
+            "on_order" => Some(Self::OnOrder),
+            "in_transit" => Some(Self::InTransit),
             _ => None,
         }
     }
@@ -1234,6 +1243,8 @@ pub struct AssetUpdate {
     pub location: Option<String>,
     pub notes: Option<String>,
     pub primary_user_uuid: Option<Uuid>,
+    /// The accountable "managed by" custodian. `None` leaves it unchanged.
+    pub managed_by_user_uuid: Option<Uuid>,
     pub purchase_date: Option<NaiveDate>,
     pub asset_tag: Option<String>,
     pub updated_at: Option<NaiveDateTime>,
@@ -1519,6 +1530,42 @@ pub struct NewAssetLifecycleEvent {
     pub reason: Option<String>,
     pub ticket_id: Option<i32>,
     pub metadata: serde_json::Value,
+    pub actor_uuid: Option<Uuid>,
+}
+
+/// A disposal record (design doc: asset-lifecycle-export; NIST SP 800-88
+/// aligned). Written once when an asset is disposed, for compliance /
+/// chain-of-custody export. `lifecycle_event_id` links to the `disposed`
+/// transition that created it; `sanitization_method` is a NIST 800-88 category
+/// (clear / purge / destroy / none); `certificate_file_id` is a soft reference
+/// for now (the v1.2 compliance pack wires the attachment fully).
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable, Associations)]
+#[diesel(table_name = crate::schema::asset_disposals)]
+#[diesel(belongs_to(Asset))]
+pub struct AssetDisposal {
+    pub id: i32,
+    pub asset_id: i32,
+    pub lifecycle_event_id: Option<i32>,
+    pub sanitization_method: String,
+    pub data_bearing: bool,
+    pub certificate_file_id: Option<i32>,
+    pub itad_vendor: Option<String>,
+    pub notes: Option<String>,
+    pub actor_uuid: Option<Uuid>,
+    pub occurred_at: chrono::DateTime<chrono::Utc>,
+    pub workspace_id: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Insertable)]
+#[diesel(table_name = crate::schema::asset_disposals)]
+pub struct NewAssetDisposal {
+    pub asset_id: i32,
+    pub lifecycle_event_id: Option<i32>,
+    pub sanitization_method: String,
+    pub data_bearing: bool,
+    pub certificate_file_id: Option<i32>,
+    pub itad_vendor: Option<String>,
+    pub notes: Option<String>,
     pub actor_uuid: Option<Uuid>,
 }
 

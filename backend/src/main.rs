@@ -2472,6 +2472,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/assets/calendar-overlay", web::get().to(handlers::assets::calendar_overlay))
                     .route("/assets/export", web::get().to(handlers::export_assets))
                     .route("/assets/locations", web::get().to(handlers::get_asset_locations))
+                    .route("/assets/itad-vendors", web::get().to(handlers::asset_lifecycle::list_itad_vendors))
                     .route("/assets/grouping-dataset", web::get().to(handlers::assets::asset_grouping_dataset))
                     .route("/assets/rollouts", web::post().to(handlers::assets::create_rollout))
                     // Read-only kind registry for the asset create/edit
@@ -2506,6 +2507,8 @@ async fn main() -> std::io::Result<()> {
                     .route("/assets/{id:\\d+}/unmanage", web::post().to(handlers::unmanage_device))
                     .route("/assets/{id:\\d+}/lifecycle", web::get().to(handlers::asset_lifecycle::list_for_asset))
                     .route("/assets/{id:\\d+}/lifecycle", web::post().to(handlers::asset_lifecycle::create_transition))
+                    .route("/assets/{id:\\d+}/disposal", web::get().to(handlers::asset_lifecycle::get_disposal))
+                    .route("/assets/{id:\\d+}/record-card", web::get().to(handlers::assets::record_card))
                     .route("/assets/{id:\\d+}/loans", web::get().to(handlers::asset_loans::list_for_asset))
                     .route("/assets/{id:\\d+}/loans", web::post().to(handlers::asset_loans::issue))
                     .route("/assets/{id:\\d+}/loans/{loan_id:\\d+}", web::patch().to(handlers::asset_loans::edit))

@@ -2370,6 +2370,7 @@ assets-list-filter-low-stock-all = All stock
 assets-list-filter-low-stock-on = Low stock only
 assets-list-add-action = Activum toevoegen
 assets-list-export-csv = CSV exporteren
+assets-list-export-history = Geschiedenis exporteren
 assets-list-export-empty = Geen assets om te exporteren. Voeg assets toe of pas uw filters aan.
 assets-list-export-failed = Exporteren van assets mislukt. Probeer het opnieuw.
 assets-list-unassigned = Niet toegewezen
@@ -2443,6 +2444,10 @@ asset-detail-warranty-warning = Waarschuwing
 asset-detail-warranty-expired = Verlopen
 asset-detail-warranty-unknown = Onbekend
 asset-detail-section-primary-user = Primaire gebruiker
+asset-detail-section-managed-by = Beheerd door
+asset-detail-action-assign-managed-by = Beheerder toewijzen
+asset-detail-clear-managed-by = Beheerder wissen
+asset-detail-record-card = Recordkaart downloaden
 asset-detail-no-user-assigned = Geen gebruiker toegewezen aan dit activum
 asset-detail-action-assign-user = Gebruiker toewijzen
 # Machinevertaling, te controleren door moedertaalspreker.
@@ -4130,6 +4135,8 @@ asset-low-stock-toast-body = { $quantity } { $unit } remaining (threshold { $thr
 # Asset lifecycle status labels. DRAFT: machine-translated, pending native review.
 asset-status-in-service = In gebruik
 asset-status-in-stock = Op voorraad
+asset-status-on-order = Besteld
+asset-status-in-transit = Onderweg
 asset-status-in-repair = In reparatie
 asset-status-on-loan = Uitgeleend
 asset-status-retired = Buiten gebruik
@@ -4141,6 +4148,7 @@ asset-lifecycle-heading = Levenscyclus
 asset-lifecycle-description = Volg operationele statuswijzigingen zoals reparaties, uitleningen en buiten gebruikstelling.
 asset-lifecycle-current-label = Huidige status
 asset-lifecycle-change-status = Status wijzigen
+asset-lifecycle-correct-status = Status corrigeren
 # MT: pending native review
 asset-lifecycle-managed-by-loan = Beheerd door de actieve uitlening
 # MT: pending native review
@@ -4251,6 +4259,19 @@ asset-lifecycle-meta-vendor = Reparatieleverancier
 asset-lifecycle-meta-rma = RMA-nummer
 asset-lifecycle-meta-offsite = Offsite verzonden
 asset-lifecycle-meta-expected-return = Verwachte terugkeer
+
+# Asset disposal fields. DRAFT: machine-translated, pending native review.
+asset-disposal-method = Wismethode
+asset-disposal-method-clear = Wissen
+asset-disposal-method-purge = Zuiveren
+asset-disposal-method-destroy = Vernietigen
+asset-disposal-method-none = Geen
+asset-disposal-data-bearing = Bevat gegevens
+asset-disposal-itad-vendor = ITAD-leverancier
+asset-disposal-notes = Notities
+asset-disposal-record-heading = Afvoergegevens
+asset-disposal-data-bearing-yes = Ja
+asset-disposal-data-bearing-no = Nee
 asset-lifecycle-meta-loaned-to = Uitgeleend aan
 asset-lifecycle-meta-due-back = Terug verwacht
 

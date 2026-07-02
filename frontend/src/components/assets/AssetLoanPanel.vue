@@ -14,6 +14,7 @@ import UserAvatar from '@/components/UserAvatar.vue';
 import UserSelectionModal from '@/components/UserSelectionModal.vue';
 import TicketPickerModal from '@/components/ticketComponents/TicketPickerModal.vue';
 import { assetLoanKeys, assetLoanService } from '@nosdesk/core/services/assetLoanService';
+import { assetLifecycleKeys } from '@nosdesk/core/services/assetLifecycleService';
 import { useSyncActions } from '@/composables/useSyncActions';
 import { useUsersDirectory } from '@/composables/useUsersDirectory';
 import { formatCompactDate, formatRelativeTime } from '@nosdesk/core/utils/dateUtils';
@@ -24,6 +25,10 @@ const props = defineProps<{
   currentStatus: string;
   canEdit?: boolean;
 }>();
+
+// Emitted after a loan is issued/returned so the parent refreshes the asset
+// (its status badge + the `current-status` it passes to the sibling panels).
+const emit = defineEmits<{ (e: 'changed'): void }>();
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -54,7 +59,13 @@ const canLoan = computed(
 );
 
 function invalidate() {
-  return queryCache.invalidateQueries({ key: assetLoanKeys.forAsset(props.assetId) });
+  // A loan change reverts the asset status and writes a lifecycle event, so
+  // refresh the timeline too, not just the loan ledger (the status badge is
+  // refreshed by the parent via the `changed` emit).
+  return Promise.all([
+    queryCache.invalidateQueries({ key: assetLoanKeys.forAsset(props.assetId) }),
+    queryCache.invalidateQueries({ key: assetLifecycleKeys.forAsset(props.assetId) }),
+  ]);
 }
 
 useSyncActions(
@@ -156,6 +167,7 @@ async function submitIssue() {
       notes: notes.value.trim() || null,
     });
     await invalidate();
+    emit('changed');
     showIssue.value = false;
   } catch (e) {
     issueError.value = e instanceof Error ? e.message : t('asset-loan-failed');
@@ -186,6 +198,7 @@ async function submitReturn() {
       notes: returnNotes.value.trim() || null,
     });
     await invalidate();
+    emit('changed');
     showReturn.value = false;
   } catch (e) {
     returnError.value = e instanceof Error ? e.message : t('asset-loan-failed');

@@ -60,6 +60,7 @@ pub fn seed_workspace_defaults(
     repository::workflow_states::seed_defaults_if_empty(conn, created_by)?;
     repository::sla_admin::seed_defaults_if_empty(conn, created_by)?;
     repository::categories::seed_defaults_if_empty(conn, created_by)?;
+    repository::asset_kinds::seed_defaults_if_empty(conn, created_by)?;
     Ok(())
 }
 

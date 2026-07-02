@@ -22,6 +22,7 @@ use uuid::Uuid;
 
 use std::sync::Arc;
 
+use crate::db::Pool;
 use crate::extractors::PlatformConn;
 use crate::handlers::errors;
 use crate::models::{NewWorkspace, Workspace, WorkspaceMember, WorkspaceRole};
@@ -123,7 +124,7 @@ pub struct CreateWorkspaceRequest {
 
 pub async fn create_workspace(
     req: HttpRequest,
-    mut pc: PlatformConn,
+    pool: web::Data<Pool>,
     body: web::Json<CreateWorkspaceRequest>,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_platform_admin(&req) {
@@ -138,6 +139,14 @@ pub async fn create_workspace(
         return errors::bad_request("name must not be empty");
     }
 
+    let mut conn = match pool.get() {
+        Ok(c) => c,
+        Err(e) => {
+            error!(error = ?e, "admin/workspaces pool checkout failed");
+            return errors::internal("Failed to create workspace");
+        }
+    };
+
     // License gate. Self-hosted deployments are capped at the edition's
     // workspace limit (Community = 1); creating beyond it requires an
     // Enterprise license. Hosted deployments are provisioned by the control
@@ -146,7 +155,7 @@ pub async fn create_workspace(
     {
         let edition = crate::license::current();
         let max = edition.max_workspaces();
-        let active = match pc.run(workspaces::count_active_workspaces) {
+        let active = match workspaces::count_active_workspaces(&mut conn) {
             Ok(n) => n,
             Err(e) => {
                 error!(error = ?e, "admin/workspaces license-gate count failed");
@@ -182,24 +191,39 @@ pub async fn create_workspace(
         seat_limit: None,
     };
 
-    match pc.run(|conn| match workspaces::create_workspace(conn, &record) {
-        Ok(ws) => Ok(Ok(ws)),
-        Err(CreateWorkspaceError::SlugTaken) => Ok(Err(CreateWorkspaceError::SlugTaken)),
-        Err(CreateWorkspaceError::Db(e)) => Err(e),
-    }) {
-        Ok(Ok(ws)) => {
-            info!(workspace_uuid = %ws.uuid, workspace_id = ws.id, slug = %ws.slug, "admin/workspaces created");
+    // Create the workspace and seed its default content (workflow states, SLA,
+    // categories, asset kinds) in one bypass-context transaction, mirroring the
+    // control-plane provisioning path: the `workspaces` insert needs the
+    // nosdesk_admin BYPASSRLS role, then the session pins to the new workspace
+    // so each seeded row's workspace_id + audit context resolves to it. A seed
+    // failure rolls the workspace row back rather than leaving it unusable.
+    let provision_actor = crate::sync::actor::ActorContext::system("workspace:provision");
+    let result = crate::sync::session::with_actor_bypass_context::<Workspace, CreateWorkspaceError>(
+        &mut conn,
+        &provision_actor,
+        |c| {
+            let ws = workspaces::create_workspace(c, &record)?;
+            let seed_actor = crate::sync::actor::ActorContext::system("workspace:provision")
+                .with_workspace(ws.id);
+            crate::sync::session::set_actor(c, &seed_actor)?;
+            crate::services::seed::seed_workspace_defaults(c, None)?;
+            Ok(ws)
+        },
+    );
+
+    match result {
+        Ok(ws) => {
+            info!(workspace_uuid = %ws.uuid, workspace_id = ws.id, slug = %ws.slug, "admin/workspaces created + seeded");
             HttpResponse::Created().json(WorkspaceSummary::from(ws))
         }
-        Ok(Err(CreateWorkspaceError::SlugTaken)) => {
+        Err(CreateWorkspaceError::SlugTaken) => {
             warn!(slug = %slug, "admin/workspaces slug collision");
             HttpResponse::Conflict().json(serde_json::json!({
                 "error": "slug_taken",
                 "message": format!("slug '{slug}' is unavailable, please choose another"),
             }))
         }
-        Ok(Err(CreateWorkspaceError::Db(_))) => unreachable!("DB errors are mapped to Err above"),
-        Err(e) => {
+        Err(CreateWorkspaceError::Db(e)) => {
             error!(error = ?e, slug = %slug, "admin/workspaces create failed");
             errors::internal("Failed to create workspace")
         }

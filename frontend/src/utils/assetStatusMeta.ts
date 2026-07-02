@@ -28,6 +28,18 @@ const META: Record<AssetStatus, AssetStatusMeta> = {
     swatchClass: 'bg-zinc-400',
     icon: 'device',
   },
+  on_order: {
+    labelKey: 'asset-status-on-order',
+    colorClass: 'bg-surface-alt text-secondary border-default',
+    swatchClass: 'bg-violet-500',
+    icon: 'clock',
+  },
+  in_transit: {
+    labelKey: 'asset-status-in-transit',
+    colorClass: 'bg-accent-muted text-accent border-accent/30',
+    swatchClass: 'bg-cyan-500',
+    icon: 'move',
+  },
   in_repair: {
     labelKey: 'asset-status-in-repair',
     colorClass: 'bg-status-warning-muted text-status-warning border-status-warning/30',

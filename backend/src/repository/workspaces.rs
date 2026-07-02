@@ -512,6 +512,17 @@ pub fn hard_delete_workspace(
         .do_nothing()
         .execute(conn)?;
 
+    // Purge the workspace: every workspace FK cascades (see the
+    // cascade_workspace_deletes migration), so removing the row deletes the
+    // workspace's tenant data in one statement. Suppress audit (and sync)
+    // capture for the cascade via the same GUC the audit-read path uses: the
+    // cascade would otherwise fire a per-row audit trigger with no workspace
+    // GUC to attribute to, and any audit row it wrote would dangle against the
+    // workspace being removed in the same statement. Runs inside the caller's
+    // transaction (PlatformConn::run / with_actor_bypass_context), so SET LOCAL
+    // is scoped to the purge.
+    diesel::sql_query("SET LOCAL nosdesk.in_audit_read = 'true'").execute(conn)?;
+
     diesel::delete(
         workspaces::table
             .filter(workspaces::id.eq(id))

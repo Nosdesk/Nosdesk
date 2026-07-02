@@ -33,7 +33,7 @@ import {
 } from '@/components/assets/assetAttributeSchema';
 import PluginSlot from '@/plugins/components/PluginSlot.vue';
 import Modal from '@/components/Modal.vue';
-import { deleteAsset, unmanageAsset } from '@/services/assetService';
+import { deleteAsset, downloadAssetRecordCard, unmanageAsset } from '@/services/assetService';
 import { type AssetKind } from '@nosdesk/core/services/assetKindsService';
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery';
 import { useAssetLocationsQuery } from '@/composables/useAssetLocationsQuery';
@@ -70,6 +70,7 @@ const mediaPanelRef = ref<InstanceType<typeof AssetMediaPanel> | null>(null);
 const error = ref<string | null>(null);
 const isSaving = ref(false);
 const showUserSelectionModal = ref(false);
+const showManagedByModal = ref(false);
 const showUnmanageModal = ref(false);
 const unmanageError = ref<string | null>(null);
 const { locations: knownLocations } = useAssetLocationsQuery();
@@ -154,6 +155,7 @@ const syncSourceLabel = computed(() => {
 // Type, so the surface stays straightforward until the user extends it.
 type PropKey =
   | 'primary_user'
+  | 'managed_by'
   | 'serial_number'
   | 'manufacturer'
   | 'model'
@@ -164,6 +166,7 @@ type PropKey =
 
 const PROP_LABEL_KEY: Record<PropKey, string> = {
   primary_user: 'asset-detail-section-primary-user',
+  managed_by: 'asset-detail-section-managed-by',
   serial_number: 'asset-detail-field-serial',
   manufacturer: 'asset-detail-field-manufacturer',
   model: 'asset-detail-field-model',
@@ -175,6 +178,7 @@ const PROP_LABEL_KEY: Record<PropKey, string> = {
 
 const PROP_ORDER: PropKey[] = [
   'primary_user',
+  'managed_by',
   'serial_number',
   'manufacturer',
   'model',
@@ -190,11 +194,11 @@ const PROP_ORDER: PropKey[] = [
 // property that already holds a value always shows regardless of this,
 // so changing an asset's type never hides existing data.
 const RELEVANT_PROPS: Record<string, PropKey[]> = {
-  it: ['primary_user', 'serial_number', 'manufacturer', 'model', 'asset_tag', 'location', 'purchase_date'],
-  physical: ['primary_user', 'serial_number', 'manufacturer', 'model', 'asset_tag', 'location', 'purchase_date'],
-  logical: ['primary_user', 'manufacturer', 'asset_tag', 'purchase_date'],
+  it: ['primary_user', 'managed_by', 'serial_number', 'manufacturer', 'model', 'asset_tag', 'location', 'purchase_date'],
+  physical: ['primary_user', 'managed_by', 'serial_number', 'manufacturer', 'model', 'asset_tag', 'location', 'purchase_date'],
+  logical: ['primary_user', 'managed_by', 'manufacturer', 'asset_tag', 'purchase_date'],
   bulk: ['stock', 'manufacturer', 'asset_tag', 'location', 'purchase_date'],
-  generic: ['primary_user', 'location', 'asset_tag', 'purchase_date'],
+  generic: ['primary_user', 'managed_by', 'location', 'asset_tag', 'purchase_date'],
 };
 
 const relevantSet = computed(
@@ -215,6 +219,8 @@ function propHasValue(key: PropKey): boolean {
   switch (key) {
     case 'primary_user':
       return Boolean(d.primary_user_uuid);
+    case 'managed_by':
+      return Boolean(d.managed_by_user_uuid);
     case 'serial_number':
       return Boolean(d.serial_number);
     case 'manufacturer':
@@ -493,6 +499,40 @@ async function clearPrimaryUser() {
   }
 }
 
+const handleManagedBySelection = async (user: { uuid: string; name: string; email: string; role: string }) => {
+  if (!device.value) return;
+  showManagedByModal.value = false;
+  try {
+    isSaving.value = true;
+    await patchAsset({ managed_by_user_uuid: user.uuid || null });
+  } catch (err) {
+    console.error('Error updating managed-by user:', err);
+  } finally {
+    isSaving.value = false;
+  }
+};
+
+async function clearManagedBy() {
+  if (!device.value) return;
+  try {
+    isSaving.value = true;
+    await patchAsset({ managed_by_user_uuid: null });
+  } catch (err) {
+    console.error('Error clearing managed-by user:', err);
+  } finally {
+    isSaving.value = false;
+  }
+}
+
+async function downloadRecordCard() {
+  if (!device.value) return;
+  try {
+    await downloadAssetRecordCard(device.value.id);
+  } catch (err) {
+    console.error('Error downloading record card:', err);
+  }
+}
+
 const handleDeleteDevice = async () => {
   if (!device.value) return;
   try {
@@ -721,6 +761,44 @@ useSyncActions(
                     </Button>
                   </div>
 
+                  <!-- Managed by: accountable custodian, distinct from the primary user (holder). -->
+                  <div v-else-if="key === 'managed_by'" class="flex flex-col gap-1 sm:col-span-2">
+                    <div class="flex items-center justify-between min-h-6">
+                      <h3 class="text-xs font-medium text-tertiary">{{ $t('asset-detail-section-managed-by') }}</h3>
+                      <button
+                        v-if="device.managed_by_user_uuid && isEditable"
+                        type="button"
+                        class="p-1 text-tertiary hover:text-status-error hover:bg-status-error-muted rounded transition-colors"
+                        :title="$t('asset-detail-clear-managed-by')"
+                        @click="clearManagedBy"
+                      >
+                        <Icon name="close" />
+                      </button>
+                    </div>
+                    <RouterLink
+                      v-if="device.managed_by_user_uuid"
+                      :to="`/users/${device.managed_by_user_uuid}`"
+                      class="group flex items-center gap-2.5 min-w-0"
+                    >
+                      <UserAvatar
+                        :uuid="device.managed_by_user_uuid"
+                        size="sm"
+                        :clickable="false"
+                        show-name
+                      />
+                    </RouterLink>
+                    <Button
+                      v-else-if="isEditable"
+                      block
+                      variant="secondary"
+                      size="sm"
+                      icon="user"
+                      @click="showManagedByModal = true"
+                    >
+                      {{ $t('asset-detail-action-assign-managed-by') }}
+                    </Button>
+                  </div>
+
                   <!-- Serial -->
                   <div v-else-if="key === 'serial_number'" class="flex flex-col gap-1">
                     <h3 class="text-xs font-medium text-tertiary">{{ $t('asset-detail-field-serial') }}</h3>
@@ -911,6 +989,17 @@ useSyncActions(
                  list in the same wide column. -->
             <SectionCard content-padding="p-4">
               <template #title>{{ $t('asset-lifecycle-heading') }}</template>
+              <template #headerActions>
+                <button
+                  type="button"
+                  class="p-1 -mr-1 text-tertiary hover:text-primary hover:bg-surface-hover rounded transition-colors"
+                  :title="$t('asset-detail-record-card')"
+                  :aria-label="$t('asset-detail-record-card')"
+                  @click="downloadRecordCard"
+                >
+                  <Icon name="download" size="sm" />
+                </button>
+              </template>
               <AssetLifecyclePanel
                 :asset-id="device.id"
                 :current-status="device.status"
@@ -925,6 +1014,7 @@ useSyncActions(
                 :asset-id="device.id"
                 :current-status="device.status"
                 :can-edit="canChangeLifecycle"
+                @changed="() => invalidateAsset()"
               />
             </SectionCard>
 
@@ -1034,6 +1124,14 @@ useSyncActions(
       :currentUserId="device?.primary_user_uuid ?? null"
       @close="showUserSelectionModal = false"
       @select-user="handleUserSelection"
+    />
+
+    <!-- Managed-by Selection Modal -->
+    <UserSelectionModal
+      :show="showManagedByModal"
+      :currentUserId="device?.managed_by_user_uuid ?? null"
+      @close="showManagedByModal = false"
+      @select-user="handleManagedBySelection"
     />
 
     <!-- Unmanage Asset Confirmation Modal -->

@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import { useQuery, useQueryCache } from '@pinia/colada';
+import Autocomplete from '@/components/common/Autocomplete.vue';
 import BaseDropdown from '@/components/common/BaseDropdown.vue';
 import Button from '@/components/common/Button.vue';
 import Checkbox from '@/components/common/Checkbox.vue';
@@ -16,6 +17,7 @@ import {
   assetLifecycleKeys,
   assetLifecycleService,
 } from '@nosdesk/core/services/assetLifecycleService';
+import { assetLoanKeys, assetLoanService } from '@nosdesk/core/services/assetLoanService';
 import { useSyncActions } from '@/composables/useSyncActions';
 import { useUsersDirectory } from '@/composables/useUsersDirectory';
 import { metaForAssetStatus } from '@/utils/assetStatusMeta';
@@ -41,6 +43,33 @@ const lifecycleQuery = useQuery({
   key: () => assetLifecycleKeys.forAsset(props.assetId),
   query: () => assetLifecycleService.list(props.assetId),
 });
+// Shares the loan-ledger cache with AssetLoanPanel (same key), so `on_loan` can
+// be offered as a manual target only while a loan is genuinely active, e.g. to
+// restore an asset that was mistakenly marked lost.
+const loansQuery = useQuery({
+  key: () => assetLoanKeys.forAsset(props.assetId),
+  query: () => assetLoanService.list(props.assetId),
+});
+const hasActiveLoan = computed(() =>
+  (loansQuery.data.value ?? []).some((l) => !l.returned_at),
+);
+// Prior ITAD vendors for the disposal-form suggestions datalist (cached
+// workspace-wide; a new vendor can still be typed).
+const itadVendorsQuery = useQuery({
+  key: () => assetLifecycleKeys.itadVendors,
+  query: () => assetLifecycleService.listItadVendors(),
+});
+const itadVendors = computed<string[]>(() =>
+  Array.isArray(itadVendorsQuery.data.value) ? itadVendorsQuery.data.value : [],
+);
+// The disposal record (method, vendor, notes), fetched once the asset is
+// disposed so its details are visible in the asset view.
+const disposalQuery = useQuery({
+  key: () => assetLifecycleKeys.disposal(props.assetId),
+  query: () => assetLifecycleService.getDisposal(props.assetId),
+  enabled: () => props.currentStatus === 'disposed',
+});
+const disposal = computed(() => disposalQuery.data.value ?? null);
 const events = computed<AssetLifecycleEvent[]>(() =>
   Array.isArray(lifecycleQuery.data.value) ? lifecycleQuery.data.value : [],
 );
@@ -77,19 +106,38 @@ const repairVendor = ref('');
 const repairRma = ref('');
 const repairOffsite = ref(false);
 const repairExpectedReturn = ref('');
+const sanitizationMethod = ref('clear');
+const dataBearing = ref(true);
+const itadVendor = ref('');
+const disposalNotes = ref('');
 
 // On-loan is owned by the loan ledger (the Loans panel), not a manual
 // transition: you loan an asset out and return it there, which keeps the
 // loan record and the status in step. So it's not offered as a target, and
 // while an asset is on loan its status is changed by returning the loan.
 const isOnLoan = computed(() => props.currentStatus === 'on_loan');
+// Disposed is a terminal state: still correctable, but the transition action is
+// demoted from the primary CTA to a subdued "correct" affordance.
+const isTerminal = computed(() => props.currentStatus === 'disposed');
 const statusOptions = computed(() =>
-  ASSET_STATUSES.filter((s) => s !== props.currentStatus && s !== 'on_loan'),
+  ASSET_STATUSES.filter((s) => {
+    if (s === props.currentStatus) return false;
+    // `on_loan` is loan-ledger owned; only offer it to restore an asset that
+    // still has an active loan (issuing a loan is the normal path in).
+    if (s === 'on_loan') return hasActiveLoan.value;
+    return true;
+  }),
 );
 const statusDropdownOptions = computed(() =>
   statusOptions.value.map((status) => ({
     value: status,
     label: t(metaForAssetStatus(status).labelKey),
+  })),
+);
+const sanitizationOptions = computed(() =>
+  ['clear', 'purge', 'destroy', 'none'].map((m) => ({
+    value: m,
+    label: t(`asset-disposal-method-${m}`),
   })),
 );
 
@@ -101,6 +149,10 @@ function resetForm() {
   repairRma.value = '';
   repairOffsite.value = false;
   repairExpectedReturn.value = '';
+  sanitizationMethod.value = 'clear';
+  dataBearing.value = true;
+  itadVendor.value = '';
+  disposalNotes.value = '';
   errorMessage.value = '';
 }
 
@@ -126,6 +178,16 @@ function buildMetadata(): Record<string, unknown> {
   return {};
 }
 
+function buildDisposal() {
+  if (toStatus.value !== 'disposed') return undefined;
+  return {
+    sanitization_method: sanitizationMethod.value,
+    data_bearing: dataBearing.value,
+    itad_vendor: itadVendor.value.trim() || null,
+    notes: disposalNotes.value.trim() || null,
+  };
+}
+
 function parseTicketId(): number | null {
   const raw = ticketIdInput.value.trim();
   if (!raw) return null;
@@ -144,6 +206,7 @@ async function submitTransition() {
       reason: reason.value.trim() || null,
       ticket_id: parseTicketId(),
       metadata: buildMetadata(),
+      disposal: buildDisposal(),
     });
     await invalidate();
     emit('transitioned', newStatus);
@@ -207,16 +270,56 @@ function metadataLines(event: AssetLifecycleEvent): string[] {
         v-if="canEdit && !isOnLoan"
         size="sm"
         icon="refresh"
+        :variant="isTerminal ? 'secondary' : 'primary'"
         @click="openModal"
       >
-        {{ $t('asset-lifecycle-change-status') }}
+        {{ isTerminal ? $t('asset-lifecycle-correct-status') : $t('asset-lifecycle-change-status') }}
       </Button>
       <span v-else-if="canEdit && isOnLoan" class="text-xs text-tertiary">
         {{ $t('asset-lifecycle-managed-by-loan') }}
       </span>
     </div>
 
-    <p class="text-xs text-tertiary">{{ $t('asset-lifecycle-description') }}</p>
+    <!-- Disposal record: the compliance detail, surfaced on the asset once it
+         is disposed. Compact + wrapping so it stays readable on a narrow rail;
+         the who/when lives in the timeline below rather than being repeated. -->
+    <div
+      v-if="disposal"
+      class="rounded-lg border border-default bg-surface-alt px-3 py-2.5 flex flex-col gap-2"
+    >
+      <div class="flex items-center gap-1.5 text-tertiary">
+        <Icon name="trash" size="sm" class="flex-shrink-0" />
+        <h3 class="text-xs font-medium uppercase tracking-wide">
+          {{ $t('asset-disposal-record-heading') }}
+        </h3>
+      </div>
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm">
+        <span class="inline-flex items-center gap-1.5">
+          <span class="text-tertiary">{{ $t('asset-disposal-method') }}</span>
+          <span class="px-1.5 py-0.5 rounded bg-surface text-primary text-xs font-medium">
+            {{ $t(`asset-disposal-method-${disposal.sanitization_method}`) }}
+          </span>
+        </span>
+        <span class="inline-flex items-center gap-1.5">
+          <span class="text-tertiary">{{ $t('asset-disposal-data-bearing') }}</span>
+          <span
+            class="px-1.5 py-0.5 rounded text-xs font-medium"
+            :class="
+              disposal.data_bearing ? 'bg-accent-muted text-accent' : 'bg-surface text-secondary'
+            "
+          >
+            {{ disposal.data_bearing ? $t('asset-disposal-data-bearing-yes') : $t('asset-disposal-data-bearing-no') }}
+          </span>
+        </span>
+        <span v-if="disposal.itad_vendor" class="inline-flex items-center gap-1.5 min-w-0">
+          <span class="text-tertiary flex-shrink-0">{{ $t('asset-disposal-itad-vendor') }}</span>
+          <span class="text-primary truncate">{{ disposal.itad_vendor }}</span>
+        </span>
+      </div>
+      <p v-if="disposal.notes" class="text-sm text-secondary whitespace-pre-wrap">
+        {{ disposal.notes }}
+      </p>
+    </div>
 
     <div
       v-if="events.length === 0 && !isFirstLoad"
@@ -233,16 +336,18 @@ function metadataLines(event: AssetLifecycleEvent): string[] {
       <div
         v-for="event in events"
         :key="event.id"
-        class="py-2.5 flex flex-col gap-1"
+        class="py-2 flex flex-col gap-0.5"
       >
-        <div class="flex items-baseline justify-between gap-3">
+        <div class="flex items-baseline justify-between gap-3 flex-wrap">
           <span class="text-sm font-medium text-primary">{{ transitionSummary(event) }}</span>
           <span class="text-xs text-tertiary whitespace-nowrap">
-            {{ formatRelativeTime(event.occurred_at, { addSuffix: true }) }}
+            {{ actorLabel(event.actor_uuid) }} · {{ formatRelativeTime(event.occurred_at, { addSuffix: true }) }}
           </span>
         </div>
-        <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs">
-          <span class="text-tertiary">{{ $t('asset-lifecycle-timeline-actor', { name: actorLabel(event.actor_uuid) }) }}</span>
+        <div
+          v-if="event.ticket_id || event.reason || metadataLines(event).length"
+          class="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-secondary"
+        >
           <RouterLink
             v-if="event.ticket_id"
             :to="`/tickets/${event.ticket_id}`"
@@ -250,9 +355,7 @@ function metadataLines(event: AssetLifecycleEvent): string[] {
           >
             {{ $t('asset-lifecycle-timeline-ticket', { id: event.ticket_id }) }}
           </RouterLink>
-          <span v-if="event.reason" class="text-secondary">{{ event.reason }}</span>
-        </div>
-        <div v-if="metadataLines(event).length" class="flex flex-col gap-0.5 text-xs text-secondary">
+          <span v-if="event.reason">{{ event.reason }}</span>
           <span v-for="(line, idx) in metadataLines(event)" :key="idx">{{ line }}</span>
         </div>
       </div>
@@ -303,6 +406,30 @@ function metadataLines(event: AssetLifecycleEvent): string[] {
           <DatePicker
             v-model="repairExpectedReturn"
             :label="$t('asset-lifecycle-meta-expected-return')"
+          />
+        </template>
+
+        <template v-if="toStatus === 'disposed'">
+          <BaseDropdown
+            :model-value="sanitizationMethod"
+            :options="sanitizationOptions"
+            :label="$t('asset-disposal-method')"
+            size="sm"
+            @update:model-value="sanitizationMethod = String($event)"
+          />
+          <Checkbox
+            v-model="dataBearing"
+            :label="$t('asset-disposal-data-bearing')"
+          />
+          <Autocomplete
+            v-model="itadVendor"
+            :options="itadVendors"
+            :label="$t('asset-disposal-itad-vendor')"
+          />
+          <FormTextarea
+            v-model="disposalNotes"
+            :label="$t('asset-disposal-notes')"
+            :rows="2"
           />
         </template>
 
