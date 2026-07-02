@@ -4435,6 +4435,9 @@ asset-disposal-method-none = None
 asset-disposal-data-bearing = Data-bearing
 asset-disposal-itad-vendor = ITAD vendor
 asset-disposal-notes = Notes
+asset-disposal-record-heading = Disposal record
+asset-disposal-data-bearing-yes = Yes
+asset-disposal-data-bearing-no = No
 asset-lifecycle-meta-loaned-to = Loaned to
 asset-lifecycle-meta-due-back = Due back
 

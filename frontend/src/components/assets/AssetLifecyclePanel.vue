@@ -62,6 +62,14 @@ const itadVendorsQuery = useQuery({
 const itadVendors = computed<string[]>(() =>
   Array.isArray(itadVendorsQuery.data.value) ? itadVendorsQuery.data.value : [],
 );
+// The disposal record (method, vendor, notes), fetched once the asset is
+// disposed so its details are visible in the asset view.
+const disposalQuery = useQuery({
+  key: () => assetLifecycleKeys.disposal(props.assetId),
+  query: () => assetLifecycleService.getDisposal(props.assetId),
+  enabled: () => props.currentStatus === 'disposed',
+});
+const disposal = computed(() => disposalQuery.data.value ?? null);
 const events = computed<AssetLifecycleEvent[]>(() =>
   Array.isArray(lifecycleQuery.data.value) ? lifecycleQuery.data.value : [],
 );
@@ -269,6 +277,35 @@ function metadataLines(event: AssetLifecycleEvent): string[] {
     </div>
 
     <p class="text-xs text-tertiary">{{ $t('asset-lifecycle-description') }}</p>
+
+    <!-- Disposal record: shown once the asset is disposed so the compliance
+         detail (method, data-bearing, ITAD vendor, notes) is visible here. -->
+    <div
+      v-if="disposal"
+      class="rounded-lg border border-default bg-surface-alt p-3 flex flex-col gap-2"
+    >
+      <h3 class="text-xs font-medium text-tertiary uppercase tracking-wide">
+        {{ $t('asset-disposal-record-heading') }}
+      </h3>
+      <dl class="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-sm">
+        <dt class="text-tertiary">{{ $t('asset-disposal-method') }}</dt>
+        <dd class="text-primary">
+          {{ $t(`asset-disposal-method-${disposal.sanitization_method}`) }}
+        </dd>
+        <dt class="text-tertiary">{{ $t('asset-disposal-data-bearing') }}</dt>
+        <dd class="text-primary">
+          {{ disposal.data_bearing ? $t('asset-disposal-data-bearing-yes') : $t('asset-disposal-data-bearing-no') }}
+        </dd>
+        <template v-if="disposal.itad_vendor">
+          <dt class="text-tertiary">{{ $t('asset-disposal-itad-vendor') }}</dt>
+          <dd class="text-primary">{{ disposal.itad_vendor }}</dd>
+        </template>
+        <template v-if="disposal.notes">
+          <dt class="text-tertiary">{{ $t('asset-disposal-notes') }}</dt>
+          <dd class="text-primary whitespace-pre-wrap">{{ disposal.notes }}</dd>
+        </template>
+      </dl>
+    </div>
 
     <div
       v-if="events.length === 0 && !isFirstLoad"

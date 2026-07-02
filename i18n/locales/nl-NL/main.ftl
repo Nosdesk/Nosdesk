@@ -4268,6 +4268,9 @@ asset-disposal-method-none = Geen
 asset-disposal-data-bearing = Bevat gegevens
 asset-disposal-itad-vendor = ITAD-leverancier
 asset-disposal-notes = Notities
+asset-disposal-record-heading = Afvoergegevens
+asset-disposal-data-bearing-yes = Ja
+asset-disposal-data-bearing-no = Nee
 asset-lifecycle-meta-loaned-to = Uitgeleend aan
 asset-lifecycle-meta-due-back = Terug verwacht
 

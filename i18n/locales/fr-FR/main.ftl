@@ -4277,6 +4277,9 @@ asset-disposal-method-none = Aucune
 asset-disposal-data-bearing = Contient des données
 asset-disposal-itad-vendor = Prestataire ITAD
 asset-disposal-notes = Notes
+asset-disposal-record-heading = Fiche d'élimination
+asset-disposal-data-bearing-yes = Oui
+asset-disposal-data-bearing-no = Non
 asset-lifecycle-meta-loaned-to = Prêté à
 asset-lifecycle-meta-due-back = Date de retour
 

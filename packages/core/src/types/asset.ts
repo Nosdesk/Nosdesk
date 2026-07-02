@@ -121,6 +121,20 @@ export interface AssetLifecycleEvent {
 
 /** A device loan: an asset in a borrower's custody for a span. Active while
  * `returned_at` is null; overdue while active and `due_back` is in the past. */
+export interface AssetDisposal {
+  id: number;
+  asset_id: number;
+  lifecycle_event_id: number | null;
+  /** NIST SP 800-88 category: clear | purge | destroy | none. */
+  sanitization_method: string;
+  data_bearing: boolean;
+  certificate_file_id: number | null;
+  itad_vendor: string | null;
+  notes: string | null;
+  actor_uuid: string | null;
+  occurred_at: string;
+}
+
 export interface AssetLoan {
   id: number;
   asset_id: number;
