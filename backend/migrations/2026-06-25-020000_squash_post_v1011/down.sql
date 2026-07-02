@@ -1,3 +1,52 @@
+-- Folded v1.1 downs (reverse version order), then the original squash down below.
+
+-- --- down: 2026-07-02-000000_cascade_workspace_deletes ---
+-- Revert the initial-schema workspace FKs to ON DELETE NO ACTION. Tables that
+-- shipped as CASCADE before this migration are excluded so they keep their
+-- original behaviour (current CASCADE set = those originals + the ones this
+-- migration converted; excluding the originals reverts exactly what up changed).
+DO $$
+DECLARE
+    r RECORD;
+BEGIN
+    FOR r IN
+        SELECT c.conname, c.conrelid::regclass AS tbl
+        FROM pg_constraint c
+        JOIN pg_class cl ON cl.oid = c.conrelid
+        WHERE c.contype = 'f'
+          AND c.confrelid = 'public.workspaces'::regclass
+          AND c.confdeltype = 'c'
+          AND NOT cl.relispartition
+          AND cl.relname NOT IN (
+              'bug_reports', 'canned_response_insertions', 'rule_applications',
+              'rule_versions', 'rules', 'user_auth_identities', 'yjs_snapshots',
+              'user_field_schema', 'user_profiles', 'user_phone_numbers',
+              'user_addresses', 'workspace_ldap_settings', 'workspace_ldap_sync_state'
+          )
+    LOOP
+        EXECUTE format('ALTER TABLE %s DROP CONSTRAINT %I', r.tbl, r.conname);
+        EXECUTE format(
+            'ALTER TABLE %s ADD CONSTRAINT %I FOREIGN KEY (workspace_id) '
+            'REFERENCES public.workspaces(id)',
+            r.tbl, r.conname);
+    END LOOP;
+END $$;
+
+-- --- down: 2026-07-01-010000_asset_lifecycle_export_v11 ---
+DROP TABLE IF EXISTS asset_disposals;
+ALTER TABLE assets DROP COLUMN IF EXISTS managed_by_user_uuid;
+
+-- --- down: 2026-07-01-000000_webhook_outbox_enqueue_idempotent ---
+-- Revert to the non-idempotent enqueue.
+CREATE OR REPLACE FUNCTION public.webhook_outbox_enqueue() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    AS $$
+BEGIN
+    INSERT INTO webhook_outbox (sync_id) VALUES (NEW.sync_id);
+    RETURN NEW;
+END;
+$$;
+
 -- Reverses the squashed migration (the 18 downs in reverse order).
 
 -- from 2026-06-25-010000_workspace_ldap_sync_state
