@@ -13,11 +13,19 @@ use tracing::error;
 
 use crate::extractors::{AuthContext, TenantConn};
 use crate::handlers::errors;
-use crate::models::AssetStatus;
+use crate::models::{AssetLifecycleEvent, AssetStatus};
 use crate::repository::{
     asset_lifecycle::{self as repo, DisposalInput, TransitionInput},
-    assets as assets_repo,
+    asset_loans as asset_loans_repo, assets as assets_repo,
 };
+
+/// Outcome of a transition attempt: success carries the new event; the two
+/// client-error cases each map to a distinct 400.
+enum TransitionResult {
+    Done(AssetLifecycleEvent),
+    NoOp,
+    OnLoanNeedsActiveLoan,
+}
 
 #[derive(Debug, Deserialize)]
 pub struct TransitionBody {
@@ -100,9 +108,17 @@ pub async fn create_transition(
     let result = tc.run(|conn| {
         let current = assets_repo::get_device_by_id(conn, asset_id)?;
         if current.status == body.to_status {
-            return Ok(None);
+            return Ok(TransitionResult::NoOp);
         }
-        repo::transition(
+        // `on_loan` is owned by the loan ledger. Allow it as a manual target
+        // only to restore an asset that still has an active loan (e.g. undoing
+        // a mistaken `lost`); otherwise it must come from issuing a loan.
+        if body.to_status == "on_loan"
+            && asset_loans_repo::active_for_asset(conn, asset_id)?.is_none()
+        {
+            return Ok(TransitionResult::OnLoanNeedsActiveLoan);
+        }
+        let (_asset, event) = repo::transition(
             conn,
             TransitionInput {
                 asset_id,
@@ -119,13 +135,18 @@ pub async fn create_transition(
                     notes: d.notes.clone(),
                 }),
             },
-        )
-        .map(Some)
+        )?;
+        Ok(TransitionResult::Done(event))
     });
 
     match result {
-        Ok(Some((_asset, event))) => HttpResponse::Created().json(event),
-        Ok(None) => errors::bad_request("Asset is already in the requested status"),
+        Ok(TransitionResult::Done(event)) => HttpResponse::Created().json(event),
+        Ok(TransitionResult::NoOp) => {
+            errors::bad_request("Asset is already in the requested status")
+        }
+        Ok(TransitionResult::OnLoanNeedsActiveLoan) => errors::bad_request(
+            "On-loan status is set by issuing a loan; there is no active loan to restore",
+        ),
         Err(diesel::result::Error::NotFound) => {
             errors::not_found_msg(format!("Asset {asset_id} not found"))
         }

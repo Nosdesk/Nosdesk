@@ -16,6 +16,7 @@ import {
   assetLifecycleKeys,
   assetLifecycleService,
 } from '@nosdesk/core/services/assetLifecycleService';
+import { assetLoanKeys, assetLoanService } from '@nosdesk/core/services/assetLoanService';
 import { useSyncActions } from '@/composables/useSyncActions';
 import { useUsersDirectory } from '@/composables/useUsersDirectory';
 import { metaForAssetStatus } from '@/utils/assetStatusMeta';
@@ -41,6 +42,16 @@ const lifecycleQuery = useQuery({
   key: () => assetLifecycleKeys.forAsset(props.assetId),
   query: () => assetLifecycleService.list(props.assetId),
 });
+// Shares the loan-ledger cache with AssetLoanPanel (same key), so `on_loan` can
+// be offered as a manual target only while a loan is genuinely active, e.g. to
+// restore an asset that was mistakenly marked lost.
+const loansQuery = useQuery({
+  key: () => assetLoanKeys.forAsset(props.assetId),
+  query: () => assetLoanService.list(props.assetId),
+});
+const hasActiveLoan = computed(() =>
+  (loansQuery.data.value ?? []).some((l) => !l.returned_at),
+);
 const events = computed<AssetLifecycleEvent[]>(() =>
   Array.isArray(lifecycleQuery.data.value) ? lifecycleQuery.data.value : [],
 );
@@ -88,7 +99,13 @@ const disposalNotes = ref('');
 // while an asset is on loan its status is changed by returning the loan.
 const isOnLoan = computed(() => props.currentStatus === 'on_loan');
 const statusOptions = computed(() =>
-  ASSET_STATUSES.filter((s) => s !== props.currentStatus && s !== 'on_loan'),
+  ASSET_STATUSES.filter((s) => {
+    if (s === props.currentStatus) return false;
+    // `on_loan` is loan-ledger owned; only offer it to restore an asset that
+    // still has an active loan (issuing a loan is the normal path in).
+    if (s === 'on_loan') return hasActiveLoan.value;
+    return true;
+  }),
 );
 const statusDropdownOptions = computed(() =>
   statusOptions.value.map((status) => ({
