@@ -1014,6 +1014,7 @@ useSyncActions(
                 :asset-id="device.id"
                 :current-status="device.status"
                 :can-edit="canChangeLifecycle"
+                @changed="() => invalidateAsset()"
               />
             </SectionCard>
 
