@@ -164,3 +164,23 @@ pub fn history_for_export(
         ))
         .load(conn)
 }
+
+/// Distinct ITAD vendors previously entered on disposals, for the disposal-form
+/// suggestions datalist so the same vendor isn't retyped. Workspace-scoped by
+/// RLS; trimmed, non-empty, case-insensitively sorted.
+// sync-audit-only: read-only distinct SELECT, no row write
+pub fn list_itad_vendors(conn: &mut DbConnection) -> QueryResult<Vec<String>> {
+    let raw: Vec<String> = asset_disposals::table
+        .filter(asset_disposals::itad_vendor.is_not_null())
+        .select(asset_disposals::itad_vendor.assume_not_null())
+        .distinct()
+        .load(conn)?;
+    let mut vendors: Vec<String> = raw
+        .into_iter()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .collect();
+    vendors.sort_by_key(|v| v.to_lowercase());
+    vendors.dedup();
+    Ok(vendors)
+}

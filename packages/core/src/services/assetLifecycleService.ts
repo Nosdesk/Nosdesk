@@ -5,6 +5,7 @@ import type { AssetLifecycleEvent } from '../types/asset';
 export const assetLifecycleKeys = {
   root: ['asset-lifecycle'] as const,
   forAsset: (assetId: number) => ['asset-lifecycle', assetId] as const,
+  itadVendors: ['asset-itad-vendors'] as const,
 };
 
 /** Disposal detail sent with a transition to `disposed`. Captured atomically
@@ -36,6 +37,12 @@ export const assetLifecycleService = {
       `/assets/${assetId}/lifecycle`,
       body,
     );
+    return data;
+  },
+
+  /** Distinct ITAD vendors previously entered, for the disposal-form datalist. */
+  async listItadVendors(): Promise<string[]> {
+    const { data } = await apiClient.get<string[]>('/assets/itad-vendors');
     return data;
   },
 };

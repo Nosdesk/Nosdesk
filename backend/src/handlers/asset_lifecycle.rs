@@ -180,3 +180,15 @@ pub async fn get_disposal(
         }
     }
 }
+
+/// GET distinct ITAD vendors previously entered, for the disposal-form
+/// suggestions. Any authenticated workspace member.
+pub async fn list_itad_vendors(mut tc: TenantConn, _auth: AuthContext) -> impl Responder {
+    match tc.run(repo::list_itad_vendors) {
+        Ok(vendors) => HttpResponse::Ok().json(vendors),
+        Err(e) => {
+            error!(error = ?e, "failed to list ITAD vendors");
+            errors::internal("Failed to load ITAD vendors")
+        }
+    }
+}

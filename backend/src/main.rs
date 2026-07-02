@@ -2472,6 +2472,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/assets/calendar-overlay", web::get().to(handlers::assets::calendar_overlay))
                     .route("/assets/export", web::get().to(handlers::export_assets))
                     .route("/assets/locations", web::get().to(handlers::get_asset_locations))
+                    .route("/assets/itad-vendors", web::get().to(handlers::asset_lifecycle::list_itad_vendors))
                     .route("/assets/grouping-dataset", web::get().to(handlers::assets::asset_grouping_dataset))
                     .route("/assets/rollouts", web::post().to(handlers::assets::create_rollout))
                     // Read-only kind registry for the asset create/edit

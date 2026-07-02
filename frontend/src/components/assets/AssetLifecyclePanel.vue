@@ -52,6 +52,15 @@ const loansQuery = useQuery({
 const hasActiveLoan = computed(() =>
   (loansQuery.data.value ?? []).some((l) => !l.returned_at),
 );
+// Prior ITAD vendors for the disposal-form suggestions datalist (cached
+// workspace-wide; a new vendor can still be typed).
+const itadVendorsQuery = useQuery({
+  key: () => assetLifecycleKeys.itadVendors,
+  query: () => assetLifecycleService.listItadVendors(),
+});
+const itadVendors = computed<string[]>(() =>
+  Array.isArray(itadVendorsQuery.data.value) ? itadVendorsQuery.data.value : [],
+);
 const events = computed<AssetLifecycleEvent[]>(() =>
   Array.isArray(lifecycleQuery.data.value) ? lifecycleQuery.data.value : [],
 );
@@ -363,7 +372,11 @@ function metadataLines(event: AssetLifecycleEvent): string[] {
           <FormInput
             v-model="itadVendor"
             :label="$t('asset-disposal-itad-vendor')"
+            list="asset-itad-vendors"
           />
+          <datalist id="asset-itad-vendors">
+            <option v-for="v in itadVendors" :key="v" :value="v" />
+          </datalist>
           <FormTextarea
             v-model="disposalNotes"
             :label="$t('asset-disposal-notes')"
