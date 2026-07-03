@@ -277,16 +277,17 @@ async fn dispatch(
             }
         }
         Err(err) => {
-            // EmailService::send_outbound returns a String today.
-            // We can't recover an SMTP code from it without surgery on
-            // lettre's error type; do a coarse classification by
-            // looking for a numeric code at the start of the message
-            // (lettre format is `Failed to send ticket reply: …code…`).
-            // Pass 1 ships this conservative form; Pass 2's adapter
-            // refactor can return a structured SmtpError.
-            let code = parse_smtp_code(&err);
+            // `err` is a structured SmtpError: `smtp_code()` is lettre's
+            // authoritative status from the server reply (not scraped from
+            // text), so the retry / suppression decisions below key off a real
+            // code. The error's Display text is persisted as the row's last
+            // error for operators.
+            let code = err.smtp_code();
             breaker.record_failure().await;
-            DispatchOutcome::Failed { error: err, code }
+            DispatchOutcome::Failed {
+                error: err.to_string(),
+                code,
+            }
         }
     }
 }
@@ -399,26 +400,40 @@ fn terminate_row(
                     }
                 }
                 RetryDecision::Suppress => {
-                    // A 550/551/553-shaped reject. Dead-letter it, but do NOT add
-                    // the recipient to the (global, irreversible-without-admin)
-                    // suppression list: `code` here is string-scraped from
-                    // lettre's error text (see `parse_smtp_code`), so a transient
-                    // error whose message merely contains "550" (e.g. "...550 ms")
-                    // could permanently block a valid address across every
-                    // workspace. Suppression is driven only by the inbound DSN
-                    // path (`bounce_parser`), which uses structured RFC 3464
-                    // status codes. Re-enable suppression here once the transport
-                    // returns a structured SMTP code (worker Pass 2).
+                    // An authoritative 550/551/553 recipient reject. The code now
+                    // comes from lettre's structured status (SmtpError::smtp_code),
+                    // not a scrape of the error text, so it's safe to act on: a
+                    // transient message that merely contained "550" can no longer
+                    // masquerade as a hard reject. Dead-letter the row AND add the
+                    // recipient to the global suppression list so future sends
+                    // short-circuit before the relay. Mirrors the inbound DSN path
+                    // (`bounce_parser` -> `email_suppressions::upsert`).
                     if let Err(e) = repo::mark_dead(conn, row.id, &error, code.map(i32::from)) {
                         warn!(error = %e, queue_id = row.id, "mark_dead (suppress) failed");
                     } else {
                         stats.dead += 1;
-                        warn!(
-                            queue_id = row.id,
-                            recipient = %row.recipient,
-                            smtp_code = ?code,
-                            "email rejected as bad recipient; dead-lettered (suppression deferred to the DSN path)"
-                        );
+                        let suppression = crate::models::NewEmailSuppression {
+                            email: row.recipient.clone(),
+                            reason: crate::models::email_suppression_reason::HARD_BOUNCE
+                                .to_string(),
+                            bounce_diagnostic: Some(error.clone()),
+                        };
+                        match crate::repository::email_suppressions::upsert(conn, suppression) {
+                            Ok(_) => {
+                                stats.suppressed += 1;
+                                warn!(
+                                    queue_id = row.id,
+                                    recipient = %row.recipient,
+                                    smtp_code = ?code,
+                                    "email rejected as bad recipient; dead-lettered and recipient suppressed"
+                                );
+                            }
+                            Err(e) => warn!(
+                                error = %e,
+                                recipient = %row.recipient,
+                                "email_suppressions upsert failed; row dead-lettered but recipient not suppressed"
+                            ),
+                        }
                     }
                 }
             }
@@ -471,51 +486,9 @@ fn recipient_domain(recipient: &str) -> Option<&str> {
     recipient.split_once('@').map(|(_, domain)| domain)
 }
 
-/// Lift a 3-digit SMTP reply code out of an error string. Best-effort:
-/// lettre's `Send` error rendered to string typically contains the
-/// reply text; if not, the classifier degrades to "no code" which
-/// retries until MAX_ATTEMPTS.
-fn parse_smtp_code(error_text: &str) -> Option<u16> {
-    // Look for a 3-digit token, checking it's a valid SMTP class.
-    for word in error_text.split(|c: char| !c.is_ascii_digit()) {
-        if word.len() == 3 {
-            if let Ok(code) = word.parse::<u16>() {
-                if (200..=599).contains(&code) {
-                    return Some(code);
-                }
-            }
-        }
-    }
-    None
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn parse_smtp_code_finds_3xx_in_lettre_text() {
-        assert_eq!(
-            parse_smtp_code("Failed to send: 550 No such user"),
-            Some(550)
-        );
-        assert_eq!(
-            parse_smtp_code("transient: 421 service not available"),
-            Some(421)
-        );
-    }
-
-    #[test]
-    fn parse_smtp_code_returns_none_when_absent() {
-        assert_eq!(parse_smtp_code("connection reset"), None);
-        assert_eq!(parse_smtp_code(""), None);
-    }
-
-    #[test]
-    fn parse_smtp_code_ignores_random_3digit_numbers() {
-        // 999 isn't a valid SMTP class so we don't pick it up.
-        assert_eq!(parse_smtp_code("error 999 ms timeout"), None);
-    }
 
     #[test]
     fn recipient_domain_extracts_the_domain() {

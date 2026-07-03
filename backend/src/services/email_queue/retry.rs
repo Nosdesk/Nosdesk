@@ -58,13 +58,11 @@ pub enum RetryDecision {
     Retry,
     /// Permanent failure — mark `dead`, don't suppress recipient.
     Dead,
-    /// Permanent failure on a "bad recipient" reply (550/551/553). Today the
-    /// worker dead-letters these WITHOUT suppressing, because the SMTP code is
-    /// string-scraped and not trustworthy enough to drive an irreversible global
-    /// suppression; the inbound DSN path (structured RFC 3464) is the
-    /// authoritative suppression signal. Kept distinct from `Dead` so the worker
-    /// can re-enable suppression here once the transport returns a structured
-    /// SMTP code (worker Pass 2).
+    /// Permanent failure on a "bad recipient" reply (550/551/553). The worker
+    /// dead-letters the row AND adds the recipient to the global suppression
+    /// list. Kept distinct from `Dead` because it's driven by an authoritative
+    /// SMTP status (`SmtpError::smtp_code`, from lettre), the same class of
+    /// signal the inbound DSN path uses — so acting on it is safe.
     Suppress,
 }
 

@@ -1057,13 +1057,75 @@ pub struct SendOutcome {
     pub provider_message_id: Option<String>,
 }
 
+/// A structured SMTP send failure. Replaces the old stringly-typed error so the
+/// queue worker can key retry / suppression decisions on an authoritative SMTP
+/// code (from lettre) instead of scraping it out of the error text.
+#[derive(Debug, thiserror::Error)]
+pub enum SmtpError {
+    /// The transport isn't configured (no relay). Never retryable.
+    #[error("email is not configured")]
+    NotConfigured,
+    /// Message build / address / envelope / mailer construction failed before
+    /// any network I/O. A local error, never retryable.
+    #[error("{0}")]
+    Build(String),
+    /// The (tenant-controlled) relay host failed SSRF vetting. Config error.
+    #[error("relay host rejected: {0}")]
+    Egress(#[from] crate::utils::egress::EgressError),
+    /// The SMTP send itself failed. `code` is the authoritative status from the
+    /// server's reply (absent for transport-level failures — connect, timeout,
+    /// TLS); `transient` reflects lettre's own 4xx / timeout classification.
+    #[error("smtp send failed: {message}")]
+    Smtp {
+        code: Option<u16>,
+        transient: bool,
+        message: String,
+    },
+}
+
+impl From<String> for SmtpError {
+    fn from(message: String) -> Self {
+        SmtpError::Build(message)
+    }
+}
+
+impl SmtpError {
+    /// Preserve what lettre already computed: the SMTP status code and whether
+    /// the failure is transient, rather than flattening to `Display` text.
+    fn from_lettre(e: lettre::transport::smtp::Error) -> Self {
+        SmtpError::Smtp {
+            code: e.status().map(u16::from),
+            transient: e.is_transient() || e.is_timeout(),
+            message: e.to_string(),
+        }
+    }
+
+    /// The authoritative SMTP status code, when the failure was a server reply.
+    /// `None` for build / egress / transport-level failures.
+    pub fn smtp_code(&self) -> Option<u16> {
+        match self {
+            SmtpError::Smtp { code, .. } => *code,
+            _ => None,
+        }
+    }
+
+    /// Whether the underlying SMTP reply was a transient (4xx) failure or a
+    /// timeout. Build / egress / not-configured are never transient.
+    pub fn is_transient(&self) -> bool {
+        match self {
+            SmtpError::Smtp { transient, .. } => *transient,
+            _ => false,
+        }
+    }
+}
+
 /// Email transport seam. SMTP is the only implementation; the trait keeps
 /// composition (building the message) in `EmailService` and the provider
 /// hand-off behind a swappable boundary, which also makes the send path
 /// mockable in tests.
 #[async_trait]
 pub trait EmailTransport: Send + Sync {
-    async fn send(&self, msg: &OutboundEmailMessage<'_>) -> Result<SendOutcome, String>;
+    async fn send(&self, msg: &OutboundEmailMessage<'_>) -> Result<SendOutcome, SmtpError>;
     fn is_configured(&self) -> bool;
     /// Stable identifier for status reporting (currently always `"smtp"`).
     fn provider_name(&self) -> &'static str;
@@ -1115,9 +1177,9 @@ impl SmtpEmailTransport {
 
 #[async_trait]
 impl EmailTransport for SmtpEmailTransport {
-    async fn send(&self, msg: &OutboundEmailMessage<'_>) -> Result<SendOutcome, String> {
+    async fn send(&self, msg: &OutboundEmailMessage<'_>) -> Result<SendOutcome, SmtpError> {
         if !self.config.is_configured() {
-            return Err("Email is not configured".to_string());
+            return Err(SmtpError::NotConfigured);
         }
         let mut message = build_outbound_message(&self.config, msg)?;
         if let Some(signer) = &self.dkim {
@@ -1133,8 +1195,7 @@ impl EmailTransport for SmtpEmailTransport {
                 &self.config.smtp_host,
                 self.config.smtp_port,
             )
-            .await
-            .map_err(|e| format!("relay host rejected: {e}"))?;
+            .await?;
             let ip = addrs
                 .first()
                 .ok_or_else(|| "no validated address for relay host".to_string())?
@@ -1162,12 +1223,10 @@ impl EmailTransport for SmtpEmailTransport {
                     .map_err(|e| format!("Invalid envelope: {e}"))?;
                 mailer
                     .send_raw(&envelope, &message.formatted())
-                    .map_err(|e| format!("Failed to send ticket reply: {e}"))?;
+                    .map_err(SmtpError::from_lettre)?;
             }
             None => {
-                mailer
-                    .send(&message)
-                    .map_err(|e| format!("Failed to send ticket reply: {e}"))?;
+                mailer.send(&message).map_err(SmtpError::from_lettre)?;
             }
         }
         Ok(SendOutcome {
@@ -1273,7 +1332,10 @@ impl EmailService {
             envelope_from: None,
             list_unsubscribe: None,
         };
-        self.send_outbound(&outbound).await.map(|_| ())
+        self.send_outbound(&outbound)
+            .await
+            .map(|_| ())
+            .map_err(|e| e.to_string())
     }
 
     /// Send an HTML email through the configured transport. A plaintext
@@ -1303,7 +1365,10 @@ impl EmailService {
             envelope_from: None,
             list_unsubscribe: None,
         };
-        self.send_outbound(&outbound).await.map(|_| ())
+        self.send_outbound(&outbound)
+            .await
+            .map(|_| ())
+            .map_err(|e| e.to_string())
     }
 
     /// Send a test email to verify configuration
@@ -1682,7 +1747,10 @@ impl EmailService {
         &self,
         outbound: OutboundEmailMessage<'_>,
     ) -> Result<(), String> {
-        self.send_outbound(&outbound).await.map(|_| ())
+        self.send_outbound(&outbound)
+            .await
+            .map(|_| ())
+            .map_err(|e| e.to_string())
     }
 
     /// Send and return the transport outcome. SMTP carries no provider
@@ -1692,7 +1760,7 @@ impl EmailService {
     pub async fn send_outbound(
         &self,
         outbound: &OutboundEmailMessage<'_>,
-    ) -> Result<SendOutcome, String> {
+    ) -> Result<SendOutcome, SmtpError> {
         self.transport.send(outbound).await
     }
 
@@ -2146,8 +2214,8 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
             Ok(_) => panic!("expected the internal relay host to be rejected"),
         };
         assert!(
-            err.contains("relay host rejected"),
-            "expected SSRF rejection, got: {err}"
+            matches!(err, SmtpError::Egress(_)),
+            "expected an SSRF/egress rejection, got: {err}"
         );
     }
 
@@ -2167,7 +2235,7 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
             Ok(_) => panic!("expected a connection failure to the closed port"),
         };
         assert!(
-            !err.contains("relay host rejected"),
+            !matches!(err, SmtpError::Egress(_)),
             "trusted relay must not be SSRF-rejected, got: {err}"
         );
     }
