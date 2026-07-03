@@ -622,6 +622,20 @@ pub fn get_users_by_uuids(uuids: &[Uuid], conn: &mut DbConnection) -> Result<Vec
         .load::<User>(conn)
 }
 
+/// Batch-fetch users into a `uuid -> User` map, the batched counterpart to
+/// per-row `get_user_by_uuid` in list/DTO assembly. Duplicate or missing
+/// input uuids are harmless (the DB returns each user once; absent uuids
+/// simply aren't in the map).
+pub fn get_user_map_by_uuids(
+    uuids: &[Uuid],
+    conn: &mut DbConnection,
+) -> Result<std::collections::HashMap<Uuid, User>, Error> {
+    Ok(get_users_by_uuids(uuids, conn)?
+        .into_iter()
+        .map(|u| (u.uuid, u))
+        .collect())
+}
+
 // Count total users in the database (for onboarding check)
 pub fn count_users(conn: &mut DbConnection) -> Result<i64, Error> {
     users::table.count().get_result(conn)

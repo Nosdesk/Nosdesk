@@ -495,19 +495,26 @@ impl TicketQuery {
 
         let tickets: Vec<Ticket> = query.load(conn)?;
 
-        // Enrich with user information
+        // Enrich with user information. Batch the requester + assignee
+        // lookups into one query keyed by the distinct uuids on the page,
+        // rather than two per-row `get_user_by_uuid` calls.
+        let user_uuids: Vec<Uuid> = tickets
+            .iter()
+            .flat_map(|t| t.requester_uuid.into_iter().chain(t.assignee_uuid))
+            .collect();
+        let users = crate::repository::users::get_user_map_by_uuids(&user_uuids, conn)?;
+
         let items = tickets
             .into_iter()
             .map(|ticket| {
                 let requester_user = ticket
                     .requester_uuid
-                    .as_ref()
-                    .and_then(|uuid| crate::repository::get_user_by_uuid(uuid, conn).ok())
+                    .and_then(|uuid| users.get(&uuid))
                     .map(UserInfoWithAvatar::from);
 
                 let assignee_user = ticket
                     .assignee_uuid
-                    .and_then(|uuid| crate::repository::get_user_by_uuid(&uuid, conn).ok())
+                    .and_then(|uuid| users.get(&uuid))
                     .map(UserInfoWithAvatar::from);
 
                 TicketListItem {
@@ -641,6 +648,39 @@ mod tests {
             .unwrap();
 
         assert!(result.total >= 2);
+    }
+
+    #[test]
+    fn paginated_list_batch_enriches_requester_and_assignee() {
+        let mut conn = setup_test_connection();
+        let requester = TestFixtures::create_user(&mut conn, "req_user", "user");
+        let assignee = TestFixtures::create_user(&mut conn, "asg_user", "user");
+        let ticket = TestFixtures::create_ticket(&mut conn, "Enriched", Some(requester.uuid), None);
+        diesel::update(crate::schema::tickets::table.find(ticket.id))
+            .set(crate::schema::tickets::assignee_uuid.eq(Some(assignee.uuid)))
+            .execute(&mut conn)
+            .expect("set assignee");
+
+        // Requester views their own ticket; the batched enrichment should
+        // populate both the requester and assignee user views.
+        let auth = AuthContext::test_context(requester.uuid, "user", vec![]);
+        let result = TicketQuery::new()
+            .visible_to(&auth)
+            .paginate(1, 50)
+            .execute_with_users(&mut conn)
+            .unwrap();
+
+        let item = result
+            .data
+            .iter()
+            .find(|i| i.ticket.id == ticket.id)
+            .expect("ticket present in page");
+        let req = item.requester_user.as_ref().expect("requester enriched");
+        assert_eq!(req.uuid, requester.uuid);
+        assert_eq!(req.name, requester.name);
+        let asg = item.assignee_user.as_ref().expect("assignee enriched");
+        assert_eq!(asg.uuid, assignee.uuid);
+        assert_eq!(asg.name, assignee.name);
     }
 
     #[test]

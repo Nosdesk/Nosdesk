@@ -23,6 +23,25 @@ pub fn workspace_role(conn: &mut DbConnection, user_uuid: Uuid) -> Option<Worksp
         .map(|r| WorkspaceRole::from_db(&r))
 }
 
+/// Batched `workspace_role` for list/DTO assembly: one query for many users
+/// instead of a per-row lookup. Scoped to the current workspace by RLS on
+/// `workspace_members`, matching the singular `workspace_role`. Users with
+/// no membership row are simply absent from the map.
+pub fn workspace_roles_batch(
+    user_uuids: &[Uuid],
+    conn: &mut DbConnection,
+) -> std::collections::HashMap<Uuid, WorkspaceRole> {
+    use crate::schema::workspace_members;
+    workspace_members::table
+        .filter(workspace_members::user_uuid.eq_any(user_uuids))
+        .select((workspace_members::user_uuid, workspace_members::role))
+        .load::<(Uuid, String)>(conn)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(uuid, role)| (uuid, WorkspaceRole::from_db(&role)))
+        .collect()
+}
+
 /// True when `user` is a baseline, unprivileged account: platform
 /// role `user` and no workspace role above `member` in the current
 /// workspace. Privileged accounts (platform admin / audit reviewer,

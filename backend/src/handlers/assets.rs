@@ -170,11 +170,14 @@ impl From<Group> for GroupInfo {
 }
 
 impl AssetResponse {
-    pub fn from_device_and_user(
+    /// Pure assembly from an already-resolved `primary_user` (no DB access).
+    /// Batched callers (`devices_to_responses`) build the `UserInfo` from
+    /// per-page lookup maps; the single-device `from_device_and_user`
+    /// wrapper resolves one user's role + email inline.
+    fn from_device_and_parts(
         device: Asset,
-        user: Option<User>,
+        primary_user: Option<UserInfo>,
         groups: Vec<Group>,
-        conn: &mut crate::db::DbConnection,
     ) -> Self {
         // Editable when the row isn't owned by an external sync.
         // Pass B replaced the column-existence predicate with a
@@ -217,30 +220,50 @@ impl AssetResponse {
             low_stock_threshold: device.low_stock_threshold.as_ref().map(|q| q.to_string()),
             is_editable,
             model_id,
-            primary_user: user.map(|u| {
-                let name = u.name.clone();
-                let role = repository::user_helpers::workspace_role(conn, u.uuid)
-                    .map(|r| r.as_str().to_string())
-                    .unwrap_or_else(|| crate::models::WorkspaceRole::Member.as_str().to_string());
-
-                // Fetch primary email from user_emails table
-                let email = repository::user_helpers::get_primary_email(&u.uuid, conn)
-                    .unwrap_or_else(|| name.clone());
-
-                UserInfo {
-                    uuid: utils::uuid_to_string(&u.uuid),
-                    name,
-                    email,
-                    role,
-                    avatar_url: u.avatar_url,
-                    avatar_thumb: u.avatar_thumb,
-                }
-            }),
+            primary_user,
             groups: groups.into_iter().map(GroupInfo::from).collect(),
             // Enriched by the list / detail callers; empty by default.
             asset_groups: Vec::new(),
         }
     }
+
+    /// Single-device convenience: resolve the one user's role + primary
+    /// email inline. Loops should use `devices_to_responses`, which batches
+    /// those lookups across the whole page.
+    pub fn from_device_and_user(
+        device: Asset,
+        user: Option<User>,
+        groups: Vec<Group>,
+        conn: &mut crate::db::DbConnection,
+    ) -> Self {
+        let primary_user = user.map(|u| resolve_asset_user(&u, conn));
+        Self::from_device_and_parts(device, primary_user, groups)
+    }
+}
+
+// Build the embedded primary-user view from a user row and its already
+// resolved workspace role + primary email. No DB access.
+fn asset_user_info(u: &User, role: String, email: String) -> UserInfo {
+    UserInfo {
+        uuid: utils::uuid_to_string(&u.uuid),
+        name: u.name.clone(),
+        email,
+        role,
+        avatar_url: u.avatar_url.clone(),
+        avatar_thumb: u.avatar_thumb.clone(),
+    }
+}
+
+// Resolve one user's workspace role + primary email (two per-user queries).
+// Batched list assembly uses `workspace_roles_batch` / `get_primary_emails_batch`
+// instead; this is only for the single-device path.
+fn resolve_asset_user(u: &User, conn: &mut crate::db::DbConnection) -> UserInfo {
+    let role = repository::user_helpers::workspace_role(conn, u.uuid)
+        .map(|r| r.as_str().to_string())
+        .unwrap_or_else(|| crate::models::WorkspaceRole::Member.as_str().to_string());
+    let email = repository::user_helpers::get_primary_email(&u.uuid, conn)
+        .unwrap_or_else(|| u.name.clone());
+    asset_user_info(u, role, email)
 }
 
 // Helper function to get user by UUID
@@ -249,26 +272,46 @@ fn get_user_by_uuid(conn: &mut crate::db::DbConnection, uuid: &Uuid) -> Option<U
     repository::get_user_by_uuid(uuid, conn).ok()
 }
 
-// Helper function to convert devices to device responses with user data
+// Convert a page of devices to responses, batching every per-device lookup
+// (native groups, directory groups, primary user, workspace role, primary
+// email) into one query each rather than issuing them per row.
 fn devices_to_responses(
     conn: &mut crate::db::DbConnection,
     devices: Vec<Asset>,
 ) -> Vec<AssetResponse> {
-    // Batch the native-group lookup for the whole page (one query) rather than
-    // per row.
     let ids: Vec<i32> = devices.iter().map(|d| d.id).collect();
     let mut native_groups =
         crate::repository::asset_groups::group_refs_for_assets(conn, &ids).unwrap_or_default();
+    let mut directory_groups = groups_repo::get_groups_for_devices(conn, &ids).unwrap_or_default();
+
+    let user_uuids: Vec<Uuid> = devices.iter().filter_map(|d| d.primary_user_uuid).collect();
+    let user_map =
+        crate::repository::users::get_user_map_by_uuids(&user_uuids, conn).unwrap_or_default();
+    let role_map = repository::user_helpers::workspace_roles_batch(&user_uuids, conn);
+    let email_map = repository::user_helpers::get_primary_emails_batch(&user_uuids, conn);
+
     devices
         .into_iter()
         .map(|device| {
-            let user = device
-                .primary_user_uuid
-                .as_ref()
-                .and_then(|uuid| get_user_by_uuid(conn, uuid));
-            let groups = groups_repo::get_groups_for_device(conn, device.id).unwrap_or_default();
+            let groups = directory_groups.remove(&device.id).unwrap_or_default();
             let asset_groups = native_groups.remove(&device.id).unwrap_or_default();
-            let mut resp = AssetResponse::from_device_and_user(device, user, groups, conn);
+            let primary_user = device
+                .primary_user_uuid
+                .and_then(|uuid| user_map.get(&uuid))
+                .map(|u| {
+                    let role = role_map
+                        .get(&u.uuid)
+                        .map(|r| r.as_str().to_string())
+                        .unwrap_or_else(|| {
+                            crate::models::WorkspaceRole::Member.as_str().to_string()
+                        });
+                    let email = email_map
+                        .get(&u.uuid)
+                        .cloned()
+                        .unwrap_or_else(|| u.name.clone());
+                    asset_user_info(u, role, email)
+                });
+            let mut resp = AssetResponse::from_device_and_parts(device, primary_user, groups);
             resp.asset_groups = asset_groups;
             resp
         })
@@ -428,20 +471,14 @@ pub async fn asset_grouping_dataset(
     let result = tc.run(move |conn| {
         let devices = repository::assets::list_for_export(conn, filters)?;
         let today = chrono::Utc::now().date_naive();
-        // Derive the buckets from each device's attributes before the
-        // response builder consumes the row.
-        let rows: Vec<AssetGroupingRow> = devices
+        // Build the responses in one batched pass, then derive the grouping
+        // buckets from each response's retained `attributes`.
+        let rows: Vec<AssetGroupingRow> = devices_to_responses(conn, devices)
             .into_iter()
-            .map(|d| {
-                let os_family = classify_os(it_attrs::operating_system(&d.attributes));
+            .map(|asset| {
+                let os_family = classify_os(it_attrs::operating_system(&asset.attributes));
                 let warranty_window =
-                    classify_warranty_window(it_attrs::warranty_end_date(&d.attributes), today);
-                let user = d
-                    .primary_user_uuid
-                    .as_ref()
-                    .and_then(|uuid| get_user_by_uuid(conn, uuid));
-                let groups = groups_repo::get_groups_for_device(conn, d.id).unwrap_or_default();
-                let asset = AssetResponse::from_device_and_user(d, user, groups, conn);
+                    classify_warranty_window(it_attrs::warranty_end_date(&asset.attributes), today);
                 AssetGroupingRow {
                     asset,
                     os_family,

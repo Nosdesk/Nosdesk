@@ -1042,6 +1042,25 @@ pub fn get_groups_for_device(conn: &mut DbConnection, device_id: i32) -> QueryRe
         .load(conn)
 }
 
+/// Batched `get_groups_for_device`: one query returning a `device_id ->
+/// groups` map for a whole page of devices, instead of a per-device lookup.
+pub fn get_groups_for_devices(
+    conn: &mut DbConnection,
+    device_ids: &[i32],
+) -> QueryResult<std::collections::HashMap<i32, Vec<Group>>> {
+    let rows: Vec<(i32, Group)> = asset_directory_memberships::table
+        .filter(asset_directory_memberships::asset_id.eq_any(device_ids))
+        .inner_join(groups::table)
+        .select((asset_directory_memberships::asset_id, groups::all_columns))
+        .order(groups::name.asc())
+        .load(conn)?;
+    let mut map: std::collections::HashMap<i32, Vec<Group>> = std::collections::HashMap::new();
+    for (device_id, group) in rows {
+        map.entry(device_id).or_default().push(group);
+    }
+    Ok(map)
+}
+
 /// Add a device to a group
 pub fn add_device_to_group(
     conn: &mut DbConnection,

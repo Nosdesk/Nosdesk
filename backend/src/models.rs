@@ -2804,6 +2804,19 @@ impl From<User> for UserInfoWithAvatar {
     }
 }
 
+// Borrowing variant so list builders can project straight from a
+// `&User` held in a batch lookup map, without cloning the whole row.
+impl From<&User> for UserInfoWithAvatar {
+    fn from(user: &User) -> Self {
+        UserInfoWithAvatar {
+            uuid: user.uuid,
+            name: user.name.clone(),
+            avatar_url: user.avatar_url.clone(),
+            avatar_thumb: user.avatar_thumb.clone(),
+        }
+    }
+}
+
 // User Email models for storing multiple email addresses per user
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations)]
 #[diesel(table_name = crate::schema::user_emails)]

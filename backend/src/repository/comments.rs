@@ -283,6 +283,24 @@ pub fn get_attachments_by_comment_id(
         .load(conn)
 }
 
+/// Batched `get_attachments_by_comment_id`: one query returning a
+/// `comment_id -> attachments` map for a whole thread.
+fn get_attachments_for_comments(
+    conn: &mut DbConnection,
+    comment_ids: &[i32],
+) -> QueryResult<std::collections::HashMap<i32, Vec<Attachment>>> {
+    let rows: Vec<Attachment> = attachments::table
+        .filter(attachments::comment_id.eq_any(comment_ids))
+        .load(conn)?;
+    let mut map: std::collections::HashMap<i32, Vec<Attachment>> = std::collections::HashMap::new();
+    for attachment in rows {
+        if let Some(comment_id) = attachment.comment_id {
+            map.entry(comment_id).or_default().push(attachment);
+        }
+    }
+    Ok(map)
+}
+
 pub fn create_attachment(
     conn: &mut DbConnection,
     new_attachment: NewAttachment,
@@ -354,24 +372,32 @@ pub fn get_comments_with_attachments_by_ticket_id(
         crate::repository::channels::from_addresses_for_comments(conn, &comment_ids)
             .unwrap_or_default();
 
-    comments
+    // Batch the remaining per-comment lookups the same way: attachments by
+    // comment id, and comment authors by their (distinct) uuids.
+    let mut attachments_by_comment = get_attachments_for_comments(conn, &comment_ids)?;
+    let author_uuids: Vec<uuid::Uuid> = comments.iter().map(|c| c.user_uuid).collect();
+    let authors = crate::repository::users::get_user_map_by_uuids(&author_uuids, conn)?;
+
+    Ok(comments
         .into_iter()
         .map(|comment| {
-            let attachments = get_attachments_by_comment_id(conn, comment.id)?;
-            let user = crate::repository::users::get_user_by_uuid(&comment.user_uuid, conn)
-                .ok()
+            let attachments = attachments_by_comment
+                .remove(&comment.id)
+                .unwrap_or_default();
+            let user = authors
+                .get(&comment.user_uuid)
                 .map(UserInfoWithAvatar::from);
             let from_address = from_addresses.remove(&comment.id);
             let has_raw_source = comment.raw_source_uri.is_some();
-            Ok(CommentWithAttachments {
+            CommentWithAttachments {
                 comment,
                 attachments,
                 user,
                 from_address,
                 has_raw_source,
-            })
+            }
         })
-        .collect()
+        .collect())
 }
 
 pub fn delete_comment(
@@ -488,6 +514,28 @@ mod tests {
         let comments = get_comments_by_ticket_id(&mut conn, ticket.id).unwrap();
         assert_eq!(comments.len(), 1);
         assert_eq!(comments[0].id, comment.id);
+    }
+
+    #[test]
+    fn with_attachments_batches_author_and_attachments() {
+        let mut conn = setup_test_connection();
+        let author = TestFixtures::create_user(&mut conn, "cmt_author", "user");
+        let ticket = TestFixtures::create_ticket(&mut conn, "Ticket", Some(author.uuid), None);
+        let comment = TestFixtures::create_comment(&mut conn, ticket.id, author.uuid, "hi");
+        let att = TestFixtures::create_attachment(&mut conn, comment.id, "file.pdf");
+
+        let result = get_comments_with_attachments_by_ticket_id(&mut conn, ticket.id).unwrap();
+        let cwa = result
+            .iter()
+            .find(|c| c.comment.id == comment.id)
+            .expect("comment present");
+        let user = cwa.user.as_ref().expect("author enriched from batch");
+        assert_eq!(user.uuid, author.uuid);
+        assert_eq!(user.name, author.name);
+        assert!(
+            cwa.attachments.iter().any(|a| a.id == att.id),
+            "attachment batched onto its comment"
+        );
     }
 
     #[test]

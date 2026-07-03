@@ -177,36 +177,31 @@ fn is_page_stale(page: &DocumentationPage) -> bool {
     }
 }
 
-// Helper function to convert DocumentationPage to DocumentationPageResponse with user info
-fn to_page_response(
+// Assemble a page response from an already-batched `uuid -> User` map,
+// doing no per-row user query. Shared by the single-page and list builders
+// so response construction lives in one place.
+fn build_page_response(
     page: DocumentationPage,
+    users: &std::collections::HashMap<uuid::Uuid, crate::models::User>,
     conn: &mut DbConnection,
 ) -> Result<DocumentationPageResponse, String> {
-    // Fetch user info for created_by
-    let created_by_user = repository::get_user_by_uuid(&page.created_by, conn)
-        .map_err(|_| "Failed to fetch created_by user")?;
-
-    // Fetch user info for last_edited_by
-    let last_edited_by_user = repository::get_user_by_uuid(&page.last_edited_by, conn)
-        .map_err(|_| "Failed to fetch last_edited_by user")?;
+    let created_by_user = users
+        .get(&page.created_by)
+        .ok_or("Failed to fetch created_by user")?;
+    let last_edited_by_user = users
+        .get(&page.last_edited_by)
+        .ok_or("Failed to fetch last_edited_by user")?;
 
     // Extract content from Yjs document if available
     let content = resolve_yjs_document(&page, conn).and_then(|doc| extract_yjs_content(&doc));
 
-    // Verifier user info, only fetched when the page has been
-    // verified. The DB stores the uuid; the response embeds the
-    // user's display info so the frontend doesn't need a second
-    // round-trip to render the banner.
-    let verified_by = page.verified_by.and_then(|uuid| {
-        repository::get_user_by_uuid(&uuid, conn)
-            .ok()
-            .map(|u| UserInfoWithAvatar {
-                uuid: u.uuid,
-                name: u.name,
-                avatar_url: u.avatar_url,
-                avatar_thumb: u.avatar_thumb,
-            })
-    });
+    // Verifier user info, only present when the page has been verified.
+    // The DB stores the uuid; the response embeds the user's display info
+    // so the frontend doesn't need a second round-trip to render the banner.
+    let verified_by = page
+        .verified_by
+        .and_then(|uuid| users.get(&uuid))
+        .map(UserInfoWithAvatar::from);
     let is_stale = is_page_stale(&page);
 
     Ok(DocumentationPageResponse {
@@ -219,18 +214,8 @@ fn to_page_response(
         status: page.status,
         created_at: page.created_at,
         updated_at: page.updated_at,
-        created_by: UserInfoWithAvatar {
-            uuid: created_by_user.uuid,
-            name: created_by_user.name,
-            avatar_url: created_by_user.avatar_url,
-            avatar_thumb: created_by_user.avatar_thumb,
-        },
-        last_edited_by: UserInfoWithAvatar {
-            uuid: last_edited_by_user.uuid,
-            name: last_edited_by_user.name,
-            avatar_url: last_edited_by_user.avatar_url,
-            avatar_thumb: last_edited_by_user.avatar_thumb,
-        },
+        created_by: UserInfoWithAvatar::from(created_by_user),
+        last_edited_by: UserInfoWithAvatar::from(last_edited_by_user),
         parent_id: page.parent_id,
         display_order: page.display_order,
         is_public: page.is_public,
@@ -250,6 +235,20 @@ fn to_page_response(
         requires_verification: false,
         linked_tickets: None,
     })
+}
+
+// Single-page convenience: batch this page's own author uuids, then assemble.
+fn to_page_response(
+    page: DocumentationPage,
+    conn: &mut DbConnection,
+) -> Result<DocumentationPageResponse, String> {
+    let mut uuids = vec![page.created_by, page.last_edited_by];
+    if let Some(verified_by) = page.verified_by {
+        uuids.push(verified_by);
+    }
+    let users = repository::users::get_user_map_by_uuids(&uuids, conn)
+        .map_err(|e| format!("Failed to fetch page authors: {e:?}"))?;
+    build_page_response(page, &users, conn)
 }
 
 /// Hydrate the linked_tickets field on a page response by querying
@@ -311,9 +310,22 @@ fn to_page_responses(
     pages: Vec<DocumentationPage>,
     conn: &mut DbConnection,
 ) -> Result<Vec<DocumentationPageResponse>, String> {
+    // Batch every page's author uuids (created / edited / verified) into one
+    // lookup, then assemble each response from the map.
+    let mut uuids: Vec<uuid::Uuid> = Vec::with_capacity(pages.len() * 2);
+    for page in &pages {
+        uuids.push(page.created_by);
+        uuids.push(page.last_edited_by);
+        if let Some(verified_by) = page.verified_by {
+            uuids.push(verified_by);
+        }
+    }
+    let users = repository::users::get_user_map_by_uuids(&uuids, conn)
+        .map_err(|e| format!("Failed to fetch page authors: {e:?}"))?;
+
     pages
         .into_iter()
-        .map(|page| to_page_response(page, conn))
+        .map(|page| build_page_response(page, &users, conn))
         .collect()
 }
 

@@ -672,75 +672,146 @@ pub fn set_collection_visibility(
 }
 
 /// Get collections visible to a user based on their group memberships or direct user grants
+/// Batched `get_visible_groups_for_collection`: one query returning a
+/// `collection_id -> visible groups` map for many collections.
+pub fn get_visible_groups_for_collections(
+    conn: &mut DbConnection,
+    collection_ids: &[i32],
+) -> QueryResult<std::collections::HashMap<i32, Vec<Group>>> {
+    let rows: Vec<(i32, Group)> = documentation_collection_visibility::table
+        .filter(documentation_collection_visibility::collection_id.eq_any(collection_ids))
+        .filter(documentation_collection_visibility::group_id.is_not_null())
+        .inner_join(
+            groups::table.on(groups::id
+                .nullable()
+                .eq(documentation_collection_visibility::group_id)),
+        )
+        .select((
+            documentation_collection_visibility::collection_id,
+            groups::all_columns,
+        ))
+        .load(conn)?;
+    let mut map: std::collections::HashMap<i32, Vec<Group>> = std::collections::HashMap::new();
+    for (collection_id, group) in rows {
+        map.entry(collection_id).or_default().push(group);
+    }
+    Ok(map)
+}
+
+/// Batched `get_visible_users_for_collection`: one query returning a
+/// `collection_id -> visible users` map for many collections.
+pub fn get_visible_users_for_collections(
+    conn: &mut DbConnection,
+    collection_ids: &[i32],
+) -> QueryResult<std::collections::HashMap<i32, Vec<UserInfoWithAvatar>>> {
+    let rows: Vec<(i32, Uuid, String, Option<String>, Option<String>)> =
+        documentation_collection_visibility::table
+            .filter(documentation_collection_visibility::collection_id.eq_any(collection_ids))
+            .filter(documentation_collection_visibility::user_uuid.is_not_null())
+            .inner_join(
+                users::table.on(users::uuid
+                    .nullable()
+                    .eq(documentation_collection_visibility::user_uuid)),
+            )
+            .select((
+                documentation_collection_visibility::collection_id,
+                users::uuid,
+                users::name,
+                users::avatar_url,
+                users::avatar_thumb,
+            ))
+            .load(conn)?;
+    let mut map: std::collections::HashMap<i32, Vec<UserInfoWithAvatar>> =
+        std::collections::HashMap::new();
+    for (collection_id, uuid, name, avatar_url, avatar_thumb) in rows {
+        map.entry(collection_id)
+            .or_default()
+            .push(UserInfoWithAvatar {
+                uuid,
+                name,
+                avatar_url,
+                avatar_thumb,
+            });
+    }
+    Ok(map)
+}
+
+/// Batched `get_page_count_in_collection`: one grouped query returning a
+/// `collection_id -> page count` map. Collections with no pages are absent
+/// (callers default to 0).
+pub fn get_page_counts_for_collections(
+    conn: &mut DbConnection,
+    collection_ids: &[i32],
+) -> QueryResult<std::collections::HashMap<i32, i64>> {
+    let rows: Vec<(i32, i64)> = documentation_collection_pages::table
+        .filter(documentation_collection_pages::collection_id.eq_any(collection_ids))
+        .group_by(documentation_collection_pages::collection_id)
+        .select((
+            documentation_collection_pages::collection_id,
+            diesel::dsl::count_star(),
+        ))
+        .load(conn)?;
+    Ok(rows.into_iter().collect())
+}
+
+/// Assemble every collection with its visibility + page count, batching the
+/// three per-collection lookups into three queries total. Shared by the
+/// user-scoped and admin views, which differ only in how they filter the
+/// result.
+fn collections_with_details(conn: &mut DbConnection) -> Result<Vec<CollectionWithDetails>, Error> {
+    let all_collections = get_all_collections(conn)?;
+    let ids: Vec<i32> = all_collections.iter().map(|c| c.id).collect();
+
+    let mut groups_map = get_visible_groups_for_collections(conn, &ids)?;
+    let mut users_map = get_visible_users_for_collections(conn, &ids)?;
+    let count_map = get_page_counts_for_collections(conn, &ids)?;
+
+    Ok(all_collections
+        .into_iter()
+        .map(|collection| {
+            let visible_groups = groups_map.remove(&collection.id).unwrap_or_default();
+            let visible_users = users_map.remove(&collection.id).unwrap_or_default();
+            let is_public = visible_groups.is_empty() && visible_users.is_empty();
+            let page_count = count_map.get(&collection.id).copied().unwrap_or(0);
+            CollectionWithDetails {
+                collection,
+                visible_to_groups: visible_groups,
+                visible_to_users: visible_users,
+                is_public,
+                page_count,
+            }
+        })
+        .collect())
+}
+
 pub fn get_collections_for_user(
     conn: &mut DbConnection,
     user_uuid: &Uuid,
     is_admin: bool,
 ) -> Result<Vec<CollectionWithDetails>, Error> {
-    let all_collections = get_all_collections(conn)?;
+    let all = collections_with_details(conn)?;
 
-    // Get user's group IDs (only needed for non-admins)
-    let user_group_ids: Vec<i32> = if !is_admin {
-        crate::repository::groups::get_group_ids_for_user(conn, user_uuid)?
-    } else {
-        Vec::new()
-    };
-
-    let mut visible_collections = Vec::new();
-
-    for collection in all_collections {
-        // Get visibility entries for this collection
-        let visible_groups = get_visible_groups_for_collection(conn, collection.id)?;
-        let visible_users = get_visible_users_for_collection(conn, collection.id)?;
-        let is_public = visible_groups.is_empty() && visible_users.is_empty();
-
-        // Admins see all collections
-        if !is_admin && !is_public {
-            let collection_group_ids: Vec<i32> = visible_groups.iter().map(|g| g.id).collect();
-            let has_group_access = user_group_ids
-                .iter()
-                .any(|id| collection_group_ids.contains(id));
-            let has_user_access = visible_users.iter().any(|u| u.uuid == *user_uuid);
-            if !has_group_access && !has_user_access {
-                continue;
-            }
-        }
-
-        let page_count = get_page_count_in_collection(conn, collection.id)?;
-
-        visible_collections.push(CollectionWithDetails {
-            collection,
-            visible_to_groups: visible_groups,
-            visible_to_users: visible_users,
-            is_public,
-            page_count,
-        });
+    // Admins see every collection; everyone else sees public collections
+    // plus those shared with one of their groups or with them directly.
+    if is_admin {
+        return Ok(all);
     }
-
-    Ok(visible_collections)
+    let user_group_ids = crate::repository::groups::get_group_ids_for_user(conn, user_uuid)?;
+    Ok(all
+        .into_iter()
+        .filter(|c| {
+            c.is_public
+                || c.visible_to_groups
+                    .iter()
+                    .any(|g| user_group_ids.contains(&g.id))
+                || c.visible_to_users.iter().any(|u| u.uuid == *user_uuid)
+        })
+        .collect())
 }
 
 /// Get all collections with visibility details (for admin views)
 pub fn get_all_collections_with_details(
     conn: &mut DbConnection,
 ) -> Result<Vec<CollectionWithDetails>, Error> {
-    let all_collections = get_all_collections(conn)?;
-    let mut result = Vec::new();
-
-    for collection in all_collections {
-        let visible_groups = get_visible_groups_for_collection(conn, collection.id)?;
-        let visible_users = get_visible_users_for_collection(conn, collection.id)?;
-        let is_public = visible_groups.is_empty() && visible_users.is_empty();
-        let page_count = get_page_count_in_collection(conn, collection.id)?;
-
-        result.push(CollectionWithDetails {
-            collection,
-            visible_to_groups: visible_groups,
-            visible_to_users: visible_users,
-            is_public,
-            page_count,
-        });
-    }
-
-    Ok(result)
+    collections_with_details(conn)
 }
