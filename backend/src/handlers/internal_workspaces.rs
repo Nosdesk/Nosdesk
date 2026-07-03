@@ -32,6 +32,42 @@ use crate::services::search::{indexing_tasks, SearchService};
 use crate::utils::workspace_slug::validate_slug;
 use std::sync::Arc;
 
+/// Control-plane provisioning routes, mounted inside the `/api/internal/v1`
+/// scope in main.rs (paths are scope-relative; the scope keeps its
+/// platform-auth + idempotency wraps).
+pub fn config(cfg: &mut actix_web::web::ServiceConfig) {
+    use actix_web::web;
+    cfg.route("/workspaces/create", web::post().to(create_workspace))
+        .route(
+            "/workspaces/{slug}/upsert_projected_user",
+            web::post().to(upsert_projected_user),
+        )
+        .route(
+            "/workspaces/{slug}/seat_limit",
+            web::post().to(set_seat_limit),
+        )
+        .route(
+            "/workspaces/{slug}/members/set_role",
+            web::post().to(set_member_role),
+        )
+        .route(
+            "/workspaces/{slug}/custom-domain",
+            web::patch().to(set_custom_domain),
+        )
+        .route(
+            "/workspaces/{slug}/provisioning",
+            web::get().to(workspace_provisioning),
+        )
+        .route(
+            "/workspaces/{slug}/restore",
+            web::post().to(restore_workspace),
+        )
+        .route(
+            "/workspaces/{slug}",
+            web::delete().to(deprovision_workspace),
+        );
+}
+
 /// Header name the idempotency middleware looks for. Duplicated as a
 /// string here so this handler can produce a useful 400 when callers
 /// forget it; the middleware itself would just pass through (since

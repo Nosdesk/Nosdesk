@@ -17,6 +17,153 @@ use crate::utils::{parse_uuid, ValidationError};
 // Import JWT utilities
 use crate::utils::jwt::{helpers as jwt_helpers, JwtUtils};
 
+/// Authentication routes, mounted inside the rate-limited `/api/auth` scope in
+/// main.rs (paths are scope-relative). The `/setup` sub-scope stays in main.rs
+/// because it's built conditionally on the deployment mode; everything else
+/// lives here. Per-route `cookie_auth_middleware` wraps and the nested
+/// `/sessions`, `/mfa`, `/passkeys` scopes are preserved verbatim.
+pub fn config(cfg: &mut web::ServiceConfig) {
+    use crate::middleware::cookie_auth_middleware;
+    use actix_web::middleware::from_fn;
+    cfg.route("/login", web::post().to(crate::handlers::login))
+        .route("/logout", web::post().to(crate::handlers::logout))
+        .route("/mfa-login", web::post().to(crate::handlers::mfa_login))
+        .route(
+            "/recovery-login",
+            web::post().to(crate::handlers::recovery_login),
+        )
+        .route(
+            "/mfa-setup-login",
+            web::post().to(crate::handlers::mfa_setup_login),
+        )
+        .route(
+            "/mfa-enable-login",
+            web::post().to(crate::handlers::mfa_enable_login),
+        )
+        .route(
+            "/passkey-setup-login/start",
+            web::post().to(crate::handlers::start_passkey_setup_login),
+        )
+        .route(
+            "/passkey-setup-login/finish",
+            web::post().to(crate::handlers::finish_passkey_setup_login),
+        )
+        .route("/refresh", web::post().to(crate::handlers::refresh_token))
+        .route(
+            "/password-reset/request",
+            web::post().to(crate::handlers::password_reset::request_password_reset),
+        )
+        .route(
+            "/password-reset/complete",
+            web::post().to(crate::handlers::password_reset::reset_password_with_token),
+        )
+        .route(
+            "/invitation/validate",
+            web::post().to(crate::handlers::invitation::validate_invitation),
+        )
+        .route(
+            "/invitation/accept",
+            web::post().to(crate::handlers::invitation::accept_invitation),
+        )
+        .route(
+            "/providers",
+            web::get().to(crate::handlers::get_enabled_auth_providers),
+        )
+        .route(
+            "/oauth/authorize",
+            web::post().to(crate::handlers::oauth_authorize),
+        )
+        .route(
+            "/oauth/callback",
+            web::get().to(crate::handlers::oauth_callback),
+        )
+        .route(
+            "/oauth/logout",
+            web::post().to(crate::handlers::oauth_logout),
+        )
+        .route(
+            "/native-oidc-config",
+            web::get().to(crate::handlers::native_oidc_config),
+        )
+        .route(
+            "/oidc/native-login",
+            web::post().to(crate::handlers::native_oidc_login),
+        )
+        .route(
+            "/me",
+            web::get()
+                .to(crate::handlers::get_current_user)
+                .wrap(from_fn(cookie_auth_middleware)),
+        )
+        .route(
+            "/change-password",
+            web::post()
+                .to(crate::handlers::change_password)
+                .wrap(from_fn(cookie_auth_middleware)),
+        )
+        .route(
+            "/oauth/connect",
+            web::post()
+                .to(crate::handlers::oauth_connect)
+                .wrap(from_fn(cookie_auth_middleware)),
+        )
+        .service(
+            web::scope("/sessions")
+                .wrap(from_fn(cookie_auth_middleware))
+                .route("", web::get().to(crate::handlers::get_user_sessions))
+                .route(
+                    "/others",
+                    web::delete().to(crate::handlers::revoke_all_other_sessions),
+                )
+                .route("/{id}", web::delete().to(crate::handlers::revoke_session)),
+        )
+        .service(
+            web::scope("/mfa")
+                .wrap(from_fn(cookie_auth_middleware))
+                .route("/setup", web::post().to(crate::handlers::mfa_setup))
+                .route(
+                    "/verify-setup",
+                    web::post().to(crate::handlers::mfa_verify_setup),
+                )
+                .route("/enable", web::post().to(crate::handlers::mfa_enable))
+                .route("/disable", web::post().to(crate::handlers::mfa_disable))
+                .route(
+                    "/regenerate-backup-codes",
+                    web::post().to(crate::handlers::mfa_regenerate_backup_codes),
+                )
+                .route("/status", web::get().to(crate::handlers::mfa_status)),
+        )
+        .route(
+            "/passkeys/login/start",
+            web::post().to(crate::handlers::start_passkey_login),
+        )
+        .route(
+            "/passkeys/login/finish",
+            web::post().to(crate::handlers::finish_passkey_login),
+        )
+        .service(
+            web::scope("/passkeys")
+                .wrap(from_fn(cookie_auth_middleware))
+                .route(
+                    "/register/start",
+                    web::post().to(crate::handlers::start_passkey_registration),
+                )
+                .route(
+                    "/register/finish",
+                    web::post().to(crate::handlers::finish_passkey_registration),
+                )
+                .route("", web::get().to(crate::handlers::list_passkeys))
+                .route(
+                    "/{credential_id}",
+                    web::patch().to(crate::handlers::rename_passkey),
+                )
+                .route(
+                    "/{credential_id}",
+                    web::delete().to(crate::handlers::delete_passkey),
+                ),
+        );
+}
+
 /// Helper function to update password hash in user_auth_identities for local auth
 fn update_local_password_hash(
     user_uuid: &Uuid,

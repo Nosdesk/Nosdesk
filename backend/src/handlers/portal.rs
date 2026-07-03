@@ -43,6 +43,22 @@ use crate::utils::jwt::JwtUtils;
 use crate::utils::reset_tokens::{ResetTokenUtils, TokenType};
 use diesel::prelude::*;
 
+/// Public portal sign-in routes, mounted inside the rate-limited
+/// `/api/portal/auth` scope in main.rs (paths are scope-relative).
+pub fn auth_config(cfg: &mut web::ServiceConfig) {
+    cfg.route("/magic-link", web::post().to(request_magic_link))
+        .route("/callback", web::get().to(magic_link_callback));
+}
+
+/// Authenticated customer-portal routes, mounted inside the `/api/portal` scope
+/// in main.rs (the scope keeps its `portal_auth_middleware` wrap).
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route("/tickets", web::get().to(list_my_tickets))
+        .route("/tickets", web::post().to(create_my_ticket))
+        .route("/tickets/{id}", web::get().to(get_my_ticket))
+        .route("/tickets/{id}/comments", web::post().to(reply_to_my_ticket));
+}
+
 /// The authenticated portal principal for a request: a customer (`user_uuid`)
 /// acting within one workspace (resolved from the portal origin and confirmed
 /// against the token's binding). Published into request extensions for portal

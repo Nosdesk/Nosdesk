@@ -482,12 +482,20 @@ pub async fn assert_config_registers(
             .method(Method::from_bytes(method.as_bytes()).expect("valid HTTP method"))
             .uri(path)
             .to_request();
-        let resp = test::call_service(&app, req).await;
-        assert_ne!(
-            resp.status(),
-            sentinel,
-            "route not registered by config(): {method} {path}"
-        );
+        // `try_call_service` (not `call_service`) so a route whose auth
+        // middleware short-circuits with an `Err` (e.g. cookie_auth's
+        // "Authentication required") doesn't panic: the middleware running at
+        // all means the route matched, i.e. it is registered. Only a
+        // sentinel-status success means the request fell through to the
+        // default service (unregistered).
+        match test::try_call_service(&app, req).await {
+            Ok(resp) => assert_ne!(
+                resp.status(),
+                sentinel,
+                "route not registered by config(): {method} {path}"
+            ),
+            Err(_) => { /* matched a route; its middleware errored — registered */ }
+        }
     }
 }
 

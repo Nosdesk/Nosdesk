@@ -37,6 +37,26 @@ use crate::utils::file_validation::{
 use crate::utils::rate_limit::{self, RateLimiter};
 use crate::utils::storage::{Storage, WorkspaceScopedStorage};
 
+/// Public guest routes, mounted inside the rate-limited `/api/public` scope in
+/// main.rs (paths are scope-relative; the scope keeps its JSON cap + limiter).
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route("/settings", web::get().to(get_public_settings))
+        .route("/tickets", web::post().to(submit_guest_ticket))
+        .route("/tickets/{token}", web::get().to(get_guest_ticket_status))
+        .route("/files/temp", web::post().to(upload_guest_attachment))
+        .route("/docs", web::get().to(list_public_docs))
+        .route("/docs/search", web::get().to(search_public_docs))
+        .route("/docs/{slug}", web::get().to(get_public_doc))
+        .route(
+            "/unsubscribe",
+            web::post().to(crate::handlers::unsubscribe::one_click),
+        )
+        .route(
+            "/unsubscribe",
+            web::get().to(crate::handlers::unsubscribe::landing),
+        );
+}
+
 /// Build a workspace-pinned system actor for guest paths. The
 /// `WorkspaceContextMiddleware` runs ahead of auth and attaches
 /// `WorkspaceContext` to every request (apex / subdomain

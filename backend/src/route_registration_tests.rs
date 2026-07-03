@@ -839,3 +839,111 @@ async fn msgraph_integration_config_routes_registered() {
     )
     .await;
 }
+
+#[actix_web::test]
+async fn guest_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::guest::config,
+        &[
+            ("GET", "/settings"),
+            ("POST", "/tickets"),
+            ("GET", "/tickets/1"),
+            ("POST", "/files/temp"),
+            ("GET", "/docs"),
+            ("GET", "/docs/search"),
+            ("GET", "/docs/1"),
+            ("POST", "/unsubscribe"),
+            ("GET", "/unsubscribe"),
+        ],
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn portal_auth_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::portal::auth_config,
+        &[("POST", "/magic-link"), ("GET", "/callback")],
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn portal_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::portal::config,
+        &[
+            ("GET", "/tickets"),
+            ("POST", "/tickets"),
+            ("GET", "/tickets/1"),
+            ("POST", "/tickets/1/comments"),
+        ],
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn internal_workspaces_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::internal_workspaces::config,
+        &[
+            ("POST", "/workspaces/create"),
+            ("POST", "/workspaces/1/upsert_projected_user"),
+            ("POST", "/workspaces/1/seat_limit"),
+            ("POST", "/workspaces/1/members/set_role"),
+            ("PATCH", "/workspaces/1/custom-domain"),
+            ("GET", "/workspaces/1/provisioning"),
+            ("POST", "/workspaces/1/restore"),
+            ("DELETE", "/workspaces/1"),
+        ],
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn auth_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::auth::config,
+        &[
+            ("POST", "/login"),
+            ("POST", "/logout"),
+            ("POST", "/mfa-login"),
+            ("POST", "/recovery-login"),
+            ("POST", "/mfa-setup-login"),
+            ("POST", "/mfa-enable-login"),
+            ("POST", "/passkey-setup-login/start"),
+            ("POST", "/passkey-setup-login/finish"),
+            ("POST", "/refresh"),
+            ("POST", "/password-reset/request"),
+            ("POST", "/password-reset/complete"),
+            ("POST", "/invitation/validate"),
+            ("POST", "/invitation/accept"),
+            ("GET", "/providers"),
+            ("POST", "/oauth/authorize"),
+            ("GET", "/oauth/callback"),
+            ("POST", "/oauth/logout"),
+            ("GET", "/native-oidc-config"),
+            ("POST", "/oidc/native-login"),
+            ("GET", "/me"),
+            ("POST", "/change-password"),
+            ("POST", "/oauth/connect"),
+            ("GET", "/sessions"),
+            ("DELETE", "/sessions/others"),
+            ("DELETE", "/sessions/1"),
+            ("POST", "/mfa/setup"),
+            ("POST", "/mfa/verify-setup"),
+            ("POST", "/mfa/enable"),
+            ("POST", "/mfa/disable"),
+            ("POST", "/mfa/regenerate-backup-codes"),
+            ("GET", "/mfa/status"),
+            ("POST", "/passkeys/login/start"),
+            ("POST", "/passkeys/login/finish"),
+            ("POST", "/passkeys/register/start"),
+            ("POST", "/passkeys/register/finish"),
+            ("GET", "/passkeys"),
+            ("PATCH", "/passkeys/1"),
+            ("DELETE", "/passkeys/1"),
+        ],
+    )
+    .await;
+}

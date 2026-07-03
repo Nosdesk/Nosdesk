@@ -163,9 +163,6 @@ async fn serve_spa(req: HttpRequest) -> HttpResponse {
 // Cookie-based authentication middleware lives in
 // `middleware/cookie_auth.rs` so it sits next to its peer
 // `middleware/api_token.rs` and uses `crate::*` paths consistently.
-// Re-exported from the middleware module for the same `from_fn`
-// usage in route registration below.
-use middleware::cookie_auth_middleware;
 
 /// Resolve when the process receives a termination signal: SIGTERM (Fly
 /// deploy / `docker stop`) or SIGINT (Ctrl-C in dev). We `disable_signals()`
@@ -1622,17 +1619,7 @@ async fn main() -> std::io::Result<()> {
                     .app_data(web::JsonConfig::default().limit(32 * 1024))
                     .app_data(public_limiter_data.clone())
                     .wrap(RateLimiter::default())
-                    .route("/settings", web::get().to(handlers::guest::get_public_settings))
-                    .route("/tickets", web::post().to(handlers::guest::submit_guest_ticket))
-                    .route("/tickets/{token}", web::get().to(handlers::guest::get_guest_ticket_status))
-                    .route("/files/temp", web::post().to(handlers::guest::upload_guest_attachment))
-                    .route("/docs", web::get().to(handlers::guest::list_public_docs))
-                    .route("/docs/search", web::get().to(handlers::guest::search_public_docs))
-                    .route("/docs/{slug}", web::get().to(handlers::guest::get_public_doc))
-                    // One-click email unsubscribe (RFC 8058): POST is the mail
-                    // client's automatic one-click, GET the human-followed link.
-                    .route("/unsubscribe", web::post().to(handlers::unsubscribe::one_click))
-                    .route("/unsubscribe", web::get().to(handlers::unsubscribe::landing))
+                    .configure(handlers::guest::config)
             )
 
             // Public WebSocket for collaboration (auth handled in WebSocket handler)
@@ -1680,14 +1667,7 @@ async fn main() -> std::io::Result<()> {
             .service(
                 web::scope("/api/portal/auth")
                     .wrap(RateLimiter::default())
-                    .route(
-                        "/magic-link",
-                        web::post().to(handlers::portal::request_magic_link),
-                    )
-                    .route(
-                        "/callback",
-                        web::get().to(handlers::portal::magic_link_callback),
-                    ),
+                    .configure(handlers::portal::auth_config),
             )
             // Authenticated customer portal API. Registered AFTER the public
             // `/api/portal/auth` scope so the sign-in routes match there first.
@@ -1698,16 +1678,7 @@ async fn main() -> std::io::Result<()> {
                     .wrap(actix_web::middleware::from_fn(
                         handlers::portal::portal_auth_middleware,
                     ))
-                    .route("/tickets", web::get().to(handlers::portal::list_my_tickets))
-                    .route("/tickets", web::post().to(handlers::portal::create_my_ticket))
-                    .route(
-                        "/tickets/{id}",
-                        web::get().to(handlers::portal::get_my_ticket),
-                    )
-                    .route(
-                        "/tickets/{id}/comments",
-                        web::post().to(handlers::portal::reply_to_my_ticket),
-                    ),
+                    .configure(handlers::portal::config),
             )
             // Authentication routes (public by design)
             .service(
@@ -1731,71 +1702,7 @@ async fn main() -> std::io::Result<()> {
                             crate::middleware::DeploymentMode::Hosted => setup,
                         }
                     })
-                                            .route("/login", web::post().to(handlers::login))
-                        .route("/logout", web::post().to(handlers::logout))
-                        .route("/mfa-login", web::post().to(handlers::mfa_login))
-                        .route("/recovery-login", web::post().to(handlers::recovery_login))
-                        .route("/mfa-setup-login", web::post().to(handlers::mfa_setup_login))
-                        .route("/mfa-enable-login", web::post().to(handlers::mfa_enable_login))
-                        .route("/passkey-setup-login/start", web::post().to(handlers::start_passkey_setup_login))
-                        .route("/passkey-setup-login/finish", web::post().to(handlers::finish_passkey_setup_login))
-                        .route("/refresh", web::post().to(handlers::refresh_token))
-                    // Password reset routes (public, rate-limited)
-                    .route("/password-reset/request", web::post().to(handlers::password_reset::request_password_reset))
-                    .route("/password-reset/complete", web::post().to(handlers::password_reset::reset_password_with_token))
-                    // Invitation routes (public)
-                    .route("/invitation/validate", web::post().to(handlers::invitation::validate_invitation))
-                    .route("/invitation/accept", web::post().to(handlers::invitation::accept_invitation))
-                    .route("/providers", web::get().to(handlers::get_enabled_auth_providers))
-                    .route("/oauth/authorize", web::post().to(handlers::oauth_authorize))
-                    .route("/oauth/callback", web::get().to(handlers::oauth_callback))
-                    .route("/oauth/logout", web::post().to(handlers::oauth_logout))
-                    // Native (mobile app) OIDC: the app runs its own PKCE flow
-                    // against the IdP, then logs in with the resulting id_token.
-                    .route(
-                        "/native-oidc-config",
-                        web::get().to(handlers::native_oidc_config),
-                    )
-                    .route(
-                        "/oidc/native-login",
-                        web::post().to(handlers::native_oidc_login),
-                    )
-                    // Protected auth routes
-                    .route("/me", web::get().to(handlers::get_current_user).wrap(actix_web::middleware::from_fn(cookie_auth_middleware)))
-                    .route("/change-password", web::post().to(handlers::change_password).wrap(actix_web::middleware::from_fn(cookie_auth_middleware)))
-                    .route("/oauth/connect", web::post().to(handlers::oauth_connect).wrap(actix_web::middleware::from_fn(cookie_auth_middleware)))
-                    // Session Management endpoints
-                    .service(
-                        web::scope("/sessions")
-                            .wrap(actix_web::middleware::from_fn(cookie_auth_middleware))
-                            .route("", web::get().to(handlers::get_user_sessions))
-                            .route("/others", web::delete().to(handlers::revoke_all_other_sessions))
-                            .route("/{id}", web::delete().to(handlers::revoke_session))
-                    )
-                    // MFA (Multi-Factor Authentication) endpoints
-                    .service(
-                        web::scope("/mfa")
-                            .wrap(actix_web::middleware::from_fn(cookie_auth_middleware))
-                            .route("/setup", web::post().to(handlers::mfa_setup))
-                            .route("/verify-setup", web::post().to(handlers::mfa_verify_setup))
-                            .route("/enable", web::post().to(handlers::mfa_enable))
-                            .route("/disable", web::post().to(handlers::mfa_disable))
-                            .route("/regenerate-backup-codes", web::post().to(handlers::mfa_regenerate_backup_codes))
-                            .route("/status", web::get().to(handlers::mfa_status))
-                    )
-                    // Passkey login endpoints (public - no auth required)
-                    .route("/passkeys/login/start", web::post().to(handlers::start_passkey_login))
-                    .route("/passkeys/login/finish", web::post().to(handlers::finish_passkey_login))
-                    // Passkey management endpoints (protected - requires cookie auth)
-                    .service(
-                        web::scope("/passkeys")
-                            .wrap(actix_web::middleware::from_fn(cookie_auth_middleware))
-                            .route("/register/start", web::post().to(handlers::start_passkey_registration))
-                            .route("/register/finish", web::post().to(handlers::finish_passkey_registration))
-                            .route("", web::get().to(handlers::list_passkeys))
-                            .route("/{credential_id}", web::patch().to(handlers::rename_passkey))
-                            .route("/{credential_id}", web::delete().to(handlers::delete_passkey))
-                    )
+                    .configure(handlers::auth::config)
             )
 
             // === INTERNAL PROVISIONING SURFACE (M5) ===
@@ -1817,38 +1724,7 @@ async fn main() -> std::io::Result<()> {
                 web::scope("/api/internal/v1")
                     .wrap(actix_web::middleware::from_fn(middleware::idempotency_middleware))
                     .wrap(actix_web::middleware::from_fn(backend::extractors::platform_auth_middleware))
-                    .route(
-                        "/workspaces/create",
-                        web::post().to(handlers::internal_workspaces::create_workspace),
-                    )
-                    .route(
-                        "/workspaces/{slug}/upsert_projected_user",
-                        web::post().to(handlers::internal_workspaces::upsert_projected_user),
-                    )
-                    .route(
-                        "/workspaces/{slug}/seat_limit",
-                        web::post().to(handlers::internal_workspaces::set_seat_limit),
-                    )
-                    .route(
-                        "/workspaces/{slug}/members/set_role",
-                        web::post().to(handlers::internal_workspaces::set_member_role),
-                    )
-                    .route(
-                        "/workspaces/{slug}/custom-domain",
-                        web::patch().to(handlers::internal_workspaces::set_custom_domain),
-                    )
-                    .route(
-                        "/workspaces/{slug}/provisioning",
-                        web::get().to(handlers::internal_workspaces::workspace_provisioning),
-                    )
-                    .route(
-                        "/workspaces/{slug}/restore",
-                        web::post().to(handlers::internal_workspaces::restore_workspace),
-                    )
-                    .route(
-                        "/workspaces/{slug}",
-                        web::delete().to(handlers::internal_workspaces::deprovision_workspace),
-                    )
+                    .configure(handlers::internal_workspaces::config)
             )
 
             // === PROTECTED ROUTES (AUTHENTICATION REQUIRED) ===

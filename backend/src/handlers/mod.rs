@@ -81,6 +81,7 @@ pub mod workspace_email;
 pub mod workspace_members;
 
 // Import all handlers from modules
+#[allow(ambiguous_glob_reexports)] // `config` accessed via full path (see projects)
 pub use auth::*;
 // Export specific items from users to avoid conflicts
 #[allow(ambiguous_glob_reexports)] // `config` accessed via full path (see projects)
