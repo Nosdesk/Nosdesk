@@ -33,6 +33,7 @@
     clippy::manual_strip
 )]
 
+pub mod config;
 pub mod config_utils;
 pub mod db;
 pub mod extractors;

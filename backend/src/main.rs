@@ -11,6 +11,7 @@
     clippy::manual_strip
 )]
 
+use backend::config;
 use backend::db;
 use backend::handlers;
 use backend::license;
@@ -249,56 +250,19 @@ async fn main() -> std::io::Result<()> {
         env::var("PORT").unwrap_or("NOT_SET".to_string())
     );
 
-    // Get environment early for validation
-    let environment = env::var("ENVIRONMENT").unwrap_or("development".to_string());
-    info!("Environment: {}", environment);
-
-    // Detects values that look like docker.env.example placeholders
-    // (e.g. "your-super-secret-jwt-key-change-this-in-production").
-    // Applied to every production secret check below so an operator
-    // who forgets to override the example file gets a fast hard
-    // failure rather than a forged-token incident.
-    fn looks_like_placeholder(value: &str) -> bool {
-        let lower = value.to_ascii_lowercase();
-        const NEEDLES: &[&str] = &[
-            "change-this",
-            "change-me",
-            "your-super-secret",
-            "your-64-character",
-            "your-",
-            "placeholder",
-            "example",
-        ];
-        NEEDLES.iter().any(|n| lower.contains(n))
-    }
-
-    // Validate that JWT_SECRET is set and secure
-    let _jwt_secret = match std::env::var("JWT_SECRET") {
-        Ok(secret) => {
-            if environment == "production" && looks_like_placeholder(&secret) {
-                error!("JWT_SECRET appears to be the docker.env.example placeholder");
-                error!("Refusing to start in production with a placeholder JWT_SECRET");
-                error!("Generate a secure key with: openssl rand -base64 32");
-                std::process::exit(1);
-            }
-            if secret.len() < 32 {
-                if environment == "production" {
-                    error!("JWT_SECRET must be at least 32 characters in production");
-                    error!("Generate a secure key with: openssl rand -base64 32");
-                    std::process::exit(1);
-                } else {
-                    warn!("JWT_SECRET is less than 32 characters - this would be rejected in production");
-                }
-            }
-            secret
-        }
-        Err(e) => {
-            error!(error = %e, "JWT_SECRET environment variable must be set");
-            error!("Generate a secure key with: openssl rand -base64 32");
-            std::process::exit(1);
-        }
-    };
-    info!("JWT_SECRET validated");
+    let config = config::Config::from_env()?;
+    // Rebind the values downstream setup still reads by their old names;
+    // later phases (build_state / build_app) will take `&config` directly.
+    let environment = config.environment.clone();
+    let rate_limit_per_minute = config.rate_limit_per_minute;
+    let auth_rate_limit_per_minute = config.auth_rate_limit_per_minute;
+    let redis_url = config.redis_url.clone();
+    let host = config.host.clone();
+    let port = config.port;
+    let max_payload_size = config.max_payload_size;
+    let frontend_url = config.frontend_url.clone();
+    let additional_origins = config.additional_origins.clone();
+    let tenant_domain = config.tenant_domain.clone();
 
     // Initialise the at-rest encryption keyring (versioned KEK,
     // self-describing framed-blob shape; see
@@ -313,7 +277,7 @@ async fn main() -> std::io::Result<()> {
     // read; rename them at upgrade time.
     let placeholder_kek_v1 = std::env::var("MFA_KEK_V1")
         .ok()
-        .is_some_and(|k| looks_like_placeholder(&k));
+        .is_some_and(|k| config::looks_like_placeholder(&k));
     if placeholder_kek_v1 {
         if environment == "production" {
             error!("MFA_KEK_V1 appears to be the docker.env.example placeholder");
@@ -347,104 +311,6 @@ async fn main() -> std::io::Result<()> {
     // session creation can attach a coarse location. No-op + info log when
     // unset; never fatal.
     crate::utils::geoip::init_from_env();
-
-    // NOSDESK_ROOT_PUBKEY is baked into the binary at build time
-    // via option_env! (see services/plugins/signing.rs). Without it
-    // the plugin trust chain cannot verify Official or Verified
-    // tiers; only `local` (CLI-installed) plugins work. That's
-    // acceptable for an unconfigured fork but not for a Nosdesk
-    // production deployment.
-    if environment == "production" && crate::services::plugins::signing::root_pubkey().is_none() {
-        error!("NOSDESK_ROOT_PUBKEY was not set at build time");
-        error!("Refusing to start in production without a plugin trust root");
-        error!("Rebuild with: docker build --build-arg NOSDESK_ROOT_PUBKEY=<base64> ...");
-        error!("(Forks running their own registry should override with their own root key.)");
-        std::process::exit(1);
-    }
-
-    // --- docker.env.example default credentials must never ship to production ---
-    if environment.eq_ignore_ascii_case("production") {
-        const EX_POSTGRES_PASSWORD: &str = "nosdesk_password";
-        const EX_REDIS_PASSWORD: &str = "nosdesk_redis_password";
-
-        let insecure_defaults_allowed = matches!(
-            env::var("ALLOW_INSECURE_DEFAULT_SECRETS").as_deref(),
-            Ok("1" | "true" | "yes")
-        );
-
-        if !insecure_defaults_allowed {
-            if env::var("POSTGRES_PASSWORD").as_deref() == Ok(EX_POSTGRES_PASSWORD) {
-                error!(
-                    "POSTGRES_PASSWORD matches docker.env.example default ({EX_POSTGRES_PASSWORD})"
-                );
-                error!("Refusing to start in production with documented sample credentials");
-                error!("Change POSTGRES_PASSWORD or set ALLOW_INSECURE_DEFAULT_SECRETS=1 only for isolated labs");
-                std::process::exit(1);
-            }
-            if env::var("REDIS_PASSWORD").as_deref() == Ok(EX_REDIS_PASSWORD) {
-                error!("REDIS_PASSWORD matches docker.env.example default ({EX_REDIS_PASSWORD})");
-                error!("Refusing to start in production with documented sample credentials");
-                error!("Change REDIS_PASSWORD or set ALLOW_INSECURE_DEFAULT_SECRETS=1 only for isolated labs");
-                std::process::exit(1);
-            }
-        } else {
-            warn!("ALLOW_INSECURE_DEFAULT_SECRETS enabled — example Postgres/Redis passwords accepted (labs only)");
-        }
-    }
-
-    // Security: Validate environment (already declared above)
-    if environment == "production" {
-        // Check for HTTPS in production URLs
-        if let Ok(frontend_url) = env::var("FRONTEND_URL") {
-            if !frontend_url.starts_with("https://")
-                && !frontend_url.starts_with("http://localhost")
-            {
-                warn!("FRONTEND_URL should use HTTPS in production");
-            }
-        }
-
-        // Check database SSL in production
-        if let Ok(db_url) = env::var("DATABASE_URL") {
-            if !db_url.contains("sslmode=require") && !db_url.contains("localhost") {
-                warn!("DATABASE_URL should use sslmode=require in production");
-            }
-        }
-    }
-
-    // === RATE LIMITING CONFIGURATION ===
-    // Get rate limiting configuration from environment with reasonable defaults
-    let rate_limit_per_minute = env::var("RATE_LIMIT_PER_MINUTE")
-        .unwrap_or("60".to_string()) // Conservative limit for public endpoints
-        .parse::<u64>()
-        .unwrap_or(60)
-        .clamp(30, 1000); // Reasonable limits: 30-1000 requests per minute
-
-    let auth_rate_limit_per_minute = env::var("AUTH_RATE_LIMIT_PER_MINUTE")
-        .unwrap_or("600".to_string()) // Higher limit for authenticated users (10x public rate)
-        .parse::<u64>()
-        .unwrap_or(600)
-        .clamp(120, 5000); // Higher limits for authenticated users: 120-5000 requests per minute
-
-    // Redis is a hard dependency: HTTP + auth/MFA rate limiting, the Yjs
-    // collab cache, and the `/readiness` probe all require it. Resolve ONE
-    // URL for all of them (the same shape as `utils::rate_limit::get_redis_url`).
-    // Production requires it explicitly — in-memory rate limiting would be
-    // per-machine, an N× silent bypass across the fleet — while dev defaults
-    // to localhost. There is no `memory://` fallback: it only ever masked a
-    // misconfigured single dev box where readiness and auth lockout were
-    // already broken anyway.
-    let redis_url = match env::var("REDIS_URL") {
-        Ok(url) => url,
-        Err(_) => {
-            if environment == "production" {
-                error!(
-                    "REDIS_URL is required in production: rate limiting, the collab cache, and the readiness probe all depend on Redis, and in-memory limiting is a per-machine (N×) silent bypass. Configure Redis."
-                );
-                std::process::exit(1);
-            }
-            "redis://localhost:6379".to_string()
-        }
-    };
 
     // Rate-limit keying goes through the trusted-proxy-aware client_ip
     // helper. Behind a reverse proxy (the standard production shape) per-IP
@@ -494,57 +360,6 @@ async fn main() -> std::io::Result<()> {
             error!(error = %e, "Failed to build the frontend-logs rate limiter (check REDIS_URL)");
             std::io::Error::other("Frontend-logs rate limiter initialization failed")
         })?;
-
-    // Get host and port from environment variables
-    let host = env::var("HOST").unwrap_or("127.0.0.1".to_string());
-    let port = env::var("PORT")
-        .unwrap_or("8080".to_string())
-        .parse::<u16>()
-        .map_err(|e| {
-            error!(error = %e, "Invalid PORT value");
-            std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid PORT")
-        })?;
-
-    // Security: Get file upload limits from environment
-    let max_file_size_mb = env::var("MAX_FILE_SIZE_MB")
-        .unwrap_or("50".to_string())
-        .parse::<usize>()
-        .unwrap_or(50)
-        .clamp(1, 500); // 1MB to 500MB limit
-
-    let max_payload_size = max_file_size_mb * 1024 * 1024; // Convert to bytes
-
-    // Validate CORS configuration - FRONTEND_URL required in production
-    let frontend_url = match env::var("FRONTEND_URL") {
-        Ok(url) => url,
-        Err(_) if environment == "production" => {
-            error!("FRONTEND_URL must be set in production for CORS security");
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "FRONTEND_URL environment variable is required in production",
-            ));
-        }
-        Err(_) => "http://localhost:3000".to_string(),
-    };
-
-    // Parse additional CORS origins if provided
-    let additional_origins: Vec<String> = env::var("ADDITIONAL_CORS_ORIGINS")
-        .unwrap_or_default()
-        .split(',')
-        .filter(|s| !s.trim().is_empty())
-        .map(|s| s.trim().to_string())
-        .collect();
-
-    // Tenant domain suffix for hosted-mode CORS (M5 Task 6). When
-    // set (e.g. `nosdesk.app`), every `<slug>.<tenant_domain>` origin
-    // passes the CORS check. Self-hosted leaves this unset and relies
-    // on FRONTEND_URL alone. Built as an anchored regex below so a
-    // substring-only match (`s.ends_with(".nosdesk.app")`) — the
-    // classic CORS bypass — is impossible.
-    let tenant_domain = env::var("NOSDESK_TENANT_DOMAIN")
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
 
     // Set up database connection pool
     let pool = match std::panic::catch_unwind(db::establish_connection_pool) {
