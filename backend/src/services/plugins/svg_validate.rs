@@ -147,8 +147,10 @@ fn check_attributes(
         }
 
         if key_local == "href" {
+            // Icons carry no XML declaration, so normalize per XML 1.0
+            // (quick-xml 0.41 replaced `unescape_value` with this).
             let raw_value = attr
-                .unescape_value()
+                .normalized_value(quick_xml::XmlVersion::Implicit1_0)
                 .map_err(|err| SvgValidationError::NotXml(format!("attr value: {err}")))?;
             let trimmed = raw_value.trim();
             // Allowlist: empty, fragment, or data: URI. Anything
