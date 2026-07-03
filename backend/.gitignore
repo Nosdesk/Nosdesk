@@ -29,3 +29,7 @@ Thumbs.db
 
 # Public directory (built frontend)
 public/
+
+# Local search index (Tantivy). Default SEARCH_INDEX_PATH when a run/test
+# doesn't override it; generated, never committed.
+/data/search_index/
