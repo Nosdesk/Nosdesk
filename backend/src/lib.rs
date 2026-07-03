@@ -45,6 +45,7 @@ pub mod oidc;
 pub mod repository;
 pub mod schema;
 pub mod services;
+pub mod startup;
 pub mod sync;
 pub mod telemetry;
 pub mod utils;
