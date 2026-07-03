@@ -16,6 +16,7 @@ use backend::handlers;
 use backend::license;
 use backend::middleware;
 use backend::services;
+use backend::telemetry;
 use backend::utils;
 
 use actix_cors::Cors;
@@ -28,7 +29,6 @@ use std::env;
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
 use tracing_actix_web::TracingLogger;
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use utils::redis_yjs_cache::create_redis_cache;
 use utils::storage::{create_storage, get_storage_config};
 
@@ -220,67 +220,11 @@ async fn main() -> std::io::Result<()> {
     eprintln!("JWT_SECRET will be validated after tracing initialization");
 
     eprintln!("Initializing tracing...");
-
-    // Initialize tracing/logging subsystem with better error handling.
-    //
-    // Third-party crates that emit per-operation log lines are pinned
-    // below the default level so our own code stays grep-able. Tantivy
-    // in particular logs every segment open / commit at INFO + DEBUG,
-    // which floods the dev backend log (saw ~90% of recent lines from
-    // tantivy alone). h2 / hyper / rustls / mio / want similarly emit
-    // connection lifecycle chatter that obscures real signal at
-    // debug.  Operators can still bump any of these by setting
-    // `RUST_LOG` explicitly.
-    let log_level = env::var("RUST_LOG").unwrap_or_else(|_| {
-        let base = if env::var("ENVIRONMENT").unwrap_or_default() == "production" {
-            "info"
-        } else {
-            "debug"
-        };
-        format!(
-            "{base},tantivy=warn,h2=info,hyper=info,hyper_util=info,rustls=info,mio=info,want=info"
-        )
-    });
-
-    // Production (LOG_FORMAT=json) emits via `RedactingJsonLayer` —
-    // a field-allowlist JSON serializer that drops anything outside
-    // the policy in `utils::tracing_redact`. Local dev keeps the
-    // pretty formatter because developer laptops aren't
-    // sub-processors of anyone's data. See the "Log redaction"
-    // section of `SECURITY.md` for the policy.
-    //
-    // `EnvFilter` is attached as a per-layer filter via
-    // `Layer::with_filter`, not on the registry. This keeps the
-    // registry's span store unfiltered, so `LookupSpan` /
-    // `ctx.event_scope` always see `tracing_actix_web`'s
-    // per-request span (carrying `request_id`) — even when the
-    // filter would drop the "served" event. The bare event is
-    // suppressed inside the layer by target check.
-    use tracing_subscriber::Layer as _;
-    let json_logs = std::env::var("LOG_FORMAT").ok().as_deref() == Some("json");
-    let env_filter = || EnvFilter::new(&log_level);
-    let registry = tracing_subscriber::registry();
-    let _ = if json_logs {
-        registry
-            .with(utils::tracing_redact::RedactingJsonLayer.with_filter(env_filter()))
-            .try_init()
-    } else {
-        registry
-            .with(
-                fmt::layer()
-                    .with_target(true)
-                    .with_line_number(true)
-                    .with_writer(std::io::stdout)
-                    .with_filter(env_filter()),
-            )
-            .try_init()
-    };
-
+    telemetry::init();
     debug!("Tracing initialized, continuing startup");
 
     // === SECURITY STARTUP VALIDATION ===
     info!("Starting Nosdesk API Server");
-    info!(log_level = %log_level, "Log level configured");
     // Resolve + log the edition once at boot (verifies NOSDESK_LICENSE_KEY,
     // if any). Community caps self-hosted deployments at one workspace.
     info!(

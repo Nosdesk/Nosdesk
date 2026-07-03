@@ -45,6 +45,7 @@ pub mod repository;
 pub mod schema;
 pub mod services;
 pub mod sync;
+pub mod telemetry;
 pub mod utils;
 
 #[cfg(test)]
