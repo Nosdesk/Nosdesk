@@ -1237,8 +1237,12 @@ pub async fn run(config: Config) -> std::io::Result<()> {
         )));
     }
 
-    // Create uploads directory structure if it doesn't exist
-    let uploads_dir = "/app/uploads";
+    // Create uploads directory structure if it doesn't exist. The base path is
+    // `/app/uploads` in the container image; `NOSDESK_UPLOAD_DIR` overrides it
+    // so a host / test boot can point it somewhere writable.
+    let uploads_dir =
+        std::env::var("NOSDESK_UPLOAD_DIR").unwrap_or_else(|_| "/app/uploads".to_string());
+    let uploads_dir = uploads_dir.as_str();
     let directories = [
         "",
         "temp",
