@@ -208,9 +208,12 @@ fn to_candidate(row: CandidateRow) -> ReminderCandidate {
 }
 
 /// Active loans now past their due date and not yet flagged overdue.
+/// Capped at `limit` (most-overdue first); the reminder job picks up any
+/// remainder on its next tick.
 pub fn overdue_reminder_candidates(
     conn: &mut DbConnection,
     today: NaiveDate,
+    limit: i64,
 ) -> QueryResult<Vec<ReminderCandidate>> {
     asset_loans::table
         .inner_join(assets::table)
@@ -226,15 +229,19 @@ pub fn overdue_reminder_candidates(
             asset_loans::ticket_id,
             asset_loans::workspace_id,
         ))
+        .order(asset_loans::due_back.asc())
+        .limit(limit)
         .load::<CandidateRow>(conn)
         .map(|rows| rows.into_iter().map(to_candidate).collect())
 }
 
 /// Active loans due back within the horizon and not yet flagged due-soon.
+/// Capped at `limit` (soonest-due first); the remainder waits for the next tick.
 pub fn due_soon_reminder_candidates(
     conn: &mut DbConnection,
     today: NaiveDate,
     horizon: NaiveDate,
+    limit: i64,
 ) -> QueryResult<Vec<ReminderCandidate>> {
     asset_loans::table
         .inner_join(assets::table)
@@ -251,6 +258,8 @@ pub fn due_soon_reminder_candidates(
             asset_loans::ticket_id,
             asset_loans::workspace_id,
         ))
+        .order(asset_loans::due_back.asc())
+        .limit(limit)
         .load::<CandidateRow>(conn)
         .map(|rows| rows.into_iter().map(to_candidate).collect())
 }
@@ -265,6 +274,30 @@ pub fn mark_overdue_notified(conn: &mut DbConnection, loan_id: i32) -> QueryResu
 // sync-audit-only: reminder bookkeeping stamp, not a user-facing change
 pub fn mark_due_soon_notified(conn: &mut DbConnection, loan_id: i32) -> QueryResult<usize> {
     diesel::update(asset_loans::table.find(loan_id))
+        .set(asset_loans::due_soon_notified_at.eq(Utc::now()))
+        .execute(conn)
+}
+
+// sync-audit-only: reminder bookkeeping stamp, not a user-facing change
+/// Batched `mark_overdue_notified`: stamp many loans in one UPDATE. The
+/// reminder sweep groups the loans it successfully notified by workspace and
+/// stamps each group once, instead of one connection checkout per loan.
+pub fn mark_overdue_notified_batch(
+    conn: &mut DbConnection,
+    loan_ids: &[i32],
+) -> QueryResult<usize> {
+    diesel::update(asset_loans::table.filter(asset_loans::id.eq_any(loan_ids)))
+        .set(asset_loans::overdue_notified_at.eq(Utc::now()))
+        .execute(conn)
+}
+
+// sync-audit-only: reminder bookkeeping stamp, not a user-facing change
+/// Batched `mark_due_soon_notified`: stamp many loans in one UPDATE.
+pub fn mark_due_soon_notified_batch(
+    conn: &mut DbConnection,
+    loan_ids: &[i32],
+) -> QueryResult<usize> {
+    diesel::update(asset_loans::table.filter(asset_loans::id.eq_any(loan_ids)))
         .set(asset_loans::due_soon_notified_at.eq(Utc::now()))
         .execute(conn)
 }
@@ -597,14 +630,14 @@ mod tests {
         )
         .unwrap();
 
-        let before = overdue_reminder_candidates(&mut conn, today).unwrap();
+        let before = overdue_reminder_candidates(&mut conn, today, 1000).unwrap();
         assert!(
             before.iter().any(|c| c.loan_id == loan.id),
             "overdue loan is a candidate"
         );
 
         mark_overdue_notified(&mut conn, loan.id).unwrap();
-        let after = overdue_reminder_candidates(&mut conn, today).unwrap();
+        let after = overdue_reminder_candidates(&mut conn, today, 1000).unwrap();
         assert!(
             !after.iter().any(|c| c.loan_id == loan.id),
             "stamped loan stops re-appearing"
@@ -646,7 +679,7 @@ mod tests {
         )
         .unwrap();
 
-        let candidates = due_soon_reminder_candidates(&mut conn, today, horizon).unwrap();
+        let candidates = due_soon_reminder_candidates(&mut conn, today, horizon, 1000).unwrap();
         assert!(
             candidates.iter().any(|c| c.loan_id == soon_loan.id),
             "loan due tomorrow is due-soon"
@@ -654,6 +687,75 @@ mod tests {
         assert!(
             !candidates.iter().any(|c| c.asset_id == far.id),
             "loan due in 10 days is outside the horizon"
+        );
+    }
+
+    #[test]
+    fn overdue_candidates_respect_scan_cap() {
+        let mut conn = setup_test_connection();
+        let borrower = TestFixtures::create_user(&mut conn, "borrower", "user");
+        let today = Utc::now().date_naive();
+        let past = today - chrono::Duration::days(5);
+        for i in 0..3 {
+            let a = asset(&mut conn, &format!("Cap-{i}"));
+            issue(
+                &mut conn,
+                IssueLoan {
+                    asset_id: a.id,
+                    borrower_user_uuid: borrower.uuid,
+                    loaned_at: None,
+                    due_back: Some(past),
+                    ticket_id: None,
+                    notes: None,
+                    actor_uuid: None,
+                },
+            )
+            .unwrap();
+        }
+        // Three overdue loans exist; a cap of 2 returns at most 2.
+        assert_eq!(
+            overdue_reminder_candidates(&mut conn, today, 2)
+                .unwrap()
+                .len(),
+            2,
+            "scan cap bounds the batch"
+        );
+    }
+
+    #[test]
+    fn batch_stamp_marks_all_and_stops_reappearing() {
+        let mut conn = setup_test_connection();
+        let borrower = TestFixtures::create_user(&mut conn, "borrower", "user");
+        let today = Utc::now().date_naive();
+        let past = today - chrono::Duration::days(3);
+        let issue_overdue = |conn: &mut DbConnection, name: &str| {
+            let a = asset(conn, name);
+            issue(
+                conn,
+                IssueLoan {
+                    asset_id: a.id,
+                    borrower_user_uuid: borrower.uuid,
+                    loaned_at: None,
+                    due_back: Some(past),
+                    ticket_id: None,
+                    notes: None,
+                    actor_uuid: None,
+                },
+            )
+            .unwrap()
+        };
+        let l1 = issue_overdue(&mut conn, "Batch-1");
+        let l2 = issue_overdue(&mut conn, "Batch-2");
+
+        let stamped = mark_overdue_notified_batch(&mut conn, &[l1.id, l2.id]).unwrap();
+        assert_eq!(stamped, 2, "both loans stamped in one UPDATE");
+
+        let after = overdue_reminder_candidates(&mut conn, today, 1000).unwrap();
+        assert!(
+            !after
+                .iter()
+                .any(|c| c.loan_id == l1.id || c.loan_id == l2.id),
+            "batch-stamped loans stop re-appearing"
         );
     }
 

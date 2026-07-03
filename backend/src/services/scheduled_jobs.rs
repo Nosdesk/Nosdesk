@@ -911,7 +911,12 @@ impl SlaBreachKind {
 
 const LOAN_DUE_SOON_DAYS_DEFAULT: i64 = 2;
 
-#[derive(Clone, Copy)]
+/// Per-tick cap on each reminder scan, mirroring `SLA_BREACH_SCAN_LIMIT`, so a
+/// post-rollout backlog can't fan out unbounded. The remainder is picked up on
+/// the next daily tick.
+const LOAN_REMINDER_SCAN_LIMIT: i64 = 100;
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum ReminderKind {
     DueSoon,
     Overdue,
@@ -955,12 +960,33 @@ pub async fn loan_due_reminders(
         diesel::result::Error,
     >(&mut conn, &actor, |conn| {
         Ok((
-            loans::overdue_reminder_candidates(conn, today)?,
-            loans::due_soon_reminder_candidates(conn, today, horizon)?,
+            loans::overdue_reminder_candidates(conn, today, LOAN_REMINDER_SCAN_LIMIT)?,
+            loans::due_soon_reminder_candidates(conn, today, horizon, LOAN_REMINDER_SCAN_LIMIT)?,
         ))
     })
     .context("scan loan reminder candidates")?;
     drop(conn);
+
+    if overdue.len() as i64 >= LOAN_REMINDER_SCAN_LIMIT {
+        info!(
+            cap = LOAN_REMINDER_SCAN_LIMIT,
+            "scheduler:loan_reminders: overdue scan hit the cap; remainder next tick"
+        );
+    }
+    if due_soon.len() as i64 >= LOAN_REMINDER_SCAN_LIMIT {
+        info!(
+            cap = LOAN_REMINDER_SCAN_LIMIT,
+            "scheduler:loan_reminders: due-soon scan hit the cap; remainder next tick"
+        );
+    }
+
+    // Loans successfully notified this tick, grouped by (workspace, kind) so we
+    // stamp each group in one UPDATE after the loop instead of a fresh pool
+    // checkout per loan. Trade-off: a crash between a notify and the batch
+    // stamp re-notifies those loans next tick (bounded by the scan cap) — fine
+    // for a low-stakes daily reminder.
+    let mut to_stamp: std::collections::HashMap<(i32, ReminderKind), Vec<i32>> =
+        std::collections::HashMap::new();
 
     let (mut sent, mut failed) = (0usize, 0usize);
     let work = overdue
@@ -1001,25 +1027,28 @@ pub async fn loan_due_reminders(
             warn!(loan_id = c.loan_id, error = %e, "scheduler:loan_reminders: notify failed; retry next tick");
             continue;
         }
-        // Stamp only after a successful dispatch, in the loan's workspace.
-        let stamped = match kind {
-            ReminderKind::Overdue => crate::sync::session::background_run_in_workspace(
-                &pool,
-                "scheduler:loan_reminders:stamp",
-                c.workspace_id,
-                |conn| loans::mark_overdue_notified(conn, c.loan_id),
-            ),
-            ReminderKind::DueSoon => crate::sync::session::background_run_in_workspace(
-                &pool,
-                "scheduler:loan_reminders:stamp",
-                c.workspace_id,
-                |conn| loans::mark_due_soon_notified(conn, c.loan_id),
-            ),
-        };
-        if let Err(e) = stamped {
-            warn!(loan_id = c.loan_id, error = ?e, "scheduler:loan_reminders: failed to stamp");
-        }
+        // Stamp only after a successful dispatch; deferred + batched below.
+        to_stamp
+            .entry((c.workspace_id, kind))
+            .or_default()
+            .push(c.loan_id);
         sent += 1;
+    }
+
+    // One workspace-pinned UPDATE per (workspace, kind) bucket.
+    for ((workspace_id, kind), loan_ids) in to_stamp {
+        let stamped = crate::sync::session::background_run_in_workspace(
+            &pool,
+            "scheduler:loan_reminders:stamp",
+            workspace_id,
+            |conn| match kind {
+                ReminderKind::Overdue => loans::mark_overdue_notified_batch(conn, &loan_ids),
+                ReminderKind::DueSoon => loans::mark_due_soon_notified_batch(conn, &loan_ids),
+            },
+        );
+        if let Err(e) = stamped {
+            warn!(workspace_id, count = loan_ids.len(), error = ?e, "scheduler:loan_reminders: failed to stamp batch");
+        }
     }
 
     if sent > 0 || failed > 0 {
