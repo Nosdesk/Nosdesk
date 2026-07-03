@@ -449,6 +449,38 @@ pub fn setup_test_pool() -> crate::db::Pool {
         .expect("Failed to create test pool")
 }
 
+/// Assert that a route `configure` fn registers every `(method, path)` in
+/// `cases`. A registered route returns 401/4xx/5xx from its auth/DB extractors
+/// (or an app-data error when the probe app lacks that state), never 404 — so a
+/// 404 means the route was dropped or renamed. This is the regression net for
+/// the per-domain route-probe tests that guard the `main.rs` -> `config`
+/// extraction. `{param}` segments accept any value, so use a placeholder.
+pub async fn assert_config_registers(
+    configure: fn(&mut actix_web::web::ServiceConfig),
+    cases: &[(&str, &str)],
+) {
+    use actix_web::{http::Method, http::StatusCode, test, web, App};
+    let pool = setup_test_pool();
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(pool))
+            .configure(configure),
+    )
+    .await;
+    for (method, path) in cases {
+        let req = test::TestRequest::default()
+            .method(Method::from_bytes(method.as_bytes()).expect("valid HTTP method"))
+            .uri(path)
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_ne!(
+            resp.status(),
+            StatusCode::NOT_FOUND,
+            "route not registered by config(): {method} {path}"
+        );
+    }
+}
+
 /// Create a JWT token for a test user with the given role.
 /// Requires JWT_SECRET to be set.
 pub fn create_test_token(user: &User, session_id: &uuid::Uuid) -> String {

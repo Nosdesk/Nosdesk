@@ -49,3 +49,6 @@ pub mod utils;
 
 #[cfg(test)]
 pub mod test_helpers;
+
+#[cfg(test)]
+mod route_registration_tests;

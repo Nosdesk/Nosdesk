@@ -607,7 +607,16 @@ fn last_event_id_from_request(req: &HttpRequest) -> Option<u64> {
         .and_then(|s| s.parse::<u64>().ok())
 }
 
+/// SSE routes mounted inside the authenticated `/api` scope in main.rs. The
+/// event stream itself is a separate top-level service (see main.rs); this only
+/// mints the short-lived connection token. The collab token lives in the
+/// `/api/collaboration` scope so it isn't shadowed by this `/api` scope.
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route("/events/token", web::post().to(get_sse_token));
+}
+
 // SSE endpoint for ticket updates
+
 pub async fn sse_events_stream(
     req: HttpRequest,
     pool: web::Data<crate::db::Pool>,

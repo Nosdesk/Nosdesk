@@ -67,10 +67,16 @@ pub struct CreateBugReportResponse {
     pub id: i64,
 }
 
+/// Bug-report routes, mounted inside the authenticated `/api` scope in main.rs.
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route("/bug-reports", web::post().to(create_bug_report));
+}
+
 /// Authenticated POST. The `TenantConn` extractor pulls the
 /// workspace-pinned actor off `RequestContext`; if there is no
 /// `RequestContext` the extractor returns 401 before the body is
 /// even parsed.
+
 pub async fn create_bug_report(
     req: HttpRequest,
     body: web::Json<CreateBugReportRequest>,

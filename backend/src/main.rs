@@ -2211,32 +2211,11 @@ async fn main() -> std::io::Result<()> {
                     // File upload endpoint
                     .route("/upload", web::post().to(handlers::upload_files))
 
-                    // ===== SERVER-SENT EVENTS (SSE) =====
-                    .route("/events/token", web::post().to(handlers::sse::get_sse_token))
-                    // The collab connection token lives inside the
-                    // /api/collaboration scope (handlers::collaboration::config):
-                    // that scope is matched before this /api scope, so a
-                    // /api/collaboration/token registered here would be shadowed
-                    // and 404. See config()/rest_routes().
-
-                    // ===== SEARCH =====
-                    .route("/search", web::get().to(handlers::search::search))
-                    .route("/search/rebuild", web::post().to(handlers::search::rebuild_index))
-                    .route("/search/stats", web::get().to(handlers::search::get_stats))
-
-                    // ===== NOTIFICATIONS =====
-                    .route("/notifications", web::get().to(handlers::notifications::get_notifications))
-                    .route("/notifications/count", web::get().to(handlers::notifications::get_unread_count))
-                    .route("/notifications/read", web::post().to(handlers::notifications::mark_notifications_read))
-                    .route("/notifications/read-all", web::post().to(handlers::notifications::mark_all_notifications_read))
-                    .route("/notifications/preferences", web::get().to(handlers::notifications::get_preferences))
-                    .route("/notifications/preferences", web::put().to(handlers::notifications::update_preference))
-                    .route("/notifications/delete", web::post().to(handlers::notifications::delete_notifications))
-
-                    // ===== BUG REPORTS =====
-                    // User-submitted from the in-app "Report a problem" modal.
-                    // Workspace-scoped via the standard TenantConn flow.
-                    .route("/bug-reports", web::post().to(handlers::bug_reports::create_bug_report))
+                    // ===== SSE / SEARCH / NOTIFICATIONS / BUG REPORTS =====
+                    .configure(handlers::sse::config)
+                    .configure(handlers::search::config)
+                    .configure(handlers::notifications::config)
+                    .configure(handlers::bug_reports::config)
 
                     // ===== TICKET MANAGEMENT =====
                     .route("/tickets", web::get().to(handlers::get_tickets))

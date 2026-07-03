@@ -17,9 +17,17 @@ use crate::utils::i18n;
 use crate::utils::locale::request_locale;
 use crate::utils::rbac::is_platform_admin;
 
+/// Search routes, mounted inside the authenticated `/api` scope in main.rs.
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route("/search", web::get().to(search))
+        .route("/search/rebuild", web::post().to(rebuild_index))
+        .route("/search/stats", web::get().to(get_stats));
+}
+
 /// Search across all indexed entities
 ///
 /// GET /api/search?q=<query>&limit=20&types=ticket,documentation
+
 pub async fn search(
     query: web::Query<SearchQuery>,
     search_service: web::Data<Arc<SearchService>>,

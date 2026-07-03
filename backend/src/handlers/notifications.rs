@@ -40,6 +40,29 @@ pub struct UpdatePreferenceRequest {
     pub enabled: bool,
 }
 
+/// Notification routes, mounted inside the authenticated `/api` scope in main.rs.
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route("/notifications", web::get().to(get_notifications))
+        .route("/notifications/count", web::get().to(get_unread_count))
+        .route(
+            "/notifications/read",
+            web::post().to(mark_notifications_read),
+        )
+        .route(
+            "/notifications/read-all",
+            web::post().to(mark_all_notifications_read),
+        )
+        .route("/notifications/preferences", web::get().to(get_preferences))
+        .route(
+            "/notifications/preferences",
+            web::put().to(update_preference),
+        )
+        .route(
+            "/notifications/delete",
+            web::post().to(delete_notifications),
+        );
+}
+
 /// Get user's notifications
 ///
 /// GET /api/notifications
