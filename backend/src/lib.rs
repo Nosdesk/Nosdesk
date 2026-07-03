@@ -48,6 +48,7 @@ pub mod services;
 pub mod sync;
 pub mod telemetry;
 pub mod utils;
+pub mod workers;
 
 #[cfg(test)]
 pub mod test_helpers;
