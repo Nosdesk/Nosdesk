@@ -1060,8 +1060,10 @@ pub async fn proxy_plugin_request(
     {
         Ok(response) => HttpResponse::Ok().json(response),
         Err(e) => {
+            // Structured status per failure mode: 403 permission/SSRF, 400 bad
+            // method, 504 timeout, 502 other network faults (was a flat 400).
             error!("Proxy request failed: {}", e);
-            HttpResponse::BadRequest().json(e)
+            HttpResponse::build(e.status_code()).json(serde_json::json!({ "error": e.to_string() }))
         }
     }
 }

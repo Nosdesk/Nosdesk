@@ -8,6 +8,7 @@
 //! - Rate limiting (future)
 //! - Response sanitization
 
+use actix_web::http::StatusCode;
 use base64::Engine;
 use reqwest::{Client, Method};
 use std::collections::HashMap;
@@ -16,6 +17,46 @@ use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
 
 use crate::models::{PluginAuthConfig, PluginManifest, PluginProxyRequest, PluginProxyResponse};
+
+/// A structured plugin-proxy failure. Replaces the old `Result<_, String>` so
+/// the handler maps each failure to the right HTTP status (rather than a flat
+/// 400) and the typed cause (the SSRF-guard rejection, the reqwest error kind)
+/// survives the seam. Upstream non-2xx responses are NOT errors here: the proxy
+/// relays the upstream status in `PluginProxyResponse`, as it does today.
+#[derive(Debug, thiserror::Error)]
+pub enum PluginProxyError {
+    /// The target URL isn't covered by the manifest's network permissions.
+    #[error("plugin '{plugin}' does not have permission to access '{url}'")]
+    PermissionDenied { plugin: String, url: String },
+
+    /// The request named an HTTP method the proxy doesn't support.
+    #[error("unsupported HTTP method: {0}")]
+    UnsupportedMethod(String),
+
+    /// The SSRF guard rejected the destination (IP-literal / non-routable).
+    #[error("request blocked by egress guard: {0}")]
+    Blocked(#[from] crate::utils::safe_http::SafeHttpError),
+
+    /// The request failed at the transport layer (connect, timeout, TLS, DNS)
+    /// before or without an HTTP response. Preserves the reqwest kind so the
+    /// handler can distinguish a timeout (504) from other network faults (502).
+    #[error("upstream request failed: {0}")]
+    Network(#[source] reqwest::Error),
+}
+
+impl PluginProxyError {
+    /// The HTTP status the proxy handler should return for this failure.
+    pub fn status_code(&self) -> StatusCode {
+        match self {
+            PluginProxyError::PermissionDenied { .. } | PluginProxyError::Blocked(_) => {
+                StatusCode::FORBIDDEN
+            }
+            PluginProxyError::UnsupportedMethod(_) => StatusCode::BAD_REQUEST,
+            PluginProxyError::Network(e) if e.is_timeout() => StatusCode::GATEWAY_TIMEOUT,
+            PluginProxyError::Network(_) => StatusCode::BAD_GATEWAY,
+        }
+    }
+}
 
 /// Cached OAuth2 token
 struct CachedToken {
@@ -274,7 +315,7 @@ impl PluginProxyService {
         manifest: &PluginManifest,
         request: PluginProxyRequest,
         secrets: &HashMap<String, String>,
-    ) -> Result<PluginProxyResponse, String> {
+    ) -> Result<PluginProxyResponse, PluginProxyError> {
         // Check permission
         if !self.has_permission(manifest, &request.url) {
             warn!(
@@ -282,10 +323,10 @@ impl PluginProxyService {
                 url = request.url,
                 "Plugin denied access to URL - no matching external permission"
             );
-            return Err(format!(
-                "Plugin '{}' does not have permission to access '{}'",
-                plugin_name, request.url
-            ));
+            return Err(PluginProxyError::PermissionDenied {
+                plugin: plugin_name.to_string(),
+                url: request.url.clone(),
+            });
         }
 
         info!(
@@ -304,7 +345,7 @@ impl PluginProxyService {
             "DELETE" => Method::DELETE,
             "HEAD" => Method::HEAD,
             "OPTIONS" => Method::OPTIONS,
-            _ => return Err(format!("Unsupported HTTP method: {}", request.method)),
+            _ => return Err(PluginProxyError::UnsupportedMethod(request.method.clone())),
         };
 
         // Determine which header the auth config will inject (if any)
@@ -396,7 +437,7 @@ impl PluginProxyService {
                 error = %e,
                 "plugin proxy blocked by SSRF guard"
             );
-            return Err(format!("Request blocked: {e}"));
+            return Err(PluginProxyError::Blocked(e));
         }
 
         // Execute the request
@@ -407,7 +448,7 @@ impl PluginProxyService {
                 error = %e,
                 "Failed to execute proxied request"
             );
-            format!("Request failed: {e}")
+            PluginProxyError::Network(e)
         })?;
 
         let status = response.status().as_u16();

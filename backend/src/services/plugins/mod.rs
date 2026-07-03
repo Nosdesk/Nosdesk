@@ -17,4 +17,4 @@ pub mod types;
 pub mod validation;
 
 pub use provisioning::provision_plugins;
-pub use proxy::PluginProxyService;
+pub use proxy::{PluginProxyError, PluginProxyService};
