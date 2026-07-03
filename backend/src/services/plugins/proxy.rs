@@ -42,6 +42,14 @@ pub enum PluginProxyError {
     /// handler can distinguish a timeout (504) from other network faults (502).
     #[error("upstream request failed: {0}")]
     Network(#[source] reqwest::Error),
+
+    /// The manifest DECLARED auth for the target host but it couldn't be
+    /// resolved: a missing secret, a disallowed / SSRF-blocked OAuth token URL,
+    /// or a failed token exchange. We fail closed rather than send the request
+    /// unauthenticated (OWASP "fail securely"); a host with no declared auth is
+    /// `Ok(None)`, not this error, and proceeds normally.
+    #[error("could not resolve declared auth for '{url}': {reason}")]
+    AuthResolution { url: String, reason: String },
 }
 
 impl PluginProxyError {
@@ -53,7 +61,11 @@ impl PluginProxyError {
             }
             PluginProxyError::UnsupportedMethod(_) => StatusCode::BAD_REQUEST,
             PluginProxyError::Network(e) if e.is_timeout() => StatusCode::GATEWAY_TIMEOUT,
-            PluginProxyError::Network(_) => StatusCode::BAD_GATEWAY,
+            // A declared-auth resolution failure and other network faults are
+            // both a failure to establish the authenticated upstream call.
+            PluginProxyError::Network(_) | PluginProxyError::AuthResolution { .. } => {
+                StatusCode::BAD_GATEWAY
+            }
         }
     }
 }
@@ -147,31 +159,59 @@ impl PluginProxyService {
         url: &str,
         manifest: &PluginManifest,
         secrets: &HashMap<String, String>,
-    ) -> Option<(String, String)> {
-        let parsed = url::Url::parse(url).ok()?;
-        let host_str = parsed.host_str()?;
-        let host = crate::services::plugins::types::Host::parse(host_str).ok()?;
+    ) -> Result<Option<(String, String)>, PluginProxyError> {
+        // A URL that reached here already passed `has_permission` (which parses
+        // it), so these are effectively unreachable; if the host can't be
+        // determined, no declared auth can match, so proceed unauthenticated.
+        let Some(parsed) = url::Url::parse(url).ok() else {
+            return Ok(None);
+        };
+        let Some(host_str) = parsed.host_str() else {
+            return Ok(None);
+        };
+        let Ok(host) = crate::services::plugins::types::Host::parse(host_str) else {
+            return Ok(None);
+        };
 
-        let auth_config = manifest.auth.get(&host)?;
+        // No auth declared for this host: the one legitimate "proceed
+        // unauthenticated" case. Every failure below is declared-but-
+        // unresolvable auth, which fails closed (OWASP "fail securely") rather
+        // than silently sending the request without the intended credentials.
+        let Some(auth_config) = manifest.auth.get(&host) else {
+            return Ok(None);
+        };
+
+        let fail = |reason: String| PluginProxyError::AuthResolution {
+            url: url.to_string(),
+            reason,
+        };
 
         match auth_config {
             PluginAuthConfig::Bearer { secret } => {
-                let token = secrets.get(secret)?;
-                Some(("Authorization".into(), format!("Bearer {token}")))
+                let token = secrets
+                    .get(secret)
+                    .ok_or_else(|| fail(format!("missing secret '{secret}'")))?;
+                Ok(Some(("Authorization".into(), format!("Bearer {token}"))))
             }
             PluginAuthConfig::Basic {
                 username_secret,
                 password_secret,
             } => {
-                let user = secrets.get(username_secret)?;
-                let pass = secrets.get(password_secret)?;
+                let user = secrets
+                    .get(username_secret)
+                    .ok_or_else(|| fail(format!("missing secret '{username_secret}'")))?;
+                let pass = secrets
+                    .get(password_secret)
+                    .ok_or_else(|| fail(format!("missing secret '{password_secret}'")))?;
                 let encoded =
                     base64::engine::general_purpose::STANDARD.encode(format!("{user}:{pass}"));
-                Some(("Authorization".into(), format!("Basic {encoded}")))
+                Ok(Some(("Authorization".into(), format!("Basic {encoded}"))))
             }
             PluginAuthConfig::ApiKey { header, secret } => {
-                let value = secrets.get(secret)?;
-                Some((header.clone(), value.clone()))
+                let value = secrets
+                    .get(secret)
+                    .ok_or_else(|| fail(format!("missing secret '{secret}'")))?;
+                Ok(Some((header.clone(), value.clone())))
             }
             PluginAuthConfig::Oauth2ClientCredentials {
                 token_url,
@@ -191,7 +231,9 @@ impl PluginProxyService {
                         token_url = token_url,
                         "OAuth2 token_url is not in the plugin's network permissions"
                     );
-                    return None;
+                    return Err(fail(
+                        "OAuth2 token_url is not in the plugin's network permissions".to_string(),
+                    ));
                 }
                 if let Err(e) = crate::utils::safe_http::reject_unsafe_ip_literal(token_url) {
                     warn!(
@@ -200,18 +242,22 @@ impl PluginProxyService {
                         error = %e,
                         "OAuth2 token_url blocked by SSRF guard"
                     );
-                    return None;
+                    return Err(fail(format!("OAuth2 token_url blocked by SSRF guard: {e}")));
                 }
 
-                let client_id = secrets.get(client_id_secret)?;
-                let client_secret = secrets.get(client_secret_secret)?;
+                let client_id = secrets
+                    .get(client_id_secret)
+                    .ok_or_else(|| fail(format!("missing secret '{client_id_secret}'")))?;
+                let client_secret = secrets
+                    .get(client_secret_secret)
+                    .ok_or_else(|| fail(format!("missing secret '{client_secret_secret}'")))?;
 
                 // Check token cache
                 let cache_key = format!("{plugin_name}:{host}");
                 if let Ok(cache) = self.token_cache.lock() {
                     if let Some(cached) = cache.get(&cache_key) {
                         if cached.expires_at > Instant::now() {
-                            return Some(("Authorization".into(), cached.token.clone()));
+                            return Ok(Some(("Authorization".into(), cached.token.clone())));
                         }
                     }
                 }
@@ -228,7 +274,7 @@ impl PluginProxyService {
                         ("client_secret", client_secret.as_str()),
                     ],
                 )
-                .ok()?;
+                .map_err(|e| fail(format!("invalid OAuth2 token_url: {e}")))?;
 
                 let resp = self
                     .client
@@ -243,21 +289,18 @@ impl PluginProxyService {
                             error = %e,
                             "OAuth2 token exchange failed"
                         );
-                    })
-                    .ok()?;
+                        fail(format!("OAuth2 token exchange failed: {e}"))
+                    })?;
 
                 let resp_status = resp.status();
-                let resp_text = resp
-                    .text()
-                    .await
-                    .map_err(|e| {
-                        error!(
-                            plugin = plugin_name,
-                            error = %e,
-                            "Failed to read OAuth2 token response body"
-                        );
-                    })
-                    .ok()?;
+                let resp_text = resp.text().await.map_err(|e| {
+                    error!(
+                        plugin = plugin_name,
+                        error = %e,
+                        "Failed to read OAuth2 token response body"
+                    );
+                    fail(format!("failed to read OAuth2 token response: {e}"))
+                })?;
 
                 if !resp_status.is_success() {
                     error!(
@@ -266,21 +309,27 @@ impl PluginProxyService {
                         body_preview = %resp_text.chars().take(500).collect::<String>(),
                         "OAuth2 token endpoint returned error"
                     );
-                    return None;
+                    return Err(fail(format!(
+                        "OAuth2 token endpoint returned status {resp_status}"
+                    )));
                 }
 
-                let json: serde_json::Value = serde_json::from_str(&resp_text)
-                    .map_err(|e| {
-                        error!(
-                            plugin = plugin_name,
-                            error = %e,
-                            body_preview = %resp_text.chars().take(500).collect::<String>(),
-                            "Failed to parse OAuth2 token response as JSON"
-                        );
-                    })
-                    .ok()?;
+                let json: serde_json::Value = serde_json::from_str(&resp_text).map_err(|e| {
+                    error!(
+                        plugin = plugin_name,
+                        error = %e,
+                        body_preview = %resp_text.chars().take(500).collect::<String>(),
+                        "Failed to parse OAuth2 token response as JSON"
+                    );
+                    fail(format!("OAuth2 token response was not valid JSON: {e}"))
+                })?;
 
-                let access_token = json.get("access_token")?.as_str()?;
+                let access_token = json
+                    .get("access_token")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| {
+                        fail("OAuth2 token response had no access_token field".to_string())
+                    })?;
                 let bearer = format!("Bearer {access_token}");
 
                 // Cache with TTL (use expires_in from response, default 50 min)
@@ -300,7 +349,7 @@ impl PluginProxyService {
                     );
                 }
 
-                Some(("Authorization".into(), bearer))
+                Ok(Some(("Authorization".into(), bearer)))
             }
         }
     }
@@ -372,10 +421,14 @@ impl PluginProxyService {
             }
         }
 
-        // Inject authorization from manifest auth config
+        // Inject authorization from the manifest's auth config. `Ok(None)` means
+        // no auth was declared for this host, so proceed unauthenticated; an
+        // `Err` means auth WAS declared but couldn't be resolved, so `?` fails
+        // closed rather than sending the request without the intended
+        // credentials.
         if let Some((header_name, header_value)) = self
             .get_auth_for_url(plugin_name, &request.url, manifest, secrets)
-            .await
+            .await?
         {
             debug!(
                 plugin = plugin_name,
@@ -670,7 +723,8 @@ mod tests {
 
         let result = service
             .get_auth_for_url("test", "https://api.github.com/repos", &manifest, &secrets)
-            .await;
+            .await
+            .expect("auth resolution should not error");
 
         assert_eq!(
             result,
@@ -701,7 +755,8 @@ mod tests {
 
         let result = service
             .get_auth_for_url("test", "https://api.example.com/data", &manifest, &secrets)
-            .await;
+            .await
+            .expect("auth resolution should not error");
 
         let expected_encoded = base64::engine::general_purpose::STANDARD.encode("admin:secret");
         assert_eq!(
@@ -732,7 +787,8 @@ mod tests {
 
         let result = service
             .get_auth_for_url("test", "https://api.example.com/data", &manifest, &secrets)
-            .await;
+            .await
+            .expect("auth resolution should not error");
 
         assert_eq!(
             result,
@@ -748,8 +804,37 @@ mod tests {
         let secrets = HashMap::new();
         let result = service
             .get_auth_for_url("test", "https://api.example.com/data", &manifest, &secrets)
-            .await;
+            .await
+            .expect("auth resolution should not error");
 
         assert_eq!(result, None);
+    }
+
+    #[tokio::test]
+    async fn test_declared_auth_missing_secret_fails_closed() {
+        // Auth IS declared for the host but the required secret isn't present.
+        // The proxy must not silently send the request unauthenticated: it
+        // fails closed with AuthResolution.
+        let service = PluginProxyService::new();
+        let mut auth = std::collections::BTreeMap::new();
+        auth.insert(
+            host("api.example.com"),
+            PluginAuthConfig::Bearer {
+                secret: "github_token".to_string(),
+            },
+        );
+        let mut manifest = create_test_manifest(vec![]);
+        manifest.auth = auth;
+
+        // Empty secrets map: the declared secret can't be resolved.
+        let secrets = HashMap::new();
+        let result = service
+            .get_auth_for_url("test", "https://api.example.com/data", &manifest, &secrets)
+            .await;
+
+        assert!(
+            matches!(result, Err(PluginProxyError::AuthResolution { .. })),
+            "a missing declared secret must fail closed, got: {result:?}"
+        );
     }
 }
