@@ -156,6 +156,25 @@ pub fn get_local_password_hash(
     password_hash.ok_or_else(|| "No local password found for this user".to_string())
 }
 
+/// The subset of `user_uuids` that have an identity for `provider_type`.
+/// Batched form of `get_user_identities(..).any(|i| i.provider_type == ..)`
+/// run per user. Filters on `provider_type` alone (a Microsoft identity is
+/// global, `workspace_id` is null), matching `get_user_identities`.
+pub fn users_with_provider(
+    conn: &mut DbConnection,
+    provider_type: &str,
+    user_uuids: &[Uuid],
+) -> Result<std::collections::HashSet<Uuid>, Error> {
+    Ok(user_auth_identities::table
+        .filter(user_auth_identities::provider_type.eq(provider_type))
+        .filter(user_auth_identities::user_uuid.eq_any(user_uuids))
+        .select(user_auth_identities::user_uuid)
+        .distinct()
+        .load::<Uuid>(conn)?
+        .into_iter()
+        .collect())
+}
+
 /// Get multiple user UUIDs by their external IDs (batch lookup for efficiency)
 pub fn get_user_uuids_by_external_ids(
     external_ids: &[&str],
@@ -307,6 +326,30 @@ mod tests {
 
         let found = find_user_by_identity("google", "g_456", &mut conn).unwrap();
         assert_eq!(found, None);
+    }
+
+    #[test]
+    fn users_with_provider_returns_only_matching_subset() {
+        let mut conn = setup_test_connection();
+        let ms_user = TestFixtures::create_user(&mut conn, "msuser", "user");
+        let gh_user = TestFixtures::create_user(&mut conn, "ghuser", "user");
+        let no_identity = TestFixtures::create_user(&mut conn, "plainuser", "user");
+
+        create_identity(make_identity(ms_user.uuid, "microsoft", "ms_1"), &mut conn).unwrap();
+        create_identity(make_identity(gh_user.uuid, "github", "gh_1"), &mut conn).unwrap();
+
+        let synced = users_with_provider(
+            &mut conn,
+            "microsoft",
+            &[ms_user.uuid, gh_user.uuid, no_identity.uuid],
+        )
+        .unwrap();
+        assert!(
+            synced.contains(&ms_user.uuid),
+            "microsoft identity included"
+        );
+        assert!(!synced.contains(&gh_user.uuid), "other provider excluded");
+        assert!(!synced.contains(&no_identity.uuid), "no identity excluded");
     }
 
     #[test]

@@ -4027,14 +4027,14 @@ async fn sync_group_membership(
         }
     }
 
-    // Remove old members (only for users synced from Microsoft - preserve manually added users)
+    // Remove old members (only for users synced from Microsoft - preserve
+    // manually added users). Resolve which of `to_remove` carry a Microsoft
+    // identity in one query rather than per user. A read failure yields an
+    // empty set, so everyone is preserved (matches the old per-user fallback).
+    let microsoft_synced =
+        identity_repo::users_with_provider(conn, "microsoft", &to_remove).unwrap_or_default();
     for user_uuid in &to_remove {
-        // Check if this user has a Microsoft identity - only remove if they were synced from Microsoft
-        let has_microsoft_identity = identity_repo::get_user_identities(user_uuid, conn)
-            .map(|identities| identities.iter().any(|i| i.provider_type == "microsoft"))
-            .unwrap_or(false);
-
-        if has_microsoft_identity {
+        if microsoft_synced.contains(user_uuid) {
             if let Err(e) = groups_repo::remove_user_from_group(conn, user_uuid, local_group_id) {
                 warn!(user_uuid = %user_uuid, group_id = local_group_id, error = %e, "Failed to remove user from group");
             } else {
@@ -4067,20 +4067,23 @@ async fn apply_delta_group_membership(
         let user_mappings =
             identity_repo::get_user_uuids_by_external_ids(&external_ids, "microsoft", conn)?;
 
-        for (external_id, user_uuid) in user_mappings {
-            // Check if user is already a member
-            let current_members =
-                groups_repo::get_member_uuids_for_group(conn, local_group_id).unwrap_or_default();
+        // Read current membership once; `add_user_to_group` is idempotent, so
+        // this only avoids a redundant insert-txn per already-present member.
+        let current_members: std::collections::HashSet<uuid::Uuid> =
+            groups_repo::get_member_uuids_for_group(conn, local_group_id)
+                .unwrap_or_default()
+                .into_iter()
+                .collect();
 
-            if !current_members.contains(&user_uuid) {
-                if let Err(e) =
-                    groups_repo::add_user_to_group(conn, user_uuid, local_group_id, None)
-                {
-                    warn!(user_uuid = %user_uuid, group_id = local_group_id, external_id = %external_id, error = %e, "Failed to add user to group from delta");
-                } else {
-                    debug!(user_uuid = %user_uuid, group_id = local_group_id, "Added user to group from delta");
-                    changes += 1;
-                }
+        for (external_id, user_uuid) in user_mappings {
+            if current_members.contains(&user_uuid) {
+                continue;
+            }
+            if let Err(e) = groups_repo::add_user_to_group(conn, user_uuid, local_group_id, None) {
+                warn!(user_uuid = %user_uuid, group_id = local_group_id, external_id = %external_id, error = %e, "Failed to add user to group from delta");
+            } else {
+                debug!(user_uuid = %user_uuid, group_id = local_group_id, "Added user to group from delta");
+                changes += 1;
             }
         }
     }
@@ -4101,47 +4104,52 @@ async fn apply_delta_group_membership(
         }
     }
 
-    // Process added device members
+    // Process added device members. Resolve every added device's Entra ID in
+    // one query and read current membership once, instead of both per device.
     let device_members_added: Vec<_> = members_added.iter().filter(|m| m.is_device()).collect();
     if !device_members_added.is_empty() {
-        for device_member in device_members_added {
-            // Try to find the device by Entra Object ID
-            if let Ok(device) = asset_repo::get_device_by_entra_id(conn, &device_member.id) {
-                // Check if device is already a member
-                let current_devices =
-                    groups_repo::get_device_ids_for_group(conn, local_group_id).unwrap_or_default();
+        let entra_ids: Vec<&str> = device_members_added.iter().map(|m| m.id.as_str()).collect();
+        let device_mappings = asset_repo::get_devices_by_entra_ids(conn, &entra_ids)?;
+        let current_devices: std::collections::HashSet<i32> =
+            groups_repo::get_device_ids_for_group(conn, local_group_id)
+                .unwrap_or_default()
+                .into_iter()
+                .collect();
 
-                if !current_devices.contains(&device.id) {
-                    if let Err(e) = groups_repo::add_device_to_group(
-                        conn,
-                        device.id,
-                        local_group_id,
-                        None,
-                        Some("microsoft"),
-                    ) {
-                        warn!(device_id = device.id, group_id = local_group_id, error = %e, "Failed to add device to group from delta");
-                    } else {
-                        debug!(
-                            device_id = device.id,
-                            group_id = local_group_id,
-                            "Added device to group from delta"
-                        );
-                        changes += 1;
-                    }
-                }
+        for (_entra_id, device_id) in device_mappings {
+            if current_devices.contains(&device_id) {
+                continue;
+            }
+            if let Err(e) = groups_repo::add_device_to_group(
+                conn,
+                device_id,
+                local_group_id,
+                None,
+                Some("microsoft"),
+            ) {
+                warn!(device_id, group_id = local_group_id, error = %e, "Failed to add device to group from delta");
+            } else {
+                debug!(
+                    device_id,
+                    group_id = local_group_id,
+                    "Added device to group from delta"
+                );
+                changes += 1;
             }
         }
     }
 
-    // Process removed device members
-    for removed_id in members_removed {
-        // Try to find the device by Entra Object ID
-        if let Ok(device) = asset_repo::get_device_by_entra_id(conn, removed_id) {
-            if let Err(e) = groups_repo::remove_device_from_group(conn, device.id, local_group_id) {
-                warn!(device_id = device.id, group_id = local_group_id, error = %e, "Failed to remove device from group from delta");
+    // Process removed device members: resolve the removed Entra IDs to local
+    // devices in one query (non-device IDs simply don't resolve).
+    if !members_removed.is_empty() {
+        let entra_ids: Vec<&str> = members_removed.iter().map(|s| s.as_str()).collect();
+        let device_mappings = asset_repo::get_devices_by_entra_ids(conn, &entra_ids)?;
+        for (_entra_id, device_id) in device_mappings {
+            if let Err(e) = groups_repo::remove_device_from_group(conn, device_id, local_group_id) {
+                warn!(device_id, group_id = local_group_id, error = %e, "Failed to remove device from group from delta");
             } else {
                 debug!(
-                    device_id = device.id,
+                    device_id,
                     group_id = local_group_id,
                     "Removed device from group from delta"
                 );
