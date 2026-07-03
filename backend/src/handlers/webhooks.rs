@@ -19,6 +19,30 @@ use crate::repository::webhooks as webhook_repo;
 use crate::services::webhooks::{generate_secret, WebhookEventType, WebhookService};
 use crate::utils::rbac::require_workspace_role;
 
+/// Register the webhook admin routes. Mounted inside the authenticated `/api`
+/// scope in `main.rs` (paths are scope-relative), so every route here inherits
+/// that scope's auth, rate-limit, and token-scope middleware.
+///
+/// Order is significant and mirrors the original `main.rs` block verbatim: the
+/// literal `/admin/webhooks/event-types` MUST precede `/admin/webhooks/{uuid}`,
+/// or the `{uuid}` route would shadow it (actix matches in registration order).
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route("/admin/webhooks", web::get().to(list_webhooks))
+        .route("/admin/webhooks", web::post().to(create_webhook))
+        .route(
+            "/admin/webhooks/event-types",
+            web::get().to(get_event_types),
+        )
+        .route("/admin/webhooks/{uuid}", web::get().to(get_webhook))
+        .route("/admin/webhooks/{uuid}", web::put().to(update_webhook))
+        .route("/admin/webhooks/{uuid}", web::delete().to(delete_webhook))
+        .route(
+            "/admin/webhooks/{uuid}/deliveries",
+            web::get().to(get_deliveries),
+        )
+        .route("/admin/webhooks/{uuid}/test", web::post().to(test_webhook));
+}
+
 /// Query parameters for pagination
 #[derive(Debug, Deserialize)]
 pub struct PaginationQuery {
@@ -410,10 +434,45 @@ mod tests {
             InitError = (),
         >,
     > {
-        App::new()
-            .app_data(web::Data::new(pool))
-            .route("/admin/webhooks", web::get().to(list_webhooks))
-            .route("/admin/webhooks/{id}", web::delete().to(delete_webhook))
+        App::new().app_data(web::Data::new(pool)).configure(config)
+    }
+
+    /// Guards the `main.rs` -> `config` extraction: every route `config`
+    /// registers must resolve (a registered route returns 401/4xx/5xx from the
+    /// auth/DB extractors, never 404). Catches a route silently dropped or
+    /// renamed during the decomposition.
+    #[actix_web::test]
+    async fn config_registers_every_webhook_route() {
+        let pool = setup_test_pool();
+        let app = actix_test::init_service(test_app(pool)).await;
+        let uuid = "11111111-1111-1111-1111-111111111111";
+        let cases: [(&str, String); 8] = [
+            ("GET", "/admin/webhooks".into()),
+            ("POST", "/admin/webhooks".into()),
+            ("GET", "/admin/webhooks/event-types".into()),
+            ("GET", format!("/admin/webhooks/{uuid}")),
+            ("PUT", format!("/admin/webhooks/{uuid}")),
+            ("DELETE", format!("/admin/webhooks/{uuid}")),
+            ("GET", format!("/admin/webhooks/{uuid}/deliveries")),
+            ("POST", format!("/admin/webhooks/{uuid}/test")),
+        ];
+        for (method, path) in cases {
+            let req = match method {
+                "GET" => actix_test::TestRequest::get(),
+                "POST" => actix_test::TestRequest::post(),
+                "PUT" => actix_test::TestRequest::put(),
+                "DELETE" => actix_test::TestRequest::delete(),
+                _ => unreachable!(),
+            }
+            .uri(&path)
+            .to_request();
+            let resp = actix_test::call_service(&app, req).await;
+            assert_ne!(
+                resp.status(),
+                StatusCode::NOT_FOUND,
+                "route not registered by config(): {method} {path}"
+            );
+        }
     }
 
     #[actix_web::test]

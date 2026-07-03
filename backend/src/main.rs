@@ -2351,14 +2351,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/admin/api-tokens/{uuid}", web::delete().to(handlers::api_tokens::revoke_api_token))
 
                     // ===== WEBHOOK MANAGEMENT =====
-                    .route("/admin/webhooks", web::get().to(handlers::webhooks::list_webhooks))
-                    .route("/admin/webhooks", web::post().to(handlers::webhooks::create_webhook))
-                    .route("/admin/webhooks/event-types", web::get().to(handlers::webhooks::get_event_types))
-                    .route("/admin/webhooks/{uuid}", web::get().to(handlers::webhooks::get_webhook))
-                    .route("/admin/webhooks/{uuid}", web::put().to(handlers::webhooks::update_webhook))
-                    .route("/admin/webhooks/{uuid}", web::delete().to(handlers::webhooks::delete_webhook))
-                    .route("/admin/webhooks/{uuid}/deliveries", web::get().to(handlers::webhooks::get_deliveries))
-                    .route("/admin/webhooks/{uuid}/test", web::post().to(handlers::webhooks::test_webhook))
+                    .configure(handlers::webhooks::config)
 
                     // ===== PLUGIN MANAGEMENT (Admin) =====
                     // Literal paths MUST be registered before the
