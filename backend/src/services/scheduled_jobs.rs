@@ -34,6 +34,12 @@ const MSGRAPH_DELTA_SYNC_LOCK: i64 = 0x004e_6f73_4d53_4744;
 const THUMBNAIL_BACKFILL_LOCK: i64 = 0x004e_6f73_5448_4d42;
 const LOAN_REMINDER_LOCK: i64 = 0x004e_6f73_4c6f_616e;
 const LDAP_RECONCILE_LOCK: i64 = 0x004e_6f73_4c44_5243;
+// Partition drops (DETACH CONCURRENTLY + DROP) can't run in a transaction,
+// so they can't use the provisioner's transaction-scoped lock; a session
+// try-lock skips the tick when a peer machine is already pruning. Per-parent
+// keys so audit_log and sync_actions prune independently.
+const AUDIT_LOG_PARTITION_PRUNE_LOCK: i64 = 0x004e_6f73_414c_4450;
+const SYNC_ACTIONS_PARTITION_PRUNE_LOCK: i64 = 0x004e_6f73_5341_4450;
 
 /// Holds a per-job Postgres advisory lock for the duration of one
 /// scheduler tick, releasing it on drop — including on an unwinding panic,
@@ -147,12 +153,32 @@ pub async fn backfill_user_thumbnails(pool: Pool) -> Result<()> {
 /// times a day (e.g. across a deploy + scheduled tick collision)
 /// is safe.
 pub async fn ensure_sync_partitions(pool: Pool) -> Result<()> {
-    let mut conn = pool.get().context("db pool")?;
+    // Partition CREATE / ATTACH need schema-owner privileges the runtime
+    // `nosdesk_app` role lacks; run the DDL over the privileged
+    // MIGRATION_DATABASE_URL role when set (same role that applies
+    // migrations). See `ddl_conn`.
+    let mut conn = ddl_conn(&pool)?;
     // 60-day lookahead matches the architecture doc's recommendation
     // and gives us nearly two months of headroom against any single
     // missed run.
     crate::sync::partitions::ensure_partitions(&mut conn, 60).context("ensure sync partitions")?;
     Ok(())
+}
+
+/// Acquire a connection privileged enough for partition DDL
+/// (`CREATE`/`ATTACH`/`DETACH`/`DROP` on the `sync_actions` / `audit_log`
+/// parents). Prefers the `MIGRATION_DATABASE_URL` schema-owner role; falls
+/// back to `pool` for single-role dev / self-host where `DATABASE_URL`
+/// already owns the schema.
+///
+/// The returned connection keeps its pool alive via r2d2's internal `Arc`,
+/// so callers don't hold the (possibly short-lived privileged) pool handle
+/// themselves.
+fn ddl_conn(pool: &Pool) -> Result<crate::db::DbConnection> {
+    match crate::db::privileged_ddl_pool() {
+        Some(priv_pool) => priv_pool.get().context("privileged ddl pool"),
+        None => pool.get().context("db pool"),
+    }
 }
 
 /// Microsoft Graph delta sync. Pulls users/devices/groups from the
@@ -305,7 +331,14 @@ pub async fn prune_webhook_deliveries(pool: Pool) -> Result<()> {
 /// `AUDIT_LOG_RETENTION_DAYS`.
 pub async fn prune_audit_log_partitions(pool: Pool) -> Result<()> {
     let days = retention_days("AUDIT_LOG_RETENTION_DAYS", 540);
-    drop_old_event_partitions(pool, "audit_log", days as i64).await
+    drop_old_event_partitions(
+        pool,
+        "audit_log",
+        AUDIT_LOG_PARTITION_PRUNE_LOCK,
+        "audit_log.drop_old_partitions",
+        days as i64,
+    )
+    .await
 }
 
 /// Drop monthly partitions of `sync_actions` whose upper bound is older
@@ -314,7 +347,14 @@ pub async fn prune_audit_log_partitions(pool: Pool) -> Result<()> {
 /// from snapshots when they lag. Override via `SYNC_ACTIONS_RETENTION_DAYS`.
 pub async fn prune_sync_actions_partitions(pool: Pool) -> Result<()> {
     let days = retention_days("SYNC_ACTIONS_RETENTION_DAYS", 90);
-    drop_old_event_partitions(pool, "sync_actions", days as i64).await
+    drop_old_event_partitions(
+        pool,
+        "sync_actions",
+        SYNC_ACTIONS_PARTITION_PRUNE_LOCK,
+        "sync_actions.drop_old_partitions",
+        days as i64,
+    )
+    .await
 }
 
 /// Read a positive day-count from `env_var`, falling back to `default`.
@@ -333,9 +373,24 @@ fn retention_days(env_var: &str, default: i32) -> i32 {
 async fn drop_old_event_partitions(
     pool: Pool,
     parent: &'static str,
+    lock_key: i64,
+    lock_name: &'static str,
     retention_days: i64,
 ) -> Result<()> {
-    let mut conn = pool.get().context("db pool")?;
+    // Single-machine guard: DETACH CONCURRENTLY + DROP can't share the
+    // provisioner's transaction-scoped lock, and two machines dropping the
+    // same partition race, so skip the tick when a peer is already pruning
+    // this parent.
+    let _lock = match try_job_lock(&pool, lock_key, lock_name)? {
+        Some(lock) => lock,
+        None => {
+            info!("scheduler: {lock_name} skipped — another machine holds the lock");
+            return Ok(());
+        }
+    };
+    // DETACH / DROP PARTITION need ownership of the parent, same as the
+    // provisioning DDL; run over the privileged role when configured.
+    let mut conn = ddl_conn(&pool)?;
     let cutoff = chrono::Utc::now().date_naive() - chrono::Duration::days(retention_days);
     let dropped = crate::sync::partitions::drop_partitions_older_than(&mut conn, parent, cutoff)
         .with_context(|| format!("drop {parent} partitions older than {cutoff}"))?;

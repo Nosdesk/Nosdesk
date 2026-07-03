@@ -156,6 +156,42 @@ fn run_migrations(pool: &Pool) -> Result<(), Box<dyn std::error::Error + Send + 
     }
 }
 
+/// Build a short-lived single-connection pool over a *privileged* role for
+/// one-off schema DDL that the runtime `nosdesk_app` role can't perform:
+/// partition `CREATE` / `ATTACH` / `DETACH` / `DROP`, which need ownership of
+/// the parent table and `CREATE` on the schema (PG15+ revokes `CREATE ON
+/// SCHEMA public` from `PUBLIC`, so `nosdesk_app` can't create the monthly
+/// child tables).
+///
+/// Mirrors [`run_migrations`]: uses `MIGRATION_DATABASE_URL` when set and
+/// returns `None` otherwise, so single-role dev / self-hosted setups (where
+/// `DATABASE_URL` already owns the schema) fall back to the runtime pool
+/// unchanged. The pool is built per call: the partition jobs run at startup
+/// and on daily ticks, so the extra connect is negligible, and not holding an
+/// elevated pool open for the process lifetime keeps the privileged
+/// credentials in use only while DDL is actually running.
+pub fn privileged_ddl_pool() -> Option<Pool> {
+    let url = env::var("MIGRATION_DATABASE_URL").ok()?;
+    let url = url.trim().to_string();
+    if url.is_empty() {
+        return None;
+    }
+    match r2d2::Pool::builder()
+        .max_size(1)
+        .build(ResettingManager::new(url))
+    {
+        Ok(pool) => Some(pool),
+        Err(e) => {
+            warn!(
+                error = %e,
+                "MIGRATION_DATABASE_URL privileged pool build failed; \
+                 falling back to runtime pool for partition DDL"
+            );
+            None
+        }
+    }
+}
+
 /// Refuse to start if the database has applied migrations this binary does not
 /// embed — i.e. the DB schema is *ahead* of the code. That happens on a rollback
 /// to an older release, or (in a shared dev DB) when another branch's migration
