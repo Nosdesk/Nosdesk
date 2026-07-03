@@ -35,6 +35,12 @@ pub struct Config {
     pub additional_origins: Vec<String>,
     /// Tenant domain suffix for hosted-mode CORS (M5 Task 6); `None` self-hosted.
     pub tenant_domain: Option<String>,
+    /// Graceful-drain budget for in-flight HTTP requests on shutdown, passed to
+    /// actix's `HttpServer::shutdown_timeout`. Keep it below the deploy grace
+    /// period (Fly `kill_timeout`, k8s `terminationGracePeriodSeconds`) minus
+    /// the readiness-drain pause + collab-flush budget, so the drain completes
+    /// before SIGKILL. `NOSDESK_SHUTDOWN_TIMEOUT_SECS`, default 25.
+    pub shutdown_timeout_secs: u64,
 }
 
 /// Detects values that look like docker.env.example placeholders (e.g.
@@ -163,6 +169,10 @@ impl Config {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
 
+        let shutdown_timeout_secs = get("NOSDESK_SHUTDOWN_TIMEOUT_SECS")
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(25);
+
         Ok(Config {
             environment,
             is_production,
@@ -176,6 +186,7 @@ impl Config {
             frontend_url,
             additional_origins,
             tenant_domain,
+            shutdown_timeout_secs,
         })
     }
 }
@@ -445,5 +456,32 @@ mod tests {
         .unwrap();
         assert_eq!(c.additional_origins, vec!["https://a.com", "https://b.com"]);
         assert_eq!(c.tenant_domain.as_deref(), Some("nosdesk.app"));
+    }
+
+    #[test]
+    fn shutdown_timeout_defaults_and_parses() {
+        let c = build(&[("JWT_SECRET", GOOD_JWT)], true).unwrap();
+        assert_eq!(c.shutdown_timeout_secs, 25); // default
+
+        let c = build(
+            &[
+                ("JWT_SECRET", GOOD_JWT),
+                ("NOSDESK_SHUTDOWN_TIMEOUT_SECS", "40"),
+            ],
+            true,
+        )
+        .unwrap();
+        assert_eq!(c.shutdown_timeout_secs, 40);
+
+        // Garbage falls back to the default rather than failing the boot.
+        let c = build(
+            &[
+                ("JWT_SECRET", GOOD_JWT),
+                ("NOSDESK_SHUTDOWN_TIMEOUT_SECS", "soon"),
+            ],
+            true,
+        )
+        .unwrap();
+        assert_eq!(c.shutdown_timeout_secs, 25);
     }
 }

@@ -1065,6 +1065,8 @@ pub async fn build_server(
     let auth_rate_limit_per_minute = config.auth_rate_limit_per_minute;
     let redis_url = config.redis_url.clone();
     let frontend_url = config.frontend_url.clone();
+    // Read before `config` moves into the factory closure below.
+    let shutdown_timeout_secs = config.shutdown_timeout_secs;
     let additional_origins = config.additional_origins.clone();
     let tenant_domain = config.tenant_domain.clone();
 
@@ -1579,6 +1581,10 @@ pub async fn build_server(
             .configure(|cfg| configure_app(cfg, &state, &pool, &workspace_config, &config))
     })
     .listen(listener)?
+    // Bound graceful-drain budget for in-flight requests (actix defaults to
+    // 30s). Keep it below the deploy grace period so the drain finishes before
+    // SIGKILL. See Config::shutdown_timeout_secs.
+    .shutdown_timeout(shutdown_timeout_secs)
     .disable_signals()
     .run();
 
@@ -1599,22 +1605,46 @@ pub async fn run(config: Config) -> std::io::Result<()> {
         yjs,
     } = build_server(config, listener).await?;
 
-    // We own the signals (`disable_signals` in build_server) so the collab
-    // flush completes before the server tears down: on SIGTERM (Fly deploy /
-    // `docker stop`) or SIGINT (Ctrl-C), flush in-memory documents to durable
-    // storage, cancel background jobs, then stop the server gracefully. Without
-    // this, a deploy drops every edit since the last periodic save.
+    // We own the signals (`disable_signals` in build_server) and drive shutdown
+    // from this flow so post-drain work (the collab flush) is guaranteed to
+    // finish before the process exits. Run the server as a task so we can wait
+    // on a signal alongside it.
     let server_handle = server.handle();
-    actix_web::rt::spawn(async move {
-        await_shutdown_signal().await;
-        info!("Shutdown signal received; flushing collaborative documents before stop");
-        yjs.flush_all_dirty(std::time::Duration::from_secs(4)).await;
-        scheduler_shutdown.cancel();
-        server_handle.stop(true).await;
-    });
+    let mut server_task = actix_web::rt::spawn(server);
 
-    server.await
+    tokio::select! {
+        _ = await_shutdown_signal() => {}
+        // The server ended on its own (a fatal error, not a signal): cancel
+        // background work and propagate its result.
+        res = &mut server_task => {
+            scheduler_shutdown.cancel();
+            return res.unwrap_or(Ok(()));
+        }
+    }
+
+    // Graceful shutdown, ordered per the k8s / Fly guidance:
+    //   1. Fail readiness so the proxy / orchestrator drains this instance.
+    //   2. Pause briefly so that drain propagates before we stop accepting.
+    //   3. Stop accepting new connections and drain in-flight requests (bounded
+    //      by the shutdown_timeout set in build_server).
+    //   4. Connections are closed now, so the collab docs are at their final
+    //      state: flush them, then cancel the scheduler + collab background work.
+    // The deploy grace period (Fly `kill_timeout`) must exceed the drain pause +
+    // shutdown_timeout + flush budget, or the process is SIGKILLed mid-shutdown.
+    info!("Shutdown signal received; draining traffic");
+    crate::handlers::health::begin_shutdown();
+    tokio::time::sleep(SHUTDOWN_DRAIN_PAUSE).await;
+    server_handle.stop(true).await;
+    info!("HTTP drained; flushing collaborative documents");
+    yjs.flush_all_dirty(std::time::Duration::from_secs(4)).await;
+    scheduler_shutdown.cancel();
+    let _ = server_task.await;
+    Ok(())
 }
+
+/// How long to keep serving after failing readiness before we stop accepting
+/// connections, so the load balancer / orchestrator notices the drain first.
+const SHUTDOWN_DRAIN_PAUSE: std::time::Duration = std::time::Duration::from_secs(3);
 
 #[cfg(test)]
 mod tests {

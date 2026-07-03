@@ -13,6 +13,7 @@
 
 use actix_web::{web, HttpResponse, Responder};
 use serde_json::json;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tracing::warn;
 
@@ -21,11 +22,32 @@ use crate::utils::rate_limit::get_redis_url;
 
 const REDIS_PING_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// Set once the process starts shutting down (SIGTERM / SIGINT). While set,
+/// `/readiness` reports 503 so orchestrators / load balancers drain this
+/// instance BEFORE it stops accepting connections, avoiding new requests
+/// racing into a terminating VM. `/health` (liveness) stays 200 so the
+/// container isn't restarted mid-drain.
+static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
+
+/// Flip readiness to draining. Called from the shutdown path in `startup::run`.
+pub fn begin_shutdown() {
+    SHUTTING_DOWN.store(true, Ordering::Relaxed);
+}
+
 pub async fn liveness() -> impl Responder {
     HttpResponse::Ok().body("Nosdesk API is running!")
 }
 
 pub async fn readiness(pool: web::Data<Pool>) -> HttpResponse {
+    // Drain signal: once shutting down, report not-ready so traffic drains away
+    // before we stop accepting connections. Checked before the DB/Redis probes
+    // (which are irrelevant once we're terminating).
+    if SHUTTING_DOWN.load(Ordering::Relaxed) {
+        return HttpResponse::ServiceUnavailable()
+            .insert_header(("Retry-After", "5"))
+            .json(json!({ "status": "draining" }));
+    }
+
     let db_ok = check_db(&pool);
     let redis_ok = check_redis().await;
 

@@ -109,6 +109,31 @@ async fn real_server_boots_and_serves() {
         .expect("GET /api/users");
     assert_eq!(users.status().as_u16(), 401, "GET /api/users");
 
+    // Graceful-shutdown drain signal: once begin_shutdown() is called,
+    // /readiness must report 503 (so the LB drains this instance) while /health
+    // stays up. This is the app-level piece of the shutdown sequence.
+    backend::handlers::health::begin_shutdown();
+    let draining = client
+        .get(format!("{base}/readiness"))
+        .send()
+        .await
+        .expect("GET /readiness (draining)");
+    assert_eq!(
+        draining.status().as_u16(),
+        503,
+        "readiness should report draining after begin_shutdown()"
+    );
+    let alive = client
+        .get(format!("{base}/health"))
+        .send()
+        .await
+        .expect("GET /health (draining)");
+    assert_eq!(
+        alive.status().as_u16(),
+        200,
+        "liveness stays up while draining"
+    );
+
     // Teardown: stop the background scheduler + the server.
     scheduler.cancel();
     handle.stop(false).await;
