@@ -646,10 +646,6 @@ impl SearchService {
     }
 }
 
-// Make SearchService thread-safe
-unsafe impl Send for SearchService {}
-unsafe impl Sync for SearchService {}
-
 /// Bridge the repository's `UserCreatedObserver` hook to the search
 /// index. Implemented on `Arc<SearchService>` so a single shared
 /// service handle satisfies the observer trait without an extra
