@@ -13,6 +13,65 @@ use crate::models::{
 };
 use crate::repository;
 
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route(
+        "/documentation/collections",
+        web::get().to(crate::handlers::documentation_collections::get_collections),
+    )
+    .route(
+        "/documentation/collections",
+        web::post().to(crate::handlers::documentation_collections::create_collection),
+    )
+    .route(
+        "/documentation/collections/reorder",
+        web::post().to(crate::handlers::documentation_collections::reorder_collections),
+    )
+    .route(
+        "/documentation/collections/slug/{slug}",
+        web::get().to(crate::handlers::documentation_collections::get_collection_by_slug),
+    )
+    .route(
+        "/documentation/collections/{id}",
+        web::get().to(crate::handlers::documentation_collections::get_collection),
+    )
+    .route(
+        "/documentation/collections/{id}",
+        web::put().to(crate::handlers::documentation_collections::update_collection),
+    )
+    .route(
+        "/documentation/collections/{id}",
+        web::delete().to(crate::handlers::documentation_collections::delete_collection),
+    )
+    .route(
+        "/documentation/collections/{id}/pages",
+        web::post().to(crate::handlers::documentation_collections::add_page_to_collection),
+    )
+    .route(
+        "/documentation/collections/{id}/pages/{page_id}",
+        web::delete().to(crate::handlers::documentation_collections::remove_page_from_collection),
+    )
+    .route(
+        "/documentation/collections/{id}/visibility",
+        web::get().to(crate::handlers::documentation_collections::get_collection_visibility),
+    )
+    .route(
+        "/documentation/collections/{id}/visibility",
+        web::put().to(crate::handlers::documentation_collections::set_collection_visibility),
+    )
+    .route(
+        "/documentation/collections/{id}/page-overrides",
+        web::get().to(crate::handlers::documentation_collections::get_page_overrides_in_collection),
+    )
+    .route(
+        "/documentation/{id}",
+        web::put().to(crate::handlers::update_documentation_page),
+    )
+    .route(
+        "/documentation/{id}",
+        web::delete().to(crate::handlers::delete_documentation_page),
+    );
+}
+
 // ============================================================================
 // Collection Endpoints
 // ============================================================================

@@ -25,6 +25,176 @@ use crate::services::search::SearchService;
 use crate::utils::i18n;
 use crate::utils::locale::request_locale;
 
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route("/tickets", web::get().to(crate::handlers::get_tickets))
+        .route(
+            "/tickets/paginated",
+            web::get().to(crate::handlers::get_paginated_tickets),
+        )
+        .route(
+            "/tickets/recent",
+            web::get().to(crate::handlers::get_recent_tickets),
+        )
+        .route("/tickets", web::post().to(crate::handlers::create_ticket))
+        .route(
+            "/tickets/empty",
+            web::post().to(crate::handlers::create_empty_ticket),
+        )
+        .route(
+            "/tickets/bulk",
+            web::post().to(crate::handlers::bulk_tickets),
+        )
+        // Literal /tickets/merge before /tickets/{id}; there is no
+        // /tickets/{id} POST, so no wildcard can absorb it.
+        .route(
+            "/tickets/merge",
+            web::post().to(crate::handlers::ticket_merge::merge_tickets),
+        )
+        .route(
+            "/tickets/{id}/merge-history",
+            web::get().to(crate::handlers::ticket_merge::get_merge_history),
+        )
+        .route(
+            "/tickets/{ticket_id}/rule-applications",
+            web::get().to(crate::handlers::rules::list_ticket_rule_applications),
+        )
+        .route(
+            "/tickets/{id}/applicable-actions",
+            web::get().to(crate::handlers::rules::list_applicable_actions),
+        )
+        .route("/tickets/{id}", web::get().to(crate::handlers::get_ticket))
+        .route(
+            "/tickets/{id}",
+            web::put().to(crate::handlers::update_ticket),
+        )
+        .route(
+            "/tickets/{id}",
+            web::patch().to(crate::handlers::update_ticket_partial),
+        )
+        .route(
+            "/tickets/{id}",
+            web::delete().to(crate::handlers::delete_ticket),
+        )
+        .route(
+            "/tickets/{id}/view",
+            web::post().to(crate::handlers::record_ticket_view),
+        )
+        .route(
+            "/tickets/{id}/view",
+            web::delete().to(crate::handlers::remove_recent_ticket),
+        )
+        .route(
+            "/tickets/{id}/activity",
+            web::get().to(crate::handlers::get_ticket_activity),
+        )
+        .route(
+            "/tickets/{id}/loans",
+            web::get().to(crate::handlers::asset_loans::list_for_ticket),
+        )
+        .route(
+            "/tickets/{id}/field-preview",
+            web::post().to(crate::handlers::preview_ticket_field),
+        )
+        .route(
+            "/tickets/{id}/tags",
+            web::put().to(crate::handlers::tags::set_ticket_tags),
+        )
+        .route(
+            "/tickets/{id}/watchers",
+            web::get().to(crate::handlers::ticket_watchers::list_watchers),
+        )
+        .route(
+            "/tickets/{id}/watch",
+            web::post().to(crate::handlers::ticket_watchers::watch_ticket),
+        )
+        .route(
+            "/tickets/{id}/watch",
+            web::delete().to(crate::handlers::ticket_watchers::unwatch_ticket),
+        )
+        .route(
+            "/tickets/{id}/watch/me",
+            web::get().to(crate::handlers::ticket_watchers::my_watch_state),
+        )
+        .route(
+            "/tickets/{id}/watch/preferences",
+            web::patch().to(crate::handlers::ticket_watchers::update_my_watch_preferences),
+        )
+        .route("/tags", web::get().to(crate::handlers::tags::list_tags))
+        .route("/tags", web::post().to(crate::handlers::tags::create_tag))
+        .route(
+            "/tags/{id}",
+            web::patch().to(crate::handlers::tags::update_tag),
+        )
+        .route(
+            "/tags/{id}",
+            web::delete().to(crate::handlers::tags::archive_tag),
+        )
+        .route(
+            "/import/file",
+            web::post().to(crate::handlers::import_tickets_from_json),
+        )
+        .route(
+            "/import/json",
+            web::post().to(crate::handlers::import_tickets_from_json_string),
+        )
+        .route(
+            "/tickets/{ticket_id}/link/{linked_ticket_id}",
+            web::post().to(crate::handlers::link_tickets),
+        )
+        .route(
+            "/tickets/{ticket_id}/unlink/{linked_ticket_id}",
+            web::delete().to(crate::handlers::unlink_tickets),
+        )
+        .route(
+            "/tickets/{ticket_id}/assets/{asset_id}",
+            web::post().to(crate::handlers::add_device_to_ticket),
+        )
+        .route(
+            "/tickets/{ticket_id}/assets/{asset_id}",
+            web::delete().to(crate::handlers::remove_device_from_ticket),
+        )
+        .route(
+            "/tickets/{id}/asset-usage",
+            web::get().to(crate::handlers::asset_usage::list_for_ticket),
+        )
+        .route(
+            "/tickets/{ticket_id}/comments",
+            web::get().to(crate::handlers::get_comments_by_ticket_id),
+        )
+        .route(
+            "/tickets/{ticket_id}/comments",
+            web::post().to(crate::handlers::add_comment_to_ticket),
+        )
+        .route(
+            "/tickets/{ticket_id}/notes/images",
+            web::post().to(crate::handlers::upload_ticket_note_image),
+        )
+        .route(
+            "/comments/{id}",
+            web::delete().to(crate::handlers::delete_comment),
+        )
+        .route(
+            "/comments/{id}/raw.eml",
+            web::get().to(crate::handlers::get_comment_raw_eml),
+        )
+        // Image proxy for inbound email rendering. Path-positional
+        // {sig}/{encoded_url} keeps the URL self-describing and
+        // cache-friendly (browsers cache by full URL). HMAC sig
+        // is derived from JWT_SECRET; see crate::handlers::image_proxy.
+        .route(
+            "/image-proxy/{sig}/{encoded_url}",
+            web::get().to(crate::handlers::image_proxy::proxy_image),
+        )
+        .route(
+            "/comments/{comment_id}/attachments",
+            web::post().to(crate::handlers::add_attachment_to_comment),
+        )
+        .route(
+            "/attachments/{id}",
+            web::delete().to(crate::handlers::delete_attachment),
+        );
+}
+
 // Helper function to validate assignee role
 fn validate_assignee_role(
     assignee_uuid: &Uuid,

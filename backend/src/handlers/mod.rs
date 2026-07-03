@@ -94,6 +94,9 @@ pub use users::{
     update_user_email, upload_user_image,
 };
 // Export specific items from tickets to avoid conflicts
+// `config` is intentionally per-module and always referenced via its full path
+// (`handlers::projects::config`); the glob's ambiguous `handlers::config` is unused.
+#[allow(ambiguous_glob_reexports)]
 pub use projects::*;
 pub use tickets::{
     add_device_to_ticket, bulk_tickets, create_empty_ticket, create_ticket, delete_ticket,
@@ -110,6 +113,7 @@ pub use assets::{
     update_device,
 };
 pub use auth_providers::*;
+#[allow(ambiguous_glob_reexports)] // `config` accessed via full path; see projects above
 pub use documentation::*;
 pub use microsoft_graph::*;
 pub use msgraph_integration::{

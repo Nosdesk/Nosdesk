@@ -27,6 +27,139 @@ use crate::sync::session as actor_session;
 use crate::utils::encryption;
 use crate::utils::rbac::{require_auth, require_workspace_role};
 
+pub fn config(cfg: &mut web::ServiceConfig) {
+    // Literal paths MUST be registered before the
+    // `{uuid}` paths: actix matches in registration
+    // order and a `web::Path<Uuid>` extractor on the
+    // generic route would 400 trying to parse
+    // "registry" or "install" as a UUID, never
+    // falling through to the literal handlers.
+    cfg.route(
+        "/admin/plugins",
+        web::get().to(crate::handlers::plugins::list_plugins),
+    )
+    .route(
+        "/admin/plugins/config",
+        web::get().to(crate::handlers::plugins::get_admin_config),
+    )
+    .route(
+        "/admin/plugins/signing-overview",
+        web::get().to(crate::handlers::plugins::get_signing_overview),
+    )
+    .route(
+        "/admin/plugins/install",
+        web::post().to(crate::handlers::plugins::install_plugin_from_zip),
+    )
+    .route(
+        "/admin/plugins/registry",
+        web::get().to(crate::handlers::plugins::get_registry),
+    )
+    .route(
+        "/admin/plugins/registry/refresh",
+        web::post().to(crate::handlers::plugins::refresh_registry),
+    )
+    .route(
+        "/admin/plugins/registry/install",
+        web::post().to(crate::handlers::plugins::install_from_registry),
+    )
+    .route(
+        "/admin/plugins/{uuid}",
+        web::get().to(crate::handlers::plugins::get_plugin),
+    )
+    .route(
+        "/admin/plugins/{uuid}",
+        web::put().to(crate::handlers::plugins::update_plugin),
+    )
+    .route(
+        "/admin/plugins/{uuid}",
+        web::delete().to(crate::handlers::plugins::uninstall_plugin),
+    )
+    .route(
+        "/admin/plugins/{uuid}/settings",
+        web::get().to(crate::handlers::plugins::get_plugin_settings),
+    )
+    .route(
+        "/admin/plugins/{uuid}/settings",
+        web::post().to(crate::handlers::plugins::set_plugin_setting),
+    )
+    .route(
+        "/admin/plugins/{uuid}/settings/{key}",
+        web::delete().to(crate::handlers::plugins::delete_plugin_setting),
+    )
+    .route(
+        "/admin/plugins/{uuid}/activity",
+        web::get().to(crate::handlers::plugins::get_plugin_activity),
+    )
+    // ===== PLUGIN API (For plugins to use) =====
+    .route(
+        "/plugins/enabled",
+        web::get().to(crate::handlers::plugins::list_enabled_plugins),
+    )
+    .route(
+        "/plugins/{uuid}/bundle",
+        web::get().to(crate::handlers::plugins::serve_plugin_bundle),
+    )
+    .route(
+        "/plugins/{uuid}/icon",
+        web::get().to(crate::handlers::plugins::serve_plugin_icon),
+    )
+    .route(
+        "/plugins/{uuid}/storage/{key}",
+        web::get().to(crate::handlers::plugins::get_plugin_storage),
+    )
+    .route(
+        "/plugins/{uuid}/storage",
+        web::post().to(crate::handlers::plugins::set_plugin_storage),
+    )
+    .route(
+        "/plugins/{uuid}/storage/{key}",
+        web::delete().to(crate::handlers::plugins::delete_plugin_storage),
+    )
+    .route(
+        "/plugins/{uuid}/proxy",
+        web::post().to(crate::handlers::plugins::proxy_plugin_request),
+    )
+    // ===== PLUGIN EVENT EMISSION =====
+    // Authenticated user iframes can call this to record a
+    // plugin-emitted event in sync_actions with
+    // actor_kind = 'plugin'. Aggregate must be a registered
+    // variant; plugins extend behaviour through event_type
+    // strings, not by inventing new aggregates.
+    .route(
+        "/plugins/{uuid}/events",
+        web::post().to(crate::handlers::plugin_events::emit_plugin_event),
+    )
+    // ===== PLUGIN COLLECTIONS =====
+    .route(
+        "/plugins/{uuid}/collections",
+        web::get().to(crate::handlers::plugin_collections::list_collections),
+    )
+    .route(
+        "/plugins/{uuid}/collections/{name}",
+        web::get().to(crate::handlers::plugin_collections::get_collection_schema),
+    )
+    .route(
+        "/plugins/{uuid}/collections/{name}/rows",
+        web::get().to(crate::handlers::plugin_collections::list_collection_rows),
+    )
+    .route(
+        "/plugins/{uuid}/collections/{name}/rows",
+        web::post().to(crate::handlers::plugin_collections::create_collection_row),
+    )
+    .route(
+        "/plugins/{uuid}/collections/{name}/rows/{row_uuid}",
+        web::get().to(crate::handlers::plugin_collections::get_collection_row),
+    )
+    .route(
+        "/plugins/{uuid}/collections/{name}/rows/{row_uuid}",
+        web::put().to(crate::handlers::plugin_collections::update_collection_row),
+    )
+    .route(
+        "/plugins/{uuid}/collections/{name}/rows/{row_uuid}",
+        web::delete().to(crate::handlers::plugin_collections::delete_collection_row),
+    );
+}
+
 /// Query parameters for pagination
 #[derive(Debug, Deserialize)]
 pub struct PaginationQuery {

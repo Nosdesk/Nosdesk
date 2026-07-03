@@ -11,6 +11,62 @@ use crate::utils::i18n;
 use crate::utils::locale::request_locale;
 use crate::utils::rbac::require_workspace_role;
 
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route(
+        "/groups/details/{uuid}",
+        web::get().to(crate::handlers::groups::get_group_details),
+    )
+    // ===== GROUP MANAGEMENT (Admin Only) =====
+    .route(
+        "/groups",
+        web::get().to(crate::handlers::groups::get_all_groups),
+    )
+    .route(
+        "/groups",
+        web::post().to(crate::handlers::groups::create_group),
+    )
+    .route(
+        "/groups/{id}",
+        web::get().to(crate::handlers::groups::get_group),
+    )
+    .route(
+        "/groups/{id}",
+        web::put().to(crate::handlers::groups::update_group),
+    )
+    .route(
+        "/groups/{id}",
+        web::delete().to(crate::handlers::groups::delete_group),
+    )
+    .route(
+        "/groups/{id}/members",
+        web::put().to(crate::handlers::groups::set_group_members),
+    )
+    .route(
+        "/groups/{id}/assets",
+        web::put().to(crate::handlers::groups::set_group_devices),
+    )
+    .route(
+        "/groups/{id}/includes",
+        web::get().to(crate::handlers::groups::get_group_includes),
+    )
+    .route(
+        "/groups/{id}/includes",
+        web::put().to(crate::handlers::groups::set_group_includes),
+    )
+    .route(
+        "/groups/{id}/unmanage",
+        web::post().to(crate::handlers::groups::unmanage_group),
+    )
+    .route(
+        "/users/{uuid}/groups",
+        web::get().to(crate::handlers::groups::get_user_groups),
+    )
+    .route(
+        "/users/{uuid}/groups",
+        web::put().to(crate::handlers::groups::set_user_groups),
+    );
+}
+
 // ============================================================================
 // Group Detail Endpoint (All authenticated users)
 // ============================================================================

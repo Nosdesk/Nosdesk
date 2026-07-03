@@ -450,21 +450,31 @@ pub fn setup_test_pool() -> crate::db::Pool {
 }
 
 /// Assert that a route `configure` fn registers every `(method, path)` in
-/// `cases`. A registered route returns 401/4xx/5xx from its auth/DB extractors
-/// (or an app-data error when the probe app lacks that state), never 404 — so a
-/// 404 means the route was dropped or renamed. This is the regression net for
-/// the per-domain route-probe tests that guard the `main.rs` -> `config`
-/// extraction. `{param}` segments accept any value, so use a placeholder.
+/// `cases`. This is the regression net for the per-domain route-probe tests
+/// that guard the `main.rs` -> `config` extraction.
+///
+/// Each `(method, path)` is sent with its real method, and the app carries a
+/// sentinel `default_service`: a *registered* route dispatches to its handler
+/// (any status — even a handler-level 404 from a `web::Path<Uuid>` rejecting a
+/// placeholder, a `WorkspaceContext` with no middleware, or a handler that
+/// returns `NotFound`), while an *unregistered* method/path falls through to
+/// the sentinel. So "response is not the sentinel" means the exact route is
+/// registered — immune to handler-level 404s. `{param}` segments accept any
+/// value, so the cases use placeholders.
 pub async fn assert_config_registers(
     configure: fn(&mut actix_web::web::ServiceConfig),
     cases: &[(&str, &str)],
 ) {
-    use actix_web::{http::Method, http::StatusCode, test, web, App};
+    use actix_web::{http::Method, http::StatusCode, test, web, App, HttpResponse};
+    let sentinel = StatusCode::from_u16(599).unwrap();
     let pool = setup_test_pool();
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(pool))
-            .configure(configure),
+            .configure(configure)
+            .default_service(
+                web::route().to(move || async move { HttpResponse::build(sentinel).finish() }),
+            ),
     )
     .await;
     for (method, path) in cases {
@@ -475,7 +485,7 @@ pub async fn assert_config_registers(
         let resp = test::call_service(&app, req).await;
         assert_ne!(
             resp.status(),
-            StatusCode::NOT_FOUND,
+            sentinel,
             "route not registered by config(): {method} {path}"
         );
     }

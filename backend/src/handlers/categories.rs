@@ -8,6 +8,43 @@ use crate::models::{NewTicketCategory, TicketCategoryUpdate, WorkspaceRole};
 use crate::repository;
 use crate::utils::rbac::require_workspace_role;
 
+pub fn config(cfg: &mut web::ServiceConfig) {
+    // User-facing categories endpoint (respects visibility)
+    cfg.route(
+        "/categories",
+        web::get().to(crate::handlers::categories::get_categories),
+    )
+    // Admin category endpoints
+    .route(
+        "/admin/categories",
+        web::get().to(crate::handlers::categories::get_all_categories_admin),
+    )
+    .route(
+        "/admin/categories",
+        web::post().to(crate::handlers::categories::create_category),
+    )
+    .route(
+        "/admin/categories/reorder",
+        web::put().to(crate::handlers::categories::reorder_categories),
+    )
+    .route(
+        "/admin/categories/{id}",
+        web::get().to(crate::handlers::categories::get_category_admin),
+    )
+    .route(
+        "/admin/categories/{id}",
+        web::put().to(crate::handlers::categories::update_category),
+    )
+    .route(
+        "/admin/categories/{id}",
+        web::delete().to(crate::handlers::categories::delete_category),
+    )
+    .route(
+        "/admin/categories/{id}/visibility",
+        web::put().to(crate::handlers::categories::set_category_visibility),
+    );
+}
+
 // ============================================================================
 // Category Endpoints for Regular Users
 // ============================================================================

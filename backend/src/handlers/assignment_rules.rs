@@ -13,6 +13,41 @@ use crate::repository;
 use crate::services::assignment::AssignmentEngine;
 use crate::utils::rbac::require_workspace_role;
 
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route(
+        "/admin/assignment-rules",
+        web::get().to(crate::handlers::assignment_rules::get_all_rules),
+    )
+    .route(
+        "/admin/assignment-rules",
+        web::post().to(crate::handlers::assignment_rules::create_rule),
+    )
+    .route(
+        "/admin/assignment-rules/reorder",
+        web::put().to(crate::handlers::assignment_rules::reorder_rules),
+    )
+    .route(
+        "/admin/assignment-rules/preview",
+        web::post().to(crate::handlers::assignment_rules::preview_assignment),
+    )
+    .route(
+        "/admin/assignment-rules/logs",
+        web::get().to(crate::handlers::assignment_rules::get_assignment_logs),
+    )
+    .route(
+        "/admin/assignment-rules/{id}",
+        web::get().to(crate::handlers::assignment_rules::get_rule),
+    )
+    .route(
+        "/admin/assignment-rules/{id}",
+        web::patch().to(crate::handlers::assignment_rules::update_rule),
+    )
+    .route(
+        "/admin/assignment-rules/{id}",
+        web::delete().to(crate::handlers::assignment_rules::delete_rule),
+    );
+}
+
 // ============================================================================
 // List Rules
 // ============================================================================

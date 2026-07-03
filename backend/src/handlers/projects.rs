@@ -11,6 +11,52 @@ use crate::services::search::SearchService;
 use crate::utils::rbac::require_workspace_role;
 use std::sync::Arc;
 
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route(
+        "/projects",
+        web::get().to(crate::handlers::get_all_projects),
+    )
+    .route("/projects", web::post().to(crate::handlers::create_project))
+    .route(
+        "/projects/{id}",
+        web::get().to(crate::handlers::get_project),
+    )
+    .route(
+        "/projects/{id}",
+        web::put().to(crate::handlers::update_project),
+    )
+    .route(
+        "/projects/{id}",
+        web::delete().to(crate::handlers::delete_project),
+    )
+    .route(
+        "/projects/{id}/tickets",
+        web::get().to(crate::handlers::get_project_tickets),
+    )
+    .route(
+        "/projects/{id}/dependencies",
+        web::get().to(crate::handlers::projects::get_project_dependencies),
+    )
+    // Literal /tickets/new before the /tickets/{ticket_id}
+    // POST so the wildcard can't absorb the quick-add create.
+    .route(
+        "/projects/{project_id}/tickets/new",
+        web::post().to(crate::handlers::projects::create_ticket_in_project),
+    )
+    .route(
+        "/projects/{project_id}/tickets/{ticket_id}",
+        web::post().to(crate::handlers::add_ticket_to_project),
+    )
+    .route(
+        "/projects/{project_id}/tickets/{ticket_id}",
+        web::delete().to(crate::handlers::remove_ticket_from_project),
+    )
+    .route(
+        "/projects/{id}/tickets/order",
+        web::put().to(crate::handlers::update_ticket_order),
+    );
+}
+
 #[derive(Deserialize)]
 pub struct GetProjectQuery {
     /// Comma-separated sub-resource keys to embed in the response.

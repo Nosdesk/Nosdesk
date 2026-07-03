@@ -13,6 +13,25 @@ use crate::models::{Claims, CreateApiTokenRequest, WorkspaceRole};
 use crate::repository::api_tokens;
 use crate::utils::rbac::require_workspace_role;
 
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route(
+        "/admin/api-tokens",
+        web::get().to(crate::handlers::api_tokens::list_api_tokens),
+    )
+    .route(
+        "/admin/api-tokens",
+        web::post().to(crate::handlers::api_tokens::create_api_token),
+    )
+    .route(
+        "/admin/api-tokens/{uuid}",
+        web::get().to(crate::handlers::api_tokens::get_api_token),
+    )
+    .route(
+        "/admin/api-tokens/{uuid}",
+        web::delete().to(crate::handlers::api_tokens::revoke_api_token),
+    );
+}
+
 /// List all API tokens (admin only)
 pub async fn list_api_tokens(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
