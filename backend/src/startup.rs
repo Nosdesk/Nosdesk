@@ -1037,19 +1037,33 @@ async fn await_shutdown_signal() {
     }
 }
 
-/// The composition root: from a validated [`Config`], initialise the keyring,
-/// database, background workers and shared state, build the HTTP server, and
-/// run it until a shutdown signal drains it. Everything after config load in
-/// the old main() lives here so the binary entrypoint stays thin.
-pub async fn run(config: Config) -> std::io::Result<()> {
+/// A bound, un-awaited server plus the handles the caller needs to drive
+/// graceful shutdown. Returned by [`build_server`].
+pub struct BuiltServer {
+    /// The un-awaited actix server. `await` it (or spawn it) to serve.
+    pub server: actix_web::dev::Server,
+    /// Cancels the periodic scheduler + collab background work on shutdown.
+    pub scheduler_shutdown: tokio_util::sync::CancellationToken,
+    /// The Yjs app state, so the shutdown path can flush dirty docs.
+    yjs: actix_web::web::Data<crate::handlers::collaboration::YjsAppState>,
+}
+
+/// Build everything from a validated [`Config`] up to a bound, un-awaited
+/// server: keyring, database, background workers, shared state, and the App
+/// factory bound to `listener`. Taking a pre-bound listener (rather than
+/// binding host:port internally) lets tests bind `127.0.0.1:0` and drive the
+/// real server over HTTP. The binary's [`run`] wraps this with signal-driven
+/// graceful shutdown.
+pub async fn build_server(
+    config: Config,
+    listener: std::net::TcpListener,
+) -> std::io::Result<BuiltServer> {
     // Rebind the values downstream setup still reads by their old names;
-    // later phases (build_state / build_app) will take `&config` directly.
+    // build_state / configure_app take `&config` directly.
     let environment = config.environment.clone();
     let rate_limit_per_minute = config.rate_limit_per_minute;
     let auth_rate_limit_per_minute = config.auth_rate_limit_per_minute;
     let redis_url = config.redis_url.clone();
-    let host = config.host.clone();
-    let port = config.port;
     let frontend_url = config.frontend_url.clone();
     let additional_origins = config.additional_origins.clone();
     let tenant_domain = config.tenant_domain.clone();
@@ -1564,24 +1578,38 @@ pub async fn run(config: Config) -> std::io::Result<()> {
             // unused. See security-audit-2026-06.
             .configure(|cfg| configure_app(cfg, &state, &pool, &workspace_config, &config))
     })
-    .bind((host, port))?
+    .listen(listener)?
     .disable_signals()
     .run();
 
-    // Graceful shutdown. We own the signals (`disable_signals` above) so
-    // the collab flush completes before the server tears down: on SIGTERM
-    // (Fly deploy / `docker stop`) or SIGINT (Ctrl-C), flush in-memory
-    // documents to durable storage, cancel background jobs, then stop the
-    // server gracefully. Without this, a deploy drops every edit made
-    // since the last periodic save.
+    Ok(BuiltServer {
+        server,
+        scheduler_shutdown: collab_shutdown_token,
+        yjs: yjs_for_shutdown,
+    })
+}
+
+/// The binary entrypoint's composition root: bind the configured host:port and
+/// serve with signal-driven graceful shutdown until SIGTERM / SIGINT drains it.
+pub async fn run(config: Config) -> std::io::Result<()> {
+    let listener = std::net::TcpListener::bind((config.host.as_str(), config.port))?;
+    let BuiltServer {
+        server,
+        scheduler_shutdown,
+        yjs,
+    } = build_server(config, listener).await?;
+
+    // We own the signals (`disable_signals` in build_server) so the collab
+    // flush completes before the server tears down: on SIGTERM (Fly deploy /
+    // `docker stop`) or SIGINT (Ctrl-C), flush in-memory documents to durable
+    // storage, cancel background jobs, then stop the server gracefully. Without
+    // this, a deploy drops every edit since the last periodic save.
     let server_handle = server.handle();
     actix_web::rt::spawn(async move {
         await_shutdown_signal().await;
         info!("Shutdown signal received; flushing collaborative documents before stop");
-        yjs_for_shutdown
-            .flush_all_dirty(std::time::Duration::from_secs(4))
-            .await;
-        collab_shutdown_token.cancel();
+        yjs.flush_all_dirty(std::time::Duration::from_secs(4)).await;
+        scheduler_shutdown.cancel();
         server_handle.stop(true).await;
     });
 
