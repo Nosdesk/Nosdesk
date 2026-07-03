@@ -539,6 +539,54 @@ struct EntraIdRow {
     id: i32,
 }
 
+/// Batch-load full device rows whose `attributes->>{attr}` is in `values`,
+/// keyed by that attribute value. `attr` is a fixed internal key
+/// (`entra_device_id` / `microsoft_device_id`), never caller input.
+fn devices_by_attr(
+    conn: &mut DbConnection,
+    attr: &str,
+    values: &[&str],
+) -> QueryResult<std::collections::HashMap<String, Asset>> {
+    use diesel::sql_types::{Array, Bool, Text};
+    let owned: Vec<String> = values.iter().map(|s| s.to_string()).collect();
+    let predicate = format!("attributes->>'{attr}' = ANY(");
+    let rows: Vec<Asset> = assets::table
+        .filter(
+            diesel::dsl::sql::<Bool>(&predicate)
+                .bind::<Array<Text>, _>(owned)
+                .sql(")"),
+        )
+        .load(conn)?;
+    let mut map = std::collections::HashMap::new();
+    for asset in rows {
+        if let Some(key) = asset
+            .attributes
+            .get(attr)
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+        {
+            map.insert(key, asset);
+        }
+    }
+    Ok(map)
+}
+
+/// Batched full-row `get_device_by_entra_id`, keyed by Entra Object ID.
+pub fn get_devices_by_entra_ids_full(
+    conn: &mut DbConnection,
+    entra_ids: &[&str],
+) -> QueryResult<std::collections::HashMap<String, Asset>> {
+    devices_by_attr(conn, "entra_device_id", entra_ids)
+}
+
+/// Batched full-row `get_device_by_microsoft_id`, keyed by Azure AD device ID.
+pub fn get_devices_by_microsoft_ids_full(
+    conn: &mut DbConnection,
+    microsoft_ids: &[&str],
+) -> QueryResult<std::collections::HashMap<String, Asset>> {
+    devices_by_attr(conn, "microsoft_device_id", microsoft_ids)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -572,6 +620,25 @@ mod tests {
 
         let fetched = get_device_by_id(&mut conn, dev.id).unwrap();
         assert_eq!(fetched.name, "TestDev");
+    }
+
+    #[test]
+    fn devices_by_entra_and_microsoft_id_batches() {
+        let mut conn = setup_test_connection();
+        let mut d1 = minimal_device("Entra1");
+        d1.attributes = serde_json::json!({ "entra_device_id": "e-1" });
+        let a1 = create_device(&mut conn, d1).unwrap();
+
+        let mut d2 = minimal_device("Ms1");
+        d2.attributes = serde_json::json!({ "microsoft_device_id": "m-2" });
+        let a2 = create_device(&mut conn, d2).unwrap();
+
+        let by_entra = get_devices_by_entra_ids_full(&mut conn, &["e-1", "missing"]).unwrap();
+        assert_eq!(by_entra.get("e-1").map(|a| a.id), Some(a1.id));
+        assert!(!by_entra.contains_key("missing"));
+
+        let by_ms = get_devices_by_microsoft_ids_full(&mut conn, &["m-2"]).unwrap();
+        assert_eq!(by_ms.get("m-2").map(|a| a.id), Some(a2.id));
     }
 
     #[test]

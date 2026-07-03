@@ -1870,6 +1870,32 @@ async fn sync_users(
             completed_items,
         );
 
+        // Resolve every user's Microsoft identity for this batch in one query,
+        // rather than a per-user lookup inside the processors. A prefetch
+        // failure is an infra-class DB error: record it and stop the pass. An
+        // empty map would be unsafe here (existing users would be misread as
+        // new and duplicated), so we don't fall back to one.
+        let batch_external_ids: Vec<&str> = batch.iter().map(|u| u.id.as_str()).collect();
+        let identity_map = match identity_repo::find_identities_by_provider_user_ids(
+            conn,
+            "microsoft",
+            &batch_external_ids,
+        ) {
+            Ok(map) => map,
+            Err(e) => {
+                error!(error = %e, batch = batch.len(), "msgraph user sync: identity prefetch failed; stopping user pass");
+                if let Some(first) = batch.first() {
+                    stats.record_failure(
+                        crate::services::msgraph::EntityKind::Users,
+                        &first.id,
+                        e.into(),
+                        1,
+                    );
+                }
+                break;
+            }
+        };
+
         // Process each user in the batch with optimized profile photo handling
         for ms_user in batch {
             // Check for cancellation before processing each user
@@ -1918,7 +1944,14 @@ async fn sync_users(
 
             if background_photo_sync {
                 // Fast sync without photos
-                match process_microsoft_user_no_photos(conn, provider_id, ms_user, &mut stats).await
+                match process_microsoft_user_no_photos(
+                    conn,
+                    provider_id,
+                    ms_user,
+                    identity_map.get(&ms_user.id).cloned(),
+                    &mut stats,
+                )
+                .await
                 {
                     Ok(_) => {
                         trace!(
@@ -1941,6 +1974,7 @@ async fn sync_users(
                     conn,
                     provider_id,
                     ms_user,
+                    identity_map.get(&ms_user.id).cloned(),
                     &mut stats,
                     &access_token,
                     &client,
@@ -2421,13 +2455,13 @@ async fn process_microsoft_user_optimized_v2(
     conn: &mut DbConnection,
     provider_id: i32,
     ms_user: &MicrosoftGraphUser,
+    existing_identity: Option<UserAuthIdentity>,
     stats: &mut UserSyncStats,
     access_token: &str,
     client: &reqwest::Client,
 ) -> Result<(), crate::services::msgraph::MsGraphSyncError> {
-    // Step 1: Check if this Microsoft user already has an identity in our system
-    if let Ok(existing_identity) = find_identity_by_provider_user_id(conn, provider_id, &ms_user.id)
-    {
+    // Step 1: Microsoft identity already resolved for this page's batch.
+    if let Some(existing_identity) = existing_identity {
         // User already has Microsoft identity - update existing user and identity
         return update_existing_microsoft_user_optimized(
             conn,
@@ -3112,7 +3146,23 @@ async fn sync_devices(
         completed_items,
     );
 
-    // Step 2: Process Entra devices
+    // Step 2: Process Entra devices. Resolve every device's existing local row
+    // up front in two batched queries (by Entra Object ID, then by Azure AD
+    // device ID for the fallback), instead of one or two lookups per device. A
+    // lookup failure degrades to "not found" -> create, matching the previous
+    // per-device `.ok()` behaviour.
+    let (existing_by_entra, existing_by_ms) = {
+        let entra_ids: Vec<&str> = entra_devices.iter().map(|d| d.id.as_str()).collect();
+        let ms_ids: Vec<&str> = entra_devices
+            .iter()
+            .filter_map(|d| d.device_id.as_deref())
+            .collect();
+        (
+            asset_repo::get_devices_by_entra_ids_full(conn, &entra_ids).unwrap_or_default(),
+            asset_repo::get_devices_by_microsoft_ids_full(conn, &ms_ids).unwrap_or_default(),
+        )
+    };
+
     let mut processed_count = 0;
 
     for entra_device in entra_devices {
@@ -3162,7 +3212,25 @@ async fn sync_devices(
             completed_items,
         );
 
-        match process_entra_device(conn, provider_id, &entra_device, &mut stats).await {
+        let existing_device = existing_by_entra
+            .get(&entra_device.id)
+            .cloned()
+            .or_else(|| {
+                entra_device
+                    .device_id
+                    .as_ref()
+                    .and_then(|mid| existing_by_ms.get(mid).cloned())
+            });
+
+        match process_entra_device(
+            conn,
+            provider_id,
+            &entra_device,
+            existing_device,
+            &mut stats,
+        )
+        .await
+        {
             Ok(_) => {
                 debug!(device_name = %device_name, "Successfully processed Entra device");
             }
@@ -4797,6 +4865,7 @@ async fn process_entra_device(
     conn: &mut DbConnection,
     _provider_id: i32,
     entra_device: &EntraDevice,
+    existing_device: Option<crate::models::Asset>,
     stats: &mut DeviceSyncStats,
 ) -> Result<(), crate::services::msgraph::MsGraphSyncError> {
     let device_name = entra_device
@@ -4805,20 +4874,8 @@ async fn process_entra_device(
         .unwrap_or(&entra_device.id);
     debug!(device_name = %device_name, entra_id = %entra_device.id, "Processing Entra device");
 
-    // Step 1: Check if this device already exists by Entra Object ID
-    // The `id` field from /devices IS the Entra Object ID
-    let existing_device = asset_repo::get_device_by_entra_id(conn, &entra_device.id).ok();
-
-    // Step 2: If not found by Entra ID, try by Microsoft Asset ID (the deviceId field)
-    let existing_device = if existing_device.is_none() {
-        if let Some(microsoft_device_id) = &entra_device.device_id {
-            asset_repo::get_device_by_microsoft_id(conn, microsoft_device_id).ok()
-        } else {
-            None
-        }
-    } else {
-        existing_device
-    };
+    // `existing_device` was resolved by the caller from the batch's Entra-ID
+    // and Microsoft-ID maps (previously two per-device lookups here).
 
     // Step 3: Prepare device data
     let device_display_name = entra_device
@@ -5199,37 +5256,24 @@ async fn process_microsoft_user_no_photos(
     conn: &mut DbConnection,
     provider_id: i32,
     ms_user: &MicrosoftGraphUser,
+    existing_identity: Option<UserAuthIdentity>,
     stats: &mut UserSyncStats,
 ) -> Result<(), crate::services::msgraph::MsGraphSyncError> {
-    // Check if identity already exists
-    match find_identity_by_provider_user_id(conn, provider_id, &ms_user.id) {
-        Ok(existing_identity) => {
-            // Identity exists - update the Microsoft user without photos
-            update_existing_microsoft_user_no_photos(conn, ms_user, existing_identity, stats).await
-        }
-        Err(diesel::result::Error::NotFound) => {
-            // No identity found, check if linking to an existing user by email is possible
-            let emails = extract_user_emails(ms_user);
+    // Microsoft identity already resolved for this page's batch. A failure to
+    // resolve it is handled once, at batch-prefetch time (an infra error there
+    // aborts the pass rather than being misread as "no identity").
+    if let Some(existing_identity) = existing_identity {
+        return update_existing_microsoft_user_no_photos(conn, ms_user, existing_identity, stats)
+            .await;
+    }
 
-            if let Some(existing_user) = find_existing_user_by_emails(conn, &emails) {
-                link_existing_user_to_microsoft_no_photos(
-                    conn,
-                    provider_id,
-                    ms_user,
-                    existing_user,
-                    stats,
-                )
-                .await
-            } else {
-                create_new_user_from_microsoft_no_photos(conn, provider_id, ms_user, stats).await
-            }
-        }
-        // Any other diesel error here is an infrastructural failure
-        // — pool gone, server going away. The typed From impl routes
-        // it to DbInfra (Auth classification), which bubbles up and
-        // aborts the run rather than treating the misclassification
-        // as a per-item conflict.
-        Err(e) => Err(e.into()),
+    // No identity: link to an existing user by email, else create.
+    let emails = extract_user_emails(ms_user);
+    if let Some(existing_user) = find_existing_user_by_emails(conn, &emails) {
+        link_existing_user_to_microsoft_no_photos(conn, provider_id, ms_user, existing_user, stats)
+            .await
+    } else {
+        create_new_user_from_microsoft_no_photos(conn, provider_id, ms_user, stats).await
     }
 }
 

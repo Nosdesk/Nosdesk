@@ -175,6 +175,25 @@ pub fn users_with_provider(
         .collect())
 }
 
+/// Batched `find_identity_by_provider_user_id`: resolve many external IDs to
+/// their full identity rows in one query, keyed by `external_id`. The user
+/// sync pre-resolves a whole page's identities with this instead of a query
+/// per user. Matches the singular lookup's filter (provider_type + external_id,
+/// no workspace scope).
+pub fn find_identities_by_provider_user_ids(
+    conn: &mut DbConnection,
+    provider_type: &str,
+    external_ids: &[&str],
+) -> Result<std::collections::HashMap<String, UserAuthIdentity>, Error> {
+    Ok(user_auth_identities::table
+        .filter(user_auth_identities::provider_type.eq(provider_type))
+        .filter(user_auth_identities::external_id.eq_any(external_ids))
+        .load::<UserAuthIdentity>(conn)?
+        .into_iter()
+        .map(|identity| (identity.external_id.clone(), identity))
+        .collect())
+}
+
 /// Get multiple user UUIDs by their external IDs (batch lookup for efficiency)
 pub fn get_user_uuids_by_external_ids(
     external_ids: &[&str],
@@ -350,6 +369,25 @@ mod tests {
         );
         assert!(!synced.contains(&gh_user.uuid), "other provider excluded");
         assert!(!synced.contains(&no_identity.uuid), "no identity excluded");
+    }
+
+    #[test]
+    fn find_identities_by_provider_user_ids_batches() {
+        let mut conn = setup_test_connection();
+        let u1 = TestFixtures::create_user(&mut conn, "extid1", "user");
+        let u2 = TestFixtures::create_user(&mut conn, "extid2", "user");
+        create_identity(make_identity(u1.uuid, "microsoft", "ext-1"), &mut conn).unwrap();
+        create_identity(make_identity(u2.uuid, "microsoft", "ext-2"), &mut conn).unwrap();
+
+        let map = find_identities_by_provider_user_ids(
+            &mut conn,
+            "microsoft",
+            &["ext-1", "ext-2", "ext-missing"],
+        )
+        .unwrap();
+        assert_eq!(map.get("ext-1").map(|i| i.user_uuid), Some(u1.uuid));
+        assert_eq!(map.get("ext-2").map(|i| i.user_uuid), Some(u2.uuid));
+        assert!(!map.contains_key("ext-missing"));
     }
 
     #[test]
