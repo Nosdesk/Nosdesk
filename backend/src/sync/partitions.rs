@@ -43,7 +43,7 @@
 
 use chrono::{Datelike, NaiveDate, Utc};
 use diesel::prelude::*;
-use diesel::sql_types::Bool;
+use diesel::sql_types::{Bool, Text};
 use serde_json::Value;
 use tracing::{debug, info, warn};
 
@@ -114,6 +114,25 @@ fn is_attached(
 /// partition is already attached. Wraps the four-step LIKE + ATTACH
 /// dance in one transaction so a mid-sequence failure rolls back to a
 /// clean state (next call sees an unattached child and proceeds).
+///
+/// ## Multi-machine safety
+///
+/// Hosted runs multiple app instances that each provision partitions at
+/// boot and on a daily tick against the *same* database. Concurrent
+/// provisioning of the same child is not benign: `CREATE TABLE IF NOT
+/// EXISTS` still races (two sessions abort one with a duplicate
+/// `pg_type` row), and `ATTACH PARTITION` of an already-attached child
+/// errors outright. Either aborts the whole transaction, which is fatal
+/// on the eager startup path (the process refuses to bind the listener).
+///
+/// A transaction-scoped advisory lock keyed on the child name is taken
+/// as the *first* statement inside the transaction so the entire
+/// create + attach sequence is single-writer across machines. It
+/// auto-releases on commit or rollback, so a mid-sequence failure can't
+/// strand it. This mirrors the boot-time serialization in
+/// `services::admin_setup`. After acquiring the lock we re-check
+/// `is_attached` (READ COMMITTED, so we see a peer's committed ATTACH)
+/// and no-op if a peer won the race.
 fn ensure_one_partition(
     conn: &mut DbConnection,
     parent: &str,
@@ -135,6 +154,20 @@ fn ensure_one_partition(
     let constraint = format!("{child}_range_check");
 
     conn.transaction(|conn| {
+        // 0. Serialize concurrent provisioners on this child before any DDL
+        //    (see "Multi-machine safety" above). Namespaced hashtext keeps
+        //    the key clear of the fixed advisory-lock keys elsewhere; a
+        //    collision would only cost a brief wait, never correctness.
+        diesel::sql_query("SELECT pg_advisory_xact_lock(hashtext('partition:' || $1))")
+            .bind::<Text, _>(child)
+            .execute(conn)?;
+
+        // 0a. Re-check under the lock: a peer may have created + attached this
+        //     child between the lock-free fast path above and this point.
+        if is_attached(conn, parent, child)? {
+            return Ok(());
+        }
+
         // 1. Free-standing table cloning the parent's structure.
         //    No lock on parent.
         diesel::sql_query(format!(
@@ -446,9 +479,26 @@ mod tests {
     use super::*;
     use crate::test_helpers::setup_test_connection;
 
+    /// A connection for exercising partition provisioning DDL.
+    ///
+    /// `setup_test_connection` drops to the RLS-scoped `nosdesk_app` role,
+    /// which (like production's runtime role) can't `CREATE`/`ATTACH`
+    /// partitions (no `CREATE` on schema `public`, not the parents' owner).
+    /// Production runs provisioning on the privileged `MIGRATION_DATABASE_URL`
+    /// role, so these tests `RESET ROLE` back to the superuser login role to
+    /// match. Without it they'd only pass while the migration's fixed seed
+    /// months still cover `now() + lookahead`, a calendar-dependent green.
+    fn provisioning_conn() -> DbConnection {
+        let mut conn = setup_test_connection();
+        diesel::sql_query("RESET ROLE")
+            .execute(&mut conn)
+            .expect("reset to privileged role for partition DDL");
+        conn
+    }
+
     #[test]
     fn ensure_partitions_is_idempotent() {
-        let mut conn = setup_test_connection();
+        let mut conn = provisioning_conn();
         // Already-provisioned months from the substrate migration
         // (May–Aug 2026) should not produce errors on a re-run.
         let touched = ensure_partitions(&mut conn, 60).expect("first run");
@@ -462,7 +512,7 @@ mod tests {
 
     #[test]
     fn watermark_round_trips() {
-        let mut conn = setup_test_connection();
+        let mut conn = provisioning_conn();
         let _ = ensure_partitions(&mut conn, 30).expect("ensure");
         let watermark = read_watermark(&mut conn);
         assert!(
@@ -477,7 +527,7 @@ mod tests {
     /// in the LIKE + ATTACH sequence.
     #[test]
     fn ensured_partitions_are_attached_to_parent() {
-        let mut conn = setup_test_connection();
+        let mut conn = provisioning_conn();
         let _ = ensure_partitions(&mut conn, 30).expect("ensure");
         // Whatever month the test runs in, both parents must have
         // an attached partition for it.
@@ -530,7 +580,7 @@ mod tests {
             n: i64,
         }
 
-        let mut conn = setup_test_connection();
+        let mut conn = provisioning_conn();
         let _ = ensure_partitions(&mut conn, 30).expect("ensure");
         let rows: Vec<Count> = diesel::sql_query(
             "SELECT count(*) AS n FROM pg_constraint \
