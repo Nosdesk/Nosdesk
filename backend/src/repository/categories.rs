@@ -27,20 +27,21 @@ pub fn get_all_categories_with_visibility(
         .order(ticket_categories::display_order.asc())
         .load::<TicketCategory>(conn)?;
 
-    let mut categories_with_visibility = Vec::new();
+    let ids: Vec<i32> = all_categories.iter().map(|c| c.id).collect();
+    let mut groups_map = get_visible_groups_for_categories(conn, &ids)?;
 
-    for category in all_categories {
-        let visible_groups = get_visible_groups_for_category(conn, category.id)?;
-        let is_public = visible_groups.is_empty();
-
-        categories_with_visibility.push(CategoryWithVisibility {
-            category,
-            visible_to_groups: visible_groups,
-            is_public,
-        });
-    }
-
-    Ok(categories_with_visibility)
+    Ok(all_categories
+        .into_iter()
+        .map(|category| {
+            let visible_groups = groups_map.remove(&category.id).unwrap_or_default();
+            let is_public = visible_groups.is_empty();
+            CategoryWithVisibility {
+                category,
+                visible_to_groups: visible_groups,
+                is_public,
+            }
+        })
+        .collect())
 }
 
 /// Get a category by ID
@@ -219,6 +220,25 @@ pub fn get_visible_groups_for_category(
         .load(conn)
 }
 
+/// Batched `get_visible_groups_for_category`: one join returning a
+/// `category_id -> visible groups` map for many categories.
+pub fn get_visible_groups_for_categories(
+    conn: &mut DbConnection,
+    category_ids: &[i32],
+) -> QueryResult<std::collections::HashMap<i32, Vec<Group>>> {
+    let rows: Vec<(i32, Group)> = category_group_visibility::table
+        .filter(category_group_visibility::category_id.eq_any(category_ids))
+        .inner_join(groups::table)
+        .select((category_group_visibility::category_id, groups::all_columns))
+        .order(groups::name.asc())
+        .load(conn)?;
+    let mut map: std::collections::HashMap<i32, Vec<Group>> = std::collections::HashMap::new();
+    for (category_id, group) in rows {
+        map.entry(category_id).or_default().push(group);
+    }
+    Ok(map)
+}
+
 // sync-pending-wire: needs sync aggregate wiring
 /// Set which groups can see a category (replaces existing visibility)
 pub fn set_category_visibility(
@@ -283,32 +303,19 @@ pub fn get_categories_for_user(
         .order(ticket_categories::display_order.asc())
         .load::<TicketCategory>(conn)?;
 
-    // Filter by visibility
-    let mut visible_categories = Vec::new();
+    // Batch the per-category visibility into one query, then filter in memory:
+    // a category with no visibility rows is public; otherwise the user must
+    // share one of its allowed groups.
+    let ids: Vec<i32> = all_categories.iter().map(|c| c.id).collect();
+    let groups_map = get_visible_groups_for_categories(conn, &ids)?;
 
-    for category in all_categories {
-        // Get group IDs that can see this category
-        let category_group_ids: Vec<i32> = category_group_visibility::table
-            .filter(category_group_visibility::category_id.eq(category.id))
-            .select(category_group_visibility::group_id)
-            .load(conn)?;
-
-        // If no groups specified, category is public
-        if category_group_ids.is_empty() {
-            visible_categories.push(category);
-            continue;
-        }
-
-        // Check if user is in any of the allowed groups
-        let has_access = user_group_ids
-            .iter()
-            .any(|id| category_group_ids.contains(id));
-        if has_access {
-            visible_categories.push(category);
-        }
-    }
-
-    Ok(visible_categories)
+    Ok(all_categories
+        .into_iter()
+        .filter(|category| match groups_map.get(&category.id) {
+            None => true,
+            Some(groups) => groups.iter().any(|g| user_group_ids.contains(&g.id)),
+        })
+        .collect())
 }
 
 /// Check if a user can see a specific category
@@ -379,6 +386,36 @@ mod tests {
         TestFixtures::set_category_visibility(&mut conn, cat.id, &[group.id]);
 
         assert!(!can_user_see_category(&mut conn, &user.uuid, cat.id, false).unwrap());
+    }
+
+    #[test]
+    fn get_categories_for_user_filters_by_batched_visibility() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "dave", "user");
+        let group = TestFixtures::create_group(&mut conn, "Team");
+        TestFixtures::add_user_to_group(&mut conn, user.uuid, group.id);
+
+        let public = TestFixtures::create_category(&mut conn, "Public");
+        let allowed = TestFixtures::create_category(&mut conn, "Allowed");
+        TestFixtures::set_category_visibility(&mut conn, allowed.id, &[group.id]);
+        let other_group = TestFixtures::create_group(&mut conn, "Other");
+        let hidden = TestFixtures::create_category(&mut conn, "Hidden");
+        TestFixtures::set_category_visibility(&mut conn, hidden.id, &[other_group.id]);
+
+        let ids: Vec<i32> = get_categories_for_user(&mut conn, &user.uuid, false)
+            .unwrap()
+            .iter()
+            .map(|c| c.id)
+            .collect();
+        assert!(ids.contains(&public.id), "public category visible");
+        assert!(
+            ids.contains(&allowed.id),
+            "category shared with user's group visible"
+        );
+        assert!(
+            !ids.contains(&hidden.id),
+            "category for another group hidden"
+        );
     }
 
     #[test]
