@@ -30,6 +30,57 @@ use crate::handlers::errors;
 use crate::models::{CycleUpdate, NewCycle};
 use crate::repository::cycles as repo;
 
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route(
+        "/cycles",
+        web::get().to(crate::handlers::cycles::list_workspace),
+    )
+    .route(
+        "/projects/{project_id}/cycles",
+        web::get().to(crate::handlers::cycles::list),
+    )
+    .route(
+        "/projects/{project_id}/cycles",
+        web::post().to(crate::handlers::cycles::create),
+    )
+    .route(
+        "/cycles/{uuid}",
+        web::get().to(crate::handlers::cycles::get_one),
+    )
+    .route(
+        "/cycles/{uuid}",
+        web::patch().to(crate::handlers::cycles::patch),
+    )
+    .route(
+        "/cycles/{uuid}",
+        web::delete().to(crate::handlers::cycles::archive),
+    )
+    .route(
+        "/cycles/{uuid}/complete",
+        web::post().to(crate::handlers::cycles::complete),
+    )
+    .route(
+        "/cycles/{uuid}/stats",
+        web::get().to(crate::handlers::cycles::stats),
+    )
+    .route(
+        "/cycles/{uuid}/burnup",
+        web::get().to(crate::handlers::cycles::burnup),
+    )
+    .route(
+        "/cycles/{uuid}/tickets",
+        web::get().to(crate::handlers::cycles::tickets),
+    )
+    .route(
+        "/cycles/{uuid}/tickets/{ticket_id}",
+        web::post().to(crate::handlers::cycles::add_ticket),
+    )
+    .route(
+        "/cycles/{uuid}/tickets/{ticket_id}",
+        web::delete().to(crate::handlers::cycles::remove_ticket),
+    );
+}
+
 const NAME_MIN: usize = 1;
 const NAME_MAX: usize = 120;
 

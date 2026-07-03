@@ -13,6 +13,13 @@ use crate::handlers::errors;
 use crate::handlers::helpers;
 use crate::services::scheduler::{PeriodicStatus, StatusRegistry};
 
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route(
+        "/admin/scheduler/status",
+        web::get().to(crate::handlers::scheduler::get_status),
+    );
+}
+
 /// One row of the response. Adds `name` so the client can render a
 /// list without turning the map into an array at the call site.
 #[derive(Debug, Serialize)]

@@ -21,6 +21,48 @@ use crate::repository::analytics::{
 };
 use crate::utils::analytics_cache::{self, AnalyticsCache};
 
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route(
+        "/dashboard/stats",
+        web::get().to(crate::handlers::dashboard::get_stats),
+    )
+    // Analytics endpoints (Phase 4). Both run via
+    // TenantConn so the RLS policy on tickets
+    // restricts the aggregation source rows to the
+    // active workspace before any aggregation
+    // happens. Inputs are validated against the same
+    // allowlists the chart-config form enforces
+    // client-side.
+    .route(
+        "/dashboard/kpi",
+        web::get().to(crate::handlers::analytics::get_kpi),
+    )
+    .route(
+        "/dashboard/kpi-summary",
+        web::get().to(crate::handlers::analytics::get_kpi_summary),
+    )
+    .route(
+        "/dashboard/timeseries",
+        web::get().to(crate::handlers::analytics::get_timeseries),
+    )
+    .route(
+        "/dashboard/breakdown",
+        web::get().to(crate::handlers::analytics::get_breakdown),
+    )
+    .route(
+        "/dashboard/heatmap",
+        web::get().to(crate::handlers::analytics::get_heatmap),
+    )
+    .route(
+        "/dashboard/leaderboard",
+        web::get().to(crate::handlers::analytics::get_leaderboard),
+    )
+    .route(
+        "/dashboard/audit-annotations",
+        web::get().to(crate::handlers::analytics::get_audit_annotations),
+    );
+}
+
 /// Per-plan cap on top_n; chosen to keep the chart legible. The
 /// handler clamps incoming values so a too-large request degrades
 /// to the cap rather than a 400.

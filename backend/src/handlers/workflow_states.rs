@@ -23,6 +23,25 @@ use crate::models::{
 use crate::repository::workflow_states as repo;
 use crate::utils::rbac::require_workspace_role;
 
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route(
+        "/workflow-states",
+        web::get().to(crate::handlers::workflow_states::list),
+    )
+    .route(
+        "/admin/workflow-states",
+        web::post().to(crate::handlers::workflow_states::create),
+    )
+    .route(
+        "/admin/workflow-states/{id}",
+        web::patch().to(crate::handlers::workflow_states::patch),
+    )
+    .route(
+        "/admin/workflow-states/{id}",
+        web::delete().to(crate::handlers::workflow_states::archive),
+    );
+}
+
 #[derive(Debug, Serialize)]
 pub struct WorkflowStatesResponse {
     pub states: Vec<WorkflowState>,

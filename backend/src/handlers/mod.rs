@@ -83,6 +83,7 @@ pub mod workspace_members;
 // Import all handlers from modules
 pub use auth::*;
 // Export specific items from users to avoid conflicts
+#[allow(ambiguous_glob_reexports)] // `config` accessed via full path (see projects)
 pub use files::*;
 pub use users::{
     add_user_email, admin_delete_user_passkey, admin_disable_user_mfa, admin_reset_user_password,
@@ -112,9 +113,11 @@ pub use assets::{
     get_paginated_devices_excluding, get_user_devices, set_asset_model, unmanage_device,
     update_device,
 };
+#[allow(ambiguous_glob_reexports)] // `config` accessed via full path (see projects)
 pub use auth_providers::*;
 #[allow(ambiguous_glob_reexports)] // `config` accessed via full path; see projects above
 pub use documentation::*;
+#[allow(ambiguous_glob_reexports)] // `config` accessed via full path (see projects)
 pub use microsoft_graph::*;
 pub use msgraph_integration::{
     cancel_sync_session, get_active_syncs, get_config_validation, get_connection_status,

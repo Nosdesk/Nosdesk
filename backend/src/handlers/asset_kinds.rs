@@ -26,6 +26,34 @@ use crate::models::{AssetKind, AssetKindUpdate, NewAssetKind};
 use crate::repository::asset_kinds as repo;
 use crate::services::assets::kinds as schema_validator;
 
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route(
+        "/admin/asset-kinds/{id}",
+        web::get().to(crate::handlers::asset_kinds::get),
+    )
+    .route(
+        "/admin/asset-kinds",
+        web::post().to(crate::handlers::asset_kinds::create),
+    )
+    // Usage stat. Sits at /usage suffix on a numeric
+    // {id} path so the wildcard-vs-literal shadowing
+    // hazard (see project_actix_route_shadowing memory)
+    // doesn't apply: both segments are constrained
+    // numerics, no literal-vs-wildcard ambiguity.
+    .route(
+        "/admin/asset-kinds/{id}/usage",
+        web::get().to(crate::handlers::asset_kinds::usage),
+    )
+    .route(
+        "/admin/asset-kinds/{id}",
+        web::put().to(crate::handlers::asset_kinds::update),
+    )
+    .route(
+        "/admin/asset-kinds/{id}",
+        web::delete().to(crate::handlers::asset_kinds::delete),
+    );
+}
+
 const SLUG_MAX_LEN: usize = 64;
 const LABEL_MAX_LEN: usize = 255;
 

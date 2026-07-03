@@ -11,6 +11,26 @@ use crate::handlers::helpers;
 use crate::config_utils;
 use crate::models::AuthProvider;
 
+/// Microsoft Graph API routes, mounted inside the authenticated `/api` scope
+/// in main.rs.
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route(
+        "/auth/microsoft/graph",
+        web::post().to(process_graph_request),
+    )
+    .service(
+        web::scope("/msgraph")
+            .route("/request", web::post().to(process_graph_request))
+            .route("/users", web::get().to(get_graph_users))
+            .route("/devices", web::get().to(get_graph_devices))
+            .route("/groups", web::get().to(get_graph_groups))
+            .route(
+                "/directory-objects",
+                web::get().to(get_graph_directory_objects),
+            ),
+    );
+}
+
 // Helper functions for environment-based auth providers
 fn get_default_microsoft_provider_id() -> Result<i32, diesel::result::Error> {
     // Using environment variables - return fixed ID for Microsoft

@@ -2,6 +2,17 @@ use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route(
+        "/admin/system/info",
+        web::get().to(crate::handlers::system::get_system_info),
+    )
+    .route(
+        "/admin/system/updates",
+        web::get().to(crate::handlers::system::check_system_updates),
+    );
+}
+
 // App state for tracking server start time
 pub struct SystemState {
     pub start_time: Instant,

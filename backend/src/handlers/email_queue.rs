@@ -21,6 +21,43 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route(
+        "/admin/email-queue",
+        web::get().to(crate::handlers::email_queue::list),
+    )
+    .route(
+        "/admin/email-queue/stats",
+        web::get().to(crate::handlers::email_queue::stats),
+    )
+    // Inbound dead-letter log — platform-admin only. Cross-tenant
+    // operator view of mail forwarded to an unknown token.
+    .route(
+        "/admin/inbound/dead-letters",
+        web::get().to(crate::handlers::inbound_dead_letters::list),
+    )
+    .route(
+        "/admin/email-queue/{id}/retry",
+        web::post().to(crate::handlers::email_queue::retry_now),
+    )
+    .route(
+        "/admin/email-queue/{id}/cancel",
+        web::post().to(crate::handlers::email_queue::cancel),
+    )
+    .route(
+        "/admin/email-suppressions",
+        web::get().to(crate::handlers::email_suppressions::list),
+    )
+    .route(
+        "/admin/email-suppressions",
+        web::post().to(crate::handlers::email_suppressions::create),
+    )
+    .route(
+        "/admin/email-suppressions/{email}",
+        web::delete().to(crate::handlers::email_suppressions::delete),
+    );
+}
+
 #[derive(Debug, Deserialize, Default)]
 pub struct ListQuery {
     /// Comma-separated list of statuses, e.g. "pending,failed,dead".

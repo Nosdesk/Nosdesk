@@ -18,6 +18,41 @@ use crate::services::avatar_thumbnails::{backfill_thumbnails, BackfillMode};
 use crate::services::backup as backup_service;
 use crate::utils::rbac::is_platform_admin;
 
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route(
+        "/admin/backup/export",
+        web::post().to(crate::handlers::backup::start_export),
+    )
+    .route(
+        "/admin/backup/jobs",
+        web::get().to(crate::handlers::backup::get_jobs),
+    )
+    .route(
+        "/admin/backup/jobs/{id}",
+        web::get().to(crate::handlers::backup::get_job),
+    )
+    .route(
+        "/admin/backup/jobs/{id}",
+        web::delete().to(crate::handlers::backup::delete_job),
+    )
+    .route(
+        "/admin/backup/download/{id}",
+        web::get().to(crate::handlers::backup::download_backup),
+    )
+    .route(
+        "/admin/backup/restore/upload",
+        web::post().to(crate::handlers::backup::upload_restore),
+    )
+    .route(
+        "/admin/backup/restore/{id}/preview",
+        web::get().to(crate::handlers::backup::preview_restore),
+    )
+    .route(
+        "/admin/backup/restore/{id}/execute",
+        web::post().to(crate::handlers::backup::execute_restore),
+    );
+}
+
 /// Start a backup export job
 /// POST /api/admin/backup/export
 pub async fn start_export(

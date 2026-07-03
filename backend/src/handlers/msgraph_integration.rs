@@ -28,6 +28,29 @@ use crate::repository::user_emails as user_emails_repo;
 use crate::repository::users as user_repo;
 use crate::utils;
 
+/// Microsoft Graph integration routes (`/integrations/graph`), mounted inside
+/// the authenticated `/api` scope in main.rs.
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.service(
+        web::scope("/integrations/graph")
+            .route("/config", web::get().to(get_config_validation))
+            .route("/status", web::get().to(get_connection_status))
+            .route("/test", web::post().to(test_connection))
+            .route("/sync", web::post().to(sync_data))
+            .route(
+                "/progress/{session_id}",
+                web::get().to(get_sync_progress_endpoint),
+            )
+            .route("/active-syncs", web::get().to(get_active_syncs))
+            .route("/last-sync", web::get().to(get_last_sync))
+            .route("/cancel/{session_id}", web::post().to(cancel_sync_session))
+            .route(
+                "/entra-object-id/{azure_ad_device_id}",
+                web::get().to(get_entra_object_id),
+            ),
+    );
+}
+
 // Helper function for environment-based auth providers
 fn get_default_microsoft_provider() -> Result<AuthProvider, diesel::result::Error> {
     // Using environment variables, return a fixed provider for Microsoft

@@ -39,6 +39,66 @@ use crate::repository::sla_admin::{
 };
 use crate::utils::rbac::require_workspace_role;
 
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route(
+        "/admin/sla/policies",
+        web::get().to(crate::handlers::sla::list_policies),
+    )
+    .route(
+        "/admin/sla/policies",
+        web::post().to(crate::handlers::sla::create_policy),
+    )
+    // Static path must precede /{id} so "matches" isn't parsed as an id.
+    .route(
+        "/admin/sla/policies/matches",
+        web::get().to(crate::handlers::sla::policy_match_counts),
+    )
+    .route(
+        "/admin/sla/policies/{id}",
+        web::patch().to(crate::handlers::sla::update_policy),
+    )
+    .route(
+        "/admin/sla/policies/{id}",
+        web::delete().to(crate::handlers::sla::delete_policy),
+    )
+    .route(
+        "/admin/sla/calendars",
+        web::get().to(crate::handlers::sla::list_calendars),
+    )
+    .route(
+        "/admin/sla/calendars",
+        web::post().to(crate::handlers::sla::create_calendar),
+    )
+    .route(
+        "/admin/sla/calendars/{id}",
+        web::patch().to(crate::handlers::sla::update_calendar),
+    )
+    .route(
+        "/admin/sla/calendars/{id}",
+        web::delete().to(crate::handlers::sla::delete_calendar),
+    )
+    .route(
+        "/admin/sla/calendars/{id}/holidays",
+        web::get().to(crate::handlers::sla::list_holidays),
+    )
+    .route(
+        "/admin/sla/calendars/{id}/holidays",
+        web::post().to(crate::handlers::sla::create_holiday),
+    )
+    .route(
+        "/admin/sla/holidays/{id}",
+        web::delete().to(crate::handlers::sla::delete_holiday),
+    )
+    .route(
+        "/tickets/{id}/sla/explain",
+        web::get().to(crate::handlers::sla::explain_for_ticket),
+    )
+    .route(
+        "/sla/workspace-summary",
+        web::get().to(crate::handlers::sla::workspace_summary),
+    );
+}
+
 // ---- Policies ----
 
 pub async fn list_policies(mut tc: TenantConn, _auth: AuthContext) -> impl Responder {

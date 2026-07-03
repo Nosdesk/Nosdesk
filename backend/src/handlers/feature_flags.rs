@@ -21,6 +21,25 @@ use crate::handlers::{errors, helpers};
 use crate::models::Claims;
 use crate::repository::feature_flags as repo;
 
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route(
+        "/feature-flags",
+        web::get().to(crate::handlers::feature_flags::get_my_flags),
+    )
+    .route(
+        "/admin/feature-flags",
+        web::patch().to(crate::handlers::feature_flags::patch_workspace_flag),
+    )
+    .route(
+        "/admin/feature-flags",
+        web::put().to(crate::handlers::feature_flags::put_workspace_flags),
+    )
+    .route(
+        "/admin/feature-flags/users/{uuid}",
+        web::patch().to(crate::handlers::feature_flags::patch_user_override),
+    );
+}
+
 #[derive(Debug, Deserialize)]
 pub struct PatchFlagBody {
     pub flag: String,

@@ -13,6 +13,24 @@ use crate::models::{SiteSettingsResponse, UpdateSiteSettings};
 use crate::repository::site_settings;
 use crate::utils;
 
+/// Branding routes (config + image upload), mounted inside the authenticated
+/// `/api` scope in main.rs.
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route("/admin/branding/config", web::get().to(get_branding_config))
+        .route(
+            "/admin/branding/config",
+            web::patch().to(update_branding_config),
+        )
+        .route(
+            "/admin/branding/image",
+            web::post().to(upload_branding_image),
+        )
+        .route(
+            "/admin/branding/image",
+            web::delete().to(delete_branding_image),
+        );
+}
+
 #[derive(Debug, Deserialize)]
 pub struct BrandingImageTypeQuery {
     #[serde(rename = "type")]

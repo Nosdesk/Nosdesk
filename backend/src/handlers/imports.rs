@@ -27,6 +27,25 @@ use crate::repository::imports as repo;
 use crate::services::imports::{self, csv_parser, ImportType, ImportedRecords};
 use crate::services::search::{indexing_tasks, SearchService};
 
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route(
+        "/admin/import",
+        web::post().to(crate::handlers::imports::upload),
+    )
+    .route(
+        "/admin/import/template/{type}",
+        web::get().to(crate::handlers::imports::template),
+    )
+    .route(
+        "/admin/import/{id}/commit",
+        web::post().to(crate::handlers::imports::commit),
+    )
+    .route(
+        "/admin/import/{id}",
+        web::get().to(crate::handlers::imports::get_job),
+    );
+}
+
 #[derive(Debug, Deserialize)]
 pub struct UploadQuery {
     #[serde(rename = "type")]

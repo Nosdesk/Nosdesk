@@ -23,6 +23,41 @@ use crate::repository::canned_responses as repo;
 use crate::utils::rbac::require_workspace_role;
 use crate::utils::template_variables::{unknown_variables, CANNED_RESPONSE_VARIABLES};
 
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route(
+        "/canned-responses",
+        web::get().to(crate::handlers::canned_responses::list_canned),
+    )
+    .route(
+        "/canned-responses/{id}/insertions",
+        web::post().to(crate::handlers::canned_responses::record_insertion),
+    )
+    .route(
+        "/admin/canned-responses",
+        web::post().to(crate::handlers::canned_responses::create_canned),
+    )
+    // Sits at its own path (not nested under
+    // /admin/canned-responses/) so the `{id}` route
+    // below can't shadow it via wildcard matching.
+    // Actix's `.route()` chain registers each call as
+    // a separate Resource and the wildcard sibling
+    // wins over the literal sibling on the same path
+    // level; keeping the starters at a distinct path
+    // sidesteps that ambiguity entirely.
+    .route(
+        "/admin/canned-response-starters",
+        web::get().to(crate::handlers::canned_responses::starter_catalog),
+    )
+    .route(
+        "/admin/canned-responses/{id}",
+        web::patch().to(crate::handlers::canned_responses::update_canned),
+    )
+    .route(
+        "/admin/canned-responses/{id}",
+        web::delete().to(crate::handlers::canned_responses::delete_canned),
+    );
+}
+
 /// Body for `POST /api/canned-responses`. Validation is trivial —
 /// title + body both required and non-empty — and happens inline.
 #[derive(Debug, Deserialize)]

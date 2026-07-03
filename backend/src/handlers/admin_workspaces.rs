@@ -31,6 +31,82 @@ use crate::services::search::{indexing_tasks, SearchService};
 use crate::utils::rbac;
 use crate::utils::workspace_slug::validate_slug;
 
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route(
+        "/admin/workspaces",
+        web::get().to(crate::handlers::admin_workspaces::list_workspaces),
+    )
+    .route(
+        "/admin/workspaces",
+        web::post().to(crate::handlers::admin_workspaces::create_workspace),
+    )
+    .route(
+        "/admin/edition",
+        web::get().to(crate::handlers::admin_workspaces::get_edition),
+    )
+    .route(
+        "/admin/workspaces/{id}",
+        web::patch().to(crate::handlers::admin_workspaces::rename_workspace),
+    )
+    .route(
+        "/admin/workspaces/{id}",
+        web::delete().to(crate::handlers::admin_workspaces::hard_delete_workspace),
+    )
+    .route(
+        "/admin/workspaces/{id}/archive",
+        web::post().to(crate::handlers::admin_workspaces::archive_workspace),
+    )
+    .route(
+        "/admin/workspaces/{id}/restore",
+        web::post().to(crate::handlers::admin_workspaces::restore_workspace),
+    )
+    // Workspace membership (admin only, Phase 4 W3).
+    // Cross-tenant membership management for the
+    // platform admin. Workspace-admin self-service
+    // member management is a separate route under
+    // /api/workspaces/{id}/members (later workstream).
+    .route(
+        "/admin/workspaces/{id}/members",
+        web::get().to(crate::handlers::admin_workspaces::list_members),
+    )
+    .route(
+        "/admin/workspaces/{id}/members",
+        web::post().to(crate::handlers::admin_workspaces::add_member),
+    )
+    .route(
+        "/admin/workspaces/{id}/members/{user_uuid}",
+        web::patch().to(crate::handlers::admin_workspaces::update_member_role),
+    )
+    .route(
+        "/admin/workspaces/{id}/members/{user_uuid}",
+        web::delete().to(crate::handlers::admin_workspaces::remove_member),
+    )
+    // Caller's own workspace memberships — backs
+    // the frontend workspace switcher. Authenticated,
+    // no admin gate. Phase 4 W3.
+    .route(
+        "/me/workspaces",
+        web::get().to(crate::handlers::admin_workspaces::list_my_workspaces),
+    )
+    // Tenant self-serve member management for the caller's
+    // OWN workspace (context-scoped, no id in the path).
+    // Workspace-admin gated; distinct from the platform-
+    // admin operator console at /admin/workspaces/{id}/members.
+    // Phase 4 W3 / P1.3.
+    .route(
+        "/workspace/members",
+        web::get().to(crate::handlers::workspace_members::list_members),
+    )
+    .route(
+        "/workspace/members/{user_uuid}",
+        web::patch().to(crate::handlers::workspace_members::update_member_role),
+    )
+    .route(
+        "/workspace/members/{user_uuid}",
+        web::delete().to(crate::handlers::workspace_members::remove_member),
+    );
+}
+
 #[derive(Debug, Serialize)]
 struct WorkspaceSummary {
     id: i32,

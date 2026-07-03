@@ -31,6 +31,54 @@ use crate::models::{
 use crate::repository::rules;
 use crate::utils::rbac::require_workspace_role;
 
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route(
+        "/admin/rule-starters",
+        web::get().to(crate::handlers::rules::list_starter_catalog),
+    )
+    .route("/rules", web::get().to(crate::handlers::rules::list_rules))
+    .route(
+        "/rules",
+        web::post().to(crate::handlers::rules::create_rule),
+    )
+    .route(
+        "/rules/{id}/apply",
+        web::post().to(crate::handlers::rules::apply_rule),
+    )
+    .route(
+        "/rules/{id}/state",
+        web::patch().to(crate::handlers::rules::transition_state),
+    )
+    .route(
+        "/rules/{id}/versions",
+        web::get().to(crate::handlers::rules::list_rule_versions),
+    )
+    .route(
+        "/rules/{rule_id}/versions/{version}",
+        web::get().to(crate::handlers::rules::get_rule_version),
+    )
+    .route(
+        "/rules/{id}",
+        web::get().to(crate::handlers::rules::get_rule),
+    )
+    .route(
+        "/rules/{id}",
+        web::put().to(crate::handlers::rules::update_rule),
+    )
+    .route(
+        "/rules/{id}",
+        web::delete().to(crate::handlers::rules::delete_rule),
+    )
+    .route(
+        "/rule-applications",
+        web::get().to(crate::handlers::rules::list_rule_applications),
+    )
+    .route(
+        "/rule-applications/{id}",
+        web::get().to(crate::handlers::rules::get_rule_application),
+    );
+}
+
 // =====================================================================
 // Request / response DTOs.
 // =====================================================================

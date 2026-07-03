@@ -34,6 +34,13 @@ use serde::Deserialize;
 use serde_json::Value;
 use tracing::warn;
 
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route(
+        "/admin/csp-reports",
+        web::get().to(crate::handlers::csp_reports::list_violations),
+    );
+}
+
 const MAX_FIELD_LEN: usize = 4096;
 const MAX_DIRECTIVE_LEN: usize = 64;
 const MAX_DISPOSITION_LEN: usize = 16;

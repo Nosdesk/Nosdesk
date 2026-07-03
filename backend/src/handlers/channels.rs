@@ -29,6 +29,37 @@ use crate::services::channels::email_imap::{test_imap_connection, ImapChannelCon
 use crate::services::channels::supervisor::ChannelControl;
 use crate::utils::rbac::require_workspace_role;
 
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route(
+        "/admin/channels",
+        web::get().to(crate::handlers::channels::list_channels),
+    )
+    .route(
+        "/admin/channels",
+        web::post().to(crate::handlers::channels::create_channel),
+    )
+    .route(
+        "/admin/channels/{id}",
+        web::get().to(crate::handlers::channels::get_channel),
+    )
+    .route(
+        "/admin/channels/{id}",
+        web::patch().to(crate::handlers::channels::update_channel),
+    )
+    .route(
+        "/admin/channels/{id}",
+        web::delete().to(crate::handlers::channels::delete_channel),
+    )
+    .route(
+        "/admin/channels/{id}/credentials",
+        web::delete().to(crate::handlers::channels::clear_credential),
+    )
+    .route(
+        "/admin/channels/{id}/test-connection",
+        web::post().to(crate::handlers::channels::test_connection),
+    );
+}
+
 // ---------- Response / request DTOs ----------
 
 /// Shape returned to the admin UI. Wraps [`Channel`] with a flag telling

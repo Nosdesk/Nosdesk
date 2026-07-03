@@ -21,6 +21,13 @@ use crate::repository::user_auth_identities;
 use crate::services::search::{indexing_tasks, SearchService};
 use std::sync::Arc;
 
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route(
+        "/admin/auth/providers",
+        web::get().to(crate::handlers::get_auth_providers),
+    );
+}
+
 // Structure for OAuth logout requests
 #[derive(Deserialize, Debug)]
 pub struct OAuthLogoutRequest {

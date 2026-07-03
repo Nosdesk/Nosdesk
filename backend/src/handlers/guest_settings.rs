@@ -11,6 +11,17 @@ use crate::models::{Claims, SiteSettingsResponse, UpdateSiteSettings};
 use crate::repository::site_settings;
 use crate::utils;
 
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route(
+        "/admin/guest-settings",
+        web::get().to(crate::handlers::guest_settings::get_guest_settings),
+    )
+    .route(
+        "/admin/guest-settings",
+        web::patch().to(crate::handlers::guest_settings::update_guest_settings),
+    );
+}
+
 /// Partial update payload for the guest-access admin settings. Any field
 /// left `None` is untouched. `Option<Option<String>>` fields use the
 /// outer `Some(None)` to explicitly clear a previously-set value.

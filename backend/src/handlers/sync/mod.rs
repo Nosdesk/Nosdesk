@@ -20,5 +20,14 @@ pub mod delta;
 pub mod push;
 pub mod schema;
 
+/// Sync-engine routes, mounted inside the authenticated `/api` scope in main.rs.
+pub fn config(cfg: &mut actix_web::web::ServiceConfig) {
+    use actix_web::web;
+    cfg.route("/sync/bootstrap", web::get().to(bootstrap::bootstrap))
+        .route("/sync/delta", web::get().to(delta::delta))
+        .route("/sync/push", web::post().to(push::push))
+        .route("/sync/schema", web::get().to(schema::schema));
+}
+
 #[cfg(test)]
 mod tests;

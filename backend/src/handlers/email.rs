@@ -7,6 +7,42 @@ use crate::handlers::errors;
 use crate::utils::email::EmailService;
 use crate::utils::email_branding::get_email_branding;
 
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route(
+        "/admin/email/config",
+        web::get().to(crate::handlers::email::get_email_config),
+    )
+    .route(
+        "/admin/email/test",
+        web::post().to(crate::handlers::email::send_test_email),
+    )
+    // Per-workspace verified sending domain (DKIM)
+    .route(
+        "/admin/email/outbound",
+        web::get().to(crate::handlers::workspace_email::get_outbound),
+    )
+    .route(
+        "/admin/email/outbound",
+        web::delete().to(crate::handlers::workspace_email::reset),
+    )
+    .route(
+        "/admin/email/outbound/domain",
+        web::put().to(crate::handlers::workspace_email::set_domain),
+    )
+    .route(
+        "/admin/email/outbound/verify",
+        web::post().to(crate::handlers::workspace_email::verify_domain),
+    )
+    .route(
+        "/admin/email/outbound/dns-check",
+        web::get().to(crate::handlers::workspace_email::dns_check),
+    )
+    .route(
+        "/admin/email/outbound/test",
+        web::post().to(crate::handlers::workspace_email::test_send),
+    );
+}
+
 /// Test email request
 #[derive(Deserialize)]
 pub struct TestEmailRequest {

@@ -450,3 +450,392 @@ async fn documentation_collections_config_routes_registered() {
     )
     .await;
 }
+
+#[actix_web::test]
+async fn auth_providers_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::auth_providers::config,
+        &[("GET", "/admin/auth/providers")],
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn email_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::email::config,
+        &[
+            ("GET", "/admin/email/config"),
+            ("POST", "/admin/email/test"),
+            ("GET", "/admin/email/outbound"),
+            ("DELETE", "/admin/email/outbound"),
+            ("PUT", "/admin/email/outbound/domain"),
+            ("POST", "/admin/email/outbound/verify"),
+            ("GET", "/admin/email/outbound/dns-check"),
+            ("POST", "/admin/email/outbound/test"),
+        ],
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn system_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::system::config,
+        &[
+            ("GET", "/admin/system/info"),
+            ("GET", "/admin/system/updates"),
+        ],
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn admin_workspaces_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::admin_workspaces::config,
+        &[
+            ("GET", "/admin/workspaces"),
+            ("POST", "/admin/workspaces"),
+            ("GET", "/admin/edition"),
+            ("PATCH", "/admin/workspaces/1"),
+            ("DELETE", "/admin/workspaces/1"),
+            ("POST", "/admin/workspaces/1/archive"),
+            ("POST", "/admin/workspaces/1/restore"),
+            ("GET", "/admin/workspaces/1/members"),
+            ("POST", "/admin/workspaces/1/members"),
+            ("PATCH", "/admin/workspaces/1/members/1"),
+            ("DELETE", "/admin/workspaces/1/members/1"),
+            ("GET", "/me/workspaces"),
+            ("GET", "/workspace/members"),
+            ("PATCH", "/workspace/members/1"),
+            ("DELETE", "/workspace/members/1"),
+        ],
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn guest_settings_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::guest_settings::config,
+        &[
+            ("GET", "/admin/guest-settings"),
+            ("PATCH", "/admin/guest-settings"),
+        ],
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn channels_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::channels::config,
+        &[
+            ("GET", "/admin/channels"),
+            ("POST", "/admin/channels"),
+            ("GET", "/admin/channels/1"),
+            ("PATCH", "/admin/channels/1"),
+            ("DELETE", "/admin/channels/1"),
+            ("DELETE", "/admin/channels/1/credentials"),
+            ("POST", "/admin/channels/1/test-connection"),
+        ],
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn scheduler_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::scheduler::config,
+        &[("GET", "/admin/scheduler/status")],
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn csp_reports_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::csp_reports::config,
+        &[("GET", "/admin/csp-reports")],
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn audit_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::audit::config,
+        &[("GET", "/admin/audit-log"), ("GET", "/admin/audit")],
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn email_queue_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::email_queue::config,
+        &[
+            ("GET", "/admin/email-queue"),
+            ("GET", "/admin/email-queue/stats"),
+            ("GET", "/admin/inbound/dead-letters"),
+            ("POST", "/admin/email-queue/1/retry"),
+            ("POST", "/admin/email-queue/1/cancel"),
+            ("GET", "/admin/email-suppressions"),
+            ("POST", "/admin/email-suppressions"),
+            ("DELETE", "/admin/email-suppressions/1"),
+        ],
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn analytics_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::analytics::config,
+        &[("GET", "/dashboard/stats"), ("GET", "/dashboard/kpi")],
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn canned_responses_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::canned_responses::config,
+        &[
+            ("GET", "/canned-responses"),
+            ("POST", "/canned-responses/1/insertions"),
+            ("POST", "/admin/canned-responses"),
+            ("GET", "/admin/canned-response-starters"),
+            ("PATCH", "/admin/canned-responses/1"),
+            ("DELETE", "/admin/canned-responses/1"),
+        ],
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn rules_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::rules::config,
+        &[
+            ("GET", "/admin/rule-starters"),
+            ("GET", "/rules"),
+            ("POST", "/rules"),
+            ("POST", "/rules/1/apply"),
+            ("PATCH", "/rules/1/state"),
+            ("GET", "/rules/1/versions"),
+            ("GET", "/rules/1/versions/1"),
+            ("GET", "/rules/1"),
+            ("PUT", "/rules/1"),
+            ("DELETE", "/rules/1"),
+            ("GET", "/rule-applications"),
+            ("GET", "/rule-applications/1"),
+        ],
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn saved_views_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::saved_views::config,
+        &[
+            ("GET", "/saved-views"),
+            ("POST", "/saved-views"),
+            ("GET", "/saved-views/1"),
+            ("PATCH", "/saved-views/1"),
+            ("DELETE", "/saved-views/1"),
+        ],
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn cycles_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::cycles::config,
+        &[
+            ("GET", "/cycles"),
+            ("GET", "/projects/1/cycles"),
+            ("POST", "/projects/1/cycles"),
+            ("GET", "/cycles/1"),
+            ("PATCH", "/cycles/1"),
+            ("DELETE", "/cycles/1"),
+            ("POST", "/cycles/1/complete"),
+            ("GET", "/cycles/1/stats"),
+            ("GET", "/cycles/1/burnup"),
+            ("GET", "/cycles/1/tickets"),
+            ("POST", "/cycles/1/tickets/1"),
+            ("DELETE", "/cycles/1/tickets/1"),
+        ],
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn sla_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::sla::config,
+        &[
+            ("GET", "/admin/sla/policies"),
+            ("POST", "/admin/sla/policies"),
+            ("GET", "/admin/sla/policies/matches"),
+            ("PATCH", "/admin/sla/policies/1"),
+            ("DELETE", "/admin/sla/policies/1"),
+            ("GET", "/admin/sla/calendars"),
+            ("POST", "/admin/sla/calendars"),
+            ("PATCH", "/admin/sla/calendars/1"),
+            ("DELETE", "/admin/sla/calendars/1"),
+            ("GET", "/admin/sla/calendars/1/holidays"),
+            ("POST", "/admin/sla/calendars/1/holidays"),
+            ("DELETE", "/admin/sla/holidays/1"),
+            ("GET", "/tickets/1/sla/explain"),
+            ("GET", "/sla/workspace-summary"),
+        ],
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn workflow_states_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::workflow_states::config,
+        &[
+            ("GET", "/workflow-states"),
+            ("POST", "/admin/workflow-states"),
+            ("PATCH", "/admin/workflow-states/1"),
+            ("DELETE", "/admin/workflow-states/1"),
+        ],
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn asset_kinds_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::asset_kinds::config,
+        &[
+            ("GET", "/admin/asset-kinds/1"),
+            ("POST", "/admin/asset-kinds"),
+            ("GET", "/admin/asset-kinds/1/usage"),
+            ("PUT", "/admin/asset-kinds/1"),
+            ("DELETE", "/admin/asset-kinds/1"),
+        ],
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn imports_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::imports::config,
+        &[
+            ("POST", "/admin/import"),
+            ("GET", "/admin/import/template/1"),
+            ("POST", "/admin/import/1/commit"),
+            ("GET", "/admin/import/1"),
+        ],
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn feature_flags_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::feature_flags::config,
+        &[
+            ("GET", "/feature-flags"),
+            ("PATCH", "/admin/feature-flags"),
+            ("PUT", "/admin/feature-flags"),
+            ("PATCH", "/admin/feature-flags/users/1"),
+        ],
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn backup_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::backup::config,
+        &[
+            ("POST", "/admin/backup/export"),
+            ("GET", "/admin/backup/jobs"),
+            ("GET", "/admin/backup/jobs/1"),
+            ("DELETE", "/admin/backup/jobs/1"),
+            ("GET", "/admin/backup/download/1"),
+            ("POST", "/admin/backup/restore/upload"),
+            ("GET", "/admin/backup/restore/1/preview"),
+            ("POST", "/admin/backup/restore/1/execute"),
+        ],
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn files_config_routes_registered() {
+    assert_config_registers(crate::handlers::files::config, &[("POST", "/upload")]).await;
+}
+
+#[actix_web::test]
+async fn branding_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::branding::config,
+        &[
+            ("GET", "/admin/branding/config"),
+            ("PATCH", "/admin/branding/config"),
+            ("POST", "/admin/branding/image"),
+            ("DELETE", "/admin/branding/image"),
+        ],
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn sync_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::sync::config,
+        &[
+            ("GET", "/sync/bootstrap"),
+            ("GET", "/sync/delta"),
+            ("POST", "/sync/push"),
+            ("GET", "/sync/schema"),
+        ],
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn microsoft_graph_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::microsoft_graph::config,
+        &[
+            ("POST", "/auth/microsoft/graph"),
+            ("POST", "/msgraph/request"),
+            ("GET", "/msgraph/users"),
+            ("GET", "/msgraph/devices"),
+            ("GET", "/msgraph/groups"),
+            ("GET", "/msgraph/directory-objects"),
+        ],
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn msgraph_integration_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::msgraph_integration::config,
+        &[
+            ("GET", "/integrations/graph/config"),
+            ("GET", "/integrations/graph/status"),
+            ("POST", "/integrations/graph/test"),
+            ("POST", "/integrations/graph/sync"),
+            ("GET", "/integrations/graph/progress/1"),
+            ("GET", "/integrations/graph/active-syncs"),
+            ("GET", "/integrations/graph/last-sync"),
+            ("POST", "/integrations/graph/cancel/1"),
+            ("GET", "/integrations/graph/entra-object-id/1"),
+        ],
+    )
+    .await;
+}

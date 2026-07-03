@@ -26,6 +26,22 @@ use serde_json::json;
 use tracing::warn;
 use uuid::Uuid;
 
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route(
+        "/admin/audit-log",
+        web::get().to(crate::handlers::audit_log::list),
+    )
+    // Item C/W5: unified audit feed over all three
+    // substrates (sync_actions + security_events +
+    // audit_log), gated by the audit:read scope and the
+    // admin / audit-reviewer roles.
+    .route("/admin/audit", web::get().to(crate::handlers::audit::list))
+    .route(
+        "/admin/audit/export",
+        web::get().to(crate::handlers::audit::export),
+    );
+}
+
 /// Cap on a single export so a wide filter can't OOM the process.
 const EXPORT_MAX_ROWS: usize = 5000;
 const EXPORT_PAGE: i64 = 200;

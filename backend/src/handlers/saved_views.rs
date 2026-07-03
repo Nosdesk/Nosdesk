@@ -34,6 +34,29 @@ use crate::handlers::errors;
 use crate::models::{NewSavedView, SavedView, SavedViewUpdate};
 use crate::repository::saved_views as repo;
 
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route(
+        "/saved-views",
+        web::get().to(crate::handlers::saved_views::list),
+    )
+    .route(
+        "/saved-views",
+        web::post().to(crate::handlers::saved_views::create),
+    )
+    .route(
+        "/saved-views/{uuid}",
+        web::get().to(crate::handlers::saved_views::get_one),
+    )
+    .route(
+        "/saved-views/{uuid}",
+        web::patch().to(crate::handlers::saved_views::patch),
+    )
+    .route(
+        "/saved-views/{uuid}",
+        web::delete().to(crate::handlers::saved_views::delete),
+    );
+}
+
 const NAME_MIN: usize = 1;
 const NAME_MAX: usize = 120;
 

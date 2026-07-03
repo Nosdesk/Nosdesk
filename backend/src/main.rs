@@ -1877,118 +1877,52 @@ async fn main() -> std::io::Result<()> {
                     .wrap(actix_web::middleware::from_fn(middleware::dual_auth_middleware))
 
                     // Authentication Provider management (admin only) - simplified for environment-based config
-                    .route("/admin/auth/providers", web::get().to(handlers::get_auth_providers))
+                    .configure(crate::handlers::auth_providers::config)
 
                     // Email configuration (admin only) - environment-based config
-                    .route("/admin/email/config", web::get().to(handlers::email::get_email_config))
-                    .route("/admin/email/test", web::post().to(handlers::email::send_test_email))
-                    // Per-workspace verified sending domain (DKIM)
-                    .route("/admin/email/outbound", web::get().to(handlers::workspace_email::get_outbound))
-                    .route("/admin/email/outbound", web::delete().to(handlers::workspace_email::reset))
-                    .route("/admin/email/outbound/domain", web::put().to(handlers::workspace_email::set_domain))
-                    .route("/admin/email/outbound/verify", web::post().to(handlers::workspace_email::verify_domain))
-                    .route("/admin/email/outbound/dns-check", web::get().to(handlers::workspace_email::dns_check))
-                    .route("/admin/email/outbound/test", web::post().to(handlers::workspace_email::test_send))
+                    .configure(crate::handlers::email::config)
 
                     // System information (admin only)
-                    .route("/admin/system/info", web::get().to(handlers::system::get_system_info))
-                    .route("/admin/system/updates", web::get().to(handlers::system::check_system_updates))
+                    .configure(crate::handlers::system::config)
 
-                    // Branding configuration (admin only)
-                    .route("/admin/branding/config", web::get().to(handlers::branding::get_branding_config))
-                    .route("/admin/branding/config", web::patch().to(handlers::branding::update_branding_config))
+                    // Branding configuration + image upload (admin only)
+                    .configure(handlers::branding::config)
 
                     // Workspace lifecycle (admin only, Phase 4 W1).
                     // GET / POST list + create; per-id rename /
                     // archive / restore / hard-delete. Hard-delete
                     // requires ?confirm=<slug> matching the row.
-                    .route("/admin/workspaces", web::get().to(handlers::admin_workspaces::list_workspaces))
-                    .route("/admin/workspaces", web::post().to(handlers::admin_workspaces::create_workspace))
-                    .route("/admin/edition", web::get().to(handlers::admin_workspaces::get_edition))
-                    .route("/admin/workspaces/{id}", web::patch().to(handlers::admin_workspaces::rename_workspace))
-                    .route("/admin/workspaces/{id}", web::delete().to(handlers::admin_workspaces::hard_delete_workspace))
-                    .route("/admin/workspaces/{id}/archive", web::post().to(handlers::admin_workspaces::archive_workspace))
-                    .route("/admin/workspaces/{id}/restore", web::post().to(handlers::admin_workspaces::restore_workspace))
-
-                    // Workspace membership (admin only, Phase 4 W3).
-                    // Cross-tenant membership management for the
-                    // platform admin. Workspace-admin self-service
-                    // member management is a separate route under
-                    // /api/workspaces/{id}/members (later workstream).
-                    .route("/admin/workspaces/{id}/members", web::get().to(handlers::admin_workspaces::list_members))
-                    .route("/admin/workspaces/{id}/members", web::post().to(handlers::admin_workspaces::add_member))
-                    .route("/admin/workspaces/{id}/members/{user_uuid}", web::patch().to(handlers::admin_workspaces::update_member_role))
-                    .route("/admin/workspaces/{id}/members/{user_uuid}", web::delete().to(handlers::admin_workspaces::remove_member))
-
-                    // Caller's own workspace memberships — backs
-                    // the frontend workspace switcher. Authenticated,
-                    // no admin gate. Phase 4 W3.
-                    .route("/me/workspaces", web::get().to(handlers::admin_workspaces::list_my_workspaces))
-
-                    // Tenant self-serve member management for the caller's
-                    // OWN workspace (context-scoped, no id in the path).
-                    // Workspace-admin gated; distinct from the platform-
-                    // admin operator console at /admin/workspaces/{id}/members.
-                    // Phase 4 W3 / P1.3.
-                    .route("/workspace/members", web::get().to(handlers::workspace_members::list_members))
-                    .route("/workspace/members/{user_uuid}", web::patch().to(handlers::workspace_members::update_member_role))
-                    .route("/workspace/members/{user_uuid}", web::delete().to(handlers::workspace_members::remove_member))
+                    .configure(crate::handlers::admin_workspaces::config)
 
                     // Guest access controls (admin only)
-                    .route("/admin/guest-settings", web::get().to(handlers::guest_settings::get_guest_settings))
-                    .route("/admin/guest-settings", web::patch().to(handlers::guest_settings::update_guest_settings))
+                    .configure(crate::handlers::guest_settings::config)
 
                     // Multi-channel ingestion (admin only). Phase-1 UI
                     // surfaces only the email_imap provider; backend
                     // is generic over channel rows.
-                    .route("/admin/channels", web::get().to(handlers::channels::list_channels))
-                    .route("/admin/channels", web::post().to(handlers::channels::create_channel))
-                    .route("/admin/channels/{id}", web::get().to(handlers::channels::get_channel))
-                    .route("/admin/channels/{id}", web::patch().to(handlers::channels::update_channel))
-                    .route("/admin/channels/{id}", web::delete().to(handlers::channels::delete_channel))
-                    .route("/admin/channels/{id}/credentials", web::delete().to(handlers::channels::clear_credential))
-                    .route("/admin/channels/{id}/test-connection", web::post().to(handlers::channels::test_connection))
+                    .configure(crate::handlers::channels::config)
 
                     // Periodic-task scheduler status (read-only).
-                    .route("/admin/scheduler/status", web::get().to(handlers::scheduler::get_status))
+                    .configure(crate::handlers::scheduler::config)
 
                     // CSP violation reports — admins inspect what's
                     // being blocked under the live policy. Drives
                     // safe rollouts: tighten in report-only mode,
                     // observe here, then enforce.
-                    .route("/admin/csp-reports", web::get().to(handlers::csp_reports::list_violations))
+                    .configure(crate::handlers::csp_reports::config)
 
                     // Audit log — admin-gated read of audit_log rows
                     // produced by the per-table triggers. See
                     // handlers/audit_log.rs for query shape and
                     // 2026-05-11-210000_attach_audit_tier1 for the
                     // tables that participate.
-                    .route("/admin/audit-log", web::get().to(handlers::audit_log::list))
-                    // Item C/W5: unified audit feed over all three
-                    // substrates (sync_actions + security_events +
-                    // audit_log), gated by the audit:read scope and the
-                    // admin / audit-reviewer roles.
-                    .route("/admin/audit", web::get().to(handlers::audit::list))
-                    .route(
-                        "/admin/audit/export",
-                        web::get().to(handlers::audit::export),
-                    )
+                    .configure(crate::handlers::audit::config)
 
                     // Outbound email queue — Item J Pass 1 admin
                     // surface. List rows + per-row actions (retry now,
                     // cancel) for operators to investigate why a
                     // notification didn't fire.
-                    .route("/admin/email-queue", web::get().to(handlers::email_queue::list))
-                    .route("/admin/email-queue/stats", web::get().to(handlers::email_queue::stats))
-
-                    // Inbound dead-letter log — platform-admin only. Cross-tenant
-                    // operator view of mail forwarded to an unknown token.
-                    .route("/admin/inbound/dead-letters", web::get().to(handlers::inbound_dead_letters::list))
-                    .route("/admin/email-queue/{id}/retry", web::post().to(handlers::email_queue::retry_now))
-                    .route("/admin/email-queue/{id}/cancel", web::post().to(handlers::email_queue::cancel))
-                    .route("/admin/email-suppressions", web::get().to(handlers::email_suppressions::list))
-                    .route("/admin/email-suppressions", web::post().to(handlers::email_suppressions::create))
-                    .route("/admin/email-suppressions/{email}", web::delete().to(handlers::email_suppressions::delete))
+                    .configure(crate::handlers::email_queue::config)
 
                     // Consolidated dashboard stats. The frontend's
                     // widget registry derives an `include` set
@@ -1996,39 +1930,7 @@ async fn main() -> std::io::Result<()> {
                     // it here so we only compute what's about to
                     // be displayed. Replaces three independent
                     // full-list ticket fetches per dashboard load.
-                    .route("/dashboard/stats", web::get().to(handlers::dashboard::get_stats))
-                    // Analytics endpoints (Phase 4). Both run via
-                    // TenantConn so the RLS policy on tickets
-                    // restricts the aggregation source rows to the
-                    // active workspace before any aggregation
-                    // happens. Inputs are validated against the same
-                    // allowlists the chart-config form enforces
-                    // client-side.
-                    .route("/dashboard/kpi", web::get().to(handlers::analytics::get_kpi))
-                    .route(
-                        "/dashboard/kpi-summary",
-                        web::get().to(handlers::analytics::get_kpi_summary),
-                    )
-                    .route(
-                        "/dashboard/timeseries",
-                        web::get().to(handlers::analytics::get_timeseries),
-                    )
-                    .route(
-                        "/dashboard/breakdown",
-                        web::get().to(handlers::analytics::get_breakdown),
-                    )
-                    .route(
-                        "/dashboard/heatmap",
-                        web::get().to(handlers::analytics::get_heatmap),
-                    )
-                    .route(
-                        "/dashboard/leaderboard",
-                        web::get().to(handlers::analytics::get_leaderboard),
-                    )
-                    .route(
-                        "/dashboard/audit-annotations",
-                        web::get().to(handlers::analytics::get_audit_annotations),
-                    )
+                    .configure(crate::handlers::analytics::config)
 
                     // Canned responses — reads open to any authenticated
                     // user (composer picker); writes admin-only. The
@@ -2036,20 +1938,7 @@ async fn main() -> std::io::Result<()> {
                     // record their own picker use, workspace-local);
                     // the starter catalog is admin-only since it's
                     // only consumed by the admin create flow.
-                    .route("/canned-responses", web::get().to(handlers::canned_responses::list_canned))
-                    .route("/canned-responses/{id}/insertions", web::post().to(handlers::canned_responses::record_insertion))
-                    .route("/admin/canned-responses", web::post().to(handlers::canned_responses::create_canned))
-                    // Sits at its own path (not nested under
-                    // /admin/canned-responses/) so the `{id}` route
-                    // below can't shadow it via wildcard matching.
-                    // Actix's `.route()` chain registers each call as
-                    // a separate Resource and the wildcard sibling
-                    // wins over the literal sibling on the same path
-                    // level; keeping the starters at a distinct path
-                    // sidesteps that ambiguity entirely.
-                    .route("/admin/canned-response-starters", web::get().to(handlers::canned_responses::starter_catalog))
-                    .route("/admin/canned-responses/{id}", web::patch().to(handlers::canned_responses::update_canned))
-                    .route("/admin/canned-responses/{id}", web::delete().to(handlers::canned_responses::delete_canned))
+                    .configure(crate::handlers::canned_responses::config)
 
                     // Rules engine (Phase 1: manual rules + recent
                     // activity log). The `/state` and `/apply` literal
@@ -2065,21 +1954,8 @@ async fn main() -> std::io::Result<()> {
                     // response-starters route above; the
                     // `project_actix_route_shadowing` memory note
                     // documents why ordering alone isn't enough.
-                    .route("/admin/rule-starters", web::get().to(handlers::rules::list_starter_catalog))
-                    .route("/rules", web::get().to(handlers::rules::list_rules))
-                    .route("/rules", web::post().to(handlers::rules::create_rule))
-                    .route("/rules/{id}/apply", web::post().to(handlers::rules::apply_rule))
-                    .route("/rules/{id}/state", web::patch().to(handlers::rules::transition_state))
-                    .route("/rules/{id}/versions", web::get().to(handlers::rules::list_rule_versions))
-                    .route("/rules/{rule_id}/versions/{version}", web::get().to(handlers::rules::get_rule_version))
-                    .route("/rules/{id}", web::get().to(handlers::rules::get_rule))
-                    .route("/rules/{id}", web::put().to(handlers::rules::update_rule))
-                    .route("/rules/{id}", web::delete().to(handlers::rules::delete_rule))
-                    .route("/rule-applications", web::get().to(handlers::rules::list_rule_applications))
-                    .route("/rule-applications/{id}", web::get().to(handlers::rules::get_rule_application))
+                    .configure(crate::handlers::rules::config)
 
-                    .route("/admin/branding/image", web::post().to(handlers::branding::upload_branding_image))
-                    .route("/admin/branding/image", web::delete().to(handlers::branding::delete_branding_image))
 
                     // Workflow states — read open to any authenticated user;
                     // admin writes (create, rename, recolor, reorder,
@@ -2089,127 +1965,48 @@ async fn main() -> std::io::Result<()> {
                     // pulls incremental changes from a sync_id cursor;
                     // push applies an array of optimistic transactions.
                     // Saved views (workspace / project / private)
-                    .route("/saved-views", web::get().to(handlers::saved_views::list))
-                    .route("/saved-views", web::post().to(handlers::saved_views::create))
-                    .route("/saved-views/{uuid}", web::get().to(handlers::saved_views::get_one))
-                    .route("/saved-views/{uuid}", web::patch().to(handlers::saved_views::patch))
-                    .route("/saved-views/{uuid}", web::delete().to(handlers::saved_views::delete))
+                    .configure(crate::handlers::saved_views::config)
 
                     // Cycles. Project-scoped list + create live under
                     // /projects/{id}/cycles; per-cycle ops use the
                     // cycle uuid for stable bookmarkable URLs.
-                    .route("/cycles", web::get().to(handlers::cycles::list_workspace))
-                    .route("/projects/{project_id}/cycles", web::get().to(handlers::cycles::list))
-                    .route("/projects/{project_id}/cycles", web::post().to(handlers::cycles::create))
-                    .route("/cycles/{uuid}", web::get().to(handlers::cycles::get_one))
-                    .route("/cycles/{uuid}", web::patch().to(handlers::cycles::patch))
-                    .route("/cycles/{uuid}", web::delete().to(handlers::cycles::archive))
-                    .route("/cycles/{uuid}/complete", web::post().to(handlers::cycles::complete))
-                    .route("/cycles/{uuid}/stats", web::get().to(handlers::cycles::stats))
-                    .route("/cycles/{uuid}/burnup", web::get().to(handlers::cycles::burnup))
-                    .route("/cycles/{uuid}/tickets", web::get().to(handlers::cycles::tickets))
-                    .route("/cycles/{uuid}/tickets/{ticket_id}", web::post().to(handlers::cycles::add_ticket))
-                    .route("/cycles/{uuid}/tickets/{ticket_id}", web::delete().to(handlers::cycles::remove_ticket))
+                    .configure(crate::handlers::cycles::config)
 
                     // SLA admin: policies + working calendars CRUD.
                     // Reads open to any authenticated user (the
                     // admin UI lists them); writes gate on admin
                     // inside the handler.
-                    .route("/admin/sla/policies", web::get().to(handlers::sla::list_policies))
-                    .route("/admin/sla/policies", web::post().to(handlers::sla::create_policy))
-                    // Static path must precede /{id} so "matches" isn't parsed as an id.
-                    .route("/admin/sla/policies/matches", web::get().to(handlers::sla::policy_match_counts))
-                    .route("/admin/sla/policies/{id}", web::patch().to(handlers::sla::update_policy))
-                    .route("/admin/sla/policies/{id}", web::delete().to(handlers::sla::delete_policy))
-                    .route("/admin/sla/calendars", web::get().to(handlers::sla::list_calendars))
-                    .route("/admin/sla/calendars", web::post().to(handlers::sla::create_calendar))
-                    .route("/admin/sla/calendars/{id}", web::patch().to(handlers::sla::update_calendar))
-                    .route("/admin/sla/calendars/{id}", web::delete().to(handlers::sla::delete_calendar))
-                    .route("/admin/sla/calendars/{id}/holidays", web::get().to(handlers::sla::list_holidays))
-                    .route("/admin/sla/calendars/{id}/holidays", web::post().to(handlers::sla::create_holiday))
-                    .route("/admin/sla/holidays/{id}", web::delete().to(handlers::sla::delete_holiday))
-                    .route("/tickets/{id}/sla/explain", web::get().to(handlers::sla::explain_for_ticket))
-                    .route("/sla/workspace-summary", web::get().to(handlers::sla::workspace_summary))
+                    .configure(crate::handlers::sla::config)
 
-                    .route("/sync/bootstrap", web::get().to(handlers::sync::bootstrap::bootstrap))
-                    .route("/sync/delta", web::get().to(handlers::sync::delta::delta))
-                    .route("/sync/push", web::post().to(handlers::sync::push::push))
-                    .route("/sync/schema", web::get().to(handlers::sync::schema::schema))
+                    .configure(handlers::sync::config)
 
-                    .route("/workflow-states", web::get().to(handlers::workflow_states::list))
-                    .route("/admin/workflow-states", web::post().to(handlers::workflow_states::create))
-                    .route("/admin/workflow-states/{id}", web::patch().to(handlers::workflow_states::patch))
-                    .route("/admin/workflow-states/{id}", web::delete().to(handlers::workflow_states::archive))
+                    .configure(crate::handlers::workflow_states::config)
 
                     // Asset-kind registry. Admin-only CRUD over the
                     // runtime discriminator table that drives
                     // `assets.kind` validation.
-                    .route("/admin/asset-kinds/{id}", web::get().to(handlers::asset_kinds::get))
-                    .route("/admin/asset-kinds", web::post().to(handlers::asset_kinds::create))
-                    // Usage stat. Sits at /usage suffix on a numeric
-                    // {id} path so the wildcard-vs-literal shadowing
-                    // hazard (see project_actix_route_shadowing memory)
-                    // doesn't apply: both segments are constrained
-                    // numerics, no literal-vs-wildcard ambiguity.
-                    .route("/admin/asset-kinds/{id}/usage", web::get().to(handlers::asset_kinds::usage))
-                    .route("/admin/asset-kinds/{id}", web::put().to(handlers::asset_kinds::update))
-                    .route("/admin/asset-kinds/{id}", web::delete().to(handlers::asset_kinds::delete))
+                    .configure(crate::handlers::asset_kinds::config)
 
                     // Bulk CSV import — admin-only. The template
                     // route is declared before /{id} so the literal
                     // "template" path segment doesn't get matched
                     // as a job-uuid by the catch-all.
-                    .route("/admin/import", web::post().to(handlers::imports::upload))
-                    .route("/admin/import/template/{type}", web::get().to(handlers::imports::template))
-                    .route("/admin/import/{id}/commit", web::post().to(handlers::imports::commit))
-                    .route("/admin/import/{id}", web::get().to(handlers::imports::get_job))
+                    .configure(crate::handlers::imports::config)
 
                     // Feature flags — staged rollout machinery (Phase 0 of the
                     // projects-v2 architecture). Read endpoint open to any
                     // authenticated user; write endpoints admin-only.
-                    .route("/feature-flags", web::get().to(handlers::feature_flags::get_my_flags))
-                    .route("/admin/feature-flags", web::patch().to(handlers::feature_flags::patch_workspace_flag))
-                    .route("/admin/feature-flags", web::put().to(handlers::feature_flags::put_workspace_flags))
-                    .route("/admin/feature-flags/users/{uuid}", web::patch().to(handlers::feature_flags::patch_user_override))
+                    .configure(crate::handlers::feature_flags::config)
 
                     // Backup and restore (admin only)
-                    .route("/admin/backup/export", web::post().to(handlers::backup::start_export))
-                    .route("/admin/backup/jobs", web::get().to(handlers::backup::get_jobs))
-                    .route("/admin/backup/jobs/{id}", web::get().to(handlers::backup::get_job))
-                    .route("/admin/backup/jobs/{id}", web::delete().to(handlers::backup::delete_job))
-                    .route("/admin/backup/download/{id}", web::get().to(handlers::backup::download_backup))
-                    .route("/admin/backup/restore/upload", web::post().to(handlers::backup::upload_restore))
-                    .route("/admin/backup/restore/{id}/preview", web::get().to(handlers::backup::preview_restore))
-                    .route("/admin/backup/restore/{id}/execute", web::post().to(handlers::backup::execute_restore))
+                    .configure(crate::handlers::backup::config)
 
-                    // Microsoft Graph API endpoints
-                    .route("/auth/microsoft/graph", web::post().to(handlers::process_graph_request))
-                    .service(
-                        web::scope("/msgraph")
-                            .route("/request", web::post().to(handlers::process_graph_request))
-                            .route("/users", web::get().to(handlers::get_graph_users))
-                            .route("/devices", web::get().to(handlers::get_graph_devices))
-                            .route("/groups", web::get().to(handlers::get_graph_groups))
-                            .route("/directory-objects", web::get().to(handlers::get_graph_directory_objects))
-                    )
-
-                    // Microsoft Graph Integration endpoints
-                    .service(
-                        web::scope("/integrations/graph")
-                            // Auth already handled by parent /api scope
-                            .route("/config", web::get().to(handlers::get_config_validation))
-                            .route("/status", web::get().to(handlers::get_connection_status))
-                            .route("/test", web::post().to(handlers::test_connection))
-                            .route("/sync", web::post().to(handlers::sync_data))
-                            .route("/progress/{session_id}", web::get().to(handlers::get_sync_progress_endpoint))
-                            .route("/active-syncs", web::get().to(handlers::get_active_syncs))
-                            .route("/last-sync", web::get().to(handlers::get_last_sync))
-                            .route("/cancel/{session_id}", web::post().to(handlers::cancel_sync_session))
-                            .route("/entra-object-id/{azure_ad_device_id}", web::get().to(handlers::get_entra_object_id))
-                    )
+                    // Microsoft Graph API + integration endpoints
+                    .configure(handlers::microsoft_graph::config)
+                    .configure(handlers::msgraph_integration::config)
 
                     // File upload endpoint
-                    .route("/upload", web::post().to(handlers::upload_files))
+                    .configure(crate::handlers::files::config)
 
                     // ===== SSE / SEARCH / NOTIFICATIONS / BUG REPORTS =====
                     .configure(handlers::sse::config)

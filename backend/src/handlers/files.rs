@@ -17,6 +17,10 @@ use crate::sync::session;
 use crate::utils::file_validation::FileValidator;
 use crate::utils::storage::{Storage, WorkspaceScopedStorage};
 
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route("/upload", web::post().to(crate::handlers::upload_files));
+}
+
 // Upload files using the storage abstraction
 pub async fn upload_files(
     mut payload: Multipart,
