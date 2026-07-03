@@ -12,6 +12,7 @@ use std::env;
 use tracing::{error, info, warn};
 
 /// Parsed, validated startup configuration.
+#[derive(Clone)]
 pub struct Config {
     /// Raw `ENVIRONMENT` value ("development" by default).
     pub environment: String,
