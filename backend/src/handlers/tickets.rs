@@ -1582,31 +1582,38 @@ pub async fn bulk_tickets(
                 return errors::forbidden("Forbidden: Only administrators can delete tickets");
             }
 
-            let mut deleted = 0;
-            for id in ids {
-                match tc.run(|conn| repository::delete_ticket_with_cleanup(conn, *id)) {
-                    Ok(result) => {
-                        deleted += result.rows_affected;
-                        if result.rows_affected > 0 {
-                            repository::tickets::spawn_delete_cleanup(
-                                result,
-                                *id,
-                                storage.get(),
-                                Some(search_service.get_ref()),
-                            );
-                            // Remove from search index
-                            indexing_tasks::spawn_delete_ticket(
-                                search_service.get_ref().clone(),
-                                *id,
-                            );
-                            // Deletion reaches clients via the sync pool
-                            // (`ticket.deleted`); no discrete SSE.
+            // One connection/transaction for the whole batch (was a pool
+            // checkout per id). Each id runs in its own savepoint so a failure
+            // rolls back only that ticket, keeping the best-effort semantics.
+            // Storage + search-index cleanup happens after commit, only for the
+            // deletes that actually landed.
+            let cleanup = tc
+                .run(|conn| {
+                    let mut out = Vec::new();
+                    for id in ids {
+                        match conn
+                            .transaction(|conn| repository::delete_ticket_with_cleanup(conn, *id))
+                        {
+                            Ok(result) if result.rows_affected > 0 => out.push((*id, result)),
+                            Ok(_) => {}
+                            Err(e) => error!(ticket_id = id, error = ?e, "Failed to delete ticket"),
                         }
                     }
-                    Err(e) => {
-                        error!(ticket_id = id, error = ?e, "Failed to delete ticket");
-                    }
-                }
+                    Ok(out)
+                })
+                .unwrap_or_default();
+
+            let deleted: usize = cleanup.iter().map(|(_, r)| r.rows_affected).sum();
+            for (id, result) in cleanup {
+                repository::tickets::spawn_delete_cleanup(
+                    result,
+                    id,
+                    storage.get(),
+                    Some(search_service.get_ref()),
+                );
+                // Remove from search index. Deletion reaches clients via the
+                // sync pool (`ticket.deleted`); no discrete SSE.
+                indexing_tasks::spawn_delete_ticket(search_service.get_ref().clone(), id);
             }
 
             HttpResponse::Ok().json(json!({ "affected": deleted }))
@@ -1627,30 +1634,35 @@ pub async fn bulk_tickets(
                 _ => return errors::bad_request("Bad Request: Invalid priority value"),
             };
 
-            let mut updated = 0;
-            for id in ids {
-                let update = TicketUpdate {
-                    priority: Some(priority),
-                    updated_at: Some(chrono::Utc::now().naive_utc()),
-                    ..Default::default()
-                };
-
-                if tc
-                    .run(|conn| {
-                        repository::update_ticket_partial(
-                            conn,
-                            *id,
-                            update,
-                            Some(search_service.get_ref()),
-                        )
-                    })
-                    .is_ok()
-                {
-                    updated += 1;
-                    // update_ticket_partial emits ticket.priority_changed;
-                    // the pool delivers it. No discrete SSE.
-                }
-            }
+            // One connection/transaction for the batch, each id in its own
+            // savepoint. update_ticket_partial emits ticket.priority_changed;
+            // the pool delivers it. No discrete SSE.
+            let updated = tc
+                .run(|conn| {
+                    let mut n = 0;
+                    for id in ids {
+                        let update = TicketUpdate {
+                            priority: Some(priority),
+                            updated_at: Some(chrono::Utc::now().naive_utc()),
+                            ..Default::default()
+                        };
+                        if conn
+                            .transaction(|conn| {
+                                repository::update_ticket_partial(
+                                    conn,
+                                    *id,
+                                    update,
+                                    Some(search_service.get_ref()),
+                                )
+                            })
+                            .is_ok()
+                        {
+                            n += 1;
+                        }
+                    }
+                    Ok(n)
+                })
+                .unwrap_or(0);
 
             HttpResponse::Ok().json(json!({ "affected": updated }))
         }
@@ -1670,30 +1682,35 @@ pub async fn bulk_tickets(
                 }
             };
 
-            let mut updated = 0;
-            for id in ids {
-                let update = TicketUpdate {
-                    assignee_uuid: Some(assignee_uuid),
-                    updated_at: Some(chrono::Utc::now().naive_utc()),
-                    ..Default::default()
-                };
-
-                if tc
-                    .run(|conn| {
-                        repository::update_ticket_partial(
-                            conn,
-                            *id,
-                            update,
-                            Some(search_service.get_ref()),
-                        )
-                    })
-                    .is_ok()
-                {
-                    updated += 1;
-                    // update_ticket_partial emits ticket.assignee_changed;
-                    // the pool delivers it. No discrete SSE.
-                }
-            }
+            // One connection/transaction for the batch, each id in its own
+            // savepoint. update_ticket_partial emits ticket.assignee_changed;
+            // the pool delivers it. No discrete SSE.
+            let updated = tc
+                .run(|conn| {
+                    let mut n = 0;
+                    for id in ids {
+                        let update = TicketUpdate {
+                            assignee_uuid: Some(assignee_uuid),
+                            updated_at: Some(chrono::Utc::now().naive_utc()),
+                            ..Default::default()
+                        };
+                        if conn
+                            .transaction(|conn| {
+                                repository::update_ticket_partial(
+                                    conn,
+                                    *id,
+                                    update,
+                                    Some(search_service.get_ref()),
+                                )
+                            })
+                            .is_ok()
+                        {
+                            n += 1;
+                        }
+                    }
+                    Ok(n)
+                })
+                .unwrap_or(0);
 
             HttpResponse::Ok().json(json!({ "affected": updated }))
         }
