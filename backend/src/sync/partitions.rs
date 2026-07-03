@@ -432,8 +432,18 @@ fn check_default_partition_drift(conn: &mut DbConnection, table: &str) {
     // The default partition may not exist yet on databases that pre-date the
     // 2026-05-11-200000_default_partitions migration; treat ProgrammingError
     // (relation does not exist) as zero rows rather than logging spuriously.
+    //
+    // Run the probe in its own savepoint: a failed statement (missing table, or
+    // a transient error while a concurrent session provisions partitions) marks
+    // the *whole* enclosing transaction aborted in Postgres, even though we
+    // swallow the Rust error. Autocommit callers wouldn't notice, but a caller
+    // that runs `ensure_partitions` inside a transaction (e.g. the tests) would
+    // see every subsequent statement fail. The savepoint contains the failure.
     let q = format!("SELECT COUNT(*) AS count FROM {}", table);
-    match diesel::sql_query(q).get_result::<CountRow>(conn) {
+    let probe = conn.transaction::<CountRow, diesel::result::Error, _>(|conn| {
+        diesel::sql_query(q).get_result::<CountRow>(conn)
+    });
+    match probe {
         Ok(row) if row.count > 0 => {
             warn!(
                 table = table,
@@ -478,8 +488,20 @@ pub fn read_watermark(conn: &mut DbConnection) -> Option<NaiveDate> {
 mod tests {
     use super::*;
     use crate::test_helpers::setup_test_connection;
+    use std::sync::{Mutex, MutexGuard};
 
-    /// A connection for exercising partition provisioning DDL.
+    /// Serialises the DB-backed partition tests. They ATTACH partitions on the
+    /// shared `sync_actions` / `audit_log` parents, and the ATTACH's
+    /// `SHARE UPDATE EXCLUSIVE` lock is held for the whole *uncommitted* test
+    /// transaction, so running them concurrently deadlocks on the parents.
+    /// Production provisions each partition in autocommit, releasing the lock
+    /// immediately, so this is a test-only artifact. Equivalent to
+    /// `--test-threads=1` for just these tests.
+    static PARTITION_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    /// A serialised, privileged connection for the partition tests. Holds the
+    /// [`PARTITION_TEST_LOCK`] guard for the connection's lifetime (returned in
+    /// the tuple so it drops after the connection).
     ///
     /// `setup_test_connection` drops to the RLS-scoped `nosdesk_app` role,
     /// which (like production's runtime role) can't `CREATE`/`ATTACH`
@@ -488,17 +510,22 @@ mod tests {
     /// role, so these tests `RESET ROLE` back to the superuser login role to
     /// match. Without it they'd only pass while the migration's fixed seed
     /// months still cover `now() + lookahead`, a calendar-dependent green.
-    fn provisioning_conn() -> DbConnection {
+    fn provisioning_conn() -> (MutexGuard<'static, ()>, DbConnection) {
+        // A panicking test leaves the guard's (unit) data intact, so recover
+        // from a poisoned lock rather than cascading the failure.
+        let guard = PARTITION_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut conn = setup_test_connection();
         diesel::sql_query("RESET ROLE")
             .execute(&mut conn)
             .expect("reset to privileged role for partition DDL");
-        conn
+        (guard, conn)
     }
 
     #[test]
     fn ensure_partitions_is_idempotent() {
-        let mut conn = provisioning_conn();
+        let (_guard, mut conn) = provisioning_conn();
         // Already-provisioned months from the substrate migration
         // (May–Aug 2026) should not produce errors on a re-run.
         let touched = ensure_partitions(&mut conn, 60).expect("first run");
@@ -512,7 +539,7 @@ mod tests {
 
     #[test]
     fn watermark_round_trips() {
-        let mut conn = provisioning_conn();
+        let (_guard, mut conn) = provisioning_conn();
         let _ = ensure_partitions(&mut conn, 30).expect("ensure");
         let watermark = read_watermark(&mut conn);
         assert!(
@@ -527,7 +554,7 @@ mod tests {
     /// in the LIKE + ATTACH sequence.
     #[test]
     fn ensured_partitions_are_attached_to_parent() {
-        let mut conn = provisioning_conn();
+        let (_guard, mut conn) = provisioning_conn();
         let _ = ensure_partitions(&mut conn, 30).expect("ensure");
         // Whatever month the test runs in, both parents must have
         // an attached partition for it.
@@ -580,7 +607,7 @@ mod tests {
             n: i64,
         }
 
-        let mut conn = provisioning_conn();
+        let (_guard, mut conn) = provisioning_conn();
         let _ = ensure_partitions(&mut conn, 30).expect("ensure");
         let rows: Vec<Count> = diesel::sql_query(
             "SELECT count(*) AS n FROM pg_constraint \
@@ -630,7 +657,7 @@ mod tests {
     /// rely on Postgres' own well-tested DETACH semantics for the rest.
     #[test]
     fn partitions_eligible_for_drop_finds_old_ranges_and_skips_default() {
-        let mut conn = setup_test_connection();
+        let (_guard, mut conn) = provisioning_conn();
         let _ = ensure_partitions(&mut conn, 30).expect("ensure");
         let cutoff = Utc::now().date_naive() + chrono::Duration::days(36500);
 
@@ -650,7 +677,7 @@ mod tests {
     /// A cutoff in the past matches no partition; the eligible list is empty.
     #[test]
     fn partitions_eligible_for_drop_empty_when_cutoff_is_in_distant_past() {
-        let mut conn = setup_test_connection();
+        let (_guard, mut conn) = provisioning_conn();
         let _ = ensure_partitions(&mut conn, 30).expect("ensure");
         let cutoff = NaiveDate::from_ymd_opt(1970, 1, 1).unwrap();
 
