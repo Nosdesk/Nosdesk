@@ -387,11 +387,15 @@ function sizeKeyToSpan(key: string): WidgetSpan | null {
          the row-cascade shift on initial load. -->
     <div
       :class="[
-        'flex-1 min-h-0 flex flex-col',
+        'flex-1 min-h-0 flex flex-col overflow-y-auto',
+        // minBodyHeight is a desktop load-shift guard (keeps skeleton + sparse
+        // states the same height on the fixed grid). It's xl-only so the 1-col
+        // mobile layout collapses empty/sparse widgets to their content instead.
+        minBodyHeight ? 'xl:min-h-[var(--dash-min-body)]' : '',
         densityPadding,
         dragging ? 'opacity-40 pointer-events-none' : '',
       ]"
-      :style="minBodyHeight ? { minHeight: minBodyHeight } : undefined"
+      :style="minBodyHeight ? { '--dash-min-body': minBodyHeight } : undefined"
     >
       <!--
         State machine for the body: skeleton → (error | empty | data).

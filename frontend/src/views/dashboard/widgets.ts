@@ -503,15 +503,31 @@ export function effectiveSpanFor(entry: { id: string; span?: WidgetSpan }): Widg
   return entry.span ?? widgetById(entry.id)?.span ?? 1
 }
 
-/** Tailwind class for a widget's row span on the fixed-unit lattice. */
-export function rowSpanClass(span: WidgetSpan): string {
+/** Tailwind class for a widget's row span on the fixed-unit lattice.
+ *
+ * In `editMode` the span applies at every breakpoint, because the drag
+ * projection reads the fixed row unit and the lattice must hold on mobile too.
+ * In view mode the span is `xl`-only, so the 1-column mobile layout drops the
+ * fixed height and flows at content height (capped by a max-height on the
+ * frame) instead of a tall fixed footprint an empty widget can't fill. */
+export function rowSpanClass(span: WidgetSpan, editMode: boolean): string {
+  if (editMode) {
+    switch (span) {
+      case 1:
+        return 'row-span-1'
+      case 2:
+        return 'row-span-2'
+      case 3:
+        return 'row-span-3'
+    }
+  }
   switch (span) {
     case 1:
-      return 'row-span-1'
+      return 'xl:row-span-1'
     case 2:
-      return 'row-span-2'
+      return 'xl:row-span-2'
     case 3:
-      return 'row-span-3'
+      return 'xl:row-span-3'
   }
 }
 

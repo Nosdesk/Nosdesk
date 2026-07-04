@@ -176,6 +176,31 @@ function styleFor(originalIndex: number) {
   return undefined
 }
 
+// The lattice row unit, shared by the grid track (`--dash-row-unit`) and the
+// mobile max-height cap so the two never drift.
+const DASH_ROW_UNIT_REM = 8.5
+
+// Auto-rows behaviour. In edit mode the fixed lattice holds at every breakpoint
+// so the drag projection (which reads the fixed row unit) stays exact. In view
+// mode the 1-column mobile layout uses `auto` rows, so widgets size to their
+// content instead of a fixed span; xl keeps the lattice.
+const gridAutoRows = computed(() =>
+  store.editMode
+    ? '[grid-auto-rows:var(--dash-row-unit)]'
+    : '[grid-auto-rows:auto] xl:[grid-auto-rows:var(--dash-row-unit)]',
+)
+
+// Per-widget inline style: the drag transform (when dragging) plus, in view
+// mode, the mobile max-height cap (rowSpan × row unit). `max-h-[var(--dash-max-h)]`
+// on the frame reads this; it's `xl:max-h-none` so desktop keeps the fixed span.
+function widgetStyle(entry: LayoutEntry, originalIndex: number) {
+  const styles: Array<Record<string, string> | undefined> = [styleFor(originalIndex)]
+  if (!store.editMode) {
+    styles.push({ '--dash-max-h': `${rowSpanOf(entry) * DASH_ROW_UNIT_REM}rem` })
+  }
+  return styles
+}
+
 // -- Corner resize -----------------------------------------------------
 //
 // The grip on each widget (WidgetFrame) drives a live re-pack: as the
@@ -281,7 +306,8 @@ onBeforeUnmount(endResize)
   <div
     ref="gridEl"
     :class="[
-      'grid grid-cols-1 xl:grid-cols-3 [grid-auto-flow:row_dense] [grid-auto-rows:var(--dash-row-unit)] transition-[gap] duration-150',
+      'grid grid-cols-1 xl:grid-cols-3 [grid-auto-flow:row_dense] transition-[gap] duration-150',
+      gridAutoRows,
       gridGap,
       store.editMode && 'select-none',
       dragState.isDragging && 'cursor-grabbing',
@@ -302,10 +328,11 @@ onBeforeUnmount(endResize)
       :frame-title-key="widgetById(entry.id)?.titleKey"
       :class="[
         spanClass(colSpanOf(entry)),
-        rowSpanClass(rowSpanOf(entry)),
+        rowSpanClass(rowSpanOf(entry), store.editMode),
+        !store.editMode && 'max-h-[var(--dash-max-h)] xl:max-h-none',
         'widget-projected',
       ]"
-      :style="styleFor(originalIndex)"
+      :style="widgetStyle(entry, originalIndex)"
       @hide="store.hide(entry.id)"
       @resize="(span) => store.setSpan(entry.id, span)"
       @handle-pointerdown="(e) => handlePointerDown(originalIndex, e)"
