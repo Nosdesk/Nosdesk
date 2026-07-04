@@ -13,16 +13,21 @@
 //! the cross-table reads see the workspace's rows and the global `workspaces`
 //! row.
 //!
+//! Uploaded files are bundled from the workspace's local `ws/{id}/` prefix under
+//! `files/`, mirroring the whole-DB backup's local-filesystem walk (S3-backed
+//! storage isn't walked, a pre-existing limitation of that path too).
+//!
 //! Excluded: the partitioned `audit_log` + `sync_actions` (audit trail + sync
 //! stream — high-churn, not core tenant data, and partitioned parents that
-//! complicate a scoped dump). Uploaded files (blobs) are a follow-up increment.
+//! complicate a scoped dump).
 //!
 //! Password policy mirrors the whole-DB backup: a password seals the archive
 //! (AES-256-GCM) and keeps sensitive auth fields; no password yields a plaintext
 //! zip with `SENSITIVE_FIELDS` stripped.
 
 use std::collections::HashMap;
-use std::io::Write;
+use std::fs::File;
+use std::io::{Cursor, Read, Write};
 
 use chrono::Utc;
 use diesel::deserialize::QueryableByName;
@@ -30,13 +35,53 @@ use diesel::prelude::*;
 use diesel::sql_query;
 use diesel::sql_types::{Integer, Text};
 use serde::{Deserialize, Serialize};
+use walkdir::WalkDir;
 use zip::write::FileOptions;
 use zip::ZipWriter;
 
 use crate::db::DbConnection;
 use crate::services::backup::{
-    seal_inner_zip, sha256_hex, table_exists_in_db, BackupError, SENSITIVE_FIELDS,
+    get_uploads_dir, seal_inner_zip, sha256_hex, table_exists_in_db, BackupError, SENSITIVE_FIELDS,
 };
+
+/// Shared zip entry options (Deflated, 0644), matching the whole-DB backup.
+fn zip_options() -> FileOptions {
+    FileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated)
+        .unix_permissions(0o644)
+}
+
+/// Walk the workspace's local uploaded files (`{uploads}/ws/{id}/`) into the zip
+/// under `files/{path-relative-to-uploads}`, returning the count + total bytes.
+/// A missing directory (workspace has no files) yields an empty manifest.
+fn bundle_workspace_files(
+    zip: &mut ZipWriter<Cursor<Vec<u8>>>,
+    uploads_dir: &std::path::Path,
+    workspace_id: i32,
+) -> Result<WorkspaceFilesManifest, BackupError> {
+    let ws_dir = uploads_dir.join("ws").join(workspace_id.to_string());
+    let mut manifest = WorkspaceFilesManifest::default();
+    if !ws_dir.exists() {
+        return Ok(manifest);
+    }
+    for entry in WalkDir::new(&ws_dir).into_iter().filter_map(|e| e.ok()) {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let file_path = entry.path();
+        let relative = file_path
+            .strip_prefix(uploads_dir)
+            .map_err(|e| BackupError::IoError(std::io::Error::other(e.to_string())))?;
+        zip.start_file(format!("files/{}", relative.display()), zip_options())?;
+        let mut f = File::open(file_path)?;
+        let mut buf = Vec::new();
+        let size = f.read_to_end(&mut buf)?;
+        zip.write_all(&buf)?;
+        manifest.total_count += 1;
+        manifest.total_size_bytes += size as i64;
+    }
+    Ok(manifest)
+}
 
 /// Manifest schema version for the workspace export. Distinct from the
 /// crypto-envelope version `seal_inner_zip` stamps (that's the wire/crypto
@@ -68,12 +113,20 @@ pub struct WorkspaceExportManifest {
     /// Per-table row count + sha256 of the JSON payload. Includes the scoped
     /// tenant tables plus `workspaces` (one row) and `users` (members).
     pub tables: HashMap<String, WorkspaceTableManifest>,
+    /// Uploaded files bundled under `files/` (the workspace's `ws/{id}/` prefix).
+    pub files: WorkspaceFilesManifest,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WorkspaceTableManifest {
     pub count: i64,
     pub sha256: String,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct WorkspaceFilesManifest {
+    pub total_count: i64,
+    pub total_size_bytes: i64,
 }
 
 #[derive(QueryableByName)]
@@ -304,6 +357,13 @@ fn build_workspace_inner_zip(
     )?;
     write_table(&mut zip, "users", &users_json, users_count)?;
 
+    // Uploaded files: everything physically under the workspace's `ws/{id}/`
+    // prefix in the local uploads dir, archived under `files/{path-from-uploads}`
+    // so the import can restore it verbatim. This mirrors the whole-DB backup's
+    // local-filesystem walk; S3-backed storage is not walked here (a pre-existing
+    // limitation of the backup path too, tracked separately).
+    let files = bundle_workspace_files(&mut zip, &get_uploads_dir(), workspace_id)?;
+
     let manifest = WorkspaceExportManifest {
         workspace_export_format_version: WORKSPACE_EXPORT_FORMAT_VERSION,
         nosdesk_version: env!("CARGO_PKG_VERSION").to_string(),
@@ -314,6 +374,7 @@ fn build_workspace_inner_zip(
         workspace_uuid: meta.uuid.clone(),
         member_user_uuids: meta.member_user_uuids.clone(),
         tables: table_manifests,
+        files,
     };
     let manifest_json = serde_json::to_string_pretty(&manifest)?;
     zip.start_file("manifest.json", options)?;
@@ -426,6 +487,13 @@ mod tests {
             archive.by_name("data/workspaces.json").is_ok(),
             "per-table data entry written"
         );
+        // Files section is present. The test DB has no uploaded files on disk
+        // (no `{uploads}/ws/{id}/`), so the walk's empty-directory path yields an
+        // empty manifest rather than erroring.
+        assert_eq!(
+            manifest.files.total_count, 0,
+            "no uploaded files for the test workspace"
+        );
 
         // A password seals the archive with the NODB envelope.
         let sealed = with_actor_bypass_context(&mut conn, &actor, |c| {
@@ -433,5 +501,40 @@ mod tests {
         })
         .expect("sealed export succeeds");
         assert_eq!(&sealed[0..4], b"NODB", "password export is sealed");
+    }
+
+    #[test]
+    fn bundles_only_the_workspaces_own_files() {
+        use std::fs;
+
+        let root =
+            std::env::temp_dir().join(format!("nosdesk-wsexport-files-{}", std::process::id()));
+        let ws_id = 7;
+        let ws_dir = root.join("ws").join(ws_id.to_string()).join("sub");
+        fs::create_dir_all(&ws_dir).unwrap();
+        fs::write(ws_dir.join("foo.txt"), b"hello").unwrap();
+        // A different workspace's file must not leak into this export.
+        let other = root.join("ws").join("999");
+        fs::create_dir_all(&other).unwrap();
+        fs::write(other.join("bar.txt"), b"nope").unwrap();
+
+        let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
+        let manifest = bundle_workspace_files(&mut zip, &root, ws_id).expect("bundle");
+        let bytes = zip.finish().unwrap().into_inner();
+
+        assert_eq!(manifest.total_count, 1, "exactly one file for workspace 7");
+        assert_eq!(manifest.total_size_bytes, 5, "byte count of foo.txt");
+
+        let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+        assert!(
+            archive.by_name("files/ws/7/sub/foo.txt").is_ok(),
+            "workspace file bundled at its uploads-relative path"
+        );
+        assert!(
+            archive.by_name("files/ws/999/bar.txt").is_err(),
+            "another workspace's file is excluded"
+        );
+
+        let _ = fs::remove_dir_all(&root);
     }
 }
