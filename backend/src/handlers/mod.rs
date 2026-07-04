@@ -78,6 +78,7 @@ pub mod users;
 pub mod webhooks;
 pub mod workflow_states;
 pub mod workspace_email;
+pub mod workspace_export;
 pub mod workspace_members;
 
 // Import all handlers from modules

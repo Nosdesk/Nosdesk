@@ -57,7 +57,7 @@ const SERVER_SCHEMA_HASH: &str = env!("NOSDESK_SCHEMA_HASH");
 /// to recover credentials. Encrypted backups include them
 /// normally — the whole archive is sealed by AES-GCM, so a
 /// sidecar would just add complexity for no gain.
-const SENSITIVE_FIELDS: &[(&str, &[&str])] = &[
+pub(crate) const SENSITIVE_FIELDS: &[(&str, &[&str])] = &[
     ("users", &["mfa_secret"]),
     ("user_recovery_codes", &["code_hash"]),
     ("user_auth_identities", &["password_hash", "metadata"]),
@@ -177,7 +177,10 @@ fn partition_children(
 /// poisoned backup file (or a future caller bug) can't trick
 /// the writer into interpolating an arbitrary identifier into
 /// SQL.
-fn table_exists_in_db(conn: &mut DbConnection, table_name: &str) -> Result<bool, BackupError> {
+pub(crate) fn table_exists_in_db(
+    conn: &mut DbConnection,
+    table_name: &str,
+) -> Result<bool, BackupError> {
     use diesel::deserialize::QueryableByName;
     use diesel::prelude::*;
     use diesel::sql_query;
@@ -294,7 +297,7 @@ fn encrypt_data(data: &[u8], key: &[u8; 32]) -> Result<(Vec<u8>, [u8; NONCE_LEN]
 /// by design so the reader can recognise the file before having
 /// the password; everything that could leak schema info or row
 /// counts lives inside the ciphertext.
-fn seal_inner_zip(inner_zip: &[u8], password: &str) -> Result<Vec<u8>, BackupError> {
+pub(crate) fn seal_inner_zip(inner_zip: &[u8], password: &str) -> Result<Vec<u8>, BackupError> {
     let rng = SystemRandom::new();
     let mut salt = [0u8; SALT_LENGTH];
     rng.fill(&mut salt)
@@ -486,7 +489,7 @@ fn export_table_data(
 }
 
 /// Get the uploads directory path
-fn get_uploads_dir() -> PathBuf {
+pub(crate) fn get_uploads_dir() -> PathBuf {
     std::env::var("UPLOAD_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("/app/uploads"))
@@ -502,7 +505,7 @@ fn get_backups_dir() -> PathBuf {
 
 /// SHA-256 of arbitrary bytes, returned as lowercase hex. Used
 /// for per-table integrity hashes in the backup manifest.
-fn sha256_hex(bytes: &[u8]) -> String {
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
     use ring::digest::{digest, SHA256};
     hex::encode(digest(&SHA256, bytes).as_ref())
 }

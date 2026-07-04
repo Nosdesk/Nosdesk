@@ -796,6 +796,7 @@ pub fn configure_app(
                     // archive / restore / hard-delete. Hard-delete
                     // requires ?confirm=<slug> matching the row.
                     .configure(crate::handlers::admin_workspaces::config)
+                    .configure(crate::handlers::workspace_export::config)
 
                     // Guest access controls (admin only)
                     .configure(crate::handlers::guest_settings::config)
