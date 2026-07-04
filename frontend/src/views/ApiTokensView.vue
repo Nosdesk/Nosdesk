@@ -565,8 +565,8 @@ const revokeToken = async () => {
       @close="showTokenCreated = false"
     >
       <div class="flex flex-col gap-4">
-        <div class="flex items-center gap-2 p-3 bg-status-warning/10 border border-status-warning/20 rounded-lg">
-          <Icon name="warning" size="md" class="text-status-warning flex-shrink-0" />
+        <div class="flex items-start gap-2 p-3 bg-status-warning/10 border border-status-warning/20 rounded-lg">
+          <Icon name="warning" size="md" class="text-status-warning flex-shrink-0 mt-0.5" />
           <p class="text-sm text-status-warning">{{ $t('admin-api-tokens-created-warning') }}</p>
         </div>
 

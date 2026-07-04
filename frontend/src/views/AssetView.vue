@@ -893,9 +893,9 @@ useSyncActions(
                     <h3 class="text-xs font-medium text-tertiary">{{ $t('asset-detail-section-stock') }}</h3>
                     <div
                       v-if="isLowStock"
-                      class="flex items-center gap-2 px-3 py-2 bg-status-warning/10 text-status-warning rounded-lg text-sm"
+                      class="flex items-start gap-2 px-3 py-2 bg-status-warning/10 text-status-warning rounded-lg text-sm"
                     >
-                      <Icon name="warning" />
+                      <Icon name="warning" class="flex-shrink-0 mt-0.5" />
                       <span>{{ $t('asset-detail-low-stock-warning', { quantity: device.quantity ?? '', unit: device.unit ?? '', threshold: device.low_stock_threshold ?? '' }) }}</span>
                     </div>
                     <div class="grid grid-cols-2 gap-2">

@@ -519,10 +519,10 @@ const handleOidcLogoutClick = async () => {
         <!-- Error Message -->
         <div
           v-if="errorMessage"
-          class="bg-status-error/10 border border-status-error/50 text-status-error px-4 py-3 rounded-lg text-sm flex items-center gap-2"
+          class="bg-status-error/10 border border-status-error/50 text-status-error px-4 py-3 rounded-lg text-sm flex items-start gap-2"
         >
-          <Icon name="warning" class="text-status-error flex-shrink-0" />
-          {{ errorMessage }}
+          <Icon name="warning" class="text-status-error flex-shrink-0 mt-0.5" />
+          <span>{{ errorMessage }}</span>
         </div>
 
         <form @submit.prevent="handleMfaLogin" class="flex flex-col gap-6">
