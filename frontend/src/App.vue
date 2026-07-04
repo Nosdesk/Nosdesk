@@ -22,6 +22,7 @@ import { useSnowfall } from '@/composables/useSnowfall'
 import { useFavicon } from '@/composables/useFavicon'
 import { useNotificationSSE } from '@/composables/useNotificationSSE'
 import { useTicketDeletionCleanup } from '@/composables/useTicketDeletionCleanup'
+import { useSwipeBack } from '@/composables/useSwipeBack'
 import { setMentionNavigationHandler } from '@/plugins/prosemirror-mention-view'
 import authService from '@nosdesk/core/services/authService'
 import { useBrandingStore } from '@/stores/branding'
@@ -80,6 +81,7 @@ const titleManager = useTitleManager();
 const { isActive: isMobileSearchActive } = useMobileSearch();
 
 // Theme-specific visual effects
+useSwipeBack();        // iOS/Android left-edge swipe-to-go-back (mobile only)
 useCursorScanlines();  // Red-horizon: Crosshair lines following cursor
 useCrtEffect();        // Red-horizon: Full-screen CRT monitor effect
 useSnowfall();         // Christmas: Ambient falling snow

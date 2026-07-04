@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { RouterLink } from "vue-router";
+import { RouterLink, useRoute } from "vue-router";
+import { useBackNavigation } from '@/router/navigation';
 import { useFluent } from 'fluent-vue';
 import type { FluentVariable } from '@fluent/bundle';
 import UserAvatar from "./UserAvatar.vue";
@@ -19,6 +20,17 @@ const t = (k: string, args?: Record<string, FluentVariable>) => fluent.$t(k, arg
 
 // Detect mobile for responsive component sizing
 const { isMobile } = useMobileDetection('sm')
+
+// Leading back-arrow: the primary back affordance on mobile (the header is the
+// nav bar there). Shown on non-root views only — a real in-app previous view, or
+// a declared hierarchical parent so cold-start deep links still get a back
+// affordance. On desktop the inline BackButton (in each view's toolbar) is used
+// instead, so this stays mobile-only to avoid two back controls per screen.
+const route = useRoute();
+const { canGoBack, goBack } = useBackNavigation();
+const showBackArrow = computed(
+  () => isMobile.value && (canGoBack.value || !!route.meta.parent),
+);
 
 const authStore = useAuthStore();
 
@@ -191,6 +203,17 @@ const handleCreateClick = () => {
          single-line ellipsis. py-2 keeps the title from touching
          the top/bottom edge once wrapped. -->
     <div class="flex items-center justify-between min-h-14 sm:min-h-16 px-3 sm:px-4 md:px-6 py-2 gap-2">
+      <!-- Mobile leading back-arrow (non-root views). goBack() pops the in-app
+           stack when possible, else navigates to the hierarchical parent. -->
+      <button
+        v-if="showBackArrow"
+        type="button"
+        aria-label="Go back"
+        class="flex-shrink-0 -ml-1 p-1.5 text-secondary hover:text-primary rounded"
+        @click="goBack()"
+      >
+        <Icon name="chevronLeft" size="md" />
+      </button>
       <!-- Left side - Title area -->
       <div class="flex items-center flex-1 min-w-0">
         <template v-if="isTicketView && props.ticket">

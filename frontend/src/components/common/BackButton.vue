@@ -1,51 +1,27 @@
 <script setup lang="ts">
-import { ref } from 'vue';
-import { useRouter } from 'vue-router';
 import Icon from '@/components/common/Icon.vue';
+import { useBackNavigation } from '@/router/navigation';
+import { useMobileDetection } from '@/composables/useMobileDetection';
 
 const props = defineProps<{
-  // Default fallback route if no previous route exists
+  // Explicit fallback target used only when there is no in-app history (deep
+  // link / cold start). Overrides the route's meta.parent / derived parent.
   fallbackRoute?: string;
   // Custom label for the button (defaults to "Go back")
   label?: string;
-  // Optional context for the back button (e.g., 'project', 'ticket')
-  context?: string;
-  // Optional ID for context-based navigation (e.g., projectId)
-  contextId?: number | string;
   // Compact mode - smaller text, tighter spacing
   compact?: boolean;
 }>();
 
-const router = useRouter();
-const canGoBack = ref(window.history.length > 1);
+// One intelligent back action: pop the in-app stack when there is a real
+// previous view, else navigate to the hierarchical parent. Replaces the old
+// `window.history.length > 1` heuristic (which misfired on deep-link/cold-start).
+const { goBack } = useBackNavigation();
+const handleBack = () => goBack(props.fallbackRoute);
 
-const handleBack = () => {
-  // Use context information for smarter navigation when available
-  if (props.context && props.contextId) {
-    switch (props.context) {
-      case 'project':
-        // Navigate to the specific project
-        router.push(`/projects/${props.contextId}`);
-        return;
-      case 'ticket':
-        // Navigate to the specific ticket
-        router.push(`/tickets/${props.contextId}`);
-        return;
-      // Add more context-specific cases as needed
-    }
-  }
-  
-  // Check if browser history navigation is available
-  if (canGoBack.value) {
-    router.back();
-  } else if (props.fallbackRoute) {
-    // Use the provided fallback route
-    router.push(props.fallbackRoute);
-  } else {
-    // Default fallback to home if no fallback route is provided
-    router.push('/');
-  }
-};
+// Desktop only: on mobile the leading back-arrow in SiteHeader is the single
+// back affordance, so this inline button hides to avoid two controls per screen.
+const { isMobile } = useMobileDetection('sm');
 </script>
 
 <template>
@@ -58,6 +34,7 @@ const handleBack = () => {
     children, which is how flexbox is meant to be used.
   -->
   <button
+    v-if="!isMobile"
     @click="handleBack"
     class="text-secondary hover:text-primary inline-flex items-center gap-1 group px-1 rounded"
     :class="compact ? 'h-6 text-xs' : 'h-8 text-sm'"

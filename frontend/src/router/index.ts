@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, type RouteLocationNormalized } from 'vue-router'
 import { withWorkspaceRouting, installWorkspaceGuard, workspaceSlugOf } from './workspaceRouting'
+import { installNavigationTracking } from './navigation'
 import { getWorkspaceRouting } from '@nosdesk/core/services/instanceConfig'
 import { lastWorkspaceSlug } from '@/services/activeWorkspace'
 import DashboardView from '../views/DashboardView.vue'
@@ -52,6 +53,10 @@ declare module 'vue-router' {
     createButtonTextKey?: string;
     createButtonIcon?: 'plus' | 'ticket' | 'user' | 'device' | 'project' | 'document';
     preloadedDocument?: unknown;
+    /** Hierarchical parent for back navigation when there is no in-app history
+     * (deep link / cold start): a slug-free path, or a function of the route for
+     * dynamic parents. See `resolveBackTarget` in ./navigation. */
+    parent?: string | ((route: RouteLocationNormalized) => string);
   }
 }
 
@@ -204,6 +209,7 @@ const router = createRouter({
       meta: {
         requiresAuth: true,
         titleKey: 'route-title-ticket-view',
+        parent: '/tickets',
         createButtonTextKey: 'header-create-ticket',
         createButtonIcon: 'ticket',
         // No REST prefetch: TicketView is pool-native and bootstraps
@@ -221,7 +227,8 @@ const router = createRouter({
       props: true,
       meta: {
         requiresAuth: true,
-        titleKey: 'route-title-user-profile'
+        titleKey: 'route-title-user-profile',
+        parent: '/users'
       },
       beforeEnter: (to) => {
         // Set a generic title initially, the component will update it after fetching the user
@@ -330,6 +337,7 @@ const router = createRouter({
       meta: {
         requiresAuth: true,
         titleKey: 'route-title-project-detail',
+        parent: '/projects',
         createButtonTextKey: 'header-add-ticket',
         createButtonIcon: 'ticket',
       },
@@ -391,7 +399,8 @@ const router = createRouter({
       props: true,
       meta: {
         requiresAuth: true,
-        titleKey: 'route-title-asset-view'
+        titleKey: 'route-title-asset-view',
+        parent: '/assets'
       }
     },
     // Legacy redirects. Anyone landing on the old /devices paths
@@ -1212,6 +1221,10 @@ import { pushRoute as pushRouteBreadcrumb } from '@/services/diagnostics/breadcr
 router.afterEach((to) => {
   pushRouteBreadcrumb(to.path)
 })
+
+// Track in-app navigation depth so back affordances know whether there is a real
+// previous in-app view (vs. the entry point / a deep link). See ./navigation.
+installNavigationTracking(router)
 
 router.onError((_error) => {
   router.push({
