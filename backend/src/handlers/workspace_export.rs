@@ -119,9 +119,14 @@ pub async fn import_workspace(
     let mut regenerate_uuids = false;
     let mut slug_override: Option<String> = None;
 
-    // The archive is held in memory; cap the upload to bound that (configurable so
-    // very large tenants can raise it). Defends against accidental huge / zip-bomb
-    // uploads on top of the platform-admin gate.
+    // Scaling ceiling: export/import hold the whole archive in memory (peak ~3x
+    // the archive size: files Vec + zip buffer + sealed buffer), because the
+    // AES-GCM envelope seals the entire inner zip as one blob — it can't be
+    // produced/consumed incrementally. Bounded-memory streaming would need a
+    // chunked-AEAD format (a deliberate crypto change, shared with the whole-DB
+    // backup); deferred until a tenant's archive approaches the instance RAM
+    // budget. This cap bounds that memory (configurable to raise it) and defends
+    // against accidental-huge / zip-bomb uploads on top of the platform-admin gate.
     let max_archive_bytes: u64 = std::env::var("NOSDESK_MAX_IMPORT_BYTES")
         .ok()
         .and_then(|v| v.parse().ok())
