@@ -111,6 +111,12 @@ pub trait Storage: Send + Sync {
 
     /// Move a file from one location to another (e.g., temp to permanent)
     async fn move_file(&self, from_path: &str, to_path: &str) -> Result<(), StorageError>;
+
+    /// List the logical paths of every object under `prefix` (recursive). Local
+    /// walks the directory tree; S3 lists by key prefix. Used to enumerate a
+    /// workspace's files for export/import. Directory markers (keys ending in
+    /// `/`) are omitted, and a missing prefix yields an empty list.
+    async fn list_prefix(&self, prefix: &str) -> Result<Vec<String>, StorageError>;
 }
 
 /// Local filesystem storage implementation
@@ -240,6 +246,32 @@ impl Storage for LocalStorage {
 
         std::fs::rename(&from_full, &to_full)?;
         Ok(())
+    }
+
+    async fn list_prefix(&self, prefix: &str) -> Result<Vec<String>, StorageError> {
+        let base = self.base_path.trim_end_matches('/').to_string();
+        let root = self.get_full_path(prefix);
+        if !Path::new(&root).exists() {
+            return Ok(Vec::new());
+        }
+        let mut out = Vec::new();
+        for entry in walkdir::WalkDir::new(&root)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            if let Ok(rel) = entry.path().strip_prefix(&base) {
+                out.push(
+                    rel.to_string_lossy()
+                        .replace('\\', "/")
+                        .trim_start_matches('/')
+                        .to_string(),
+                );
+            }
+        }
+        Ok(out)
     }
 }
 
@@ -434,6 +466,42 @@ impl Storage for S3Storage {
         self.delete_file(from_path).await?;
         Ok(())
     }
+
+    async fn list_prefix(&self, prefix: &str) -> Result<Vec<String>, StorageError> {
+        let prefix = prefix.trim_start_matches('/');
+        let mut out = Vec::new();
+        let mut continuation: Option<String> = None;
+        loop {
+            let mut req = self
+                .client
+                .list_objects_v2()
+                .bucket(&self.bucket)
+                .prefix(prefix);
+            if let Some(token) = &continuation {
+                req = req.continuation_token(token);
+            }
+            let resp = req
+                .send()
+                .await
+                .map_err(|e| StorageError::Backend(format!("S3 list_objects_v2 failed: {e}")))?;
+            for obj in resp.contents() {
+                if let Some(key) = obj.key() {
+                    if !key.ends_with('/') {
+                        out.push(key.to_string());
+                    }
+                }
+            }
+            if resp.is_truncated() == Some(true) {
+                continuation = resp.next_continuation_token().map(|s| s.to_string());
+                if continuation.is_none() {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+        Ok(out)
+    }
 }
 
 /// Workspace-scoped view over a base [`Storage`] backend.
@@ -553,6 +621,16 @@ impl Storage for WorkspaceScopedStorage {
         self.inner
             .move_file(&self.physical(from_path), &self.physical(to_path))
             .await
+    }
+
+    async fn list_prefix(&self, prefix: &str) -> Result<Vec<String>, StorageError> {
+        // List against the physical prefix, then strip it back to logical paths
+        // so callers stay prefix-free (consistent with get_file/put_file).
+        let physical = self.inner.list_prefix(&self.physical(prefix)).await?;
+        Ok(physical
+            .iter()
+            .map(|p| self.logical(p).to_string())
+            .collect())
     }
 }
 
@@ -984,6 +1062,39 @@ mod tests {
             files.insert(to.to_string(), data);
             Ok(())
         }
+        async fn list_prefix(&self, prefix: &str) -> Result<Vec<String>, StorageError> {
+            let prefix = prefix.trim_start_matches('/');
+            let mut out: Vec<String> = self
+                .files
+                .lock()
+                .unwrap()
+                .keys()
+                .filter(|k| k.starts_with(prefix))
+                .cloned()
+                .collect();
+            out.sort();
+            Ok(out)
+        }
+    }
+
+    #[actix_rt::test]
+    async fn scoped_list_prefix_returns_logical_paths() {
+        let fake = Arc::new(FakeStorage::new());
+        let scoped = WorkspaceScopedStorage::new(fake.clone(), 7);
+        scoped
+            .put_file(b"a", "tickets/5/a.png", "image/png")
+            .await
+            .unwrap();
+        scoped
+            .put_file(b"b", "assets/b.png", "image/png")
+            .await
+            .unwrap();
+        // A different workspace's file must not appear.
+        fake.seed("ws/9/other.png", b"x");
+
+        let mut listed = scoped.list_prefix("").await.unwrap();
+        listed.sort();
+        assert_eq!(listed, vec!["assets/b.png", "tickets/5/a.png"]);
     }
 
     #[actix_rt::test]
