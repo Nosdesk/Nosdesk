@@ -62,6 +62,14 @@ declare module 'vue-router' {
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
+  // Restore window scroll on back/forward (savedPosition is only set on
+  // popstate), else start new views at the top — part of a well-designed back.
+  // List views scroll inside an overflow:auto container and manage their own
+  // restoration in useListPage (keyed by fullPath), so this governs only
+  // window-scrolling views and never fights that container logic.
+  scrollBehavior(_to, _from, savedPosition) {
+    return savedPosition ?? { top: 0 }
+  },
   routes: withWorkspaceRouting([
     {
       path: '/login',

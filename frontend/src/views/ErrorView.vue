@@ -1,6 +1,7 @@
 <!-- ErrorView.vue -->
 <script setup lang="ts">
 import { useRoute, useRouter } from "vue-router";
+import { performBack } from "@/router/navigation";
 import { onMounted, onUnmounted, ref, reactive, watchEffect, watch, computed, nextTick } from "vue";
 import { useFluent } from "fluent-vue";
 import { useThemeStore } from "@/stores/theme";
@@ -23,7 +24,7 @@ const isDarkMode = computed(() => themeStore.isDarkMode);
 const isEpaperTheme = computed(() => themeStore.effectiveTheme?.meta?.id === 'epaper');
 
 // Navigation functions.
-const goBack = () => router.back();
+const goBack = () => performBack(router, route);
 const goHome = () => router.push("/");
 
 // --- Refs for SVG Elements ---

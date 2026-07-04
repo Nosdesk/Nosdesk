@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { performBack } from '@/router/navigation';
 import { useFluent } from 'fluent-vue';
 import PDFViewer from '@/components/ticketComponents/PDFViewer.vue';
 import Icon from '@/components/common/Icon.vue';
@@ -63,14 +64,9 @@ const handlePdfError = (error: unknown) => {
   errorMessage.value = t('pdf-viewer-error-failed-with-reason', { reason: err?.message || t('pdf-viewer-error-unknown') });
 };
 
-// Handle back navigation
-const goBack = () => {
-  if (window.history.length > 1) {
-    router.back();
-  } else {
-    router.push('/');
-  }
-};
+// Handle back navigation via the shared intelligent policy (in-app pop, else
+// hierarchical parent) instead of the unreliable window.history.length check.
+const goBack = () => performBack(router, route);
 
 // Share document - copy link to clipboard
 const shareDocument = async () => {
