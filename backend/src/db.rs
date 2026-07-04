@@ -112,47 +112,85 @@ where
     }
 }
 
-/// Run pending migrations, using a *privileged* role when
-/// `MIGRATION_DATABASE_URL` is set and falling back to the runtime pool
-/// otherwise.
-///
-/// The schema migrations are designed to be applied by a superuser / owner:
-/// they `CREATE ROLE`, `ALTER … OWNER TO nosdesk_admin`, `CREATE EXTENSION`,
-/// and `GRANT … TO nosdesk_app`. The runtime role (`nosdesk_app` —
-/// `NOBYPASSRLS`, no `CREATEROLE`) intentionally can't do any of those, so
-/// running migrations through the app's own pool fails on a fresh or changed
-/// schema and silently leaves it drifted (the failure mode that stranded the
-/// hosted-test instance).
-///
-/// Point `MIGRATION_DATABASE_URL` at a privileged role (the cluster superuser)
-/// to apply migrations cleanly. The runtime pool always stays on
-/// `DATABASE_URL` (`nosdesk_app`), so RLS enforcement and the hosted-mode
-/// role-posture guard are unaffected — the privileged connection is opened
-/// only for the migration run and dropped immediately after. When unset,
-/// behaviour is unchanged (single-role dev / self-hosted setups).
-fn run_migrations(pool: &Pool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    match env::var("MIGRATION_DATABASE_URL") {
-        Ok(url) if !url.trim().is_empty() => {
-            let url = url.trim();
-            info!(
-                database = %redact_db_url(url),
-                "Running migrations via MIGRATION_DATABASE_URL (privileged role)"
-            );
-            let mut conn = PgConnection::establish(url)
-                .map_err(|e| format!("MIGRATION_DATABASE_URL connect failed: {e}"))?;
-            apply_pending_migrations(&mut conn)
-            // `conn` drops here — the privileged connection never enters the pool.
+/// Session-level advisory-lock key guarding the migration run. Diesel does not
+/// lock `run_pending_migrations` itself, so without this two runners starting at
+/// once (e.g. both Fly machines booting simultaneously) would race the same
+/// migrations. Arbitrary but fixed and namespaced to migrations.
+const MIGRATION_ADVISORY_LOCK_KEY: i64 = 6_468_820_240_130_711; // "nosdesk-migrate"
+
+/// The URL + role label to migrate through. Prefers the privileged
+/// `MIGRATION_DATABASE_URL` — the schema migrations `CREATE ROLE`,
+/// `ALTER … OWNER`, `CREATE EXTENSION`, and `GRANT … TO nosdesk_app`, none of
+/// which the runtime `nosdesk_app` role (`NOBYPASSRLS`, no `CREATEROLE`) can do.
+/// Falls back to `DATABASE_URL` for single-role dev / self-host, where that URL
+/// is itself the owner/superuser.
+fn migration_url() -> Result<(String, &'static str), Box<dyn std::error::Error + Send + Sync>> {
+    if let Ok(url) = env::var("MIGRATION_DATABASE_URL") {
+        let url = url.trim();
+        if !url.is_empty() {
+            return Ok((url.to_string(), "MIGRATION_DATABASE_URL"));
         }
-        _ => {
-            info!(
-                "Running migrations via the runtime pool (DATABASE_URL); \
-                 MIGRATION_DATABASE_URL not set"
-            );
-            let mut conn = pool
-                .get()
-                .map_err(|e| format!("Failed to get database connection: {e}"))?;
-            apply_pending_migrations(&mut conn)
-        }
+    }
+    let url = env::var("DATABASE_URL")
+        .map_err(|_| "neither MIGRATION_DATABASE_URL nor DATABASE_URL is set")?;
+    Ok((url, "DATABASE_URL"))
+}
+
+/// Run `f` while holding the migration advisory lock on `conn`. Session-level
+/// (not `_xact_`), so it spans Diesel's per-migration transactions and
+/// auto-releases if the connection drops — a crashed runner never wedges the
+/// lock. The lock only serialises: the first holder applies pending migrations,
+/// later holders block, then find nothing pending and no-op.
+fn with_advisory_lock<F, T>(
+    conn: &mut PgConnection,
+    f: F,
+) -> Result<T, Box<dyn std::error::Error + Send + Sync>>
+where
+    F: FnOnce(&mut PgConnection) -> Result<T, Box<dyn std::error::Error + Send + Sync>>,
+{
+    diesel::sql_query("SELECT pg_advisory_lock($1)")
+        .bind::<diesel::sql_types::BigInt, _>(MIGRATION_ADVISORY_LOCK_KEY)
+        .execute(conn)
+        .map_err(|e| format!("acquiring migration advisory lock: {e}"))?;
+    let result = f(conn);
+    if let Err(e) = diesel::sql_query("SELECT pg_advisory_unlock($1)")
+        .bind::<diesel::sql_types::BigInt, _>(MIGRATION_ADVISORY_LOCK_KEY)
+        .execute(conn)
+    {
+        warn!(error = %e, "failed to release migration advisory lock (auto-releases on disconnect)");
+    }
+    result
+}
+
+/// Apply pending migrations through a dedicated privileged connection,
+/// serialised by the advisory lock and followed by the drift guard. The runtime
+/// pool is never used for DDL, so RLS enforcement and the hosted role-posture
+/// guard are unaffected. Shared by the on-boot path ([`initialize_database`])
+/// and the `migrate` subcommand (the release-phase entrypoint), so both apply
+/// the exact same embedded set the drift guard checks.
+pub fn run_migrations() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let (url, role) = migration_url()?;
+    info!(role, database = %redact_db_url(&url), "Running migrations");
+    let mut conn = PgConnection::establish(&url)
+        .map_err(|e| format!("migration connection ({role}) failed: {e}"))?;
+    with_advisory_lock(&mut conn, apply_pending_migrations)
+}
+
+/// Whether to apply migrations at server boot. Default true (single-role dev /
+/// self-host: one instance, zero-config). Set `NOSDESK_MIGRATE_ON_BOOT=false` on
+/// multi-machine hosted deploys, where migrations run once in the release phase
+/// (the `migrate` subcommand) and app machines only verify the schema is current
+/// via [`assert_schema_current`].
+fn migrate_on_boot() -> bool {
+    migrate_on_boot_value(env::var("NOSDESK_MIGRATE_ON_BOOT").ok())
+}
+
+/// Pure core of [`migrate_on_boot`], split out so it's testable without touching
+/// process env. Default (unset) is true; `false`/`0`/`no` (any case) opt out.
+fn migrate_on_boot_value(raw: Option<String>) -> bool {
+    match raw {
+        Some(v) => !matches!(v.trim().to_ascii_lowercase().as_str(), "false" | "0" | "no"),
+        None => true,
     }
 }
 
@@ -251,6 +289,33 @@ where
     .into())
 }
 
+/// Stricter than [`assert_no_migration_drift`]: verify the DB is *exactly* at
+/// this binary's migration level — not ahead (the drift check) and not behind
+/// (no unapplied migrations). Used on the `NOSDESK_MIGRATE_ON_BOOT=false` path:
+/// migrations are supposed to have run in the release phase, so any still-pending
+/// migration means that step didn't run (or failed), and serving against an
+/// incomplete schema is a fail-closed condition.
+fn assert_schema_current<C>(conn: &mut C) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+where
+    C: MigrationHarness<diesel::pg::Pg>,
+{
+    assert_no_migration_drift(conn)?;
+    let pending = conn
+        .pending_migrations(MIGRATIONS)
+        .map_err(|e| format!("schema-current check: listing pending migrations: {e}"))?;
+    if pending.is_empty() {
+        return Ok(());
+    }
+    let names: Vec<String> = pending.iter().map(|m| m.name().to_string()).collect();
+    Err(format!(
+        "NOSDESK_MIGRATE_ON_BOOT=false but {} migration(s) are unapplied: {names:?}. \
+         Migrations must run in the release phase (the `migrate` subcommand / Fly release_command) \
+         before app machines boot. Refusing to serve against an incomplete schema.",
+        pending.len()
+    )
+    .into())
+}
+
 /// Initialize the database by running migrations
 /// This function is designed to be called only once
 pub async fn initialize_database(
@@ -282,12 +347,27 @@ pub async fn initialize_database(
         return Err("Database not ready after 60 seconds".into());
     }
 
-    // Run migrations. Uses MIGRATION_DATABASE_URL (a privileged role) when set,
-    // since the schema migrations need CREATE ROLE / ALTER OWNER / CREATE
-    // EXTENSION / GRANT that the runtime nosdesk_app role intentionally lacks.
-    // Runs pending migrations and asserts the DB isn't ahead of this binary
-    // (the drift guard, on the same privileged connection).
-    run_migrations(pool)?;
+    // Apply migrations, unless they run in the release phase (multi-machine
+    // hosted: NOSDESK_MIGRATE_ON_BOOT=false). On-boot is the default for
+    // single-role dev / self-host — one instance, zero-config — and is advisory-
+    // locked + drift-guarded inside run_migrations. When skipped, we still verify
+    // the schema is exactly current (fail closed if the release step didn't run).
+    if migrate_on_boot() {
+        run_migrations()?;
+    } else {
+        info!(
+            "NOSDESK_MIGRATE_ON_BOOT=false; skipping on-boot migration (release-phase \
+             migrations), verifying the schema is current"
+        );
+        // Reading `__diesel_schema_migrations` needs schema-`public` access the
+        // runtime `nosdesk_app` role intentionally lacks, so the check runs on a
+        // privileged connection (same role selection as run_migrations), opened
+        // just for the check and dropped immediately.
+        let (url, role) = migration_url()?;
+        let mut conn = PgConnection::establish(&url)
+            .map_err(|e| format!("schema-current check connection ({role}) failed: {e}"))?;
+        assert_schema_current(&mut conn)?;
+    }
 
     // Post-migration bookkeeping runs as the runtime role on the pool — the
     // migrations have already granted nosdesk_app access to these tables.
@@ -494,6 +574,64 @@ pub fn establish_connection_pool() -> Pool {
                 "Failed to create database connection pool. This usually means the database is not accessible or DATABASE_URL is incorrect"
             );
             std::process::exit(1);
+        }
+    }
+}
+
+#[cfg(test)]
+mod migrate_gate_tests {
+    use super::migrate_on_boot_value;
+
+    #[test]
+    fn defaults_on_when_unset_and_opts_out_on_falsey() {
+        // Unset → on (self-host / dev default).
+        assert!(migrate_on_boot_value(None));
+        // Truthy / anything not explicitly falsey → on.
+        for on in ["true", "1", "yes", "TRUE", "", "  "] {
+            assert!(
+                migrate_on_boot_value(Some(on.to_string())),
+                "{on:?} should stay on"
+            );
+        }
+        // Explicit opt-out, case- and whitespace-insensitive.
+        for off in ["false", "0", "no", "FALSE", "False", " false ", "No"] {
+            assert!(
+                !migrate_on_boot_value(Some(off.to_string())),
+                "{off:?} should opt out"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod schema_check_tests {
+    use super::*;
+
+    /// The `NOSDESK_MIGRATE_ON_BOOT=false` boot path calls `assert_schema_current`
+    /// on a *privileged* connection, because reading `__diesel_schema_migrations`
+    /// needs schema-`public` access the runtime `nosdesk_app` role lacks. This
+    /// proves the read succeeds there: the result is either Ok (DB at HEAD) or a
+    /// clean schema-state error — never "permission denied", which would mean the
+    /// call site regressed to an under-privileged role.
+    #[test]
+    fn schema_current_check_reads_migrations_on_a_privileged_connection() {
+        // TEST_DATABASE_URL authenticates as the superuser; setup_test_pool drops
+        // to nosdesk_app via SET ROLE, but here we want the privileged session.
+        let url = std::env::var("TEST_DATABASE_URL")
+            .or_else(|_| std::env::var("DATABASE_URL"))
+            .expect("TEST_DATABASE_URL or DATABASE_URL must be set for tests");
+        let mut conn = PgConnection::establish(&url).expect("privileged test connection");
+
+        if let Err(e) = assert_schema_current(&mut conn) {
+            let msg = e.to_string();
+            assert!(
+                !msg.contains("permission denied"),
+                "check must run on a privileged role, not hit a privilege error: {msg}"
+            );
+            assert!(
+                msg.contains("unapplied") || msg.contains("AHEAD"),
+                "expected a schema-state error, got: {msg}"
+            );
         }
     }
 }

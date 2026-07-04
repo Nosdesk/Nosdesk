@@ -55,6 +55,32 @@ async fn main() -> std::io::Result<()> {
     telemetry::init();
     debug!("Tracing initialized, continuing startup");
 
+    // Subcommand dispatch. `backend migrate` is the release-phase migration
+    // entrypoint (Fly `release_command` / a pre-deploy job): it applies pending
+    // migrations once, from a single privileged runner, and exits — decoupled
+    // from app-machine boot. It uses the same embedded migration set the server's
+    // drift guard checks, so there's one source of truth.
+    match env::args().nth(1).as_deref() {
+        Some("migrate") => {
+            info!("Running database migrations (migrate subcommand)");
+            return match backend::db::run_migrations() {
+                Ok(()) => {
+                    info!("Database migrations complete");
+                    Ok(())
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "Database migrations failed");
+                    std::process::exit(1);
+                }
+            };
+        }
+        Some(other) => {
+            eprintln!("unknown subcommand: {other}. Usage: backend [migrate]");
+            std::process::exit(2);
+        }
+        None => {}
+    }
+
     // === SECURITY STARTUP VALIDATION ===
     info!("Starting Nosdesk API Server");
     // Resolve + log the edition once at boot (verifies NOSDESK_LICENSE_KEY,
