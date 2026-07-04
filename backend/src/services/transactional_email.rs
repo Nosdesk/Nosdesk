@@ -24,7 +24,8 @@ use ring::digest;
 
 use crate::db::DbConnection;
 use crate::models::{
-    outbound_email_mail_class, outbound_email_sender_identity, NewOutboundEmail, OutboundEmail,
+    outbound_email_mail_class, outbound_email_sender_identity, BugReport, NewOutboundEmail,
+    OutboundEmail,
 };
 use crate::repository::outbound_emails;
 use crate::utils::email::{EmailBranding, EmailService};
@@ -190,6 +191,124 @@ pub fn enqueue_invitation(
         invited_by,
         locale,
     );
+    outbound_emails::enqueue_idempotent(conn, row)
+}
+
+/// Condense a bug report's client breadcrumb trail (JSONB array of
+/// `{category, ts, summary}`) into a readable plain-text block for the
+/// ops alert. Anything malformed is skipped rather than dumped raw.
+fn summarise_breadcrumbs(value: &serde_json::Value) -> String {
+    let lines: Vec<String> = value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|b| {
+            let cat = b.get("category")?.as_str()?;
+            let summary = b.get("summary")?.as_str()?;
+            Some(format!("  [{cat}] {summary}"))
+        })
+        .collect();
+    if lines.is_empty() {
+        "  (none)".to_string()
+    } else {
+        lines.join("\n")
+    }
+}
+
+/// Build the ops-alert email for a submitted bug report. Internal
+/// operational mail — it goes to the operator (`NOSDESK_OPS_EMAIL`), not a
+/// user — so it skips branding/i18n and just formats the report plus a
+/// log-query pointer (`correlation_id` + `session_id`) so the operator can
+/// jump straight to the request's wide-event log line. Sent from the PLATFORM
+/// identity, TRANSACTIONAL class (operational, never opt-out-able). Idempotency
+/// keyed on the report id so a re-enqueue can't double-send.
+pub fn prepare_bug_report_alert(
+    ops_recipient: &str,
+    report: &BugReport,
+    correlation_id: Option<uuid::Uuid>,
+) -> NewOutboundEmail {
+    let from_domain = std::env::var("SMTP_FROM_EMAIL")
+        .ok()
+        .and_then(|e| e.rsplit_once('@').map(|(_, d)| d.to_string()))
+        .unwrap_or_else(|| "nosdesk.local".to_string());
+    let message_id = make_message_id("bug-report", &from_domain);
+
+    let subject = format!(
+        "[Nosdesk] Bug report #{} (workspace {})",
+        report.id, report.workspace_id
+    );
+
+    let reporter = report
+        .user_uuid
+        .map(|u| u.to_string())
+        .unwrap_or_else(|| "anonymous".to_string());
+    let correlation = correlation_id
+        .map(|c| c.to_string())
+        .unwrap_or_else(|| "-".to_string());
+    let viewport = report
+        .viewport
+        .as_ref()
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| "-".to_string());
+
+    let body_text = format!(
+        "A user submitted a bug report.\n\n\
+         Report:      #{id}\n\
+         Workspace:   {ws}\n\
+         Reporter:    {reporter}\n\
+         Build:       {build}\n\
+         URL:         {url}\n\
+         Occurred:    {occurred}\n\
+         Received:    {received}\n\
+         User-Agent:  {ua}\n\
+         Viewport:    {viewport}\n\n\
+         Description:\n{desc}\n\n\
+         Breadcrumbs:\n{breadcrumbs}\n\n\
+         --- log pointer ---\n\
+         correlation_id={correlation}  session_id={session}  workspace_id={ws}\n",
+        id = report.id,
+        ws = report.workspace_id,
+        build = report.build_sha,
+        url = report.url,
+        occurred = report.occurred_at.to_rfc3339(),
+        received = report.received_at.to_rfc3339(),
+        ua = report.user_agent.as_deref().unwrap_or("-"),
+        desc = report.description,
+        breadcrumbs = summarise_breadcrumbs(&report.breadcrumbs),
+        session = report.session_id,
+    );
+
+    let headers_json = serde_json::json!({ "Auto-Submitted": "auto-generated" });
+
+    NewOutboundEmail {
+        channel_id: None,
+        ticket_id: None,
+        comment_id: None,
+        recipient: ops_recipient.to_string(),
+        subject,
+        body_text,
+        body_html: None,
+        message_id,
+        in_reply_to: None,
+        references_list: vec![],
+        headers_json,
+        correlation_id,
+        idempotency_key: Some(format!("bug_report_alert:{}", report.id)),
+        sender_identity: outbound_email_sender_identity::PLATFORM.to_string(),
+        mail_class: outbound_email_mail_class::TRANSACTIONAL.to_string(),
+    }
+}
+
+/// Enqueue the ops alert for a persisted bug report. Best-effort at the call
+/// site: the report is already durable, so a failed enqueue must not fail the
+/// user's request.
+pub fn enqueue_bug_report_alert(
+    conn: &mut DbConnection,
+    ops_recipient: &str,
+    report: &BugReport,
+    correlation_id: Option<uuid::Uuid>,
+) -> Result<OutboundEmail, DieselError> {
+    let row = prepare_bug_report_alert(ops_recipient, report, correlation_id);
     outbound_emails::enqueue_idempotent(conn, row)
 }
 
@@ -648,5 +767,60 @@ mod tests {
         // ...but message_id rotates so a retried send doesn't
         // confuse the recipient's MUA dedupe.
         assert_ne!(r1.message_id, r2.message_id);
+    }
+
+    #[test]
+    fn bug_report_alert_row_shape() {
+        let report = BugReport {
+            id: 42,
+            workspace_id: 7,
+            user_uuid: Some(uuid::Uuid::from_u128(0x1234)),
+            session_id: uuid::Uuid::from_u128(0x9999),
+            description: "Save button does nothing on the ticket page".to_string(),
+            url: "/tickets/100".to_string(),
+            breadcrumbs: serde_json::json!([
+                {"category": "route", "ts": 1, "summary": "/tickets"},
+                {"category": "api", "ts": 2, "summary": "GET /api/tickets/100"}
+            ]),
+            build_sha: "abc123def456".to_string(),
+            user_agent: Some("Mozilla/5.0".to_string()),
+            viewport: Some(serde_json::json!({ "w": 1440, "h": 900 })),
+            occurred_at: chrono::DateTime::parse_from_rfc3339("2026-07-04T00:00:00Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc),
+            received_at: chrono::DateTime::parse_from_rfc3339("2026-07-04T00:00:05Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc),
+        };
+        let correlation = uuid::Uuid::from_u128(0xABCD);
+        let row = prepare_bug_report_alert("ops@nosdesk.com", &report, Some(correlation));
+
+        // Operational mail: platform identity, transactional class, one send
+        // per report (idempotency keyed on the id), correlation preserved.
+        assert_eq!(row.recipient, "ops@nosdesk.com");
+        assert_eq!(
+            row.sender_identity,
+            outbound_email_sender_identity::PLATFORM
+        );
+        assert_eq!(row.mail_class, outbound_email_mail_class::TRANSACTIONAL);
+        assert_eq!(row.idempotency_key.as_deref(), Some("bug_report_alert:42"));
+        assert_eq!(row.correlation_id, Some(correlation));
+        assert!(row.body_html.is_none(), "ops mail is plain text");
+
+        // Subject is triage-at-a-glance.
+        assert!(row.subject.contains("#42"), "subject: {}", row.subject);
+        assert!(
+            row.subject.contains("workspace 7"),
+            "subject: {}",
+            row.subject
+        );
+
+        // Body carries the operator-actionable content + a log pointer, with the
+        // breadcrumb trail summarised rather than dumped as raw JSON.
+        assert!(row.body_text.contains("Save button does nothing"));
+        assert!(row.body_text.contains("abc123def456"));
+        assert!(row.body_text.contains(&correlation.to_string()));
+        assert!(row.body_text.contains(&report.session_id.to_string()));
+        assert!(row.body_text.contains("[api] GET /api/tickets/100"));
     }
 }

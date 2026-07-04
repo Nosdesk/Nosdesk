@@ -1172,6 +1172,23 @@ admin-channels-forwarding-instructions-heading = Comment transférer
 admin-channels-forwarding-instructions-body = Dans votre fournisseur de messagerie, ajoutez une règle qui transfère votre boîte de support vers l'adresse ci-dessus. Les nouveaux messages arrivent alors sous forme de tickets.
 # MT: pending native review (fr-FR)
 admin-nav-unrouted-inbound-title = Courrier entrant non routé
+# Machine-translated, pending native review (bug-reports admin view).
+admin-nav-bug-reports-title = Rapports de bogue
+admin-nav-bug-reports-description = Signalements « Signaler un problème » envoyés par les utilisateurs
+route-title-admin-bug-reports = Rapports de bogue
+admin-bug-reports-title = Rapports de bogue
+admin-bug-reports-description = Signalements envoyés depuis la fenêtre « Signaler un problème », les plus récents en premier, pour tous les espaces de travail.
+admin-bug-reports-forbidden = Cette vue est réservée aux opérateurs de la plateforme.
+admin-bug-reports-error-load = Échec du chargement des rapports de bogue
+admin-bug-reports-empty-title = Aucun rapport de bogue
+admin-bug-reports-empty-description = Aucun signalement pour le moment. Les envois depuis la fenêtre « Signaler un problème » apparaîtront ici.
+admin-bug-reports-anonymous = anon
+admin-bug-reports-col-received = Reçu
+admin-bug-reports-col-workspace = Espace de travail
+admin-bug-reports-col-reporter = Auteur
+admin-bug-reports-col-description = Description
+admin-bug-reports-col-url = URL
+admin-bug-reports-col-build = Version
 # MT: pending native review (fr-FR)
 admin-nav-unrouted-inbound-description = Courrier transféré ne correspondant à aucune adresse
 # MT: pending native review (fr-FR)

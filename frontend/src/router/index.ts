@@ -840,6 +840,12 @@ const router = createRouter({
           meta: { titleKey: 'route-title-admin-unrouted-inbound', requiresAuth: true, adminRequired: true }
         },
         {
+          path: 'bug-reports',
+          name: 'admin-bug-reports',
+          component: () => import('../views/admin/BugReportsView.vue'),
+          meta: { titleKey: 'route-title-admin-bug-reports', requiresAuth: true, adminRequired: true }
+        },
+        {
           path: 'data-import',
           name: 'admin-data-import',
           component: () => import('../views/DataImportView.vue'),

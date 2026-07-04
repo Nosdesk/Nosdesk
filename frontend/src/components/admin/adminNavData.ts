@@ -217,6 +217,14 @@ export const adminNavGroups: AdminNavGroup[] = [
         route: '/admin/inbound/unrouted',
         keywords: ['inbound', 'unrouted', 'dead letter', 'forwarding', 'email', 'token', 'misconfigured'],
         platformAdminOnly: true
+      },
+      {
+        titleKey: 'admin-nav-bug-reports-title',
+        descriptionKey: 'admin-nav-bug-reports-description',
+        icon: 'warning',
+        route: '/admin/bug-reports',
+        keywords: ['bug', 'report', 'report a problem', 'feedback', 'issue', 'problem'],
+        platformAdminOnly: true
       }
     ]
   }

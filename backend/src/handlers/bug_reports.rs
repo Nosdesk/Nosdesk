@@ -13,11 +13,12 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::extractors::TenantConn;
+use crate::extractors::{PlatformConn, TenantConn};
 use crate::handlers::errors;
 use crate::middleware::request_context::RequestContext;
 use crate::models::NewBugReport;
 use crate::repository::bug_reports as repo;
+use crate::utils::rbac;
 
 const MAX_DESCRIPTION_LEN: usize = 4000;
 const MAX_URL_LEN: usize = 2048;
@@ -68,8 +69,70 @@ pub struct CreateBugReportResponse {
 }
 
 /// Bug-report routes, mounted inside the authenticated `/api` scope in main.rs.
+/// The POST is any authenticated user; the admin list is operator-only
+/// (`require_platform_admin` inside the handler, like `admin_workspaces`).
 pub fn config(cfg: &mut web::ServiceConfig) {
-    cfg.route("/bug-reports", web::post().to(create_bug_report));
+    cfg.route("/bug-reports", web::post().to(create_bug_report))
+        .route("/admin/bug-reports", web::get().to(list_bug_reports));
+}
+
+/// Query string for the operator list. Both bounded/clamped in the handler.
+#[derive(Debug, Deserialize)]
+pub struct ListBugReportsQuery {
+    #[serde(default)]
+    pub limit: Option<i64>,
+    #[serde(default)]
+    pub offset: Option<i64>,
+}
+
+/// Platform-admin operator view: bug reports across every workspace, newest
+/// first. Gated by `require_platform_admin`; reads cross-tenant through the
+/// BYPASSRLS `PlatformConn`.
+pub async fn list_bug_reports(
+    req: HttpRequest,
+    mut pc: PlatformConn,
+    query: web::Query<ListBugReportsQuery>,
+) -> impl Responder {
+    if let Err(resp) = rbac::require_platform_admin(&req) {
+        return resp;
+    }
+    let limit = query.limit.unwrap_or(50).clamp(1, 200);
+    let offset = query.offset.unwrap_or(0).max(0);
+    match pc.run(|conn| repo::list_recent(conn, limit, offset)) {
+        Ok(reports) => HttpResponse::Ok().json(reports),
+        Err(e) => errors::db_error(&e),
+    }
+}
+
+/// Best-effort ops delivery after a report is committed. No-op when
+/// `NOSDESK_OPS_EMAIL` is unset (self-host / dev with no ops mailbox). A failed
+/// enqueue is logged, never surfaced — the report is already durable and the
+/// operator view is the authoritative channel.
+fn deliver_ops_alert(tc: &mut TenantConn, req: &HttpRequest, report: &crate::models::BugReport) {
+    let ops_email = match std::env::var("NOSDESK_OPS_EMAIL") {
+        Ok(v) if !v.trim().is_empty() => v.trim().to_string(),
+        _ => return,
+    };
+    let correlation_id = req
+        .extensions()
+        .get::<RequestContext>()
+        .map(|c| c.correlation_id);
+    if let Err(e) = tc.run(|conn| {
+        crate::services::transactional_email::enqueue_bug_report_alert(
+            conn,
+            &ops_email,
+            report,
+            correlation_id,
+        )
+        .map(|_| ())
+    }) {
+        tracing::warn!(
+            target: "nosdesk::bug_reports",
+            error = %e,
+            bug_report_id = report.id,
+            "bug report ops alert enqueue failed; report still saved"
+        );
+    }
 }
 
 /// Authenticated POST. The `TenantConn` extractor pulls the
@@ -135,6 +198,7 @@ pub async fn create_bug_report(
                 byte_count = persisted.description.len() as i64,
                 "[FE] bug report received"
             );
+            deliver_ops_alert(&mut tc, &req, &persisted);
             HttpResponse::Created().json(CreateBugReportResponse { id: persisted.id })
         }
         Err(e) => errors::db_error(&e),

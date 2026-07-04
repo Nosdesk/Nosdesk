@@ -18,3 +18,21 @@ pub fn insert(conn: &mut DbConnection, report: NewBugReport) -> Result<BugReport
         .values(&report)
         .get_result::<BugReport>(conn)
 }
+
+/// List bug reports across every workspace, newest first, for the
+/// platform-admin operator view. Cross-tenant by design, so the caller
+/// must supply a BYPASSRLS connection (`PlatformConn`). `limit` is
+/// clamped by the handler; `offset` drives simple page-through.
+pub fn list_recent(
+    conn: &mut DbConnection,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<BugReport>, DieselError> {
+    use crate::schema::bug_reports::dsl::*;
+
+    bug_reports
+        .order(received_at.desc())
+        .limit(limit)
+        .offset(offset)
+        .load::<BugReport>(conn)
+}

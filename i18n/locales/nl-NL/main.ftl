@@ -1169,6 +1169,23 @@ admin-channels-forwarding-instructions-heading = Hoe door te sturen
 admin-channels-forwarding-instructions-body = Voeg in je e-mailprovider een regel toe die je supportmailbox doorstuurt naar het bovenstaande adres. Nieuwe berichten komen dan binnen als tickets.
 # MT: pending native review (nl-NL)
 admin-nav-unrouted-inbound-title = Niet-gerouteerde inkomende e-mail
+# Machine-translated, pending native review (bug-reports admin view).
+admin-nav-bug-reports-title = Bugrapporten
+admin-nav-bug-reports-description = Door gebruikers ingediende "Probleem melden"-rapporten
+route-title-admin-bug-reports = Bugrapporten
+admin-bug-reports-title = Bugrapporten
+admin-bug-reports-description = Meldingen ingediend via het "Probleem melden"-venster, nieuwste eerst, over alle werkruimten.
+admin-bug-reports-forbidden = Deze weergave is alleen beschikbaar voor platformbeheerders.
+admin-bug-reports-error-load = Bugrapporten laden mislukt
+admin-bug-reports-empty-title = Geen bugrapporten
+admin-bug-reports-empty-description = Er is nog niets gemeld. Inzendingen via het "Probleem melden"-venster verschijnen hier.
+admin-bug-reports-anonymous = anon
+admin-bug-reports-col-received = Ontvangen
+admin-bug-reports-col-workspace = Werkruimte
+admin-bug-reports-col-reporter = Melder
+admin-bug-reports-col-description = Beschrijving
+admin-bug-reports-col-url = URL
+admin-bug-reports-col-build = Build
 # MT: pending native review (nl-NL)
 admin-nav-unrouted-inbound-description = Doorgestuurde e-mail die geen adres vond
 # MT: pending native review (nl-NL)
