@@ -7,8 +7,6 @@
 //! no workspace pin, RLS would filter the export's reads to zero rows, and the
 //! import writes cross-tenant.
 
-use std::path::PathBuf;
-
 use actix_multipart::Multipart;
 use actix_web::http::header;
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
@@ -18,6 +16,7 @@ use serde::Deserialize;
 use crate::extractors::PlatformConn;
 use crate::handlers::errors;
 use crate::utils::rbac;
+use crate::utils::storage::{process_storage, WorkspaceScopedStorage};
 
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.route(
@@ -50,11 +49,44 @@ pub async fn export_workspace(
     }
     let workspace_id = path.into_inner();
     let password = body.into_inner().password;
+    let include_sensitive = password.is_some();
 
-    match pc.run(|conn| {
-        crate::services::workspace_export::export_workspace(conn, workspace_id, password.as_deref())
-            .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))
+    // 1. Collect the row dumps (sync, in the BYPASSRLS transaction).
+    let (dumps, meta) = match pc.run(|conn| {
+        crate::services::workspace_export::collect_workspace_rows(
+            conn,
+            workspace_id,
+            include_sensitive,
+        )
+        .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))
     }) {
+        Ok(v) => v,
+        Err(e) => return errors::db_error(&e),
+    };
+
+    // 2. Read the workspace's files through the storage abstraction (local or
+    //    S3) so file migration works on hosted, not just the local filesystem.
+    let scoped = WorkspaceScopedStorage::arc(process_storage(), workspace_id);
+    let paths = match scoped.list_prefix("").await {
+        Ok(p) => p,
+        Err(e) => return errors::internal(format!("listing workspace files: {e:?}")),
+    };
+    let mut files: Vec<(String, Vec<u8>)> = Vec::with_capacity(paths.len());
+    for p in paths {
+        match scoped.get_file(&p).await {
+            Ok(bytes) => files.push((p, bytes)),
+            Err(e) => return errors::internal(format!("reading workspace file {p}: {e:?}")),
+        }
+    }
+
+    // 3. Assemble + seal (sync).
+    match crate::services::workspace_export::assemble_workspace_archive(
+        &dumps,
+        &meta,
+        workspace_id,
+        &files,
+        password.as_deref(),
+    ) {
         Ok(bytes) => HttpResponse::Ok()
             .content_type("application/octet-stream")
             .insert_header((
@@ -62,7 +94,7 @@ pub async fn export_workspace(
                 format!("attachment; filename=\"workspace-{workspace_id}.nosdesk\""),
             ))
             .body(bytes),
-        Err(e) => errors::db_error(&e),
+        Err(e) => errors::internal(format!("assembling archive: {e}")),
     }
 }
 
@@ -87,6 +119,14 @@ pub async fn import_workspace(
     let mut regenerate_uuids = false;
     let mut slug_override: Option<String> = None;
 
+    // The archive is held in memory; cap the upload to bound that (configurable so
+    // very large tenants can raise it). Defends against accidental huge / zip-bomb
+    // uploads on top of the platform-admin gate.
+    let max_archive_bytes: u64 = std::env::var("NOSDESK_MAX_IMPORT_BYTES")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(2 * 1024 * 1024 * 1024);
+
     while let Some(item) = payload.next().await {
         let mut field = match item {
             Ok(f) => f,
@@ -100,7 +140,15 @@ pub async fn import_workspace(
         let mut buf = Vec::new();
         while let Some(chunk) = field.next().await {
             match chunk {
-                Ok(d) => buf.extend_from_slice(&d),
+                Ok(d) => {
+                    buf.extend_from_slice(&d);
+                    if name == "archive" && buf.len() as u64 > max_archive_bytes {
+                        return errors::bad_request(format!(
+                            "archive exceeds the {max_archive_bytes}-byte limit \
+                             (raise NOSDESK_MAX_IMPORT_BYTES)"
+                        ));
+                    }
+                }
                 Err(e) => return errors::bad_request(format!("upload error: {e}")),
             }
         }
@@ -129,32 +177,86 @@ pub async fn import_workspace(
         return errors::bad_request("no archive uploaded (multipart field 'archive')");
     }
 
-    let uploads_dir = std::env::var("UPLOAD_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("/app/uploads"));
+    // Read + verify the archive (sync, no DB).
+    let contents =
+        match crate::services::workspace_import::read_archive(&archive, password.as_deref()) {
+            Ok(c) => c,
+            Err(e) => return errors::bad_request(format!("invalid archive: {e}")),
+        };
+
     let opts = crate::services::workspace_import::ImportOptions {
         slug_override,
         uuid_override: None,
-        uploads_dir,
         regenerate_uuids,
     };
 
-    match pc.run(|conn| {
-        crate::services::workspace_import::import_workspace(
-            conn,
-            &archive,
-            password.as_deref(),
-            opts,
-        )
-        .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))
+    // 1. Import the rows (sync, BYPASSRLS, atomic).
+    let result = match pc.run(|conn| {
+        crate::services::workspace_import::import_workspace(conn, &contents, &opts)
+            .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))
     }) {
-        Ok(result) => HttpResponse::Ok().json(serde_json::json!({
-            "workspace_id": result.workspace_id,
-            "slug": result.slug,
-            "tables_imported": result.tables_imported,
-            "rows_imported": result.rows_imported,
-            "files_restored": result.files_restored,
-        })),
-        Err(e) => errors::db_error(&e),
+        Ok(r) => r,
+        Err(e) => return errors::db_error(&e),
+    };
+
+    // 2. Restore files through the storage abstraction into the NEW workspace
+    //    (local or S3). Archive entries are `files/{logical}`. NOTE: the rows are
+    //    already committed above, so a failure here leaves a workspace with
+    //    partial files; the error response carries workspace_id so the operator
+    //    can clean up.
+    let scoped = WorkspaceScopedStorage::arc(process_storage(), result.workspace_id);
+    let mut files_restored = 0i64;
+    let mut files_skipped = 0i64;
+    for (name, bytes) in &contents.files {
+        let logical = name.strip_prefix("files/").unwrap_or(name);
+        // Zip-slip guard: reject `..` / absolute / backslash paths from the
+        // untrusted archive before writing (matches the whole-DB restore).
+        if logical.is_empty() || !crate::utils::storage::is_safe_storage_path(logical) {
+            log::warn!("workspace import: skipping unsafe file entry '{name}'");
+            files_skipped += 1;
+            continue;
+        }
+        if let Err(e) = scoped
+            .put_file(bytes, logical, content_type_for(logical))
+            .await
+        {
+            return HttpResponse::InternalServerError().json(serde_json::json!({
+                "error": format!("file restore failed after {files_restored} files: {e:?}"),
+                "partial": true,
+                "workspace_id": result.workspace_id,
+                "rows_imported": result.rows_imported,
+                "files_restored": files_restored,
+            }));
+        }
+        files_restored += 1;
+    }
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "workspace_id": result.workspace_id,
+        "slug": result.slug,
+        "tables_imported": result.tables_imported,
+        "rows_imported": result.rows_imported,
+        "files_restored": files_restored,
+        "files_skipped": files_skipped,
+    }))
+}
+
+/// Best-effort content type from a file extension, so restored images serve with
+/// a displayable type. Unknown extensions fall back to octet-stream.
+fn content_type_for(path: &str) -> &'static str {
+    match path
+        .rsplit('.')
+        .next()
+        .map(|e| e.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("svg") => "image/svg+xml",
+        Some("pdf") => "application/pdf",
+        Some("txt") => "text/plain",
+        _ => "application/octet-stream",
     }
 }

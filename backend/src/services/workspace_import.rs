@@ -16,10 +16,20 @@
 //! required, and it works on the pooled hosted connection. Integer primary keys
 //! are drawn fresh from each table's sequence and old ids are rewritten across
 //! the FK graph; users are matched/upserted by uuid (never remapped).
+//!
+//! Composite-PK junction tables (no `id` column) are inserted verbatim after
+//! their FK columns are remapped — nothing references them by id.
+//!
+//! Known assumption: an integer FK from a tenant table to a table OUTSIDE the
+//! import set (a global lookup like `notification_types`, seeded with fixed ids
+//! by the migrations) keeps its original id. This is correct only when the target
+//! was seeded from the same migrations (the realistic hosted case); a divergent
+//! target fails the FK loudly (closed, never silent). Cross-table FK cycles are
+//! rejected rather than deferred, and a NOT-NULL self-reference would break the
+//! null-then-update pass — neither occurs in the current schema.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Read;
-use std::path::{Path, PathBuf};
 
 use diesel::deserialize::QueryableByName;
 use diesel::prelude::*;
@@ -27,7 +37,7 @@ use diesel::sql_query;
 use diesel::sql_types::{BigInt, Text};
 use serde_json::{json, Value};
 
-use crate::services::backup::{table_exists_in_db, unseal_inner_zip, BackupError};
+use crate::services::backup::{sha256_hex, table_exists_in_db, unseal_inner_zip, BackupError};
 use crate::services::workspace_export::WorkspaceExportManifest;
 
 /// Envelope magic for a sealed archive (mirrors `backup::ENCRYPTED_MAGIC`); a
@@ -109,6 +119,17 @@ pub fn read_archive(
             let mut f = zip.by_name(&name).map_err(BackupError::ZipError)?;
             let mut s = String::new();
             f.read_to_string(&mut s).map_err(BackupError::IoError)?;
+            // Integrity: the payload must match the manifest's per-table hash, so
+            // silent corruption of a data/*.json entry is caught before it's
+            // inserted (the manifest itself is under the AES-GCM envelope).
+            if let Some(tm) = manifest.tables.get(table) {
+                let actual = sha256_hex(s.as_bytes());
+                if actual != tm.sha256 {
+                    return Err(BackupError::CorruptedBackup(format!(
+                        "checksum mismatch for data/{table}.json (archive corrupted)"
+                    )));
+                }
+            }
             let rows: Vec<Value> = serde_json::from_str(&s).map_err(BackupError::JsonError)?;
             tables.insert(table.to_string(), rows);
         } else if name.starts_with("files/") && !name.ends_with('/') {
@@ -249,9 +270,6 @@ pub struct ImportOptions {
     pub slug_override: Option<String>,
     /// Override the workspace uuid. Same rationale as the slug.
     pub uuid_override: Option<String>,
-    /// Directory to restore uploaded files into (the server's uploads dir in
-    /// production; a temp dir in tests).
-    pub uploads_dir: PathBuf,
     /// Mint fresh `uuid`s for every imported row instead of preserving them.
     /// Default (false) preserves uuids, which is correct for a cross-DB region
     /// migration (identity continuity, no collision). Set true to clone a
@@ -261,28 +279,26 @@ pub struct ImportOptions {
     pub regenerate_uuids: bool,
 }
 
-/// Summary of a completed import.
+/// Summary of a completed import. File restore happens separately in the handler
+/// (async, through the storage abstraction), so its count isn't reported here.
 pub struct ImportResult {
     pub workspace_id: i32,
     pub slug: String,
     pub tables_imported: usize,
     pub rows_imported: i64,
-    pub files_restored: i64,
 }
 
-/// Import a workspace from an export archive into THIS database as a new
-/// workspace. Must be called on a BYPASSRLS connection (via
+/// Import a workspace's ROWS from an already-read archive into THIS database as a
+/// new workspace. Must be called on a BYPASSRLS connection (via
 /// `with_actor_bypass_context` / `PlatformConn`). Atomic: everything runs in one
-/// transaction and rolls back on any error.
+/// transaction and rolls back on any error. The caller reads the archive
+/// ([`read_archive`]) and, after this returns, restores `contents.files` through
+/// the storage abstraction (async) so file migration works on local and S3.
 pub fn import_workspace(
     conn: &mut crate::db::DbConnection,
-    archive: &[u8],
-    password: Option<&str>,
-    opts: ImportOptions,
+    contents: &ArchiveContents,
+    opts: &ImportOptions,
 ) -> Result<ImportResult, BackupError> {
-    let contents = read_archive(archive, password)?;
-    let old_ws_id = contents.manifest.workspace_id;
-
     conn.transaction::<_, BackupError, _>(|conn| {
         // Suppress the audit-capture triggers for this bulk load; both
         // audit_log_trigger and audit_workspace_members short-circuit on this
@@ -290,8 +306,8 @@ pub fn import_workspace(
         // sync::emit.) SET LOCAL is scoped to this transaction.
         sql_query("SET LOCAL nosdesk.in_audit_read = 'true'").execute(conn)?;
 
-        let (new_ws_id, slug) = create_target_workspace(conn, &contents, &opts)?;
-        upsert_members(conn, &contents)?;
+        let (new_ws_id, slug) = create_target_workspace(conn, contents, opts)?;
+        upsert_members(conn, contents)?;
 
         let tenant_tables: Vec<String> = contents
             .tables
@@ -324,15 +340,11 @@ pub fn import_workspace(
             )?;
         }
 
-        let files_restored =
-            restore_files(&contents.files, old_ws_id, new_ws_id, &opts.uploads_dir)?;
-
         Ok(ImportResult {
             workspace_id: new_ws_id,
             slug,
             tables_imported: order.len(),
             rows_imported,
-            files_restored,
         })
     })
 }
@@ -396,6 +408,65 @@ fn insert_row_returning_id(
     Ok(r.new_id)
 }
 
+/// True if `table` has an `id` column. Composite-PK junction tables don't; they
+/// insert verbatim (no sequence id, no RETURNING). `table` is validated first.
+fn table_has_id_column(
+    conn: &mut crate::db::DbConnection,
+    table: &str,
+) -> Result<bool, BackupError> {
+    if !table_exists_in_db(conn, table)? {
+        return Err(BackupError::CorruptedBackup(format!(
+            "archive references unknown table: {table}"
+        )));
+    }
+    #[derive(QueryableByName)]
+    struct ExistsRow {
+        #[diesel(sql_type = diesel::sql_types::Bool)]
+        exists: bool,
+    }
+    let r: ExistsRow = sql_query(
+        "SELECT EXISTS ( \
+            SELECT 1 FROM information_schema.columns \
+            WHERE table_schema = 'public' AND table_name = $1 AND column_name = 'id' \
+         ) AS exists",
+    )
+    .bind::<Text, _>(table)
+    .get_result(conn)
+    .map_err(BackupError::DatabaseError)?;
+    Ok(r.exists)
+}
+
+/// Insert one JSON row into an id-less (composite-PK) `table`, all columns,
+/// no RETURNING. FK columns must already be remapped by the caller. `table` is
+/// validated before interpolation; columns come from `information_schema`.
+fn insert_row(
+    conn: &mut crate::db::DbConnection,
+    table: &str,
+    row_json: &str,
+) -> Result<(), BackupError> {
+    if !table_exists_in_db(conn, table)? {
+        return Err(BackupError::CorruptedBackup(format!(
+            "archive references unknown table: {table}"
+        )));
+    }
+    // `table_columns_except_id` returns ALL columns for an id-less table.
+    let cols = table_columns_except_id(conn, table)?;
+    let col_list = cols
+        .iter()
+        .map(|c| format!("\"{c}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let query = format!(
+        "INSERT INTO \"{table}\" ({col_list}) \
+         SELECT {col_list} FROM jsonb_populate_record(NULL::\"{table}\", $1::jsonb)"
+    );
+    sql_query(&query)
+        .bind::<Text, _>(row_json)
+        .execute(conn)
+        .map_err(BackupError::DatabaseError)?;
+    Ok(())
+}
+
 /// Create the target workspace from the exported `workspaces` row, taking a fresh
 /// id. Slug/uuid are overridable; `custom_domain` and `organisation_id` are
 /// dropped (per-cell concerns not carried across a region move).
@@ -416,8 +487,13 @@ fn create_target_workspace(
     if let Some(s) = &opts.slug_override {
         new_obj.insert("slug".to_string(), json!(s));
     }
+    // The workspace's own uuid: an explicit override wins; otherwise mint a fresh
+    // one under regenerate_uuids so a same-DB clone doesn't hit workspaces_uuid_key
+    // (the tenant rows are regenerated the same way).
     if let Some(u) = &opts.uuid_override {
         new_obj.insert("uuid".to_string(), json!(u));
+    } else if opts.regenerate_uuids {
+        new_obj.insert("uuid".to_string(), json!(uuid::Uuid::new_v4().to_string()));
     }
     new_obj.insert("custom_domain".to_string(), Value::Null);
     new_obj.insert("organisation_id".to_string(), Value::Null);
@@ -460,7 +536,17 @@ fn upsert_members(
     );
     let mut n = 0i64;
     for user in users {
-        let json = serde_json::to_string(user).map_err(BackupError::JsonError)?;
+        // Security: never let an imported archive seed a platform-privileged
+        // global account. New users land as the baseline `platform_role = 'user'`;
+        // platform roles are per-cell and granted in the target, and workspace
+        // membership carries its own role. (Existing users are untouched — ON
+        // CONFLICT DO NOTHING.)
+        let mut obj = user
+            .as_object()
+            .ok_or_else(|| BackupError::CorruptedBackup("users row is not an object".to_string()))?
+            .clone();
+        obj.insert("platform_role".to_string(), json!("user"));
+        let json = serde_json::to_string(&Value::Object(obj)).map_err(BackupError::JsonError)?;
         sql_query(&query)
             .bind::<Text, _>(json)
             .execute(conn)
@@ -494,6 +580,13 @@ fn remap_insert_table(
         .map(|e| e.child_column.clone())
         .collect();
 
+    // Composite-PK junction tables (project_tickets, ticket_tags, cycle_tickets,
+    // ticket_watchers, ...) have no integer `id`. Nothing references them by id,
+    // so they need no old->new map and no RETURNING — just FK rewrites + a plain
+    // insert. Tables WITH an `id` draw a fresh one from the sequence and build the
+    // map their children read.
+    let has_id = table_has_id_column(conn, table)?;
+
     let mut this_map: HashMap<i64, i64> = HashMap::new();
     // (new id, [(self-ref column, old referenced id)]) for the second pass.
     let mut pending_self: Vec<(i64, Vec<(String, i64)>)> = Vec::new();
@@ -502,9 +595,6 @@ fn remap_insert_table(
         let obj = row
             .as_object()
             .ok_or_else(|| BackupError::CorruptedBackup(format!("{table} row is not an object")))?;
-        let old_id = obj.get("id").and_then(Value::as_i64).ok_or_else(|| {
-            BackupError::CorruptedBackup(format!("{table} row missing integer id"))
-        })?;
         let mut new_obj = obj.clone();
 
         if new_obj.contains_key("workspace_id") {
@@ -537,6 +627,17 @@ fn remap_insert_table(
             }
         }
 
+        if !has_id {
+            // Junction row: FKs are already remapped; insert verbatim, no id.
+            let json =
+                serde_json::to_string(&Value::Object(new_obj)).map_err(BackupError::JsonError)?;
+            insert_row(conn, table, &json)?;
+            continue;
+        }
+
+        let old_id = obj.get("id").and_then(Value::as_i64).ok_or_else(|| {
+            BackupError::CorruptedBackup(format!("{table} row missing integer id"))
+        })?;
         let mut selfs: Vec<(String, i64)> = Vec::new();
         for col in &self_ref_cols {
             if let Some(old_ref) = new_obj.get(col).and_then(Value::as_i64) {
@@ -571,39 +672,8 @@ fn remap_insert_table(
     }
 
     let n = rows.len() as i64;
-    id_maps.insert(table.to_string(), this_map);
-    Ok(n)
-}
-
-/// Restore the archive's files to the target's `ws/{new_id}/` prefix, rewriting
-/// the source `ws/{old_id}/` path. Files outside the workspace prefix or with a
-/// traversal segment are skipped (defence in depth).
-fn restore_files(
-    files: &[(String, Vec<u8>)],
-    old_ws_id: i32,
-    new_ws_id: i32,
-    uploads_dir: &Path,
-) -> Result<i64, BackupError> {
-    let old_prefix = format!("files/ws/{old_ws_id}/");
-    let new_root = uploads_dir.join("ws").join(new_ws_id.to_string());
-    let mut n = 0i64;
-    for (archive_path, bytes) in files {
-        let rest = match archive_path.strip_prefix(&old_prefix) {
-            Some(r) => r,
-            None => continue,
-        };
-        if rest.is_empty() || rest.contains("..") {
-            continue;
-        }
-        let dest = new_root.join(rest);
-        if !dest.starts_with(&new_root) {
-            continue;
-        }
-        if let Some(parent) = dest.parent() {
-            std::fs::create_dir_all(parent).map_err(BackupError::IoError)?;
-        }
-        std::fs::write(&dest, bytes).map_err(BackupError::IoError)?;
-        n += 1;
+    if has_id {
+        id_maps.insert(table.to_string(), this_map);
     }
     Ok(n)
 }
@@ -695,6 +765,44 @@ mod tests {
         })
         .expect("a workspace exists in the test DB");
 
+        // Seed a composite-PK junction row (user_groups has no `id` column) that
+        // references a user who is NOT a workspace member. This exercises two of
+        // the audit's findings at once: the id-less insert path, and exporting a
+        // referenced non-member user (user_groups.user_uuid FKs users.uuid, so the
+        // import FK-fails unless the export pulled that user in). in_audit_read
+        // suppresses the audit trigger for the seed (no workspace pin here).
+        #[derive(QueryableByName)]
+        struct UuidRow {
+            #[diesel(sql_type = Text)]
+            uuid: String,
+        }
+        let referenced_uuid: String = with_actor_bypass_context(&mut conn, &actor, |c| {
+            sql_query("SET LOCAL nosdesk.in_audit_read = 'true'").execute(c)?;
+            let u: UuidRow = sql_query(
+                "INSERT INTO users (name) VALUES ('audit-test-user') RETURNING uuid::text AS uuid",
+            )
+            .get_result(c)?;
+            let g: IdRow = sql_query(
+                "INSERT INTO groups \
+                   (uuid, name, created_at, updated_at, mail_enabled, security_enabled, \
+                    sync_enabled, workspace_id) \
+                 VALUES (gen_random_uuid(), 'audit-test-group', now(), now(), false, false, \
+                    false, $1) RETURNING id",
+            )
+            .bind::<Integer, _>(src)
+            .get_result(c)?;
+            sql_query(
+                "INSERT INTO user_groups (user_uuid, group_id, created_at, workspace_id) \
+                 VALUES ($1::uuid, $2, now(), $3)",
+            )
+            .bind::<Text, _>(&u.uuid)
+            .bind::<Integer, _>(g.id)
+            .bind::<Integer, _>(src)
+            .execute(c)?;
+            Ok::<_, diesel::result::Error>(u.uuid)
+        })
+        .expect("seed junction row + referenced non-member user");
+
         // Export the source workspace (plaintext).
         let archive = with_actor_bypass_context(&mut conn, &actor, |c| {
             as_diesel(export_workspace(c, src, None))
@@ -704,17 +812,27 @@ mod tests {
         // Import it back as a NEW workspace (slug + uuid overridden to dodge the
         // same-DB unique collision).
         let unique = std::process::id();
-        let tmp = std::env::temp_dir().join(format!("nosdesk-import-{unique}"));
         let opts = ImportOptions {
             slug_override: Some(format!("imported-{unique}")),
             uuid_override: Some("00000000-0000-0000-0000-0000000000ff".to_string()),
-            uploads_dir: tmp.clone(),
             // Same-DB round trip: mint fresh row uuids so the globally-unique
             // identity columns don't collide with the source workspace's rows.
             regenerate_uuids: true,
         };
+        let contents = read_archive(&archive, None).expect("read archive");
+
+        // The referenced non-member user must be in the exported users dump, or
+        // the import would fail the user_groups FK.
+        let users_dump = contents.tables.get("users").expect("users dump present");
+        assert!(
+            users_dump
+                .iter()
+                .any(|u| u.get("uuid").and_then(|v| v.as_str()) == Some(referenced_uuid.as_str())),
+            "export must include a user referenced by a row even if not a member"
+        );
+
         let result = with_actor_bypass_context(&mut conn, &actor, |c| {
-            as_diesel(import_workspace(c, &archive, None, opts))
+            as_diesel(import_workspace(c, &contents, &opts))
         })
         .expect("import succeeds (FK graph orders + remaps cleanly)");
 
@@ -745,6 +863,18 @@ mod tests {
             "workflow_states row count preserved by the import"
         );
 
-        let _ = std::fs::remove_dir_all(&tmp);
+        // The id-less junction row survived the round trip (regression guard for
+        // the audit's critical finding: composite-PK tables have no `id`).
+        let new_ug: i64 = with_actor_bypass_context(&mut conn, &actor, |c| {
+            let d: Cnt = sql_query("SELECT count(*) AS n FROM user_groups WHERE workspace_id = $1")
+                .bind::<Integer, _>(result.workspace_id)
+                .get_result(c)?;
+            Ok::<_, diesel::result::Error>(d.n)
+        })
+        .expect("junction count query");
+        assert_eq!(
+            new_ug, 1,
+            "the id-less user_groups junction row was imported into the new workspace"
+        );
     }
 }

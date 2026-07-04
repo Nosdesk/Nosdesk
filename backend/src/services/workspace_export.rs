@@ -13,9 +13,11 @@
 //! the cross-table reads see the workspace's rows and the global `workspaces`
 //! row.
 //!
-//! Uploaded files are bundled from the workspace's local `ws/{id}/` prefix under
-//! `files/`, mirroring the whole-DB backup's local-filesystem walk (S3-backed
-//! storage isn't walked, a pre-existing limitation of that path too).
+//! Row collection ([`collect_workspace_rows`]) is synchronous (DB only, runs in
+//! the BYPASSRLS transaction); the workspace's uploaded files are read separately
+//! through the storage abstraction (async, so it works for local and S3 alike)
+//! and folded into the archive under `files/{logical}` by
+//! [`assemble_workspace_archive`]. The handler orchestrates the two.
 //!
 //! Excluded: the partitioned `audit_log` + `sync_actions` (audit trail + sync
 //! stream — high-churn, not core tenant data, and partitioned parents that
@@ -26,8 +28,7 @@
 //! zip with `SENSITIVE_FIELDS` stripped.
 
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::{Cursor, Read, Write};
+use std::io::{Cursor, Write};
 
 use chrono::Utc;
 use diesel::deserialize::QueryableByName;
@@ -35,13 +36,12 @@ use diesel::prelude::*;
 use diesel::sql_query;
 use diesel::sql_types::{Integer, Text};
 use serde::{Deserialize, Serialize};
-use walkdir::WalkDir;
 use zip::write::FileOptions;
 use zip::ZipWriter;
 
 use crate::db::DbConnection;
 use crate::services::backup::{
-    get_uploads_dir, seal_inner_zip, sha256_hex, table_exists_in_db, BackupError, SENSITIVE_FIELDS,
+    seal_inner_zip, sha256_hex, table_exists_in_db, BackupError, SENSITIVE_FIELDS,
 };
 
 /// Shared zip entry options (Deflated, 0644), matching the whole-DB backup.
@@ -49,38 +49,6 @@ fn zip_options() -> FileOptions {
     FileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated)
         .unix_permissions(0o644)
-}
-
-/// Walk the workspace's local uploaded files (`{uploads}/ws/{id}/`) into the zip
-/// under `files/{path-relative-to-uploads}`, returning the count + total bytes.
-/// A missing directory (workspace has no files) yields an empty manifest.
-fn bundle_workspace_files(
-    zip: &mut ZipWriter<Cursor<Vec<u8>>>,
-    uploads_dir: &std::path::Path,
-    workspace_id: i32,
-) -> Result<WorkspaceFilesManifest, BackupError> {
-    let ws_dir = uploads_dir.join("ws").join(workspace_id.to_string());
-    let mut manifest = WorkspaceFilesManifest::default();
-    if !ws_dir.exists() {
-        return Ok(manifest);
-    }
-    for entry in WalkDir::new(&ws_dir).into_iter().filter_map(|e| e.ok()) {
-        if !entry.file_type().is_file() {
-            continue;
-        }
-        let file_path = entry.path();
-        let relative = file_path
-            .strip_prefix(uploads_dir)
-            .map_err(|e| BackupError::IoError(std::io::Error::other(e.to_string())))?;
-        zip.start_file(format!("files/{}", relative.display()), zip_options())?;
-        let mut f = File::open(file_path)?;
-        let mut buf = Vec::new();
-        let size = f.read_to_end(&mut buf)?;
-        zip.write_all(&buf)?;
-        manifest.total_count += 1;
-        manifest.total_size_bytes += size as i64;
-    }
-    Ok(manifest)
 }
 
 /// Manifest schema version for the workspace export. Distinct from the
@@ -242,10 +210,18 @@ fn dump_scoped(
 
 /// Workspace identity + the member uuids, fetched up front so the export fails
 /// fast (clear error) on an unknown/deleted workspace before doing any work.
-struct WorkspaceMeta {
-    slug: String,
-    uuid: String,
-    member_user_uuids: Vec<String>,
+pub struct WorkspaceMeta {
+    pub slug: String,
+    pub uuid: String,
+    pub member_user_uuids: Vec<String>,
+}
+
+/// One table's dumped rows (JSON-text array) + row count. The row collection is
+/// synchronous (DB); the caller assembles the archive after reading files.
+pub struct WorkspaceRowDump {
+    pub table: String,
+    pub json: String,
+    pub count: i64,
 }
 
 fn load_workspace_meta(
@@ -289,43 +265,20 @@ fn load_workspace_meta(
     })
 }
 
-/// Build the plaintext inner zip: `data/{table}.json` for each scoped tenant
-/// table plus `workspaces` and `users`, and `manifest.json`. The caller seals it
-/// when a password is supplied.
-fn build_workspace_inner_zip(
+/// Collect a workspace's row dumps: every scoped tenant table plus the
+/// `workspaces` row and member `users`, as JSON-text arrays. Synchronous (DB
+/// only) so it can run inside the BYPASSRLS transaction; files are read
+/// separately (async, through the storage abstraction) and folded in by
+/// [`assemble_workspace_archive`]. Must run BYPASSRLS so the scoped reads and the
+/// global `workspaces`/`users` reads succeed regardless of session workspace pin.
+pub fn collect_workspace_rows(
     conn: &mut DbConnection,
     workspace_id: i32,
-    meta: &WorkspaceMeta,
     include_sensitive: bool,
-) -> Result<Vec<u8>, BackupError> {
-    use std::io::Cursor;
+) -> Result<(Vec<WorkspaceRowDump>, WorkspaceMeta), BackupError> {
+    let meta = load_workspace_meta(conn, workspace_id)?;
+    let mut dumps: Vec<WorkspaceRowDump> = Vec::new();
 
-    let cursor: Cursor<Vec<u8>> = Cursor::new(Vec::new());
-    let mut zip = ZipWriter::new(cursor);
-    let options = FileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated)
-        .unix_permissions(0o644);
-
-    let mut table_manifests: HashMap<String, WorkspaceTableManifest> = HashMap::new();
-
-    let mut write_table = |zip: &mut ZipWriter<Cursor<Vec<u8>>>,
-                           name: &str,
-                           json: &str,
-                           count: i64|
-     -> Result<(), BackupError> {
-        zip.start_file(format!("data/{name}.json"), options)?;
-        zip.write_all(json.as_bytes())?;
-        table_manifests.insert(
-            name.to_string(),
-            WorkspaceTableManifest {
-                count,
-                sha256: sha256_hex(json.as_bytes()),
-            },
-        );
-        Ok(())
-    };
-
-    // Scoped tenant tables.
     for table in discover_workspace_tables(conn)? {
         let (json, count) = dump_scoped(
             conn,
@@ -334,10 +287,9 @@ fn build_workspace_inner_zip(
             workspace_id,
             include_sensitive,
         )?;
-        write_table(&mut zip, &table, &json, count)?;
+        dumps.push(WorkspaceRowDump { table, json, count });
     }
 
-    // The workspace row itself (global table).
     let (ws_json, ws_count) = dump_scoped(
         conn,
         "workspaces",
@@ -345,24 +297,110 @@ fn build_workspace_inner_zip(
         workspace_id,
         include_sensitive,
     )?;
-    write_table(&mut zip, "workspaces", &ws_json, ws_count)?;
+    dumps.push(WorkspaceRowDump {
+        table: "workspaces".to_string(),
+        json: ws_json,
+        count: ws_count,
+    });
 
-    // Member users (global, referenced by uuid from tenant rows).
-    let (users_json, users_count) = dump_scoped(
-        conn,
-        "users",
-        "t.uuid IN (SELECT user_uuid FROM workspace_members WHERE workspace_id = $1)",
-        workspace_id,
-        include_sensitive,
-    )?;
-    write_table(&mut zip, "users", &users_json, users_count)?;
+    // Users: the UNION of current members and every user uuid REFERENCED by an
+    // exported row (requester/assignee/author/etc.). A row can reference a user
+    // who was removed from membership or was never a member (external requester);
+    // omitting them would fail the enforced user FK on import. Each referencing
+    // column lives on a workspace-scoped table, so every subquery is scoped by $1.
+    let mut union_parts =
+        vec!["SELECT user_uuid FROM workspace_members WHERE workspace_id = $1".to_string()];
+    for (tbl, col) in user_referencing_columns(conn)? {
+        union_parts.push(format!(
+            "SELECT \"{col}\" FROM \"{tbl}\" WHERE workspace_id = $1 AND \"{col}\" IS NOT NULL"
+        ));
+    }
+    let users_where = format!("t.uuid IN ({})", union_parts.join(" UNION "));
+    let (users_json, users_count) =
+        dump_scoped(conn, "users", &users_where, workspace_id, include_sensitive)?;
+    dumps.push(WorkspaceRowDump {
+        table: "users".to_string(),
+        json: users_json,
+        count: users_count,
+    });
 
-    // Uploaded files: everything physically under the workspace's `ws/{id}/`
-    // prefix in the local uploads dir, archived under `files/{path-from-uploads}`
-    // so the import can restore it verbatim. This mirrors the whole-DB backup's
-    // local-filesystem walk; S3-backed storage is not walked here (a pre-existing
-    // limitation of the backup path too, tracked separately).
-    let files = bundle_workspace_files(&mut zip, &get_uploads_dir(), workspace_id)?;
+    Ok((dumps, meta))
+}
+
+/// The (table, column) pairs whose value is a `users.uuid` foreign key, on
+/// workspace-scoped tables only (so the export can scope each by `workspace_id`).
+/// Introspected from `pg_constraint` so a new user-referencing column is picked
+/// up automatically. Used to collect every referenced user into the export.
+fn user_referencing_columns(conn: &mut DbConnection) -> Result<Vec<(String, String)>, BackupError> {
+    #[derive(QueryableByName)]
+    struct Ref {
+        #[diesel(sql_type = Text)]
+        child_table: String,
+        #[diesel(sql_type = Text)]
+        child_column: String,
+    }
+    let rows: Vec<Ref> = sql_query(
+        "SELECT con.conrelid::regclass::text AS child_table, \
+                child_col.attname AS child_column \
+         FROM pg_constraint con \
+         JOIN pg_attribute child_col \
+           ON child_col.attrelid = con.conrelid AND child_col.attnum = con.conkey[1] \
+         JOIN pg_attribute parent_col \
+           ON parent_col.attrelid = con.confrelid AND parent_col.attnum = con.confkey[1] \
+         WHERE con.contype = 'f' \
+           AND con.connamespace = 'public'::regnamespace \
+           AND con.confrelid = 'public.users'::regclass \
+           AND parent_col.attname = 'uuid' \
+           AND array_length(con.conkey, 1) = 1 \
+           AND EXISTS ( \
+             SELECT 1 FROM pg_attribute wa \
+             WHERE wa.attrelid = con.conrelid \
+               AND wa.attname = 'workspace_id' \
+               AND NOT wa.attisdropped \
+           )",
+    )
+    .load(conn)
+    .map_err(BackupError::DatabaseError)?;
+    Ok(rows
+        .into_iter()
+        .map(|r| (r.child_table, r.child_column))
+        .collect())
+}
+
+/// Assemble the final archive from the collected row dumps and the workspace's
+/// files (`logical path -> bytes`, read through the storage abstraction so it
+/// works for local and S3 alike). Files are stored under `files/{logical}`
+/// (workspace-relative). Seals with the password when present.
+pub fn assemble_workspace_archive(
+    dumps: &[WorkspaceRowDump],
+    meta: &WorkspaceMeta,
+    workspace_id: i32,
+    files: &[(String, Vec<u8>)],
+    password: Option<&str>,
+) -> Result<Vec<u8>, BackupError> {
+    let cursor: Cursor<Vec<u8>> = Cursor::new(Vec::new());
+    let mut zip = ZipWriter::new(cursor);
+
+    let mut table_manifests: HashMap<String, WorkspaceTableManifest> = HashMap::new();
+    for dump in dumps {
+        zip.start_file(format!("data/{}.json", dump.table), zip_options())?;
+        zip.write_all(dump.json.as_bytes())?;
+        table_manifests.insert(
+            dump.table.clone(),
+            WorkspaceTableManifest {
+                count: dump.count,
+                sha256: sha256_hex(dump.json.as_bytes()),
+            },
+        );
+    }
+
+    let mut files_manifest = WorkspaceFilesManifest::default();
+    for (logical, bytes) in files {
+        zip.start_file(format!("files/{logical}"), zip_options())?;
+        zip.write_all(bytes)?;
+        files_manifest.total_count += 1;
+        files_manifest.total_size_bytes += bytes.len() as i64;
+    }
 
     let manifest = WorkspaceExportManifest {
         workspace_export_format_version: WORKSPACE_EXPORT_FORMAT_VERSION,
@@ -374,32 +412,31 @@ fn build_workspace_inner_zip(
         workspace_uuid: meta.uuid.clone(),
         member_user_uuids: meta.member_user_uuids.clone(),
         tables: table_manifests,
-        files,
+        files: files_manifest,
     };
     let manifest_json = serde_json::to_string_pretty(&manifest)?;
-    zip.start_file("manifest.json", options)?;
+    zip.start_file("manifest.json", zip_options())?;
     zip.write_all(manifest_json.as_bytes())?;
 
-    let finished = zip.finish()?;
-    Ok(finished.into_inner())
+    let inner = zip.finish()?.into_inner();
+    match password {
+        Some(pw) => seal_inner_zip(&inner, pw),
+        None => Ok(inner),
+    }
 }
 
-/// Export one workspace to an encrypted (password) or plaintext (no password)
-/// archive, returned as bytes. Must be called inside `with_actor_bypass_context`
-/// (BYPASSRLS) so the scoped reads and the global `workspaces`/`users` reads
-/// succeed regardless of session workspace pin.
+/// Convenience: export a workspace's ROWS ONLY (no files) in one synchronous
+/// call. The file-inclusive path lives in the handler, which reads files through
+/// the async storage abstraction. Used by tests and as the archive source for
+/// the import round-trip. Must run BYPASSRLS.
 pub fn export_workspace(
     conn: &mut DbConnection,
     workspace_id: i32,
     password: Option<&str>,
 ) -> Result<Vec<u8>, BackupError> {
     let include_sensitive = password.is_some();
-    let meta = load_workspace_meta(conn, workspace_id)?;
-    let inner = build_workspace_inner_zip(conn, workspace_id, &meta, include_sensitive)?;
-    match password {
-        Some(pw) => seal_inner_zip(&inner, pw),
-        None => Ok(inner),
-    }
+    let (dumps, meta) = collect_workspace_rows(conn, workspace_id, include_sensitive)?;
+    assemble_workspace_archive(&dumps, &meta, workspace_id, &[], password)
 }
 
 #[cfg(test)]
@@ -504,37 +541,38 @@ mod tests {
     }
 
     #[test]
-    fn bundles_only_the_workspaces_own_files() {
-        use std::fs;
+    fn assembles_files_under_workspace_relative_paths() {
+        use std::io::Read;
 
-        let root =
-            std::env::temp_dir().join(format!("nosdesk-wsexport-files-{}", std::process::id()));
-        let ws_id = 7;
-        let ws_dir = root.join("ws").join(ws_id.to_string()).join("sub");
-        fs::create_dir_all(&ws_dir).unwrap();
-        fs::write(ws_dir.join("foo.txt"), b"hello").unwrap();
-        // A different workspace's file must not leak into this export.
-        let other = root.join("ws").join("999");
-        fs::create_dir_all(&other).unwrap();
-        fs::write(other.join("bar.txt"), b"nope").unwrap();
+        let dumps = vec![WorkspaceRowDump {
+            table: "workspaces".to_string(),
+            json: "[]".to_string(),
+            count: 0,
+        }];
+        let meta = WorkspaceMeta {
+            slug: "acme".to_string(),
+            uuid: "00000000-0000-0000-0000-000000000001".to_string(),
+            member_user_uuids: vec![],
+        };
+        let files = vec![
+            ("tickets/5/foo.png".to_string(), b"hello".to_vec()),
+            ("assets/bar.pdf".to_string(), b"xyz".to_vec()),
+        ];
 
-        let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
-        let manifest = bundle_workspace_files(&mut zip, &root, ws_id).expect("bundle");
-        let bytes = zip.finish().unwrap().into_inner();
+        let bytes = assemble_workspace_archive(&dumps, &meta, 7, &files, None).expect("assemble");
+        let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).expect("valid zip");
 
-        assert_eq!(manifest.total_count, 1, "exactly one file for workspace 7");
-        assert_eq!(manifest.total_size_bytes, 5, "byte count of foo.txt");
+        // Files land under `files/{logical}` (workspace-relative, no ws/{id}/).
+        assert!(archive.by_name("files/tickets/5/foo.png").is_ok());
+        assert!(archive.by_name("files/assets/bar.pdf").is_ok());
 
-        let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
-        assert!(
-            archive.by_name("files/ws/7/sub/foo.txt").is_ok(),
-            "workspace file bundled at its uploads-relative path"
-        );
-        assert!(
-            archive.by_name("files/ws/999/bar.txt").is_err(),
-            "another workspace's file is excluded"
-        );
-
-        let _ = fs::remove_dir_all(&root);
+        let manifest: WorkspaceExportManifest = {
+            let mut f = archive.by_name("manifest.json").unwrap();
+            let mut s = String::new();
+            f.read_to_string(&mut s).unwrap();
+            serde_json::from_str(&s).unwrap()
+        };
+        assert_eq!(manifest.files.total_count, 2);
+        assert_eq!(manifest.files.total_size_bytes, 8, "5 + 3 bytes");
     }
 }

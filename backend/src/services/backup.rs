@@ -319,7 +319,7 @@ pub(crate) fn seal_inner_zip(inner_zip: &[u8], password: &str) -> Result<Vec<u8>
 /// inner-zip bytes. The header is validated up front so a
 /// malformed file fails fast with a clear error instead of a
 /// generic decryption failure.
-fn unseal_inner_zip(file_bytes: &[u8], password: &str) -> Result<Vec<u8>, BackupError> {
+pub(crate) fn unseal_inner_zip(file_bytes: &[u8], password: &str) -> Result<Vec<u8>, BackupError> {
     if file_bytes.len() < ENCRYPTED_HEADER_LEN {
         return Err(BackupError::CorruptedBackup(
             "encrypted backup is shorter than its header".to_string(),
