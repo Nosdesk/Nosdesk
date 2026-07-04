@@ -97,15 +97,22 @@ impl ChannelControl {
 /// final `ChannelControl` clone (e.g. during shutdown) closes the mpsc
 /// channel, the supervisor's `recv()` returns `None`, and it drains
 /// all workers before exiting.
-pub fn spawn(deps: RegistryDeps) -> (ChannelControl, JoinHandle<()>) {
+pub fn spawn(
+    deps: RegistryDeps,
+    shutdown: tokio_util::sync::CancellationToken,
+) -> (ChannelControl, JoinHandle<()>) {
     let (tx, rx) = mpsc::channel(COMMAND_BUFFER);
-    let join = tokio::spawn(run(rx, deps));
+    let join = tokio::spawn(run(rx, deps, shutdown));
     (ChannelControl { tx }, join)
 }
 
 /// Supervisor loop. Exposed for tests that want to drive it without
 /// going through `tokio::spawn`.
-async fn run(mut rx: mpsc::Receiver<ChannelCmd>, deps: RegistryDeps) {
+async fn run(
+    mut rx: mpsc::Receiver<ChannelCmd>,
+    deps: RegistryDeps,
+    shutdown: tokio_util::sync::CancellationToken,
+) {
     let mut registry = ChannelRegistry::new(deps.clone());
 
     // Hydrate from the DB so enabled channels at startup get a worker
@@ -127,10 +134,17 @@ async fn run(mut rx: mpsc::Receiver<ChannelCmd>, deps: RegistryDeps) {
     }
 
     info!("channel supervisor: ready");
-    while let Some(cmd) = rx.recv().await {
-        handle(cmd, &mut registry, &deps).await;
+    loop {
+        tokio::select! {
+            _ = shutdown.cancelled() => break,
+            cmd = rx.recv() => match cmd {
+                Some(cmd) => handle(cmd, &mut registry, &deps).await,
+                // All ChannelControl clones dropped: also a shutdown.
+                None => break,
+            },
+        }
     }
-    info!("channel supervisor: command channel closed; shutting down");
+    info!("channel supervisor: shutting down; stopping channel workers");
     registry.shutdown().await;
 }
 

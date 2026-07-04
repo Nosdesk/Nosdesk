@@ -38,11 +38,19 @@ const SAFETY_NET_TICK: Duration = Duration::from_secs(30);
 /// process. Errors inside the task are logged and the listener
 /// reconnects — there's no recoverable "task failed" state for the
 /// caller to act on.
-pub fn spawn(database_url: String, pool: Pool, resolver: Arc<OutboundEmailResolver>) {
+pub fn spawn(
+    database_url: String,
+    pool: Pool,
+    resolver: Arc<OutboundEmailResolver>,
+    shutdown: tokio_util::sync::CancellationToken,
+) -> tokio::task::JoinHandle<()> {
     let registry = Arc::new(CircuitBreakerRegistry::new());
     tokio::spawn(async move {
-        run(database_url, pool, resolver, registry).await;
-    });
+        tokio::select! {
+            _ = shutdown.cancelled() => info!("email queue listener: shutting down"),
+            _ = run(database_url, pool, resolver, registry) => {}
+        }
+    })
 }
 
 async fn run(

@@ -68,7 +68,7 @@ async fn boot_wires_state_and_routes() {
         std::env::temp_dir().join(format!("nosdesk-smoke-search-{}", std::process::id()));
     std::env::set_var("SEARCH_INDEX_PATH", &search_dir);
 
-    let state = build_state(
+    let (state, _background_tasks) = build_state(
         &config,
         pool.clone(),
         limiter(&redis, "public"),

@@ -56,10 +56,18 @@ struct IndexRow {
 
 /// Spawn the replicator. Returns immediately; the task runs for the
 /// process lifetime, reconnecting on its own.
-pub fn spawn(database_url: String, pool: Pool, search: Arc<SearchService>) {
+pub fn spawn(
+    database_url: String,
+    pool: Pool,
+    search: Arc<SearchService>,
+    shutdown: tokio_util::sync::CancellationToken,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        run(database_url, pool, search).await;
-    });
+        tokio::select! {
+            _ = shutdown.cancelled() => info!("search replicator: shutting down"),
+            _ = run(database_url, pool, search) => {}
+        }
+    })
 }
 
 async fn run(database_url: String, pool: Pool, search: Arc<SearchService>) {

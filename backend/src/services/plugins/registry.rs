@@ -422,7 +422,12 @@ pub async fn sync_once(
 /// Spawn the long-running background loop. Fires `sync_once` at
 /// boot then again every `SYNC_INTERVAL`. Failures are logged and
 /// retried on the next tick; they never unwind the task.
-pub fn spawn_sync_loop(pool: Pool, base_url: String, cache: SharedCache) {
+pub fn spawn_sync_loop(
+    pool: Pool,
+    base_url: String,
+    cache: SharedCache,
+    shutdown: tokio_util::sync::CancellationToken,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let http = match build_http_client() {
             Ok(c) => c,
@@ -467,9 +472,17 @@ pub fn spawn_sync_loop(pool: Pool, base_url: String, cache: SharedCache) {
                     }
                 }
             }
-            tokio::time::sleep(SYNC_INTERVAL).await;
+            // Wait for the next cycle, but break out promptly on shutdown
+            // (the loop otherwise spends ~all its time in this sleep).
+            tokio::select! {
+                _ = shutdown.cancelled() => {
+                    info!("registry sync: shutting down");
+                    break;
+                }
+                _ = tokio::time::sleep(SYNC_INTERVAL) => {}
+            }
         }
-    });
+    })
 }
 
 pub fn build_http_client() -> reqwest::Result<reqwest::Client> {

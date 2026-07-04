@@ -643,7 +643,7 @@ mod tests {
             storage: None,
             http: None,
         };
-        let (control, _join) = supervisor::spawn(deps);
+        let (control, _join) = supervisor::spawn(deps, tokio_util::sync::CancellationToken::new());
 
         App::new()
             .app_data(web::Data::new(pool))

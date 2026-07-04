@@ -96,10 +96,18 @@ struct ActionRow {
 /// for the lifetime of the process. Errors inside the task are
 /// logged and the listener reconnects — there's no recoverable
 /// "the task failed" state for the caller to act on.
-pub fn spawn(database_url: String, pool: Pool, sse: Arc<SseState>) {
+pub fn spawn(
+    database_url: String,
+    pool: Pool,
+    sse: Arc<SseState>,
+    shutdown: tokio_util::sync::CancellationToken,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        run(database_url, pool, sse).await;
-    });
+        tokio::select! {
+            _ = shutdown.cancelled() => info!("sync outbox listener: shutting down"),
+            _ = run(database_url, pool, sse) => {}
+        }
+    })
 }
 
 async fn run(database_url: String, pool: Pool, sse: Arc<SseState>) {

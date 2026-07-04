@@ -17,15 +17,17 @@ use crate::services::scheduler::StatusRegistry;
 use crate::services::search::SearchService;
 
 /// Boot the periodic-task scheduler: create the shutdown token + status
-/// registry, spawn every periodic job, and return the token (also reused as the
-/// collab shutdown token) and the registry (published as app data).
+/// registry, spawn every periodic job on the shared `scheduler_shutdown` token,
+/// and return the status registry (published as app data). The token is created
+/// by the caller and shared with the state-bound background listeners so one
+/// cancel stops them all.
 pub fn spawn_scheduled_jobs(
     pool: Pool,
     search_service: web::Data<Arc<SearchService>>,
     notification_service: web::Data<NotificationService>,
-) -> (tokio_util::sync::CancellationToken, StatusRegistry) {
+    scheduler_shutdown: tokio_util::sync::CancellationToken,
+) -> StatusRegistry {
     let scheduler_status = crate::services::scheduler::status_registry();
-    let scheduler_shutdown = tokio_util::sync::CancellationToken::new();
     {
         use crate::services::scheduled_jobs as jobs;
         use crate::services::scheduler::spawn_periodic;
@@ -253,5 +255,5 @@ pub fn spawn_scheduled_jobs(
 
         info!("scheduler: periodic jobs spawned");
     }
-    (scheduler_shutdown, scheduler_status)
+    scheduler_status
 }

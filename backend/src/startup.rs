@@ -60,13 +60,19 @@ pub fn build_state(
     public_limiter: Limiter,
     auth_limiter: Limiter,
     frontend_logs_limiter: Limiter,
-) -> Result<AppState, std::io::Error> {
+) -> Result<(AppState, Vec<tokio::task::JoinHandle<()>>), std::io::Error> {
     // Owned copies so the lifted body reads these by their original names.
     let redis_url = config.redis_url.clone();
     let frontend_url = config.frontend_url.clone();
     let host = config.host.clone();
     let port = config.port;
     let environment = config.environment.clone();
+
+    // One shutdown token shared by every background task (the state-bound
+    // listeners AND the periodic scheduler) so a single cancel stops them all;
+    // their JoinHandles are collected so the composition root can await them.
+    let scheduler_shutdown = tokio_util::sync::CancellationToken::new();
+    let mut background_tasks: Vec<tokio::task::JoinHandle<()>> = Vec::new();
 
     // Yjs document cache (survives backend restarts) shares the single
     // Redis URL resolved above. Used directly — no scheme rewrite — so a
@@ -123,11 +129,12 @@ pub fn build_state(
     // `services/sync_outbox.rs` for the full lifecycle / recovery
     // semantics.
     if let Ok(database_url) = std::env::var("DATABASE_URL") {
-        crate::services::sync_outbox::spawn(
+        background_tasks.push(crate::services::sync_outbox::spawn(
             database_url,
             pool.clone(),
             sse_state.clone().into_inner(),
-        );
+            scheduler_shutdown.clone(),
+        ));
     } else {
         warn!("DATABASE_URL not set; sync outbox listener not spawned (SSE will not deliver real-time updates)");
     }
@@ -169,7 +176,12 @@ pub fn build_state(
     // configured identity is released (not failed), so the worker is safe to
     // run even before any SMTP identity exists.
     if let Ok(database_url) = std::env::var("DATABASE_URL") {
-        crate::services::email_queue::spawn(database_url, pool.clone(), outbound_resolver.clone());
+        background_tasks.push(crate::services::email_queue::spawn(
+            database_url,
+            pool.clone(),
+            outbound_resolver.clone(),
+            scheduler_shutdown.clone(),
+        ));
     } else {
         warn!("DATABASE_URL not set; outbound email queue listener not spawned");
     }
@@ -236,11 +248,12 @@ pub fn build_state(
     // continue — the background task retries next cycle rather
     // than unwinding.
     if let Some(registry_url) = crate::services::plugins::registry::configured_url() {
-        crate::services::plugins::registry::spawn_sync_loop(
+        background_tasks.push(crate::services::plugins::registry::spawn_sync_loop(
             pool.clone(),
             registry_url,
             registry_cache.as_ref().clone(),
-        );
+            scheduler_shutdown.clone(),
+        ));
     } else {
         info!("NOSDESK_REGISTRY_URL is empty; registry sync disabled");
     }
@@ -283,11 +296,12 @@ pub fn build_state(
         .unwrap_or(false)
     {
         if let Ok(database_url) = std::env::var("DATABASE_URL") {
-            crate::services::search_replicator::spawn(
+            background_tasks.push(crate::services::search_replicator::spawn(
                 database_url,
                 pool.clone(),
                 search_service.get_ref().clone(),
-            );
+                scheduler_shutdown.clone(),
+            ));
             info!("Search replication enabled (NOSDESK_SEARCH_REPLICATION=true)");
         } else {
             warn!(
@@ -382,40 +396,45 @@ pub fn build_state(
         // time this line returns. The join handle is dropped — the
         // supervisor lives for the process lifetime, and the mpsc
         // senders held by `web::Data` keep it alive.
-        let (control, _join) = supervisor::spawn(deps);
+        let (control, join) = supervisor::spawn(deps, scheduler_shutdown.clone());
+        background_tasks.push(join);
         web::Data::new(control)
     };
 
-    // Boot the periodic-task scheduler (see workers::spawn_scheduled_jobs). The
-    // returned `scheduler_shutdown` token is shared with the collab shutdown
-    // path below so a single SIGTERM cancels both.
-    let (scheduler_shutdown, scheduler_status) = workers::spawn_scheduled_jobs(
+    // Boot the periodic-task scheduler on the shared shutdown token (also reused
+    // as the collab shutdown token) so a single SIGTERM cancels the scheduler,
+    // the listeners, and the collab background work together.
+    let scheduler_status = workers::spawn_scheduled_jobs(
         pool.clone(),
         search_service.clone(),
         notification_service.clone(),
+        scheduler_shutdown.clone(),
     );
     let scheduler_status_data = web::Data::new(scheduler_status);
 
-    Ok(AppState {
-        analytics_cache,
-        sse_state,
-        notification_service,
-        outbound_resolver_data,
-        webhook_service,
-        plugin_proxy_service,
-        registry_cache,
-        search_service,
-        yjs_app_state,
-        system_state,
-        public_limiter_data,
-        auth_limiter_data,
-        frontend_logs_limiter_data,
-        storage_data,
-        inbound_s3_data,
-        channel_control_data,
-        scheduler_status_data,
-        scheduler_shutdown,
-    })
+    Ok((
+        AppState {
+            analytics_cache,
+            sse_state,
+            notification_service,
+            outbound_resolver_data,
+            webhook_service,
+            plugin_proxy_service,
+            registry_cache,
+            search_service,
+            yjs_app_state,
+            system_state,
+            public_limiter_data,
+            auth_limiter_data,
+            frontend_logs_limiter_data,
+            storage_data,
+            inbound_s3_data,
+            channel_control_data,
+            scheduler_status_data,
+            scheduler_shutdown,
+        },
+        background_tasks,
+    ))
 }
 
 // ---- SPA shell serving (moved from main.rs; used by configure_app below) ----
@@ -1009,31 +1028,34 @@ pub fn configure_app(
 
 // ---- composition root (moved from main.rs) ----
 
-/// Resolve when the process receives a termination signal: SIGTERM (Fly
-/// deploy / `docker stop`) or SIGINT (Ctrl-C in dev). We `disable_signals()`
-/// on the server and drive shutdown ourselves so our own graceful work
-/// (flushing collaborative documents) runs before the server stops;
-/// actix's built-in handling would stop the server without that flush. If
-/// the handlers can't be installed, this never resolves, leaving today's
-/// behaviour (the OS kills the process, no flush).
-async fn await_shutdown_signal() {
-    use tokio::signal::unix::{signal, SignalKind};
-    let (mut term, mut interrupt) = match (
-        signal(SignalKind::terminate()),
-        signal(SignalKind::interrupt()),
-    ) {
-        (Ok(t), Ok(i)) => (t, i),
-        _ => {
-            error!(
-                "Failed to install termination signal handlers; graceful shutdown flush disabled"
-            );
-            std::future::pending::<()>().await;
-            return;
+/// SIGTERM (Fly deploy / `docker stop`) + SIGINT (Ctrl-C) streams, kept
+/// installed for the whole shutdown so a *second* signal during the graceful
+/// drain can escalate to an immediate stop rather than falling through to the
+/// default handler (which hard-kills mid-flush). We `disable_signals()` on the
+/// server and drive shutdown ourselves so the collab flush runs before the
+/// server stops.
+struct ShutdownSignals {
+    term: tokio::signal::unix::Signal,
+    interrupt: tokio::signal::unix::Signal,
+}
+
+impl ShutdownSignals {
+    /// Install the handlers. `None` if either can't be installed, in which case
+    /// the caller falls back to running without signal-driven shutdown.
+    fn install() -> Option<Self> {
+        use tokio::signal::unix::{signal, SignalKind};
+        Some(Self {
+            term: signal(SignalKind::terminate()).ok()?,
+            interrupt: signal(SignalKind::interrupt()).ok()?,
+        })
+    }
+
+    /// Resolve on the next SIGTERM or SIGINT.
+    async fn recv(&mut self) {
+        tokio::select! {
+            _ = self.term.recv() => info!("Received SIGTERM"),
+            _ = self.interrupt.recv() => info!("Received SIGINT"),
         }
-    };
-    tokio::select! {
-        _ = term.recv() => info!("Received SIGTERM"),
-        _ = interrupt.recv() => info!("Received SIGINT"),
     }
 }
 
@@ -1042,10 +1064,13 @@ async fn await_shutdown_signal() {
 pub struct BuiltServer {
     /// The un-awaited actix server. `await` it (or spawn it) to serve.
     pub server: actix_web::dev::Server,
-    /// Cancels the periodic scheduler + collab background work on shutdown.
+    /// Cancels the periodic scheduler + all background listeners + collab work.
     pub scheduler_shutdown: tokio_util::sync::CancellationToken,
     /// The Yjs app state, so the shutdown path can flush dirty docs.
     yjs: actix_web::web::Data<crate::handlers::collaboration::YjsAppState>,
+    /// Background task handles, awaited (bounded) on shutdown after the token is
+    /// cancelled so the listeners finish cleanly rather than being aborted.
+    background_tasks: Vec<tokio::task::JoinHandle<()>>,
 }
 
 /// Build everything from a validated [`Config`] up to a bound, un-awaited
@@ -1435,7 +1460,7 @@ pub async fn build_server(
         );
     }
 
-    let state = build_state(
+    let (state, background_tasks) = build_state(
         &config,
         pool.clone(),
         public_limiter,
@@ -1592,6 +1617,7 @@ pub async fn build_server(
         server,
         scheduler_shutdown: collab_shutdown_token,
         yjs: yjs_for_shutdown,
+        background_tasks,
     })
 }
 
@@ -1603,17 +1629,28 @@ pub async fn run(config: Config) -> std::io::Result<()> {
         server,
         scheduler_shutdown,
         yjs,
+        background_tasks,
     } = build_server(config, listener).await?;
 
     // We own the signals (`disable_signals` in build_server) and drive shutdown
-    // from this flow so post-drain work (the collab flush) is guaranteed to
-    // finish before the process exits. Run the server as a task so we can wait
-    // on a signal alongside it.
+    // from this flow so post-drain work (the collab flush + task drain) is
+    // guaranteed to finish before the process exits. Run the server as a task so
+    // we can wait on a signal alongside it.
     let server_handle = server.handle();
     let mut server_task = actix_web::rt::spawn(server);
 
+    // Keep the signal handlers installed for the whole shutdown so a *second*
+    // signal escalates to an immediate stop rather than hard-killing us.
+    let mut signals = match ShutdownSignals::install() {
+        Some(s) => s,
+        None => {
+            error!("Failed to install signal handlers; graceful shutdown disabled");
+            return server_task.await.unwrap_or(Ok(()));
+        }
+    };
+
     tokio::select! {
-        _ = await_shutdown_signal() => {}
+        _ = signals.recv() => {}
         // The server ended on its own (a fatal error, not a signal): cancel
         // background work and propagate its result.
         res = &mut server_task => {
@@ -1627,17 +1664,43 @@ pub async fn run(config: Config) -> std::io::Result<()> {
     //   2. Pause briefly so that drain propagates before we stop accepting.
     //   3. Stop accepting new connections and drain in-flight requests (bounded
     //      by the shutdown_timeout set in build_server).
-    //   4. Connections are closed now, so the collab docs are at their final
-    //      state: flush them, then cancel the scheduler + collab background work.
-    // The deploy grace period (Fly `kill_timeout`) must exceed the drain pause +
-    // shutdown_timeout + flush budget, or the process is SIGKILLed mid-shutdown.
+    //   4. Connections closed, docs final: flush collab, then cancel the shared
+    //      token and await the background listeners/jobs (bounded) so they finish
+    //      cleanly rather than being aborted by the runtime dropping.
+    // A second signal escalates to an immediate stop. The deploy grace period
+    // (Fly `kill_timeout`) must exceed drain pause + shutdown_timeout + flush +
+    // task-drain, or the process is SIGKILLed mid-shutdown.
     info!("Shutdown signal received; draining traffic");
     crate::handlers::health::begin_shutdown();
-    tokio::time::sleep(SHUTDOWN_DRAIN_PAUSE).await;
-    server_handle.stop(true).await;
-    info!("HTTP drained; flushing collaborative documents");
-    yjs.flush_all_dirty(std::time::Duration::from_secs(4)).await;
-    scheduler_shutdown.cancel();
+
+    let sh = server_handle.clone();
+    let token = scheduler_shutdown.clone();
+    let graceful = async move {
+        tokio::time::sleep(SHUTDOWN_DRAIN_PAUSE).await;
+        sh.stop(true).await;
+        info!("HTTP drained; flushing collaborative documents");
+        yjs.flush_all_dirty(std::time::Duration::from_secs(4)).await;
+        token.cancel();
+        // Bounded: the tasks are crash-safe, so a timeout just proceeds to exit.
+        if tokio::time::timeout(
+            BACKGROUND_DRAIN_TIMEOUT,
+            futures::future::join_all(background_tasks),
+        )
+        .await
+        .is_err()
+        {
+            warn!("Background tasks did not finish within the drain window; exiting anyway");
+        }
+    };
+
+    tokio::select! {
+        _ = graceful => {}
+        _ = signals.recv() => {
+            warn!("Second shutdown signal received; stopping immediately");
+            scheduler_shutdown.cancel();
+            server_handle.stop(false).await;
+        }
+    }
     let _ = server_task.await;
     Ok(())
 }
@@ -1645,6 +1708,10 @@ pub async fn run(config: Config) -> std::io::Result<()> {
 /// How long to keep serving after failing readiness before we stop accepting
 /// connections, so the load balancer / orchestrator notices the drain first.
 const SHUTDOWN_DRAIN_PAUSE: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// Bounded window to wait for background listeners/jobs to finish after the
+/// shutdown token is cancelled, before exiting regardless (they're crash-safe).
+const BACKGROUND_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 #[cfg(test)]
 mod tests {
