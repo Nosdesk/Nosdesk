@@ -64,6 +64,7 @@ const ALLOWED_FIELDS: &[&str] = &[
     "message",
     // tenant-internal stable identifiers (UUIDs + integer keys). Not
     // user-identifying outside the tenant boundary.
+    "actor_kind",
     "actor_uuid",
     "asset_id",
     "assignee_uuid",
@@ -117,10 +118,12 @@ const ALLOWED_FIELDS: &[&str] = &[
     "processed",
     "stamped",
     "total",
-    // HTTP / operational context for tracing-actix-web compatibility.
+    // HTTP / operational context: the canonical per-request wide event
+    // (`nosdesk::request`, see middleware/request_context.rs) + tracing-actix-web.
     "latency_ms",
     "method",
     "route",
+    "status_code",
     // trace correlation — from tracing-actix-web spans + opentelemetry.
     "request_id",
     "span_id",
@@ -356,6 +359,8 @@ mod tests {
             "latency_ms",
             "method",
             "route",
+            "status_code",
+            "actor_kind",
             "request_id",
             "span_id",
             "trace_id",
