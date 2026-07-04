@@ -298,8 +298,8 @@ const getRequiredEnvVars = () => [
             </div>
 
             <!-- Configuration error -->
-            <div v-if="emailConfig?.error" class="p-2 bg-status-error/10 border border-status-error/30 rounded-lg text-sm text-status-error flex items-start gap-2">
-              <Icon name="warning" class="flex-shrink-0 mt-0.5" />
+            <div v-if="emailConfig?.error" class="p-2 bg-status-error/10 border border-status-error/30 rounded-lg text-sm text-status-error flex items-center gap-2">
+              <Icon name="warning" class="flex-shrink-0" />
               <span>{{ emailConfig.error }}</span>
             </div>
 

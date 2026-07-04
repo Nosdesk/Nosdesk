@@ -86,7 +86,7 @@ const iconColorClass = computed(() => ICON_COLOR_CLASS[props.severity])
 
     <div
       v-if="hasHeader"
-      class="px-4 py-3 flex items-start gap-3"
+      class="px-4 py-3 flex items-center gap-3"
       :class="headerBgClass"
     >
       <Icon
@@ -94,7 +94,7 @@ const iconColorClass = computed(() => ICON_COLOR_CLASS[props.severity])
         :name="resolvedIcon"
         size="md"
         :class="iconColorClass"
-        class="flex-shrink-0 mt-0.5"
+        class="flex-shrink-0"
       />
       <div class="flex-1 text-sm">
         <slot name="header" />

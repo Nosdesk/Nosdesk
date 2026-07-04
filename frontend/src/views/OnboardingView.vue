@@ -331,16 +331,16 @@ onUnmounted(() => {
 
       <!-- Success Message -->
       <div v-if="successMessage" class="bg-status-success/20 border border-status-success/50 text-status-success px-4 py-3 rounded-lg text-sm">
-        <div class="flex items-start gap-3">
-          <Icon name="check" size="lg" class="mt-0.5 flex-shrink-0" />
+        <div class="flex items-center gap-3">
+          <Icon name="check" size="lg" class="flex-shrink-0" />
           <span>{{ successMessage }}</span>
         </div>
       </div>
 
       <!-- Error Message -->
       <div v-if="errorMessage" class="bg-status-error/20 border border-status-error/50 text-status-error px-4 py-3 rounded-lg text-sm">
-        <div class="flex items-start gap-3">
-          <Icon name="warning" size="lg" class="mt-0.5 flex-shrink-0" />
+        <div class="flex items-center gap-3">
+          <Icon name="warning" size="lg" class="flex-shrink-0" />
           <span>{{ errorMessage }}</span>
         </div>
       </div>
