@@ -27,6 +27,7 @@
     { "type": "ticket.title_changed", "op": "U" },
     { "type": "ticket.category_changed", "op": "U" },
     { "type": "ticket.verification_changed", "op": "U" },
+    { "type": "ticket.cycle_changed", "op": "U" },
     { "type": "ticket.merged", "op": "U" },
     { "type": "ticket.merged_into", "op": "U" },
     { "type": "ticket.linked", "op": "U" },
