@@ -129,6 +129,14 @@ export interface WidgetDef {
    * working unchanged.
    */
   frameWraps?: boolean
+  /**
+   * CSS `aspect-ratio` (e.g. `'2 / 1'`) for a PLOTTED-chart widget whose body
+   * has no intrinsic height (LineChart, heatmap). Passed to the shell so the
+   * plot derives its height from width on the stacked mobile layout instead of
+   * collapsing, and fills its row on the xl lattice. Omit for KPI tiles / lists
+   * (they size to their content). See `DashboardWidgetShell.bodyAspect`.
+   */
+  bodyAspect?: string
 }
 
 /** Page-chrome elements that widgets may depend on. */
@@ -209,6 +217,7 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     roles: ['technician', 'admin'],
     chromeDependencies: ['time-range', 'compare'],
     frameWraps: true,
+    bodyAspect: '2 / 1',
   },
   {
     id: 'volume-by-category',

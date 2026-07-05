@@ -67,7 +67,10 @@ defineProps<{
         </span>
       </div>
 
-      <div class="flex-1 min-h-0 flex flex-col justify-end py-0.5">
+      <!-- Sparkline: a bounded strip on the stacked layout (gives the rail an
+           intrinsic height so it sizes to content and never collapses), but
+           grows to fill the card on the xl lattice. -->
+      <div class="h-10 xl:h-auto xl:flex-1 min-h-0 flex flex-col justify-end py-0.5">
         <SparklineChart
           v-if="stat.sparkline?.length"
           fluid
