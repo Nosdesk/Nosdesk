@@ -49,6 +49,9 @@ export interface CardData {
 
   // Time
   due_date?: string | null
+  /** Optional planning start. Null means unplanned; the gantt falls
+   * back to created_at for a bar's left edge. */
+  start_date?: string | null
   created_at: string
   updated_at: string
   /** Set when the ticket reaches a terminal workflow state. Used by

@@ -115,6 +115,7 @@ impl Importer for TicketImporter {
                 origin_channel_id: None,
                 triage_state: None,
                 due_date: resolved.due_date,
+                start_date: None,
                 recurrence_rule: None,
                 recurrence_template_id: None,
                 resolution_notes: None,

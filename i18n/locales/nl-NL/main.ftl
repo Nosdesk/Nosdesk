@@ -3892,6 +3892,10 @@ ticket-detail-scheduling-none = Geen
 ticket-detail-scheduling-due-date = Vervaldatum
 ticket-detail-scheduling-due-prefix = Vervalt { $date }
 ticket-detail-scheduling-clear-due = Vervaldatum wissen
+# Startdatum (machinevertaling, na te kijken door een moedertaalspreker).
+ticket-detail-scheduling-start-date = Startdatum
+ticket-detail-scheduling-start-prefix = Start { $date }
+ticket-detail-scheduling-clear-start = Startdatum wissen
 ticket-detail-scheduling-recurrence = Herhaling
 ticket-detail-recurrence-none = Niet terugkerend
 ticket-detail-recurrence-daily = Dagelijks

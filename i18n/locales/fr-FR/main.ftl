@@ -3901,6 +3901,10 @@ ticket-detail-scheduling-none = Aucune
 ticket-detail-scheduling-due-date = Échéance
 ticket-detail-scheduling-due-prefix = Échéance { $date }
 ticket-detail-scheduling-clear-due = Effacer l'échéance
+# Date de début (machine, à relire par un locuteur natif).
+ticket-detail-scheduling-start-date = Date de début
+ticket-detail-scheduling-start-prefix = Débute { $date }
+ticket-detail-scheduling-clear-start = Effacer la date de début
 ticket-detail-scheduling-recurrence = Récurrence
 ticket-detail-recurrence-none = Non récurrent
 ticket-detail-recurrence-daily = Quotidien

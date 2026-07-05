@@ -58,6 +58,8 @@ export interface Ticket {
   /** Calendar deadline. Null when the ticket has no committed
    * due date. ISO string at the API boundary. */
   due_date?: string | null
+  /** Optional planning start for the gantt. Null means unplanned. */
+  start_date?: string | null
   /** RFC 5545 RRULE string when the ticket is part of a recurring
    * series. Closing a ticket with a rule spawns the next
    * occurrence on the backend. */

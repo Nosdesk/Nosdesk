@@ -1138,6 +1138,23 @@ pub async fn update_ticket_partial(
         }
     }
 
+    // start_date: ISO timestamp string, or null to clear. Optional
+    // planning start for the gantt; same shape as due_date.
+    if body.get("start_date").is_some() {
+        match body.get("start_date") {
+            Some(Value::String(s)) => match chrono::DateTime::parse_from_rfc3339(s) {
+                Ok(dt) => {
+                    ticket_update.start_date = Some(Some(dt.naive_utc()));
+                }
+                Err(_) => return errors::bad_request("start_date must be RFC3339 or null"),
+            },
+            Some(Value::Null) => {
+                ticket_update.start_date = Some(None);
+            }
+            _ => return errors::bad_request("start_date must be a string or null"),
+        }
+    }
+
     // recurrence_rule: RFC 5545 RRULE string, or null to clear.
     // Validated lazily inside services::recurrence on close; the
     // handler accepts any string and only rejects on type.

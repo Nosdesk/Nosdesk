@@ -13,6 +13,8 @@
     "submitted_via": { "rust": "Option<String>", "ts": "string | null" },
     "origin_channel_id": { "rust": "Option<i32>", "ts": "number | null" },
     "verification_state": { "rust": "Option<String>", "ts": "string | null" },
+    "due_date": { "rust": "Option<NaiveDateTime>", "ts": "string | null" },
+    "start_date": { "rust": "Option<NaiveDateTime>", "ts": "string | null" },
     "closed_at": { "rust": "Option<NaiveDateTime>", "ts": "string | null" },
     "created_at": { "rust": "NaiveDateTime", "ts": "string" },
     "updated_at": { "rust": "NaiveDateTime", "ts": "string" }

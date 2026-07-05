@@ -976,9 +976,14 @@ pub struct Ticket {
     /// True when the ticket opened from inbound mail the provider flagged as
     /// spam. The ticket still opens (we never drop a customer request) but is
     /// badged + low-priority for triage. Cleared via a normal ticket update
-    /// ("not spam"). Must stay the LAST field to match `schema.rs` column
-    /// order (positional Queryable).
+    /// ("not spam").
     pub spam_suspected: bool,
+    /// Optional planning start for the gantt timeline. NULL means
+    /// unplanned; the gantt falls back to created_at for a bar's left
+    /// edge. A planning field, distinct from the factual created_at.
+    /// Must stay the LAST field to match `schema.rs` column order
+    /// (positional Queryable).
+    pub start_date: Option<NaiveDateTime>,
 }
 
 /// Merge metadata for a ticket that was merged into another (the satellite of
@@ -1030,6 +1035,7 @@ pub struct NewTicket {
     pub origin_channel_id: Option<i32>,
     pub triage_state: Option<String>,
     pub due_date: Option<NaiveDateTime>,
+    pub start_date: Option<NaiveDateTime>,
     pub recurrence_rule: Option<String>,
     pub recurrence_template_id: Option<i32>,
     pub resolution_notes: Option<String>,
@@ -1054,6 +1060,7 @@ pub struct TicketUpdate {
     pub category_id: Option<Option<i32>>,
     pub triage_state: Option<Option<String>>,
     pub due_date: Option<Option<NaiveDateTime>>,
+    pub start_date: Option<Option<NaiveDateTime>>,
     pub recurrence_rule: Option<Option<String>>,
     pub recurrence_template_id: Option<Option<i32>>,
     /// `Option<Option<String>>` semantics — outer None = leave as-is,

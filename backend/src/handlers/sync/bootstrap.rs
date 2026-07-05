@@ -651,6 +651,7 @@ fn stream_bootstrap_inner(
                 "triage_state": t.triage_state,
                 "spam_suspected": t.spam_suspected,
                 "due_date": t.due_date,
+                "start_date": t.start_date,
                 "resolution_notes": t.resolution_notes,
                 // Detail-view scalars (source row + audit bylines) so
                 // the pool-native ticket detail view renders them with
