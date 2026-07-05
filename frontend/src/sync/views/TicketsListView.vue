@@ -25,6 +25,10 @@
  */
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+
+// Named so <KeepAlive :include> in App.vue can cache this list as a swipe-back
+// target (scroll + state preserved when returning from a ticket).
+defineOptions({ name: 'TicketsListView' })
 import { useFluent } from 'fluent-vue'
 import { useCreateTicketAction } from '@/composables/useCreateTicketAction'
 import { useWorkspaceGroupSubscription } from '@/sync/useWorkspaceGroup'

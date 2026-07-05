@@ -3,6 +3,7 @@
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import { computed, ref, onMounted, watch, nextTick, defineAsyncComponent } from 'vue'
 import { needsServerSelection } from '@/platform/serverGate'
+import { isTauriRuntime } from '@/platform'
 // Native first-run server picker; lazy so the web bundle doesn't carry it.
 const ConnectServerView = defineAsyncComponent(() => import('@/views/ConnectServerView.vue'))
 import { useFluent } from 'fluent-vue'
@@ -22,7 +23,17 @@ import { useSnowfall } from '@/composables/useSnowfall'
 import { useFavicon } from '@/composables/useFavicon'
 import { useNotificationSSE } from '@/composables/useNotificationSSE'
 import { useTicketDeletionCleanup } from '@/composables/useTicketDeletionCleanup'
-import { useSwipeBack } from '@/composables/useSwipeBack'
+// Swipe-back TARGET list views to KeepAlive so native back / popstate restores
+// them (scroll + state) instead of re-mounting. Scoped on purpose — details are
+// never cached.
+const keepAliveViews = ['TicketsListView', 'AssetsListView']
+
+// In the native app, WKWebView owns the back animation (its snapshot slide). The
+// Vue `page` out-in transition then fights it: it holds the LEAVING view on screen
+// while WebKit already revealed the destination, so the old page flashes back in.
+// Disable the Vue transition natively (instant swap) and let WebKit animate. Web
+// keeps the transition.
+const usePageTransition = !isTauriRuntime()
 import { setMentionNavigationHandler } from '@/plugins/prosemirror-mention-view'
 import authService from '@nosdesk/core/services/authService'
 import { useBrandingStore } from '@/stores/branding'
@@ -81,7 +92,6 @@ const titleManager = useTitleManager();
 const { isActive: isMobileSearchActive } = useMobileSearch();
 
 // Theme-specific visual effects
-useSwipeBack();        // iOS/Android left-edge swipe-to-go-back (mobile only)
 useCursorScanlines();  // Red-horizon: Crosshair lines following cursor
 useCrtEffect();        // Red-horizon: Full-screen CRT monitor effect
 useSnowfall();         // Christmas: Ambient falling snow
@@ -249,9 +259,13 @@ onMounted(async () => {
 
       <!-- Scrollable content with bottom padding for mobile nav (+ search bar when active) -->
       <main
-        class="flex-1 overflow-hidden sm:pb-0"
+        class="flex min-h-0 flex-1 flex-col overflow-hidden sm:pb-0"
         :class="isMobileSearchActive ? 'pb-[calc(6.5rem+env(safe-area-inset-bottom))]' : 'pb-[calc(3rem+env(safe-area-inset-bottom))]'"
       >
+        <!-- Positioning context for the swipe layers. A flex child fills main's
+             content box, so the absolute layers below respect main's mobile-nav
+             bottom padding instead of sliding under the bottom nav. -->
+        <div class="relative min-h-0 flex-1">
         <!-- Workspace switch in flight: mask the content so neither the old
              workspace's data (being torn down) nor the new one's empty state
              flashes while the sync pool re-hydrates. -->
@@ -261,6 +275,9 @@ onMounted(async () => {
         >
           <LoadingSpinner size="md" />
         </div>
+        <!-- Plain single-view RouterView. The iOS swipe-back is handled natively
+             by WKWebView (allowsBackForwardNavigationGestures), so no JS gesture
+             or view stack is needed; desktop is unaffected. -->
         <RouterView
           v-else
           v-slot="{ Component, route: viewRoute }"
@@ -269,53 +286,34 @@ onMounted(async () => {
           @update:document="titleManager.setDocument"
           @update:title="titleManager.setCustomTitle"
         >
-          <Transition name="page" mode="out-in">
-            <!--
-              No `<KeepAlive>`. Every view's stateful concerns are
-              owned by stores keyed by route param so the component
-              itself is fully unmountable:
-                * Tickets/Users/Devices/Projects/Docs URL-sync
-                  filters; Pinia Colada serves cached data instantly
-                  on remount.
-                * TicketView's Yjs doc, WebsocketProvider, and
-                  PermanentUserData live in `useCollabSessionStore`
-                  refcounted by docId, with IndexedDB persistence
-                  for instant cold-load.
-                * Comment drafts live in `useTicketDraftsStore`
-                  (localStorage) and pending attachments in
-                  `useTicketUiStore` (in-memory).
-              Avoiding KeepAlive sidesteps three documented core
-              bugs (vuejs/core#5386, #5323, #12786) and removes the
-              activate/deactivate gymnastics from every composable.
+          <!-- Scoped KeepAlive: cache only the swipe-back TARGET list views, so
+               returning (native WKWebView back / popstate) restores the live
+               instance (scroll + state) instead of re-mounting. Detail views
+               (SSE/collab-heavy) are deliberately NOT cached and unmount normally.
 
-              `:key` reads from `route.meta.key`, which routes set in
-              `beforeEnter` (e.g. `to.meta.key = to.params.id` for
-              ticket / project detail). Forces a fresh mount when
-              navigating directly between two records of the same
-              route (`/tickets/1` → `/tickets/2`) so per-record
-              stateful composables (collab session, ticket SSE) tear
-              down and rebuild against the new id, instead of being
-              left wired to the first id.
-
-              The fallback uses the *top-level* matched route's path
-              instead of the leaf `fullPath`. Routes that share a
-              parent layout (e.g. every admin child sits under the
-              `/admin` parent that mounts AdminLayout) collapse to a
-              single key — the parent layout stays mounted across
-              child navigations, only the nested RouterView inside
-              the layout re-renders. Without this, navigating from
-              `/admin/groups` to `/admin/categories` would unmount
-              the entire AdminLayout (sidebar included) and run it
-              through the `page` transition, which reads as the
-              sidebar flashing in and out.
-            -->
+               Web wraps it in the `page` out-in transition. The NATIVE app does
+               NOT: WKWebView owns the back animation, and an out-in transition
+               holds the leaving view for a tick past `popstate` — which is exactly
+               the frame WebKit lifts its snapshot on, causing the outgoing-page
+               flash (WebKit bug 187506). No transition => immediate swap. -->
+          <Transition v-if="usePageTransition" name="page" mode="out-in">
+            <KeepAlive :include="keepAliveViews">
+              <component
+                :is="Component"
+                :key="viewRoute.meta.key ?? viewRoute.matched[0]?.path ?? viewRoute.fullPath"
+                class="h-full overflow-auto"
+              />
+            </KeepAlive>
+          </Transition>
+          <KeepAlive v-else :include="keepAliveViews">
             <component
               :is="Component"
               :key="viewRoute.meta.key ?? viewRoute.matched[0]?.path ?? viewRoute.fullPath"
               class="h-full overflow-auto"
             />
-          </Transition>
+          </KeepAlive>
         </RouterView>
+        </div>
       </main>
     </div>
   </div>

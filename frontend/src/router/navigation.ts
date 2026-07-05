@@ -28,9 +28,18 @@ const depth = ref(0)
 /** Last observed `history.state.position`, for delta direction detection. */
 let lastPosition: number | null = null
 
-function currentPosition(): number {
-  const state = window.history.state as { position?: number } | null
-  return typeof state?.position === 'number' ? state.position : 0
+/**
+ * vue-router's authoritative history position. Prefer the router's OWN history
+ * state (`router.options.history.state`) over `window.history.state` — in some
+ * webviews the latter isn't the object vue-router wrote. Falls back to window,
+ * then 0.
+ */
+function currentPosition(router: Router): number {
+  const rs = (router.options.history.state as { position?: number } | null)
+    ?.position
+  if (typeof rs === 'number') return rs
+  const ws = (window.history.state as { position?: number } | null)?.position
+  return typeof ws === 'number' ? ws : 0
 }
 
 /**
@@ -41,14 +50,14 @@ function currentPosition(): number {
  */
 export function installNavigationTracking(router: Router): void {
   router.afterEach(() => {
-    const pos = currentPosition()
+    const pos = currentPosition(router)
     if (lastPosition === null) {
       lastPosition = pos // entry baseline; depth stays 0
-      return
+    } else {
+      if (pos > lastPosition) depth.value += 1
+      else if (pos < lastPosition) depth.value = Math.max(0, depth.value - 1)
+      lastPosition = pos
     }
-    if (pos > lastPosition) depth.value += 1
-    else if (pos < lastPosition) depth.value = Math.max(0, depth.value - 1)
-    lastPosition = pos
   })
 }
 

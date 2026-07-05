@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory, type RouteLocationNormalized } from 'vue-router'
-import { withWorkspaceRouting, installWorkspaceGuard, workspaceSlugOf } from './workspaceRouting'
+import { withWorkspaceRouting, installWorkspaceGuard, installSlugCarrier, workspaceSlugOf } from './workspaceRouting'
 import { installNavigationTracking } from './navigation'
 import { getWorkspaceRouting } from '@nosdesk/core/services/instanceConfig'
 import { lastWorkspaceSlug } from '@/services/activeWorkspace'
@@ -942,6 +942,12 @@ const router = createRouter({
     }
   ]),
 })
+
+// Slug carrier: inject the active workspace slug into slug-less navigations up
+// front, so they PUSH real history entries instead of being redirect-REPLACED by
+// the guard below (which broke back/forward + native swipe-back). See
+// ./workspaceRouting.
+installSlugCarrier(router)
 
 // Slug-in-path workspace guard (Model C). Registered first so it runs before
 // the auth guards; inert for bare paths in host mode. See ./workspaceRouting.
