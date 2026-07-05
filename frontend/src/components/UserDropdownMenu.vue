@@ -8,15 +8,15 @@
  * `MenuList`'s gutter-aligned action-row format.
  *
  * Positioning, dismiss, focus, and the fade-scale transition
- * delegate to `<Popover>` — same primitive every other dropdown
- * in the app uses.
+ * delegate to `<ResponsiveMenu>` (anchored popover on desktop,
+ * bottom sheet on mobile), same as every other dropdown.
  */
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import { useAuthStore } from '@/stores/auth'
 import UserAvatar from './UserAvatar.vue'
-import Popover from './common/Popover.vue'
+import ResponsiveMenu from './common/ResponsiveMenu.vue'
 import MenuList, { type MenuItem } from './common/MenuList.vue'
 import { ICON_REGISTRY } from './common/icons'
 import BugReportModal from './BugReportModal.vue'
@@ -105,7 +105,7 @@ function handleSelect(id: string) {
 </script>
 
 <template>
-  <Popover
+  <ResponsiveMenu
     :open="showMenu"
     :anchor="anchor"
     placement="bottom-end"
@@ -140,7 +140,7 @@ function handleSelect(id: string) {
     </button>
 
     <MenuList :items="items" @select="handleSelect" />
-  </Popover>
+  </ResponsiveMenu>
 
   <BugReportModal :is-open="bugReportOpen" @close="bugReportOpen = false" />
 </template>

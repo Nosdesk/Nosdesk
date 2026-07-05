@@ -21,7 +21,7 @@
  */
 import { computed, nextTick, ref, watch, type Ref } from 'vue'
 import { useFluent } from 'fluent-vue'
-import Popover from '@/components/common/Popover.vue'
+import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
 
 interface Props {
   modelValue: string
@@ -185,7 +185,7 @@ defineExpose({ focus: focusInput })
       @keydown.escape="open = false"
     />
 
-    <Popover
+    <ResponsiveMenu
       :open="open"
       :anchor="{ type: 'element', element: () => triggerRef }"
       placement="bottom-start"
@@ -223,7 +223,7 @@ defineExpose({ focus: focusInput })
           </li>
         </ul>
       </div>
-    </Popover>
+    </ResponsiveMenu>
   </div>
 </template>
 

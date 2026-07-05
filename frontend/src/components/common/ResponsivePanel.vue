@@ -95,14 +95,16 @@ const ariaLabel = computed(() => props.ariaLabel ?? props.title)
       />
     </Transition>
     <Transition name="sheet">
-      <div
-        v-if="open && isMobile"
-        class="fixed inset-x-0 bottom-0 z-overlay flex h-[75vh] flex-col rounded-t-xl border-t border-default bg-surface shadow-2xl"
-        :class="{ 'transition-transform': !isDragging }"
-        :style="{ transform: `translateY(${dragOffset}px)` }"
-        role="dialog"
-        :aria-label="ariaLabel"
-      >
+      <div v-if="open && isMobile" class="fixed inset-x-0 bottom-0 z-overlay">
+        <!-- Inner panel carries the drag offset; the Vue transition slides the
+             wrapper on enter/leave. Two elements so the transforms compose. -->
+        <div
+          class="flex h-[75vh] flex-col rounded-t-xl border-t border-default bg-surface shadow-2xl"
+          :class="{ 'sheet-panel-settle': !isDragging }"
+          :style="{ transform: `translateY(${dragOffset}px)` }"
+          role="dialog"
+          :aria-label="ariaLabel"
+        >
         <!-- Drag handle. Big touch target, but visually a small
              pill so the chrome stays restrained. -->
         <div
@@ -122,8 +124,10 @@ const ariaLabel = computed(() => props.ariaLabel ?? props.title)
             <Icon name="close" size="sm" />
           </button>
         </header>
-        <div class="flex flex-1 flex-col overflow-y-auto">
+        <!-- Bottom padding clears the iPhone home indicator (dead zone). -->
+        <div class="flex flex-1 flex-col overflow-y-auto pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
           <slot />
+        </div>
         </div>
       </div>
     </Transition>
@@ -131,21 +135,34 @@ const ariaLabel = computed(() => props.ariaLabel ?? props.title)
 </template>
 
 <style>
-/* Sheet enter/leave: 200ms upward slide for sheet, paired
-   backdrop fade. Global rather than scoped because the sheet is
-   teleported out of the component's scoped-style context. */
-.sheet-enter-active,
+/* Sheet present/dismiss slide, shared by <ResponsiveMenu> and <ResponsivePanel>.
+   Global (not scoped) because the sheet teleports out of scoped-style context.
+   Present decelerates into place on the iOS present curve over a longer beat so
+   it reads as rising, not popping; dismiss is a touch quicker. The slide lives on
+   the WRAPPER; the drag offset lives on the inner panel (.sheet-panel-settle), so
+   the two transforms never fight. */
+.sheet-enter-active {
+  transition: transform 360ms cubic-bezier(0.32, 0.72, 0, 1);
+}
 .sheet-leave-active {
-  transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 280ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 .sheet-enter-from,
 .sheet-leave-to {
   transform: translateY(100%);
 }
 
-.sheet-backdrop-enter-active,
+/* Drag spring-back on release (no dismiss). Same curve as the present, a hair
+   shorter. Absent mid-drag so the panel tracks the finger 1:1. */
+.sheet-panel-settle {
+  transition: transform 320ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.sheet-backdrop-enter-active {
+  transition: opacity 360ms ease-out;
+}
 .sheet-backdrop-leave-active {
-  transition: opacity 200ms ease-out;
+  transition: opacity 280ms ease-in;
 }
 .sheet-backdrop-enter-from,
 .sheet-backdrop-leave-to {

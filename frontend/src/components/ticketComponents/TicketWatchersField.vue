@@ -35,7 +35,7 @@ import { useAuthStore } from '@/stores/auth'
 import { watcherService } from '@nosdesk/core/services/watcherService'
 import UserAvatar from '@/components/UserAvatar.vue'
 import Icon from '@/components/common/Icon.vue'
-import Popover from '@/components/common/Popover.vue'
+import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
@@ -230,11 +230,12 @@ watch(isWatching, (watching) => {
     <!-- Preferences popover. Anchored to the chevron button next
          to the bell. Per-watch only; the user's global notification
          settings still own digest mode, mute-everything, etc. -->
-    <Popover
+    <ResponsiveMenu
       :open="prefsOpen"
       :anchor="prefsAnchor"
       placement="bottom-end"
       role="dialog"
+      :title="t('ticket-field-watchers-prefs-title')"
       :aria-label="t('ticket-field-watchers-prefs-title')"
       popover-class="bg-surface border border-default rounded-lg overflow-hidden min-w-[220px]"
       @close="prefsOpen = false"
@@ -270,6 +271,6 @@ watch(isWatching, (watching) => {
           {{ prefError }}
         </p>
       </div>
-    </Popover>
+    </ResponsiveMenu>
   </div>
 </template>

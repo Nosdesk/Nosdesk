@@ -2,16 +2,13 @@
 /**
  * Right-click / "more actions" menu, anchored to a click point.
  * Public API unchanged from prior implementations; positioning
- * + dismiss + focus delegate to `<Popover>`, item rendering
- * delegates to `<MenuList>`. This component is now a 30-line
- * connector that picks "click-anchored popover wraps menu list".
- *
- * Element-anchored equivalents (e.g. `DocumentActionsMenu`) use
- * the same `<MenuList>` inside a `<Popover>` with an element
- * anchor — same chrome, different anchor mode.
+ * + dismiss + focus delegate to `<ResponsiveMenu>` (anchored
+ * popover on desktop, bottom sheet on mobile), item rendering
+ * delegates to `<MenuList>`. This component is a thin connector
+ * that picks "click-anchored surface wraps menu list".
  */
 import { computed } from 'vue'
-import Popover from './Popover.vue'
+import ResponsiveMenu from './ResponsiveMenu.vue'
 import MenuList, { type MenuItem } from './MenuList.vue'
 
 // Re-export so existing `import type { MenuItem } from '.../ContextMenu.vue'`
@@ -47,7 +44,7 @@ const anchor = computed(() => ({
 </script>
 
 <template>
-  <Popover
+  <ResponsiveMenu
     :open="open"
     :anchor="anchor"
     placement="bottom-start"
@@ -57,5 +54,5 @@ const anchor = computed(() => ({
     @close="emit('close')"
   >
     <MenuList :items="items" @select="handleSelect" />
-  </Popover>
+  </ResponsiveMenu>
 </template>

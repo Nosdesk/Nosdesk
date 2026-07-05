@@ -32,7 +32,7 @@
  */
 import { computed, nextTick, ref, watch, type Ref } from 'vue'
 import { useFluent } from 'fluent-vue'
-import Popover from '@/components/common/Popover.vue'
+import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
 import Icon from '@/components/common/Icon.vue'
 
 interface Props {
@@ -442,7 +442,7 @@ async function onOpen(): Promise<void> {
       @keydown.escape="open = false"
     />
 
-    <Popover
+    <ResponsiveMenu
       :open="open"
       :anchor="{ type: 'element', element: () => triggerRef }"
       placement="bottom-start"
@@ -594,7 +594,7 @@ async function onOpen(): Promise<void> {
           </button>
         </div>
       </template>
-    </Popover>
+    </ResponsiveMenu>
   </div>
 </template>
 
