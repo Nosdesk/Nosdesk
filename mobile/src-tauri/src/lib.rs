@@ -23,6 +23,24 @@ pub fn run() {
             .build(),
         )?;
       }
+
+      // Native iOS swipe-back: hand the left-edge back gesture to WebKit itself.
+      // WKWebView drives its own interactive scrub (bitmap snapshot of the prior
+      // page + its back/forward list) and fires `popstate`, which vue-router
+      // handles. Requires the SPA to push real history entries. iOS-only, so the
+      // desktop web build is untouched.
+      #[cfg(target_os = "ios")]
+      {
+        use objc2::msg_send;
+        use objc2::runtime::AnyObject;
+        use tauri::Manager;
+        if let Some(webview) = app.get_webview_window("main") {
+          let _ = webview.with_webview(|pw| unsafe {
+            let wk = pw.inner() as *mut AnyObject;
+            let _: () = msg_send![wk, setAllowsBackForwardNavigationGestures: true];
+          });
+        }
+      }
       Ok(())
     })
     .run(tauri::generate_context!())

@@ -35,3 +35,7 @@ tauri-plugin-secure-store = { path = "../tauri-plugin-secure-store" }
 # Rust HTTP client for the authenticated asset proxy (see src/asset_proxy.rs).
 # rustls-tls matches tauri-plugin-http, already proven on iOS + Android.
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+
+# iOS-only: enable WKWebView's native back/forward swipe gesture (see lib.rs).
+[target."cfg(target_os = \"ios\")".dependencies]
+objc2 = "0.6"

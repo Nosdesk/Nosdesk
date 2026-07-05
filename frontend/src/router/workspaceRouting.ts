@@ -25,9 +25,10 @@ import type {
   RouteRecordRaw,
   Router,
   RouteLocationNormalized,
+  RouteLocationRaw,
 } from 'vue-router';
 import { fetchInstanceConfig, getWorkspaceRouting } from '@nosdesk/core/services/instanceConfig';
-import { setActiveWorkspaceSlug } from '@/services/activeWorkspace';
+import { setActiveWorkspaceSlug, activeWorkspaceSlug } from '@/services/activeWorkspace';
 
 const WORKSPACE_PARAM = 'workspace';
 
@@ -79,6 +80,54 @@ function isAuthed(route: RouteLocationNormalized): boolean {
  *   (a deep link's first hop) passes through; the post-login landing (stage 5)
  *   routes it to a concrete workspace.
  */
+/**
+ * Slug carrier. Navigations are written slug-less (`router.push('/tickets/1')`)
+ * and the guard above would REDIRECT them to add the slug — but a guard redirect
+ * is a REPLACE, so `history.state.position` never advances: browser back/forward
+ * and the native iOS swipe-back (which walk WebKit's history list) both break.
+ *
+ * Fix it at the source: inject the active workspace slug BEFORE the navigation
+ * commits, so it's already slug-full, skips the guard's redirect branch, and
+ * lands as a clean PUSH that grows history. RouterLink routes through
+ * `router.push` too, so wrapping push/replace covers every call site. Host mode
+ * and already-slugged / non-workspace paths are left untouched.
+ */
+export function installSlugCarrier(router: Router): void {
+  for (const method of ['push', 'replace'] as const) {
+    const original = router[method].bind(router);
+    router[method] = ((to: RouteLocationRaw) =>
+      original(withActiveSlug(router, to))) as Router[typeof method];
+  }
+}
+
+function withActiveSlug(router: Router, to: RouteLocationRaw): RouteLocationRaw {
+  if (getWorkspaceRouting() !== 'path') return to;
+  const slug = activeWorkspaceSlug();
+  if (!slug) return to;
+  if (typeof to === 'string') {
+    return needsSlug(router, to, slug) ? `/${slug}${to}` : to;
+  }
+  if (to && typeof to === 'object' && 'path' in to && typeof to.path === 'string') {
+    return needsSlug(router, to.path, slug)
+      ? { ...to, path: `/${slug}${to.path}` }
+      : to;
+  }
+  return to;
+}
+
+/** A slug-less, absolute, workspace-scoped path that should carry the slug. */
+function needsSlug(router: Router, path: string, slug: string): boolean {
+  if (!path.startsWith('/')) return false; // relative — leave to the caller
+  if ((path.split('/')[1] ?? '') === slug) return false; // already slugged
+  // Only workspace-scoped paths take a slug; prepending to a public/unknown path
+  // must not happen. Require the slugged form to resolve to a real named route.
+  const resolved = router.resolve(`/${slug}${path}`);
+  return (
+    resolved.name != null &&
+    !resolved.matched.some((m) => String(m.path).includes(':pathMatch'))
+  );
+}
+
 export function installWorkspaceGuard(router: Router): void {
   router.beforeEach(async (to, from) => {
     // Resolve the routing mode before deciding. Memoised, so this awaits the
