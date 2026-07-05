@@ -14,6 +14,7 @@ import router from './router'
 import { vSafeHtml } from './directives/vSafeHtml'
 import { vTwemoji } from './directives/vTwemoji'
 import { vPrefetch } from './directives/vPrefetch'
+import { vScrollRestore } from './directives/vScrollRestore'
 import { createI18n as createI18nPlugin } from './i18n'
 import { useThemeStore } from './stores/theme'
 import { fetchInstanceConfig } from '@nosdesk/core/services/instanceConfig'
@@ -32,10 +33,15 @@ async function bootstrap() {
 
   const app = createApp(App)
 
+  // Own scroll restoration (see vScrollRestore): stop the browser competing with
+  // our per-container save/restore on back/forward.
+  if ('scrollRestoration' in history) history.scrollRestoration = 'manual'
+
   // Register global directives
   app.directive('safe-html', vSafeHtml)
   app.directive('twemoji', vTwemoji)
   app.directive('prefetch', vPrefetch)
+  app.directive('scroll-restore', vScrollRestore)
 
   const pinia = createPinia()
   app.use(pinia)
