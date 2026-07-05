@@ -1,48 +1,40 @@
 /**
  * Active-cycle summaries for the projects list glance.
  *
- * One workspace-wide fetch of active cycles (at most one per project)
- * for their name / end date, with ticket + completed counts derived
- * from the sync pool, the list subscribes to the active workspace's
- * group, which carries every ticket, and each ticket denormalises its `cycle_id`.
- * So the whole glance costs a single request; the counts come for free
- * from the same pool the rest of the card reads.
+ * Active cycles come from the sync pool (seeded once per session by
+ * a workspace-wide fetch; every `cycle.*` SSE event keeps the rows
+ * live, so completing a cycle elsewhere updates the glance without
+ * a refetch). Ticket + completed counts fold from the same pool by
+ * the denormalised `cycle_id`, so the whole glance costs a single
+ * request per session.
  *
- * This is the surface that replaced the removed workspace-wide Cycles
- * view: the cross-project "what's in flight" glance now lives where you
- * actually start, on the projects list. Pinia Colada gives cache-first
- * reads + silent revalidation for the cycle list.
+ * This is the surface that replaced the removed workspace-wide
+ * Cycles view: the cross-project "what's in flight" glance lives
+ * where you actually start, on the projects list.
  */
 import { computed } from 'vue'
-import { useQuery } from '@pinia/colada'
 import { useAggregate } from '@nosdesk/core/sync/composables'
 import type { SyncTicket } from '@/sync/stores/tickets'
-import { cyclesService, type Cycle } from '@nosdesk/core/services/cyclesService'
 import { TERMINAL_CATEGORIES } from '@nosdesk/core/types/workflow'
+import { seedActiveCycles, type PoolCycle } from '@/composables/useProjectCycles'
 
 export interface ActiveCycleSummary {
-  cycle: Cycle
+  cycle: PoolCycle
   tickets: number
   completed: number
 }
 
-export const ACTIVE_CYCLES_KEY = ['cycles', 'active']
-
-async function fetchActiveCycles(): Promise<Cycle[]> {
-  // The workspace list defaults to active + planned; the glance only
-  // cares about cycles currently in flight.
-  return (await cyclesService.listWorkspace()).filter(
-    (c) => c.state === 'active' && c.archived_at == null,
-  )
-}
-
 export function useActiveCycleSummaries() {
-  const query = useQuery({ key: ACTIVE_CYCLES_KEY, query: fetchActiveCycles })
+  // Seed is deduped and cheap; SSE keeps the rows live afterwards.
+  void seedActiveCycles()
+  const allCycles = useAggregate<PoolCycle>('cycle')
   const tickets = useAggregate<SyncTicket>('ticket')
 
   // project_id -> summary, counts folded from the pool by cycle_id.
   const byProject = computed<Map<number, ActiveCycleSummary>>(() => {
-    const cycles = query.data.value ?? []
+    const cycles = allCycles.value.filter(
+      (c) => c.state === 'active' && c.archived_at == null,
+    )
     if (cycles.length === 0) return new Map()
 
     const cycleIds = new Set(cycles.map((c) => c.id))
@@ -67,5 +59,5 @@ export function useActiveCycleSummaries() {
     return map
   })
 
-  return { byProject, status: query.status, error: query.error }
+  return { byProject }
 }

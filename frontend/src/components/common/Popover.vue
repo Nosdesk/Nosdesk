@@ -69,7 +69,7 @@ interface Props {
   matchAnchorWidth?: boolean
   minWidth?: number
   offset?: number
-  role?: 'menu' | 'listbox' | 'dialog'
+  role?: 'menu' | 'listbox' | 'dialog' | 'tooltip'
   ariaLabel?: string
   popoverClass?: string
   autoFocus?: boolean
@@ -187,6 +187,16 @@ function onResize(): void {
   // have changed.
   update()
 }
+
+// Retarget while open: a consumer that swaps its anchor (a hover
+// card moving between gantt bars, say) passes a new anchor object;
+// reposition against it without a close/reopen cycle.
+watch(
+  () => props.anchor,
+  () => {
+    if (props.open && rendered.value) update()
+  },
+)
 
 useEventListener(document, 'mousedown', onMousedownOutside, { when: isOpen })
 useEventListener(document, 'keydown', onKeydown, { when: isOpen, capture: true })

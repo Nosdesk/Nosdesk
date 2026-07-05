@@ -18,6 +18,7 @@
 import { computed, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
+import BaseDropdown from '@/components/common/BaseDropdown.vue'
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
 import MenuList, { type MenuItem } from '@/components/common/MenuList.vue'
 import {
@@ -25,8 +26,25 @@ import {
   ganttZoomLabel,
   useGanttViewport,
 } from '@/composables/useGanttViewport'
+import type { GroupOption } from '@/composables/useListGrouping'
+import type { Density } from '@/composables/useTicketsDensity'
+import ListDensityToggle from '@/components/common/ListDensityToggle.vue'
+import type { ComputedRef, Ref } from 'vue'
 
-const props = defineProps<{ viewport: ReturnType<typeof useGanttViewport> }>()
+/** The slice of useListGrouping the picker needs (structural, so
+ * the toolbar stays agnostic of the grouped item type). */
+interface GroupingControls {
+  groupBy: Ref<string>
+  setGroupBy: (axisKey: string) => void
+  axisOptions: ComputedRef<GroupOption[]>
+}
+
+const props = defineProps<{
+  viewport: ReturnType<typeof useGanttViewport>
+  grouping?: GroupingControls
+  density?: Density
+  setDensity?: (value: Density) => void
+}>()
 
 const fluent = useFluent()
 const t = (key: string) => fluent.$t(key)
@@ -52,6 +70,17 @@ function handleSelect(id: string): void {
 
 <template>
   <div class="flex items-center gap-2">
+    <!-- Group-by picker -->
+    <BaseDropdown
+      v-if="grouping"
+      :model-value="grouping.groupBy.value"
+      :options="grouping.axisOptions.value.map((o) => ({ value: o.key, label: o.label }))"
+      size="xs"
+      class="w-32"
+      :aria-label="$t('gantt-group-by')"
+      @update:model-value="(v) => grouping!.setGroupBy(v as string)"
+    />
+
     <!-- Zoom: always inline -->
     <div class="flex items-center rounded-md border border-subtle overflow-hidden">
       <button
@@ -68,31 +97,38 @@ function handleSelect(id: string): void {
 
     <!-- Wide: full controls inline. -->
     <div class="hidden @2xl:flex items-center gap-2">
+      <ListDensityToggle
+        v-if="density && setDensity"
+        :density="density"
+        @set-density="setDensity"
+      />
       <button
         type="button"
         class="text-xs text-secondary hover:bg-surface-hover rounded-md px-2 py-1 border border-subtle"
+        :title="`${$t('gantt-fit')} (F)`"
         @click="viewport.fitToProject()"
       >{{ $t('gantt-fit') }}</button>
       <button
         type="button"
         class="text-xs text-secondary hover:bg-surface-hover rounded-md px-2 py-1 border border-subtle"
+        :title="`${$t('gantt-today')} (T)`"
         @click="viewport.centerOnToday()"
       >{{ $t('gantt-today') }}</button>
       <div class="flex items-center gap-1">
         <button
           type="button"
-          class="text-xs text-secondary hover:bg-surface-hover rounded-md px-2 py-1"
+          class="text-secondary hover:bg-surface-hover rounded-md px-2 py-1"
           :aria-label="$t('gantt-pan-previous')"
           :title="$t('gantt-pan-previous')"
           @click="viewport.pan(-1)"
-        ><span aria-hidden="true">‹</span></button>
+        ><Icon name="chevronLeft" size="xs" /></button>
         <button
           type="button"
-          class="text-xs text-secondary hover:bg-surface-hover rounded-md px-2 py-1"
+          class="text-secondary hover:bg-surface-hover rounded-md px-2 py-1"
           :aria-label="$t('gantt-pan-next')"
           :title="$t('gantt-pan-next')"
           @click="viewport.pan(1)"
-        ><span aria-hidden="true">›</span></button>
+        ><Icon name="chevronRight" size="xs" /></button>
       </div>
     </div>
 

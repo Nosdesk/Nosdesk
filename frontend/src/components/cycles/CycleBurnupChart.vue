@@ -166,15 +166,30 @@ const labelYs = computed(() => {
       : scopeLabelY.value
   // In viewBox-Y units (0-200), which map to ~0.9px each at the frame's
   // height. The labels are ~10px tall, so this keeps a clear gap between
-  // them when the two series end close together.
+  // them when the two series end close together. Separation preserves
+  // the labels' vertical order (so they never cross their lines), and
+  // the pair shifts inside the plot as a unit; clamping each label
+  // independently could pin both to the same bound and re-collapse the
+  // gap (the forecast-overlaps-pace bug).
   const MIN_GAP = 22
   if (Math.abs(accent - grey) < MIN_GAP) {
     const mid = (accent + grey) / 2
-    grey = mid - MIN_GAP / 2
-    accent = mid + MIN_GAP / 2
+    if (accent <= grey) {
+      accent = mid - MIN_GAP / 2
+      grey = mid + MIN_GAP / 2
+    } else {
+      grey = mid - MIN_GAP / 2
+      accent = mid + MIN_GAP / 2
+    }
   }
-  const clamp = (y: number) => Math.min(top + plotH, Math.max(top + 6, y))
-  return { accent: clamp(accent), grey: clamp(grey) }
+  const lo = top + 6
+  const hi = top + plotH
+  let shift = 0
+  const minY = Math.min(accent, grey)
+  const maxY = Math.max(accent, grey)
+  if (minY < lo) shift = lo - minY
+  if (maxY + shift > hi) shift = hi - maxY
+  return { accent: accent + shift, grey: grey + shift }
 })
 
 // Accessible summary + data table.

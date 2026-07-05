@@ -605,24 +605,21 @@ async function fetchMissingAssets(ids: string[]): Promise<void> {
  * Lazy reference fetcher for the `cycle` aggregate. Bootstrap does
  * not ship cycle rows (only `cycle_id` denormalised onto tickets),
  * so the pool-native ticket detail view resolves the cycle chip
- * (name + state) through this. The workspace cycle set is small and
- * bounded, so one `listWorkspace` call covers every missing id at
- * once; we ask for all states explicitly because the default list
- * elides completed/planned cycles, and a ticket can sit in any of
- * them. Cache row mirrors the chip's needs only (id/uuid/project_id/
- * name/state); the full Cycle DTO carries snapshot/burnup fields the
- * pool deliberately drops.
+ * through this. The workspace cycle set is small and bounded, so
+ * one `listWorkspace` call covers every missing id at once; we ask
+ * for all states explicitly because the default list elides
+ * completed/planned cycles, and a ticket can sit in any of them.
+ *
+ * The full REST row goes in: the pool is now the single read home
+ * for cycles (useProjectCycles / useCycleStats), so dates, the
+ * frozen completion_snapshot, and archived_at must all survive
+ * here — a thin row would starve those consumers, and shallow-merge
+ * means a later thin write can't erase a previously seeded field.
  */
 function toCycleCacheRow(
   c: import('@nosdesk/core/services/cyclesService').Cycle,
 ): Record<string, unknown> {
-  return {
-    id: c.id,
-    uuid: c.uuid,
-    project_id: c.project_id,
-    name: c.name,
-    state: c.state,
-  }
+  return { ...c }
 }
 
 async function fetchMissingCycles(ids: string[]): Promise<void> {

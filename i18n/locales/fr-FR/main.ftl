@@ -2623,21 +2623,35 @@ project-cycles-field-end = Fin
 project-cycles-name-placeholder = par ex. Sprint 14
 project-cycles-create-submit = Créer
 project-cycles-velocity-hint = Vélocité récente : ~{ $count } tickets par cycle
-project-cycles-all-title = Tous les cycles
+# Cycles v2 (machine, à relire par un locuteur natif).
+project-cycles-upcoming-title = À venir
+project-cycles-completed-title = Terminés
+project-cycles-empty-title = Aucun cycle pour l'instant
+project-cycles-empty-description = Les cycles sont de courtes itérations de travail limitées dans le temps. Créez-en un pour planifier la suite.
+project-cycles-no-active-hint = Aucun cycle en cours. Démarrez { $name } pour en faire le cycle actif.
+project-cycles-action-start = Démarrer le cycle
+project-cycles-confirm-complete-carryover = { $count ->
+    [one] Terminer ce cycle ? { $count } ticket ouvert sera déplacé vers { $target }, et l'instantané sera figé.
+   *[other] Terminer ce cycle ? { $count } tickets ouverts seront déplacés vers { $target }, et l'instantané sera figé.
+}
+project-cycles-confirm-complete-backlog = { $count ->
+    [one] Terminer ce cycle ? { $count } ticket ouvert retournera au backlog, et l'instantané sera figé.
+   *[other] Terminer ce cycle ? { $count } tickets ouverts retourneront au backlog, et l'instantané sera figé.
+}
+project-cycles-move-to = Déplacer vers { $name }
+project-cycles-remove-from-cycle = Retirer du cycle
+project-cycles-ticket-menu = Actions du ticket
+project-cycles-promote-blocked-title = Un cycle est déjà actif
+project-cycles-promote-blocked = Un seul cycle peut être actif par projet. Terminez ou archivez d'abord le cycle en cours.
+project-cycles-promote-blocked-ok = Compris
+project-cycles-active-empty = Rien dans ce cycle pour l'instant. Ajoutez des tickets depuis le tableau ou via le menu de cycle d'un ticket.
 # machine, à relire par un locuteur natif
-project-cycles-col-state = État
 # machine, à relire par un locuteur natif
-project-cycles-col-name = Cycle
 # machine, à relire par un locuteur natif
-project-cycles-col-dates = Dates
 # machine, à relire par un locuteur natif
-project-cycles-col-progress = Progression
 # Vue cycle actif (machine, à relire par un locuteur natif).
 project-cycles-active-work-title = Travail de ce cycle
 project-cycles-ended-warning = Ce cycle s'est terminé le { $date } mais n'est pas encore clôturé.
-project-cycles-empty-prefix = Aucun cycle pour l'instant. Cliquez sur
-project-cycles-empty-cta = Nouveau cycle
-project-cycles-empty-suffix = pour démarrer une itération.
 project-cycles-state-planned = planifié
 project-cycles-state-active = actif
 project-cycles-state-completed = terminé
@@ -5260,7 +5274,7 @@ cycle-burnup-summary = Burnup du cycle : { $completed } sur { $scope } élément
 cycle-burnup-table-caption = Données du burnup du cycle par jour
 # machine, à relire par un locuteur natif
 cycle-burnup-col-day = Jour
-tickets-cycle-scope-added = +{ $count } ajoutés après le début
+tickets-cycle-scope-added = { $count } ajoutés après le début
 tickets-collaborative-article-title = Notes du ticket
 tickets-collaborative-article-doc-title = Documentation : Ticket n°{ $id }
 tickets-collaborative-article-revision-history = Historique des révisions
@@ -5827,11 +5841,30 @@ gantt-pan-next = Décaler vers la droite
 # Bouton de débordement de la barre d'outils (machine, à relire par un locuteur natif).
 gantt-more-controls = Plus de commandes
 gantt-unscheduled = Non planifiés ({ $count })
-gantt-empty-window = Aucun ticket dans cette fenêtre. Utilisez Ajuster, Aujourd'hui ou les flèches pour déplacer la chronologie.
+gantt-nothing-scheduled = Rien n'est encore planifié. Définissez une échéance pour placer les tickets sur la chronologie.
 # État vide de la chronologie (machine, à relire par un locuteur natif).
 gantt-empty-title = Aucun ticket sur la chronologie pour l'instant
 gantt-empty-description = Les tickets avec une date d'échéance apparaissent ici, répartis dans le temps. Ajoutez-en un depuis le tableau pour commencer.
-gantt-reschedule-handle = Glisser pour changer la date d'échéance
+# Carte de survol du Gantt (machine, à relire par un locuteur natif).
+gantt-hover-dates = Dates
+gantt-hover-assignee = Responsable
+gantt-hover-cycle = Cycle
+gantt-hover-dependencies = Dépendances
+gantt-hover-blocks = Bloque { $count }
+gantt-hover-blocked-by = Bloqué par { $count }
+gantt-hover-reschedule-hint = Faites glisser le bord droit pour modifier l'échéance
+# Regroupement du Gantt (machine, à relire par un locuteur natif).
+gantt-group-by = Regrouper par
+gantt-group-cycle = Cycle
+gantt-group-state = État
+gantt-group-assignee = Responsable
+gantt-group-no-cycle = Sans cycle
+gantt-group-unassigned = Non attribué
+gantt-group-span-label = Plier ou déplier le groupe
+gantt-board-label = Chronologie. Clavier : T aujourd'hui, F ajuster, crochets pour naviguer, moins et égal pour zoomer.
+gantt-nudge-announce = { $title } échéance { $date }
+gantt-dependencies-failed = Le chargement des dépendances a échoué ; les flèches sont masquées.
+gantt-retry = Réessayer
 user-cell-missing-tooltip = Cet utilisateur n'existe plus
 user-cell-unknown = Inconnu
 user-settings-managing-for = Gestion des paramètres pour
