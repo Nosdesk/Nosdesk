@@ -416,6 +416,7 @@ const isOverflowRouteActive = computed(() =>
                     v-for="link in navLinks"
                     :key="link.to"
                     :to="link.to"
+                    v-prefetch="link.to"
                     class="rounded-md transition-colors duration-200 flex items-center relative overflow-hidden px-2 py-1.5 justify-center"
                     :class="
                         isRouteActive(link.to, link.exact)
@@ -444,6 +445,7 @@ const isOverflowRouteActive = computed(() =>
                     v-for="link in navLinks"
                     :key="link.to"
                     :to="link.to"
+                    v-prefetch="link.to"
                     class="rounded-md transition-colors duration-200 flex items-center relative overflow-hidden px-2 py-1.5 justify-center"
                     :class="
                         isRouteActive(link.to, link.exact)
@@ -482,6 +484,7 @@ const isOverflowRouteActive = computed(() =>
                         v-for="link in group.links"
                         :key="link.to"
                         :to="link.to"
+                        v-prefetch="link.to"
                         class="rounded-md transition-colors duration-200 flex items-center relative overflow-hidden px-2.5 py-1 gap-2.5"
                         :class="
                             isRouteActive(link.to, link.exact)
@@ -611,6 +614,7 @@ const isOverflowRouteActive = computed(() =>
                 v-for="link in primaryMobileLinks"
                 :key="link.to"
                 :to="link.to"
+                v-prefetch="link.to"
                 class="relative flex items-center justify-center p-3 rounded-lg transition-all duration-200 active:scale-95 flex-1 min-h-[44px]"
                 :class="
                     isRouteActive(link.to, link.exact) ? 'text-accent' : 'text-secondary'
@@ -734,6 +738,7 @@ const isOverflowRouteActive = computed(() =>
                     <li v-for="link in sheetRows" :key="link.to" class="flex items-center gap-1">
                         <RouterLink
                             :to="link.to"
+                            v-prefetch="link.to"
                             class="flex flex-1 items-center gap-3 px-3 py-3 rounded-lg min-h-[44px] transition-colors motion-safe:active:scale-[0.98]"
                             :class="
                                 isRouteActive(link.to, link.exact)

@@ -35,7 +35,6 @@ import Icon from '@/components/common/Icon.vue'
 import Checkbox from '@/components/common/Checkbox.vue'
 import PageScroll from '@/components/common/PageScroll.vue'
 import AsyncBoundary from '@/components/common/AsyncBoundary.vue'
-import { useInboxLoader } from '@/loaders/inboxLoader'
 
 const router = useRouter()
 const store = useNotificationsStore()
@@ -43,12 +42,6 @@ const fluent = useFluent()
 const tInbox = (key: string, args?: Record<string, string>) => fluent.$t(key, args)
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 const filterTabs = useNotificationFilterTabs()
-
-// Subscribe to the route Data Loader. The loader has already
-// run during navigation and primed the Pinia Colada caches
-// with the first page + unread count, so the queries below
-// resolve from cache without firing fresh requests on mount.
-useInboxLoader()
 
 // Shared notification wiring (queries, mutations, derived state,
 // presentation helpers). The bell consumes the same composable;

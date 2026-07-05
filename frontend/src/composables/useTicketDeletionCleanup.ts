@@ -40,7 +40,7 @@ import { useTicketUiStore } from '@nosdesk/core/stores/ticketUi'
 import { useMyWorkspacesStore } from '@/stores/myWorkspaces'
 import { useSyncTicketsStore } from '@/sync/stores/tickets'
 import { RECENT_TICKETS_KEY } from '@/stores/recentTickets'
-import { ticketDetailKey } from '@/loaders/ticketDetailLoader'
+import { ticketDetailKey } from '@/queries/ticketDetailKey'
 import { buildCollabDocId } from '@nosdesk/core/utils/collabDocId'
 
 export function useTicketDeletionCleanup(): void {
