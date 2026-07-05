@@ -304,7 +304,7 @@ watch(highlightedIndex, async (index) => {
           :aria-selected="isSelected(option.value)"
           @click="selectOption(option)"
           @mouseenter="highlightedIndex = index"
-          class="w-full text-left text-primary transition-colors flex items-center gap-3"
+          class="w-full text-left text-primary transition-colors flex items-center gap-3 min-h-[44px] md:min-h-0"
           :class="[
             sizeClasses.option,
             isSelected(option.value)

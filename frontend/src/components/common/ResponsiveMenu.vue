@@ -111,14 +111,18 @@ const ariaLabel = computed(() => props.ariaLabel ?? props.title)
       />
     </Transition>
     <Transition name="sheet">
-      <div
-        v-if="open && isMobile"
-        class="fixed inset-x-0 bottom-0 z-overlay flex max-h-[80vh] flex-col rounded-t-xl border-t border-default bg-surface shadow-2xl"
-        :class="{ 'transition-transform': !isDragging }"
-        :style="{ transform: `translateY(${dragOffset}px)` }"
-        :role="role"
-        :aria-label="ariaLabel"
-      >
+      <div v-if="open && isMobile" class="fixed inset-x-0 bottom-0 z-overlay">
+        <!-- Inner panel: the Vue transition slides the WRAPPER on enter/leave,
+             this panel carries the drag offset. Two elements so the two transforms
+             compose, instead of the inline drag transform overriding (and killing)
+             the slide-in. -->
+        <div
+          class="flex max-h-[80vh] flex-col rounded-t-xl border-t border-default bg-surface shadow-2xl"
+          :class="{ 'sheet-panel-settle': !isDragging }"
+          :style="{ transform: `translateY(${dragOffset}px)` }"
+          :role="role"
+          :aria-label="ariaLabel"
+        >
         <!-- Drag handle pill. Tappable area extends beyond the
              pill so the user has more thumb room. -->
         <div
@@ -133,8 +137,11 @@ const ariaLabel = computed(() => props.ariaLabel ?? props.title)
         >
           {{ title }}
         </h2>
-        <div class="flex flex-1 flex-col overflow-y-auto pb-2">
+        <!-- Bottom padding clears the iPhone home indicator so the last option
+             isn't in the dead zone; falls back to 0.5rem where there's no inset. -->
+        <div class="flex flex-1 flex-col overflow-y-auto pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
           <slot />
+        </div>
         </div>
       </div>
     </Transition>

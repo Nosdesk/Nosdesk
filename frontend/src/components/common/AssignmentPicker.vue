@@ -198,7 +198,7 @@ onBeforeUnmount(() => {
               v-for="group in filteredGroups"
               :key="`g-${group.id}`"
               @mousedown.prevent="selectGroup(group)"
-              class="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-surface-hover transition-colors"
+              class="w-full flex items-center gap-3 px-3 py-2.5 min-h-[44px] md:min-h-0 text-left hover:bg-surface-hover transition-colors"
             >
               <Icon name="team" class="text-tertiary flex-shrink-0" />
               <span class="text-sm text-primary truncate">{{ group.name }}</span>
@@ -214,7 +214,7 @@ onBeforeUnmount(() => {
               v-for="user in filteredUsers"
               :key="`u-${user.uuid}`"
               @mousedown.prevent="selectUser(user)"
-              class="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-surface-hover transition-colors"
+              class="w-full flex items-center gap-3 px-3 py-2.5 min-h-[44px] md:min-h-0 text-left hover:bg-surface-hover transition-colors"
             >
               <div class="w-5 h-5 rounded-full bg-accent/20 flex items-center justify-center flex-shrink-0 overflow-hidden">
                 <img

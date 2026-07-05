@@ -77,7 +77,7 @@ const emit = defineEmits<{ select: [id: string] }>()
     <button
       v-else
       role="menuitem"
-      class="w-full px-3 py-1.5 text-xs text-left flex items-center gap-2 transition-colors"
+      class="w-full px-3 py-2.5 md:py-1.5 text-sm md:text-xs text-left flex items-center gap-2 min-h-[44px] md:min-h-0 transition-colors"
       :class="
         item.danger
           ? 'text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30'

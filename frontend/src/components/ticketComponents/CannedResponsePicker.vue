@@ -38,13 +38,12 @@ the panel; Enter inserts the active item.
     </button>
 
     <!--
-      Dropdown panel via the shared <Popover>: teleports to <body> (escaping
-      the SectionCard's `overflow: hidden`), stays anchored to the trigger on
-      scroll/resize, clamps to the viewport so it never trails off an edge, and
-      dismisses on outside-click. The inner div keeps the listbox semantics,
-      scroll, and keyboard navigation.
+      Dropdown panel via the shared <ResponsiveMenu>: an anchored popover on
+      desktop (teleports to <body>, stays anchored on scroll/resize, clamps to
+      the viewport, dismisses on outside-click) and a bottom sheet on mobile. The
+      inner div keeps the listbox semantics, scroll, and keyboard navigation.
     -->
-    <Popover
+    <ResponsiveMenu
       :open="isOpen"
       :anchor="anchor"
       placement="top-start"
@@ -143,7 +142,7 @@ the panel; Enter inserts the active item.
           </div>
         </template>
       </div>
-    </Popover>
+    </ResponsiveMenu>
   </div>
 </template>
 
@@ -159,7 +158,7 @@ import {
   type TemplateVars,
 } from '@nosdesk/core/services/cannedResponsesService';
 import { highlightTerms } from '@nosdesk/core/utils/highlight';
-import Popover from '@/components/common/Popover.vue';
+import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue';
 import type { PopoverAnchor } from '@/composables/usePopover';
 
 const { $t } = useFluent();

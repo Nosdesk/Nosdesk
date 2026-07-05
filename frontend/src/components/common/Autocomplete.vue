@@ -244,7 +244,7 @@ watch(highlightedIndex, async (index) => {
             type="button"
             role="option"
             :aria-selected="opt === modelValue"
-            class="w-full text-left text-primary transition-colors truncate"
+            class="w-full text-left text-primary transition-colors truncate flex items-center min-h-[44px] md:min-h-0"
             :class="[
               sizeClasses.option,
               opt === modelValue
