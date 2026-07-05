@@ -301,6 +301,7 @@ onMounted(async () => {
               <component
                 :is="Component"
                 :key="viewRoute.meta.key ?? viewRoute.matched[0]?.path ?? viewRoute.fullPath"
+                v-scroll-restore="viewRoute.fullPath"
                 class="h-full overflow-auto"
               />
             </KeepAlive>
@@ -309,6 +310,7 @@ onMounted(async () => {
             <component
               :is="Component"
               :key="viewRoute.meta.key ?? viewRoute.matched[0]?.path ?? viewRoute.fullPath"
+              v-scroll-restore="viewRoute.fullPath"
               class="h-full overflow-auto"
             />
           </KeepAlive>

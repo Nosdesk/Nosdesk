@@ -29,6 +29,14 @@ const depth = ref(0)
 let lastPosition: number | null = null
 
 /**
+ * Direction of the last settled navigation: `back` on a pop (position went
+ * down), else `forward` (push/replace/initial). Read by scroll restoration to
+ * decide restore-vs-top. Lifecycle-driven consumers read this at mount time,
+ * after `afterEach` has already run for the navigation.
+ */
+export const navDirection = ref<'forward' | 'back'>('forward')
+
+/**
  * vue-router's authoritative history position. Prefer the router's OWN history
  * state (`router.options.history.state`) over `window.history.state` — in some
  * webviews the latter isn't the object vue-router wrote. Falls back to window,
@@ -54,8 +62,15 @@ export function installNavigationTracking(router: Router): void {
     if (lastPosition === null) {
       lastPosition = pos // entry baseline; depth stays 0
     } else {
-      if (pos > lastPosition) depth.value += 1
-      else if (pos < lastPosition) depth.value = Math.max(0, depth.value - 1)
+      if (pos > lastPosition) {
+        depth.value += 1
+        navDirection.value = 'forward'
+      } else if (pos < lastPosition) {
+        depth.value = Math.max(0, depth.value - 1)
+        navDirection.value = 'back'
+      } else {
+        navDirection.value = 'forward' // replace / same position: land at top
+      }
       lastPosition = pos
     }
   })
