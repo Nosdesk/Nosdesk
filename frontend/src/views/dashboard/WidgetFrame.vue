@@ -57,6 +57,9 @@ const props = defineProps<{
   /** Fluent key for the title rendered in the frame-supplied shell.
    *  Required when `frameWraps` is `true`. */
   frameTitleKey?: string
+  /** CSS `aspect-ratio` for a plotted-chart body, forwarded to the
+   *  frame-supplied shell. See `DashboardWidgetShell.bodyAspect`. */
+  bodyAspect?: string
 }>()
 
 const emit = defineEmits<{
@@ -90,6 +93,7 @@ provide(DASHBOARD_WIDGET_CONTEXT, context)
     <DashboardWidgetShell
       v-if="frameWraps && frameTitleKey"
       :title="fluent.$t(frameTitleKey)"
+      :body-aspect="bodyAspect"
     >
       <component :is="component" v-bind="widgetProps ?? {}" />
     </DashboardWidgetShell>

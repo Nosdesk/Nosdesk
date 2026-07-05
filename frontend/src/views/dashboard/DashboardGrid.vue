@@ -326,6 +326,7 @@ onBeforeUnmount(endResize)
       :widget-props="widgetById(entry.id)!.props"
       :frame-wraps="widgetById(entry.id)?.frameWraps ?? false"
       :frame-title-key="widgetById(entry.id)?.titleKey"
+      :body-aspect="widgetById(entry.id)?.bodyAspect"
       :class="[
         spanClass(colSpanOf(entry)),
         rowSpanClass(rowSpanOf(entry), store.editMode),

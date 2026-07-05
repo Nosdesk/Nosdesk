@@ -120,6 +120,17 @@ const props = withDefaults(
      */
     minBodyHeight?: string
     /**
+     * CSS `aspect-ratio` (e.g. `'2 / 1'`) for a PLOTTED chart body (LineChart,
+     * heatmap) that has no intrinsic height. On the stacked mobile layout the
+     * grid row is `auto` (indefinite), so a `height:100%` plot chain collapses
+     * to 0 — worst on iOS WebKit. aspect-ratio manufactures a height from the
+     * always-known width instead, so the plot never collapses and needs no pixel
+     * height. On the xl lattice the row is definite: the body fills it and
+     * aspect-ratio self-disables (it only applies when a dimension is `auto`).
+     * Leave undefined for list/text/KPI widgets — they size to their content.
+     */
+    bodyAspect?: string
+    /**
      * Body padding tier. Maps to the design-language density scale:
      *
      *   `compact`  → p-3   (44-52px hairline rows, list/queue widgets)
@@ -142,6 +153,14 @@ const props = withDefaults(
     density: 'regular',
   },
 )
+
+// Custom properties consumed by the body's aspect-ratio / min-height utilities.
+const bodyStyle = computed(() => {
+  const s: Record<string, string> = {}
+  if (props.minBodyHeight) s['--dash-min-body'] = props.minBodyHeight
+  if (props.bodyAspect) s['--dash-aspect'] = props.bodyAspect
+  return Object.keys(s).length ? s : undefined
+})
 
 const densityPadding = computed(() => {
   if (props.flushBody) return ''
@@ -387,7 +406,16 @@ function sizeKeyToSpan(key: string): WidgetSpan | null {
          the row-cascade shift on initial load. -->
     <div
       :class="[
-        'flex-1 min-h-0 flex flex-col overflow-y-auto',
+        'min-h-0 flex flex-col',
+        // Chart bodies (bodyAspect) derive height from width via aspect-ratio so
+        // a fill-height plot never collapses on the indefinite-height mobile grid
+        // (iOS WebKit), and fill the definite row on the xl lattice (where
+        // aspect-ratio self-disables). Capped at the widget's own rowSpan height
+        // so a wide 1-col card can't produce a giant plot. Non-chart bodies keep
+        // flex-1 + scroll and size to their content.
+        bodyAspect
+          ? 'aspect-[var(--dash-aspect)] max-h-[var(--dash-max-h)] overflow-hidden xl:aspect-auto xl:max-h-none xl:flex-1'
+          : 'flex-1 overflow-y-auto',
         // minBodyHeight is a desktop load-shift guard (keeps skeleton + sparse
         // states the same height on the fixed grid). It's xl-only so the 1-col
         // mobile layout collapses empty/sparse widgets to their content instead.
@@ -395,7 +423,7 @@ function sizeKeyToSpan(key: string): WidgetSpan | null {
         densityPadding,
         dragging ? 'opacity-40 pointer-events-none' : '',
       ]"
-      :style="minBodyHeight ? { '--dash-min-body': minBodyHeight } : undefined"
+      :style="bodyStyle"
     >
       <!--
         State machine for the body: skeleton → (error | empty | data).
