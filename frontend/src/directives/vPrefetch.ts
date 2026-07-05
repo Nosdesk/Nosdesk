@@ -1,8 +1,8 @@
 /**
  * `v-prefetch="'/route'"` directive.
  *
- * Warms the lazy chunk + Pinia Colada caches for a target route
- * before the user actually navigates. Triggers fire on:
+ * Warms the lazy route-component chunk for a target route before
+ * the user actually navigates. Triggers fire on:
  *   - first viewport intersection (gives mobile users prefetch
  *     without requiring hover, which doesn't exist on touch)
  *   - mouse pointer entering the element (desktop hover intent)
@@ -11,15 +11,12 @@
  * Once prefetched, listeners detach. The directive is a no-op
  * on subsequent triggers.
  *
- * What gets prefetched:
- *   1. The route component's lazy import. The chunk download
- *      starts immediately and sits in the browser cache, so the
- *      eventual click-to-render is bound by network only for
- *      data, not bundle.
- *   2. Any `meta.loaders` on the matched route(s). Pinia Colada
- *      data loaders run their `query` function and prime the
- *      cache. By the time the user navigates, both chunk and
- *      data are ready.
+ * Prefetches the route component's lazy import so the chunk is
+ * already resolved (in the JS module cache) by the time the user
+ * clicks, leaving click-to-render bound only by the view's own
+ * cache-first queries, not the bundle. Data is NOT prefetched
+ * here: the views own their data via cache-first Pinia Colada
+ * queries, which revalidate on mount.
  *
  * Best applied to navigation links in the app shell. Skip for
  * one-off in-content links: the cost (one extra fetch per
@@ -79,21 +76,6 @@ async function prefetch(el: HTMLElement, to: RouteLocationRaw) {
         } catch {
           // Swallow: a failed prefetch isn't a user-visible
           // error. The eventual real navigation will surface it.
-        }
-      }
-    }
-    // Loaders: each is a `defineColadaLoader` composable. Call
-    // them to prime the cache. The "no current instance"
-    // warnings Vue normally fires for composable-outside-setup
-    // are intentionally suppressed by Pinia Colada's
-    // injectable-context support.
-    const loaders = (record.meta as { loaders?: Array<() => unknown> }).loaders
-    if (Array.isArray(loaders)) {
-      for (const loader of loaders) {
-        try {
-          loader()
-        } catch {
-          // Same as above: fire-and-forget.
         }
       }
     }

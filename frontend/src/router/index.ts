@@ -24,8 +24,6 @@ import DocumentView from '@/views/DocumentView.vue'
 import ProfileSettingsView from '@/views/ProfileSettingsView.vue'
 import PDFViewerView from '@/views/PDFViewerView.vue'
 import authService from '@nosdesk/core/services/authService'
-import { useInboxLoader } from '@/loaders/inboxLoader'
-import { useTicketsListLoader } from '@/loaders/ticketsListLoader'
 import { translate } from '@/i18n'
 import { useBrandingStore } from '@/stores/branding'
 import type { Page, Article } from '@nosdesk/core/services/documentationService'
@@ -185,14 +183,6 @@ const router = createRouter({
       meta: {
         requiresAuth: true,
         titleKey: 'route-title-inbox',
-        // Data Loader. Runs DURING navigation, before the
-        // component code is evaluated. Primes Pinia Colada's
-        // notification list + unread count caches so the view
-        // mounts with data already present (render-as-you-fetch).
-        // The loader is eagerly imported so the
-        // `DataLoaderPlugin` finds it when the route record is
-        // matched; the cost is small (a few imports).
-        loaders: [useInboxLoader],
       }
     },
     {
@@ -204,9 +194,6 @@ const router = createRouter({
         titleKey: 'route-title-tickets',
         createButtonTextKey: 'header-create-ticket',
         createButtonIcon: 'ticket',
-        // Data Loader: pre-fetches the first page during
-        // navigation so the view mounts with data ready.
-        loaders: [useTicketsListLoader],
       }
     },
     {
@@ -1167,21 +1154,15 @@ async function checkAuthentication(to: RouteLocationNormalized, _from: RouteLoca
     // only mode and the views still render — they just don't survive
     // a tab restart and lose live SSE updates.
     if (authStore.user?.uuid) {
-      try {
-        const [{ hydrate, fetchServerIdentity }, { attachSseBridge }] = await Promise.all([
-          import('@/sync/lifecycle'),
-          import('@/sync/sseBridge'),
-        ]);
-        const { schemaHash, instanceId } = await fetchServerIdentity();
-        // Key the local cache per workspace in path mode (null in host mode).
-        // The prefix guard runs before this one, so the slug is already set.
-        const { activeWorkspaceSlug } = await import('@/services/activeWorkspace');
-        await hydrate(authStore.user.uuid, schemaHash, instanceId, activeWorkspaceSlug());
-        attachSseBridge();
-      } catch (e) {
-         
-        console.warn('Failed to hydrate sync runtime', e);
-      }
+      // One-time sync-runtime bootstrap (schema fetch + hydrate + SSE bridge),
+      // single-flight inside the lifecycle. Instant after the first navigation
+      // (returns the settled promise) and runs exactly once even under rapid
+      // concurrent navigations — so it no longer adds a per-nav /sync/schema
+      // round-trip nor races hydrate()'s IndexedDB open. The prefix guard ran
+      // before this, so the workspace slug is already set for cache keying.
+      const { ensureSyncRuntime } = await import('@/sync/lifecycle');
+      const { activeWorkspaceSlug } = await import('@/services/activeWorkspace');
+      await ensureSyncRuntime(authStore.user.uuid, activeWorkspaceSlug());
     }
   }
 }

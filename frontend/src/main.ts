@@ -7,7 +7,6 @@ import { interceptConsole } from './utils/remoteLogger'
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import { PiniaColada } from '@pinia/colada'
-import { DataLoaderPlugin } from 'vue-router/experimental'
 
 import App from './App.vue'
 import router from './router'
@@ -58,12 +57,6 @@ async function bootstrap() {
   // `~/Documents/notes/technology/web development/loading-states-architecture.md`
   // for the architectural rationale.
   app.use(PiniaColada, {})
-  // Vue Router Data Loaders. MUST register before `app.use(router)`
-  // so loaders are picked up during the initial navigation. Loaders
-  // run during route transitions (render-as-you-fetch), not after
-  // component mount, so /inbox starts loading data the moment the
-  // user clicks the link.
-  app.use(DataLoaderPlugin, { router })
   app.use(router)
 
   // Initialize theme store to respect system preferences for guests

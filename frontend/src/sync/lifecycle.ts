@@ -49,6 +49,40 @@ const state: LifecycleState = {
   memoryOnly: false,
 }
 
+/**
+ * Single-flight sync-runtime bootstrap. `fetchServerIdentity` + `hydrate` +
+ * `attachSseBridge` are one-time setup, but they can be reached concurrently —
+ * two rapid navigations during cold start (or right after a workspace switch)
+ * both hit the auth guard before `state.handle` is set. A shared promise makes
+ * every caller await ONE run, so `hydrate()`'s IndexedDB open never races itself
+ * and the schema round-trip happens once, not per navigation. Cleared by
+ * `tearDown()` so it re-arms after a switch / logout.
+ */
+let runtimePromise: Promise<void> | null = null
+
+export function ensureSyncRuntime(
+  userUuid: string,
+  workspaceSlug: string | null,
+): Promise<void> {
+  if (!runtimePromise) {
+    runtimePromise = bootstrapRuntime(userUuid, workspaceSlug).catch((e) => {
+      runtimePromise = null // let a later navigation retry after a failure
+      logger.warn('Failed to bootstrap sync runtime', { error: e })
+    })
+  }
+  return runtimePromise
+}
+
+async function bootstrapRuntime(
+  userUuid: string,
+  workspaceSlug: string | null,
+): Promise<void> {
+  const { schemaHash, instanceId } = await fetchServerIdentity()
+  await hydrate(userUuid, schemaHash, instanceId, workspaceSlug)
+  const { attachSseBridge } = await import('@/sync/sseBridge')
+  attachSseBridge()
+}
+
 const POLL_INTERVAL_MS = 10_000
 
 /**
@@ -630,6 +664,9 @@ export async function tearDown(): Promise<void> {
   pool.reset()
   state.schemaHash = ''
   state.memoryOnly = false
+  // Re-arm the single-flight bootstrap so the next navigation rebuilds the
+  // runtime for the new session / workspace.
+  runtimePromise = null
 }
 
 /** Periodic delta poll. Single shared timer driven by setInterval —
