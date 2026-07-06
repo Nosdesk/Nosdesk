@@ -124,6 +124,20 @@ const HTML_QUOTE_MARKERS: &[&str] = &[
     // Gmail wraps replies in `<div class="gmail_quote">`.
     "class=\"gmail_quote\"",
     "class='gmail_quote'",
+    // Newer Gmail (2026) marks the wrapper `class="gmail_quote
+    // gmail_quote_container"` — multi-class, so the exact-substring
+    // markers above miss it and would split at the INNER
+    // `<blockquote class="gmail_quote">` instead, leaving the
+    // "On ... wrote:" attribution div behind in the new content.
+    // The trailing space anchors the multi-class form; the split
+    // must land on the container so the attribution goes with the
+    // quote.
+    "class=\"gmail_quote ",
+    "class='gmail_quote ",
+    // Belt-and-braces: the attribution div itself, in case Gmail
+    // ever emits it outside a gmail_quote-classed container.
+    "class=\"gmail_attr\"",
+    "class='gmail_attr'",
     // Apple Mail / classic webmail: blockquote with type="cite".
     "<blockquote type=\"cite\"",
     "<blockquote type='cite'",
@@ -582,6 +596,47 @@ mod tests {
         let split = split_html(html);
         assert_eq!(split.new_content, "<div>Yes please.</div>");
         assert!(split.quoted_content.unwrap().contains("gmail_quote"));
+    }
+
+    #[test]
+    fn html_gmail_quote_container_takes_attribution_with_the_quote() {
+        // Newer Gmail (2026) markup, as observed live: the wrapper is
+        // multi-class (`gmail_quote gmail_quote_container`) and holds the
+        // "On ... wrote:" attribution div ahead of the quoted blockquote.
+        // The split must land on the WRAPPER so the attribution leaves the
+        // new content — matching only the inner blockquote's exact
+        // `class="gmail_quote"` left it behind (staging ticket #4).
+        let html = "<div dir=\"ltr\">Good thing I had a fire extinguisher! All sorted now.</div>\
+                    <br>\
+                    <div class=\"gmail_quote gmail_quote_container\">\
+                    <div dir=\"ltr\" class=\"gmail_attr\">On Tue, Jul 7, 2026 at 9:42\u{202f}AM mercury &lt;<a href=\"mailto:support@mercury.nosdesk.dev\">support@mercury.nosdesk.dev</a>&gt; wrote:<br></div>\
+                    <blockquote class=\"gmail_quote\" style=\"margin:0px 0px 0px 0.8ex\">Your request (#4) has been received.</blockquote>\
+                    </div>";
+        let split = split_html(html);
+        assert_eq!(
+            split.new_content,
+            "<div dir=\"ltr\">Good thing I had a fire extinguisher! All sorted now.</div><br>"
+        );
+        let quoted = split.quoted_content.unwrap();
+        assert!(
+            quoted.contains("gmail_attr"),
+            "attribution goes with the quote"
+        );
+        assert!(quoted.contains("Your request (#4)"));
+    }
+
+    #[test]
+    fn html_bare_gmail_attr_is_a_boundary() {
+        // Attribution div without a gmail_quote-classed wrapper.
+        let html = "<div>Thanks!</div>\
+                    <div class=\"gmail_attr\">On Mon, Jul 6, 2026 Kyle wrote:</div>\
+                    <blockquote>Original</blockquote>";
+        let split = split_html(html);
+        assert_eq!(split.new_content, "<div>Thanks!</div>");
+        assert!(split
+            .quoted_content
+            .unwrap()
+            .starts_with("<div class=\"gmail_attr\""));
     }
 
     #[test]
