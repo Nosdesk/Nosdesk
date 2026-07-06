@@ -17,12 +17,16 @@
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
-import { useQuery, useQueryCache } from '@pinia/colada'
 import { subscribe } from '@/sync/lifecycle'
-import { useSyncTicketsStore } from '@/sync/stores/tickets'
-import { useCyclesStore } from '@nosdesk/core/stores/cycles'
+import { useSyncTicketsStore, type SyncTicket } from '@/sync/stores/tickets'
 import { cyclesService } from '@nosdesk/core/services/cyclesService'
-import CycleBurndown from '@/components/cycles/CycleBurndown.vue'
+import * as pool from '@nosdesk/core/sync/pool'
+import { findPoolCycleByUuid } from '@/composables/useProjectCycles'
+import { useCycleMutations } from '@/composables/useCycleMutations'
+import { useCycleStats } from '@/composables/useCycleStats'
+import { useCycleBurnup } from '@/composables/useCycleBurnup'
+import { isoToDateInput, dateInputToIso } from '@/utils/cycleDates'
+import CycleHero from '@/components/cycles/CycleHero.vue'
 import KanbanBoard from '@/sync/views/KanbanBoard.vue'
 import AsyncBoundary from '@/components/common/AsyncBoundary.vue'
 import BaseDropdown from '@/components/common/BaseDropdown.vue'
@@ -39,26 +43,33 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 
 const router = useRouter()
 const ticketsStore = useSyncTicketsStore()
-const cyclesStore = useCyclesStore()
-const queryCache = useQueryCache()
+const mutations = useCycleMutations()
 
-// Cache-first: the cycle metadata and its membership list are keyed on
-// the uuid, so a revisit renders instantly from cache then refreshes
-// silently (SWR). The kanban cards themselves come from the synced
-// ticket pool below, so only these two REST shapes are cached here.
-const cycleQuery = useQuery({
-  key: () => ['cycle', props.uuid],
-  query: () => cyclesService.get(props.uuid),
-  enabled: () => !!props.uuid,
-})
-const ticketsQuery = useQuery({
-  key: () => ['cycle', props.uuid, 'tickets'],
-  query: () => cyclesService.tickets(props.uuid),
-  enabled: () => !!props.uuid,
-})
+// The pool is the single read home for cycle rows; one REST get
+// seeds it on cold entry (deduped by the route param), then SSE
+// keeps it live. Reads are a reactive scan by uuid (the pool keys
+// cycles by integer id; route params carry the uuid).
+const seedPending = ref(true)
+const seedError = ref<Error | null>(null)
+watch(
+  () => props.uuid,
+  async (uuid) => {
+    if (!uuid) return
+    seedPending.value = true
+    seedError.value = null
+    try {
+      const c = await cyclesService.get(uuid)
+      pool.upsert('cycle', c.id, { ...c })
+    } catch (e) {
+      seedError.value = e instanceof Error ? e : new Error(String(e))
+    } finally {
+      seedPending.value = false
+    }
+  },
+  { immediate: true },
+)
 
-const cycle = computed(() => cycleQuery.data.value ?? null)
-const ticketIds = computed<number[]>(() => ticketsQuery.data.value ?? [])
+const cycle = computed(() => findPoolCycleByUuid(props.uuid))
 
 // Subscribe to the cycle's project so the ticket pool is populated for
 // the kanban cards. Fires once the cycle resolves (we only know its
@@ -82,8 +93,8 @@ function openEdit(): void {
   const c = cycle.value
   if (!c) return
   editName.value = c.name
-  editStart.value = c.start_at ? c.start_at.slice(0, 10) : ''
-  editEnd.value = c.end_at ? c.end_at.slice(0, 10) : ''
+  editStart.value = isoToDateInput(c.start_at)
+  editEnd.value = isoToDateInput(c.end_at)
   showEdit.value = true
 }
 
@@ -92,34 +103,46 @@ async function saveEdit(): Promise<void> {
   if (!name || savePending.value) return
   savePending.value = true
   try {
-    await cyclesStore.update(props.uuid, {
+    // Mutation lands in the pool on success, so the view reflects
+    // the edit immediately (no second cache to reconcile).
+    await mutations.update(props.uuid, {
       name,
-      start_at: editStart.value ? new Date(editStart.value).toISOString() : null,
-      end_at: editEnd.value ? new Date(editEnd.value).toISOString() : null,
+      start_at: dateInputToIso(editStart.value),
+      end_at: dateInputToIso(editEnd.value),
     })
-    // The view reads the cycle via useQuery, not the store cache, so
-    // refresh it to reflect the edit.
-    await queryCache.invalidateQueries({ key: ['cycle', props.uuid] })
     showEdit.value = false
   } finally {
     savePending.value = false
   }
 }
 
-// Reserved for an upcoming "drag from outside cycle" affordance.
-// The underscore prefix marks it as intentionally-unused for now.
-const _ticketIdSet = computed<Set<number>>(() => new Set(ticketIds.value))
+// Membership derives from the ticket pool's denormalised cycle_id
+// (kept live by the backend's ticket.cycle_changed event), so a
+// carryover or a move on another client relocates cards here with
+// no refetch.
+const memberTickets = computed<SyncTicket[]>(() => {
+  const c = cycle.value
+  if (!c) return []
+  return ticketsStore.all().value.filter((t) => t.cycle_id === c.id)
+})
 
 const cards = computed<CardData[]>(() => {
   const out: CardData[] = []
-  for (const id of ticketIds.value) {
-    const t = ticketsStore.byId(id).value
-    if (!t) continue
-    const card = toCardData(t)
+  for (const ticket of memberTickets.value) {
+    const card = toCardData(ticket)
     if (card) out.push(card)
   }
   return out
 })
+
+// Dense hero above the board: stats fold from the same pool rows
+// the board renders; the burnup series stays a Colada query.
+const { statsFor } = useCycleStats(memberTickets)
+const heroStats = computed(() => (cycle.value ? statsFor(cycle.value) : null))
+const { burnup } = useCycleBurnup(
+  () => props.uuid,
+  () => cycle.value?.state !== 'completed' && !!cycle.value?.start_at && !!cycle.value?.end_at,
+)
 
 type SecondaryAxis = 'assignee_uuid' | 'priority'
 const secondaryAxis = ref<SecondaryAxis | null>(null)
@@ -134,14 +157,15 @@ function onGroupByChange(value: string | string[]): void {
 }
 
 // First-load state machine for the content area; the header chrome
-// renders immediately regardless (cache-first principle). A warm cache
-// makes hasCycle true on entry, so the boundary never shows pending.
+// renders immediately regardless (cache-first principle). A warm
+// pool makes hasCycle true on entry, so the boundary never shows
+// pending.
 const loadOp = computed(() => ({
-  isPending: cycleQuery.asyncStatus.value === 'loading',
-  isError: cycleQuery.state.value.status === 'error',
-  error: cycleQuery.error.value,
+  isPending: seedPending.value,
+  isError: !!seedError.value && !cycle.value,
+  error: seedError.value,
 }))
-const hasCycle = computed(() => cycle.value !== null)
+const hasCycle = computed(() => cycle.value != null)
 
 function openCard(cardId: number): void {
   router.push(`/tickets/${cardId}`)
@@ -194,7 +218,7 @@ const groupByOptions = computed(() => [
             {{ cycle?.name ?? $t('cycle-detail-loading-name') }}
           </h1>
           <p v-if="cycle" class="text-xs text-tertiary mt-0.5">
-            {{ $t('cycle-detail-summary', { state: stateLabel, count: ticketIds.length }) }}
+            {{ $t('cycle-detail-summary', { state: stateLabel, count: memberTickets.length }) }}
           </p>
         </div>
       </div>
@@ -233,10 +257,10 @@ const groupByOptions = computed(() => [
         </div>
       </template>
 
-      <!-- Burndown is pinned above the board so it stays visible
+      <!-- Dense hero pinned above the board so progress stays visible
            as the user scrolls horizontally through swimlanes. -->
-      <section v-if="cycle" class="px-6 py-4 border-b border-subtle bg-surface">
-        <CycleBurndown :cycle="cycle" />
+      <section v-if="cycle && heroStats" class="px-6 py-4 border-b border-subtle bg-surface">
+        <CycleHero :cycle="cycle" :stats="heroStats" :burnup="burnup" variant="dense" />
       </section>
 
       <KanbanBoard

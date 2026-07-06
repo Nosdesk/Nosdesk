@@ -24,6 +24,7 @@ export function toCardData(ticket: SyncTicket): CardData | null {
     assignee_uuid: ticket.assignee_uuid,
     requester_uuid: ticket.requester_uuid,
     due_date: ticket.due_date,
+    start_date: ticket.start_date ?? null,
     created_at: ticket.created_at,
     updated_at: ticket.updated_at,
     last_activity_at: ticket.last_activity_at,

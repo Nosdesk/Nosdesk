@@ -9,14 +9,22 @@
  */
 import { computed } from 'vue'
 import { useFluent } from 'fluent-vue'
-import type { Cycle } from '@nosdesk/core/services/cyclesService'
 import { cycleHealth, cycleHealthPresentation } from '@/utils/cycleHealth'
 import { formatDate } from '@nosdesk/core/utils/dateUtils'
 import StatusPill from '@/components/common/StatusPill.vue'
 import type { StatusPillTone } from '@/components/common/statusPillTone'
 import Icon from '@/components/common/Icon.vue'
 
-const props = defineProps<{ cycle: Cycle; completed: number; total: number }>()
+/** Structural slice, so both the REST DTO and the pool row fit. */
+interface CardCycle {
+  uuid: string
+  name: string
+  state: 'planned' | 'active' | 'completed'
+  start_at?: string | null
+  end_at?: string | null
+}
+
+const props = defineProps<{ cycle: CardCycle; completed: number; total: number }>()
 
 const emit = defineEmits<{
   (e: 'open'): void
@@ -53,14 +61,14 @@ const health = computed(() => {
   const h = cycleHealth({
     total: props.total,
     completed: props.completed,
-    startAt: props.cycle.start_at,
-    endAt: props.cycle.end_at,
+    startAt: props.cycle.start_at ?? null,
+    endAt: props.cycle.end_at ?? null,
   })
   const { tone, labelKey } = cycleHealthPresentation(h)
   return { tone, label: t(labelKey) }
 })
 
-function fmt(iso: string | null): string {
+function fmt(iso: string | null | undefined): string {
   return iso ? formatDate(iso) : t('project-cycles-date-missing')
 }
 const dateRange = computed(() => `${fmt(props.cycle.start_at)} → ${fmt(props.cycle.end_at)}`)

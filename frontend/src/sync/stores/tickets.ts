@@ -45,6 +45,9 @@ export interface SyncTicket {
    * tickets default to that, member-created tickets to NULL. */
   triage_state: 'untriaged' | 'triaged' | 'rejected' | null
   due_date: string | null
+  /** Optional planning start for the gantt. Null means unplanned;
+   * the timeline falls back to created_at for a bar's left edge. */
+  start_date?: string | null
   /** KB-gap signal density. Bootstrap derives the bucket from the
    * count of open knowledge_gap_signals attached to the ticket;
    * the renderer maps it to a pill colour. */
@@ -94,6 +97,7 @@ function apiTicketToSync(ticket: Ticket): SyncTicket {
     category_id: ticket.category_id ?? null,
     triage_state: null,
     due_date: ticket.due_date ?? null,
+    start_date: ticket.start_date ?? null,
     created_at: ticket.created,
     updated_at: ticket.modified,
     last_activity_at: ticket.modified,
@@ -175,13 +179,13 @@ export const useSyncTicketsStore = defineStore('syncTickets', () => {
   /**
    * Patch a small whitelist of ticket fields the board renderers
    * write directly: assignee / priority (kanban two-axis swimlane
-   * drop) and due_date (gantt drag-to-reschedule). Optimistic in the
-   * same pattern as moveToWorkflowState. The whitelist exists to
-   * prevent a typo in the caller from blowing away unrelated fields:
-   * the sync engine's apply layer trusts the patch shape, so the gate
-   * has to live here.
+   * drop) and start_date / due_date (gantt drag-to-reschedule).
+   * Optimistic in the same pattern as moveToWorkflowState. The
+   * whitelist exists to prevent a typo in the caller from blowing
+   * away unrelated fields: the sync engine's apply layer trusts the
+   * patch shape, so the gate has to live here.
    */
-  type KanbanPatchableField = 'assignee_uuid' | 'priority' | 'due_date'
+  type KanbanPatchableField = 'assignee_uuid' | 'priority' | 'due_date' | 'start_date'
   type KanbanPatch = Partial<Pick<SyncTicket, KanbanPatchableField>>
 
   async function patchKanbanFields(ticketId: number, patch: KanbanPatch): Promise<void> {

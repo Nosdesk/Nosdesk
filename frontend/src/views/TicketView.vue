@@ -107,6 +107,7 @@ const {
     updateAssignee,
     updateTitle,
     updateDueDate,
+    updateStartDate,
     updateRecurrenceRule,
     updateResolutionNotes,
     updateTags,
@@ -642,6 +643,7 @@ useCreateTicketAction();
                                 @update:requester="updateRequester"
                                 @update:assignee="updateAssignee"
                                 @update:dueDate="updateDueDate"
+                                @update:startDate="updateStartDate"
                                 @update:recurrenceRule="updateRecurrenceRule"
                                 @update:resolutionNotes="updateResolutionNotes"
                                 @update:tag-ids="updateTags"

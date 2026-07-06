@@ -10,6 +10,7 @@ import { computed } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { formatDate, formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
 import { cycleHealth, cycleHealthPresentation } from '@/utils/cycleHealth'
+import { toneDotClass } from '@/components/common/statusPillTone'
 import Icon from '@/components/common/Icon.vue'
 import type { ActiveCycleSummary } from '@/composables/useActiveCycleSummaries'
 
@@ -41,24 +42,15 @@ const health = computed(() => {
   const h = cycleHealth({
     total: s.tickets,
     completed: s.completed,
-    startAt: s.cycle.start_at,
-    endAt: s.cycle.end_at,
+    startAt: s.cycle.start_at ?? null,
+    endAt: s.cycle.end_at ?? null,
   })
   const { tone, labelKey } = cycleHealthPresentation(h)
   return { tone, label: t(labelKey) }
 })
-const healthDotClass = computed(() => {
-  switch (health.value?.tone) {
-    case 'positive':
-      return 'bg-status-success'
-    case 'caution':
-      return 'bg-status-warning'
-    case 'critical':
-      return 'bg-status-error'
-    default:
-      return 'bg-strong'
-  }
-})
+// One tone mapping shared with StatusPill consumers, so the glance
+// dot and the hero pill can never disagree about the same health.
+const healthDotClass = computed(() => toneDotClass(health.value?.tone))
 </script>
 
 <template>

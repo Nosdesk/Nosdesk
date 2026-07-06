@@ -2620,21 +2620,35 @@ project-cycles-field-end = Einde
 project-cycles-name-placeholder = bijv. Sprint 14
 project-cycles-create-submit = Aanmaken
 project-cycles-velocity-hint = Recente snelheid: ~{ $count } tickets per cyclus
-project-cycles-all-title = Alle cycli
+# Cycli v2 (machinevertaling, na te kijken door een moedertaalspreker).
+project-cycles-upcoming-title = Aankomend
+project-cycles-completed-title = Afgerond
+project-cycles-empty-title = Nog geen cycli
+project-cycles-empty-description = Cycli zijn korte, tijdgebonden iteraties van werk. Maak er een aan om te plannen wat er hierna uitgaat.
+project-cycles-no-active-hint = Er loopt geen cyclus. Start { $name } om deze de actieve cyclus te maken.
+project-cycles-action-start = Cyclus starten
+project-cycles-confirm-complete-carryover = { $count ->
+    [one] Deze cyclus afronden? { $count } open ticket wordt verplaatst naar { $target } en de momentopname wordt bevroren.
+   *[other] Deze cyclus afronden? { $count } open tickets worden verplaatst naar { $target } en de momentopname wordt bevroren.
+}
+project-cycles-confirm-complete-backlog = { $count ->
+    [one] Deze cyclus afronden? { $count } open ticket keert terug naar de backlog en de momentopname wordt bevroren.
+   *[other] Deze cyclus afronden? { $count } open tickets keren terug naar de backlog en de momentopname wordt bevroren.
+}
+project-cycles-move-to = Verplaatsen naar { $name }
+project-cycles-remove-from-cycle = Uit cyclus verwijderen
+project-cycles-ticket-menu = Ticketacties
+project-cycles-promote-blocked-title = Er is al een actieve cyclus
+project-cycles-promote-blocked = Per project kan maar één cyclus actief zijn. Rond de huidige cyclus eerst af of archiveer deze.
+project-cycles-promote-blocked-ok = Begrepen
+project-cycles-active-empty = Nog niets in deze cyclus. Voeg tickets toe vanaf het bord of via het cyclusmenu van een ticket.
 # machine, na te kijken door moedertaalspreker
-project-cycles-col-state = Status
 # machine, na te kijken door moedertaalspreker
-project-cycles-col-name = Cyclus
 # machine, na te kijken door moedertaalspreker
-project-cycles-col-dates = Datums
 # machine, na te kijken door moedertaalspreker
-project-cycles-col-progress = Voortgang
 # Actieve-cyclusweergave (machine, nog na te kijken door moedertaalspreker).
 project-cycles-active-work-title = Werk in deze cyclus
 project-cycles-ended-warning = Deze cyclus eindigde op { $date } maar is nog niet afgerond.
-project-cycles-empty-prefix = Nog geen cycli. Klik op
-project-cycles-empty-cta = Nieuwe cyclus
-project-cycles-empty-suffix = om een iteratie te starten.
 project-cycles-state-planned = gepland
 project-cycles-state-active = actief
 project-cycles-state-completed = afgerond
@@ -3892,6 +3906,10 @@ ticket-detail-scheduling-none = Geen
 ticket-detail-scheduling-due-date = Vervaldatum
 ticket-detail-scheduling-due-prefix = Vervalt { $date }
 ticket-detail-scheduling-clear-due = Vervaldatum wissen
+# Startdatum (machinevertaling, na te kijken door een moedertaalspreker).
+ticket-detail-scheduling-start-date = Startdatum
+ticket-detail-scheduling-start-prefix = Start { $date }
+ticket-detail-scheduling-clear-start = Startdatum wissen
 ticket-detail-scheduling-recurrence = Herhaling
 ticket-detail-recurrence-none = Niet terugkerend
 ticket-detail-recurrence-daily = Dagelijks
@@ -5247,7 +5265,7 @@ cycle-burnup-summary = Cyclus-burnup: { $completed } van { $scope } items voltoo
 cycle-burnup-table-caption = Cyclus-burnupgegevens per dag
 # machine, na te kijken door moedertaalspreker
 cycle-burnup-col-day = Dag
-tickets-cycle-scope-added = +{ $count } toegevoegd na de start
+tickets-cycle-scope-added = { $count } toegevoegd na de start
 tickets-collaborative-article-title = Ticketnotities
 tickets-collaborative-article-doc-title = Documentatie: ticket #{ $id }
 tickets-collaborative-article-revision-history = Versiegeschiedenis
@@ -5814,11 +5832,30 @@ gantt-pan-next = Naar rechts schuiven
 # Overloopknop werkbalk (machine, na te kijken door moedertaalspreker).
 gantt-more-controls = Meer instellingen
 gantt-unscheduled = Niet gepland ({ $count })
-gantt-empty-window = Geen tickets in dit venster. Gebruik Passend, Vandaag of de pijlen om de tijdlijn te verschuiven.
+gantt-nothing-scheduled = Er is nog niets gepland. Stel een vervaldatum in om tickets op de tijdlijn te plaatsen.
 # Lege staat van de tijdlijn (machine, na te kijken door moedertaalspreker).
 gantt-empty-title = Nog geen tickets op de tijdlijn
 gantt-empty-description = Tickets met een vervaldatum verschijnen hier, uitgezet in de tijd. Voeg er een toe vanuit het bord om te beginnen.
-gantt-reschedule-handle = Sleep om de vervaldatum te wijzigen
+# Gantt-zweefkaart (machinevertaling, na te kijken door een moedertaalspreker).
+gantt-hover-dates = Datums
+gantt-hover-assignee = Toegewezene
+gantt-hover-cycle = Cyclus
+gantt-hover-dependencies = Afhankelijkheden
+gantt-hover-blocks = Blokkeert { $count }
+gantt-hover-blocked-by = Geblokkeerd door { $count }
+gantt-hover-reschedule-hint = Sleep de rechterrand om de vervaldatum te wijzigen
+# Gantt-groepering (machinevertaling, na te kijken door een moedertaalspreker).
+gantt-group-by = Groeperen op
+gantt-group-cycle = Cyclus
+gantt-group-state = Status
+gantt-group-assignee = Toegewezene
+gantt-group-no-cycle = Geen cyclus
+gantt-group-unassigned = Niet toegewezen
+gantt-group-span-label = Groep in- of uitklappen
+gantt-board-label = Tijdlijn. Toetsenbord: T vandaag, F passend, haakjestoetsen om te verschuiven, min en is-teken om te zoomen.
+gantt-nudge-announce = { $title } vervalt { $date }
+gantt-dependencies-failed = Afhankelijkheden konden niet worden geladen; pijlen zijn verborgen.
+gantt-retry = Opnieuw proberen
 user-cell-missing-tooltip = Deze gebruiker bestaat niet meer
 user-cell-unknown = Onbekend
 user-settings-managing-for = Instellingen beheren voor

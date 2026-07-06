@@ -30,7 +30,6 @@ export async function resetWorkspaceScopedState(): Promise<void> {
     import('@/composables/useWorkspaceCapabilities').then((m) =>
       m.resetWorkspaceCapabilities(),
     ),
-    import('@nosdesk/core/stores/cycles').then((m) => m.useCyclesStore().reset()),
     import('@/stores/savedViews').then((m) => m.useSavedViewsStore().reset()),
     import('@/stores/assetGroups').then((m) => m.useAssetGroupsStore().reset()),
   ]);

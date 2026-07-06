@@ -61,6 +61,8 @@ interface SyncTicketDetail {
   assignee_uuid: string | null
   category_id: number | null
   due_date: string | null
+  /** Optional planning start for the gantt. Null means unplanned. */
+  start_date?: string | null
   recurrence_rule: string | null
   resolution_notes: string | null
   tag_ids?: number[]
@@ -216,6 +218,7 @@ export function useTicketDetail(
       origin_channel_id: r.origin_channel_id ?? null,
       submitted_via: r.submitted_via ?? null,
       due_date: r.due_date,
+      start_date: r.start_date ?? null,
       recurrence_rule: r.recurrence_rule,
       created_by: r.created_by ?? null,
       closed_by: r.closed_by ?? null,
@@ -363,6 +366,12 @@ export function useTicketDetail(
     const r = row.value
     if (!r || r.due_date === due) return
     await patchTicket({ due_date: due }, { due_date: r.due_date })
+  }
+
+  async function updateStartDate(start: string | null): Promise<void> {
+    const r = row.value
+    if (!r || (r.start_date ?? null) === start) return
+    await patchTicket({ start_date: start }, { start_date: r.start_date ?? null })
   }
 
   async function updateRecurrenceRule(rule: string | null): Promise<void> {
@@ -773,6 +782,7 @@ export function useTicketDetail(
     updateAssignee,
     updateTitle,
     updateDueDate,
+    updateStartDate,
     updateRecurrenceRule,
     updateResolutionNotes,
     updateTags,

@@ -23,7 +23,7 @@ use crate::models::{
     Cycle, CycleTicket, CycleUpdate, NewCycle, NewCycleTicket, SyncAggregate, SyncOp,
     WorkflowStateCategory,
 };
-use crate::schema::{cycle_tickets, cycles, tickets, workflow_states};
+use crate::schema::{cycle_tickets, cycles, project_tickets, tickets, workflow_states};
 use crate::sync::emit::{self, SyncEmit};
 use crate::sync::groups;
 
@@ -38,6 +38,8 @@ fn cycle_payload(cycle: &Cycle) -> serde_json::Value {
         "state": cycle.state,
         "completed_at": cycle.completed_at,
         "archived_at": cycle.archived_at,
+        "created_at": cycle.created_at,
+        "updated_at": cycle.updated_at,
     })
 }
 
@@ -190,7 +192,6 @@ pub fn complete(
 
 // ---- cycle_tickets ----
 
-// sync-pending-wire: cycle membership change; needs a ticket.cycle_changed event
 pub fn add_ticket(
     conn: &mut DbConnection,
     cycle_id: i32,
@@ -236,11 +237,12 @@ pub fn add_ticket(
             "cycle_ticket.added",
             actor,
         )?;
+        let cycle_changed = ticket_cycle_changed(conn, ticket_id, Some(cycle_id))?;
+        emit::record(conn, cycle_changed)?;
         Ok(row)
     })
 }
 
-// sync-pending-wire: cycle membership change; needs a ticket.cycle_changed event
 pub fn remove_ticket(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<usize> {
     conn.transaction(|conn| {
         let previous: Option<i32> = cycle_tickets::table
@@ -259,8 +261,43 @@ pub fn remove_ticket(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<usi
                 "cycle_ticket.removed",
                 None,
             )?;
+            let cycle_changed = ticket_cycle_changed(conn, ticket_id, None)?;
+            emit::record(conn, cycle_changed)?;
         }
         Ok(n)
+    })
+}
+
+/// Build the partial ticket op-U announcing a cycle-membership
+/// change. The pool shallow-merges `{id, cycle_id}` into the ticket
+/// row on every client, so cycle rollups and gantt cycle grouping
+/// stay live without a re-bootstrap (the same mechanism that keeps
+/// `workflow_state` / `sla` live, see
+/// `repository::tickets::update_ticket_partial`). One event carries
+/// the authoritative final `cycle_id`, so a move never depends on
+/// add/remove ordering. Returned rather than recorded so each
+/// caller's body owns the `emit::record` call.
+fn ticket_cycle_changed(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    cycle_id: Option<i32>,
+) -> QueryResult<SyncEmit<'static>> {
+    // Same group shape as `groups::for_ticket`, without loading the
+    // full ticket row (only the id feeds the groups).
+    let mut event_groups = vec!["workspace:1".to_string(), format!("ticket:{}", ticket_id)];
+    let project_ids: Vec<i32> = project_tickets::table
+        .filter(project_tickets::ticket_id.eq(ticket_id))
+        .select(project_tickets::project_id)
+        .load(conn)?;
+    event_groups.extend(project_ids.iter().map(|id| format!("project:{}", id)));
+    Ok(SyncEmit {
+        aggregate: SyncAggregate::Ticket,
+        aggregate_id: ticket_id.to_string(),
+        op: SyncOp::Update,
+        event_type: "ticket.cycle_changed",
+        data: json!({ "id": ticket_id, "cycle_id": cycle_id }),
+        groups: event_groups,
+        causation_id: None,
     })
 }
 
@@ -413,7 +450,6 @@ pub fn build_completion_snapshot(
 /// (back to the backlog). Returns the carried-over count. Must run in
 /// the same transaction as `complete`, AFTER the snapshot is built so
 /// the snapshot still reflects the cycle's full membership.
-// sync-pending-wire: cycle membership change; needs a ticket.cycle_changed event (emits via emit_cycle_ticket_event)
 pub fn carry_over_incomplete(conn: &mut DbConnection, cycle: &Cycle) -> QueryResult<i64> {
     let incomplete: Vec<i32> = cycle_members(conn, cycle.id)?
         .into_iter()
@@ -476,6 +512,8 @@ pub fn carry_over_incomplete(conn: &mut DbConnection, cycle: &Cycle) -> QueryRes
                 None,
             )?;
         }
+        let cycle_changed = ticket_cycle_changed(conn, *ticket_id, target)?;
+        emit::record(conn, cycle_changed)?;
     }
 
     Ok(incomplete.len() as i64)
@@ -986,5 +1024,105 @@ mod tests {
         assert_eq!(carried, 1);
         // No target cycle: the ticket unlinks back to the backlog.
         assert_eq!(cycle_id_for_ticket(&mut conn, open.id).unwrap(), None);
+
+        // The unlink also announces itself on the ticket aggregate
+        // with a null cycle_id.
+        let (data, _groups) = last_cycle_changed(&mut conn, open.id);
+        assert!(data["cycle_id"].is_null());
+    }
+
+    /// Latest `ticket.cycle_changed` event for a ticket:
+    /// (data, groups). Panics if none was recorded.
+    fn last_cycle_changed(
+        conn: &mut DbConnection,
+        ticket_id: i32,
+    ) -> (serde_json::Value, Vec<Option<String>>) {
+        sync_actions::table
+            .filter(sync_actions::aggregate.eq(SyncAggregate::Ticket))
+            .filter(sync_actions::aggregate_id.eq(ticket_id.to_string()))
+            .filter(sync_actions::event_type.eq("ticket.cycle_changed"))
+            .order(sync_actions::sync_id.desc())
+            .select((sync_actions::data, sync_actions::groups))
+            .first(conn)
+            .expect("expected a ticket.cycle_changed event")
+    }
+
+    #[test]
+    fn add_ticket_emits_ticket_cycle_changed() {
+        let mut conn = setup_test_connection();
+        let (user, pid) = _seed_user_and_project(&mut conn, "cyc_evt_add");
+        let cycle = create(&mut conn, make_cycle(pid, "a", "planned")).unwrap();
+        let ticket = TestFixtures::create_ticket(&mut conn, "evt add", Some(user), None);
+
+        add_ticket(&mut conn, cycle.id, ticket.id, Some(user)).unwrap();
+
+        let (data, groups) = last_cycle_changed(&mut conn, ticket.id);
+        assert_eq!(data["id"], ticket.id);
+        assert_eq!(data["cycle_id"], cycle.id);
+        // Ticket-shaped groups: workspace + the ticket's own group,
+        // so ticket-detail subscribers see the chip change too.
+        assert!(groups.contains(&Some("workspace:1".to_string())));
+        assert!(groups.contains(&Some(format!("ticket:{}", ticket.id))));
+    }
+
+    #[test]
+    fn move_between_cycles_settles_on_new_cycle() {
+        let mut conn = setup_test_connection();
+        let (user, pid) = _seed_user_and_project(&mut conn, "cyc_evt_move");
+        let cycle_a = create(&mut conn, make_cycle(pid, "a", "planned")).unwrap();
+        let cycle_b = create(&mut conn, make_cycle(pid, "b", "planned")).unwrap();
+        let ticket = TestFixtures::create_ticket(&mut conn, "evt move", Some(user), None);
+
+        add_ticket(&mut conn, cycle_a.id, ticket.id, Some(user)).unwrap();
+        add_ticket(&mut conn, cycle_b.id, ticket.id, Some(user)).unwrap();
+
+        // A move is one authoritative event carrying the final
+        // cycle_id, not a remove/add pair a client must order.
+        let (data, _groups) = last_cycle_changed(&mut conn, ticket.id);
+        assert_eq!(data["cycle_id"], cycle_b.id);
+    }
+
+    #[test]
+    fn remove_ticket_emits_null_cycle() {
+        let mut conn = setup_test_connection();
+        let (user, pid) = _seed_user_and_project(&mut conn, "cyc_evt_rm");
+        let cycle = create(&mut conn, make_cycle(pid, "a", "planned")).unwrap();
+        let ticket = TestFixtures::create_ticket(&mut conn, "evt rm", Some(user), None);
+
+        add_ticket(&mut conn, cycle.id, ticket.id, Some(user)).unwrap();
+        remove_ticket(&mut conn, ticket.id).unwrap();
+
+        let (data, _groups) = last_cycle_changed(&mut conn, ticket.id);
+        assert_eq!(data["id"], ticket.id);
+        assert!(data["cycle_id"].is_null());
+    }
+
+    #[test]
+    fn carryover_emits_cycle_changed_per_ticket() {
+        let mut conn = setup_test_connection();
+        let (user, pid) = _seed_user_and_project(&mut conn, "cyc_evt_carry");
+
+        let now = Utc::now();
+        let mut a_def = make_cycle(pid, "a", "active");
+        a_def.start_at = Some(now);
+        let cycle_a = create(&mut conn, a_def).unwrap();
+        let mut b_def = make_cycle(pid, "b", "planned");
+        b_def.start_at = Some(now + chrono::Duration::days(14));
+        let cycle_b = create(&mut conn, b_def).unwrap();
+
+        let open1 = TestFixtures::create_ticket(&mut conn, "carry1", Some(user), None);
+        let open2 = TestFixtures::create_ticket(&mut conn, "carry2", Some(user), None);
+        for t in [&open1, &open2] {
+            add_ticket(&mut conn, cycle_a.id, t.id, Some(user)).unwrap();
+        }
+
+        let carried = carry_over_incomplete(&mut conn, &cycle_a).unwrap();
+        assert_eq!(carried, 2);
+
+        // Each carried ticket announces its destination cycle.
+        for t in [&open1, &open2] {
+            let (data, _groups) = last_cycle_changed(&mut conn, t.id);
+            assert_eq!(data["cycle_id"], cycle_b.id);
+        }
     }
 }

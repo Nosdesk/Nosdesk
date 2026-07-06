@@ -111,6 +111,8 @@ const props = defineProps<{
     submitted_via?: string | null;
     /** Calendar deadline. ISO string (RFC3339) or null. */
     due_date?: string | null;
+    /** Optional planning start for the gantt timeline, or null. */
+    start_date?: string | null;
     /** RFC 5545 RRULE string for recurring tickets, or null. */
     recurrence_rule?: string | null;
     /** Actor uuids — populated by the detail handler. The
@@ -181,6 +183,9 @@ const emit = defineEmits<{
   (e: "update:assignee", value: string): void;
   /** ISO string (start-of-day in user TZ) or null when cleared. */
   (e: "update:dueDate", value: string | null): void;
+  /** Naive midnight datetime or null when cleared (same convention
+   *  as dueDate). */
+  (e: "update:startDate", value: string | null): void;
   /** RRULE string or null when cleared. */
   (e: "update:recurrenceRule", value: string | null): void;
   /** Resolution notes — empty string normalises to null upstream
@@ -309,6 +314,20 @@ const dueDateValue = computed<string>({
   },
 });
 
+/** Same floating-calendar-day convention as dueDateValue. The start
+ * date is the gantt's planning field; unset means the timeline falls
+ * back to the ticket's created date. */
+const startDateValue = computed<string>({
+  get: () => (props.ticket.start_date ? props.ticket.start_date.slice(0, 10) : ''),
+  set: (value: string) => {
+    if (!value) {
+      emit('update:startDate', null);
+      return;
+    }
+    emit('update:startDate', `${value}T00:00:00`);
+  },
+});
+
 /** Recurrence preset that maps to a known RRULE string. The picker
  * exposes a small list rather than the full RFC; an admin who
  * needs WEEKDAYS-only or interval=2 rules can edit the raw string
@@ -333,7 +352,7 @@ const RECURRENCE_LABELS = computed<Record<string, string>>(() => ({
 /** True when the ticket carries either a due date or a recurrence
  * rule — drives whether the Scheduling group opens by default. */
 const schedulingHasValue = computed<boolean>(() => {
-  return !!(props.ticket.due_date || props.ticket.recurrence_rule);
+  return !!(props.ticket.due_date || props.ticket.start_date || props.ticket.recurrence_rule);
 });
 
 const schedulingOpen = ref<boolean>(schedulingHasValue.value);
@@ -343,14 +362,18 @@ const schedulingOpen = ref<boolean>(schedulingHasValue.value);
  * to "None" in the template. */
 const schedulingPreview = computed<string>(() => {
   const parts: string[] = [];
-  if (props.ticket.due_date) {
-    const { defaultLocale, defaultTimezone } = getDateConfig();
-    const formatted = new Date(props.ticket.due_date).toLocaleDateString(defaultLocale, {
+  const { defaultLocale, defaultTimezone } = getDateConfig();
+  const shortDay = (iso: string): string =>
+    new Date(iso).toLocaleDateString(defaultLocale, {
       month: 'short',
       day: 'numeric',
       timeZone: defaultTimezone,
     });
-    parts.push(t('ticket-detail-scheduling-due-prefix', { date: formatted }));
+  if (props.ticket.start_date) {
+    parts.push(t('ticket-detail-scheduling-start-prefix', { date: shortDay(props.ticket.start_date) }));
+  }
+  if (props.ticket.due_date) {
+    parts.push(t('ticket-detail-scheduling-due-prefix', { date: shortDay(props.ticket.due_date) }));
   }
   const rule = props.ticket.recurrence_rule;
   if (rule) {
@@ -1115,6 +1138,30 @@ watchEffect(async () => {
             </button>
 
             <div v-if="schedulingOpen" class="flex flex-col gap-3 pt-1 pl-5">
+              <!-- Start date: the gantt's planning field. Unset means
+                   the timeline anchors the bar at created_at. -->
+              <div class="flex flex-col gap-1">
+                <h3 class="text-xs font-medium text-tertiary min-h-6 flex items-center">
+                  {{ t('ticket-detail-scheduling-start-date') }}
+                </h3>
+                <div class="flex items-center gap-2">
+                  <DatePicker
+                    v-model="startDateValue"
+                    size="sm"
+                    block
+                    :aria-label="t('ticket-detail-scheduling-start-date')"
+                  />
+                  <Button
+                    v-if="ticket.start_date"
+                    variant="ghost"
+                    size="sm"
+                    icon="close"
+                    :aria-label="t('ticket-detail-scheduling-clear-start')"
+                    @click="emit('update:startDate', null)"
+                  />
+                </div>
+              </div>
+
               <!-- Due date: picker + ghost clear button. The clear
                    only renders when a date is set so the row has no
                    trailing dead space in the empty case. -->

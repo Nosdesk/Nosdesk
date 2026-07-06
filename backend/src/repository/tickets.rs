@@ -238,6 +238,7 @@ pub fn create_ticket_with_annotation(
                     "triage_state": ticket.triage_state,
                     "spam_suspected": ticket.spam_suspected,
                     "due_date": ticket.due_date,
+                    "start_date": ticket.start_date,
                     "created_at": ticket.created_at,
                     "updated_at": ticket.updated_at,
                     "last_activity_at": ticket.updated_at,
@@ -382,6 +383,7 @@ pub fn update_ticket_partial(
         ticket_update.category_id.is_some(),
         ticket_update.triage_state.is_some(),
         ticket_update.due_date.is_some(),
+        ticket_update.start_date.is_some(),
         ticket_update.recurrence_rule.is_some(),
         ticket_update.recurrence_template_id.is_some(),
         ticket_update.resolution_notes.is_some(),
@@ -454,6 +456,7 @@ pub fn update_ticket_partial(
             "spam_suspected": result.spam_suspected,
             "verification_state": result.verification_state,
             "due_date": result.due_date,
+            "start_date": result.start_date,
             "resolution_notes": result.resolution_notes,
             // Detail-view scalars carried so the pool-native ticket
             // detail surface stays complete after a live update (the
@@ -1117,6 +1120,57 @@ mod tests {
     // ---- Guest-submission helpers ----
 
     use crate::test_helpers::{setup_test_connection, TestFixtures};
+
+    #[test]
+    fn partial_update_sets_start_date_and_emits_it() {
+        use crate::schema::sync_actions;
+
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "start_date", "user");
+        let ticket =
+            TestFixtures::create_ticket(&mut conn, "start date ticket", Some(user.uuid), None);
+
+        let start = chrono::NaiveDate::from_ymd_opt(2026, 7, 6)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
+        let updated = update_ticket_partial(
+            &mut conn,
+            ticket.id,
+            TicketUpdate {
+                start_date: Some(Some(start)),
+                ..Default::default()
+            },
+            None,
+        )
+        .unwrap();
+        assert_eq!(updated.start_date, Some(start));
+
+        // The partial op-U carries start_date so the pool merge keeps
+        // gantt bars live across clients.
+        let data: serde_json::Value = sync_actions::table
+            .filter(sync_actions::aggregate.eq(SyncAggregate::Ticket))
+            .filter(sync_actions::aggregate_id.eq(ticket.id.to_string()))
+            .filter(sync_actions::op.eq(SyncOp::Update))
+            .order(sync_actions::sync_id.desc())
+            .select(sync_actions::data)
+            .first(&mut conn)
+            .unwrap();
+        assert_eq!(data["start_date"].as_str(), Some("2026-07-06T00:00:00"));
+
+        // Clearing round-trips too.
+        let cleared = update_ticket_partial(
+            &mut conn,
+            ticket.id,
+            TicketUpdate {
+                start_date: Some(None),
+                ..Default::default()
+            },
+            None,
+        )
+        .unwrap();
+        assert_eq!(cleared.start_date, None);
+    }
 
     #[test]
     fn merged_workflow_state_is_seeded() {

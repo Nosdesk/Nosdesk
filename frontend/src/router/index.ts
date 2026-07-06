@@ -16,7 +16,6 @@ import TicketsListView from '@/sync/views/TicketsListView.vue'
 import ProjectsView from '../views/ProjectsView.vue'
 import ProjectDetailView from '../views/ProjectDetailView.vue'
 import CycleDetailView from '../views/CycleDetailView.vue'
-import ProjectGanttView from '../views/ProjectGanttView.vue'
 import ProjectCyclesView from '../views/ProjectCyclesView.vue'
 import UserProfileView from '../views/UserProfileView.vue'
 import DocumentationIndexView from '@/views/DocumentationIndexView.vue'
@@ -285,7 +284,7 @@ const router = createRouter({
     {
       path: '/projects/:id/gantt',
       name: 'project-gantt',
-      component: ProjectGanttView,
+      component: () => import('../views/ProjectGanttView.vue'),
       props: true,
       meta: {
         requiresAuth: true,
