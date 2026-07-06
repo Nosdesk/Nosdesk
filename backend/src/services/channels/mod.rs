@@ -443,6 +443,7 @@ pub fn ingestion_mode(provider: &str) -> IngestionMode {
     match provider {
         crate::models::CHANNEL_PROVIDER_EMAIL_IMAP => IngestionMode::Pull,
         crate::models::CHANNEL_PROVIDER_EMAIL_FORWARD => IngestionMode::Push,
+        crate::models::CHANNEL_PROVIDER_EMAIL_MANAGED => IngestionMode::Push,
         _ => IngestionMode::Unknown,
     }
 }
@@ -466,6 +467,7 @@ mod tests {
     fn ingestion_mode_classifies_each_provider() {
         assert_eq!(ingestion_mode("email_imap"), IngestionMode::Pull);
         assert_eq!(ingestion_mode("email_forward"), IngestionMode::Push);
+        assert_eq!(ingestion_mode("email_managed"), IngestionMode::Push);
         assert_eq!(ingestion_mode("slack"), IngestionMode::Unknown);
     }
 

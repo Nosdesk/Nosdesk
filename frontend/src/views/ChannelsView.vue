@@ -46,15 +46,30 @@ const CHANNEL_TYPES: ChannelType[] = [
     descriptionKey: 'admin-channels-type-email-imap-description',
     route: '/admin/channels/email',
   },
+  {
+    // Hosted managed default address (support@<slug>.<tenant domain>).
+    // Created automatically by the platform when mail arrives — never
+    // addable from the picker; the row links to the Email delivery page.
+    provider: 'email_managed',
+    icon: 'email',
+    titleKey: 'admin-channels-type-email-managed',
+    descriptionKey: 'admin-channels-type-email-managed-description',
+    route: '/admin/email/delivery',
+  },
 ];
 
 const typeFor = (provider: string) => CHANNEL_TYPES.find((c) => c.provider === provider);
 
 // The add-channel picker hides forwarding unless the instance can receive it
-// (needs an inbound domain). `typeFor` still resolves it so an existing
-// forwarding channel renders correctly regardless.
+// (needs an inbound domain), and always hides the managed channel (the
+// platform mints it; there is nothing to configure). `typeFor` still
+// resolves both so existing channels render correctly regardless.
 const addableTypes = computed(() =>
-  CHANNEL_TYPES.filter((c) => c.provider !== 'email_forward' || isInboundForwardingEnabled()),
+  CHANNEL_TYPES.filter(
+    (c) =>
+      c.provider !== 'email_managed' &&
+      (c.provider !== 'email_forward' || isInboundForwardingEnabled()),
+  ),
 );
 
 const CHANNELS_KEY = ['admin-channels-list'] as const;
@@ -140,6 +155,7 @@ const STATUS_CLASS: Record<Status, string> = {
             <span class="font-medium text-primary">{{ ch.name }}</span>
             <span class="text-xs text-tertiary">
               {{ typeFor(ch.provider) ? t(typeFor(ch.provider)!.titleKey) : ch.provider }}
+              <template v-if="ch.managed_address"> · <span class="font-mono select-all">{{ ch.managed_address }}</span></template>
             </span>
           </div>
           <span class="px-1.5 py-0.5 text-xs rounded-full border" :class="STATUS_CLASS[statusOf(ch)]">

@@ -1,0 +1,1 @@
+DROP INDEX channels_one_email_managed_per_workspace;

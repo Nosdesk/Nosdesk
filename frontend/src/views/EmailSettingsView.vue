@@ -35,6 +35,13 @@ interface EmailConfig {
    * The SES SMTP username is a credential and is never returned.
    */
   managed?: boolean;
+  /**
+   * Hosted only: which identity this workspace's mail actually sends with.
+   * 'managed' = the default support@<slug>.<tenant_domain> address;
+   * 'verified_domain' / 'smtp_relay' = the workspace's own identity;
+   * 'platform' = legacy hosted instance without a tenant domain.
+   */
+  mode?: 'managed' | 'verified_domain' | 'smtp_relay' | 'platform';
   smtp_host?: string;
   smtp_port?: number;
   smtp_password_configured?: boolean;
@@ -260,9 +267,21 @@ const getRequiredEnvVars = () => [
             </div>
 
             <!-- Hosted: outbound is Nosdesk-managed infra. Don't expose the
-                 platform relay; point the admin at their sending domain. -->
+                 platform relay; show the workspace's effective identity (the
+                 managed default address, or its verified domain / relay) and
+                 point the admin at the sending-domain upgrade. -->
             <div v-if="emailConfig?.managed" class="flex flex-col gap-2 text-sm bg-surface-alt rounded-lg p-3">
-              <p class="text-secondary">{{ $t('admin-email-settings-managed-note') }}</p>
+              <p class="text-secondary">
+                {{
+                  emailConfig?.mode === 'managed'
+                    ? $t('admin-email-settings-managed-default-note')
+                    : $t('admin-email-settings-managed-note')
+                }}
+              </p>
+              <div v-if="emailConfig?.from_email" class="flex flex-col gap-0.5">
+                <span class="text-tertiary text-xs">{{ $t('admin-email-settings-from-address') }}</span>
+                <span class="text-primary font-mono text-xs bg-surface px-2 py-1.5 rounded select-all break-all">{{ emailConfig.from_name }} &lt;{{ emailConfig.from_email }}&gt;</span>
+              </div>
               <!-- Standalone only: in the Email delivery page the sending-domain
                    section is rendered directly below, so the link is redundant. -->
               <RouterLink

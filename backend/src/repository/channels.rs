@@ -92,6 +92,52 @@ pub fn create(conn: &mut DbConnection, new: NewChannel) -> QueryResult<Channel> 
     })
 }
 
+/// Find-or-create the workspace's single `email_managed` channel (the hosted
+/// managed default address `support@<slug>.<tenant_domain>`). Called from the
+/// inbound webhook on a connection elevated for the workspace: the elevated
+/// role BYPASSES RLS, so the lookup filters by `workspace_id` explicitly
+/// (never provider-only — that would read across tenants); the insert's
+/// `workspace_id` comes from the GUC default the elevation set. At most one
+/// exists per workspace — a partial unique index backs that, so a concurrent
+/// webhook race surfaces as a unique violation, which re-selects instead of
+/// failing.
+pub fn ensure_managed_channel(
+    conn: &mut DbConnection,
+    for_workspace_id: i32,
+) -> QueryResult<Channel> {
+    use crate::schema::channels::dsl::*;
+    let managed = crate::models::CHANNEL_PROVIDER_EMAIL_MANAGED;
+    let found: Option<Channel> = channels
+        .filter(provider.eq(managed))
+        .filter(workspace_id.eq(for_workspace_id))
+        .order(id.asc())
+        .first(conn)
+        .optional()?;
+    if let Some(ch) = found {
+        return Ok(ch);
+    }
+    match create(
+        conn,
+        NewChannel {
+            provider: managed.into(),
+            name: "Email".into(),
+            enabled: true,
+            config: serde_json::json!({}),
+        },
+    ) {
+        Ok(channel) => Ok(channel),
+        Err(diesel::result::Error::DatabaseError(
+            diesel::result::DatabaseErrorKind::UniqueViolation,
+            _,
+        )) => channels
+            .filter(provider.eq(managed))
+            .filter(workspace_id.eq(for_workspace_id))
+            .order(id.asc())
+            .first(conn),
+        Err(e) => Err(e),
+    }
+}
+
 pub fn update(
     conn: &mut DbConnection,
     channel_id: i32,
@@ -423,6 +469,43 @@ mod tests {
     use crate::models::{CHANNEL_DIRECTION_INBOUND, CHANNEL_DIRECTION_OUTBOUND};
     use crate::test_helpers::{setup_test_connection, TestFixtures};
     use serde_json::json;
+
+    #[test]
+    fn ensure_managed_channel_is_idempotent() {
+        let mut conn = setup_test_connection();
+        // Bootstrap workspace id=1 (the test connection's pinned workspace).
+        let first = ensure_managed_channel(&mut conn, 1).unwrap();
+        assert_eq!(
+            first.provider,
+            crate::models::CHANNEL_PROVIDER_EMAIL_MANAGED
+        );
+        assert!(first.enabled);
+
+        let second = ensure_managed_channel(&mut conn, 1).unwrap();
+        assert_eq!(
+            second.id, first.id,
+            "a second ensure must return the existing channel, not mint another"
+        );
+
+        // The partial unique index backstops the race path: a direct duplicate
+        // insert must be rejected.
+        let dup = create(
+            &mut conn,
+            NewChannel {
+                provider: crate::models::CHANNEL_PROVIDER_EMAIL_MANAGED.into(),
+                name: "Email".into(),
+                enabled: true,
+                config: json!({}),
+            },
+        );
+        assert!(matches!(
+            dup,
+            Err(diesel::result::Error::DatabaseError(
+                diesel::result::DatabaseErrorKind::UniqueViolation,
+                _
+            ))
+        ));
+    }
 
     #[test]
     fn channel_crud_roundtrip() {

@@ -1111,6 +1111,7 @@ admin-email-settings-password-not-set = Niet ingesteld
 admin-email-settings-env-vars-label = Env:
 # (machine, na te kijken door moedertaalspreker).
 admin-email-settings-managed-note = Uitgaande e-mail wordt bezorgd door Nosdesk. Stel een verzenddomein in om vanaf je eigen adres te verzenden.
+admin-email-settings-managed-default-note = Je werkruimte verzendt en ontvangt e-mail op het ingebouwde adres hieronder — deel het met je klanten of publiceer het op je site. Stel een verzenddomein in om vanaf je eigen domein te verzenden.
 admin-email-settings-managed-domain-link = Verzenddomein instellen
 # (machine, na te kijken door moedertaalspreker).
 admin-nav-group-communication = Communicatie
@@ -1132,6 +1133,8 @@ admin-channels-add-prompt = Kies een kanaaltype
 admin-channels-type-email-imap = E-mail (IMAP)
 admin-channels-type-email-imap-description = Een mailbox pollen en berichten omzetten in tickets
 # MT: pending native review (nl-NL)
+admin-channels-type-email-managed = Werkruimte-e-mailadres
+admin-channels-type-email-managed-description = Je ingebouwde supportadres; ontvangt klantmail en verzendt je antwoorden
 admin-channels-type-email-forward = E-mail doorsturen
 # MT: pending native review (nl-NL)
 admin-channels-type-email-forward-description = Stuur je supportmailbox door naar een adres dat wij genereren; geen inloggegevens nodig

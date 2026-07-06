@@ -183,6 +183,25 @@ pub async fn set_domain(
     }
     let domain = parts[1].to_ascii_lowercase();
 
+    // Platform-owned namespaces can't be verified as a tenant sending domain:
+    // DNS would fail the DKIM check anyway (the records live in our zone),
+    // but reject early and explicitly — a tenant must never even attempt to
+    // claim `<other-slug>.<tenant_domain>` or the token inbound host.
+    let platform_owned = [
+        crate::utils::tenant_origin::tenant_domain(),
+        std::env::var("NOSDESK_INBOUND_DOMAIN")
+            .ok()
+            .filter(|d| !d.is_empty()),
+    ];
+    for owned in platform_owned.iter().flatten() {
+        let owned = owned.to_ascii_lowercase();
+        if domain == owned || domain.ends_with(&format!(".{owned}")) {
+            return errors::bad_request(
+                "This domain is managed by the platform and cannot be used as a sending domain",
+            );
+        }
+    }
+
     let fields = UpsertWorkspaceEmailSettings {
         enabled: true,
         from_name: body.from_name.trim().to_string(),

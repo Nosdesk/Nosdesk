@@ -32,6 +32,12 @@ export interface Channel {
    * address the customer forwards to. Absent for other providers.
    */
   forwarding_address?: string;
+  /**
+   * For `email_managed` channels (hosted): the public
+   * `support@<slug>.<tenant_domain>` address the workspace receives at and
+   * replies from. Absent for other providers.
+   */
+  managed_address?: string;
 }
 
 /** Known shape of `config` for the `email_imap` provider. */

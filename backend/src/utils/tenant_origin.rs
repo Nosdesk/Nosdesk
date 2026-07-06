@@ -21,6 +21,32 @@ pub fn tenant_domain() -> Option<String> {
     non_empty(std::env::var("NOSDESK_TENANT_DOMAIN").ok())
 }
 
+/// Localpart of the managed default email identity every hosted workspace
+/// gets: `support@<slug>.<tenant_domain>`. One constant shared by the
+/// outbound resolver, reply routing, the inbound recipient parser, and the
+/// admin config surface so the address can never drift between them.
+pub const MANAGED_LOCALPART: &str = "support";
+
+/// The managed default address for a workspace: `support@<slug>.<domain>`.
+/// The single composition point for the address (see [`MANAGED_LOCALPART`]).
+pub fn managed_email_address(slug: &str, tenant_domain: &str) -> String {
+    format!("{MANAGED_LOCALPART}@{slug}.{tenant_domain}")
+}
+
+/// A From display name safe to hand to `lettre`'s `Mailbox` parser. Strips
+/// control characters (header injection) and the quoting-sensitive
+/// `<`/`>`/`"`; collapses surrounding whitespace. Returns `None` when nothing
+/// displayable survives, so the caller can fall back (e.g. to the slug) —
+/// a workspace named `"<\r\n>"` must degrade, not fail every send.
+pub fn sanitise_from_display_name(name: &str) -> Option<String> {
+    let cleaned: String = name
+        .chars()
+        .filter(|c| !c.is_control() && !matches!(c, '<' | '>' | '"'))
+        .collect();
+    let cleaned = cleaned.trim();
+    (!cleaned.is_empty()).then(|| cleaned.to_string())
+}
+
 /// Pure host builder: a non-empty `custom_domain` wins, else
 /// `<slug>.<tenant_domain>` when a non-empty `tenant_domain` is given, else
 /// `None`. Returns the bare host (no scheme). This host is also the workspace's
@@ -74,7 +100,29 @@ fn non_empty(value: Option<String>) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::canonical_host_for;
+    use super::{canonical_host_for, managed_email_address, sanitise_from_display_name};
+
+    #[test]
+    fn managed_address_composition() {
+        assert_eq!(
+            managed_email_address("acme", "nosdesk.app"),
+            "support@acme.nosdesk.app"
+        );
+    }
+
+    #[test]
+    fn display_name_sanitiser_strips_injection_chars() {
+        assert_eq!(
+            sanitise_from_display_name("Acme <Support>\r\nBcc: x").as_deref(),
+            Some("Acme SupportBcc: x")
+        );
+        assert_eq!(
+            sanitise_from_display_name("Acme, Inc.").as_deref(),
+            Some("Acme, Inc.")
+        );
+        assert_eq!(sanitise_from_display_name("\"<\r\n>\""), None);
+        assert_eq!(sanitise_from_display_name("   "), None);
+    }
 
     #[test]
     fn custom_domain_wins_over_slug() {

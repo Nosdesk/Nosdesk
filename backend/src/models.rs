@@ -7073,13 +7073,17 @@ pub const CHANNEL_DIRECTION_OUTBOUND: &str = "outbound";
 /// open for extension without migration.
 pub const CRED_TYPE_IMAP_PASSWORD: &str = "imap_password";
 
-/// `channels.provider` values for the two email ingestion paths. `email_imap`
+/// `channels.provider` values for the email ingestion paths. `email_imap`
 /// polls a mailbox (self-host / niche providers); `email_forward` receives
 /// mail the customer forwards to a generated `<token>@inbound.<domain>`
-/// address (the hosted path). Both feed the same parse pipeline; only the
-/// ingestion source differs.
+/// address; `email_managed` receives mail addressed directly to the hosted
+/// workspace's managed default address `support@<slug>.<tenant_domain>`
+/// (routed by slug, at most one per workspace, auto-created on first
+/// inbound). All feed the same parse pipeline; only the ingestion source
+/// differs.
 pub const CHANNEL_PROVIDER_EMAIL_IMAP: &str = "email_imap";
 pub const CHANNEL_PROVIDER_EMAIL_FORWARD: &str = "email_forward";
+pub const CHANNEL_PROVIDER_EMAIL_MANAGED: &str = "email_managed";
 
 /// `inbound_addresses.status` values, in lockstep with the
 /// `inbound_addresses_status_check` SQL constraint. `active` addresses route;
@@ -7088,8 +7092,11 @@ pub const INBOUND_ADDRESS_STATUS_ACTIVE: &str = "active";
 pub const INBOUND_ADDRESS_STATUS_RETIRED: &str = "retired";
 
 /// `inbound_dead_letters.reason` values. `unknown_token` is clean mail (scans
-/// passed) that resolved to no active forwarding token.
+/// passed) that resolved to no active forwarding token; `unknown_recipient`
+/// is clean mail to a managed-style address (`support@<label>.<domain>`)
+/// whose label matched no active workspace slug.
 pub const INBOUND_DEAD_LETTER_REASON_UNKNOWN_TOKEN: &str = "unknown_token";
+pub const INBOUND_DEAD_LETTER_REASON_UNKNOWN_RECIPIENT: &str = "unknown_recipient";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
 #[diesel(table_name = crate::schema::channels)]

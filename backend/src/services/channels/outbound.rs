@@ -140,6 +140,10 @@ pub async fn send_and_record(
 ///   username when it's an address).
 /// - `email_forward`: thread back via the generated forwarding address, so the
 ///   customer's reply re-enters through SES inbound and threads.
+/// - `email_managed`: no `Reply-To` — the resolved From
+///   (`support@<slug>.<tenant_domain>`) IS the receivable address, and a
+///   Reply-To duplicating From is noise some filters penalise. The Message-ID
+///   domain is the workspace's mail host so the threading cascade matches.
 ///
 /// Shared with [`super::auto_ack`] so the acknowledgement threads back the same
 /// way an agent's reply does.
@@ -164,6 +168,11 @@ pub(crate) fn reply_routing(
             .find(|a| a.status == INBOUND_ADDRESS_STATUS_ACTIVE)?;
         let forwarding_address = format!("{}@{}", address.token, domain);
         Some((domain, Some(forwarding_address)))
+    } else if channel.provider == crate::models::CHANNEL_PROVIDER_EMAIL_MANAGED {
+        let tenant_domain = crate::utils::tenant_origin::tenant_domain()?;
+        let workspace =
+            crate::repository::workspaces::find_by_id(conn, channel.workspace_id).ok()??;
+        Some((format!("{}.{}", workspace.slug, tenant_domain), None))
     } else {
         None
     }

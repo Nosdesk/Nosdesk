@@ -1114,6 +1114,7 @@ admin-email-settings-password-not-set = Non défini
 admin-email-settings-env-vars-label = Env :
 # (machine, à relire par un locuteur natif).
 admin-email-settings-managed-note = Les e-mails sortants sont distribués par Nosdesk. Pour envoyer depuis votre propre adresse, configurez un domaine d'envoi.
+admin-email-settings-managed-default-note = Votre espace de travail envoie et reçoit les e-mails à son adresse intégrée ci-dessous — partagez-la avec vos clients ou publiez-la sur votre site. Pour envoyer depuis votre propre domaine, configurez un domaine d'envoi.
 admin-email-settings-managed-domain-link = Configurer le domaine d'envoi
 # (machine, à relire par un locuteur natif).
 admin-nav-group-communication = Communication
@@ -1135,6 +1136,8 @@ admin-channels-add-prompt = Choisissez un type de canal
 admin-channels-type-email-imap = E-mail (IMAP)
 admin-channels-type-email-imap-description = Interroger une boîte aux lettres et transformer les messages en tickets
 # MT: pending native review (fr-FR)
+admin-channels-type-email-managed = Adresse e-mail de l'espace de travail
+admin-channels-type-email-managed-description = Votre adresse de support intégrée ; reçoit les e-mails des clients et envoie vos réponses
 admin-channels-type-email-forward = Transfert d'e-mails
 # MT: pending native review (fr-FR)
 admin-channels-type-email-forward-description = Transférez votre boîte de support vers une adresse que nous générons ; aucun identifiant requis

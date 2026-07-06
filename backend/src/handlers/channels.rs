@@ -75,6 +75,12 @@ pub struct ChannelResponse {
     /// has no inbound domain configured).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub forwarding_address: Option<String>,
+    /// For `email_managed` channels: the public
+    /// `support@<slug>.<tenant_domain>` address the workspace receives at and
+    /// replies from. `None` for other providers (and when no tenant domain is
+    /// configured).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub managed_address: Option<String>,
 }
 
 /// Compose a forwarding address from a token + the instance inbound domain.
@@ -108,10 +114,22 @@ impl ChannelResponse {
         } else {
             None
         };
+        // Managed channels surface the workspace's public support address.
+        let managed_address = if channel.provider == crate::models::CHANNEL_PROVIDER_EMAIL_MANAGED {
+            crate::utils::tenant_origin::tenant_domain().and_then(|domain| {
+                crate::repository::workspaces::find_by_id(conn, channel.workspace_id)
+                    .ok()
+                    .flatten()
+                    .map(|ws| crate::utils::tenant_origin::managed_email_address(&ws.slug, &domain))
+            })
+        } else {
+            None
+        };
         Ok(Self {
             channel,
             has_credential: has,
             forwarding_address,
+            managed_address,
         })
     }
 }
@@ -205,6 +223,14 @@ fn validate_config(provider: &str, config: &JsonValue) -> Result<(), String> {
             }
             Ok(())
         }
+        // The managed channel is minted by the inbound webhook (at most one
+        // per workspace, slug-routed); manual creation would race it and has
+        // nothing to configure.
+        crate::models::CHANNEL_PROVIDER_EMAIL_MANAGED => Err(
+            "The managed email channel is created automatically when mail arrives; \
+             it cannot be added manually"
+                .to_string(),
+        ),
         other => Err(format!("unknown provider: {other}")),
     }
 }

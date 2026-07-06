@@ -122,6 +122,23 @@ pub fn find_by_slug(conn: &mut DbConnection, slug: &str) -> QueryResult<Option<W
         .optional()
 }
 
+/// Batched `(id, slug, name)` read for active workspaces, for the outbound
+/// email resolver's managed-identity path (`support@<slug>.<tenant_domain>`):
+/// one indexed read per queue drain instead of a lookup per workspace.
+/// `workspaces` is a global table, so this works on the worker's bypass
+/// connection and on workspace-pinned connections alike. Archived workspaces
+/// are omitted — their mail defers rather than sending from a dead address.
+pub fn identity_for_ids(
+    conn: &mut DbConnection,
+    ids: &[i32],
+) -> QueryResult<Vec<(i32, String, String)>> {
+    workspaces::table
+        .filter(workspaces::id.eq_any(ids))
+        .filter(workspaces::archived_at.is_null())
+        .select((workspaces::id, workspaces::slug, workspaces::name))
+        .load(conn)
+}
+
 /// Load a workspace by slug regardless of archive state. The
 /// deprovision/restore lifecycle endpoints need this to tell "already
 /// archived" (idempotent no-op) apart from "never existed" (404);
@@ -718,6 +735,27 @@ mod tests {
             seat_limit: None,
         };
         as_admin(conn, |c| create_workspace(c, &record)).expect("create workspace")
+    }
+
+    #[test]
+    fn identity_for_ids_returns_active_only() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+
+        let live = fresh_workspace(&mut conn, "identlive");
+        let gone = fresh_workspace(&mut conn, "identgone");
+        as_admin(&mut conn, |c| archive_workspace(c, gone.id)).expect("archive");
+
+        let rows = identity_for_ids(&mut conn, &[live.id, gone.id, -1]).expect("read");
+        assert_eq!(
+            rows,
+            vec![(
+                live.id,
+                "identlive".to_string(),
+                "Workspace identlive".to_string()
+            )],
+            "archived and unknown ids must be omitted"
+        );
     }
 
     #[test]

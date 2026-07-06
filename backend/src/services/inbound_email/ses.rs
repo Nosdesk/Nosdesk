@@ -148,6 +148,46 @@ pub fn first_token(recipients: &[String], inbound_domain: &str) -> Option<String
         .find_map(|r| token_from_recipient(r, inbound_domain))
 }
 
+/// Extract the workspace-slug candidate from a managed-address recipient of
+/// the form `support[+tag]@<slug>.<tenant_domain>`. Returns the lowercased
+/// slug label. `None` when the recipient isn't a managed address:
+/// - localpart must be `support` or `support+<tag>` (case-insensitive; the
+///   plus-tag routes nothing here — the threading cascade reads it from the
+///   preserved recipient list),
+/// - domain must be exactly one label under `tenant_domain`, matched anchored
+///   (suffix-stripped, dot required) so `x@evil-nosdesk.app` and
+///   `x@a.b.nosdesk.app` never resolve,
+/// - the bare tenant domain itself never matches (no slug label).
+pub fn managed_slug_from_recipient(recipient: &str, tenant_domain: &str) -> Option<String> {
+    if tenant_domain.is_empty() {
+        return None;
+    }
+    let (local, domain) = recipient.rsplit_once('@')?;
+    let local = local.to_ascii_lowercase();
+    let is_managed_local = local == crate::utils::tenant_origin::MANAGED_LOCALPART
+        || local
+            .strip_prefix(crate::utils::tenant_origin::MANAGED_LOCALPART)
+            .is_some_and(|rest| rest.starts_with('+'));
+    if !is_managed_local {
+        return None;
+    }
+    let domain = domain.to_ascii_lowercase();
+    let label = domain
+        .strip_suffix(&tenant_domain.to_ascii_lowercase())?
+        .strip_suffix('.')?;
+    if label.is_empty() || label.contains('.') {
+        return None;
+    }
+    Some(label.to_string())
+}
+
+/// First recipient that resolves to a managed-address slug candidate.
+pub fn first_managed_slug(recipients: &[String], tenant_domain: &str) -> Option<String> {
+    recipients
+        .iter()
+        .find_map(|r| managed_slug_from_recipient(r, tenant_domain))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -215,6 +255,51 @@ mod tests {
         assert!(token_from_recipient("abc123@evil.com", "inbound.nosdesk.com").is_none());
         assert!(token_from_recipient("@inbound.nosdesk.com", "inbound.nosdesk.com").is_none());
         assert!(token_from_recipient("not-an-address", "inbound.nosdesk.com").is_none());
+    }
+
+    #[test]
+    fn managed_slug_extraction_accepts_support_and_plus_tags() {
+        assert_eq!(
+            managed_slug_from_recipient("support@acme.nosdesk.app", "nosdesk.app").as_deref(),
+            Some("acme")
+        );
+        assert_eq!(
+            managed_slug_from_recipient("Support+ticket-42@ACME.nosdesk.app", "nosdesk.app")
+                .as_deref(),
+            Some("acme"),
+            "case-insensitive; plus-tag ignored for routing"
+        );
+    }
+
+    #[test]
+    fn managed_slug_extraction_rejects_non_managed_addresses() {
+        // Wrong localpart.
+        assert!(managed_slug_from_recipient("sales@acme.nosdesk.app", "nosdesk.app").is_none());
+        // `supportx` must not pass the prefix check.
+        assert!(managed_slug_from_recipient("supportx@acme.nosdesk.app", "nosdesk.app").is_none());
+        // Bare tenant domain: no slug label.
+        assert!(managed_slug_from_recipient("support@nosdesk.app", "nosdesk.app").is_none());
+        // Multi-label: not a direct child of the tenant domain.
+        assert!(managed_slug_from_recipient("support@a.b.nosdesk.app", "nosdesk.app").is_none());
+        // Anchoring: a lookalike suffix domain must not match.
+        assert!(
+            managed_slug_from_recipient("support@evil-nosdesk.app", "nosdesk.app").is_none(),
+            "suffix match must require the dot boundary"
+        );
+        assert!(managed_slug_from_recipient("support@acme.nosdesk.app", "").is_none());
+    }
+
+    #[test]
+    fn first_managed_slug_scans_recipients() {
+        let recipients = vec![
+            "noise@elsewhere.com".to_string(),
+            "tok9@inbound.nosdesk.app".to_string(),
+            "support@acme.nosdesk.app".to_string(),
+        ];
+        assert_eq!(
+            first_managed_slug(&recipients, "nosdesk.app").as_deref(),
+            Some("acme")
+        );
     }
 
     #[test]

@@ -3,9 +3,14 @@
 //! Outbound mail used to flow through a single instance-global
 //! `EmailService` built from env. This resolver replaces that single
 //! reference: given a workspace, it returns the `EmailService` to send
-//! with, built from the workspace's own `workspace_email_settings` row, and
-//! falls back to the env-configured service when the workspace has no
-//! identity (so single-tenant self-host is unchanged).
+//! with, built from the workspace's own `workspace_email_settings` row.
+//! When the workspace has no identity of its own, the fallback depends on
+//! the deployment mode: on self-host the env-configured service is the
+//! operator's own identity, so it applies directly (single-tenant self-host
+//! is unchanged); on hosted, the workspace instead gets the MANAGED default
+//! identity `support@<slug>.<NOSDESK_TENANT_DOMAIN>` — sent through the
+//! platform relay but From the tenant's own subdomain, so tenant mail never
+//! leaves on the shared platform domain.
 //!
 //! It is a **stateless builder**, deliberately not a cache. Every send path
 //! already reads its DB inputs in a pinned phase and releases the
@@ -28,6 +33,7 @@ use crate::models::{
 };
 use crate::repository::channels::CredentialError;
 use crate::repository::workspace_email_settings as ws_settings;
+use crate::repository::workspaces;
 use crate::sync::session::{run_in_workspace, BackgroundRunError};
 use crate::utils::email::{DkimAlgorithm, DkimSigner, EmailConfig, EmailService, SmtpSecurity};
 
@@ -53,11 +59,19 @@ pub struct OutboundEmailResolver {
     /// Whether WORKSPACE mail may fall back to the env identity. True only on
     /// self-host, where the env relay IS the single operator's own identity; on
     /// hosted the env identity is the SHARED PLATFORM identity, so tenant mail
-    /// must never fall back to it (it would leave on the platform domain). The
-    /// bulk queue path ([`resolve_batch`](Self::resolve_batch)) honours this; the
-    /// direct-send path ([`from_row`](Self::from_row)) always falls back (a
-    /// pre-existing asymmetry, see its note).
+    /// must never fall back to it (it would leave on the platform domain).
+    /// Hosted workspaces without their own identity resolve to the managed
+    /// default identity instead (see `managed_domain`).
     workspace_fallback_allowed: bool,
+    /// Hosted only: the tenant base domain (`NOSDESK_TENANT_DOMAIN`) the
+    /// managed default identity lives under. When set, a workspace with no
+    /// usable identity of its own sends as
+    /// `support@<slug>.<managed_domain>` through the platform relay (Easy
+    /// DKIM signs `d=<managed_domain>` at the relay, DMARC-aligned relaxed).
+    /// `None` on self-host, and on hosted instances without a tenant domain
+    /// (where the old defer/fallback behaviour is preserved). Captured once
+    /// at construction so resolution never re-reads env mid-drain.
+    managed_domain: Option<String>,
 }
 
 #[derive(Debug)]
@@ -87,28 +101,38 @@ impl std::error::Error for ResolveError {}
 impl OutboundEmailResolver {
     pub fn new(pool: Pool, fallback: Option<Arc<EmailService>>) -> Self {
         // Self-host: the env identity is the operator's own, so WORKSPACE mail
-        // may fall back to it. Hosted: it's shared platform infra, never.
+        // may fall back to it. Hosted: it's shared platform infra, never —
+        // identity-less workspaces get the managed default instead.
         let workspace_fallback_allowed = crate::middleware::DeploymentMode::current()
             == crate::middleware::DeploymentMode::SelfHosted;
+        let managed_domain = if workspace_fallback_allowed {
+            None
+        } else {
+            crate::utils::tenant_origin::tenant_domain()
+        };
         Self {
             pool,
             fallback,
             workspace_fallback_allowed,
+            managed_domain,
         }
     }
 
-    /// Test constructor that sets the workspace-fallback policy explicitly, since
-    /// `DeploymentMode::current()` is process-cached and can't be flipped per test.
+    /// Test constructor that sets the workspace-fallback policy and managed
+    /// domain explicitly, since `DeploymentMode::current()` is process-cached
+    /// and env reads race across tests.
     #[cfg(test)]
     fn with_policy(
         pool: Pool,
         fallback: Option<Arc<EmailService>>,
         workspace_fallback_allowed: bool,
+        managed_domain: Option<String>,
     ) -> Self {
         Self {
             pool,
             fallback,
             workspace_fallback_allowed,
+            managed_domain,
         }
     }
 
@@ -125,26 +149,48 @@ impl OutboundEmailResolver {
 
     /// Resolve on a connection the caller already holds. The caller is
     /// expected to have scoped that connection to `workspace_id` (or to hold
-    /// a bypass connection); the read filters by `workspace_id` either way.
-    /// No extra connection is checked out.
+    /// a bypass connection); the read filters by `workspace_id` either way
+    /// (`workspaces` is a global table, readable on both). No extra
+    /// connection is checked out.
     pub fn resolve_on_conn(
         &self,
         conn: &mut DbConnection,
         workspace_id: i32,
     ) -> Result<Arc<EmailService>, ResolveError> {
         let row = ws_settings::get_for_workspace(conn, workspace_id).map_err(ResolveError::Db)?;
-        self.from_row(row)
+        let identity = if self.managed_applicable() {
+            workspaces::identity_for_ids(conn, &[workspace_id])
+                .map_err(ResolveError::Db)?
+                .pop()
+        } else {
+            None
+        };
+        self.from_row(row, identity)
     }
 
     /// Resolve using the resolver's own pooled, RLS-pinned connection, for
     /// call sites with no connection in scope (the IMAP adapter at
     /// construction, the admin test-send endpoint).
     pub fn resolve_owned(&self, workspace_id: i32) -> Result<Arc<EmailService>, ResolveError> {
-        let row = run_in_workspace(&self.pool, "email-resolver", workspace_id, |conn| {
-            ws_settings::get_for_workspace(conn, workspace_id)
-        })
-        .map_err(ResolveError::Background)?;
-        self.from_row(row)
+        let managed = self.managed_applicable();
+        let (row, identity) =
+            run_in_workspace(&self.pool, "email-resolver", workspace_id, |conn| {
+                let row = ws_settings::get_for_workspace(conn, workspace_id)?;
+                let identity = if managed {
+                    workspaces::identity_for_ids(conn, &[workspace_id])?.pop()
+                } else {
+                    None
+                };
+                Ok((row, identity))
+            })
+            .map_err(ResolveError::Background)?;
+        self.from_row(row, identity)
+    }
+
+    /// Whether the managed default identity can be built at all: hosted with
+    /// a tenant domain, and a platform relay to send through.
+    fn managed_applicable(&self) -> bool {
+        self.managed_domain.is_some() && self.fallback.is_some()
     }
 
     /// Resolve the sending service for each of `workspace_ids` in one read,
@@ -152,17 +198,20 @@ impl OutboundEmailResolver {
     /// (the worker resolves PLATFORM rows via [`platform`](Self::platform)).
     ///
     /// A workspace with its own usable identity (a verified sending domain or
-    /// an smtp_relay) maps to that service. A workspace WITHOUT one is, on
-    /// HOSTED, omitted — it does NOT fall back to the SHARED platform identity.
-    /// Tenant mail carries tenant-controlled content (workspace name, customer
-    /// names, ticket text); sending it from the platform domain would lend the
-    /// platform's reputation to phishing and risk its deliverability. So the
-    /// caller reads a missing entry as "unconfigured" and defers the row until
-    /// the workspace verifies a sending domain. On SELF-HOST the env identity is
-    /// the single operator's own, so an unconfigured workspace falls back to it
+    /// an smtp_relay) maps to that service. A workspace WITHOUT one gets, on
+    /// HOSTED, the MANAGED default identity `support@<slug>.<tenant_domain>`
+    /// — it does NOT fall back to the SHARED platform identity. Tenant mail
+    /// carries tenant-controlled content (workspace name, customer names,
+    /// ticket text); sending it from the platform domain would lend the
+    /// platform's reputation to phishing and risk its deliverability, so it
+    /// leaves on the tenant's own subdomain instead. A hosted workspace is
+    /// omitted (its mail defers) only when the managed identity can't be
+    /// built either: no tenant domain configured, no platform relay, or the
+    /// workspace is archived. On SELF-HOST the env identity is the single
+    /// operator's own, so an unconfigured workspace falls back to it
     /// (matching the direct-send path) rather than stranding the operator's
-    /// notification mail. (A row whose stored password won't decrypt is omitted
-    /// on both modes, deferring rather than mis-sending.)
+    /// notification mail. (A row whose stored password won't decrypt is
+    /// omitted on both modes, deferring rather than mis-sending.)
     pub fn resolve_batch(
         &self,
         conn: &mut DbConnection,
@@ -173,28 +222,43 @@ impl OutboundEmailResolver {
                 .into_iter()
                 .map(|r| (r.workspace_id, r))
                 .collect();
+        // One indexed read covers every workspace that may need the managed
+        // identity; `workspaces` is global, so this works on the worker's
+        // bypass connection.
+        let managed_identities: HashMap<i32, (String, String)> = if self.managed_applicable() {
+            workspaces::identity_for_ids(conn, workspace_ids)?
+                .into_iter()
+                .map(|(id, slug, name)| (id, (slug, name)))
+                .collect()
+        } else {
+            HashMap::new()
+        };
 
         let mut out = HashMap::with_capacity(workspace_ids.len());
         for &ws in workspace_ids {
             if out.contains_key(&ws) {
                 continue;
             }
+            // No usable workspace identity (no row, disabled, fallback mode,
+            // hostless relay, unverified domain): managed identity on hosted,
+            // env identity on self-host, defer when neither exists.
+            let unconfigured = |ws: i32| {
+                managed_identities
+                    .get(&ws)
+                    .and_then(|(slug, name)| self.build_managed_service(slug, name))
+                    .or_else(|| self.workspace_safe_fallback())
+            };
             let svc = match by_ws.get(&ws) {
                 Some(r) => match self.build_for_row(r) {
                     Ok(Some(svc)) => svc,
-                    // No usable workspace identity. On HOSTED, omit: tenant
-                    // content must never leave on the SHARED platform domain, so
-                    // the row defers until a sending domain is verified. On
-                    // self-host the env identity is the operator's own, so it's
-                    // safe to fall back (matching the direct-send path).
-                    Ok(None) => match self.workspace_safe_fallback() {
-                        Some(fb) => fb,
+                    Ok(None) => match unconfigured(ws) {
+                        Some(svc) => svc,
                         None => continue,
                     },
                     Err(e) => {
                         // A configured-but-broken identity (e.g. a key that won't
-                        // decrypt): defer rather than mis-send from the env
-                        // identity, on both modes.
+                        // decrypt): defer rather than mis-send from a different
+                        // identity than the admin configured, on both modes.
                         tracing::warn!(
                             workspace_id = ws,
                             error = %e,
@@ -203,10 +267,8 @@ impl OutboundEmailResolver {
                         continue;
                     }
                 },
-                // No settings row at all: same policy (self-host falls back,
-                // hosted defers).
-                None => match self.workspace_safe_fallback() {
-                    Some(fb) => fb,
+                None => match unconfigured(ws) {
+                    Some(svc) => svc,
                     None => continue,
                 },
             };
@@ -233,15 +295,26 @@ impl OutboundEmailResolver {
     }
 
     /// A usable workspace row builds a workspace service; otherwise the
-    /// fallback, or `NotConfigured` when there is none.
+    /// managed default identity (hosted), else the env fallback (self-host,
+    /// or hosted without a tenant domain — the pre-managed behaviour), else
+    /// `NotConfigured`. Once the managed identity is applicable, hosted
+    /// direct sends stop leaking the platform From: a workspace whose
+    /// identity can't be built (archived, missing) errs rather than sending
+    /// tenant content from the shared platform domain.
     fn from_row(
         &self,
         row: Option<WorkspaceEmailSettings>,
+        identity: Option<(i32, String, String)>,
     ) -> Result<Arc<EmailService>, ResolveError> {
         if let Some(ref r) = row {
             if let Some(svc) = self.build_for_row(r)? {
                 return Ok(svc);
             }
+        }
+        if self.managed_applicable() {
+            return identity
+                .and_then(|(_, slug, name)| self.build_managed_service(&slug, &name))
+                .ok_or(ResolveError::NotConfigured);
         }
         self.fallback.clone().ok_or(ResolveError::NotConfigured)
     }
@@ -283,6 +356,22 @@ impl OutboundEmailResolver {
             // `fallback` or any unexpected value.
             _ => Ok(None),
         }
+    }
+
+    /// The managed default identity: send through the **instance relay** with
+    /// From `support@<slug>.<tenant_domain>` and the workspace name as the
+    /// display name. No product-side DKIM signer — the relay (SES) Easy-DKIM
+    /// signs `d=<tenant_domain>`, which DMARC-aligns (relaxed) with the
+    /// subdomain From. `None` when the managed identity isn't applicable
+    /// (self-host, no tenant domain, or no relay).
+    fn build_managed_service(&self, slug: &str, name: &str) -> Option<Arc<EmailService>> {
+        let domain = self.managed_domain.as_deref()?;
+        let relay = self.fallback.as_ref()?;
+        let mut config = relay.config().clone();
+        config.from_name = crate::utils::tenant_origin::sanitise_from_display_name(name)
+            .unwrap_or_else(|| slug.to_string());
+        config.from_email = crate::utils::tenant_origin::managed_email_address(slug, domain);
+        Some(Arc::new(EmailService::smtp_with_dkim(config, None)))
     }
 
     /// Verified-domain mode: send through the **instance relay** (the env
@@ -372,17 +461,29 @@ mod tests {
     // Self-host policy (WORKSPACE mail may fall back to the env identity), set
     // explicitly so tests don't depend on the process-cached DeploymentMode.
     fn resolver_with_fallback() -> OutboundEmailResolver {
-        OutboundEmailResolver::with_policy(setup_test_pool(), Some(fallback_service()), true)
+        OutboundEmailResolver::with_policy(setup_test_pool(), Some(fallback_service()), true, None)
     }
 
     fn resolver_no_fallback() -> OutboundEmailResolver {
-        OutboundEmailResolver::with_policy(setup_test_pool(), None, true)
+        OutboundEmailResolver::with_policy(setup_test_pool(), None, true, None)
     }
 
-    // Hosted policy: WORKSPACE mail must never fall back to the shared platform
-    // identity, an unconfigured workspace is omitted (defers).
+    // Hosted policy WITHOUT a tenant domain: WORKSPACE mail must never fall
+    // back to the shared platform identity, and with no managed domain an
+    // unconfigured workspace is omitted (defers) — the pre-managed behaviour.
     fn resolver_hosted_with_fallback() -> OutboundEmailResolver {
-        OutboundEmailResolver::with_policy(setup_test_pool(), Some(fallback_service()), false)
+        OutboundEmailResolver::with_policy(setup_test_pool(), Some(fallback_service()), false, None)
+    }
+
+    // Hosted policy WITH a tenant domain: an unconfigured workspace gets the
+    // managed default identity `support@<slug>.nosdesk.test`.
+    fn resolver_hosted_managed() -> OutboundEmailResolver {
+        OutboundEmailResolver::with_policy(
+            setup_test_pool(),
+            Some(fallback_service()),
+            false,
+            Some("nosdesk.test".into()),
+        )
     }
 
     fn enabled_fields() -> UpsertWorkspaceEmailSettings {
@@ -532,6 +633,91 @@ mod tests {
             .resolve_batch(&mut conn, &[424242])
             .unwrap();
         assert!(map.get(&424242).is_none());
+    }
+
+    // The bootstrap workspace in the test DB is id=1, slug 'default', name
+    // 'Workspace' — the managed identity assertions below build on it.
+
+    #[test]
+    fn hosted_managed_resolves_unconfigured_to_tenant_subdomain_identity() {
+        let mut conn = setup_test_connection();
+        // No settings row at all: on hosted with a tenant domain, the
+        // workspace resolves to its managed identity instead of deferring.
+        let svc = resolver_hosted_managed()
+            .resolve_on_conn(&mut conn, 1)
+            .unwrap();
+        let cfg = svc.config();
+        assert_eq!(cfg.from_email, "support@default.nosdesk.test");
+        assert_eq!(cfg.from_name, "Workspace");
+        // ...through the platform relay's transport settings.
+        assert_eq!(cfg.smtp_host, "smtp.platform.test");
+    }
+
+    #[test]
+    fn hosted_managed_applies_to_disabled_and_fallback_mode_rows() {
+        let mut conn = setup_test_connection();
+        let mut fields = enabled_fields();
+        fields.enabled = false;
+        repo::upsert(&mut conn, fields).unwrap();
+
+        // `enabled=false` means "not using my own SMTP identity", not "mail
+        // kill-switch": managed still applies, matching self-host's fallback.
+        let svc = resolver_hosted_managed()
+            .resolve_on_conn(&mut conn, 1)
+            .unwrap();
+        assert_eq!(svc.config().from_email, "support@default.nosdesk.test");
+    }
+
+    #[test]
+    fn hosted_managed_own_identity_still_wins() {
+        let mut conn = setup_test_connection();
+        repo::upsert(&mut conn, enabled_fields()).unwrap();
+
+        let svc = resolver_hosted_managed()
+            .resolve_on_conn(&mut conn, 1)
+            .unwrap();
+        assert_eq!(
+            svc.config().from_email,
+            "support@acme.test",
+            "a usable workspace identity beats the managed default"
+        );
+    }
+
+    #[test]
+    fn hosted_managed_batch_maps_unconfigured_and_omits_unknown_workspace() {
+        let mut conn = setup_test_connection();
+        let map = resolver_hosted_managed()
+            .resolve_batch(&mut conn, &[1, 424242])
+            .unwrap();
+        assert_eq!(
+            map.get(&1).unwrap().config().from_email,
+            "support@default.nosdesk.test"
+        );
+        assert!(
+            map.get(&424242).is_none(),
+            "no workspaces row (archived/unknown) still defers — never the platform From"
+        );
+    }
+
+    #[test]
+    fn hosted_managed_errors_direct_send_for_unknown_workspace() {
+        let mut conn = setup_test_connection();
+        // Direct sends must not leak the platform identity either: with the
+        // managed tier applicable, an unresolvable workspace errs instead of
+        // falling back to the env From (the pre-managed asymmetry).
+        let result = resolver_hosted_managed().resolve_on_conn(&mut conn, 424242);
+        assert!(matches!(result, Err(ResolveError::NotConfigured)));
+    }
+
+    #[test]
+    fn hosted_without_tenant_domain_direct_send_keeps_env_fallback() {
+        let mut conn = setup_test_connection();
+        // Hosted but no NOSDESK_TENANT_DOMAIN: preserve the old direct-send
+        // fallback rather than newly erroring.
+        let svc = resolver_hosted_with_fallback()
+            .resolve_on_conn(&mut conn, 1)
+            .unwrap();
+        assert_eq!(svc.config().from_email, "platform@fallback.test");
     }
 
     #[test]

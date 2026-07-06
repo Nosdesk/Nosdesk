@@ -1291,6 +1291,7 @@ admin-email-settings-password-not-set = Not Set
 admin-email-settings-env-vars-label = Env:
 # Hosted only: shown instead of the platform SMTP relay (Nosdesk-managed infra).
 admin-email-settings-managed-note = Outbound email is delivered by Nosdesk. To send from your own address, set up a sending domain.
+admin-email-settings-managed-default-note = Your workspace sends and receives mail at its built-in address below — share it with your customers or publish it on your site. To send from your own domain instead, set up a sending domain.
 admin-email-settings-managed-domain-link = Configure sending domain
 # Email delivery: the consolidated outbound-email admin page + its nav group.
 admin-nav-group-communication = Communication
@@ -1311,6 +1312,8 @@ admin-channels-add = Add channel
 admin-channels-add-prompt = Choose a channel type
 admin-channels-type-email-imap = Email (IMAP)
 admin-channels-type-email-imap-description = Poll a mailbox and turn messages into tickets
+admin-channels-type-email-managed = Workspace email address
+admin-channels-type-email-managed-description = Your built-in support address; receives customer email and sends your replies
 admin-channels-type-email-forward = Email forwarding
 admin-channels-type-email-forward-description = Forward your support inbox to an address we generate; no credentials
 admin-channels-forwarding-title = Email forwarding

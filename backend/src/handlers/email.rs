@@ -50,7 +50,11 @@ pub struct TestEmailRequest {
 }
 
 /// Get email configuration status (admin only, read-only)
-pub async fn get_email_config(_tc: TenantConn, req: HttpRequest) -> impl Responder {
+pub async fn get_email_config(
+    mut tc: TenantConn,
+    req: HttpRequest,
+    resolver: web::Data<std::sync::Arc<crate::services::outbound_email::OutboundEmailResolver>>,
+) -> impl Responder {
     // Extract claims from cookie auth middleware
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
@@ -69,17 +73,61 @@ pub async fn get_email_config(_tc: TenantConn, req: HttpRequest) -> impl Respond
             // Hosted: outbound is delivered by Nosdesk-managed infra. The
             // platform SMTP relay (host + username) is operator/infra config, and
             // the username is an SES IAM credential, so it must not surface in the
-            // product admin UI. Return only the managed status + the From identity.
+            // product admin UI. Report the workspace's EFFECTIVE identity — the
+            // resolver's answer, the same one the queue worker sends with —
+            // not the platform relay's From (which tenant mail never uses).
             let managed = crate::middleware::DeploymentMode::current()
                 == crate::middleware::DeploymentMode::Hosted;
             if managed {
+                let workspace_id = tc.workspace_id();
+                // Mode label: what kind of identity the workspace resolves to.
+                let mode = workspace_id
+                    .and_then(|id| {
+                        tc.run(|conn| {
+                            crate::repository::workspace_email_settings::get_for_workspace(conn, id)
+                        })
+                        .ok()
+                        .flatten()
+                    })
+                    .filter(|r| r.enabled)
+                    .and_then(|r| match r.sending_mode.as_str() {
+                        crate::models::workspace_email_sending_mode::SMTP_RELAY
+                            if !r.smtp_host.trim().is_empty() =>
+                        {
+                            Some("smtp_relay")
+                        }
+                        crate::models::workspace_email_sending_mode::VERIFIED_DOMAIN
+                            if r.verification_status
+                                == crate::models::workspace_email_verification_status::VERIFIED =>
+                        {
+                            Some("verified_domain")
+                        }
+                        _ => None,
+                    })
+                    .unwrap_or(if crate::utils::tenant_origin::tenant_domain().is_some() {
+                        "managed"
+                    } else {
+                        "platform"
+                    });
+                // Effective From: the resolver's answer for this workspace.
+                let effective = workspace_id.and_then(|id| resolver.resolve_owned(id).ok());
+                let (from_name, from_email, configured) = match &effective {
+                    Some(svc) => (
+                        svc.config().from_name.clone(),
+                        svc.config().from_email.clone(),
+                        true,
+                    ),
+                    // Unresolvable (deferring) workspace: no sending identity.
+                    None => (String::new(), String::new(), false),
+                };
                 return HttpResponse::Ok().json(json!({
                     "managed": true,
+                    "mode": mode,
                     "provider": service.provider_name(),
-                    "from_name": config.from_name,
-                    "from_email": config.from_email,
+                    "from_name": from_name,
+                    "from_email": from_email,
                     "enabled": config.enabled,
-                    "is_configured": service.is_configured(),
+                    "is_configured": service.is_configured() && configured,
                 }));
             }
             // Self-host: the operator configured this relay; show what it points
