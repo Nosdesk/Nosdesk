@@ -348,8 +348,9 @@ pub async fn add_comment_to_ticket(
         // sandboxed email iframe reserved for rich inbound mail. Stamp
         // the tier explicitly here so the renderer never has to guess
         // it from `content_format` (which would wrongly pick the
-        // legacy-html iframe path). `render_kind` is otherwise set only
-        // by the inbound email pipeline.
+        // legacy-html iframe path). The repository's create choke
+        // point also stamps this for any html caller that forgets;
+        // the inbound email pipeline sets its own classified tier.
         render_kind: Some("simple".to_string()),
         // Honor the composer's internal-note toggle. Was dropped before
         // (defaulted to false), which saved every note as public.
