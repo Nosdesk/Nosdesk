@@ -116,10 +116,24 @@ pub fn create_comment(
 /// stays on the bare `create_comment`.
 pub fn create_comment_with_annotation(
     conn: &mut DbConnection,
-    new_comment: NewComment,
+    mut new_comment: NewComment,
     annotation: CommentCreationAnnotation,
     observer: Option<&dyn CommentCreatedObserver>,
 ) -> QueryResult<Comment> {
+    // Every NEW html comment must declare its render tier: the
+    // frontend's `(content_format = html, render_kind = NULL)`
+    // fallback is the sandboxed email iframe, a quarantine reserved
+    // for rows ingested before the render-kind pipeline existed. A
+    // caller that leaves the tier unset (ContentFormat defaults to
+    // Html for wire compatibility, so this is an easy trap) means
+    // ordinary inline HTML, so stamp `simple` here at the shared
+    // choke point rather than trusting each producer to remember.
+    // The email pipeline always sets its classified tier before
+    // reaching this function; plaintext/markdown rows keep NULL and
+    // render through their own inline paths.
+    if new_comment.content_format == ContentFormat::Html && new_comment.render_kind.is_none() {
+        new_comment.render_kind = Some("simple".to_string());
+    }
     let ticket_id = new_comment.ticket_id;
     let comment = conn.transaction::<Comment, diesel::result::Error, _>(|conn| {
         // Resolve the parent ticket up front. Loading it here surfaces
@@ -514,6 +528,37 @@ mod tests {
         let comments = get_comments_by_ticket_id(&mut conn, ticket.id).unwrap();
         assert_eq!(comments.len(), 1);
         assert_eq!(comments[0].id, comment.id);
+    }
+
+    /// The `(content_format = html, render_kind = NULL)` pair routes
+    /// to the frontend's legacy email-iframe quarantine; new rows must
+    /// never produce it. The create choke point stamps `simple` when
+    /// an html caller leaves the tier unset, preserves an explicit
+    /// tier, and leaves non-html rows alone.
+    #[test]
+    fn html_comment_without_render_kind_is_stamped_simple() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "cmt_tier", "user");
+        let ticket = TestFixtures::create_ticket(&mut conn, "Tier", Some(user.uuid), None);
+
+        let base = |content_format: ContentFormat, render_kind: Option<&str>| NewComment {
+            content: "hello".into(),
+            ticket_id: ticket.id,
+            user_uuid: user.uuid,
+            content_format,
+            render_kind: render_kind.map(String::from),
+            ..Default::default()
+        };
+
+        let stamped = create_comment(&mut conn, base(ContentFormat::Html, None), None).unwrap();
+        assert_eq!(stamped.render_kind.as_deref(), Some("simple"));
+
+        let explicit =
+            create_comment(&mut conn, base(ContentFormat::Html, Some("rich")), None).unwrap();
+        assert_eq!(explicit.render_kind.as_deref(), Some("rich"));
+
+        let plain = create_comment(&mut conn, base(ContentFormat::Plaintext, None), None).unwrap();
+        assert_eq!(plain.render_kind, None);
     }
 
     #[test]

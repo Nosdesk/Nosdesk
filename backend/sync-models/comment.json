@@ -8,6 +8,7 @@
     "content": { "rust": "String", "ts": "string" },
     "is_internal": { "rust": "bool", "ts": "boolean" },
     "content_format": { "rust": "ContentFormat", "ts": "ContentFormat" },
+    "render_kind": { "rust": "Option<String>", "ts": "'text' | 'simple' | 'rich' | null" },
     "created_at": { "rust": "NaiveDateTime", "ts": "string" }
   },
   "events": [
