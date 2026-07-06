@@ -1,0 +1,2414 @@
+{
+ "tickets": [
+  {
+   "title": "Laptop won't charge",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Dell XPS 13 screen flickering",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "ThinkPad battery drains too fast",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Keyboard keys sticking randomly",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Trackpad not responding - LT-0091",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Desktop fans making loud noise",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Monitor won't wake from sleep",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Laptop overheating during use",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "HP EliteBook blue screen on boot",
+   "category": "Bug",
+   "priority": "urgent"
+  },
+  {
+   "title": "USB-C port loose won't charge",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Laptop screen black with backlight on",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Keyboard stopped working mid-day",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "External monitor not detected - DT-0156",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Laptop freezing with loud fans",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Battery shows unknown status",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "MacBook trackpad unresponsive",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Desktop won't power on - DT-0203",
+   "category": "Support",
+   "priority": "urgent"
+  },
+  {
+   "title": "Laptop speaker crackling",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Graphics card fan grinding",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Won't boot past BIOS screen",
+   "category": "Bug",
+   "priority": "urgent"
+  },
+  {
+   "title": "RAM slot 2 not recognized - DT-0089",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Laptop display cable damaged",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Keyboard auto-repeat stuck on",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Dell monitor has color banding",
+   "category": "Bug",
+   "priority": "low"
+  },
+  {
+   "title": "Laptop hinges cracked",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Power button stuck - LT-0167",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Hard drive making clicking sounds",
+   "category": "Support",
+   "priority": "urgent"
+  },
+  {
+   "title": "ThinkPad won't hold charge",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Desktop PSU fan not spinning",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Laptop cooling paste dried out",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Monitor keeps switching inputs",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "USB hub not recognizing devices",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Laptop won't enter sleep mode",
+   "category": "Bug",
+   "priority": "low"
+  },
+  {
+   "title": "Screen dims randomly - LT-0245",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Keyboard water damaged",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Desktop keeps rebooting unexpectedly",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "Touchscreen not responding",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "HDMI port 3 not working - DT-0167",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Fan speed not adjustable in BIOS",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Laptop won't connect to charger",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "No graphics output signal detected",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "System boots to black screen only",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "Memory test fails on slot 1",
+   "category": "Support",
+   "priority": "urgent"
+  },
+  {
+   "title": "Screen has vertical display lines",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Numpad not working - LT-0198",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Desktop thermal throttling performance",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Optical drive won't eject disc",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Battery calibration issue",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Hard drive failure imminent warning",
+   "category": "Support",
+   "priority": "urgent"
+  },
+  {
+   "title": "ThinkPad charger port broken",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Monitor flickering constantly",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "CPU fan stopped spinning",
+   "category": "Support",
+   "priority": "urgent"
+  },
+  {
+   "title": "SSD not detected on startup",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "Trackpad button broken - LT-0267",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Power supply making clicking noise",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Screen blacks out under heavy load",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Keyboard backlight very dim",
+   "category": "Support",
+   "priority": "none"
+  },
+  {
+   "title": "Motherboard capacitor bulging visibly",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Battery won't recalibrate properly",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Fan bearings worn out",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Can't install Microsoft Office - license issue",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Zoom keeps crashing during calls",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "Teams won't load properly",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "Adobe Creative Suite installation failed",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Windows 11 update stuck on installation",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Need VPN client for remote work",
+   "category": "Support",
+   "priority": "none"
+  },
+  {
+   "title": "Slack app keeps disconnecting",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Excel crashes when opening large files",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "Chrome browser freezing randomly",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Need to upgrade to Office 365",
+   "category": "Feature request",
+   "priority": "low"
+  },
+  {
+   "title": "Printer driver not working after Windows update",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Outlook sync issues on Mac",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Adobe Reader won't open PDF files",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Request software license for new hire",
+   "category": "Support",
+   "priority": "none"
+  },
+  {
+   "title": "Windows update causing login issues",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Zoom license renewal needed",
+   "category": "Feature request",
+   "priority": "low"
+  },
+  {
+   "title": "Teams meeting audio not working",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "macOS Big Sur installation problems",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Slack notifications not showing",
+   "category": "Bug",
+   "priority": "low"
+  },
+  {
+   "title": "Firefox slow on startup",
+   "category": "Bug",
+   "priority": "low"
+  },
+  {
+   "title": "Need license for Adobe Photoshop",
+   "category": "Feature request",
+   "priority": "low"
+  },
+  {
+   "title": "Outlook crashing on startup",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "VPN disconnects every few minutes",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "Teams screen sharing not working",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "Zoom recording feature not available",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Windows Defender blocking software installation",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Need to downgrade Office version",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Chrome extensions not loading",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Adobe Acrobat Pro license key needed",
+   "category": "Feature request",
+   "priority": "none"
+  },
+  {
+   "title": "Slack cannot attach files",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Teams chat history not syncing",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "macOS Ventura compatibility issue with app",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Outlook not connecting to email",
+   "category": "Bug",
+   "priority": "urgent"
+  },
+  {
+   "title": "Zoom webinar registration not working",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Windows taskbar applications crashing",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "Need Microsoft Project license",
+   "category": "Feature request",
+   "priority": "low"
+  },
+  {
+   "title": "Teams background blur feature missing",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "VPN client installation issues",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Adobe InDesign won't launch",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Slack workspace sync problem",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Teams recording not saving",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "Windows installation media needed",
+   "category": "Support",
+   "priority": "none"
+  },
+  {
+   "title": "Outlook delegate access not working",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Zoom host settings not saving",
+   "category": "Bug",
+   "priority": "low"
+  },
+  {
+   "title": "Chrome password manager not syncing",
+   "category": "Bug",
+   "priority": "low"
+  },
+  {
+   "title": "Need license for CAD application",
+   "category": "Feature request",
+   "priority": "low"
+  },
+  {
+   "title": "Teams presence status always offline",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Slack integrations failing",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Windows network drivers need update",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Adobe Lightroom crashing on export",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Outlook categories disappeared",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Zoom license conflict with Teams",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "macOS System Preferences crashing",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Teams mobile app not sending messages",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "VPN authentication failing intermittently",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "Outlook PST file too large",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Zoom virtual background not working",
+   "category": "Bug",
+   "priority": "low"
+  },
+  {
+   "title": "Teams calendar not displaying events",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Windows 10 security update pending",
+   "category": "Support",
+   "priority": "none"
+  },
+  {
+   "title": "Slack search function broken",
+   "category": "Bug",
+   "priority": "low"
+  },
+  {
+   "title": "Can't log in - password reset needed",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Account locked after failed login attempts",
+   "category": "Support",
+   "priority": "urgent"
+  },
+  {
+   "title": "Forgot password and need immediate access",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Password reset email not received",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Can't unlock account myself",
+   "category": "Support",
+   "priority": "urgent"
+  },
+  {
+   "title": "Need help enrolling in MFA",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Lost access to authenticator app",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "MFA backup codes not working",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Recovery phone number needs updating",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Authenticator showing code invalid error",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Can't scan MFA QR code on phone",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Need access to Finance shared drive",
+   "category": "Feature request",
+   "priority": "low"
+  },
+  {
+   "title": "Add me to Marketing distribution list",
+   "category": "Feature request",
+   "priority": "low"
+  },
+  {
+   "title": "Request write access to project folder",
+   "category": "Feature request",
+   "priority": "low"
+  },
+  {
+   "title": "Need elevated permissions for new role",
+   "category": "Feature request",
+   "priority": "medium"
+  },
+  {
+   "title": "Add to executive announcements group",
+   "category": "Feature request",
+   "priority": "low"
+  },
+  {
+   "title": "Can't access team shared drive",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Permission denied on shared folder",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Shared drive folder disappeared from view",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "SSO login not working",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Microsoft login button not responding",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "Single sign-on redirect loop occurring",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "SSO session expired - need to re-authenticate",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Company SSO not recognized by system",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "OAuth token expired error",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Can't link SSO account to application",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "SSO authentication timing out consistently",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Need software license assignment",
+   "category": "Feature request",
+   "priority": "medium"
+  },
+  {
+   "title": "License seat limit reached",
+   "category": "Feature request",
+   "priority": "low"
+  },
+  {
+   "title": "Application license has expired",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Assign Microsoft Office license to account",
+   "category": "Feature request",
+   "priority": "low"
+  },
+  {
+   "title": "Reassign license to new employee",
+   "category": "Feature request",
+   "priority": "low"
+  },
+  {
+   "title": "Need additional license seats",
+   "category": "Feature request",
+   "priority": "low"
+  },
+  {
+   "title": "Account appears to be disabled",
+   "category": "Support",
+   "priority": "urgent"
+  },
+  {
+   "title": "Need to reactivate deactivated account",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Contractor account should be disabled",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Former employee account still active",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Account requires reactivation after closure",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Create new user account for hire",
+   "category": "Feature request",
+   "priority": "low"
+  },
+  {
+   "title": "Email forwarding not set up",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Delete my old user account",
+   "category": "Feature request",
+   "priority": "none"
+  },
+  {
+   "title": "Merge duplicate user accounts",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Export my account data",
+   "category": "Feature request",
+   "priority": "none"
+  },
+  {
+   "title": "Need account security review",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Suspicious login activity on my account",
+   "category": "Support",
+   "priority": "urgent"
+  },
+  {
+   "title": "Reset login attempt counter",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Account needs security verification",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Temporary contractor access request",
+   "category": "Feature request",
+   "priority": "low"
+  },
+  {
+   "title": "Access needed for archived project files",
+   "category": "Feature request",
+   "priority": "low"
+  },
+  {
+   "title": "Can't change authenticator to new device",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Password reset link has expired",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Account locked - need immediate help",
+   "category": "Support",
+   "priority": "urgent"
+  },
+  {
+   "title": "Permission denied on HR folder access",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Need read access to policies folder",
+   "category": "Feature request",
+   "priority": "low"
+  },
+  {
+   "title": "Admin access to department folder needed",
+   "category": "Feature request",
+   "priority": "medium"
+  },
+  {
+   "title": "Restore access after security incident",
+   "category": "Support",
+   "priority": "urgent"
+  },
+  {
+   "title": "SSO timeout during login attempt",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Can't update recovery credentials",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Authentication failing for web application",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Access needed to compliance documentation",
+   "category": "Feature request",
+   "priority": "medium"
+  },
+  {
+   "title": "Password requirements unclear - help needed",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "VPN disconnections during business hours",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "Building A WiFi drops every 15 minutes",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "3rd floor WiFi dead zone near auditorium",
+   "category": "Feature request",
+   "priority": "medium"
+  },
+  {
+   "title": "Cannot establish VPN connection",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Ethernet port on desk not responding",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Guest WiFi network down",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "Slow file transfers to shared drive",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "DNS resolution failures occurring intermittently",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "2nd floor WiFi experiencing constant drops",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "Home office VPN connection unstable",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Access point by copy machine offline",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Network switch in server room overheating",
+   "category": "Bug",
+   "priority": "urgent"
+  },
+  {
+   "title": "Slow network connectivity in sales department",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Break room WiFi password rejected",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "WiFi disconnects when moving between rooms",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Guest WiFi requiring credential reset",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Ethernet cable loose under desk",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Building B entire network outage",
+   "category": "Bug",
+   "priority": "urgent"
+  },
+  {
+   "title": "DNS server response times slow",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "VPN latency causing video call failures",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "WiFi coverage gap between east and west wings",
+   "category": "Feature request",
+   "priority": "medium"
+  },
+  {
+   "title": "Network drive mapping fails on login",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Cannot reach file server over wireless",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "East wing WiFi connection unreliable",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Ethernet LED lights not active",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Guest WiFi bandwidth insufficient",
+   "category": "Feature request",
+   "priority": "low"
+  },
+  {
+   "title": "Network switch firmware update available",
+   "category": "Support",
+   "priority": "none"
+  },
+  {
+   "title": "WiFi channels congested causing weak signal",
+   "category": "Feature request",
+   "priority": "medium"
+  },
+  {
+   "title": "VPN session idle timeout too short",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Conference room 401 WiFi spotty",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "DNS internal hostname resolution broken",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "4th floor network printer unreachable",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "WiFi authentication loop on connect",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Floor 5 internet completely down",
+   "category": "Bug",
+   "priority": "urgent"
+  },
+  {
+   "title": "Fiber optic cable cut in main conduit",
+   "category": "Bug",
+   "priority": "urgent"
+  },
+  {
+   "title": "Corporate VPN extremely slow tonight",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Network switch port flapping continuously",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "WiFi MAC address being blocked",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Guest network setup needed for Building C",
+   "category": "Feature request",
+   "priority": "none"
+  },
+  {
+   "title": "Network latency impacting database queries",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "WiFi drops only on iPhones and iPads",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Network router needs reboot unresponsive",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "DNS cache issue causing old IPs returned",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "Main office WiFi network completely offline",
+   "category": "Bug",
+   "priority": "urgent"
+  },
+  {
+   "title": "Gigabit ethernet negotiating at 100Mbps",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Meeting room 210 WiFi weak in corners",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Load balancer failover not working",
+   "category": "Bug",
+   "priority": "urgent"
+  },
+  {
+   "title": "VPN gateway timeout on large file uploads",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "Guest WiFi SSID broadcast disabled",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Network firewall ACL blocking external access",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "WiFi interference from nearby microwave oven",
+   "category": "Feature request",
+   "priority": "medium"
+  },
+  {
+   "title": "Shared drives inaccessible via wireless",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "Ethernet switch needs security patch",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "VPN split tunneling configuration broken",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "WiFi extender range does not cover hallway",
+   "category": "Feature request",
+   "priority": "low"
+  },
+  {
+   "title": "Network outage across multiple departments",
+   "category": "Bug",
+   "priority": "urgent"
+  },
+  {
+   "title": "DNS lookups taking over 5 seconds",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "South side 1st floor WiFi no coverage",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "VPN certificate expiration warning received",
+   "category": "Support",
+   "priority": "none"
+  },
+  {
+   "title": "Ethernet link drops under heavy load",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Outlook won't sync new emails to mobile device",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Email stuck in outbox not sending",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Outlook search returning no results",
+   "category": "Bug",
+   "priority": "low"
+  },
+  {
+   "title": "Outlook add-in not loading",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Outlook performance very slow with large mailbox",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Outlook certificate error on Mac",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Outlook cache corrupted",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Outlook password not accepted on startup",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Outlook calendar not syncing across devices",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Offline Outlook mode not working",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Cannot export mailbox to PST file",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Outlook notification not showing new mail",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Shared mailbox permissions not working",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Unable to access shared mailbox",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Shared mailbox missing from Outlook",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Shared mailbox showing wrong member list",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Send as permission denied",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Cannot add delegate to mailbox",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Delegate can't see shared folders",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Duplicate emails appearing in shared mailbox",
+   "category": "Bug",
+   "priority": "low"
+  },
+  {
+   "title": "Shared mailbox not receiving external emails",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "Access to shared mailbox suddenly revoked",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Calendar invite not appearing on recipients calendar",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Teams meeting invite missing from Outlook",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Meeting room calendar showing as unavailable",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Cannot open meeting invites in Teams",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Calendar showing duplicate meetings",
+   "category": "Bug",
+   "priority": "low"
+  },
+  {
+   "title": "Scheduled Teams meeting not in calendar",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Meeting invites going to spam folder",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Meeting reminders not triggering",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "OneDrive sync stuck on Windows 10",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "SharePoint document sync failing",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "OneDrive showing old version of files",
+   "category": "Bug",
+   "priority": "low"
+  },
+  {
+   "title": "Teams files folder missing from OneDrive",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "OneDrive deleted file recovery",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Cannot access OneDrive on Linux",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "SharePoint sync icon spinning continuously",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Email delivery delayed 30+ minutes",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "Distribution list not expanding in compose",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Distribution list members not receiving emails",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "Mail forwarding rules not executing",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Distribution list bounce-back errors",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "Email forwarding to external domain failing",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "Mail flow rules affecting all users",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "Attachment corrupted after upload",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Cannot reply to encrypted emails",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Mailbox storage full, can't send or receive",
+   "category": "Support",
+   "priority": "urgent"
+  },
+  {
+   "title": "Email signature not applying correctly",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Teams chat messages not delivering",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "Teams call audio not working in meetings",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Teams presence showing offline when online",
+   "category": "Bug",
+   "priority": "low"
+  },
+  {
+   "title": "Teams meeting recording not saving to OneDrive",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Teams chat search not finding messages",
+   "category": "Bug",
+   "priority": "low"
+  },
+  {
+   "title": "Teams background blur not working",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Cannot share screen in Teams meeting",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Out of office auto-reply not triggering",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Cannot change email display name",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Archive mailbox not accessible",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Create new distribution list",
+   "category": "Feature request",
+   "priority": "none"
+  },
+  {
+   "title": "Set up resource mailbox for conference room",
+   "category": "Feature request",
+   "priority": "none"
+  },
+  {
+   "title": "New shared mailbox setup request",
+   "category": "Feature request",
+   "priority": "none"
+  },
+  {
+   "title": "Suspicious email asking to reset password",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Phishing email pretending to be from IT support",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Received invoice email with suspicious attachment",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Antivirus flagged a file as trojan on my laptop",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Login alert from unfamiliar country",
+   "category": "Support",
+   "priority": "urgent"
+  },
+  {
+   "title": "Account locked after multiple failed login attempts",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Laptop stolen from car overnight",
+   "category": "Support",
+   "priority": "urgent"
+  },
+  {
+   "title": "Lost company phone at airport",
+   "category": "Support",
+   "priority": "urgent"
+  },
+  {
+   "title": "Unknown USB drive found in break room, is it safe to plug in",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Policy question about using personal USB drives",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Sudden spike in spam emails to my inbox",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Coworker received email from my account I didn't send",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Suspicious pop-up claiming virus detected, asking to call number",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Ransomware warning message on shared drive",
+   "category": "Support",
+   "priority": "urgent"
+  },
+  {
+   "title": "Email claims my password was found in a data breach",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Can't tell if this shipping notification email is legitimate",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Suspicious login attempt from a VPN IP address",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Antivirus definitions not updating on workstation",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Endpoint protection agent crashes on startup",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Request to enable multi-factor authentication reminder emails",
+   "category": "Feature request",
+   "priority": "low"
+  },
+  {
+   "title": "Suspicious text message requesting company login credentials",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Malware alert blocked but computer still running slow",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Found unfamiliar device listed in my account's login history",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Request to block sender domain after repeated phishing attempts",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Customer data may have been emailed to wrong recipient",
+   "category": "Support",
+   "priority": "urgent"
+  },
+  {
+   "title": "Shared file link appears publicly accessible",
+   "category": "Support",
+   "priority": "urgent"
+  },
+  {
+   "title": "Suspicious email requesting gift card purchase from CEO",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Fake login page mimicking company portal",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Question about acceptable use policy for personal devices",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Request for guidance on encrypting USB drives",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Antivirus quarantined a legitimate business file",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Unusual outbound network traffic detected from my machine",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Browser extension installed itself without permission",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Email account sending spam to entire contact list",
+   "category": "Support",
+   "priority": "urgent"
+  },
+  {
+   "title": "Suspicious calendar invite with external tracking link",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Request to review permissions on shared cloud folder",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Password manager flagged reused password across accounts",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Phone displaying ads and redirects after app install",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Suspicious QR code found on office door poster",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Request for company policy on reporting lost devices",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Firewall blocking legitimate vendor connection",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Employee clicked phishing link, unsure what to do next",
+   "category": "Support",
+   "priority": "urgent"
+  },
+  {
+   "title": "Old employee account still able to log in after departure",
+   "category": "Support",
+   "priority": "urgent"
+  },
+  {
+   "title": "Request to enable device encryption on all laptops",
+   "category": "Feature request",
+   "priority": "medium"
+  },
+  {
+   "title": "Suspicious charge on corporate card after online purchase",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Security camera footage shows unknown person entering server room",
+   "category": "Support",
+   "priority": "urgent"
+  },
+  {
+   "title": "Request for annual phishing awareness training",
+   "category": "Feature request",
+   "priority": "low"
+  },
+  {
+   "title": "MFA push notifications appearing without my action",
+   "category": "Support",
+   "priority": "urgent"
+  },
+  {
+   "title": "Spam filter not catching obvious phishing emails",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Request to add banner warning for external senders",
+   "category": "Feature request",
+   "priority": "medium"
+  },
+  {
+   "title": "Tablet left on train, needs remote wipe",
+   "category": "Support",
+   "priority": "urgent"
+  },
+  {
+   "title": "Unrecognized app requesting camera and microphone access",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Vendor portal asking for credentials over unencrypted page",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Suspicious login attempt blocked but want confirmation",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Request to restrict USB port usage on shared workstations",
+   "category": "Feature request",
+   "priority": "medium"
+  },
+  {
+   "title": "Spam emails bypassing junk folder filters",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Data export request flagged as unusual activity",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Request for guidance on securely disposing old hard drives",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Antivirus license expired on several machines",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Suspicious wire transfer request via email impersonation",
+   "category": "Support",
+   "priority": "urgent"
+  },
+  {
+   "title": "Printer 2F-East paper jam",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Out of black toner cartridge",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Conference room printer offline",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Monitor not detected after reboot",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Docking station USB-C not charging",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Webcam showing black screen",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Headset mic not working in Teams",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Keyboard keys sticking",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Scanner not recognized by PC",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "External USB drive not mounting",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "HDMI cable damaged - need replacement",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Monitor arm won't adjust height",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Printer driver installation failed",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Duplicate printer 3F appearing in queue",
+   "category": "Bug",
+   "priority": "low"
+  },
+  {
+   "title": "Dell monitor flickering intermittently",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Dock display port not outputting video",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Wireless mouse battery drained",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Overhead projector lamp replacement",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Printer 1F-West not responding",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Monitor has dead pixels",
+   "category": "Bug",
+   "priority": "low"
+  },
+  {
+   "title": "Second monitor not detected via DP",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Headphones crackling audio",
+   "category": "Bug",
+   "priority": "low"
+  },
+  {
+   "title": "Webcam focus extremely blurry",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Color laser printer low on yellow",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "USB hub only recognizing 1 of 3 devices",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Meeting room 4A monitor brightness stuck",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Thermal printer not printing dark",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "External SSD keeps disconnecting",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Upgrade to 4K monitor",
+   "category": "Feature request",
+   "priority": "none"
+  },
+  {
+   "title": "Desk speaker no sound output",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Printer queue stuck with pending jobs",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Keyboard backlight not turning on",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Laptop won't dock properly",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Scanner feeder jam error",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Need USB-A to USB-C adapter",
+   "category": "Feature request",
+   "priority": "none"
+  },
+  {
+   "title": "Webcam privacy cover stuck closed",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Multifunctional printer scan to email down",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Monitor arm VESA mount loose",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Printer error code 82.02 displayed",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Second display keeps going to sleep",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Cordless headset won't charge",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Mouse scroll wheel not responsive",
+   "category": "Bug",
+   "priority": "low"
+  },
+  {
+   "title": "Docking station fan making noise",
+   "category": "Bug",
+   "priority": "low"
+  },
+  {
+   "title": "3D printer setup for engineering",
+   "category": "Feature request",
+   "priority": "none"
+  },
+  {
+   "title": "Color accuracy on monitor off",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Printer 5F toner reorder needed",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "USB keyboard unresponsive after update",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Monitor not waking from standby",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Label maker ribbon empty",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "DP to HDMI adapter not working",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Keyboard trackpad frozen",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Wireless charging pad for desk",
+   "category": "Feature request",
+   "priority": "none"
+  },
+  {
+   "title": "Portable monitor power cable missing",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Printer network configuration issue",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Headset left ear producing no audio",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Setup dual-monitor display",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Upgrade to laser printer for office",
+   "category": "Feature request",
+   "priority": "none"
+  },
+  {
+   "title": "Docking station ethernet not working",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Receipt printer completely offline",
+   "category": "Support",
+   "priority": "urgent"
+  },
+  {
+   "title": "External display cable intermittent connection",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "New starter setup - sales hire starting Monday",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Offboarding - finance leaver account disable",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Request second monitor for new desk",
+   "category": "Feature request",
+   "priority": "low"
+  },
+  {
+   "title": "Laptop provisioning for incoming marketing hire",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Disable email access for departing contractor",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Request standing desk for ergonomic needs",
+   "category": "Feature request",
+   "priority": "low"
+  },
+  {
+   "title": "Mobile phone setup for new field technician",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Meeting room AV not connecting for client demo",
+   "category": "Bug",
+   "priority": "urgent"
+  },
+  {
+   "title": "Request loaner laptop while repair in progress",
+   "category": "Feature request",
+   "priority": "medium"
+  },
+  {
+   "title": "Desk move to third floor - engineering team",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "New starter software provisioning - design suite",
+   "category": "Feature request",
+   "priority": "medium"
+  },
+  {
+   "title": "Revoke building access badge for leaver",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Request wireless headset for open office noise",
+   "category": "Feature request",
+   "priority": "low"
+  },
+  {
+   "title": "Name change update across email and directory",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Same-day account disable for terminated employee",
+   "category": "Support",
+   "priority": "urgent"
+  },
+  {
+   "title": "Set up VPN access for new remote hire",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Request docking station for hybrid workspace",
+   "category": "Feature request",
+   "priority": "low"
+  },
+  {
+   "title": "Conference room projector showing no signal",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "New hire IT orientation checklist not completed",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Request additional keyboard and mouse for new desk",
+   "category": "Feature request",
+   "priority": "none"
+  },
+  {
+   "title": "Offboarding checklist - equipment return not logged",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Provision Salesforce license for new account exec",
+   "category": "Feature request",
+   "priority": "medium"
+  },
+  {
+   "title": "Request ergonomic chair for new employee",
+   "category": "Feature request",
+   "priority": "low"
+  },
+  {
+   "title": "Set up shared mailbox access for new team lead",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Leaver laptop not returned before final day",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Request extra monitor arm for dual-screen setup",
+   "category": "Feature request",
+   "priority": "none"
+  },
+  {
+   "title": "New starter cannot log into email on first day",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "Desk move request - relocating to quiet zone",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Provision company mobile plan for new sales rep",
+   "category": "Feature request",
+   "priority": "medium"
+  },
+  {
+   "title": "Request loaner projector for offsite meeting",
+   "category": "Feature request",
+   "priority": "low"
+  },
+  {
+   "title": "Set up printer access for new starter",
+   "category": "Support",
+   "priority": "none"
+  },
+  {
+   "title": "Meeting room video conferencing camera frozen",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Request noise-cancelling headset for call center role",
+   "category": "Feature request",
+   "priority": "low"
+  },
+  {
+   "title": "Offboard user from all shared drives and folders",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "New hire needs Slack and Teams access configured",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Request replacement laptop charger",
+   "category": "Feature request",
+   "priority": "low"
+  },
+  {
+   "title": "Set up multi-factor authentication for new employee",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Request second desk phone for shared workspace",
+   "category": "Feature request",
+   "priority": "none"
+  },
+  {
+   "title": "Leaver's mobile device not wiped remotely",
+   "category": "Bug",
+   "priority": "high"
+  },
+  {
+   "title": "Provision Adobe Creative Cloud for new designer",
+   "category": "Feature request",
+   "priority": "medium"
+  },
+  {
+   "title": "Request temporary loaner tablet for site visit",
+   "category": "Feature request",
+   "priority": "low"
+  },
+  {
+   "title": "New starter equipment not delivered before start date",
+   "category": "Support",
+   "priority": "high"
+  },
+  {
+   "title": "Update directory listing after employee name change",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Request standing mat for adjustable desk",
+   "category": "Feature request",
+   "priority": "none"
+  },
+  {
+   "title": "Disable SSO access for terminated manager",
+   "category": "Support",
+   "priority": "urgent"
+  },
+  {
+   "title": "Meeting room audio dropping out during calls",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Request second laptop for backup device policy",
+   "category": "Feature request",
+   "priority": "low"
+  },
+  {
+   "title": "Set up new starter with correct security groups",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Request whiteboard and markers for new team room",
+   "category": "Feature request",
+   "priority": "none"
+  },
+  {
+   "title": "Offboarding - transfer leaver's files to manager",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Request loaner monitor while replacement ships",
+   "category": "Feature request",
+   "priority": "medium"
+  },
+  {
+   "title": "New contractor needs temporary system access",
+   "category": "Support",
+   "priority": "medium"
+  },
+  {
+   "title": "Request desk fan due to office temperature",
+   "category": "Feature request",
+   "priority": "none"
+  },
+  {
+   "title": "Meeting room screen sharing not working with laptops",
+   "category": "Bug",
+   "priority": "medium"
+  },
+  {
+   "title": "Set up voicemail greeting for new starter extension",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Request upgraded laptop for video editing workload",
+   "category": "Feature request",
+   "priority": "medium"
+  },
+  {
+   "title": "Leaver's badge still active after departure date",
+   "category": "Bug",
+   "priority": "urgent"
+  },
+  {
+   "title": "Desk move request - team consolidation to open plan",
+   "category": "Support",
+   "priority": "low"
+  },
+  {
+   "title": "Provision new starter with software license bundle",
+   "category": "Feature request",
+   "priority": "medium"
+  },
+  {
+   "title": "Request replacement mouse - left-click not registering",
+   "category": "Bug",
+   "priority": "low"
+  }
+ ]
+}
