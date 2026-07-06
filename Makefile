@@ -14,7 +14,7 @@ LDAP_COMPOSE := $(COMPOSE) -f compose.ldap-test.yaml
 .DEFAULT_GOAL := help
 
 .PHONY: help dev dev-bg dev-lan dev-bg-lan watch down clean clean-db restart restart-frontend migrate schema \
-        test test-frontend logs logs-frontend shell psql mailpit token \
+        test test-frontend logs logs-frontend shell psql mailpit token seed-demo \
         ldap-test ldap-test-down install-hooks
 
 help: ## Show this help message
@@ -103,6 +103,15 @@ migrate: ## Run pending diesel migrations
 schema: ## Regenerate backend/src/schema.rs from the live DB
 	$(COMPOSE) exec nosdesk sh -c 'DATABASE_URL="$${MIGRATION_DATABASE_URL:-$$DATABASE_URL}" RUST_LOG=off diesel print-schema 2>/dev/null' > backend/src/schema.rs
 	@echo "Regenerated backend/src/schema.rs"
+
+# Seed a realistic demo dataset (users/projects/tickets/devices) plus a year
+# of backdated history (for the activity graph) into the running dev stack's
+# bootstrap workspace. Requires onboarding to be complete (an admin user must
+# exist). Idempotent: skips if already seeded. Reset with make clean-db, then
+# re-run onboarding and this target. Set SEED_HISTORY=off for a lighter seed
+# without the year of history.
+seed-demo: ## Seed demo helpdesk data into the running dev stack
+	$(COMPOSE) exec nosdesk cargo run --bin seed_demo
 
 # (Re)provision the nosdesk_app LOGIN role on an EXISTING dev DB, for the
 # dev/prod parity flip without a full `make clean`. init-db-dev.sh does this

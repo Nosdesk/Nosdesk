@@ -1,0 +1,485 @@
+{
+  "_comment": "Demo dataset seeded by `make seed-demo` (backend/src/bin/seed_demo.rs). All users share the password in `password`. Emails end @demo.nosdesk.test so the seeder can detect and skip an already-seeded instance. Timestamps are expressed as *_days_ago / *_hours_after offsets and backdated after insert. Reset with `make clean-db`, re-run onboarding, then re-run the seed.",
+  "password": "Demo1234!",
+
+  "users": [
+    { "key": "priya",  "name": "Priya Sharma",   "email": "priya@demo.nosdesk.test",  "role": "agent",  "title": "IT Support Lead" },
+    { "key": "marcus", "name": "Marcus Webb",     "email": "marcus@demo.nosdesk.test", "role": "agent",  "title": "Support Engineer" },
+    { "key": "elena",  "name": "Elena Kovacs",    "email": "elena@demo.nosdesk.test",  "role": "agent",  "title": "Security Analyst" },
+    { "key": "tom",    "name": "Tom Nakamura",    "email": "tom@demo.nosdesk.test",    "role": "agent",  "title": "Network Engineer" },
+    { "key": "hannah", "name": "Hannah Brooks",   "email": "hannah@demo.nosdesk.test", "role": "member", "title": "Finance Manager" },
+    { "key": "raj",    "name": "Raj Patel",       "email": "raj@demo.nosdesk.test",    "role": "member", "title": "Account Executive" },
+    { "key": "sofia",  "name": "Sofia Rossi",     "email": "sofia@demo.nosdesk.test",  "role": "member", "title": "HR Coordinator" },
+    { "key": "liam",   "name": "Liam O'Connor",   "email": "liam@demo.nosdesk.test",   "role": "member", "title": "Sales Director" },
+    { "key": "grace",  "name": "Grace Kim",       "email": "grace@demo.nosdesk.test",  "role": "member", "title": "Financial Analyst" },
+    { "key": "noah",   "name": "Noah Bennett",    "email": "noah@demo.nosdesk.test",   "role": "member", "title": "Operations Lead" }
+  ],
+
+  "projects": [
+    {
+      "key": "laptop",
+      "name": "Laptop Refresh FY26",
+      "description": "Company-wide replacement of laptops older than three years, staged by department.",
+      "cycles": [
+        { "key": "laptop_w1", "name": "Wave 1 - Finance & HR", "state": "completed", "start_days_ago": 42, "end_days_ago": 14 },
+        { "key": "laptop_w2", "name": "Wave 2 - Sales & Ops",  "state": "active",    "start_days_ago": 10, "end_days_ago": -18 }
+      ]
+    },
+    {
+      "key": "m365",
+      "name": "Microsoft 365 Migration",
+      "description": "Migrate mailboxes, files, and collaboration off the legacy tenant into Microsoft 365.",
+      "cycles": [
+        { "key": "m365_pilot",   "name": "Pilot Group",   "state": "completed", "start_days_ago": 49, "end_days_ago": 21 },
+        { "key": "m365_rollout", "name": "Company Rollout", "state": "active",   "start_days_ago": 7,  "end_days_ago": -21 }
+      ]
+    },
+    {
+      "key": "network",
+      "name": "Network Upgrade, Building B",
+      "description": "Replace ageing switches and access points in Building B and remediate coverage gaps.",
+      "cycles": [
+        { "key": "net_survey",  "name": "Site Survey",  "state": "completed", "start_days_ago": 45, "end_days_ago": 18 },
+        { "key": "net_install", "name": "Install & Cutover", "state": "active", "start_days_ago": 9, "end_days_ago": -19 }
+      ]
+    }
+  ],
+
+  "devices": [
+    { "key": "lt0042", "name": "LT-0042", "manufacturer": "Dell",    "model": "Latitude 7440",   "serial_number": "5CG3421QX7", "asset_tag": "LT-0042", "location": "Floor 3 - Finance", "primary_user": "hannah", "attributes": { "hostname": "FIN-LT-0042", "warranty_status": "active" } },
+    { "key": "lt0043", "name": "LT-0043", "manufacturer": "Dell",    "model": "Latitude 7440",   "serial_number": "5CG3421QX9", "asset_tag": "LT-0043", "location": "Floor 2 - Sales",   "primary_user": "raj",    "attributes": { "hostname": "SAL-LT-0043", "warranty_status": "expiring" } },
+    { "key": "mbp14",  "name": "MBP-14-SR", "manufacturer": "Apple", "model": "MacBook Pro 14 (M3)", "serial_number": "C02XL0ABHV29", "asset_tag": "MBP-0014", "location": "Floor 1 - HR", "primary_user": "sofia", "attributes": { "hostname": "HR-MBP-0014", "warranty_status": "active" } },
+    { "key": "mbp16",  "name": "MBP-16-LO", "manufacturer": "Apple", "model": "MacBook Pro 16 (M3 Pro)", "serial_number": "C02XL0ABHV44", "asset_tag": "MBP-0016", "location": "Floor 2 - Sales", "primary_user": "liam", "attributes": { "hostname": "SAL-MBP-0016", "warranty_status": "active" } },
+    { "key": "lt0051", "name": "LT-0051", "manufacturer": "Lenovo",  "model": "ThinkPad X1 Carbon", "serial_number": "PF3ABX21", "asset_tag": "LT-0051", "location": "Floor 3 - Finance", "primary_user": "grace", "attributes": { "hostname": "FIN-LT-0051", "warranty_status": "active" } },
+    { "key": "lt0052", "name": "LT-0052", "manufacturer": "Dell",    "model": "Latitude 5440",   "serial_number": "5CG3422RT1", "asset_tag": "LT-0052", "location": "Building B - Ops", "primary_user": "noah", "attributes": { "hostname": "OPS-LT-0052", "warranty_status": "active" } },
+    { "key": "prn3fw", "name": "Printer 3F-West", "manufacturer": "HP", "model": "LaserJet Enterprise M528", "serial_number": "CNBRK12345", "asset_tag": "PRN-3FW", "location": "Floor 3 West", "attributes": { "ip_address": "10.20.3.51", "warranty_status": "active" } },
+    { "key": "prn2fe", "name": "Printer 2F-East", "manufacturer": "Canon", "model": "imageRUNNER 2645i", "serial_number": "GNR54021", "asset_tag": "PRN-2FE", "location": "Floor 2 East", "attributes": { "ip_address": "10.20.2.52", "warranty_status": "expiring" } },
+    { "key": "mr_apollo", "name": "Meeting Room Apollo - AV", "manufacturer": "Logitech", "model": "Rally Bar", "serial_number": "2044LZ0091", "asset_tag": "AV-APOLLO", "location": "Floor 1 - Apollo", "attributes": { "warranty_status": "active" } },
+    { "key": "mr_zephyr", "name": "Meeting Room Zephyr - AV", "manufacturer": "Poly", "model": "Studio X50", "serial_number": "8H2K44120", "asset_tag": "AV-ZEPHYR", "location": "Floor 2 - Zephyr", "attributes": { "warranty_status": "active" } },
+    { "key": "sw_b1", "name": "Switch B-1", "manufacturer": "Cisco", "model": "Catalyst 9300", "serial_number": "FOC2412L0AB", "asset_tag": "NET-SWB1", "location": "Building B - Comms Room", "attributes": { "ip_address": "10.30.0.2", "warranty_status": "active" } },
+    { "key": "ap_b2k", "name": "AP Building B - Kitchen", "manufacturer": "Ubiquiti", "model": "U6 Pro", "serial_number": "F492BF9921AA", "asset_tag": "NET-APB2K", "location": "Building B - Kitchen", "attributes": { "ip_address": "10.30.4.21", "warranty_status": "active" } }
+  ],
+
+  "tickets": [
+    {
+      "title": "VPN drops every 30 minutes on home fibre",
+      "body_md": "Since Monday my VPN disconnects roughly every 30 minutes. It reconnects on its own but Teams calls drop and I lose access to the finance drive each time.\n\nHome connection is fibre, no issues with anything else. Happy to run any diagnostics.",
+      "category": "Support", "priority": "high", "state_category": "active",
+      "requester": "hannah", "assignee": "priya", "device": "lt0042", "created_days_ago": 3,
+      "comments": [
+        { "author": "priya", "body": "Thanks Hannah. Can you grab the client logs next time it drops? Settings > VPN > Export diagnostics. I suspect an idle-timeout on the gateway.", "minutes_after": 55 },
+        { "author": "hannah", "body": "Attached the logs from this morning's drop.", "minutes_after": 180 },
+        { "author": "priya", "body": "Confirmed - the gateway is enforcing a 30-min rekey and the client isn't renewing silently. Rolling out an updated profile to the affected group.", "minutes_after": 320, "internal": true }
+      ]
+    },
+    {
+      "title": "Printer 3F-West jamming on duplex jobs",
+      "body_md": "The floor 3 west printer jams on almost every double-sided job. Single-sided is fine. Paper is fresh from a sealed ream.",
+      "category": "Support", "priority": "medium", "state_category": "active",
+      "requester": "grace", "assignee": "marcus", "device": "prn3fw", "created_days_ago": 2,
+      "comments": [
+        { "author": "marcus", "body": "Sounds like the duplex roller. I'll come up and check the fuser and rollers this afternoon.", "minutes_after": 90 }
+      ]
+    },
+    {
+      "title": "Password reset - locked out after holiday",
+      "body_md": "I'm locked out after two weeks off. It says my password expired and the reset link isn't arriving.",
+      "category": "Support", "priority": "urgent", "state_category": "done",
+      "requester": "raj", "assignee": "elena", "created_days_ago": 6, "closed_hours_after": 1,
+      "comments": [
+        { "author": "elena", "body": "Reset done and forced a sync. You should be able to sign in now - you'll be prompted to set a new password.", "minutes_after": 25 },
+        { "author": "raj", "body": "In now, thank you!", "minutes_after": 40 }
+      ]
+    },
+    {
+      "title": "Laptop fan noise and overheating during Teams calls",
+      "body_md": "My MacBook gets very hot and the fans spin up loudly whenever I'm in a Teams call for more than a few minutes. The bottom case is uncomfortable to touch.",
+      "category": "Support", "priority": "medium", "state_category": "in_review",
+      "requester": "sofia", "assignee": "tom", "device": "mbp14", "created_days_ago": 5,
+      "comments": [
+        { "author": "tom", "body": "Teams is pinned at high CPU on the hardware-encode path for some M-series units. Try the browser client as a test while I check for the app update.", "minutes_after": 130 },
+        { "author": "sofia", "body": "Browser client stays cool. So it does look like the app.", "minutes_after": 1500 }
+      ]
+    },
+    {
+      "title": "Request: second monitor for finance desk",
+      "body_md": "Could I get a second monitor? Reconciliation work across spreadsheets on a single screen is slowing me down.",
+      "category": "Feature request", "priority": "low", "state_category": "backlog",
+      "requester": "grace", "created_days_ago": 9
+    },
+    {
+      "title": "Outlook not syncing shared mailbox after migration",
+      "body_md": "The `ops@` shared mailbox stopped syncing in Outlook after we moved to 365. New mail only shows up on the web, not the desktop app. Removing and re-adding the account didn't help.",
+      "category": "Bug", "priority": "high", "state_category": "active",
+      "requester": "noah", "assignee": "priya", "project": "m365", "cycle": "m365_rollout", "device": "lt0052", "created_days_ago": 4,
+      "comments": [
+        { "author": "priya", "body": "Automapping is stale post-migration. I'll remove the auto-mapped entry and re-add the mailbox manually - that usually forces a clean resync.", "minutes_after": 200 }
+      ]
+    },
+    {
+      "title": "Disk almost full warning on LT-0043",
+      "body_md": "Getting 'low disk space' warnings constantly. Only 2 GB free. Not sure what's eating it.",
+      "category": "Support", "priority": "medium", "state_category": "done",
+      "requester": "raj", "assignee": "marcus", "device": "lt0043", "created_days_ago": 12, "closed_hours_after": 20,
+      "comments": [
+        { "author": "marcus", "body": "Teams cache and old Windows update files were 40 GB combined. Cleared them and enabled Storage Sense. You've got 180 GB free now.", "minutes_after": 300 }
+      ]
+    },
+    {
+      "title": "MFA enrolment fails on new phone",
+      "body_md": "Got a new phone and the Authenticator app won't enrol - the QR scan just spins and times out. Old phone is wiped so I can't approve from it.",
+      "category": "Support", "priority": "high", "state_category": "done",
+      "requester": "liam", "assignee": "elena", "created_days_ago": 8, "closed_hours_after": 3,
+      "comments": [
+        { "author": "elena", "body": "I reset your MFA methods so the old device won't block enrolment. Re-scan the QR now and it should take.", "minutes_after": 60 },
+        { "author": "liam", "body": "Enrolled. Thanks Elena.", "minutes_after": 95 }
+      ]
+    },
+    {
+      "title": "New starter onboarding: accounts + laptop (N. Bennett)",
+      "body_md": "New Operations Lead starting Monday. Needs:\n\n- AD account + email\n- Laptop (standard Ops build)\n- Access to the Ops shared drive and Building B systems\n- Building B door badge",
+      "category": "Support", "priority": "high", "state_category": "done",
+      "requester": "sofia", "assignee": "priya", "created_days_ago": 20, "closed_hours_after": 30,
+      "comments": [
+        { "author": "priya", "body": "Account created, laptop LT-0052 imaged and assigned, drive + Building B access granted. Badge request sent to facilities.", "minutes_after": 900 },
+        { "author": "sofia", "body": "Perfect, all set for Monday.", "minutes_after": 1100 }
+      ]
+    },
+    {
+      "title": "Wi-Fi dead zone in Building B kitchen",
+      "body_md": "No usable Wi-Fi in the Building B kitchen and breakout area. Signal drops to nothing about halfway down the corridor. Several people can't take calls there.",
+      "category": "Bug", "priority": "medium", "state_category": "active",
+      "requester": "noah", "assignee": "tom", "device": "ap_b2k", "project": "network", "cycle": "net_install", "created_days_ago": 6,
+      "comments": [
+        { "author": "tom", "body": "Survey confirmed the gap. New AP (NET-APB2K) is on order for the kitchen; cabling run scheduled with the install wave.", "minutes_after": 240, "internal": true }
+      ]
+    },
+    {
+      "title": "Software install request: Adobe Illustrator",
+      "body_md": "I need Illustrator for the new hire welcome packs. A single named license is fine.",
+      "category": "Feature request", "priority": "low", "state_category": "done",
+      "requester": "sofia", "assignee": "marcus", "device": "mbp14", "created_days_ago": 15, "closed_hours_after": 48,
+      "comments": [
+        { "author": "marcus", "body": "License approved and assigned. Illustrator is pushed to your Mac via self-service - open Company Portal and install.", "minutes_after": 2400 }
+      ]
+    },
+    {
+      "title": "Phishing email reported - please verify",
+      "body_md": "Got an email claiming to be from Finance asking me to 'confirm payroll details' via a link. The sender domain looks slightly off. I did not click. Reporting it to be safe.",
+      "category": "Support", "priority": "urgent", "state_category": "done",
+      "requester": "hannah", "assignee": "elena", "created_days_ago": 10, "closed_hours_after": 2,
+      "comments": [
+        { "author": "elena", "body": "Good catch - it's a lookalike domain, not us. I've blocked the sender tenant-wide and purged the message from all mailboxes. No clicks recorded.", "minutes_after": 45 },
+        { "author": "elena", "body": "Flagging for the monthly security summary.", "minutes_after": 50, "internal": true }
+      ]
+    },
+    {
+      "title": "Teams audio cuts out in Meeting Room Apollo",
+      "body_md": "In Apollo the room mic keeps cutting out mid-sentence on Teams calls. Remote attendees say we vanish for a few seconds at a time. Video is fine.",
+      "category": "Bug", "priority": "medium", "state_category": "active",
+      "requester": "liam", "assignee": "tom", "device": "mr_apollo", "created_days_ago": 3,
+      "comments": [
+        { "author": "tom", "body": "Firmware on the Rally Bar is a version behind and there's a known mic-dropout fix. Scheduling the update for after hours so I don't interrupt a meeting.", "minutes_after": 260 }
+      ]
+    },
+    {
+      "title": "Cannot access shared finance drive",
+      "body_md": "I've lost access to the Finance shared drive this morning - it says permission denied. It was working yesterday. Nothing changed on my end.",
+      "category": "Support", "priority": "high", "state_category": "done",
+      "requester": "grace", "assignee": "priya", "created_days_ago": 18, "closed_hours_after": 5,
+      "comments": [
+        { "author": "priya", "body": "A group cleanup overnight dropped you from the Finance security group by mistake. Re-added you and confirmed access. Sorry about that.", "minutes_after": 200 }
+      ]
+    },
+    {
+      "title": "Screen flickering on MacBook Pro",
+      "body_md": "The screen flickers intermittently, mostly on dark backgrounds. Restarting helps for a while then it comes back.",
+      "category": "Bug", "priority": "medium", "state_category": "triage",
+      "requester": "sofia", "device": "mbp14", "created_days_ago": 1
+    },
+    {
+      "title": "Request: standing desk and docking station",
+      "body_md": "Could I get a sit-stand desk and a docking station for my laptop? Occupational health suggested it.",
+      "category": "Feature request", "priority": "low", "state_category": "backlog",
+      "requester": "raj", "created_days_ago": 22
+    },
+    {
+      "title": "Email delivery delayed to external clients",
+      "body_md": "Several clients report our replies arriving hours late. Internal mail is instant. This started during the pilot migration and is hurting deals in flight.",
+      "category": "Bug", "priority": "high", "state_category": "done",
+      "requester": "liam", "assignee": "marcus", "project": "m365", "cycle": "m365_pilot", "created_days_ago": 30, "closed_hours_after": 60,
+      "comments": [
+        { "author": "marcus", "body": "Outbound was routing through the old connector and getting greylisted. Repointed the send connector to 365 and delivery is back to seconds.", "minutes_after": 1800 },
+        { "author": "liam", "body": "Confirmed with two clients - replies are instant again.", "minutes_after": 2600 }
+      ]
+    },
+    {
+      "title": "OneDrive sync errors after migration",
+      "body_md": "OneDrive shows a red X and 'sync pending' on dozens of files since the rollout. Some documents won't open because they're 'still uploading'.",
+      "category": "Bug", "priority": "medium", "state_category": "active",
+      "requester": "grace", "assignee": "priya", "project": "m365", "cycle": "m365_rollout", "device": "lt0051", "created_days_ago": 5,
+      "comments": [
+        { "author": "priya", "body": "A few filenames have characters 365 rejects (colons and trailing spaces). I'll send a list to rename, then reset the sync client.", "minutes_after": 340 }
+      ]
+    },
+    {
+      "title": "Keyboard keys sticking on LT-0051",
+      "body_md": "The E and R keys stick and sometimes double-type. Cleaning didn't help.",
+      "category": "Support", "priority": "low", "state_category": "done",
+      "requester": "grace", "assignee": "marcus", "device": "lt0051", "created_days_ago": 14, "closed_hours_after": 26,
+      "comments": [
+        { "author": "marcus", "body": "Under warranty - logged a depot repair. Loaner is at reception for you in the meantime.", "minutes_after": 500 }
+      ]
+    },
+    {
+      "title": "Zoom to Teams migration - training request",
+      "body_md": "Now that we're standardising on Teams, could the Sales team get a short training session on meetings, channels, and calling?",
+      "category": "Feature request", "priority": "none", "state_category": "backlog",
+      "requester": "sofia", "created_days_ago": 25
+    },
+    {
+      "title": "VPN certificate expired warning",
+      "body_md": "Connecting to VPN now throws a certificate expired warning. I can click through but it feels wrong - wanted to flag it.",
+      "category": "Support", "priority": "high", "state_category": "done",
+      "requester": "noah", "assignee": "elena", "device": "lt0052", "created_days_ago": 11, "closed_hours_after": 4,
+      "comments": [
+        { "author": "elena", "body": "The gateway cert renewed but the client trust bundle was stale. Pushed the updated bundle - reconnect and the warning is gone. Don't click through cert warnings in future, good instinct to report it.", "minutes_after": 150 }
+      ]
+    },
+    {
+      "title": "Meeting Room Zephyr display won't wake",
+      "body_md": "The Zephyr room display stays black. Remote and power cycling the panel does nothing. Room is unusable for presentations.",
+      "category": "Bug", "priority": "medium", "state_category": "done",
+      "requester": "liam", "assignee": "tom", "device": "mr_zephyr", "created_days_ago": 16, "closed_hours_after": 22,
+      "comments": [
+        { "author": "tom", "body": "HDMI handshake between the Studio X50 and the panel was stuck. Swapped the cable and set the panel to always-on. Working now.", "minutes_after": 700 }
+      ]
+    },
+    {
+      "title": "Request new laptop - cracked screen (H. Brooks)",
+      "body_md": "I dropped my laptop and the screen is badly cracked - about a third is unreadable. I can still work on an external monitor but it's not practical for meetings.",
+      "category": "Support", "priority": "high", "state_category": "in_review",
+      "requester": "hannah", "assignee": "priya", "device": "lt0042", "project": "laptop", "cycle": "laptop_w2", "created_days_ago": 4,
+      "comments": [
+        { "author": "priya", "body": "You're due in the refresh anyway, so I'll bring your replacement forward into Wave 2 rather than repair. New unit is being imaged now.", "minutes_after": 180 }
+      ]
+    },
+    {
+      "title": "Slow login on shared reception PC",
+      "body_md": "The reception PC takes 4-5 minutes to get to the desktop after sign-in. It's awkward when visitors are waiting.",
+      "category": "Support", "priority": "medium", "state_category": "backlog",
+      "requester": "sofia", "created_days_ago": 19
+    },
+    {
+      "title": "Spam getting through to sales inbox",
+      "body_md": "The sales@ inbox is getting 20-30 obvious spam messages a day past the filter this week. Some are convincing fake RFQs.",
+      "category": "Bug", "priority": "medium", "state_category": "active",
+      "requester": "raj", "assignee": "elena", "created_days_ago": 7,
+      "comments": [
+        { "author": "elena", "body": "There's a new campaign hitting shared inboxes. I've tightened the policy and added the top offending domains. Forward anything that still slips through and I'll tune it.", "minutes_after": 220 }
+      ]
+    },
+    {
+      "title": "Access request: HR folder for new manager",
+      "body_md": "New HR manager needs read/write to the HR Confidential folder. Approved by the HR Director.",
+      "category": "Support", "priority": "medium", "state_category": "done",
+      "requester": "sofia", "assignee": "priya", "created_days_ago": 21, "closed_hours_after": 8,
+      "comments": [
+        { "author": "priya", "body": "Access granted and verified. Logged the approver for the audit trail.", "minutes_after": 400 }
+      ]
+    },
+    {
+      "title": "Printer 2F-East out of toner, order replacement",
+      "body_md": "The 2F east printer is out of black toner and there's no spare in the cabinet. Please order a replacement cartridge.",
+      "category": "Support", "priority": "low", "state_category": "done",
+      "requester": "noah", "assignee": "marcus", "device": "prn2fe", "created_days_ago": 13, "closed_hours_after": 30,
+      "comments": [
+        { "author": "marcus", "body": "Ordered a cartridge plus one spare for the cabinet. ETA two business days.", "minutes_after": 200 }
+      ]
+    },
+    {
+      "title": "Laptop won't charge - possible bad adapter",
+      "body_md": "My MacBook stopped charging. No light on the connector, tried both USB-C ports. Battery is at 4%.",
+      "category": "Support", "priority": "high", "state_category": "done",
+      "requester": "liam", "assignee": "tom", "device": "mbp16", "created_days_ago": 9, "closed_hours_after": 18,
+      "comments": [
+        { "author": "tom", "body": "The charger is dead - it doesn't power a test unit either. Swapped you a new 96W adapter and cable. Working now. Left the old one for e-waste.", "minutes_after": 620 }
+      ]
+    },
+    {
+      "title": "Request: bulk password policy review",
+      "body_md": "Can we review the password policy? Some of us are prompted to change far more often than others and it's causing confusion.",
+      "category": "Feature request", "priority": "low", "state_category": "backlog",
+      "requester": "hannah", "created_days_ago": 28
+    },
+    {
+      "title": "Switch B-1 port flapping - network drops in Building B",
+      "body_md": "Building B keeps losing network for 10-20 seconds at a time, several times an hour. Affects everyone on that floor. Started yesterday afternoon.",
+      "category": "Bug", "priority": "urgent", "state_category": "active",
+      "requester": "noah", "assignee": "tom", "device": "sw_b1", "project": "network", "cycle": "net_install", "created_days_ago": 2,
+      "comments": [
+        { "author": "tom", "body": "Uplink port on Switch B-1 is flapping - logs show link up/down every few minutes. Moving the uplink to a spare port now and will replace the SFP.", "minutes_after": 40 },
+        { "author": "noah", "body": "Much better since lunchtime, no drops so far.", "minutes_after": 480 },
+        { "author": "tom", "body": "Keeping this open until the replacement switch lands in the install wave - the whole unit is due for swap.", "minutes_after": 520, "internal": true }
+      ]
+    },
+    {
+      "title": "Cannot join Teams meeting - camera not detected",
+      "body_md": "Teams says 'no camera found' but the camera works in Photos. Reinstalling Teams didn't fix it.",
+      "category": "Support", "priority": "medium", "state_category": "done",
+      "requester": "grace", "assignee": "elena", "device": "lt0051", "created_days_ago": 17, "closed_hours_after": 6,
+      "comments": [
+        { "author": "elena", "body": "Camera privacy permission for Teams got reset in the last Windows update. Re-enabled it under Privacy > Camera and it's detected now.", "minutes_after": 260 }
+      ]
+    },
+    {
+      "title": "SharePoint permissions wrong after migration",
+      "body_md": "After the rollout, the whole Sales team can see the Deals Confidential SharePoint library. It should be restricted to directors only. This is sensitive - please fix urgently.",
+      "category": "Bug", "priority": "high", "state_category": "active",
+      "requester": "liam", "assignee": "priya", "project": "m365", "cycle": "m365_rollout", "created_days_ago": 6,
+      "comments": [
+        { "author": "priya", "body": "Confirmed - broken inheritance during migration re-granted the parent group. I've removed the inherited access and restored the directors-only permission. Auditing who accessed it in the window.", "minutes_after": 70 },
+        { "author": "elena", "body": "Access logs show no downloads by non-directors during the exposure window. Documenting for the security record.", "minutes_after": 300, "internal": true }
+      ]
+    },
+    {
+      "title": "Request: additional software license (Photoshop)",
+      "body_md": "Marketing asked me to help with some image edits. Could I get a Photoshop license added to my Creative Cloud?",
+      "category": "Feature request", "priority": "low", "state_category": "done",
+      "requester": "sofia", "assignee": "marcus", "created_days_ago": 24, "closed_hours_after": 72,
+      "comments": [
+        { "author": "marcus", "body": "Approved and assigned. Sign out and back into Creative Cloud to pick up Photoshop.", "minutes_after": 3600 }
+      ]
+    },
+    {
+      "title": "Laptop stuck on Windows update loop",
+      "body_md": "My laptop has been 'restarting to finish updates' for two hours, cycling the same percentage. I can't get to the desktop.",
+      "category": "Support", "priority": "high", "state_category": "done",
+      "requester": "grace", "assignee": "tom", "device": "lt0051", "created_days_ago": 15, "closed_hours_after": 14,
+      "comments": [
+        { "author": "tom", "body": "A cumulative update was failing to apply and rolling back on loop. Booted to recovery, cleared the pending update, and reapplied cleanly. All your files are intact.", "minutes_after": 500 }
+      ]
+    },
+    {
+      "title": "Guest Wi-Fi password rotation request",
+      "body_md": "We've got a client visit next week - can we rotate the guest Wi-Fi password and send me the new one for the welcome sheet?",
+      "category": "Support", "priority": "low", "state_category": "done",
+      "requester": "noah", "assignee": "elena", "created_days_ago": 26, "closed_hours_after": 40,
+      "comments": [
+        { "author": "elena", "body": "Rotated. New password sent to you separately. It'll be live from tomorrow morning.", "minutes_after": 300 }
+      ]
+    },
+    {
+      "title": "Duplicate calendar invites after migration",
+      "body_md": "Since the rollout every meeting shows up two or three times in my calendar. Accepting one doesn't clear the others.",
+      "category": "Bug", "priority": "low", "state_category": "done",
+      "requester": "raj", "assignee": "marcus", "project": "m365", "cycle": "m365_rollout", "created_days_ago": 8, "closed_hours_after": 30,
+      "comments": [
+        { "author": "marcus", "body": "A leftover calendar sync from the old tenant was duplicating events. Removed it and cleaned the duplicates. Let me know if any stragglers remain.", "minutes_after": 900 }
+      ]
+    },
+    {
+      "title": "Request: encrypted USB drives for finance",
+      "body_md": "Finance occasionally needs to hand-carry sensitive files to auditors. Could we get a few hardware-encrypted USB drives that meet policy?",
+      "category": "Feature request", "priority": "medium", "state_category": "backlog",
+      "requester": "hannah", "created_days_ago": 23
+    },
+    {
+      "title": "Account lockout - repeated failed logins from unknown IP",
+      "body_md": "I keep getting locked out and I'm not the one entering the wrong password. Got an alert about sign-in attempts from a country I've never been to.",
+      "category": "Support", "priority": "urgent", "state_category": "done",
+      "requester": "liam", "assignee": "elena", "created_days_ago": 12, "closed_hours_after": 1,
+      "comments": [
+        { "author": "elena", "body": "Confirmed a password-spray against your account from a foreign IP. MFA held and nothing got in. I've reset your password, revoked active sessions, and blocked the source range. You're safe - please set a new unique password now.", "minutes_after": 20 },
+        { "author": "elena", "body": "Opening a follow-up to check whether other accounts were targeted in the same wave.", "minutes_after": 35, "internal": true }
+      ]
+    },
+    {
+      "title": "Old laptop decommission and data wipe (LT-0043)",
+      "body_md": "Raj's old laptop from before the refresh needs a certified wipe and to be removed from asset inventory before it goes to recycling.",
+      "category": "Support", "priority": "low", "state_category": "done",
+      "requester": "raj", "assignee": "priya", "device": "lt0043", "project": "laptop", "cycle": "laptop_w1", "created_days_ago": 40, "closed_hours_after": 96,
+      "comments": [
+        { "author": "priya", "body": "Certified wipe completed, certificate filed, asset marked decommissioned. Ready for the recycler pickup.", "minutes_after": 4000 }
+      ]
+    },
+    {
+      "title": "New monitor arm mount install request",
+      "body_md": "Could someone mount a monitor arm on my desk? I have the arm, just need it fitted to the desk edge.",
+      "category": "Feature request", "priority": "none", "state_category": "cancelled",
+      "requester": "sofia", "created_days_ago": 33, "closed_hours_after": 200,
+      "comments": [
+        { "author": "sofia", "body": "Never mind - facilities sorted it during the desk move. Please close.", "minutes_after": 5000 }
+      ]
+    },
+    {
+      "title": "Cannot print to Building B printers over VPN",
+      "body_md": "When I'm on VPN from home I can't see or print to any Building B printers. In the office it's fine. Several of the Ops team have the same issue.",
+      "category": "Bug", "priority": "medium", "state_category": "active",
+      "requester": "noah", "assignee": "tom", "project": "network", "created_days_ago": 4,
+      "comments": [
+        { "author": "tom", "body": "The print subnet isn't in the split-tunnel routes for the VPN. I'll add the Building B print range to the profile.", "minutes_after": 280 }
+      ]
+    },
+    {
+      "title": "Teams status stuck on Away",
+      "body_md": "My Teams status shows 'Away' even when I'm actively typing. Colleagues think I'm offline. Setting it manually to Available doesn't stick.",
+      "category": "Bug", "priority": "low", "state_category": "done",
+      "requester": "grace", "assignee": "marcus", "created_days_ago": 18, "closed_hours_after": 20,
+      "comments": [
+        { "author": "marcus", "body": "Known presence bug when Teams and Outlook disagree on idle. Cleared the Teams cache and it's tracking correctly now.", "minutes_after": 600 }
+      ]
+    },
+    {
+      "title": "Request: shared mailbox for support team",
+      "body_md": "Can we set up a shared `itsupport@` mailbox so requests don't land in one person's inbox while they're out?",
+      "category": "Feature request", "priority": "low", "state_category": "in_review",
+      "requester": "hannah", "assignee": "priya", "created_days_ago": 11,
+      "comments": [
+        { "author": "priya", "body": "Good idea. Draft mailbox created for review - deciding on membership and whether replies send as the shared address before we go live.", "minutes_after": 300, "internal": true }
+      ]
+    },
+    {
+      "title": "Malware alert on reception PC - please investigate",
+      "body_md": "The antivirus popped a threat alert on the reception PC and quarantined something. The machine feels sluggish. Flagging urgently since it's a shared, semi-public device.",
+      "category": "Support", "priority": "urgent", "state_category": "done",
+      "requester": "sofia", "assignee": "elena", "created_days_ago": 27, "closed_hours_after": 5,
+      "comments": [
+        { "author": "elena", "body": "Quarantine caught a browser-extension adware bundle - not a real compromise. Removed the extension, ran a full scan (clean), and locked down extension installs on that machine. Sluggishness is gone.", "minutes_after": 240 }
+      ]
+    },
+    {
+      "title": "Slow file transfers to Building B server",
+      "body_md": "Copying files to the Building B file server is crawling - a 500 MB folder takes 20+ minutes. From Building A it's fine.",
+      "category": "Bug", "priority": "medium", "state_category": "backlog",
+      "requester": "noah", "project": "network", "created_days_ago": 20
+    },
+    {
+      "title": "Request: onboarding checklist automation",
+      "body_md": "Could we automate the new-starter checklist? Right now it's a manual list we copy each time and things get missed.",
+      "category": "Feature request", "priority": "low", "state_category": "cancelled",
+      "requester": "hannah", "created_days_ago": 44, "closed_hours_after": 240,
+      "comments": [
+        { "author": "priya", "body": "Parking this for now - it overlaps with the HRIS rollout that will own onboarding workflows next quarter. Closing so it doesn't sit stale; we'll revisit as part of that project.", "minutes_after": 6000, "internal": true }
+      ]
+    },
+    {
+      "title": "Docking station not detecting external monitors",
+      "body_md": "My dock stopped driving the two external monitors - laptop screen works but the externals stay black. Reseating cables didn't help.",
+      "category": "Support", "priority": "medium", "state_category": "done",
+      "requester": "liam", "assignee": "tom", "device": "mbp16", "created_days_ago": 10, "closed_hours_after": 16,
+      "comments": [
+        { "author": "tom", "body": "The dock's firmware needed an update and one DisplayPort output had failed. Updated it and swapped the dock - both monitors are back.", "minutes_after": 700 }
+      ]
+    },
+    {
+      "title": "Email signature not applying firmwide",
+      "body_md": "The standardised email signature we agreed for the pilot group isn't appearing on sent mail for some users. It's inconsistent - works for a few, not for others.",
+      "category": "Bug", "priority": "low", "state_category": "done",
+      "requester": "grace", "assignee": "marcus", "project": "m365", "cycle": "m365_pilot", "created_days_ago": 35, "closed_hours_after": 50,
+      "comments": [
+        { "author": "marcus", "body": "The transport rule only applied to external mail and skipped users with a local signature set. Adjusted the rule scope and cleared local overrides for the pilot group - consistent now.", "minutes_after": 1500 }
+      ]
+    }
+  ]
+}

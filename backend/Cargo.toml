@@ -18,6 +18,10 @@ path = "src/bin/import_tickets.rs"
 name = "nosdesk-cli"
 path = "src/bin/nosdesk_cli.rs"
 
+[[bin]]
+name = "seed_demo"
+path = "src/bin/seed_demo.rs"
+
 [dependencies]
 actix-web = "4.9.0"
 diesel = { version = "2.2.0", features = ["postgres", "r2d2", "chrono", "serde_json", "uuid", "network-address", "numeric"] }
