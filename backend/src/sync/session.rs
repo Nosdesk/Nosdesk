@@ -101,6 +101,26 @@ pub fn set_actor(conn: &mut DbConnection, actor: &ActorContext) -> QueryResult<(
     Ok(())
 }
 
+#[derive(diesel::QueryableByName)]
+struct CurrentSettingRow {
+    #[diesel(sql_type = Nullable<Text>)]
+    current_setting: Option<String>,
+}
+
+/// The connection's pinned workspace (`app.workspace_id`), or `None`
+/// when unpinned. This is the same GUC the RLS policies and the
+/// tenant tables' `workspace_id` column defaults read, so consumers
+/// that derive workspace-scoped values from it (sync group strings,
+/// the bootstrap's workspace-grant check) cannot disagree with what
+/// Postgres itself stamps on — or lets them see of — the rows.
+pub fn current_workspace_id(conn: &mut DbConnection) -> QueryResult<Option<i32>> {
+    let row: CurrentSettingRow = diesel::sql_query(
+        "SELECT NULLIF(current_setting('app.workspace_id', true), '') AS current_setting",
+    )
+    .get_result(conn)?;
+    Ok(row.current_setting.and_then(|s| s.parse().ok()))
+}
+
 /// Run a closure inside a transaction with the actor GUCs primed, so
 /// any `audit_log` triggers fired by the contained writes attribute
 /// the change to `actor`. The GUCs are scoped to the transaction

@@ -87,19 +87,25 @@ pub struct ClientInfo {
 
 /// Routing key for SSE delivery. Each event lives on exactly one topic;
 /// clients subscribe to the topics they care about and only ever see
-/// events published there. Phase A keeps the topology small: `Global`
-/// carries every cross-resource event, `User(uuid)` carries targeted
-/// notifications, and `Ticket(id)` carries presence-style events whose
-/// payload is sensitive enough that only authorised subscribers may
-/// receive them.
+/// events published there. The topology is small: `Global` carries
+/// cross-resource events that aren't tenant data, `Workspace(id)`
+/// carries the live `SyncActions` feed for one workspace, `User(uuid)`
+/// carries targeted notifications, and `Ticket(id)` carries
+/// presence-style events whose payload is sensitive enough that only
+/// authorised subscribers may receive them.
 ///
 /// Subscription to `Ticket(id)` is gated by
 /// `ticket_visibility::can_view_ticket` at connect time (see
 /// `parse_topics_authorized`), so the visibility filter is structural
-/// — it doesn't run per event.
+/// — it doesn't run per event. Subscription to `Workspace(id)` is not
+/// client-selectable at all: the connection is subscribed to exactly
+/// its pinned, membership-gated workspace (see `sse_events_stream`),
+/// which is what keeps one tenant's live sync rows off another
+/// tenant's wire.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum TopicKey {
     Global,
+    Workspace(i32),
     User(String),
     Ticket(i32),
 }
@@ -197,14 +203,20 @@ impl SseState {
 
     /// Pick the topic that owns this event. Notifications are
     /// per-recipient and must never appear on a wire other users read,
-    /// so they live on a `User` topic. Everything else fans out on
-    /// `Global` for now; future phases can split this into per-resource
-    /// topics for finer-grained delivery.
-    fn topic_for(event: &SseEvent) -> TopicKey {
+    /// so they live on a `User` topic. `SyncActions` carries tenant
+    /// rows but no routing discriminant in the event itself, so it has
+    /// no inferable topic — the outbox publishes each batch to its
+    /// workspace's topic via [`broadcast_event_to`](Self::broadcast_event_to);
+    /// returning `None` here fails closed if some future caller tries
+    /// to publish one through the inferred-topic path (routing it to
+    /// `Global` would put one tenant's rows on every tenant's wire).
+    /// Everything else fans out on `Global`.
+    fn topic_for(event: &SseEvent) -> Option<TopicKey> {
         match event {
-            SseEvent::ViewersChanged { ticket_id, .. } => TopicKey::Ticket(*ticket_id),
-            SseEvent::TicketFieldPreviewed { ticket_id, .. } => TopicKey::Ticket(*ticket_id),
-            _ => TopicKey::Global,
+            SseEvent::ViewersChanged { ticket_id, .. } => Some(TopicKey::Ticket(*ticket_id)),
+            SseEvent::TicketFieldPreviewed { ticket_id, .. } => Some(TopicKey::Ticket(*ticket_id)),
+            SseEvent::SyncActions { .. } => None,
+            _ => Some(TopicKey::Global),
         }
     }
 
@@ -216,7 +228,26 @@ impl SseState {
     /// client ID for echo suppression. Returns immediately — delivery
     /// is fire-and-forget through the topic's broadcast sender.
     pub async fn broadcast_event_from(&self, event: SseEvent, source_client_id: Option<String>) {
-        let key = Self::topic_for(&event);
+        let Some(key) = Self::topic_for(&event) else {
+            tracing::error!(
+                "SSE: refusing to publish a topic-less event via the inferred-topic \
+                 path (SyncActions must go through broadcast_event_to with its \
+                 workspace topic); dropping"
+            );
+            return;
+        };
+        self.publish(key, event, source_client_id);
+    }
+
+    /// Publish an event to an explicit topic, bypassing topic
+    /// inference. Used by the sync outbox, which routes each
+    /// `SyncActions` batch to the workspace topic of the rows it
+    /// carries — a discriminant the event payload doesn't encode.
+    pub async fn broadcast_event_to(&self, key: TopicKey, event: SseEvent) {
+        self.publish(key, event, None);
+    }
+
+    fn publish(&self, key: TopicKey, event: SseEvent, source_client_id: Option<String>) {
         let id = self.seq.fetch_add(1, Ordering::Relaxed) + 1;
         let env = Envelope {
             id,
@@ -693,7 +724,16 @@ pub async fn sse_events_stream(
     // caller's uuid. `ticket-<id>` is gated by
     // ticket_visibility::can_view_ticket so unauthorised ticket
     // subscriptions are silently dropped (no existence leak).
-    let topics = parse_topics_authorized(query.topics.as_deref(), &user_info.sub, &mut conn);
+    let mut topics = parse_topics_authorized(query.topics.as_deref(), &user_info.sub, &mut conn);
+
+    // The live SyncActions feed rides the workspace topic, and the
+    // subscription is server-assigned, never client-selected: exactly
+    // the workspace this connection pinned and membership-gated above.
+    // No pinned workspace, no sync feed — the same fail-closed shape
+    // as the RLS policies the REST reads sit behind.
+    if let Some(workspace_id) = workspace_id {
+        topics.push(TopicKey::Workspace(workspace_id));
+    }
 
     let last_event_id = last_event_id_from_request(&req);
     let (receivers, replay) = state.subscribe(&topics, last_event_id);
@@ -992,6 +1032,43 @@ mod tests {
         ]));
         assert!(!batch_needs_filtering(&env, &viewer(true)));
         assert!(!batch_needs_filtering(&env, &viewer(false)));
+    }
+
+    #[test]
+    fn sync_actions_has_no_inferred_topic() {
+        let Envelope { event, .. } = sync_actions_env(json!([]));
+        // Routing SyncActions by inference would put tenant rows on
+        // the shared Global topic; topic_for must refuse it.
+        assert_eq!(SseState::topic_for(&event), None);
+    }
+
+    #[tokio::test]
+    async fn sync_actions_route_to_the_workspace_topic_only() {
+        let state = SseState::new();
+        let mut global_rx = state.subscribe_global();
+        let (mut ws_rxs, _) = state.subscribe(&[TopicKey::Workspace(2)], None);
+        let event = || SseEvent::SyncActions {
+            actions: json!([]),
+            last_xid8: 1,
+            last_sync_id: 1,
+            timestamp: chrono::Utc::now(),
+        };
+
+        // The inferred-topic path refuses tenant rows outright…
+        state.broadcast_event(event()).await;
+        // …the explicit per-workspace publish is the only delivery path.
+        state
+            .broadcast_event_to(TopicKey::Workspace(2), event())
+            .await;
+
+        let got = ws_rxs[0]
+            .try_recv()
+            .expect("workspace subscriber receives the batch");
+        assert!(matches!(got.event, SseEvent::SyncActions { .. }));
+        assert!(
+            global_rx.try_recv().is_err(),
+            "the Global topic must never carry SyncActions"
+        );
     }
 
     #[test]

@@ -68,6 +68,14 @@ struct InsertedRow {
 /// inside the same transaction is the canonical way to populate
 /// them; without it the row gets `actor_kind = 'system'` and NULL
 /// elsewhere.
+///
+/// The [`groups::WORKSPACE_GROUP`](crate::sync::groups::WORKSPACE_GROUP)
+/// placeholder is resolved to `workspace:<pinned id>` here, from the
+/// same `app.workspace_id` GUC the row's `workspace_id` column
+/// defaults to — the stored group and the row's tenancy cannot drift.
+/// An unpinned transaction leaves the placeholder unresolved, but the
+/// insert fails on the column's NOT NULL default before that row
+/// could ever be stored.
 pub fn record(conn: &mut DbConnection, e: SyncEmit<'_>) -> QueryResult<i64> {
     let schema_version = registry::schema_version_for(e.aggregate);
     let aggregate_str = e.aggregate.as_str();
@@ -79,7 +87,8 @@ pub fn record(conn: &mut DbConnection, e: SyncEmit<'_>) -> QueryResult<i64> {
              aggregate, aggregate_id, op, event_type, schema_version, data, groups, \
              actor_uuid, actor_kind, actor_ref, correlation_id, causation_id, client_tx_id \
          ) VALUES ( \
-             $1::sync_aggregate, $2, $3::sync_op, $4, $5, $6, $7, \
+             $1::sync_aggregate, $2, $3::sync_op, $4, $5, $6, \
+             array_replace($7, 'workspace', 'workspace:' || NULLIF(current_setting('app.workspace_id', true), '')), \
              NULLIF(current_setting('app.actor_uuid', true), '')::UUID, \
              COALESCE(NULLIF(current_setting('app.actor_kind', true), ''), 'system'), \
              NULLIF(current_setting('app.actor_ref', true), ''), \

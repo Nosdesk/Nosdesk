@@ -85,6 +85,11 @@ struct ActionRow {
     correlation_id: Option<uuid::Uuid>,
     causation_id: Option<uuid::Uuid>,
     occurred_at: chrono::DateTime<chrono::Utc>,
+    /// Routing only — each row is published to its workspace's SSE
+    /// topic. Not serialized: the wire shape stays identical to the
+    /// delta endpoint's `ActionRow`.
+    #[serde(skip)]
+    workspace_id: i32,
     /// Transaction id for the commit-safe cursor; not sent per-row
     /// (the batch-level `last_xid8` carries the cursor). See
     /// `crate::sync::feed`.
@@ -279,6 +284,7 @@ async fn drain_since(
                             sync_actions::correlation_id,
                             sync_actions::causation_id,
                             sync_actions::occurred_at,
+                            sync_actions::workspace_id,
                             sync_actions::xid8,
                         ))
                         .load::<ActionRow>(conn)
@@ -297,16 +303,34 @@ async fn drain_since(
             xid8: last.xid8,
             sync_id: last.sync_id,
         };
-        let payload = serde_json::to_value(&rows)?;
         let count = rows.len();
 
-        sse.broadcast_event(SseEvent::SyncActions {
-            actions: payload,
-            last_xid8: last_cursor.xid8,
-            last_sync_id: last_cursor.sync_id,
-            timestamp: Utc::now(),
-        })
-        .await;
+        // Partition the page by tenant and publish each sub-batch to
+        // its own workspace topic — the drain reads across every
+        // workspace (BYPASSRLS), so this split is what keeps one
+        // tenant's rows off another tenant's wire. Rows stay in
+        // (xid8, sync_id) order within each sub-batch. Each batch
+        // carries its own last row as the cursor; that can trail the
+        // global watermark, which is harmless — the delta endpoint
+        // fills any gap on reconnect and clients dedupe by sync_id.
+        let mut by_workspace: std::collections::BTreeMap<i32, Vec<&ActionRow>> =
+            std::collections::BTreeMap::new();
+        for row in &rows {
+            by_workspace.entry(row.workspace_id).or_default().push(row);
+        }
+        for (workspace_id, batch) in &by_workspace {
+            let batch_last = batch.last().unwrap();
+            sse.broadcast_event_to(
+                crate::handlers::sse::TopicKey::Workspace(*workspace_id),
+                SseEvent::SyncActions {
+                    actions: serde_json::to_value(batch)?,
+                    last_xid8: batch_last.xid8,
+                    last_sync_id: batch_last.sync_id,
+                    timestamp: Utc::now(),
+                },
+            )
+            .await;
+        }
 
         debug!(
             from_xid8 = cursor.xid8,
@@ -314,6 +338,7 @@ async fn drain_since(
             to_xid8 = last_cursor.xid8,
             to_sync_id = last_cursor.sync_id,
             count,
+            workspaces = by_workspace.len(),
             "broadcast sync_actions batch"
         );
         *watermark = last_cursor;

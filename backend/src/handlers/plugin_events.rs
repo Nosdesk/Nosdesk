@@ -41,7 +41,7 @@ pub struct PluginEventBody {
     pub op: SyncOp,
     pub event_type: String,
     pub data: Value,
-    /// Optional explicit groups; defaults to `["workspace:1"]` when
+    /// Optional explicit groups; defaults to the workspace group when
     /// absent. Plugins can scope an event to a ticket / project by
     /// setting groups themselves.
     #[serde(default)]

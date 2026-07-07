@@ -11,8 +11,8 @@
 //! up front: `workflow_state`, `user`, and `asset` (always), plus
 //! `documentation_collection` / `documentation_page` and `project` /
 //! `project_ticket` when the workspace grant is present. Documentation
-//! rows are visibility-filtered per caller (they are emitted to
-//! `workspace:1` but readable per page/collection grant). Tickets,
+//! rows are visibility-filtered per caller (they are emitted to the
+//! workspace group but readable per page/collection grant). Tickets,
 //! comments, and attachments stay lazy-loaded through `useReference`
 //! so the bootstrap stays bounded even on enterprise-scale workspaces.
 
@@ -74,7 +74,7 @@ pub async fn bootstrap(
     // path) since they aren't in the static `allowed_groups` set.
     let requested_groups = query.groups.clone();
     // The streamer needs the caller's identity to visibility-filter
-    // documentation rows (emitted to workspace:1 but readable per
+    // documentation rows (emitted to the workspace group but readable per
     // page/collection grant). Clone the User into the blocking task.
     let user = ctx.user.clone();
     // Snapshot the actor (carries the workspace pin) so the
@@ -164,6 +164,15 @@ fn stream_bootstrap_inner(
     crate::sync::groups::admit_ticket_groups(conn, requested_groups, &viewer.ctx, &mut granted);
     let granted: &[String] = &granted;
 
+    // The workspace-wide grant for THIS snapshot's workspace — derived
+    // from the transaction's pin (the GUC every RLS-scoped query below
+    // reads), so it can't disagree with the rows the snapshot can see.
+    // `granted` holding some other workspace's group must not unlock
+    // workspace-wide streaming here.
+    let workspace_group: Option<String> =
+        crate::sync::session::current_workspace_id(conn)?.map(|id| format!("workspace:{}", id));
+    let workspace_granted = workspace_group.is_some_and(|wg| granted.iter().any(|g| *g == wg));
+
     let last_sync_id: Option<i64> = crate::schema::sync_actions::table
         .select(diesel::dsl::max(crate::schema::sync_actions::sync_id))
         .first(conn)?;
@@ -248,11 +257,13 @@ fn stream_bootstrap_inner(
     // the table render assignee / requester cells with no follow-up
     // round-trip.
     //
-    // Single-workspace deployment means "all users" in practice — the
-    // permission check happens upstream in
-    // `sync::groups::allowed_for_user`, but every member of
-    // `workspace:1` can see the user list (it's the same set the
+    // The permission check happens upstream in
+    // `sync::groups::allowed_for_user`, but every member of the
+    // workspace can see the user list (it's the same set the
     // mention picker / assignee picker already query without scope).
+    // NOTE: `users` has no workspace RLS policy, so this streams the
+    // instance-wide roster — fine for self-hosted, but a deliberate
+    // cross-tenant exposure to revisit for multi-workspace hosts.
     //
     // Email lives in `user_emails` (canonical address; the
     // `users.email` column is gone); load the primary-email lookup
@@ -329,10 +340,10 @@ fn stream_bootstrap_inner(
 
     // Two project-loading paths:
     //
-    // 1. Workspace-wide (`workspace:1` in granted set): load every
-    //    project the user has visibility into. Single-workspace
-    //    deployment means this is "all projects" in practice; the
-    //    permission check happens upstream in
+    // 1. Workspace-wide (the pinned workspace's `workspace:<id>` group
+    //    in the granted set): load every project the user has
+    //    visibility into (RLS scopes "every" to the pinned workspace);
+    //    the permission check happens upstream in
     //    `sync::groups::allowed_for_user`.
     //
     // 2. Per-project (`project:<id>` strings in granted set):
@@ -340,15 +351,15 @@ fn stream_bootstrap_inner(
     //    parse the suffix as i32, fetch the matching projects.
     //
     // Both paths land in the same set; HashSet dedupes if a request
-    // ever asks for both `workspace:1` and `project:7` together.
+    // ever asks for both the workspace group and `project:7` together.
     use std::collections::HashSet;
-    let want_all = granted.iter().any(|g| g == "workspace:1");
+    let want_all = workspace_granted;
 
     // Documentation: workspace-wide knowledge base. Stream every
     // collection and page (all statuses, so the index / archived /
     // drafts / trash views all derive from the same pool) when the
     // caller has the workspace grant. Documentation rows are emitted
-    // to `workspace:1`, so without a per-row visibility filter a
+    // to the workspace group, so without a per-row visibility filter a
     // member would receive metadata for pages restricted away from
     // them. This mirrors the read-side filter on /api/sync/delta;
     // both reuse the canonical access logic so they cannot drift.
@@ -492,7 +503,7 @@ fn stream_bootstrap_inner(
 
     // Tickets: two paths, mirroring the project loader above.
     //
-    // 1. Workspace-wide (`workspace:1` granted): every ticket in the
+    // 1. Workspace-wide (the workspace group granted): every ticket in the
     //    workspace. The TicketsListViewV2 reads from this — My Queue
     //    and Triage filter on assignee / workflow_state.category
     //    respectively, both of which need the full ticket set.

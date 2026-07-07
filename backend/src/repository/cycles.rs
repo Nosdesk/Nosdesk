@@ -284,7 +284,10 @@ fn ticket_cycle_changed(
 ) -> QueryResult<SyncEmit<'static>> {
     // Same group shape as `groups::for_ticket`, without loading the
     // full ticket row (only the id feeds the groups).
-    let mut event_groups = vec!["workspace:1".to_string(), format!("ticket:{}", ticket_id)];
+    let mut event_groups = vec![
+        groups::WORKSPACE_GROUP.to_string(),
+        format!("ticket:{}", ticket_id),
+    ];
     let project_ids: Vec<i32> = project_tickets::table
         .filter(project_tickets::ticket_id.eq(ticket_id))
         .select(project_tickets::project_id)
@@ -318,7 +321,7 @@ fn emit_cycle_ticket_event(
         .first(conn)
         .optional()?;
     let mut groups = vec![
-        "workspace:1".to_string(),
+        groups::WORKSPACE_GROUP.to_string(),
         format!("cycle:{}", cycle_id),
         format!("ticket:{}", ticket_id),
     ];

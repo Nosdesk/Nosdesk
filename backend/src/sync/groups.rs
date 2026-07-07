@@ -7,8 +7,7 @@
 //! set.
 //!
 //! Group strings follow `<scope>:<id>` convention:
-//! - `workspace:<n>` — global (Nosdesk is single-workspace today,
-//!   always `workspace:1`).
+//! - `workspace:<id>` — every member of the workspace.
 //! - `ticket:<id>` — visible to anyone with read access to the
 //!   ticket. The ticket itself is in this group.
 //! - `project:<id>` — anyone with the project visible.
@@ -25,7 +24,15 @@ use crate::db::DbConnection;
 use crate::models::{Ticket, User};
 use crate::schema::{project_tickets, user_groups};
 
-const WORKSPACE_GROUP: &str = "workspace:1";
+/// Write-side placeholder for the event's workspace group. Every emit
+/// runs inside a workspace-pinned transaction (`app.workspace_id` —
+/// the GUC that feeds the tenant tables' `workspace_id` column
+/// defaults and the RLS policies), and `emit::record` resolves this
+/// placeholder to `workspace:<pinned id>` inside the INSERT itself.
+/// Group computation therefore never needs to know the workspace id,
+/// and the stored group can never disagree with the row's own
+/// `workspace_id` column.
+pub const WORKSPACE_GROUP: &str = "workspace";
 
 /// Groups attached to a ticket-scoped event.
 pub fn for_ticket(conn: &mut DbConnection, ticket: &Ticket) -> QueryResult<Vec<String>> {
@@ -73,7 +80,16 @@ pub fn for_user(user_uuid: Uuid) -> Vec<String> {
 /// handler computes this once per request and folds it into the
 /// `groups && $allowed` filter.
 pub fn allowed_for_user(conn: &mut DbConnection, user: &User) -> QueryResult<Vec<String>> {
-    let mut allowed = vec![WORKSPACE_GROUP.to_string(), format!("user:{}", user.uuid)];
+    // The workspace grant is the connection's pinned workspace — the
+    // same GUC the RLS policies scope every read below by. Unpinned
+    // (no resolved workspace on the request) means no workspace-wide
+    // grant: the caller gets only their user group, mirroring RLS
+    // returning no tenant rows.
+    let mut allowed = Vec::new();
+    if let Some(ws) = crate::sync::session::current_workspace_id(conn)? {
+        allowed.push(format!("workspace:{}", ws));
+    }
+    allowed.push(format!("user:{}", user.uuid));
 
     let group_ids: Vec<i32> = user_groups::table
         .filter(user_groups::user_uuid.eq(user.uuid))
@@ -128,5 +144,48 @@ pub fn admit_ticket_groups(
             seen.insert(g.to_string());
             granted.push(g.to_string());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sync::actor::ActorContext;
+    use crate::sync::session;
+    use crate::test_helpers::{setup_test_connection, TestFixtures};
+
+    #[test]
+    fn allowed_for_user_grants_the_pinned_workspace_group() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "allowed_ws_user", "admin");
+
+        // Pin a non-default workspace: the grant must follow the pin,
+        // not a constant. No workspaces row is needed — nothing here
+        // writes; RLS just scopes the project / user-group reads.
+        let actor = ActorContext::user_at_workspace(user.uuid, 4242);
+        let allowed =
+            session::with_actor_context(&mut conn, &actor, |c| allowed_for_user(c, &user))
+                .expect("allowed_for_user under a pin");
+
+        assert!(allowed.contains(&"workspace:4242".to_string()));
+        assert!(!allowed.iter().any(|g| g == "workspace:1"));
+        assert!(allowed.contains(&format!("user:{}", user.uuid)));
+    }
+
+    #[test]
+    fn allowed_for_user_unpinned_grants_no_workspace_group() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "allowed_unpinned_user", "admin");
+
+        // Clear the ambient test pin: an unpinned request must not get
+        // a workspace-wide grant (the fail-closed shape RLS gives the
+        // row reads themselves).
+        diesel::sql_query("SELECT set_config('app.workspace_id', '', false)")
+            .execute(&mut conn)
+            .expect("clear the workspace pin");
+
+        let allowed = allowed_for_user(&mut conn, &user).expect("allowed_for_user unpinned");
+        assert!(!allowed.iter().any(|g| g.starts_with("workspace:")));
+        assert!(allowed.contains(&format!("user:{}", user.uuid)));
     }
 }

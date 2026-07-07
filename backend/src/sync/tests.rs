@@ -97,6 +97,71 @@ fn system_actor_records_with_null_uuid_and_a_reference() {
 }
 
 #[test]
+fn record_resolves_the_workspace_group_placeholder_from_the_pin() {
+    let mut conn = setup_test_connection();
+    let user = TestFixtures::create_user(&mut conn, "sync_ws_group_user", "admin");
+
+    // A second workspace, so the assertion can't pass by echoing the
+    // ambient test default (workspace 1). sync_actions.workspace_id
+    // has an FK to workspaces, so the row must exist — created under
+    // the admin role, since the registry table isn't app-writable.
+    let ws_id: i32 = session::with_actor_bypass_context(
+        &mut conn,
+        &ActorContext::system("test:workspace_fixture"),
+        |conn| {
+            diesel::insert_into(crate::schema::workspaces::table)
+                .values((
+                    crate::schema::workspaces::slug.eq("groups-resolve"),
+                    crate::schema::workspaces::name.eq("Groups Resolve"),
+                ))
+                .returning(crate::schema::workspaces::id)
+                .get_result::<i32>(conn)
+        },
+    )
+    .expect("create second workspace");
+
+    let actor = ActorContext::user(user.uuid, None).with_workspace(ws_id);
+    // Read back inside the same pinned transaction — sync_actions is
+    // RLS-scoped, so the row is only visible under this pin.
+    let (groups, row_workspace_id) = conn
+        .transaction::<(Vec<Option<String>>, i32), diesel::result::Error, _>(|conn| {
+            session::set_actor(conn, &actor)?;
+            let sync_id = emit::record(
+                conn,
+                SyncEmit {
+                    aggregate: SyncAggregate::WorkflowState,
+                    aggregate_id: "1".to_string(),
+                    op: SyncOp::Update,
+                    event_type: "workflow_state.renamed",
+                    data: json!({}),
+                    groups: vec![
+                        crate::sync::groups::WORKSPACE_GROUP.to_string(),
+                        "ticket:42".to_string(),
+                    ],
+                    causation_id: None,
+                },
+            )?;
+            sync_actions::table
+                .filter(sync_actions::sync_id.eq(sync_id))
+                .select((sync_actions::groups, sync_actions::workspace_id))
+                .first(conn)
+        })
+        .expect("record + readback should succeed");
+
+    // The placeholder resolved to the pinned workspace, the literal
+    // ticket group passed through untouched, and the resolved group
+    // agrees with the workspace_id column stamped by the same GUC.
+    assert_eq!(
+        groups,
+        vec![
+            Some(format!("workspace:{}", ws_id)),
+            Some("ticket:42".to_string()),
+        ]
+    );
+    assert_eq!(row_workspace_id, ws_id);
+}
+
+#[test]
 fn system_meta_schema_hash_round_trip() {
     let mut conn = setup_test_connection();
     system_meta::set_schema_hash(&mut conn, "abc123").expect("write should succeed");
