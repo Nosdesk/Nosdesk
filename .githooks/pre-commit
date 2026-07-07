@@ -67,4 +67,16 @@ if [ -n "$staged_fe" ]; then
     fi
 fi
 
+# --- Disk guardrail (non-blocking) -----------------------------------
+# The host's backend/target has no cargo GC and has silently grown past
+# 150 GB before. This is a cheap df check (no slow du over the tree) that
+# nudges you toward `make sweep-target` before the disk fills. It only
+# warns; it never blocks the commit.
+avail_kb=$(df -k "$repo_root" 2>/dev/null | awk 'NR==2 {print $4}')
+if [ -n "$avail_kb" ] && [ "$avail_kb" -lt 26214400 ]; then  # < 25 GiB free
+    echo "pre-commit: only $((avail_kb / 1024 / 1024)) GiB free on this volume." >&2
+    echo "             If backend/target is large, run 'make sweep-target'" >&2
+    echo "             (or 'make doctor' to inspect). Not blocking this commit." >&2
+fi
+
 exit 0

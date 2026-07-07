@@ -245,8 +245,17 @@ tempfile = "3"
 # bulk of the target dir and the main driver of CI's "No space left
 # on device" link failures; line tables keep panic line numbers
 # (the only debug info CI uses) while shrinking target and cache.
+#
+# split-debuginfo = "packed" bundles debug info into a .dSYM and lets
+# rustc delete the per-codegen-unit .o files after linking. On macOS
+# the default ("unpacked") keeps every .o on disk as load-bearing
+# debug-map data; since cargo never GCs stale-hash artifacts, host
+# builds of the 50+ integration-test binaries piled up 154 GB of
+# orphaned .rcgu.o files. "packed" severs that at the source and is
+# safe on Linux/CI (a single .dwp instead of retained objects).
 [profile.dev]
 debug = "line-tables-only"
+split-debuginfo = "packed"
 
 # Fast-compiling unoptimised profile for throwaway dev/staging images (the
 # dev-image CI workflow passes --profile fast). Inherits release config but
