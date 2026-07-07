@@ -1,13 +1,12 @@
 /**
  * Dashboard widget registry.
  *
- * A widget is a discrete, self-contained Vue component that the user
- * can reorder or hide on their dashboard. Each entry describes what
- * the component is, which roles may use it, and the fixed column
- * span it occupies inside the 3-column grid. The preset span is
- * deliberate — this iteration is "reorder + show/hide," not free-form
- * resize; giving each widget a design-time span keeps layouts tidy
- * without introducing a grid library.
+ * A widget is a discrete, self-contained Vue component the user can
+ * move, resize, or hide on their dashboard. Each entry describes what
+ * the component is, which roles may use it, and its default column /
+ * row spans on the 3-column lattice. Placement follows the gravity
+ * model (see `packAnchored`): the stored layout carries list order
+ * plus an anchor column per widget, and rows derive from compaction.
  *
  * Layouts stored on the user row reference widgets by `id`. The store
  * merges new registry entries at the tail of the stored order, so
@@ -15,6 +14,7 @@
  */
 import type { Component } from 'vue'
 import type { DashboardLayout, UserRole } from '@nosdesk/core/types/user'
+import { packGrid } from '@/composables/usePointerSortable'
 import UserAssignedTickets from '@/components/UserAssignedTickets.vue'
 import TicketHeatmap from '@/components/TicketHeatmap.vue'
 import RecentlyViewedWidget from './RecentlyViewedWidget.vue'
@@ -52,6 +52,22 @@ function savedViewUuidFromId(id: string): string {
 
 export type WidgetSpan = 1 | 2 | 3
 
+/** Column count of the desktop lattice. The single source of truth
+ *  for the grid width: the packer callers, anchor clamps, and the
+ *  legacy-anchor derivation all read this. (The `grid-cols-3`
+ *  Tailwind classes and the backend `0..=2` validator mirror it but
+ *  can't share a JS constant.) */
+export const LATTICE_COLS = 3
+
+/** Anchor column on the desktop lattice. */
+export type WidgetCol = 0 | 1 | 2
+
+/** One stored layout entry. Field order is CANONICAL (id, visible,
+ *  span, rowSpan, col, config): the layout store detects dirtiness
+ *  and SSE echoes via JSON.stringify equality, so every code path
+ *  that builds or rebuilds an entry must emit keys in this order. */
+export type LayoutWidgetEntry = DashboardLayout['widgets'][number]
+
 export interface WidgetDef {
   /** Stable identifier persisted in user layouts. */
   id: string
@@ -76,6 +92,15 @@ export interface WidgetDef {
    * `naturalHeight` flag implies.
    */
   rowSpan?: WidgetSpan
+  /**
+   * Minimum column span the widget stays usable at. Resize gestures,
+   * the context menu, and keyboard sizing all clamp to it, and
+   * `effectiveSpanFor` clamps read-side so a stored layout below a
+   * later-raised minimum needs no migration. Defaults to 1.
+   */
+  minSpan?: WidgetSpan
+  /** Minimum row span, same contract as `minSpan`. Defaults to 1. */
+  minRowSpan?: WidgetSpan
   /** Which roles may use this widget. */
   roles: UserRole[]
   /**
@@ -214,6 +239,9 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     component: LineChart,
     props: { measure: 'count', timeField: 'created_at' },
     span: 2,
+    // A plotted time series at a single row unit is an unreadable
+    // sliver; hold it at two.
+    minRowSpan: 2,
     roles: ['technician', 'admin'],
     chromeDependencies: ['time-range', 'compare'],
     frameWraps: true,
@@ -332,11 +360,14 @@ export function widgetsForRole(role: UserRole): WidgetDef[] {
 /**
  * Curated default layout for technicians and admins.
  *
- * Every widget keeps a single column so the grid auto-flows into a
- * dense three-column mosaic. Heights carry the structure: Assigned
- * Tickets is a tall column (3 row units) on the left; the time chart
- * and Recently Viewed run 2 units; the activity heatmap spans 2
- * columns as a wide band; everything else is a compact 1-unit tile.
+ * Anchor columns (`col`) place the mosaic explicitly; rows derive
+ * from the gravity packer (each widget floats up in its column band).
+ * The anchors reproduce what the legacy dense auto-flow produced from
+ * this order, so long-time users see no change. Heights carry the
+ * structure: Assigned Tickets is a tall column (3 row units) on the
+ * left; the time chart and Recently Viewed run 2 units; the activity
+ * heatmap spans 2 columns as a wide band; everything else is a
+ * compact 1-unit tile.
  *
  * KPI / chart widgets read the global time range and declare
  * `chromeDependencies`, so the DashboardView only renders the
@@ -346,15 +377,15 @@ export function widgetsForRole(role: UserRole): WidgetDef[] {
  * up in the "Add widget" picker without cluttering the initial view.
  */
 const STAFF_VISIBLE: DashboardLayout['widgets'] = [
-  { id: 'assigned-tickets', visible: true, span: 1, rowSpan: 3 },
-  { id: 'ticket-volume', visible: true, span: 1, rowSpan: 1 },
-  { id: 'sla-health', visible: true, span: 1 },
-  { id: 'unassigned-queue', visible: true, span: 1 },
-  { id: 'tickets-over-time', visible: true, span: 1, rowSpan: 2 },
-  { id: 'recently-viewed', visible: true, span: 1, rowSpan: 2 },
-  { id: 'activity-heatmap', visible: true, span: 2, rowSpan: 1 },
-  { id: 'volume-by-priority', visible: true, span: 1, rowSpan: 1 },
-  { id: 'volume-by-category', visible: true, span: 1, rowSpan: 1 },
+  { id: 'assigned-tickets', visible: true, span: 1, rowSpan: 3, col: 0 },
+  { id: 'ticket-volume', visible: true, span: 1, rowSpan: 1, col: 1 },
+  { id: 'sla-health', visible: true, span: 1, col: 2 },
+  { id: 'unassigned-queue', visible: true, span: 1, col: 1 },
+  { id: 'tickets-over-time', visible: true, span: 1, rowSpan: 2, col: 2 },
+  { id: 'recently-viewed', visible: true, span: 1, rowSpan: 2, col: 0 },
+  { id: 'activity-heatmap', visible: true, span: 2, rowSpan: 1, col: 1 },
+  { id: 'volume-by-priority', visible: true, span: 1, rowSpan: 1, col: 1 },
+  { id: 'volume-by-category', visible: true, span: 1, rowSpan: 1, col: 2 },
 ]
 
 /** The default layout for a role. Staff roles (technician / admin)
@@ -445,13 +476,9 @@ export function mergeWithRegistry(
     .filter((e) => !seen.has(e.id) && isAvailableForRole(e.id, role))
     .map((e) => {
       seen.add(e.id)
-      const entry: {
-        id: string
-        visible: boolean
-        span?: WidgetSpan
-        rowSpan?: WidgetSpan
-        config?: Record<string, unknown>
-      } = {
+      // Keys emitted in the canonical entry order (see
+      // LayoutWidgetEntry); JSON.stringify equality depends on it.
+      const entry: LayoutWidgetEntry = {
         id: e.id,
         visible: !!e.visible,
       }
@@ -461,6 +488,9 @@ export function mergeWithRegistry(
       if (e.rowSpan === 1 || e.rowSpan === 2 || e.rowSpan === 3) {
         entry.rowSpan = e.rowSpan
       }
+      if (e.col === 0 || e.col === 1 || e.col === 2) {
+        entry.col = e.col
+      }
       if (e.config && typeof e.config === 'object' && !Array.isArray(e.config)) {
         entry.config = e.config as Record<string, unknown>
       }
@@ -469,7 +499,55 @@ export function mergeWithRegistry(
   const missing = widgetsForRole(role)
     .filter((w) => !seen.has(w.id))
     .map((w) => ({ id: w.id, visible: w.defaultVisible ?? true }))
-  return { widgets: migrateLegacyTicketKpis([...kept, ...missing]) }
+  return {
+    widgets: deriveLegacyAnchors(migrateLegacyTicketKpis([...kept, ...missing])),
+  }
+}
+
+/**
+ * One-time anchor derivation for layouts saved before anchor columns
+ * existed. Runs ONLY when no visible entry carries a `col`: the
+ * legacy dense packer (`packGrid`, byte-identical to the CSS dense
+ * flow those users were seeing) assigns each visible widget the
+ * column it already renders in, so the upgrade changes nothing on
+ * screen. Mixed layouts (some entries with `col`, e.g. after a new
+ * widget ships or the picker adds one) are left alone; col-less
+ * entries pack as auto until the next placement commit materializes
+ * them.
+ */
+function deriveLegacyAnchors(
+  widgets: DashboardLayout['widgets'],
+): DashboardLayout['widgets'] {
+  const visible = widgets
+    .map((w, i) => ({ w, i }))
+    .filter(({ w }) => w.visible && widgetById(w.id))
+  if (visible.length === 0) return widgets
+  if (visible.some(({ w }) => w.col != null)) return widgets
+  const cells = packGrid(
+    visible.map(({ w, i }) => ({
+      originalIndex: i,
+      colSpan: effectiveSpanFor(w),
+      rowSpan: rowSpanFor(w),
+    })),
+    LATTICE_COLS,
+  )
+  return widgets.map((w, i) => {
+    const cell = cells.get(i)
+    if (!cell) return w
+    return withEntryCol(w, cell.col as WidgetCol)
+  })
+}
+
+/** Rebuild an entry with `col` set, emitting keys in the canonical
+ *  order so JSON.stringify comparisons (isDirty, SSE echo) stay
+ *  stable no matter which path wrote the entry. */
+export function withEntryCol(entry: LayoutWidgetEntry, col: WidgetCol): LayoutWidgetEntry {
+  const out: LayoutWidgetEntry = { id: entry.id, visible: entry.visible }
+  if (entry.span != null) out.span = entry.span
+  if (entry.rowSpan != null) out.rowSpan = entry.rowSpan
+  out.col = col
+  if (entry.config != null) out.config = entry.config
+  return out
 }
 
 /** Look up a widget def by id. Returns undefined for unknown ids.
@@ -494,50 +572,59 @@ export function widgetById(id: string): WidgetDef | undefined {
   return WIDGET_REGISTRY.find((w) => w.id === id)
 }
 
-/** Tailwind class for a widget's column span in the 3-col grid. */
-export function spanClass(span: WidgetSpan): string {
-  switch (span) {
-    case 1:
-      return 'xl:col-span-1'
-    case 2:
-      return 'xl:col-span-2'
-    case 3:
-      return 'xl:col-span-3'
-  }
+/** Minimum column span for a widget id. Goes through `widgetById`
+ *  so synthetic saved-view ids resolve too. */
+export function minSpanFor(id: string): WidgetSpan {
+  return widgetById(id)?.minSpan ?? 1
+}
+
+/** Minimum row span for a widget id. */
+export function minRowSpanFor(id: string): WidgetSpan {
+  return widgetById(id)?.minRowSpan ?? 1
 }
 
 /** Effective column span for a stored layout entry: user override
- *  (set via the resize control) wins, else the registry default. */
+ *  (set via the resize control) wins, else the registry default.
+ *  Clamped to the registry minimum so a raised minimum takes effect
+ *  on stored layouts without a migration. */
 export function effectiveSpanFor(entry: { id: string; span?: WidgetSpan }): WidgetSpan {
-  return entry.span ?? widgetById(entry.id)?.span ?? 1
+  const span = entry.span ?? widgetById(entry.id)?.span ?? 1
+  return Math.max(span, minSpanFor(entry.id)) as WidgetSpan
 }
 
-/** Tailwind class for a widget's row span on the fixed-unit lattice.
+/** Tailwind class for a widget's row span on the BELOW-xl lattice.
  *
- * In `editMode` the span applies at every breakpoint, because the drag
- * projection reads the fixed row unit and the lattice must hold on mobile too.
- * In view mode the span is `xl`-only, so the 1-column mobile layout drops the
- * fixed height and flows at content height (capped by a max-height on the
- * frame) instead of a tall fixed footprint an empty widget can't fill. */
+ * At xl the grid places every widget explicitly (inline
+ * `grid-column` / `grid-row` custom properties computed by the
+ * gravity packer), so no span class may apply there: `row-span-2`
+ * and the arbitrary `xl:[grid-row:...]` property are both single
+ * classes and their winner would depend on stylesheet order.
+ *
+ * Below xl, edit mode keeps the fixed 1-column lattice (the drag
+ * projection reads the fixed row unit), so the span renders via
+ * `max-xl:`. View mode below xl flows at content height (capped by
+ * a max-height on the frame) and needs no class at all. */
 export function rowSpanClass(span: WidgetSpan, editMode: boolean): string {
-  if (editMode) {
-    switch (span) {
-      case 1:
-        return 'row-span-1'
-      case 2:
-        return 'row-span-2'
-      case 3:
-        return 'row-span-3'
-    }
-  }
+  if (!editMode) return ''
   switch (span) {
     case 1:
-      return 'xl:row-span-1'
+      return 'max-xl:row-span-1'
     case 2:
-      return 'xl:row-span-2'
+      return 'max-xl:row-span-2'
     case 3:
-      return 'xl:row-span-3'
+      return 'max-xl:row-span-3'
   }
+}
+
+/** Effective anchor column for a stored layout entry: the user's
+ *  saved anchor clamped so the given span still fits the 3-column
+ *  lattice, or undefined for auto (earliest free slot). */
+export function effectiveColFor(
+  entry: { id: string; span?: WidgetSpan; col?: WidgetCol },
+  span: WidgetSpan = effectiveSpanFor(entry),
+): WidgetCol | undefined {
+  if (entry.col == null) return undefined
+  return Math.max(0, Math.min(LATTICE_COLS - span, entry.col)) as WidgetCol
 }
 
 /** Effective row span for a stored layout entry. Precedence: the
@@ -546,8 +633,9 @@ export function rowSpanClass(span: WidgetSpan, editMode: boolean): string {
  *  (compact widgets 1 unit, lists/charts 2). The `naturalHeight` flag
  *  already partitions short from tall, so widgets need no data change. */
 export function rowSpanFor(entry: { id: string; rowSpan?: WidgetSpan }): WidgetSpan {
-  if (entry.rowSpan != null) return entry.rowSpan
+  const min = minRowSpanFor(entry.id)
+  if (entry.rowSpan != null) return Math.max(entry.rowSpan, min) as WidgetSpan
   const def = widgetById(entry.id)
-  if (def?.rowSpan) return def.rowSpan
-  return def?.naturalHeight ? 1 : 2
+  if (def?.rowSpan) return Math.max(def.rowSpan, min) as WidgetSpan
+  return Math.max(def?.naturalHeight ? 1 : 2, min) as WidgetSpan
 }

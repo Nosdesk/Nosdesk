@@ -3,9 +3,11 @@
  * `DashboardView` level; tears down on unmount.
  *
  * Shortcuts:
- *   - e        enter edit mode (no-op if already editing)
- *   - r        refresh non-live data
- *   - esc      discard the in-flight edit session (when dirty)
+ *   - e            enter edit mode (no-op if already editing)
+ *   - r            refresh non-live data
+ *   - esc          discard the in-flight edit session (when dirty)
+ *   - cmd/ctrl-z   undo the last edit-session change
+ *   - cmd/ctrl-shift-z  redo
  *
  * Anchor jumps (1..=7) are wired alongside the section anchors that
  * v1.1 reintroduces; absent in v1.
@@ -34,6 +36,17 @@ export function useDashboardKeybindings(options: DashboardKeybindingsOptions) {
   const store = useDashboardLayoutStore()
 
   function onKeyDown(e: KeyboardEvent) {
+    // Undo / redo, scoped to the edit session (decision 17). Checked
+    // before the modifier bail below. Typing targets keep their own
+    // native undo.
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 'z') {
+      if (!store.editMode || isTypingTarget(e.target)) return
+      e.preventDefault()
+      if (e.shiftKey) store.redo()
+      else store.undo()
+      return
+    }
+
     if (e.metaKey || e.ctrlKey || e.altKey) return
     if (isTypingTarget(e.target)) return
 

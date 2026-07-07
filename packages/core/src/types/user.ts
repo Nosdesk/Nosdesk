@@ -61,8 +61,12 @@ export function effectiveRole(u: {
  *
  * `span` is the column span (1, 2, or 3) the user has picked in edit
  * mode. When omitted, the client falls back to the registry default
- * for the widget. Extending this to `{ x, y, w, h }` later is a
- * non-breaking superset — existing entries keep working. */
+ * for the widget.
+ *
+ * Placement model: list order is the vertical intent (reading order)
+ * and `col` is the widget's anchor column. Rows are always DERIVED by
+ * the client's gravity packer (widgets float up within their column
+ * band, collisions push down), so no row is persisted. */
 export interface DashboardLayout {
   widgets: Array<{
     id: string;
@@ -74,6 +78,14 @@ export interface DashboardLayout {
      * falls back to the registry-derived default (see `rowSpanFor`).
      */
     rowSpan?: 1 | 2 | 3;
+    /**
+     * Anchor column (0-based) of the widget's top-left cell on the
+     * 3-column desktop lattice. When absent the widget packs "auto"
+     * (earliest free slot in reading order, the legacy dense-flow
+     * behaviour). Written for every visible widget when an edit
+     * session commits a drag or keyboard move.
+     */
+    col?: 0 | 1 | 2;
     /**
      * Per-widget configuration bag. Shape is owned by each widget —
      * the layout system treats it as opaque JSON. Used for widgets

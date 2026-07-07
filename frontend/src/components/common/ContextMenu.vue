@@ -29,6 +29,10 @@ const props = defineProps<{
 const emit = defineEmits<{
   select: [id: string]
   close: []
+  /** Forwarded from MenuList: pointer / focus traversal of an
+   * enabled item, for callers that live-preview options. */
+  highlight: [id: string]
+  unhighlight: [id: string]
 }>()
 
 const handleSelect = (id: string) => {
@@ -53,6 +57,11 @@ const anchor = computed(() => ({
     popover-class="bg-surface border border-default rounded-lg shadow-lg py-1 min-w-[160px]"
     @close="emit('close')"
   >
-    <MenuList :items="items" @select="handleSelect" />
+    <MenuList
+      :items="items"
+      @select="handleSelect"
+      @highlight="(id) => emit('highlight', id)"
+      @unhighlight="(id) => emit('unhighlight', id)"
+    />
   </ResponsiveMenu>
 </template>

@@ -6,8 +6,14 @@ import { useEntity } from '@nosdesk/core/sync/composables'
 import { effectiveRole, type DashboardLayout, type UserRole } from '@nosdesk/core/types/user'
 import {
   defaultLayoutFor,
+  effectiveSpanFor,
   mergeWithRegistry,
+  minRowSpanFor,
+  minSpanFor,
+  rowSpanFor,
   widgetsForRole,
+  withEntryCol,
+  type WidgetCol,
 } from '@/views/dashboard/widgets'
 
 const UNDO_CAP = 50
@@ -234,20 +240,33 @@ export const useDashboardLayoutStore = defineStore('dashboardLayout', () => {
     }
   }
 
-  function setSpan(id: string, span: 1 | 2 | 3) {
+  /**
+   * Resize a widget along either or both axes as ONE undo step.
+   * Pass only the axes that change (mirrors `ResizePreviewIntent`):
+   * a single-axis menu / keyboard resize passes one, a corner-drag
+   * passes both, so a whole gesture is always a single Cmd-Z.
+   *
+   * Comparisons use the EFFECTIVE values (stored override, else
+   * registry default), not the raw stored fields: a stored entry
+   * usually has no explicit span, so comparing the raw field would
+   * record a no-op undo entry whenever the user re-selects the size
+   * the widget already renders at. Writes clamp to the registry
+   * minimum (the UI disables sub-minimum options; this is defense in
+   * depth for other callers).
+   */
+  function setSpans(id: string, next: { span?: 1 | 2 | 3; rowSpan?: 1 | 2 | 3 }) {
     if (!workingCopy.value) return
     const entry = workingCopy.value.widgets.find((w) => w.id === id)
-    if (!entry || entry.span === span) return
+    if (!entry) return
+    const s = next.span != null ? (Math.max(next.span, minSpanFor(id)) as 1 | 2 | 3) : undefined
+    const r =
+      next.rowSpan != null ? (Math.max(next.rowSpan, minRowSpanFor(id)) as 1 | 2 | 3) : undefined
+    const spanChanged = s != null && effectiveSpanFor(entry) !== s
+    const rowChanged = r != null && rowSpanFor(entry) !== r
+    if (!spanChanged && !rowChanged) return
     recordUndo()
-    entry.span = span
-  }
-
-  function setRowSpan(id: string, rowSpan: 1 | 2 | 3) {
-    if (!workingCopy.value) return
-    const entry = workingCopy.value.widgets.find((w) => w.id === id)
-    if (!entry || entry.rowSpan === rowSpan) return
-    recordUndo()
-    entry.rowSpan = rowSpan
+    if (spanChanged) entry.span = s
+    if (rowChanged) entry.rowSpan = r
   }
 
   /**
@@ -317,21 +336,44 @@ export const useDashboardLayoutStore = defineStore('dashboardLayout', () => {
     return layout.value.widgets.find((w) => w.id === id)?.config
   }
 
-  function move(fromIndex: number, toIndex: number) {
+  /**
+   * Atomic drag / keyboard-move commit: ONE undo step covering a
+   * whole placement change. `placements` lists EVERY visible widget
+   * by its current array index, in the new reading order (the
+   * gravity pack sorted by row then column), each with the anchor
+   * column it packed into. `cols` is the lattice width the gesture
+   * ran on.
+   *
+   * On the 1-column lattice (below xl) the commit is ORDER-ONLY:
+   * anchors are left untouched, so a mobile reorder never clobbers
+   * the desktop columns. This invariant lives here, with the mutator
+   * that owns the anchors, rather than at each view call site.
+   *
+   * Hidden widgets keep their exact array positions; the visible
+   * slots are refilled in `placements` order. Anchor writes go
+   * through `withEntryCol` so entry key order stays canonical (the
+   * dirty check and SSE echo compare JSON.stringify).
+   */
+  function commitPlacement(placements: Array<{ index: number; col: WidgetCol }>, cols: number) {
     if (!workingCopy.value) return
     const widgets = workingCopy.value.widgets
-    if (
-      fromIndex === toIndex ||
-      fromIndex < 0 ||
-      toIndex < 0 ||
-      fromIndex >= widgets.length ||
-      toIndex >= widgets.length
-    ) {
-      return
-    }
+    const visibleIdx = widgets
+      .map((w, i) => ({ w, i }))
+      .filter(({ w }) => w.visible)
+      .map(({ i }) => i)
+    if (placements.length !== visibleIdx.length) return
+    const given = new Set(placements.map((p) => p.index))
+    if (given.size !== placements.length) return
+    if (!visibleIdx.every((i) => given.has(i))) return
+
+    const keepAnchors = cols !== 1
     recordUndo()
-    const [item] = widgets.splice(fromIndex, 1)
-    widgets.splice(toIndex, 0, item)
+    const next = widgets.slice()
+    placements.forEach((p, slot) => {
+      const entry = widgets[p.index]
+      next[visibleIdx[slot]] = keepAnchors ? withEntryCol(entry, p.col) : entry
+    })
+    workingCopy.value.widgets = next
   }
 
   function resetToDefaults() {
@@ -371,9 +413,8 @@ export const useDashboardLayoutStore = defineStore('dashboardLayout', () => {
     addable,
     hide,
     show,
-    move,
-    setSpan,
-    setRowSpan,
+    commitPlacement,
+    setSpans,
     setConfig,
     getConfig,
     resetToDefaults,
