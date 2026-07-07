@@ -148,15 +148,30 @@ pub async fn run_one_drain(
         };
         async move {
             // Pre-send: skip recipients already on the suppression list
-            // (prior hard bounce or complaint). The list is global (no
-            // workspace_id), so a bypass read is fine; a failed lookup falls
-            // through to attempting the send rather than silently blocking it.
-            let suppressed = crate::sync::session::background_run(
-                &pool,
-                "background:email_queue_suppress_check",
-                |conn| crate::repository::email_suppressions::is_suppressed(conn, &row.recipient),
-            )
-            .unwrap_or(false);
+            // (prior hard bounce or complaint) — but ONLY for opt-out-able
+            // NOTIFICATION mail. Transactional mail (password reset, invitation,
+            // MFA, the agent's own reply, auto-ack) is must-deliver: a hard
+            // bounce or a *forged* DSN must never be able to add a victim's
+            // address to the list and thereby lock them out of account recovery.
+            // Reputation protection for conversation mail is enforced earlier, at
+            // enqueue time (`enqueue_or_suppress`) and on the direct channel-send
+            // paths, where the block is surfaced rather than silently dropping a
+            // human's reply. The list is global (no workspace_id), so a bypass
+            // read is fine; a failed lookup falls through to attempting the send.
+            let suppressed = if row.mail_class
+                == crate::models::outbound_email_mail_class::NOTIFICATION
+            {
+                crate::sync::session::background_run(
+                    &pool,
+                    "background:email_queue_suppress_check",
+                    |conn| {
+                        crate::repository::email_suppressions::is_suppressed(conn, &row.recipient)
+                    },
+                )
+                .unwrap_or(false)
+            } else {
+                false
+            };
             let outcome = if suppressed {
                 DispatchOutcome::Suppressed
             } else {

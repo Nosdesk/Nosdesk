@@ -1096,6 +1096,21 @@ pub fn parse_rfc822_into_inbound_message(
             .collect::<Vec<_>>(),
     });
 
+    // Self-host From-authentication: DMARC result from the receiving server's
+    // Authentication-Results (topmost trusted). The SES forwarding path
+    // overrides this from the receipt after parse. `INBOUND_TRUSTED_AUTHSERV_ID`
+    // pins which boundary's header we trust; unset falls back to the topmost.
+    let auth_results: Vec<String> = headers
+        .iter()
+        .filter(|h| h.get_key().eq_ignore_ascii_case("Authentication-Results"))
+        .map(|h| h.get_value())
+        .collect();
+    let trusted_authserv_id = std::env::var("INBOUND_TRUSTED_AUTHSERV_ID")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let sender_auth = super::mail_auth::sender_auth(&auth_results, trusted_authserv_id.as_deref());
+
     Ok(InboundMessage {
         external_id,
         from,
@@ -1123,6 +1138,7 @@ pub fn parse_rfc822_into_inbound_message(
         // Spam is a transport-level verdict (SES on the forwarding path), not
         // something the MIME parser decides; the caller sets it.
         spam_suspected: false,
+        sender_auth,
     })
 }
 

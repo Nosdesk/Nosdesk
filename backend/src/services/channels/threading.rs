@@ -318,7 +318,7 @@ mod tests {
 
     use crate::models::{NewChannelMessage, CHANNEL_DIRECTION_INBOUND, CHANNEL_DIRECTION_OUTBOUND};
     use crate::repository::channels as channels_repo;
-    use crate::services::channels::{ExternalIdentity, InboundMessage, LoopMarkers};
+    use crate::services::channels::{ExternalIdentity, InboundMessage, LoopMarkers, SenderAuth};
     use crate::test_helpers::{setup_test_connection, TestFixtures};
     use chrono::Utc;
     use serde_json::json;
@@ -356,6 +356,7 @@ mod tests {
             content_language: None,
             source_ref: None,
             spam_suspected: false,
+            sender_auth: SenderAuth::Unknown,
         }
     }
 

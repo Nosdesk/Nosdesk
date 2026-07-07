@@ -375,18 +375,22 @@ async fn prepare_invitation(
     }
 
     // Invite into the current workspace, so the link lives on this workspace's
-    // canonical origin (custom domain or `<slug>.<NOSDESK_TENANT_DOMAIN>`),
-    // falling back to FRONTEND_URL / the request host for self-hosted. The
-    // `extensions()` borrow is dropped before `connection_info()` (which borrows
-    // extensions mutably) to avoid a RefCell double-borrow.
+    // canonical origin (custom domain or `<slug>.<NOSDESK_TENANT_DOMAIN>`), else
+    // FRONTEND_URL. We deliberately do NOT fall back to the request `Host`
+    // header: a forged Host would let an attacker point the invitation link at a
+    // domain they control and harvest the token. If neither a canonical origin
+    // nor FRONTEND_URL is configured, refuse to send.
     let ws_origin = req
         .extensions()
         .get::<crate::extractors::WorkspaceContext>()
         .and_then(|ws| ws.canonical_origin());
-    let base_url = crate::utils::tenant_origin::email_link_base(ws_origin).unwrap_or_else(|| {
-        let conn_info = req.connection_info();
-        format!("{}://{}", conn_info.scheme(), conn_info.host())
-    });
+    let Some(base_url) = crate::utils::tenant_origin::email_link_base(ws_origin) else {
+        return Err(SendInvitationResult::EmailServiceError(
+            "no canonical origin and FRONTEND_URL is unset; set FRONTEND_URL so invitation \
+             links can't be forged via the Host header"
+                .to_string(),
+        ));
+    };
 
     let email_service = crate::utils::email::EmailService::from_env()
         .map_err(|e| SendInvitationResult::EmailServiceError(format!("{e:?}")))?;

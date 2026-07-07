@@ -152,27 +152,14 @@ pub fn create_portal_csrf_cookie(token: &str) -> Cookie<'static> {
         .finish()
 }
 
-/// Whether auth cookies receive the `Secure` attribute.
-///
-/// **Fail-closed:** `ENVIRONMENT` unset / empty / anything other than an
-/// explicit local-dev label is treated as needing `Secure=true`, so a
-/// production deployment that forgets `ENVIRONMENT=production` still does not
-/// emit session cookies valid over plaintext HTTP.
-///
-/// Set `ENVIRONMENT=development` or `ENVIRONMENT=dev` for intentional HTTP
-/// local setups (Docker Compose on localhost, etc.).
+/// Whether auth cookies receive the `Secure` attribute. Delegates to the
+/// shared fail-closed [`crate::config_utils::assume_production`] so cookies,
+/// CSP, and HSTS all decide "hardened posture" from one place: an unset,
+/// empty, or unrecognised `ENVIRONMENT` still emits `Secure` cookies (never
+/// valid over plaintext HTTP). Set `ENVIRONMENT=development` (or `dev`) for
+/// intentional HTTP local setups (Docker Compose on localhost, etc.).
 fn auth_cookies_use_secure_flag() -> bool {
-    match std::env::var("ENVIRONMENT") {
-        Ok(v) => {
-            let v = v.trim().to_ascii_lowercase();
-            if v.is_empty() {
-                true
-            } else {
-                !(v == "development" || v == "dev")
-            }
-        }
-        Err(_) => true,
-    }
+    crate::config_utils::assume_production()
 }
 
 #[cfg(test)]

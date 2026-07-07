@@ -559,6 +559,7 @@ fn pipeline_outcome_label(outcome: &pipeline::PipelineOutcome) -> &'static str {
         PipelineOutcome::SkippedBounce => "skipped_bounce",
         PipelineOutcome::SkippedUnsupportedVariant => "skipped_unsupported",
         PipelineOutcome::SkippedNoIdentity => "skipped_no_identity",
+        PipelineOutcome::SkippedSpoofedSender => "skipped_spoofed_sender",
     }
 }
 
@@ -617,7 +618,7 @@ mod tests {
     use crate::services::channels::email_imap::ImapRuntimeState;
     use crate::services::channels::{
         ChannelAdapter, ChannelError, ExternalIdentity, InboundEvent, InboundMessage, LoopMarkers,
-        OutboundContent, OutboundMessage, ThreadContext,
+        OutboundContent, OutboundMessage, SenderAuth, ThreadContext,
     };
     use crate::test_helpers::{setup_test_pool, TestFixtures};
     use async_trait::async_trait;
@@ -699,6 +700,7 @@ mod tests {
             content_language: None,
             source_ref: None,
             spam_suspected: false,
+            sender_auth: SenderAuth::Unknown,
         })
     }
 

@@ -183,7 +183,7 @@ mod tests {
     //! rather than tweaking the regex without a repro.
 
     use super::*;
-    use crate::services::channels::{ExternalIdentity, LoopMarkers};
+    use crate::services::channels::{ExternalIdentity, LoopMarkers, SenderAuth};
     use chrono::Utc;
 
     fn msg(subject: &str, body: &str) -> InboundMessage {
@@ -210,6 +210,7 @@ mod tests {
             content_language: None,
             source_ref: None,
             spam_suspected: false,
+            sender_auth: SenderAuth::Unknown,
         }
     }
 

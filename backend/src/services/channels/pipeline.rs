@@ -77,6 +77,11 @@ pub enum PipelineOutcome {
     /// one. Phase-1 email always has one; this is a safety net for
     /// future chat adapters where some providers hide emails.
     SkippedNoIdentity,
+    /// The `From` named a verified or privileged (staff) account but DMARC
+    /// explicitly failed — a spoofing attempt. Refused rather than ingested
+    /// as that identity. Only fires on an explicit DMARC `fail` (a domain that
+    /// publishes DMARC), so unauthenticated self-host mail is unaffected.
+    SkippedSpoofedSender,
 }
 
 /// Errors the pipeline can emit. Adapters can retry on [`Self::Db`] for
@@ -346,6 +351,31 @@ pub async fn process_event(
         );
         return Ok(PipelineOutcome::SkippedNoIdentity);
     };
+
+    // Impersonation guard (B3): a `From` that DMARC explicitly *failed* — the
+    // domain publishes a policy and the message did not align — must not be
+    // ingested as whatever account it names. Only reject when it names a
+    // verified or privileged (staff) account: that's the identity worth
+    // spoofing (staff trust + tech-forward attribution). An explicit fail on an
+    // unknown/unverified address is just spam and still opens a guest ticket
+    // below, and `SenderAuth::Unknown` (no DMARC policy, or a self-host MTA that
+    // stamps no `Authentication-Results`) is trusted exactly as before, so
+    // ordinary and self-host mail are unaffected. Identity tables are global,
+    // so this read needs no workspace pin.
+    if msg.sender_auth == crate::services::channels::SenderAuth::Fail {
+        if let Some(claimed) =
+            crate::repository::user_helpers::find_verified_user_by_email(&sender_email, conn)?
+        {
+            warn!(
+                channel_id = channel.id,
+                external_id = %msg.external_id,
+                claimed_account = %claimed.uuid,
+                "skip: DMARC-failed inbound From names a verified/privileged account \
+                 (spoofing); refusing to ingest as that identity"
+            );
+            return Ok(PipelineOutcome::SkippedSpoofedSender);
+        }
+    }
 
     // Thread resolution — `None` means "start a new ticket". Stays
     // outside the transaction below because it's a read-only lookup and
@@ -1112,7 +1142,7 @@ mod tests {
     use crate::repository::user_helpers::create_user_with_email;
     use crate::services::channels::{
         threading::default_explicit_threading, ChannelError, ExternalIdentity, LoopMarkers,
-        OutboundContent, OutboundMessage, ThreadContext,
+        OutboundContent, OutboundMessage, SenderAuth, ThreadContext,
     };
     use crate::test_helpers::{setup_test_connection, TestFixtures};
     use async_trait::async_trait;
@@ -1173,6 +1203,7 @@ mod tests {
             content_language: None,
             source_ref: None,
             spam_suspected: false,
+            sender_auth: SenderAuth::Unknown,
         }
     }
 
@@ -1966,6 +1997,87 @@ mod tests {
             ticket.requester_uuid,
             Some(admin.uuid),
             "the staff sender should be the requester"
+        );
+    }
+
+    #[tokio::test]
+    async fn dmarc_failed_spoof_of_staff_is_refused() {
+        // B3: a From that DMARC explicitly failed and names a privileged
+        // (staff) account is a spoofing attempt. It must NOT be ingested as
+        // that account — no ticket, no comment authored as the agent.
+        let mut conn = setup_test_connection();
+
+        let admin = crate::models::NewUser {
+            uuid: uuid::Uuid::now_v7(),
+            name: "Admin".into(),
+            pronouns: None,
+            avatar_url: None,
+            banner_url: None,
+            avatar_thumb: None,
+            microsoft_uuid: None,
+            mfa_secret: None,
+            mfa_secret_kek_id: None,
+            mfa_enabled: false,
+            platform_role: Some("platform_admin".to_string()),
+        };
+        let (_admin, _) = create_user_with_email(
+            admin,
+            crate::models::WorkspaceRole::Admin,
+            "claimed@example.com".into(),
+            true,
+            None,
+            &mut conn,
+            None,
+        )
+        .expect("seed admin");
+
+        let ch = TestFixtures::create_channel(&mut conn, "email_imap");
+        let mut msg = sample_message("<spoof@ex>", vec![], Some("please reset the CEO password"));
+        msg.from.known_email = Some("claimed@example.com".into());
+        msg.from.external_id = "claimed@example.com".into();
+        msg.sender_auth = SenderAuth::Fail;
+
+        let outcome = process_event(
+            &StubAdapter,
+            &ch,
+            InboundEvent::MessageReceived(msg),
+            &mut conn,
+            &PipelineContext::bare(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            outcome,
+            PipelineOutcome::SkippedSpoofedSender,
+            "a DMARC-failed spoof of a staff account must be refused"
+        );
+    }
+
+    #[tokio::test]
+    async fn dmarc_failed_unknown_sender_still_opens_guest_ticket() {
+        // The guard is narrow: an explicit DMARC fail from an *unknown* address
+        // (no matching account) is just spam and still opens a guest ticket —
+        // we never drop a customer's request over a failed alignment.
+        let mut conn = setup_test_connection();
+        let ch = TestFixtures::create_channel(&mut conn, "email_imap");
+        let mut msg = sample_message("<stranger@ex>", vec![], Some("help"));
+        // sample_message's sender (alice@example.com) is not a seeded account.
+        msg.sender_auth = SenderAuth::Fail;
+
+        let outcome = process_event(
+            &StubAdapter,
+            &ch,
+            InboundEvent::MessageReceived(msg),
+            &mut conn,
+            &PipelineContext::bare(),
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            matches!(outcome, PipelineOutcome::TicketOpened { .. }),
+            "unknown DMARC-failed sender should still open a guest ticket, got {outcome:?}"
         );
     }
 

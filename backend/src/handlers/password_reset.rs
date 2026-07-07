@@ -41,14 +41,10 @@ pub async fn request_password_reset(
         .get("user-agent")
         .and_then(|h| h.to_str().ok())
         .map(|s| s.to_string());
-    let scheme = http_request.connection_info().scheme().to_string();
-    let host = http_request.connection_info().host().to_string();
 
     let pool = db_pool.clone();
     tokio::spawn(async move {
-        if let Err(e) =
-            issue_password_reset(pool, email, ip_address, user_agent, scheme, host).await
-        {
+        if let Err(e) = issue_password_reset(pool, email, ip_address, user_agent).await {
             // Errors are logged inside; this branch is only hit on
             // unrecoverable failures. Never re-throw to the caller.
             error!(error = %e, "password reset background task failed");
@@ -76,8 +72,6 @@ async fn issue_password_reset(
     email: String,
     ip_address: Option<String>,
     user_agent: Option<String>,
-    scheme: String,
-    host: String,
 ) -> Result<(), String> {
     let mut conn = pool.get().map_err(|e| format!("db pool: {e}"))?;
 
@@ -163,12 +157,22 @@ async fn issue_password_reset(
     let workspace_id = workspace.id;
 
     // Tenant-canonical link host: the recipient workspace's canonical origin
-    // (custom domain or `<slug>.<NOSDESK_TENANT_DOMAIN>`), falling back to
-    // FRONTEND_URL or the request host for self-hosted single-tenant.
-    let base_url = crate::utils::tenant_origin::email_link_base(
+    // (custom domain or `<slug>.<NOSDESK_TENANT_DOMAIN>`), else FRONTEND_URL.
+    // We deliberately do NOT fall back to the request `Host` header: an
+    // attacker who forges it could point the reset link at a domain they
+    // control and harvest the token (account takeover). If neither a canonical
+    // origin nor FRONTEND_URL is configured, refuse to send and tell the
+    // operator to set FRONTEND_URL.
+    let Some(base_url) = crate::utils::tenant_origin::email_link_base(
         crate::utils::tenant_origin::workspace_origin(&workspace),
-    )
-    .unwrap_or_else(|| format!("{scheme}://{host}"));
+    ) else {
+        error!(
+            user_uuid = %user.uuid,
+            "refusing to send password reset: no canonical origin and FRONTEND_URL is unset; \
+             set FRONTEND_URL so reset links can't be forged via the Host header"
+        );
+        return Ok(());
+    };
 
     // Enqueue rather than fire-and-forget. The outbound worker retries with
     // backoff if SMTP burps, applies the suppression list, and respects the
