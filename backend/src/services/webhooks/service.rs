@@ -116,35 +116,44 @@ impl WebhookService {
                     }
                     let full = claimed.len() as i64 == OUTBOX_BATCH;
 
-                    // Resolve the source rows for event_type + data.
-                    let rows: Vec<(i64, String, serde_json::Value)> = sync_actions::table
+                    // Resolve the source rows for workspace_id + event_type + data.
+                    // workspace_id is load-bearing: this drain runs BYPASSRLS, so
+                    // subscribers must be scoped to the event's own workspace by
+                    // hand (RLS gives no cover here).
+                    let rows: Vec<(i64, i32, String, serde_json::Value)> = sync_actions::table
                         .filter(sync_actions::sync_id.eq_any(&claimed))
                         .select((
                             sync_actions::sync_id,
+                            sync_actions::workspace_id,
                             sync_actions::event_type,
                             sync_actions::data,
                         ))
                         .load(conn)?;
 
-                    // Cache the subscriber lookup per event type so a
-                    // batch of N same-type rows is one query, not N.
+                    // Cache the subscriber lookup per (workspace, event type) so a
+                    // batch of N same-type rows in a workspace is one query, not N.
                     let mut subscriber_cache: std::collections::HashMap<
-                        &'static str,
+                        (i32, &'static str),
                         Vec<crate::models::Webhook>,
                     > = std::collections::HashMap::new();
                     let mut tasks: Vec<DeliveryTask> = Vec::new();
 
-                    for (_sync_id, event_type, data) in &rows {
+                    for (_sync_id, workspace_id, event_type, data) in &rows {
                         let Some(webhook_type) = WebhookEventType::from_sync_action(event_type)
                         else {
                             continue;
                         };
                         let event_type_str = webhook_type.as_str();
-                        if !subscriber_cache.contains_key(event_type_str) {
-                            let subs = webhook_repo::get_webhooks_for_event(conn, event_type_str)?;
-                            subscriber_cache.insert(event_type_str, subs);
+                        let cache_key = (*workspace_id, event_type_str);
+                        if !subscriber_cache.contains_key(&cache_key) {
+                            let subs = webhook_repo::get_webhooks_for_event(
+                                conn,
+                                *workspace_id,
+                                event_type_str,
+                            )?;
+                            subscriber_cache.insert(cache_key, subs);
                         }
-                        let subscribers = &subscriber_cache[event_type_str];
+                        let subscribers = &subscriber_cache[&cache_key];
                         if subscribers.is_empty() {
                             continue;
                         }

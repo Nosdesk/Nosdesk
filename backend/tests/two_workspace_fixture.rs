@@ -12,7 +12,7 @@ use diesel::prelude::*;
 use uuid::Uuid;
 
 use backend::sync::actor::ActorContext;
-use backend::sync::session::with_actor_context;
+use backend::sync::session::{background_run, with_actor_context};
 
 mod common;
 
@@ -149,5 +149,82 @@ fn webhooks_and_plugins_are_rls_isolated() {
     assert!(
         !b_plugins.contains(&ws.a.plugin_uuid),
         "B must NOT see A's plugin"
+    );
+}
+
+/// C1 (Critical): the outbox dispatcher resolves webhook subscribers under a
+/// BYPASSRLS background session, so RLS gives it no cover. The `workspace_id`
+/// predicate in `get_webhooks_for_event` is the only thing stopping an event in
+/// one workspace from fanning out to another workspace's webhooks subscribed to
+/// the same event type.
+#[test]
+fn webhook_fanout_is_workspace_scoped_under_bypass() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(2);
+
+    let ws = {
+        let mut conn = pool.get().expect("conn");
+        common::seed_two_workspaces(&mut conn)
+    };
+
+    // Sanity: a BYPASSRLS session with no predicate sees BOTH workspaces'
+    // webhooks — proving RLS does not scope this path, so the predicate must.
+    let all_ids: Vec<i32> = background_run(&pool, "test:webhook_all", |c| {
+        use backend::schema::webhooks;
+        webhooks::table.select(webhooks::id).load::<i32>(c)
+    })
+    .expect("bypass read of all webhooks");
+    assert!(
+        all_ids.contains(&ws.a.webhook_id) && all_ids.contains(&ws.b.webhook_id),
+        "bypass session sees both workspaces' webhooks (no RLS cover on the drain path)"
+    );
+
+    // A's event resolves ONLY A's webhook.
+    let a_ids: Vec<i32> = {
+        let wsid = ws.a.workspace_id;
+        background_run(&pool, "test:webhook_a", move |c| {
+            backend::repository::webhooks::get_webhooks_for_event(
+                c,
+                wsid,
+                common::FIXTURE_WEBHOOK_EVENT,
+            )
+        })
+        .expect("lookup A")
+        .iter()
+        .map(|w| w.id)
+        .collect()
+    };
+    assert!(
+        a_ids.contains(&ws.a.webhook_id),
+        "A's event finds A's webhook"
+    );
+    assert!(
+        !a_ids.contains(&ws.b.webhook_id),
+        "A's event must NOT fan out to B's webhook (cross-tenant leak)"
+    );
+
+    // B's event resolves ONLY B's webhook.
+    let b_ids: Vec<i32> = {
+        let wsid = ws.b.workspace_id;
+        background_run(&pool, "test:webhook_b", move |c| {
+            backend::repository::webhooks::get_webhooks_for_event(
+                c,
+                wsid,
+                common::FIXTURE_WEBHOOK_EVENT,
+            )
+        })
+        .expect("lookup B")
+        .iter()
+        .map(|w| w.id)
+        .collect()
+    };
+    assert!(
+        b_ids.contains(&ws.b.webhook_id),
+        "B's event finds B's webhook"
+    );
+    assert!(
+        !b_ids.contains(&ws.a.webhook_id),
+        "B's event must NOT fan out to A's webhook"
     );
 }
