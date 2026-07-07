@@ -4,7 +4,7 @@
 
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use diesel::result::Error;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::extractors::TenantConn;
@@ -97,6 +97,7 @@ pub async fn create_api_token(
     enum Outcome {
         Created(crate::models::ApiTokenCreatedResponse),
         TargetUserNotFound,
+        TargetRoleExceedsCaller,
     }
 
     let user_uuid = body.user_uuid;
@@ -112,6 +113,19 @@ pub async fn create_api_token(
             Ok(_) => {}
             Err(Error::NotFound) => return Ok(Outcome::TargetUserNotFound),
             Err(e) => return Err(e),
+        }
+        // Privilege-escalation guard: a token acts as its target user, so an
+        // Admin minting one for a higher-privileged user (e.g. the Owner) would
+        // let them act as that user. Cap the target's workspace role at the
+        // caller's own. Both reads are RLS-scoped to this workspace. Absent
+        // membership defaults to the lowest role (fail-closed for the caller,
+        // permissive for the target — the more restrictive interpretation).
+        let caller_role = crate::repository::user_helpers::workspace_role(conn, created_by)
+            .unwrap_or(WorkspaceRole::Member);
+        let target_role = crate::repository::user_helpers::workspace_role(conn, user_uuid)
+            .unwrap_or(WorkspaceRole::Member);
+        if target_role > caller_role {
+            return Ok(Outcome::TargetRoleExceedsCaller);
         }
         let created = api_tokens::create_api_token(
             conn,
@@ -133,6 +147,13 @@ pub async fn create_api_token(
             HttpResponse::Created().json(created)
         }
         Ok(Outcome::TargetUserNotFound) => errors::not_found_msg("Target user not found"),
+        Ok(Outcome::TargetRoleExceedsCaller) => {
+            warn!(
+                "refused API token: {} tried to mint for a higher-privileged user {}",
+                created_by, body.user_uuid
+            );
+            errors::forbidden("Cannot mint a token for a user with a higher role than your own")
+        }
         Err(e) => {
             error!("Failed to create token: {}", e);
             errors::internal("Failed to create token")

@@ -94,6 +94,39 @@ pub async fn emit_plugin_event(
         }
     };
 
+    // Only an active (installed) plugin may emit. A disabled / failed / pending
+    // plugin emitting events would let a member forge activity through a plugin
+    // that is not actually running.
+    if !plugin.is_active() {
+        warn!(
+            plugin_uuid = %plugin_uuid,
+            state = ?plugin.state,
+            "rejected event from a non-active plugin"
+        );
+        return errors::forbidden("Plugin is not active");
+    }
+
+    // The event_type must be one the plugin's manifest declares. The manifest
+    // `events` list is an allowlist (see PluginManifest::events); enforcing it
+    // here stops a caller from injecting arbitrary event types under the
+    // plugin's identity, bounding a plugin to its own declared event surface.
+    match plugin.parse_manifest() {
+        Ok(manifest) => {
+            if !manifest.events.iter().any(|e| e == &body.event_type) {
+                warn!(
+                    plugin_uuid = %plugin_uuid,
+                    event_type = %body.event_type,
+                    "rejected undeclared plugin event type"
+                );
+                return errors::forbidden("event_type is not declared in the plugin manifest");
+            }
+        }
+        Err(e) => {
+            error!(error = %e, plugin_uuid = %plugin_uuid, "plugin manifest failed to parse");
+            return errors::internal("Plugin manifest is invalid");
+        }
+    }
+
     // The actor here is `Plugin`-kind (not `User`), so we can't delegate to
     // `TenantConn` which would build a User actor; instead we copy the
     // workspace_id off the RequestContext's actor and pair it with the

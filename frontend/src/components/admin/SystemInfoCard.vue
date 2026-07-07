@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue'
-import axios from 'axios'
+import apiClient from '@nosdesk/core/apiClient'
 import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
 
@@ -54,7 +54,7 @@ const formattedUptime = computed(() => {
 
 const loadSystemInfo = async () => {
   try {
-    const response = await axios.get('/api/admin/system/info')
+    const response = await apiClient.get('/admin/system/info')
     systemInfo.value = response.data
     localUptimeSeconds.value = response.data.uptime_seconds
     isLoading.value = false
@@ -66,7 +66,7 @@ const loadSystemInfo = async () => {
 
 const checkForUpdates = async () => {
   try {
-    const response = await axios.get('/api/admin/system/updates')
+    const response = await apiClient.get('/admin/system/updates')
     updateInfo.value = response.data
   } catch (error) {
     console.error('Failed to check for updates:', error)
