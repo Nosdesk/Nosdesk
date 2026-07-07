@@ -5423,7 +5423,6 @@ search-global-scope-row = Search { $type }
 search-global-hint-scope = Filter
 search-global-group-scope-title = Search only { $type }
 search-global-group-scope-hint = see all
-search-global-filter-projects = Projects
 search-global-placeholder = Search tickets, docs, assets, users
 search-global-placeholder-filtered = Search { $filter }
 search-global-aria-label = Search

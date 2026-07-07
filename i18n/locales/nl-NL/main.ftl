@@ -5199,7 +5199,6 @@ search-global-scope-row = Zoeken in { $type }
 search-global-hint-scope = Filteren
 search-global-group-scope-title = Alleen zoeken in { $type }
 search-global-group-scope-hint = alles bekijken
-search-global-filter-projects = Projecten
 search-global-placeholder = Zoek tickets, documenten, activa, gebruikers
 search-global-placeholder-filtered = Zoek in { $filter }
 search-global-aria-label = Zoeken
