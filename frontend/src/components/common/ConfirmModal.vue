@@ -23,41 +23,26 @@ Usage:
 
     <template #footer>
       <div class="modal-actions">
-        <button
-          type="button"
-          class="text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
-          @click="emit('close')"
+        <Button variant="ghost" @click="emit('close')">{{ cancelLabel }}</Button>
+        <Button
+          :variant="confirmVariant"
+          :disabled="confirmDisabled"
+          :loading="loading"
+          @click="emit('confirm')"
         >
-          {{ cancelLabel }}
-        </button>
-        <button
-          type="button"
-          :disabled="confirmDisabled || loading"
-          :class="[
-            'text-white transition-colors inline-flex items-center justify-center gap-2',
-            confirmDisabled && !loading
-              ? 'bg-surface-alt text-tertiary cursor-not-allowed'
-              : variant === 'danger'
-                ? 'bg-status-error hover:opacity-90'
-                : variant === 'warning'
-                  ? 'bg-status-warning hover:opacity-90'
-                  : 'bg-accent hover:opacity-90',
-          ]"
-          @click="confirmDisabled || loading ? undefined : emit('confirm')"
-        >
-          <Spinner v-if="loading" size="xs" />
           {{ confirmLabel }}
-        </button>
+        </Button>
       </div>
     </template>
   </Modal>
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import Modal from '@/components/Modal.vue'
-import Spinner from '@/components/common/Spinner.vue'
+import Button from '@/components/common/Button.vue'
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     show: boolean
     title: string
@@ -75,6 +60,15 @@ withDefaults(
     confirmDisabled: false,
     loading: false,
   },
+)
+
+// Map the semantic dialog variant onto the shared Button's variants.
+// `info` is the neutral affirmative confirm, so it takes the accent
+// primary (theme-aware on-accent foreground); danger / warning pass
+// through. Button disables itself while `disabled` or `loading`, so a
+// blocked confirm can't emit.
+const confirmVariant = computed(() =>
+  props.variant === 'danger' ? 'danger' : props.variant === 'warning' ? 'warning' : 'primary',
 )
 
 const emit = defineEmits<{

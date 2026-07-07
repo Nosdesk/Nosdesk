@@ -57,15 +57,20 @@ function doReset() {
 </script>
 
 <template>
-  <div class="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-alt border border-default">
+  <!-- Responsive: on mobile the status sits on its own row above a
+       wrapping action cluster (nothing clips at narrow widths); from
+       sm up it collapses to a single row with the actions pushed to
+       the trailing edge. -->
+  <div
+    class="flex flex-col gap-2 px-3 py-2 rounded-lg bg-surface-alt border border-default sm:flex-row sm:items-center"
+  >
     <span class="inline-flex items-center gap-1.5 text-xs font-medium text-secondary">
       <span class="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" aria-hidden="true" />
       <span v-if="store.isDirty">{{ t('dashboard-edit-bar-unsaved') }}</span>
       <span v-else>{{ t('dashboard-edit-bar-editing') }}</span>
     </span>
 
-    <span class="flex-1" />
-
+    <div class="flex flex-wrap items-center gap-1.5 sm:ml-auto sm:flex-nowrap">
     <!-- Undo / Redo. Disabled-when-empty rather than hidden so the
          shortcuts (Cmd-Z / Cmd-Shift-Z) have a discoverable mouse
          affordance and the bar's chrome doesn't shift width as the
@@ -92,7 +97,7 @@ function doReset() {
       <span class="sr-only">{{ t('dashboard-edit-bar-redo') }}</span>
     </button>
 
-    <span class="w-px h-5 bg-default mx-1" aria-hidden="true" />
+    <span class="hidden sm:block w-px h-5 bg-default mx-1" aria-hidden="true" />
 
     <button
       type="button"
@@ -137,6 +142,7 @@ function doReset() {
     >
       {{ store.isDirty ? t('dashboard-edit-bar-done') : t('dashboard-edit-bar-close') }}
     </button>
+    </div>
   </div>
 
   <AddWidgetModal :show="showAdd" @close="showAdd = false" />
