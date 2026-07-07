@@ -33,11 +33,13 @@ in the dashboard parent); it only renders the affordances and emits
 the events when the parent has flipped edit-mode on via `provide()`.
 -->
 <script setup lang="ts">
-import { computed, inject, ref } from 'vue'
+import { computed, inject, nextTick, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
 import {
   DASHBOARD_WIDGET_CONTEXT,
   type DashboardWidgetContext,
+  type MoveDirection,
+  type ResizePreviewIntent,
 } from './widgetContext'
 import type { WidgetSpan } from './widgets'
 import ContextMenu, { type MenuItem } from '@/components/common/ContextMenu.vue'
@@ -196,9 +198,15 @@ const ctx = inject<DashboardWidgetContext | undefined>(DASHBOARD_WIDGET_CONTEXT,
 const editMode = computed(() => ctx?.editMode.value ?? false)
 const dragging = computed(() => ctx?.dragging.value ?? false)
 const currentSpan = computed<WidgetSpan>(() => ctx?.currentSpan.value ?? 1)
+const currentRowSpan = computed<WidgetSpan>(() => ctx?.currentRowSpan.value ?? 1)
+const minSpan = computed<WidgetSpan>(() => ctx?.minSpan ?? 1)
+const minRowSpan = computed<WidgetSpan>(() => ctx?.minRowSpan ?? 1)
 
 function onResize(span: WidgetSpan) {
   ctx?.onResize(span)
+}
+function onResizeRow(rowSpan: WidgetSpan) {
+  ctx?.onResizeRow(rowSpan)
 }
 function onHide() {
   ctx?.onHide()
@@ -215,35 +223,45 @@ function onHeaderPointerDown(e: PointerEvent) {
 }
 
 // Context menu: anchored at the click point, opened by right-click
-// or the keyboard context-menu key. Sizing radio + hide live here;
-// removing them from the header keeps the chrome quiet while leaving
-// the affordance one gesture away.
+// or the keyboard context-menu key. Width / Height radio groups +
+// hide live here; removing them from the header keeps the chrome
+// quiet while leaving the affordance one gesture away. Hovering (or
+// focus-traversing) a size option live-previews it: the grid
+// re-packs around the previewed footprint and reverts if the menu
+// closes without a selection. Nothing is written to the store until
+// select, so a committed change stays one undo step.
 const menuOpen = ref(false)
 const menuX = ref(0)
 const menuY = ref(0)
 
+const SPAN_OPTIONS: WidgetSpan[] = [1, 2, 3]
+
 const menuItems = computed<MenuItem[]>(() => [
   {
-    id: 'resize-1',
-    label: t('dashboard-widget-context-menu-resize-1'),
-    icon: ICON_REGISTRY.check.d,
-    checked: currentSpan.value === 1,
-    trailing: '1',
+    id: 'width-heading',
+    label: t('dashboard-widget-context-menu-width-heading'),
+    heading: true,
   },
+  ...SPAN_OPTIONS.map<MenuItem>((n) => ({
+    id: `width-${n}`,
+    label: t(`dashboard-widget-context-menu-width-${n}`),
+    checked: currentSpan.value === n,
+    disabled: n < minSpan.value,
+    trailing: `${n}`,
+  })),
   {
-    id: 'resize-2',
-    label: t('dashboard-widget-context-menu-resize-2'),
-    icon: ICON_REGISTRY.check.d,
-    checked: currentSpan.value === 2,
-    trailing: '2',
+    id: 'height-heading',
+    label: t('dashboard-widget-context-menu-height-heading'),
+    heading: true,
+    divider: true,
   },
-  {
-    id: 'resize-3',
-    label: t('dashboard-widget-context-menu-resize-3'),
-    icon: ICON_REGISTRY.check.d,
-    checked: currentSpan.value === 3,
-    trailing: '3',
-  },
+  ...SPAN_OPTIONS.map<MenuItem>((n) => ({
+    id: `height-${n}`,
+    label: t(`dashboard-widget-context-menu-height-${n}`),
+    checked: currentRowSpan.value === n,
+    disabled: n < minRowSpan.value,
+    trailing: `⇧${n}`,
+  })),
   {
     id: 'hide',
     label: t('dashboard-widget-context-menu-hide'),
@@ -261,52 +279,113 @@ function onContextMenu(e: MouseEvent) {
   menuOpen.value = true
 }
 
-function onMenuSelect(id: string) {
-  switch (id) {
-    case 'resize-1':
-      onResize(1)
-      break
-    case 'resize-2':
-      onResize(2)
-      break
-    case 'resize-3':
-      onResize(3)
-      break
-    case 'hide':
-      onHide()
-      break
-  }
+/** Map a size menu id to its preview intent; null for other items. */
+function sizeIntentFor(id: string): ResizePreviewIntent | null {
+  const m = /^(width|height)-([123])$/.exec(id)
+  if (!m) return null
+  const n = Number(m[2]) as WidgetSpan
+  return m[1] === 'width' ? { span: n } : { rowSpan: n }
 }
 
-/** Keyboard sizing: 1, 2, 3 set the focused widget's span. Active
- *  only in edit mode and only when the event target is the widget
- *  root itself (not bubbled up from a focused control inside the
- *  body), so typing "1" into a filter input inside a widget doesn't
- *  silently resize the card.
+function onMenuSelect(id: string) {
+  const intent = sizeIntentFor(id)
+  if (intent) {
+    ctx?.onPreviewResize(null)
+    if (intent.span) onResize(intent.span)
+    if (intent.rowSpan) onResizeRow(intent.rowSpan)
+    return
+  }
+  if (id === 'hide') onHide()
+}
+
+function onMenuHighlight(id: string) {
+  const intent = sizeIntentFor(id)
+  if (intent) ctx?.onPreviewResize(intent)
+}
+
+function onMenuUnhighlight(id: string) {
+  if (sizeIntentFor(id)) ctx?.onPreviewResize(null)
+}
+
+/** Menu dismissed without a selection (click-away, Esc, scroll):
+ *  drop any in-flight preview so the grid reverts. */
+function onMenuClose() {
+  menuOpen.value = false
+  ctx?.onPreviewResize(null)
+}
+
+/** Keyboard model on the focused card (edit mode only, and only
+ *  when the event target is the widget root itself, not bubbled up
+ *  from a focused control inside the body, so typing "1" into a
+ *  filter input inside a widget doesn't silently resize the card):
  *
- *  `stopPropagation` AND `preventDefault` are both required: the
- *  dashboard's document-level keybindings (useDashboardKeybindings)
- *  bind 1..=7 to section-anchor jumps, so without stopping the
- *  bubble the card would resize AND the page would scroll away to
- *  a section anchor. */
-function onCardKeydown(e: KeyboardEvent) {
+ *    arrows       move the widget (up/down target the vertically
+ *                 adjacent widget on the packed lattice)
+ *    1 / 2 / 3    set the column span
+ *    ⇧1 / ⇧2 / ⇧3 set the row span
+ *
+ *  Digits match on `e.code` because Shift+1 reports `key: "!"` on
+ *  most layouts. `stopPropagation` AND `preventDefault` are both
+ *  required: the dashboard's document-level keybindings
+ *  (useDashboardKeybindings) also listen, and arrows must not
+ *  scroll the page. */
+const articleEl = ref<HTMLElement | null>(null)
+
+async function onCardKeydown(e: KeyboardEvent) {
   if (!editMode.value) return
   if (e.target !== e.currentTarget) return
   if (e.metaKey || e.ctrlKey || e.altKey) return
-  const span = sizeKeyToSpan(e.key)
+
+  const dir = arrowToDirection(e.key)
+  if (dir) {
+    e.preventDefault()
+    e.stopPropagation()
+    ctx?.onMove(dir)
+    // The grid reflow can move this element in the DOM, which blurs
+    // it; re-focus so repeated presses keep working, and keep the
+    // moved card in view.
+    await nextTick()
+    articleEl.value?.focus({ preventScroll: true })
+    articleEl.value?.scrollIntoView({ block: 'nearest' })
+    return
+  }
+
+  const span = sizeCodeToSpan(e.code)
   if (span === null) return
   e.preventDefault()
   e.stopPropagation()
-  onResize(span)
+  if (e.shiftKey) {
+    if (span >= minRowSpan.value) onResizeRow(span)
+  } else {
+    if (span >= minSpan.value) onResize(span)
+  }
 }
 
-function sizeKeyToSpan(key: string): WidgetSpan | null {
+function arrowToDirection(key: string): MoveDirection | null {
   switch (key) {
-    case '1':
+    case 'ArrowLeft':
+      return 'left'
+    case 'ArrowRight':
+      return 'right'
+    case 'ArrowUp':
+      return 'up'
+    case 'ArrowDown':
+      return 'down'
+    default:
+      return null
+  }
+}
+
+function sizeCodeToSpan(code: string): WidgetSpan | null {
+  switch (code) {
+    case 'Digit1':
+    case 'Numpad1':
       return 1
-    case '2':
+    case 'Digit2':
+    case 'Numpad2':
       return 2
-    case '3':
+    case 'Digit3':
+    case 'Numpad3':
       return 3
     default:
       return null
@@ -322,6 +401,7 @@ function sizeKeyToSpan(key: string): WidgetSpan | null {
        Siblings reflow around it via the grid's FLIP transition so the
        destination layout previews correctly. -->
   <article
+    ref="articleEl"
     :class="[
       'bg-surface rounded-xl border border-default overflow-hidden flex h-full relative transition-shadow',
       editMode
@@ -515,7 +595,9 @@ function sizeKeyToSpan(key: string): WidgetSpan | null {
       :y="menuY"
       :open="menuOpen"
       @select="onMenuSelect"
-      @close="menuOpen = false"
+      @highlight="onMenuHighlight"
+      @unhighlight="onMenuUnhighlight"
+      @close="onMenuClose"
     />
   </article>
 </template>

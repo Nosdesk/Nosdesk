@@ -5764,6 +5764,25 @@ dashboard-widget-knowledge-gaps-description = Belangrijkste documenten om te sch
 
 dashboard-widget-sla-health-title = SLA-gezondheid
 dashboard-widget-sla-health-description = Overzicht van tickets gedekt door een SLA-beleid.
+
+# MACHINE TRANSLATION, pending native review (dashboard widget arrangement)
+dashboard-widget-context-menu-width-heading = Breedte
+dashboard-widget-context-menu-width-1 = 1 kolom
+dashboard-widget-context-menu-width-2 = 2 kolommen
+dashboard-widget-context-menu-width-3 = 3 kolommen
+dashboard-widget-context-menu-height-heading = Hoogte
+dashboard-widget-context-menu-height-1 = Laag
+dashboard-widget-context-menu-height-2 = Gemiddeld
+dashboard-widget-context-menu-height-3 = Hoog
+dashboard-widget-context-menu-hide = Widget verbergen
+dashboard-widget-resize-badge = { $cols } × { $rows }
+dashboard-widget-resize-width-label = Breedte aanpassen
+dashboard-widget-resize-height-label = Hoogte aanpassen
+dashboard-widget-resize-corner-label = Widget vergroten of verkleinen
+dashboard-widget-a11y-moved = Verplaatst naar positie { $position } van { $total }
+dashboard-widget-a11y-moved-cell = Verplaatst naar kolom { $col } van { $cols }, rij { $row }
+dashboard-widget-a11y-resized = Formaat gewijzigd naar { $cols } bij { $rows }
+
 dashboard-sla-health-title = SLA-gezondheid
 dashboard-sla-health-action = SLA-beheer
 dashboard-sla-health-tracked = Gevolgd

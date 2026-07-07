@@ -238,7 +238,7 @@ const MAX_DASHBOARD_LAYOUT_BYTES: usize = 4 * 1024;
 ///
 /// ```json
 /// { "widgets": [
-///     { "id": "string", "visible": true, "span": 1, "config": {...} },
+///     { "id": "string", "visible": true, "span": 1, "rowSpan": 2, "col": 0, "config": {...} },
 ///     ...
 /// ] }
 /// ```
@@ -297,6 +297,15 @@ fn validate_dashboard_layout(layout: &serde_json::Value) -> Result<(), &'static 
                 .unwrap_or(false);
             if !ok {
                 return Err("dashboard_layout.widgets[].rowSpan must be 1, 2, or 3 when present");
+            }
+        }
+        // `col` is optional; when present it must be an integer 0-2
+        // (the anchor column on the client's 3-column lattice; rows
+        // are derived client-side and never persisted).
+        if let Some(col) = entry.get("col") {
+            let ok = col.as_i64().map(|n| (0..=2).contains(&n)).unwrap_or(false);
+            if !ok {
+                return Err("dashboard_layout.widgets[].col must be 0, 1, or 2 when present");
             }
         }
         // `config` is optional; shape is owned by the widget. Only the

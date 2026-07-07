@@ -5773,6 +5773,25 @@ dashboard-widget-knowledge-gaps-description = Principaux articles à rédiger, c
 
 dashboard-widget-sla-health-title = Santé SLA
 dashboard-widget-sla-health-description = Vue d'ensemble des tickets couverts par une politique SLA.
+
+# MACHINE TRANSLATION, pending native review (dashboard widget arrangement)
+dashboard-widget-context-menu-width-heading = Largeur
+dashboard-widget-context-menu-width-1 = 1 colonne
+dashboard-widget-context-menu-width-2 = 2 colonnes
+dashboard-widget-context-menu-width-3 = 3 colonnes
+dashboard-widget-context-menu-height-heading = Hauteur
+dashboard-widget-context-menu-height-1 = Basse
+dashboard-widget-context-menu-height-2 = Moyenne
+dashboard-widget-context-menu-height-3 = Haute
+dashboard-widget-context-menu-hide = Masquer le widget
+dashboard-widget-resize-badge = { $cols } × { $rows }
+dashboard-widget-resize-width-label = Redimensionner la largeur
+dashboard-widget-resize-height-label = Redimensionner la hauteur
+dashboard-widget-resize-corner-label = Redimensionner le widget
+dashboard-widget-a11y-moved = Déplacé en position { $position } sur { $total }
+dashboard-widget-a11y-moved-cell = Déplacé en colonne { $col } sur { $cols }, ligne { $row }
+dashboard-widget-a11y-resized = Redimensionné en { $cols } par { $rows }
+
 dashboard-sla-health-title = Santé SLA
 dashboard-sla-health-action = Admin SLA
 dashboard-sla-health-tracked = Suivis

@@ -47,11 +47,21 @@ export interface MenuItem {
   /** Render as a non-interactive section heading (small
    * uppercase label). Used to label inline groups. */
   heading?: boolean
+  /** Non-selectable but still rendered, dimmed. Used for options a
+   * constraint rules out (e.g. a widget size below its minimum). */
+  disabled?: boolean
 }
 
 defineProps<{ items: MenuItem[] }>()
 
-const emit = defineEmits<{ select: [id: string] }>()
+/** `highlight` / `unhighlight` fire on pointer or focus traversal of
+ * an enabled item, so callers can live-preview an option before it
+ * is selected (dashboard widget sizing). Optional to consume. */
+const emit = defineEmits<{
+  select: [id: string]
+  highlight: [id: string]
+  unhighlight: [id: string]
+}>()
 </script>
 
 <template>
@@ -77,7 +87,7 @@ const emit = defineEmits<{ select: [id: string] }>()
     <button
       v-else
       role="menuitem"
-      class="w-full px-3 py-2.5 md:py-1.5 text-sm md:text-xs text-left flex items-center gap-2 min-h-[44px] md:min-h-0 transition-colors"
+      class="w-full px-3 py-2.5 md:py-1.5 text-sm md:text-xs text-left flex items-center gap-2 min-h-[44px] md:min-h-0 transition-colors disabled:opacity-40 disabled:pointer-events-none"
       :class="
         item.danger
           ? 'text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30'
@@ -85,7 +95,12 @@ const emit = defineEmits<{ select: [id: string] }>()
             ? 'text-accent hover:text-accent-hover hover:bg-surface-hover'
             : 'text-secondary hover:text-primary hover:bg-surface-hover'
       "
-      @click="emit('select', item.id)"
+      :disabled="item.disabled"
+      @click="!item.disabled && emit('select', item.id)"
+      @mouseenter="!item.disabled && emit('highlight', item.id)"
+      @mouseleave="!item.disabled && emit('unhighlight', item.id)"
+      @focus="!item.disabled && emit('highlight', item.id)"
+      @blur="!item.disabled && emit('unhighlight', item.id)"
     >
       <!-- Always-rendered icon gutter. Reserves the same width
            whether or not this item has an icon, so labels align
