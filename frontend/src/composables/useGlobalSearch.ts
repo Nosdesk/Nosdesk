@@ -110,6 +110,22 @@ const sortOrder = ref<SearchSortOrder>('relevance');
 // prompt never clobbers result selection logic.
 const selectedScopeIndex = ref(0);
 
+// `from:` person filter. When set, searches carry `author=<uuid>` and a
+// person chip shows in the header alongside the scope chip. Resolved
+// through an inline autocomplete (authorCandidates) that reuses the user
+// search — no dedicated endpoint. One author at a time, by design.
+const authorFilter = ref<{ uuid: string; name: string } | null>(null);
+const authorCandidates = ref<SearchResult[]>([]);
+const selectedAuthorIndex = ref(0);
+
+/**
+ * Matches an in-progress `from:<partial>` token at the very end of the
+ * query — the token the user is actively typing. While this matches (and
+ * no author is set yet) the palette is in author-picker mode: the main
+ * search is suppressed and the candidate list drives the surface.
+ */
+const FROM_TOKEN_RE = /(^|\s)from:(\S*)$/i;
+
 let keyboardListenerRegistered = false;
 
 /** Reset search state to empty */
@@ -160,6 +176,7 @@ export function useGlobalSearch() {
         limit: 50,
         types: activeTypes.value,
         sort: sortOrder.value,
+        author: authorFilter.value?.uuid,
       });
 
       results.value = response.results;
@@ -177,11 +194,48 @@ export function useGlobalSearch() {
     }
   };
 
+  // Whether the palette is mid `from:` token (author-picker mode). While
+  // active, the candidate list owns the surface and the main search is
+  // suppressed so the raw "from:sar" text never hits the index.
+  const fromPromptActive = computed(
+    () => isOpen.value && !authorFilter.value && FROM_TOKEN_RE.test(query.value),
+  );
+
   watch(debouncedQuery, (newQuery) => {
+    // The author picker owns the surface; don't search the raw token text.
+    if (fromPromptActive.value) return;
     if (newQuery.trim()) {
       performSearch(newQuery);
     } else {
       resetResults();
+    }
+  });
+
+  // Author autocomplete: while typing `from:<partial>`, look up matching
+  // people (reusing the user search) and offer them as candidates. Guarded
+  // against stale responses — a slower fetch for an earlier partial must
+  // not overwrite a newer one.
+  watch(query, async (raw) => {
+    const match = raw.match(FROM_TOKEN_RE);
+    if (!match || authorFilter.value) {
+      authorCandidates.value = [];
+      return;
+    }
+    const partial = match[2].trim();
+    if (!partial) {
+      // `from:` with nothing typed yet — wait for a character rather than
+      // dumping an arbitrary user list.
+      authorCandidates.value = [];
+      selectedAuthorIndex.value = 0;
+      return;
+    }
+    try {
+      const resp = await searchService.search({ q: partial, types: 'user', limit: 6 });
+      if (query.value !== raw) return; // a newer keystroke superseded this
+      authorCandidates.value = resp.results;
+      selectedAuthorIndex.value = 0;
+    } catch {
+      authorCandidates.value = [];
     }
   });
 
@@ -219,12 +273,30 @@ export function useGlobalSearch() {
     }
   });
 
+  // Re-search when the person filter changes. Like scope, `from:` narrows
+  // an existing query; with no query text there's nothing to narrow, so we
+  // fall back to the prompt (the chip stays visible, ready for a query).
+  watch(authorFilter, () => {
+    if (query.value.trim()) {
+      performSearch(query.value);
+    } else {
+      resetResults();
+    }
+  });
+
+  const resetAuthor = () => {
+    authorFilter.value = null;
+    authorCandidates.value = [];
+    selectedAuthorIndex.value = 0;
+  };
+
   const openSearch = (types?: string) => {
     isOpen.value = true;
     query.value = '';
     activeTypes.value = types;
     sortOrder.value = 'relevance';
     selectedScopeIndex.value = 0;
+    resetAuthor();
     resetResults();
   };
 
@@ -234,6 +306,7 @@ export function useGlobalSearch() {
     activeTypes.value = undefined;
     sortOrder.value = 'relevance';
     selectedScopeIndex.value = 0;
+    resetAuthor();
     resetResults();
   };
 
@@ -255,6 +328,34 @@ export function useGlobalSearch() {
   /** Switch the result ordering (footer / mobile toolbar toggle). */
   const setSort = (order: SearchSortOrder) => {
     sortOrder.value = order;
+  };
+
+  /**
+   * Resolve a `from:` candidate to the person chip: set the filter, drop
+   * the candidate list, and strip the half-typed `from:<partial>` token
+   * from the query (leaving any real search text behind it intact).
+   */
+  const applyAuthor = (user: SearchResult) => {
+    const uuid = user.url.replace('/users/', '');
+    if (!uuid) return;
+    authorFilter.value = { uuid, name: user.title };
+    authorCandidates.value = [];
+    // The `from:` token is always the trailing token, so trimming both ends
+    // leaves just the real query text (empty if `from:` was all there was).
+    query.value = query.value
+      .replace(FROM_TOKEN_RE, '$1')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+  };
+
+  /** Drop the person filter (chip X, or Backspace on an empty query). */
+  const clearAuthor = () => {
+    resetAuthor();
+  };
+
+  /** Mouse-hover parity with arrow keys on the author candidates. */
+  const setAuthorIndex = (index: number) => {
+    selectedAuthorIndex.value = index;
   };
 
   // The prompt-state scope rows own the keyboard while the palette is
@@ -298,6 +399,30 @@ export function useGlobalSearch() {
 
     if (!isOpen.value) return;
 
+    // Author picker (mid `from:` token) owns the keyboard while it has
+    // candidates — same arrows/Enter/Tab vocabulary as the scope rows.
+    if (fromPromptActive.value && authorCandidates.value.length > 0) {
+      switch (event.key) {
+        case 'ArrowDown':
+          event.preventDefault();
+          selectedAuthorIndex.value =
+            (selectedAuthorIndex.value + 1) % authorCandidates.value.length;
+          return;
+        case 'ArrowUp':
+          event.preventDefault();
+          selectedAuthorIndex.value =
+            selectedAuthorIndex.value <= 0
+              ? authorCandidates.value.length - 1
+              : selectedAuthorIndex.value - 1;
+          return;
+        case 'Tab':
+        case 'Enter':
+          event.preventDefault();
+          applyAuthor(authorCandidates.value[selectedAuthorIndex.value]);
+          return;
+      }
+    }
+
     // Prompt state, unscoped: arrows/Enter/Tab drive the scope rows.
     if (scopePromptActive.value) {
       switch (event.key) {
@@ -338,9 +463,13 @@ export function useGlobalSearch() {
         selectResult();
         break;
       case 'Backspace':
-        // Token semantics: backspacing past the start of the query
-        // pops the scope chip, like deleting a token in any tag input.
-        if (!query.value && activeTypes.value) {
+        // Token semantics: backspacing past the start of the query pops a
+        // chip, like deleting a token in any tag input. Pop the person chip
+        // first (it's the more recently added, rightmost token), then scope.
+        if (!query.value && authorFilter.value) {
+          event.preventDefault();
+          clearAuthor();
+        } else if (!query.value && activeTypes.value) {
           event.preventDefault();
           clearTypes();
         }
@@ -391,12 +520,19 @@ export function useGlobalSearch() {
     totalResults,
     activeTypes: computed(() => activeTypes.value),
     sortOrder: computed(() => sortOrder.value),
+    authorFilter: computed(() => authorFilter.value),
+    authorCandidates: computed(() => authorCandidates.value),
+    selectedAuthorIndex: computed(() => selectedAuthorIndex.value),
+    fromPromptActive,
     openSearch,
     closeSearch,
     clearTypes,
     applyScope,
     setScopeIndex,
     setSort,
+    applyAuthor,
+    clearAuthor,
+    setAuthorIndex,
     navigateToResult,
     selectNext,
     selectPrevious,

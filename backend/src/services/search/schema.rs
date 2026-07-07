@@ -29,6 +29,12 @@ pub mod fields {
     /// requires a matching value, so a doc is reachable only from a
     /// workspace it belongs to.
     pub const WORKSPACE_ID: &str = "workspace_id";
+    /// The person a document is attributed to, for the `from:` filter.
+    /// Per-kind: ticket → requester, comment → author, documentation →
+    /// last editor. Kinds without an authorship notion (asset, project,
+    /// user, attachment) carry no value and so never match a `from:`
+    /// filter. Stored as the user's UUID string, indexed exact (untokenized).
+    pub const AUTHOR_UUID: &str = "author_uuid";
 }
 
 /// Container for all schema fields
@@ -46,6 +52,7 @@ pub struct SearchSchema {
     pub updated_at: Field,
     pub is_internal: Field,
     pub workspace_id: Field,
+    pub author_uuid: Field,
 }
 
 impl SearchSchema {
@@ -92,6 +99,11 @@ impl SearchSchema {
         let workspace_id_options = NumericOptions::default().set_stored().set_indexed();
         let workspace_id = builder.add_i64_field(fields::WORKSPACE_ID, workspace_id_options);
 
+        // author_uuid: exact-match filter field for `from:`. STRING is
+        // indexed but untokenized (a UUID is matched whole), not stored —
+        // we only ever filter on it, never read it back.
+        let author_uuid = builder.add_text_field(fields::AUTHOR_UUID, STRING);
+
         let text_indexing = TextFieldIndexing::default()
             .set_tokenizer("default")
             .set_index_option(IndexRecordOption::WithFreqsAndPositions);
@@ -122,6 +134,7 @@ impl SearchSchema {
             updated_at,
             is_internal,
             workspace_id,
+            author_uuid,
         }
     }
 
@@ -138,6 +151,7 @@ impl SearchSchema {
         fields::UPDATED_AT,
         fields::IS_INTERNAL,
         fields::WORKSPACE_ID,
+        fields::AUTHOR_UUID,
     ];
 
     /// Create a SearchSchema from an existing index by looking up field handles
@@ -162,6 +176,7 @@ impl SearchSchema {
             updated_at: get(fields::UPDATED_AT)?,
             is_internal: get(fields::IS_INTERNAL)?,
             workspace_id: get(fields::WORKSPACE_ID)?,
+            author_uuid: get(fields::AUTHOR_UUID)?,
             schema,
         })
     }

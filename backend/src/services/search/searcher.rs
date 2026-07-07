@@ -33,6 +33,7 @@ pub fn execute_search(
     include_internal: bool,
     workspace_id: i64,
     sort: SortOrder,
+    author: Option<&str>,
 ) -> Result<SearchResponse, Box<dyn std::error::Error + Send + Sync>> {
     let start_time = std::time::Instant::now();
 
@@ -45,6 +46,7 @@ pub fn execute_search(
         entity_types,
         include_internal,
         workspace_id,
+        author,
     );
 
     // Execute the search. tantivy 0.26 split TopDocs from the Collector
@@ -113,6 +115,7 @@ fn build_search_query(
     entity_types: Option<&[EntityType]>,
     include_internal: bool,
     workspace_id: i64,
+    author: Option<&str>,
 ) -> Box<dyn Query> {
     // Apply field boosts using BooleanQuery
     // Title gets 3x boost, content 1x, metadata 0.8x
@@ -187,6 +190,17 @@ fn build_search_query(
     let workspace_q: Box<dyn Query> =
         Box::new(TermQuery::new(workspace_term, IndexRecordOption::Basic));
     subqueries.push((Occur::Must, workspace_q));
+
+    // `from:` author filter. Required exact-match on the author_uuid term, so
+    // results narrow to that person's attributed documents (ticket requester,
+    // comment author, doc last-editor). Kinds without an author_uuid value
+    // carry no term and so drop out — which is the intended behaviour.
+    if let Some(author_uuid) = author {
+        let author_term = Term::from_field_text(schema.author_uuid, author_uuid);
+        let author_q: Box<dyn Query> =
+            Box::new(TermQuery::new(author_term, IndexRecordOption::Basic));
+        subqueries.push((Occur::Must, author_q));
+    }
 
     Box::new(BooleanQuery::new(subqueries))
 }
@@ -360,6 +374,7 @@ mod tests {
             true,
             1,
             SortOrder::Relevance,
+            None,
         )
         .expect("ws1");
         assert_eq!(ids(&ws1), vec!["ticket-1"], "ws1 sees only its own ticket");
@@ -373,6 +388,7 @@ mod tests {
             true,
             2,
             SortOrder::Relevance,
+            None,
         )
         .expect("ws2");
         assert_eq!(ids(&ws2), vec!["ticket-2"], "ws2 sees only its own ticket");
@@ -396,6 +412,7 @@ mod tests {
                 true,
                 ws,
                 SortOrder::Relevance,
+                None,
             )
             .expect("q");
             assert!(
@@ -422,6 +439,7 @@ mod tests {
                 true,
                 ws,
                 SortOrder::Relevance,
+                None,
             )
             .expect("q")
             .results
@@ -459,6 +477,7 @@ mod tests {
             true,
             1,
             SortOrder::Relevance,
+            None,
         )
         .expect("q");
         assert_eq!(
@@ -495,6 +514,7 @@ mod tests {
             true,
             1,
             SortOrder::Relevance,
+            None,
         )
         .expect("tickets");
         assert_eq!(ids(&only_tickets), vec!["ticket-1"]);
@@ -509,6 +529,7 @@ mod tests {
             false,
             1,
             SortOrder::Relevance,
+            None,
         )
         .expect("non-staff");
         assert_eq!(
@@ -540,6 +561,7 @@ mod tests {
             true,
             1,
             SortOrder::Updated,
+            None,
         )
         .expect("q");
         let order: Vec<String> = resp.results.iter().map(|r| r.id.clone()).collect();
@@ -577,6 +599,7 @@ mod tests {
             true,
             1,
             SortOrder::Relevance,
+            None,
         )
         .expect("rel");
         assert_eq!(
@@ -594,12 +617,106 @@ mod tests {
             true,
             1,
             SortOrder::Updated,
+            None,
         )
         .expect("upd");
         assert_eq!(
             by_upd.results.first().map(|r| r.id.as_str()),
             Some("ticket-2"),
             "most recently updated first by Updated sort"
+        );
+    }
+
+    #[test]
+    fn author_filter_narrows_to_that_person() {
+        // Two matching tickets in the same workspace, different requesters,
+        // plus one unattributed doc (no author_uuid). `from:alice` returns
+        // only alice's ticket; the unattributed doc never matches a from:.
+        let alice = "alice-uuid";
+        let bob = "bob-uuid";
+        let docs = vec![
+            ticket(1, 1).author_uuid(Some(alice.to_string())),
+            ticket(2, 1).author_uuid(Some(bob.to_string())),
+            ticket(3, 1), // unattributed
+        ];
+        let (_index, schema, reader) = index_docs(&docs);
+
+        let only_alice = execute_search(
+            &reader,
+            &schema,
+            "printer",
+            10,
+            None,
+            true,
+            1,
+            SortOrder::Relevance,
+            Some(alice),
+        )
+        .expect("alice");
+        assert_eq!(
+            ids(&only_alice),
+            vec!["ticket-1"],
+            "from:alice → alice only"
+        );
+
+        // No filter → all three matching docs (including the unattributed).
+        let unfiltered = execute_search(
+            &reader,
+            &schema,
+            "printer",
+            10,
+            None,
+            true,
+            1,
+            SortOrder::Relevance,
+            None,
+        )
+        .expect("all");
+        assert_eq!(ids(&unfiltered), vec!["ticket-1", "ticket-2", "ticket-3"]);
+
+        // An author nobody matches → empty.
+        let nobody = execute_search(
+            &reader,
+            &schema,
+            "printer",
+            10,
+            None,
+            true,
+            1,
+            SortOrder::Relevance,
+            Some("ghost-uuid"),
+        )
+        .expect("ghost");
+        assert!(nobody.results.is_empty(), "unknown author → no results");
+    }
+
+    #[test]
+    fn author_filter_composes_with_workspace_gate() {
+        // Same author string tagged in two workspaces; the from: filter must
+        // still not cross the workspace boundary.
+        let alice = "alice-uuid";
+        let docs = vec![
+            ticket(1, 1).author_uuid(Some(alice.to_string())),
+            ticket(2, 2).author_uuid(Some(alice.to_string())),
+        ];
+        let (_index, schema, reader) = index_docs(&docs);
+
+        let ws1 = execute_search(
+            &reader,
+            &schema,
+            "printer",
+            10,
+            None,
+            true,
+            1,
+            SortOrder::Relevance,
+            Some(alice),
+        )
+        .expect("ws1");
+        assert_eq!(
+            ids(&ws1),
+            vec!["ticket-1"],
+            "from:alice in ws1 must not reach alice's ws2 ticket"
         );
     }
 }

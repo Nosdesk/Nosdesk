@@ -78,6 +78,11 @@ pub struct IndexDocument {
     /// query requires a matching value, so an empty set makes the
     /// document unreachable (fail-closed).
     pub workspace_ids: Vec<i64>,
+    /// The person this document is attributed to (ticket → requester,
+    /// comment → author, documentation → last editor), as a UUID string.
+    /// `None` for kinds with no authorship notion; those never match a
+    /// `from:` filter.
+    pub author_uuid: Option<String>,
 }
 
 impl IndexDocument {
@@ -100,6 +105,7 @@ impl IndexDocument {
             updated_at: chrono::Utc::now().timestamp(),
             is_internal: false,
             workspace_ids: Vec::new(),
+            author_uuid: None,
         }
     }
 
@@ -116,6 +122,7 @@ impl IndexDocument {
             updated_at: chrono::Utc::now().timestamp(),
             is_internal: false,
             workspace_ids: Vec::new(),
+            author_uuid: None,
         }
     }
 
@@ -135,6 +142,13 @@ impl IndexDocument {
     /// membership).
     pub fn workspace_ids(mut self, workspace_ids: Vec<i64>) -> Self {
         self.workspace_ids = workspace_ids;
+        self
+    }
+
+    /// Attribute the document to a person (for the `from:` filter). A
+    /// `None` here leaves the doc unattributed and unreachable by `from:`.
+    pub fn author_uuid(mut self, author_uuid: Option<String>) -> Self {
+        self.author_uuid = author_uuid;
         self
     }
 
@@ -215,6 +229,10 @@ pub struct SearchQuery {
     /// strings, which silently left the sort at its default.
     #[serde(default)]
     pub sort: Option<String>,
+    /// `from:` person filter — the author's UUID. Restricts results to
+    /// documents attributed to that person (see `IndexDocument::author_uuid`).
+    #[serde(default)]
+    pub author: Option<String>,
 }
 
 fn default_limit() -> usize {
@@ -239,6 +257,12 @@ impl SearchQuery {
             Some("updated") => SortOrder::Updated,
             _ => SortOrder::Relevance,
         }
+    }
+
+    /// The `from:` author filter (a UUID string), if present and non-empty.
+    /// An empty value is treated as absent so `?author=` doesn't wipe results.
+    pub fn author_filter(&self) -> Option<&str> {
+        self.author.as_deref().filter(|s| !s.is_empty())
     }
 }
 
@@ -344,6 +368,7 @@ mod tests {
             limit: 20,
             types: Some("ticket,comment".to_string()),
             sort: None,
+            author: None,
         };
         let types = query.entity_types().unwrap();
         assert_eq!(types, vec![EntityType::Ticket, EntityType::Comment]);
@@ -356,6 +381,7 @@ mod tests {
             limit: 20,
             types: None,
             sort: None,
+            author: None,
         };
         assert!(query.entity_types().is_none());
     }
@@ -367,6 +393,7 @@ mod tests {
             limit: 20,
             types: Some("ticket,invalid,user".to_string()),
             sort: None,
+            author: None,
         };
         let types = query.entity_types().unwrap();
         assert_eq!(types, vec![EntityType::Ticket, EntityType::User]);
@@ -380,6 +407,7 @@ mod tests {
                 limit: 20,
                 types: None,
                 sort: s.map(|v| v.to_string()),
+                author: None,
             }
             .sort_order()
         };

@@ -32,11 +32,18 @@ const {
   totalResults,
   activeTypes,
   sortOrder,
+  authorFilter,
+  authorCandidates,
+  selectedAuthorIndex,
+  fromPromptActive,
   closeSearch,
   clearTypes,
   applyScope,
   setScopeIndex,
   setSort,
+  applyAuthor,
+  clearAuthor,
+  setAuthorIndex,
   navigateToResult,
 } = useGlobalSearch();
 
@@ -94,6 +101,13 @@ watch(isOpen, async (open) => {
 // the input — the whole point is to keep typing.
 const scopeAndRefocus = (type: SearchEntityType) => {
   applyScope(type);
+  inputRef.value?.focus();
+};
+
+// Picking a person from the autocomplete keeps the input focused too, so
+// the user can carry straight on typing the query the filter narrows.
+const authorAndRefocus = (user: (typeof authorCandidates.value)[number]) => {
+  applyAuthor(user);
   inputRef.value?.focus();
 };
 
@@ -159,6 +173,19 @@ const resultGroups = ENTITY_DISPLAY_ORDER.map(type => ({
               <Icon name="close" size="xs" />
             </button>
 
+            <!-- Person filter chip. Composes with the scope chip; the
+                 leading "from" prefix reads as the operator that set it. -->
+            <button
+              v-if="authorFilter"
+              @click="clearAuthor"
+              class="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-medium rounded-md bg-brand-pink/10 text-brand-pink border border-brand-pink/20 hover:bg-brand-pink/20 transition-colors flex-shrink-0 max-w-[10rem]"
+              :title="t('search-global-from-chip', { name: authorFilter.name })"
+            >
+              <Icon name="user" size="xs" class="flex-shrink-0" />
+              <span class="truncate">{{ authorFilter.name }}</span>
+              <Icon name="close" size="xs" class="flex-shrink-0" />
+            </button>
+
             <input
               ref="inputRef"
               v-model="query"
@@ -198,6 +225,49 @@ const resultGroups = ENTITY_DISPLAY_ORDER.map(type => ({
               class="px-4 py-6 text-center text-sm text-status-error"
             >
               {{ error }}
+            </div>
+
+            <!-- Author picker (mid `from:` token). The candidate list of
+                 people replaces the results while active; picking one sets
+                 the person chip and drops the token. -->
+            <div v-else-if="fromPromptActive" class="py-1 px-1">
+              <div class="px-2 pt-2 pb-1">
+                <span class="text-[10px] font-semibold uppercase tracking-wider text-tertiary">
+                  {{ t('search-global-from-heading') }}
+                </span>
+              </div>
+              <button
+                v-for="(user, index) in authorCandidates"
+                :key="user.id"
+                type="button"
+                tabindex="-1"
+                :data-author-selected="index === selectedAuthorIndex"
+                :class="[
+                  'w-full px-2 py-1.5 flex items-center gap-2.5 text-left rounded-md transition-colors focus:outline-none',
+                  index === selectedAuthorIndex ? 'bg-accent/10' : 'hover:bg-surface-hover/60',
+                ]"
+                @mouseenter="setAuthorIndex(index)"
+                @click="authorAndRefocus(user)"
+              >
+                <span class="flex-shrink-0 inline-flex w-7 h-7 rounded-md items-center justify-center bg-[rgba(255,102,179,0.15)] text-brand-pink">
+                  <Icon name="user" size="xs" />
+                </span>
+                <span class="flex-1 min-w-0">
+                  <span class="block text-sm text-primary font-medium truncate">{{ user.title }}</span>
+                  <span v-if="user.preview" class="block text-[11px] text-tertiary truncate">{{ user.preview }}</span>
+                </span>
+                <kbd
+                  v-if="index === selectedAuthorIndex"
+                  class="hidden sm:inline-flex items-center justify-center min-w-[1.25rem] h-4 px-1 rounded bg-surface border border-default text-[9px] font-medium text-secondary"
+                >⏎</kbd>
+              </button>
+              <!-- Nothing typed yet, or no matches. -->
+              <div
+                v-if="authorCandidates.length === 0"
+                class="px-3 py-8 text-center text-xs text-tertiary"
+              >
+                {{ t('search-global-from-hint') }}
+              </div>
             </div>
 
             <!-- Prompt, unscoped: the scope rows. Tab/Enter (or tap)

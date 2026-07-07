@@ -33,6 +33,11 @@ export const searchService = {
       queryParams.set('sort', params.sort);
     }
 
+    // `from:` person filter — the author's UUID.
+    if (params.author) {
+      queryParams.set('author', params.author);
+    }
+
     const response = await apiClient.get<SearchResponse>(
       `/search?${queryParams.toString()}`
     );

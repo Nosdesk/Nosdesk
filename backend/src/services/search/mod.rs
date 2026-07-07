@@ -179,6 +179,7 @@ impl SearchService {
             include_internal,
             workspace_id,
             query.sort_order(),
+            query.author_filter(),
         )
     }
 

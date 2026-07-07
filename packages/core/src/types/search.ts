@@ -59,6 +59,10 @@ export interface SearchParams {
   limit?: number;
   types?: string;
   sort?: SearchSortOrder;
+  /** `from:` person filter — the author's UUID. Restricts results to
+   *  documents attributed to that person (ticket requester, comment
+   *  author, doc last-editor). */
+  author?: string;
 }
 
 /**

@@ -45,6 +45,8 @@ pub fn index_document_from_ticket(
         .preview(preview)
         .updated_at(ticket.updated_at.and_utc().timestamp())
         .workspace_id(ticket.workspace_id as i64)
+        // `from:` attribution: a ticket is authored by its requester.
+        .author_uuid(ticket.requester_uuid.map(|u| u.to_string()))
 }
 
 /// Create an index document from a comment
@@ -61,6 +63,8 @@ pub fn index_document_from_comment(comment: &models::Comment, ticket_title: &str
         .updated_at(comment.created_at.and_utc().timestamp())
         .is_internal(comment.is_internal)
         .workspace_id(comment.workspace_id as i64)
+        // `from:` attribution: a comment is authored by its poster.
+        .author_uuid(Some(comment.user_uuid.to_string()))
 }
 
 /// Create an index document from a documentation page
@@ -90,6 +94,8 @@ pub fn index_document_from_documentation(doc_page: &models::DocumentationPage) -
     .preview(preview)
     .updated_at(doc_page.updated_at.and_utc().timestamp())
     .workspace_id(doc_page.workspace_id as i64)
+    // `from:` attribution: a doc page is attributed to its last editor.
+    .author_uuid(Some(doc_page.last_edited_by.to_string()))
 }
 
 /// Create an index document from an attachment
@@ -299,6 +305,11 @@ pub fn add_document_to_index(
     tdoc.add_i64(schema.is_internal, if doc.is_internal { 1 } else { 0 });
     for &workspace_id in &doc.workspace_ids {
         tdoc.add_i64(schema.workspace_id, workspace_id);
+    }
+    // Only attributed kinds (ticket / comment / documentation) carry this;
+    // absent for the rest, so they never match a `from:` filter.
+    if let Some(author_uuid) = &doc.author_uuid {
+        tdoc.add_text(schema.author_uuid, author_uuid);
     }
 
     writer.add_document(tdoc)?;
