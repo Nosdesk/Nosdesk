@@ -93,6 +93,12 @@ interface PoolComment {
   // CommentContent picks inline vs iframe without a REST round-trip;
   // absent on legacy rows, where the renderer falls back to format.
   render_kind?: string | null
+  // Backend quote split (email comments): the visible reply and the
+  // collapsed prior thread. Absent on UI-authored comments and rows
+  // synced before the fields joined the emit/bootstrap payloads —
+  // CommentContent then falls back to `content`.
+  new_content?: string | null
+  quoted_content?: string | null
   created_at: string
 }
 
@@ -267,6 +273,8 @@ export function useTicketDetail(
           content: c.content,
           content_format: c.content_format as CommentWithAttachments['content_format'],
           render_kind: c.render_kind as CommentWithAttachments['render_kind'],
+          new_content: c.new_content ?? null,
+          quoted_content: c.quoted_content ?? null,
           user_uuid: c.user_uuid,
           created_at: c.created_at,
           createdAt: c.created_at,

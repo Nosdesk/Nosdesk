@@ -190,10 +190,17 @@ pub fn create_comment_with_annotation(
                     "render_kind": comment.render_kind,
                     // Render essentials so the detail view can show a
                     // comment from the pool alone (Phase 2 pool-native
-                    // ticket view). Heavy email-only fields
-                    // (quoted_content, raw source, channel_metadata) stay
-                    // off the change log and are lazy-fetched on expand.
+                    // ticket view). The quote split travels too: without
+                    // it the pool-native view falls back to the full
+                    // `content` and email comments render their entire
+                    // quoted thread inline (no disclosure). `content`
+                    // already carries the whole body, so shipping the
+                    // split adds at most a second copy — the "lazy fetch
+                    // on expand" this comment used to promise was never
+                    // built. Raw source + channel_metadata stay off.
                     "content": comment.content,
+                    "new_content": comment.new_content,
+                    "quoted_content": comment.quoted_content,
                     "created_at": comment.created_at,
                     "created_via": created_via,
                 }),

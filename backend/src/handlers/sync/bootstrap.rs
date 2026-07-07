@@ -720,8 +720,11 @@ fn stream_ticket_detail_extras(
     let comment_rows: Vec<Comment> = comment_query.order(comments::created_at.asc()).load(conn)?;
     let comment_ids: Vec<i32> = comment_rows.iter().map(|c| c.id).collect();
     for c in &comment_rows {
-        // Render essentials only (mirrors the `comment.created` emit):
-        // heavy email-only fields stay a lazy REST fetch on expand.
+        // Render essentials (mirrors the `comment.created` emit),
+        // including the quote split — without it the pool-native ticket
+        // view falls back to the full `content` and email comments render
+        // their entire quoted thread inline with no disclosure. Raw
+        // source + channel_metadata stay off the wire.
         send(
             tx,
             json!({
@@ -730,6 +733,8 @@ fn stream_ticket_detail_extras(
                 "ticket_id": c.ticket_id,
                 "user_uuid": c.user_uuid,
                 "content": c.content,
+                "new_content": c.new_content,
+                "quoted_content": c.quoted_content,
                 "is_internal": c.is_internal,
                 "content_format": c.content_format,
                 // Mirrors the `comment.created` emit: the render tier
