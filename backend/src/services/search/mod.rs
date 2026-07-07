@@ -178,6 +178,7 @@ impl SearchService {
             entity_types_ref,
             include_internal,
             workspace_id,
+            query.sort_order(),
         )
     }
 

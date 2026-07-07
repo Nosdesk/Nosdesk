@@ -27,6 +27,12 @@ export const searchService = {
       queryParams.set('types', params.types);
     }
 
+    // Only send a non-default sort. Keeps the common (relevance) request
+    // URL clean and lets the backend default own the fallback.
+    if (params.sort && params.sort !== 'relevance') {
+      queryParams.set('sort', params.sort);
+    }
+
     const response = await apiClient.get<SearchResponse>(
       `/search?${queryParams.toString()}`
     );

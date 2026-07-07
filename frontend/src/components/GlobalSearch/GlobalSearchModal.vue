@@ -1,10 +1,19 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, computed } from 'vue';
 import { useFluent } from 'fluent-vue';
-import { useGlobalSearch } from '@/composables/useGlobalSearch';
+import { useGlobalSearch, SCOPE_OPTIONS } from '@/composables/useGlobalSearch';
+import { useVisualViewport } from '@/composables/useVisualViewport';
 import SearchResultGroup from './SearchResultGroup.vue';
-import { ENTITY_DISPLAY_ORDER, ENTITY_TYPE_CONFIG } from '@nosdesk/core/types/search';
+import SearchResultItem from './SearchResultItem.vue';
+import SearchSortToggle from './SearchSortToggle.vue';
+import {
+  ENTITY_DISPLAY_ORDER,
+  ENTITY_TYPE_CONFIG,
+  getEntityTypeLabel,
+  type SearchEntityType,
+} from '@nosdesk/core/types/search';
 import Icon from '@/components/common/Icon.vue';
+import type { IconName } from '@/components/common/icons';
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -17,13 +26,25 @@ const {
   searchState,
   error,
   selectedIndex,
+  selectedScopeIndex,
+  scopePromptActive,
   searchTookMs,
   totalResults,
   activeTypes,
+  sortOrder,
   closeSearch,
   clearTypes,
+  applyScope,
+  setScopeIndex,
+  setSort,
   navigateToResult,
 } = useGlobalSearch();
+
+// While the palette is open, mirror the visual viewport into CSS vars
+// so the mobile sheet can size itself to the visible area — this is
+// what keeps the footer and results above the on-screen keyboard on
+// iOS/WKWebView, where the layout viewport never resizes.
+useVisualViewport(isOpen);
 
 const filterLabels = computed<Record<string, string>>(() => ({
   documentation: t('search-global-filter-documentation'),
@@ -33,13 +54,31 @@ const filterLabels = computed<Record<string, string>>(() => ({
   project: t('search-global-filter-projects'),
 }));
 
+// Chip / placeholder label for the active scope. Kinds without a
+// dedicated filter key (comment, attachment — reachable via group
+// headers and `in:`) fall back to their entity-type label.
+const scopeLabel = (type: string) =>
+  filterLabels.value[type] ?? getEntityTypeLabel(type as SearchEntityType);
+
 const placeholder = computed(() => {
   if (activeTypes.value) {
-    const label = filterLabels.value[activeTypes.value] || activeTypes.value;
-    return t('search-global-placeholder-filtered', { filter: label.toLowerCase() });
+    return t('search-global-placeholder-filtered', {
+      filter: scopeLabel(activeTypes.value).toLowerCase(),
+    });
   }
   return t('search-global-placeholder');
 });
+
+// Prompt-state scope rows: neutral icons (these are actions, not
+// results — the per-type colour stays reserved for real hits).
+const scopeRows = computed(() =>
+  SCOPE_OPTIONS.map((type, index) => ({
+    type,
+    index,
+    icon: (ENTITY_TYPE_CONFIG[type]?.icon ?? 'search') as IconName,
+    label: t('search-global-scope-row', { type: scopeLabel(type) }),
+  })),
+);
 
 const inputRef = ref<HTMLInputElement | null>(null);
 const resultsRef = ref<HTMLDivElement | null>(null);
@@ -50,6 +89,13 @@ watch(isOpen, async (open) => {
     inputRef.value?.focus();
   }
 });
+
+// Scoping from a group header or scope row must not drop focus from
+// the input — the whole point is to keep typing.
+const scopeAndRefocus = (type: SearchEntityType) => {
+  applyScope(type);
+  inputRef.value?.focus();
+};
 
 watch(selectedIndex, () => {
   if (selectedIndex.value >= 0 && resultsRef.value) {
@@ -76,28 +122,32 @@ const resultGroups = ENTITY_DISPLAY_ORDER.map(type => ({
     <Transition name="search-modal" appear>
       <div
         v-if="isOpen"
-        class="fixed inset-0 z-overlay flex items-start justify-center px-4 pt-[12vh] sm:pt-[15vh]"
+        class="fixed inset-0 z-overlay flex items-start justify-center sm:px-4 sm:pt-[15dvh]"
       >
-        <!-- Backdrop. Subtle blur, click to dismiss. -->
+        <!-- Backdrop. Subtle blur, click to dismiss. Fully covered by
+             the sheet below `sm`, where the header close button takes
+             over dismissal. -->
         <div
           class="absolute inset-0 bg-black/40 dark:bg-black/60 backdrop-blur-sm"
           @click="closeSearch"
         />
 
-        <!-- Modal card. min-h gives a stable lower bound so the
-             frame doesn't shrink when state swaps (which the eye
-             otherwise reads as a flash); max-h is viewport-
-             relative so the modal grows with the user's screen
-             instead of clamping at a hard pixel cap. The body's
-             flex-1 absorbs any difference. -->
+        <!-- Palette surface. Desktop (sm+): the floating Raycast card
+             — min-h gives a stable lower bound so the frame doesn't
+             shrink when state swaps, max-h is dvh-relative so it
+             grows with the screen. Mobile (<sm): a full-height, top-
+             anchored sheet (see scoped .search-card) whose height
+             tracks the *visual* viewport, so the keyboard shrinks the
+             sheet instead of covering it; the input pinned at the top
+             also avoids WKWebView's scroll-to-reveal jump. -->
         <div
-          class="relative w-full max-w-[640px] min-h-[420px] max-h-[80vh] bg-surface rounded-2xl shadow-2xl shadow-black/20 dark:shadow-black/40 overflow-hidden flex flex-col ring-1 ring-default"
+          class="search-card relative w-full sm:max-w-[640px] sm:min-h-[420px] sm:max-h-[80dvh] bg-surface sm:rounded-2xl shadow-2xl shadow-black/20 dark:shadow-black/40 overflow-hidden flex flex-col ring-1 ring-default"
           role="dialog"
           aria-modal="true"
           :aria-label="t('search-global-aria-label')"
         >
           <!-- Search header. Single row, no border on the input. -->
-          <div class="flex items-center gap-2.5 px-4 h-12 border-b border-default">
+          <div class="flex items-center gap-2.5 px-4 h-12 border-b border-default flex-shrink-0">
             <Icon name="search" size="md" class="flex-shrink-0 text-tertiary" />
 
             <button
@@ -105,7 +155,7 @@ const resultGroups = ENTITY_DISPLAY_ORDER.map(type => ({
               @click="clearTypes"
               class="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-medium rounded-md bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 transition-colors flex-shrink-0"
             >
-              {{ filterLabels[activeTypes] || activeTypes }}
+              {{ scopeLabel(activeTypes) }}
               <Icon name="close" size="xs" />
             </button>
 
@@ -118,6 +168,18 @@ const resultGroups = ENTITY_DISPLAY_ORDER.map(type => ({
               autocomplete="off"
               spellcheck="false"
             />
+
+            <!-- Mobile-only close. The sheet covers the backdrop and
+                 touch keyboards have no Esc, so the exit affordance
+                 must live in the chrome. -->
+            <button
+              type="button"
+              class="sm:hidden flex-shrink-0 -mr-1 p-1.5 rounded-md text-tertiary hover:text-secondary hover:bg-surface-hover/60 transition-colors"
+              :aria-label="t('search-global-hint-close')"
+              @click="closeSearch"
+            >
+              <Icon name="close" size="sm" />
+            </button>
           </div>
 
           <!-- Results region. Holds all body states; `min-h-0`
@@ -129,7 +191,7 @@ const resultGroups = ENTITY_DISPLAY_ORDER.map(type => ({
                cross-fading just adds visible "in-between" latency. -->
           <div
             ref="resultsRef"
-            class="flex-1 overflow-y-auto min-h-0 overscroll-contain"
+            class="search-results flex-1 overflow-y-auto min-h-0 overscroll-contain"
           >
             <div
               v-if="searchState === 'error'"
@@ -138,6 +200,44 @@ const resultGroups = ENTITY_DISPLAY_ORDER.map(type => ({
               {{ error }}
             </div>
 
+            <!-- Prompt, unscoped: the scope rows. Tab/Enter (or tap)
+                 narrows the search before typing — the palette's one
+                 filtering affordance, presented where a filter
+                 decision is actually made: before the query. -->
+            <div v-else-if="scopePromptActive" class="py-1 px-1">
+              <div class="px-2 pt-2 pb-1">
+                <span class="text-[10px] font-semibold uppercase tracking-wider text-tertiary">
+                  {{ t('search-global-scope-heading') }}
+                </span>
+              </div>
+              <button
+                v-for="row in scopeRows"
+                :key="row.type"
+                type="button"
+                tabindex="-1"
+                :data-scope-selected="row.index === selectedScopeIndex"
+                :class="[
+                  'w-full px-2 py-1.5 flex items-center gap-2.5 text-left rounded-md transition-colors focus:outline-none',
+                  row.index === selectedScopeIndex ? 'bg-accent/10' : 'hover:bg-surface-hover/60',
+                ]"
+                @mouseenter="setScopeIndex(row.index)"
+                @click="scopeAndRefocus(row.type)"
+              >
+                <span class="flex-shrink-0 inline-flex w-7 h-7 rounded-md items-center justify-center bg-surface-alt text-tertiary">
+                  <Icon :name="row.icon" size="xs" />
+                </span>
+                <span class="flex-1 text-sm text-primary font-medium truncate">
+                  {{ row.label }}
+                </span>
+                <kbd
+                  v-if="row.index === selectedScopeIndex"
+                  class="hidden sm:inline-flex items-center justify-center min-w-[1.25rem] h-4 px-1 rounded bg-surface border border-default text-[9px] font-medium text-secondary"
+                >⇥</kbd>
+              </button>
+            </div>
+
+            <!-- Prompt, scoped: the chip already narrates the scope;
+                 plain copy invites the query. -->
             <div
               v-else-if="searchState === 'prompt'"
               class="px-4 py-12 text-center"
@@ -148,15 +248,42 @@ const resultGroups = ENTITY_DISPLAY_ORDER.map(type => ({
               </p>
             </div>
 
+            <!-- Results. Best-match keeps the per-type grouped view (with
+                 scope-able headers); Newest collapses to one flat
+                 chronological list, since grouping by kind would fight the
+                 recency order. A slim sort toolbar rides above the list on
+                 mobile (the desktop footer carries the same toggle). -->
             <div v-else-if="searchState === 'results'">
-              <SearchResultGroup
-                v-for="group in resultGroups"
-                :key="group.type"
-                :type="group.type"
-                :results="groupedResults[group.key]"
-                :selected-id="selectedId"
-                @select="navigateToResult"
-              />
+              <div
+                class="sm:hidden flex items-center justify-end px-3 h-9 border-b border-default"
+              >
+                <SearchSortToggle
+                  :model-value="sortOrder"
+                  @update:model-value="setSort"
+                />
+              </div>
+
+              <div v-if="sortOrder === 'updated'" class="py-1 px-1">
+                <SearchResultItem
+                  v-for="result in flatResults"
+                  :key="result.id"
+                  :result="result"
+                  :is-selected="result.id === selectedId"
+                  @select="navigateToResult"
+                />
+              </div>
+
+              <template v-else>
+                <SearchResultGroup
+                  v-for="group in resultGroups"
+                  :key="group.type"
+                  :type="group.type"
+                  :results="groupedResults[group.key]"
+                  :selected-id="selectedId"
+                  @select="navigateToResult"
+                  @scope="scopeAndRefocus"
+                />
+              </template>
             </div>
 
             <!-- `searching`: the input has changed but no fresh
@@ -183,17 +310,24 @@ const resultGroups = ENTITY_DISPLAY_ORDER.map(type => ({
             </div>
           </div>
 
-          <!-- Persistent footer. Keyboard hints on the left,
-               result stats on the right. Always rendered so the
-               modal's bottom edge doesn't jump as states swap. -->
+          <!-- Persistent footer, desktop only. Keyboard hints on the
+               left, result stats on the right; always rendered there
+               so the bottom edge doesn't jump as states swap. On a
+               phone every one of those is dead weight — no keys to
+               hint, stats aren't worth a bar — so the results list
+               takes the height instead. -->
           <div
-            class="flex items-center justify-between gap-3 px-3 h-9 border-t border-default bg-surface-alt/50 text-[11px] text-tertiary"
+            class="hidden sm:flex items-center justify-between gap-3 px-3 h-9 border-t border-default bg-surface-alt/50 text-[11px] text-tertiary flex-shrink-0"
           >
-            <div class="flex items-center gap-3">
+            <div class="hidden sm:flex items-center gap-3">
               <span class="inline-flex items-center gap-1">
                 <kbd class="inline-flex items-center justify-center w-4 h-4 rounded bg-surface border border-default text-[9px] font-medium text-secondary">↑</kbd>
                 <kbd class="inline-flex items-center justify-center w-4 h-4 rounded bg-surface border border-default text-[9px] font-medium text-secondary">↓</kbd>
                 <span>{{ t('search-global-hint-navigate') }}</span>
+              </span>
+              <span v-if="scopePromptActive" class="inline-flex items-center gap-1">
+                <kbd class="inline-flex items-center justify-center min-w-[1rem] h-4 px-1 rounded bg-surface border border-default text-[9px] font-medium text-secondary">⇥</kbd>
+                <span>{{ t('search-global-hint-scope') }}</span>
               </span>
               <span v-if="searchState === 'results'" class="inline-flex items-center gap-1">
                 <kbd class="inline-flex items-center justify-center min-w-[1rem] h-4 px-1 rounded bg-surface border border-default text-[9px] font-medium text-secondary">↵</kbd>
@@ -204,10 +338,16 @@ const resultGroups = ENTITY_DISPLAY_ORDER.map(type => ({
                 <span>{{ t('search-global-hint-close') }}</span>
               </span>
             </div>
-            <div v-if="searchState === 'results'" class="tabular-nums">
-              {{ t('search-global-results-count', { count: totalResults }) }}
-              <span class="text-tertiary/60">·</span>
-              {{ t('search-global-results-took', { ms: searchTookMs }) }}
+            <div v-if="searchState === 'results'" class="flex items-center gap-3 ml-auto">
+              <SearchSortToggle
+                :model-value="sortOrder"
+                @update:model-value="setSort"
+              />
+              <span class="tabular-nums">
+                {{ t('search-global-results-count', { count: totalResults }) }}
+                <span class="text-tertiary/60">·</span>
+                {{ t('search-global-results-took', { ms: searchTookMs }) }}
+              </span>
             </div>
           </div>
         </div>
@@ -217,6 +357,28 @@ const resultGroups = ENTITY_DISPLAY_ORDER.map(type => ({
 </template>
 
 <style scoped>
+/* Mobile: full-height, top-anchored sheet. Height tracks the visual
+   viewport (set by useVisualViewport while open) so the on-screen
+   keyboard shrinks the sheet instead of covering its lower half; the
+   dvh fallback covers browsers without the API and the moments before
+   the first viewport event lands. Safe-area padding keeps the input
+   row out of the status bar / notch (viewport-fit=cover). */
+@media (max-width: 639.98px) {
+  .search-card {
+    height: var(--visual-viewport-height, 100dvh);
+    max-height: none;
+    border-radius: 0;
+    padding-top: env(safe-area-inset-top);
+  }
+
+  /* No footer on mobile — the results list runs to the sheet's
+     bottom edge, so it carries the home-indicator clearance itself
+     (when the keyboard is up the sheet already ends above it). */
+  .search-results {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
 .search-modal-enter-active,
 .search-modal-leave-active {
   transition: opacity 0.15s ease;

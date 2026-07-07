@@ -107,6 +107,12 @@ pub async fn search(
                         Ok(c) => c,
                         Err(e) => return e,
                     };
+                    // Pin the request's workspace: the visibility query
+                    // runs under RLS, and an unpinned connection (the
+                    // pool scrubs the GUC on checkout) resolves ZERO
+                    // tickets — which silently dropped every ticket and
+                    // comment hit for end-users.
+                    helpers::pin_workspace(&mut conn, ws.workspace_id);
                     match ticket_visibility::visible_ticket_ids(&mut conn, &vis, &candidate_ids) {
                         Ok(visible) => {
                             response.results.retain(|r| match r.entity_type.as_str() {
@@ -146,6 +152,7 @@ pub async fn search(
                     .filter(|r| r.entity_type == "documentation")
                     .count() as i32;
                 let pool = pool.clone();
+                let workspace_id = ws.workspace_id;
                 // Off the response path: a slow log write must not
                 // delay the search response. Errors are logged but
                 // don't propagate.
@@ -157,12 +164,16 @@ pub async fn search(
                             return;
                         }
                     };
-                    // The spawn has no RequestContext so no workspace
-                    // pin. search_query_log is RLS-enabled
-                    // (Phase 3c.2 sync/audit/system migration).
-                    // Elevate to nosdesk_admin for the write.
+                    // The spawn has no RequestContext so no ambient
+                    // workspace pin. search_query_log is RLS-enabled
+                    // (Phase 3c.2 sync/audit/system migration) and its
+                    // workspace_id column defaults from the GUC, so the
+                    // actor must carry the request's workspace — without
+                    // it every write dies on the NOT NULL default.
+                    // Elevate to nosdesk_admin for the write itself.
                     let bypass_actor =
-                        crate::sync::actor::ActorContext::system("background:search_query_log");
+                        crate::sync::actor::ActorContext::system("background:search_query_log")
+                            .with_workspace(workspace_id);
                     let result = crate::sync::session::with_actor_bypass_context(
                         &mut conn,
                         &bypass_actor,

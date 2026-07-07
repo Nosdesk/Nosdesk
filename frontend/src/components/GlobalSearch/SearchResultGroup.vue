@@ -16,6 +16,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   select: [result: SearchResult];
+  scope: [type: SearchEntityType];
 }>();
 
 const groupLabel = computed(() => {
@@ -32,15 +33,31 @@ const groupLabel = computed(() => {
     <!-- Group header. Pure typography — no icon. The result rows
          themselves carry the type-coloured icon, so a header glyph
          on top of that is redundant noise. Raycast lets the label
-         alone do the work. -->
-    <div class="flex items-baseline gap-2 px-2 pt-2 pb-1">
+         alone do the work. Clicking it scopes the palette to this
+         kind — filtering to something you can already see is the
+         most natural filter gesture, so the header IS the control.
+         Excluded from Tab order (tabindex=-1): keyboard users scope
+         via the prompt rows or `in:`, and the palette's focus must
+         stay on the input. -->
+    <button
+      type="button"
+      tabindex="-1"
+      :title="t('search-global-group-scope-title', { type: groupLabel })"
+      class="group/header flex w-full items-baseline gap-2 px-2 pt-2 pb-1 text-left rounded-md transition-colors hover:bg-surface-hover/60"
+      @click="emit('scope', props.type)"
+    >
       <span class="text-[10px] font-semibold uppercase tracking-wider text-tertiary">
         {{ groupLabel }}
       </span>
       <span class="text-[10px] text-tertiary/60 tabular-nums">
         {{ results.length }}
       </span>
-    </div>
+      <span
+        class="ml-auto text-[10px] text-tertiary/60 opacity-0 group-hover/header:opacity-100 transition-opacity"
+      >
+        {{ t('search-global-group-scope-hint') }}
+      </span>
+    </button>
 
     <SearchResultItem
       v-for="result in results"

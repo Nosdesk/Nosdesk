@@ -187,6 +187,17 @@ pub struct SearchResult {
     pub is_internal: Option<bool>,
 }
 
+/// Result ordering. `Relevance` is BM25 score (the default); `Updated`
+/// orders by the `updated_at` fast field, newest first. Resolved from the
+/// `sort=relevance|updated` query param via [`SearchQuery::sort_order`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SortOrder {
+    #[default]
+    Relevance,
+    Updated,
+}
+
 /// Search query parameters
 #[derive(Debug, Clone, Deserialize)]
 pub struct SearchQuery {
@@ -198,6 +209,12 @@ pub struct SearchQuery {
     /// Entity types to search (comma-separated)
     #[serde(default)]
     pub types: Option<String>,
+    /// Raw `sort` param. Kept as a string and resolved by `sort_order()`,
+    /// mirroring `types` — a custom `deserialize_with` on a typed field is
+    /// not reliably invoked by actix's `serde_urlencoded` for query
+    /// strings, which silently left the sort at its default.
+    #[serde(default)]
+    pub sort: Option<String>,
 }
 
 fn default_limit() -> usize {
@@ -212,6 +229,16 @@ impl SearchQuery {
                 .filter_map(|s| EntityType::from_str(s.trim()))
                 .collect()
         })
+    }
+
+    /// Resolve the ordering leniently: `updated` sorts newest-first,
+    /// anything else (including an absent or unknown value) falls back to
+    /// relevance, so a stale client can never 400 the search.
+    pub fn sort_order(&self) -> SortOrder {
+        match self.sort.as_deref() {
+            Some("updated") => SortOrder::Updated,
+            _ => SortOrder::Relevance,
+        }
     }
 }
 
@@ -316,6 +343,7 @@ mod tests {
             q: "test".to_string(),
             limit: 20,
             types: Some("ticket,comment".to_string()),
+            sort: None,
         };
         let types = query.entity_types().unwrap();
         assert_eq!(types, vec![EntityType::Ticket, EntityType::Comment]);
@@ -327,6 +355,7 @@ mod tests {
             q: "test".to_string(),
             limit: 20,
             types: None,
+            sort: None,
         };
         assert!(query.entity_types().is_none());
     }
@@ -337,8 +366,48 @@ mod tests {
             q: "test".to_string(),
             limit: 20,
             types: Some("ticket,invalid,user".to_string()),
+            sort: None,
         };
         let types = query.entity_types().unwrap();
         assert_eq!(types, vec![EntityType::Ticket, EntityType::User]);
+    }
+
+    #[test]
+    fn sort_order_resolves_leniently() {
+        let with = |s: Option<&str>| {
+            SearchQuery {
+                q: "x".to_string(),
+                limit: 20,
+                types: None,
+                sort: s.map(|v| v.to_string()),
+            }
+            .sort_order()
+        };
+
+        assert_eq!(with(Some("updated")), SortOrder::Updated);
+        assert_eq!(with(Some("relevance")), SortOrder::Relevance);
+        // Absent or unknown → relevance, never an error.
+        assert_eq!(with(None), SortOrder::Relevance);
+        assert_eq!(with(Some("garbage")), SortOrder::Relevance);
+        assert_eq!(with(Some("")), SortOrder::Relevance);
+    }
+
+    /// The bug this guards: the sort must survive actix's query-string
+    /// extractor (`web::Query`, `serde_urlencoded` underneath) end to end,
+    /// not just when the struct is built by hand. A typed `sort` field with
+    /// a custom `deserialize_with` silently stayed at its default through
+    /// this exact path, so exercise the real extractor here.
+    #[test]
+    fn sort_order_survives_query_extractor() {
+        use actix_web::web::Query;
+
+        let q = Query::<SearchQuery>::from_query("q=x&sort=updated").expect("parse");
+        assert_eq!(q.sort_order(), SortOrder::Updated);
+
+        let q2 = Query::<SearchQuery>::from_query("q=x").expect("parse");
+        assert_eq!(q2.sort_order(), SortOrder::Relevance);
+
+        let q3 = Query::<SearchQuery>::from_query("q=x&sort=garbage").expect("parse");
+        assert_eq!(q3.sort_order(), SortOrder::Relevance);
     }
 }

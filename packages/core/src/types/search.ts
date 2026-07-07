@@ -44,12 +44,21 @@ export interface SearchResponse {
 }
 
 /**
+ * Result ordering. `relevance` is BM25 score (the default); `updated`
+ * orders newest-first by the `updated_at` field. Mirrors the backend
+ * `SortOrder`; the backend tolerates an unknown value by falling back to
+ * relevance, so an older client omitting this stays correct.
+ */
+export type SearchSortOrder = 'relevance' | 'updated';
+
+/**
  * Search query parameters
  */
 export interface SearchParams {
   q: string;
   limit?: number;
   types?: string;
+  sort?: SearchSortOrder;
 }
 
 /**

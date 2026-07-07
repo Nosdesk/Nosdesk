@@ -70,8 +70,16 @@ impl SearchSchema {
 
         // Numeric fields
         let numeric_options = NumericOptions::default().set_stored();
-        let entity_id = builder.add_i64_field(fields::ENTITY_ID, numeric_options.clone());
-        let updated_at = builder.add_i64_field(fields::UPDATED_AT, numeric_options);
+        let entity_id = builder.add_i64_field(fields::ENTITY_ID, numeric_options);
+
+        // updated_at is FAST as well as stored: STORED lets us read the
+        // timestamp back onto each result, FAST lets the collector sort
+        // by it (`order_by_fast_field`) for the "Newest" sort option.
+        // Making it fast is a schema change — see is_compatible_with_index,
+        // which treats a non-fast updated_at as a stale index and forces a
+        // rebuild on deploy.
+        let updated_at_options = NumericOptions::default().set_stored().set_fast();
+        let updated_at = builder.add_i64_field(fields::UPDATED_AT, updated_at_options);
 
         // Indexed so the searcher can filter is_internal=1 documents
         // out for non-staff callers via a Must-Not clause.
@@ -188,7 +196,18 @@ impl SearchSchema {
             }
         };
 
-        uses_tokenizer(fields::TITLE, "default")
+        // updated_at must be a FAST field, or the "Newest" sort's
+        // `order_by_fast_field` fails at query time. An index built before
+        // updated_at became fast has all fields present and the right
+        // tokenizers, so this is the marker that distinguishes it and
+        // triggers an automatic rebuild on the next startup after deploy.
+        let updated_at_is_fast = schema
+            .get_field(fields::UPDATED_AT)
+            .map(|f| schema.get_field_entry(f).is_fast())
+            .unwrap_or(false);
+
+        updated_at_is_fast
+            && uses_tokenizer(fields::TITLE, "default")
             && uses_tokenizer(fields::METADATA, "default")
             && uses_tokenizer(fields::CONTENT, "default")
     }

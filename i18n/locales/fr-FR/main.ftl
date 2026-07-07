@@ -5203,6 +5203,12 @@ search-global-filter-tickets = Tickets
 search-global-filter-devices = Actifs
 search-global-filter-users = Utilisateurs
 search-global-filter-projects = Projets
+search-global-scope-heading = Rechercher dans
+search-global-scope-row = Rechercher dans { $type }
+search-global-hint-scope = Filtrer
+search-global-group-scope-title = Rechercher uniquement dans { $type }
+search-global-group-scope-hint = tout voir
+search-global-filter-projects = Projets
 search-global-placeholder = Rechercher des tickets, des documents, des actifs, des utilisateurs
 search-global-placeholder-filtered = Rechercher dans { $filter }
 search-global-aria-label = Recherche
@@ -5219,6 +5225,9 @@ search-global-results-count =
        *[other] { $count } résultats
     }
 search-global-results-took = { $ms } ms
+search-global-sort-label = Trier les résultats
+search-global-sort-relevance = Pertinence
+search-global-sort-updated = Plus récents
 search-result-item-today = Aujourd'hui
 search-result-item-yesterday = Hier
 search-result-item-days-ago = il y a { $count } j
