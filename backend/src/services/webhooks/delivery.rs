@@ -40,6 +40,11 @@ pub struct DeliveryTask {
     pub webhook_headers: Option<serde_json::Value>,
     pub payload: WebhookPayload,
     pub attempt: i32,
+    /// The existing `webhook_deliveries` row to update, for a retry. `None` on
+    /// the first attempt, where the worker inserts a fresh row. Retries reuse
+    /// the row (rather than inserting one per attempt) so a persistently
+    /// failing endpoint can't multiply delivery rows into a retry storm.
+    pub delivery_id: Option<i32>,
 }
 
 /// Worker that processes webhook delivery tasks
@@ -120,23 +125,45 @@ impl WebhookDeliveryWorker {
             .map_err(|e| format!("DB error: {e}"))?;
         let actor = ActorContext::system("webhook_delivery").with_workspace(webhook.workspace_id);
 
-        let delivery = with_actor_context(&mut conn, &actor, |c| {
-            webhook_repo::create_delivery(
-                c,
-                NewWebhookDelivery {
-                    webhook_id: task.webhook_id,
-                    event_type: task.payload.event_type.clone(),
-                    payload: serde_json::to_value(&task.payload).unwrap_or_default(),
-                    request_headers: Some(serde_json::json!({
-                        "X-Nosdesk-Signature": "sha256=***",
-                        "X-Nosdesk-Event": &task.payload.event_type,
-                        "X-Nosdesk-Delivery": task.payload.id.to_string(),
-                    })),
-                    attempt_number: task.attempt,
-                },
-            )
-        })
-        .map_err(|e| format!("DB error: {e}"))?;
+        // First attempt inserts a delivery row; a retry reuses the existing
+        // one (bumping its attempt counter) so a failing endpoint doesn't
+        // accumulate one row per attempt — the source of the retry storm.
+        let delivery_id = match task.delivery_id {
+            Some(id) => {
+                with_actor_context(&mut conn, &actor, |c| {
+                    webhook_repo::update_delivery(
+                        c,
+                        id,
+                        WebhookDeliveryUpdate {
+                            attempt_number: Some(task.attempt),
+                            ..Default::default()
+                        },
+                    )
+                })
+                .map_err(|e| format!("DB error: {e}"))?;
+                id
+            }
+            None => {
+                let delivery = with_actor_context(&mut conn, &actor, |c| {
+                    webhook_repo::create_delivery(
+                        c,
+                        NewWebhookDelivery {
+                            webhook_id: task.webhook_id,
+                            event_type: task.payload.event_type.clone(),
+                            payload: serde_json::to_value(&task.payload).unwrap_or_default(),
+                            request_headers: Some(serde_json::json!({
+                                "X-Nosdesk-Signature": "sha256=***",
+                                "X-Nosdesk-Event": &task.payload.event_type,
+                                "X-Nosdesk-Delivery": task.payload.id.to_string(),
+                            })),
+                            attempt_number: task.attempt,
+                        },
+                    )
+                })
+                .map_err(|e| format!("DB error: {e}"))?;
+                delivery.id
+            }
+        };
 
         // IP-literal guard. The resolver in the safe_http client
         // refuses to hand back internal IPs for hostnames, but
@@ -149,7 +176,7 @@ impl WebhookDeliveryWorker {
             self.handle_failure(
                 &mut conn,
                 &task,
-                delivery.id,
+                delivery_id,
                 0,
                 None,
                 duration_ms,
@@ -179,7 +206,7 @@ impl WebhookDeliveryWorker {
                     self.handle_success(
                         &mut conn,
                         &task,
-                        delivery.id,
+                        delivery_id,
                         status,
                         response_body,
                         duration_ms,
@@ -190,7 +217,7 @@ impl WebhookDeliveryWorker {
                     self.handle_failure(
                         &mut conn,
                         &task,
-                        delivery.id,
+                        delivery_id,
                         status,
                         response_body,
                         duration_ms,
@@ -204,7 +231,7 @@ impl WebhookDeliveryWorker {
                 self.handle_failure(
                     &mut conn,
                     &task,
-                    delivery.id,
+                    delivery_id,
                     0,
                     None,
                     duration_ms,

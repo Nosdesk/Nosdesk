@@ -239,7 +239,13 @@ pub fn get_deliveries_for_webhook(
         .load::<WebhookDelivery>(conn)
 }
 
-/// Get pending retries (deliveries with next_retry_at in the past and not yet delivered)
+/// Get pending retries (deliveries with next_retry_at in the past and not yet
+/// delivered). `FOR UPDATE SKIP LOCKED` so concurrent retry workers on separate
+/// instances partition the due rows instead of both grabbing the same ones; the
+/// locks release when the caller's read transaction commits. Combined with the
+/// retry path reusing (not inserting) the delivery row, a failing endpoint can
+/// at worst produce a duplicate POST in a narrow in-flight window, never a
+/// growing pile of delivery rows.
 pub fn get_pending_retries(
     conn: &mut DbConnection,
 ) -> Result<Vec<WebhookDelivery>, diesel::result::Error> {
@@ -251,6 +257,8 @@ pub fn get_pending_retries(
         .filter(webhook_deliveries::next_retry_at.le(now))
         .order(webhook_deliveries::next_retry_at.asc())
         .limit(100) // Process up to 100 retries at a time
+        .for_update()
+        .skip_locked()
         .load::<WebhookDelivery>(conn)
 }
 

@@ -38,6 +38,12 @@ const CHANNEL_DIRECTION_OUTBOUND: &str = "outbound";
 /// below "operator notices the queue is stuck."
 const LEASE_SECONDS: i64 = 300;
 
+/// How long (seconds) to park a row that has no configured sending identity
+/// before it becomes claimable again. Long enough that an unconfigured
+/// workspace doesn't re-spin the drain loop every tick, short enough that mail
+/// flows within minutes of an admin configuring an identity.
+const UNCONFIGURED_PARK_SECS: i64 = 300;
+
 /// Snapshot of one drain pass. Used for periodic-job status reporting.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct WorkerStats {
@@ -479,17 +485,24 @@ fn terminate_row(
             }
         }
         DispatchOutcome::Unconfigured => {
-            // No identity to send with yet. Release the claim without
-            // burning an attempt, like CircuitSkip, so the row sends once
-            // an admin configures a workspace identity (or env SMTP).
-            if let Err(e) = repo::release_claim(conn, row.id) {
-                warn!(error = %e, queue_id = row.id, "release_claim failed");
+            // No identity to send with yet. Park the claim (no attempt burned)
+            // with a short backoff rather than releasing it to immediately
+            // claimable: an unconfigured workspace is a persistent state, and a
+            // plain release would let the drain loop re-claim the same rows on
+            // the next iteration forever (hot-spin). Parking drops the row out
+            // of the claim window so the loop terminates; the safety-net tick
+            // retries once the park elapses, by which point an admin may have
+            // configured a workspace identity (or env SMTP).
+            let parked_until =
+                chrono::Utc::now() + chrono::Duration::seconds(UNCONFIGURED_PARK_SECS);
+            if let Err(e) = repo::park_claim(conn, row.id, parked_until) {
+                warn!(error = %e, queue_id = row.id, "park_claim failed");
             } else {
                 stats.unconfigured += 1;
                 debug!(
                     queue_id = row.id,
                     sender_identity = %row.sender_identity,
-                    "no sending identity configured, releasing claim"
+                    "no sending identity configured, parking claim"
                 );
             }
         }

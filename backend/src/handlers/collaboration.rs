@@ -1250,8 +1250,9 @@ impl YjsAppState {
         let mut saved_count = 0;
         let mut final_saved_count = 0;
         let mut snapshot_count = 0;
-        // Idle docs to release + evict after the save pass (multi-instance
-        // only). Collected here, acted on after the documents lock drops.
+        // Idle docs to evict after the save pass (frees memory in both modes;
+        // also releases ownership when multi-instance). Collected here, acted
+        // on after the documents lock drops.
         let mut to_evict: Vec<String> = Vec::new();
 
         for (doc_id, doc_state) in documents.iter_mut() {
@@ -1325,18 +1326,21 @@ impl YjsAppState {
                 }
             }
 
-            // Single-instance: keep documents in memory indefinitely.
-            // They hold the authoritative live state; the DB is only cold
-            // storage (restart recovery). Keeping them avoids a race where
-            // a user reconnects before an async save completes.
+            // Evict an empty, final-saved room that has been idle past
+            // EMPTY_ROOM_EVICT_DELAY. This runs in BOTH modes:
+            //   - Multi-instance: release ownership so another machine can
+            //     own the room.
+            //   - Single-instance: free the memory. Without this, every doc
+            //     ever opened stays resident for the process lifetime — and
+            //     with `skip_gc` each doc retains its full deleted-item
+            //     history, so a long-lived server's RSS grows unbounded.
+            // Safe in either mode: the final save has completed (DB holds the
+            // authoritative state), the room has been empty for the delay, and
+            // the eviction loop re-checks it is still empty after dropping the
+            // lock (a session may have rejoined). A reconnect reloads the doc
+            // from the DB / Redis cache, preserving history.
             // See: https://discuss.yjs.dev/t/correct-way-to-implement-version-history-like-google-doc/1691
-            //
-            // Multi-instance: an empty, final-saved room that has been idle
-            // past EMPTY_ROOM_EVICT_DELAY is released so another machine can
-            // own it. We only collect candidates here; the actual release +
-            // eviction happens after the documents lock drops, and re-checks
-            // the room is still empty (a session may have rejoined).
-            if self.ownership.is_some() && doc_state.final_save_completed {
+            if doc_state.final_save_completed {
                 if let Some(empty_since) = doc_state.room_empty_since {
                     if empty_since.elapsed() >= EMPTY_ROOM_EVICT_DELAY {
                         to_evict.push(doc_id.clone());
@@ -1367,8 +1371,10 @@ impl YjsAppState {
             }
             if let Some(ownership) = &self.ownership {
                 ownership.release(&doc_id).await;
+                debug!(doc_id = %doc_id, "Released idle document ownership claim and evicted");
+            } else {
+                debug!(doc_id = %doc_id, "Evicted idle document to free memory");
             }
-            debug!(doc_id = %doc_id, "Released idle document ownership claim and evicted");
             self.evict_document(&doc_id).await;
         }
     }

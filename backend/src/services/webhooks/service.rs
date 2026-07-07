@@ -162,6 +162,7 @@ impl WebhookService {
                                 webhook_headers: webhook.headers.clone(),
                                 payload: payload.clone(),
                                 attempt: 1,
+                                delivery_id: None,
                             });
                         }
                     }
@@ -236,6 +237,9 @@ impl WebhookService {
                                     data: delivery.payload,
                                 },
                                 attempt: delivery.attempt_number + 1,
+                                // Reuse this delivery row rather than inserting a
+                                // new one per retry (retry-storm fix).
+                                delivery_id: Some(delivery.id),
                             });
                         }
                         Ok(_) => {
@@ -303,6 +307,7 @@ impl WebhookService {
             webhook_headers: webhook.headers,
             payload,
             attempt: 1,
+            delivery_id: None,
         };
 
         self.delivery_tx
