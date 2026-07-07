@@ -3,10 +3,114 @@
   <head>
     <meta charset="UTF-8">
     <script src="/branding-init.js"></script>
+    <!--
+      Launch splash controller. Render-blocking (runs before first paint,
+      like branding-init.js) so it can set the splash colours from the
+      cached theme and mark the runtime BEFORE the splash element paints.
+      All splash JS lives here (external, origin-served) because the CSP
+      forbids inline scripts; the visuals below are inline <style>, which
+      the CSP allows.
+    -->
+    <script src="/splash.js"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes, viewport-fit=cover, interactive-widget=resizes-content">
     <meta name="HandheldFriendly" content="true">
+    <style>
+      /* Pre-mount launch splash. Covers the whole window from the first
+         painted frame until the app's first real screen is up, so the
+         native launch field hands off to the app with no white/light-gray
+         flash. Colours come from CSS vars set by splash.js (cached theme),
+         with a dark-brand default.
+
+         Loading: the N spins on its own axis. The glyph is 180-degree
+         rotationally symmetric, so every half-turn lands on an identical
+         N and the loop is seamless. Hand-off: a calm, quick crossfade
+         (field + mark fade together) while the spin keeps going, so the
+         mark is never in the way when the app appears. */
+      #app-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483647;
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        padding: env(safe-area-inset-top) env(safe-area-inset-right)
+                 env(safe-area-inset-bottom) env(safe-area-inset-left);
+      }
+      #app-splash .splash-bg {
+        position: absolute;
+        inset: 0;
+        background: var(--splash-bg, #08090a);
+        transition: opacity 300ms ease;
+      }
+      /* The N mark, drawn by masking the brand fill with the glyph. The
+         glyph is an inline data-URI (no fetch, no square flash). */
+      #app-splash .splash-n {
+        position: relative;
+        width: 74px;
+        height: 74px;
+        background-color: var(--splash-fg, #FF6B1A);
+        -webkit-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='78'%20height='78'%20viewBox='0%200%2078.4%2078.4'%3E%3Cpath%20d='m%2052.25,0%20h%2022.06%20v%2078.4%20l%20-20.58,-0.34%20-27.58,-36.29%20V%2078.39%20H%204.09%20V%200%20l%2020.64,0.06%2027.52,38.69%20z'/%3E%3C/svg%3E") center / contain no-repeat;
+        mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='78'%20height='78'%20viewBox='0%200%2078.4%2078.4'%3E%3Cpath%20d='m%2052.25,0%20h%2022.06%20v%2078.4%20l%20-20.58,-0.34%20-27.58,-36.29%20V%2078.39%20H%204.09%20V%200%20l%2020.64,0.06%2027.52,38.69%20z'/%3E%3C/svg%3E") center / contain no-repeat;
+        will-change: transform, opacity;
+      }
+      :root.runtime-web #app-splash .splash-n { display: none; }
+
+      @media (prefers-reduced-motion: no-preference) {
+        /* Loading spin. `rotate` and `scale` are separate transform
+           properties so the entrance scale and the spin compose instead
+           of fighting over `transform`. Gated to :not([data-exit]) so
+           the entrance stops on exit and the spin can carry over without
+           either out-specifying the exit rule. The spin timing is a
+           longer ease-in into a faster ease-out with a touch of back
+           (anticipation + overshoot), so each half-turn winds up and
+           snaps onto the next N. */
+        :root.runtime-app #app-splash:not([data-exit]) .splash-n {
+          animation:
+            splash-in 420ms ease-out both,
+            splash-spin 1s cubic-bezier(0.6, -0.12, 0.2, 1.22) 350ms infinite;
+        }
+      }
+      @keyframes splash-in {
+        from { opacity: 0; scale: 0.82; }
+        to   { opacity: 1; scale: 1; }
+      }
+      /* Rest as a readable N for the first ~60% of the cycle, then a
+         quick half-turn (wind-up + fast spin + overshoot-settle) onto
+         the next N. So it's mostly idle, with a snappy flip between. */
+      @keyframes splash-spin {
+        0%, 60% { rotate: 0deg; }
+        100%    { rotate: 180deg; }
+      }
+
+      /* Exit: a calm, quick crossfade. The spin keeps turning (same
+         params so it carries over without restarting) while the mark and
+         the field fade together. Nothing flashes, nothing zooms; the app
+         is usable the instant it shows through. */
+      #app-splash[data-exit] { pointer-events: none; }
+      #app-splash[data-exit] .splash-bg { opacity: 0; }
+      @media (prefers-reduced-motion: no-preference) {
+        :root.runtime-app #app-splash[data-exit] .splash-n {
+          animation:
+            splash-spin 1s cubic-bezier(0.6, -0.12, 0.2, 1.22) 350ms infinite,
+            splash-out 300ms ease forwards;
+        }
+      }
+      @keyframes splash-out {
+        from { opacity: 1; }
+        to   { opacity: 0; }
+      }
+
+      /* Reduced motion: static mark, plain quick crossfade, no spin. */
+      @media (prefers-reduced-motion: reduce) {
+        #app-splash[data-exit] .splash-n { transition: opacity 200ms ease; opacity: 0; }
+      }
+    </style>
   </head>
   <body>
+    <div id="app-splash" role="presentation" aria-hidden="true">
+      <div class="splash-bg"></div>
+      <div class="splash-n"></div>
+    </div>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

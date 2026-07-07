@@ -31,13 +31,57 @@ pub fn run() {
       // desktop web build is untouched.
       #[cfg(target_os = "ios")]
       {
-        use objc2::msg_send;
         use objc2::runtime::AnyObject;
+        use objc2::{class, msg_send};
         use tauri::Manager;
         if let Some(webview) = app.get_webview_window("main") {
           let _ = webview.with_webview(|pw| unsafe {
             let wk = pw.inner() as *mut AnyObject;
             let _: () = msg_send![wk, setAllowsBackForwardNavigationGestures: true];
+
+            // Paint the webview with the appearance-aware `LaunchBackground`
+            // colour (light #f3f4f6 / dark #08090a, the same colorset the
+            // launch storyboard uses) and make it non-opaque, so that
+            // colour shows before the web content paints instead of the
+            // default white backing. This is what removes the white launch
+            // flash; the scroll view is painted too so overscroll doesn't
+            // expose white. Colour resolved from the asset catalog by name.
+            let name: *mut AnyObject = msg_send![
+              class!(NSString),
+              stringWithUTF8String: b"LaunchBackground\0".as_ptr() as *const std::os::raw::c_char
+            ];
+            let color: *mut AnyObject = msg_send![class!(UIColor), colorNamed: name];
+            if !color.is_null() {
+              let _: () = msg_send![wk, setOpaque: false];
+              let _: () = msg_send![wk, setBackgroundColor: color];
+              let scroll: *mut AnyObject = msg_send![wk, scrollView];
+              if !scroll.is_null() {
+                let _: () = msg_send![scroll, setBackgroundColor: color];
+                // Stop iOS auto-adjusting the scroll view's content inset
+                // to the safe area. With the default `.automatic`, the
+                // native layer pads a strip at the bottom (home-indicator
+                // area) that our full-bleed CSS (viewport-fit=cover +
+                // env() padding) doesn't fill, so that strip shows the
+                // window background as a white sliver. `.never` (raw value
+                // 2) makes the web content full-bleed, so CSS owns all the
+                // inset padding and there is no uncovered strip.
+                let _: () = msg_send![scroll, setContentInsetAdjustmentBehavior: 2_i64];
+              }
+              // Paint the layers BEHIND the webview too: the host view
+              // controller's view (webview superview) and the window.
+              // A non-opaque webview reveals these in any region it
+              // doesn't fully cover (the bottom safe-area / home-
+              // indicator strip), which is where the white bottom
+              // sliver came from.
+              let superview: *mut AnyObject = msg_send![wk, superview];
+              if !superview.is_null() {
+                let _: () = msg_send![superview, setBackgroundColor: color];
+              }
+              let window: *mut AnyObject = msg_send![wk, window];
+              if !window.is_null() {
+                let _: () = msg_send![window, setBackgroundColor: color];
+              }
+            }
           });
         }
       }
