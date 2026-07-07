@@ -29,6 +29,12 @@ pub mod fields {
     /// requires a matching value, so a doc is reachable only from a
     /// workspace it belongs to.
     pub const WORKSPACE_ID: &str = "workspace_id";
+    /// The person a document is attributed to, for the `from:` filter.
+    /// Per-kind: ticket → requester, comment → author, documentation →
+    /// last editor. Kinds without an authorship notion (asset, project,
+    /// user, attachment) carry no value and so never match a `from:`
+    /// filter. Stored as the user's UUID string, indexed exact (untokenized).
+    pub const AUTHOR_UUID: &str = "author_uuid";
 }
 
 /// Container for all schema fields
@@ -46,6 +52,7 @@ pub struct SearchSchema {
     pub updated_at: Field,
     pub is_internal: Field,
     pub workspace_id: Field,
+    pub author_uuid: Field,
 }
 
 impl SearchSchema {
@@ -70,8 +77,16 @@ impl SearchSchema {
 
         // Numeric fields
         let numeric_options = NumericOptions::default().set_stored();
-        let entity_id = builder.add_i64_field(fields::ENTITY_ID, numeric_options.clone());
-        let updated_at = builder.add_i64_field(fields::UPDATED_AT, numeric_options);
+        let entity_id = builder.add_i64_field(fields::ENTITY_ID, numeric_options);
+
+        // updated_at is FAST as well as stored: STORED lets us read the
+        // timestamp back onto each result, FAST lets the collector sort
+        // by it (`order_by_fast_field`) for the "Newest" sort option.
+        // Making it fast is a schema change — see is_compatible_with_index,
+        // which treats a non-fast updated_at as a stale index and forces a
+        // rebuild on deploy.
+        let updated_at_options = NumericOptions::default().set_stored().set_fast();
+        let updated_at = builder.add_i64_field(fields::UPDATED_AT, updated_at_options);
 
         // Indexed so the searcher can filter is_internal=1 documents
         // out for non-staff callers via a Must-Not clause.
@@ -83,6 +98,11 @@ impl SearchSchema {
         // a field is multi-valued simply by adding it more than once.
         let workspace_id_options = NumericOptions::default().set_stored().set_indexed();
         let workspace_id = builder.add_i64_field(fields::WORKSPACE_ID, workspace_id_options);
+
+        // author_uuid: exact-match filter field for `from:`. STRING is
+        // indexed but untokenized (a UUID is matched whole), not stored —
+        // we only ever filter on it, never read it back.
+        let author_uuid = builder.add_text_field(fields::AUTHOR_UUID, STRING);
 
         let text_indexing = TextFieldIndexing::default()
             .set_tokenizer("default")
@@ -114,6 +134,7 @@ impl SearchSchema {
             updated_at,
             is_internal,
             workspace_id,
+            author_uuid,
         }
     }
 
@@ -130,6 +151,7 @@ impl SearchSchema {
         fields::UPDATED_AT,
         fields::IS_INTERNAL,
         fields::WORKSPACE_ID,
+        fields::AUTHOR_UUID,
     ];
 
     /// Create a SearchSchema from an existing index by looking up field handles
@@ -154,6 +176,7 @@ impl SearchSchema {
             updated_at: get(fields::UPDATED_AT)?,
             is_internal: get(fields::IS_INTERNAL)?,
             workspace_id: get(fields::WORKSPACE_ID)?,
+            author_uuid: get(fields::AUTHOR_UUID)?,
             schema,
         })
     }
@@ -188,7 +211,18 @@ impl SearchSchema {
             }
         };
 
-        uses_tokenizer(fields::TITLE, "default")
+        // updated_at must be a FAST field, or the "Newest" sort's
+        // `order_by_fast_field` fails at query time. An index built before
+        // updated_at became fast has all fields present and the right
+        // tokenizers, so this is the marker that distinguishes it and
+        // triggers an automatic rebuild on the next startup after deploy.
+        let updated_at_is_fast = schema
+            .get_field(fields::UPDATED_AT)
+            .map(|f| schema.get_field_entry(f).is_fast())
+            .unwrap_or(false);
+
+        updated_at_is_fast
+            && uses_tokenizer(fields::TITLE, "default")
             && uses_tokenizer(fields::METADATA, "default")
             && uses_tokenizer(fields::CONTENT, "default")
     }

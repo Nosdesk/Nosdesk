@@ -114,10 +114,13 @@ const formattedTime = computed(() => {
     </div>
 
     <!-- Action hint on the selected row only. A single ↵ is the
-         Raycast convention — title says what; key says how. -->
+         Raycast convention — title says what; key says how. Desktop
+         only: touch has no Enter, and the first result arrives
+         pre-selected, so on a phone the badge reads as mystery
+         chrome on a random row. -->
     <kbd
       v-if="isSelected"
-      class="flex-shrink-0 inline-flex items-center justify-center w-5 h-5 rounded border border-default bg-surface text-[10px] font-medium text-secondary"
+      class="flex-shrink-0 hidden sm:inline-flex items-center justify-center w-5 h-5 rounded border border-default bg-surface text-[10px] font-medium text-secondary"
     >
       ↵
     </kbd>

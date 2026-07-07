@@ -5418,6 +5418,11 @@ search-global-filter-tickets = Tickets
 search-global-filter-devices = Assets
 search-global-filter-users = Users
 search-global-filter-projects = Projects
+search-global-scope-heading = Search in
+search-global-scope-row = Search { $type }
+search-global-hint-scope = Filter
+search-global-group-scope-title = Search only { $type }
+search-global-group-scope-hint = see all
 search-global-placeholder = Search tickets, docs, assets, users
 search-global-placeholder-filtered = Search { $filter }
 search-global-aria-label = Search
@@ -5434,6 +5439,12 @@ search-global-results-count =
        *[other] { $count } results
     }
 search-global-results-took = { $ms }ms
+search-global-sort-label = Sort results
+search-global-sort-relevance = Best match
+search-global-sort-updated = Newest
+search-global-from-heading = People
+search-global-from-hint = Type a name to filter by author
+search-global-from-chip = From { $name }
 search-result-item-today = Today
 search-result-item-yesterday = Yesterday
 search-result-item-days-ago = { $count }d ago

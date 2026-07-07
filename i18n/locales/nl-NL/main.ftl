@@ -5194,6 +5194,11 @@ search-global-filter-tickets = Tickets
 search-global-filter-devices = Activa
 search-global-filter-users = Gebruikers
 search-global-filter-projects = Projecten
+search-global-scope-heading = Zoeken in
+search-global-scope-row = Zoeken in { $type }
+search-global-hint-scope = Filteren
+search-global-group-scope-title = Alleen zoeken in { $type }
+search-global-group-scope-hint = alles bekijken
 search-global-placeholder = Zoek tickets, documenten, activa, gebruikers
 search-global-placeholder-filtered = Zoek in { $filter }
 search-global-aria-label = Zoeken
@@ -5210,6 +5215,12 @@ search-global-results-count =
        *[other] { $count } resultaten
     }
 search-global-results-took = { $ms } ms
+search-global-sort-label = Resultaten sorteren
+search-global-sort-relevance = Beste match
+search-global-sort-updated = Nieuwste
+search-global-from-heading = Personen
+search-global-from-hint = Typ een naam om op auteur te filteren
+search-global-from-chip = Van { $name }
 search-result-item-today = Vandaag
 search-result-item-yesterday = Gisteren
 search-result-item-days-ago = { $count } d geleden

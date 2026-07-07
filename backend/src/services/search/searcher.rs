@@ -3,7 +3,7 @@
 use tantivy::collector::TopDocs;
 use tantivy::query::{BooleanQuery, BoostQuery, Occur, Query, RegexQuery, TermQuery};
 use tantivy::schema::IndexRecordOption;
-use tantivy::{IndexReader, TantivyDocument, Term};
+use tantivy::{DocAddress, IndexReader, Order, TantivyDocument, Term};
 use tracing::{debug, warn};
 
 /// Minimum query-term length below which we skip prefix expansion
@@ -11,8 +11,8 @@ use tracing::{debug, warn};
 /// term in the index and dominate scoring with noise.
 const MIN_PREFIX_QUERY_LEN: usize = 2;
 
-use super::schema::SearchSchema;
-use super::types::{EntityType, SearchResponse, SearchResult};
+use super::schema::{fields, SearchSchema};
+use super::types::{EntityType, SearchResponse, SearchResult, SortOrder};
 
 /// Execute a search query against the index
 ///
@@ -32,6 +32,8 @@ pub fn execute_search(
     entity_types: Option<&[EntityType]>,
     include_internal: bool,
     workspace_id: i64,
+    sort: SortOrder,
+    author: Option<&str>,
 ) -> Result<SearchResponse, Box<dyn std::error::Error + Send + Sync>> {
     let start_time = std::time::Instant::now();
 
@@ -44,13 +46,32 @@ pub fn execute_search(
         entity_types,
         include_internal,
         workspace_id,
+        author,
     );
 
-    // Execute the search
-    // tantivy 0.26 split TopDocs from the Collector trait; you now pick a
-    // sort axis explicitly. order_by_score reproduces the previous default
-    // (BM25 score, descending).
-    let top_docs = searcher.search(&query, &TopDocs::with_limit(limit).order_by_score())?;
+    // Execute the search. tantivy 0.26 split TopDocs from the Collector
+    // trait; you pick a sort axis explicitly, and the two axes have
+    // different fruit types, so each branch normalizes to
+    // (score, DocAddress). For the Updated branch there is no BM25 score
+    // — the ordering already reflects recency — so score is reported as 0.
+    let top_docs: Vec<(f32, DocAddress)> = match sort {
+        // order_by_score reproduces the previous default (BM25, descending).
+        SortOrder::Relevance => {
+            searcher.search(&query, &TopDocs::with_limit(limit).order_by_score())?
+        }
+        // Newest-first by the updated_at fast field. Docs missing the fast
+        // value (shouldn't happen — every indexed doc writes updated_at)
+        // sort last via a 0 timestamp.
+        SortOrder::Updated => {
+            let collector = TopDocs::with_limit(limit)
+                .order_by_fast_field::<i64>(fields::UPDATED_AT, Order::Desc);
+            searcher
+                .search(&query, &collector)?
+                .into_iter()
+                .map(|(_ts, addr)| (0.0_f32, addr))
+                .collect()
+        }
+    };
 
     let total = top_docs.len();
 
@@ -94,6 +115,7 @@ fn build_search_query(
     entity_types: Option<&[EntityType]>,
     include_internal: bool,
     workspace_id: i64,
+    author: Option<&str>,
 ) -> Box<dyn Query> {
     // Apply field boosts using BooleanQuery
     // Title gets 3x boost, content 1x, metadata 0.8x
@@ -168,6 +190,17 @@ fn build_search_query(
     let workspace_q: Box<dyn Query> =
         Box::new(TermQuery::new(workspace_term, IndexRecordOption::Basic));
     subqueries.push((Occur::Must, workspace_q));
+
+    // `from:` author filter. Required exact-match on the author_uuid term, so
+    // results narrow to that person's attributed documents (ticket requester,
+    // comment author, doc last-editor). Kinds without an author_uuid value
+    // carry no term and so drop out — which is the intended behaviour.
+    if let Some(author_uuid) = author {
+        let author_term = Term::from_field_text(schema.author_uuid, author_uuid);
+        let author_q: Box<dyn Query> =
+            Box::new(TermQuery::new(author_term, IndexRecordOption::Basic));
+        subqueries.push((Occur::Must, author_q));
+    }
 
     Box::new(BooleanQuery::new(subqueries))
 }
@@ -332,10 +365,32 @@ mod tests {
         let docs = vec![ticket(1, 1), ticket(2, 2)];
         let (_index, schema, reader) = index_docs(&docs);
 
-        let ws1 = execute_search(&reader, &schema, "printer", 10, None, true, 1).expect("ws1");
+        let ws1 = execute_search(
+            &reader,
+            &schema,
+            "printer",
+            10,
+            None,
+            true,
+            1,
+            SortOrder::Relevance,
+            None,
+        )
+        .expect("ws1");
         assert_eq!(ids(&ws1), vec!["ticket-1"], "ws1 sees only its own ticket");
 
-        let ws2 = execute_search(&reader, &schema, "printer", 10, None, true, 2).expect("ws2");
+        let ws2 = execute_search(
+            &reader,
+            &schema,
+            "printer",
+            10,
+            None,
+            true,
+            2,
+            SortOrder::Relevance,
+            None,
+        )
+        .expect("ws2");
         assert_eq!(ids(&ws2), vec!["ticket-2"], "ws2 sees only its own ticket");
     }
 
@@ -348,7 +403,18 @@ mod tests {
         let (_index, schema, reader) = index_docs(&[orphan]);
 
         for ws in [1i64, 2, 3] {
-            let resp = execute_search(&reader, &schema, "printer", 10, None, true, ws).expect("q");
+            let resp = execute_search(
+                &reader,
+                &schema,
+                "printer",
+                10,
+                None,
+                true,
+                ws,
+                SortOrder::Relevance,
+                None,
+            )
+            .expect("q");
             assert!(
                 resp.results.is_empty(),
                 "orphan doc must be unreachable from workspace {ws}"
@@ -364,10 +430,20 @@ mod tests {
         let (_index, schema, reader) = index_docs(&[user]);
 
         let q = |ws: i64| {
-            execute_search(&reader, &schema, "sebastian", 10, None, true, ws)
-                .expect("q")
-                .results
-                .len()
+            execute_search(
+                &reader,
+                &schema,
+                "sebastian",
+                10,
+                None,
+                true,
+                ws,
+                SortOrder::Relevance,
+                None,
+            )
+            .expect("q")
+            .results
+            .len()
         };
         assert_eq!(q(1), 1, "reachable from workspace 1");
         assert_eq!(q(3), 1, "reachable from workspace 3");
@@ -392,7 +468,18 @@ mod tests {
         ];
         let (_index, schema, reader) = index_docs(&docs);
 
-        let resp = execute_search(&reader, &schema, "printer", 10, None, true, 1).expect("q");
+        let resp = execute_search(
+            &reader,
+            &schema,
+            "printer",
+            10,
+            None,
+            true,
+            1,
+            SortOrder::Relevance,
+            None,
+        )
+        .expect("q");
         assert_eq!(
             ids(&resp),
             vec!["ticket-1"],
@@ -426,17 +513,210 @@ mod tests {
             Some(&[EntityType::Ticket]),
             true,
             1,
+            SortOrder::Relevance,
+            None,
         )
         .expect("tickets");
         assert_eq!(ids(&only_tickets), vec!["ticket-1"]);
 
         // Non-staff must not see the internal comment even within their ws.
-        let non_staff =
-            execute_search(&reader, &schema, "printer", 10, None, false, 1).expect("non-staff");
+        let non_staff = execute_search(
+            &reader,
+            &schema,
+            "printer",
+            10,
+            None,
+            false,
+            1,
+            SortOrder::Relevance,
+            None,
+        )
+        .expect("non-staff");
         assert_eq!(
             ids(&non_staff),
             vec!["ticket-1"],
             "internal comment filtered out for non-staff"
+        );
+    }
+
+    #[test]
+    fn updated_sort_orders_newest_first() {
+        // Three equally-matching tickets in one workspace with distinct
+        // updated_at values; the Updated sort returns them newest-first,
+        // independent of BM25 score. (ids() sorts alphabetically, so compare
+        // the result order directly here.)
+        let docs = vec![
+            ticket(1, 1).updated_at(1_000),
+            ticket(2, 1).updated_at(3_000),
+            ticket(3, 1).updated_at(2_000),
+        ];
+        let (_index, schema, reader) = index_docs(&docs);
+
+        let resp = execute_search(
+            &reader,
+            &schema,
+            "printer",
+            10,
+            None,
+            true,
+            1,
+            SortOrder::Updated,
+            None,
+        )
+        .expect("q");
+        let order: Vec<String> = resp.results.iter().map(|r| r.id.clone()).collect();
+        assert_eq!(
+            order,
+            vec!["ticket-2", "ticket-3", "ticket-1"],
+            "newest updated_at first, regardless of relevance"
+        );
+    }
+
+    #[test]
+    fn relevance_and_updated_sorts_can_disagree() {
+        // A recently-updated weak match vs an older strong match: relevance
+        // puts the strong match first, Updated puts the recent one first.
+        // Guards against the branches accidentally collapsing to one axis.
+        let strong_old = IndexDocument::new(
+            EntityType::Ticket,
+            1,
+            "printer printer printer",
+            "printer jam printer",
+        )
+        .workspace_id(1)
+        .updated_at(1_000);
+        let weak_new = IndexDocument::new(EntityType::Ticket, 2, "the office printer", "misc note")
+            .workspace_id(1)
+            .updated_at(9_000);
+        let (_index, schema, reader) = index_docs(&[strong_old, weak_new]);
+
+        let by_rel = execute_search(
+            &reader,
+            &schema,
+            "printer",
+            10,
+            None,
+            true,
+            1,
+            SortOrder::Relevance,
+            None,
+        )
+        .expect("rel");
+        assert_eq!(
+            by_rel.results.first().map(|r| r.id.as_str()),
+            Some("ticket-1"),
+            "strongest text match first by relevance"
+        );
+
+        let by_upd = execute_search(
+            &reader,
+            &schema,
+            "printer",
+            10,
+            None,
+            true,
+            1,
+            SortOrder::Updated,
+            None,
+        )
+        .expect("upd");
+        assert_eq!(
+            by_upd.results.first().map(|r| r.id.as_str()),
+            Some("ticket-2"),
+            "most recently updated first by Updated sort"
+        );
+    }
+
+    #[test]
+    fn author_filter_narrows_to_that_person() {
+        // Two matching tickets in the same workspace, different requesters,
+        // plus one unattributed doc (no author_uuid). `from:alice` returns
+        // only alice's ticket; the unattributed doc never matches a from:.
+        let alice = "alice-uuid";
+        let bob = "bob-uuid";
+        let docs = vec![
+            ticket(1, 1).author_uuid(Some(alice.to_string())),
+            ticket(2, 1).author_uuid(Some(bob.to_string())),
+            ticket(3, 1), // unattributed
+        ];
+        let (_index, schema, reader) = index_docs(&docs);
+
+        let only_alice = execute_search(
+            &reader,
+            &schema,
+            "printer",
+            10,
+            None,
+            true,
+            1,
+            SortOrder::Relevance,
+            Some(alice),
+        )
+        .expect("alice");
+        assert_eq!(
+            ids(&only_alice),
+            vec!["ticket-1"],
+            "from:alice → alice only"
+        );
+
+        // No filter → all three matching docs (including the unattributed).
+        let unfiltered = execute_search(
+            &reader,
+            &schema,
+            "printer",
+            10,
+            None,
+            true,
+            1,
+            SortOrder::Relevance,
+            None,
+        )
+        .expect("all");
+        assert_eq!(ids(&unfiltered), vec!["ticket-1", "ticket-2", "ticket-3"]);
+
+        // An author nobody matches → empty.
+        let nobody = execute_search(
+            &reader,
+            &schema,
+            "printer",
+            10,
+            None,
+            true,
+            1,
+            SortOrder::Relevance,
+            Some("ghost-uuid"),
+        )
+        .expect("ghost");
+        assert!(nobody.results.is_empty(), "unknown author → no results");
+    }
+
+    #[test]
+    fn author_filter_composes_with_workspace_gate() {
+        // Same author string tagged in two workspaces; the from: filter must
+        // still not cross the workspace boundary.
+        let alice = "alice-uuid";
+        let docs = vec![
+            ticket(1, 1).author_uuid(Some(alice.to_string())),
+            ticket(2, 2).author_uuid(Some(alice.to_string())),
+        ];
+        let (_index, schema, reader) = index_docs(&docs);
+
+        let ws1 = execute_search(
+            &reader,
+            &schema,
+            "printer",
+            10,
+            None,
+            true,
+            1,
+            SortOrder::Relevance,
+            Some(alice),
+        )
+        .expect("ws1");
+        assert_eq!(
+            ids(&ws1),
+            vec!["ticket-1"],
+            "from:alice in ws1 must not reach alice's ws2 ticket"
         );
     }
 }
