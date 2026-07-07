@@ -4,7 +4,7 @@ import { initServerGate } from './platform/serverGate'
 
 import { interceptConsole } from './utils/remoteLogger'
 
-import { createApp } from 'vue'
+import { createApp, nextTick } from 'vue'
 import { createPinia } from 'pinia'
 import { PiniaColada } from '@pinia/colada'
 
@@ -68,6 +68,19 @@ async function bootstrap() {
   // 'host' and never rejects, so it can't block or break the mount.
   await Promise.all([fetchInstanceConfig(), router.isReady()])
   app.mount('#app')
+
+  // Signal the launch splash (public/splash.js) that the first real
+  // screen is up so it can hand off. Double-rAF after nextTick waits
+  // for the mounted screen to actually paint, so the fade never starts
+  // over a blank frame. Whichever screen mounted first (connect-server,
+  // login, or the app shell) is a real branded screen; auth resolving
+  // later doesn't matter here.
+  await nextTick()
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => {
+      document.getElementById('app-splash')?.setAttribute('data-ready', '')
+    }),
+  )
 }
 
 void bootstrap()

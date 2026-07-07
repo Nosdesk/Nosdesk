@@ -10,6 +10,12 @@
 # tracked, so a build regenerates a correct project.
 /gen/apple/app.xcodeproj/
 
+# NOTE: gen/apple/LaunchScreen.storyboard and Assets.xcassets/LaunchBackground
+# .colorset ARE tracked and intentionally customized (brand launch field, no
+# white flash). `tauri ios build` does NOT touch them; only a manual
+# `tauri ios init` re-scaffold would. If you ever re-init, re-apply the
+# LaunchBackground colorset + the storyboard's named-colour background.
+
 # The Android Studio project is tracked (like gen/apple) so the manifest
 # customization (the nosdesk:// OIDC intent-filter) and the adaptive launcher
 # icons are reproducible. The nested gen/android/.gitignore + app/.gitignore
