@@ -7,6 +7,8 @@ Variants:
   - primary       solid accent, the one main action per section
   - secondary     neutral filled, lower-emphasis affirmative actions
   - danger        solid red, prominent destructive CTAs (modal confirms)
+  - warning       solid amber, reversible-but-consequential confirms
+                  (reset to defaults, discard changes)
   - ghost         transparent neutral, low-emphasis / icon actions
   - ghost-danger  transparent red text, low-emphasis destructive actions
                   in dense rows (Revoke, Remove) where a filled red button
@@ -21,7 +23,7 @@ import Spinner from '@/components/common/Spinner.vue';
 import Icon from '@/components/common/Icon.vue';
 import type { IconName } from '@/components/common/icons';
 
-type Variant = 'primary' | 'secondary' | 'danger' | 'ghost' | 'ghost-danger';
+type Variant = 'primary' | 'secondary' | 'danger' | 'warning' | 'ghost' | 'ghost-danger';
 type Size = 'sm' | 'md' | 'lg';
 
 interface Props {
@@ -74,7 +76,11 @@ const sizeClasses: Record<Size, string> = {
 const variantClasses: Record<Variant, string> = {
   primary: 'bg-accent text-on-accent hover:opacity-90',
   secondary: 'bg-surface-alt text-primary border border-default hover:bg-surface-hover',
+  // `text-white` on danger/warning: same contrast tradeoff documented
+  // above (no theme-aware on-status token yet). Kept as-is so the
+  // existing filled-status buttons don't recolour.
   danger: 'bg-status-error text-white hover:opacity-90',
+  warning: 'bg-status-warning text-white hover:opacity-90',
   ghost: 'text-secondary hover:text-primary hover:bg-surface-hover',
   'ghost-danger': 'text-status-error hover:bg-status-error/10',
 };
