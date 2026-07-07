@@ -128,6 +128,12 @@ const FROM_TOKEN_RE = /(^|\s)from:(\S*)$/i;
 
 let keyboardListenerRegistered = false;
 
+/** Step an index by `delta` within `[0, len)`, wrapping at both ends. */
+function wrapIndex(index: number, len: number, delta: number): number {
+  if (len === 0) return 0;
+  return (index + delta + len) % len;
+}
+
 /** Reset search state to empty */
 function resetResults() {
   results.value = [];
@@ -256,27 +262,12 @@ export function useGlobalSearch() {
     query.value = raw.replace(match[0], match[1]).replace(/\s{2,}/g, ' ').trimStart();
   });
 
-  // Re-search when activeTypes changes (e.g., clearing the filter badge)
-  watch(activeTypes, () => {
-    if (query.value.trim()) {
-      performSearch(query.value);
-    }
-  });
-
-  // Re-search when the sort axis changes so the new ordering comes from
-  // the index rather than a client-side re-sort of the current page (a
-  // 50-result page isn't the whole match set, so re-sorting locally would
-  // reorder a truncated slice and mislead).
-  watch(sortOrder, () => {
-    if (query.value.trim()) {
-      performSearch(query.value);
-    }
-  });
-
-  // Re-search when the person filter changes. Like scope, `from:` narrows
-  // an existing query; with no query text there's nothing to narrow, so we
-  // fall back to the prompt (the chip stays visible, ready for a query).
-  watch(authorFilter, () => {
+  // Re-run the search whenever a filter or the sort axis changes — scope
+  // chip, sort toggle, or person chip. Each narrows/re-orders an existing
+  // query, so we go back to the index rather than re-sorting the current
+  // (truncated) page. With no query text there's nothing to run, so we fall
+  // back to the prompt; any chips stay visible, ready for a query.
+  watch([activeTypes, sortOrder, authorFilter], () => {
     if (query.value.trim()) {
       performSearch(query.value);
     } else {
@@ -373,15 +364,12 @@ export function useGlobalSearch() {
   // Keyboard navigation
   const selectNext = () => {
     if (flatResults.value.length === 0) return;
-    selectedIndex.value = (selectedIndex.value + 1) % flatResults.value.length;
+    selectedIndex.value = wrapIndex(selectedIndex.value, flatResults.value.length, 1);
   };
 
   const selectPrevious = () => {
     if (flatResults.value.length === 0) return;
-    selectedIndex.value =
-      selectedIndex.value <= 0
-        ? flatResults.value.length - 1
-        : selectedIndex.value - 1;
+    selectedIndex.value = wrapIndex(selectedIndex.value, flatResults.value.length, -1);
   };
 
   const selectResult = () => {
@@ -405,15 +393,11 @@ export function useGlobalSearch() {
       switch (event.key) {
         case 'ArrowDown':
           event.preventDefault();
-          selectedAuthorIndex.value =
-            (selectedAuthorIndex.value + 1) % authorCandidates.value.length;
+          selectedAuthorIndex.value = wrapIndex(selectedAuthorIndex.value, authorCandidates.value.length, 1);
           return;
         case 'ArrowUp':
           event.preventDefault();
-          selectedAuthorIndex.value =
-            selectedAuthorIndex.value <= 0
-              ? authorCandidates.value.length - 1
-              : selectedAuthorIndex.value - 1;
+          selectedAuthorIndex.value = wrapIndex(selectedAuthorIndex.value, authorCandidates.value.length, -1);
           return;
         case 'Tab':
         case 'Enter':
@@ -428,14 +412,11 @@ export function useGlobalSearch() {
       switch (event.key) {
         case 'ArrowDown':
           event.preventDefault();
-          selectedScopeIndex.value = (selectedScopeIndex.value + 1) % SCOPE_OPTIONS.length;
+          selectedScopeIndex.value = wrapIndex(selectedScopeIndex.value, SCOPE_OPTIONS.length, 1);
           return;
         case 'ArrowUp':
           event.preventDefault();
-          selectedScopeIndex.value =
-            selectedScopeIndex.value <= 0
-              ? SCOPE_OPTIONS.length - 1
-              : selectedScopeIndex.value - 1;
+          selectedScopeIndex.value = wrapIndex(selectedScopeIndex.value, SCOPE_OPTIONS.length, -1);
           return;
         case 'Tab':
         case 'Enter':
