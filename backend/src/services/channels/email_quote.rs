@@ -383,9 +383,7 @@ pub fn split_html(html: &str) -> QuoteSplit {
 
     match earliest {
         Some(boundary) => {
-            let new_part = trimmed[..boundary]
-                .trim_end_matches(['\r', '\n', ' ', '\t'])
-                .to_string();
+            let new_part = trim_trailing_breaks(&trimmed[..boundary]).to_string();
             let quoted_part = trimmed[boundary..].to_string();
             QuoteSplit {
                 new_content: new_part,
@@ -400,6 +398,25 @@ pub fn split_html(html: &str) -> QuoteSplit {
             new_content: trimmed.to_string(),
             quoted_content: None,
         },
+    }
+}
+
+/// Trim trailing whitespace AND trailing `<br>` variants from the visible
+/// half of an HTML split. Mail clients (Gmail in particular) separate the
+/// reply from the quote wrapper with a bare `<br>`; leaving it on the
+/// visible part renders as a stray empty line above the collapsed-quote
+/// disclosure.
+fn trim_trailing_breaks(html: &str) -> &str {
+    let mut s = html.trim_end_matches(['\r', '\n', ' ', '\t']);
+    loop {
+        let lower = s.to_ascii_lowercase();
+        let cut = ["<br>", "<br/>", "<br />"]
+            .iter()
+            .find_map(|tag| lower.ends_with(tag).then(|| s.len() - tag.len()));
+        match cut {
+            Some(pos) => s = s[..pos].trim_end_matches(['\r', '\n', ' ', '\t']),
+            None => return s,
+        }
     }
 }
 
@@ -615,7 +632,8 @@ mod tests {
         let split = split_html(html);
         assert_eq!(
             split.new_content,
-            "<div dir=\"ltr\">Good thing I had a fire extinguisher! All sorted now.</div><br>"
+            "<div dir=\"ltr\">Good thing I had a fire extinguisher! All sorted now.</div>",
+            "the separator <br> before the quote wrapper must not survive as a stray blank line"
         );
         let quoted = split.quoted_content.unwrap();
         assert!(
