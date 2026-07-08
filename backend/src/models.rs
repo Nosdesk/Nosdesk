@@ -125,8 +125,7 @@ impl FromSql<crate::schema::sql_types::WorkflowStateCategory, Pg> for WorkflowSt
 // single-tenant deployment. Phase 2 introduces the
 // WorkspaceContext extractor + middleware that resolves a
 // workspace per request (subdomain in hosted mode, default in
-// self-hosted). See docs/multi-tenant-migration-plan.md for
-// the full picture.
+// self-hosted).
 
 #[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable, Selectable)]
 #[diesel(table_name = crate::schema::workspaces)]
@@ -222,8 +221,7 @@ pub struct SavedView {
     /// allowlist before write.
     pub viz_type: String,
     /// Per-renderer config blob: measures, group-by, top-N, grain,
-    /// chart_source tagged union, etc. The shape per viz_type lives
-    /// in docs/dashboard-and-analytics-plan.md §4.2.
+    /// chart_source tagged union, etc. The shape varies per viz_type.
     pub viz_config: serde_json::Value,
 }
 
@@ -1307,8 +1305,7 @@ pub struct AssetKindUpdate {
 // === Asset model catalog (NetBox-style) ======================
 //
 // `manufacturers` (a make) -> `asset_models` (a real make+model, the
-// "device type") -> `assets` (instances stamped from a model). See
-// docs/plans/asset-model-catalog.md.
+// "device type") -> `assets` (instances stamped from a model).
 
 /// A manufacturer / make (Apple, Dell) in the asset model catalog.
 #[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
@@ -1796,7 +1793,7 @@ pub struct ArticleContent {
     /// affinity). The owning machine stamps its claim's monotonic token
     /// on each snapshot write; a conditional write rejects a stale owner
     /// whose token is lower. NULL on rows written in single-instance
-    /// mode (no claim). See `docs/realtime-collab-affinity-design.md`.
+    /// mode (no claim).
     pub fence_token: Option<i64>,
 }
 
@@ -7627,7 +7624,7 @@ pub mod email_suppression_reason {
 }
 
 // =====================================================================
-// Rules engine (docs/rules-and-actions-plan.md). Phase 1 ships the
+// Rules engine. Phase 1 ships the
 // manual-trigger surface; the data model below is the unified shape
 // Phase 2 (event triggers), Phase 3 (time-elapsed), and Phase 4
 // (webhook actions) extend without schema changes.

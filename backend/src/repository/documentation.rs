@@ -499,8 +499,7 @@ pub fn update_documentation_yjs_state(
     yjs_document: Vec<u8>,
     // Ownership-claim fencing token (Phase 2 affinity). `Some(f)` gates
     // the write so a stale owner cannot clobber a newer owner's state;
-    // `None` (single-instance / Redis-down) writes unconditionally. See
-    // docs/realtime-collab-affinity-design.md.
+    // `None` (single-instance / Redis-down) writes unconditionally.
     fence: Option<i64>,
     observer: Option<&dyn DocumentationSavedObserver>,
 ) -> Result<DocumentationPage, Error> {

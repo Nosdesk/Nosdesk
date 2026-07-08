@@ -3,8 +3,7 @@
 //! Versioned KEK (`MFA_KEK_V{n}` + `MFA_KEK_VERSION`), self-describing
 //! framed blob `[ver][alg][kek_id][nonce][ct][tag]` stored as `BYTEA`,
 //! AAD bound at the call site. Matches the nosdesk-com control plane
-//! (Tink / Vault / AWS Encryption SDK shape). See
-//! `docs/auth-convergence.md` items 1-3 for the design rationale.
+//! (Tink / Vault / AWS Encryption SDK shape).
 
 use once_cell::sync::OnceCell;
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM};

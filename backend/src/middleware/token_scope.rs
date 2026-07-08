@@ -4,7 +4,7 @@
 //! the scope it requires, plus (step 3) the middleware that enforces it
 //! against a narrowed token's `ScopeSet`.
 //!
-//! Design (see docs/plans/api-token-scopes-plan.md):
+//! Design:
 //!   * `full` credentials (every cookie session and every un-narrowed
 //!     token) short-circuit in the middleware and never reach this
 //!     policy. Only deliberately-narrowed API tokens are constrained.

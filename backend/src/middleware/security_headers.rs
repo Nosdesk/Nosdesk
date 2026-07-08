@@ -33,8 +33,8 @@
 //! ## What this NOT yet handles
 //!
 //! - `report-uri` / `report-to`: violation reports aren't yet
-//!   collected. Adding a `/api/csp-report` collector is captured
-//!   in docs/security-audit-plan.md.
+//!   collected. Adding a `/api/csp-report` collector is a
+//!   follow-up.
 //! - Trusted Types: requires Vue-side TT policy registration
 //!   first (every `v-html` path needs to declare TT compatibility).
 //!   Phase 4 frontend work per the existing plan.

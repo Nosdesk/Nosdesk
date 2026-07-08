@@ -102,7 +102,7 @@ pub fn try_bearer_auth(
         let api_token = get_valid_api_token(conn, &token_hash)?;
         // Active-only — soft-deleted users can't authenticate via
         // an API token even if the token itself is still valid.
-        // F2C.2 H4 (see docs/auth-convergence.md).
+        // F2C.2 H4.
         let user = crate::repository::users::find_active_by_uuid(&api_token.user_uuid, conn)?;
         let email =
             crate::repository::user_emails::get_user_emails_by_uuid(conn, &api_token.user_uuid)

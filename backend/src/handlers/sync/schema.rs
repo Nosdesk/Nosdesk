@@ -2,7 +2,7 @@
 //! hash plus the database's instance id, so the client can name its
 //! IndexedDB instance, detect schema mismatches before opening a
 //! bootstrap stream, and fence its local caches to the current
-//! database generation (see docs/plans/collab-stale-cache-fence.md).
+//! database generation.
 //!
 //! Called once per cold start before `hydrate()`. The instance id is a
 //! single indexed PK lookup; on a DB error we return an empty string so

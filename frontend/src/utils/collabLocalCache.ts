@@ -8,8 +8,7 @@
  *   - `stores/collabSession.ts` — LRU prune of individual docs.
  *   - `sync/lifecycle.ts` — the epoch fence: wipe everything when the
  *     server's database instance id changes (cached docs belong to a
- *     different data generation). See
- *     docs/plans/collab-stale-cache-fence.md.
+ *     different data generation).
  */
 import { clearDocument as clearIdbDocument } from 'y-indexeddb'
 import { logger } from '@nosdesk/core/utils/logger'

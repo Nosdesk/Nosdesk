@@ -1,6 +1,5 @@
 /**
- * URL-bound time range for the dashboard surface
- * (docs/dashboard-and-analytics-plan.md decision 5).
+ * URL-bound time range for the dashboard surface.
  *
  * Reads `?range=...` (and `?from=...&to=...` for the Custom case)
  * from the route; writes via `router.replace` so the back button

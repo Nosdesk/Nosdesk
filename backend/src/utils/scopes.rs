@@ -7,8 +7,7 @@
 //!
 //! This module is the single matcher for both the audit handler gate
 //! (`rbac::require_audit_read`) and the token-scope middleware, so the
-//! two can't drift. See docs/plans/api-token-scopes-plan.md for the
-//! taxonomy and the route policy that consumes it.
+//! two can't drift.
 
 use std::collections::HashSet;
 

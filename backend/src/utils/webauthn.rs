@@ -128,7 +128,7 @@ impl WebAuthnConfig {
 // per host/workspace and custom domains work without a shared RP ID (which
 // would leak credentials across tenants). Self-hosted single-tenant: the
 // env-configured RP (`WEBAUTHN_RP_ID` / `WEBAUTHN_RP_ORIGIN`). Building per
-// request is cheap. Rationale + spec research: docs/plans/tenant-origin-awareness.md.
+// request is cheap.
 
 /// Build the WebAuthn verifier for the current request. RP ID is the request's
 /// (validated) workspace host in hosted mode, or the env config in self-hosted

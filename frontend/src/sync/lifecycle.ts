@@ -197,8 +197,7 @@ export async function hydrate(
   //     different database generation. We only trust an instance id the
   //     server actually reported (non-empty), and an absent persisted
   //     id counts as a mismatch so the first load after this ships
-  //     clears caches written before instance ids existed. See
-  //     docs/plans/collab-stale-cache-fence.md.
+  //     clears caches written before instance ids existed.
   const schemaChanged = !!persistedHash && persistedHash !== schemaHash
   const instanceChanged = instanceId !== '' && persistedInstance !== instanceId
 

@@ -1,7 +1,7 @@
 //! Tracing / logging initialisation for the backend.
 //!
 //! Kept as a distinct phase of startup so `main` stays a thin composition
-//! root (see `docs/plans/main-bootstrap-refactor.md`).
+//! root.
 
 use tracing::info;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};

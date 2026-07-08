@@ -355,12 +355,11 @@ const MIN_SAVE_INTERVAL: Duration = Duration::from_secs(5);
 const MAX_PENDING_DURATION: Duration = Duration::from_secs(120);
 // How long to wait before doing final save on empty room
 const EMPTY_ROOM_FINAL_SAVE_DELAY: Duration = Duration::from_secs(2);
-// How long an empty (and final-saved) room stays in memory before its
-// ownership claim is released and the doc evicted, under multi-instance
-// routing. Long enough to absorb a quick close/reopen without churning
-// the claim, short enough that an idle doc stops pinning a machine.
-// Single-instance mode never evicts (no ownership manager). See
-// `docs/realtime-collab-affinity-design.md`.
+// How long an empty (and final-saved) room stays in memory before the doc is
+// evicted (freeing memory in both modes; under multi-instance routing the
+// ownership claim is also released). Long enough to absorb a quick close/reopen
+// without churning, short enough that an idle doc stops pinning memory / a
+// machine.
 const EMPTY_ROOM_EVICT_DELAY: Duration = Duration::from_secs(60);
 // Document type enum: distinguishes ticket articles, doc pages,
 // and collection descriptions. The collection variant binds to
@@ -836,8 +835,7 @@ struct DocumentState {
     /// (Phase 2 affinity). Stamped on every durable snapshot write so a
     /// stale owner (whose lease expired under a GC pause) is rejected.
     /// `None` in single-instance mode and in the Redis-down degraded
-    /// case, where writes are unconditional (today's behaviour). See
-    /// `docs/realtime-collab-affinity-design.md`.
+    /// case, where writes are unconditional (today's behaviour).
     fence: Option<i64>,
     /// Integer-keyed document type, resolved once from the doc_id's
     /// immutable resource UUID at open. The save / snapshot loops read
@@ -1042,7 +1040,6 @@ pub struct YjsAppState {
     /// (Phase 2 affinity). `None` in single-instance mode
     /// (`NOSDESK_COLLAB_ROUTING` unset / `single`), in which case
     /// the routing layer is inert and every doc is served locally.
-    /// See `docs/realtime-collab-affinity-design.md`.
     ownership: Option<Arc<crate::services::collab_ownership::CollabOwnership>>,
     /// Which routing mode this machine runs in. `Single` when
     /// `ownership` is `None`; `FlyReplay` / `DirectAddress` when set.
@@ -2820,8 +2817,7 @@ pub async fn ws_handler(
     // negotiating the upgrade, so fly-proxy replays the original request
     // to the owning machine, which then performs the upgrade. This is
     // the one constraint the research surfaced: the replaying instance
-    // must not handle the upgrade itself. See
-    // `docs/realtime-collab-affinity-design.md`.
+    // must not handle the upgrade itself.
     let fence = match app_state.route(&doc_id).await {
         CollabRoute::Local(fence) => fence,
         CollabRoute::ReplayTo(owner) => {

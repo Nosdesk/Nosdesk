@@ -52,7 +52,7 @@ const docs = useSyncDocsStore()
 // Live-collaboration connection for this doc. The real-time mechanism on
 // a document is the Yjs WebSocket the editor opens (owned, per-doc, by
 // the collab session store), not SSE — SSE presence is being retired for
-// the WS ephemeral plane (docs/realtime-ephemeral-plane-design.md). When
+// the WS ephemeral plane. When
 // per-doc viewer presence lands there, this indicator grows into it.
 const collabStore = useCollabSessionStore()
 const liveStatus = computed<ConnectionStatus>(() =>

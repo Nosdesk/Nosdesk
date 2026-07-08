@@ -448,8 +448,7 @@ fn check_default_partition_drift(conn: &mut DbConnection, table: &str) {
             warn!(
                 table = table,
                 rows = row.count,
-                "default partition has rows; rotation may have lagged. \
-                 See docs/runbooks/partition-recovery.md"
+                "default partition has rows; rotation may have lagged"
             );
         }
         Ok(_) => {}

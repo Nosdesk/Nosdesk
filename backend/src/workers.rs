@@ -1,7 +1,6 @@
 //! Background workers: the periodic-task scheduler.
 //!
-//! Extracted from main() so the composition root stays thin (see
-//! docs/plans/main-bootstrap-refactor.md). The four event listeners
+//! Extracted from main() so the composition root stays thin. The four event listeners
 //! (sync_outbox / email_queue / search_replicator / channel supervisor) remain
 //! in main() for now: they're interleaved with the state they capture and move
 //! out with Phase 4 (state).

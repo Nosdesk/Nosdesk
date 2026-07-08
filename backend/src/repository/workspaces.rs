@@ -58,7 +58,7 @@ impl std::error::Error for CreateWorkspaceError {}
 
 // sync-audit-only: workspaces row creation is operator-side / control-plane provisioning; never propagated through the per-workspace sync stream (the workspace doesn't exist there yet to receive it)
 /// Insert a workspace row. Caller supplies a product-generated UUID
-/// per the locked-decision in `docs/m5-product-side-handoff.md` (the
+/// per the locked decision (the
 /// product owns workspace identity; the control plane mirrors).
 /// `plan` is omitted so the DB default (`'free'`) applies.
 ///

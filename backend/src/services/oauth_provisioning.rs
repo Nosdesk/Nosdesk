@@ -412,8 +412,7 @@ mod tests {
     /// callback would supply). The second call must hit step 1
     /// (find_by_identity) and return `Existed` with the same user row,
     /// not mint a duplicate. Operator misconfiguration of
-    /// `auth_providers.provider_type` is NOT covered here (see
-    /// `docs/m5-integration-contract.md`).
+    /// `auth_providers.provider_type` is NOT covered here.
     #[test]
     fn lazy_login_finds_eagerly_projected_user() {
         let mut conn = setup_test_connection();

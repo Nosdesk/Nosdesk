@@ -1,7 +1,6 @@
 <script setup lang="ts">
 /**
- * Left-sticky section anchor rail
- * (docs/dashboard-and-analytics-plan.md decision 23).
+ * Left-sticky section anchor rail.
  *
  * Renders the seven canonical section anchors as a vertical list;
  * the currently-active section (the one whose marker is closest to

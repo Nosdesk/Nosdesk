@@ -309,7 +309,7 @@ pub fn get_paginated_users(
 // [`find_active_by_uuid`] below instead. Otherwise a user
 // soft-deleted between credential enrolment and the next auth
 // attempt can still authenticate (F2C.2 H4 finding from the
-// cross-codebase audit, see `docs/auth-convergence.md`).
+// cross-codebase audit).
 pub fn get_user_by_uuid(uuid: &Uuid, conn: &mut DbConnection) -> Result<User, Error> {
     users::table.find(uuid).first::<User>(conn)
 }

@@ -10,7 +10,7 @@
 //! runs under `with_actor_context` so every audited write and every
 //! sync row shares the actor's `correlation_id`.
 //!
-//! Lifecycle order mirrors `docs/ticket-merge-plan.md` section 5. The
+//! Lifecycle order is deterministic. The
 //! handler stays thin: parse, authorise, call `execute_merge`, format
 //! the response.
 

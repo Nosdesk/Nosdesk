@@ -122,8 +122,7 @@ pub fn generate_totp_secret() -> SecretString {
 /// Returns `(plaintext, hashed)` where `plaintext` is wrapped in
 /// [`zeroize::Zeroizing`] so its backing allocations get wiped on
 /// drop. Per the F2C deferred audit work and the convergent
-/// Rust-crypto position (research-backed, see
-/// `docs/auth-convergence.md`), this is **shallow** protection:
+/// Rust-crypto position (research-backed), this is **shallow** protection:
 /// `Zeroize` here wipes the *source* `Vec<String>` when the
 /// handler returns or unwinds. The clones that `serde_json::json!`
 /// makes into a `Value` tree, and the actix-web response body

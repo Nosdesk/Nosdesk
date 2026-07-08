@@ -64,7 +64,7 @@ pub fn set_schema_hash(conn: &mut DbConnection, hash: &str) -> QueryResult<()> {
 /// and only changes when the database is freshly initialised (the row
 /// is gone), so clients use it as an "epoch" fence: a change means the
 /// cached local data belongs to a different database generation and
-/// must be wiped. See `docs/plans/collab-stale-cache-fence.md`.
+/// must be wiped.
 pub fn instance_id(conn: &mut DbConnection) -> QueryResult<String> {
     Ok(get(conn, KEY_INSTANCE_ID)?
         .and_then(|v| v.as_str().map(|s| s.to_string()))

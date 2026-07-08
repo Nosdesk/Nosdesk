@@ -1,6 +1,5 @@
 /**
- * Section anchors for the dashboard
- * (docs/dashboard-and-analytics-plan.md §6).
+ * Section anchors for the dashboard.
  *
  * v1 ships the four sections whose widgets are actually present on
  * the canvas: Today (KPI tiles), Volume & SLA (the line chart),
