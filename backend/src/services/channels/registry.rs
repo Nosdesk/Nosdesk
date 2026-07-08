@@ -620,7 +620,7 @@ mod tests {
         ChannelAdapter, ChannelError, ExternalIdentity, InboundEvent, InboundMessage, LoopMarkers,
         OutboundContent, OutboundMessage, SenderAuth, ThreadContext,
     };
-    use crate::test_helpers::{setup_test_pool, TestFixtures};
+    use crate::test_helpers::setup_test_pool;
     use async_trait::async_trait;
     use chrono::Utc;
     use std::sync::Mutex;
@@ -961,12 +961,5 @@ mod tests {
                 .unwrap()
                 .is_some()
         );
-    }
-
-    // Assertion helper to keep UserRole imported — prevents unused-import
-    // warning when we later add UserRole-dependent tests here.
-    #[allow(dead_code)]
-    fn _silence_user_role_import(conn: &mut crate::db::DbConnection) {
-        let _ = TestFixtures::create_user(conn, "n", "user");
     }
 }

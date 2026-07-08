@@ -109,7 +109,6 @@ lazy_static::lazy_static! {
 }
 
 /// Get the cached OIDC configuration (if enabled and valid)
-#[allow(dead_code)]
 pub fn get_config() -> Option<&'static OidcConfig> {
     OIDC_CONFIG.as_ref()
 }

@@ -18,7 +18,6 @@ use diesel::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::{info, warn};
-use uuid::Uuid;
 
 use crate::db::{DbConnection, Pool};
 use crate::extractors::SyncContext;
@@ -394,13 +393,4 @@ fn reject_diesel(err: diesel::result::Error) -> TxReject {
         Error::NotFound => TxReject("not_found", "model_id does not exist".into()),
         other => TxReject("internal", other.to_string()),
     }
-}
-
-// Suppress "unused import" if Uuid isn't otherwise referenced in this
-// module after the compiler optimises everything down. Keep the
-// import live because future op handlers (Insert paths) will need it
-// for assignee_uuid / requester_uuid coercions.
-#[allow(dead_code)]
-fn _uuid_keepalive() -> Option<Uuid> {
-    None
 }
