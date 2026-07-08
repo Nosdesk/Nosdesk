@@ -4,8 +4,7 @@
 //! hierarchy and event shapes defined here are deliberately informed by
 //! what email actually needs; they accommodate Slack / Teams / Discord /
 //! webhook-based adapters without locking any of them into a poll-shaped
-//! mold. See `/Users/kylephillips/.claude/plans/email-ingestion.md` for
-//! the stress-test that shaped this design.
+//! mold.
 //!
 //! # Layout
 //!
