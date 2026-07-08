@@ -680,6 +680,54 @@ pub fn clear_user_mfa(conn: &mut DbConnection, user_uuid: &Uuid) -> Result<usize
         .execute(conn)
 }
 
+// sync-audit-only: password_changed_at is a security timestamp on the audited users row (covered by tr_audit_users); no sync aggregate subscribes
+/// Stamp `password_changed_at` on the audited `users` row after a
+/// password change. Must run inside actor + workspace context (the
+/// audit trigger reads `app.workspace_id`); the caller supplies the
+/// transaction. Centralizes the identical write in the local, admin,
+/// invitation-accept, and password-reset flows.
+pub fn set_password_changed_at(
+    conn: &mut DbConnection,
+    user_uuid: &Uuid,
+    at: chrono::NaiveDateTime,
+) -> Result<usize, Error> {
+    diesel::update(users::table.find(user_uuid))
+        .set(users::password_changed_at.eq(at))
+        .execute(conn)
+}
+
+// sync-audit-only: platform_role + workspace_members role changes are recorded by tr_audit_users and tr_audit_workspace_members; no sync aggregate subscribes to a role change
+/// Rewrite a user's two-axis W2 role: `platform_role` on the audited
+/// `users` row and their `workspace_members.role` for `workspace_id`.
+/// Both writes must run inside actor + workspace context (the audit
+/// trigger reads `app.workspace_id`); the caller supplies the
+/// transaction. Replaces the duplicated inline single/bulk set-role
+/// SQL in `handlers::users` — same two updates, but scoped by an
+/// explicit `workspace_id` argument instead of the `app.workspace_id`
+/// GUC read.
+pub fn set_user_roles(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    user_uuid: Uuid,
+    platform_role: &str,
+    workspace_role: &str,
+) -> Result<(), Error> {
+    diesel::update(users::table.find(user_uuid))
+        .set((
+            users::platform_role.eq(platform_role),
+            users::updated_at.eq(chrono::Utc::now().naive_utc()),
+        ))
+        .execute(conn)?;
+    diesel::update(
+        workspace_members::table
+            .filter(workspace_members::workspace_id.eq(workspace_id))
+            .filter(workspace_members::user_uuid.eq(user_uuid)),
+    )
+    .set(workspace_members::role.eq(workspace_role))
+    .execute(conn)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

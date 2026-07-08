@@ -372,6 +372,41 @@ pub fn create_attachment(
     })
 }
 
+// sync-pending-wire: attachments carry a sync aggregate (see create_attachment), but the temp->comment reparent isn't broadcast yet; the parent comment event covers the promoted set today
+/// Reparent a temp attachment onto a comment: point it at its
+/// permanent URL and set `comment_id` / `uploaded_by`. Used when a
+/// guest or ticket submission promotes temp uploads after the comment
+/// row lands.
+pub fn reparent_attachment(
+    conn: &mut DbConnection,
+    attachment_id: i32,
+    url: &str,
+    comment_id: i32,
+    uploaded_by: uuid::Uuid,
+) -> QueryResult<usize> {
+    diesel::update(attachments::table.find(attachment_id))
+        .set((
+            attachments::url.eq(url),
+            attachments::comment_id.eq(Some(comment_id)),
+            attachments::uploaded_by.eq(Some(uploaded_by)),
+        ))
+        .execute(conn)
+}
+
+// sync-pending-wire: attachments carry a sync aggregate (see create_attachment), but this metadata refresh on an existing row isn't broadcast yet; the parent comment event covers it today
+/// Overwrite an existing attachment row from a `NewAttachment`
+/// changeset. Used by the multipart comment path, which re-derives the
+/// full attachment record (permanent URL + comment link) after upload.
+pub fn update_attachment_record(
+    conn: &mut DbConnection,
+    attachment_id: i32,
+    changes: &NewAttachment,
+) -> QueryResult<usize> {
+    diesel::update(attachments::table.find(attachment_id))
+        .set(changes)
+        .execute(conn)
+}
+
 pub fn get_comment_by_id(conn: &mut DbConnection, comment_id: i32) -> QueryResult<Comment> {
     comments::table.find(comment_id).first(conn)
 }

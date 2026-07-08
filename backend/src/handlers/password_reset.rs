@@ -281,19 +281,14 @@ pub async fn reset_password_with_token(
     };
 
     // Update the user's password hash in user_auth_identities and password_changed_at timestamp in users
-    use diesel::prelude::*;
     let now = Utc::now().naive_utc();
 
     // Update password hash in user_auth_identities
-    use crate::schema::user_auth_identities;
-    if let Err(e) = diesel::update(
-        user_auth_identities::table
-            .filter(user_auth_identities::user_uuid.eq(&user.uuid))
-            .filter(user_auth_identities::provider_type.eq("local")),
-    )
-    .set(user_auth_identities::password_hash.eq(Some(new_password_hash)))
-    .execute(&mut conn)
-    {
+    if let Err(e) = crate::repository::user_auth_identities::update_local_password_hash(
+        &mut conn,
+        &user.uuid,
+        &new_password_hash,
+    ) {
         error!("Failed to update password hash: {:?}", e);
         return errors::internal("Error updating password");
     }
@@ -314,9 +309,7 @@ pub async fn reset_password_with_token(
         };
     let actor = crate::sync::actor::ActorContext::user_at_workspace(user.uuid, workspace_id);
     match crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
-        diesel::update(crate::schema::users::table.find(&user.uuid))
-            .set(crate::schema::users::password_changed_at.eq(now))
-            .execute(c)
+        crate::repository::users::set_password_changed_at(c, &user.uuid, now)
     }) {
         Ok(_) => {
             info!(

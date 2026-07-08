@@ -1198,13 +1198,13 @@ async fn claim_guest_attachments(
 
                 let new_url = att.url.clone();
                 let update_result = session::with_actor_context(conn, actor, |c| {
-                    diesel::update(attachments::table.find(att.id))
-                        .set((
-                            attachments::url.eq(&new_url),
-                            attachments::comment_id.eq(Some(comment_id)),
-                            attachments::uploaded_by.eq(Some(requester_uuid)),
-                        ))
-                        .execute(c)
+                    crate::repository::comments::reparent_attachment(
+                        c,
+                        att.id,
+                        &new_url,
+                        comment_id,
+                        requester_uuid,
+                    )
                 });
                 if let Err(e) = update_result {
                     warn!(error = %e, attachment_id = att.id, "Failed to update claimed attachment");

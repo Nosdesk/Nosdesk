@@ -2090,11 +2090,11 @@ pub async fn update_user_by_uuid(
             let new_auth_identity = match local_identity {
                 Some(identity) => {
                     // Replace the existing local identity in place.
-                    diesel::delete(
-                        crate::schema::user_auth_identities::table
-                            .filter(crate::schema::user_auth_identities::id.eq(identity.id)),
-                    )
-                    .execute(conn)?;
+                    repository::user_auth_identities::delete_identity(
+                        identity.id,
+                        &user_uuid_for_identity,
+                        conn,
+                    )?;
                     NewUserAuthIdentity {
                         user_uuid: user_uuid_for_identity,
                         provider_type: identity.provider_type.clone(),
@@ -2230,23 +2230,15 @@ pub async fn update_user_by_uuid(
             // Rewrite platform_role on the audited users row and the
             // workspace_members role for the request's workspace, both
             // inside the actor + workspace-scoped transaction.
+            let ws_id = tc.workspace_id().unwrap_or_default();
             let role_result = tc.run(|conn| {
-                diesel::update(crate::schema::users::table.find(user_uuid_parsed))
-                    .set((
-                        crate::schema::users::platform_role.eq(platform_role),
-                        crate::schema::users::updated_at.eq(chrono::Utc::now().naive_utc()),
-                    ))
-                    .execute(conn)?;
-                diesel::sql_query(
-                    "UPDATE workspace_members \
-                     SET role = $2 \
-                     WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::int \
-                       AND user_uuid = $1",
+                repository::users::set_user_roles(
+                    conn,
+                    ws_id,
+                    user_uuid_parsed,
+                    platform_role,
+                    workspace_role,
                 )
-                .bind::<diesel::sql_types::Uuid, _>(user_uuid_parsed)
-                .bind::<diesel::sql_types::Text, _>(workspace_role)
-                .execute(conn)?;
-                Ok(())
             });
             if let Err(e) = role_result {
                 error!(error = ?e, user_uuid = %user_uuid_parsed, "Failed to update user role");
@@ -2467,11 +2459,7 @@ pub async fn add_user_email(
         source: Some("manual".to_string()),
     };
 
-    use diesel::prelude::*;
-    match diesel::insert_into(crate::schema::user_emails::table)
-        .values(&new_email)
-        .get_result::<crate::models::UserEmail>(&mut conn)
-    {
+    match user_emails_repo::add_email(&mut conn, &new_email) {
         Ok(created_email) => HttpResponse::Created().json(json!({
             "status": "success",
             "message": "Email added successfully",
@@ -2524,11 +2512,7 @@ pub async fn update_user_email(
         .and_then(|p| p.as_bool())
         .unwrap_or(false)
     {
-        use diesel::prelude::*;
-        let _ = diesel::update(crate::schema::user_emails::table)
-            .filter(crate::schema::user_emails::user_uuid.eq(&user.uuid))
-            .set(crate::schema::user_emails::is_primary.eq(false))
-            .execute(&mut conn);
+        let _ = user_emails_repo::clear_primary(&mut conn, &user.uuid);
     }
 
     // Update the email
@@ -2538,11 +2522,7 @@ pub async fn update_user_email(
         updated_at: Some(chrono::Utc::now().naive_utc()),
     };
 
-    use diesel::prelude::*;
-    match diesel::update(crate::schema::user_emails::table.find(email_id))
-        .set(&email_update)
-        .get_result::<crate::models::UserEmail>(&mut conn)
-    {
+    match user_emails_repo::update_email(&mut conn, email_id, &email_update) {
         Ok(updated_email) => HttpResponse::Ok().json(json!({
             "status": "success",
             "message": "Email updated successfully",
@@ -2589,14 +2569,11 @@ pub async fn delete_user_email(
     };
 
     // Check if email is primary
-    use diesel::prelude::*;
-    let email: crate::models::UserEmail = match crate::schema::user_emails::table
-        .find(email_id)
-        .first(&mut conn)
-    {
-        Ok(email) => email,
-        Err(_) => return errors::not_found_msg("Email not found"),
-    };
+    let email: crate::models::UserEmail =
+        match user_emails_repo::get_email_by_id(&mut conn, email_id) {
+            Ok(email) => email,
+            Err(_) => return errors::not_found_msg("Email not found"),
+        };
 
     if email.user_uuid != user.uuid {
         return errors::forbidden("Email does not belong to this user");
@@ -2607,7 +2584,7 @@ pub async fn delete_user_email(
     }
 
     // Delete the email
-    match diesel::delete(crate::schema::user_emails::table.find(email_id)).execute(&mut conn) {
+    match user_emails_repo::delete_email(&mut conn, email_id) {
         Ok(_) => HttpResponse::Ok().json(json!({
             "status": "success",
             "message": "Email deleted successfully"
@@ -3001,6 +2978,7 @@ pub async fn bulk_users(
             // workspace_members rewrite via the GUC, so the role change
             // lands in the request's workspace under hosted multi-tenancy.
             let actor = helpers::actor_for(&req, "users_admin");
+            let ws_id = actor.workspace_id.unwrap_or_default();
             let mut updated = 0;
             for id in ids {
                 let uuid = match Uuid::parse_str(id) {
@@ -3015,22 +2993,7 @@ pub async fn bulk_users(
                     _,
                     diesel::result::Error,
                 >(&mut conn, &actor, |c| {
-                    diesel::update(crate::schema::users::table.find(uuid))
-                        .set((
-                            crate::schema::users::platform_role.eq(platform_role),
-                            crate::schema::users::updated_at.eq(chrono::Utc::now().naive_utc()),
-                        ))
-                        .execute(c)?;
-                    diesel::sql_query(
-                        "UPDATE workspace_members \
-                         SET role = $2 \
-                         WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::int \
-                           AND user_uuid = $1",
-                    )
-                    .bind::<diesel::sql_types::Uuid, _>(uuid)
-                    .bind::<diesel::sql_types::Text, _>(workspace_role)
-                    .execute(c)?;
-                    Ok(())
+                    repository::users::set_user_roles(c, ws_id, uuid, platform_role, workspace_role)
                 })
                 .is_ok();
 
@@ -3169,15 +3132,9 @@ pub async fn admin_reset_user_password(
     };
 
     // Update password hash on the local auth identity
-    use crate::schema::user_auth_identities;
-    let rows_updated = match diesel::update(
-        user_auth_identities::table
-            .filter(user_auth_identities::user_uuid.eq(&user.uuid))
-            .filter(user_auth_identities::provider_type.eq("local")),
-    )
-    .set(user_auth_identities::password_hash.eq(Some(new_hash.as_str())))
-    .execute(&mut conn)
-    {
+    let rows_updated = match repository::user_auth_identities::update_local_password_hash(
+        &mut conn, &user.uuid, &new_hash,
+    ) {
         Ok(count) => count,
         Err(e) => {
             error!(error = ?e, "Error updating password hash for user");
@@ -3201,9 +3158,7 @@ pub async fn admin_reset_user_password(
         &mut conn,
         &actor,
         |c| {
-            diesel::update(crate::schema::users::table.find(&user.uuid))
-                .set(crate::schema::users::password_changed_at.eq(now))
-                .execute(c)?;
+            repository::users::set_password_changed_at(c, &user.uuid, now)?;
             Ok(())
         },
     );

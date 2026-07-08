@@ -555,14 +555,12 @@ pub async fn add_comment_to_ticket(
                                 "Updating attachment in database"
                             );
 
-                            // Fix the diesel update query
                             let update_result = tc.run(|conn| {
-                                use diesel::prelude::*;
-                                diesel::update(
-                                    crate::schema::attachments::table.find(attachment.id),
+                                crate::repository::comments::update_attachment_record(
+                                    conn,
+                                    attachment.id,
+                                    &updated_attachment,
                                 )
-                                .set(&updated_attachment)
-                                .execute(conn)
                             });
                             match update_result {
                                 Ok(_) => {

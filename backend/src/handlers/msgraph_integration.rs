@@ -2565,11 +2565,11 @@ fn update_identity_data(
     identity_id: i32,
     identity_data: Option<serde_json::Value>,
 ) -> Result<UserAuthIdentity, diesel::result::Error> {
-    use crate::schema::user_auth_identities;
-
-    diesel::update(user_auth_identities::table.find(identity_id))
-        .set(user_auth_identities::metadata.eq(identity_data))
-        .get_result::<UserAuthIdentity>(conn)
+    crate::repository::user_auth_identities::update_identity_metadata(
+        conn,
+        identity_id,
+        identity_data,
+    )
 }
 
 /// Update existing user who already has Microsoft identity (optimized version)
