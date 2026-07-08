@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useTitleManager } from '@/composables/useTitleManager'
 import { useDocPages } from '@/composables/useDocPages'
 import BackButton from '@/components/common/BackButton.vue'
 import DocumentationCardGrid from '@/components/documentationComponents/DocumentationCardGrid.vue'
+import PullToRefresh from '@/components/common/PullToRefresh.vue'
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
@@ -16,6 +17,10 @@ const titleManager = useTitleManager()
 // a fetch or a discrete-event listener.
 const { drafts } = useDocPages()
 
+// Pull-to-refresh (Tauri app) binds to the scroll container below the
+// sticky header; defaults to the global re-sync.
+const scrollEl = ref<HTMLElement | null>(null)
+
 onMounted(() => {
   titleManager.setCustomTitle(t('docs-drafts-title'))
 })
@@ -23,6 +28,7 @@ onMounted(() => {
 
 <template>
   <div class="bg-app flex flex-col h-full">
+    <PullToRefresh :target="scrollEl" />
     <!-- Header -->
     <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
       <div class="p-2 flex items-center gap-2">
@@ -32,7 +38,7 @@ onMounted(() => {
     </div>
 
     <!-- Main Content -->
-    <div class="flex flex-col flex-1 overflow-auto bg-gradient-to-b from-bg-app to-bg-surface items-center">
+    <div ref="scrollEl" class="flex flex-col flex-1 overflow-auto bg-gradient-to-b from-bg-app to-bg-surface items-center">
       <div class="flex flex-col max-w-7xl mx-auto w-full px-4 py-6 gap-6">
         <!-- Drafts Header -->
         <div class="flex items-center justify-between gap-4 pb-4 border-b border-default">

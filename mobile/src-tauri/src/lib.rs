@@ -9,6 +9,9 @@ pub fn run() {
     .plugin(tauri_plugin_web_auth::init())
     // Keystore/Keychain-backed storage for the auth refresh token.
     .plugin(tauri_plugin_secure_store::init())
+    // Haptic feedback for the pull-to-refresh arm tick. iOS/Android only;
+    // on desktop the commands error and the JS facade swallows it.
+    .plugin(tauri_plugin_haptics::init())
     // Authenticated asset proxy: the webview loads workspace-scoped files via
     // the `nosdesk-asset` scheme; Rust forwards them to the API with the bearer
     // and Range header. See src/asset_proxy.rs.

@@ -19,6 +19,7 @@ import Spinner from '@/components/common/Spinner.vue'
 import CollectionTreeList from '@/components/documentationComponents/CollectionTreeList.vue'
 import CollectionIcon from '@/components/documentationComponents/CollectionIcon.vue'
 import CollectionAppearanceModal from '@/components/documentationComponents/CollectionAppearanceModal.vue'
+import PullToRefresh from '@/components/common/PullToRefresh.vue'
 import CollectionVisibilityModal from '@/components/documentationComponents/CollectionVisibilityModal.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import CollaborativeEditor from '@/components/CollaborativeEditor.vue'
@@ -29,6 +30,10 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 const route = useRoute()
 const router = useRouter()
 const titleManager = useTitleManager()
+
+// Pull-to-refresh (Tauri app) binds to the scroll container below the
+// sticky header; defaults to the global re-sync.
+const scrollEl = ref<HTMLElement | null>(null)
 const authStore = useAuthStore()
 const docNavStore = useDocumentationNavStore()
 const slug = computed(() => route.params.slug as string | undefined)
@@ -232,6 +237,7 @@ const deleteModalTitle = computed(() =>
 
 <template>
   <div class="bg-app flex flex-col h-full">
+    <PullToRefresh :target="scrollEl" />
     <!-- Header -->
     <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
       <div class="p-2 flex items-center gap-2">
@@ -273,7 +279,7 @@ const deleteModalTitle = computed(() =>
     </div>
 
     <!-- Main Content -->
-    <div class="flex flex-col flex-1 overflow-auto bg-gradient-to-b from-bg-app to-bg-surface items-center">
+    <div ref="scrollEl" class="flex flex-col flex-1 overflow-auto bg-gradient-to-b from-bg-app to-bg-surface items-center">
       <!-- Loading skeleton -->
       <div v-if="showSkeleton" class="w-full max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
         <div class="flex items-start gap-3 mb-6">

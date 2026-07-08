@@ -99,6 +99,11 @@ const props = withDefaults(
      *  list most of the time and swap to a bespoke mobile body only in
      *  certain states (e.g. a grouped planning summary). */
     mobileSlotActive?: boolean
+    /** Pull-to-refresh action, forwarded to `PageScroll` (Tauri app
+     *  only; defaults to the global re-sync). */
+    onRefresh?: () => Promise<unknown>
+    /** Opt this view out of pull-to-refresh, forwarded to `PageScroll`. */
+    noPullToRefresh?: boolean
   }>(),
   {
     error: null,
@@ -110,6 +115,8 @@ const props = withDefaults(
     emptyIcon: 'inbox',
     emptyTitle: 'Nothing here yet',
     emptyDescription: '',
+    onRefresh: undefined,
+    noPullToRefresh: false,
   },
 )
 
@@ -187,6 +194,8 @@ function onClearSelection() {
     ref="pageScrollRef"
     content-class="flex h-full flex-col"
     :is-empty="isEmpty"
+    :on-refresh="onRefresh"
+    :no-pull-to-refresh="noPullToRefresh"
   >
     <template #chrome>
       <!-- Sticky filter / search bar. The shadow + sticky combo

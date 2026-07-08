@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useTitleManager } from '@/composables/useTitleManager'
 import { restorePage } from '@nosdesk/core/services/documentationService'
@@ -7,6 +7,7 @@ import { useDocPages } from '@/composables/useDocPages'
 import BackButton from '@/components/common/BackButton.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Icon from '@/components/common/Icon.vue'
+import PullToRefresh from '@/components/common/PullToRefresh.vue'
 import { formatDate } from '@nosdesk/core/utils/dateUtils'
 import { docUrl } from '@nosdesk/core/utils/docUrl'
 
@@ -19,6 +20,10 @@ const titleManager = useTitleManager()
 // when a page is archived or restored (its status change flows in as a
 // metadata_changed sync event) — no fetch, no discrete listener.
 const { archived: pages } = useDocPages()
+
+// Pull-to-refresh (Tauri app) binds to the scroll container below the
+// sticky header; defaults to the global re-sync.
+const scrollEl = ref<HTMLElement | null>(null)
 
 const handleRestore = async (pageId: string | number) => {
   // Restore flips the page's status; the pool reflects the change and
@@ -33,6 +38,7 @@ onMounted(() => {
 
 <template>
   <div class="bg-app flex flex-col h-full">
+    <PullToRefresh :target="scrollEl" />
     <!-- Header -->
     <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
       <div class="p-2 flex items-center gap-2">
@@ -42,7 +48,7 @@ onMounted(() => {
     </div>
 
     <!-- Main Content -->
-    <div class="flex flex-col flex-1 overflow-auto bg-gradient-to-b from-bg-app to-bg-surface items-center">
+    <div ref="scrollEl" class="flex flex-col flex-1 overflow-auto bg-gradient-to-b from-bg-app to-bg-surface items-center">
       <div class="flex flex-col max-w-7xl mx-auto w-full px-4 py-6 gap-6">
         <!-- Header -->
         <div class="flex items-center justify-between gap-4 pb-4 border-b border-default">

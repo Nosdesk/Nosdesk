@@ -26,6 +26,9 @@ tauri = { version = "2.11.3", features = [] }
 # tauri:// origin, so REST goes through this (see mobile/src/tauriHttpAdapter.ts).
 tauri-plugin-http = "2"
 tauri-plugin-log = "2"
+# Haptic feedback (iOS/Android only): the pull-to-refresh arm tick
+# (see frontend/src/platform/haptics.ts). No-ops on desktop.
+tauri-plugin-haptics = "2"
 # System-browser OAuth (ASWebAuthenticationSession / Custom Tabs) for the native
 # OIDC login against the central IdP (see mobile/src/oidc.ts).
 tauri-plugin-web-auth = "1"

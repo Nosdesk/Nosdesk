@@ -20,6 +20,7 @@ import { parseTicketUrl } from "@/components/editor/ticketLinkPlugin";
 
 // Components
 import PresenceStack from "@/components/PresenceStack.vue";
+import PullToRefresh from "@/components/common/PullToRefresh.vue";
 import CollaborativeTicketArticle from "@/components/ticketComponents/CollaborativeTicketArticle.vue";
 import TicketDetails from "@/components/ticketComponents/TicketDetails.vue";
 import TicketActivity from "@/components/ticketComponents/TicketActivity.vue";
@@ -449,10 +450,15 @@ watch(
 );
 
 useCreateTicketAction();
+
+// Pull-to-refresh (Tauri app): the routed root is the scroll
+// container (App.vue merges `h-full overflow-auto` onto it).
+const rootEl = ref<HTMLElement | null>(null);
 </script>
 
 <template>
-    <div class="flex-1">
+    <div ref="rootEl" class="flex-1">
+        <PullToRefresh :target="rootEl" />
         <!-- Error state -->
         <div v-if="error" class="flex flex-col items-center justify-center min-h-[calc(100vh-8rem)] px-4 gap-4">
             <NotFoundIllustration />

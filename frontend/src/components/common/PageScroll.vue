@@ -47,6 +47,7 @@
  *   // pageRef.value?.scrollContainerRef is the <div>
  */
 import { ref } from 'vue'
+import PullToRefresh from './PullToRefresh.vue'
 
 // `inheritAttrs: false` so the parent `<RouterView>`'s class
 // (`h-full overflow-auto`) doesn't merge with our root's
@@ -66,11 +67,19 @@ interface Props {
    * full-bleed content (e.g. a DataTable that owns its own
    * width). */
   contentClass?: string
+  /** Pull-to-refresh action (Tauri app only). Defaults to the
+   * global re-sync (pool delta + active-query refetch) — override
+   * only when a view needs something more specific. */
+  onRefresh?: () => Promise<unknown>
+  /** Opt a view out of pull-to-refresh entirely. */
+  noPullToRefresh?: boolean
 }
 
 withDefaults(defineProps<Props>(), {
   isEmpty: false,
   contentClass: 'mx-auto w-full max-w-5xl px-4 py-4 sm:px-6 sm:py-6 lg:px-8',
+  onRefresh: undefined,
+  noPullToRefresh: false,
 })
 
 // Typed as `HTMLDivElement` (not the more generic
@@ -85,24 +94,35 @@ defineExpose({ scrollContainerRef })
   <div class="flex h-full flex-col overflow-hidden">
     <slot name="chrome" />
 
-    <div ref="scrollContainerRef" class="flex-1 overflow-y-auto">
-      <!-- Empty state: full scroll-width, vertically centred.
-           `h-full` claims the entire scroll viewport so the
-           empty content sits visually in the middle. -->
-      <div
-        v-if="isEmpty"
-        class="flex h-full flex-col items-center justify-center p-6"
-      >
-        <slot name="empty" />
-      </div>
+    <!-- The extra overflow-hidden wrapper clips the scroller while
+         pull-to-refresh translates it, so pulled content can't slide
+         over the footer. -->
+    <div class="relative min-h-0 flex-1 overflow-hidden">
+      <div ref="scrollContainerRef" class="h-full overflow-y-auto overscroll-y-contain">
+        <!-- Empty state: full scroll-width, vertically centred.
+             `h-full` claims the entire scroll viewport so the
+             empty content sits visually in the middle. -->
+        <div
+          v-if="isEmpty"
+          class="flex h-full flex-col items-center justify-center p-6"
+        >
+          <slot name="empty" />
+        </div>
 
-      <!-- Default content column. Width-constrained by default
-           so list rows stay readable on ultrawide displays;
-           pass `content-class=""` to opt out. -->
-      <div v-else :class="contentClass">
-        <slot />
+        <!-- Default content column. Width-constrained by default
+             so list rows stay readable on ultrawide displays;
+             pass `content-class=""` to opt out. -->
+        <div v-else :class="contentClass">
+          <slot />
+        </div>
       </div>
     </div>
+
+    <PullToRefresh
+      :target="scrollContainerRef"
+      :on-refresh="onRefresh"
+      :disabled="noPullToRefresh"
+    />
 
     <slot name="footer" />
   </div>

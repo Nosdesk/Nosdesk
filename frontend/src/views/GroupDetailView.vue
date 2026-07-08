@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import { useQuery } from '@pinia/colada';
@@ -9,6 +9,7 @@ import Spinner from '@/components/common/Spinner.vue';
 import AsyncBoundary from '@/components/common/AsyncBoundary.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
 import UserAvatar from '@/components/UserAvatar.vue';
+import PullToRefresh from '@/components/common/PullToRefresh.vue';
 import { groupService } from '@nosdesk/core/services/groupService';
 import { formatDate } from '@nosdesk/core/utils/dateUtils';
 import { useAuthStore } from '@/stores/auth';
@@ -18,6 +19,11 @@ import type { GroupDetails } from '@nosdesk/core/types/group';
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+
+// Pull-to-refresh (Tauri app): the routed root is the scroll container
+// (App.vue merges `h-full overflow-auto` onto it). Defaults to the
+// global re-sync.
+const rootEl = ref<HTMLElement | null>(null);
 const { colorFilterStyle } = useColorFilter();
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -77,7 +83,8 @@ const groupTypeDisplay = computed(() => {
 </script>
 
 <template>
-  <div class="flex-1">
+  <div ref="rootEl" class="flex-1">
+    <PullToRefresh :target="rootEl" />
     <AsyncBoundary :op="loadOp" :has-data="!!group">
       <template #pending>
         <div class="flex items-center justify-center py-16"><Spinner size="md" /></div>

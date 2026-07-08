@@ -16,6 +16,7 @@ import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import { useTitleManager } from '@/composables/useTitleManager'
 import Icon from '@/components/common/Icon.vue'
+import PullToRefresh from '@/components/common/PullToRefresh.vue'
 import { formatRelativeTime } from '@nosdesk/core/utils/dateUtils'
 import {
   useKnowledgeGaps,
@@ -35,6 +36,10 @@ const props = defineProps<{
 const route = useRoute()
 const router = useRouter()
 const titleManager = useTitleManager()
+
+// Pull-to-refresh (Tauri app) binds to the master list pane (the
+// primary mobile surface); defaults to the global re-sync.
+const listScrollEl = ref<HTMLElement | null>(null)
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
@@ -183,6 +188,7 @@ function signalLabel(signal: KnowledgeGapSignal): string {
     the detail header so phone users can return to the list.
   -->
   <div class="bg-app flex flex-col lg:flex-row h-full">
+    <PullToRefresh :target="listScrollEl" />
     <!-- Left: list pane.
          lg+: always visible as a 320px sidebar.
          Below lg: visible only when no gap is selected (the URL
@@ -232,7 +238,7 @@ function signalLabel(signal: KnowledgeGapSignal): string {
       </div>
 
       <!-- Scrollable list -->
-      <div class="flex-1 overflow-y-auto">
+      <div ref="listScrollEl" class="flex-1 overflow-y-auto">
         <div v-if="listLoading" class="p-4 text-sm text-tertiary">{{ $t('docs-gaps-loading') }}&hellip;</div>
         <div v-else-if="gaps.length === 0" class="p-6 text-center text-sm text-tertiary">
           {{ $t('docs-gaps-empty') }}

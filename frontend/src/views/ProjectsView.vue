@@ -35,6 +35,7 @@ import ProjectActionsMenu from '@/components/projectComponents/ProjectActionsMen
 import AvatarStack from '@/components/common/AvatarStack.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
+import PullToRefresh from '@/components/common/PullToRefresh.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import type { MenuItem } from '@/components/common/ContextMenu.vue'
 import type { Project } from '@nosdesk/core/types/project'
@@ -48,6 +49,10 @@ const projectsStore = useSyncProjectsStore()
 const { sortedByName } = storeToRefs(projectsStore)
 
 const createOpen = ref(false)
+
+// Pull-to-refresh (Tauri app) binds to the inner scroll pane below
+// the filter chips; null until projects exist, which is fine.
+const scrollEl = ref<HTMLElement | null>(null)
 
 // Subscribe to the active workspace's sync group (re-subscribes on switch).
 const { ready: bootstrapped } = useWorkspaceGroupSubscription()
@@ -262,6 +267,7 @@ function handleProjectContextMenuSelect(actionId: string): void {
 
 <template>
   <div class="h-full flex flex-col">
+    <PullToRefresh :target="scrollEl" />
     <!-- Status filter chips. One-click navigation by lifecycle, with a
          live count per status. Sorting is done by clicking the table
          column headers; finding a project by name is the global
@@ -332,7 +338,7 @@ function handleProjectContextMenuSelect(actionId: string): void {
     </div>
 
     <!-- Scroll area: full-bleed table on desktop, padded cards below -->
-    <div v-else class="flex-1 min-h-0 overflow-auto">
+    <div v-else ref="scrollEl" class="flex-1 min-h-0 overflow-auto">
       <!-- Desktop: shared DataTable (draggable / resizable / sortable) -->
       <div class="hidden lg:block">
         <DataTable
