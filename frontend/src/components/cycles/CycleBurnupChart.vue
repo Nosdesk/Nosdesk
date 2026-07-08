@@ -1,7 +1,6 @@
 <script setup lang="ts">
 /**
- * Count-based burnup chart for a cycle. Research-grounded redesign (see
- * docs/plans/gantt-cycle-design-overhaul.md):
+ * Count-based burnup chart for a cycle. Research-grounded redesign:
  *
  * - It's a BURNUP (completed rises toward scope), so scope change reads
  *   as a rising scope line, distinct from progress.

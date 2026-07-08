@@ -191,14 +191,11 @@ pub async fn accept_invitation(
 
     if existing_identity.is_some() {
         // Update existing local auth identity
-        if let Err(e) = diesel::update(
-            user_auth_identities::table
-                .filter(user_auth_identities::user_uuid.eq(&user.uuid))
-                .filter(user_auth_identities::provider_type.eq("local")),
-        )
-        .set(user_auth_identities::password_hash.eq(Some(&password_hash)))
-        .execute(&mut conn)
-        {
+        if let Err(e) = repository::user_auth_identities::update_local_password_hash(
+            &mut conn,
+            &user.uuid,
+            &password_hash,
+        ) {
             error!("Failed to update password hash for invitation: {:?}", e);
             return errors::internal("Error setting password");
         }
@@ -207,27 +204,17 @@ pub async fn accept_invitation(
         let user_email = repository::user_helpers::get_primary_email(&user.uuid, &mut conn)
             .unwrap_or_else(|| format!("user-{}", user.uuid));
 
-        #[derive(diesel::Insertable)]
-        #[diesel(table_name = user_auth_identities)]
-        struct NewLocalAuthIdentity<'a> {
-            user_uuid: uuid::Uuid,
-            provider_type: &'a str,
-            external_id: &'a str,
-            email: Option<&'a str>,
-            password_hash: Option<&'a str>,
-        }
-
-        let auth_identity = NewLocalAuthIdentity {
+        let auth_identity = crate::models::NewUserAuthIdentity {
             user_uuid: user.uuid,
-            provider_type: "local",
-            external_id: &user_email,
-            email: Some(&user_email),
-            password_hash: Some(&password_hash),
+            provider_type: "local".to_string(),
+            external_id: user_email.clone(),
+            email: Some(user_email.clone()),
+            metadata: None,
+            password_hash: Some(password_hash.clone()),
+            workspace_id: None,
         };
 
-        if let Err(e) = diesel::insert_into(user_auth_identities::table)
-            .values(&auth_identity)
-            .execute(&mut conn)
+        if let Err(e) = repository::user_auth_identities::create_identity(auth_identity, &mut conn)
         {
             error!("Failed to create auth identity for invitation: {:?}", e);
             return errors::internal("Error setting password");
@@ -260,9 +247,7 @@ pub async fn accept_invitation(
     // Update password_changed_at timestamp in users table
     let now = Utc::now().naive_utc();
     if let Err(e) = crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
-        diesel::update(crate::schema::users::table.find(&user.uuid))
-            .set(crate::schema::users::password_changed_at.eq(now))
-            .execute(c)
+        repository::users::set_password_changed_at(c, &user.uuid, now)
     }) {
         warn!("Failed to update password_changed_at: {:?}", e);
         // Don't fail the request for this
@@ -274,29 +259,14 @@ pub async fn accept_invitation(
     // not this column), so a best-effort failure here doesn't block the
     // accept. Audited table, so route through with_actor_context.
     if let Err(e) = crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
-        use crate::schema::workspace_members;
-        diesel::update(
-            workspace_members::table
-                .filter(workspace_members::user_uuid.eq(&user.uuid))
-                .filter(workspace_members::accepted_at.is_null()),
-        )
-        .set(workspace_members::accepted_at.eq(Utc::now()))
-        .execute(c)
+        repository::workspaces::mark_memberships_accepted(c, user.uuid)
     }) {
         warn!("Failed to stamp workspace membership accepted_at: {:?}", e);
         // Don't fail the request for this
     }
 
     // Mark user's primary email as verified (they proved ownership by receiving the invitation)
-    use crate::schema::user_emails;
-    if let Err(e) = diesel::update(
-        user_emails::table
-            .filter(user_emails::user_uuid.eq(&user.uuid))
-            .filter(user_emails::is_primary.eq(true)),
-    )
-    .set(user_emails::is_verified.eq(true))
-    .execute(&mut conn)
-    {
+    if let Err(e) = repository::user_emails::mark_primary_verified(&mut conn, &user.uuid) {
         warn!("Failed to mark email as verified: {:?}", e);
         // Don't fail the request for this
     }

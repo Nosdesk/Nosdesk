@@ -58,7 +58,7 @@ impl std::error::Error for CreateWorkspaceError {}
 
 // sync-audit-only: workspaces row creation is operator-side / control-plane provisioning; never propagated through the per-workspace sync stream (the workspace doesn't exist there yet to receive it)
 /// Insert a workspace row. Caller supplies a product-generated UUID
-/// per the locked-decision in `docs/m5-product-side-handoff.md` (the
+/// per the locked decision (the
 /// product owns workspace identity; the control plane mirrors).
 /// `plan` is omitted so the DB default (`'free'`) applies.
 ///
@@ -659,6 +659,21 @@ pub fn get_membership_role(
         .select(workspace_members::role)
         .first::<String>(conn)
         .optional()
+}
+
+// sync-audit-only: accepted_at is a display-only membership timestamp on the audited workspace_members table (tr_audit_workspace_members); the 403 gate checks row existence, not this column, and no sync aggregate subscribes
+/// Stamp `accepted_at = now()` on any still-pending memberships for a
+/// user (they proved ownership by accepting an invitation). Best-effort:
+/// the caller ignores the row count. Must run inside actor + workspace
+/// context so the audit trigger has its workspace pin.
+pub fn mark_memberships_accepted(conn: &mut DbConnection, user_uuid: Uuid) -> QueryResult<usize> {
+    diesel::update(
+        workspace_members::table
+            .filter(workspace_members::user_uuid.eq(user_uuid))
+            .filter(workspace_members::accepted_at.is_null()),
+    )
+    .set(workspace_members::accepted_at.eq(chrono::Utc::now()))
+    .execute(conn)
 }
 
 // sync-audit-only: role changes are recorded by the tr_audit_workspace_members audit_log trigger (P1.4); no sync_actions aggregate. This is the sanctioned path to CORRECT a wrong role (projection grants are first-write-wins / immutable, see oauth_provisioning::add_membership)

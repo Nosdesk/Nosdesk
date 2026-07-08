@@ -1,7 +1,6 @@
 <!--
 SavedViewWidget — the single shell every saved-view-backed widget on
-the dashboard renders through (docs/dashboard-and-analytics-plan.md
-decision 25). The dashboard layout references a saved view via the
+the dashboard renders through. The dashboard layout references a saved view via the
 synthetic widget id `saved_view:<uuid>`; the widget registry resolves
 that prefix to this component and passes the uuid through.
 

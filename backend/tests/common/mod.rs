@@ -477,6 +477,210 @@ pub fn fixture_path(rel: &str) -> std::path::PathBuf {
         .join(rel)
 }
 
+// ---- Two-workspace isolation fixture (Border C / C0) -------
+//
+// Seeds two independent workspaces (A and B), each with its own
+// admin + plain member, a webhook subscribed to a shared event
+// type, and one installed plugin. The webhook event types
+// deliberately OVERLAP across A and B so cross-tenant fan-out
+// tests are meaningful: an event raised in A must never reach B's
+// subscriber (C1), and vice versa. This is the verification
+// substrate for C1 (cross-tenant webhook delivery), C2 (plugin
+// event injection), and C3 (API-token role escalation).
+
+/// The event type both workspaces' webhooks subscribe to. Shared
+/// on purpose: cross-tenant isolation tests need an A-event that a
+/// B-only subscriber would (wrongly) match on event type alone, so
+/// the only thing keeping them apart is the workspace predicate.
+pub const FIXTURE_WEBHOOK_EVENT: &str = "ticket.created";
+
+/// The event type the seeded plugins declare in their manifest.
+/// C2 asserts an emit for a manifest-declared event is accepted
+/// and a non-declared one is rejected.
+pub const FIXTURE_PLUGIN_EVENT: &str = "ticket.created";
+
+/// One workspace's seeded contents. All ids/uuids are captured so
+/// later tests can pin a connection to this workspace and assert
+/// what is (and isn't) visible from the other.
+#[derive(Debug, Clone)]
+pub struct WorkspaceSeed {
+    pub workspace_id: i32,
+    pub workspace_uuid: Uuid,
+    pub slug: String,
+    /// Workspace-role `admin` member (NOT a platform super-admin;
+    /// `platform_role` is NULL, matching a real workspace admin).
+    pub admin_uuid: Uuid,
+    /// Workspace-role `member` (plain, non-privileged).
+    pub member_uuid: Uuid,
+    /// A webhook subscribed to [`FIXTURE_WEBHOOK_EVENT`], enabled.
+    pub webhook_id: i32,
+    pub webhook_uuid: Uuid,
+    /// An installed (active) plugin whose manifest declares
+    /// [`FIXTURE_PLUGIN_EVENT`].
+    pub plugin_id: i32,
+    pub plugin_uuid: Uuid,
+    pub plugin_name: String,
+}
+
+/// A+B, seeded and independent. Pass to isolation assertions.
+#[derive(Debug, Clone)]
+pub struct TwoWorkspaces {
+    pub a: WorkspaceSeed,
+    pub b: WorkspaceSeed,
+}
+
+/// Insert a plain (non-platform-admin) user. Fixture members are
+/// workspace-scoped actors, so `platform_role` stays NULL — the
+/// "admin" distinction is the workspace_members.role, not a
+/// platform super-admin bit (unlike [`insert_user`], which mints a
+/// bootstrap platform admin).
+fn insert_plain_user(conn: &mut PgConnection, name: &str) -> Uuid {
+    use backend::models::NewUser;
+    use backend::schema::users;
+    let u: backend::models::User = diesel::insert_into(users::table)
+        .values(&NewUser {
+            uuid: Uuid::new_v4(),
+            name: name.to_string(),
+            pronouns: None,
+            avatar_url: None,
+            banner_url: None,
+            avatar_thumb: None,
+            microsoft_uuid: None,
+            mfa_secret: None,
+            mfa_secret_kek_id: None,
+            mfa_enabled: false,
+            platform_role: None,
+        })
+        .get_result(conn)
+        .expect("insert plain user");
+    u.uuid
+}
+
+/// Seed one workspace end-to-end and return its handle. `label` is
+/// woven into the slug/name/plugin so A and B never collide.
+fn seed_one_workspace(conn: &mut TestPooledConn, label: &str) -> WorkspaceSeed {
+    use backend::models::{NewPlugin, NewWorkspace, PluginState};
+    use backend::repository::webhooks::create_webhook;
+    use backend::repository::workspaces::{add_membership, create_workspace};
+    use backend::schema::plugins;
+    use backend::services::seed::seed_workspace_defaults;
+    use backend::sync::actor::ActorContext;
+    use backend::sync::session::with_actor_context;
+
+    // Unique suffix so repeated fixture calls in one binary (each on
+    // its own sandbox DB, but belt-and-braces) never trip the
+    // workspaces.slug UNIQUE / retired-slug guards.
+    let suffix = Uuid::new_v4().simple().to_string()[..8].to_string();
+    let slug = format!("fixture-{label}-{suffix}");
+
+    // Workspaces + users are global tables (no RLS workspace scope),
+    // so they seed on the ambient GUC=1 connection.
+    let ws = create_workspace(
+        conn,
+        &NewWorkspace {
+            uuid: Uuid::now_v7(),
+            slug: slug.clone(),
+            name: format!("Fixture Workspace {label}"),
+            seat_limit: None,
+        },
+    )
+    .expect("create workspace");
+    assert_ne!(ws.id, 1, "fixture must use a non-bootstrap workspace");
+
+    let admin_uuid = insert_plain_user(conn, &format!("{label} Admin"));
+    let member_uuid = insert_plain_user(conn, &format!("{label} Member"));
+
+    // Everything below is workspace-scoped: run pinned to `ws.id` as
+    // the workspace admin so the tenant-table `workspace_id` column
+    // defaults (driven by the `app.workspace_id` GUC) stamp the right
+    // workspace, RLS WITH CHECK passes, and audit triggers attribute
+    // the writes. One transaction per workspace.
+    let actor = ActorContext::user(admin_uuid, None).with_workspace(ws.id);
+    let (webhook_id, webhook_uuid, plugin_id, plugin_uuid, plugin_name) =
+        with_actor_context::<_, diesel::result::Error>(conn, &actor, |c| {
+            // Usable defaults (workflow states / SLA / categories).
+            seed_workspace_defaults(c, Some(admin_uuid))?;
+
+            add_membership(c, ws.id, admin_uuid, "admin")?;
+            add_membership(c, ws.id, member_uuid, "member")?;
+
+            let webhook = create_webhook(
+                c,
+                format!("{label} webhook"),
+                format!("https://sink.invalid/{label}"),
+                format!("secret-{label}"),
+                vec![FIXTURE_WEBHOOK_EVENT.to_string()],
+                None,
+                Some(admin_uuid),
+            )?;
+
+            // Insert the plugin row directly: the repository's
+            // `create_plugin` demands an `InstallToken`, whose only
+            // test constructor is `#[cfg(test)]`-gated inside the
+            // crate and thus invisible to this integration-test crate.
+            // A direct Insertable insert is the sanctioned test path;
+            // `workspace_id` falls to the GUC-driven column default.
+            let plugin_name = format!("fixture-plugin-{label}");
+            let manifest = serde_json::json!({
+                "name": plugin_name,
+                "version": "1.0.0",
+                // Manifest-declared events C2 will validate emits against.
+                "events": [FIXTURE_PLUGIN_EVENT],
+            });
+            let new_plugin = NewPlugin {
+                name: plugin_name.clone(),
+                display_name: format!("{label} Fixture Plugin"),
+                version: "1.0.0".to_string(),
+                description: Some("Two-workspace isolation fixture plugin".to_string()),
+                manifest,
+                state: PluginState::Installed,
+                trust_level: "verified".to_string(),
+                installed_by: Some(admin_uuid),
+                source: "provisioned".to_string(),
+                signer_pubkey: None,
+                signer_source: None,
+                signature_metadata: None,
+                icon_svg: None,
+            };
+            let plugin: backend::models::Plugin = diesel::insert_into(plugins::table)
+                .values(&new_plugin)
+                .get_result(c)?;
+
+            Ok((
+                webhook.id,
+                webhook.uuid,
+                plugin.id,
+                plugin.uuid,
+                plugin_name,
+            ))
+        })
+        .expect("seed workspace-scoped fixture rows");
+
+    WorkspaceSeed {
+        workspace_id: ws.id,
+        workspace_uuid: ws.uuid,
+        slug,
+        admin_uuid,
+        member_uuid,
+        webhook_id,
+        webhook_uuid,
+        plugin_id,
+        plugin_uuid,
+        plugin_name,
+    }
+}
+
+/// Seed two independent workspaces (A and B) with overlapping
+/// webhook/plugin event subscriptions and distinct members. See the
+/// module-level fixture comment for intent. Call on a connection
+/// from a [`TestDb`] pool.
+pub fn seed_two_workspaces(conn: &mut TestPooledConn) -> TwoWorkspaces {
+    TwoWorkspaces {
+        a: seed_one_workspace(conn, "a"),
+        b: seed_one_workspace(conn, "b"),
+    }
+}
+
 /// Names of every user table (ordinary + partitioned parent,
 /// excluding partition children and Diesel's migration ledger).
 /// Match the writer's view from `backup_service::create_backup`.

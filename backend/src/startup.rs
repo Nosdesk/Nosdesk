@@ -4,7 +4,7 @@
 //! state-bound background listeners (sync-outbox, email-queue, search
 //! replicator, registry sync, channel supervisor) and the periodic scheduler,
 //! and returns them bundled as [`AppState`]. Extracted from main() so the
-//! composition root stays thin (see docs/plans/main-bootstrap-refactor.md).
+//! composition root stays thin.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -315,8 +315,7 @@ pub fn build_state(
     // behaviour identical to before. `NOSDESK_COLLAB_ROUTING` opts into
     // `fly-replay` (fly) or `direct-address` (portable / self-host).
     // `build` returns None (and we pin the mode to Single) on any setup
-    // error, so a misconfig degrades rather than fails. See
-    // `docs/realtime-collab-affinity-design.md`.
+    // error, so a misconfig degrades rather than fails.
     use crate::services::collab_ownership::CollabRoutingMode;
     let requested_mode = CollabRoutingMode::from_env_value(
         &std::env::var("NOSDESK_COLLAB_ROUTING").unwrap_or_else(|_| "single".into()),
@@ -773,7 +772,7 @@ pub fn configure_app(
                     // extensions. Cookie sessions and un-narrowed tokens
                     // carry `full` and short-circuit; platform tokens are
                     // exempt; a narrowed token must satisfy the route's
-                    // required scope. See docs/plans/api-token-scopes-plan.md.
+                    // required scope.
                     .wrap(actix_web::middleware::from_fn(
                         crate::middleware::token_scope::token_scope_middleware,
                     ))
@@ -1098,8 +1097,7 @@ pub async fn build_server(
 
     // Initialise the at-rest encryption keyring (versioned KEK,
     // self-describing framed-blob shape; see
-    // `crate::utils::encryption::Keyring` and docs/auth-convergence.md
-    // items 1-3). MFA secrets, channel credentials, plugin signing
+    // `crate::utils::encryption::Keyring`). MFA secrets, channel credentials, plugin signing
     // keys, and plugin secret settings all decrypt through this.
     //
     // Hard cutover at v1: refusal to boot is unconditional. There

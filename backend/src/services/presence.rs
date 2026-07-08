@@ -229,20 +229,6 @@ impl PresenceRegistry {
         out.sort_by_key(|p| std::cmp::Reverse(p.last_active_at));
         out
     }
-
-    /// Per-user projection. Returns the tickets the given user is
-    /// currently present on. Not consumed in v1; lives here so the
-    /// future team-presence channel doesn't reach into private
-    /// state.
-    #[allow(dead_code)]
-    pub fn tickets_for_user(&self, user_uuid: Uuid) -> Vec<i32> {
-        let state = self.state.read().expect("presence state poisoned");
-        state
-            .iter()
-            .filter(|((u, _), _)| *u == user_uuid)
-            .map(|((_, t), _)| *t)
-            .collect()
-    }
 }
 
 impl Default for PresenceRegistry {
@@ -312,17 +298,6 @@ mod tests {
         let ids: HashSet<_> = viewers.iter().map(|v| v.user_uuid).collect();
         assert!(ids.contains(&uuid(1)));
         assert!(ids.contains(&uuid(2)));
-    }
-
-    #[test]
-    fn tickets_for_user_returns_user_keyed_projection() {
-        let r = PresenceRegistry::default();
-        r.add_session(uuid(1), 10, "s1".into());
-        r.add_session(uuid(1), 20, "s2".into());
-        r.add_session(uuid(2), 10, "s3".into());
-        let mut tickets = r.tickets_for_user(uuid(1));
-        tickets.sort();
-        assert_eq!(tickets, vec![10, 20]);
     }
 
     #[test]

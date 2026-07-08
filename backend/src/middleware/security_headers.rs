@@ -33,8 +33,8 @@
 //! ## What this NOT yet handles
 //!
 //! - `report-uri` / `report-to`: violation reports aren't yet
-//!   collected. Adding a `/api/csp-report` collector is captured
-//!   in docs/security-audit-plan.md.
+//!   collected. Adding a `/api/csp-report` collector is a
+//!   follow-up.
 //! - Trusted Types: requires Vue-side TT policy registration
 //!   first (every `v-html` path needs to declare TT compatibility).
 //!   Phase 4 frontend work per the existing plan.
@@ -329,16 +329,15 @@ pub struct SecurityHeaders;
 
 impl SecurityHeaders {
     fn build_csp_value() -> (String, bool) {
-        let env = std::env::var("ENVIRONMENT")
-            .unwrap_or_else(|_| "development".to_string())
-            .to_lowercase();
-
         let plugin_sandbox_origin = std::env::var("PLUGIN_SANDBOX_ORIGIN")
             .ok()
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
 
-        let csp = if env == "production" {
+        // Fail-closed: an unset/unknown ENVIRONMENT gets the strict production
+        // CSP, so a prod deploy that forgets the var is not left on the
+        // permissive dev policy.
+        let csp = if crate::config_utils::assume_production() {
             production_policy(plugin_sandbox_origin.as_deref())
         } else {
             development_policy(plugin_sandbox_origin.as_deref())
@@ -352,10 +351,9 @@ impl SecurityHeaders {
     }
 
     fn should_enable_hsts() -> bool {
-        let env = std::env::var("ENVIRONMENT")
-            .unwrap_or_else(|_| "development".to_string())
-            .to_lowercase();
-        env == "production"
+        // Fail-closed: enable HSTS unless ENVIRONMENT is an explicit dev label,
+        // so a prod deploy that forgets the var still sends HSTS.
+        crate::config_utils::assume_production()
     }
 }
 

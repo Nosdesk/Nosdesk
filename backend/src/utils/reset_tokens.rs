@@ -80,18 +80,6 @@ impl ResetTokenUtils {
         }
     }
 
-    /// Validate that a token hash matches a raw token
-    #[allow(dead_code)]
-    pub fn validate_token_hash(raw_token: &str, stored_hash: &str) -> bool {
-        let computed_hash = Self::hash_token(raw_token);
-        // Constant-time comparison so a future caller can't introduce a
-        // timing oracle on the token hash. (The live path looks tokens
-        // up by hash in the DB, which has no such oracle; this keeps the
-        // helper honest with its own doc comment.) See
-        // security-audit-2026-06.
-        constant_time_eq::constant_time_eq(computed_hash.as_bytes(), stored_hash.as_bytes())
-    }
-
     /// Check if a token is expired
     pub fn is_token_expired(expires_at: DateTime<Utc>) -> bool {
         Utc::now() > expires_at
@@ -133,18 +121,6 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_token_hash() {
-        let token = "test_token_12345";
-        let hash = ResetTokenUtils::hash_token(token);
-
-        // Valid token should match
-        assert!(ResetTokenUtils::validate_token_hash(token, &hash));
-
-        // Invalid token should not match
-        assert!(!ResetTokenUtils::validate_token_hash("wrong_token", &hash));
-    }
-
-    #[test]
     fn test_token_expiration() {
         // Token that expired 1 hour ago
         let expired = Utc::now() - Duration::hours(1);
@@ -168,12 +144,6 @@ mod tests {
 
         // Token should not be expired
         assert!(!ResetTokenUtils::is_token_expired(token.expires_at));
-
-        // Hash should match the raw token
-        assert!(ResetTokenUtils::validate_token_hash(
-            &token.raw_token,
-            &token.token_hash
-        ));
     }
 
     #[test]

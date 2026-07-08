@@ -1,8 +1,7 @@
 //! Per-document ownership claims for multi-instance collaborative
 //! editing (Phase 2, "fly-replay spike" step).
 //!
-//! This implements the ownership layer from
-//! `docs/realtime-collab-affinity-design.md`: a short-TTL Redis claim
+//! This implements the ownership layer: a short-TTL Redis claim
 //! (`yjs:owner:{doc_id} -> machine_id`) deciding which backend machine
 //! owns a given collaborative document, a monotonic fencing token
 //! (`yjs:fence:{doc_id}`) handed out per claim, an ownership-aware
@@ -47,8 +46,7 @@ const MACHINE_TTL_SECS: u64 = 90;
 
 /// How a WebSocket connection is steered to the machine that owns a
 /// document under multi-instance routing. Selected at startup from
-/// `NOSDESK_COLLAB_ROUTING`. See
-/// `docs/realtime-collab-affinity-design.md`.
+/// `NOSDESK_COLLAB_ROUTING`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CollabRoutingMode {
     /// One backend: every doc is owned locally, the affinity layer is

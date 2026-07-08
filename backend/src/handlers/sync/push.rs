@@ -18,7 +18,6 @@ use diesel::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::{info, warn};
-use uuid::Uuid;
 
 use crate::db::{DbConnection, Pool};
 use crate::extractors::SyncContext;
@@ -244,12 +243,45 @@ fn apply_ticket(
 
     match tx.op {
         SyncOp::Update => {
-            // Decode the patch through TicketUpdate so unknown
-            // fields fail at the boundary instead of getting
-            // silently dropped by Diesel.
-            let patch = decode_ticket_patch(&tx.patch)?;
+            // `tag_ids` is the one non-column field the optimistic queue may
+            // carry: it's a ticket_tags join-table set, not a `tickets` column.
+            // Split it out and apply it via set_tags_for_ticket (which emits its
+            // own ticket.tags_changed); the remainder decodes through
+            // TicketUpdate so unknown fields still fail at the boundary rather
+            // than being silently dropped by Diesel.
+            let mut obj = tx.patch.as_object().cloned().unwrap_or_default();
+            let tag_ids: Option<Vec<i32>> = match obj.remove("tag_ids") {
+                Some(v) => Some(serde_json::from_value(v).map_err(|_| {
+                    TxReject(
+                        "invalid_patch",
+                        "tag_ids must be an array of integers".into(),
+                    )
+                })?),
+                None => None,
+            };
+            // Watchers are a per-user toggle with a dedicated endpoint; a
+            // full-array patch here would let one client clobber another's
+            // watch state, so it is not accepted on this path.
+            if obj.contains_key("watcher_uuids") {
+                return Err(TxReject(
+                    "unsupported_field",
+                    "watcher_uuids changes go through the ticket watch endpoints".into(),
+                ));
+            }
+            let has_scalar = !obj.is_empty();
+            let patch = decode_ticket_patch(&Value::Object(obj))?;
+            let actor_uuid = actor.uuid;
             run_with_actor(conn, actor, |conn| {
-                crate::repository::tickets::update_ticket_partial(conn, ticket_id, patch, None)?;
+                if has_scalar {
+                    crate::repository::tickets::update_ticket_partial(
+                        conn, ticket_id, patch, None,
+                    )?;
+                }
+                if let Some(tag_ids) = &tag_ids {
+                    crate::repository::tags::set_tags_for_ticket(
+                        conn, ticket_id, tag_ids, actor_uuid,
+                    )?;
+                }
                 latest_sync_id(conn)
             })
             .map_err(reject_diesel)
@@ -361,13 +393,4 @@ fn reject_diesel(err: diesel::result::Error) -> TxReject {
         Error::NotFound => TxReject("not_found", "model_id does not exist".into()),
         other => TxReject("internal", other.to_string()),
     }
-}
-
-// Suppress "unused import" if Uuid isn't otherwise referenced in this
-// module after the compiler optimises everything down. Keep the
-// import live because future op handlers (Insert paths) will need it
-// for assignee_uuid / requester_uuid coercions.
-#[allow(dead_code)]
-fn _uuid_keepalive() -> Option<Uuid> {
-    None
 }

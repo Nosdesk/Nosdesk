@@ -4,8 +4,7 @@ import type { Theme } from '../types'
  * Default Dark Theme
  *
  * Near-black dark surfaces with subtle elevation hierarchy, matching the
- * canonical Nosdesk brand spec (see `nosdesk-com/docs/brand.md` §3 for
- * the source of truth). Pure black at the bg level (#08090a) reads as
+ * canonical Nosdesk brand spec. Pure black at the bg level (#08090a) reads as
  * black to the eye but leaves room for the surface-1/2/3 tiers to
  * carry visible elevation through tone alone — no shadows needed.
  *

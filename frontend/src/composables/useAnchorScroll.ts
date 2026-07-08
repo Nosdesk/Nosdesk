@@ -1,6 +1,5 @@
 /**
- * Active-section tracking for the dashboard's left anchor rail
- * (docs/dashboard-and-analytics-plan.md decision 23).
+ * Active-section tracking for the dashboard's left anchor rail.
  *
  * Each section in the canvas renders an anchor marker (a hidden /
  * visible H2 with an `id`); this composable watches them via

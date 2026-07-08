@@ -125,3 +125,68 @@ fn push_rejects_unsupported_aggregate() {
     let (reason, _detail) = result.unwrap_err();
     assert_eq!(reason, "unsupported_aggregate");
 }
+
+/// A ticket-update push carrying `tag_ids` applies the tag set via the
+/// join-table path (B4), while `watcher_uuids` is refused (it stays on the
+/// dedicated per-user watch endpoint).
+#[test]
+fn push_ticket_applies_tag_ids_and_rejects_watchers() {
+    use super::push::PushTransaction;
+    use crate::models::NewTag;
+    use crate::schema::ticket_tags;
+
+    let mut conn = setup_test_connection();
+    let admin = TestFixtures::create_user(&mut conn, "sync_push_tags", "admin");
+    let actor = ActorContext::user(admin.uuid, None).with_workspace(1);
+
+    let (ticket_id, tag_id) = conn
+        .transaction::<_, diesel::result::Error, _>(|conn| {
+            session::set_actor(conn, &actor)?;
+            let ticket = TestFixtures::create_ticket(conn, "tag me", Some(admin.uuid), None);
+            let tag = crate::repository::tags::create_tag(
+                conn,
+                NewTag {
+                    name: format!("t-{}", Uuid::now_v7()),
+                    color: None,
+                    description: None,
+                },
+            )?;
+            Ok((ticket.id, tag.id))
+        })
+        .unwrap();
+
+    // Push a `tag_ids` patch — the tag set is applied on the ticket.
+    let tag_tx = PushTransaction {
+        tx_id: Uuid::now_v7().to_string(),
+        aggregate: SyncAggregate::Ticket,
+        model_id: ticket_id.to_string(),
+        op: SyncOp::Update,
+        patch: json!({ "tag_ids": [tag_id] }),
+        base_sync_id: None,
+    };
+    super::push::apply_transaction_for_test(&mut conn, &tag_tx, &actor)
+        .expect("tag_ids patch should apply");
+
+    let attached: Vec<i32> = ticket_tags::table
+        .filter(ticket_tags::ticket_id.eq(ticket_id))
+        .select(ticket_tags::tag_id)
+        .load(&mut conn)
+        .unwrap();
+    assert!(
+        attached.contains(&tag_id),
+        "tag should be attached via the sync-push path"
+    );
+
+    // A `watcher_uuids` patch is refused — watch is a per-user toggle.
+    let watch_tx = PushTransaction {
+        tx_id: Uuid::now_v7().to_string(),
+        aggregate: SyncAggregate::Ticket,
+        model_id: ticket_id.to_string(),
+        op: SyncOp::Update,
+        patch: json!({ "watcher_uuids": [admin.uuid.to_string()] }),
+        base_sync_id: None,
+    };
+    let (reason, _) = super::push::apply_transaction_for_test(&mut conn, &watch_tx, &actor)
+        .expect_err("watcher_uuids must be refused on the sync-push path");
+    assert_eq!(reason, "unsupported_field");
+}

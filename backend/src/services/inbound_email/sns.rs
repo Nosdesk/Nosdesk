@@ -171,12 +171,37 @@ pub fn validate_cert_url(raw: &str) -> Result<reqwest::Url, SnsError> {
         return Err(SnsError::UntrustedCertUrl);
     }
     let host = url.host_str().ok_or(SnsError::UntrustedCertUrl)?;
-    let trusted = host.starts_with("sns.")
-        && (host.ends_with(".amazonaws.com") || host.ends_with(".amazonaws.com.cn"));
-    if !trusted {
+    if !is_sns_cert_host(host) {
         return Err(SnsError::UntrustedCertUrl);
     }
     Ok(url)
+}
+
+/// Exactly `sns.<region>.amazonaws.com` (or the China partition
+/// `…amazonaws.com.cn`), where `<region>` is a single label that looks like an
+/// AWS region (e.g. `us-east-1`, `us-gov-west-1`). The region check is
+/// load-bearing: `sns.` + arbitrary-label + `.amazonaws.com` is structurally
+/// identical to an S3 virtual-hosted bucket like `sns.s3.amazonaws.com`, which
+/// an attacker could own — a bare prefix/suffix match would let a forged
+/// message point the cert fetch there. Requiring a hyphen and a trailing digit
+/// admits every real region while rejecting service labels (`s3`,
+/// `execute-api`, …).
+fn is_sns_cert_host(host: &str) -> bool {
+    let host = host.to_ascii_lowercase();
+    let Some(region) = host.strip_prefix("sns.").and_then(|rest| {
+        rest.strip_suffix(".amazonaws.com")
+            .or_else(|| rest.strip_suffix(".amazonaws.com.cn"))
+    }) else {
+        return false;
+    };
+    // Single DNS label that looks like a region: has an internal hyphen, ends
+    // in a digit, and is otherwise `[a-z0-9-]`.
+    !region.contains('.')
+        && region.contains('-')
+        && region.ends_with(|c: char| c.is_ascii_digit())
+        && region
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
 /// Pull the RSA public key out of a PEM-encoded X.509 certificate. We only
@@ -329,6 +354,7 @@ mod tests {
         )
         .is_ok());
         assert!(validate_cert_url("https://sns.cn-north-1.amazonaws.com.cn/x.pem").is_ok());
+        assert!(validate_cert_url("https://sns.us-gov-west-1.amazonaws.com/x.pem").is_ok());
         // http, wrong host, and lookalike suffixes are all rejected.
         assert!(validate_cert_url("http://sns.ap-southeast-2.amazonaws.com/x.pem").is_err());
         assert!(validate_cert_url("https://evil.amazonaws.com/x.pem").is_err());
@@ -336,6 +362,11 @@ mod tests {
             validate_cert_url("https://sns.ap-southeast-2.amazonaws.com.evil.com/x.pem").is_err()
         );
         assert!(validate_cert_url("https://attacker.com/sns.amazonaws.com").is_err());
+        // `sns.<label>.amazonaws.com` where the label is a service, not a
+        // region, is an S3 virtual-hosted bucket an attacker can own — must be
+        // rejected even though it matches the old prefix/suffix shape.
+        assert!(validate_cert_url("https://sns.s3.amazonaws.com/forged.pem").is_err());
+        assert!(validate_cert_url("https://sns.execute-api.amazonaws.com/x.pem").is_err());
     }
 
     #[test]

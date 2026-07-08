@@ -102,7 +102,7 @@ pub fn update_article_yjs_state(
     // Ownership-claim fencing token (Phase 2 affinity). `Some(f)` gates
     // the write so a stale owner (lower token) cannot clobber the current
     // owner's state; `None` (single-instance / Redis-down) writes
-    // unconditionally. See docs/realtime-collab-affinity-design.md.
+    // unconditionally.
     fence: Option<i64>,
     observer: Option<&dyn ArticleContentSavedObserver>,
 ) -> QueryResult<ArticleContent> {

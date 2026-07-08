@@ -113,6 +113,37 @@ pub fn delete_identity(
 }
 
 // sync-pending-wire: needs sync aggregate wiring
+/// Delete auth identities matching a `(provider_type, external_id)`
+/// pair, regardless of which user they point at. Used to clean up an
+/// orphaned OAuth/OIDC identity whose user row no longer exists before
+/// re-linking the provider account.
+pub fn delete_identities_by_provider_external(
+    conn: &mut DbConnection,
+    provider_type: &str,
+    external_id: &str,
+) -> Result<usize, Error> {
+    diesel::delete(
+        user_auth_identities::table
+            .filter(user_auth_identities::provider_type.eq(provider_type))
+            .filter(user_auth_identities::external_id.eq(external_id)),
+    )
+    .execute(conn)
+}
+
+// sync-pending-wire: needs sync aggregate wiring
+/// Replace the `metadata` JSON on one identity row (Microsoft Graph
+/// sync refreshes the stored directory payload).
+pub fn update_identity_metadata(
+    conn: &mut DbConnection,
+    identity_id: i32,
+    metadata: Option<serde_json::Value>,
+) -> Result<UserAuthIdentity, Error> {
+    diesel::update(user_auth_identities::table.find(identity_id))
+        .set(user_auth_identities::metadata.eq(metadata))
+        .get_result::<UserAuthIdentity>(conn)
+}
+
+// sync-pending-wire: needs sync aggregate wiring
 /// Replace the password hash on a user's `local` auth identity.
 /// Used by the CLI admin password-reset path. Returns the number of
 /// rows updated, which the caller can use to confirm the user

@@ -125,8 +125,7 @@ impl FromSql<crate::schema::sql_types::WorkflowStateCategory, Pg> for WorkflowSt
 // single-tenant deployment. Phase 2 introduces the
 // WorkspaceContext extractor + middleware that resolves a
 // workspace per request (subdomain in hosted mode, default in
-// self-hosted). See docs/multi-tenant-migration-plan.md for
-// the full picture.
+// self-hosted).
 
 #[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable, Selectable)]
 #[diesel(table_name = crate::schema::workspaces)]
@@ -222,8 +221,7 @@ pub struct SavedView {
     /// allowlist before write.
     pub viz_type: String,
     /// Per-renderer config blob: measures, group-by, top-N, grain,
-    /// chart_source tagged union, etc. The shape per viz_type lives
-    /// in docs/dashboard-and-analytics-plan.md §4.2.
+    /// chart_source tagged union, etc. The shape varies per viz_type.
     pub viz_config: serde_json::Value,
 }
 
@@ -682,19 +680,6 @@ pub struct TagUpdate {
     pub name: Option<String>,
     pub color: Option<Option<String>>,
     pub description: Option<Option<String>>,
-}
-
-/// One row of the `ticket_tags` join. The repository never
-/// returns these directly — it returns either `Tag` rows for a
-/// ticket (via a join) or just the tag-id list.
-#[derive(Debug, Clone, Serialize, Deserialize, Insertable, Queryable)]
-#[diesel(table_name = crate::schema::ticket_tags)]
-pub struct TicketTag {
-    pub ticket_id: i32,
-    pub tag_id: i32,
-    pub created_by: Option<Uuid>,
-    pub created_at: DateTime<Utc>,
-    pub workspace_id: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Insertable)]
@@ -1320,8 +1305,7 @@ pub struct AssetKindUpdate {
 // === Asset model catalog (NetBox-style) ======================
 //
 // `manufacturers` (a make) -> `asset_models` (a real make+model, the
-// "device type") -> `assets` (instances stamped from a model). See
-// docs/plans/asset-model-catalog.md.
+// "device type") -> `assets` (instances stamped from a model).
 
 /// A manufacturer / make (Apple, Dell) in the asset model catalog.
 #[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]
@@ -1809,7 +1793,7 @@ pub struct ArticleContent {
     /// affinity). The owning machine stamps its claim's monotonic token
     /// on each snapshot write; a conditional write rejects a stale owner
     /// whose token is lower. NULL on rows written in single-instance
-    /// mode (no claim). See `docs/realtime-collab-affinity-design.md`.
+    /// mode (no claim).
     pub fence_token: Option<i64>,
 }
 
@@ -2369,21 +2353,6 @@ pub struct UserUpdateWithPassword {
     pub timezone: Option<String>,
 }
 
-// User profile update for profile management
-#[derive(Debug, Serialize, Deserialize)]
-pub struct UserProfileUpdate {
-    pub name: Option<String>,
-    // Email removed - update via user_emails table
-    pub role: Option<String>,
-    pub pronouns: Option<String>,
-    pub avatar_url: Option<String>,
-    pub banner_url: Option<String>,
-    pub avatar_thumb: Option<String>,
-    pub password: Option<String>,
-    /// Email signature appended to outbound channel replies.
-    pub signature: Option<String>,
-}
-
 // User response with minimal information.
 //
 // `theme` / `dashboard_layout` / `signature` / `locale` /
@@ -2468,19 +2437,6 @@ pub struct UserPreferences {
 // ============================================================================
 // User contact fields: per-workspace custom-field schema + per-user profile
 // ============================================================================
-
-/// The workspace's user custom-field schema (override row). Absent → the code
-/// default applies.
-#[derive(Debug, Serialize, Queryable, Identifiable)]
-#[diesel(table_name = crate::schema::user_field_schema)]
-#[diesel(primary_key(workspace_id))]
-pub struct UserFieldSchema {
-    pub workspace_id: i32,
-    pub schema: serde_json::Value,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub updated_at: chrono::DateTime<chrono::Utc>,
-    pub created_by: Option<Uuid>,
-}
 
 /// A per-(user × workspace) contact record: SCIM-Enterprise standard columns
 /// + the custom-field values. `directory_synced` marks the standard columns as
@@ -3281,29 +3237,11 @@ impl AuthProvider {
     }
 }
 
-// Request models for authentication
-#[derive(Debug, Serialize, Deserialize)]
-pub struct AuthProviderConfigRequest {
-    pub provider_id: i32,
-    pub configs: Vec<ConfigItem>,
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ConfigItem {
     pub key: String,
     pub value: String,
     pub is_secret: bool,
-}
-
-// Response model for client display
-#[derive(Debug, Serialize, Deserialize)]
-pub struct AuthProviderWithConfig {
-    pub id: i32,
-    pub provider_type: String,
-    pub name: String,
-    pub enabled: bool,
-    pub is_default: bool,
-    pub configs: Vec<AuthProviderConfigResponse>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -3360,15 +3298,6 @@ pub struct OAuthExchangeRequest {
     pub state: Option<String>,
     pub error: Option<String>,
     pub error_description: Option<String>,
-}
-
-// Microsoft Entra specific models
-#[derive(Debug, Serialize, Deserialize)]
-pub struct MicrosoftAuthConfig {
-    pub client_id: String,
-    pub tenant_id: String,
-    pub client_secret: String,
-    pub redirect_uri: String,
 }
 
 // Models for user authentication identities
@@ -3473,18 +3402,6 @@ pub struct DocumentationRevision {
     pub created_by: Uuid,
     pub change_summary: Option<String>,
     pub workspace_id: i32,
-}
-
-#[derive(Debug, Serialize, Deserialize, Insertable)]
-#[diesel(table_name = crate::schema::documentation_revisions)]
-pub struct NewDocumentationRevision {
-    pub page_id: i32,
-    pub revision_number: i32,
-    pub title: String,
-    pub yjs_document_snapshot: Vec<u8>,
-    pub yjs_state_vector: Vec<u8>,
-    pub created_by: Uuid,
-    pub change_summary: Option<String>,
 }
 
 // Response models for API
@@ -3612,19 +3529,6 @@ pub struct NewSyncDeltaToken {
     pub provider_type: String,
     pub entity_type: String,
     pub delta_link: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, AsChangeset)]
-#[diesel(table_name = crate::schema::sync_delta_tokens)]
-pub struct SyncDeltaTokenUpdate {
-    pub delta_link: Option<String>,
-    pub updated_at: Option<NaiveDateTime>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ProgressPoint {
-    pub name: String,
-    pub sort_order: i32,
 }
 
 // Onboarding models
@@ -3907,15 +3811,6 @@ pub struct NewActiveSession {
     pub location: Option<String>,
     pub expires_at: chrono::NaiveDateTime,
     pub is_current: bool,
-}
-
-/// Update struct for active sessions
-#[derive(Debug, Serialize, Deserialize, AsChangeset)]
-#[diesel(table_name = crate::schema::active_sessions)]
-pub struct ActiveSessionUpdate {
-    pub last_active: Option<chrono::NaiveDateTime>,
-    pub expires_at: Option<chrono::NaiveDateTime>,
-    pub is_current: Option<bool>,
 }
 
 /// Refresh token for JWT token rotation
@@ -4283,15 +4178,6 @@ pub struct NewResetToken<'a> {
     pub metadata: Option<serde_json::Value>,
 }
 
-/// Update struct for reset tokens
-#[derive(Debug, Serialize, Deserialize, AsChangeset)]
-#[diesel(table_name = crate::schema::reset_tokens)]
-pub struct ResetTokenUpdate {
-    pub used_at: Option<chrono::NaiveDateTime>,
-    pub is_used: Option<bool>,
-    pub metadata: Option<serde_json::Value>,
-}
-
 // ===== PASSWORD RESET MODELS =====
 
 /// Request to initiate password reset
@@ -4311,12 +4197,6 @@ pub struct PasswordResetResponse {
 pub struct PasswordResetCompleteRequest {
     pub token: String,
     pub new_password: String,
-}
-
-/// Session revocation request
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SessionRevocationRequest {
-    pub session_id: Option<i32>, // If None, revoke all others
 }
 
 // ===== INVITATION MODELS =====
@@ -4354,13 +4234,6 @@ pub struct ValidateInvitationResponse {
     /// submission; `"invitation"` for an admin-sent invitation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<String>,
-}
-
-/// Response for session operations
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SessionResponse {
-    pub message: String,
-    pub sessions_revoked: usize,
 }
 
 // User ticket views for tracking recently viewed tickets
@@ -5009,20 +4882,6 @@ pub struct AssetGroupUpdate {
     pub display_order: Option<i32>,
 }
 
-// Asset ↔ asset-group membership (native).
-#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations)]
-#[diesel(table_name = crate::schema::asset_group_assignments)]
-#[diesel(belongs_to(AssetGroup, foreign_key = group_id))]
-#[diesel(belongs_to(Asset, foreign_key = asset_id))]
-#[diesel(primary_key(group_id, asset_id))]
-pub struct AssetGroupAssignment {
-    pub group_id: i32,
-    pub asset_id: i32,
-    pub added_at: NaiveDateTime,
-    pub added_by: Option<Uuid>,
-    pub workspace_id: i32,
-}
-
 #[derive(Debug, Insertable)]
 #[diesel(table_name = crate::schema::asset_group_assignments)]
 pub struct NewAssetGroupAssignment {
@@ -5327,17 +5186,6 @@ pub struct NewDocumentationPageVisibility {
 // Documentation Page Embeddings - Tracks transclusion relationships
 // ============================================================================
 
-#[derive(Debug, Serialize, Deserialize, Queryable, Identifiable, Associations)]
-#[diesel(table_name = crate::schema::documentation_page_embeddings)]
-#[diesel(primary_key(source_page_id, target_page_id))]
-#[diesel(belongs_to(DocumentationPage, foreign_key = source_page_id))]
-pub struct DocumentationPageEmbedding {
-    pub source_page_id: i32,
-    pub target_page_id: i32,
-    pub created_at: chrono::NaiveDateTime,
-    pub workspace_id: i32,
-}
-
 #[derive(Debug, Serialize, Deserialize, Insertable)]
 #[diesel(table_name = crate::schema::documentation_page_embeddings)]
 pub struct NewDocumentationPageEmbedding {
@@ -5542,15 +5390,6 @@ pub struct NewAssignmentRuleState {
     pub total_assignments: i32,
 }
 
-#[derive(Debug, Serialize, Deserialize, AsChangeset)]
-#[diesel(table_name = crate::schema::assignment_rule_state)]
-pub struct AssignmentRuleStateUpdate {
-    pub last_assigned_index: Option<i32>,
-    pub total_assignments: Option<i32>,
-    pub last_assigned_at: Option<NaiveDateTime>,
-    pub last_assigned_user_uuid: Option<Uuid>,
-}
-
 /// Assignment audit log entry
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations)]
 #[diesel(table_name = crate::schema::assignment_log)]
@@ -5634,38 +5473,6 @@ pub struct NotificationType {
     pub created_at: NaiveDateTime,
 }
 
-/// User notification preference
-#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations, Clone)]
-#[diesel(table_name = crate::schema::notification_preferences)]
-#[diesel(belongs_to(User, foreign_key = user_uuid))]
-#[diesel(belongs_to(NotificationType, foreign_key = notification_type_id))]
-pub struct NotificationPreference {
-    pub id: i32,
-    pub user_uuid: Uuid,
-    pub notification_type_id: i32,
-    pub channel: String,
-    pub enabled: bool,
-    pub created_at: NaiveDateTime,
-    pub updated_at: NaiveDateTime,
-    pub workspace_id: i32,
-}
-
-#[derive(Debug, Serialize, Deserialize, Insertable)]
-#[diesel(table_name = crate::schema::notification_preferences)]
-pub struct NewNotificationPreference {
-    pub user_uuid: Uuid,
-    pub notification_type_id: i32,
-    pub channel: String,
-    pub enabled: bool,
-}
-
-#[derive(Debug, Serialize, Deserialize, AsChangeset)]
-#[diesel(table_name = crate::schema::notification_preferences)]
-pub struct NotificationPreferenceUpdate {
-    pub enabled: Option<bool>,
-    pub updated_at: Option<NaiveDateTime>,
-}
-
 /// Persistent notification record
 #[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations, Clone)]
 #[diesel(table_name = crate::schema::notifications)]
@@ -5700,28 +5507,6 @@ pub struct NewNotification {
     pub body: Option<String>,
     pub metadata: Option<serde_json::Value>,
     pub channels_delivered: serde_json::Value,
-}
-
-#[derive(Debug, Serialize, Deserialize, AsChangeset)]
-#[diesel(table_name = crate::schema::notifications)]
-pub struct NotificationUpdate {
-    pub is_read: Option<bool>,
-    pub read_at: Option<NaiveDateTime>,
-    pub channels_delivered: Option<serde_json::Value>,
-}
-
-/// Rate limit tracking for email notifications
-#[derive(Debug, Serialize, Deserialize, Identifiable, Queryable, Associations, Clone)]
-#[diesel(table_name = crate::schema::notification_rate_limits)]
-#[diesel(belongs_to(User, foreign_key = user_uuid))]
-#[diesel(belongs_to(NotificationType, foreign_key = notification_type_id))]
-pub struct NotificationRateLimit {
-    pub id: i32,
-    pub user_uuid: Uuid,
-    pub notification_type_id: i32,
-    pub entity_type: String,
-    pub entity_id: i32,
-    pub last_notified_at: NaiveDateTime,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -6325,13 +6110,6 @@ pub struct NewPluginData {
     pub key: String,
     pub value: Option<serde_json::Value>,
     pub is_secret: bool,
-}
-
-/// Plugin data update changeset
-#[derive(Debug, Default, AsChangeset)]
-#[diesel(table_name = crate::schema::plugin_data)]
-pub struct PluginDataUpdate {
-    pub value: Option<Option<serde_json::Value>>,
 }
 
 /// Plugin activity log entry
@@ -7846,7 +7624,7 @@ pub mod email_suppression_reason {
 }
 
 // =====================================================================
-// Rules engine (docs/rules-and-actions-plan.md). Phase 1 ships the
+// Rules engine. Phase 1 ships the
 // manual-trigger surface; the data model below is the unified shape
 // Phase 2 (event triggers), Phase 3 (time-elapsed), and Phase 4
 // (webhook actions) extend without schema changes.
@@ -8193,17 +7971,4 @@ pub struct NewRuleApplication {
     pub actions_taken: Option<serde_json::Value>,
     pub actions_skipped: Option<serde_json::Value>,
     pub failure_reason: Option<String>,
-}
-
-/// Per-event recursion budget row. The engine attempts an INSERT
-/// for every fire candidate; ON CONFLICT means the budget is
-/// consumed and the fire is suppressed. Phase 2 substrate (no
-/// active writer in Phase 1).
-#[derive(Debug, Clone, Serialize, Deserialize, Queryable, Insertable)]
-#[diesel(table_name = crate::schema::ticket_rule_runs, primary_key(event_id, ticket_id, rule_id))]
-pub struct TicketRuleRun {
-    pub event_id: Uuid,
-    pub ticket_id: i32,
-    pub rule_id: i32,
-    pub fired_at: DateTime<Utc>,
 }

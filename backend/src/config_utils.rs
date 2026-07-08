@@ -29,10 +29,31 @@ fn get_env_var(name: &str) -> Result<String, ConfigError> {
 /// `ENVIRONMENT` var (the same one cookies / CSP / system-info read).
 /// Anything other than `production` (including unset) is treated as
 /// non-production, so dev/test default to the more permissive behaviour.
+///
+/// **Fail-open.** Use this only for enabling *extra* production-only behaviour
+/// that is safe to skip in dev. For security posture that must NOT weaken when
+/// the var is forgotten (CSP, HSTS, Secure cookies), use [`assume_production`].
 pub fn is_production() -> bool {
     env::var("ENVIRONMENT")
         .map(|v| v.trim().eq_ignore_ascii_case("production"))
         .unwrap_or(false)
+}
+
+/// Fail-closed counterpart of [`is_production`]: the single source of truth for
+/// "apply hardened (production) security posture." Returns `true` unless
+/// `ENVIRONMENT` is an *explicit* local-dev label (`development` / `dev`), so an
+/// unset, empty, or unrecognised value (a prod deploy that forgot to set it, or
+/// a staging env) still gets the strict CSP, HSTS, and `Secure` cookies rather
+/// than the permissive dev defaults. Set `ENVIRONMENT=development` (or `dev`)
+/// for intentional plaintext-HTTP local setups.
+pub fn assume_production() -> bool {
+    match env::var("ENVIRONMENT") {
+        Ok(v) => {
+            let v = v.trim().to_ascii_lowercase();
+            v.is_empty() || !(v == "development" || v == "dev")
+        }
+        Err(_) => true,
+    }
 }
 
 pub fn get_microsoft_client_id() -> Result<String, ConfigError> {

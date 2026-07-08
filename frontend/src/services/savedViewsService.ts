@@ -56,8 +56,7 @@ export interface SavedView<S = ViewShape, F = FilterState> {
    *  call site. */
   viz_type?: SavedViewVizType
   /** Per-renderer config (measures, group-by, top-N, ...). Shape
-   *  per viz_type is documented in
-   *  docs/dashboard-and-analytics-plan.md §4.2. */
+   *  varies per viz_type. */
   viz_config?: Record<string, unknown>
 }
 

@@ -399,18 +399,15 @@ export function useTicketDetail(
   // -------------------- tags / watch (dedicated endpoints) --------------------
 
   async function updateTags(tagIds: number[]): Promise<void> {
-    if (id.value == null) return
     const r = row.value
-    const previous = r?.tag_ids ?? []
-    pool.patch<SyncTicketDetail>('ticket', id.value, { tag_ids: tagIds })
-    try {
-      const { tagService } = await import('@nosdesk/core/services/tagService')
-      const next = await tagService.setForTicket(id.value, tagIds)
-      pool.patch<SyncTicketDetail>('ticket', id.value, { tag_ids: next })
-    } catch (err) {
-      logger.error('Failed to update tags', { error: err })
-      pool.patch<SyncTicketDetail>('ticket', id.value, { tag_ids: previous })
-    }
+    if (!r) return
+    const previous = r.tag_ids ?? []
+    // Route through the crash-safe optimistic queue like the scalar field
+    // edits, so an in-flight tag change survives a refresh instead of being a
+    // fire-and-forget request that a reload cancels. The server applies
+    // `tag_ids` on the ticket sync-push path (set_tags_for_ticket), which emits
+    // `ticket.tags_changed`; the SSE echo reconciles the authoritative set.
+    await patchTicket({ tag_ids: tagIds }, { tag_ids: previous })
   }
 
   async function toggleWatch(currentUserUuid: string): Promise<void> {

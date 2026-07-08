@@ -1,8 +1,7 @@
 <script setup lang="ts">
 /**
- * Header time-range picker (docs/dashboard-and-analytics-plan.md
- * decision 5; v1 design language collapses the original 6-chip
- * cluster into a single trigger + popover).
+ * Header time-range picker (v1 design language collapses the
+ * original 6-chip cluster into a single trigger + popover).
  *
  * The trigger button shows the active range; clicking opens a
  * popover containing the five preset entries plus a custom-range

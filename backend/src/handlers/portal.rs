@@ -25,7 +25,8 @@ use actix_web::cookie::Cookie;
 use actix_web::dev::{Payload, ServiceRequest, ServiceResponse};
 use actix_web::middleware::Next;
 use actix_web::{web, Error, FromRequest, HttpMessage, HttpRequest, HttpResponse, Responder};
-use serde::Deserialize;
+use chrono::NaiveDateTime;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -33,7 +34,7 @@ use crate::db::{DbConnection, Pool};
 use crate::extractors::{TenantConn, WorkspaceContext};
 use crate::handlers::errors;
 use crate::middleware::cookie_auth::{require_workspace_membership, PORTAL_SCOPE};
-use crate::models::{Claims, ContentFormat, NewComment, NewTicket, Ticket, User};
+use crate::models::{Claims, ContentFormat, NewComment, NewTicket, Ticket, TicketPriority, User};
 use crate::repository::ticket_visibility::{
     can_view_ticket, visible_tickets_query, VisibilityContext,
 };
@@ -298,11 +299,12 @@ pub async fn request_magic_link(
         Err(_) => return magic_link_accepted(),
     };
 
-    // Branding read + enqueue touch workspace-isolated tables, so run pinned +
-    // elevated (the standard background path for tenant-table writes).
+    // Branding read + enqueue touch workspace-isolated tables. Run pinned as the
+    // RLS-enforced runtime role so the branding read (no explicit workspace
+    // filter) returns THIS workspace's settings, not an arbitrary tenant's.
     let raw_token = token.raw_token.clone();
     let user_name = user.name.clone();
-    let _ = crate::sync::session::background_run_in_workspace(
+    let _ = crate::sync::session::run_in_workspace(
         &pool,
         "background:portal_magic_link",
         ctx.workspace_id,
@@ -440,6 +442,43 @@ pub async fn portal_auth_middleware(
     next.call(req).await
 }
 
+/// Customer-facing projection of a [`Ticket`] for the portal. This is an
+/// explicit allowlist: only the fields a ticket's own requester may see. Every
+/// internal field of `Ticket` (assignee, `created_by`/`closed_by`,
+/// `triage_state`, `spam_suspected`, `resolution_notes`, the SLA timers,
+/// `guest_lookup_token`, `verification_state`, `category_id`,
+/// `origin_channel_id`, recurrence, planning dates) is deliberately absent, so
+/// serializing the raw struct can never leak them to a customer.
+#[derive(Debug, Serialize)]
+pub struct CustomerTicket {
+    pub id: i32,
+    pub uuid: Uuid,
+    pub title: String,
+    pub priority: TicketPriority,
+    pub workflow_state_id: i32,
+    #[serde(rename = "created")]
+    pub created_at: NaiveDateTime,
+    #[serde(rename = "modified")]
+    pub updated_at: NaiveDateTime,
+    #[serde(rename = "closed")]
+    pub closed_at: Option<NaiveDateTime>,
+}
+
+impl From<Ticket> for CustomerTicket {
+    fn from(t: Ticket) -> Self {
+        Self {
+            id: t.id,
+            uuid: t.uuid,
+            title: t.title,
+            priority: t.priority,
+            workflow_state_id: t.workflow_state_id,
+            created_at: t.created_at,
+            updated_at: t.updated_at,
+            closed_at: t.closed_at,
+        }
+    }
+}
+
 /// `GET /api/portal/tickets` — the customer's own tickets in this workspace.
 ///
 /// RLS pins to the workspace (the portal origin's tenant); the visibility
@@ -453,7 +492,10 @@ pub async fn list_my_tickets(mut tc: TenantConn, portal: PortalContext) -> impl 
             .load::<Ticket>(conn)
     });
     match result {
-        Ok(rows) => HttpResponse::Ok().json(rows),
+        Ok(rows) => {
+            let dto: Vec<CustomerTicket> = rows.into_iter().map(CustomerTicket::from).collect();
+            HttpResponse::Ok().json(dto)
+        }
         Err(e) => {
             tracing::error!(error = ?e, "portal: failed to list tickets");
             errors::internal("Failed to list tickets")
@@ -482,7 +524,7 @@ pub async fn get_my_ticket(
     });
     match result {
         Ok(Some((ticket, comments))) => HttpResponse::Ok().json(json!({
-            "ticket": ticket,
+            "ticket": CustomerTicket::from(ticket),
             "comments": comments,
         })),
         Ok(None) => errors::not_found("Ticket not found"),
@@ -570,7 +612,7 @@ pub async fn create_my_ticket(
     });
 
     match result {
-        Ok(ticket) => HttpResponse::Created().json(ticket),
+        Ok(ticket) => HttpResponse::Created().json(CustomerTicket::from(ticket)),
         Err(e) => {
             tracing::error!(error = ?e, "portal: failed to create ticket");
             errors::internal("Failed to create ticket")

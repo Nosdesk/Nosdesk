@@ -968,20 +968,35 @@ pub async fn get_connection_status(
     // admins can see when sync last ran without having to grep
     // logs. Treat lookup failure as "no sync yet" rather than an
     // error — a brand-new install has nothing to report.
-    // sync_history is RLS-enabled (Phase 3c.2). The connection-
-    // status endpoint reads the most-recent sync row across all
-    // workspaces (admin view), so background_run with bypass is
-    // correct here.
-    let last_sync =
-        crate::sync::session::background_run(&db_pool, "background:msgraph_status", |conn| {
-            crate::repository::sync_history::get_last_completed_sync(conn).map(|h| {
-                h.completed_at.map(|naive| {
-                    chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(naive, chrono::Utc)
+    // sync_history is RLS-enabled and per-workspace: MS-Graph config is scoped
+    // to a workspace, so the status must surface THIS workspace's last sync.
+    // `get_last_completed_sync` has no explicit workspace filter (it relies on
+    // RLS), so it runs pinned as the RLS-enforced runtime role — under a
+    // BYPASSRLS session it would return the globally-most-recent row from an
+    // arbitrary tenant.
+    let workspace_id = req
+        .extensions()
+        .get::<crate::extractors::WorkspaceContext>()
+        .map(|w| w.workspace_id);
+    let last_sync = workspace_id.and_then(|workspace_id| {
+        crate::sync::session::run_in_workspace(
+            &db_pool,
+            "background:msgraph_status",
+            workspace_id,
+            |conn| {
+                crate::repository::sync_history::get_last_completed_sync(conn).map(|h| {
+                    h.completed_at.map(|naive| {
+                        chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(
+                            naive,
+                            chrono::Utc,
+                        )
+                    })
                 })
-            })
-        })
+            },
+        )
         .ok()
-        .flatten();
+        .flatten()
+    });
 
     HttpResponse::Ok().json(ConnectionStatus {
         status: "connected".to_string(),
@@ -2550,11 +2565,11 @@ fn update_identity_data(
     identity_id: i32,
     identity_data: Option<serde_json::Value>,
 ) -> Result<UserAuthIdentity, diesel::result::Error> {
-    use crate::schema::user_auth_identities;
-
-    diesel::update(user_auth_identities::table.find(identity_id))
-        .set(user_auth_identities::metadata.eq(identity_data))
-        .get_result::<UserAuthIdentity>(conn)
+    crate::repository::user_auth_identities::update_identity_metadata(
+        conn,
+        identity_id,
+        identity_data,
+    )
 }
 
 /// Update existing user who already has Microsoft identity (optimized version)

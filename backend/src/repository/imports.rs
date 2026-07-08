@@ -1,7 +1,6 @@
 //! `import_jobs` CRUD. Companion to `services::imports`.
 
 use diesel::prelude::*;
-use diesel::result::Error;
 use uuid::Uuid;
 
 use crate::db::DbConnection;
@@ -53,11 +52,4 @@ pub fn latest_for_user(conn: &mut DbConnection, user_uuid: Uuid) -> QueryResult<
         .order(import_jobs::created_at.desc())
         .first(conn)
         .optional()
-}
-
-// sync-audit-only: workspace config row, see create
-#[allow(dead_code)]
-pub fn delete(conn: &mut DbConnection, id: Uuid) -> Result<usize, Error> {
-    use crate::schema::import_jobs;
-    diesel::delete(import_jobs::table.find(id)).execute(conn)
 }

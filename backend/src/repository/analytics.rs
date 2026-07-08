@@ -9,7 +9,7 @@
 //!
 //! This wave (Phase 4) ships the foundation: count-based KPIs and
 //! count-based daily time-series over the tickets dataset. The other
-//! query kinds in docs/dashboard-and-analytics-plan.md §13.5
+//! query kinds
 //! (`breakdown`, `heatmap`, `leaderboard`, `audit_annotations`) land
 //! in later waves and slot into this module alongside these helpers.
 

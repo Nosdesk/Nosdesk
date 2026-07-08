@@ -4,10 +4,13 @@ import portalApi from './api'
 
 export interface PortalTicket {
   id: number
+  uuid: string
   title: string
+  priority: string
   workflow_state_id: number
-  created_at: string
-  updated_at: string
+  created: string
+  modified: string
+  closed: string | null
 }
 
 export interface PortalComment {

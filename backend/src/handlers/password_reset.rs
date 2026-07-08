@@ -41,14 +41,10 @@ pub async fn request_password_reset(
         .get("user-agent")
         .and_then(|h| h.to_str().ok())
         .map(|s| s.to_string());
-    let scheme = http_request.connection_info().scheme().to_string();
-    let host = http_request.connection_info().host().to_string();
 
     let pool = db_pool.clone();
     tokio::spawn(async move {
-        if let Err(e) =
-            issue_password_reset(pool, email, ip_address, user_agent, scheme, host).await
-        {
+        if let Err(e) = issue_password_reset(pool, email, ip_address, user_agent).await {
             // Errors are logged inside; this branch is only hit on
             // unrecoverable failures. Never re-throw to the caller.
             error!(error = %e, "password reset background task failed");
@@ -68,16 +64,14 @@ pub async fn request_password_reset(
 /// the cross-tenant email lookup and token issue run on a plain pooled
 /// connection. The two RLS-isolated reads/writes (the `site_settings`
 /// branding read and the `outbound_emails` enqueue) run pinned to the
-/// recipient's workspace via `background_run_in_workspace`: the pool
-/// clears `app.workspace_id` on checkout, so an unpinned enqueue would
-/// fail the NOT NULL workspace default and no reset email would send.
+/// recipient's workspace via `run_in_workspace` (RLS enforced), so the
+/// branding read returns this workspace's settings and the enqueue gets the
+/// `app.workspace_id` its NOT NULL default needs.
 async fn issue_password_reset(
     pool: web::Data<crate::db::Pool>,
     email: String,
     ip_address: Option<String>,
     user_agent: Option<String>,
-    scheme: String,
-    host: String,
 ) -> Result<(), String> {
     let mut conn = pool.get().map_err(|e| format!("db pool: {e}"))?;
 
@@ -163,12 +157,22 @@ async fn issue_password_reset(
     let workspace_id = workspace.id;
 
     // Tenant-canonical link host: the recipient workspace's canonical origin
-    // (custom domain or `<slug>.<NOSDESK_TENANT_DOMAIN>`), falling back to
-    // FRONTEND_URL or the request host for self-hosted single-tenant.
-    let base_url = crate::utils::tenant_origin::email_link_base(
+    // (custom domain or `<slug>.<NOSDESK_TENANT_DOMAIN>`), else FRONTEND_URL.
+    // We deliberately do NOT fall back to the request `Host` header: an
+    // attacker who forges it could point the reset link at a domain they
+    // control and harvest the token (account takeover). If neither a canonical
+    // origin nor FRONTEND_URL is configured, refuse to send and tell the
+    // operator to set FRONTEND_URL.
+    let Some(base_url) = crate::utils::tenant_origin::email_link_base(
         crate::utils::tenant_origin::workspace_origin(&workspace),
-    )
-    .unwrap_or_else(|| format!("{scheme}://{host}"));
+    ) else {
+        error!(
+            user_uuid = %user.uuid,
+            "refusing to send password reset: no canonical origin and FRONTEND_URL is unset; \
+             set FRONTEND_URL so reset links can't be forged via the Host header"
+        );
+        return Ok(());
+    };
 
     // Enqueue rather than fire-and-forget. The outbound worker retries with
     // backoff if SMTP burps, applies the suppression list, and respects the
@@ -177,10 +181,12 @@ async fn issue_password_reset(
     // deliver two copies of the same reset link.
     //
     // The branding read (site_settings) and the enqueue (outbound_emails) are
-    // workspace-isolated, so they run pinned + elevated via
-    // background_run_in_workspace, the standard path for tenant-table
-    // background writes.
-    let enqueue = crate::sync::session::background_run_in_workspace(
+    // workspace-isolated. Run pinned as the RLS-enforced runtime role
+    // (`run_in_workspace`, not the BYPASSRLS background variant): the branding
+    // read has no explicit workspace filter, so under bypass it would return an
+    // arbitrary tenant's settings — RLS scoping it to this workspace is what
+    // keeps the reset email branded for the recipient's own workspace.
+    let enqueue = crate::sync::session::run_in_workspace(
         &pool,
         "background:password_reset",
         workspace_id,
@@ -275,19 +281,14 @@ pub async fn reset_password_with_token(
     };
 
     // Update the user's password hash in user_auth_identities and password_changed_at timestamp in users
-    use diesel::prelude::*;
     let now = Utc::now().naive_utc();
 
     // Update password hash in user_auth_identities
-    use crate::schema::user_auth_identities;
-    if let Err(e) = diesel::update(
-        user_auth_identities::table
-            .filter(user_auth_identities::user_uuid.eq(&user.uuid))
-            .filter(user_auth_identities::provider_type.eq("local")),
-    )
-    .set(user_auth_identities::password_hash.eq(Some(new_password_hash)))
-    .execute(&mut conn)
-    {
+    if let Err(e) = crate::repository::user_auth_identities::update_local_password_hash(
+        &mut conn,
+        &user.uuid,
+        &new_password_hash,
+    ) {
         error!("Failed to update password hash: {:?}", e);
         return errors::internal("Error updating password");
     }
@@ -308,9 +309,7 @@ pub async fn reset_password_with_token(
         };
     let actor = crate::sync::actor::ActorContext::user_at_workspace(user.uuid, workspace_id);
     match crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
-        diesel::update(crate::schema::users::table.find(&user.uuid))
-            .set(crate::schema::users::password_changed_at.eq(now))
-            .execute(c)
+        crate::repository::users::set_password_changed_at(c, &user.uuid, now)
     }) {
         Ok(_) => {
             info!(

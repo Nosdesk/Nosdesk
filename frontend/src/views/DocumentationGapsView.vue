@@ -506,7 +506,7 @@ function signalLabel(signal: KnowledgeGapSignal): string {
             class="rounded-lg border border-dashed border-default p-4 text-sm text-secondary"
           >
             <p class="font-medium text-primary mb-1">{{ $t('docs-gaps-resolve-heading') }}</p>
-            <p v-html="$t('docs-gaps-resolve-body', { action: `<span class=&quot;font-medium text-primary&quot;>${$t('docs-gaps-resolve-action')}</span>` })"></p>
+            <p v-safe-html="$t('docs-gaps-resolve-body', { action: `<span class=&quot;font-medium text-primary&quot;>${$t('docs-gaps-resolve-action')}</span>` })"></p>
           </section>
         </article>
     </section>

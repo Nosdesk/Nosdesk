@@ -41,12 +41,19 @@ pub fn list_all_webhooks(conn: &mut DbConnection) -> Result<Vec<Webhook>, diesel
         .load::<Webhook>(conn)
 }
 
-/// Get webhooks that are enabled and subscribed to a specific event type
+/// Get webhooks in a workspace that are enabled and subscribed to a specific
+/// event type. The `workspace_id` predicate is load-bearing for tenant
+/// isolation: the outbox dispatcher runs under a BYPASSRLS background session,
+/// so RLS does NOT scope this query — without the explicit filter, an event in
+/// one workspace would fan out to every workspace's webhooks subscribed to the
+/// same event type.
 pub fn get_webhooks_for_event(
     conn: &mut DbConnection,
+    workspace_id: i32,
     event_type: &str,
 ) -> Result<Vec<Webhook>, diesel::result::Error> {
     webhooks::table
+        .filter(webhooks::workspace_id.eq(workspace_id))
         .filter(webhooks::enabled.eq(true))
         .filter(webhooks::events.contains(vec![Some(event_type.to_string())]))
         .load::<Webhook>(conn)
@@ -239,7 +246,13 @@ pub fn get_deliveries_for_webhook(
         .load::<WebhookDelivery>(conn)
 }
 
-/// Get pending retries (deliveries with next_retry_at in the past and not yet delivered)
+/// Get pending retries (deliveries with next_retry_at in the past and not yet
+/// delivered). `FOR UPDATE SKIP LOCKED` so concurrent retry workers on separate
+/// instances partition the due rows instead of both grabbing the same ones; the
+/// locks release when the caller's read transaction commits. Combined with the
+/// retry path reusing (not inserting) the delivery row, a failing endpoint can
+/// at worst produce a duplicate POST in a narrow in-flight window, never a
+/// growing pile of delivery rows.
 pub fn get_pending_retries(
     conn: &mut DbConnection,
 ) -> Result<Vec<WebhookDelivery>, diesel::result::Error> {
@@ -251,6 +264,8 @@ pub fn get_pending_retries(
         .filter(webhook_deliveries::next_retry_at.le(now))
         .order(webhook_deliveries::next_retry_at.asc())
         .limit(100) // Process up to 100 retries at a time
+        .for_update()
+        .skip_locked()
         .load::<WebhookDelivery>(conn)
 }
 
@@ -363,7 +378,7 @@ mod tests {
     fn get_webhooks_for_event_test() {
         let mut conn = setup_test_connection();
 
-        create_webhook(
+        let wh = create_webhook(
             &mut conn,
             "Event Hook".into(),
             "https://example.com/event".into(),
@@ -374,8 +389,12 @@ mod tests {
         )
         .unwrap();
 
-        let hooks = get_webhooks_for_event(&mut conn, "ticket.created").unwrap();
+        let hooks = get_webhooks_for_event(&mut conn, wh.workspace_id, "ticket.created").unwrap();
         assert!(!hooks.is_empty());
         assert!(hooks.iter().any(|w| w.name == "Event Hook"));
+        // A different workspace sees none of this workspace's webhooks.
+        let other =
+            get_webhooks_for_event(&mut conn, wh.workspace_id + 1, "ticket.created").unwrap();
+        assert!(other.iter().all(|w| w.name != "Event Hook"));
     }
 }

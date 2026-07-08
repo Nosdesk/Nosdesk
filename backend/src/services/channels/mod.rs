@@ -4,8 +4,7 @@
 //! hierarchy and event shapes defined here are deliberately informed by
 //! what email actually needs; they accommodate Slack / Teams / Discord /
 //! webhook-based adapters without locking any of them into a poll-shaped
-//! mold. See `/Users/kylephillips/.claude/plans/email-ingestion.md` for
-//! the stress-test that shaped this design.
+//! mold.
 //!
 //! # Layout
 //!
@@ -40,6 +39,7 @@ pub mod email_sanitise;
 pub mod email_signature;
 pub mod email_trackers;
 pub mod forward_parser;
+pub mod mail_auth;
 pub mod outbound;
 pub mod pipeline;
 pub mod quote_previous;
@@ -221,6 +221,32 @@ pub struct InboundMessage {
     /// it must never silently drop a known customer's mail — but stamps the
     /// flag so agents can triage. `false` for adapters with no spam signal.
     pub spam_suspected: bool,
+    /// DMARC authentication verdict for the RFC 5322 `From` domain (hosted: the
+    /// SES `dmarcVerdict`; self-host IMAP: the `dmarc=` result in the receiving
+    /// server's topmost `Authentication-Results`). The pipeline uses it as an
+    /// impersonation guard — see [`SenderAuth`].
+    pub sender_auth: SenderAuth,
+}
+
+/// Whether an inbound message's `From` domain was authenticated (DMARC).
+///
+/// The impersonation guard only *rejects* on an explicit [`SenderAuth::Fail`]:
+/// that is a positive spoofing signal (the `From` domain published a DMARC
+/// policy and the message did not align). [`SenderAuth::Unknown`] — no
+/// `Authentication-Results`, DMARC evaluation disabled, or the `From` domain
+/// simply publishes no DMARC — is treated exactly as before (the `From` is
+/// trusted), so a self-host whose MTA doesn't stamp results is not silently
+/// broken. Spoofing can only be *proven* for domains that publish DMARC.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SenderAuth {
+    /// DMARC passed: the `From` domain is authenticated and aligned.
+    Pass,
+    /// DMARC explicitly failed: the `From` published a policy and the message
+    /// did not align. Treated as a spoofing attempt.
+    Fail,
+    /// No usable verdict (no policy, no `Authentication-Results`, or evaluation
+    /// disabled). Neither confirmed nor refuted; the `From` is trusted as before.
+    Unknown,
 }
 
 /// Either bytes we already have (IMAP) or a URL we fetch later (Slack

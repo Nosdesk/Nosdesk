@@ -19,8 +19,7 @@ import {
 const UNDO_CAP = 50
 
 /**
- * Per-user dashboard-layout state with a transactional edit model
- * (docs/dashboard-and-analytics-plan.md decision 17).
+ * Per-user dashboard-layout state with a transactional edit model.
  *
  * The store keeps two parallel layouts:
  *

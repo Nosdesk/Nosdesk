@@ -4,8 +4,7 @@
 //! every 24h, reconciles them with the local trust chain, and
 //! exposes the cached index to the admin UI.
 //!
-//! Wire contract (see RFC in docs/plugins-registry.md once it
-//! lands):
+//! Wire contract:
 //!
 //!   GET {base}/publishers.json
 //!   GET {base}/publishers.json.sig

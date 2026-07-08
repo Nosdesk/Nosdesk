@@ -559,6 +559,7 @@ fn pipeline_outcome_label(outcome: &pipeline::PipelineOutcome) -> &'static str {
         PipelineOutcome::SkippedBounce => "skipped_bounce",
         PipelineOutcome::SkippedUnsupportedVariant => "skipped_unsupported",
         PipelineOutcome::SkippedNoIdentity => "skipped_no_identity",
+        PipelineOutcome::SkippedSpoofedSender => "skipped_spoofed_sender",
     }
 }
 
@@ -617,9 +618,9 @@ mod tests {
     use crate::services::channels::email_imap::ImapRuntimeState;
     use crate::services::channels::{
         ChannelAdapter, ChannelError, ExternalIdentity, InboundEvent, InboundMessage, LoopMarkers,
-        OutboundContent, OutboundMessage, ThreadContext,
+        OutboundContent, OutboundMessage, SenderAuth, ThreadContext,
     };
-    use crate::test_helpers::{setup_test_pool, TestFixtures};
+    use crate::test_helpers::setup_test_pool;
     use async_trait::async_trait;
     use chrono::Utc;
     use std::sync::Mutex;
@@ -699,6 +700,7 @@ mod tests {
             content_language: None,
             source_ref: None,
             spam_suspected: false,
+            sender_auth: SenderAuth::Unknown,
         })
     }
 
@@ -959,12 +961,5 @@ mod tests {
                 .unwrap()
                 .is_some()
         );
-    }
-
-    // Assertion helper to keep UserRole imported — prevents unused-import
-    // warning when we later add UserRole-dependent tests here.
-    #[allow(dead_code)]
-    fn _silence_user_role_import(conn: &mut crate::db::DbConnection) {
-        let _ = TestFixtures::create_user(conn, "n", "user");
     }
 }

@@ -678,6 +678,15 @@ pub async fn sse_events_stream(
         }
     };
 
+    // Only a purpose-minted SSE connection token opens this stream, mirroring
+    // the collab WebSocket's `scope == "collab"` gate. A portal-scoped token, a
+    // write-capable collab token, or a general API token is refused here — the
+    // scope split is what keeps a portal principal (or any non-agent token) off
+    // the agent event feed even when it is a valid member token.
+    if user_info.scope != "sse" {
+        return Ok(errors::forbidden("Token not valid for the event stream"));
+    }
+
     // Resolve the stream's workspace: the token's bound selection (Model C)
     // wins, else the Host-derived context the middleware put on this request.
     use actix_web::HttpMessage as _;

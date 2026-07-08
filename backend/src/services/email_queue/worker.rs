@@ -38,6 +38,12 @@ const CHANNEL_DIRECTION_OUTBOUND: &str = "outbound";
 /// below "operator notices the queue is stuck."
 const LEASE_SECONDS: i64 = 300;
 
+/// How long (seconds) to park a row that has no configured sending identity
+/// before it becomes claimable again. Long enough that an unconfigured
+/// workspace doesn't re-spin the drain loop every tick, short enough that mail
+/// flows within minutes of an admin configuring an identity.
+const UNCONFIGURED_PARK_SECS: i64 = 300;
+
 /// Snapshot of one drain pass. Used for periodic-job status reporting.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct WorkerStats {
@@ -148,15 +154,30 @@ pub async fn run_one_drain(
         };
         async move {
             // Pre-send: skip recipients already on the suppression list
-            // (prior hard bounce or complaint). The list is global (no
-            // workspace_id), so a bypass read is fine; a failed lookup falls
-            // through to attempting the send rather than silently blocking it.
-            let suppressed = crate::sync::session::background_run(
-                &pool,
-                "background:email_queue_suppress_check",
-                |conn| crate::repository::email_suppressions::is_suppressed(conn, &row.recipient),
-            )
-            .unwrap_or(false);
+            // (prior hard bounce or complaint) — but ONLY for opt-out-able
+            // NOTIFICATION mail. Transactional mail (password reset, invitation,
+            // MFA, the agent's own reply, auto-ack) is must-deliver: a hard
+            // bounce or a *forged* DSN must never be able to add a victim's
+            // address to the list and thereby lock them out of account recovery.
+            // Reputation protection for conversation mail is enforced earlier, at
+            // enqueue time (`enqueue_or_suppress`) and on the direct channel-send
+            // paths, where the block is surfaced rather than silently dropping a
+            // human's reply. The list is global (no workspace_id), so a bypass
+            // read is fine; a failed lookup falls through to attempting the send.
+            let suppressed = if row.mail_class
+                == crate::models::outbound_email_mail_class::NOTIFICATION
+            {
+                crate::sync::session::background_run(
+                    &pool,
+                    "background:email_queue_suppress_check",
+                    |conn| {
+                        crate::repository::email_suppressions::is_suppressed(conn, &row.recipient)
+                    },
+                )
+                .unwrap_or(false)
+            } else {
+                false
+            };
             let outcome = if suppressed {
                 DispatchOutcome::Suppressed
             } else {
@@ -171,12 +192,12 @@ pub async fn run_one_drain(
                 }
             };
             // Terminate (update outbound_emails status, and for channel
-            // replies record the outbound channel_messages row) pinned to
-            // the row's workspace. Bypass alone isn't enough: the
-            // channel_messages.workspace_id column default reads
-            // app.workspace_id, so without the pin the insert writes NULL
-            // and trips the NOT NULL constraint.
-            let term_result = crate::sync::session::background_run_in_workspace(
+            // replies record the outbound channel_messages row) pinned to the
+            // row's workspace, RLS-scoped: the pin both scopes the writes to
+            // this row's workspace and supplies the channel_messages.workspace_id
+            // column default (which reads app.workspace_id, so without the pin
+            // the insert writes NULL and trips the NOT NULL constraint).
+            let term_result = crate::sync::session::run_in_workspace(
                 &pool,
                 "background:email_queue_terminate",
                 row.workspace_id,
@@ -464,17 +485,24 @@ fn terminate_row(
             }
         }
         DispatchOutcome::Unconfigured => {
-            // No identity to send with yet. Release the claim without
-            // burning an attempt, like CircuitSkip, so the row sends once
-            // an admin configures a workspace identity (or env SMTP).
-            if let Err(e) = repo::release_claim(conn, row.id) {
-                warn!(error = %e, queue_id = row.id, "release_claim failed");
+            // No identity to send with yet. Park the claim (no attempt burned)
+            // with a short backoff rather than releasing it to immediately
+            // claimable: an unconfigured workspace is a persistent state, and a
+            // plain release would let the drain loop re-claim the same rows on
+            // the next iteration forever (hot-spin). Parking drops the row out
+            // of the claim window so the loop terminates; the safety-net tick
+            // retries once the park elapses, by which point an admin may have
+            // configured a workspace identity (or env SMTP).
+            let parked_until =
+                chrono::Utc::now() + chrono::Duration::seconds(UNCONFIGURED_PARK_SECS);
+            if let Err(e) = repo::park_claim(conn, row.id, parked_until) {
+                warn!(error = %e, queue_id = row.id, "park_claim failed");
             } else {
                 stats.unconfigured += 1;
                 debug!(
                     queue_id = row.id,
                     sender_identity = %row.sender_identity,
-                    "no sending identity configured, releasing claim"
+                    "no sending identity configured, parking claim"
                 );
             }
         }

@@ -7,8 +7,8 @@
 //! instead of an app-side read-modify-write of a JSON array.
 //!
 //! Hash semantics: the `code_hash` column stores opaque
-//! application-side hashes (bcrypt today, possibly argon2id later
-//! per `docs/auth-convergence.md`). This module never inspects the
+//! application-side hashes (bcrypt today, possibly argon2id later).
+//! This module never inspects the
 //! hash — callers pass plaintext for verification, callers compute
 //! the hash before calling `replace_all`. The two responsibilities
 //! sit on the `utils::mfa` side so the hashing choice can change

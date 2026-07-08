@@ -12,9 +12,6 @@
 //! on POST / PUT / PATCH; the handler returns 400 if they don't
 //! (enforced via an explicit check, not relying on middleware
 //! semantics, so the contract is clear from the handler signature).
-//!
-//! See `docs/m5-product-side-handoff.md` Tasks 3-5 for the broader
-//! shape of this surface.
 
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
@@ -863,7 +860,7 @@ fn looks_like_fqdn(s: &str) -> bool {
 /// credentials to the RP ID; there is no rebind). The admin-facing flow must
 /// warn before changing it, and we must not delete the old credentials until
 /// users re-enrol on the new host. Slug is immutable, so this is the only
-/// passkey-invalidating event. See docs/plans/tenant-origin-awareness.md.
+/// passkey-invalidating event.
 pub async fn set_custom_domain(
     req: HttpRequest,
     _: PlatformAuth,

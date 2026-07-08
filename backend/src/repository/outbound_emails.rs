@@ -377,6 +377,33 @@ pub fn release_claim(conn: &mut DbConnection, id: i64) -> Result<usize, DieselEr
     .execute(conn)
 }
 
+// sync-audit-only: worker claim park on the outbound queue
+/// Release a claim back to `pending` but push `next_attempt_at` out to
+/// `next_attempt_at`, so a row that can't send *yet* (no configured sending
+/// identity) drops out of the claim query instead of being re-claimed on the
+/// very next drain — which would hot-loop the worker. Burns no attempt: the row
+/// isn't failing, it's waiting on configuration.
+pub fn park_claim(
+    conn: &mut DbConnection,
+    id: i64,
+    next_attempt_at: chrono::DateTime<chrono::Utc>,
+) -> Result<usize, DieselError> {
+    diesel::sql_query(
+        r#"
+        UPDATE outbound_emails
+        SET status = 'pending',
+            attempts = attempts - 1,
+            lease_token = NULL,
+            lease_expires_at = NULL,
+            next_attempt_at = $2
+        WHERE id = $1 AND status = 'sending'
+        "#,
+    )
+    .bind::<BigInt, _>(id)
+    .bind::<Timestamptz, _>(next_attempt_at)
+    .execute(conn)
+}
+
 // sync-audit-only: worker recovery sweep on stalled leases
 /// Periodic sweeper: rows whose lease expired (worker crashed mid-send)
 /// move back to `failed` so the next claim cycle picks them up. Returns

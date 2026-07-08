@@ -13,7 +13,6 @@ use crate::handlers::errors;
 use crate::handlers::helpers;
 use crate::models::{AuthProvider, OAuthExchangeRequest, OAuthRequest, OAuthState};
 use crate::utils::jwt::JWT_SECRET;
-use diesel::prelude::*;
 // Auth providers are now configured via environment variables
 use crate::config_utils;
 use crate::oidc;
@@ -566,18 +565,11 @@ pub async fn oauth_callback(
                                         "Found orphaned auth identity, cleaning up"
                                     );
                                     // Delete the orphaned identity
-                                    if let Err(e) = diesel::delete(
-                                        crate::schema::user_auth_identities::table
-                                            .filter(
-                                                crate::schema::user_auth_identities::provider_type
-                                                    .eq(&provider.provider_type),
-                                            )
-                                            .filter(
-                                                crate::schema::user_auth_identities::external_id
-                                                    .eq(&provider_user_id),
-                                            ),
+                                    if let Err(e) = crate::repository::user_auth_identities::delete_identities_by_provider_external(
+                                        &mut conn,
+                                        &provider.provider_type,
+                                        &provider_user_id,
                                     )
-                                    .execute(&mut conn)
                                     {
                                         error!(error = ?e, "Failed to clean up orphaned auth identity");
                                     }
@@ -757,18 +749,11 @@ pub async fn oauth_callback(
                                         external_id = %user_info.sub,
                                         "Found orphaned auth identity, cleaning up"
                                     );
-                                    if let Err(e) = diesel::delete(
-                                        crate::schema::user_auth_identities::table
-                                            .filter(
-                                                crate::schema::user_auth_identities::provider_type
-                                                    .eq("oidc"),
-                                            )
-                                            .filter(
-                                                crate::schema::user_auth_identities::external_id
-                                                    .eq(&user_info.sub),
-                                            ),
+                                    if let Err(e) = crate::repository::user_auth_identities::delete_identities_by_provider_external(
+                                        &mut conn,
+                                        "oidc",
+                                        &user_info.sub,
                                     )
-                                    .execute(&mut conn)
                                     {
                                         error!(error = ?e, "Failed to clean up orphaned auth identity");
                                     }
@@ -1672,10 +1657,7 @@ async fn add_oauth_identity_to_user(
                     is_verified: true,
                     source: Some(provider.provider_type.clone()),
                 };
-                if let Err(e) = diesel::insert_into(crate::schema::user_emails::table)
-                    .values(&new_email)
-                    .execute(conn)
-                {
+                if let Err(e) = crate::repository::user_emails::add_email(conn, &new_email) {
                     error!(
                         provider = %provider.provider_type,
                         user_uuid = %user.uuid,

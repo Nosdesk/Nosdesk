@@ -164,26 +164,6 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         );
 }
 
-/// Helper function to update password hash in user_auth_identities for local auth
-fn update_local_password_hash(
-    user_uuid: &Uuid,
-    new_password_hash: &str,
-    conn: &mut DbConnection,
-) -> Result<(), diesel::result::Error> {
-    use crate::schema::user_auth_identities;
-    use diesel::prelude::*;
-
-    diesel::update(
-        user_auth_identities::table
-            .filter(user_auth_identities::user_uuid.eq(user_uuid))
-            .filter(user_auth_identities::provider_type.eq("local")),
-    )
-    .set(user_auth_identities::password_hash.eq(Some(new_password_hash)))
-    .execute(conn)?;
-
-    Ok(())
-}
-
 /// Convert ValidationError to HTTP response
 impl From<ValidationError> for HttpResponse {
     fn from(error: ValidationError) -> Self {
@@ -1082,11 +1062,14 @@ pub async fn change_password(
             };
 
             // Update the user's password hash in user_auth_identities and password_changed_at timestamp in users
-            use diesel::prelude::*;
             let now = chrono::Utc::now().naive_utc();
 
             // Update password hash in user_auth_identities
-            if let Err(e) = update_local_password_hash(&user.uuid, &new_password_hash, &mut conn) {
+            if let Err(e) = repository::user_auth_identities::update_local_password_hash(
+                &mut conn,
+                &user.uuid,
+                &new_password_hash,
+            ) {
                 error!(error = ?e, "Error updating password hash");
                 return errors::internal("Error updating password");
             }
@@ -1096,9 +1079,7 @@ pub async fn change_password(
             // audit trigger has a workspace pin.
             let actor = helpers::actor_for(&req, "handler:change_password");
             let update_result = crate::sync::session::with_actor_context(&mut conn, &actor, |c| {
-                diesel::update(crate::schema::users::table.find(&user.uuid))
-                    .set(crate::schema::users::password_changed_at.eq(now))
-                    .execute(c)
+                repository::users::set_password_changed_at(c, &user.uuid, now)
             });
             match update_result {
                 Ok(_) => {

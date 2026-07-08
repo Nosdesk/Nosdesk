@@ -3,7 +3,7 @@
 //! This module replaces the fire-and-forget `tokio::spawn` send path
 //! in `services/channels/outbound.rs` with a durable, retryable queue.
 //!
-//! Architecture (see ~/.claude/plans/item-j-email-rework.md):
+//! Architecture:
 //!
 //! ```text
 //!   handler                                         queue worker

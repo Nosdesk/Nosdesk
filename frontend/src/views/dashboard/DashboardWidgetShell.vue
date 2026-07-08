@@ -16,8 +16,7 @@ Why a shell:
     is inherited automatically and is, by definition, consistent with
     every other widget.
 
-Edit-mode affordances (docs/dashboard-and-analytics-plan.md decision
-20–22):
+Edit-mode affordances:
   * Drag handle is a 4px shaded gutter running the full left edge of
     the card. It reads as a card-affordance rather than a header-
     affordance, doesn't compete with header content for space, and

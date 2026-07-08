@@ -6,8 +6,7 @@
 //! `TemplateContext` the rule lifecycle passes in. The context is
 //! structured so Phase 2's event-triggered and Phase 3's
 //! time-elapsed fires extend the binding set without changing the
-//! function signature (decision 34 in
-//! `docs/rules-and-actions-plan.md`): `event` and `reply` are
+//! function signature (decision 34): `event` and `reply` are
 //! optional and stay `None` for Phase 1's manual apply path.
 //!
 //! Canned responses keep their existing path through

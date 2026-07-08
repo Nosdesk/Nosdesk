@@ -213,6 +213,10 @@ pub async fn receive(
     }
     // Carry the spam verdict so the pipeline opens the ticket but flags it.
     msg.spam_suspected = spam;
+    // Carry the DMARC verdict so the pipeline rejects a spoofed From that names
+    // a real account (staff identity, tech-forward attribution). The SES receipt
+    // is authoritative here, overriding any header the raw MIME carried.
+    msg.sender_auth = ses::sender_auth(&notification.receipt);
 
     match ingest(
         &pool,

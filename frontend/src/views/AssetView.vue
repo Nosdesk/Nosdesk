@@ -1147,7 +1147,7 @@ useSyncActions(
         <h3 class="text-xl font-medium text-primary">{{ $t('asset-detail-unmanage-heading') }}</h3>
         <p
           class="text-sm text-secondary text-center max-w-sm"
-          v-html="$t('asset-detail-unmanage-confirm-body', { name: (device?.attributes?.hostname as string | undefined) || device?.name || '' })"
+          v-safe-html="$t('asset-detail-unmanage-confirm-body', { name: (device?.attributes?.hostname as string | undefined) || device?.name || '' })"
         ></p>
         <p class="text-xs text-tertiary text-center max-w-sm">{{ $t('asset-detail-unmanage-confirm-note') }}</p>
         <AlertMessage v-if="unmanageError" type="error" :message="unmanageError" />

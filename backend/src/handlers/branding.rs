@@ -9,9 +9,10 @@ use crate::db::Pool;
 use crate::extractors::TenantConn;
 use crate::handlers::errors;
 use crate::handlers::helpers;
-use crate::models::{SiteSettingsResponse, UpdateSiteSettings};
+use crate::models::{SiteSettingsResponse, UpdateSiteSettings, WorkspaceRole};
 use crate::repository::site_settings;
 use crate::utils;
+use crate::utils::rbac::require_workspace_role;
 
 /// Branding routes (config + image upload), mounted inside the authenticated
 /// `/api` scope in main.rs.
@@ -116,6 +117,10 @@ pub async fn update_branding_config(
     req: HttpRequest,
     body: web::Json<UpdateBrandingRequest>,
 ) -> impl Responder {
+    // Branding is workspace-wide configuration: only an admin may change it.
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
+        return e;
+    }
     // Get authenticated user from request
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
@@ -256,6 +261,9 @@ pub async fn upload_branding_image(
     req: HttpRequest,
     type_query: web::Query<BrandingImageTypeQuery>,
 ) -> impl Responder {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
+        return e;
+    }
     let image_type = &type_query.type_;
 
     // Validate image type
@@ -408,6 +416,9 @@ pub async fn delete_branding_image(
     req: HttpRequest,
     type_query: web::Query<BrandingImageTypeQuery>,
 ) -> impl Responder {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
+        return e;
+    }
     let image_type = &type_query.type_;
 
     if !["logo", "logo_light", "favicon"].contains(&image_type.as_str()) {

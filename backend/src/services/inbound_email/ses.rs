@@ -45,6 +45,15 @@ pub struct SesReceipt {
     pub spam_verdict: Option<SesVerdict>,
     #[serde(rename = "virusVerdict")]
     pub virus_verdict: Option<SesVerdict>,
+    /// DMARC evaluation. A `PASS` means an aligned SPF or DKIM for the header
+    /// `From` domain — i.e. the `From` is not forged. Used as the inbound
+    /// impersonation guard (see [`sender_authenticated`]).
+    #[serde(rename = "dmarcVerdict")]
+    pub dmarc_verdict: Option<SesVerdict>,
+    #[serde(rename = "spfVerdict")]
+    pub spf_verdict: Option<SesVerdict>,
+    #[serde(rename = "dkimVerdict")]
+    pub dkim_verdict: Option<SesVerdict>,
     pub action: Option<SesAction>,
 }
 
@@ -111,6 +120,30 @@ fn verdict_failed(v: &Option<SesVerdict>) -> bool {
         .and_then(|v| v.status.as_deref())
         .map(|s| s.eq_ignore_ascii_case("FAIL"))
         .unwrap_or(false)
+}
+
+fn verdict_passed(v: &Option<SesVerdict>) -> bool {
+    v.as_ref()
+        .and_then(|v| v.status.as_deref())
+        .map(|s| s.eq_ignore_ascii_case("PASS"))
+        .unwrap_or(false)
+}
+
+/// The message's DMARC verdict as a [`SenderAuth`]. A DMARC `PASS` requires an
+/// aligned SPF or DKIM for the header `From` domain, so it is the signal that
+/// the `From` is genuine; an explicit `FAIL` is a spoofing signal. Anything else
+/// (`GRAY` because the `From` domain publishes no DMARC, `PROCESSING_FAILED`, or
+/// an absent verdict because evaluation was disabled) is `Unknown` — the
+/// pipeline neither rejects nor specially trusts it.
+pub fn sender_auth(receipt: &SesReceipt) -> crate::services::channels::SenderAuth {
+    use crate::services::channels::SenderAuth;
+    if verdict_passed(&receipt.dmarc_verdict) {
+        SenderAuth::Pass
+    } else if verdict_failed(&receipt.dmarc_verdict) {
+        SenderAuth::Fail
+    } else {
+        SenderAuth::Unknown
+    }
 }
 
 /// Virus scan failed. Always a hard drop (we never ingest malware), regardless
@@ -231,6 +264,27 @@ mod tests {
             status: Some("fail".into()),
         });
         assert!(virus_failed(&n.receipt));
+    }
+
+    #[test]
+    fn sender_auth_reflects_dmarc_verdict() {
+        use crate::services::channels::SenderAuth;
+        let mut n = SesNotification::parse(SAMPLE).unwrap();
+        // SAMPLE has no dmarcVerdict → Unknown.
+        assert_eq!(sender_auth(&n.receipt), SenderAuth::Unknown);
+        n.receipt.dmarc_verdict = Some(SesVerdict {
+            status: Some("PASS".into()),
+        });
+        assert_eq!(sender_auth(&n.receipt), SenderAuth::Pass);
+        n.receipt.dmarc_verdict = Some(SesVerdict {
+            status: Some("fail".into()),
+        });
+        assert_eq!(sender_auth(&n.receipt), SenderAuth::Fail);
+        // GRAY (no policy) is neither pass nor fail.
+        n.receipt.dmarc_verdict = Some(SesVerdict {
+            status: Some("GRAY".into()),
+        });
+        assert_eq!(sender_auth(&n.receipt), SenderAuth::Unknown);
     }
 
     #[test]

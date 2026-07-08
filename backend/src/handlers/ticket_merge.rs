@@ -19,8 +19,7 @@ use crate::repository::ticket_merge::{self, ExpectedState, MergeError, MergeInpu
 use crate::services::search::{indexing_tasks, SearchService};
 use crate::utils::rbac::require_workspace_role;
 
-/// `POST /api/tickets/merge` request body. Mirrors
-/// `docs/ticket-merge-plan.md` section 7.1.
+/// `POST /api/tickets/merge` request body.
 #[derive(Debug, Deserialize)]
 pub struct MergeRequest {
     pub destination_ticket_id: i32,

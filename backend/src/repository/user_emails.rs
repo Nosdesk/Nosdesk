@@ -3,7 +3,7 @@ use diesel::prelude::*;
 use uuid::Uuid;
 
 use crate::db::DbConnection;
-use crate::models::{NewUserEmail, UserEmail};
+use crate::models::{NewUserEmail, UserEmail, UserEmailUpdate};
 use crate::schema::user_emails;
 
 /// Get all emails for a specific user by UUID
@@ -106,6 +106,74 @@ pub fn find_user_by_any_of_emails(
         .optional()?;
 
     Ok(result)
+}
+
+/// Look up a single email row by its numeric id.
+pub fn get_email_by_id(
+    conn: &mut DbConnection,
+    email_id: i32,
+) -> Result<UserEmail, diesel::result::Error> {
+    user_emails::table.find(email_id).first::<UserEmail>(conn)
+}
+
+// sync-audit-only: user_emails is a contact-detail table with no audit trigger and no sync aggregate; nothing subscribes to email add/update/remove
+/// Insert one email row for a user and return the created record.
+pub fn add_email(
+    conn: &mut DbConnection,
+    new_email: &NewUserEmail,
+) -> Result<UserEmail, diesel::result::Error> {
+    diesel::insert_into(user_emails::table)
+        .values(new_email)
+        .get_result::<UserEmail>(conn)
+}
+
+// sync-audit-only: user_emails is a contact-detail table with no audit trigger and no sync aggregate; nothing subscribes to email add/update/remove
+/// Clear the `is_primary` flag on every email a user owns. Used before
+/// promoting a different address so at most one stays primary.
+pub fn clear_primary(
+    conn: &mut DbConnection,
+    user_uuid: &Uuid,
+) -> Result<usize, diesel::result::Error> {
+    diesel::update(user_emails::table.filter(user_emails::user_uuid.eq(user_uuid)))
+        .set(user_emails::is_primary.eq(false))
+        .execute(conn)
+}
+
+// sync-audit-only: user_emails is a contact-detail table with no audit trigger and no sync aggregate; nothing subscribes to email add/update/remove
+/// Apply a partial update (primary / verified flags) to one email row.
+pub fn update_email(
+    conn: &mut DbConnection,
+    email_id: i32,
+    changes: &UserEmailUpdate,
+) -> Result<UserEmail, diesel::result::Error> {
+    diesel::update(user_emails::table.find(email_id))
+        .set(changes)
+        .get_result::<UserEmail>(conn)
+}
+
+// sync-audit-only: user_emails is a contact-detail table with no audit trigger and no sync aggregate; nothing subscribes to email add/update/remove
+/// Mark a user's primary email as verified. Used on invitation accept,
+/// where receiving the invite proves ownership of that address.
+pub fn mark_primary_verified(
+    conn: &mut DbConnection,
+    user_uuid: &Uuid,
+) -> Result<usize, diesel::result::Error> {
+    diesel::update(
+        user_emails::table
+            .filter(user_emails::user_uuid.eq(user_uuid))
+            .filter(user_emails::is_primary.eq(true)),
+    )
+    .set(user_emails::is_verified.eq(true))
+    .execute(conn)
+}
+
+// sync-audit-only: user_emails is a contact-detail table with no audit trigger and no sync aggregate; nothing subscribes to email add/update/remove
+/// Remove one email row by id.
+pub fn delete_email(
+    conn: &mut DbConnection,
+    email_id: i32,
+) -> Result<usize, diesel::result::Error> {
+    diesel::delete(user_emails::table.find(email_id)).execute(conn)
 }
 
 #[cfg(test)]

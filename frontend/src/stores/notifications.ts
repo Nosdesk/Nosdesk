@@ -8,8 +8,7 @@
  * Pinia Colada keys ensure they share one cache entry. Marking
  * an item read in one surface updates the other instantly.
  *
- * Architecture decisions (see
- * `~/Documents/notes/technology/web development/loading-states-architecture.md`):
+ * Architecture decisions:
  *
  *   - The list is an infinite query; pages live in the cache,
  *     concatenated for display via `data.pages.flat()`.

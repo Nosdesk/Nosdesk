@@ -399,40 +399,24 @@ pub fn background_run<T>(
     with_actor_bypass_context(&mut conn, &actor, f).map_err(BackgroundRunError::Db)
 }
 
-/// [`background_run`] pinned to a specific workspace.
+/// Per-workspace background work as the `nosdesk_app` runtime role (RLS
+/// enforced), pinned to `workspace_id`. This is THE primitive for background
+/// tasks that operate within one known workspace — reads AND writes:
 ///
-/// Background writes to tenant tables (notifications, outbound_emails, …)
-/// must set `app.workspace_id`: the column default and the audit/sync
-/// triggers all read that GUC, so a plain `background_run` (system actor,
-/// no workspace) leaves `workspace_id` NULL and the insert fails the NOT
-/// NULL constraint. Use this when the caller knows the workspace the write
-/// belongs to (a ticket's `workspace_id`, a resolved recipient workspace).
-pub fn background_run_in_workspace<T>(
-    pool: &crate::db::Pool,
-    reference: &'static str,
-    workspace_id: i32,
-    f: impl FnOnce(&mut DbConnection) -> QueryResult<T>,
-) -> Result<T, BackgroundRunError> {
-    let mut conn = pool.get().map_err(BackgroundRunError::Pool)?;
-    let actor = crate::sync::actor::ActorContext::system(reference).with_workspace(workspace_id);
-    with_actor_bypass_context(&mut conn, &actor, f).map_err(BackgroundRunError::Db)
-}
-
-/// Like [`background_run_in_workspace`] but NON-bypass: runs the closure as the
-/// `nosdesk_app` runtime role (RLS enforced) pinned to `workspace_id`.
+/// - Reads are RLS-scoped to `workspace_id`, so a query with no explicit
+///   workspace filter (the common repository shape) returns only this
+///   workspace's rows rather than an arbitrary tenant's. That scoping is what
+///   makes it safe by default.
+/// - Writes get the `app.workspace_id` that the NOT NULL `workspace_id` column
+///   default and the audit/sync triggers read, and pass the RLS WITH CHECK.
 ///
-/// This is the right primitive for per-workspace background work that reads as
-/// well as writes tenant tables: the workspace pin satisfies the NOT NULL
-/// `workspace_id` column default on inserts AND scopes RLS reads to that one
-/// workspace. `background_run`/`background_run_in_workspace` elevate to
-/// `nosdesk_admin` (BYPASSRLS), which fixes the write default but leaves an
-/// unfiltered read returning an arbitrary tenant's row. Reserve the bypass
-/// variants for genuinely cross-workspace operations (e.g. the outbound queue
-/// claim that drains every tenant in one pass).
+/// Reach for the BYPASSRLS [`background_run`] ONLY for genuinely cross-workspace
+/// work (the outbound-queue claim that drains every tenant, the search
+/// reindexer, pre-auth workspace resolution) — never for single-workspace work,
+/// where an unfiltered read under bypass silently returns the wrong tenant.
 ///
-/// Used by the channel/notification background paths (auto-ack, notification
-/// email delivery, the IMAP poll's per-channel credential read and cursor
-/// write), each of which knows its workspace from the channel or ticket.
+/// Used by the channel / notification / email background paths, each of which
+/// knows its workspace from the channel, ticket, or resolved recipient.
 pub fn run_in_workspace<T>(
     pool: &crate::db::Pool,
     reference: &'static str,

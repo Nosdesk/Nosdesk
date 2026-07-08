@@ -53,9 +53,7 @@ async function bootstrap() {
   app.use(createI18nPlugin(pinia))
   // Pinia Colada must register AFTER Pinia. Provides the canonical
   // async data layer (queries, mutations, optimistic updates,
-  // query cache, route loader integration). See
-  // `~/Documents/notes/technology/web development/loading-states-architecture.md`
-  // for the architectural rationale.
+  // query cache, route loader integration).
   app.use(PiniaColada, {})
   app.use(router)
 

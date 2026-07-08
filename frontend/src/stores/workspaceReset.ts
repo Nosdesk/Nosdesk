@@ -32,6 +32,12 @@ export async function resetWorkspaceScopedState(): Promise<void> {
     ),
     import('@/stores/savedViews').then((m) => m.useSavedViewsStore().reset()),
     import('@/stores/assetGroups').then((m) => m.useAssetGroupsStore().reset()),
+    // Recent-users picker: workspace-scoped (its members), but persisted to
+    // localStorage keyed by account, so it is NOT covered by the query-cache
+    // clear below. Without this, switching workspace leaves the previous
+    // workspace's users in the "Recent" picker. (recentTickets is a Pinia
+    // Colada query, so the cache clear below already resets it.)
+    import('@/stores/recentUsers').then((m) => m.useRecentUsersStore().clear()),
   ]);
   for (const r of storeResets) {
     if (r.status === 'rejected') {

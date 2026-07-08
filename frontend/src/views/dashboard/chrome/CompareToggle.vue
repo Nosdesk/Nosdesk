@@ -1,7 +1,6 @@
 <script setup lang="ts">
 /**
- * Compare-to-prior global toggle
- * (docs/dashboard-and-analytics-plan.md decision 6).
+ * Compare-to-prior global toggle.
  *
  * When on, every time-series renders a faint overlay of the prior
  * window and every KPI shows a delta vs prior. Off by default per

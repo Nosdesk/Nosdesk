@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
-import axios from 'axios';
+import apiClient from '@nosdesk/core/apiClient';
 import { useFluent } from 'fluent-vue';
 import { useQuery } from '@pinia/colada';
 
@@ -42,7 +42,7 @@ const AUTH_PROVIDERS_KEY = ['auth-providers'] as const;
 const providersQuery = useQuery({
   key: AUTH_PROVIDERS_KEY,
   query: async () => {
-    const response = await axios.get('/api/admin/auth/providers');
+    const response = await apiClient.get('/admin/auth/providers');
     return response.data as Provider[];
   },
 });
@@ -62,7 +62,7 @@ const configValidations = ref<Record<number, ConfigValidation>>({});
 const validateProviderConfig = async (provider: Provider) => {
   try {
     if (provider.provider_type === 'microsoft') {
-      const response = await axios.get(`/api/integrations/graph/config`);
+      const response = await apiClient.get(`/integrations/graph/config`);
 
       configValidations.value[provider.id] = {
         valid: true,

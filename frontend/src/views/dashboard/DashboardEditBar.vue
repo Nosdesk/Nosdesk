@@ -1,7 +1,6 @@
 <!--
 Compact action bar shown while the dashboard is in edit mode.
-Transactional shape (docs/dashboard-and-analytics-plan.md decision
-17): Done writes the working copy to the server; Discard drops it;
+Transactional shape: Done writes the working copy to the server; Discard drops it;
 Undo/Redo step through the in-session change history. Reset to
 defaults is its own thing (replaces the working copy with the
 factory layout) and is still gated behind a confirm.

@@ -223,8 +223,7 @@ pub fn update_collection_description_yjs(
     // Ownership-claim fencing token (Phase 2 affinity). `Some(f)` gates
     // the write so a stale owner cannot clobber a newer owner's state;
     // `None` (single-instance / Redis-down) writes unconditionally. A
-    // stale write affects 0 rows (the returned count reflects it). See
-    // docs/realtime-collab-affinity-design.md.
+    // stale write affects 0 rows (the returned count reflects it).
     fence: Option<i64>,
 ) -> QueryResult<usize> {
     let now = chrono::Utc::now().naive_utc();
