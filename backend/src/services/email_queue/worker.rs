@@ -192,12 +192,12 @@ pub async fn run_one_drain(
                 }
             };
             // Terminate (update outbound_emails status, and for channel
-            // replies record the outbound channel_messages row) pinned to
-            // the row's workspace. Bypass alone isn't enough: the
-            // channel_messages.workspace_id column default reads
-            // app.workspace_id, so without the pin the insert writes NULL
-            // and trips the NOT NULL constraint.
-            let term_result = crate::sync::session::background_run_in_workspace(
+            // replies record the outbound channel_messages row) pinned to the
+            // row's workspace, RLS-scoped: the pin both scopes the writes to
+            // this row's workspace and supplies the channel_messages.workspace_id
+            // column default (which reads app.workspace_id, so without the pin
+            // the insert writes NULL and trips the NOT NULL constraint).
+            let term_result = crate::sync::session::run_in_workspace(
                 &pool,
                 "background:email_queue_terminate",
                 row.workspace_id,

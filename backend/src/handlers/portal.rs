@@ -299,11 +299,12 @@ pub async fn request_magic_link(
         Err(_) => return magic_link_accepted(),
     };
 
-    // Branding read + enqueue touch workspace-isolated tables, so run pinned +
-    // elevated (the standard background path for tenant-table writes).
+    // Branding read + enqueue touch workspace-isolated tables. Run pinned as the
+    // RLS-enforced runtime role so the branding read (no explicit workspace
+    // filter) returns THIS workspace's settings, not an arbitrary tenant's.
     let raw_token = token.raw_token.clone();
     let user_name = user.name.clone();
-    let _ = crate::sync::session::background_run_in_workspace(
+    let _ = crate::sync::session::run_in_workspace(
         &pool,
         "background:portal_magic_link",
         ctx.workspace_id,

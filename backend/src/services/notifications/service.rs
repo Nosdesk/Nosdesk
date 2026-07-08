@@ -279,7 +279,7 @@ impl NotificationService {
         // not recipient-derived: a recipient can belong to several
         // workspaces, and the notification belongs to the one its entity
         // lives in.
-        let notification: Notification = crate::sync::session::background_run_in_workspace(
+        let notification: Notification = crate::sync::session::run_in_workspace(
             &self.pool,
             "background:notification_persist",
             payload.workspace_id,

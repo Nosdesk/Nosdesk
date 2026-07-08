@@ -1037,7 +1037,7 @@ pub async fn loan_due_reminders(
 
     // One workspace-pinned UPDATE per (workspace, kind) bucket.
     for ((workspace_id, kind), loan_ids) in to_stamp {
-        let stamped = crate::sync::session::background_run_in_workspace(
+        let stamped = crate::sync::session::run_in_workspace(
             &pool,
             "scheduler:loan_reminders:stamp",
             workspace_id,

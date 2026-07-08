@@ -5,7 +5,7 @@
 //! with no workspace, so the GUC is empty, the default resolves to NULL,
 //! and the insert fails the NOT NULL constraint — the exact failure seen
 //! when posting a public comment (outbound reply + notification both
-//! dropped). `background_run_in_workspace` pins the workspace so the write
+//! dropped). `run_in_workspace` pins the workspace (RLS-enforced) so the write
 //! lands. This reproduces the bug and proves the fix on the notifications
 //! table.
 
@@ -16,7 +16,7 @@ use diesel::sql_types::Integer;
 
 use backend::models::{NewNotification, Notification};
 use backend::schema::notifications;
-use backend::sync::session::{background_run, background_run_in_workspace};
+use backend::sync::session::{background_run, run_in_workspace};
 
 mod common;
 
@@ -77,8 +77,9 @@ fn unpinned_background_write_fails_pinned_one_succeeds() {
         "an unpinned background insert must fail the workspace_id NOT NULL constraint"
     );
 
-    // NEW path: pin the workspace -> the default resolves to it -> success.
-    let row = background_run_in_workspace(&pool, "test:bg_pinned", ws_id, |conn| {
+    // NEW path: pin the workspace (RLS-enforced runtime role) -> the default
+    // resolves to it and the RLS WITH CHECK passes -> success.
+    let row = run_in_workspace(&pool, "test:bg_pinned", ws_id, |conn| {
         diesel::insert_into(notifications::table)
             .values(new_notification(user_uuid, type_id))
             .get_result::<Notification>(conn)

@@ -394,7 +394,7 @@ pub async fn test_webhook(
         }
     };
 
-    match webhook_service.send_test_event(webhook.id).await {
+    match webhook_service.send_test_event(&webhook).await {
         Ok(_) => {
             info!(
                 "Test event sent to webhook: {} ({})",

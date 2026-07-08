@@ -64,9 +64,9 @@ pub async fn request_password_reset(
 /// the cross-tenant email lookup and token issue run on a plain pooled
 /// connection. The two RLS-isolated reads/writes (the `site_settings`
 /// branding read and the `outbound_emails` enqueue) run pinned to the
-/// recipient's workspace via `background_run_in_workspace`: the pool
-/// clears `app.workspace_id` on checkout, so an unpinned enqueue would
-/// fail the NOT NULL workspace default and no reset email would send.
+/// recipient's workspace via `run_in_workspace` (RLS enforced), so the
+/// branding read returns this workspace's settings and the enqueue gets the
+/// `app.workspace_id` its NOT NULL default needs.
 async fn issue_password_reset(
     pool: web::Data<crate::db::Pool>,
     email: String,
@@ -181,10 +181,12 @@ async fn issue_password_reset(
     // deliver two copies of the same reset link.
     //
     // The branding read (site_settings) and the enqueue (outbound_emails) are
-    // workspace-isolated, so they run pinned + elevated via
-    // background_run_in_workspace, the standard path for tenant-table
-    // background writes.
-    let enqueue = crate::sync::session::background_run_in_workspace(
+    // workspace-isolated. Run pinned as the RLS-enforced runtime role
+    // (`run_in_workspace`, not the BYPASSRLS background variant): the branding
+    // read has no explicit workspace filter, so under bypass it would return an
+    // arbitrary tenant's settings — RLS scoping it to this workspace is what
+    // keeps the reset email branded for the recipient's own workspace.
+    let enqueue = crate::sync::session::run_in_workspace(
         &pool,
         "background:password_reset",
         workspace_id,

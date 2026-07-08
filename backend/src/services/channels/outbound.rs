@@ -207,14 +207,14 @@ pub fn enqueue_for_comment(
     tokio::spawn(async move {
         // Everything inside this spawn is sync DB work — no awaits
         // between pool.get and the enqueue write — so the whole
-        // body fits inside a single background_run. channels,
-        // tickets, signatures (user prefs), outbound_emails are
-        // all RLS-enabled and outbound_emails.workspace_id defaults
-        // from app.workspace_id; the relay runs from the comment
-        // handler spawn with no request-bound pin, so pin the
-        // ticket's workspace explicitly or the insert writes a NULL
-        // workspace_id and fails the NOT NULL constraint.
-        let result = crate::sync::session::background_run_in_workspace(
+        // channels, tickets, signatures (user prefs), outbound_emails are all
+        // RLS-enabled. Run pinned as the RLS-enforced runtime role: the relay
+        // runs from the comment-handler spawn with no request-bound pin, and
+        // decide_relay reads those tenant tables — scoping them to the ticket's
+        // workspace keeps the channel/thread resolution from seeing another
+        // tenant's row, and the pin also supplies outbound_emails.workspace_id's
+        // app.workspace_id default (else the insert writes NULL and fails NOT NULL).
+        let result = crate::sync::session::run_in_workspace(
             &pool,
             "background:channel_relay_enqueue",
             workspace_id,
