@@ -276,6 +276,7 @@ function onContextMenu(e: MouseEvent) {
   menuX.value = e.clientX
   menuY.value = e.clientY
   menuOpen.value = true
+  ctx?.onSizeMenuToggle(true)
 }
 
 /** Map a size menu id to its preview intent; null for other items. */
@@ -311,6 +312,7 @@ function onMenuUnhighlight(id: string) {
 function onMenuClose() {
   menuOpen.value = false
   ctx?.onPreviewResize(null)
+  ctx?.onSizeMenuToggle(false)
 }
 
 /** Keyboard model on the focused card (edit mode only, and only

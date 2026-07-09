@@ -37,6 +37,10 @@ export interface DashboardWidgetContext {
    *  store; the grid re-packs around the previewed footprint until
    *  cleared with `null`. */
   onPreviewResize: (intent: ResizePreviewIntent | null) => void
+  /** The resize context menu opened (`true`) or closed (`false`). Lets
+   *  the grid freeze its height for the menu session so a preview can't
+   *  jump the scroll. */
+  onSizeMenuToggle: (open: boolean) => void
   /** Keyboard repositioning of the focused widget. */
   onMove: (dir: MoveDirection) => void
   onHide: () => void

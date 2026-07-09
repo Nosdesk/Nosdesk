@@ -395,6 +395,13 @@ watch(ghostVisible, (visible) => {
 // change is committed to the store once on pointerup, so the whole
 // gesture is a single undo step rather than one per frame.
 const resizePreview = ref<{ id: string; span: WidgetSpan; rowSpan: WidgetSpan } | null>(null)
+/** Height floor held while a menu-hover resize preview is active. A
+ *  preview re-packs the grid live; without this, previewing a *smaller*
+ *  size shortens the page, and if the widget sits near the bottom the
+ *  scroll container clamps upward — yanking the open menu out from under
+ *  the cursor. Freezing the grid's min-height at its pre-preview value
+ *  lets a preview grow the page (top stays put) but never shrink it. */
+const reservedMinHeight = ref<number | null>(null)
 /** True only while a pointer resize gesture is in flight (not for
  *  menu hover previews). Drives the size badge + lattice underlay. */
 const resizeActive = ref(false)
@@ -558,6 +565,20 @@ function onPreviewResize(entry: LayoutEntry, intent: ResizePreviewIntent | null)
     id: entry.id,
     span: intent.span ?? effectiveSpanFor(entry),
     rowSpan: intent.rowSpan ?? rowSpanFor(entry),
+  }
+}
+
+/** The resize context menu opened or closed. Hold the grid's height at
+ *  its open-time value for the whole session so any preview (including a
+ *  smaller one) can't shorten the page and jump the scroll out from
+ *  under the open menu. Released on close, which also reverts any
+ *  uncommitted preview. */
+function onSizeMenuToggle(open: boolean) {
+  if (open) {
+    reservedMinHeight.value = gridEl.value?.offsetHeight ?? null
+  } else {
+    reservedMinHeight.value = null
+    resizePreview.value = null
   }
 }
 
@@ -749,7 +770,10 @@ const underlayCellCount = computed(() => {
       store.editMode && 'select-none',
       dragState.isDragging && 'cursor-grabbing',
     ]"
-    :style="{ '--dash-row-unit': '8.5rem' }"
+    :style="{
+      '--dash-row-unit': '8.5rem',
+      minHeight: reservedMinHeight !== null ? `${reservedMinHeight}px` : undefined,
+    }"
   >
     <!-- Lattice underlay: faint cell outlines while a drag or resize
          gesture is live, so the snapping is legible. Absolutely
@@ -799,6 +823,7 @@ const underlayCellCount = computed(() => {
       @resize="(span) => commitSpan(entry, span)"
       @resize-row="(rowSpan) => commitRowSpan(entry, rowSpan)"
       @preview-resize="(intent) => onPreviewResize(entry, intent)"
+      @size-menu-toggle="(open) => onSizeMenuToggle(open)"
       @move="(dir) => moveWidget(originalIndex, dir)"
       @handle-pointerdown="(e) => onWidgetHandlePointerDown(originalIndex, e)"
       @resize-pointerdown="(e, axis) => onResizePointerDown(originalIndex, e, axis)"

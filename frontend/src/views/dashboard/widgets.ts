@@ -46,6 +46,52 @@ export function savedViewWidgetId(uuid: string): string {
   return `${SAVED_VIEW_WIDGET_PREFIX}${uuid}`
 }
 
+/** Preview illustration kind for the add-widget picker. Each maps to a
+ *  small themed thumbnail in `WidgetPreview.vue` — an abstract read of
+ *  the widget's shape, not a live render. */
+export type WidgetPreviewKind = 'kpi' | 'kpi-rail' | 'area' | 'bars' | 'heatmap' | 'list' | 'status'
+
+const PREVIEW_BY_ID: Record<string, WidgetPreviewKind> = {
+  'assigned-tickets': 'list',
+  'requested-tickets': 'list',
+  'ticket-volume': 'kpi-rail',
+  'tickets-created': 'kpi',
+  'tickets-resolved': 'kpi',
+  'tickets-open': 'kpi',
+  'tickets-over-time': 'area',
+  'volume-by-category': 'bars',
+  'volume-by-priority': 'bars',
+  'unassigned-queue': 'list',
+  'recently-viewed': 'list',
+  'starred-docs': 'list',
+  'my-devices': 'list',
+  'channel-health': 'status',
+  'activity-heatmap': 'heatmap',
+  'knowledge-gaps': 'list',
+  'sla-health': 'kpi-rail',
+}
+
+/** Preview kind for a registry widget id (falls back to a list shape). */
+export function widgetPreviewKind(id: string): WidgetPreviewKind {
+  return PREVIEW_BY_ID[id] ?? 'list'
+}
+
+/** Preview kind for a saved view's `viz_type`. */
+export function savedViewPreviewKind(vizType: string | undefined): WidgetPreviewKind {
+  switch (vizType) {
+    case 'kpi_tile':
+      return 'kpi'
+    case 'line':
+      return 'area'
+    case 'horizontal_bar':
+      return 'bars'
+    case 'heatmap':
+      return 'heatmap'
+    default:
+      return 'list'
+  }
+}
+
 function savedViewUuidFromId(id: string): string {
   return id.slice(SAVED_VIEW_WIDGET_PREFIX.length)
 }

@@ -19,7 +19,8 @@ import Modal from '@/components/Modal.vue'
 import { useFluent } from 'fluent-vue'
 import { useQuery } from '@pinia/colada'
 import { useDashboardLayoutStore } from '@/stores/dashboardLayout'
-import { savedViewWidgetId } from './widgets'
+import { savedViewWidgetId, widgetPreviewKind, savedViewPreviewKind } from './widgets'
+import WidgetPreview from './WidgetPreview.vue'
 import { savedViewsService, type SavedView } from '@/services/savedViewsService'
 
 const fluent = useFluent()
@@ -95,7 +96,7 @@ watch(
 </script>
 
 <template>
-  <Modal :show="show" :title="t('dashboard-add-widget-title')" size="md" @close="emit('close')">
+  <Modal :show="show" :title="t('dashboard-add-widget-title')" size="lg" @close="emit('close')">
     <div class="flex flex-col gap-3">
       <!-- Tabs. Inline counts beside each tab label so the user
            sees what's pickable in each category without flicking
@@ -141,15 +142,20 @@ watch(
         >
           {{ t('dashboard-add-widget-all-added') }}
         </div>
-        <ul v-else class="flex flex-col gap-1">
+        <ul v-else class="grid grid-cols-2 gap-2 sm:grid-cols-3">
           <li v-for="w in store.addable" :key="w.id">
             <button
               type="button"
-              class="w-full text-left flex flex-col gap-0.5 p-3 rounded-lg border border-default hover:border-accent hover:bg-surface-hover transition-colors"
+              class="group flex h-full w-full flex-col overflow-hidden rounded-lg border border-default text-left transition-colors hover:border-accent"
               @click="chooseSystem(w.id)"
             >
-              <span class="text-sm font-medium text-primary">{{ t(w.titleKey) }}</span>
-              <span class="text-xs text-tertiary">{{ t(w.descriptionKey) }}</span>
+              <div class="aspect-[16/9] w-full border-b border-default bg-surface-alt p-2.5">
+                <WidgetPreview :kind="widgetPreviewKind(w.id)" />
+              </div>
+              <div class="flex flex-1 flex-col gap-0.5 p-2.5 group-hover:bg-surface-hover">
+                <span class="text-sm font-medium text-primary">{{ t(w.titleKey) }}</span>
+                <span class="line-clamp-2 text-xs text-tertiary">{{ t(w.descriptionKey) }}</span>
+              </div>
             </button>
           </li>
         </ul>
@@ -172,17 +178,22 @@ watch(
         >
           {{ t('dashboard-add-widget-saved-views-empty') }}
         </div>
-        <ul v-else class="flex flex-col gap-1">
+        <ul v-else class="grid grid-cols-2 gap-2 sm:grid-cols-3">
           <li v-for="v in pickableSavedViews" :key="v.uuid">
             <button
               type="button"
-              class="w-full text-left flex flex-col gap-0.5 p-3 rounded-lg border border-default hover:border-accent hover:bg-surface-hover transition-colors"
+              class="group flex h-full w-full flex-col overflow-hidden rounded-lg border border-default text-left transition-colors hover:border-accent"
               @click="chooseSavedView(v)"
             >
-              <span class="text-sm font-medium text-primary">{{ v.name }}</span>
-              <span class="text-xs text-tertiary">
-                {{ t(`dashboard-saved-view-viz-label-${v.viz_type ?? 'list'}`) }}
-              </span>
+              <div class="aspect-[16/9] w-full border-b border-default bg-surface-alt p-2.5">
+                <WidgetPreview :kind="savedViewPreviewKind(v.viz_type)" />
+              </div>
+              <div class="flex flex-1 flex-col gap-0.5 p-2.5 group-hover:bg-surface-hover">
+                <span class="text-sm font-medium text-primary">{{ v.name }}</span>
+                <span class="text-xs text-tertiary">
+                  {{ t(`dashboard-saved-view-viz-label-${v.viz_type ?? 'list'}`) }}
+                </span>
+              </div>
             </button>
           </li>
         </ul>
