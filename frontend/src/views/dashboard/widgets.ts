@@ -27,7 +27,7 @@ import SlaHealthWidget from './SlaHealthWidget.vue'
 import TicketVolumeWidget from './TicketVolumeWidget.vue'
 import SavedViewWidget from './SavedViewWidget.vue'
 import KpiTile from './charts/KpiTile.vue'
-import LineChart from './charts/LineChart.vue'
+import TicketFlowChart from './charts/TicketFlowChart.vue'
 import HorizontalBar from './charts/HorizontalBar.vue'
 
 /**
@@ -236,14 +236,15 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     id: 'tickets-over-time',
     titleKey: 'dashboard-system-tickets-over-time-title',
     descriptionKey: 'dashboard-system-tickets-over-time-description',
-    component: LineChart,
-    props: { measure: 'count', timeField: 'created_at' },
+    component: TicketFlowChart,
     span: 2,
     // A plotted time series at a single row unit is an unreadable
     // sliver; hold it at two.
     minRowSpan: 2,
     roles: ['technician', 'admin'],
-    chromeDependencies: ['time-range', 'compare'],
+    // Two series already provide the comparison; no prior overlay, so
+    // the widget depends on the range chips but not the compare toggle.
+    chromeDependencies: ['time-range'],
     frameWraps: true,
     bodyAspect: '2 / 1',
   },

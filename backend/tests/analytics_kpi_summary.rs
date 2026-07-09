@@ -121,7 +121,7 @@ fn kpi_summary_counts_deltas_and_sparklines() {
     // Open is a snapshot: never a delta.
     assert_eq!(r.open.delta_value, None, "open has no delta");
 
-    // Each sparkline sums to its headline count, and open has none.
+    // Created/resolved sparklines sum to their headline counts.
     let created_spark = r.created.sparkline.expect("created sparkline");
     assert_eq!(
         created_spark.iter().sum::<i64>(),
@@ -134,7 +134,32 @@ fn kpi_summary_counts_deltas_and_sparklines() {
         2,
         "resolved sparkline sums"
     );
-    assert!(r.open.sparkline.is_none(), "open has no sparkline");
+
+    // Open is a backlog trend, not an event count: the open count at the
+    // window start (tickets 3, 4, 6 => 3) plus the running net flow
+    // (created − resolved) per day. `generate_series` spans both window
+    // edges inclusively, so a 7-day window yields 8 daily buckets
+    // (03-10..03-17), the last one empty.
+    //   created  = [0,0,2,1,0,0,0,0]  (03-12: t1,t5; 03-13: t2)
+    //   resolved = [0,0,1,1,0,0,0,0]  (03-12: t4;   03-13: t5)
+    //   net      = [0,0,1,0,0,0,0,0]
+    //   open     = 3 + cumsum(net) = [3,3,4,4,4,4,4,4]
+    let open_spark = r.open.sparkline.expect("open sparkline");
+    assert_eq!(
+        open_spark,
+        vec![3, 3, 4, 4, 4, 4, 4, 4],
+        "open backlog series"
+    );
+    assert_eq!(
+        open_spark.len(),
+        created_spark.len(),
+        "open series aligns with the created buckets"
+    );
+    assert_eq!(
+        *open_spark.last().unwrap(),
+        r.open.value,
+        "the series ends on the open snapshot when the window ends now"
+    );
 }
 
 #[test]
