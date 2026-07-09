@@ -574,4 +574,36 @@ mod enforcement_tests {
             StatusCode::FORBIDDEN
         );
     }
+
+    #[actix_web::test]
+    async fn file_serving_requires_full_scope() {
+        // Tenant file downloads map to Full: even a token that can read the
+        // ticket the file belongs to cannot fetch the file itself with a
+        // narrowed scope. Guards the /api/files scope wiring (the routes used
+        // to sit outside any scope-enforced tree).
+        assert_eq!(
+            status_for(
+                Some("tickets:read"),
+                Method::GET,
+                "/api/files/tickets/5/x.png"
+            )
+            .await,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            status_for(
+                Some("*:read"),
+                Method::GET,
+                "/api/files/assets/1/media/y.webp"
+            )
+            .await,
+            StatusCode::FORBIDDEN
+        );
+        // A full credential (cookie session / un-narrowed token) still reaches
+        // the file handler.
+        assert_eq!(
+            status_for(Some("full"), Method::GET, "/api/files/tickets/5/x.png").await,
+            StatusCode::OK
+        );
+    }
 }

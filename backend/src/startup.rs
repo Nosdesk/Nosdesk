@@ -670,16 +670,29 @@ pub fn configure_app(
                     .route(web::post().to(crate::handlers::csp_reports::report_violation))
             )
 
-            // Public file serving with token-based auth for attachments
-            // Authenticated, workspace-scoped tenant file serving. Each route
-            // is wrapped with dual_auth_middleware (cookie or Bearer, and a
-            // workspace-membership gate); the handlers add a per-ticket
-            // visibility check via TenantConn so a caller can only read files
-            // for tickets they can see in their own workspace.
-            .route("/api/files/tickets/{ticket_id}/notes/{filename:.*}", web::get().to(crate::handlers::serve_ticket_note_image).wrap(actix_web::middleware::from_fn(crate::middleware::dual_auth_middleware)))
-            .route("/api/files/tickets/{filename:.*}", web::get().to(crate::handlers::serve_ticket_file).wrap(actix_web::middleware::from_fn(crate::middleware::dual_auth_middleware)))
-            .route("/api/files/assets/{asset_id}/media/{filename:.*}", web::get().to(crate::handlers::asset_media::serve_asset_media_file).wrap(actix_web::middleware::from_fn(crate::middleware::dual_auth_middleware)))
-            .route("/api/files/temp/{filename:.*}", web::get().to(crate::handlers::serve_temp_file).wrap(actix_web::middleware::from_fn(crate::middleware::dual_auth_middleware)))
+            // Authenticated, workspace-scoped tenant file serving. Its own
+            // scope so the wrap stack matches the main /api scope: dual_auth
+            // (cookie or Bearer + workspace-membership gate) registered last so
+            // it runs first and puts Claims in extensions, then token_scope
+            // enforces API-token scopes. These routes map to `Full`, so a
+            // narrowed token 403s here instead of slipping past scope
+            // enforcement (they used to sit outside any scope-wrapped tree).
+            // The handlers add a per-ticket/asset visibility check via
+            // TenantConn so a caller only reads files it can see in its own
+            // workspace. Registered before the main /api scope so /api/files/*
+            // resolves here; the notes route precedes the generic ticket route
+            // so the `{filename:.*}` tail can't swallow it.
+            .service(
+                web::scope("/api/files")
+                    .wrap(actix_web::middleware::from_fn(
+                        crate::middleware::token_scope::token_scope_middleware,
+                    ))
+                    .wrap(actix_web::middleware::from_fn(crate::middleware::dual_auth_middleware))
+                    .route("/tickets/{ticket_id}/notes/{filename:.*}", web::get().to(crate::handlers::serve_ticket_note_image))
+                    .route("/tickets/{filename:.*}", web::get().to(crate::handlers::serve_ticket_file))
+                    .route("/assets/{asset_id}/media/{filename:.*}", web::get().to(crate::handlers::asset_media::serve_asset_media_file))
+                    .route("/temp/{filename:.*}", web::get().to(crate::handlers::serve_temp_file))
+            )
 
             // SSE endpoints (with custom token-based auth)
             // Main event stream for all real-time updates (tickets, documentation, devices, etc.)

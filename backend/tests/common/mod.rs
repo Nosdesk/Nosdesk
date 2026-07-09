@@ -304,9 +304,20 @@ pub fn insert_user(conn: &mut PgConnection, name: &str) -> backend::models::User
         .expect("insert user")
 }
 
-/// Mint a user-bound `api_tokens` row directly. Returns the raw token
-/// string for use in the Authorization header.
+/// Mint a full-scope user-bound `api_tokens` row directly. Returns the raw
+/// token string for use in the Authorization header.
 pub fn mint_api_token(conn: &mut PgConnection, user: &backend::models::User, name: &str) -> String {
+    mint_scoped_api_token(conn, user, name, &["full"])
+}
+
+/// Mint a user-bound `api_tokens` row with an explicit scope set (e.g.
+/// `["tickets:read"]`). Returns the raw token string.
+pub fn mint_scoped_api_token(
+    conn: &mut PgConnection,
+    user: &backend::models::User,
+    name: &str,
+    scopes: &[&str],
+) -> String {
     use backend::models::NewApiToken;
     use backend::repository::api_tokens::{get_token_prefix, hash_token};
     use backend::schema::api_tokens;
@@ -316,7 +327,7 @@ pub fn mint_api_token(conn: &mut PgConnection, user: &backend::models::User, nam
         token_prefix: get_token_prefix(&raw),
         user_uuid: user.uuid,
         name: name.to_string(),
-        scopes: Some(vec![Some("full".to_string())]),
+        scopes: Some(scopes.iter().map(|s| Some((*s).to_string())).collect()),
         created_by: user.uuid,
         expires_at: None,
     };

@@ -132,4 +132,34 @@ async fn boot_wires_state_and_routes() {
         StatusCode::UNAUTHORIZED,
         "GET /api/users => {status}"
     );
+
+    // Tenant file serving must sit inside the scope-enforced tree: a
+    // deliberately-narrowed API token maps to `Full` on /api/files/* and must
+    // be denied (403) by token_scope, not slip through to the file handler.
+    // This drives the real route tree, so it guards the /api/files scope wiring
+    // itself — the bug was these routes living outside any scope-wrapped scope.
+    let user = common::insert_user(&mut pool.get().expect("conn"), "Files Scope Probe");
+    let narrowed = common::mint_scoped_api_token(
+        &mut pool.get().expect("conn"),
+        &user,
+        "probe",
+        &["tickets:read"],
+    );
+    let resp = test::try_call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/api/files/tickets/does-not-exist.png")
+            .insert_header(("Authorization", format!("Bearer {narrowed}")))
+            .to_request(),
+    )
+    .await;
+    let status = match resp {
+        Ok(r) => r.status(),
+        Err(e) => e.as_response_error().status_code(),
+    };
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "narrowed token on /api/files/* must be scope-denied => {status}"
+    );
 }
