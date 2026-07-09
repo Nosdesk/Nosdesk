@@ -70,7 +70,9 @@ const kpis = computed<VolumeKpi[]>(() => {
       value: bundle?.open.value ?? 0,
       to: buildDashboardMetricDrillDown('tickets_open'),
       description: t('dashboard-ticket-volume-open-hint'),
-      sparkline: null,
+      // Backlog trend (open at each day's end), reconstructed server-side
+      // in kpi_summary alongside created/resolved.
+      sparkline: bundle?.open.sparkline ?? null,
     },
   ]
 })

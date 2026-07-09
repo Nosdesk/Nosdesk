@@ -52,8 +52,9 @@ export interface KpiSummaryParams {
   to: string
   prior_from?: string
   prior_to?: string
-  /** Default true; the rail's created/resolved tiles show a sparkline,
-   *  open never does. */
+  /** Default true; drives the sparklines on all three tiles. Created and
+   *  resolved show their daily counts; open shows the backlog trend the
+   *  backend reconstructs from those buckets. */
   sparkline?: boolean
   tz?: string
 }
@@ -76,9 +77,10 @@ export interface TimeseriesParams {
   time_field: TsTimeField
   from: string
   to: string
-  /** Bucket granularity. `hour` for the today view (24 hourly
-   *  points), `day` otherwise. Omitted = day on the backend. */
-  grain?: 'hour' | 'day'
+  /** Bucket granularity. `hour` for the today view; `day` for short
+   *  ranges; `week` / `month` for wide ranges so a long window doesn't
+   *  render hundreds of points. Omitted = day on the backend. */
+  grain?: 'hour' | 'day' | 'week' | 'month'
   /** IANA timezone the buckets align to (the user's effective zone).
    *  Omitted / invalid = UTC on the backend. Keeps "today" hourly
    *  buckets on the user's local hours. */

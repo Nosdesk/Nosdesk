@@ -210,7 +210,9 @@ struct KpiCountsRow {
 /// scan to rows that feed at least one aggregate so the right indexes
 /// can drive it (a BitmapOr over the created/closed indexes plus the
 /// open-snapshot rows). Sparklines, when requested, reuse
-/// `bucketed_counts` on the same connection — open never has one.
+/// `bucketed_counts` on the same connection; `open`'s series is the
+/// backlog trend reconstructed from those buckets plus one boundary
+/// count (see the sparkline block below).
 pub fn kpi_summary(conn: &mut DbConnection, q: KpiSummaryQuery) -> QueryResult<KpiSummaryResult> {
     use diesel::sql_types::Timestamptz as Tz;
 
@@ -242,8 +244,8 @@ pub fn kpi_summary(conn: &mut DbConnection, q: KpiSummaryQuery) -> QueryResult<K
     // Sparklines are per-day series over the primary window, aligned
     // to the user's zone. Computed on the same connection so the whole
     // summary is one checkout.
-    let (created_spark, resolved_spark) = if q.include_sparkline {
-        let c = bucketed_counts(
+    let (created_spark, resolved_spark, open_spark) = if q.include_sparkline {
+        let c: Vec<i64> = bucketed_counts(
             conn,
             KpiMetric::TicketsCreated,
             q.from,
@@ -254,7 +256,7 @@ pub fn kpi_summary(conn: &mut DbConnection, q: KpiSummaryQuery) -> QueryResult<K
         .into_iter()
         .map(|(_, v)| v)
         .collect();
-        let r = bucketed_counts(
+        let r: Vec<i64> = bucketed_counts(
             conn,
             KpiMetric::TicketsResolved,
             q.from,
@@ -265,9 +267,27 @@ pub fn kpi_summary(conn: &mut DbConnection, q: KpiSummaryQuery) -> QueryResult<K
         .into_iter()
         .map(|(_, v)| v)
         .collect();
-        (Some(c), Some(r))
+        // Open backlog at the end of each day: the count open at the
+        // window's start plus the running net flow (created − resolved)
+        // through that day. `open` is otherwise a point-in-time snapshot
+        // with no series; this reconstructs the trend exactly from the
+        // same daily buckets plus one boundary count. Its last point
+        // equals the `open` snapshot whenever the window ends at "now"
+        // (every preset range); a past-dated custom range ends on the
+        // backlog as it truly was then, which is what that range asks for.
+        let baseline = open_at(conn, q.from)?;
+        let mut running = baseline;
+        let o: Vec<i64> = c
+            .iter()
+            .zip(&r)
+            .map(|(created, resolved)| {
+                running += created - resolved;
+                running.max(0)
+            })
+            .collect();
+        (Some(c), Some(r), Some(o))
     } else {
-        (None, None)
+        (None, None, None)
     };
 
     let prior_present = q.prior.is_some();
@@ -282,9 +302,30 @@ pub fn kpi_summary(conn: &mut DbConnection, q: KpiSummaryQuery) -> QueryResult<K
             prior_present.then_some(counts.prior_resolved),
             resolved_spark,
         ),
-        // Open is a snapshot: no period to compare against, no sparkline.
-        open: kpi_result(counts.open, None, None),
+        // Open is a snapshot for the headline (no period to compare
+        // against), but its sparkline is the reconstructed backlog trend.
+        open: kpi_result(counts.open, None, open_spark),
     })
+}
+
+/// Count tickets open at instant `at`: created before it and either
+/// still open or closed at/after it. This is the window-start baseline
+/// the open-backlog sparkline in [`kpi_summary`] accumulates net flow
+/// from. Runs on the caller's (RLS-scoped) connection.
+fn open_at(conn: &mut DbConnection, at: DateTime<Utc>) -> QueryResult<i64> {
+    use diesel::sql_types::Timestamptz as Tz;
+    #[derive(QueryableByName)]
+    struct OpenAtRow {
+        #[diesel(sql_type = BigInt)]
+        n: i64,
+    }
+    let row: OpenAtRow = diesel::sql_query(
+        "SELECT COUNT(*)::bigint AS n FROM tickets \
+         WHERE created_at < $1 AND (closed_at IS NULL OR closed_at >= $1)",
+    )
+    .bind::<Tz, _>(at)
+    .get_result(conn)?;
+    Ok(row.n)
 }
 
 /// Assemble a `KpiResult` from a headline value, optional prior count,
