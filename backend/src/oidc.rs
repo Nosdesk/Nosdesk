@@ -685,10 +685,14 @@ fn extract_user_info(
     })
 }
 
-/// Get the display name to use for the user
-/// Uses configurable claim (defaults to preferred_username) with fallbacks
-pub fn get_display_name(user_info: &OidcUserInfo, config: &OidcConfig) -> String {
-    let from_claim = match config.username_claim.as_str() {
+/// The display name for a user, honoring the operator-configured
+/// `OIDC_USERNAME_CLAIM` (default `preferred_username`) with fallbacks through
+/// the standard name claims. Returns `None` when the IdP sent no usable name so
+/// the caller can defer to its own fallback (e.g. the email local-part) rather
+/// than surfacing an opaque `sub`. An operator who explicitly selects `sub`
+/// gets it.
+pub fn display_name_from_claim(user_info: &OidcUserInfo, username_claim: &str) -> Option<String> {
+    let from_claim = match username_claim {
         "preferred_username" => user_info.preferred_username.clone(),
         "email" => user_info.email.clone(),
         "name" => user_info.name.clone(),
@@ -698,13 +702,13 @@ pub fn get_display_name(user_info: &OidcUserInfo, config: &OidcConfig) -> String
 
     from_claim
         .or_else(|| user_info.name.clone())
-        .or_else(|| user_info.email.clone())
-        .unwrap_or_else(|| user_info.sub.clone())
+        .or_else(|| user_info.preferred_username.clone())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn test_pkce_generation() {
@@ -717,5 +721,45 @@ mod tests {
         let nonce1 = generate_nonce();
         let nonce2 = generate_nonce();
         assert_ne!(nonce1.secret(), nonce2.secret());
+    }
+
+    fn user(v: serde_json::Value) -> OidcUserInfo {
+        serde_json::from_value(v).expect("valid OidcUserInfo fixture")
+    }
+
+    #[test]
+    fn display_name_honors_configured_claim() {
+        let u = user(json!({
+            "sub": "s", "email": "a@x.com", "name": "Full Name",
+            "preferred_username": "flast", "raw_claims": {},
+        }));
+        // Operator-selected claim wins.
+        assert_eq!(
+            display_name_from_claim(&u, "name").as_deref(),
+            Some("Full Name")
+        );
+        assert_eq!(
+            display_name_from_claim(&u, "email").as_deref(),
+            Some("a@x.com")
+        );
+        assert_eq!(display_name_from_claim(&u, "sub").as_deref(), Some("s"));
+        // Default claim.
+        assert_eq!(
+            display_name_from_claim(&u, "preferred_username").as_deref(),
+            Some("flast")
+        );
+    }
+
+    #[test]
+    fn display_name_falls_back_to_none_not_sub() {
+        // Configured claim absent -> name -> preferred_username -> None (so the
+        // caller defers to its own fallback rather than exposing the raw sub).
+        let u = user(json!({"sub": "opaque-123", "email": "a@x.com", "raw_claims": {}}));
+        assert_eq!(display_name_from_claim(&u, "preferred_username"), None);
+        // But an explicit `sub` selection is respected.
+        assert_eq!(
+            display_name_from_claim(&u, "sub").as_deref(),
+            Some("opaque-123")
+        );
     }
 }
