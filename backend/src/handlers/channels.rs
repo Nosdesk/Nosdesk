@@ -206,7 +206,7 @@ fn validate_config(provider: &str, config: &JsonValue) -> Result<(), String> {
             // Skipping TLS verification is development-only. Refuse to store it
             // on a production deployment so it can't be enabled there at all
             // (the IMAP connector also hard-ignores it in production).
-            if cfg.insecure_skip_cert_verify && crate::config_utils::is_production() {
+            if cfg.insecure_skip_cert_verify && crate::config_utils::assume_production() {
                 return Err(
                     "Skip TLS certificate verification is only available in development"
                         .to_string(),

@@ -139,8 +139,10 @@ jobs:
           GREENMAIL_HOST: 127.0.0.1
           # Greenmail's IMAPS cert is self-signed. The channel's
           # insecure_skip_cert_verify flag is honoured automatically here
-          # because this job runs as non-production (ENVIRONMENT unset); the
-          # IMAP connector only ignores the flag when ENVIRONMENT=production.
+          # because cargo runs as development (backend/.cargo/config.toml sets
+          # ENVIRONMENT=development); the IMAP connector honours the flag only
+          # outside production (fail-closed: an unset ENVIRONMENT now assumes
+          # production, which is why cargo declares development explicitly).
         # --test-threads=1: both tests share the single `support`
         # mailbox and purge it on entry, so they must run serially.
         run: cargo test --test channels_email_imap_integration -- --ignored --test-threads=1

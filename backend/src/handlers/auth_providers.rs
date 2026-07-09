@@ -842,13 +842,20 @@ pub async fn oauth_callback(
                         }
                     }
                 } else {
-                    // Regular login/signup flow
+                    // Regular login/signup flow. `email_verified` is load-bearing:
+                    // `oauth_email_verified` reads it to decide whether an
+                    // email-matched account may be linked; omitting it made the
+                    // gate always read `false`, so a precreated user logging in via
+                    // OIDC for the first time never linked and a duplicate user was
+                    // minted (self-host) / seat recovery was dead (hosted). Mirror
+                    // the native path.
                     let oidc_user_info = serde_json::json!({
                         "id": user_info.sub,
                         "mail": user_info.email,
                         "displayName": user_info.name.clone().or_else(|| user_info.preferred_username.clone()),
                         "givenName": user_info.given_name,
                         "surname": user_info.family_name,
+                        "email_verified": user_info.email_verified,
                     });
 
                     let user = match resolve_login_user(

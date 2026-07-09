@@ -378,7 +378,7 @@ async fn open_session(
     // can never silently disable TLS validation (an MITM vector for mailbox
     // credentials). The save path also refuses to store it in production.
     let cert_verify_disabled =
-        config.insecure_skip_cert_verify && !crate::config_utils::is_production();
+        config.insecure_skip_cert_verify && !crate::config_utils::assume_production();
     if config.insecure_skip_cert_verify && !cert_verify_disabled {
         tracing::warn!(
             host = %config.host,

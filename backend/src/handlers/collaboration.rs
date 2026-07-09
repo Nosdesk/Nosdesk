@@ -2575,9 +2575,9 @@ pub async fn ws_handler(
     // hostname). This widens nothing security-wise: the allowlist
     // can't trust an origin that isn't already trusted for credentialed
     // HTTP.
-    let is_production = std::env::var("ENVIRONMENT")
-        .map(|v| v.to_lowercase() == "production")
-        .unwrap_or(false);
+    // Fail-closed detection: an unset/non-canonical ENVIRONMENT enforces the
+    // stricter production origin rules (allowlist required, Origin required).
+    let is_production = crate::config_utils::assume_production();
 
     match req.headers().get("Origin") {
         Some(origin) => {

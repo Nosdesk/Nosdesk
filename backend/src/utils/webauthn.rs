@@ -34,11 +34,11 @@ impl WebAuthnConfig {
     /// In production, all WEBAUTHN_* variables are required.
     /// In development, defaults to localhost values.
     pub fn from_env() -> Result<Self> {
-        let environment = env::var("ENVIRONMENT")
-            .unwrap_or_else(|_| "development".to_string())
-            .to_lowercase();
-
-        let is_production = environment == "production";
+        // Fail-closed: an unset / non-canonical ENVIRONMENT requires explicit
+        // WEBAUTHN_RP_ID / WEBAUTHN_RP_ORIGIN rather than defaulting to the
+        // insecure localhost values (matches config_utils::assume_production,
+        // the single source of truth for hardened posture).
+        let is_production = crate::config_utils::assume_production();
 
         // In production, require explicit configuration
         let rp_id = match env::var("WEBAUTHN_RP_ID") {
@@ -94,10 +94,10 @@ impl WebAuthnConfig {
         }
 
         tracing::info!(
-            "WebAuthn configured: rp_id={}, rp_origin={}, environment={}",
+            "WebAuthn configured: rp_id={}, rp_origin={}, production={}",
             rp_id,
             rp_origin,
-            environment
+            is_production
         );
 
         Ok(Self {
@@ -130,16 +130,26 @@ impl WebAuthnConfig {
 // env-configured RP (`WEBAUTHN_RP_ID` / `WEBAUTHN_RP_ORIGIN`). Building per
 // request is cheap.
 
-/// Build the WebAuthn verifier for the current request. RP ID is the request's
-/// (validated) workspace host in hosted mode, or the env config in self-hosted
-/// mode. Returns an owned `Webauthn`; cheap to construct per call. Errors
-/// surface per request (not as a startup panic), so a hosted deploy needs no
-/// `WEBAUTHN_RP_*` env at all.
+/// Build the WebAuthn verifier for the current request. In **hosted** mode the
+/// RP ID/origin is the request's (validated) per-workspace host, so passkeys are
+/// scoped per host / custom domain. In **self-hosted** mode it is the env config
+/// (`WEBAUTHN_RP_ID` / `WEBAUTHN_RP_ORIGIN`). Returns an owned `Webauthn`; cheap
+/// to construct per call. Errors surface per request (not a startup panic), so a
+/// hosted deploy needs no `WEBAUTHN_RP_*` env at all.
+///
+/// The mode gate is essential: self-hosted requests **always** carry the
+/// bootstrap `WorkspaceContext`, so gating on that alone would force the per-host
+/// branch for every self-host deploy — deriving `https://{Host}` and thereby
+/// ignoring `WEBAUTHN_RP_*` and breaking passkeys over plain HTTP / localhost /
+/// behind a reverse proxy that rewrites Host.
 pub fn webauthn_for_request(req: &actix_web::HttpRequest) -> Result<Webauthn> {
-    match request_workspace_host(req) {
-        Some(host) => build_webauthn_for_host(&host),
-        None => WebAuthnConfig::from_env()?.build_webauthn(),
+    use crate::middleware::workspace_context::DeploymentMode;
+    if DeploymentMode::current() == DeploymentMode::Hosted {
+        if let Some(host) = request_workspace_host(req) {
+            return build_webauthn_for_host(&host);
+        }
     }
+    WebAuthnConfig::from_env()?.build_webauthn()
 }
 
 /// The host this request is actually served on (= the WebAuthn RP ID), when it

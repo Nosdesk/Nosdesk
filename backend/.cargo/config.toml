@@ -32,6 +32,15 @@
 incremental = false
 
 [env]
+# Host/CI cargo invocations (`cargo test`, `cargo run`) declare themselves as
+# development so the fail-closed security posture (an unset ENVIRONMENT now
+# ASSUMES production — see config_utils::assume_production) doesn't trip the
+# test suite: login lockout / MFA rate-limit fail *open* on a Redis error,
+# IMAP/LDAP self-signed cert-skip is honoured (the Greenmail integration test
+# depends on this), and the boot secret gates stay lenient. Real production
+# runs the compiled binary without cargo, so it never reads this file and sets
+# ENVIRONMENT itself. A parent-shell ENVIRONMENT export takes precedence.
+ENVIRONMENT = "development"
 TEST_DATABASE_URL = "postgres://nosdesk:nosdesk_password@127.0.0.1:54329/nosdesk_test"
 # Redis for redis-backed integration tests (the collab ownership-claim
 # suite). Published on host loopback by compose.dev.yaml's redis

@@ -793,10 +793,9 @@ pub async fn check_mfa_rate_limit(user_uuid: &Uuid) -> bool {
         }
         Err(e) => {
             tracing::error!("MFA rate limit check failed for user {}: {}", user_uuid, e);
-            // Fail-closed in production (security-critical), fail-open in development (convenience)
-            let is_production = std::env::var("ENVIRONMENT")
-                .map(|v| v.to_lowercase() == "production")
-                .unwrap_or(false);
+            // Fail-closed in production (security-critical), fail-open in development (convenience).
+            // Fail-closed detection: an unset/non-canonical ENVIRONMENT denies.
+            let is_production = crate::config_utils::assume_production();
             if is_production {
                 tracing::warn!(
                     "Denying MFA attempt due to rate limit check failure (fail-closed mode)"
