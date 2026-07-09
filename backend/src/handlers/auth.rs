@@ -602,10 +602,9 @@ pub async fn login(
     let client_ip = crate::utils::client_ip::from_http_request(&request);
     let lockout_key = RateLimiter::login_attempt_key(&login_data.email, client_ip);
 
-    // Check if account is locked before any validation
-    let is_production = std::env::var("ENVIRONMENT")
-        .map(|v| v.to_lowercase() == "production")
-        .unwrap_or(false);
+    // Check if account is locked before any validation. Fail-closed detection:
+    // an unset/non-canonical ENVIRONMENT still denies on a Redis error below.
+    let is_production = crate::config_utils::assume_production();
 
     match RateLimiter::check_lockout(&redis_url, &lockout_key, MAX_LOGIN_ATTEMPTS).await {
         Ok(Some(remaining_seconds)) => {
@@ -859,9 +858,7 @@ pub async fn recovery_login(
         Ok(None) => {} // Not locked, continue
         Err(e) => {
             error!(error = %e, "Redis error checking account lockout for recovery login");
-            let is_production = std::env::var("ENVIRONMENT")
-                .map(|v| v.to_lowercase() == "production")
-                .unwrap_or(false);
+            let is_production = crate::config_utils::assume_production();
             if is_production {
                 return errors::service_unavailable(
                     "Authentication service temporarily unavailable. Please try again.",

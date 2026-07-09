@@ -255,9 +255,9 @@ pub(crate) async fn authenticate<B: MessageBody>(
                 })?;
 
             // Scope guard (MANDATORY): only genuine agent sessions carry scope
-            // "full". SSE ("sse") / portal ("portal") tokens could over-authorize
-            // if replayed as a bearer; the cookie never carries them, so this
-            // guard is bearer-only.
+            // "full". Connection tokens ("sse" / "collab" / "portal") could
+            // over-authorize if replayed as a bearer OR replanted as the access
+            // cookie, so the same guard runs on the cookie path below.
             if claims.scope != "full" {
                 warn!(path = %req.path(), scope = %claims.scope, "Rejected non-session JWT on bearer path");
                 return Err(bearer_unauthorized(true, "Token not valid for this API"));
@@ -287,6 +287,16 @@ pub(crate) async fn authenticate<B: MessageBody>(
             error!(error = ?err, "Cookie auth: token validation failed");
             bearer_unauthorized(true, "Invalid or expired token")
         })?;
+
+    // Full-scope guard, mirroring the bearer path. Connection tokens
+    // (sse/collab/portal) ride in query strings, so they leak into logs /
+    // history / Referer; a leaked one must not be replantable as the access
+    // cookie to reach Any-scoped or file routes. A legitimate access cookie is
+    // always minted with scope "full".
+    if claims.scope != "full" {
+        warn!(path = %req.path(), scope = %claims.scope, "Rejected non-session JWT on cookie path");
+        return Err(bearer_unauthorized(true, "Token not valid for this API"));
+    }
 
     info!(user = %claims.sub, "Auth: user authenticated successfully");
 

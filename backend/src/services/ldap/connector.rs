@@ -82,7 +82,7 @@ pub async fn connect(settings: &WorkspaceLdapSettings) -> Result<Ldap, LdapConne
 
     // The cert-verify bypass is for internal self-signed CAs and is FORCED OFF
     // in production, mirroring the IMAP channel gate; prefer a supplied CA cert.
-    let skip_verify = !settings.verify_certs && !crate::config_utils::is_production();
+    let skip_verify = !settings.verify_certs && !crate::config_utils::assume_production();
     if !settings.verify_certs && !skip_verify {
         warn!(
             host,

@@ -21,7 +21,9 @@ type EnvGet<'a> = &'a dyn Fn(&str) -> Option<String>;
 pub struct Config {
     /// Raw `ENVIRONMENT` value ("development" by default).
     pub environment: String,
-    /// `environment == "production"`, precomputed for the many call sites.
+    /// Whether to apply hardened production posture, precomputed for the boot
+    /// gates. Fail-closed (`config_utils::assume_production_from`): true unless
+    /// `ENVIRONMENT` is an explicit `development` / `dev` label.
     pub is_production: bool,
     pub host: String,
     pub port: u16,
@@ -82,7 +84,14 @@ impl Config {
     /// Never constructs global state.
     pub fn from_source(get: EnvGet, plugin_root_present: bool) -> Result<Config, std::io::Error> {
         let environment = get("ENVIRONMENT").unwrap_or_else(|| "development".to_string());
-        let is_production = environment == "production";
+        // Fail-closed: an unset / empty / non-canonical `ENVIRONMENT` (a prod
+        // deploy that forgot it, or `staging` / `prod` / `Production`) must still
+        // enforce the hardened secret gates below, matching how CSP/HSTS/cookies
+        // use `assume_production`. Only an explicit `development` / `dev` label
+        // opts out. Read the RAW getter here, not `environment` above, which has
+        // already defaulted an unset value to `development`.
+        let is_production =
+            crate::config_utils::assume_production_from(get("ENVIRONMENT").as_deref());
         info!("Environment: {}", environment);
 
         validate_jwt_secret(get, is_production)?;
@@ -298,10 +307,16 @@ mod tests {
     /// an explicit plugin-root-present flag. `plugin_root=true` keeps the
     /// plugin-root check from short-circuiting the production-only cases below.
     fn build(pairs: &[(&str, &str)], plugin_root: bool) -> Result<Config, std::io::Error> {
-        let map: HashMap<String, String> = pairs
+        let mut map: HashMap<String, String> = pairs
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
+        // Parsing-focused tests default to an explicit dev label so they don't
+        // trip the fail-closed production gates (an unset ENVIRONMENT now assumes
+        // production — see `unset_environment_assumes_production`). Tests that
+        // assert production pass `ENVIRONMENT=production`, which overrides this.
+        map.entry("ENVIRONMENT".to_string())
+            .or_insert_with(|| "development".to_string());
         let get = |k: &str| map.get(k).cloned();
         Config::from_source(&get, plugin_root)
     }
@@ -323,6 +338,19 @@ mod tests {
     fn jwt_missing_is_fatal() {
         let err = build(&[], true).unwrap_err();
         assert_eq!(err.to_string(), "JWT_SECRET must be set");
+    }
+
+    #[test]
+    fn unset_environment_assumes_production() {
+        // Fail-closed: with ENVIRONMENT absent entirely (bypassing the test
+        // helper's dev default), the hardened gates must fire rather than
+        // defaulting to permissive dev behaviour. A too-short JWT is rejected.
+        let get = |k: &str| match k {
+            "JWT_SECRET" => Some("short".to_string()),
+            _ => None,
+        };
+        let err = Config::from_source(&get, true).unwrap_err();
+        assert_eq!(err.to_string(), "JWT_SECRET is too short");
     }
 
     #[test]

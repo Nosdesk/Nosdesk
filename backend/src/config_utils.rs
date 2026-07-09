@@ -47,12 +47,22 @@ pub fn is_production() -> bool {
 /// than the permissive dev defaults. Set `ENVIRONMENT=development` (or `dev`)
 /// for intentional plaintext-HTTP local setups.
 pub fn assume_production() -> bool {
-    match env::var("ENVIRONMENT") {
-        Ok(v) => {
+    assume_production_from(env::var("ENVIRONMENT").ok().as_deref())
+}
+
+/// Pure, injectable form of [`assume_production`] for callers that read
+/// `ENVIRONMENT` through their own getter (e.g. `Config::from_source`, which is
+/// unit-tested with a mock env). Same fail-closed rule: production unless an
+/// explicit `development` / `dev` label. `None` (unset), empty, and unrecognised
+/// values all assume production. This is the single source of truth for
+/// "apply hardened security posture" — do not re-derive it inline.
+pub fn assume_production_from(value: Option<&str>) -> bool {
+    match value {
+        Some(v) => {
             let v = v.trim().to_ascii_lowercase();
             v.is_empty() || !(v == "development" || v == "dev")
         }
-        Err(_) => true,
+        None => true,
     }
 }
 
