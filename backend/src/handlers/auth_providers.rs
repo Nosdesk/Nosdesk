@@ -20,6 +20,90 @@ use crate::repository::user_auth_identities;
 use crate::services::search::{indexing_tasks, SearchService};
 use std::sync::Arc;
 
+/// Provider-resolved identity claims that drive OAuth/OIDC login resolution.
+///
+/// ONE shape every provider constructs (via the `From` impls below) and every
+/// consumer reads. Previously the login path passed a stringly-typed
+/// `serde_json::Value` in Microsoft-Graph shape, and the OIDC producer rebuilt
+/// it by hand — a provider that forgot a field was a silent runtime drop
+/// (exactly how `email_verified` was lost). Here a missing field is a compile
+/// error.
+#[derive(Debug, Clone)]
+pub struct OAuthLoginClaims {
+    /// Provider subject: OIDC `sub` / MS Graph object id. Stored in
+    /// `user_auth_identities.external_id`.
+    pub subject: String,
+    /// Login email (OIDC `email`; MS `mail` then `userPrincipalName`). `None`
+    /// makes the resolver fail with "No email in user info".
+    pub email: Option<String>,
+    /// Whether the provider vouches the email is verified — gates the
+    /// email-fallback account link. Resolved to a `bool` at construction, so the
+    /// per-provider rule lives in one place (Microsoft: the directory owns the
+    /// address and Graph sends no claim, so always `true`).
+    pub email_verified: bool,
+    pub display_name: Option<String>,
+    pub given_name: Option<String>,
+    pub family_name: Option<String>,
+    /// Opaque provider payload, persisted verbatim as identity metadata. No
+    /// consumer reads it by key; it's a write-only breadcrumb.
+    pub raw: serde_json::Value,
+}
+
+impl OAuthLoginClaims {
+    /// The login email, or an error mirroring the old `oauth_user_email` path.
+    fn require_email(&self) -> Result<String, String> {
+        self.email
+            .clone()
+            .ok_or_else(|| "No email in user info".to_string())
+    }
+
+    /// Build claims from OIDC user info, honoring `OIDC_USERNAME_CLAIM` for the
+    /// display name. The base `From` impl uses the standard name fallback; this
+    /// lets an operator pick which claim names the user, while still deferring
+    /// to the service-layer fallback (email local-part) when it's absent.
+    fn from_oidc(u: &oidc::OidcUserInfo, username_claim: &str) -> Self {
+        Self {
+            display_name: oidc::display_name_from_claim(u, username_claim),
+            ..Self::from(u)
+        }
+    }
+}
+
+impl From<&oidc::OidcUserInfo> for OAuthLoginClaims {
+    fn from(u: &oidc::OidcUserInfo) -> Self {
+        Self {
+            subject: u.sub.clone(),
+            email: u.email.clone(),
+            email_verified: u.email_verified.unwrap_or(false),
+            display_name: u.name.clone().or_else(|| u.preferred_username.clone()),
+            given_name: u.given_name.clone(),
+            family_name: u.family_name.clone(),
+            raw: u.raw_claims.clone(),
+        }
+    }
+}
+
+impl From<&crate::handlers::msgraph_integration::MicrosoftGraphUser> for OAuthLoginClaims {
+    fn from(m: &crate::handlers::msgraph_integration::MicrosoftGraphUser) -> Self {
+        Self {
+            subject: m.id.clone(),
+            // MS Graph uses `mail` for cloud accounts and `userPrincipalName`
+            // for hybrid AD; the UPN is always present.
+            email: m
+                .mail
+                .clone()
+                .or_else(|| Some(m.user_principal_name.clone())),
+            // Entra: the user authenticated against the directory that owns the
+            // address, and Graph carries no `email_verified` claim.
+            email_verified: true,
+            display_name: m.display_name.clone(),
+            given_name: m.given_name.clone(),
+            family_name: m.surname.clone(),
+            raw: serde_json::to_value(m).unwrap_or(serde_json::Value::Null),
+        }
+    }
+}
+
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.route(
         "/admin/auth/providers",
@@ -505,38 +589,24 @@ pub async fn oauth_callback(
 
         match token_result {
             Ok((access_token, _refresh_token)) => {
-                // Get user info from Microsoft
-                let user_info = match get_microsoft_user_info(&access_token).await {
+                // Get user info from Microsoft, normalised into typed claims.
+                let ms_user = match get_microsoft_user_info(&access_token).await {
                     Ok(info) => info,
                     Err(e) => {
                         error!(error = ?e, "Failed to get Microsoft user info");
                         return errors::internal("Failed to get user information from Microsoft");
                     }
                 };
+                let user_info = OAuthLoginClaims::from(&ms_user);
 
-                // Extract unique identifier for Microsoft (object ID)
-                let provider_user_id = match user_info.get("id").and_then(|id| id.as_str()) {
-                    Some(id) => id.to_string(),
-                    None => {
-                        error!("No ID found in Microsoft user info");
-                        return errors::internal("Invalid user information from Microsoft");
-                    }
-                };
+                // The Microsoft object ID is the stable per-identity subject.
+                let provider_user_id = user_info.subject.clone();
 
-                // Extract email from user info
-                let _email = match user_info
-                    .get("mail")
-                    .or_else(|| user_info.get("userPrincipalName"))
-                    .and_then(|e| e.as_str())
-                {
-                    Some(email) => email.to_string(),
-                    None => {
-                        error!("No email found in Microsoft user info");
-                        return errors::internal(
-                            "Invalid user information from Microsoft (no email)",
-                        );
-                    }
-                };
+                // Microsoft always yields an email (mail or UPN); guard anyway.
+                if user_info.email.is_none() {
+                    error!("No email found in Microsoft user info");
+                    return errors::internal("Invalid user information from Microsoft (no email)");
+                }
 
                 // Handle account connection vs normal login
                 if is_connection {
@@ -793,28 +863,21 @@ pub async fn oauth_callback(
                         }
                     };
 
-                    // Create the identity link
-                    let oidc_config = match oidc::OidcConfig::from_env() {
-                        Ok(c) => c,
-                        Err(e) => {
-                            error!(error = %e, "Failed to load OIDC config");
-                            return errors::internal("OIDC configuration error");
-                        }
-                    };
-
-                    let display_name = oidc::get_display_name(&user_info, &oidc_config);
-                    let new_identity = crate::models::NewUserAuthIdentity {
-                        user_uuid,
-                        provider_type: "oidc".to_string(),
-                        external_id: user_info.sub.clone(),
-                        email: user_info.email.clone(),
-                        metadata: Some(serde_json::json!({
-                            "display_name": display_name
-                        })),
-                        password_hash: None,
-                        workspace_id: None,
-                    };
-                    match user_auth_identities::create_identity(new_identity, &mut conn) {
+                    // Link the OIDC identity to the authenticated user via the
+                    // same typed-claims path the Microsoft connect flow uses. The
+                    // claims carry the full raw claim set into identity metadata.
+                    let claims = OAuthLoginClaims::from_oidc(
+                        &user_info,
+                        &config_utils::get_oidc_username_claim(),
+                    );
+                    match add_oauth_identity_to_user(
+                        &user_uuid.to_string(),
+                        &claims,
+                        &provider,
+                        &mut conn,
+                    )
+                    .await
+                    {
                         Ok(_) => {
                             let redirect_parts: Vec<&str> =
                                 state_data.redirect_uri.split('?').collect();
@@ -843,23 +906,17 @@ pub async fn oauth_callback(
                     }
                 } else {
                     // Regular login/signup flow. `email_verified` is load-bearing:
-                    // `oauth_email_verified` reads it to decide whether an
-                    // email-matched account may be linked; omitting it made the
-                    // gate always read `false`, so a precreated user logging in via
-                    // OIDC for the first time never linked and a duplicate user was
-                    // minted (self-host) / seat recovery was dead (hosted). Mirror
-                    // the native path.
-                    let oidc_user_info = serde_json::json!({
-                        "id": user_info.sub,
-                        "mail": user_info.email,
-                        "displayName": user_info.name.clone().or_else(|| user_info.preferred_username.clone()),
-                        "givenName": user_info.given_name,
-                        "surname": user_info.family_name,
-                        "email_verified": user_info.email_verified,
-                    });
+                    // `resolve_login_user` reads it to decide whether an
+                    // email-matched account may be linked. The typed claims carry
+                    // it as a real field, so it can no longer be silently dropped
+                    // the way the old stringly-typed blob allowed.
+                    let claims = OAuthLoginClaims::from_oidc(
+                        &user_info,
+                        &config_utils::get_oidc_username_claim(),
+                    );
 
                     let user = match resolve_login_user(
-                        &oidc_user_info,
+                        &claims,
                         &oidc_identity_issuer(),
                         &state_data,
                         &mut conn,
@@ -1186,7 +1243,9 @@ async fn exchange_microsoft_code_for_token(
 // Helper function to get user info from Microsoft Graph API.
 // Safe to retry transport failures here since GET /me is
 // idempotent and the access token is valid for ~1 hour.
-async fn get_microsoft_user_info(access_token: &str) -> Result<serde_json::Value, String> {
+async fn get_microsoft_user_info(
+    access_token: &str,
+) -> Result<crate::handlers::msgraph_integration::MicrosoftGraphUser, String> {
     let client = reqwest::Client::new();
     let res = retry_transport(&client, 3, || {
         client
@@ -1196,8 +1255,11 @@ async fn get_microsoft_user_info(access_token: &str) -> Result<serde_json::Value
     .await
     .map_err(|e| format!("Failed to get user info: {e}"))?;
 
-    match res.json::<serde_json::Value>().await {
-        Ok(json) => Ok(json),
+    match res
+        .json::<crate::handlers::msgraph_integration::MicrosoftGraphUser>()
+        .await
+    {
+        Ok(user) => Ok(user),
         Err(e) => Err(format!("Failed to parse user info response: {e}")),
     }
 }
@@ -1403,28 +1465,6 @@ fn issuer_for_identity(
     }
 }
 
-/// Extract the login email from an OAuth/OIDC `user_info` blob. MS Graph uses
-/// `mail` for cloud accounts and `userPrincipalName` for hybrid AD; the OIDC
-/// path normalises its claims into the same `mail` field.
-fn oauth_user_email(user_info: &serde_json::Value) -> Result<String, String> {
-    user_info
-        .get("mail")
-        .or_else(|| user_info.get("userPrincipalName"))
-        .and_then(|v| v.as_str())
-        .map(str::to_string)
-        .ok_or_else(|| "No email in user info".to_string())
-}
-
-/// Extract the provider subject (OIDC `sub` / MS Graph object id) from a
-/// `user_info` blob; stored in `user_auth_identities.external_id`.
-fn oauth_user_sub(user_info: &serde_json::Value) -> Result<String, String> {
-    user_info
-        .get("id")
-        .and_then(|v| v.as_str())
-        .map(str::to_string)
-        .ok_or_else(|| "No id in user info".to_string())
-}
-
 /// Resolve the local user for a completing OAuth/OIDC login.
 ///
 /// - **Model C (selection mode):** resolve an EXISTING seat only, by identity
@@ -1440,14 +1480,13 @@ fn oauth_user_sub(user_info: &serde_json::Value) -> Result<String, String> {
 /// Returns the resolved user, or an `HttpResponse` (auth-error redirect / 500)
 /// the caller should return directly.
 async fn resolve_login_user(
-    user_info: &serde_json::Value,
+    claims: &OAuthLoginClaims,
     iss: &str,
     state: &OAuthState,
     conn: &mut DbConnection,
 ) -> Result<crate::models::User, HttpResponse> {
-    let email_verified = oauth_email_verified(&state.provider_type, user_info);
     if crate::middleware::workspace_context::selection_resolution_enabled() {
-        return resolve_existing_seat_user(user_info, iss, state, email_verified, conn);
+        return resolve_existing_seat_user(claims, iss, state, conn);
     }
     let workspace_id = match crate::middleware::DeploymentMode::current() {
         crate::middleware::DeploymentMode::SelfHosted => crate::sync::actor::BOOTSTRAP_WORKSPACE_ID,
@@ -1456,7 +1495,7 @@ async fn resolve_login_user(
             return Err(errors::internal("Authentication is misconfigured"));
         }
     };
-    find_or_create_oauth_user(user_info, iss, email_verified, conn, workspace_id)
+    find_or_create_oauth_user(claims, iss, conn, workspace_id)
         .await
         .map_err(|e| {
             error!(error = ?e, "Failed to find or create user during login");
@@ -1464,50 +1503,27 @@ async fn resolve_login_user(
         })
 }
 
-/// Whether the provider vouches that the login email is verified, gating the
-/// email-fallback account link (see `resolve_user_by_identity_or_email`).
-///
-/// - Microsoft/Entra: the user authenticated against the directory that owns
-///   the address, so it is provider-verified. Graph `/me` carries no
-///   `email_verified` claim, so trust the directory.
-/// - OIDC: trust only an explicit `email_verified == true`. Absent or false is
-///   NOT verified, so the email-fallback link is refused.
-fn oauth_email_verified(provider_type: &str, user_info: &serde_json::Value) -> bool {
-    match provider_type {
-        "microsoft" => true,
-        _ => user_info
-            .get("email_verified")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
-    }
-}
-
 /// Model C central login: resolve an existing seat without ever creating a user
 /// or granting membership from the login origin. Unknown identity is denied.
 fn resolve_existing_seat_user(
-    user_info: &serde_json::Value,
+    claims: &OAuthLoginClaims,
     iss: &str,
     state: &OAuthState,
-    email_verified: bool,
     conn: &mut DbConnection,
 ) -> Result<crate::models::User, HttpResponse> {
-    let email = oauth_user_email(user_info).map_err(|e| {
+    let email = claims.require_email().map_err(|e| {
         error!(error = %e, "Central-origin login: cannot read email from user_info");
-        auth_error_redirect(&state.redirect_uri, CENTRAL_LOGIN_NO_SEAT_MSG)
-    })?;
-    let sub = oauth_user_sub(user_info).map_err(|e| {
-        error!(error = %e, "Central-origin login: cannot read subject from user_info");
         auth_error_redirect(&state.redirect_uri, CENTRAL_LOGIN_NO_SEAT_MSG)
     })?;
     // Resolve-only: pass no metadata / password_hash since we never create here.
     match crate::services::oauth_provisioning::resolve_user_by_identity_or_email(
         conn,
         iss,
-        &sub,
+        &claims.subject,
         // Global OIDC login identity (central-origin agent), not workspace-scoped.
         None,
         &email,
-        email_verified,
+        claims.email_verified,
         &None,
         &None,
     ) {
@@ -1532,32 +1548,19 @@ const CENTRAL_LOGIN_NO_SEAT_MSG: &str =
     "No workspace access for this account. Ask your administrator to invite you.";
 
 async fn find_or_create_oauth_user(
-    user_info: &serde_json::Value,
+    claims: &OAuthLoginClaims,
     // Identity issuer for `user_auth_identities.provider_type`. For
     // Microsoft this is `"microsoft"`; for OIDC it must be the real
     // issuer (the platform `iss`) so a login resolves the seat the
     // control plane projected under `(iss, sub)`, not the literal
     // string `"oidc"`. See `oidc_identity_issuer`.
     iss: &str,
-    email_verified: bool,
     conn: &mut DbConnection,
     workspace_id: i32,
 ) -> Result<crate::models::User, String> {
     use crate::services::oauth_provisioning::{find_or_create_projected_user, ProjectedUserInput};
 
-    let email = oauth_user_email(user_info)?;
-
-    let name = match user_info.get("displayName") {
-        Some(name) => match name.as_str() {
-            Some(n) => n.to_string(),
-            None => return Err("Invalid name format".to_string()),
-        },
-        None => return Err("No name in user info".to_string()),
-    };
-
-    // MS Graph object id maps onto OIDC `sub`, stored in
-    // `user_auth_identities.external_id`.
-    let provider_user_id = oauth_user_sub(user_info)?;
+    let email = claims.require_email()?;
 
     // Random password lands on the identity row so the legacy
     // password-fallback path doesn't see a NULL hash. Eager path
@@ -1570,16 +1573,18 @@ async fn find_or_create_oauth_user(
 
     let input = ProjectedUserInput {
         iss: iss.to_string(),
-        sub: provider_user_id,
+        sub: claims.subject.clone(),
         // OIDC login is a global platform identity, not workspace-scoped.
         identity_workspace_id: None,
         email,
-        email_verified,
-        name: Some(name),
+        email_verified: claims.email_verified,
+        // A missing display name defers to find_or_create_projected_user's
+        // email-localpart fallback rather than failing the login.
+        name: claims.display_name.clone(),
         role: "member".to_string(),
         workspace_id,
         password_hash: Some(password_hash),
-        metadata: Some(user_info.clone()),
+        metadata: Some(claims.raw.clone()),
     };
 
     // find_or_create_projected_user runs several writes (the `users`
@@ -1599,7 +1604,7 @@ async fn find_or_create_oauth_user(
 // Helper function to add an OAuth identity to an existing user
 async fn add_oauth_identity_to_user(
     user_uuid: &str,
-    user_info: &serde_json::Value,
+    claims: &OAuthLoginClaims,
     provider: &AuthProvider,
     conn: &mut DbConnection,
 ) -> Result<(), String> {
@@ -1615,29 +1620,15 @@ async fn add_oauth_identity_to_user(
         Err(e) => return Err(format!("User not found: {e:?}")),
     };
 
-    // Extract unique identifier for Microsoft (object ID)
-    let external_id = match user_info.get("id") {
-        Some(id) => match id.as_str() {
-            Some(i) => i.to_string(),
-            None => return Err("Invalid id format".to_string()),
-        },
-        None => return Err("No id in user info".to_string()),
-    };
-
-    // Extract email from user info (optional)
-    let email = user_info
-        .get("mail")
-        .or_else(|| user_info.get("userPrincipalName"))
-        .and_then(|e| e.as_str())
-        .map(|e| e.to_string());
+    let email = claims.email.clone();
 
     // Create a new identity for the user
     let new_identity = crate::models::NewUserAuthIdentity {
         user_uuid: user.uuid,
         provider_type: provider.provider_type.clone(),
-        external_id,
+        external_id: claims.subject.clone(),
         email: email.clone(),
-        metadata: Some(user_info.clone()),
+        metadata: Some(claims.raw.clone()),
         password_hash: None, // No password for OAuth identities
         workspace_id: None,
     };
@@ -1930,56 +1921,103 @@ mod connect_redirect_tests {
 }
 
 #[cfg(test)]
-mod login_resolution_tests {
-    use super::{auth_error_redirect, oauth_email_verified, oauth_user_email, oauth_user_sub};
+mod login_claims_tests {
+    use super::{auth_error_redirect, OAuthLoginClaims};
+    use crate::handlers::msgraph_integration::MicrosoftGraphUser;
+    use crate::oidc::OidcUserInfo;
     use serde_json::json;
 
-    #[test]
-    fn email_reads_mail_then_upn() {
-        // OIDC-normalised claims + MS Graph cloud accounts use `mail`.
-        assert_eq!(
-            oauth_user_email(&json!({"mail": "a@x.com"})).unwrap(),
-            "a@x.com"
-        );
-        // Hybrid AD falls back to userPrincipalName.
-        assert_eq!(
-            oauth_user_email(&json!({"userPrincipalName": "b@x.com"})).unwrap(),
-            "b@x.com"
-        );
-        // `mail` wins when both present.
-        assert_eq!(
-            oauth_user_email(&json!({"mail": "a@x.com", "userPrincipalName": "b@x.com"})).unwrap(),
-            "a@x.com"
-        );
-        // Neither present -> error (never silently log in without an email).
-        assert!(oauth_user_email(&json!({"id": "1"})).is_err());
+    fn oidc(v: serde_json::Value) -> OidcUserInfo {
+        serde_json::from_value(v).expect("valid OidcUserInfo fixture")
+    }
+    fn ms(v: serde_json::Value) -> MicrosoftGraphUser {
+        serde_json::from_value(v).expect("valid MicrosoftGraphUser fixture")
     }
 
     #[test]
-    fn sub_reads_id() {
-        assert_eq!(oauth_user_sub(&json!({"id": "abc"})).unwrap(), "abc");
-        assert!(oauth_user_sub(&json!({"mail": "a@x.com"})).is_err());
+    fn microsoft_claims_prefer_mail_then_upn() {
+        // MS Graph cloud accounts carry `mail`; the object id is the subject.
+        let c = OAuthLoginClaims::from(&ms(json!({
+            "id": "obj-1",
+            "mail": "a@x.com",
+            "userPrincipalName": "a@x.onmicrosoft.com",
+        })));
+        assert_eq!(c.subject, "obj-1");
+        assert_eq!(c.email.as_deref(), Some("a@x.com"));
+        // Entra directory emails are provider-verified.
+        assert!(c.email_verified);
+
+        // Hybrid AD without `mail` falls back to userPrincipalName.
+        let c = OAuthLoginClaims::from(&ms(json!({
+            "id": "obj-2",
+            "userPrincipalName": "b@x.com",
+        })));
+        assert_eq!(c.email.as_deref(), Some("b@x.com"));
     }
 
     #[test]
-    fn email_verified_trusts_microsoft_and_explicit_oidc_claim() {
-        // Entra directory emails are provider-verified; Graph sends no claim.
-        assert!(oauth_email_verified("microsoft", &json!({})));
-        // OIDC: only an explicit true counts as verified.
-        assert!(oauth_email_verified(
-            "oidc",
-            &json!({"email_verified": true})
-        ));
-        assert!(!oauth_email_verified(
-            "oidc",
-            &json!({"email_verified": false})
-        ));
-        // Absent or non-bool claim is NOT verified (refuses the email link).
-        assert!(!oauth_email_verified("oidc", &json!({})));
-        assert!(!oauth_email_verified(
-            "oidc",
-            &json!({"email_verified": "true"})
-        ));
+    fn oidc_email_verified_only_on_explicit_true() {
+        // Explicit true is trusted.
+        assert!(
+            OAuthLoginClaims::from(&oidc(json!({
+                "sub": "s", "email": "a@x.com", "email_verified": true, "raw_claims": {},
+            })))
+            .email_verified
+        );
+        // Explicit false is respected.
+        assert!(
+            !OAuthLoginClaims::from(&oidc(json!({
+                "sub": "s", "email": "a@x.com", "email_verified": false, "raw_claims": {},
+            })))
+            .email_verified
+        );
+        // Absent claim defaults to NOT verified (refuses the email link). This is
+        // the field the old stringly-typed blob silently dropped.
+        assert!(
+            !OAuthLoginClaims::from(&oidc(json!({
+                "sub": "s", "email": "a@x.com", "raw_claims": {},
+            })))
+            .email_verified
+        );
+    }
+
+    #[test]
+    fn oidc_display_name_prefers_name_then_preferred_username() {
+        let c = OAuthLoginClaims::from(&oidc(json!({
+            "sub": "s", "name": "Full Name", "preferred_username": "flast", "raw_claims": {},
+        })));
+        assert_eq!(c.display_name.as_deref(), Some("Full Name"));
+
+        let c = OAuthLoginClaims::from(&oidc(json!({
+            "sub": "s", "preferred_username": "flast", "raw_claims": {},
+        })));
+        assert_eq!(c.display_name.as_deref(), Some("flast"));
+    }
+
+    #[test]
+    fn require_email_errors_when_absent() {
+        let c = OAuthLoginClaims::from(&oidc(json!({"sub": "s", "raw_claims": {}})));
+        assert!(c.email.is_none());
+        assert!(c.require_email().is_err());
+
+        let c = OAuthLoginClaims::from(&oidc(json!({
+            "sub": "s", "email": "a@x.com", "raw_claims": {},
+        })));
+        assert_eq!(c.require_email().unwrap(), "a@x.com");
+    }
+
+    #[test]
+    fn from_oidc_honors_the_configured_username_claim() {
+        // The operator-selected claim drives the display name (here `email`),
+        // while every other field matches the base `From` conversion.
+        let u = oidc(json!({
+            "sub": "s", "email": "a@x.com", "name": "Full Name",
+            "preferred_username": "flast", "raw_claims": {},
+        }));
+        let c = OAuthLoginClaims::from_oidc(&u, "email");
+        assert_eq!(c.display_name.as_deref(), Some("a@x.com"));
+        assert_eq!(c.subject, "s");
+        assert_eq!(c.email.as_deref(), Some("a@x.com"));
     }
 
     #[test]
