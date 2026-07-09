@@ -40,11 +40,17 @@ import { inlinePriorityClass } from '@/utils/priorityHelpers'
 import { rowSlaToneClass } from '@/utils/priorityHelpers'
 import { formatCompactRelativeTime } from '@nosdesk/core/utils/dateUtils'
 import { rowMemoKey } from '@nosdesk/core/sync/views/ticketColumns'
+import { ref } from 'vue'
 import type { CardData } from '@nosdesk/core/sync/views/types'
 
 defineProps<{
   cards: CardData[]
 }>()
+
+// The card list owns the mobile scroll container; exposed so the
+// parent view can bind pull-to-refresh to it.
+const rootEl = ref<HTMLElement | null>(null)
+defineExpose({ rootEl })
 
 const emit = defineEmits<{
   (e: 'open', id: number): void
@@ -62,7 +68,7 @@ function onContextMenu(id: number, event: MouseEvent): void {
 </script>
 
 <template>
-  <div class="flex-1 min-h-0 overflow-auto">
+  <div ref="rootEl" class="flex-1 min-h-0 overflow-auto">
     <ul class="flex flex-col">
       <li
         v-for="card in cards"

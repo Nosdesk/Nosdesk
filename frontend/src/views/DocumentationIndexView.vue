@@ -14,6 +14,7 @@ import DocumentationIndexToolbar from '@/components/documentationComponents/Docu
 import DocumentationHubRow from '@/components/documentationComponents/DocumentationHubRow.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import SectionCard from '@/components/common/SectionCard.vue'
+import PullToRefresh from '@/components/common/PullToRefresh.vue'
 import Icon from '@/components/common/Icon.vue'
 import { usePageCreateAction } from '@/composables/usePageCreateAction'
 import { docUrl } from '@nosdesk/core/utils/docUrl'
@@ -31,6 +32,10 @@ const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 const titleManager = useTitleManager()
+
+// Pull-to-refresh (Tauri app) binds to the scroll container below the
+// toolbar; defaults to the global re-sync.
+const scrollEl = ref<HTMLElement | null>(null)
 
 const { createNewPage } = useDocumentation()
 const { allTree: pages, drafts: uncollectedPages } = useDocPages()
@@ -160,6 +165,7 @@ usePageCreateAction(handleCreatePage)
 
 <template>
   <div class="flex-1 flex flex-col min-h-0">
+    <PullToRefresh :target="scrollEl" />
     <header class="shrink-0 border-b border-subtle bg-surface">
       <div class="px-4 sm:px-6 py-2.5 mx-auto w-full max-w-8xl">
         <DocumentationIndexToolbar @create-collection="showCreateCollectionModal = true" />
@@ -173,7 +179,7 @@ usePageCreateAction(handleCreatePage)
       @created="onCollectionCreated"
     />
 
-    <div class="flex-1 min-h-0 overflow-auto">
+    <div ref="scrollEl" class="flex-1 min-h-0 overflow-auto">
       <div class="flex flex-col gap-4 sm:gap-5 px-4 sm:px-6 py-4 mx-auto w-full max-w-8xl">
         <CollectionBrowser
           ref="collectionBrowserRef"

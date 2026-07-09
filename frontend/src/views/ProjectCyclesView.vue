@@ -39,6 +39,7 @@ import ProjectTabBar from '@/components/views/ProjectTabBar.vue'
 import ProjectViewHeader from '@/components/projectComponents/ProjectViewHeader.vue'
 import SectionCard from '@/components/common/SectionCard.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
+import PullToRefresh from '@/components/common/PullToRefresh.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import Modal from '@/components/Modal.vue'
 import DatePicker from '@/components/common/DatePicker.vue'
@@ -54,6 +55,10 @@ const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 
 const router = useRouter()
+
+// Pull-to-refresh (Tauri app) binds to the scroll container below the
+// project tab bar; defaults to the global re-sync.
+const scrollEl = ref<HTMLElement | null>(null)
 const projectId = computed(() => Number(props.id))
 const projectsStore = useSyncProjectsStore()
 const mutations = useCycleMutations()
@@ -280,6 +285,7 @@ async function onMoveMenuSelect(id: string): Promise<void> {
 
 <template>
   <div class="flex flex-col h-full">
+    <PullToRefresh :target="scrollEl" />
     <ProjectViewHeader
       :project="project"
       :subtitle="$t('project-cycles-count', { count: cycles.length })"
@@ -301,7 +307,7 @@ async function onMoveMenuSelect(id: string): Promise<void> {
          viewport height before overflowing (the cards clip overflow for
          their rounded corners, so min-height:auto stops protecting
          them), which crushed the work list into a sliver. -->
-    <div class="flex-1 min-h-0 overflow-y-auto">
+    <div ref="scrollEl" class="flex-1 min-h-0 overflow-y-auto">
       <div class="p-6 flex flex-col gap-4">
         <!-- No cycles at all: explain + create. -->
         <EmptyState

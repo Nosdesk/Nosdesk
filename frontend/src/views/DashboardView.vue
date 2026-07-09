@@ -17,6 +17,7 @@ import TimeRangeChipCluster from './dashboard/chrome/TimeRangeChipCluster.vue'
 import CompareToggle from './dashboard/chrome/CompareToggle.vue'
 import Icon from '@/components/common/Icon.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
+import PullToRefresh from '@/components/common/PullToRefresh.vue'
 import { useDashboardKeybindings } from '@/composables/useDashboardKeybindings'
 import { widgetById, type ChromeDependency } from './dashboard/widgets'
 
@@ -139,10 +140,15 @@ useDashboardKeybindings({
   onEditMode: enterEditMode,
   onRefresh: refreshPage,
 })
+
+// Pull-to-refresh (Tauri app): the routed root is the scroll
+// container (App.vue merges `h-full overflow-auto` onto it).
+const rootEl = ref<HTMLElement | null>(null)
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
+  <div ref="rootEl" class="flex flex-col h-full">
+    <PullToRefresh :target="rootEl" />
     <div class="flex flex-col gap-3 p-4 sm:px-6 min-w-0">
       <!-- Chrome row: greeting (left), conditional time-range +
            compare + Edit (right). The time-range and compare controls

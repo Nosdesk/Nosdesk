@@ -47,6 +47,7 @@ import CalendarBoard, { type CalendarOverlay } from './CalendarBoard.vue'
 import TicketsHeader from '@/components/views/TicketsHeader.vue'
 import TicketsTable from '@/components/views/TicketsTable.vue'
 import TicketsCardList from '@/components/views/TicketsCardList.vue'
+import PullToRefresh from '@/components/common/PullToRefresh.vue'
 import TicketPreviewPane from '@/components/views/TicketPreviewPane.vue'
 import SavedViewEditorModal from '@/components/views/SavedViewEditorModal.vue'
 import SaveViewModal from '@/components/views/SaveViewModal.vue'
@@ -657,6 +658,11 @@ function clearFilter(facet: FilterFacet): void {
 // ---------------------------------------------------------------
 const headerRef = ref<InstanceType<typeof TicketsHeader> | null>(null)
 
+// Pull-to-refresh (Tauri app) binds to the mobile card list's scroll
+// container; on the desktop split view the ref is null and nothing
+// attaches.
+const cardListRef = ref<InstanceType<typeof TicketsCardList> | null>(null)
+
 function onKey(e: KeyboardEvent): void {
   const t = e.target as HTMLElement | null
   const tag = t?.tagName
@@ -884,6 +890,7 @@ function startPaneResize(event: PointerEvent): void {
 
 <template>
   <div class="flex flex-col h-full bg-app">
+    <PullToRefresh :target="cardListRef?.rootEl ?? null" />
     <TicketsHeader
       ref="headerRef"
       :tab-items="tabItems"
@@ -1004,6 +1011,7 @@ function startPaneResize(event: PointerEvent): void {
          filter state matches the desktop table exactly. -->
     <TicketsCardList
       v-else-if="!isWideViewport"
+      ref="cardListRef"
       :cards="sortedCards"
       class="flex-1 min-h-0"
       @open="open"

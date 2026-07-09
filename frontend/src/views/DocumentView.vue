@@ -22,6 +22,7 @@ import DocumentActionsMenu from '@/components/documentationComponents/DocumentAc
 import MoveDocumentModal from '@/components/documentationComponents/MoveDocumentModal.vue'
 import DocumentationBreadcrumb from '@/components/documentationComponents/DocumentationBreadcrumb.vue'
 import CollectionManager from '@/components/documentationComponents/CollectionManager.vue'
+import PullToRefresh from '@/components/common/PullToRefresh.vue'
 import PagePermissionsModal from '@/components/documentationComponents/PagePermissionsModal.vue'
 import { docsEmitter } from '@nosdesk/core/services/docsEmitter'
 import RevisionHistory from '@/components/editor/RevisionHistory.vue'
@@ -38,6 +39,12 @@ const router = useRouter()
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
 const titleManager = useTitleManager()
+
+// Pull-to-refresh (Tauri app) binds to the outer scroll container. The
+// ProseMirror editor is contenteditable, so the composable's ignore
+// list keeps a pull from starting on the editing surface — the gesture
+// only fires from the surrounding chrome at scroll-top.
+const scrollEl = ref<HTMLElement | null>(null)
 const authStore = useAuthStore()
 const docNavStore = useDocumentationNavStore()
 const { copied: copiedLink, copy: copyToClipboard } = useClipboard()
@@ -573,6 +580,7 @@ watch(documentObj, (newDocument) => {
 
 <template>
   <div class="bg-app flex flex-col h-full">
+    <PullToRefresh :target="scrollEl" />
     <!-- Header bar -->
     <div class="sticky top-0 z-20 bg-surface border-b border-default shadow-md">
       <!--
@@ -657,7 +665,7 @@ watch(documentObj, (newDocument) => {
     </div>
 
     <!-- Main content -->
-    <div class="flex flex-col flex-1 overflow-auto bg-gradient-to-b from-bg-app to-bg-surface items-center">
+    <div ref="scrollEl" class="flex flex-col flex-1 overflow-auto bg-gradient-to-b from-bg-app to-bg-surface items-center">
       <!--
         Loading fallback. Document pages are preloaded by the route
         guard and typical fetches land well under Nielsen's 1 s flow
