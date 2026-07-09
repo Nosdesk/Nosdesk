@@ -52,9 +52,10 @@ fn install_fast_heartbeat() {
         if std::env::var("JWT_SECRET").is_err() {
             std::env::set_var("JWT_SECRET", "test-jwt-secret-32-characters-min-for-tests");
         }
-        // Tests are not "production" — relaxes the Origin requirement
-        // in ws_handler.
-        std::env::set_var("ENVIRONMENT", "test");
+        // Relax the ws_handler Origin requirement. `assume_production` is
+        // fail-closed: only "development"/"dev" count as non-production, so a
+        // label like "test" would read as production and reject the WS.
+        std::env::set_var("ENVIRONMENT", "development");
     });
 }
 

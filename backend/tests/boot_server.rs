@@ -50,6 +50,11 @@ async fn real_server_boots_and_serves() {
 
     let config = Config::from_source(
         &|k| match k {
+            // Explicit dev label: the mock getter bypasses process env, so the
+            // `.cargo/config.toml` ENVIRONMENT=development doesn't reach here, and
+            // an unset ENVIRONMENT now assumes production (which would demand
+            // FRONTEND_URL etc.). This boots a real server for a smoke test.
+            "ENVIRONMENT" => Some("development".to_string()),
             "JWT_SECRET" => Some("0123456789abcdef0123456789abcdef01".to_string()),
             "REDIS_URL" => Some(redis.clone()),
             _ => None,
