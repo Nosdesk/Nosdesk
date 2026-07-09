@@ -90,6 +90,7 @@ const emit = defineEmits<{
   (e: 'resize', span: WidgetSpan): void
   (e: 'resize-row', rowSpan: WidgetSpan): void
   (e: 'preview-resize', intent: ResizePreviewIntent | null): void
+  (e: 'size-menu-toggle', open: boolean): void
   (e: 'move', dir: MoveDirection): void
   (e: 'handle-pointerdown', ev: PointerEvent): void
   /** A resize handle was pressed. The grid owns the gesture (it has
@@ -110,6 +111,7 @@ const context: DashboardWidgetContext = {
   onResize: (span) => emit('resize', span),
   onResizeRow: (rowSpan) => emit('resize-row', rowSpan),
   onPreviewResize: (intent) => emit('preview-resize', intent),
+  onSizeMenuToggle: (open) => emit('size-menu-toggle', open),
   onMove: (dir) => emit('move', dir),
   onHide: () => emit('hide'),
   onHandlePointerDown: (e) => emit('handle-pointerdown', e),
