@@ -139,6 +139,13 @@ services:
       # that config today, but this env guarantees incremental stays on
       # even if it's ever baked into the image.
       - CARGO_INCREMENTAL=1
+      # Cap codegen parallelism. The backend is one large crate; on a
+      # many-core host cargo fans its codegen units across all cores at
+      # once, and the combined peak RSS overflows the OrbStack VM's memory
+      # ceiling — bacon's rebuild gets OOM-killed (SIGKILL) mid-codegen and
+      # the server never comes back up. Two jobs keeps the peak comfortably
+      # under the VM limit; dev rebuilds are a little slower but reliable.
+      - CARGO_BUILD_JOBS=2
       # Tests run against a dedicated database so test fixtures don't
       # burn sequence values out of the dev DB. See `init-db.sql` for
       # the CREATE DATABASE + GRANT, and `backend/src/test_helpers.rs`
