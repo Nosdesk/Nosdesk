@@ -6,17 +6,93 @@ use crate::db::DbConnection;
 use crate::models::{NewUserAuthIdentity, UserAuthIdentity, UserAuthIdentityDisplay};
 use crate::schema::user_auth_identities;
 
+/// The `provider_type` value for a local (username/password) credential.
+pub const LOCAL_PROVIDER: &str = "local";
+
+/// Error from a local-credential write. Distinct from a plain DB error so a
+/// caller can tell "local auth is disabled here" apart from a query failure.
+#[derive(Debug)]
+pub enum LocalCredentialError {
+    /// A local credential write was refused because local auth is disabled
+    /// (hosted mode). See `workspace_context::local_credentials_permitted`.
+    LocalAuthDisabled,
+    Db(Error),
+}
+
+impl std::fmt::Display for LocalCredentialError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::LocalAuthDisabled => {
+                write!(f, "local password authentication is disabled")
+            }
+            Self::Db(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl std::error::Error for LocalCredentialError {}
+
+impl From<Error> for LocalCredentialError {
+    fn from(e: Error) -> Self {
+        Self::Db(e)
+    }
+}
+
+impl LocalCredentialError {
+    /// Collapse into a `diesel::Error` for callers inside a transaction closure
+    /// whose error type is fixed to `diesel::Error`. Only correct when the
+    /// caller has already checked `local_credentials_permitted()` before
+    /// entering the transaction, so `LocalAuthDisabled` is unreachable; it maps
+    /// to `RollbackTransaction` as a fail-safe.
+    pub fn into_diesel(self) -> Error {
+        match self {
+            Self::Db(e) => e,
+            Self::LocalAuthDisabled => Error::RollbackTransaction,
+        }
+    }
+}
+
 // Create a user auth identity. `NewUserAuthIdentity.workspace_id` is NULL for a
 // global login identity (local/microsoft/oidc) or set for a workspace-scoped
 // directory identity (ldap/scim).
+//
+// LOCAL credentials must go through [`create_local_identity`], which enforces
+// the hosted local-auth gate; a `local` identity here is a programming error
+// (asserted in debug) so a new caller can't quietly bypass the gate.
 // sync-pending-wire: needs sync aggregate wiring
 pub fn create_identity(
     new_identity: NewUserAuthIdentity,
     conn: &mut DbConnection,
 ) -> Result<UserAuthIdentity, Error> {
+    debug_assert!(
+        new_identity.provider_type != LOCAL_PROVIDER,
+        "local credentials must be written via create_local_identity (gated)"
+    );
     diesel::insert_into(user_auth_identities::table)
         .values(new_identity)
         .get_result::<UserAuthIdentity>(conn)
+}
+
+// Create a LOCAL (username/password) auth identity, refusing the write when
+// local auth is disabled (hosted mode). The single gated entry for
+// local-credential creation; handlers must not insert a `local` identity any
+// other way.
+// sync-pending-wire: needs sync aggregate wiring
+pub fn create_local_identity(
+    new_identity: NewUserAuthIdentity,
+    conn: &mut DbConnection,
+) -> Result<UserAuthIdentity, LocalCredentialError> {
+    debug_assert_eq!(
+        new_identity.provider_type, LOCAL_PROVIDER,
+        "create_local_identity is only for local credentials"
+    );
+    if !crate::middleware::workspace_context::local_credentials_permitted() {
+        return Err(LocalCredentialError::LocalAuthDisabled);
+    }
+    diesel::insert_into(user_auth_identities::table)
+        .values(new_identity)
+        .get_result::<UserAuthIdentity>(conn)
+        .map_err(LocalCredentialError::Db)
 }
 
 // Get all auth identities for a user by UUID
@@ -153,14 +229,18 @@ pub fn update_local_password_hash(
     conn: &mut DbConnection,
     user_uuid: &Uuid,
     new_hash: &str,
-) -> Result<usize, Error> {
+) -> Result<usize, LocalCredentialError> {
+    if !crate::middleware::workspace_context::local_credentials_permitted() {
+        return Err(LocalCredentialError::LocalAuthDisabled);
+    }
     diesel::update(
         user_auth_identities::table
             .filter(user_auth_identities::user_uuid.eq(user_uuid))
-            .filter(user_auth_identities::provider_type.eq("local")),
+            .filter(user_auth_identities::provider_type.eq(LOCAL_PROVIDER)),
     )
     .set(user_auth_identities::password_hash.eq(new_hash))
     .execute(conn)
+    .map_err(LocalCredentialError::Db)
 }
 
 /// Get the local-auth password hash for a user, if they have a local
@@ -362,6 +442,42 @@ mod tests {
 
         let found = find_user_by_identity("github", "gh_123", &mut conn).unwrap();
         assert_eq!(found, Some(user.uuid));
+    }
+
+    #[test]
+    fn local_credential_writes_refused_in_hosted() {
+        // The repo gate is the structural backstop: a caller that reaches the
+        // local-credential write directly (e.g. a handler that forgot its
+        // guard) is still refused in hosted mode, before any DB write.
+        static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let prev = std::env::var("NOSDESK_DEPLOYMENT_MODE").ok();
+
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "gateuser", "user");
+        let ext = user.uuid.to_string();
+
+        std::env::set_var("NOSDESK_DEPLOYMENT_MODE", "hosted");
+        assert!(matches!(
+            create_local_identity(make_identity(user.uuid, LOCAL_PROVIDER, &ext), &mut conn),
+            Err(LocalCredentialError::LocalAuthDisabled)
+        ));
+        assert!(matches!(
+            update_local_password_hash(&mut conn, &user.uuid, "hash"),
+            Err(LocalCredentialError::LocalAuthDisabled)
+        ));
+
+        // Self-hosted: the same create succeeds.
+        std::env::remove_var("NOSDESK_DEPLOYMENT_MODE");
+        assert!(
+            create_local_identity(make_identity(user.uuid, LOCAL_PROVIDER, &ext), &mut conn)
+                .is_ok()
+        );
+
+        match prev {
+            Some(v) => std::env::set_var("NOSDESK_DEPLOYMENT_MODE", v),
+            None => std::env::remove_var("NOSDESK_DEPLOYMENT_MODE"),
+        }
     }
 
     #[test]

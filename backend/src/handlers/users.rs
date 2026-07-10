@@ -1057,7 +1057,7 @@ pub async fn create_user(
                 workspace_id: None,
             };
 
-            match repository::user_auth_identities::create_identity(new_identity, &mut conn) {
+            match repository::user_auth_identities::create_local_identity(new_identity, &mut conn) {
                 Ok(_) => {
                     if invitation_sent {
                         info!(user_name = %user.name, "New user created (invitation email sent)");
@@ -2072,6 +2072,13 @@ pub async fn update_user_by_uuid(
         use crate::models::NewUserAuthIdentity;
         use bcrypt::hash;
 
+        // Setting a local password is refused in hosted mode (identity is
+        // SSO-only). Guard before the transaction so the repo gate below is
+        // never the one to trip.
+        if crate::handlers::auth::hosted_local_auth_disabled() {
+            return errors::forbidden("Local password authentication is disabled");
+        }
+
         let password_hash = match hash(password, DEFAULT_COST) {
             Ok(hash) => hash,
             Err(_) => return errors::internal("Error hashing password"),
@@ -2115,7 +2122,8 @@ pub async fn update_user_by_uuid(
                     workspace_id: None,
                 },
             };
-            repository::user_auth_identities::create_identity(new_auth_identity, conn)?;
+            repository::user_auth_identities::create_local_identity(new_auth_identity, conn)
+                .map_err(|e| e.into_diesel())?;
             Ok(())
         });
 

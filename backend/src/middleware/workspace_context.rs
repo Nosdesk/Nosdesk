@@ -115,6 +115,18 @@ pub fn selection_resolution_enabled() -> bool {
         )
 }
 
+/// Whether local (username/password) credentials may be written and used.
+/// False in hosted mode, where identity is SSO-only and `login` refuses local
+/// passwords. This is the single predicate the `user_auth_identities` write
+/// repository gates local-credential writes on, so no handler can bypass it.
+///
+/// Reads `from_env()` (fresh), not `current()` (cached), so it is
+/// operationally toggleable and unit tests can flip `NOSDESK_DEPLOYMENT_MODE`
+/// within one process, matching `selection_resolution_enabled` above.
+pub fn local_credentials_permitted() -> bool {
+    DeploymentMode::from_env() != DeploymentMode::Hosted
+}
+
 /// Resolve a selection-header workspace slug to a [`WorkspaceContext`].
 /// `Ok(None)` for an unknown / soft-archived workspace; the caller maps
 /// that to the same 403 a non-member gets so workspace existence does
@@ -502,6 +514,30 @@ mod tests {
         let prev = std::env::var("NOSDESK_DEPLOYMENT_MODE").ok();
         std::env::set_var("NOSDESK_DEPLOYMENT_MODE", "hosted");
         assert_eq!(DeploymentMode::from_env(), DeploymentMode::Hosted);
+        if let Some(v) = prev {
+            std::env::set_var("NOSDESK_DEPLOYMENT_MODE", v);
+        } else {
+            std::env::remove_var("NOSDESK_DEPLOYMENT_MODE");
+        }
+    }
+
+    #[test]
+    fn local_credentials_permitted_only_off_hosted() {
+        let _env = lock_env();
+        let prev = std::env::var("NOSDESK_DEPLOYMENT_MODE").ok();
+
+        std::env::set_var("NOSDESK_DEPLOYMENT_MODE", "hosted");
+        assert!(
+            !local_credentials_permitted(),
+            "hosted disables local creds"
+        );
+
+        std::env::remove_var("NOSDESK_DEPLOYMENT_MODE");
+        assert!(
+            local_credentials_permitted(),
+            "self-hosted (default) permits local creds"
+        );
+
         if let Some(v) = prev {
             std::env::set_var("NOSDESK_DEPLOYMENT_MODE", v);
         } else {
