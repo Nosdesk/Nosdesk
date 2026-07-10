@@ -689,19 +689,30 @@ fn scan_breach_candidates(
     let actor = ActorContext::system(SLA_BREACH_ACTOR_REF);
     let now = chrono::Utc::now().naive_utc();
     let candidates = with_actor_bypass_context::<_, diesel::result::Error>(conn, &actor, |conn| {
+        // Order by the target time so the most-overdue breaches fire first,
+        // fairly across tenants (an unordered LIMIT let one workspace's large
+        // backlog crowd out an earlier breach in another). SKIP LOCKED avoids
+        // two instances re-scanning the same rows; the atomic breached_at stamp
+        // in process_one_breach is the real cross-instance dedup.
         let response = tickets::table
             .filter(tickets::sla_response_target_at.is_not_null())
             .filter(tickets::sla_response_target_at.le(now))
             .filter(tickets::sla_response_breached_at.is_null())
             .select((tickets::id, tickets::workspace_id))
+            .order(tickets::sla_response_target_at.asc())
             .limit(SLA_BREACH_SCAN_LIMIT)
+            .for_update()
+            .skip_locked()
             .load::<(i32, i32)>(conn)?;
         let resolution = tickets::table
             .filter(tickets::sla_resolution_target_at.is_not_null())
             .filter(tickets::sla_resolution_target_at.le(now))
             .filter(tickets::sla_resolution_breached_at.is_null())
             .select((tickets::id, tickets::workspace_id))
+            .order(tickets::sla_resolution_target_at.asc())
             .limit(SLA_BREACH_SCAN_LIMIT)
+            .for_update()
+            .skip_locked()
             .load::<(i32, i32)>(conn)?;
         Ok(response
             .into_iter()
