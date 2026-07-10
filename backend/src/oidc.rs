@@ -6,9 +6,12 @@
 //! - State parameter for CSRF protection
 //! - ID token signature verification via JWKS
 //!
-//! Supports two configuration modes:
-//! 1. Auto-discovery: Just provide OIDC_ISSUER_URL
-//! 2. Manual: Provide OIDC_AUTH_URI, OIDC_TOKEN_URI, OIDC_USERINFO_URI
+//! Configuration is by auto-discovery: provide `OIDC_ISSUER_URL` and the
+//! provider's `/.well-known/openid-configuration` supplies the endpoints and
+//! the JWKS used to verify ID tokens. (Manual endpoint configuration was
+//! removed: without a JWKS/issuer it could not verify signatures, so it failed
+//! every login — see the roadmap for a future verifiable manual mode via an
+//! explicit `OIDC_JWKS_URI`.)
 
 use openidconnect::{
     core::{
@@ -18,16 +21,15 @@ use openidconnect::{
         CoreProviderMetadata, CoreResponseMode, CoreResponseType, CoreSubjectIdentifierType,
         CoreTokenResponse,
     },
-    AdditionalProviderMetadata, AuthUrl, AuthorizationCode, AuthorizationRequest, ClientId,
-    ClientSecret, CsrfToken, EndSessionUrl, EndpointMaybeSet, EndpointNotSet, EndpointSet,
-    IssuerUrl, JsonWebKeySet, Nonce, PkceCodeChallenge, PkceCodeVerifier, ProviderMetadata,
-    RedirectUrl, Scope, TokenResponse, TokenUrl, UserInfoUrl,
+    AdditionalProviderMetadata, AuthorizationCode, AuthorizationRequest, ClientId, ClientSecret,
+    CsrfToken, EndSessionUrl, EndpointMaybeSet, EndpointNotSet, EndpointSet, IssuerUrl, Nonce,
+    PkceCodeChallenge, PkceCodeVerifier, ProviderMetadata, RedirectUrl, Scope, TokenResponse,
 };
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use crate::config_utils;
 
@@ -37,10 +39,10 @@ pub struct OidcConfig {
     pub client_id: String,
     pub client_secret: String,
     pub redirect_uri: String,
-    pub issuer_url: Option<String>,
-    pub auth_uri: Option<String>,
-    pub token_uri: Option<String>,
-    pub userinfo_uri: Option<String>,
+    /// The OIDC issuer for auto-discovery (`OIDC_ISSUER_URL`). Required: it
+    /// supplies the endpoints and the JWKS + issuer that make ID-token
+    /// verification possible.
+    pub issuer_url: String,
     pub display_name: String,
     pub scopes: Vec<String>,
     pub username_claim: String,
@@ -59,15 +61,15 @@ impl OidcConfig {
         let redirect_uri =
             config_utils::get_oidc_redirect_uri().map_err(|e| format!("OIDC_REDIRECT_URI: {e}"))?;
 
-        let issuer_url = config_utils::get_oidc_issuer_url().ok();
-        let auth_uri = config_utils::get_oidc_auth_uri().ok();
-        let token_uri = config_utils::get_oidc_token_uri().ok();
-        let userinfo_uri = config_utils::get_oidc_userinfo_uri().ok();
-
-        // Validate: either issuer_url OR all manual URIs must be provided
-        if issuer_url.is_none() && (auth_uri.is_none() || token_uri.is_none()) {
-            return Err("Either OIDC_ISSUER_URL (for auto-discovery) or OIDC_AUTH_URI + OIDC_TOKEN_URI (manual) must be provided".to_string());
-        }
+        // Auto-discovery is required: it provides the JWKS + issuer used to
+        // verify ID tokens. Manual endpoint configuration was removed because
+        // it could verify neither, so an OIDC IdP must publish a discovery
+        // document at `<issuer>/.well-known/openid-configuration`.
+        let issuer_url = config_utils::get_oidc_issuer_url().map_err(|_| {
+            "OIDC_ISSUER_URL is required (auto-discovery). Manual endpoint \
+             configuration (OIDC_AUTH_URI / OIDC_TOKEN_URI) is no longer supported."
+                .to_string()
+        })?;
 
         let scopes: Vec<String> = config_utils::get_oidc_scopes()
             .split_whitespace()
@@ -79,9 +81,6 @@ impl OidcConfig {
             client_secret,
             redirect_uri,
             issuer_url,
-            auth_uri,
-            token_uri,
-            userinfo_uri,
             display_name: config_utils::get_oidc_display_name(),
             scopes,
             username_claim: config_utils::get_oidc_username_claim(),
@@ -232,40 +231,23 @@ type DiscoveredClient = CoreClient<
     EndpointMaybeSet,
 >;
 
-// Manual mode: token endpoint is required (we error in from_env if missing);
-// userinfo is optional, so we parameterise that typestate.
-type ManualClient<HasUserInfoUrl = EndpointNotSet> = CoreClient<
-    EndpointSet,
-    EndpointNotSet,
-    EndpointNotSet,
-    EndpointNotSet,
-    EndpointSet,
-    HasUserInfoUrl,
->;
-
-/// Hides the differing typestates of discovery vs manual clients behind a
-/// single enum. Both variants expose what we actually use: `authorize_url`,
-/// `exchange_code`, `id_token_verifier`.
+/// Wraps the discovery-built client. Kept as an enum so the call sites and the
+/// cached-client machinery stay unchanged if a second, verifiable client shape
+/// (e.g. a future JWKS-URI manual mode) is added.
 pub enum OidcClientKind {
     Discovered(DiscoveredClient),
-    ManualWithUserInfo(ManualClient<EndpointSet>),
-    ManualNoUserInfo(ManualClient<EndpointNotSet>),
 }
 
 impl OidcClientKind {
     fn clone_kind(&self) -> Self {
         match self {
             Self::Discovered(c) => Self::Discovered(c.clone()),
-            Self::ManualWithUserInfo(c) => Self::ManualWithUserInfo(c.clone()),
-            Self::ManualNoUserInfo(c) => Self::ManualNoUserInfo(c.clone()),
         }
     }
 
     pub fn id_token_verifier(&self) -> CoreIdTokenVerifier<'_> {
         match self {
             Self::Discovered(c) => c.id_token_verifier(),
-            Self::ManualWithUserInfo(c) => c.id_token_verifier(),
-            Self::ManualNoUserInfo(c) => c.id_token_verifier(),
         }
     }
 
@@ -281,8 +263,6 @@ impl OidcClientKind {
         let flow = openidconnect::AuthenticationFlow::<CoreResponseType>::AuthorizationCode;
         match self {
             Self::Discovered(c) => c.authorize_url(flow, state_fn, nonce_fn),
-            Self::ManualWithUserInfo(c) => c.authorize_url(flow, state_fn, nonce_fn),
-            Self::ManualNoUserInfo(c) => c.authorize_url(flow, state_fn, nonce_fn),
         }
     }
 
@@ -302,24 +282,6 @@ impl OidcClientKind {
                     .exchange_code(code)
                     .map_err(|e| format!("Token endpoint not configured: {e}"))?
                     .set_pkce_verifier(pkce_verifier);
-                if let Some(r) = redirect_override {
-                    req = req.set_redirect_uri(Cow::Owned(r));
-                }
-                req.request_async(&*OIDC_HTTP_CLIENT)
-                    .await
-                    .map_err(|e| format!("Token exchange failed: {e}"))
-            }
-            Self::ManualWithUserInfo(c) => {
-                let mut req = c.exchange_code(code).set_pkce_verifier(pkce_verifier);
-                if let Some(r) = redirect_override {
-                    req = req.set_redirect_uri(Cow::Owned(r));
-                }
-                req.request_async(&*OIDC_HTTP_CLIENT)
-                    .await
-                    .map_err(|e| format!("Token exchange failed: {e}"))
-            }
-            Self::ManualNoUserInfo(c) => {
-                let mut req = c.exchange_code(code).set_pkce_verifier(pkce_verifier);
                 if let Some(r) = redirect_override {
                     req = req.set_redirect_uri(Cow::Owned(r));
                 }
@@ -382,96 +344,53 @@ async fn create_oidc_client(config: &OidcConfig) -> Result<OidcClientKind, Strin
     let redirect_url = RedirectUrl::new(config.redirect_uri.clone())
         .map_err(|e| format!("Invalid redirect URI: {e}"))?;
 
-    if let Some(issuer_url) = &config.issuer_url {
-        info!("OIDC: Using auto-discovery from issuer: {}", issuer_url);
+    info!(
+        "OIDC: Using auto-discovery from issuer: {}",
+        config.issuer_url
+    );
 
-        let issuer =
-            IssuerUrl::new(issuer_url.clone()).map_err(|e| format!("Invalid issuer URL: {e}"))?;
+    let issuer = IssuerUrl::new(config.issuer_url.clone())
+        .map_err(|e| format!("Invalid issuer URL: {e}"))?;
 
-        let provider_metadata: ProviderMetadataWithLogout =
-            ProviderMetadataWithLogout::discover_async(issuer.clone(), &*OIDC_HTTP_CLIENT)
-                .await
-                .map_err(|e| format!("OIDC discovery failed: {e}"))?;
-
-        if let Some(end_session_url) = provider_metadata
-            .additional_metadata()
-            .end_session_endpoint
-            .as_ref()
-        {
-            let url_string = end_session_url.url().to_string();
-            info!("OIDC: Discovered end_session_endpoint: {}", url_string);
-            let mut endpoint_guard = END_SESSION_ENDPOINT.write().await;
-            *endpoint_guard = Some(url_string);
-        } else if let Some(ref logout_uri) = config.logout_uri {
-            info!(
-                "OIDC: Using manually configured logout URI as fallback: {}",
-                logout_uri
-            );
-            let mut endpoint_guard = END_SESSION_ENDPOINT.write().await;
-            *endpoint_guard = Some(logout_uri.clone());
-        } else {
-            info!(
-                "OIDC: Provider does not advertise end_session_endpoint and no \
-                 OIDC_LOGOUT_URI configured"
-            );
-        }
-
-        // Re-discover as CoreProviderMetadata to feed the client. The logout-augmented
-        // metadata above carries the same data but uses a different additional-metadata type,
-        // so it isn't directly compatible with from_provider_metadata's CoreClient signature.
-        let core_metadata = CoreProviderMetadata::discover_async(issuer, &*OIDC_HTTP_CLIENT)
+    let provider_metadata: ProviderMetadataWithLogout =
+        ProviderMetadataWithLogout::discover_async(issuer.clone(), &*OIDC_HTTP_CLIENT)
             .await
             .map_err(|e| format!("OIDC discovery failed: {e}"))?;
 
-        let client =
-            CoreClient::from_provider_metadata(core_metadata, client_id, Some(client_secret))
-                .set_redirect_uri(redirect_url);
-
-        Ok(OidcClientKind::Discovered(client))
-    } else {
-        info!("OIDC: Using manual configuration");
-
-        let auth_url = AuthUrl::new(config.auth_uri.clone().unwrap())
-            .map_err(|e| format!("Invalid auth URI: {e}"))?;
-        let token_url = TokenUrl::new(config.token_uri.clone().unwrap())
-            .map_err(|e| format!("Invalid token URI: {e}"))?;
-        let userinfo_url = config
-            .userinfo_uri
-            .as_ref()
-            .map(|u| UserInfoUrl::new(u.clone()))
-            .transpose()
-            .map_err(|e| format!("Invalid userinfo URI: {e}"))?;
-
-        if let Some(ref logout_uri) = config.logout_uri {
-            info!("OIDC: Using manually configured logout URI: {}", logout_uri);
-            let mut endpoint_guard = END_SESSION_ENDPOINT.write().await;
-            *endpoint_guard = Some(logout_uri.clone());
-        }
-
-        warn!(
-            "OIDC: Manual configuration mode - ID token signatures cannot be \
-             verified without JWKS"
+    if let Some(end_session_url) = provider_metadata
+        .additional_metadata()
+        .end_session_endpoint
+        .as_ref()
+    {
+        let url_string = end_session_url.url().to_string();
+        info!("OIDC: Discovered end_session_endpoint: {}", url_string);
+        let mut endpoint_guard = END_SESSION_ENDPOINT.write().await;
+        *endpoint_guard = Some(url_string);
+    } else if let Some(ref logout_uri) = config.logout_uri {
+        info!(
+            "OIDC: Using manually configured logout URI as fallback: {}",
+            logout_uri
         );
-
-        // openidconnect 4.x requires Client::new(client_id, issuer, jwks); the issuer is
-        // unused for verification when JWKS is empty, so a placeholder is acceptable here.
-        let issuer_placeholder = IssuerUrl::new("https://placeholder.invalid".to_string())
-            .expect("placeholder issuer URL is valid");
-        let jwks: JsonWebKeySet<CoreJsonWebKey> = JsonWebKeySet::new(vec![]);
-
-        let base = CoreClient::new(client_id, issuer_placeholder, jwks)
-            .set_client_secret(client_secret)
-            .set_redirect_uri(redirect_url)
-            .set_auth_uri(auth_url)
-            .set_token_uri(token_url);
-
-        let kind = match userinfo_url {
-            Some(u) => OidcClientKind::ManualWithUserInfo(base.set_user_info_url(u)),
-            None => OidcClientKind::ManualNoUserInfo(base),
-        };
-
-        Ok(kind)
+        let mut endpoint_guard = END_SESSION_ENDPOINT.write().await;
+        *endpoint_guard = Some(logout_uri.clone());
+    } else {
+        info!(
+            "OIDC: Provider does not advertise end_session_endpoint and no \
+             OIDC_LOGOUT_URI configured"
+        );
     }
+
+    // Re-discover as CoreProviderMetadata to feed the client. The logout-augmented
+    // metadata above carries the same data but uses a different additional-metadata type,
+    // so it isn't directly compatible with from_provider_metadata's CoreClient signature.
+    let core_metadata = CoreProviderMetadata::discover_async(issuer, &*OIDC_HTTP_CLIENT)
+        .await
+        .map_err(|e| format!("OIDC discovery failed: {e}"))?;
+
+    let client = CoreClient::from_provider_metadata(core_metadata, client_id, Some(client_secret))
+        .set_redirect_uri(redirect_url);
+
+    Ok(OidcClientKind::Discovered(client))
 }
 
 /// Generate PKCE challenge and verifier pair
@@ -590,11 +509,8 @@ pub async fn verify_native_id_token(
     use std::str::FromStr;
 
     let config = OidcConfig::from_env()?;
-    let issuer_url = config
-        .issuer_url
-        .clone()
-        .ok_or_else(|| "Native OIDC login requires OIDC_ISSUER_URL (auto-discovery)".to_string())?;
-    let issuer = IssuerUrl::new(issuer_url).map_err(|e| format!("Invalid issuer URL: {e}"))?;
+    let issuer = IssuerUrl::new(config.issuer_url.clone())
+        .map_err(|e| format!("Invalid issuer URL: {e}"))?;
 
     let core_metadata = CoreProviderMetadata::discover_async(issuer, &*OIDC_HTTP_CLIENT)
         .await
