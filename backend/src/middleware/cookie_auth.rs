@@ -29,44 +29,65 @@ use actix_web::HttpMessage;
 /// enforces the boundary.
 pub const PORTAL_SCOPE: &str = "portal";
 
-/// Item U: resolve-then-gate the request's workspace.
-///
-/// The request's ORIGIN is authoritative for tenant scope, and resolution is
-/// keyed on it:
-///
-/// - **Origin-derived** (customer portal `<slug>.nosdesk.app`, custom domains,
-///   and the self-hosted bootstrap): the `WorkspaceContextMiddleware` already
-///   put a `WorkspaceContext` in extensions from the Host. When present it wins
-///   outright. A client cannot override its own origin's tenant via a header,
-///   so on a tenant origin the selection header is never consulted (it could
-///   otherwise 403 on a stray slug and is a cross-tenant confusion vector).
-/// - **Selection-derived** (the single-origin agent app at `app.nosdesk.com`,
-///   behind `NOSDESK_WORKSPACE_SELECTION`): consulted ONLY when the origin
-///   resolved to no workspace — i.e. the agent origin, whose Host is on a
-///   different base domain and so never matches a tenant. The client names the
-///   workspace in the `X-Nosdesk-Workspace` header; the gate resolves it,
-///   membership-checks it, and inserts the resulting `WorkspaceContext`.
-///
-/// Either way the same membership 403 gate fires: the user must be a member of
-/// the resolved workspace or the request is `403 Forbidden` rather than falling
-/// through into the app with RLS-filtered-to-empty queries.
-///
-/// Skipped (Ok) when neither path yields a workspace (apex / public routes that
-/// pin nothing); those routes don't touch tenant tables and the strict RLS
-/// policy is the secondary guard.
-///
-/// Called by every authentication middleware (cookie auth + dual auth) so the
-/// gate fires on every authenticated entry path.
-pub fn enforce_workspace_membership(
-    req: &ServiceRequest,
+/// Where a connection surface's tenant scope comes from. Each surface supplies
+/// exactly ONE; [`resolve_pin_and_gate`] owns turning it into a pinned, gated
+/// workspace. Adding a surface means adding a carrier arm here rather than
+/// re-implementing resolve + pin + gate (and risking forgetting one).
+pub enum WorkspaceCarrier<'a> {
+    /// REST cookie/bearer: the Host-derived `WorkspaceContext` in extensions
+    /// wins (customer portal, custom domains, self-hosted bootstrap); else the
+    /// `X-Nosdesk-Workspace` selection slug (single-origin agent app). A client
+    /// cannot override its own origin's tenant with a header, so the header is
+    /// consulted ONLY when the origin resolved to no workspace.
+    RequestOrigin(&'a ServiceRequest),
+    /// A connection surface (SSE, collab WS) that authenticates outside the
+    /// middleware. `token_workspace` is the workspace uuid the connection names
+    /// (the SSE token's binding, or the collab docId's workspace when there is
+    /// no Host context); when `None`, the Host-derived context on the request is
+    /// authoritative. This encodes "an explicit workspace selection wins, else
+    /// fall back to the request origin" for both surfaces.
+    ConnectionToken {
+        token_workspace: Option<uuid::Uuid>,
+        req: &'a actix_web::HttpRequest,
+    },
+}
+
+/// What to do when a carrier resolves to NO workspace. Fail-closed by default: a
+/// new surface reaching for [`UnresolvedPolicy::Deny`] (the value collab uses,
+/// the simplest example to copy) gets the safe behaviour.
+/// [`UnresolvedPolicy::AllowRlsBackstop`] is the deliberately-named opt-in,
+/// legitimate ONLY where per-query RLS is the real boundary (REST, where the
+/// Host is authoritative) or where selection is off (legacy Host-derived SSE);
+/// every use MUST carry a justifying comment at the call site.
+pub enum UnresolvedPolicy {
+    Deny,
+    AllowRlsBackstop,
+}
+
+/// Outcome of [`resolve_pin_and_gate`].
+pub enum GateOutcome {
+    /// The caller is a member of a resolved workspace; `conn` is now pinned to
+    /// it and the caller may read tenant content. Carries the resolved context.
+    Scoped(crate::extractors::WorkspaceContext),
+    /// Only via [`UnresolvedPolicy::AllowRlsBackstop`]: no workspace resolved,
+    /// nothing pinned.
+    Unscoped,
+}
+
+/// The single connection-authentication funnel: resolve the carrier's workspace,
+/// pin it, then membership-gate it, in that order (no tenant read between pin
+/// and gate, so pinning a client-selected workspace cannot leak). Portal-scope
+/// tokens are refused (a different principal realm). This is the ONLY public
+/// path to the membership gate, so a new surface cannot be wired without it.
+pub fn resolve_pin_and_gate(
     conn: &mut DbConnection,
     claims: &Claims,
-) -> Result<(), Error> {
+    carrier: WorkspaceCarrier<'_>,
+    unresolved: UnresolvedPolicy,
+) -> Result<GateOutcome, Error> {
     // A customer-portal token is a different principal realm and must never
-    // authenticate an agent / management request. This gate is the single
-    // chokepoint both agent auth paths (cookie + dual) share, so refusing
-    // portal scope here walls it off everywhere at once. Belt-and-suspenders
-    // behind the separate portal cookie names and the separate portal origin.
+    // authenticate an agent / management request; refusing it here walls it off
+    // on every surface that funnels through the gate.
     if claims.scope == PORTAL_SCOPE {
         warn!(user = %claims.sub, "Portal-scope token rejected on the agent surface");
         return Err(actix_web::error::ErrorForbidden(
@@ -74,36 +95,102 @@ pub fn enforce_workspace_membership(
         ));
     }
 
-    // Origin-derived context wins when present (tenant portal / custom domain /
-    // self-hosted bootstrap). Only when the origin resolved to no workspace
-    // (the agent origin) do we consult the selection header. Resolving
-    // selection eagerly would 403 a tenant-origin request that carries a stray
-    // header, so the ordering here is load-bearing, not just precedence.
-    let host_derived = req
-        .extensions()
-        .get::<crate::extractors::WorkspaceContext>()
-        .map(|w| w.workspace_id);
-
-    let (workspace_id, selected) = match host_derived {
-        Some(id) => (id, None),
-        None => match selected_workspace_context(req, conn)? {
-            Some(ctx) => (ctx.workspace_id, Some(ctx)),
-            // No tenant scope to authorize against (agent apex / public route).
-            None => return Ok(()),
+    match resolve_carrier(conn, carrier)? {
+        Some(ctx) => {
+            // A workspace-scoped request whose subject doesn't parse is
+            // malformed; fail closed (auth already validated the token, so this
+            // is unreachable in practice, but the gate must never fail open).
+            let user_uuid = uuid::Uuid::parse_str(&claims.sub)
+                .map_err(|_| actix_web::error::ErrorForbidden("Not a member of this workspace"))?;
+            crate::handlers::helpers::pin_workspace(conn, ctx.workspace_id);
+            require_workspace_membership(conn, ctx.workspace_id, user_uuid)?;
+            Ok(GateOutcome::Scoped(ctx))
+        }
+        None => match unresolved {
+            UnresolvedPolicy::Deny => Err(actix_web::error::ErrorForbidden(
+                "Not a member of this workspace",
+            )),
+            UnresolvedPolicy::AllowRlsBackstop => Ok(GateOutcome::Unscoped),
         },
-    };
+    }
+}
 
-    // A workspace-scoped request whose subject doesn't parse is malformed; fail
-    // closed rather than skip the gate (auth already validated the token, so
-    // this is unreachable in practice, but the gate must never fail open).
-    let user_uuid = uuid::Uuid::parse_str(&claims.sub)
-        .map_err(|_| actix_web::error::ErrorForbidden("Not a member of this workspace"))?;
-    require_workspace_membership(conn, workspace_id, user_uuid)?;
+/// Resolve a carrier to its workspace context. `Ok(None)` = no workspace
+/// identifier at all (the caller's [`UnresolvedPolicy`] decides); `Err(403)` = a
+/// PROVIDED identifier that is unknown (existence not leaked).
+fn resolve_carrier(
+    conn: &mut DbConnection,
+    carrier: WorkspaceCarrier<'_>,
+) -> Result<Option<crate::extractors::WorkspaceContext>, Error> {
+    match carrier {
+        WorkspaceCarrier::RequestOrigin(req) => {
+            if let Some(ctx) = req
+                .extensions()
+                .get::<crate::extractors::WorkspaceContext>()
+                .cloned()
+            {
+                return Ok(Some(ctx));
+            }
+            selected_workspace_context(req, conn)
+        }
+        WorkspaceCarrier::ConnectionToken {
+            token_workspace,
+            req,
+        } => match token_workspace {
+            Some(uuid) => resolve_provided_uuid(conn, uuid).map(Some),
+            None => Ok(req
+                .extensions()
+                .get::<crate::extractors::WorkspaceContext>()
+                .cloned()),
+        },
+    }
+}
 
-    // Membership confirmed: publish the selection-derived context so downstream
-    // handlers and pins read the selected workspace, not a Host-derived one.
-    if let Some(ctx) = selected {
-        req.extensions_mut().insert(ctx);
+/// Resolve a provided workspace uuid, mapping an unknown uuid to the same 403 a
+/// non-member gets (no existence leak).
+fn resolve_provided_uuid(
+    conn: &mut DbConnection,
+    uuid: uuid::Uuid,
+) -> Result<crate::extractors::WorkspaceContext, Error> {
+    match crate::middleware::workspace_context::resolve_workspace_uuid(conn, uuid) {
+        Ok(Some(ctx)) => Ok(ctx),
+        Ok(None) => Err(actix_web::error::ErrorForbidden(
+            "Not a member of this workspace",
+        )),
+        Err(e) => {
+            error!(error = ?e, "Workspace uuid resolution failed");
+            Err(actix_web::error::ErrorInternalServerError(
+                "Workspace resolution failed",
+            ))
+        }
+    }
+}
+
+/// The REST membership gate: resolve the request's workspace (Host-derived, else
+/// selection slug), pin it, and gate it. Fail-open when no workspace resolves —
+/// the Host is authoritative for tenant scope and the per-query RLS policy is
+/// the backstop, so apex / public routes fall through. Called by both agent auth
+/// middlewares (cookie + dual) so the gate fires on every authenticated entry.
+pub fn enforce_workspace_membership(
+    req: &ServiceRequest,
+    conn: &mut DbConnection,
+    claims: &Claims,
+) -> Result<(), Error> {
+    match resolve_pin_and_gate(
+        conn,
+        claims,
+        WorkspaceCarrier::RequestOrigin(req),
+        // AllowRlsBackstop: REST is Host-authoritative + RLS-backstopped, so an
+        // unresolved workspace is a legitimate apex / public route.
+        UnresolvedPolicy::AllowRlsBackstop,
+    )? {
+        // Publish the resolved (possibly selection-derived) context so
+        // downstream handlers + pins read the selected workspace. Re-inserting a
+        // Host-derived context is a harmless no-op.
+        GateOutcome::Scoped(ctx) => {
+            req.extensions_mut().insert(ctx);
+        }
+        GateOutcome::Unscoped => {}
     }
     Ok(())
 }
@@ -146,16 +233,18 @@ fn selected_workspace_context(
 }
 
 /// Fail-closed membership check: `Ok(())` iff `user_uuid` is a member of
-/// `workspace_id`, else a 403 (500 on lookup error). Shared by the request gate
-/// above and the SSE / collab-WS handlers, which authenticate outside the
-/// middleware and so must call this explicitly.
+/// `workspace_id`, else a 403 (500 on lookup error). This is the raw gate behind
+/// [`resolve_pin_and_gate`]; **agent surfaces (REST / SSE / collab) reach it only
+/// through that funnel**, so a new connection surface can't be wired without
+/// resolve + pin + gate. The customer portal (a distinct principal realm with
+/// its own origin + `PORTAL_SCOPE`) is the one intentional direct caller.
 ///
 /// RLS-pinned read: `workspace_members`' policy is
 /// `workspace_id = current_setting('app.workspace_id')`, so on a raw pooled
 /// connection (GUC scrubbed on checkout by ResettingManager) a real member would read as "not a
 /// member". Running the lookup through `with_actor_context` pins the read to
 /// `workspace_id`. Callers that have already session-pinned the SAME workspace
-/// (SSE/collab via `pin_request_workspace`) are unaffected: the actor workspace
+/// (the funnel via `pin_workspace`) are unaffected: the actor workspace
 /// equals the pin, so subsequent reads stay correctly scoped.
 pub fn require_workspace_membership(
     conn: &mut DbConnection,
