@@ -142,13 +142,16 @@ impl DeploymentMode {
     /// to `SelfHosted` to preserve behaviour for existing
     /// installs that don't set the variable.
     pub fn from_env() -> Self {
-        match std::env::var("NOSDESK_DEPLOYMENT_MODE")
-            .ok()
-            .as_deref()
-            .map(str::trim)
-            .map(str::to_lowercase)
-            .as_deref()
-        {
+        Self::from_value(std::env::var("NOSDESK_DEPLOYMENT_MODE").ok().as_deref())
+    }
+
+    /// Pure parse of a `NOSDESK_DEPLOYMENT_MODE` value, split out so config
+    /// validation can resolve the mode through its injectable env getter
+    /// instead of reading process env directly. `hosted` (case/whitespace
+    /// insensitive) is the only value that selects hosted; anything else,
+    /// including absent, is `SelfHosted`.
+    pub fn from_value(raw: Option<&str>) -> Self {
+        match raw.map(str::trim).map(str::to_lowercase).as_deref() {
             Some("hosted") => DeploymentMode::Hosted,
             _ => DeploymentMode::SelfHosted,
         }

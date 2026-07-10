@@ -178,6 +178,25 @@ impl Config {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
 
+        // Hosted mode needs a tenant domain. Per-tenant subdomains
+        // (`<slug>.<tenant_domain>`) drive both tenant CORS and the managed
+        // default email identity `support@<slug>.<tenant_domain>`. Without it,
+        // a workspace that has no sending domain of its own can never have its
+        // outbound mail addressed, so the queue defers that mail indefinitely
+        // with no error. Surface the misconfiguration at boot instead.
+        let hosted = crate::middleware::DeploymentMode::from_value(
+            get("NOSDESK_DEPLOYMENT_MODE").as_deref(),
+        ) == crate::middleware::DeploymentMode::Hosted;
+        if hosted && tenant_domain.is_none() {
+            error!(
+                "NOSDESK_TENANT_DOMAIN must be set in hosted mode: per-tenant \
+                 subdomains drive tenant CORS and the managed default email \
+                 identity, and without it identity-less workspaces' outbound \
+                 mail defers forever."
+            );
+            return Err(fatal("NOSDESK_TENANT_DOMAIN is required in hosted mode"));
+        }
+
         let shutdown_timeout_secs = get("NOSDESK_SHUTDOWN_TIMEOUT_SECS")
             .and_then(|s| s.parse::<u64>().ok())
             .unwrap_or(25);
@@ -484,6 +503,44 @@ mod tests {
         .unwrap();
         assert_eq!(c.additional_origins, vec!["https://a.com", "https://b.com"]);
         assert_eq!(c.tenant_domain.as_deref(), Some("nosdesk.app"));
+    }
+
+    #[test]
+    fn hosted_mode_requires_tenant_domain() {
+        // Hosted with no tenant domain fails fast rather than silently
+        // stranding identity-less workspaces' outbound mail.
+        let err = build(
+            &[
+                ("JWT_SECRET", GOOD_JWT),
+                ("NOSDESK_DEPLOYMENT_MODE", "hosted"),
+            ],
+            true,
+        )
+        .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "NOSDESK_TENANT_DOMAIN is required in hosted mode"
+        );
+
+        // With the tenant domain present it builds.
+        let c = build(
+            &[
+                ("JWT_SECRET", GOOD_JWT),
+                ("NOSDESK_DEPLOYMENT_MODE", "Hosted"),
+                ("NOSDESK_TENANT_DOMAIN", "nosdesk.app"),
+            ],
+            true,
+        )
+        .unwrap();
+        assert_eq!(c.tenant_domain.as_deref(), Some("nosdesk.app"));
+    }
+
+    #[test]
+    fn self_hosted_without_tenant_domain_builds() {
+        // The tenant-domain requirement is hosted-only; self-hosted (the
+        // default mode) has no such dependency.
+        let c = build(&[("JWT_SECRET", GOOD_JWT)], true).unwrap();
+        assert!(c.tenant_domain.is_none());
     }
 
     #[test]
