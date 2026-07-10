@@ -367,6 +367,10 @@ pub struct SseStream {
     /// visibility filtering. Held across polls because the visibility
     /// check is a blocking DB call run off-thread via `web::block`.
     pending: Option<Pin<Box<dyn Future<Output = String> + Send>>>,
+    /// Holds this connection's slot in the shared connection cap. Dropped with
+    /// the stream (alongside `remove_client`), releasing the slot on every
+    /// stream-end path.
+    _conn_guard: crate::services::connection_registry::ConnGuard,
 }
 
 impl SseStream {
@@ -378,6 +382,7 @@ impl SseStream {
         state: web::Data<SseState>,
         pool: web::Data<crate::db::Pool>,
         viewer: crate::sync::visibility::SyncViewer,
+        conn_guard: crate::services::connection_registry::ConnGuard,
     ) -> Self {
         // 15-second heartbeat. EventSource auto-reconnects when the
         // read side dies, so this is mostly a NAT/proxy keepalive
@@ -400,6 +405,7 @@ impl SseStream {
             pool,
             viewer,
             pending: None,
+            _conn_guard: conn_guard,
         }
     }
 }
@@ -769,6 +775,18 @@ pub async fn sse_events_stream(
     // topic auth); cached for the connection's lifetime.
     let viewer = crate::sync::visibility::SyncViewer::resolve(&mut conn, &user);
 
+    // Reserve a slot in the shared connection cap (per user+workspace). A
+    // capped principal is refused pre-stream with 429 + Retry-After so the
+    // browser's EventSource backs off. The guard lives in SseStream and frees
+    // the slot when the stream ends.
+    let Some(conn_guard) = crate::services::connection_registry::global()
+        .try_acquire((user.uuid, workspace_id.unwrap_or(0)))
+    else {
+        return Ok(HttpResponse::TooManyRequests()
+            .append_header(("Retry-After", "5"))
+            .finish());
+    };
+
     // Generate client ID and create stream
     let client_id = Uuid::now_v7().to_string();
     state.add_client(client_id.clone(), user_info.sub.clone());
@@ -779,6 +797,7 @@ pub async fn sse_events_stream(
         state.clone(),
         pool.clone(),
         viewer,
+        conn_guard,
     );
 
     // Build initial "connected" event so the client knows its own ID
