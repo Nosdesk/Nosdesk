@@ -2905,6 +2905,19 @@ pub async fn ws_handler(
         }
     };
 
+    // Reserve a slot in the shared connection cap (per user+workspace) BEFORE
+    // upgrading, so a capped principal is refused with 429 (a post-upgrade WS
+    // close code buys nothing: stock y-websocket ignores it) and no task/socket
+    // is spawned. The guard moves into session_task and frees the slot when the
+    // task ends (close, error, timeout, eviction, panic).
+    let Some(conn_guard) =
+        crate::services::connection_registry::global().try_acquire((user_uuid, workspace_id))
+    else {
+        return Ok(HttpResponse::TooManyRequests()
+            .append_header(("Retry-After", "5"))
+            .finish());
+    };
+
     // Hand off to actix-ws: returns (HttpResponse, Session, MessageStream).
     // The response is returned to the framework synchronously so the
     // 101 Upgrade lands; the session_task runs detached and owns the
@@ -2934,6 +2947,7 @@ pub async fn ws_handler(
         doc_type,
         session,
         msg_stream,
+        conn_guard,
     ));
 
     Ok(response)
@@ -2951,6 +2965,9 @@ async fn session_task(
     doc_type: DocumentType,
     mut session: actix_ws::Session,
     mut msg_stream: actix_ws::AggregatedMessageStream,
+    // Holds this connection's slot in the shared cap; released when this task
+    // returns (all disconnect paths funnel here).
+    _conn_guard: crate::services::connection_registry::ConnGuard,
 ) {
     let started_at = Instant::now();
     let mut last_hb = started_at;
