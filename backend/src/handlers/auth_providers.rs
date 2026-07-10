@@ -93,8 +93,12 @@ impl From<&crate::handlers::msgraph_integration::MicrosoftGraphUser> for OAuthLo
                 .mail
                 .clone()
                 .or_else(|| Some(m.user_principal_name.clone())),
-            // Entra: the user authenticated against the directory that owns the
-            // address, and Graph carries no `email_verified` claim.
+            // Trustworthy because the Microsoft callback verifies the ID token
+            // against a SPECIFIC configured tenant (MICROSOFT_TENANT_ID, with
+            // multi-tenant authorities rejected) before this conversion runs:
+            // the address is owned by that tenant's directory, and a
+            // cross-tenant login can never reach here. Graph carries no
+            // `email_verified` claim of its own.
             email_verified: true,
             display_name: m.display_name.clone(),
             given_name: m.given_name.clone(),
@@ -352,11 +356,18 @@ pub async fn oauth_authorize(
             }
         };
 
-        // Generate a JWT state token
-        let (state, binding) = match create_oauth_state(
+        // Generate PKCE (RFC 9700) + a nonce for the ID token, and bind both
+        // into the signed state so the callback can complete the code exchange
+        // and verify the returned ID token against the configured tenant.
+        let (pkce_challenge, pkce_verifier) = oidc::generate_pkce();
+        let nonce = oidc::generate_nonce();
+        let (state, binding) = match create_oauth_state_with_oidc(
             "microsoft",
             oauth_request.redirect_uri.clone(),
             oauth_request.user_connection,
+            Some(pkce_verifier.secret().clone()),
+            Some(nonce.secret().clone()),
+            None,
         ) {
             Ok(pair) => pair,
             Err(e) => {
@@ -365,9 +376,13 @@ pub async fn oauth_authorize(
             }
         };
 
-        // Create the authorization URL
+        // Create the authorization URL. `openid` yields an ID token the callback
+        // verifies (tenant binding, §callback); `User.Read` keeps Graph /me for
+        // the profile. The PKCE challenge and nonce ride along.
         let auth_url = format!(
-            "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize?client_id={client_id}&response_type=code&redirect_uri={redirect_uri_config}&response_mode=query&scope=User.Read&state={state}"
+            "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize?client_id={client_id}&response_type=code&redirect_uri={redirect_uri_config}&response_mode=query&scope=openid%20profile%20email%20User.Read&nonce={nonce}&code_challenge={code_challenge}&code_challenge_method=S256&state={state}",
+            nonce = nonce.secret(),
+            code_challenge = pkce_challenge.as_str(),
         );
 
         // Bind the flow to this user-agent (RFC 9700 §2.1).
@@ -540,7 +555,7 @@ pub async fn oauth_callback(
     // Process based on provider type
     if provider.provider_type == "microsoft" {
         // Get the provider configuration from environment variables
-        let _client_id = match config_utils::get_microsoft_client_id() {
+        let client_id = match config_utils::get_microsoft_client_id() {
             Ok(val) => val,
             Err(e) => {
                 error!(error = ?e, "Failed to get client_id for Microsoft provider in callback");
@@ -551,7 +566,7 @@ pub async fn oauth_callback(
             }
         };
 
-        let _tenant_id = match config_utils::get_microsoft_tenant_id() {
+        let tenant_id = match config_utils::get_microsoft_tenant_id() {
             Ok(val) => val,
             Err(e) => {
                 error!(error = ?e, "Failed to get tenant_id for Microsoft provider in callback");
@@ -584,11 +599,52 @@ pub async fn oauth_callback(
             }
         };
 
-        // Exchange authorization code for an access token
-        let token_result = exchange_microsoft_code_for_token(&provider, code, &mut conn).await;
+        // The PKCE verifier + nonce were bound into the signed state at
+        // authorize time; both are required to complete the exchange and verify
+        // the ID token. Their absence means a tampered or pre-PKCE state, so
+        // reject rather than fall back to an unverified flow.
+        let pkce_verifier = match &state_data.pkce_verifier {
+            Some(v) => v.clone(),
+            None => {
+                error!("Microsoft callback missing PKCE verifier in state");
+                return errors::bad_request("Invalid authentication state (missing PKCE verifier)");
+            }
+        };
+        let nonce = match &state_data.nonce {
+            Some(n) => n.clone(),
+            None => {
+                error!("Microsoft callback missing nonce in state");
+                return errors::bad_request("Invalid authentication state (missing nonce)");
+            }
+        };
+
+        // Exchange authorization code for tokens (PKCE-completed).
+        let token_result =
+            exchange_microsoft_code_for_token(&provider, code, &pkce_verifier, &mut conn).await;
 
         match token_result {
-            Ok((access_token, _refresh_token)) => {
+            Ok(tokens) => {
+                // Verify the ID token against the configured tenant BEFORE
+                // trusting any profile data. Discovery on the tenant issuer
+                // means the issuer check binds the login to MICROSOFT_TENANT_ID
+                // (a cross-tenant token fails here), and signature + audience +
+                // nonce are checked too. This is what makes the Microsoft
+                // provider's `email_verified: true` trustworthy: only a user
+                // from the configured tenant can reach account resolution.
+                let id_token = match tokens.id_token.as_deref() {
+                    Some(t) => t,
+                    None => {
+                        error!("Microsoft callback: token response carried no id_token");
+                        return errors::internal("Microsoft did not return an ID token");
+                    }
+                };
+                if let Err(e) =
+                    oidc::verify_microsoft_id_token(id_token, &tenant_id, &client_id, &nonce).await
+                {
+                    error!(error = %e, "Microsoft ID token verification failed");
+                    return errors::unauthorized("Microsoft authentication could not be verified");
+                }
+                let access_token = tokens.access_token;
                 // Get user info from Microsoft, normalised into typed claims.
                 let ms_user = match get_microsoft_user_info(&access_token).await {
                     Ok(info) => info,
@@ -1177,12 +1233,22 @@ where
     }
 }
 
+/// Tokens returned by the Microsoft code exchange. The `id_token` is verified
+/// against the configured tenant before login proceeds; the access token drives
+/// the Graph `/me` profile fetch.
+struct MicrosoftTokens {
+    access_token: String,
+    id_token: Option<String>,
+    _refresh_token: Option<String>,
+}
+
 // Helper function to exchange Microsoft code for token
 async fn exchange_microsoft_code_for_token(
     _provider: &AuthProvider,
     code: &str,
+    code_verifier: &str,
     _conn: &mut DbConnection,
-) -> Result<(String, Option<String>), String> {
+) -> Result<MicrosoftTokens, String> {
     // Get provider configuration from environment variables
     let client_id = config_utils::get_microsoft_client_id()
         .map_err(|e| format!("Failed to get client_id: {e}"))?;
@@ -1196,13 +1262,16 @@ async fn exchange_microsoft_code_for_token(
     let redirect_uri_config = config_utils::get_microsoft_redirect_uri()
         .map_err(|e| format!("Failed to get redirect_uri: {e}"))?;
 
-    // Prepare the token request
+    // Prepare the token request. `code_verifier` completes the PKCE exchange
+    // (RFC 9700); `scope=openid` at authorize time makes Azure return an
+    // `id_token` the caller verifies against the configured tenant.
     let params = [
         ("client_id", client_id.as_str()),
         ("client_secret", client_secret.as_str()),
         ("code", code),
         ("redirect_uri", redirect_uri_config.as_str()),
         ("grant_type", "authorization_code"),
+        ("code_verifier", code_verifier),
     ];
 
     // Make the token request, retrying on transport-level failures
@@ -1237,7 +1306,16 @@ async fn exchange_microsoft_code_for_token(
         .and_then(|t| t.as_str())
         .map(|s| s.to_string());
 
-    Ok((access_token, refresh_token))
+    let id_token = token_response
+        .get("id_token")
+        .and_then(|t| t.as_str())
+        .map(|s| s.to_string());
+
+    Ok(MicrosoftTokens {
+        access_token,
+        id_token,
+        _refresh_token: refresh_token,
+    })
 }
 
 // Helper function to get user info from Microsoft Graph API.

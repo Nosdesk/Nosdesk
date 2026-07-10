@@ -619,6 +619,52 @@ pub async fn verify_native_id_token(
     extract_user_info(claims, &config)
 }
 
+/// Verify a Microsoft v2.0 ID token against the configured tenant's discovery
+/// document.
+///
+/// Discovery runs on `login.microsoftonline.com/{tenant}/v2.0`, so the
+/// verifier's issuer check binds the token to that exact tenant: a Microsoft
+/// v2.0 ID token's `iss` encodes the tenant GUID, and a token minted for any
+/// other tenant fails the issuer match. That is the cryptographic tenant proof
+/// (equivalent to, and stronger than, reading the `tid` claim by hand). The
+/// verifier also checks the JWKS signature, the audience (== `client_id`) and
+/// expiry; `nonce` is the flow's replay protection, echoed by Azure.
+///
+/// Requires a SPECIFIC tenant (GUID or verified domain): a multi-tenant
+/// authority (`common`/`organizations`/`consumers`) has no concrete issuer to
+/// discover, which is one reason those are rejected upstream
+/// (`config_utils::get_microsoft_tenant_id`).
+pub async fn verify_microsoft_id_token(
+    id_token_str: &str,
+    tenant_id: &str,
+    client_id: &str,
+    nonce: &str,
+) -> Result<(), String> {
+    use std::str::FromStr;
+
+    let issuer = IssuerUrl::new(format!(
+        "https://login.microsoftonline.com/{tenant_id}/v2.0"
+    ))
+    .map_err(|e| format!("Invalid Microsoft issuer URL: {e}"))?;
+
+    let metadata = CoreProviderMetadata::discover_async(issuer, &*OIDC_HTTP_CLIENT)
+        .await
+        .map_err(|e| format!("Microsoft OIDC discovery failed: {e}"))?;
+
+    let client =
+        CoreClient::from_provider_metadata(metadata, ClientId::new(client_id.to_string()), None);
+
+    let id_token =
+        CoreIdToken::from_str(id_token_str).map_err(|e| format!("Malformed ID token: {e}"))?;
+
+    let expected_nonce = Nonce::new(nonce.to_string());
+    let verifier = client.id_token_verifier();
+    id_token
+        .claims(&verifier, &expected_nonce)
+        .map_err(|e| format!("Microsoft ID token verification failed: {e}"))?;
+    Ok(())
+}
+
 /// Verify ID token signature and claims
 fn verify_id_token(
     client: &OidcClientKind,
