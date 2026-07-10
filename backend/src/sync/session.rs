@@ -121,6 +121,21 @@ pub fn current_workspace_id(conn: &mut DbConnection) -> QueryResult<Option<i32>>
     Ok(row.current_setting.and_then(|s| s.parse().ok()))
 }
 
+/// Re-pin `app.workspace_id` for the current transaction WITHOUT touching the
+/// role or the actor GUCs.
+///
+/// For a bypass batch ([`with_actor_bypass_context`]) that writes to an
+/// audited, per-workspace table across several workspaces in one transaction:
+/// the audit trigger reads `app.workspace_id`, and the tenant `workspace_id`
+/// column defaults from it, so it must be re-pinned to each row's workspace
+/// before that row is written. Unlike [`set_actor`], this does not reset the
+/// role, so the surrounding bypass elevation (`SET LOCAL ROLE nosdesk_admin`)
+/// is preserved. Transaction-local (`set_config(_, _, true)`), so it clears on
+/// commit alongside the rest of the actor context.
+pub fn pin_workspace(conn: &mut DbConnection, workspace_id: i32) -> QueryResult<()> {
+    set_config(conn, "app.workspace_id", &workspace_id.to_string())
+}
+
 /// Run a closure inside a transaction with the actor GUCs primed, so
 /// any `audit_log` triggers fired by the contained writes attribute
 /// the change to `actor`. The GUCs are scoped to the transaction
