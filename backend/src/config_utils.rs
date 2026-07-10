@@ -116,21 +116,6 @@ pub fn get_oidc_redirect_uri() -> Result<String, ConfigError> {
     get_env_var("OIDC_REDIRECT_URI")
 }
 
-/// Get OIDC authorization endpoint (manual configuration)
-pub fn get_oidc_auth_uri() -> Result<String, ConfigError> {
-    get_env_var("OIDC_AUTH_URI")
-}
-
-/// Get OIDC token endpoint (manual configuration)
-pub fn get_oidc_token_uri() -> Result<String, ConfigError> {
-    get_env_var("OIDC_TOKEN_URI")
-}
-
-/// Get OIDC userinfo endpoint (manual configuration)
-pub fn get_oidc_userinfo_uri() -> Result<String, ConfigError> {
-    get_env_var("OIDC_USERINFO_URI")
-}
-
 /// Get OIDC display name (defaults to "OpenID")
 pub fn get_oidc_display_name() -> String {
     env::var("OIDC_DISPLAY_NAME").unwrap_or_else(|_| "OpenID".to_string())
