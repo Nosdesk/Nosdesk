@@ -34,6 +34,18 @@ pub async fn request_password_reset(
         return errors::bad_request("Invalid email address");
     }
 
+    // Local passwords are disabled in hosted mode (login refuses them), so a
+    // reset would mint a useless token and email a confusing "reset your
+    // password" link to an SSO account. Return the same generic response with
+    // no work, preserving the enumeration-safe constant latency (the real path
+    // just spawns a detached task, which is likewise instant).
+    if crate::handlers::auth::hosted_local_auth_disabled() {
+        return HttpResponse::Ok().json(PasswordResetResponse {
+            message: "If an account with that email exists, a password reset link has been sent."
+                .to_string(),
+        });
+    }
+
     let ip_address =
         crate::utils::client_ip::from_http_request(&http_request).map(|ip| ip.to_string());
     let user_agent = http_request
@@ -231,6 +243,14 @@ pub async fn reset_password_with_token(
         Ok(c) => c,
         Err(e) => return e,
     };
+
+    // Hosted deployments disable local password auth, so refuse to write a local
+    // credential even if a (pre-switch or forged) token is presented. Requesting
+    // a reset is already a no-op in hosted mode, so a valid token should not
+    // exist here.
+    if crate::handlers::auth::hosted_local_auth_disabled() {
+        return errors::bad_request("Password authentication is not available for this account");
+    }
 
     // Validate new password
     if request_data.new_password.len() < 8 {

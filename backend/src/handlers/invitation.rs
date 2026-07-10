@@ -131,6 +131,13 @@ pub async fn accept_invitation(
         Err(e) => return e,
     };
 
+    // Password-based invitation acceptance writes a local credential, which
+    // hosted deployments disable in favour of SSO onboarding. Refuse before
+    // consuming the token so it stays valid for the SSO path.
+    if crate::handlers::auth::hosted_local_auth_disabled() {
+        return errors::bad_request("Password-based sign-up is not available for this deployment");
+    }
+
     // Validate password
     if request_data.password.len() < 8 {
         return errors::bad_request("Password must be at least 8 characters long");

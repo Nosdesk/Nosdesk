@@ -724,6 +724,14 @@ pub async fn sse_events_stream(
             workspace_id,
             user.uuid,
         )?;
+    } else if crate::middleware::workspace_context::selection_resolution_enabled() {
+        // Under Model C selection a stream MUST resolve (and be gated on) a
+        // workspace; an unresolved one is a misrouted or forged connection, not
+        // a legitimate apex stream, so fail closed rather than serve the
+        // topic-contained user+global fallback below. (Self-hosted always
+        // resolves the bootstrap workspace, so this branch is a hosted apex
+        // stream only.)
+        return Ok(errors::forbidden("Not a member of this workspace"));
     }
 
     // Resolve subscription set. The client may declare interest via
