@@ -5625,6 +5625,13 @@ pub struct NewWebhookDelivery {
     pub payload: serde_json::Value,
     pub request_headers: Option<serde_json::Value>,
     pub attempt_number: i32,
+    /// When the retry worker may (re)deliver this row. The immediate-send path
+    /// (worker first attempt) leaves this `None` and delivers off the in-memory
+    /// queue. The transactional-outbox drain sets a short grace window so that
+    /// if the process dies before the queued delivery runs, the retry worker
+    /// still picks the row up: the durable record, not the queue, is the source
+    /// of truth. See `services::webhooks::service::dispatch_outbox_batch`.
+    pub next_retry_at: Option<NaiveDateTime>,
 }
 
 /// Webhook delivery update

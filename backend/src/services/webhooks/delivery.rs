@@ -157,6 +157,9 @@ impl WebhookDeliveryWorker {
                                 "X-Nosdesk-Delivery": task.payload.id.to_string(),
                             })),
                             attempt_number: task.attempt,
+                            // Immediate send off the queue; no retry scheduled
+                            // until this attempt records an outcome.
+                            next_retry_at: None,
                         },
                     )
                 })

@@ -82,116 +82,28 @@ impl WebhookService {
         }
     }
 
-    /// Claim a batch of outbox rows, queue the matching webhook
-    /// deliveries, and delete the claimed rows — all in one transaction
-    /// so a row is removed only once its deliveries are committed-queued.
-    /// Non-webhook events are deleted too (a no-op delivery-wise) so the
-    /// outbox drains. Returns whether the batch was full (more remain).
+    /// Claim a batch of outbox rows, record a durable delivery row per
+    /// subscriber, delete the claimed rows, then queue the deliveries for
+    /// immediate send. Returns whether the batch was full (more remain).
+    ///
+    /// Durability: the `webhook_deliveries` rows are written in the SAME
+    /// transaction as the outbox delete (see [`Self::drain_batch_txn`]), so the
+    /// fan-out is at-least-once. If the process dies after the transaction
+    /// commits but before the queued in-memory delivery runs, the retry worker
+    /// recovers the pending rows; the durable record, not the queue, is the
+    /// source of truth. The enqueue happens after the transaction so the row
+    /// locks release promptly.
     async fn dispatch_outbox_batch(
         pool: &Pool,
         delivery_tx: &mpsc::Sender<DeliveryTask>,
     ) -> Result<bool, String> {
-        use crate::schema::{sync_actions, webhook_outbox};
-        use diesel::prelude::*;
-
-        const OUTBOX_BATCH: i64 = 500;
-
         let (tasks, more): (Vec<DeliveryTask>, bool) = crate::sync::session::background_run(
             pool,
             "background:webhook_outbox_dispatch",
-            |conn| {
-                conn.transaction::<_, diesel::result::Error, _>(|conn| {
-                    // Claim the oldest outbox rows, skipping any another
-                    // instance is already processing.
-                    let claimed: Vec<i64> = webhook_outbox::table
-                        .select(webhook_outbox::sync_id)
-                        .order(webhook_outbox::sync_id.asc())
-                        .limit(OUTBOX_BATCH)
-                        .for_update()
-                        .skip_locked()
-                        .load(conn)?;
-                    if claimed.is_empty() {
-                        return Ok((Vec::new(), false));
-                    }
-                    let full = claimed.len() as i64 == OUTBOX_BATCH;
-
-                    // Resolve the source rows for workspace_id + event_type + data.
-                    // workspace_id is load-bearing: this drain runs BYPASSRLS, so
-                    // subscribers must be scoped to the event's own workspace by
-                    // hand (RLS gives no cover here).
-                    let rows: Vec<(i64, i32, String, serde_json::Value)> = sync_actions::table
-                        .filter(sync_actions::sync_id.eq_any(&claimed))
-                        .select((
-                            sync_actions::sync_id,
-                            sync_actions::workspace_id,
-                            sync_actions::event_type,
-                            sync_actions::data,
-                        ))
-                        .load(conn)?;
-
-                    // Cache the subscriber lookup per (workspace, event type) so a
-                    // batch of N same-type rows in a workspace is one query, not N.
-                    let mut subscriber_cache: std::collections::HashMap<
-                        (i32, &'static str),
-                        Vec<crate::models::Webhook>,
-                    > = std::collections::HashMap::new();
-                    let mut tasks: Vec<DeliveryTask> = Vec::new();
-
-                    for (_sync_id, workspace_id, event_type, data) in &rows {
-                        let Some(webhook_type) = WebhookEventType::from_sync_action(event_type)
-                        else {
-                            continue;
-                        };
-                        let event_type_str = webhook_type.as_str();
-                        let cache_key = (*workspace_id, event_type_str);
-                        if !subscriber_cache.contains_key(&cache_key) {
-                            let subs = webhook_repo::get_webhooks_for_event(
-                                conn,
-                                *workspace_id,
-                                event_type_str,
-                            )?;
-                            subscriber_cache.insert(cache_key, subs);
-                        }
-                        let subscribers = &subscriber_cache[&cache_key];
-                        if subscribers.is_empty() {
-                            continue;
-                        }
-                        let payload = WebhookPayload {
-                            id: Uuid::now_v7(),
-                            event_type: event_type_str.to_string(),
-                            timestamp: Utc::now(),
-                            data: data.clone(),
-                        };
-                        for webhook in subscribers {
-                            tasks.push(DeliveryTask {
-                                webhook_id: webhook.id,
-                                webhook_url: webhook.url.clone(),
-                                webhook_secret: webhook.secret.clone(),
-                                webhook_headers: webhook.headers.clone(),
-                                payload: payload.clone(),
-                                attempt: 1,
-                                delivery_id: None,
-                            });
-                        }
-                    }
-
-                    // Delete every claimed row (webhook or not) so the
-                    // outbox drains. They're locked by this transaction,
-                    // so no other instance can re-claim them.
-                    diesel::delete(
-                        webhook_outbox::table.filter(webhook_outbox::sync_id.eq_any(&claimed)),
-                    )
-                    .execute(conn)?;
-
-                    Ok((tasks, full))
-                })
-            },
+            Self::drain_batch_txn,
         )
         .map_err(|e| format!("DB error: {e}"))?;
 
-        // Enqueue outside the claim transaction so the row locks release
-        // promptly; HTTP delivery + retry durability is handled by the
-        // delivery worker exactly as for the SSE gap path.
         for task in tasks {
             if let Err(e) = delivery_tx.send(task).await {
                 tracing::error!(error = %e, "Failed to queue webhook delivery from outbox");
@@ -199,6 +111,154 @@ impl WebhookService {
         }
 
         Ok(more)
+    }
+
+    /// Transactional core of the outbox drain, split out so it can be driven
+    /// directly in tests. Assumes it runs inside a bypass context
+    /// ([`crate::sync::session::with_actor_bypass_context`] supplies the outer
+    /// transaction and the `nosdesk_admin` role), which `background_run` above
+    /// provides.
+    ///
+    /// Claims the oldest outbox rows, fans each out to its subscribers, records
+    /// a durable `webhook_deliveries` row per subscriber, then deletes the
+    /// claimed outbox rows — atomically. The delivery rows carry a short
+    /// `next_retry_at` grace so a row whose in-memory send never runs (a crash)
+    /// is picked up by the retry worker instead of being lost.
+    pub fn drain_batch_txn(
+        conn: &mut crate::db::DbConnection,
+    ) -> diesel::result::QueryResult<(Vec<DeliveryTask>, bool)> {
+        use crate::schema::{sync_actions, webhook_outbox};
+        use diesel::prelude::*;
+
+        const OUTBOX_BATCH: i64 = 500;
+        // Grace before a recorded-but-unsent row becomes retry-eligible.
+        // Comfortably longer than a healthy instance's queue latency, so the
+        // retry worker only ever touches rows the in-memory send genuinely
+        // missed (a crash), not ones merely in flight.
+        const RECOVERY_GRACE_SECS: i64 = 300;
+
+        conn.transaction::<_, diesel::result::Error, _>(|conn| {
+            // Claim the oldest outbox rows, skipping any another instance is
+            // already processing.
+            let claimed: Vec<i64> = webhook_outbox::table
+                .select(webhook_outbox::sync_id)
+                .order(webhook_outbox::sync_id.asc())
+                .limit(OUTBOX_BATCH)
+                .for_update()
+                .skip_locked()
+                .load(conn)?;
+            if claimed.is_empty() {
+                return Ok((Vec::new(), false));
+            }
+            let full = claimed.len() as i64 == OUTBOX_BATCH;
+
+            // Resolve the source rows for workspace_id + event_type + data.
+            // workspace_id is load-bearing: this drain runs BYPASSRLS, so
+            // subscribers must be scoped to the event's own workspace by hand
+            // (RLS gives no cover here).
+            let rows: Vec<(i64, i32, String, serde_json::Value)> = sync_actions::table
+                .filter(sync_actions::sync_id.eq_any(&claimed))
+                .select((
+                    sync_actions::sync_id,
+                    sync_actions::workspace_id,
+                    sync_actions::event_type,
+                    sync_actions::data,
+                ))
+                .load(conn)?;
+
+            // Cache the subscriber lookup per (workspace, event type) so a batch
+            // of N same-type rows in a workspace is one query, not N. Build
+            // (workspace_id, task) pairs; the workspace pins each durable insert.
+            let mut subscriber_cache: std::collections::HashMap<
+                (i32, &'static str),
+                Vec<crate::models::Webhook>,
+            > = std::collections::HashMap::new();
+            let mut pending: Vec<(i32, DeliveryTask)> = Vec::new();
+
+            for (_sync_id, workspace_id, event_type, data) in &rows {
+                let Some(webhook_type) = WebhookEventType::from_sync_action(event_type) else {
+                    continue;
+                };
+                let event_type_str = webhook_type.as_str();
+                let cache_key = (*workspace_id, event_type_str);
+                let subscribers = match subscriber_cache.entry(cache_key) {
+                    std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
+                    std::collections::hash_map::Entry::Vacant(e) => {
+                        let subs = webhook_repo::get_webhooks_for_event(
+                            conn,
+                            *workspace_id,
+                            event_type_str,
+                        )?;
+                        e.insert(subs)
+                    }
+                };
+                if subscribers.is_empty() {
+                    continue;
+                }
+                let payload = WebhookPayload {
+                    id: Uuid::now_v7(),
+                    event_type: event_type_str.to_string(),
+                    timestamp: Utc::now(),
+                    data: data.clone(),
+                };
+                for webhook in subscribers {
+                    pending.push((
+                        *workspace_id,
+                        DeliveryTask {
+                            webhook_id: webhook.id,
+                            webhook_url: webhook.url.clone(),
+                            webhook_secret: webhook.secret.clone(),
+                            webhook_headers: webhook.headers.clone(),
+                            payload: payload.clone(),
+                            attempt: 1,
+                            delivery_id: None,
+                        },
+                    ));
+                }
+            }
+
+            // Record a durable delivery row per task, grouped by workspace so
+            // the audit trigger + the workspace_id column default resolve to
+            // each row's own workspace. Sorted so we re-pin once per workspace,
+            // not once per row. Pinning sets only app.workspace_id and leaves
+            // the bypass role intact (unlike a full actor-context switch).
+            pending.sort_by_key(|(ws, _)| *ws);
+            let recover_at =
+                Utc::now().naive_utc() + chrono::Duration::seconds(RECOVERY_GRACE_SECS);
+            let mut tasks: Vec<DeliveryTask> = Vec::with_capacity(pending.len());
+            let mut pinned: Option<i32> = None;
+            for (workspace_id, mut task) in pending {
+                if pinned != Some(workspace_id) {
+                    crate::sync::session::pin_workspace(conn, workspace_id)?;
+                    pinned = Some(workspace_id);
+                }
+                let delivery = webhook_repo::create_delivery(
+                    conn,
+                    crate::models::NewWebhookDelivery {
+                        webhook_id: task.webhook_id,
+                        event_type: task.payload.event_type.clone(),
+                        payload: serde_json::to_value(&task.payload).unwrap_or_default(),
+                        request_headers: Some(serde_json::json!({
+                            "X-Nosdesk-Signature": "sha256=***",
+                            "X-Nosdesk-Event": &task.payload.event_type,
+                            "X-Nosdesk-Delivery": task.payload.id.to_string(),
+                        })),
+                        attempt_number: task.attempt,
+                        next_retry_at: Some(recover_at),
+                    },
+                )?;
+                task.delivery_id = Some(delivery.id);
+                tasks.push(task);
+            }
+
+            // Delete every claimed row (webhook or not) so the outbox drains.
+            // They remain locked by this transaction, so no other instance can
+            // re-claim them.
+            diesel::delete(webhook_outbox::table.filter(webhook_outbox::sync_id.eq_any(&claimed)))
+                .execute(conn)?;
+
+            Ok((tasks, full))
+        })
     }
 
     /// Background worker that retries failed deliveries
