@@ -140,6 +140,18 @@ pub fn resolve_selected_context(
     Ok(workspace_repo::find_by_slug(conn, slug)?.map(workspace_to_context))
 }
 
+/// Resolve a workspace **uuid** (the carrier for the SSE connection token and
+/// the collab docId) to a [`WorkspaceContext`]. `Ok(None)` for an unknown uuid;
+/// the caller maps that to the same 403 a non-member gets so existence does not
+/// leak. Like [`resolve_selected_context`], the `workspaces` table resolves
+/// without a pinned GUC (it is the resolution table).
+pub fn resolve_workspace_uuid(
+    conn: &mut crate::db::DbConnection,
+    uuid: uuid::Uuid,
+) -> diesel::QueryResult<Option<WorkspaceContext>> {
+    Ok(workspace_repo::find_by_uuid(conn, uuid)?.map(workspace_to_context))
+}
+
 /// Deployment topology. Drives whether workspace context comes
 /// from a process-wide bootstrap (self-hosted) or per-request
 /// subdomain resolution (hosted SaaS).

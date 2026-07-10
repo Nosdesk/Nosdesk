@@ -693,52 +693,32 @@ pub async fn sse_events_stream(
         return Ok(errors::forbidden("Token not valid for the event stream"));
     }
 
-    // Resolve the stream's workspace: the token's bound selection (Model C)
-    // wins, else the Host-derived context the middleware put on this request.
-    use actix_web::HttpMessage as _;
-    let workspace_id = match user_info.workspace_uuid {
-        Some(ws_uuid) => match crate::repository::workspaces::find_by_uuid(&mut conn, ws_uuid) {
-            Ok(Some(ws)) => Some(ws.id),
-            // Unknown workspace collapses into the same denial a non-member
-            // gets below, so workspace existence does not leak.
-            Ok(None) => return Ok(errors::forbidden("Not a member of this workspace")),
-            Err(e) => {
-                tracing::error!(error = ?e, "SSE token workspace resolution failed");
-                return Ok(errors::internal("Workspace resolution failed"));
-            }
-        },
-        None => req
-            .extensions()
-            .get::<crate::extractors::WorkspaceContext>()
-            .map(|w| w.workspace_id),
+    // Resolve + pin + membership-gate the stream's workspace through the shared
+    // connection-auth funnel: the token's bound selection (Model C) wins, else
+    // the Host-derived context on the request. SSE bypasses the cookie/dual-auth
+    // middleware, so this is the explicit call the funnel exists to standardise.
+    // Under Model C selection an unresolved stream fails closed (a stream must
+    // resolve a workspace); otherwise the no-workspace case is the legitimate
+    // apex/global stream (self-hosted always resolves the bootstrap workspace,
+    // so it is a hosted apex stream only) and serves the topic-contained fallback.
+    use crate::middleware::cookie_auth::{GateOutcome, UnresolvedPolicy, WorkspaceCarrier};
+    let unresolved = if crate::middleware::workspace_context::selection_resolution_enabled() {
+        UnresolvedPolicy::Deny
+    } else {
+        UnresolvedPolicy::AllowRlsBackstop
     };
-
-    // Pin + membership-gate the resolved workspace so the caller's visibility
-    // (their role + per-ticket checks) resolves under RLS, and they can't
-    // subscribe to another tenant's live SyncActions stream. The pool clears
-    // app.workspace_id on checkout, so without the pin an admin is downgraded
-    // to member visibility. SSE bypasses the cookie/dual-auth middleware, so
-    // the gate that middleware runs for REST is invoked explicitly here.
-    //
-    // The gate runs immediately after the pin with no tenant-content read in
-    // between, so pinning a client-selected workspace cannot leak. Keep the
-    // per-topic visibility reads (parse_topics_authorized below) after this.
-    if let Some(workspace_id) = workspace_id {
-        crate::handlers::helpers::pin_workspace(&mut conn, workspace_id);
-        crate::middleware::cookie_auth::require_workspace_membership(
-            &mut conn,
-            workspace_id,
-            user.uuid,
-        )?;
-    } else if crate::middleware::workspace_context::selection_resolution_enabled() {
-        // Under Model C selection a stream MUST resolve (and be gated on) a
-        // workspace; an unresolved one is a misrouted or forged connection, not
-        // a legitimate apex stream, so fail closed rather than serve the
-        // topic-contained user+global fallback below. (Self-hosted always
-        // resolves the bootstrap workspace, so this branch is a hosted apex
-        // stream only.)
-        return Ok(errors::forbidden("Not a member of this workspace"));
-    }
+    let workspace_id = match crate::middleware::cookie_auth::resolve_pin_and_gate(
+        &mut conn,
+        &user_info,
+        WorkspaceCarrier::ConnectionToken {
+            token_workspace: user_info.workspace_uuid,
+            req: &req,
+        },
+        unresolved,
+    )? {
+        GateOutcome::Scoped(ctx) => Some(ctx.workspace_id),
+        GateOutcome::Unscoped => None,
+    };
 
     // Resolve subscription set. The client may declare interest via
     // `?topics=user,global,ticket-42` (comma-separated). When absent,
