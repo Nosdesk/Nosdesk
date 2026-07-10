@@ -59,15 +59,22 @@ fn mint_user(conn: &mut diesel::pg::PgConnection, name: &str, role: &str) -> Use
 
 #[actix_web::test]
 async fn admin_workspaces_lifecycle_contract() {
-    // This exercises the workspace CRUD handlers, not the self-hosted
-    // single-workspace license gate (covered by workspace_license_gate.rs).
-    // Run in hosted mode so the gate (self-hosted only) doesn't block the
-    // second-workspace create this contract makes. Set before any
-    // DeploymentMode::current() call, which caches process-wide.
-    std::env::set_var("NOSDESK_DEPLOYMENT_MODE", "hosted");
+    // This exercises the workspace CRUD handlers, not the license gate
+    // (covered by workspace_license_gate.rs). The cap is on active workspaces
+    // (Community = 1), so rather than lean on a deployment-mode bypass we
+    // archive the seeded `default` workspace first, freeing the single slot for
+    // the workspace this contract creates and manipulates.
+    std::env::remove_var("NOSDESK_DEPLOYMENT_MODE");
+    std::env::remove_var("NOSDESK_LICENSE_KEY");
     common::ensure_test_keyring();
     let test_db = common::TestDb::new();
     let pool = test_db.pool_with_size(4);
+
+    // Archive the seeded workspace (id 1) so the Community cap of one active
+    // workspace has room for `acme-co` below.
+    diesel::sql_query("UPDATE workspaces SET archived_at = now() WHERE id = 1")
+        .execute(&mut pool.get().expect("conn"))
+        .expect("archive seed workspace");
 
     let admin = mint_user(&mut pool.get().expect("conn"), "PlatformAdmin", "admin");
     let admin_token =

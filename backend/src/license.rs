@@ -157,6 +157,20 @@ pub fn current() -> &'static Edition {
     EDITION.get_or_init(load_from_env)
 }
 
+/// Whether a self-serve admin workspace create is within the edition's cap.
+///
+/// Gated purely on the resolved edition (Community = 1 active workspace;
+/// Enterprise = the licensed count), NOT on `NOSDESK_DEPLOYMENT_MODE`. The cap
+/// used to be skipped whenever the mode was `hosted`, but the mode is an env
+/// var, so a self-hoster could flip it and create unlimited workspaces with no
+/// license. Hosted deployments provision through the control-plane
+/// `/api/internal` surface (which is 404'd off self-hosted and is authoritative
+/// for its own billing), not this self-serve path, so applying the cap here in
+/// every mode is safe and closes the bypass.
+pub fn workspace_creation_allowed(edition: &Edition, active_workspaces: u64) -> bool {
+    active_workspaces < u64::from(edition.max_workspaces())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,5 +252,27 @@ mod tests {
     fn community_cap_is_one() {
         assert_eq!(Edition::Community.max_workspaces(), 1);
         assert!(!Edition::Community.is_enterprise());
+    }
+
+    fn enterprise(max: u32) -> Edition {
+        Edition::Enterprise(LicenseInfo {
+            licensee: "Acme Corp".into(),
+            license_id: "lic_test_1".into(),
+            max_workspaces: max,
+            expires_at: 0,
+        })
+    }
+
+    #[test]
+    fn creation_allowed_respects_edition_count_cap() {
+        // Community: one active workspace, then capped.
+        assert!(workspace_creation_allowed(&Edition::Community, 0));
+        assert!(!workspace_creation_allowed(&Edition::Community, 1));
+        assert!(!workspace_creation_allowed(&Edition::Community, 2));
+
+        // Enterprise: up to the licensed count.
+        let ent = enterprise(3);
+        assert!(workspace_creation_allowed(&ent, 2));
+        assert!(!workspace_creation_allowed(&ent, 3));
     }
 }
