@@ -477,7 +477,7 @@ const LOCKOUT_DURATION_SECONDS: u64 = 900; // 15 minutes
 /// origin. Login, recovery, and passkey-login handlers short-circuit on
 /// this so the local paths can't be driven directly.
 pub(crate) fn hosted_local_auth_disabled() -> bool {
-    crate::middleware::DeploymentMode::current() == crate::middleware::DeploymentMode::Hosted
+    !crate::middleware::workspace_context::local_credentials_permitted()
 }
 
 // Authentication handlers
@@ -1251,6 +1251,14 @@ pub async fn setup_initial_admin(
     search_service: web::Data<std::sync::Arc<crate::services::search::SearchService>>,
     admin_data: web::Json<crate::models::AdminSetupRequest>,
 ) -> impl Responder {
+    // Bootstrap writes a local admin credential via a raw insert that bypasses
+    // the repository gate, so refuse here in hosted mode. This is defensive:
+    // hosted mints no bootstrap token (bootstrap_token::reconcile), so the
+    // token gate below already blocks it.
+    if hosted_local_auth_disabled() {
+        return errors::forbidden("Initial admin setup is not available in hosted mode");
+    }
+
     // AUD-005: bootstrap-token gate. Network attackers reaching
     // the listener on first boot cannot proceed without the token
     // written to disk at startup. Accept the token via either

@@ -221,7 +221,8 @@ pub async fn accept_invitation(
             workspace_id: None,
         };
 
-        if let Err(e) = repository::user_auth_identities::create_identity(auth_identity, &mut conn)
+        if let Err(e) =
+            repository::user_auth_identities::create_local_identity(auth_identity, &mut conn)
         {
             error!("Failed to create auth identity for invitation: {:?}", e);
             return errors::internal("Error setting password");
