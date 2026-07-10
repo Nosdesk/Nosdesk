@@ -4,12 +4,15 @@ use std::env;
 #[derive(Debug)]
 pub enum ConfigError {
     Missing(String),
+    /// The variable is set but its value is not acceptable.
+    Invalid(String),
 }
 
 impl std::fmt::Display for ConfigError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ConfigError::Missing(key) => write!(f, "Missing environment variable: {key}"),
+            ConfigError::Invalid(msg) => write!(f, "Invalid configuration: {msg}"),
         }
     }
 }
@@ -70,8 +73,30 @@ pub fn get_microsoft_client_id() -> Result<String, ConfigError> {
     get_env_var("MICROSOFT_CLIENT_ID")
 }
 
+/// Azure multi-tenant authority values that must NOT be used as
+/// `MICROSOFT_TENANT_ID`. They let users from ANY Azure/MSA tenant
+/// authenticate, which breaks the single-tenant trust the Microsoft
+/// email-based account link relies on (and defeats openidconnect's strict
+/// issuer check, which needs a concrete per-tenant issuer). A specific tenant
+/// GUID or verified domain is required.
+pub fn is_microsoft_multitenant_authority(tenant: &str) -> bool {
+    matches!(
+        tenant.trim().to_ascii_lowercase().as_str(),
+        "common" | "organizations" | "consumers"
+    )
+}
+
 pub fn get_microsoft_tenant_id() -> Result<String, ConfigError> {
-    get_env_var("MICROSOFT_TENANT_ID")
+    let tenant = get_env_var("MICROSOFT_TENANT_ID")?;
+    if is_microsoft_multitenant_authority(&tenant) {
+        return Err(ConfigError::Invalid(format!(
+            "MICROSOFT_TENANT_ID must be a specific tenant (GUID or verified domain), \
+             not the multi-tenant authority '{}'. A multi-tenant authority lets any \
+             Azure/MSA account sign in, which is unsafe with email-based account linking.",
+            tenant.trim()
+        )));
+    }
+    Ok(tenant)
 }
 
 pub fn get_microsoft_client_secret() -> Result<String, ConfigError> {
@@ -149,4 +174,44 @@ pub fn get_oidc_username_claim() -> String {
 /// Get OIDC logout URI (optional)
 pub fn get_oidc_logout_uri() -> Option<String> {
     get_env_var("OIDC_LOGOUT_URI").ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn multitenant_authorities_are_rejected() {
+        // Case- and whitespace-insensitive.
+        for t in [
+            "common",
+            "organizations",
+            "consumers",
+            "COMMON",
+            " Common ",
+            "Organizations",
+        ] {
+            assert!(
+                is_microsoft_multitenant_authority(t),
+                "{t:?} should be a multi-tenant authority"
+            );
+        }
+    }
+
+    #[test]
+    fn specific_tenants_are_accepted() {
+        for t in [
+            "72f988bf-86f1-41af-91ab-2d7cd011db47", // tenant GUID
+            "contoso.com",                          // verified domain
+            "contoso.onmicrosoft.com",
+        ] {
+            assert!(
+                !is_microsoft_multitenant_authority(t),
+                "{t:?} should be a specific tenant"
+            );
+        }
+        // Empty is a missing-config case (handled by get_env_var), not a
+        // multi-tenant authority.
+        assert!(!is_microsoft_multitenant_authority(""));
+    }
 }
