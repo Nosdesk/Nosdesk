@@ -349,6 +349,17 @@ static CLIENT_TIMEOUT: once_cell::sync::Lazy<Duration> = once_cell::sync::Lazy::
         .map(Duration::from_millis)
         .unwrap_or(Duration::from_secs(60))
 });
+// Per-session outbound backlog ceiling. A client that stops draining accrues
+// the room's broadcast fan-out in memory; past this it is evicted and its
+// `y-websocket` reconnects + CRDT-resyncs. A byte budget, not a frame count:
+// one sync frame can be up to the 1 MiB frame cap, so a depth-only cap would
+// bound memory far too loosely. Default 8 MiB.
+static OUTBOUND_BYTE_BUDGET: once_cell::sync::Lazy<usize> = once_cell::sync::Lazy::new(|| {
+    std::env::var("NOSDESK_WS_OUTBOUND_BUDGET_BYTES")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(8 * 1024 * 1024)
+});
 // Minimum time between saves for the same document
 const MIN_SAVE_INTERVAL: Duration = Duration::from_secs(5);
 // Maximum time a document can have pending changes before forcing a save
@@ -969,6 +980,59 @@ type DocumentId = String;
 type SessionId = String;
 
 /// Per-session bookkeeping kept on the collaboration side. The
+/// The write side of a session's outbound channel, tracking the queued byte
+/// backlog so a non-draining client can be evicted before its backlog grows
+/// without bound. Sends stay non-blocking (unbounded channel): back-pressuring
+/// the sender would stall the whole room's broadcast fan-out, which is worse
+/// than evicting one slow consumer. Cloning is cheap (both fields are `Arc`s).
+#[derive(Clone)]
+struct OutboundTx {
+    inner: mpsc::UnboundedSender<Bytes>,
+    queued_bytes: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl OutboundTx {
+    fn new() -> (Self, mpsc::UnboundedReceiver<Bytes>) {
+        let (inner, rx) = mpsc::unbounded_channel::<Bytes>();
+        (
+            Self {
+                inner,
+                queued_bytes: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            },
+            rx,
+        )
+    }
+
+    /// Always-deliver send, for point-to-point frames the client asked for
+    /// (initial sync, per-inbound-frame responses). Accounts the bytes so the
+    /// budget check stays consistent with the drain-side decrement.
+    fn send(&self, bytes: Bytes) {
+        self.queued_bytes
+            .fetch_add(bytes.len(), std::sync::atomic::Ordering::Relaxed);
+        let _ = self.inner.send(bytes);
+    }
+
+    /// Budgeted send, for broadcast fan-out. Returns `false` (dropping the
+    /// frame) when the recipient's backlog would exceed the budget, so the
+    /// caller can evict it; the CRDT resync on reconnect reconciles the gap.
+    fn send_within_budget(&self, bytes: Bytes) -> bool {
+        use std::sync::atomic::Ordering::Relaxed;
+        let len = bytes.len();
+        if self.queued_bytes.fetch_add(len, Relaxed) + len > *OUTBOUND_BYTE_BUDGET {
+            self.queued_bytes.fetch_sub(len, Relaxed);
+            return false;
+        }
+        let _ = self.inner.send(bytes);
+        true
+    }
+
+    /// Decrement after a frame is drained to the wire.
+    fn on_drained(&self, len: usize) {
+        self.queued_bytes
+            .fetch_sub(len, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 /// user identity + ticket presence live in
 /// `services::presence::PresenceRegistry`; this map only carries
 /// what the transport needs (the outbound channel and the last
@@ -979,7 +1043,7 @@ type SessionId = String;
 /// Sender is cheap; `broadcast` collects clones under the read
 /// lock and pushes after release.
 struct SessionInfo {
-    tx: mpsc::UnboundedSender<Bytes>,
+    tx: OutboundTx,
     last_active: Instant,
     /// User who owns this session. Forwarded to the presence
     /// registry on add / remove so the registry can deduplicate
@@ -1786,7 +1850,7 @@ impl YjsAppState {
         &self,
         doc_id: &str,
         session_id: &str,
-        tx: mpsc::UnboundedSender<Bytes>,
+        tx: OutboundTx,
         user_uuid: Uuid,
         cancel: Arc<Notify>,
         doc_type: DocumentType,
@@ -2217,26 +2281,30 @@ impl YjsAppState {
         // mpsc::UnboundedSender is cheap to clone (Arc internally).
         // Cloning under the lock lets us release it before doing the
         // (non-blocking) per-recipient send.
-        let recipients: Vec<mpsc::UnboundedSender<Bytes>> = {
+        let recipients: Vec<(OutboundTx, Arc<Notify>)> = {
             let sessions = self.sessions.read().await;
 
             if let Some(room) = sessions.get(doc_id) {
                 room.iter()
                     .filter(|(id, _)| *id != sender_id)
-                    .map(|(_, info)| info.tx.clone())
+                    .map(|(_, info)| (info.tx.clone(), info.cancel.clone()))
                     .collect()
             } else {
                 Vec::new()
             }
         };
 
-        // `send` on an unbounded mpsc only fails if the receiver was
-        // dropped (the session task exited). That can race with our
-        // snapshot above; ignore the error and let the next
-        // cleanup_stale_sessions sweep evict the dead row.
+        // Non-blocking, byte-budgeted per recipient. A slow client whose
+        // backlog would exceed the budget has its frame dropped and is signalled
+        // to evict (its reconnect + CRDT resync reconciles the gap) rather than
+        // back-pressuring the fan-out or growing its queue without bound. A dead
+        // receiver (session task exited) is ignored; the next
+        // cleanup_stale_sessions sweep evicts the row.
         let msg_bytes = Bytes::copy_from_slice(msg);
-        for tx in recipients {
-            let _ = tx.send(msg_bytes.clone());
+        for (tx, cancel) in recipients {
+            if !tx.send_within_budget(msg_bytes.clone()) {
+                cancel.notify_one();
+            }
         }
     }
 
@@ -2905,7 +2973,7 @@ async fn session_task(
     // (b) sender-side backpressure would block other sessions'
     // broadcasts, which is worse than letting one slow consumer's
     // backlog grow.
-    let (tx, mut rx) = mpsc::unbounded_channel::<Bytes>();
+    let (tx, mut rx) = OutboundTx::new();
     // Eviction signal: the owning machine notifies this when it drops the
     // document (lost ownership lease, Phase 2 affinity), so this task
     // tears down and the client reconnects to the new owner.
@@ -2934,12 +3002,12 @@ async fn session_task(
 
         let sv = awareness.doc().transact().state_vector();
         let sync_msg = Message::Sync(SyncMessage::SyncStep1(sv));
-        let _ = tx.send(Bytes::from(sync_msg.encode_v1()));
+        tx.send(Bytes::from(sync_msg.encode_v1()));
 
         match awareness.update() {
             Ok(awareness_update) => {
                 let awareness_msg = Message::Awareness(awareness_update);
-                let _ = tx.send(Bytes::from(awareness_msg.encode_v1()));
+                tx.send(Bytes::from(awareness_msg.encode_v1()));
                 debug!(doc_id = %doc_id, "Sent initial SyncStep1 + awareness to new client");
             }
             Err(e) => {
@@ -2975,7 +3043,10 @@ async fn session_task(
             // which only happens during cleanup. Send failures (peer hung
             // up mid-flight) collapse the loop.
             Some(out) = rx.recv() => {
-                if session.binary(out).await.is_err() {
+                let len = out.len();
+                let send_result = session.binary(out).await;
+                tx.on_drained(len);
+                if send_result.is_err() {
                     debug!(session_id = %session_id, "session.binary failed; client gone");
                     break None;
                 }
@@ -3171,7 +3242,7 @@ async fn process_inbound_binary(
     doc_id: String,
     session_id: String,
     user_uuid: Uuid,
-    tx: mpsc::UnboundedSender<Bytes>,
+    tx: OutboundTx,
 ) {
     if bin.is_empty() {
         return;
@@ -3191,17 +3262,15 @@ async fn process_inbound_binary(
         return;
     };
 
-    // Diagnostic: check fragment text BEFORE protocol.handle so we can
-    // detect "content actually changed" precisely (some sync messages
-    // are no-ops).
-    let content_before = {
-        let txn = awareness.doc().transact();
-        if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
-            fragment.get_string(&txn)
-        } else {
-            String::from("(no fragment)")
-        }
-    };
+    // Snapshot the document state vector BEFORE protocol.handle so we can detect
+    // "the doc actually changed" cheaply: O(clients), not the O(document)
+    // full-text materialization this replaces (which ran on every frame,
+    // regardless of the frame's own size). Any applied op advances some client's
+    // clock; a no-op update (already applied, or a bare state-vector request)
+    // leaves the vector unchanged. This is also more precise than the old text
+    // compare, which only saw the `prosemirror` fragment and missed
+    // formatting-only edits.
+    let sv_before = awareness.doc().transact().state_vector();
 
     let protocol = DefaultProtocol;
     let msg_type = bin.first().copied().unwrap_or(255);
@@ -3224,20 +3293,9 @@ async fn process_inbound_binary(
                 "protocol.handle() succeeded"
             );
 
-            let content_after = {
-                let txn = awareness.doc().transact();
-                if let Some(fragment) = txn.get_xml_fragment("prosemirror") {
-                    fragment.get_string(&txn)
-                } else {
-                    String::from("(no fragment)")
-                }
-            };
-
-            let content_changed = content_before != content_after;
+            let content_changed = sv_before != awareness.doc().transact().state_vector();
             if content_changed {
-                debug!(before = %crate::utils::utf8_trunc::char_prefix(&content_before, 50),
-                    after = %crate::utils::utf8_trunc::char_prefix(&content_after, 50),
-                    "Content changed");
+                debug!(doc_id = %doc_id, "Document content changed");
             } else if msg_type == 0 && bin.len() > 1 && bin[1] == 2 {
                 // SYNC_UPDATE didn't apply — request the client's full
                 // state. Happens when state vectors are misaligned
@@ -3246,12 +3304,12 @@ async fn process_inbound_binary(
                 use yrs::sync::Message;
                 let sync_message =
                     Message::Sync(yrs::sync::SyncMessage::SyncStep1(StateVector::default()));
-                let _ = tx.send(Bytes::from(sync_message.encode_v1()));
+                tx.send(Bytes::from(sync_message.encode_v1()));
             }
 
             for message in messages {
                 let encoded = message.encode_v1();
-                let _ = tx.send(Bytes::from(encoded));
+                tx.send(Bytes::from(encoded));
             }
 
             // Decide which inbound frames to rebroadcast to other
