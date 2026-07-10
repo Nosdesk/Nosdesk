@@ -175,8 +175,9 @@ pub async fn get_edition(req: HttpRequest, mut pc: PlatformConn) -> impl Respond
         == crate::middleware::DeploymentMode::SelfHosted;
     let active = pc.run(workspaces::count_active_workspaces).unwrap_or(0);
     let max = edition.max_workspaces();
-    // Hosted deployments are provisioned by the control plane, not gated here.
-    let can_create = !self_hosted || (active as u64) < u64::from(max);
+    // Gated on the edition's workspace cap, not the deployment mode (see
+    // license::workspace_creation_allowed).
+    let can_create = crate::license::workspace_creation_allowed(edition, active as u64);
     HttpResponse::Ok().json(serde_json::json!({
         "edition": edition.name(),
         "self_hosted": self_hosted,
@@ -223,39 +224,44 @@ pub async fn create_workspace(
         }
     };
 
-    // License gate. Self-hosted deployments are capped at the edition's
-    // workspace limit (Community = 1); creating beyond it requires an
-    // Enterprise license. Hosted deployments are provisioned by the control
-    // plane via the /api/internal surface and are not gated here.
-    if crate::middleware::DeploymentMode::current() == crate::middleware::DeploymentMode::SelfHosted
-    {
-        let edition = crate::license::current();
-        let max = edition.max_workspaces();
-        let active = match workspaces::count_active_workspaces(&mut conn) {
-            Ok(n) => n,
-            Err(e) => {
-                error!(error = ?e, "admin/workspaces license-gate count failed");
-                return errors::internal("Failed to create workspace");
-            }
-        };
-        if active as u64 >= u64::from(max) {
-            warn!(
-                active,
-                max,
-                edition = edition.name(),
-                "admin/workspaces blocked by license cap"
-            );
-            return HttpResponse::PaymentRequired().json(serde_json::json!({
-                "error": "license_required",
-                "message": format!(
-                    "This self-hosted deployment is limited to {max} active workspace(s). \
-                     An Enterprise license is required to create more."
-                ),
-                "edition": edition.name(),
-                "max_workspaces": max,
-                "active_workspaces": active,
-            }));
+    // License gate. Capped at the edition's workspace limit (Community = 1;
+    // Enterprise = the licensed count). Gated on the edition, NOT on
+    // NOSDESK_DEPLOYMENT_MODE: keying it on the mode let a self-hoster flip to
+    // `hosted` and skip the cap with no license. Hosted deployments provision
+    // through the control-plane /api/internal surface (uncapped, authoritative
+    // for its own billing), never this self-serve route, so the cap applies
+    // here in every mode. See license::workspace_creation_allowed.
+    let edition = crate::license::current();
+    let max = edition.max_workspaces();
+    let active = match workspaces::count_active_workspaces(&mut conn) {
+        Ok(n) => n,
+        Err(e) => {
+            error!(error = ?e, "admin/workspaces license-gate count failed");
+            return errors::internal("Failed to create workspace");
         }
+    };
+    if !crate::license::workspace_creation_allowed(edition, active as u64) {
+        warn!(
+            active,
+            max,
+            edition = edition.name(),
+            "admin/workspaces blocked by license cap"
+        );
+        let message = if edition.is_enterprise() {
+            format!("Your Enterprise license permits {max} active workspace(s); archive one before creating another.")
+        } else {
+            format!(
+                "The Community edition is limited to {max} active workspace(s). \
+                 An Enterprise license is required to create more."
+            )
+        };
+        return HttpResponse::PaymentRequired().json(serde_json::json!({
+            "error": "license_required",
+            "message": message,
+            "edition": edition.name(),
+            "max_workspaces": max,
+            "active_workspaces": active,
+        }));
     }
 
     let record = NewWorkspace {
