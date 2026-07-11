@@ -22,6 +22,10 @@ const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, ar
 const { data, isPending, isLoading, error } = useQuery({
   key: ['documentation', 'starred'],
   query: async () => (await getStarredPages()).slice(0, 6),
+  // The starred set is low-churn; hold 10 min so dashboard revisits
+  // serve cache. Toggling a star should invalidate
+  // ['documentation','starred'] to refresh immediately.
+  staleTime: 10 * 60_000,
 })
 
 const pages = computed<StarredPageInfo[]>(() => data.value ?? [])

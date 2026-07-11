@@ -6,34 +6,29 @@ status icon, ID + title chrome. `RecentTicket` doesn't carry priority
 or full requester details, so those columns simply aren't rendered;
 the row's anatomy is preserved by the optional-field pattern.
 
-The query key `['tickets', 'recent']` is shared with the sidebar's
-recent-tickets store. Once that store is migrated to Pinia Colada
-they'll dedup into a single network request per session.
+Reads the shared `recentTickets` store (Pinia Colada, account-scoped
+key) so this widget and the sidebar dedup into one request per session
+and stay in sync on view / remove.
 -->
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useFluent } from 'fluent-vue'
-import { useQuery } from '@pinia/colada'
-import { getRecentTickets, type RecentTicket } from '@nosdesk/core/services/ticketService'
+import { useRecentTicketsStore } from '@/stores/recentTickets'
+import type { RecentTicket } from '@nosdesk/core/types/ticket'
 import DashboardWidgetShell from './DashboardWidgetShell.vue'
 import TicketRow from '@/components/TicketRow.vue'
 
 const fluent = useFluent()
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
 
-// `isPending` = first-ever fetch, `isLoading` = any in-flight
-// request. The shell wants the first-only signal for `loading` so
-// dashboard remounts don't blank cached content while a background
-// refetch runs, see DashboardWidgetShell.
-const { data, isPending, isLoading, error } = useQuery({
-  key: ['tickets', 'recent'],
-  query: () => getRecentTickets(),
-})
+// The store exposes the first-fetch (`isLoading`) and background-
+// refetch (`isRefreshing`) signals the shell wants, so cached content
+// stays visible across dashboard remounts.
+const store = useRecentTicketsStore()
 
-const tickets = computed<RecentTicket[]>(() => (data.value ?? []).slice(0, 5))
-const isRefreshing = computed(() => isLoading.value && data.value !== undefined)
+const tickets = computed<RecentTicket[]>(() => store.recentTickets.slice(0, 5))
 const errorMessage = computed(() =>
-  error.value ? t('dashboard-recently-viewed-error') : null,
+  store.error ? t('dashboard-recently-viewed-error') : null,
 )
 </script>
 
@@ -41,8 +36,8 @@ const errorMessage = computed(() =>
   <DashboardWidgetShell
     :title="t('dashboard-recently-viewed-title')"
     action-to="/tickets"
-    :loading="isPending"
-    :refreshing="isRefreshing"
+    :loading="store.isLoading"
+    :refreshing="store.isRefreshing"
     :error="errorMessage"
     :empty="!errorMessage && tickets.length === 0"
     :empty-title="t('dashboard-recently-viewed-empty-title')"

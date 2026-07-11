@@ -1,6 +1,9 @@
 <!--
-Skeleton for `KpiRail`. Mirrors the rail's responsive grid so skeleton
-→ data swap produces no layout shift.
+Quiet placeholder for `KpiRail`: a static em-dash where each numeral
+loads (matching KpiTile's own loading state), no pulsing skeleton, in
+line with the house "render chrome immediately" style. Mirrors the
+rail's responsive grid so the placeholder → data swap produces no
+layout shift.
 -->
 <script setup lang="ts">
 withDefaults(defineProps<{ count?: number }>(), { count: 4 })
@@ -16,9 +19,11 @@ withDefaults(defineProps<{ count?: number }>(), { count: 4 })
         :key="i"
         class="flex min-h-0 min-w-0 flex-col bg-surface px-2 py-2 sm:px-3"
       >
-        <div class="h-5 w-8 shrink-0 rounded bg-surface-alt animate-pulse" />
+        <div class="h-5 shrink-0 flex items-center">
+          <span class="text-tertiary tabular-nums leading-none" aria-hidden="true">&mdash;</span>
+        </div>
         <span class="flex-1 min-h-0" aria-hidden="true" />
-        <div class="h-2 w-12 shrink-0 rounded bg-surface-alt animate-pulse" />
+        <div class="h-2 w-12 shrink-0 rounded bg-surface-alt" />
       </div>
     </div>
   </div>

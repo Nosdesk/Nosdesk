@@ -20,6 +20,10 @@ const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, ar
 const { data, isPending, isLoading, error } = useQuery({
   key: ['channels', 'list'],
   query: () => channelsService.list(),
+  // Channel config changes only on admin edits, not per navigation.
+  // Hold the cache for 5 min so revisiting the dashboard serves it
+  // without a background refetch; invalidateQueries still bypasses this.
+  staleTime: 5 * 60_000,
 })
 
 const channels = computed<Channel[]>(() => data.value ?? [])

@@ -12,6 +12,7 @@
  * merges new registry entries at the tail of the stored order, so
  * shipping a new widget is a no-op for existing users.
  */
+import { defineAsyncComponent } from 'vue'
 import type { Component } from 'vue'
 import type { DashboardLayout, UserRole } from '@nosdesk/core/types/user'
 import { packGrid } from '@/composables/usePointerSortable'
@@ -19,16 +20,25 @@ import UserAssignedTickets from '@/components/UserAssignedTickets.vue'
 import TicketHeatmap from '@/components/TicketHeatmap.vue'
 import RecentlyViewedWidget from './RecentlyViewedWidget.vue'
 import UnassignedQueueWidget from './UnassignedQueueWidget.vue'
-import StarredDocsWidget from './StarredDocsWidget.vue'
-import MyDevicesWidget from './MyAssetsWidget.vue'
-import ChannelHealthWidget from './ChannelHealthWidget.vue'
 import KnowledgeGapsWidget from './KnowledgeGapsWidget.vue'
 import SlaHealthWidget from './SlaHealthWidget.vue'
 import TicketVolumeWidget from './TicketVolumeWidget.vue'
-import SavedViewWidget from './SavedViewWidget.vue'
-import KpiTile from './charts/KpiTile.vue'
 import TicketFlowChart from './charts/TicketFlowChart.vue'
 import HorizontalBar from './charts/HorizontalBar.vue'
+
+// Opt-in widgets that never appear on a default landing layout (they
+// are off until a user adds them via the picker, or, for
+// SavedViewWidget, pins a saved view): load on demand so they don't
+// ship in the eager dashboard chunk. Each splits into its own small
+// chunk fetched only when actually placed. RecentlyViewed +
+// UnassignedQueue stay statically imported above because the curated
+// staff default (STAFF_VISIBLE) shows them on first paint, so
+// async-loading them would flash a blank cell on landing.
+const StarredDocsWidget = defineAsyncComponent(() => import('./StarredDocsWidget.vue'))
+const MyDevicesWidget = defineAsyncComponent(() => import('./MyAssetsWidget.vue'))
+const ChannelHealthWidget = defineAsyncComponent(() => import('./ChannelHealthWidget.vue'))
+const SavedViewWidget = defineAsyncComponent(() => import('./SavedViewWidget.vue'))
+const KpiTile = defineAsyncComponent(() => import('./charts/KpiTile.vue'))
 
 /**
  * Synthetic widget id prefix for saved-view-backed widgets.

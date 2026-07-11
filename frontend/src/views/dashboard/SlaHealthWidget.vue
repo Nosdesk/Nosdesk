@@ -37,15 +37,26 @@ const isRefreshing = computed(() => isLoading.value && data.value !== undefined)
 const errorMessage = computed(() => (error.value ? t('dashboard-sla-health-error') : null))
 
 // Keep the snapshot fresh on the same cadence as the SLA admin
-// counts + the breach-detection job. The shell handles the
-// background-refetch visual so the existing numbers stay readable
-// during the in-flight request.
+// counts + the breach-detection job (breaches are time-driven and
+// emit no ticket mutation, so this poll is the only refresh channel).
+// The shell handles the background-refetch visual so the existing
+// numbers stay readable during the in-flight request. Ticks are
+// skipped while the tab is hidden, and one catch-up refetch fires
+// when it becomes visible again, so a backgrounded dashboard stops
+// polling every 30s.
 let timer: ReturnType<typeof setInterval> | undefined
+function onVisible() {
+  if (document.visibilityState === 'visible') refetch()
+}
 onMounted(() => {
-  timer = setInterval(() => refetch(), SLA_SUMMARY_REFRESH_MS)
+  timer = setInterval(() => {
+    if (document.visibilityState === 'visible') refetch()
+  }, SLA_SUMMARY_REFRESH_MS)
+  document.addEventListener('visibilitychange', onVisible)
 })
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer)
+  document.removeEventListener('visibilitychange', onVisible)
 })
 
 // Four KPIs that read top-to-bottom in priority order: how many
