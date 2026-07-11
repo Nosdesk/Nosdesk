@@ -454,6 +454,9 @@ impl NotificationService {
                 body: n.body,
                 metadata: n.metadata,
                 is_read: n.is_read,
+                seen_at: n.seen_at,
+                archived_at: n.archived_at,
+                snoozed_until: n.snoozed_until,
                 created_at: n.created_at,
             })
             .collect())
@@ -500,6 +503,9 @@ impl NotificationService {
                 body: n.body,
                 metadata: n.metadata,
                 is_read: n.is_read,
+                seen_at: n.seen_at,
+                archived_at: n.archived_at,
+                snoozed_until: n.snoozed_until,
                 created_at: n.created_at,
             })
             .collect())
@@ -561,6 +567,49 @@ impl NotificationService {
                         .filter(is_read.eq(false)),
                 )
                 .set((is_read.eq(true), read_at.eq(Some(Utc::now().naive_utc()))))
+                .execute(conn)
+            },
+        )
+        .map_err(|e| format!("Update failed: {e}"))
+    }
+
+    /// Count unseen, active (not archived) notifications for a user.
+    /// Drives the bell badge: opening the panel marks items seen and
+    /// clears the badge without marking each one read (seen != read).
+    pub async fn get_unseen_count(&self, user_uuid_val: &Uuid) -> Result<i64, String> {
+        use crate::schema::notifications::dsl::*;
+
+        crate::sync::session::background_run(
+            &self.pool,
+            "background:notification_unseen_count",
+            |conn| {
+                notifications
+                    .filter(user_uuid.eq(user_uuid_val))
+                    .filter(seen_at.is_null())
+                    .filter(archived_at.is_null())
+                    .count()
+                    .get_result(conn)
+            },
+        )
+        .map_err(|e| format!("Query failed: {e}"))
+    }
+
+    /// Mark all of a user's unseen notifications as seen (badge clear on
+    /// panel/inbox open). Distinct from mark-all-read: seeing clears the
+    /// badge; reading is a separate, explicit per-item action.
+    pub async fn mark_all_seen(&self, user_uuid_val: &Uuid) -> Result<usize, String> {
+        use crate::schema::notifications::dsl::*;
+
+        crate::sync::session::background_run(
+            &self.pool,
+            "background:notification_mark_all_seen",
+            |conn| {
+                diesel::update(
+                    notifications
+                        .filter(user_uuid.eq(user_uuid_val))
+                        .filter(seen_at.is_null()),
+                )
+                .set(seen_at.eq(Some(Utc::now().naive_utc())))
                 .execute(conn)
             },
         )

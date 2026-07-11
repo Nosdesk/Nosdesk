@@ -5493,6 +5493,11 @@ pub struct Notification {
     pub read_at: Option<NaiveDateTime>,
     pub created_at: NaiveDateTime,
     pub workspace_id: i32,
+    /// Engagement-state axes (see the notification_engagement_state
+    /// migration): unseen vs unread, reversible archive, snooze.
+    pub seen_at: Option<NaiveDateTime>,
+    pub archived_at: Option<NaiveDateTime>,
+    pub snoozed_until: Option<NaiveDateTime>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -5540,6 +5545,12 @@ pub struct NotificationResponse {
     pub body: Option<String>,
     pub metadata: Option<serde_json::Value>,
     pub is_read: bool,
+    /// Engagement state surfaced to the client: `seen_at` drives the
+    /// badge (unseen count), `archived_at` hides from the active inbox
+    /// without deleting, `snoozed_until` defers re-surfacing.
+    pub seen_at: Option<NaiveDateTime>,
+    pub archived_at: Option<NaiveDateTime>,
+    pub snoozed_until: Option<NaiveDateTime>,
     pub created_at: NaiveDateTime,
 }
 

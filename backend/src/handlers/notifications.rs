@@ -45,6 +45,11 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.route("/notifications", web::get().to(get_notifications))
         .route("/notifications/count", web::get().to(get_unread_count))
         .route(
+            "/notifications/unseen-count",
+            web::get().to(get_unseen_count),
+        )
+        .route("/notifications/seen", web::post().to(mark_all_seen))
+        .route(
             "/notifications/read",
             web::post().to(mark_notifications_read),
         )
@@ -120,6 +125,62 @@ pub async fn get_unread_count(
 
     match notification_service.get_unread_count(&user_uuid).await {
         Ok(count) => HttpResponse::Ok().json(serde_json::json!({ "count": count })),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+            "error": e
+        })),
+    }
+}
+
+/// Get unseen notification count (drives the bell badge; unlike the
+/// unread count, opening the panel clears this without marking items
+/// read).
+///
+/// GET /api/notifications/unseen-count
+pub async fn get_unseen_count(
+    req: HttpRequest,
+    notification_service: web::Data<NotificationService>,
+) -> HttpResponse {
+    let claims = match req.extensions().get::<Claims>() {
+        Some(c) => c.clone(),
+        None => return HttpResponse::Unauthorized().finish(),
+    };
+
+    let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
+        Ok(u) => u,
+        Err(_) => return errors::bad_request("Invalid user UUID"),
+    };
+
+    match notification_service.get_unseen_count(&user_uuid).await {
+        Ok(count) => HttpResponse::Ok().json(serde_json::json!({ "count": count })),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+            "error": e
+        })),
+    }
+}
+
+/// Mark all of the user's notifications as seen (badge clear on
+/// panel/inbox open).
+///
+/// POST /api/notifications/seen
+pub async fn mark_all_seen(
+    req: HttpRequest,
+    notification_service: web::Data<NotificationService>,
+) -> HttpResponse {
+    let claims = match req.extensions().get::<Claims>() {
+        Some(c) => c.clone(),
+        None => return HttpResponse::Unauthorized().finish(),
+    };
+
+    let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
+        Ok(u) => u,
+        Err(_) => return errors::bad_request("Invalid user UUID"),
+    };
+
+    match notification_service.mark_all_seen(&user_uuid).await {
+        Ok(count) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "count": count
+        })),
         Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
             "error": e
         })),
