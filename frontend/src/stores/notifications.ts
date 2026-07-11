@@ -284,6 +284,23 @@ export const useNotificationsStore = defineStore('notifications', () => {
   let announcementSeq = 0
   let subscribed = false
 
+  function revalidateNotifications() {
+    queryCache.invalidateQueries({ key: NOTIFICATIONS_KEYS.unreadCount() })
+    queryCache.invalidateQueries({ key: NOTIFICATIONS_KEYS.list() })
+  }
+
+  // Coalesce bursts: several notifications arriving together (or a
+  // reconnect backfill) would otherwise fire N serial multi-page
+  // refetches. A trailing debounce collapses them into one.
+  let refetchTimer: ReturnType<typeof setTimeout> | null = null
+  function scheduleRevalidate() {
+    if (refetchTimer) return
+    refetchTimer = setTimeout(() => {
+      refetchTimer = null
+      revalidateNotifications()
+    }, 400)
+  }
+
   function ensureSubscribed() {
     if (subscribed) return
     subscribed = true
@@ -294,17 +311,28 @@ export const useNotificationsStore = defineStore('notifications', () => {
     // needed. The store lives for the app lifetime, so we don't retain
     // the unsubscribe handle.
     onSyncActions(handleSyncActions)
+    // Those private-group actions aren't replayed by the sync engine's
+    // backfill after an SSE reconnect gap (tab sleep, ~hourly token
+    // reconnect), so the badge and inbox can silently under-count.
+    // Self-heal by revalidating when the tab regains focus or the
+    // network returns. The store is app-lifetime, so these listeners
+    // never need removing.
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', revalidateNotifications)
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') revalidateNotifications()
+      })
+    }
   }
 
   function handleSyncActions(actions: { aggregate: string; data: unknown }[]) {
     try {
       const notes = actions.filter((a) => a.aggregate === 'notification')
       if (notes.length === 0) return
-      // Refetch so new items slot in with correct ordering and
-      // metadata. Cheaper than prepending client-side and racing the
-      // next pagination call.
-      queryCache.invalidateQueries({ key: NOTIFICATIONS_KEYS.list() })
-      queryCache.invalidateQueries({ key: NOTIFICATIONS_KEYS.unreadCount() })
+      // Refetch so new items slot in with correct ordering and metadata
+      // (cheaper than prepending client-side and racing pagination),
+      // debounced so a burst collapses into one revalidation.
+      scheduleRevalidate()
       // Announce the newest arrival to screen-reader users.
       announcementSeq++
       const newest = notes[notes.length - 1].data as { title?: string } | undefined

@@ -1042,10 +1042,11 @@ pub async fn update_documentation_page(
     // aggregate (the repository emit in update_documentation_page);
     // webhooks + plugins ride the same stream.
 
-    // Notify subscribers about the page update. The spawned task
-    // checks out its own pool connection on the legacy (non-TenantConn)
-    // path — once the RLS rollout demands a workspace pin for this
-    // background query, swap it for a `with_actor_context` wrapper.
+    // Notify subscribers about the page update. The subscriber fetch
+    // pins the page's workspace so RLS on documentation_subscriptions
+    // returns rows: the runtime role is NOBYPASSRLS and the pool scrubs
+    // app.workspace_id per checkout, so a bare connection sees zero
+    // subscribers and silently drops every doc-page notification.
     {
         let pool = pool.clone();
         let notification_service = notification_service.clone();
@@ -1053,11 +1054,17 @@ pub async fn update_documentation_page(
         let page_slug = updated_page.slug.clone();
         let page_workspace = updated_page.workspace_id;
         tokio::spawn(async move {
-            let mut conn = match pool.get() {
-                Ok(conn) => conn,
-                Err(_) => return,
-            };
-            let subscribers = documentation_subscriptions::get_page_subscribers(&mut conn, page_id);
+            let subscribers = crate::sync::session::run_in_workspace(
+                &pool,
+                "doc_page_notify_subscribers",
+                page_workspace,
+                |conn| {
+                    Ok(documentation_subscriptions::get_page_subscribers(
+                        conn, page_id,
+                    ))
+                },
+            )
+            .unwrap_or_default();
             let actor = NotificationActor {
                 uuid: user_uuid,
                 name: actor_name,

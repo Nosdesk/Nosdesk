@@ -680,36 +680,40 @@ pub async fn create_ticket(
                                 "Auto-assigned new ticket via create_ticket"
                             );
 
-                            // Send notification to the auto-assigned user
-                            let notification_service = notification_service.clone();
-                            let ticket_id = ticket.id;
-                            let ticket_title = ticket.title.clone();
-                            let ticket_workspace = ticket.workspace_id;
-                            let rule_name = result.rule_name.clone();
+                            // Send notification to the auto-assigned user, unless the
+                            // rule assigned the ticket to the user who just created it
+                            // (never notify someone about their own action).
+                            if assigned_uuid != auth.user_uuid {
+                                let notification_service = notification_service.clone();
+                                let ticket_id = ticket.id;
+                                let ticket_title = ticket.title.clone();
+                                let ticket_workspace = ticket.workspace_id;
+                                let rule_name = result.rule_name.clone();
 
-                            tokio::spawn(async move {
-                                let payload = NotificationPayload::new(
-                                    NotificationTypeCode::TicketAssigned,
-                                    assigned_uuid,
-                                    NotificationActor {
-                                        uuid: Uuid::nil(),
-                                        name: "System".to_string(),
-                                        avatar_thumb: None,
-                                    },
-                                    NotificationEntity::Ticket {
-                                        id: ticket_id,
-                                        title: ticket_title,
-                                    },
-                                    ticket_workspace,
-                                )
-                                .with_body(format!(
-                                    "You have been auto-assigned to ticket #{ticket_id} (Rule: {rule_name})"
-                                ));
+                                tokio::spawn(async move {
+                                    let payload = NotificationPayload::new(
+                                        NotificationTypeCode::TicketAssigned,
+                                        assigned_uuid,
+                                        NotificationActor {
+                                            uuid: Uuid::nil(),
+                                            name: "System".to_string(),
+                                            avatar_thumb: None,
+                                        },
+                                        NotificationEntity::Ticket {
+                                            id: ticket_id,
+                                            title: ticket_title,
+                                        },
+                                        ticket_workspace,
+                                    )
+                                    .with_body(format!(
+                                        "You have been auto-assigned to ticket #{ticket_id} (Rule: {rule_name})"
+                                    ));
 
-                                if let Err(e) = notification_service.notify(payload).await {
-                                    warn!(error = %e, "Failed to send auto-assignment notification");
-                                }
-                            });
+                                    if let Err(e) = notification_service.notify(payload).await {
+                                        warn!(error = %e, "Failed to send auto-assignment notification");
+                                    }
+                                });
+                            }
                         }
                     }
                 }
@@ -954,36 +958,40 @@ pub async fn create_empty_ticket(
                         "Auto-assigned new ticket"
                     );
 
-                    // Send notification to the auto-assigned user
-                    let notification_service = notification_service.clone();
-                    let ticket_id = ticket.id;
-                    let ticket_title = ticket.title.clone();
-                    let ticket_workspace = ticket.workspace_id;
-                    let rule_name = result.rule_name.clone();
+                    // Send notification to the auto-assigned user, unless the rule
+                    // assigned the ticket to the user who just created it (never
+                    // notify someone about their own action).
+                    if assigned_uuid != user_uuid {
+                        let notification_service = notification_service.clone();
+                        let ticket_id = ticket.id;
+                        let ticket_title = ticket.title.clone();
+                        let ticket_workspace = ticket.workspace_id;
+                        let rule_name = result.rule_name.clone();
 
-                    tokio::spawn(async move {
-                        let payload = NotificationPayload::new(
-                            NotificationTypeCode::TicketAssigned,
-                            assigned_uuid,
-                            NotificationActor {
-                                uuid: Uuid::nil(), // System actor
-                                name: "System".to_string(),
-                                avatar_thumb: None,
-                            },
-                            NotificationEntity::Ticket {
-                                id: ticket_id,
-                                title: ticket_title,
-                            },
-                            ticket_workspace,
-                        )
-                        .with_body(format!(
-                            "You have been auto-assigned to ticket #{ticket_id} (Rule: {rule_name})"
-                        ));
+                        tokio::spawn(async move {
+                            let payload = NotificationPayload::new(
+                                NotificationTypeCode::TicketAssigned,
+                                assigned_uuid,
+                                NotificationActor {
+                                    uuid: Uuid::nil(), // System actor
+                                    name: "System".to_string(),
+                                    avatar_thumb: None,
+                                },
+                                NotificationEntity::Ticket {
+                                    id: ticket_id,
+                                    title: ticket_title,
+                                },
+                                ticket_workspace,
+                            )
+                            .with_body(format!(
+                                "You have been auto-assigned to ticket #{ticket_id} (Rule: {rule_name})"
+                            ));
 
-                        if let Err(e) = notification_service.notify(payload).await {
-                            warn!(error = %e, "Failed to send auto-assignment notification");
-                        }
-                    });
+                            if let Err(e) = notification_service.notify(payload).await {
+                                warn!(error = %e, "Failed to send auto-assignment notification");
+                            }
+                        });
+                    }
                 }
             }
         }
@@ -1321,6 +1329,12 @@ pub async fn update_ticket_partial(
                 }
             }
 
+            // Track a category-change auto-assignment so the field-diff
+            // notifier below doesn't fire a second (real-actor) assignment
+            // notification on top of the richer System "auto-assigned
+            // (Rule: X)" one.
+            let mut auto_assigned_uuid: Option<Uuid> = None;
+
             // Run automatic assignment rules if category changed and no assignee
             if category_changed && updated_ticket.assignee_uuid.is_none() {
                 let rules_result = tc
@@ -1369,35 +1383,42 @@ pub async fn update_ticket_partial(
 
                             // Send notification to the auto-assigned user
                             if let Some(ref assignee) = assignee_user {
-                                let notification_service = notification_service.clone();
-                                let ticket_title = updated_ticket.title.clone();
-                                let ticket_workspace = updated_ticket.workspace_id;
-                                let assignee_uuid = assignee.uuid;
-                                let rule_name = result.rule_name.clone();
+                                // Remember the auto-assigned user so the field-diff
+                                // notifier below skips a duplicate assignment ping.
+                                auto_assigned_uuid = Some(assignee.uuid);
+                                // Skip when the rule assigned the ticket to the user
+                                // who triggered the category change (own action).
+                                if assignee.uuid != auth.user_uuid {
+                                    let notification_service = notification_service.clone();
+                                    let ticket_title = updated_ticket.title.clone();
+                                    let ticket_workspace = updated_ticket.workspace_id;
+                                    let assignee_uuid = assignee.uuid;
+                                    let rule_name = result.rule_name.clone();
 
-                                tokio::spawn(async move {
-                                    let payload = NotificationPayload::new(
-                                        NotificationTypeCode::TicketAssigned,
-                                        assignee_uuid,
-                                        NotificationActor {
-                                            uuid: Uuid::nil(), // System actor
-                                            name: "System".to_string(),
-                                            avatar_thumb: None,
-                                        },
-                                        NotificationEntity::Ticket {
-                                            id: ticket_id,
-                                            title: ticket_title,
-                                        },
-                                        ticket_workspace,
-                                    )
-                                    .with_body(format!(
-                                        "You have been auto-assigned to ticket #{ticket_id} (Rule: {rule_name})"
-                                    ));
+                                    tokio::spawn(async move {
+                                        let payload = NotificationPayload::new(
+                                            NotificationTypeCode::TicketAssigned,
+                                            assignee_uuid,
+                                            NotificationActor {
+                                                uuid: Uuid::nil(), // System actor
+                                                name: "System".to_string(),
+                                                avatar_thumb: None,
+                                            },
+                                            NotificationEntity::Ticket {
+                                                id: ticket_id,
+                                                title: ticket_title,
+                                            },
+                                            ticket_workspace,
+                                        )
+                                        .with_body(format!(
+                                            "You have been auto-assigned to ticket #{ticket_id} (Rule: {rule_name})"
+                                        ));
 
-                                    if let Err(e) = notification_service.notify(payload).await {
-                                        warn!(error = %e, "Failed to send auto-assignment notification");
-                                    }
-                                });
+                                        if let Err(e) = notification_service.notify(payload).await {
+                                            warn!(error = %e, "Failed to send auto-assignment notification");
+                                        }
+                                    });
+                                }
                             }
                         }
                     }
@@ -1463,8 +1484,10 @@ pub async fn update_ticket_partial(
 
                     // Spawn async task for notifications to not block response
                     tokio::spawn(async move {
-                        // Notify new assignee if assignment changed
-                        if new_assignee != old_assignee {
+                        // Notify new assignee if assignment changed, unless this was
+                        // a category-change auto-assignment (already notified above
+                        // with the richer System "auto-assigned" copy).
+                        if new_assignee != old_assignee && new_assignee != auto_assigned_uuid {
                             if let Some(assignee_uuid) = new_assignee {
                                 let payload = NotificationPayload::new(
                                     NotificationTypeCode::TicketAssigned,

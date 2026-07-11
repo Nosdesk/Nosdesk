@@ -243,7 +243,9 @@ function handleClearNotification(event: Event, notification: Notification) {
   const target =
     (rowEl?.nextElementSibling as HTMLElement | null) ??
     (rowEl?.previousElementSibling as HTMLElement | null)
-  selectedIds.value.delete(notification.id)
+  const next = new Set(selectedIds.value)
+  next.delete(notification.id)
+  selectedIds.value = next
   dismiss.mutate(notification.id)
   nextTick(() => {
     if (!target) return
@@ -420,7 +422,7 @@ onBeforeUnmount(() => {
               <Icon name="close" size="sm" />
             </button>
             <span class="text-xs font-medium text-primary">
-              {{ selectedCount }} selected
+              {{ t('inbox-selected-count', { count: selectedCount }) }}
             </span>
           </div>
           <div class="flex items-center gap-1">
@@ -431,7 +433,7 @@ onBeforeUnmount(() => {
               class="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-secondary transition-colors hover:bg-surface-hover hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Icon name="check" size="xs" />
-              Mark read
+              {{ t('inbox-action-mark-read') }}
             </button>
             <button
               type="button"
@@ -439,7 +441,7 @@ onBeforeUnmount(() => {
               class="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-status-error transition-colors hover:bg-status-error-muted"
             >
               <Icon name="trash" size="xs" />
-              Delete
+              {{ t('inbox-action-delete') }}
             </button>
           </div>
         </div>
@@ -535,8 +537,13 @@ onBeforeUnmount(() => {
                 v-for="notification in group.items"
                 :key="notification.id"
                 data-notification-row
+                role="button"
+                tabindex="0"
+                :aria-label="notification.title"
                 @click="navigateToNotification(notification)"
-                class="group flex cursor-pointer items-start gap-3 border-t border-default px-4 py-3 transition-colors first:border-t-0 hover:bg-surface-hover"
+                @keydown.enter="navigateToNotification(notification)"
+                @keydown.space.prevent="navigateToNotification(notification)"
+                class="group flex cursor-pointer items-start gap-3 border-t border-default px-4 py-3 transition-colors first:border-t-0 hover:bg-surface-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
                 :class="{
                   'bg-accent/5': !notification.is_read,
                   'bg-accent/10 hover:bg-accent/15': selectedIds.has(notification.id),
@@ -545,7 +552,7 @@ onBeforeUnmount(() => {
                 <Checkbox
                   :model-value="selectedIds.has(notification.id)"
                   size="sm"
-                  :aria-label="`Select: ${notification.title}`"
+                  :aria-label="t('inbox-aria-select-item', { title: notification.title })"
                   class="mt-1"
                   @click.stop
                   @change="(e: Event) => toggleSelected(notification.id, e as MouseEvent)"
