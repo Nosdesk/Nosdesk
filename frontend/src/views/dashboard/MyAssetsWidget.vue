@@ -31,6 +31,9 @@ const { data, isPending, isLoading, error } = useQuery({
     return (await getAssetsByUser(uuid)).slice(0, 5)
   },
   enabled: () => !!auth.user?.uuid,
+  // A user's assigned devices rarely change within a session; hold
+  // 10 min so dashboard revisits serve cache instead of refetching.
+  staleTime: 10 * 60_000,
 })
 
 const devices = computed<Asset[]>(() => data.value ?? [])

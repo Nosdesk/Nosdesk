@@ -331,7 +331,7 @@ const tooltipStyle = computed(() => {
 </script>
 
 <template>
-  <div ref="containerRef" class="flex flex-col w-full h-full">
+  <div class="flex flex-col w-full h-full">
     <div v-if="loading" class="flex-1 flex items-center justify-center text-tertiary text-xs">
       {{ t('dashboard-line-chart-loading') }}
     </div>
