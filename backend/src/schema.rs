@@ -1047,6 +1047,9 @@ diesel::table! {
         read_at -> Nullable<Timestamptz>,
         created_at -> Timestamptz,
         workspace_id -> Int4,
+        seen_at -> Nullable<Timestamptz>,
+        archived_at -> Nullable<Timestamptz>,
+        snoozed_until -> Nullable<Timestamptz>,
     }
 }
 

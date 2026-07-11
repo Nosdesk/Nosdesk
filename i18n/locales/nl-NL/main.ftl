@@ -5929,6 +5929,9 @@ inbox-selected-count = { $count ->
 }
 inbox-action-mark-read = Markeren als gelezen
 inbox-action-delete = Verwijderen
+inbox-aria-mark-read = Markeren als gelezen: { $title }
+inbox-aria-mark-unread = Markeren als ongelezen: { $title }
+inbox-aria-archive = Archiveren: { $title }
 notifications-bell-aria-trigger = Notificaties
 notifications-bell-aria-filter = Notificaties filteren
 editor-mentions-hint-select = Selecteren

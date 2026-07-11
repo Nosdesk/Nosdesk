@@ -431,6 +431,8 @@ impl NotificationService {
                     .inner_join(notification_types::table)
                     .filter(user_uuid.eq(user_uuid_val))
                     .filter(is_read.eq(false))
+                    // Archived items drop out of the active inbox.
+                    .filter(archived_at.is_null())
                     .order(created_at.desc())
                     .limit(limit)
                     .select((
@@ -454,6 +456,9 @@ impl NotificationService {
                 body: n.body,
                 metadata: n.metadata,
                 is_read: n.is_read,
+                seen_at: n.seen_at,
+                archived_at: n.archived_at,
+                snoozed_until: n.snoozed_until,
                 created_at: n.created_at,
             })
             .collect())
@@ -476,6 +481,9 @@ impl NotificationService {
                 notifications
                     .inner_join(notification_types::table)
                     .filter(user_uuid.eq(user_uuid_val))
+                    // Archived items drop out of the active inbox (they
+                    // remain retrievable once an Archived view exists).
+                    .filter(archived_at.is_null())
                     .order(created_at.desc())
                     .limit(limit)
                     .offset(offset)
@@ -500,6 +508,9 @@ impl NotificationService {
                 body: n.body,
                 metadata: n.metadata,
                 is_read: n.is_read,
+                seen_at: n.seen_at,
+                archived_at: n.archived_at,
+                snoozed_until: n.snoozed_until,
                 created_at: n.created_at,
             })
             .collect())
@@ -516,6 +527,8 @@ impl NotificationService {
                 notifications
                     .filter(user_uuid.eq(user_uuid_val))
                     .filter(is_read.eq(false))
+                    // Archived items leave the active unread set too.
+                    .filter(archived_at.is_null())
                     .count()
                     .get_result(conn)
             },
@@ -561,6 +574,105 @@ impl NotificationService {
                         .filter(is_read.eq(false)),
                 )
                 .set((is_read.eq(true), read_at.eq(Some(Utc::now().naive_utc()))))
+                .execute(conn)
+            },
+        )
+        .map_err(|e| format!("Update failed: {e}"))
+    }
+
+    /// Count unseen, active (not archived) notifications for a user.
+    /// Drives the bell badge: opening the panel marks items seen and
+    /// clears the badge without marking each one read (seen != read).
+    pub async fn get_unseen_count(&self, user_uuid_val: &Uuid) -> Result<i64, String> {
+        use crate::schema::notifications::dsl::*;
+
+        crate::sync::session::background_run(
+            &self.pool,
+            "background:notification_unseen_count",
+            |conn| {
+                notifications
+                    .filter(user_uuid.eq(user_uuid_val))
+                    .filter(seen_at.is_null())
+                    .filter(archived_at.is_null())
+                    .count()
+                    .get_result(conn)
+            },
+        )
+        .map_err(|e| format!("Query failed: {e}"))
+    }
+
+    /// Mark all of a user's unseen notifications as seen (badge clear on
+    /// panel/inbox open). Distinct from mark-all-read: seeing clears the
+    /// badge; reading is a separate, explicit per-item action.
+    pub async fn mark_all_seen(&self, user_uuid_val: &Uuid) -> Result<usize, String> {
+        use crate::schema::notifications::dsl::*;
+
+        crate::sync::session::background_run(
+            &self.pool,
+            "background:notification_mark_all_seen",
+            |conn| {
+                diesel::update(
+                    notifications
+                        .filter(user_uuid.eq(user_uuid_val))
+                        .filter(seen_at.is_null()),
+                )
+                .set(seen_at.eq(Some(Utc::now().naive_utc())))
+                .execute(conn)
+            },
+        )
+        .map_err(|e| format!("Update failed: {e}"))
+    }
+
+    /// Mark notifications unread (inverse of mark_read): clears is_read
+    /// and read_at so an item returns to the unread set.
+    pub async fn mark_unread(
+        &self,
+        user_uuid_val: &Uuid,
+        notification_ids: &[i32],
+    ) -> Result<usize, String> {
+        use crate::schema::notifications::dsl::*;
+
+        crate::sync::session::background_run(
+            &self.pool,
+            "background:notification_mark_unread",
+            |conn| {
+                diesel::update(
+                    notifications
+                        .filter(user_uuid.eq(user_uuid_val))
+                        .filter(id.eq_any(notification_ids)),
+                )
+                .set((is_read.eq(false), read_at.eq(None::<chrono::NaiveDateTime>)))
+                .execute(conn)
+            },
+        )
+        .map_err(|e| format!("Update failed: {e}"))
+    }
+
+    /// Archive (or unarchive) notifications: reversible triage that hides
+    /// items from the active inbox without deleting them, replacing the
+    /// destructive dismiss. `archived = false` restores them.
+    pub async fn set_archived(
+        &self,
+        user_uuid_val: &Uuid,
+        notification_ids: &[i32],
+        archived: bool,
+    ) -> Result<usize, String> {
+        use crate::schema::notifications::dsl::*;
+
+        crate::sync::session::background_run(
+            &self.pool,
+            "background:notification_set_archived",
+            |conn| {
+                diesel::update(
+                    notifications
+                        .filter(user_uuid.eq(user_uuid_val))
+                        .filter(id.eq_any(notification_ids)),
+                )
+                .set(archived_at.eq(if archived {
+                    Some(Utc::now().naive_utc())
+                } else {
+                    None::<chrono::NaiveDateTime>
+                }))
                 .execute(conn)
             },
         )

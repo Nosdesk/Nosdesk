@@ -38,6 +38,11 @@ async fn notifications_config_routes_registered() {
         &[
             ("GET", "/notifications"),
             ("GET", "/notifications/count"),
+            ("GET", "/notifications/unseen-count"),
+            ("POST", "/notifications/seen"),
+            ("POST", "/notifications/unread"),
+            ("POST", "/notifications/archive"),
+            ("POST", "/notifications/unarchive"),
             ("POST", "/notifications/read"),
             ("POST", "/notifications/read-all"),
             ("GET", "/notifications/preferences"),

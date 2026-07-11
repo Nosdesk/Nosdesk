@@ -6131,6 +6131,9 @@ inbox-selected-count = { $count ->
 }
 inbox-action-mark-read = Mark read
 inbox-action-delete = Delete
+inbox-aria-mark-read = Mark as read: { $title }
+inbox-aria-mark-unread = Mark as unread: { $title }
+inbox-aria-archive = Archive: { $title }
 notifications-bell-aria-trigger = Notifications
 notifications-bell-aria-filter = Filter notifications
 editor-mentions-hint-select = Select

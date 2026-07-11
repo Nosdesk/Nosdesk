@@ -21,7 +21,13 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { Notification } from '@nosdesk/core/services/notificationService'
-import { useDeleteManyMutation, useNotificationsStore } from '@/stores/notifications'
+import {
+  useArchiveMutation,
+  useDeleteManyMutation,
+  useMarkAllSeenMutation,
+  useMarkUnreadMutation,
+  useNotificationsStore,
+} from '@/stores/notifications'
 import {
   applyNotificationFilter,
   iconForNotificationType,
@@ -58,8 +64,12 @@ const {
   isLoadingMore,
   markRead,
   markManyRead,
-  dismiss,
 } = feed
+
+// Per-item triage: reversible archive (replaces destructive dismiss)
+// and a read/unread toggle.
+const archive = useArchiveMutation()
+const markUnread = useMarkUnreadMutation()
 
 // Bulk-delete is inbox-only (no equivalent in the bell), so it
 // lives here rather than in the shared feed.
@@ -226,18 +236,21 @@ async function navigateToNotification(notification: Notification) {
   }
 }
 
-function handleMarkRead(event: Event, notification: Notification) {
+// Read toggle: one control flips a row between read and unread so a
+// user can re-flag an item they want to revisit.
+function handleToggleRead(event: Event, notification: Notification) {
   event.stopPropagation()
-  if (!notification.is_read) markRead.mutate(notification.id)
+  if (notification.is_read) markUnread.mutate(notification.id)
+  else markRead.mutate(notification.id)
 }
 
-function handleClearNotification(event: Event, notification: Notification) {
+function handleArchiveNotification(event: Event, notification: Notification) {
   event.stopPropagation()
   // Focus management: keyboard users lose context when a row
   // unmounts under their cursor. Find the next focusable
-  // sibling row first; once Vue settles the deletion, send
+  // sibling row first; once Vue settles the removal, send
   // focus there. Falls back to the previous sibling when the
-  // dismissed item was the last in its group.
+  // archived item was the last in its group.
   const trigger = event.currentTarget as HTMLElement | null
   const rowEl = trigger?.closest('[data-notification-row]') as HTMLElement | null
   const target =
@@ -246,7 +259,9 @@ function handleClearNotification(event: Event, notification: Notification) {
   const next = new Set(selectedIds.value)
   next.delete(notification.id)
   selectedIds.value = next
-  dismiss.mutate(notification.id)
+  // Archive (reversible) rather than hard-delete: the row leaves the
+  // active inbox but is retained server-side.
+  archive.mutate(notification.id)
   nextTick(() => {
     if (!target) return
     const focusable = target.querySelector(
@@ -314,10 +329,15 @@ watch(filter, () => {
   selectedIds.value = next
 })
 
+const markAllSeen = useMarkAllSeenMutation()
+
 onMounted(() => {
   // SSE wiring (idempotent). Pinia Colada handles the initial
   // list/unread fetches automatically when the queries mount.
   store.ensureSubscribed()
+  // Opening the inbox counts as seeing everything: clear the badge
+  // (unseen) without marking items read.
+  markAllSeen.mutate()
 })
 
 onBeforeUnmount(() => {
@@ -594,21 +614,24 @@ onBeforeUnmount(() => {
                     class="flex items-center gap-0.5 opacity-60 transition-opacity group-hover:opacity-100"
                   >
                     <button
-                      v-if="!notification.is_read"
                       type="button"
-                      @click="handleMarkRead($event, notification)"
+                      @click="handleToggleRead($event, notification)"
                       class="rounded p-1 text-tertiary hover:bg-surface-alt hover:text-primary"
-                      :aria-label="`Mark as read: ${notification.title}`"
+                      :aria-label="
+                        notification.is_read
+                          ? t('inbox-aria-mark-unread', { title: notification.title })
+                          : t('inbox-aria-mark-read', { title: notification.title })
+                      "
                     >
-                      <Icon name="check" size="xs" />
+                      <Icon :name="notification.is_read ? 'eyeOff' : 'check'" size="xs" />
                     </button>
                     <button
                       type="button"
-                      @click="handleClearNotification($event, notification)"
+                      @click="handleArchiveNotification($event, notification)"
                       class="rounded p-1 text-tertiary hover:bg-surface-alt hover:text-primary"
-                      :aria-label="`Dismiss: ${notification.title}`"
+                      :aria-label="t('inbox-aria-archive', { title: notification.title })"
                     >
-                      <Icon name="close" size="xs" />
+                      <Icon name="archive" size="xs" />
                     </button>
                   </div>
                 </div>
