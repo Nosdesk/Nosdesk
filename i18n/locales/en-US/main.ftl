@@ -6124,6 +6124,13 @@ inbox-aria-filter = Filter notifications
 inbox-aria-bulk-actions = Bulk actions
 inbox-aria-clear-selection = Clear selection
 inbox-aria-select-all = Select all notifications
+inbox-aria-select-item = Select: { $title }
+inbox-selected-count = { $count ->
+    [one] { $count } selected
+   *[other] { $count } selected
+}
+inbox-action-mark-read = Mark read
+inbox-action-delete = Delete
 notifications-bell-aria-trigger = Notifications
 notifications-bell-aria-filter = Filter notifications
 editor-mentions-hint-select = Select

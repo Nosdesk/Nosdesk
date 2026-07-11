@@ -5921,6 +5921,14 @@ inbox-aria-filter = Notificaties filteren
 inbox-aria-bulk-actions = Bulkacties
 inbox-aria-clear-selection = Selectie wissen
 inbox-aria-select-all = Alle notificaties selecteren
+# MACHINE TRANSLATION, pending native review
+inbox-aria-select-item = Selecteren: { $title }
+inbox-selected-count = { $count ->
+    [one] { $count } geselecteerd
+   *[other] { $count } geselecteerd
+}
+inbox-action-mark-read = Markeren als gelezen
+inbox-action-delete = Verwijderen
 notifications-bell-aria-trigger = Notificaties
 notifications-bell-aria-filter = Notificaties filteren
 editor-mentions-hint-select = Selecteren

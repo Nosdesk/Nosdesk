@@ -78,7 +78,9 @@ impl NotificationTypeCode {
 pub enum NotificationChannel {
     InApp,
     Email,
-    Push,
+    // Push is intentionally absent: no delivery adapter is registered or
+    // seeded, so accepting it would silently drop notifications. Re-add it
+    // alongside a PushChannel + seed matrix when push actually ships.
 }
 
 impl NotificationChannel {
@@ -86,7 +88,6 @@ impl NotificationChannel {
         match self {
             Self::InApp => "in_app",
             Self::Email => "email",
-            Self::Push => "push",
         }
     }
 
@@ -94,7 +95,6 @@ impl NotificationChannel {
         match s {
             "in_app" => Some(Self::InApp),
             "email" => Some(Self::Email),
-            "push" => Some(Self::Push),
             _ => None,
         }
     }
@@ -317,11 +317,7 @@ mod tests {
 
     #[test]
     fn notification_channel_roundtrip() {
-        let channels = [
-            NotificationChannel::InApp,
-            NotificationChannel::Email,
-            NotificationChannel::Push,
-        ];
+        let channels = [NotificationChannel::InApp, NotificationChannel::Email];
         for ch in &channels {
             let s = ch.as_str();
             let parsed = NotificationChannel::from_str(s).unwrap();

@@ -51,6 +51,12 @@ const TYPE_ICON: Record<string, IconName> = {
   comment_added: 'comment',
   mentioned: 'at',
   doc_page_updated: 'documentEdit',
+  // The time-sensitive operational types carry their own glyph so the
+  // eye pre-sorts them from the routine ticket/comment stream.
+  asset_low_stock: 'consumable',
+  sla_breached: 'warning',
+  loan_due_soon: 'clock',
+  loan_overdue: 'warning',
 }
 
 /** Map a notification type code to its display icon. Falls back
@@ -102,10 +108,12 @@ export interface NotificationFeed {
   markManyRead: ReturnType<typeof useMarkManyReadMutation>
 
   // Convenience handlers -----------------------------------
-  /** Mark-all-read scoped to the active filter. The All tab uses
-   *  the global server endpoint (one round trip); other tabs
-   *  pass the visible unread ids so a user on "Mentions" doesn't
-   *  accidentally clear unrelated notifications. */
+  /** Mark-all-read scoped to the active filter. "All" and "Unread"
+   *  both use the global server endpoint (marking everything read is
+   *  what either button means), so unread items beyond the loaded
+   *  window are cleared and the badge actually zeroes. "Mentions"
+   *  passes the visible unread ids so it doesn't clear unrelated
+   *  notifications (no type-scoped bulk endpoint exists yet). */
   markAllReadScoped: (
     filter: NotificationFilter,
     visible: readonly Notification[],
@@ -143,7 +151,11 @@ export function useNotificationFeed(): NotificationFeed {
     filter: NotificationFilter,
     visible: readonly Notification[],
   ) {
-    if (filter === 'all') {
+    // 'unread' is semantically identical to 'all' (mark everything
+    // read), so route it through the global endpoint too — otherwise
+    // unread items beyond the loaded window stay unread server-side and
+    // the badge snaps back non-zero after the refetch.
+    if (filter === 'all' || filter === 'unread') {
       markAllRead.mutate()
       return
     }
