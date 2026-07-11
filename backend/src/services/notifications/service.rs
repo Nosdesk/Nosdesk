@@ -431,6 +431,8 @@ impl NotificationService {
                     .inner_join(notification_types::table)
                     .filter(user_uuid.eq(user_uuid_val))
                     .filter(is_read.eq(false))
+                    // Archived items drop out of the active inbox.
+                    .filter(archived_at.is_null())
                     .order(created_at.desc())
                     .limit(limit)
                     .select((
@@ -479,6 +481,9 @@ impl NotificationService {
                 notifications
                     .inner_join(notification_types::table)
                     .filter(user_uuid.eq(user_uuid_val))
+                    // Archived items drop out of the active inbox (they
+                    // remain retrievable once an Archived view exists).
+                    .filter(archived_at.is_null())
                     .order(created_at.desc())
                     .limit(limit)
                     .offset(offset)
@@ -522,6 +527,8 @@ impl NotificationService {
                 notifications
                     .filter(user_uuid.eq(user_uuid_val))
                     .filter(is_read.eq(false))
+                    // Archived items leave the active unread set too.
+                    .filter(archived_at.is_null())
                     .count()
                     .get_result(conn)
             },

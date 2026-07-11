@@ -33,6 +33,7 @@ import {
   type UseInfiniteQueryData,
 } from '@pinia/colada'
 import {
+  archiveNotifications,
   deleteNotifications,
   getNotifications,
   getUnreadCount,
@@ -40,6 +41,7 @@ import {
   markAllNotificationsRead,
   markAllSeen,
   markNotificationsRead,
+  markNotificationsUnread,
   type Notification,
 } from '@nosdesk/core/services/notificationService'
 import { onSyncActions } from '@nosdesk/core/sync/observers'
@@ -272,6 +274,41 @@ export function useMarkAllSeenMutation() {
     },
   })
 }
+
+/** Archive a notification: reversible triage that drops it from the
+ *  active inbox (the server hides archived rows), replacing the
+ *  destructive dismiss. Optimistically removes it from the list. */
+export const useArchiveMutation = defineListMutation<number>({
+  mutate: (id) => archiveNotifications([id]),
+  optimistic: (id, queryCache) => {
+    let removedUnread = false
+    transformList(queryCache, (page) =>
+      page.filter((n) => {
+        if (n.id !== id) return true
+        if (!n.is_read) removedUnread = true
+        return false
+      }),
+    )
+    if (removedUnread) adjustUnread(queryCache, -1)
+  },
+})
+
+/** Mark a single notification unread (inverse of mark-read): flips it
+ *  back into the unread set and bumps the count. */
+export const useMarkUnreadMutation = defineListMutation<number>({
+  mutate: (id) => markNotificationsUnread([id]),
+  optimistic: (id, queryCache) => {
+    let flipped = false
+    transformList(queryCache, (page) =>
+      page.map((n) => {
+        if (n.id !== id || !n.is_read) return n
+        flipped = true
+        return { ...n, is_read: false }
+      }),
+    )
+    if (flipped) adjustUnread(queryCache, 1)
+  },
+})
 
 export const useDeleteManyMutation = defineListMutation<number[]>({
   mutate: (ids) => deleteNotifications(ids),
