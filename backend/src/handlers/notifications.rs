@@ -3,6 +3,7 @@
 //! Endpoints for managing user notifications and preferences.
 
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
+use chrono::{DateTime, Utc};
 
 use crate::handlers::{errors, helpers};
 use serde::Deserialize;
@@ -30,6 +31,15 @@ pub struct MarkReadRequest {
 #[derive(Debug, Deserialize)]
 pub struct DeleteNotificationsRequest {
     pub notification_ids: Vec<i32>,
+}
+
+/// Request body for snoozing notifications until a given time.
+#[derive(Debug, Deserialize)]
+pub struct SnoozeRequest {
+    pub notification_ids: Vec<i32>,
+    /// ISO-8601 instant; the items stay hidden from the active inbox
+    /// until this time, then auto-unsnooze.
+    pub until: DateTime<Utc>,
 }
 
 /// Request body for updating a preference
@@ -60,6 +70,10 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         .route(
             "/notifications/unarchive",
             web::post().to(unarchive_notifications),
+        )
+        .route(
+            "/notifications/snooze",
+            web::post().to(snooze_notifications),
         )
         .route(
             "/notifications/read",
@@ -279,6 +293,37 @@ pub async fn unarchive_notifications(
 
     match notification_service
         .set_archived(&user_uuid, &body.notification_ids, false)
+        .await
+    {
+        Ok(count) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "count": count
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({ "error": e })),
+    }
+}
+
+/// Snooze notifications until a given time (hides them from the active
+/// inbox until then; they auto-unsnooze).
+///
+/// POST /api/notifications/snooze
+pub async fn snooze_notifications(
+    req: HttpRequest,
+    notification_service: web::Data<NotificationService>,
+    body: web::Json<SnoozeRequest>,
+) -> HttpResponse {
+    let claims = match req.extensions().get::<Claims>() {
+        Some(c) => c.clone(),
+        None => return HttpResponse::Unauthorized().finish(),
+    };
+
+    let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
+        Ok(u) => u,
+        Err(_) => return errors::bad_request("Invalid user UUID"),
+    };
+
+    match notification_service
+        .snooze(&user_uuid, &body.notification_ids, body.until.naive_utc())
         .await
     {
         Ok(count) => HttpResponse::Ok().json(serde_json::json!({
