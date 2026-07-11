@@ -36,7 +36,9 @@ import {
   deleteNotifications,
   getNotifications,
   getUnreadCount,
+  getUnseenCount,
   markAllNotificationsRead,
+  markAllSeen,
   markNotificationsRead,
   type Notification,
 } from '@nosdesk/core/services/notificationService'
@@ -51,6 +53,7 @@ export const NOTIFICATIONS_KEYS = {
   root: ['notifications'] as const,
   list: () => [...NOTIFICATIONS_KEYS.root, 'list'] as const,
   unreadCount: () => [...NOTIFICATIONS_KEYS.root, 'unreadCount'] as const,
+  unseenCount: () => [...NOTIFICATIONS_KEYS.root, 'unseenCount'] as const,
 }
 
 // ---- Queries -------------------------------------------------
@@ -77,12 +80,23 @@ export function useNotificationsList() {
   })
 }
 
-/** Unread count for the bell badge. Cheap query, refetched
- *  alongside the list on SSE arrivals. */
+/** Unread count (how many items are not yet read). Drives the inbox
+ *  "unread" affordances; refetched alongside the list on SSE arrivals. */
 export function useUnreadCount() {
   return useQuery({
     key: NOTIFICATIONS_KEYS.unreadCount(),
     query: () => getUnreadCount(),
+  })
+}
+
+/** Unseen count for the bell badge. Per the redesign the badge counts
+ *  UNSEEN (cleared when the panel/inbox opens), which is distinct from
+ *  unread: glancing at the bell clears the badge without marking every
+ *  item read. Cheap query, refetched alongside the list on SSE arrivals. */
+export function useUnseenCount() {
+  return useQuery({
+    key: NOTIFICATIONS_KEYS.unseenCount(),
+    query: () => getUnseenCount(),
   })
 }
 
@@ -234,6 +248,31 @@ export const useMarkManyReadMutation = defineListMutation<number[]>({
   },
 })
 
+/** Mark all notifications seen: clears the bell badge when the panel or
+ *  inbox opens, WITHOUT marking anything read (seen != read). Operates
+ *  on the unseen count only, not the list read-state, so it doesn't use
+ *  the list-mutation factory. Optimistically zeroes the count, then lets
+ *  the server settle it. */
+export function useMarkAllSeenMutation() {
+  const queryCache = useQueryCache()
+  return useMutation<unknown, void, Error, { previous: number | undefined }>({
+    mutation: () => markAllSeen(),
+    onMutate: () => {
+      const previous = queryCache.getQueryData<number>(NOTIFICATIONS_KEYS.unseenCount())
+      queryCache.setQueryData(NOTIFICATIONS_KEYS.unseenCount(), 0)
+      return { previous }
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.previous !== undefined) {
+        queryCache.setQueryData(NOTIFICATIONS_KEYS.unseenCount(), ctx.previous)
+      }
+    },
+    onSettled: () => {
+      queryCache.invalidateQueries({ key: NOTIFICATIONS_KEYS.unseenCount() })
+    },
+  })
+}
+
 export const useDeleteManyMutation = defineListMutation<number[]>({
   mutate: (ids) => deleteNotifications(ids),
   optimistic: (ids, queryCache) => {
@@ -285,6 +324,7 @@ export const useNotificationsStore = defineStore('notifications', () => {
   let subscribed = false
 
   function revalidateNotifications() {
+    queryCache.invalidateQueries({ key: NOTIFICATIONS_KEYS.unseenCount() })
     queryCache.invalidateQueries({ key: NOTIFICATIONS_KEYS.unreadCount() })
     queryCache.invalidateQueries({ key: NOTIFICATIONS_KEYS.list() })
   }

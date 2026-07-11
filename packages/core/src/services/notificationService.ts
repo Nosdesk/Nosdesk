@@ -33,6 +33,12 @@ export interface Notification {
   entity_type: string;
   entity_id: number;
   is_read: boolean;
+  /** Engagement state (phase 1 state model). `seen_at` drives the badge
+   *  (unseen count), `archived_at` hides from the active inbox without
+   *  deleting, `snoozed_until` defers re-surfacing. */
+  seen_at?: string | null;
+  archived_at?: string | null;
+  snoozed_until?: string | null;
   created_at: string;
   metadata?: {
     ticket_id?: number;
@@ -152,10 +158,47 @@ export async function getUnreadCount(): Promise<number> {
 }
 
 /**
+ * Get unseen notification count (badge source; cleared on panel open,
+ * distinct from unread).
+ */
+export async function getUnseenCount(): Promise<number> {
+  const response = await apiClient.get<{ count: number }>('/notifications/unseen-count');
+  return response.data.count;
+}
+
+/**
+ * Mark all notifications as seen (badge clear on panel/inbox open).
+ */
+export async function markAllSeen(): Promise<void> {
+  await apiClient.post('/notifications/seen');
+}
+
+/**
  * Mark notifications as read
  */
 export async function markNotificationsRead(notificationIds: number[]): Promise<void> {
   await apiClient.post('/notifications/read', { notification_ids: notificationIds });
+}
+
+/**
+ * Mark notifications unread (inverse of read).
+ */
+export async function markNotificationsUnread(notificationIds: number[]): Promise<void> {
+  await apiClient.post('/notifications/unread', { notification_ids: notificationIds });
+}
+
+/**
+ * Archive notifications (reversible; hides from the active inbox).
+ */
+export async function archiveNotifications(notificationIds: number[]): Promise<void> {
+  await apiClient.post('/notifications/archive', { notification_ids: notificationIds });
+}
+
+/**
+ * Unarchive notifications (restore to the active inbox).
+ */
+export async function unarchiveNotifications(notificationIds: number[]): Promise<void> {
+  await apiClient.post('/notifications/unarchive', { notification_ids: notificationIds });
 }
 
 /**
@@ -178,8 +221,13 @@ export default {
   deleteNotifications,
   getNotifications,
   getUnreadCount,
+  getUnseenCount,
+  markAllSeen,
   markNotificationsRead,
+  markNotificationsUnread,
   markAllNotificationsRead,
+  archiveNotifications,
+  unarchiveNotifications,
   NOTIFICATION_TYPES,
   NOTIFICATION_CHANNELS,
 };

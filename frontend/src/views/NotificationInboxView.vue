@@ -21,7 +21,11 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { Notification } from '@nosdesk/core/services/notificationService'
-import { useDeleteManyMutation, useNotificationsStore } from '@/stores/notifications'
+import {
+  useDeleteManyMutation,
+  useMarkAllSeenMutation,
+  useNotificationsStore,
+} from '@/stores/notifications'
 import {
   applyNotificationFilter,
   iconForNotificationType,
@@ -314,10 +318,15 @@ watch(filter, () => {
   selectedIds.value = next
 })
 
+const markAllSeen = useMarkAllSeenMutation()
+
 onMounted(() => {
   // SSE wiring (idempotent). Pinia Colada handles the initial
   // list/unread fetches automatically when the queries mount.
   store.ensureSubscribed()
+  // Opening the inbox counts as seeing everything: clear the badge
+  // (unseen) without marking items read.
+  markAllSeen.mutate()
 })
 
 onBeforeUnmount(() => {

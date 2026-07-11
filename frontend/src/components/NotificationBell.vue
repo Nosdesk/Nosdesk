@@ -23,7 +23,11 @@ import { computed, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 import type { Notification } from '@nosdesk/core/services/notificationService'
-import { useNotificationsStore } from '@/stores/notifications'
+import {
+  useNotificationsStore,
+  useUnseenCount,
+  useMarkAllSeenMutation,
+} from '@/stores/notifications'
 import {
   applyNotificationFilter,
   iconForNotificationType,
@@ -71,13 +75,18 @@ const {
   list,
   unread,
   items,
-  unreadCount,
   hasMore,
   fetchOp,
   isLoadingMore,
   markRead,
   dismiss,
 } = feed
+
+// The badge counts UNSEEN (redesign): opening the panel marks items
+// seen and clears it, distinct from marking them read.
+const unseen = useUnseenCount()
+const markAllSeen = useMarkAllSeenMutation()
+const unseenCount = computed(() => unseen.data.value ?? 0)
 
 const buttonRef = ref<HTMLButtonElement | null>(null)
 const isOpen = ref(false)
@@ -88,8 +97,8 @@ const anchor = computed<PopoverAnchor>(() => ({
   element: () => buttonRef.value,
 }))
 
-const hasUnread = computed(() => unreadCount.value > 0)
-const displayCount = computed(() => (unreadCount.value > 99 ? '99+' : String(unreadCount.value)))
+const hasUnread = computed(() => unseenCount.value > 0)
+const displayCount = computed(() => (unseenCount.value > 99 ? '99+' : String(unseenCount.value)))
 
 const filteredNotifications = computed(() =>
   applyNotificationFilter(filter.value, items.value),
@@ -151,9 +160,11 @@ function toggleOpen() {
     return
   }
   isOpen.value = true
-  // Refresh on open to surface any quietly-arrived items the
-  // SSE handler may have invalidated. Colada serves cached data
-  // immediately and refetches in the background.
+  // Opening the panel marks everything seen (clears the badge) without
+  // marking items read. Refresh on open to surface any quietly-arrived
+  // items the SSE handler may have invalidated; Colada serves cached
+  // data immediately and refetches in the background.
+  markAllSeen.mutate()
   list.refresh()
   unread.refresh()
 }
@@ -229,7 +240,7 @@ onMounted(() => {
       :aria-expanded="isOpen"
     >
       <Icon name="bell" size="md" />
-      <UnreadBadge :count="unreadCount" class="absolute -right-0.5 -top-0.5" />
+      <UnreadBadge :count="unseenCount" class="absolute -right-0.5 -top-0.5" />
     </button>
 
     <ResponsiveMenu
