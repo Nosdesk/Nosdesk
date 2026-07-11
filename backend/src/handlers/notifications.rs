@@ -50,6 +50,18 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         )
         .route("/notifications/seen", web::post().to(mark_all_seen))
         .route(
+            "/notifications/unread",
+            web::post().to(mark_notifications_unread),
+        )
+        .route(
+            "/notifications/archive",
+            web::post().to(archive_notifications),
+        )
+        .route(
+            "/notifications/unarchive",
+            web::post().to(unarchive_notifications),
+        )
+        .route(
             "/notifications/read",
             web::post().to(mark_notifications_read),
         )
@@ -184,6 +196,96 @@ pub async fn mark_all_seen(
         Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
             "error": e
         })),
+    }
+}
+
+/// Mark notifications unread (inverse of read)
+///
+/// POST /api/notifications/unread
+pub async fn mark_notifications_unread(
+    req: HttpRequest,
+    notification_service: web::Data<NotificationService>,
+    body: web::Json<MarkReadRequest>,
+) -> HttpResponse {
+    let claims = match req.extensions().get::<Claims>() {
+        Some(c) => c.clone(),
+        None => return HttpResponse::Unauthorized().finish(),
+    };
+
+    let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
+        Ok(u) => u,
+        Err(_) => return errors::bad_request("Invalid user UUID"),
+    };
+
+    match notification_service
+        .mark_unread(&user_uuid, &body.notification_ids)
+        .await
+    {
+        Ok(count) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "count": count
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({ "error": e })),
+    }
+}
+
+/// Archive notifications (reversible; hides from the active inbox)
+///
+/// POST /api/notifications/archive
+pub async fn archive_notifications(
+    req: HttpRequest,
+    notification_service: web::Data<NotificationService>,
+    body: web::Json<MarkReadRequest>,
+) -> HttpResponse {
+    let claims = match req.extensions().get::<Claims>() {
+        Some(c) => c.clone(),
+        None => return HttpResponse::Unauthorized().finish(),
+    };
+
+    let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
+        Ok(u) => u,
+        Err(_) => return errors::bad_request("Invalid user UUID"),
+    };
+
+    match notification_service
+        .set_archived(&user_uuid, &body.notification_ids, true)
+        .await
+    {
+        Ok(count) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "count": count
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({ "error": e })),
+    }
+}
+
+/// Unarchive notifications (restore to the active inbox)
+///
+/// POST /api/notifications/unarchive
+pub async fn unarchive_notifications(
+    req: HttpRequest,
+    notification_service: web::Data<NotificationService>,
+    body: web::Json<MarkReadRequest>,
+) -> HttpResponse {
+    let claims = match req.extensions().get::<Claims>() {
+        Some(c) => c.clone(),
+        None => return HttpResponse::Unauthorized().finish(),
+    };
+
+    let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
+        Ok(u) => u,
+        Err(_) => return errors::bad_request("Invalid user UUID"),
+    };
+
+    match notification_service
+        .set_archived(&user_uuid, &body.notification_ids, false)
+        .await
+    {
+        Ok(count) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "count": count
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({ "error": e })),
     }
 }
 

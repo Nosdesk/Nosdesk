@@ -616,6 +616,62 @@ impl NotificationService {
         .map_err(|e| format!("Update failed: {e}"))
     }
 
+    /// Mark notifications unread (inverse of mark_read): clears is_read
+    /// and read_at so an item returns to the unread set.
+    pub async fn mark_unread(
+        &self,
+        user_uuid_val: &Uuid,
+        notification_ids: &[i32],
+    ) -> Result<usize, String> {
+        use crate::schema::notifications::dsl::*;
+
+        crate::sync::session::background_run(
+            &self.pool,
+            "background:notification_mark_unread",
+            |conn| {
+                diesel::update(
+                    notifications
+                        .filter(user_uuid.eq(user_uuid_val))
+                        .filter(id.eq_any(notification_ids)),
+                )
+                .set((is_read.eq(false), read_at.eq(None::<chrono::NaiveDateTime>)))
+                .execute(conn)
+            },
+        )
+        .map_err(|e| format!("Update failed: {e}"))
+    }
+
+    /// Archive (or unarchive) notifications: reversible triage that hides
+    /// items from the active inbox without deleting them, replacing the
+    /// destructive dismiss. `archived = false` restores them.
+    pub async fn set_archived(
+        &self,
+        user_uuid_val: &Uuid,
+        notification_ids: &[i32],
+        archived: bool,
+    ) -> Result<usize, String> {
+        use crate::schema::notifications::dsl::*;
+
+        crate::sync::session::background_run(
+            &self.pool,
+            "background:notification_set_archived",
+            |conn| {
+                diesel::update(
+                    notifications
+                        .filter(user_uuid.eq(user_uuid_val))
+                        .filter(id.eq_any(notification_ids)),
+                )
+                .set(archived_at.eq(if archived {
+                    Some(Utc::now().naive_utc())
+                } else {
+                    None::<chrono::NaiveDateTime>
+                }))
+                .execute(conn)
+            },
+        )
+        .map_err(|e| format!("Update failed: {e}"))
+    }
+
     /// Delete multiple notifications for a user
     pub async fn delete_notifications(
         &self,
