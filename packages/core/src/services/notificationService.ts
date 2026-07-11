@@ -202,6 +202,14 @@ export async function unarchiveNotifications(notificationIds: number[]): Promise
 }
 
 /**
+ * Snooze notifications until `until` (an ISO-8601 instant): they hide
+ * from the active inbox until then, then auto-unsnooze server-side.
+ */
+export async function snoozeNotifications(notificationIds: number[], until: string): Promise<void> {
+  await apiClient.post('/notifications/snooze', { notification_ids: notificationIds, until });
+}
+
+/**
  * Mark all notifications as read
  */
 export async function markAllNotificationsRead(): Promise<void> {
@@ -228,6 +236,7 @@ export default {
   markAllNotificationsRead,
   archiveNotifications,
   unarchiveNotifications,
+  snoozeNotifications,
   NOTIFICATION_TYPES,
   NOTIFICATION_CHANNELS,
 };

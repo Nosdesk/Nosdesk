@@ -5932,6 +5932,12 @@ inbox-action-delete = Verwijderen
 inbox-aria-mark-read = Markeren als gelezen: { $title }
 inbox-aria-mark-unread = Markeren als ongelezen: { $title }
 inbox-aria-archive = Archiveren: { $title }
+# MACHINE TRANSLATION, pending native review (inbox snooze)
+inbox-snooze-trigger = Uitstellen: { $title }
+inbox-snooze-heading = Uitstellen tot…
+inbox-snooze-later-today = Later vandaag
+inbox-snooze-tomorrow = Morgen
+inbox-snooze-next-week = Volgende week
 notifications-bell-aria-trigger = Notificaties
 notifications-bell-aria-filter = Notificaties filteren
 editor-mentions-hint-select = Selecteren
