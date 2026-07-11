@@ -26,6 +26,7 @@ import {
   useDeleteManyMutation,
   useMarkAllSeenMutation,
   useMarkUnreadMutation,
+  useSnoozeMutation,
   useNotificationsStore,
 } from '@/stores/notifications'
 import {
@@ -36,6 +37,7 @@ import {
   type NotificationFilter,
 } from '@/composables/useNotificationFeed'
 import { formatInboxTime, parseDate } from '@nosdesk/core/utils/dateUtils'
+import NotificationSnoozeMenu from '@/components/NotificationSnoozeMenu.vue'
 import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
 import Checkbox from '@/components/common/Checkbox.vue'
@@ -66,10 +68,11 @@ const {
   markManyRead,
 } = feed
 
-// Per-item triage: reversible archive (replaces destructive dismiss)
-// and a read/unread toggle.
+// Per-item triage: reversible archive (replaces destructive dismiss),
+// a read/unread toggle, and snooze.
 const archive = useArchiveMutation()
 const markUnread = useMarkUnreadMutation()
+const snooze = useSnoozeMutation()
 
 // Bulk-delete is inbox-only (no equivalent in the bell), so it
 // lives here rather than in the shared feed.
@@ -242,6 +245,16 @@ function handleToggleRead(event: Event, notification: Notification) {
   event.stopPropagation()
   if (notification.is_read) markUnread.mutate(notification.id)
   else markRead.mutate(notification.id)
+}
+
+function handleSnoozeNotification(until: string, notification: Notification) {
+  // Snooze removes the row from the active inbox (like archive) until the
+  // chosen time. The snooze menu stops propagation on its own trigger, so
+  // no row navigation fires.
+  const next = new Set(selectedIds.value)
+  next.delete(notification.id)
+  selectedIds.value = next
+  snooze.mutate({ id: notification.id, until })
 }
 
 function handleArchiveNotification(event: Event, notification: Notification) {
@@ -625,6 +638,10 @@ onBeforeUnmount(() => {
                     >
                       <Icon :name="notification.is_read ? 'eyeOff' : 'check'" size="xs" />
                     </button>
+                    <NotificationSnoozeMenu
+                      :title="notification.title"
+                      @snooze="(until: string) => handleSnoozeNotification(until, notification)"
+                    />
                     <button
                       type="button"
                       @click="handleArchiveNotification($event, notification)"

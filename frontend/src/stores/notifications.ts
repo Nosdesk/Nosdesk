@@ -42,6 +42,7 @@ import {
   markAllSeen,
   markNotificationsRead,
   markNotificationsUnread,
+  snoozeNotifications,
   type Notification,
 } from '@nosdesk/core/services/notificationService'
 import { onSyncActions } from '@nosdesk/core/sync/observers'
@@ -307,6 +308,24 @@ export const useMarkUnreadMutation = defineListMutation<number>({
       }),
     )
     if (flipped) adjustUnread(queryCache, 1)
+  },
+})
+
+/** Snooze a notification until `until` (ISO string): the server hides
+ *  it from the active inbox until then, so — like archive — it drops out
+ *  of the list optimistically. */
+export const useSnoozeMutation = defineListMutation<{ id: number; until: string }>({
+  mutate: ({ id, until }) => snoozeNotifications([id], until),
+  optimistic: ({ id }, queryCache) => {
+    let removedUnread = false
+    transformList(queryCache, (page) =>
+      page.filter((n) => {
+        if (n.id !== id) return true
+        if (!n.is_read) removedUnread = true
+        return false
+      }),
+    )
+    if (removedUnread) adjustUnread(queryCache, -1)
   },
 })
 
