@@ -43,6 +43,7 @@ async fn notifications_config_routes_registered() {
             ("POST", "/notifications/unread"),
             ("POST", "/notifications/archive"),
             ("POST", "/notifications/unarchive"),
+            ("POST", "/notifications/snooze"),
             ("POST", "/notifications/read"),
             ("POST", "/notifications/read-all"),
             ("GET", "/notifications/preferences"),

@@ -433,6 +433,13 @@ impl NotificationService {
                     .filter(is_read.eq(false))
                     // Archived items drop out of the active inbox.
                     .filter(archived_at.is_null())
+                    // Snoozed items stay hidden until their time passes
+                    // (auto-unsnooze by the read filter, no extra write).
+                    .filter(
+                        snoozed_until
+                            .is_null()
+                            .or(snoozed_until.le(Utc::now().naive_utc())),
+                    )
                     .order(created_at.desc())
                     .limit(limit)
                     .select((
@@ -484,6 +491,12 @@ impl NotificationService {
                     // Archived items drop out of the active inbox (they
                     // remain retrievable once an Archived view exists).
                     .filter(archived_at.is_null())
+                    // Snoozed items stay hidden until their time passes.
+                    .filter(
+                        snoozed_until
+                            .is_null()
+                            .or(snoozed_until.le(Utc::now().naive_utc())),
+                    )
                     .order(created_at.desc())
                     .limit(limit)
                     .offset(offset)
@@ -594,6 +607,12 @@ impl NotificationService {
                     .filter(user_uuid.eq(user_uuid_val))
                     .filter(seen_at.is_null())
                     .filter(archived_at.is_null())
+                    // Snoozed items don't ping the badge until they surface.
+                    .filter(
+                        snoozed_until
+                            .is_null()
+                            .or(snoozed_until.le(Utc::now().naive_utc())),
+                    )
                     .count()
                     .get_result(conn)
             },
@@ -676,6 +695,30 @@ impl NotificationService {
                 .execute(conn)
             },
         )
+        .map_err(|e| format!("Update failed: {e}"))
+    }
+
+    /// Snooze notifications until a given time: hides them from the
+    /// active inbox until `until`, after which the read-side filter
+    /// auto-unsnoozes them (no follow-up write needed). Passing a past
+    /// timestamp effectively unsnoozes immediately.
+    pub async fn snooze(
+        &self,
+        user_uuid_val: &Uuid,
+        notification_ids: &[i32],
+        until: chrono::NaiveDateTime,
+    ) -> Result<usize, String> {
+        use crate::schema::notifications::dsl::*;
+
+        crate::sync::session::background_run(&self.pool, "background:notification_snooze", |conn| {
+            diesel::update(
+                notifications
+                    .filter(user_uuid.eq(user_uuid_val))
+                    .filter(id.eq_any(notification_ids)),
+            )
+            .set(snoozed_until.eq(Some(until)))
+            .execute(conn)
+        })
         .map_err(|e| format!("Update failed: {e}"))
     }
 
