@@ -8,8 +8,16 @@ import apiClient from '../apiClient';
 
 export interface NotificationPreference {
   notification_type: string;
-  channel: string;
-  enabled: boolean;
+  notification_name: string;
+  description: string | null;
+  category: string;
+  /**
+   * Per-channel enabled state, keyed by channel code (`in_app`, `email`).
+   * Matches the backend `NotificationPreferenceResponse` shape: the API
+   * returns ONE row per type with a channels map, NOT one row per
+   * (type, channel) pair.
+   */
+  channels: Record<string, boolean>;
 }
 
 export interface NotificationPreferencesResponse {

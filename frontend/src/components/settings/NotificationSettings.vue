@@ -120,13 +120,12 @@ const groupedNotificationTypes = computed(() => {
   return groups;
 });
 
-// Get preference value for a specific type/channel combination
+// Get preference value for a specific type/channel combination. The API
+// returns one row per type with a channels map, so read the channel out
+// of that map (defaulting to enabled when the type/channel is absent).
 const getPreference = (typeCode: string, channelCode: string): boolean => {
-  const pref = preferences.value.find(
-    (p) => p.notification_type === typeCode && p.channel === channelCode
-  );
-  // Default to true if no preference exists
-  return pref?.enabled ?? true;
+  const pref = preferences.value.find((p) => p.notification_type === typeCode);
+  return pref?.channels[channelCode] ?? true;
 };
 
 // Check if all preferences for a channel are enabled
@@ -145,20 +144,9 @@ const togglePreference = async (typeCode: string, channelCode: string) => {
   try {
     await updateNotificationPreference(typeCode, channelCode, newValue);
 
-    // Update local state
-    const existingIndex = preferences.value.findIndex(
-      (p) => p.notification_type === typeCode && p.channel === channelCode
-    );
-
-    if (existingIndex >= 0) {
-      preferences.value[existingIndex].enabled = newValue;
-    } else {
-      preferences.value.push({
-        notification_type: typeCode,
-        channel: channelCode,
-        enabled: newValue,
-      });
-    }
+    // Update local state (mutate the type's channels map).
+    const group = preferences.value.find((p) => p.notification_type === typeCode);
+    if (group) group.channels[channelCode] = newValue;
 
     emit('success', t('settings-notifications-preference-update-success'));
   } catch {
@@ -180,20 +168,9 @@ const toggleAllForChannel = async (channelCode: string) => {
     try {
       await updateNotificationPreference(type.code, channelCode, newValue);
 
-      // Update local state
-      const existingIndex = preferences.value.findIndex(
-        (p) => p.notification_type === type.code && p.channel === channelCode
-      );
-
-      if (existingIndex >= 0) {
-        preferences.value[existingIndex].enabled = newValue;
-      } else {
-        preferences.value.push({
-          notification_type: type.code,
-          channel: channelCode,
-          enabled: newValue,
-        });
-      }
+      // Update local state (mutate the type's channels map).
+      const group = preferences.value.find((p) => p.notification_type === type.code);
+      if (group) group.channels[channelCode] = newValue;
     } catch {
       // Continue with other preferences even if one fails
     }
