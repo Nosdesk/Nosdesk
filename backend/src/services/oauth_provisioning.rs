@@ -258,7 +258,33 @@ pub fn find_or_create_projected_user(
         &metadata,
         &password_hash,
     )? {
-        Some(user) => ProjectionOutcome::Existed(user),
+        Some(user) => {
+            // Identity orchestration O1: the projecting IdP is authoritative for
+            // the display name, so update it on RE-projection when the projection
+            // carries a name that differs — a control-plane (or SSO) display-name
+            // change now reaches an already-projected user instead of being lost
+            // (the old behaviour was create-only). Goes through `update_user` so
+            // the sync event fires. An absent or empty name is ignored so the row
+            // is never blanked, matching the create-branch fallback.
+            match name.as_ref() {
+                Some(new_name) if !new_name.is_empty() && *new_name != user.name => {
+                    let upd = crate::models::UserUpdate {
+                        name: Some(new_name.clone()),
+                        pronouns: None,
+                        avatar_url: None,
+                        banner_url: None,
+                        avatar_thumb: None,
+                        microsoft_uuid: None,
+                        updated_at: None,
+                    };
+                    let updated =
+                        crate::repository::users::update_user(&user.uuid, upd, conn, None)
+                            .map_err(|e| format!("reproject rename: {e:?}"))?;
+                    ProjectionOutcome::Existed(updated)
+                }
+                _ => ProjectionOutcome::Existed(user),
+            }
+        }
         None => {
             let display_name = name.clone().unwrap_or_else(|| {
                 // Fallback for callers that didn't send a name. Email

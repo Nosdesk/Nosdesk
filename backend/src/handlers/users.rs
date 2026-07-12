@@ -2052,6 +2052,17 @@ pub async fn update_user_by_uuid(
         return errors::forbidden("You can only update your own profile");
     }
 
+    // Identity orchestration O3: on hosted, the global display NAME is owned by
+    // the control plane (projected here, read-only in the product) — reject a
+    // name edit so the projected cache can't re-diverge; the user changes it in
+    // their Nosdesk account. Pronouns/avatar and preferences stay editable
+    // (avatar moves to the CP later, in O5). Self-hosted is unaffected.
+    if user_data.name.is_some() && crate::handlers::auth::hosted_local_auth_disabled() {
+        return errors::forbidden(
+            "Your display name is managed in your Nosdesk account — update it there.",
+        );
+    }
+
     // Every DB operation runs through `tc.run`, which wraps the work in
     // a transaction with the actor + workspace GUCs set. The audited
     // `users` table needs `app.workspace_id` pinned for the NDX01
