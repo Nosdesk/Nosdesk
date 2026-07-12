@@ -157,6 +157,22 @@ function adjustUnread(queryCache: QueryCache, delta: number) {
   )
 }
 
+/** Optimistically drop a notification from the cached list and, if it
+ *  was unread, decrement the unread count. Shared by every mutation
+ *  that removes a row from the active inbox: dismiss (delete), archive,
+ *  and snooze. */
+function removeFromList(queryCache: QueryCache, id: number) {
+  let removedUnread = false
+  transformList(queryCache, (page) =>
+    page.filter((n) => {
+      if (n.id !== id) return true
+      if (!n.is_read) removedUnread = true
+      return false
+    }),
+  )
+  if (removedUnread) adjustUnread(queryCache, -1)
+}
+
 /** Factory for "list-mutation" composables. Every notification
  *  mutation follows the same lifecycle: cancel pending fetches,
  *  snapshot for rollback, apply the optimistic update, reconcile
@@ -211,17 +227,7 @@ export const useMarkReadMutation = defineListMutation<number>({
 
 export const useDismissMutation = defineListMutation<number>({
   mutate: (id) => deleteNotifications([id]),
-  optimistic: (id, queryCache) => {
-    let removedUnread = false
-    transformList(queryCache, (page) =>
-      page.filter((n) => {
-        if (n.id !== id) return true
-        if (!n.is_read) removedUnread = true
-        return false
-      }),
-    )
-    if (removedUnread) adjustUnread(queryCache, -1)
-  },
+  optimistic: (id, queryCache) => removeFromList(queryCache, id),
 })
 
 export const useMarkAllReadMutation = defineListMutation<void>({
@@ -281,17 +287,7 @@ export function useMarkAllSeenMutation() {
  *  destructive dismiss. Optimistically removes it from the list. */
 export const useArchiveMutation = defineListMutation<number>({
   mutate: (id) => archiveNotifications([id]),
-  optimistic: (id, queryCache) => {
-    let removedUnread = false
-    transformList(queryCache, (page) =>
-      page.filter((n) => {
-        if (n.id !== id) return true
-        if (!n.is_read) removedUnread = true
-        return false
-      }),
-    )
-    if (removedUnread) adjustUnread(queryCache, -1)
-  },
+  optimistic: (id, queryCache) => removeFromList(queryCache, id),
 })
 
 /** Mark a single notification unread (inverse of mark-read): flips it
@@ -316,17 +312,7 @@ export const useMarkUnreadMutation = defineListMutation<number>({
  *  of the list optimistically. */
 export const useSnoozeMutation = defineListMutation<{ id: number; until: string }>({
   mutate: ({ id, until }) => snoozeNotifications([id], until),
-  optimistic: ({ id }, queryCache) => {
-    let removedUnread = false
-    transformList(queryCache, (page) =>
-      page.filter((n) => {
-        if (n.id !== id) return true
-        if (!n.is_read) removedUnread = true
-        return false
-      }),
-    )
-    if (removedUnread) adjustUnread(queryCache, -1)
-  },
+  optimistic: ({ id }, queryCache) => removeFromList(queryCache, id),
 })
 
 export const useDeleteManyMutation = defineListMutation<number[]>({
