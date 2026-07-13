@@ -83,6 +83,33 @@ pub fn list_profile_custom_fields(conn: &mut DbConnection) -> QueryResult<Vec<(U
         .load(conn)
 }
 
+/// O7: batch-load the per-workspace display-name overrides for these users in
+/// the ACTIVE workspace. `user_profiles` is RLS-scoped to `app.workspace_id`,
+/// so no workspace arg is needed and a missing/blank workspace GUC simply
+/// yields no overrides (fall back to the global name). Only non-empty overrides
+/// are returned; the map omits users without a persona name.
+pub fn display_name_overrides(
+    conn: &mut DbConnection,
+    user_uuids: &[Uuid],
+) -> QueryResult<std::collections::HashMap<Uuid, String>> {
+    use crate::schema::user_profiles::dsl as up;
+    use diesel::prelude::*;
+    if user_uuids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let rows: Vec<(Uuid, Option<String>)> = up::user_profiles
+        .filter(up::user_uuid.eq_any(user_uuids))
+        .select((up::user_uuid, up::display_name))
+        .load(conn)?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|(uuid, name)| {
+            let n = name?.trim().to_string();
+            (!n.is_empty()).then_some((uuid, n))
+        })
+        .collect())
+}
+
 // sync-audit-only: user profile is per-(user,workspace) contact data (audited); contact fields fold into the user sync payload in a later phase
 /// Upsert the manual side of a user's profile. `directory_synced` is never
 /// changed here (Graph owns it); the caller preserves synced standard columns.
@@ -101,6 +128,7 @@ pub fn upsert_profile(
             custom_fields: input.custom_fields.clone(),
             directory_synced: false,
             created_by: actor,
+            display_name: input.display_name.clone(),
         })
         .on_conflict((user_profiles::workspace_id, user_profiles::user_uuid))
         .do_update()
@@ -109,6 +137,7 @@ pub fn upsert_profile(
             user_profiles::organization.eq(input.organization.clone()),
             user_profiles::department.eq(input.department.clone()),
             user_profiles::custom_fields.eq(input.custom_fields.clone()),
+            user_profiles::display_name.eq(input.display_name.clone()),
         ))
         .get_result(conn)
 }
@@ -319,6 +348,9 @@ pub fn apply_directory_contact(
                 custom_fields: cf.clone(),
                 directory_synced: true,
                 created_by: actor,
+                // Directory sync doesn't own the persona override; on an
+                // existing row the do_update below leaves display_name intact.
+                display_name: None,
             })
             .on_conflict((user_profiles::workspace_id, user_profiles::user_uuid))
             .do_update()
@@ -403,6 +435,64 @@ mod tests {
     }
 
     #[test]
+    fn display_name_override_set_read_overlay_and_cleared() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "Global Name", "user");
+
+        // No profile row -> no override.
+        assert!(display_name_overrides(&mut conn, &[user.uuid])
+            .unwrap()
+            .is_empty());
+
+        // Set a per-workspace persona -> resolver returns it and the
+        // persona-aware user map overlays it onto the global name.
+        upsert_profile(
+            &mut conn,
+            user.uuid,
+            &UserProfileInput {
+                job_title: None,
+                organization: None,
+                department: None,
+                custom_fields: json!({}),
+                display_name: Some("Workspace Persona".into()),
+            },
+            Some(user.uuid),
+        )
+        .unwrap();
+        let over = display_name_overrides(&mut conn, &[user.uuid]).unwrap();
+        assert_eq!(
+            over.get(&user.uuid).map(String::as_str),
+            Some("Workspace Persona")
+        );
+        let map =
+            crate::repository::users::get_user_map_by_uuids_with_persona(&[user.uuid], &mut conn)
+                .unwrap();
+        assert_eq!(map.get(&user.uuid).unwrap().name, "Workspace Persona");
+
+        // Clear it -> resolver drops it, map falls back to the global name.
+        upsert_profile(
+            &mut conn,
+            user.uuid,
+            &UserProfileInput {
+                job_title: None,
+                organization: None,
+                department: None,
+                custom_fields: json!({}),
+                display_name: None,
+            },
+            Some(user.uuid),
+        )
+        .unwrap();
+        assert!(display_name_overrides(&mut conn, &[user.uuid])
+            .unwrap()
+            .is_empty());
+        let map =
+            crate::repository::users::get_user_map_by_uuids_with_persona(&[user.uuid], &mut conn)
+                .unwrap();
+        assert_eq!(map.get(&user.uuid).unwrap().name, "Global Name");
+    }
+
+    #[test]
     fn profile_upsert_roundtrip() {
         let mut conn = setup_test_connection();
         let user = TestFixtures::create_user(&mut conn, "Profile User", "user");
@@ -416,6 +506,7 @@ mod tests {
                 organization: Some("Acme".into()),
                 department: Some("IT".into()),
                 custom_fields: json!({ "gender": "x" }),
+                display_name: None,
             },
             Some(user.uuid),
         )
@@ -431,6 +522,7 @@ mod tests {
                 organization: None,
                 department: Some("IT".into()),
                 custom_fields: json!({ "gender": "y" }),
+                display_name: None,
             },
             Some(user.uuid),
         )
@@ -561,6 +653,7 @@ mod tests {
                 organization: None,
                 department: None,
                 custom_fields: json!({ "gender": "z" }),
+                display_name: None,
             },
             None,
         )

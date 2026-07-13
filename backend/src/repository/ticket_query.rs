@@ -502,7 +502,8 @@ impl TicketQuery {
             .iter()
             .flat_map(|t| t.requester_uuid.into_iter().chain(t.assignee_uuid))
             .collect();
-        let users = crate::repository::users::get_user_map_by_uuids(&user_uuids, conn)?;
+        let users =
+            crate::repository::users::get_user_map_by_uuids_with_persona(&user_uuids, conn)?;
 
         let items = tickets
             .into_iter()

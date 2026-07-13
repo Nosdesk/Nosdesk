@@ -1888,6 +1888,8 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
+        #[max_length = 255]
+        display_name -> Nullable<Varchar>,
     }
 }
 

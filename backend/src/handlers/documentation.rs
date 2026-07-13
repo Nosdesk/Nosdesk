@@ -459,7 +459,7 @@ fn to_page_response(
     if let Some(verified_by) = page.verified_by {
         uuids.push(verified_by);
     }
-    let users = repository::users::get_user_map_by_uuids(&uuids, conn)
+    let users = repository::users::get_user_map_by_uuids_with_persona(&uuids, conn)
         .map_err(|e| format!("Failed to fetch page authors: {e:?}"))?;
     build_page_response(page, &users, conn)
 }
@@ -533,7 +533,7 @@ fn to_page_responses(
             uuids.push(verified_by);
         }
     }
-    let users = repository::users::get_user_map_by_uuids(&uuids, conn)
+    let users = repository::users::get_user_map_by_uuids_with_persona(&uuids, conn)
         .map_err(|e| format!("Failed to fetch page authors: {e:?}"))?;
 
     pages

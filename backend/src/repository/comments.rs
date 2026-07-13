@@ -432,7 +432,8 @@ pub fn get_comments_with_attachments_by_ticket_id(
     // comment id, and comment authors by their (distinct) uuids.
     let mut attachments_by_comment = get_attachments_for_comments(conn, &comment_ids)?;
     let author_uuids: Vec<uuid::Uuid> = comments.iter().map(|c| c.user_uuid).collect();
-    let authors = crate::repository::users::get_user_map_by_uuids(&author_uuids, conn)?;
+    let authors =
+        crate::repository::users::get_user_map_by_uuids_with_persona(&author_uuids, conn)?;
 
     Ok(comments
         .into_iter()

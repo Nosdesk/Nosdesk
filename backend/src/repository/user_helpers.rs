@@ -428,10 +428,16 @@ pub fn get_user_with_primary_email(
     let primary_email = get_primary_email(&user.uuid, conn);
     let prefs = crate::repository::user_preferences::get(conn, user.uuid).ok();
     let workspace_role = workspace_role(conn, user.uuid);
+    // O7: render the per-workspace persona name when set (RLS-scoped to the
+    // active workspace), else the global control-plane name.
+    let display_name = crate::repository::user_contact::display_name_overrides(conn, &[user.uuid])
+        .ok()
+        .and_then(|mut m| m.remove(&user.uuid))
+        .unwrap_or(user.name);
 
     crate::models::UserResponse {
         uuid: user.uuid,
-        name: user.name,
+        name: display_name,
         email: primary_email,
         platform_role: PlatformRole::from_db(&user.platform_role),
         workspace_role,
@@ -511,6 +517,11 @@ pub fn get_users_with_primary_emails(
             .collect()
     };
 
+    // O7: per-workspace persona overrides (RLS-scoped), applied over the global
+    // name so rosters/pickers show the workspace persona when set.
+    let persona_map = crate::repository::user_contact::display_name_overrides(conn, &user_uuids)
+        .unwrap_or_default();
+
     users
         .into_iter()
         .map(|user| {
@@ -521,7 +532,7 @@ pub fn get_users_with_primary_emails(
                 .map(|r| WorkspaceRole::from_db(r));
             crate::models::UserResponse {
                 uuid: user.uuid,
-                name: user.name,
+                name: persona_map.get(&user.uuid).cloned().unwrap_or(user.name),
                 email,
                 platform_role: PlatformRole::from_db(&user.platform_role),
                 workspace_role,

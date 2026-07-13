@@ -497,8 +497,8 @@ fn devices_to_responses(
     let mut directory_groups = groups_repo::get_groups_for_devices(conn, &ids).unwrap_or_default();
 
     let user_uuids: Vec<Uuid> = devices.iter().filter_map(|d| d.primary_user_uuid).collect();
-    let user_map =
-        crate::repository::users::get_user_map_by_uuids(&user_uuids, conn).unwrap_or_default();
+    let user_map = crate::repository::users::get_user_map_by_uuids_with_persona(&user_uuids, conn)
+        .unwrap_or_default();
     let role_map = repository::user_helpers::workspace_roles_batch(&user_uuids, conn);
     let email_map = repository::user_helpers::get_primary_emails_batch(&user_uuids, conn);
 
