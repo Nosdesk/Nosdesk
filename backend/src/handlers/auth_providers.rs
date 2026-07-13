@@ -1666,6 +1666,9 @@ async fn find_or_create_oauth_user(
             .get("preferred_username")
             .and_then(|v| v.as_str())
             .map(str::to_string),
+        // A login snapshot isn't authoritative for the whole verified set — the
+        // control plane's reproject fan-out owns email reconciliation (O6).
+        verified_email_set: None,
         role: "member".to_string(),
         workspace_id,
         password_hash: Some(password_hash),

@@ -92,6 +92,13 @@ pub struct ProjectedUserInput {
     /// updates it on re-projection. `None` from callers that don't
     /// carry a handle (LDAP/directory sync).
     pub username: Option<String>,
+    /// The user's full VERIFIED email set (orchestration O6). `Some(_)`
+    /// marks this projection AUTHORITATIVE for the set: reconcile
+    /// `user_emails` to it (add each as a verified non-primary row,
+    /// drop stale non-primary rows, never touch the primary/invited
+    /// address). `None` from callers that don't carry it (login/LDAP),
+    /// which leaves the product's emails untouched.
+    pub verified_email_set: Option<Vec<String>>,
     /// Workspace membership role to grant: `"owner"`, `"admin"`,
     /// or `"member"`. ON CONFLICT DO NOTHING semantics mean
     /// re-projecting an existing membership preserves the prior
@@ -246,6 +253,7 @@ pub fn find_or_create_projected_user(
         email_verified,
         name,
         username,
+        verified_email_set,
         role,
         workspace_id,
         password_hash,
@@ -369,6 +377,13 @@ pub fn find_or_create_projected_user(
                 user.username = Some(new_username.to_string());
             }
         }
+        // O6: reconcile the verified email set when the projection is
+        // authoritative for it. user_emails carries no audit trigger, so these
+        // writes need no actor context (unlike the `users` table above).
+        if let Some(ref set) = verified_email_set {
+            reconcile_projected_emails(conn, user.uuid, set)
+                .map_err(|e| format!("reproject emails: {e:?}"))?;
+        }
         if created {
             ProjectionOutcome::Created(user)
         } else {
@@ -416,6 +431,68 @@ pub fn find_or_create_projected_user(
     debug_assert!(!persisted_role.is_empty());
 
     Ok(outcome)
+}
+
+/// O6: reconcile the product's `user_emails` cache to the control plane's
+/// authoritative VERIFIED set. Adds each address as a verified, NON-primary row
+/// (so the user is resolvable by any of them on the OIDC identity-match paths)
+/// WITHOUT touching the existing primary — the invited/login address stays
+/// primary, so admin-visible surfaces and notification routing don't move and a
+/// member's other addresses never surface to workspace admins. Then drops stale
+/// non-primary rows so a removal at the control plane propagates here. An
+/// address already owned by a DIFFERENT user (emails are globally unique) is
+/// left alone. `user_emails` carries no audit trigger, so these writes need no
+/// actor context.
+fn reconcile_projected_emails(
+    conn: &mut DbConnection,
+    user_uuid: uuid::Uuid,
+    verified_addresses: &[String],
+) -> Result<(), DieselError> {
+    use crate::schema::user_emails as ue;
+    use diesel::prelude::*;
+    use diesel::PgTextExpressionMethods;
+
+    let normalized: Vec<String> = verified_addresses
+        .iter()
+        .map(|a| a.trim().to_lowercase())
+        .filter(|a| !a.is_empty())
+        .collect();
+
+    for addr in &normalized {
+        match user_emails::find_user_by_any_email(conn, addr) {
+            // Present and ours -> ensure it reads verified (case-insensitive
+            // match: an existing row may have been stored mixed-case).
+            Ok(owner) if owner.uuid == user_uuid => {
+                diesel::update(
+                    ue::table
+                        .filter(ue::user_uuid.eq(user_uuid))
+                        .filter(ue::email.ilike(addr)),
+                )
+                .set(ue::is_verified.eq(true))
+                .execute(conn)?;
+            }
+            // Owned by someone else -> emails are globally unique; leave it.
+            Ok(_) => {}
+            // Absent -> add as a verified, non-primary row.
+            Err(DieselError::NotFound) => {
+                let row = NewUserEmail {
+                    user_uuid,
+                    email: addr.clone(),
+                    email_type: "work".to_string(),
+                    is_primary: false,
+                    is_verified: true,
+                    source: Some("control-plane".to_string()),
+                };
+                diesel::insert_into(ue::table).values(&row).execute(conn)?;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+
+    // Drop stale non-primary rows (addresses removed at the control plane); the
+    // primitive never deletes the primary.
+    user_emails::cleanup_obsolete_emails(conn, &user_uuid, &normalized, "control-plane")?;
+    Ok(())
 }
 
 /// Insert a `user_emails` row mirroring the OIDC-provided address
@@ -489,6 +566,7 @@ mod tests {
             email_verified: true,
             name: Some("Owner One".to_string()),
             username: None,
+            verified_email_set: None,
             role: "owner".to_string(),
             workspace_id: 1,
             password_hash: None,
@@ -506,6 +584,7 @@ mod tests {
             email_verified: true,
             name: Some("Owner One renamed by IdP".to_string()),
             username: None,
+            verified_email_set: None,
             role: "owner".to_string(),
             workspace_id: 1,
             password_hash: Some("$2b$12$placeholder".to_string()),
@@ -541,6 +620,7 @@ mod tests {
             email_verified: true,
             name: Some("Handle Holder".to_string()),
             username: None,
+            verified_email_set: None,
             role: "owner".to_string(),
             workspace_id: 1,
             password_hash: None,
@@ -582,6 +662,74 @@ mod tests {
         );
     }
 
+    /// O6: a projected verified set adds each address as a verified non-primary
+    /// row, leaves the primary (invited/login) address untouched, and a shrunk
+    /// set on re-projection drops the stale secondary — while the primary
+    /// survives.
+    #[test]
+    fn reconcile_projected_emails_adds_removes_and_keeps_primary() {
+        let mut conn = setup_test_connection();
+        let iss = "https://api.nosdesk.com/";
+        let sub = format!("owner-{}", uuid::Uuid::new_v4());
+        let primary = format!("primary+{}@acme.example", uuid::Uuid::new_v4());
+        let secondary = format!("secondary+{}@acme.example", uuid::Uuid::new_v4());
+
+        let input = |emails: Option<Vec<String>>| ProjectedUserInput {
+            iss: iss.to_string(),
+            sub: sub.clone(),
+            identity_workspace_id: None,
+            email: primary.clone(),
+            email_verified: true,
+            name: Some("Email Holder".to_string()),
+            username: None,
+            verified_email_set: emails,
+            role: "owner".to_string(),
+            workspace_id: 1,
+            password_hash: None,
+            metadata: None,
+        };
+
+        // Create with a two-address verified set.
+        let uuid = find_or_create_projected_user(
+            &mut conn,
+            input(Some(vec![primary.clone(), secondary.clone()])),
+        )
+        .expect("create")
+        .into_user()
+        .uuid;
+
+        let rows = crate::repository::user_emails::get_user_emails_by_uuid(&mut conn, &uuid)
+            .expect("list emails");
+        assert!(
+            rows.iter()
+                .any(|r| r.email.eq_ignore_ascii_case(&primary) && r.is_primary),
+            "the invited/login address stays the primary row"
+        );
+        assert!(
+            rows.iter().any(|r| r.email.eq_ignore_ascii_case(&secondary)
+                && !r.is_primary
+                && r.is_verified),
+            "the extra verified address is added as a verified, non-primary row"
+        );
+
+        // Re-project WITHOUT the secondary -> it's dropped; primary survives.
+        find_or_create_projected_user(&mut conn, input(Some(vec![primary.clone()])))
+            .expect("reproject shrink");
+        let rows = crate::repository::user_emails::get_user_emails_by_uuid(&mut conn, &uuid)
+            .expect("list emails");
+        assert!(
+            rows.iter()
+                .any(|r| r.email.eq_ignore_ascii_case(&primary) && r.is_primary),
+            "primary is never removed by reconciliation"
+        );
+        assert!(
+            !rows
+                .iter()
+                .any(|r| r.email.eq_ignore_ascii_case(&secondary)),
+            "a secondary removed at the control plane is dropped from the product"
+        );
+    }
+
     /// Same shape as above but asserts the trailing slash matters: a
     /// lazy lookup with `iss` minus the trailing slash misses, falls
     /// to the email-fallback branch, and (since this test reuses the
@@ -607,6 +755,7 @@ mod tests {
             email_verified: true,
             name: Some("Owner Two".to_string()),
             username: None,
+            verified_email_set: None,
             role: "owner".to_string(),
             workspace_id: 1,
             password_hash: None,
@@ -623,6 +772,7 @@ mod tests {
             email_verified: true,
             name: Some("Owner Two".to_string()),
             username: None,
+            verified_email_set: None,
             role: "owner".to_string(),
             workspace_id: 1,
             password_hash: Some("$2b$12$placeholder".to_string()),
@@ -675,6 +825,7 @@ mod tests {
             email_verified: true,
             name: Some("Victim".to_string()),
             username: None,
+            verified_email_set: None,
             role: "member".to_string(),
             workspace_id: 1,
             password_hash: None,
@@ -743,6 +894,7 @@ mod tests {
             email_verified: true,
             name: Some("Directory User".to_string()),
             username: None,
+            verified_email_set: None,
             role: "member".to_string(),
             workspace_id: 1,
             password_hash: None,

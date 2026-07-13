@@ -474,6 +474,8 @@ fn provision_entry(
         name: mapped.display_name,
         // LDAP doesn't carry our global handle.
         username: None,
+        // Directory sync doesn't carry the CP verified-email set.
+        verified_email_set: None,
         role: "member".to_string(),
         workspace_id,
         password_hash: None,

@@ -485,6 +485,17 @@ pub async fn set_seat_limit(
 // `workspace_members.user_uuid` FK has a target when the control
 // plane writes the parent row at provision time.
 
+/// One verified address in a projected email set (orchestration O6).
+#[derive(Debug, Deserialize)]
+pub struct ProjectedEmailInput {
+    pub address: String,
+    /// The CP's primary flag. Carried for completeness but NOT applied to the
+    /// product primary today: the product keeps the invited/login address as
+    /// its primary (privacy — admins see only the invited address).
+    #[serde(default)]
+    pub primary: bool,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct UpsertProjectedUserRequest {
     /// OIDC `iss` (issuer URL or stable provider identifier).
@@ -501,6 +512,13 @@ pub struct UpsertProjectedUserRequest {
     /// still projects. The product stores/updates it; it never drives auth.
     #[serde(default)]
     pub username: Option<String>,
+    /// The user's full VERIFIED email set (orchestration O6). When present, it
+    /// is AUTHORITATIVE: the product reconciles its `user_emails` cache to it
+    /// (adds each as a verified non-primary row, drops stale non-primary rows,
+    /// never touches the primary/invited address). `None`/omitted leaves emails
+    /// untouched — safe for an older control plane that never sends it.
+    #[serde(default)]
+    pub emails: Option<Vec<ProjectedEmailInput>>,
     /// One of `owner`, `admin`, `agent`, `member`. First-write-wins on
     /// the `workspace_members` row — re-projecting an existing
     /// membership does NOT silently escalate or downgrade the role
@@ -545,6 +563,7 @@ pub async fn upsert_projected_user(
         email,
         name,
         username,
+        emails,
         role,
     } = body.into_inner();
 
@@ -583,6 +602,8 @@ pub async fn upsert_projected_user(
         email_verified: true,
         name,
         username,
+        // Carry just the addresses; the product keeps its own primary (O6).
+        verified_email_set: emails.map(|v| v.into_iter().map(|e| e.address).collect()),
         role: role.clone(),
         workspace_id: workspace.id,
         // Eager-projected users authenticate exclusively via OIDC

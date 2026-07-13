@@ -2830,10 +2830,21 @@ pub async fn get_user_profile_bundle(
         return errors::forbidden("Not authorized to view this profile");
     }
 
-    let groups = match parse_profile_include(query.include.as_deref()) {
+    let mut groups = match parse_profile_include(query.include.as_deref()) {
         Ok(g) => g,
         Err(resp) => return resp,
     };
+
+    // Privacy (identity orchestration O6): the full verified email set is
+    // self / platform-admin only. A WORKSPACE admin viewing another member's
+    // profile must not receive it — with the control plane projecting a user's
+    // whole verified set into `user_emails`, that would leak every address a
+    // member owns; admins are only ever meant to see the address a seat was
+    // invited to (surfaced elsewhere, not from this set). Strip the group
+    // rather than 403 the whole bundle so the other groups still load.
+    if user_uuid_parsed != auth.user_uuid && !auth.is_platform_admin() {
+        groups.remove(&crate::repository::user_profile::ProfileGroup::Emails);
+    }
 
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
