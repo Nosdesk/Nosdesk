@@ -1596,6 +1596,16 @@ pub async fn upload_user_image(
         }
     };
 
+    // Identity orchestration O5: on hosted, the global AVATAR is owned by the
+    // control plane — users change it in their Nosdesk account, which projects
+    // it here — so a product-side avatar upload would diverge. Reject it.
+    // Banners stay product-owned (the CP models only the avatar).
+    if image_type.as_str() == "avatar" && crate::handlers::auth::hosted_local_auth_disabled() {
+        return errors::forbidden(
+            "Your avatar is managed in your Nosdesk account — update it there.",
+        );
+    }
+
     // Determine the upload directory based on image type
     let storage_path = match image_type.as_str() {
         "avatar" => "users/avatars",

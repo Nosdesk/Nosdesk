@@ -544,7 +544,8 @@ async fn try_ldap_login(
                 name: result.display_name.clone(),
                 // LDAP doesn't carry our global handle.
                 username: None,
-                // LDAP login carries no CP verified-set snapshot either.
+                // LDAP carries neither our avatar nor a verified-set snapshot.
+                avatar_url: None,
                 verified_email_set: None,
                 // Group->role mapping lands in P4; until then a new LDAP user
                 // gets the baseline member role.

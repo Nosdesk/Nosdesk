@@ -92,6 +92,11 @@ pub struct ProjectedUserInput {
     /// updates it on re-projection. `None` from callers that don't
     /// carry a handle (LDAP/directory sync).
     pub username: Option<String>,
+    /// CP-hosted global avatar (orchestration O5). `Option<Option<_>>`
+    /// tri-state: `None` → no change (login/LDAP); `Some(Some(url))` → set;
+    /// `Some(None)` → clear. Only the authoritative reproject sends the
+    /// outer-`Some` form.
+    pub avatar_url: Option<Option<String>>,
     /// The user's full VERIFIED email set (orchestration O6). `Some(_)`
     /// marks this projection AUTHORITATIVE for the set: reconcile
     /// `user_emails` to it (add each as a verified non-primary row,
@@ -253,6 +258,7 @@ pub fn find_or_create_projected_user(
         email_verified,
         name,
         username,
+        avatar_url,
         verified_email_set,
         role,
         workspace_id,
@@ -375,6 +381,20 @@ pub fn find_or_create_projected_user(
                     .execute(conn)
                     .map_err(|e| format!("reproject username: {e:?}"))?;
                 user.username = Some(new_username.to_string());
+            }
+        }
+        // O5: sync the CP-hosted avatar when the projection is authoritative for
+        // it. `Some(av)` sets (av `None` => clear); outer `None` => no change.
+        // CP-owned, so written directly (not via the general UserUpdate surface).
+        if let Some(av) = avatar_url {
+            if user.avatar_url != av {
+                use crate::schema::users::dsl as u;
+                use diesel::prelude::*;
+                diesel::update(u::users.filter(u::uuid.eq(user.uuid)))
+                    .set(u::avatar_url.eq(av.as_deref()))
+                    .execute(conn)
+                    .map_err(|e| format!("reproject avatar: {e:?}"))?;
+                user.avatar_url = av;
             }
         }
         // O6: reconcile the verified email set when the projection is
@@ -566,6 +586,7 @@ mod tests {
             email_verified: true,
             name: Some("Owner One".to_string()),
             username: None,
+            avatar_url: None,
             verified_email_set: None,
             role: "owner".to_string(),
             workspace_id: 1,
@@ -584,6 +605,7 @@ mod tests {
             email_verified: true,
             name: Some("Owner One renamed by IdP".to_string()),
             username: None,
+            avatar_url: None,
             verified_email_set: None,
             role: "owner".to_string(),
             workspace_id: 1,
@@ -620,6 +642,7 @@ mod tests {
             email_verified: true,
             name: Some("Handle Holder".to_string()),
             username: None,
+            avatar_url: None,
             verified_email_set: None,
             role: "owner".to_string(),
             workspace_id: 1,
@@ -662,6 +685,67 @@ mod tests {
         );
     }
 
+    /// O5: the CP-hosted avatar is set on create, updated on re-projection,
+    /// left untouched by a login-shaped projection (outer `None`), and cleared
+    /// by an explicit `Some(None)`.
+    #[test]
+    fn projected_avatar_set_updated_unchanged_and_cleared() {
+        let mut conn = setup_test_connection();
+        let iss = "https://api.nosdesk.com/";
+        let sub = format!("owner-{}", uuid::Uuid::new_v4());
+        let email = format!("owner+{}@acme.example", uuid::Uuid::new_v4());
+
+        let input = |avatar: Option<Option<String>>| ProjectedUserInput {
+            iss: iss.to_string(),
+            sub: sub.clone(),
+            identity_workspace_id: None,
+            email: email.clone(),
+            email_verified: true,
+            name: Some("Avatar Holder".to_string()),
+            username: None,
+            avatar_url: avatar,
+            verified_email_set: None,
+            role: "owner".to_string(),
+            workspace_id: 1,
+            password_hash: None,
+            metadata: None,
+        };
+
+        // Create carrying an avatar -> stored.
+        let u = find_or_create_projected_user(
+            &mut conn,
+            input(Some(Some("https://cdn/a.webp?v=1".into()))),
+        )
+        .expect("create")
+        .into_user();
+        assert_eq!(u.avatar_url.as_deref(), Some("https://cdn/a.webp?v=1"));
+
+        // Re-project with a new URL -> updated.
+        let u = find_or_create_projected_user(
+            &mut conn,
+            input(Some(Some("https://cdn/a.webp?v=2".into()))),
+        )
+        .expect("reproject")
+        .into_user();
+        assert_eq!(u.avatar_url.as_deref(), Some("https://cdn/a.webp?v=2"));
+
+        // Outer None (a login-shaped projection) -> no change.
+        let u = find_or_create_projected_user(&mut conn, input(None))
+            .expect("reproject none")
+            .into_user();
+        assert_eq!(
+            u.avatar_url.as_deref(),
+            Some("https://cdn/a.webp?v=2"),
+            "outer None must not touch the avatar"
+        );
+
+        // Some(None) -> explicit clear.
+        let u = find_or_create_projected_user(&mut conn, input(Some(None)))
+            .expect("reproject clear")
+            .into_user();
+        assert_eq!(u.avatar_url, None, "Some(None) clears the avatar");
+    }
+
     /// O6: a projected verified set adds each address as a verified non-primary
     /// row, leaves the primary (invited/login) address untouched, and a shrunk
     /// set on re-projection drops the stale secondary — while the primary
@@ -682,6 +766,7 @@ mod tests {
             email_verified: true,
             name: Some("Email Holder".to_string()),
             username: None,
+            avatar_url: None,
             verified_email_set: emails,
             role: "owner".to_string(),
             workspace_id: 1,
@@ -755,6 +840,7 @@ mod tests {
             email_verified: true,
             name: Some("Owner Two".to_string()),
             username: None,
+            avatar_url: None,
             verified_email_set: None,
             role: "owner".to_string(),
             workspace_id: 1,
@@ -772,6 +858,7 @@ mod tests {
             email_verified: true,
             name: Some("Owner Two".to_string()),
             username: None,
+            avatar_url: None,
             verified_email_set: None,
             role: "owner".to_string(),
             workspace_id: 1,
@@ -825,6 +912,7 @@ mod tests {
             email_verified: true,
             name: Some("Victim".to_string()),
             username: None,
+            avatar_url: None,
             verified_email_set: None,
             role: "member".to_string(),
             workspace_id: 1,
@@ -894,6 +982,7 @@ mod tests {
             email_verified: true,
             name: Some("Directory User".to_string()),
             username: None,
+            avatar_url: None,
             verified_email_set: None,
             role: "member".to_string(),
             workspace_id: 1,

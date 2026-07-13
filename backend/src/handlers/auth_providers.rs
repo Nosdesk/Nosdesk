@@ -1666,8 +1666,9 @@ async fn find_or_create_oauth_user(
             .get("preferred_username")
             .and_then(|v| v.as_str())
             .map(str::to_string),
-        // A login snapshot isn't authoritative for the whole verified set — the
-        // control plane's reproject fan-out owns email reconciliation (O6).
+        // A login snapshot isn't authoritative for the avatar or the whole
+        // verified set — the reproject fan-out owns those (O5/O6).
+        avatar_url: None,
         verified_email_set: None,
         role: "member".to_string(),
         workspace_id,

@@ -512,6 +512,12 @@ pub struct UpsertProjectedUserRequest {
     /// still projects. The product stores/updates it; it never drives auth.
     #[serde(default)]
     pub username: Option<String>,
+    /// CP-hosted global avatar (orchestration O5). `Option<Option<_>>` over
+    /// serde: absent/`None` → no change; `Some(Some(url))` → set;
+    /// `Some(None)` (explicit JSON `null`) → clear. Only the authoritative
+    /// reproject sends the outer-`Some` form, so a cleared avatar propagates.
+    #[serde(default)]
+    pub avatar_url: Option<Option<String>>,
     /// The user's full VERIFIED email set (orchestration O6). When present, it
     /// is AUTHORITATIVE: the product reconciles its `user_emails` cache to it
     /// (adds each as a verified non-primary row, drops stale non-primary rows,
@@ -563,6 +569,7 @@ pub async fn upsert_projected_user(
         email,
         name,
         username,
+        avatar_url,
         emails,
         role,
     } = body.into_inner();
@@ -602,6 +609,9 @@ pub async fn upsert_projected_user(
         email_verified: true,
         name,
         username,
+        // Pass the avatar tri-state through verbatim (O5): None = no change,
+        // Some(Some) = set, Some(None) = clear.
+        avatar_url,
         // Carry just the addresses; the product keeps its own primary (O6).
         verified_email_set: emails.map(|v| v.into_iter().map(|e| e.address).collect()),
         role: role.clone(),
