@@ -194,6 +194,7 @@ mod tests {
         User {
             uuid: Uuid::nil(),
             name: name.to_string(),
+            username: None,
             created_at: now,
             updated_at: now,
             password_changed_at: None,

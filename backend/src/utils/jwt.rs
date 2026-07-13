@@ -764,6 +764,7 @@ mod tests {
         let user = crate::models::User {
             uuid: uuid::Uuid::new_v4(),
             name: "Test User".to_string(),
+            username: None,
             pronouns: None,
             avatar_url: None,
             banner_url: None,
@@ -804,6 +805,7 @@ mod tests {
         let user = crate::models::User {
             uuid: uuid::Uuid::new_v4(),
             name: "Soft Deleted".to_string(),
+            username: None,
             pronouns: None,
             avatar_url: None,
             banner_url: None,

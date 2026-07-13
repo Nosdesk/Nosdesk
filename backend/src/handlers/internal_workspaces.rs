@@ -496,6 +496,11 @@ pub struct UpsertProjectedUserRequest {
     pub email: String,
     #[serde(default)]
     pub name: Option<String>,
+    /// Global username handle (orchestration O4). Optional + defaulted so a
+    /// control plane that predates this field, or omits an unset handle,
+    /// still projects. The product stores/updates it; it never drives auth.
+    #[serde(default)]
+    pub username: Option<String>,
     /// One of `owner`, `admin`, `agent`, `member`. First-write-wins on
     /// the `workspace_members` row — re-projecting an existing
     /// membership does NOT silently escalate or downgrade the role
@@ -539,6 +544,7 @@ pub async fn upsert_projected_user(
         sub,
         email,
         name,
+        username,
         role,
     } = body.into_inner();
 
@@ -576,6 +582,7 @@ pub async fn upsert_projected_user(
         // usually known too, in which case the identity match wins first.
         email_verified: true,
         name,
+        username,
         role: role.clone(),
         workspace_id: workspace.id,
         // Eager-projected users authenticate exclusively via OIDC

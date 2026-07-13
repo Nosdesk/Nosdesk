@@ -2277,6 +2277,12 @@ pub struct User {
     /// supersede [`UserRole`] for non-workspace privilege gating
     /// once the post-W2 sweep removes the legacy column.
     pub platform_role: String,
+    /// Global username handle, projected from the control-plane IdP
+    /// (orchestration O4). `None` until the user claims one. The CP
+    /// is authoritative + validates it; the product only stores and
+    /// (later) surfaces it (e.g. `@handle` mentions). Last field to
+    /// match the appended schema column.
+    pub username: Option<String>,
 }
 
 // New user for creation

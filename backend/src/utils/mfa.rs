@@ -848,6 +848,7 @@ mod tests {
         let base_user = User {
             uuid: Uuid::new_v4(),
             name: "test".into(),
+            username: None,
             pronouns: None,
             avatar_url: None,
             banner_url: None,

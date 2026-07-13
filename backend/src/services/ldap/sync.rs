@@ -472,6 +472,8 @@ fn provision_entry(
         email: mapped.email,
         email_verified: true,
         name: mapped.display_name,
+        // LDAP doesn't carry our global handle.
+        username: None,
         role: "member".to_string(),
         workspace_id,
         password_hash: None,

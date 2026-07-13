@@ -542,6 +542,8 @@ async fn try_ldap_login(
                 // a directory login that resolves onto an above-baseline role.
                 email_verified: true,
                 name: result.display_name.clone(),
+                // LDAP doesn't carry our global handle.
+                username: None,
                 // Group->role mapping lands in P4; until then a new LDAP user
                 // gets the baseline member role.
                 role: "member".to_string(),

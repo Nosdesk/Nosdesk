@@ -1659,6 +1659,13 @@ async fn find_or_create_oauth_user(
         // A missing display name defers to find_or_create_projected_user's
         // email-localpart fallback rather than failing the login.
         name: claims.display_name.clone(),
+        // O4: the CP stamps the handle into the id_token/userinfo as the
+        // standard `preferred_username` claim, so login lazily syncs it.
+        username: claims
+            .raw
+            .get("preferred_username")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
         role: "member".to_string(),
         workspace_id,
         password_hash: Some(password_hash),

@@ -87,6 +87,11 @@ pub struct ProjectedUserInput {
     /// existing-by-identity path we use whatever's already on the
     /// users row (no rename here).
     pub name: Option<String>,
+    /// Global username handle (orchestration O4). The control plane
+    /// validates + owns it; the product stores what's projected and
+    /// updates it on re-projection. `None` from callers that don't
+    /// carry a handle (LDAP/directory sync).
+    pub username: Option<String>,
     /// Workspace membership role to grant: `"owner"`, `"admin"`,
     /// or `"member"`. ON CONFLICT DO NOTHING semantics mean
     /// re-projecting an existing membership preserves the prior
@@ -240,6 +245,7 @@ pub fn find_or_create_projected_user(
         email,
         email_verified,
         name,
+        username,
         role,
         workspace_id,
         password_hash,
@@ -338,6 +344,35 @@ pub fn find_or_create_projected_user(
                 return Err(format!("created user but failed to attach identity: {e:?}"));
             }
             ProjectionOutcome::Created(user)
+        }
+    };
+
+    // --- 3.5. O4: sync the CP-owned global handle onto the user (created or
+    // existing). The control plane validates + owns the handle, so it's written
+    // directly here rather than through the general-purpose `UserUpdate` profile
+    // surface (which is for product-side self-edits). Additive: an absent/empty
+    // handle never clears a stored one; a differing handle updates. The change
+    // is reflected on the returned user without a re-query.
+    let outcome = {
+        let (created, mut user) = match outcome {
+            ProjectionOutcome::Created(u) => (true, u),
+            ProjectionOutcome::Existed(u) => (false, u),
+        };
+        if let Some(new_username) = username.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            if user.username.as_deref() != Some(new_username) {
+                use crate::schema::users::dsl as u;
+                use diesel::prelude::*;
+                diesel::update(u::users.filter(u::uuid.eq(user.uuid)))
+                    .set(u::username.eq(new_username))
+                    .execute(conn)
+                    .map_err(|e| format!("reproject username: {e:?}"))?;
+                user.username = Some(new_username.to_string());
+            }
+        }
+        if created {
+            ProjectionOutcome::Created(user)
+        } else {
+            ProjectionOutcome::Existed(user)
         }
     };
 
@@ -453,6 +488,7 @@ mod tests {
             email: email.clone(),
             email_verified: true,
             name: Some("Owner One".to_string()),
+            username: None,
             role: "owner".to_string(),
             workspace_id: 1,
             password_hash: None,
@@ -469,6 +505,7 @@ mod tests {
             email: email.clone(),
             email_verified: true,
             name: Some("Owner One renamed by IdP".to_string()),
+            username: None,
             role: "owner".to_string(),
             workspace_id: 1,
             password_hash: Some("$2b$12$placeholder".to_string()),
@@ -483,6 +520,65 @@ mod tests {
             second.into_user().uuid,
             first_uuid,
             "(iss, sub) lookup must return the same user uuid the eager call minted"
+        );
+    }
+
+    /// O4: the projected global handle is stored on create, updated on
+    /// re-projection when it differs, and left untouched when the projection
+    /// omits it — an absent handle must never blank a stored one.
+    #[test]
+    fn projected_username_is_stored_updated_and_never_cleared() {
+        let mut conn = setup_test_connection();
+        let iss = "https://api.nosdesk.com/";
+        let sub = format!("owner-{}", uuid::Uuid::new_v4());
+        let email = format!("owner+{}@acme.example", uuid::Uuid::new_v4());
+
+        let input = || ProjectedUserInput {
+            iss: iss.to_string(),
+            sub: sub.clone(),
+            identity_workspace_id: None,
+            email: email.clone(),
+            email_verified: true,
+            name: Some("Handle Holder".to_string()),
+            username: None,
+            role: "owner".to_string(),
+            workspace_id: 1,
+            password_hash: None,
+            metadata: None,
+        };
+
+        // Create carrying a handle -> stored on the fresh row.
+        let mut created = input();
+        created.username = Some("handle_one".to_string());
+        let u = find_or_create_projected_user(&mut conn, created)
+            .expect("create")
+            .into_user();
+        assert_eq!(
+            u.username.as_deref(),
+            Some("handle_one"),
+            "handle stored on create"
+        );
+
+        // Re-project with a DIFFERENT handle -> updated in place.
+        let mut renamed = input();
+        renamed.username = Some("handle_two".to_string());
+        let u = find_or_create_projected_user(&mut conn, renamed)
+            .expect("reproject")
+            .into_user();
+        assert_eq!(
+            u.username.as_deref(),
+            Some("handle_two"),
+            "handle updated on re-projection"
+        );
+
+        // Re-project WITHOUT a handle (input.username = None) -> unchanged.
+        let u = find_or_create_projected_user(&mut conn, input())
+            .expect("reproject bare")
+            .into_user();
+        assert_eq!(
+            u.username.as_deref(),
+            Some("handle_two"),
+            "an absent handle must not clear the stored one"
         );
     }
 
@@ -510,6 +606,7 @@ mod tests {
             email: email.clone(),
             email_verified: true,
             name: Some("Owner Two".to_string()),
+            username: None,
             role: "owner".to_string(),
             workspace_id: 1,
             password_hash: None,
@@ -525,6 +622,7 @@ mod tests {
             email: email.clone(),
             email_verified: true,
             name: Some("Owner Two".to_string()),
+            username: None,
             role: "owner".to_string(),
             workspace_id: 1,
             password_hash: Some("$2b$12$placeholder".to_string()),
@@ -576,6 +674,7 @@ mod tests {
             email: email.clone(),
             email_verified: true,
             name: Some("Victim".to_string()),
+            username: None,
             role: "member".to_string(),
             workspace_id: 1,
             password_hash: None,
@@ -643,6 +742,7 @@ mod tests {
             email: email.clone(),
             email_verified: true,
             name: Some("Directory User".to_string()),
+            username: None,
             role: "member".to_string(),
             workspace_id: 1,
             password_hash: None,

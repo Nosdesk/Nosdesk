@@ -1937,6 +1937,8 @@ diesel::table! {
         mfa_secret_kek_id -> Nullable<Int2>,
         #[max_length = 32]
         platform_role -> Varchar,
+        #[max_length = 30]
+        username -> Nullable<Varchar>,
     }
 }
 
