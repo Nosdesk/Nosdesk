@@ -7,6 +7,7 @@ use uuid::Uuid;
 use crate::db::DbConnection;
 use crate::handlers::errors;
 use crate::handlers::helpers;
+use crate::middleware::request_context::record_canonical;
 use crate::models::{LoginRequest, PasswordChangeRequest};
 use crate::repository::{self, user_auth_identities::get_local_password_hash};
 use crate::utils::auth::hash_password;
@@ -614,6 +615,7 @@ pub async fn login(
     match RateLimiter::check_lockout(&redis_url, &lockout_key, MAX_LOGIN_ATTEMPTS).await {
         Ok(Some(remaining_seconds)) => {
             warn!(email = %login_data.email, remaining_seconds, "Login attempt on locked account");
+            record_canonical(&request, "outcome", "account_locked");
             return errors::too_many_requests(
                 format!(
                     "Account temporarily locked. Try again in {} minutes.",
@@ -710,6 +712,7 @@ pub async fn login(
                 },
             );
             if locked {
+                record_canonical(&request, "outcome", "account_locked");
                 return errors::too_many_requests(
                     format!(
                         "Account locked after too many failed attempts. Try again in {} minutes.",
@@ -718,6 +721,7 @@ pub async fn login(
                     LOCKOUT_DURATION_SECONDS,
                 );
             }
+            record_canonical(&request, "outcome", "invalid_credentials");
             return errors::unauthorized("Invalid email or password");
         }
     };
@@ -728,6 +732,8 @@ pub async fn login(
 
     // Check if user has TOTP MFA enabled - if so, require TOTP verification
     if mfa::user_has_mfa_enabled(&user) {
+        record_canonical(&request, "outcome", "mfa_required");
+        record_canonical(&request, "mfa_required", true);
         let response = jwt_helpers::create_mfa_required_response(user.uuid);
         return HttpResponse::Ok().json(response);
     }
@@ -739,6 +745,7 @@ pub async fn login(
     // only session; now it surfaces as a 5xx and the user retries.
     match mfa::user_has_passkeys(&mut conn, &user.uuid) {
         Ok(true) => {
+            record_canonical(&request, "outcome", "passkey_required");
             let response = jwt_helpers::create_passkey_mfa_required_response(user.uuid);
             return HttpResponse::Ok().json(response);
         }
@@ -752,10 +759,12 @@ pub async fn login(
     // Check MFA policy enforcement (for users without MFA enabled)
     if let Err(_policy_error) = mfa::validate_mfa_policy(&user, &mut conn).await {
         // Instead of blocking, offer MFA setup for users who need it
+        record_canonical(&request, "outcome", "mfa_setup_required");
         let response = jwt_helpers::create_mfa_setup_required_response(user.uuid);
         return HttpResponse::Ok().json(response);
     }
 
+    record_canonical(&request, "outcome", "success");
     complete_login(user, &request, &mut conn)
 }
 

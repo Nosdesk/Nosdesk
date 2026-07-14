@@ -15,11 +15,13 @@
 //! present, so the request_id remains on every log line emitted
 //! during the request.
 
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use actix_web::body::MessageBody;
 use actix_web::dev::{ServiceRequest, ServiceResponse};
-use actix_web::{Error, HttpMessage};
+use actix_web::{Error, HttpMessage, HttpRequest};
+use serde_json::{Map, Value};
 use tracing::Span;
 use tracing_actix_web::{root_span, DefaultRootSpanBuilder, RequestId, RootSpanBuilder};
 use uuid::Uuid;
@@ -32,6 +34,54 @@ use crate::sync::actor::{ActorContext, ActorKind};
 /// report `latency_ms` at request end.
 #[derive(Clone, Copy)]
 struct RequestStart(Instant);
+
+/// Request-scoped bag of high-cardinality **business** dimensions that handlers
+/// accumulate through the request — the missing half of the wide-events model.
+///
+/// `tracing` requires every event/span field declared up front, so a handler
+/// can't attach `ticket_id`/`outcome`/… to the canonical event directly. Instead
+/// handlers stamp this bag via [`record_canonical`]; at request end
+/// [`emit_canonical_event`] serialises it into the single `_canonical` field,
+/// and the redaction layer flattens each key back to a top-level field *through
+/// the allowlist* (`utils::tracing_redact`) — so one row carries HTTP dims +
+/// actor + whatever business outcome the handler recorded, and bag fields are
+/// held to the same PII policy as first-class ones.
+///
+/// `Arc<Mutex<…>>` so it's `Clone` (extractable via `web::ReqData`) and can be
+/// stamped from anywhere holding the request, including across `.await`s.
+#[derive(Clone, Default)]
+pub struct CanonicalContext(Arc<Mutex<Map<String, Value>>>);
+
+impl CanonicalContext {
+    /// Stamp one business dimension onto the canonical event. Last write wins.
+    /// The key must be on the `tracing_redact` allowlist or it's dropped at
+    /// emit — keep these to bounded enums / counts / stable IDs, never free text.
+    pub fn record(&self, key: &str, value: impl Into<Value>) {
+        if let Ok(mut map) = self.0.lock() {
+            map.insert(key.to_string(), value.into());
+        }
+    }
+
+    /// Serialise the bag for the `_canonical` field, or `None` when empty (so a
+    /// request that stamped nothing doesn't carry an empty field).
+    fn snapshot_json(&self) -> Option<String> {
+        let map = self.0.lock().ok()?;
+        if map.is_empty() {
+            return None;
+        }
+        serde_json::to_string(&*map).ok()
+    }
+}
+
+/// Stamp a business dimension onto the request's canonical wide event. No-op if
+/// the request has no `CanonicalContext` (only happens outside the normal
+/// middleware stack, e.g. some unit tests). Ergonomic front door for handlers:
+/// `record_canonical(&req, "ticket_id", ticket.id);`
+pub fn record_canonical(req: &HttpRequest, key: &str, value: impl Into<Value>) {
+    if let Some(cc) = req.extensions().get::<CanonicalContext>() {
+        cc.record(key, value);
+    }
+}
 
 /// Per-request context: who's acting, with what correlation id.
 ///
@@ -66,9 +116,12 @@ pub struct NosdeskRootSpanBuilder;
 
 impl RootSpanBuilder for NosdeskRootSpanBuilder {
     fn on_request_start(request: &ServiceRequest) -> Span {
-        request
-            .extensions_mut()
-            .insert(RequestStart(Instant::now()));
+        {
+            let mut ext = request.extensions_mut();
+            ext.insert(RequestStart(Instant::now()));
+            // Empty business-dimension bag; handlers fill it via record_canonical.
+            ext.insert(CanonicalContext::default());
+        }
         root_span!(
             request,
             user_uuid = tracing::field::Empty,
@@ -110,7 +163,7 @@ fn emit_canonical_event<B>(outcome: &Result<ServiceResponse<B>, Error>) {
     // Extract owned values so the extensions borrow is released before the
     // event macro. Absent-auth requests get stable sentinels (workspace 0,
     // empty user, "anonymous") so the field set is uniform across every event.
-    let (request_id, workspace_id, user_uuid, actor_kind, latency_ms) = {
+    let (request_id, workspace_id, user_uuid, actor_kind, latency_ms, canonical) = {
         let ext = req.extensions();
         let request_id = ext
             .get::<RequestId>()
@@ -127,7 +180,20 @@ fn emit_canonical_event<B>(outcome: &Result<ServiceResponse<B>, Error>) {
             .get::<RequestStart>()
             .map(|s| s.0.elapsed().as_millis() as u64)
             .unwrap_or(0);
-        (request_id, workspace_id, user_uuid, actor_kind, latency_ms)
+        // The accumulated business-dimension bag, serialised. The redaction
+        // layer flattens it (per-key, through the allowlist) back into
+        // top-level fields on this one event.
+        let canonical = ext
+            .get::<CanonicalContext>()
+            .and_then(|c| c.snapshot_json());
+        (
+            request_id,
+            workspace_id,
+            user_uuid,
+            actor_kind,
+            latency_ms,
+            canonical,
+        )
     };
 
     tracing::info!(
@@ -140,6 +206,7 @@ fn emit_canonical_event<B>(outcome: &Result<ServiceResponse<B>, Error>) {
         workspace_id = workspace_id,
         user_uuid = %user_uuid,
         actor_kind = actor_kind,
+        _canonical = canonical.as_deref().unwrap_or(""),
         "http_request"
     );
 }
@@ -314,6 +381,52 @@ mod tests {
         // High-cardinality dimensions present (values non-deterministic/PII-safe).
         assert!(ev.fields.contains_key("user_uuid"), "user_uuid present");
         assert!(ev.fields.contains_key("latency_ms"), "latency_ms present");
+    }
+
+    #[test]
+    fn canonical_event_carries_stamped_business_fields() {
+        let events = run_capturing(|| {
+            let req = TestRequest::post().uri("/api/tickets").to_srv_request();
+            req.extensions_mut().insert(RequestStart(Instant::now()));
+            let cc = CanonicalContext::default();
+            cc.record("ticket_id", 42);
+            cc.record("outcome", "created");
+            req.extensions_mut().insert(cc);
+            let resp = req.into_response(HttpResponse::Ok().finish());
+            let outcome: Result<ServiceResponse<BoxBody>, Error> = Ok(resp);
+            emit_canonical_event(&outcome);
+        });
+
+        let ev = events
+            .iter()
+            .find(|e| e.target == "nosdesk::request")
+            .expect("canonical event should fire");
+        // The bag is serialised into `_canonical`; the redaction layer flattens
+        // it per-key at emit (covered by tracing_redact tests). Here we prove the
+        // handler-stamped dims reach the event.
+        let canonical = ev.fields.get("_canonical").expect("_canonical present");
+        assert!(canonical.contains("\"ticket_id\":42"), "got {canonical}");
+        assert!(
+            canonical.contains("\"outcome\":\"created\""),
+            "got {canonical}"
+        );
+    }
+
+    #[test]
+    fn record_canonical_stamps_via_request_extensions() {
+        let req = TestRequest::default().to_http_request();
+        let cc = CanonicalContext::default();
+        req.extensions_mut().insert(cc.clone());
+        record_canonical(&req, "outcome", "ok");
+        record_canonical(&req, "result_count", 5);
+        let json = cc.snapshot_json().expect("bag non-empty");
+        assert!(json.contains("\"outcome\":\"ok\""), "got {json}");
+        assert!(json.contains("\"result_count\":5"), "got {json}");
+    }
+
+    #[test]
+    fn snapshot_json_is_none_when_empty() {
+        assert!(CanonicalContext::default().snapshot_json().is_none());
     }
 
     #[test]
