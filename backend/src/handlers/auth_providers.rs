@@ -606,14 +606,14 @@ pub async fn oauth_callback(
         let pkce_verifier = match &state_data.pkce_verifier {
             Some(v) => v.clone(),
             None => {
-                error!("Microsoft callback missing PKCE verifier in state");
+                warn!("Microsoft callback missing PKCE verifier in state");
                 return errors::bad_request("Invalid authentication state (missing PKCE verifier)");
             }
         };
         let nonce = match &state_data.nonce {
             Some(n) => n.clone(),
             None => {
-                error!("Microsoft callback missing nonce in state");
+                warn!("Microsoft callback missing nonce in state");
                 return errors::bad_request("Invalid authentication state (missing nonce)");
             }
         };
@@ -825,7 +825,7 @@ pub async fn oauth_callback(
         let pkce_verifier = match &state_data.pkce_verifier {
             Some(v) => v.clone(),
             None => {
-                error!("OIDC callback missing PKCE verifier in state");
+                warn!("OIDC callback missing PKCE verifier in state");
                 return errors::bad_request("Invalid authentication state (missing PKCE verifier)");
             }
         };
@@ -833,7 +833,7 @@ pub async fn oauth_callback(
         let nonce = match &state_data.nonce {
             Some(n) => n.clone(),
             None => {
-                error!("OIDC callback missing nonce in state");
+                warn!("OIDC callback missing nonce in state");
                 return errors::bad_request("Invalid authentication state (missing nonce)");
             }
         };

@@ -2300,7 +2300,7 @@ pub async fn revoke_session(
     // idempotent and still reports success.
     match crate::repository::active_sessions::revoke_session(&mut conn, session_id) {
         Ok(_) => {
-            tracing::info!("Session {} revoked for user {}", session_id, user_uuid);
+            info!(session_id = %session_id, user_uuid = %user_uuid, "Session revoked");
             let _ = crate::utils::security_events::record_security_event(
                 &mut conn,
                 crate::utils::security_events::SecurityEventInput {
