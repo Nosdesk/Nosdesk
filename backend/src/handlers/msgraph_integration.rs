@@ -5291,7 +5291,10 @@ fn parse_microsoft_datetime(datetime_str: &Option<String>) -> Option<chrono::Nai
 }
 
 /// Process a Microsoft user without fetching profile photos (for fast sync)
-#[instrument(level = "debug", skip(conn, stats), fields(user_principal_name = %ms_user.user_principal_name, provider_id))]
+// UPN is email-shaped PII — deliberately NOT a span field (it would only be
+// dropped by the prod allowlist anyway, and is cleartext in dev). Correlate by
+// provider_id instead.
+#[instrument(level = "debug", skip(conn, stats), fields(provider_id))]
 async fn process_microsoft_user_no_photos(
     conn: &mut DbConnection,
     provider_id: i32,
