@@ -606,6 +606,7 @@ pub async fn create_ticket(
     search_service: web::Data<Arc<SearchService>>,
     auth: AuthContext,
     ticket: web::Json<NewTicket>,
+    req: HttpRequest,
 ) -> impl Responder {
     let new_ticket = ticket.into_inner();
 
@@ -730,6 +731,8 @@ pub async fn create_ticket(
             // The new ticket reaches clients through the sync pool (the
             // repository write emits `ticket.created`); no discrete SSE.
 
+            record_canonical(&req, "ticket_id", ticket.id);
+            record_canonical(&req, "outcome", "created");
             HttpResponse::Created().json(ticket)
         }
         Err(_) => errors::internal("Failed to create ticket"),
@@ -742,6 +745,7 @@ pub async fn update_ticket(
     mut tc: TenantConn,
     access: TicketAccess,
     ticket: web::Json<NewTicket>,
+    req: HttpRequest,
 ) -> impl Responder {
     let ticket_id = access.ticket_id;
     let new_ticket = ticket.into_inner();
@@ -758,7 +762,11 @@ pub async fn update_ticket(
     }
 
     match tc.run(|conn| repository::update_ticket(conn, ticket_id, new_ticket)) {
-        Ok(ticket) => HttpResponse::Ok().json(ticket),
+        Ok(ticket) => {
+            record_canonical(&req, "ticket_id", ticket_id);
+            record_canonical(&req, "outcome", "updated");
+            HttpResponse::Ok().json(ticket)
+        }
         Err(e) => errors::internal(format!("Failed to update ticket: {e}")),
     }
 }
@@ -770,6 +778,7 @@ pub async fn delete_ticket(
     storage: crate::extractors::ScopedStorage,
     search_service: web::Data<Arc<SearchService>>,
     path: web::Path<i32>,
+    req: HttpRequest,
 ) -> impl Responder {
     if !auth.is_workspace_admin() {
         return errors::forbidden("Forbidden: Only administrators can delete tickets");
@@ -797,6 +806,8 @@ pub async fn delete_ticket(
                 // The deletion reaches clients through the sync pool (the
                 // repository write emits `ticket.deleted`); no discrete SSE.
 
+                record_canonical(&req, "ticket_id", ticket_id);
+                record_canonical(&req, "outcome", "deleted");
                 HttpResponse::NoContent().finish()
             } else {
                 errors::not_found_msg("Ticket not found")

@@ -135,6 +135,7 @@ pub use passkeys::{
 use actix_web::{http::StatusCode, web, HttpMessage, HttpResponse, Responder};
 use serde_json::json;
 
+use crate::middleware::request_context::record_canonical;
 use crate::utils::error_response::json_error;
 use crate::utils::locale::request_locale;
 use std::sync::Arc;
@@ -383,6 +384,9 @@ pub async fn add_comment_to_ticket(
     match create_result {
         Ok(comment) => {
             debug!(comment_id = comment.id, "Created comment");
+            record_canonical(&req, "ticket_id", ticket_id);
+            record_canonical(&req, "comment_id", comment.id);
+            record_canonical(&req, "outcome", "comment_added");
 
             // Auto-watch on first comment. Industry default
             // (GitHub, Linear) — once a user engages with a
