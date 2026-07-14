@@ -52,6 +52,8 @@ use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::Layer;
 
+use crate::utils::redact::scrub;
+
 /// Field names whose values are emitted to JSON output. Anything else
 /// is dropped and counted under `redacted`. Order doesn't matter
 /// (linear scan); kept loosely grouped for diffing.
@@ -118,6 +120,13 @@ const ALLOWED_FIELDS: &[&str] = &[
     "processed",
     "stamped",
     "total",
+    // canonical wide-event business dimensions — stamped by handlers via
+    // `request_context::record_canonical` and flattened out of the `_canonical`
+    // bag (below). Bounded enums / counts / stable IDs only; no free text.
+    "entity_id",
+    "mfa_required",
+    "outcome",
+    "result_count",
     // HTTP / operational context: the canonical per-request wide event
     // (`nosdesk::request`, see middleware/request_context.rs) + tracing-actix-web.
     "latency_ms",
@@ -243,19 +252,59 @@ struct AllowlistVisitor {
     redacted_count: usize,
 }
 
+impl AllowlistVisitor {
+    /// Flatten the canonical event's `_canonical` JSON object into top-level
+    /// fields, applying the allowlist (and `scrub` on string values) per key —
+    /// so the accumulated business bag is held to the same PII policy as any
+    /// other field. Malformed / non-object payloads are ignored.
+    fn merge_canonical(&mut self, json_str: &str) {
+        if json_str.is_empty() {
+            return;
+        }
+        let Ok(Value::Object(map)) = serde_json::from_str::<Value>(json_str) else {
+            return;
+        };
+        for (k, v) in map {
+            if is_allowed(&k) {
+                let v = match v {
+                    Value::String(s) => Value::String(scrub(&s).into_owned()),
+                    other => other,
+                };
+                self.fields.insert(k, v);
+            } else {
+                self.redacted_count += 1;
+            }
+        }
+    }
+}
+
 impl Visit for AllowlistVisitor {
     fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
         if is_allowed(field.name()) {
+            // `scrub` masks any email/JWT accidentally interpolated into the
+            // text — the always-allowlisted `message` field arrives here, so
+            // this closes the free-text channel the field-name allowlist can't.
+            let rendered = format!("{value:?}");
             self.fields
-                .insert(field.name().into(), json!(format!("{value:?}")));
+                .insert(field.name().into(), json!(scrub(&rendered).as_ref()));
         } else {
             self.redacted_count += 1;
         }
     }
 
     fn record_str(&mut self, field: &Field, value: &str) {
+        // The canonical wide event ships its dynamic per-request business
+        // fields as one JSON object under `_canonical` (handlers can't add
+        // arbitrary static tracing fields to it). Flatten each key through the
+        // SAME allowlist + scrub, so a bag field is redacted identically to a
+        // first-class one — a handler can't smuggle PII onto the event this way.
+        if field.name() == "_canonical" {
+            self.merge_canonical(value);
+            return;
+        }
         if is_allowed(field.name()) {
-            self.fields.insert(field.name().into(), json!(value));
+            self.fields
+                .insert(field.name().into(), json!(scrub(value).as_ref()));
         } else {
             self.redacted_count += 1;
         }
@@ -310,6 +359,46 @@ fn is_allowed(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The `_canonical` bag is flattened per-key through the allowlist: allowed
+    /// business dims land as top-level fields; anything not allowlisted (a
+    /// handler accidentally stamping PII) is dropped and counted, never emitted.
+    #[test]
+    fn canonical_bag_flattens_through_allowlist() {
+        let mut v = AllowlistVisitor::default();
+        v.merge_canonical(
+            r#"{"ticket_id":42,"outcome":"created","email":"kyle@nosdesk.com","result_count":3}"#,
+        );
+        assert_eq!(v.fields.get("ticket_id"), Some(&json!(42)));
+        assert_eq!(v.fields.get("outcome"), Some(&json!("created")));
+        assert_eq!(v.fields.get("result_count"), Some(&json!(3)));
+        // `email` is not allowlisted → dropped, not emitted, and counted.
+        assert!(!v.fields.contains_key("email"));
+        assert_eq!(v.redacted_count, 1);
+    }
+
+    /// Even an allowlisted string value in the bag is scrubbed (defence in
+    /// depth against a mislabelled field carrying an address).
+    #[test]
+    fn canonical_bag_scrubs_string_values() {
+        let mut v = AllowlistVisitor::default();
+        v.merge_canonical(r#"{"outcome":"sent to kyle@nosdesk.com"}"#);
+        assert_eq!(
+            v.fields.get("outcome"),
+            Some(&json!("sent to k***@nosdesk.com"))
+        );
+    }
+
+    /// Malformed / empty payloads are ignored, not panicked on.
+    #[test]
+    fn canonical_bag_ignores_garbage() {
+        let mut v = AllowlistVisitor::default();
+        v.merge_canonical("");
+        v.merge_canonical("not json");
+        v.merge_canonical("[1,2,3]"); // not an object
+        assert!(v.fields.is_empty());
+        assert_eq!(v.redacted_count, 0);
+    }
 
     /// Positive cases — if this fails, an entry was removed from
     /// `ALLOWED_FIELDS` and a downstream log call just broke.

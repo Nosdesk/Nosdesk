@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 use crate::extractors::{AuthContext, TenantConn, TicketAccess};
 use crate::handlers::errors;
+use crate::middleware::request_context::record_canonical;
 use crate::models::{
     AssignmentTrigger, Claims, NewTicket, TicketUpdate, TicketsJson, WorkflowStateCategory,
 };
@@ -1016,6 +1017,11 @@ pub async fn create_empty_ticket(
         ticket.clone(),
         article_content,
     );
+
+    // Canonical wide event: fold the outcome into the one per-request line so
+    // "a ticket was created, id N" is queryable without a separate log line.
+    record_canonical(&req, "ticket_id", ticket.id);
+    record_canonical(&req, "outcome", "created");
 
     // Return the complete ticket with article content
     match tc.run(|conn| repository::get_complete_ticket(conn, ticket.id)) {

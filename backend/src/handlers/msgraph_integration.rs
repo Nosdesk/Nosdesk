@@ -5209,12 +5209,14 @@ fn extract_user_emails(ms_user: &MicrosoftGraphUser) -> Vec<(String, String, boo
                         "alias".to_string() // smtp: (lowercase) indicates alias
                     };
                     emails.push((email.clone(), email_type.clone(), true));
-                    trace!("Added proxy email: {} (type: {})", email, email_type);
+                    trace!(email = %email, email_type = %email_type, "Added proxy email");
                 } else {
-                    trace!("Skipped duplicate proxy email: {}", email);
+                    trace!(email = %email, "Skipped duplicate proxy email");
                 }
             } else {
-                trace!("Failed to extract email from proxy address: {}", proxy);
+                // `proxy` field (not allowlisted) is dropped in prod JSON; the
+                // runtime scrub also masks any address in it. Visible in dev.
+                trace!(proxy = %proxy, "Failed to extract email from proxy address");
             }
         }
     }
@@ -5228,9 +5230,9 @@ fn extract_user_emails(ms_user: &MicrosoftGraphUser) -> Vec<(String, String, boo
                 && !emails.iter().any(|(e, _, _)| e == email)
             {
                 emails.push((email.clone(), "other".to_string(), true));
-                trace!("Added other email: {}", email);
+                trace!(email = %email, "Added other email");
             } else {
-                trace!("Skipped invalid or duplicate other email: {}", email);
+                trace!(email = %email, "Skipped invalid or duplicate other email");
             }
         }
     }

@@ -266,7 +266,9 @@ pub fn seed_from_env(conn: &mut DbConnection) -> Result<bool, EnvSeedError> {
     ) {
         Ok(_) => {
             tracing::warn!(
-                "INITIAL_ADMIN_* env config seeded admin {email}. Consider \
+                // `email` field is dropped by the prod allowlist; visible in dev.
+                email = %email,
+                "INITIAL_ADMIN_* env config seeded admin. Consider \
                  unsetting these vars after verifying login; they're idempotent \
                  (users-exist short-circuit) but leaving secrets in env is best avoided."
             );

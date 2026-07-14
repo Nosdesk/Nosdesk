@@ -90,7 +90,10 @@ async fn issue_password_reset(
     let user = match repository::get_user_by_email(&email, &mut conn) {
         Ok(u) => u,
         Err(_) => {
-            info!("Password reset requested for non-existent email: {}", email);
+            // Enumeration-safe: never log the raw email (it survives the
+            // field allowlist because it's in the message string). The
+            // request_id on the canonical event correlates this to the caller.
+            info!("Password reset requested for a non-existent email");
             return Ok(());
         }
     };
