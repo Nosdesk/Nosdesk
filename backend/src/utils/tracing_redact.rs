@@ -52,6 +52,8 @@ use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::Layer;
 
+use crate::utils::redact::scrub;
+
 /// Field names whose values are emitted to JSON output. Anything else
 /// is dropped and counted under `redacted`. Order doesn't matter
 /// (linear scan); kept loosely grouped for diffing.
@@ -246,8 +248,12 @@ struct AllowlistVisitor {
 impl Visit for AllowlistVisitor {
     fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
         if is_allowed(field.name()) {
+            // `scrub` masks any email/JWT accidentally interpolated into the
+            // text — the always-allowlisted `message` field arrives here, so
+            // this closes the free-text channel the field-name allowlist can't.
+            let rendered = format!("{value:?}");
             self.fields
-                .insert(field.name().into(), json!(format!("{value:?}")));
+                .insert(field.name().into(), json!(scrub(&rendered).as_ref()));
         } else {
             self.redacted_count += 1;
         }
@@ -255,7 +261,8 @@ impl Visit for AllowlistVisitor {
 
     fn record_str(&mut self, field: &Field, value: &str) {
         if is_allowed(field.name()) {
-            self.fields.insert(field.name().into(), json!(value));
+            self.fields
+                .insert(field.name().into(), json!(scrub(value).as_ref()));
         } else {
             self.redacted_count += 1;
         }

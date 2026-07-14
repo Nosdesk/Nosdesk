@@ -31,18 +31,26 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 /// the "served" event. The bare event is suppressed inside the layer by target
 /// check.
 pub fn init() {
+    let is_production = std::env::var("ENVIRONMENT").unwrap_or_default() == "production";
+
     let log_level = std::env::var("RUST_LOG").unwrap_or_else(|_| {
-        let base = if std::env::var("ENVIRONMENT").unwrap_or_default() == "production" {
-            "info"
-        } else {
-            "debug"
-        };
+        let base = if is_production { "info" } else { "debug" };
         format!(
             "{base},tantivy=warn,h2=info,hyper=info,hyper_util=info,rustls=info,mio=info,want=info"
         )
     });
 
-    let json_logs = std::env::var("LOG_FORMAT").ok().as_deref() == Some("json");
+    // Fail-safe: production defaults to the redacting JSON layer even when
+    // LOG_FORMAT is unset. Previously redaction was opt-in via LOG_FORMAT=json
+    // — a var set in no committed config — so a missing env var silently shipped
+    // the un-redacted pretty formatter with raw PII fields. An explicit
+    // LOG_FORMAT still wins in both directions (LOG_FORMAT=pretty forces human
+    // output in prod for a debugging session; LOG_FORMAT=json forces JSON in dev).
+    let json_logs = match std::env::var("LOG_FORMAT").ok().as_deref() {
+        Some("json") => true,
+        Some(_) => false,
+        None => is_production,
+    };
     let env_filter = || EnvFilter::new(&log_level);
     let registry = tracing_subscriber::registry();
     let _ = if json_logs {
