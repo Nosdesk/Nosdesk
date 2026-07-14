@@ -71,7 +71,9 @@ tokio-util = "0.7"  # CancellationToken used by the periodic scheduler + future 
 tokio-postgres = "0.7"
 lazy_static = "1.5.0"        # For static mutable state
 dashmap = "6.1.0"            # Thread-safe concurrent hashmap
-env_logger = "0.11.0"
+# `log` façade only; every call site uses `tracing` (with `tracing-log`
+# bridging the few `log::` calls). `env_logger` was declared but never
+# initialised — the real emitter is the tracing subscriber (see telemetry.rs).
 log = "0.4"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }

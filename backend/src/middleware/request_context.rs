@@ -103,6 +103,76 @@ impl RequestContext {
     }
 }
 
+/// W3C Trace Context for **cross-service** correlation (observability Phase 1 —
+/// `docs/decisions/observability-tracing-2026-07-15.md` in the control-plane
+/// repo). `trace_id` is the id shared across every service that touches one
+/// logical operation; `span_id` is this service's leg of it. Both are stamped
+/// on the canonical wide event (already allowlisted), so a provisioning / OIDC
+/// flow that crosses the control plane and this product can be stitched in Loki
+/// with `| json | trace_id="…"` — no Tempo, no OTel SDK yet.
+///
+/// If an inbound request carries a `traceparent` header (the control plane
+/// injects one on its calls here) we adopt its `trace_id` and mint a fresh
+/// `span_id`; otherwise we originate a new trace.
+#[derive(Clone)]
+pub struct TraceContext {
+    pub trace_id: String,
+    pub span_id: String,
+}
+
+fn to_hex(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+    bytes
+        .iter()
+        .fold(String::with_capacity(bytes.len() * 2), |mut s, b| {
+            let _ = write!(s, "{b:02x}");
+            s
+        })
+}
+
+impl TraceContext {
+    /// 16-byte trace id + 8-byte span id, hex-encoded (W3C sizes), from UUIDv4
+    /// randomness (getrandom-backed) — no extra RNG dep.
+    fn generate() -> Self {
+        Self {
+            trace_id: to_hex(Uuid::new_v4().as_bytes()),
+            span_id: to_hex(&Uuid::new_v4().as_bytes()[..8]),
+        }
+    }
+
+    /// Parse a W3C `traceparent` (`version-traceid-spanid-flags`), keep its
+    /// trace id, and mint a fresh span id for our leg. Returns `None` for any
+    /// malformed / all-zero / non-v00 header (fall back to a new trace).
+    fn from_traceparent(header: &str) -> Option<Self> {
+        let parts: Vec<&str> = header.split('-').collect();
+        if parts.len() != 4 || parts[0] != "00" {
+            return None;
+        }
+        let trace_id = parts[1];
+        let is_hex = |s: &str| s.bytes().all(|b| b.is_ascii_hexdigit());
+        if trace_id.len() != 32 || !is_hex(trace_id) || trace_id.bytes().all(|b| b == b'0') {
+            return None;
+        }
+        Some(Self {
+            trace_id: trace_id.to_ascii_lowercase(),
+            span_id: to_hex(&Uuid::new_v4().as_bytes()[..8]),
+        })
+    }
+
+    fn extract_or_generate(req: &ServiceRequest) -> Self {
+        req.headers()
+            .get("traceparent")
+            .and_then(|v| v.to_str().ok())
+            .and_then(Self::from_traceparent)
+            .unwrap_or_else(Self::generate)
+    }
+
+    /// The `traceparent` header value to propagate onward (flags `01` = sampled).
+    pub fn traceparent(&self) -> String {
+        format!("00-{}-{}-01", self.trace_id, self.span_id)
+    }
+}
+
 /// Custom `RootSpanBuilder` that (a) pre-declares `user_uuid`,
 /// `actor_kind`, and `workspace_id` as empty fields on the root span so
 /// auth middlewares can record them post-hoc (via [`record_user_on_span`] /
@@ -117,10 +187,14 @@ pub struct NosdeskRootSpanBuilder;
 impl RootSpanBuilder for NosdeskRootSpanBuilder {
     fn on_request_start(request: &ServiceRequest) -> Span {
         {
+            let trace = TraceContext::extract_or_generate(request);
             let mut ext = request.extensions_mut();
             ext.insert(RequestStart(Instant::now()));
             // Empty business-dimension bag; handlers fill it via record_canonical.
             ext.insert(CanonicalContext::default());
+            // Cross-service trace context (adopted from an inbound traceparent
+            // or freshly originated). Stamped on the canonical event below.
+            ext.insert(trace);
         }
         root_span!(
             request,
@@ -217,7 +291,7 @@ fn emit_canonical_event<B>(outcome: &Result<ServiceResponse<B>, Error>) {
     // Extract owned values so the extensions borrow is released before the
     // event macro. Absent-auth requests get stable sentinels (workspace 0,
     // empty user, "anonymous") so the field set is uniform across every event.
-    let (request_id, workspace_id, user_uuid, actor_kind, latency_ms, canonical) = {
+    let (request_id, workspace_id, user_uuid, actor_kind, latency_ms, canonical, trace_id, span_id) = {
         let ext = req.extensions();
         let request_id = ext
             .get::<RequestId>()
@@ -243,6 +317,12 @@ fn emit_canonical_event<B>(outcome: &Result<ServiceResponse<B>, Error>) {
         let canonical = ext
             .get::<CanonicalContext>()
             .and_then(|c| c.snapshot_json());
+        // Cross-service trace ids (always present — adopted or generated at
+        // request start). Empty strings only if the context somehow wasn't set.
+        let (trace_id, span_id) = ext
+            .get::<TraceContext>()
+            .map(|t| (t.trace_id.clone(), t.span_id.clone()))
+            .unwrap_or_default();
         (
             request_id,
             workspace_id,
@@ -250,6 +330,8 @@ fn emit_canonical_event<B>(outcome: &Result<ServiceResponse<B>, Error>) {
             actor_kind,
             latency_ms,
             canonical,
+            trace_id,
+            span_id,
         )
     };
 
@@ -261,6 +343,8 @@ fn emit_canonical_event<B>(outcome: &Result<ServiceResponse<B>, Error>) {
     tracing::info!(
         target: "nosdesk::request",
         request_id = %request_id,
+        trace_id = %trace_id,
+        span_id = %span_id,
         method = method,
         route = %route,
         status_code = status,
@@ -400,6 +484,14 @@ mod tests {
     }
 
     fn run_capturing(f: impl FnOnce()) -> Vec<CapturedEvent> {
+        // Serialize all capture-based tests: `with_default` sets a *thread-local*
+        // subscriber, but cargo runs tests in parallel, and an emit on a
+        // work-stealing thread can fall back to another test's dispatcher —
+        // occasionally leaking a `nosdesk::request` event across captures. One
+        // process-wide lock removes the race deterministically.
+        static CAPTURE_LOCK: Mutex<()> = Mutex::new(());
+        let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+
         let layer = CaptureLayer::default();
         let events = layer.0.clone();
         let subscriber = tracing_subscriber::registry().with(layer);
@@ -489,6 +581,73 @@ mod tests {
     #[test]
     fn snapshot_json_is_none_when_empty() {
         assert!(CanonicalContext::default().snapshot_json().is_none());
+    }
+
+    #[test]
+    fn trace_context_generate_has_w3c_sizes() {
+        let t = TraceContext::generate();
+        assert_eq!(t.trace_id.len(), 32);
+        assert_eq!(t.span_id.len(), 16);
+        assert!(t.trace_id.bytes().all(|b| b.is_ascii_hexdigit()));
+        assert_eq!(
+            t.traceparent(),
+            format!("00-{}-{}-01", t.trace_id, t.span_id)
+        );
+    }
+
+    #[test]
+    fn trace_context_adopts_inbound_traceparent_trace_id_and_mints_span() {
+        let tp = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+        let t = TraceContext::from_traceparent(tp).expect("valid traceparent");
+        assert_eq!(t.trace_id, "4bf92f3577b34da6a3ce929d0e0e4736");
+        // Fresh span id for our leg — NOT the inbound parent span.
+        assert_ne!(t.span_id, "00f067aa0ba902b7");
+        assert_eq!(t.span_id.len(), 16);
+    }
+
+    #[test]
+    fn trace_context_rejects_malformed_traceparents() {
+        for bad in [
+            "",
+            "garbage",
+            "01-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01", // wrong version
+            "00-tooShort-00f067aa0ba902b7-01",
+            "00-00000000000000000000000000000000-00f067aa0ba902b7-01", // all-zero trace id
+            "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7",    // missing flags
+        ] {
+            assert!(
+                TraceContext::from_traceparent(bad).is_none(),
+                "should reject: {bad}"
+            );
+        }
+    }
+
+    #[test]
+    fn canonical_event_carries_trace_id() {
+        let events = run_capturing(|| {
+            let req = TestRequest::get()
+                .uri("/api/tickets/42")
+                .insert_header((
+                    "traceparent",
+                    "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+                ))
+                .to_srv_request();
+            let trace = TraceContext::extract_or_generate(&req);
+            req.extensions_mut().insert(RequestStart(Instant::now()));
+            req.extensions_mut().insert(trace);
+            let outcome: Result<ServiceResponse<BoxBody>, Error> =
+                Ok(req.into_response(HttpResponse::Ok().finish()));
+            emit_canonical_event(&outcome);
+        });
+        let ev = events
+            .iter()
+            .find(|e| e.target == "nosdesk::request")
+            .expect("canonical event should fire");
+        assert_eq!(
+            ev.fields.get("trace_id").map(String::as_str),
+            Some("4bf92f3577b34da6a3ce929d0e0e4736")
+        );
+        assert!(ev.fields.contains_key("span_id"), "span_id present");
     }
 
     #[test]
