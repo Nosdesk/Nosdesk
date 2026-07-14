@@ -250,7 +250,7 @@ pub(crate) async fn authenticate<B: MessageBody>(
             let (claims, _user) = JwtUtils::authenticate_with_token(&raw, &mut conn)
                 .await
                 .map_err(|err| {
-                    error!(error = ?err, "Bearer JWT auth: token validation failed");
+                    warn!(error = ?err, "Bearer JWT auth: token validation failed");
                     bearer_unauthorized(true, "Invalid or expired token")
                 })?;
 
@@ -284,7 +284,7 @@ pub(crate) async fn authenticate<B: MessageBody>(
     let (claims, _user) = JwtUtils::authenticate_with_token(token.value(), &mut conn)
         .await
         .map_err(|err| {
-            error!(error = ?err, "Cookie auth: token validation failed");
+            warn!(error = ?err, "Cookie auth: token validation failed");
             bearer_unauthorized(true, "Invalid or expired token")
         })?;
 

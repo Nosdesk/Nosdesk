@@ -566,7 +566,7 @@ pub async fn finish_passkey_login(
         let stored_cred = match passkey_data.find_credential(credential_id) {
             Some(cred) => cred,
             None => {
-                error!("Credential not found in user's passkey data");
+                warn!("Credential not found in user's passkey data");
                 return errors::unauthorized("Invalid passkey");
             }
         };
@@ -597,7 +597,7 @@ pub async fn finish_passkey_login(
         let email = match repository::user_helpers::get_primary_email(&user.uuid, &mut conn) {
             Some(e) => e,
             None => {
-                error!("Could not get email for user {}", user.uuid);
+                warn!(user_uuid = %user.uuid, "Could not get primary email for user");
                 return errors::internal("User email not found");
             }
         };
@@ -681,7 +681,7 @@ pub async fn finish_passkey_login(
 
     match jwt_helpers::create_login_response(user, &session.session_id, &family_id, &mut conn) {
         Ok((response, tokens)) => {
-            info!("Passkey login successful for user {}", user_uuid);
+            info!(user_uuid = %user_uuid, "Passkey login successful");
             super::auth::build_auth_response(
                 &req,
                 json!({
@@ -820,7 +820,7 @@ pub async fn rename_passkey(
         }
     }
 
-    info!("Passkey {} renamed for user {}", credential_id, user_uuid);
+    info!(credential_id = %credential_id, user_uuid = %user_uuid, "Passkey renamed");
 
     HttpResponse::Ok().json(json!({
         "success": true
@@ -894,7 +894,7 @@ pub async fn delete_passkey(
         },
     );
 
-    info!("Passkey {} deleted for user {}", credential_id, user_uuid);
+    info!(credential_id = %credential_id, user_uuid = %user_uuid, "Passkey deleted");
 
     HttpResponse::Ok().json(json!({
         "success": true

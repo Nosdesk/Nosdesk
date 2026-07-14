@@ -196,7 +196,7 @@ where
         match (header_token, cookie_token) {
             (Some(header), Some(cookie)) => {
                 if !validate_csrf_token(&header, &cookie) {
-                    tracing::error!("🔒 CSRF validation failed for {}: tokens don't match", path);
+                    tracing::warn!(path = %path, "CSRF validation failed: tokens don't match");
                     return Box::pin(async move {
                         Err(actix_web::error::ErrorForbidden("Invalid CSRF token"))
                     });

@@ -3042,7 +3042,7 @@ async fn create_new_user_from_microsoft_optimized(
         )
         .await
         {
-            warn!("Failed to update avatar for user {}: {}", name, e);
+            warn!(user_name = %name, error = %e, "Failed to update avatar for user");
         }
     }
 
@@ -5627,7 +5627,7 @@ async fn create_new_user_from_microsoft_no_photos(
         let _ = user_emails_repo::add_multiple_emails(conn, &created_user.uuid, email_data);
     }
 
-    info!("Created new user: {}", name);
+    info!(user_name = %name, "Created new user");
     stats.new_users_created += 1;
     Ok(())
 }
