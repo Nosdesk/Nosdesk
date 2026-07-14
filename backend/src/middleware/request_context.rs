@@ -15,7 +15,7 @@
 //! present, so the request_id remains on every log line emitted
 //! during the request.
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
 use actix_web::body::MessageBody;
@@ -136,6 +136,52 @@ impl RootSpanBuilder for NosdeskRootSpanBuilder {
     }
 }
 
+/// Requests at/above this latency are always kept by the sampler — slow
+/// requests are the interesting ones (tail sampling, loggingsucks.com).
+const SLOW_REQUEST_MS: u64 = 1_000;
+
+/// Fraction of successful, fast requests whose canonical event is emitted.
+/// `LOG_SAMPLE_RATE` in `[0.0, 1.0]`; default `1.0` — keep everything, so this
+/// is an inert lever until an operator dials it down for log-volume cost.
+/// Parsed once (env doesn't change at runtime).
+fn sample_rate() -> f64 {
+    static RATE: OnceLock<f64> = OnceLock::new();
+    *RATE.get_or_init(|| {
+        std::env::var("LOG_SAMPLE_RATE")
+            .ok()
+            .and_then(|s| s.parse::<f64>().ok())
+            .map(|r| r.clamp(0.0, 1.0))
+            .unwrap_or(1.0)
+    })
+}
+
+/// Tail-sampling decision: always keep errors (`status >= 400`) and slow
+/// requests; sample the fast-success remainder. Reads the process [`sample_rate`].
+fn keep_canonical(status: u16, latency_ms: u64, request_id: &str) -> bool {
+    keep_canonical_at(status, latency_ms, request_id, sample_rate())
+}
+
+/// Testable core of [`keep_canonical`] with the rate passed in. Deterministic
+/// on `request_id` (FNV-1a → uniform bucket in `[0,10000)`) so a request is
+/// wholly kept or dropped, and a given id samples identically every time.
+fn keep_canonical_at(status: u16, latency_ms: u64, request_id: &str, rate: f64) -> bool {
+    if status >= 400 || latency_ms >= SLOW_REQUEST_MS {
+        return true;
+    }
+    if rate >= 1.0 {
+        return true;
+    }
+    if rate <= 0.0 {
+        return false;
+    }
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in request_id.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    (h % 10_000) < (rate * 10_000.0) as u64
+}
+
 /// Emit the canonical per-request wide event. One flat line, self-contained
 /// (no span nesting), so a Loki/LogQL `| json | workspace_id="7" | status_code>=500`
 /// query works directly. Static per-process context (region, version, machine
@@ -159,6 +205,14 @@ fn emit_canonical_event<B>(outcome: &Result<ServiceResponse<B>, Error>) {
     }
     let status = resp.status().as_u16();
     let method = req.method().as_str();
+    // Stable error taxonomy for `?`-propagated ApiErrors, stashed on the
+    // response by `ApiError::error_response`. Stamped into the bag below so it
+    // rides `_canonical` (present only on errors, never a noisy "" on 2xx).
+    let error_kind = resp
+        .response()
+        .extensions()
+        .get::<crate::handlers::errors::ErrorKind>()
+        .map(|k| k.0);
 
     // Extract owned values so the extensions borrow is released before the
     // event macro. Absent-auth requests get stable sentinels (workspace 0,
@@ -180,9 +234,12 @@ fn emit_canonical_event<B>(outcome: &Result<ServiceResponse<B>, Error>) {
             .get::<RequestStart>()
             .map(|s| s.0.elapsed().as_millis() as u64)
             .unwrap_or(0);
-        // The accumulated business-dimension bag, serialised. The redaction
-        // layer flattens it (per-key, through the allowlist) back into
-        // top-level fields on this one event.
+        // Fold the error taxonomy into the business bag, then serialise. The
+        // redaction layer flattens the bag (per-key, through the allowlist)
+        // back into top-level fields on this one event.
+        if let (Some(ek), Some(cc)) = (error_kind, ext.get::<CanonicalContext>()) {
+            cc.record("error_kind", ek);
+        }
         let canonical = ext
             .get::<CanonicalContext>()
             .and_then(|c| c.snapshot_json());
@@ -195,6 +252,11 @@ fn emit_canonical_event<B>(outcome: &Result<ServiceResponse<B>, Error>) {
             canonical,
         )
     };
+
+    // Tail sampling: always keep errors + slow requests; sample the rest.
+    if !keep_canonical(status, latency_ms, &request_id) {
+        return;
+    }
 
     tracing::info!(
         target: "nosdesk::request",
@@ -427,6 +489,58 @@ mod tests {
     #[test]
     fn snapshot_json_is_none_when_empty() {
         assert!(CanonicalContext::default().snapshot_json().is_none());
+    }
+
+    #[test]
+    fn sampler_always_keeps_errors_and_slow_even_at_zero_rate() {
+        // Errors kept regardless of rate.
+        assert!(keep_canonical_at(500, 5, "req-a", 0.0));
+        assert!(keep_canonical_at(404, 5, "req-a", 0.0));
+        // Slow requests kept regardless of rate.
+        assert!(keep_canonical_at(200, SLOW_REQUEST_MS, "req-a", 0.0));
+    }
+
+    #[test]
+    fn sampler_rate_bounds_are_keep_all_and_drop_all() {
+        // rate 1.0 keeps every fast success; rate 0.0 drops them.
+        assert!(keep_canonical_at(200, 5, "req-a", 1.0));
+        assert!(!keep_canonical_at(200, 5, "req-a", 0.0));
+    }
+
+    #[test]
+    fn sampler_is_deterministic_and_roughly_proportional() {
+        // Same id + rate → same decision every call.
+        let d = keep_canonical_at(200, 5, "stable-id", 0.5);
+        assert_eq!(d, keep_canonical_at(200, 5, "stable-id", 0.5));
+        // ~50% of distinct ids kept at rate 0.5 (loose bounds — just proves the
+        // hash spreads and the threshold bites).
+        let kept = (0..2000)
+            .filter(|i| keep_canonical_at(200, 5, &format!("id-{i}"), 0.5))
+            .count();
+        assert!((700..=1300).contains(&kept), "kept {kept}/2000 at rate 0.5");
+    }
+
+    #[test]
+    fn canonical_event_reports_error_kind_from_response_ext() {
+        use crate::handlers::errors::ErrorKind;
+        let events = run_capturing(|| {
+            let req = TestRequest::get().uri("/api/tickets/42").to_srv_request();
+            req.extensions_mut().insert(RequestStart(Instant::now()));
+            req.extensions_mut().insert(CanonicalContext::default());
+            let mut resp = HttpResponse::NotFound().finish();
+            resp.extensions_mut().insert(ErrorKind("not_found"));
+            let outcome: Result<ServiceResponse<BoxBody>, Error> = Ok(req.into_response(resp));
+            emit_canonical_event(&outcome);
+        });
+        let ev = events
+            .iter()
+            .find(|e| e.target == "nosdesk::request")
+            .expect("canonical event should fire");
+        let canonical = ev.fields.get("_canonical").expect("_canonical present");
+        assert!(
+            canonical.contains("\"error_kind\":\"not_found\""),
+            "got {canonical}"
+        );
     }
 
     #[test]

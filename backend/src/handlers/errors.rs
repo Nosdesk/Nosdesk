@@ -323,6 +323,43 @@ pub enum ApiError {
     Pool(#[from] r2d2::Error),
 }
 
+/// Stable, low-cardinality machine code for an [`ApiError`], attached to the
+/// response extensions so the canonical wide event can report `error_kind`
+/// without every handler restating it. Distinct from `status_code`: it
+/// separates e.g. a unique-violation 409 from a plain conflict, and a pool
+/// outage 503 from a service-unavailable 503 — so `group by error_kind` is
+/// possible. Read by `middleware::request_context::emit_canonical_event`.
+#[derive(Clone, Copy)]
+pub struct ErrorKind(pub &'static str);
+
+impl ApiError {
+    /// Stable machine code for this error (never free text — safe to log/index).
+    pub fn kind(&self) -> &'static str {
+        match self {
+            ApiError::BadRequest(_) => "bad_request",
+            ApiError::Unauthorized(_) => "unauthorized",
+            ApiError::Forbidden(_) => "forbidden",
+            ApiError::NotFound(_) => "not_found",
+            ApiError::Conflict(_) => "conflict",
+            ApiError::Internal(_) => "internal",
+            ApiError::ServiceUnavailable(_) => "service_unavailable",
+            ApiError::Database(diesel::result::Error::NotFound) => "not_found",
+            ApiError::Database(diesel::result::Error::DatabaseError(kind, _)) => {
+                use diesel::result::DatabaseErrorKind as Kind;
+                match kind {
+                    Kind::UniqueViolation => "db_unique_violation",
+                    Kind::ForeignKeyViolation | Kind::NotNullViolation | Kind::CheckViolation => {
+                        "db_constraint_violation"
+                    }
+                    _ => "db_error",
+                }
+            }
+            ApiError::Database(_) => "db_error",
+            ApiError::Pool(_) => "pool_unavailable",
+        }
+    }
+}
+
 impl ResponseError for ApiError {
     fn status_code(&self) -> StatusCode {
         match self {
@@ -350,7 +387,7 @@ impl ResponseError for ApiError {
     }
 
     fn error_response(&self) -> HttpResponse {
-        match self {
+        let mut resp = match self {
             ApiError::BadRequest(m) => bad_request(m.clone()),
             ApiError::Unauthorized(m) => unauthorized(m.clone()),
             ApiError::Forbidden(m) => forbidden(m.clone()),
@@ -363,6 +400,12 @@ impl ResponseError for ApiError {
                 error!(error = ?e, "DB pool acquire failed");
                 service_unavailable("Database connection unavailable, please retry")
             }
-        }
+        };
+        // Stash the stable kind on the response so the canonical wide event
+        // reports `error_kind` for every `?`-propagated error, no per-handler
+        // stamping. (Direct `HttpResponse::…` returns bypass this — acceptable;
+        // the ApiError path is the systematic one.)
+        resp.extensions_mut().insert(ErrorKind(self.kind()));
+        resp
     }
 }
