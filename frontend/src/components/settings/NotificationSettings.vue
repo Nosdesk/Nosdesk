@@ -189,12 +189,11 @@ const applyAllForChannel = async (channelCode: string, frequency: NotificationFr
 const requestBrowserPermission = async () => {
   const granted = await requestNotificationPermission();
   browserPermission.value = Notification.permission;
-  emit(
-    granted ? 'success' : 'error',
-    granted
-      ? t('settings-notifications-browser-enabled-success')
-      : t('settings-notifications-browser-denied-error')
-  );
+  if (granted) {
+    emit('success', t('settings-notifications-browser-enabled-success'));
+  } else {
+    emit('error', t('settings-notifications-browser-denied-error'));
+  }
 };
 
 onMounted(async () => {
