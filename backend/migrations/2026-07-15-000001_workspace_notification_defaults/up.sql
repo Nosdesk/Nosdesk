@@ -27,6 +27,20 @@ CREATE TABLE workspace_notification_defaults (
 CREATE INDEX idx_workspace_notification_defaults_lookup
     ON workspace_notification_defaults (workspace_id, notification_type_id, channel);
 
+-- Ownership + runtime-role grants. A NEW table must set these explicitly:
+-- migrations may run as a role other than nosdesk_admin, so the schema-wide
+-- `ALTER DEFAULT PRIVILEGES FOR ROLE nosdesk_admin` (which only covers tables
+-- CREATED BY nosdesk_admin) does not reach a table created by the migration
+-- runner. Without the owner change, nosdesk_admin (the BYPASSRLS role the
+-- workspace backup/export runs under) can't see the table via
+-- `information_schema` and the export refuses it; without the grant, the
+-- RLS-enforced runtime role nosdesk_app can't read/write it. Mirrors the
+-- inbound_addresses pattern in the post-v1011 squash.
+ALTER TABLE public.workspace_notification_defaults OWNER TO nosdesk_admin;
+ALTER SEQUENCE public.workspace_notification_defaults_id_seq OWNER TO nosdesk_admin;
+GRANT SELECT, INSERT, DELETE, UPDATE ON TABLE public.workspace_notification_defaults TO nosdesk_app;
+GRANT ALL ON SEQUENCE public.workspace_notification_defaults_id_seq TO nosdesk_app;
+
 -- Workspace isolation, mirroring notification_preferences' policy shape.
 ALTER TABLE workspace_notification_defaults ENABLE ROW LEVEL SECURITY;
 ALTER TABLE workspace_notification_defaults FORCE ROW LEVEL SECURITY;
