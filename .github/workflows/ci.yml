@@ -185,4 +185,10 @@ jobs:
         run: pnpm --filter @nosdesk/core run lint
 
       - name: Audit
+        # Advisory only — must not hard-block merges. npm retired the legacy
+        # audit endpoint (returns HTTP 410), which older `pnpm audit` still
+        # calls, so this step fails for infra reasons unrelated to any change.
+        # Keep it running (advisories still surface as an annotation) but
+        # non-fatal until the toolchain uses the bulk advisory endpoint.
+        continue-on-error: true
         run: pnpm audit --prod

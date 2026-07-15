@@ -10,7 +10,7 @@ use serde::Deserialize;
 
 use crate::models::Claims;
 use crate::services::notifications::{
-    NotificationChannel, NotificationService, NotificationTypeCode,
+    NotificationChannel, NotificationFrequency, NotificationService, NotificationTypeCode,
 };
 
 /// Query parameters for fetching notifications
@@ -42,12 +42,18 @@ pub struct SnoozeRequest {
     pub until: DateTime<Utc>,
 }
 
-/// Request body for updating a preference
+/// Request body for updating a preference cell. `frequency` is
+/// `instant` | `digest` | `off` (replaces the former `enabled` bool). For
+/// backward compatibility with any client still sending `enabled`, a missing
+/// `frequency` falls back to it (`true → instant`, `false → off`).
 #[derive(Debug, Deserialize)]
 pub struct UpdatePreferenceRequest {
     pub notification_type: String,
     pub channel: String,
-    pub enabled: bool,
+    #[serde(default)]
+    pub frequency: Option<String>,
+    #[serde(default)]
+    pub enabled: Option<bool>,
 }
 
 /// Notification routes, mounted inside the authenticated `/api` scope in main.rs.
@@ -456,9 +462,25 @@ pub async fn update_preference(
         None => return errors::bad_request(format!("Invalid channel: {}", body.channel)),
     };
 
+    // Prefer `frequency`; fall back to a legacy `enabled` bool if that's all the
+    // client sent. Reject an unrecognised frequency string.
+    let frequency = match body.frequency.as_deref() {
+        Some(f) => match NotificationFrequency::from_str(f) {
+            Some(freq) => freq,
+            None => return errors::bad_request(format!("Invalid frequency: {f}")),
+        },
+        None => match body.enabled {
+            Some(true) => NotificationFrequency::Instant,
+            Some(false) => NotificationFrequency::Off,
+            None => {
+                return errors::bad_request("Missing `frequency` (instant|digest|off)");
+            }
+        },
+    };
+
     match notification_service
         .preferences()
-        .set_preference(&user_uuid, &notification_type, channel, body.enabled)
+        .set_preference(&user_uuid, &notification_type, channel, frequency)
         .await
     {
         Ok(_) => HttpResponse::Ok().json(serde_json::json!({ "success": true })),
