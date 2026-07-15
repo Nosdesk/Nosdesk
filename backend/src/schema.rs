@@ -1895,6 +1895,22 @@ diesel::table! {
 }
 
 diesel::table! {
+    user_push_devices (id) {
+        id -> Int4,
+        user_uuid -> Uuid,
+        workspace_id -> Int4,
+        #[max_length = 16]
+        platform -> Varchar,
+        token -> Text,
+        app_version -> Nullable<Text>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        last_seen_at -> Timestamptz,
+        revoked_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
     user_recovery_codes (id) {
         id -> Int8,
         user_uuid -> Uuid,
@@ -2394,6 +2410,8 @@ diesel::joinable!(tickets -> ticket_categories (category_id));
 diesel::joinable!(tickets -> workflow_states (workflow_state_id));
 diesel::joinable!(tickets -> workspaces (workspace_id));
 diesel::joinable!(user_addresses -> workspaces (workspace_id));
+diesel::joinable!(user_push_devices -> users (user_uuid));
+diesel::joinable!(user_push_devices -> workspaces (workspace_id));
 diesel::joinable!(user_auth_identities -> workspaces (workspace_id));
 diesel::joinable!(user_field_schema -> users (created_by));
 diesel::joinable!(user_field_schema -> workspaces (workspace_id));
@@ -2530,6 +2548,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     user_phone_numbers,
     user_preferences,
     user_profiles,
+    user_push_devices,
     user_recovery_codes,
     user_ticket_views,
     users,

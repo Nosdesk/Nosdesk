@@ -8,6 +8,7 @@ use chrono::{DateTime, Utc};
 use crate::handlers::{errors, helpers};
 use serde::Deserialize;
 
+use crate::db::Pool;
 use crate::middleware::request_context::RequestContext;
 use crate::models::{Claims, WorkspaceRole};
 use crate::services::notifications::{
@@ -105,10 +106,115 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             "/admin/notification-defaults",
             web::put().to(update_workspace_notification_default),
         )
+        // Push device registration (per authenticated user).
+        .route(
+            "/notifications/devices",
+            web::post().to(register_push_device),
+        )
+        .route(
+            "/notifications/devices/{token}",
+            web::delete().to(unregister_push_device),
+        )
         .route(
             "/notifications/delete",
             web::post().to(delete_notifications),
         );
+}
+
+/// Request body to register a push device.
+#[derive(Debug, Deserialize)]
+pub struct RegisterDeviceRequest {
+    /// `ios` | `android` | `web`.
+    pub platform: String,
+    /// The APNs/FCM device token.
+    pub token: String,
+    #[serde(default)]
+    pub app_version: Option<String>,
+}
+
+/// POST /api/notifications/devices — register/refresh this user's push device.
+pub async fn register_push_device(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+    body: web::Json<RegisterDeviceRequest>,
+) -> HttpResponse {
+    let claims = match req.extensions().get::<Claims>() {
+        Some(c) => c.clone(),
+        None => return HttpResponse::Unauthorized().finish(),
+    };
+    let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
+        Ok(u) => u,
+        Err(_) => return errors::bad_request("Invalid user UUID"),
+    };
+    let Some(workspace_id) = actor_workspace_id(&req) else {
+        return errors::unauthorized("Authentication required");
+    };
+    if !matches!(body.platform.as_str(), "ios" | "android" | "web") {
+        return errors::bad_request(format!("Invalid platform: {}", body.platform));
+    }
+    let token = body.token.trim();
+    if token.is_empty() {
+        return errors::bad_request("Missing device token");
+    }
+
+    let mut conn = match errors::db_conn(&pool) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+    let actor =
+        crate::sync::actor::ActorContext::user(user_uuid, None).with_workspace(workspace_id);
+    let res = crate::sync::session::with_actor_bypass_context(&mut conn, &actor, |conn| {
+        crate::repository::push_devices::register(
+            conn,
+            user_uuid,
+            workspace_id,
+            &body.platform,
+            token,
+            body.app_version.as_deref(),
+        )
+    });
+    match res {
+        Ok(_) => HttpResponse::Ok().json(serde_json::json!({ "success": true })),
+        Err(e) => {
+            HttpResponse::InternalServerError().json(serde_json::json!({ "error": e.to_string() }))
+        }
+    }
+}
+
+/// DELETE /api/notifications/devices/{token} — revoke this user's device token.
+pub async fn unregister_push_device(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+    path: web::Path<String>,
+) -> HttpResponse {
+    let claims = match req.extensions().get::<Claims>() {
+        Some(c) => c.clone(),
+        None => return HttpResponse::Unauthorized().finish(),
+    };
+    let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
+        Ok(u) => u,
+        Err(_) => return errors::bad_request("Invalid user UUID"),
+    };
+    let Some(workspace_id) = actor_workspace_id(&req) else {
+        return errors::unauthorized("Authentication required");
+    };
+    let token = path.into_inner();
+
+    let mut conn = match errors::db_conn(&pool) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+    let actor =
+        crate::sync::actor::ActorContext::user(user_uuid, None).with_workspace(workspace_id);
+    let res = crate::sync::session::with_actor_bypass_context(&mut conn, &actor, |conn| {
+        crate::repository::push_devices::revoke(conn, user_uuid, &token)
+    });
+    match res {
+        Ok(_) => HttpResponse::Ok().json(serde_json::json!({ "success": true })),
+        Err(e) => {
+            HttpResponse::InternalServerError().json(serde_json::json!({ "error": e.to_string() }))
+        }
+    }
 }
 
 /// Current caller's workspace (from the actor context pinned by auth middleware).

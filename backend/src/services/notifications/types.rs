@@ -78,9 +78,9 @@ impl NotificationTypeCode {
 pub enum NotificationChannel {
     InApp,
     Email,
-    // Push is intentionally absent: no delivery adapter is registered or
-    // seeded, so accepting it would silently drop notifications. Re-add it
-    // alongside a PushChannel + seed matrix when push actually ships.
+    /// Mobile/web push (APNs/FCM). Delivered by `channels::push::PushChannel`
+    /// when a push sender is configured; inert (is_available = false) until then.
+    Push,
 }
 
 impl NotificationChannel {
@@ -88,6 +88,7 @@ impl NotificationChannel {
         match self {
             Self::InApp => "in_app",
             Self::Email => "email",
+            Self::Push => "push",
         }
     }
 
@@ -95,6 +96,7 @@ impl NotificationChannel {
         match s {
             "in_app" => Some(Self::InApp),
             "email" => Some(Self::Email),
+            "push" => Some(Self::Push),
             _ => None,
         }
     }
@@ -377,6 +379,16 @@ mod tests {
     fn only_email_supports_digest() {
         assert!(NotificationChannel::Email.supports_digest());
         assert!(!NotificationChannel::InApp.supports_digest());
+        assert!(!NotificationChannel::Push.supports_digest());
+    }
+
+    #[test]
+    fn push_channel_roundtrips() {
+        assert_eq!(
+            NotificationChannel::from_str("push"),
+            Some(NotificationChannel::Push)
+        );
+        assert_eq!(NotificationChannel::Push.as_str(), "push");
     }
 
     #[test]

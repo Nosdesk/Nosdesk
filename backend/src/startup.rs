@@ -222,6 +222,18 @@ pub fn build_state(
             service.register_channel(email_channel);
         }
 
+        // Push channel: provider-agnostic, registered with the no-op sender for
+        // now (is_available=false → inert) so push preferences exist and device
+        // registration works; it starts delivering once a real APNs/FCM sender
+        // is wired in.
+        let push_channel = Arc::new(
+            crate::services::notifications::channels::push::PushChannel::new(
+                pool.clone(),
+                Arc::new(crate::services::notifications::channels::push::NoopPushSender),
+            ),
+        );
+        service.register_channel(push_channel);
+
         web::Data::new(service)
     };
 
