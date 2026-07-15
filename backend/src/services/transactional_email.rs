@@ -312,6 +312,54 @@ pub fn enqueue_bug_report_alert(
     outbound_emails::enqueue_idempotent(conn, row)
 }
 
+/// Build the notification-DIGEST email: a plain summary of the notifications a
+/// user set to `email` = `digest`, sent once per digest run. WORKSPACE sender
+/// identity, NOTIFICATION mail class (opt-out-able, unlike transactional mail).
+/// `titles` is one line per batched notification. No idempotency key — the
+/// digest is time-windowed and de-duplicated by marking the source rows
+/// email-delivered, so it's enqueued via `enqueue_or_suppress`.
+pub fn prepare_notification_digest(
+    recipient: &str,
+    app_name: &str,
+    base_url: &str,
+    titles: &[String],
+) -> NewOutboundEmail {
+    let from_domain = std::env::var("SMTP_FROM_EMAIL")
+        .ok()
+        .and_then(|e| e.rsplit_once('@').map(|(_, d)| d.to_string()))
+        .unwrap_or_else(|| "nosdesk.local".to_string());
+    let message_id = make_message_id("digest", &from_domain);
+
+    let count = titles.len();
+    let plural = if count == 1 { "" } else { "s" };
+    let subject = format!("{app_name}: {count} new notification{plural}");
+    let list = titles
+        .iter()
+        .map(|t| format!("  • {t}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let body_text =
+        format!("You have {count} new notification{plural}:\n\n{list}\n\nView them: {base_url}\n");
+
+    NewOutboundEmail {
+        channel_id: None,
+        ticket_id: None,
+        comment_id: None,
+        recipient: recipient.to_string(),
+        subject,
+        body_text,
+        body_html: None,
+        message_id,
+        in_reply_to: None,
+        references_list: vec![],
+        headers_json: serde_json::json!({}),
+        correlation_id: None,
+        idempotency_key: None,
+        sender_identity: outbound_email_sender_identity::WORKSPACE.to_string(),
+        mail_class: outbound_email_mail_class::NOTIFICATION.to_string(),
+    }
+}
+
 /// Build the `NewOutboundEmail` row for a customer-portal sign-in link.
 /// Transactional auth mail (no unsubscribe), sent from the WORKSPACE identity
 /// (the tenant's branded portal, falling back to the instance identity when the
