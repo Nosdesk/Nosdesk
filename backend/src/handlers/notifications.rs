@@ -8,10 +8,12 @@ use chrono::{DateTime, Utc};
 use crate::handlers::{errors, helpers};
 use serde::Deserialize;
 
-use crate::models::Claims;
+use crate::middleware::request_context::RequestContext;
+use crate::models::{Claims, WorkspaceRole};
 use crate::services::notifications::{
     NotificationChannel, NotificationFrequency, NotificationService, NotificationTypeCode,
 };
+use crate::utils::rbac::require_workspace_role;
 
 /// Query parameters for fetching notifications
 #[derive(Debug, Deserialize)]
@@ -94,10 +96,108 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             "/notifications/preferences",
             web::put().to(update_preference),
         )
+        // Workspace-admin defaults (the middle inheritance layer). Admin-gated.
+        .route(
+            "/admin/notification-defaults",
+            web::get().to(get_workspace_notification_defaults),
+        )
+        .route(
+            "/admin/notification-defaults",
+            web::put().to(update_workspace_notification_default),
+        )
         .route(
             "/notifications/delete",
             web::post().to(delete_notifications),
         );
+}
+
+/// Current caller's workspace (from the actor context pinned by auth middleware).
+fn actor_workspace_id(req: &HttpRequest) -> Option<i32> {
+    req.extensions()
+        .get::<RequestContext>()
+        .map(|c| c.actor.workspace_id)
+        .unwrap_or(None)
+}
+
+/// Request body for setting a workspace notification default cell.
+#[derive(Debug, Deserialize)]
+pub struct UpdateWorkspaceDefaultRequest {
+    pub notification_type: String,
+    pub channel: String,
+    pub frequency: String,
+    #[serde(default)]
+    pub locked: bool,
+}
+
+/// GET /api/admin/notification-defaults — the workspace's default matrix.
+/// Admin-only (manages workspace settings).
+pub async fn get_workspace_notification_defaults(
+    req: HttpRequest,
+    notification_service: web::Data<NotificationService>,
+) -> HttpResponse {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
+        return e;
+    }
+    let Some(workspace_id) = actor_workspace_id(&req) else {
+        return errors::unauthorized("Authentication required");
+    };
+
+    match notification_service
+        .preferences()
+        .get_workspace_defaults(workspace_id)
+        .await
+    {
+        Ok(defaults) => HttpResponse::Ok().json(defaults),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({ "error": e })),
+    }
+}
+
+/// PUT /api/admin/notification-defaults — set one workspace default cell.
+/// Admin-only.
+pub async fn update_workspace_notification_default(
+    req: HttpRequest,
+    notification_service: web::Data<NotificationService>,
+    body: web::Json<UpdateWorkspaceDefaultRequest>,
+) -> HttpResponse {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
+        return e;
+    }
+    let Some(workspace_id) = actor_workspace_id(&req) else {
+        return errors::unauthorized("Authentication required");
+    };
+
+    let notification_type = match NotificationTypeCode::from_str(&body.notification_type) {
+        Some(t) => t,
+        None => {
+            return errors::bad_request(format!(
+                "Invalid notification type: {}",
+                body.notification_type
+            ))
+        }
+    };
+    let channel = match NotificationChannel::from_str(&body.channel) {
+        Some(c) => c,
+        None => return errors::bad_request(format!("Invalid channel: {}", body.channel)),
+    };
+    let frequency = match NotificationFrequency::from_str(&body.frequency) {
+        Some(f) => f,
+        None => return errors::bad_request(format!("Invalid frequency: {}", body.frequency)),
+    };
+
+    match notification_service
+        .preferences()
+        .set_workspace_default(
+            workspace_id,
+            &notification_type,
+            channel,
+            frequency,
+            body.locked,
+        )
+        .await
+    {
+        Ok(_) => HttpResponse::Ok().json(serde_json::json!({ "success": true })),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({ "error": e })),
+    }
 }
 
 /// Get user's notifications

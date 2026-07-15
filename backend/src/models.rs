@@ -5551,6 +5551,22 @@ pub struct NotificationPreferenceResponse {
     pub category: String,
     pub channels: std::collections::HashMap<String, bool>,
     pub frequencies: std::collections::HashMap<String, String>,
+    /// Channels the workspace admin has `locked` for this type — the user
+    /// cannot override these (the UI disables the cell). Additive.
+    pub locked: std::collections::HashMap<String, bool>,
+}
+
+/// API response for a workspace admin's notification DEFAULTS (grouped by type).
+/// `frequencies` is the workspace default per channel (falling back to the
+/// system default); `locked` marks cells users cannot override.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WorkspaceNotificationDefaultResponse {
+    pub notification_type: String,
+    pub notification_name: String,
+    pub description: Option<String>,
+    pub category: String,
+    pub frequencies: std::collections::HashMap<String, String>,
+    pub locked: std::collections::HashMap<String, bool>,
 }
 
 /// API response for a notification

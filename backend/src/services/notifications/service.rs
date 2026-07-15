@@ -71,10 +71,16 @@ impl NotificationService {
             return Ok(());
         }
 
-        // 1. Check if user should receive this notification type at all
+        // 1. Which channels deliver this type immediately for the recipient, in
+        //    this notification's workspace (resolves user + workspace-admin +
+        //    system inheritance).
         let enabled_channels = self
             .preference_service
-            .get_enabled_channels(&payload.recipient_uuid, &payload.notification_type)
+            .get_enabled_channels(
+                &payload.recipient_uuid,
+                payload.workspace_id,
+                &payload.notification_type,
+            )
             .await?;
 
         if enabled_channels.is_empty() {
