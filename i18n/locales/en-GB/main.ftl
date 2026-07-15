@@ -2995,6 +2995,38 @@ settings-notifications-channel-bulk-success = All { $channel } notifications { $
 }
 settings-notifications-info-footer = Email notifications are rate limited to prevent inbox flooding. You'll receive at most one email per ticket every 5 minutes.
 
+# Notification frequency, push channel + admin defaults (2026-07-16)
+settings-notifications-frequency-instant = Instant
+settings-notifications-frequency-digest = Daily digest
+settings-notifications-frequency-off = Off
+settings-notifications-frequency-mixed = Mixed
+settings-notifications-channel-push-name = Push
+settings-notifications-channel-push-description = Mobile push notifications
+settings-notifications-channel-bulk-applied = All { $channel } notifications updated
+settings-notifications-locked-hint = Set by your workspace admin
+settings-notifications-push-footer = Push notifications are delivered to the Nosdesk mobile app once you've signed in on a device. Set your preference now and it applies automatically.
+settings-notifications-category-asset-label = Assets
+settings-notifications-category-asset-description = Notifications about assets, stock levels and device loans
+settings-notifications-type-sla-breached-name = SLA Breached
+settings-notifications-type-sla-breached-description = When a ticket's response or resolution SLA target is missed
+settings-notifications-type-loan-due-soon-name = Loan Due Soon
+settings-notifications-type-loan-due-soon-description = When a device you have on loan is due back soon
+settings-notifications-type-loan-overdue-name = Loan Overdue
+settings-notifications-type-loan-overdue-description = When a device you have on loan is overdue
+admin-notification-defaults-title = Notification defaults
+admin-notification-defaults-description = Set the default notification delivery for everyone in this workspace. Members inherit these unless you lock a setting.
+admin-notification-defaults-back-label = Back to admin
+admin-notification-defaults-lock-explainer-title = Locking a default
+admin-notification-defaults-lock-explainer-body = Members can change any unlocked setting for themselves. Lock a channel to enforce your default — locked settings appear read-only on each member's own notification preferences.
+admin-notification-defaults-locked-title = Locked — members can't override. Click to unlock.
+admin-notification-defaults-unlocked-title = Unlocked — members can override. Click to lock.
+admin-notification-defaults-saved = Default updated
+admin-notification-defaults-error-save = Couldn't update default
+admin-notification-defaults-error-load = Couldn't load notification defaults
+admin-nav-notification-defaults-title = Notification defaults
+admin-nav-notification-defaults-description = Set workspace-wide notification defaults members inherit
+route-title-admin-notification-defaults = Notification defaults
+
 # Settings: passkeys (PasskeySettings)
 settings-passkey-section-title = Passkeys
 settings-passkey-empty-title = No passkeys registered

@@ -3476,6 +3476,38 @@ settings-notifications-channel-bulk-success = Alle { $channel }-meldingen { $sta
 }
 settings-notifications-info-footer = E-mailmeldingen zijn snelheidsbeperkt om uw inbox niet te overspoelen. U ontvangt hoogstens één e-mail per ticket per 5 minuten.
 
+# Meldingsfrequentie, pushkanaal + standaardinstellingen beheerder (2026-07-16)
+settings-notifications-frequency-instant = Direct
+settings-notifications-frequency-digest = Dagelijks overzicht
+settings-notifications-frequency-off = Uit
+settings-notifications-frequency-mixed = Gemengd
+settings-notifications-channel-push-name = Push
+settings-notifications-channel-push-description = Mobiele pushmeldingen
+settings-notifications-channel-bulk-applied = Alle { $channel }-meldingen bijgewerkt
+settings-notifications-locked-hint = Ingesteld door de beheerder van uw werkruimte
+settings-notifications-push-footer = Pushmeldingen worden naar de Nosdesk-mobiele app gestuurd zodra u op een apparaat bent aangemeld. Stel uw voorkeur nu in, deze wordt automatisch toegepast.
+settings-notifications-category-asset-label = Assets
+settings-notifications-category-asset-description = Meldingen over assets, voorraadniveaus en apparaatuitleningen
+settings-notifications-type-sla-breached-name = SLA overschreden
+settings-notifications-type-sla-breached-description = Wanneer de SLA-doelstelling voor reactie of oplossing van een ticket wordt gemist
+settings-notifications-type-loan-due-soon-name = Uitlening bijna te laat
+settings-notifications-type-loan-due-soon-description = Wanneer een apparaat dat u hebt geleend binnenkort moet worden ingeleverd
+settings-notifications-type-loan-overdue-name = Uitlening te laat
+settings-notifications-type-loan-overdue-description = Wanneer een apparaat dat u hebt geleend te laat is
+admin-notification-defaults-title = Standaard meldingsinstellingen
+admin-notification-defaults-description = Stel de standaard meldingsbezorging in voor iedereen in deze werkruimte. Leden erven deze, tenzij u een instelling vergrendelt.
+admin-notification-defaults-back-label = Terug naar beheer
+admin-notification-defaults-lock-explainer-title = Een standaardinstelling vergrendelen
+admin-notification-defaults-lock-explainer-body = Leden kunnen elke niet-vergrendelde instelling voor zichzelf wijzigen. Vergrendel een kanaal om uw standaard af te dwingen — vergrendelde instellingen verschijnen alleen-lezen in de meldingsvoorkeuren van elk lid.
+admin-notification-defaults-locked-title = Vergrendeld — leden kunnen dit niet wijzigen. Klik om te ontgrendelen.
+admin-notification-defaults-unlocked-title = Ontgrendeld — leden kunnen dit wijzigen. Klik om te vergrendelen.
+admin-notification-defaults-saved = Standaardinstelling bijgewerkt
+admin-notification-defaults-error-save = Kan standaardinstelling niet bijwerken
+admin-notification-defaults-error-load = Kan standaard meldingsinstellingen niet laden
+admin-nav-notification-defaults-title = Standaard meldingsinstellingen
+admin-nav-notification-defaults-description = Werkruimtebrede standaard meldingsinstellingen instellen die leden erven
+route-title-admin-notification-defaults = Standaard meldingsinstellingen
+
 # Instellingen: passkeys (PasskeySettings)
 settings-passkey-section-title = Passkeys
 settings-passkey-empty-title = Geen passkeys geregistreerd

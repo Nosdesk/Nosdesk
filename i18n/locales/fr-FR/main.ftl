@@ -3485,6 +3485,38 @@ settings-notifications-channel-bulk-success = Toutes les notifications { $channe
 }
 settings-notifications-info-footer = Les notifications par e-mail sont limitées en fréquence pour éviter de saturer votre boîte de réception. Vous recevrez au plus un e-mail par ticket toutes les 5 minutes.
 
+# Fréquence de notification, canal push + valeurs par défaut admin (2026-07-16)
+settings-notifications-frequency-instant = Instantané
+settings-notifications-frequency-digest = Résumé quotidien
+settings-notifications-frequency-off = Désactivé
+settings-notifications-frequency-mixed = Mixte
+settings-notifications-channel-push-name = Push
+settings-notifications-channel-push-description = Notifications push mobiles
+settings-notifications-channel-bulk-applied = Toutes les notifications { $channel } ont été mises à jour
+settings-notifications-locked-hint = Défini par l'administrateur de votre espace de travail
+settings-notifications-push-footer = Les notifications push sont envoyées à l'application mobile Nosdesk une fois que vous êtes connecté sur un appareil. Définissez votre préférence dès maintenant, elle s'appliquera automatiquement.
+settings-notifications-category-asset-label = Ressources
+settings-notifications-category-asset-description = Notifications concernant les ressources, les niveaux de stock et les prêts d'appareils
+settings-notifications-type-sla-breached-name = SLA non respecté
+settings-notifications-type-sla-breached-description = Lorsqu'un objectif de SLA de réponse ou de résolution d'un ticket n'est pas atteint
+settings-notifications-type-loan-due-soon-name = Prêt à rendre bientôt
+settings-notifications-type-loan-due-soon-description = Lorsqu'un appareil que vous avez en prêt doit être rendu prochainement
+settings-notifications-type-loan-overdue-name = Prêt en retard
+settings-notifications-type-loan-overdue-description = Lorsqu'un appareil que vous avez en prêt est en retard
+admin-notification-defaults-title = Paramètres de notification par défaut
+admin-notification-defaults-description = Définissez la diffusion des notifications par défaut pour tous les membres de cet espace de travail. Les membres en héritent, sauf si vous verrouillez un paramètre.
+admin-notification-defaults-back-label = Retour à l'administration
+admin-notification-defaults-lock-explainer-title = Verrouiller un paramètre par défaut
+admin-notification-defaults-lock-explainer-body = Les membres peuvent modifier tout paramètre non verrouillé les concernant. Verrouillez un canal pour imposer votre valeur par défaut — les paramètres verrouillés apparaissent en lecture seule dans les préférences de notification de chaque membre.
+admin-notification-defaults-locked-title = Verrouillé — les membres ne peuvent pas le modifier. Cliquez pour déverrouiller.
+admin-notification-defaults-unlocked-title = Déverrouillé — les membres peuvent le modifier. Cliquez pour verrouiller.
+admin-notification-defaults-saved = Paramètre par défaut mis à jour
+admin-notification-defaults-error-save = Impossible de mettre à jour le paramètre par défaut
+admin-notification-defaults-error-load = Impossible de charger les paramètres de notification par défaut
+admin-nav-notification-defaults-title = Paramètres de notification par défaut
+admin-nav-notification-defaults-description = Définir les paramètres de notification par défaut de l'espace de travail dont héritent les membres
+route-title-admin-notification-defaults = Paramètres de notification par défaut
+
 # Paramètres : clés d'accès (PasskeySettings)
 settings-passkey-section-title = Clés d'accès
 settings-passkey-empty-title = Aucune clé d'accès enregistrée

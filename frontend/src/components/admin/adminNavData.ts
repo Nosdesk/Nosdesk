@@ -97,6 +97,13 @@ export const adminNavGroups: AdminNavGroup[] = [
         icon: 'email',
         route: '/admin/email',
         keywords: ['email', 'delivery', 'sending', 'smtp', 'domain', 'dkim', 'spf', 'dmarc', 'queue', 'suppressions', 'bounce', 'unsubscribe', 'outbound', 'from']
+      },
+      {
+        titleKey: 'admin-nav-notification-defaults-title',
+        descriptionKey: 'admin-nav-notification-defaults-description',
+        icon: 'bell',
+        route: '/admin/notification-defaults',
+        keywords: ['notifications', 'defaults', 'preferences', 'channels', 'digest', 'push', 'locked', 'workspace', 'frequency']
       }
     ]
   },
