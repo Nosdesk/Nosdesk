@@ -11,8 +11,7 @@ use uuid::Uuid;
 use crate::db::DbConnection;
 use crate::schema::user_push_devices::dsl as d;
 
-// sync-audit-only: push device tokens are server-side push infrastructure; no
-// sync client subscribes to a user's device list.
+// sync-audit-only: server-side push infra; no sync client subscribes to a device list.
 /// Register (or refresh) a device token for a user. Upserts on the token so a
 /// reinstall / a token reassigned to another user lands on one row, and
 /// re-registering un-revokes it.
