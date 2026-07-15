@@ -5,6 +5,7 @@
 
 pub mod email;
 pub mod in_app;
+pub mod push;
 
 use async_trait::async_trait;
 use std::fmt;

@@ -28,9 +28,14 @@ use crate::models::{
 
 use super::types::{NotificationChannel, NotificationFrequency, NotificationTypeCode};
 
-/// The channels the resolver considers. Push joins here when it ships.
-const RESOLVED_CHANNELS: [NotificationChannel; 2] =
-    [NotificationChannel::InApp, NotificationChannel::Email];
+/// The channels the resolver considers (and the settings matrix exposes). Push
+/// defaults to `off` — it's opt-in after the user registers a device + grants
+/// OS permission — so it's never in a type's `default_channels`.
+const RESOLVED_CHANNELS: [NotificationChannel; 3] = [
+    NotificationChannel::InApp,
+    NotificationChannel::Email,
+    NotificationChannel::Push,
+];
 
 /// Manages notification preferences + workspace defaults with caching.
 pub struct PreferenceService {

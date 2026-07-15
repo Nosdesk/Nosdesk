@@ -1711,6 +1711,11 @@ mod tests {
             // device is a defensible global UNIQUE — flagged for
             // product decision but not a leak per se.
             "idx_asset_serial_unique",
+            // APNs/FCM push tokens are assigned globally by Apple/Google and
+            // identify one physical device. A token maps to exactly one device
+            // row regardless of workspace (re-registration upserts on it), so
+            // the UNIQUE is intentionally global, not per-workspace.
+            "user_push_devices_token_key",
             // Azure object IDs are GUIDs. Cross-tenant overlap doesn't
             // happen in practice; not a leak.
             "idx_groups_external_id",
