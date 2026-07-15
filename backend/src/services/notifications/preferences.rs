@@ -12,7 +12,7 @@ use uuid::Uuid;
 use crate::db::Pool;
 use crate::models::{NotificationPreferenceResponse, NotificationType as NotificationTypeModel};
 
-use super::types::{NotificationChannel, NotificationTypeCode};
+use super::types::{NotificationChannel, NotificationFrequency, NotificationTypeCode};
 
 /// Manages user notification preferences with caching
 pub struct PreferenceService {
@@ -82,10 +82,10 @@ impl PreferenceService {
                     .filter(notification_types::code.eq(type_code))
                     .select((notification_types::id, notification_types::default_channels))
                     .first(conn)?;
-                let prefs: Vec<(String, bool)> = notification_preferences
+                let prefs: Vec<(String, bool, Option<String>)> = notification_preferences
                     .filter(user_uuid.eq(user_uuid_val))
                     .filter(notification_type_id.eq(type_info.0))
-                    .select((channel, enabled))
+                    .select((channel, enabled, frequency))
                     .load(conn)
                     .unwrap_or_default();
                 Ok::<_, diesel::result::Error>((type_info, prefs))
@@ -95,16 +95,22 @@ impl PreferenceService {
 
         let (_type_id, default_channels) = type_info;
 
-        // If no preferences, use defaults from notification_types table
+        // No user rows → the type's default channels, which mean "instant".
         if prefs.is_empty() {
             return Ok(self.parse_default_channels(&default_channels));
         }
 
-        // Return enabled channels
+        // Only channels whose effective frequency is `instant` deliver *now*.
+        // `digest` rows are collected later by the digest batcher; `off` never
+        // delivers. Effective frequency coalesces the `frequency` column with
+        // the legacy `enabled` boolean (see NotificationFrequency::from_row).
         Ok(prefs
             .into_iter()
-            .filter(|(_, is_enabled)| *is_enabled)
-            .filter_map(|(chan, _)| NotificationChannel::from_str(&chan))
+            .filter(|(_, en, freq)| {
+                NotificationFrequency::from_row(freq.as_deref(), *en)
+                    == NotificationFrequency::Instant
+            })
+            .filter_map(|(chan, _, _)| NotificationChannel::from_str(&chan))
             .collect())
     }
 
@@ -119,16 +125,28 @@ impl PreferenceService {
             .collect()
     }
 
-    /// Update user preference (and invalidate cache)
+    /// Update a user preference cell (and invalidate cache). Dual-writes the
+    /// new `frequency` and the legacy `enabled` boolean so an old instance
+    /// mid-rollout still gates correctly. `digest` is coerced to `instant` on
+    /// channels that don't batch (in_app/push) — a digest row there would never
+    /// be delivered by anything.
     pub async fn set_preference(
         &self,
         user_uuid_val: &Uuid,
         notification_type: &NotificationTypeCode,
         channel_val: NotificationChannel,
-        enabled_val: bool,
+        frequency_val: NotificationFrequency,
     ) -> Result<(), String> {
         use crate::schema::notification_preferences::dsl::*;
         use crate::schema::notification_types;
+
+        let frequency_val =
+            if frequency_val == NotificationFrequency::Digest && !channel_val.supports_digest() {
+                NotificationFrequency::Instant
+            } else {
+                frequency_val
+            };
+        let enabled_val = frequency_val.to_enabled();
 
         // notification_preferences carries an audit trigger but has no
         // workspace_id of its own, so resolve the user's primary
@@ -160,6 +178,7 @@ impl PreferenceService {
                     notification_type_id.eq(type_id),
                     channel.eq(channel_val.as_str()),
                     enabled.eq(enabled_val),
+                    frequency.eq(frequency_val.as_str()),
                     created_at.eq(Utc::now().naive_utc()),
                     updated_at.eq(Utc::now().naive_utc()),
                 ))
@@ -167,6 +186,7 @@ impl PreferenceService {
                 .do_update()
                 .set((
                     enabled.eq(enabled_val),
+                    frequency.eq(frequency_val.as_str()),
                     updated_at.eq(Utc::now().naive_utc()),
                 ))
                 .execute(conn)?;
@@ -207,10 +227,10 @@ impl PreferenceService {
         crate::sync::session::with_actor_bypass_context(&mut conn, &actor, |conn| {
             diesel::sql_query(
                 "INSERT INTO notification_preferences \
-                   (user_uuid, notification_type_id, channel, enabled, created_at, updated_at) \
-                 SELECT $1, nt.id, 'email', false, now(), now() FROM notification_types nt \
+                   (user_uuid, notification_type_id, channel, enabled, frequency, created_at, updated_at) \
+                 SELECT $1, nt.id, 'email', false, 'off', now(), now() FROM notification_types nt \
                  ON CONFLICT (user_uuid, notification_type_id, channel) \
-                 DO UPDATE SET enabled = false, updated_at = now()",
+                 DO UPDATE SET enabled = false, frequency = 'off', updated_at = now()",
             )
             .bind::<diesel::sql_types::Uuid, _>(*user_uuid_val)
             .execute(conn)
@@ -241,9 +261,9 @@ impl PreferenceService {
                 let types: Vec<NotificationTypeModel> = notification_types::table
                     .order(notification_types::id)
                     .load(conn)?;
-                let user_prefs: Vec<(i32, String, bool)> = notification_preferences
+                let user_prefs: Vec<(i32, String, bool, Option<String>)> = notification_preferences
                     .filter(user_uuid.eq(user_uuid_val))
-                    .select((notification_type_id, channel, enabled))
+                    .select((notification_type_id, channel, enabled, frequency))
                     .load(conn)
                     .unwrap_or_default();
                 Ok::<_, diesel::result::Error>((types, user_prefs))
@@ -251,32 +271,50 @@ impl PreferenceService {
         )
         .map_err(|e| format!("Failed to load notification preferences: {e}"))?;
 
-        // Build response grouped by notification type
+        // Build response grouped by notification type. `freq_map` holds the new
+        // per-channel frequency; `channels` mirrors it as a legacy enabled bool
+        // (`!= off`). Both seed from the type's defaults (a default channel =
+        // `instant`, else `off`), then override with the user's rows.
         let mut responses = Vec::new();
         for notif_type in types {
-            let mut channels_map: HashMap<String, bool> = HashMap::new();
+            let mut freq_map: HashMap<String, NotificationFrequency> = HashMap::new();
 
-            // Parse default channels
             let defaults = self.parse_default_channels(&notif_type.default_channels);
-
-            // Set defaults
             for chan in &[NotificationChannel::InApp, NotificationChannel::Email] {
-                channels_map.insert(chan.as_str().to_string(), defaults.contains(chan));
+                let freq = if defaults.contains(chan) {
+                    NotificationFrequency::Instant
+                } else {
+                    NotificationFrequency::Off
+                };
+                freq_map.insert(chan.as_str().to_string(), freq);
             }
 
-            // Override with user preferences
-            for (type_id, chan, is_enabled) in &user_prefs {
+            // Override with the user's stored rows (coalescing frequency/enabled).
+            for (type_id, chan, en, freq) in &user_prefs {
                 if *type_id == notif_type.id {
-                    channels_map.insert(chan.clone(), *is_enabled);
+                    freq_map.insert(
+                        chan.clone(),
+                        NotificationFrequency::from_row(freq.as_deref(), *en),
+                    );
                 }
             }
+
+            let channels = freq_map
+                .iter()
+                .map(|(c, f)| (c.clone(), f.to_enabled()))
+                .collect();
+            let frequencies = freq_map
+                .iter()
+                .map(|(c, f)| (c.clone(), f.as_str().to_string()))
+                .collect();
 
             responses.push(NotificationPreferenceResponse {
                 notification_type: notif_type.code,
                 notification_name: notif_type.name,
                 description: notif_type.description,
                 category: notif_type.category,
-                channels: channels_map,
+                channels,
+                frequencies,
             });
         }
 

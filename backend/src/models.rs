@@ -5537,7 +5537,12 @@ pub struct NewNotificationRateLimit {
     pub entity_id: i32,
 }
 
-/// API response for notification preferences (grouped by type)
+/// API response for notification preferences (grouped by type).
+///
+/// `channels` (channel → enabled bool) is kept for backward compatibility with
+/// the current toggle UI (`enabled = frequency != off`). `frequencies` (channel
+/// → `instant` | `digest` | `off`) is the new per-cell frequency the upgraded
+/// select UI reads. Additive so backend + frontend can deploy independently.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NotificationPreferenceResponse {
     pub notification_type: String,
@@ -5545,6 +5550,7 @@ pub struct NotificationPreferenceResponse {
     pub description: Option<String>,
     pub category: String,
     pub channels: std::collections::HashMap<String, bool>,
+    pub frequencies: std::collections::HashMap<String, String>,
 }
 
 /// API response for a notification

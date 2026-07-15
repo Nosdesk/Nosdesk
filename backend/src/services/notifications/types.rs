@@ -98,6 +98,64 @@ impl NotificationChannel {
             _ => None,
         }
     }
+
+    /// Whether `digest` is a meaningful frequency for this channel. `digest`
+    /// batches into a periodic summary — only the email channel consumes it;
+    /// in_app is a real-time stream and push is instant-or-nothing, so those
+    /// coerce a `digest` preference to `off` (the UI shouldn't offer it).
+    pub fn supports_digest(&self) -> bool {
+        matches!(self, Self::Email)
+    }
+}
+
+/// Per-(user, type, channel) delivery frequency — replaces the binary
+/// `enabled` toggle (migration 2026-07-15). Stored as a nullable `frequency`
+/// column; a NULL row is read as the legacy boolean (`enabled ? Instant : Off`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NotificationFrequency {
+    /// Deliver immediately on this channel.
+    Instant,
+    /// Batch into a periodic summary (email only — see `supports_digest`).
+    Digest,
+    /// Never deliver on this channel.
+    Off,
+}
+
+impl NotificationFrequency {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Instant => "instant",
+            Self::Digest => "digest",
+            Self::Off => "off",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "instant" => Some(Self::Instant),
+            "digest" => Some(Self::Digest),
+            "off" => Some(Self::Off),
+            _ => None,
+        }
+    }
+
+    /// Interpret a stored row: the `frequency` column if present, else the
+    /// legacy `enabled` boolean (`true → Instant`, `false → Off`). This is the
+    /// coalesce that lets the expand migration skip a backfill.
+    pub fn from_row(frequency: Option<&str>, enabled: bool) -> Self {
+        frequency.and_then(Self::from_str).unwrap_or(if enabled {
+            Self::Instant
+        } else {
+            Self::Off
+        })
+    }
+
+    /// The legacy `enabled` boolean to dual-write for this frequency, so an old
+    /// instance mid-rollout still gates correctly (`Off → false`, else `true`).
+    pub fn to_enabled(&self) -> bool {
+        !matches!(self, Self::Off)
+    }
 }
 
 /// Entity types that can be notification sources
@@ -276,6 +334,50 @@ impl From<&DeliverableNotification> for NotificationEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn frequency_roundtrip_and_enabled_mapping() {
+        for f in [
+            NotificationFrequency::Instant,
+            NotificationFrequency::Digest,
+            NotificationFrequency::Off,
+        ] {
+            assert_eq!(NotificationFrequency::from_str(f.as_str()), Some(f));
+        }
+        assert!(NotificationFrequency::Instant.to_enabled());
+        assert!(NotificationFrequency::Digest.to_enabled());
+        assert!(!NotificationFrequency::Off.to_enabled());
+        assert_eq!(NotificationFrequency::from_str("bogus"), None);
+    }
+
+    #[test]
+    fn frequency_from_row_coalesces_column_then_legacy_bool() {
+        // Explicit frequency column wins.
+        assert_eq!(
+            NotificationFrequency::from_row(Some("digest"), false),
+            NotificationFrequency::Digest
+        );
+        // NULL column → derive from the legacy enabled bool.
+        assert_eq!(
+            NotificationFrequency::from_row(None, true),
+            NotificationFrequency::Instant
+        );
+        assert_eq!(
+            NotificationFrequency::from_row(None, false),
+            NotificationFrequency::Off
+        );
+        // Garbage column value → also falls back to the bool (defensive).
+        assert_eq!(
+            NotificationFrequency::from_row(Some("weird"), true),
+            NotificationFrequency::Instant
+        );
+    }
+
+    #[test]
+    fn only_email_supports_digest() {
+        assert!(NotificationChannel::Email.supports_digest());
+        assert!(!NotificationChannel::InApp.supports_digest());
+    }
 
     #[test]
     fn notification_type_code_roundtrip() {
