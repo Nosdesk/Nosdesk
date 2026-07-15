@@ -51,6 +51,17 @@ pub fn spawn_scheduled_jobs(
             move || jobs::cleanup_expired_refresh_tokens(p.clone()),
         );
 
+        // Daily: send notification email digests (batches the notifications a
+        // user set to email=digest into one summary). Single-machine via lock.
+        let p = pool.clone();
+        spawn_periodic(
+            "notifications.digest",
+            Duration::from_secs(24 * 60 * 60),
+            scheduler_shutdown.clone(),
+            scheduler_status.clone(),
+            move || jobs::send_notification_digests(p.clone()),
+        );
+
         // Every 30 min: Microsoft Graph delta sync (skipped at runtime
         // when the provider isn't configured).
         let p = pool.clone();

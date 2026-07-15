@@ -17,8 +17,9 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use diesel::sql_types::BigInt;
-use diesel::{sql_query, QueryableByName, RunQueryDsl};
+use diesel::sql_types::{Array, BigInt, Integer, Text, Uuid as SqlUuid};
+use diesel::{sql_query, OptionalExtension, QueryableByName, RunQueryDsl};
+use std::collections::HashMap;
 use tracing::{info, warn};
 
 use crate::db::{DbConnection, Pool};
@@ -33,6 +34,7 @@ use crate::services::search::SearchService;
 const MSGRAPH_DELTA_SYNC_LOCK: i64 = 0x004e_6f73_4d53_4744;
 const THUMBNAIL_BACKFILL_LOCK: i64 = 0x004e_6f73_5448_4d42;
 const LOAN_REMINDER_LOCK: i64 = 0x004e_6f73_4c6f_616e;
+const NOTIFICATION_DIGEST_LOCK: i64 = 0x004e_6f73_4e44_4947;
 const LDAP_RECONCILE_LOCK: i64 = 0x004e_6f73_4c44_5243;
 // Partition drops (DETACH CONCURRENTLY + DROP) can't run in a transaction,
 // so they can't use the provisioner's transaction-scoped lock; a session
@@ -106,6 +108,128 @@ pub async fn cleanup_expired_refresh_tokens(pool: Pool) -> Result<()> {
         refresh_tokens::cleanup_expired(&mut conn).context("delete expired refresh tokens")?;
     if removed > 0 {
         info!(count = removed, "scheduler: expired refresh tokens pruned");
+    }
+    Ok(())
+}
+
+/// Send email digests: batch the notifications a user set to `email` = `digest`
+/// into one summary email per user. Runs daily, single-machine via the advisory
+/// lock. Idempotent — it marks the source rows `email`-delivered, so a re-run
+/// never re-sends. v1 covers explicit per-user `email=digest` prefs; a
+/// workspace-default of `digest` (rare) is a follow-up.
+pub async fn send_notification_digests(pool: Pool) -> Result<()> {
+    let _lock = match try_job_lock(&pool, NOTIFICATION_DIGEST_LOCK, "notifications.digest")? {
+        Some(lock) => lock,
+        None => {
+            info!("scheduler: notifications.digest skipped — another machine holds the lock");
+            return Ok(());
+        }
+    };
+
+    // Cross-workspace scan (bypass): notifications of a type the user set to
+    // email=digest, not yet email-delivered, within the lookback window.
+    #[derive(QueryableByName)]
+    struct PendingRow {
+        #[diesel(sql_type = Integer)]
+        id: i32,
+        #[diesel(sql_type = SqlUuid)]
+        user_uuid: uuid::Uuid,
+        #[diesel(sql_type = Integer)]
+        workspace_id: i32,
+        #[diesel(sql_type = Text)]
+        title: String,
+    }
+    let pending: Vec<PendingRow> = crate::sync::session::background_run(
+        &pool,
+        "background:notification_digest_scan",
+        |conn| {
+            sql_query(
+                "SELECT n.id, n.user_uuid, n.workspace_id, n.title \
+                 FROM notifications n \
+                 JOIN notification_preferences np \
+                   ON np.user_uuid = n.user_uuid \
+                  AND np.notification_type_id = n.notification_type_id \
+                  AND np.channel = 'email' AND np.frequency = 'digest' \
+                 WHERE n.created_at > now() - interval '7 days' \
+                   AND NOT (n.channels_delivered @> '[\"email\"]'::jsonb) \
+                 ORDER BY n.user_uuid, n.created_at",
+            )
+            .load(conn)
+        },
+    )
+    .map_err(|e| anyhow::anyhow!("digest scan: {e}"))?;
+
+    if pending.is_empty() {
+        return Ok(());
+    }
+
+    // Group by user: (workspace_id, titles, source notification ids).
+    let mut by_user: HashMap<uuid::Uuid, (i32, Vec<String>, Vec<i32>)> = HashMap::new();
+    for r in pending {
+        let e = by_user
+            .entry(r.user_uuid)
+            .or_insert_with(|| (r.workspace_id, Vec::new(), Vec::new()));
+        e.1.push(r.title);
+        e.2.push(r.id);
+    }
+
+    let base_url =
+        std::env::var("FRONTEND_URL").unwrap_or_else(|_| "https://app.nosdesk.com".to_string());
+    let mut conn = pool.get().context("db pool")?;
+    let mut sent = 0usize;
+
+    for (user, (workspace_id, titles, ids)) in by_user {
+        #[derive(QueryableByName)]
+        struct EmailRow {
+            #[diesel(sql_type = Text)]
+            email: String,
+        }
+        let recipient: Option<String> = crate::sync::session::background_run(
+            &pool,
+            "background:notification_digest_email",
+            |conn| {
+                let row: Option<EmailRow> = sql_query(
+                    "SELECT email FROM user_emails \
+                     WHERE user_uuid = $1 AND is_primary = true LIMIT 1",
+                )
+                .bind::<SqlUuid, _>(user)
+                .get_result(conn)
+                .optional()?;
+                Ok(row.map(|e| e.email))
+            },
+        )
+        .map_err(|e| anyhow::anyhow!("digest email lookup: {e}"))?;
+        let Some(recipient) = recipient else {
+            continue;
+        };
+
+        // Enqueue + mark delivered under the user's workspace (outbound_emails +
+        // notifications are RLS + audited).
+        let ws_actor = crate::sync::actor::ActorContext::system("scheduler:notification_digest")
+            .with_workspace(workspace_id);
+        let result =
+            crate::sync::session::with_actor_bypass_context(&mut conn, &ws_actor, |conn| {
+                let row = crate::services::transactional_email::prepare_notification_digest(
+                    &recipient, "Nosdesk", &base_url, &titles,
+                );
+                crate::repository::outbound_emails::enqueue_or_suppress(conn, row)?;
+                sql_query(
+                    "UPDATE notifications \
+                 SET channels_delivered = channels_delivered || '[\"email\"]'::jsonb \
+                 WHERE id = ANY($1)",
+                )
+                .bind::<Array<Integer>, _>(&ids)
+                .execute(conn)?;
+                Ok::<_, diesel::result::Error>(())
+            });
+        match result {
+            Ok(_) => sent += 1,
+            Err(e) => warn!(error = %e, "digest: failed to send for a user"),
+        }
+    }
+
+    if sent > 0 {
+        info!(count = sent, "scheduler: notification digests sent");
     }
     Ok(())
 }
