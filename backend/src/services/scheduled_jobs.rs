@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use diesel::sql_types::{Array, BigInt, Integer, Text, Uuid as SqlUuid};
-use diesel::{sql_query, QueryableByName, RunQueryDsl};
+use diesel::{sql_query, OptionalExtension, QueryableByName, RunQueryDsl};
 use std::collections::HashMap;
 use tracing::{info, warn};
 
