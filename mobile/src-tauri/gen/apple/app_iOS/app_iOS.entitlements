@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-<dict/>
+<dict>
+	<!-- APNs environment. `development` uses the sandbox APNs (matches the
+	     backend's NOSDESK_APNS_PRODUCTION=false); a dev/Xcode build gets a
+	     sandbox device token. Switch to `production` for TestFlight/App Store
+	     builds (and set NOSDESK_APNS_PRODUCTION=true / unset on the backend). -->
+	<key>aps-environment</key>
+	<string>development</string>
+</dict>
 </plist>

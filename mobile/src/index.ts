@@ -11,6 +11,7 @@
 export { bootstrapMobile, type MobileBootstrapOptions } from './bootstrap'
 export { setSession, clearSession, setServer } from './transport'
 export { loginWithOidc } from './oidc'
+export { registerForPush, unregisterForPush } from './push'
 export {
   getStoredServer,
   clearStoredServer,

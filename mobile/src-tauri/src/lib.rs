@@ -9,6 +9,8 @@ pub fn run() {
     .plugin(tauri_plugin_web_auth::init())
     // Keystore/Keychain-backed storage for the auth refresh token.
     .plugin(tauri_plugin_secure_store::init())
+    // APNs/FCM push device-token registration (iOS live, Android stubbed).
+    .plugin(tauri_plugin_push::init())
     // Haptic feedback for the pull-to-refresh arm tick. iOS/Android only;
     // on desktop the commands error and the JS facade swallows it.
     .plugin(tauri_plugin_haptics::init())

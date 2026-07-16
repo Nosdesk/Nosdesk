@@ -6,6 +6,9 @@
          avoids NotReadableError handing the mic to the WebView. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- Runtime notification permission (Android 13+). Requested by the push
+         plugin before registering for FCM. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
