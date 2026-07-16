@@ -8,7 +8,7 @@
  * revoked. All best-effort: a push-registration failure must never block login
  * or sign-out.
  */
-import { invoke, addPluginListener, type PluginListener } from '@tauri-apps/api/core'
+import { invoke } from '@tauri-apps/api/core'
 import { getVersion } from '@tauri-apps/api/app'
 import {
   registerPushDevice,
@@ -106,8 +106,12 @@ function routeFromPayload(p: NotificationOpenedPayload | null | undefined): stri
 }
 
 /**
- * Cold-start deep link: if the app was launched by tapping a notification,
- * return the route to navigate to (once), else `null`. Call on startup.
+ * Drain the buffered "tapped notification" (read-and-clear) and return the route
+ * to deep-link to, or `null` if nothing is pending. The native side buffers the
+ * tap; the app calls this on mount (cold-start tap) and on foreground (warm tap).
+ *
+ * We poll this rather than listen for a plugin event because the Tauri
+ * PluginManager event bus does not deliver plugin events to the webview on iOS.
  */
 export async function getPendingNotificationRoute(): Promise<string | null> {
   try {
@@ -116,21 +120,4 @@ export async function getPendingNotificationRoute(): Promise<string | null> {
   } catch {
     return null
   }
-}
-
-/**
- * Live deep link: invoke `handler` with a route each time the user taps a
- * notification while the app is running. Returns an unlisten fn.
- */
-export async function onNotificationOpened(
-  handler: (route: string) => void
-): Promise<PluginListener> {
-  return addPluginListener<NotificationOpenedPayload>(
-    'push',
-    'notificationOpened',
-    (payload) => {
-      const route = routeFromPayload(payload)
-      if (route) handler(route)
-    }
-  )
 }

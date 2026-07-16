@@ -79,19 +79,55 @@ setMentionNavigationHandler((uuid: string) => {
   router.push(`/users/${uuid}`)
 })
 
-// Native app: deep-link when a push notification is tapped. Live taps arrive
-// via the plugin's `notificationOpened` event; a cold-start tap (app launched
-// from the notification) is read once on startup. Best-effort, native-only —
-// on web this whole block is skipped and `@nosdesk/mobile` never loads.
+// Native app: deep-link when a push notification is tapped.
+//
+// The native side handles the tap (UNUserNotificationCenter delegate) and
+// BUFFERS it — the single source of truth. We DRAIN that buffer (read-and-clear)
+// via a plugin command (`invoke`, which works on iOS) from two lifecycle
+// triggers, so no tap is lost and none double-fires:
+//   • app mount          → a cold-start tap (app launched from the notification)
+//   • foreground/visible → a warm tap (app was backgrounded, tap re-activates it)
+// NB: we deliberately do NOT use the plugin's `notificationOpened` EVENT — the
+// Tauri PluginManager event bus does not deliver plugin events to the webview
+// on iOS, so an `await` on its listener would silently abort this whole block.
+// Navigation is auth-aware: if the session isn't hydrated yet (cold start), we
+// defer to the first authenticated state so the target survives the app's own
+// startup/login navigation instead of racing it.
 if (isTauriRuntime()) {
   onMounted(async () => {
     try {
-      const { onNotificationOpened, getPendingNotificationRoute } = await import('@nosdesk/mobile')
-      await onNotificationOpened((route) => {
-        void router.push(route)
+      const { getPendingNotificationRoute } = await import('@nosdesk/mobile')
+      await router.isReady()
+
+      const navigate = (target: string) => {
+        if (authStore.isAuthenticated) {
+          void router.push(target)
+        } else {
+          // Cold start before auth hydration (or pre-login): apply once the
+          // session resolves, after the app's own initial navigation.
+          const stop = watch(
+            () => authStore.isAuthenticated,
+            (authed) => {
+              if (authed) {
+                stop()
+                void nextTick(() => router.push(target))
+              }
+            }
+          )
+        }
+      }
+
+      // Read-and-clear the buffered tap; the native getter clears it, so whichever
+      // trigger fires first wins and the rest are no-ops (no double navigation).
+      const drain = async () => {
+        const target = await getPendingNotificationRoute()
+        if (target) navigate(target)
+      }
+
+      await drain()
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') void drain()
       })
-      const pending = await getPendingNotificationRoute()
-      if (pending) void router.push(pending)
     } catch {
       // Deep-linking is best-effort; never block app startup.
     }

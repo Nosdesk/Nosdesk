@@ -295,6 +295,18 @@
       "type": "string",
       "oneOf": [
         {
+          "description": "Enables the get_pending_notification command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-pending-notification",
+          "markdownDescription": "Enables the get_pending_notification command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_pending_notification command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-pending-notification",
+          "markdownDescription": "Denies the get_pending_notification command without any pre-configured scope."
+        },
+        {
           "description": "Enables the get_token command without any pre-configured scope.",
           "type": "string",
           "const": "allow-get-token",
@@ -319,10 +331,10 @@
           "markdownDescription": "Denies the request_permission command without any pre-configured scope."
         },
         {
-          "description": "Allows the app to request notification permission and read the push device token\n#### This default permission set includes:\n\n- `allow-request-permission`\n- `allow-get-token`",
+          "description": "Allows the app to request notification permission, read the push device token, and read a tapped notification\n#### This default permission set includes:\n\n- `allow-request-permission`\n- `allow-get-token`\n- `allow-get-pending-notification`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Allows the app to request notification permission and read the push device token\n#### This default permission set includes:\n\n- `allow-request-permission`\n- `allow-get-token`"
+          "markdownDescription": "Allows the app to request notification permission, read the push device token, and read a tapped notification\n#### This default permission set includes:\n\n- `allow-request-permission`\n- `allow-get-token`\n- `allow-get-pending-notification`"
         }
       ]
     }

@@ -48,21 +48,28 @@ class PushPlugin: Plugin, UNUserNotificationCenterDelegate {
   fileprivate static var deviceToken: String?
   fileprivate static var pendingTokenInvokes: [Invoke] = []
   private static var didSwizzle = false
-  /// A tap received before JS registered a listener (cold start) — delivered
-  /// once via `getPendingNotification`.
+  /// The last notification the user tapped, buffered until the JS layer drains
+  /// it via `getPendingNotification`. This buffer is the single source of truth
+  /// for deep-linking: the Tauri plugin-event bus does not deliver events to the
+  /// webview on iOS, so JS polls this (on app mount + foreground) instead.
   fileprivate static var pendingOpened: NotificationOpened?
+  /// `UNUserNotificationCenter.delegate` is a WEAK reference; hold a strong ref
+  /// so the delegate can't be deallocated out from under us (which would send
+  /// taps to the default handler → app just opens, no routing).
+  private static var retainedDelegate: PushPlugin?
 
   @objc public override func load(webview: WKWebView) {
     PushPlugin.swizzleAppDelegate()
     // Own the notification-center delegate so we get tap + foreground callbacks.
     // Set here (plugin load, early in launch) so a cold-start tap still reaches
     // `didReceive`, which buffers it for `getPendingNotification`.
+    PushPlugin.retainedDelegate = self
     UNUserNotificationCenter.current().delegate = self
   }
 
-  /// Return (and clear) a notification the user tapped to launch/foreground the
-  /// app. The JS layer calls this on startup to deep-link on cold start; live
-  /// taps arrive via the `notificationOpened` event instead.
+  /// Return (and clear) the notification the user tapped, so the JS layer can
+  /// deep-link. Called on app mount (cold-start tap) and on foreground (warm
+  /// tap). All-`nil` when nothing is pending.
   @objc public func getPendingNotification(_ invoke: Invoke) {
     let pending = PushPlugin.pendingOpened ?? NotificationOpened(
       ndType: nil, entityType: nil, entityId: nil, ticketId: nil)
@@ -82,17 +89,15 @@ class PushPlugin: Plugin, UNUserNotificationCenterDelegate {
     completionHandler([.banner, .sound, .badge])
   }
 
-  /// The user tapped a notification. Buffer it (for cold start) and emit a
-  /// `notificationOpened` event so a live JS listener can route immediately.
+  /// The user tapped a notification. Buffer it; the JS layer drains the buffer
+  /// on app mount / foreground and routes (see `getPendingNotification`).
   public func userNotificationCenter(
     _ center: UNUserNotificationCenter,
     didReceive response: UNNotificationResponse,
     withCompletionHandler completionHandler: @escaping () -> Void
   ) {
-    let payload = NotificationOpened.from(
+    PushPlugin.pendingOpened = NotificationOpened.from(
       userInfo: response.notification.request.content.userInfo)
-    PushPlugin.pendingOpened = payload
-    try? self.trigger("notificationOpened", data: payload)
     completionHandler()
   }
 
