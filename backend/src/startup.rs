@@ -222,14 +222,24 @@ pub fn build_state(
             service.register_channel(email_channel);
         }
 
-        // Push channel: provider-agnostic, registered with the no-op sender for
-        // now (is_available=false → inert) so push preferences exist and device
-        // registration works; it starts delivering once a real APNs/FCM sender
-        // is wired in.
+        // Push channel: provider-agnostic. Use the native APNs/FCM sender when
+        // credentials are configured (NOSDESK_APNS_* / NOSDESK_FCM_*), else keep
+        // the inert no-op sender (is_available=false → push preferences exist and
+        // device registration works, but nothing is delivered). A configured-but-
+        // malformed provider is fatal, so a half-provisioned deploy fails loudly.
+        let push_sender: Arc<dyn crate::services::notifications::channels::push::PushSender> =
+            match crate::services::notifications::channels::push_sender::NativePushSender::from_env(
+            ) {
+                Ok(Some(sender)) => sender,
+                Ok(None) => {
+                    Arc::new(crate::services::notifications::channels::push::NoopPushSender)
+                }
+                Err(e) => panic!("push sender is configured but invalid: {e:#}"),
+            };
         let push_channel = Arc::new(
             crate::services::notifications::channels::push::PushChannel::new(
                 pool.clone(),
-                Arc::new(crate::services::notifications::channels::push::NoopPushSender),
+                push_sender,
             ),
         );
         service.register_channel(push_channel);
