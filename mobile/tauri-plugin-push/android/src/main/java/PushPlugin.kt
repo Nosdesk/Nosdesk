@@ -46,4 +46,15 @@ class PushPlugin(private val activity: Activity) : Plugin(activity) {
         ret.put("token", null as String?)
         invoke.resolve(ret)
     }
+
+    @Command
+    fun getPendingNotification(invoke: Invoke) {
+        // No FCM / tap handling yet — nothing pending.
+        val ret = JSObject()
+        ret.put("ndType", null as String?)
+        ret.put("entityType", null as String?)
+        ret.put("entityId", null as Int?)
+        ret.put("ticketId", null as Int?)
+        invoke.resolve(ret)
+    }
 }

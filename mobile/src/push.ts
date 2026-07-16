@@ -8,7 +8,7 @@
  * revoked. All best-effort: a push-registration failure must never block login
  * or sign-out.
  */
-import { invoke } from '@tauri-apps/api/core'
+import { invoke, addPluginListener, type PluginListener } from '@tauri-apps/api/core'
 import { getVersion } from '@tauri-apps/api/app'
 import {
   registerPushDevice,
@@ -35,15 +35,24 @@ function detectPlatform(): PushPlatform | null {
  */
 export async function registerForPush(): Promise<void> {
   const platform = detectPlatform()
-  if (!platform) return
+  if (!platform) {
+    console.info('[push] not a mobile platform — skipping')
+    return
+  }
 
   try {
+    console.info(`[push] requesting notification permission (${platform})`)
     const permission = await invoke<{ granted: boolean }>('plugin:push|request_permission')
+    console.info('[push] permission:', permission?.granted)
     if (!permission?.granted) return
 
     const result = await invoke<{ token: string | null }>('plugin:push|get_token')
     const token = result?.token
-    if (!token) return
+    console.info('[push] token obtained:', token ? `yes (len ${token.length})` : 'no')
+    if (!token) {
+      console.warn('[push] no device token — APNs registration/swizzle did not deliver one')
+      return
+    }
 
     let appVersion: string | undefined
     try {
@@ -54,8 +63,9 @@ export async function registerForPush(): Promise<void> {
 
     await registerPushDevice(platform, token, appVersion)
     lastRegisteredToken = token
-  } catch {
-    // Best-effort: never surface a push failure to the login flow.
+    console.info('[push] device registered with backend')
+  } catch (e) {
+    console.error('[push] registration failed:', e)
   }
 }
 
@@ -72,4 +82,55 @@ export async function unregisterForPush(): Promise<void> {
   } catch {
     // Ignore — sign-out must not block on this.
   }
+}
+
+/** The PII-free tap payload the native plugin surfaces (camelCase keys match
+ *  the Rust `PendingNotification` / Swift `NotificationOpened`). */
+interface NotificationOpenedPayload {
+  ndType?: string | null
+  entityType?: string | null
+  entityId?: number | null
+  ticketId?: number | null
+}
+
+/** Map a tapped notification to an in-app route, or `null` if it has no
+ *  meaningful target (just open the app). Extend as more entity types get
+ *  their own screens. */
+function routeFromPayload(p: NotificationOpenedPayload | null | undefined): string | null {
+  if (!p) return null
+  if (typeof p.ticketId === 'number' && p.ticketId > 0) return `/tickets/${p.ticketId}`
+  if (p.entityType === 'asset' && typeof p.entityId === 'number' && p.entityId > 0) {
+    return `/assets/${p.entityId}`
+  }
+  return null
+}
+
+/**
+ * Cold-start deep link: if the app was launched by tapping a notification,
+ * return the route to navigate to (once), else `null`. Call on startup.
+ */
+export async function getPendingNotificationRoute(): Promise<string | null> {
+  try {
+    const pending = await invoke<NotificationOpenedPayload>('plugin:push|get_pending_notification')
+    return routeFromPayload(pending)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Live deep link: invoke `handler` with a route each time the user taps a
+ * notification while the app is running. Returns an unlisten fn.
+ */
+export async function onNotificationOpened(
+  handler: (route: string) => void
+): Promise<PluginListener> {
+  return addPluginListener<NotificationOpenedPayload>(
+    'push',
+    'notificationOpened',
+    (payload) => {
+      const route = routeFromPayload(payload)
+      if (route) handler(route)
+    }
+  )
 }

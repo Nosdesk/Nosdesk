@@ -51,7 +51,8 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
   Builder::new("push")
     .invoke_handler(tauri::generate_handler![
       commands::request_permission,
-      commands::get_token
+      commands::get_token,
+      commands::get_pending_notification
     ])
     .setup(|app, api| {
       #[cfg(mobile)]

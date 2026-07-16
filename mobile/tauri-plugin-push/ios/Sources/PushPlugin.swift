@@ -12,6 +12,26 @@ struct TokenResult: Encodable {
   let token: String?
 }
 
+/// A tapped notification, surfaced to JS for deep-linking. Mirrors the PII-free
+/// APNs payload built in `push_sender.rs` (generic type + entity refs). All
+/// `nil` = nothing pending. Keys are camelCase to match `PendingNotification`.
+struct NotificationOpened: Encodable {
+  let ndType: String?
+  let entityType: String?
+  let entityId: Int?
+  let ticketId: Int?
+
+  /// Build from an APNs `userInfo` dict (custom keys are delivered top-level).
+  static func from(userInfo: [AnyHashable: Any]) -> NotificationOpened {
+    NotificationOpened(
+      ndType: userInfo["nd_type"] as? String,
+      entityType: userInfo["entity_type"] as? String,
+      entityId: (userInfo["entity_id"] as? NSNumber)?.intValue,
+      ticketId: (userInfo["ticket_id"] as? NSNumber)?.intValue
+    )
+  }
+}
+
 /// APNs device-token registration for the mobile app.
 ///
 /// The APNs device token is delivered only to the `UIApplicationDelegate`
@@ -23,14 +43,57 @@ struct TokenResult: Encodable {
 ///
 /// The token is a routing address, not a secret — it's POSTed to
 /// `/api/notifications/devices` by the JS layer with the user's bearer.
-class PushPlugin: Plugin {
+class PushPlugin: Plugin, UNUserNotificationCenterDelegate {
   // Shared across the (single) plugin instance + the swizzled delegate IMPs.
   fileprivate static var deviceToken: String?
   fileprivate static var pendingTokenInvokes: [Invoke] = []
   private static var didSwizzle = false
+  /// A tap received before JS registered a listener (cold start) — delivered
+  /// once via `getPendingNotification`.
+  fileprivate static var pendingOpened: NotificationOpened?
 
   @objc public override func load(webview: WKWebView) {
     PushPlugin.swizzleAppDelegate()
+    // Own the notification-center delegate so we get tap + foreground callbacks.
+    // Set here (plugin load, early in launch) so a cold-start tap still reaches
+    // `didReceive`, which buffers it for `getPendingNotification`.
+    UNUserNotificationCenter.current().delegate = self
+  }
+
+  /// Return (and clear) a notification the user tapped to launch/foreground the
+  /// app. The JS layer calls this on startup to deep-link on cold start; live
+  /// taps arrive via the `notificationOpened` event instead.
+  @objc public func getPendingNotification(_ invoke: Invoke) {
+    let pending = PushPlugin.pendingOpened ?? NotificationOpened(
+      ndType: nil, entityType: nil, entityId: nil, ticketId: nil)
+    PushPlugin.pendingOpened = nil
+    invoke.resolve(pending)
+  }
+
+  // MARK: UNUserNotificationCenterDelegate
+
+  /// Foreground delivery: show the banner/sound even while the app is open,
+  /// matching the OS behaviour users expect.
+  public func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    willPresent notification: UNNotification,
+    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+  ) {
+    completionHandler([.banner, .sound, .badge])
+  }
+
+  /// The user tapped a notification. Buffer it (for cold start) and emit a
+  /// `notificationOpened` event so a live JS listener can route immediately.
+  public func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping () -> Void
+  ) {
+    let payload = NotificationOpened.from(
+      userInfo: response.notification.request.content.userInfo)
+    PushPlugin.pendingOpened = payload
+    try? self.trigger("notificationOpened", data: payload)
+    completionHandler()
   }
 
   /// Ask for notification permission; on grant, start APNs registration (the

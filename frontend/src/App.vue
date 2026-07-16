@@ -79,6 +79,25 @@ setMentionNavigationHandler((uuid: string) => {
   router.push(`/users/${uuid}`)
 })
 
+// Native app: deep-link when a push notification is tapped. Live taps arrive
+// via the plugin's `notificationOpened` event; a cold-start tap (app launched
+// from the notification) is read once on startup. Best-effort, native-only —
+// on web this whole block is skipped and `@nosdesk/mobile` never loads.
+if (isTauriRuntime()) {
+  onMounted(async () => {
+    try {
+      const { onNotificationOpened, getPendingNotificationRoute } = await import('@nosdesk/mobile')
+      await onNotificationOpened((route) => {
+        void router.push(route)
+      })
+      const pending = await getPendingNotificationRoute()
+      if (pending) void router.push(pending)
+    } catch {
+      // Deep-linking is best-effort; never block app startup.
+    }
+  })
+}
+
 // State for navbar collapse
 const navbarCollapsed = ref(false)
 const handleNavCollapse = (collapsed: boolean) => {

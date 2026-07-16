@@ -17,3 +17,17 @@ pub struct PermissionResponse {
 pub struct TokenResponse {
   pub token: Option<String>,
 }
+
+/// A notification the user TAPPED, surfaced so the JS layer can deep-link. On
+/// cold start (app launched from a tap) `get_pending_notification` returns the
+/// buffered tap once; for taps while running, the plugin emits a
+/// `notificationOpened` event with the same shape. All fields `None` = nothing
+/// pending. Mirrors the PII-free push payload (`nd_type` + entity refs).
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingNotification {
+  pub nd_type: Option<String>,
+  pub entity_type: Option<String>,
+  pub entity_id: Option<i32>,
+  pub ticket_id: Option<i32>,
+}

@@ -25,4 +25,8 @@ impl<R: Runtime> Push<R> {
   pub fn get_token(&self) -> crate::Result<TokenResponse> {
     Ok(TokenResponse::default())
   }
+
+  pub fn get_pending_notification(&self) -> crate::Result<PendingNotification> {
+    Ok(PendingNotification::default())
+  }
 }

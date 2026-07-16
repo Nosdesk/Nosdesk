@@ -38,4 +38,11 @@ impl<R: Runtime> Push<R> {
       .run_mobile_plugin("getToken", ())
       .map_err(Into::into)
   }
+
+  pub fn get_pending_notification(&self) -> crate::Result<PendingNotification> {
+    self
+      .0
+      .run_mobile_plugin("getPendingNotification", ())
+      .map_err(Into::into)
+  }
 }
