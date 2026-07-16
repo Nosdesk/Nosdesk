@@ -30,7 +30,14 @@ targets:
     sources:
       - path: Sources
       - path: Assets.xcassets
+      # `buildPhase: none` keeps the Rust static lib (Externals/**/libapp.a)
+      # out of Copy Bundle Resources — it's linked via LIBRARY_SEARCH_PATHS +
+      # the `framework: libapp.a` dependency, not a runtime resource. Without
+      # this, a build that has produced more than one libapp.a (e.g. release
+      # then debug) hits "Multiple commands produce .../Nosdesk.app/libapp.a"
+      # (fatal in debug on Xcode 26; a benign warning in release).
       - path: Externals
+        buildPhase: none
       - path: app_iOS
       - path: assets
         buildPhase: resources
@@ -61,6 +68,11 @@ targets:
         RUST_LOG: info
     settings:
       base:
+        # Baked in so xcodegen/tauri regeneration keeps signing configured
+        # (otherwise every `tauri ios dev` wipes the team set in the Xcode UI).
+        # Team ID is an identifier, not a secret.
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: S6DDZ86325
         ENABLE_BITCODE: false
         ARCHS: [arm64]
         VALID_ARCHS: arm64 
