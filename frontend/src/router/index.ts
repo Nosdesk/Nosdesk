@@ -771,6 +771,12 @@ const router = createRouter({
           meta: { titleKey: 'route-title-admin-branding' }
         },
         {
+          path: 'notification-defaults',
+          name: 'admin-notification-defaults',
+          component: () => import('../views/admin/NotificationDefaultsView.vue'),
+          meta: { titleKey: 'route-title-admin-notification-defaults' }
+        },
+        {
           // Item C/W5: unified audit feed (all three substrates).
           // Reachable by admins and the standalone audit_reviewer role.
           path: 'audit',

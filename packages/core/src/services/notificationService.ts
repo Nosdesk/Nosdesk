@@ -6,18 +6,60 @@
 
 import apiClient from '../apiClient';
 
+/**
+ * Per-cell delivery frequency (mirrors the backend `NotificationFrequency`):
+ * - `instant` — deliver immediately on this channel
+ * - `digest`  — batch into a periodic summary (email only; see `channelSupportsDigest`)
+ * - `off`     — never deliver on this channel
+ */
+export type NotificationFrequency = 'instant' | 'digest' | 'off';
+
+/** Whether `digest` is a meaningful frequency for a channel. Only the email
+ *  channel batches into a summary; in-app is a live stream and push is
+ *  instant-or-nothing, so the UI must not offer `digest` for those. Mirrors
+ *  the backend `NotificationChannel::supports_digest`. */
+export function channelSupportsDigest(channelCode: string): boolean {
+  return channelCode === 'email';
+}
+
 export interface NotificationPreference {
   notification_type: string;
   notification_name: string;
   description: string | null;
   category: string;
   /**
-   * Per-channel enabled state, keyed by channel code (`in_app`, `email`).
-   * Matches the backend `NotificationPreferenceResponse` shape: the API
-   * returns ONE row per type with a channels map, NOT one row per
-   * (type, channel) pair.
+   * Per-channel enabled state, keyed by channel code (`in_app`, `email`,
+   * `push`). Kept for backward compatibility (`enabled = frequency != off`);
+   * the frequency-aware UI reads `frequencies` instead. The API returns ONE
+   * row per type with these maps, NOT one row per (type, channel) pair.
    */
   channels: Record<string, boolean>;
+  /**
+   * Per-channel effective frequency (`instant` | `digest` | `off`) after the
+   * system → workspace → user inheritance resolution.
+   */
+  frequencies: Record<string, NotificationFrequency>;
+  /**
+   * Channels the workspace admin has locked for this type. A locked cell is
+   * enforced by the workspace default and the user cannot override it — the
+   * UI renders it read-only.
+   */
+  locked: Record<string, boolean>;
+}
+
+/**
+ * A workspace admin's notification DEFAULT for one type (the middle layer of
+ * the system → workspace → user inheritance). `frequencies` is the workspace
+ * default per channel (falling back to the system default); `locked` marks
+ * cells members cannot override. Mirrors `WorkspaceNotificationDefaultResponse`.
+ */
+export interface WorkspaceNotificationDefault {
+  notification_type: string;
+  notification_name: string;
+  description: string | null;
+  category: string;
+  frequencies: Record<string, NotificationFrequency>;
+  locked: Record<string, boolean>;
 }
 
 export interface NotificationPreferencesResponse {
@@ -120,10 +162,17 @@ export const NOTIFICATION_CHANNELS = [
     description: 'Email notifications (rate limited)',
     icon: 'mail',
   },
+  {
+    code: 'push',
+    name: 'Push',
+    description: 'Mobile push notifications',
+    icon: 'bell',
+  },
 ] as const;
 
 /**
- * Get user's notification preferences
+ * Get user's notification preferences (per-type rows with `frequencies` +
+ * `locked` maps). The matrix UI renders directly from these rows.
  */
 export async function getNotificationPreferences(): Promise<NotificationPreference[]> {
   const response = await apiClient.get<NotificationPreference[]>('/notifications/preferences');
@@ -131,17 +180,48 @@ export async function getNotificationPreferences(): Promise<NotificationPreferen
 }
 
 /**
- * Update a notification preference
+ * Set the delivery frequency for one (type, channel) cell of the signed-in
+ * user's preferences. `digest` coerces to `instant` on non-batching channels
+ * server-side.
  */
 export async function updateNotificationPreference(
   notificationType: string,
   channel: string,
-  enabled: boolean
+  frequency: NotificationFrequency
 ): Promise<void> {
   await apiClient.put('/notifications/preferences', {
     notification_type: notificationType,
     channel,
-    enabled,
+    frequency,
+  });
+}
+
+/**
+ * Get the workspace's notification DEFAULTS matrix (admin-only). One row per
+ * type with the effective default frequency + `locked` per channel.
+ */
+export async function getWorkspaceNotificationDefaults(): Promise<WorkspaceNotificationDefault[]> {
+  const response = await apiClient.get<WorkspaceNotificationDefault[]>(
+    '/admin/notification-defaults'
+  );
+  return response.data;
+}
+
+/**
+ * Set one (type, channel) cell of the workspace default matrix (admin-only).
+ * `locked` prevents members from overriding this cell.
+ */
+export async function updateWorkspaceNotificationDefault(
+  notificationType: string,
+  channel: string,
+  frequency: NotificationFrequency,
+  locked: boolean
+): Promise<void> {
+  await apiClient.put('/admin/notification-defaults', {
+    notification_type: notificationType,
+    channel,
+    frequency,
+    locked,
   });
 }
 
@@ -234,6 +314,9 @@ export async function deleteNotifications(notificationIds: number[]): Promise<vo
 export default {
   getNotificationPreferences,
   updateNotificationPreference,
+  getWorkspaceNotificationDefaults,
+  updateWorkspaceNotificationDefault,
+  channelSupportsDigest,
   deleteNotifications,
   getNotifications,
   getUnreadCount,
