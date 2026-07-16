@@ -70,6 +70,44 @@ impl NotificationTypeCode {
             Self::LoanOverdue => "Loan Overdue",
         }
     }
+
+    /// Short "who did what" line for a context-enriched push body — combined with
+    /// the entity's `context_title()` it reads e.g. "Alice mentioned you" under
+    /// the ticket subject. Never includes message content. `actor` is the person
+    /// who triggered it; empty or "System" collapses to an actor-less phrase.
+    pub fn push_body(&self, actor: &str) -> String {
+        let who = match actor.trim() {
+            "" | "System" => None,
+            name => Some(name),
+        };
+        match self {
+            Self::TicketAssigned => match who {
+                Some(a) => format!("Assigned to you by {a}"),
+                None => "Assigned to you".to_string(),
+            },
+            Self::CommentAdded => match who {
+                Some(a) => format!("{a} commented"),
+                None => "New comment".to_string(),
+            },
+            Self::Mentioned => match who {
+                Some(a) => format!("{a} mentioned you"),
+                None => "You were mentioned".to_string(),
+            },
+            Self::TicketStatusChanged => match who {
+                Some(a) => format!("Status changed by {a}"),
+                None => "Status changed".to_string(),
+            },
+            Self::TicketCreatedRequester => "Ticket created".to_string(),
+            Self::DocPageUpdated => match who {
+                Some(a) => format!("Updated by {a}"),
+                None => "Page updated".to_string(),
+            },
+            Self::AssetLowStock => "Low stock".to_string(),
+            Self::SlaBreached => "SLA target missed".to_string(),
+            Self::LoanDueSoon => "Due back soon".to_string(),
+            Self::LoanOverdue => "Overdue".to_string(),
+        }
+    }
 }
 
 /// Delivery channel types
@@ -217,6 +255,20 @@ impl NotificationEntity {
             Self::Comment { ticket_id, .. } => *ticket_id,
             Self::DocumentationPage { .. } => 0,
             Self::Asset { .. } => 0,
+        }
+    }
+
+    /// The human "what this is about" title for a context-enriched push: the
+    /// ticket subject / page title / asset name. This is context, NEVER the
+    /// message content itself (e.g. a comment's text), so an enriched push
+    /// exposes only the subject line + who acted — the same information already
+    /// present in the notification email.
+    pub fn context_title(&self) -> String {
+        match self {
+            Self::Ticket { title, .. } => title.clone(),
+            Self::Comment { ticket_title, .. } => ticket_title.clone(),
+            Self::DocumentationPage { title, .. } => title.clone(),
+            Self::Asset { name, .. } => name.clone(),
         }
     }
 }

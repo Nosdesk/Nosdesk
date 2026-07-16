@@ -173,8 +173,16 @@ impl ApnsClient {
             }
         };
 
+        // `alert.body` is present only in the workspace's `detailed` mode. Lock-
+        // screen privacy relies on the OS "Show Previews: When Unlocked" default
+        // (there is no server-side hide-on-lock flag for a standard iOS alert).
+        let mut alert = serde_json::Map::new();
+        alert.insert("title".into(), json!(payload.title));
+        if let Some(body_text) = &payload.body {
+            alert.insert("body".into(), json!(body_text));
+        }
         let body = json!({
-            "aps": { "alert": { "title": payload.title }, "sound": "default" },
+            "aps": { "alert": alert, "sound": "default" },
             "nd_type": payload.notification_type,
             "entity_type": payload.entity_type,
             "entity_id": payload.entity_id,
@@ -356,11 +364,19 @@ impl FcmClient {
             }
         };
 
-        // FCM data values must be strings.
+        // `notification.body` only in the workspace's `detailed` mode. FCM data
+        // values must be strings. `visibility: PRIVATE` hides the content on the
+        // Android secure lock screen (a redacted public version shows instead).
+        let mut notif = serde_json::Map::new();
+        notif.insert("title".into(), json!(payload.title));
+        if let Some(body_text) = &payload.body {
+            notif.insert("body".into(), json!(body_text));
+        }
         let body = json!({
             "message": {
                 "token": device_token,
-                "notification": { "title": payload.title },
+                "notification": notif,
+                "android": { "notification": { "visibility": "PRIVATE" } },
                 "data": {
                     "nd_type": payload.notification_type,
                     "entity_type": payload.entity_type,
@@ -536,6 +552,7 @@ mod tests {
         }];
         let payload = PushPayload {
             title: "t".to_string(),
+            body: Some("Assigned to you".to_string()),
             notification_type: "ticket_assigned".to_string(),
             entity_type: "ticket".to_string(),
             entity_id: 1,
