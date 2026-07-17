@@ -225,6 +225,35 @@ export async function updateWorkspaceNotificationDefault(
   });
 }
 
+/** Device platform for push registration — matches the backend's
+ *  `user_push_devices.platform` CHECK (`ios` | `android` | `web`). */
+export type PushPlatform = 'ios' | 'android' | 'web';
+
+/**
+ * Register (or refresh) the current device's push token so the backend can
+ * deliver push notifications to it. Idempotent server-side (upsert on token).
+ * Called from the mobile shell after the session is established.
+ */
+export async function registerPushDevice(
+  platform: PushPlatform,
+  token: string,
+  appVersion?: string
+): Promise<void> {
+  await apiClient.post('/notifications/devices', {
+    platform,
+    token,
+    app_version: appVersion,
+  });
+}
+
+/**
+ * Revoke this device's push token (on sign-out). Best-effort — a failure here
+ * must not block sign-out; the backend also prunes tokens the provider rejects.
+ */
+export async function unregisterPushDevice(token: string): Promise<void> {
+  await apiClient.delete(`/notifications/devices/${encodeURIComponent(token)}`);
+}
+
 /** Workspace push content level: `detailed` (ticket subject + who acted) or
  *  `private` (generic label, "tap to view"). Admin-controlled. */
 export type NotificationContentLevel = 'detailed' | 'private';
@@ -338,6 +367,8 @@ export default {
   getNotificationContentLevel,
   setNotificationContentLevel,
   channelSupportsDigest,
+  registerPushDevice,
+  unregisterPushDevice,
   deleteNotifications,
   getNotifications,
   getUnreadCount,

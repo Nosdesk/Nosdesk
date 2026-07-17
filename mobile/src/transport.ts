@@ -73,6 +73,15 @@ export async function setSession(access: string, refresh: string): Promise<void>
 
 /** Clear the session locally (sign-out, or before switching servers). */
 export async function clearSession(): Promise<void> {
+  // Best-effort: revoke this device's push token while the bearer is still
+  // valid, before dropping it. Dynamic import keeps the transport bootstrap
+  // decoupled from the push module; a no-op if nothing was registered.
+  try {
+    const { unregisterForPush } = await import('./push')
+    await unregisterForPush()
+  } catch {
+    // Sign-out must never block on push cleanup.
+  }
   accessToken = null
   refreshToken = null
   await store?.clear()

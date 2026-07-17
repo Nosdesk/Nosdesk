@@ -392,10 +392,13 @@ const handleOidcLoginClick = async () => {
   // then hydrate the auth store from /me and route in. (No-op import on web.)
   if (isTauriRuntime()) {
     try {
-      const { loginWithOidc } = await import('@nosdesk/mobile');
+      const { loginWithOidc, registerForPush } = await import('@nosdesk/mobile');
       await loginWithOidc();
       await authStore.fetchUserData();
       authStore.setAuthProvider('oidc');
+      // Session is live — register this device for push (best-effort; never
+      // blocks routing into the app).
+      void registerForPush();
       const redirectPath = router.currentRoute.value.query.redirect?.toString() || "/";
       router.push(redirectPath);
     } catch (error) {

@@ -1,0 +1,3 @@
+[default]
+description = "Allows the app to request notification permission, read the push device token, and read a tapped notification"
+permissions = ["allow-request-permission", "allow-get-token", "allow-get-pending-notification"]
