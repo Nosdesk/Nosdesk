@@ -106,6 +106,15 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             "/admin/notification-defaults",
             web::put().to(update_workspace_notification_default),
         )
+        // Workspace push content level (detailed vs private). Admin-gated.
+        .route(
+            "/admin/notification-content",
+            web::get().to(get_notification_content_level),
+        )
+        .route(
+            "/admin/notification-content",
+            web::put().to(set_notification_content_level),
+        )
         // Push device registration (per authenticated user).
         .route(
             "/notifications/devices",
@@ -303,6 +312,82 @@ pub async fn update_workspace_notification_default(
     {
         Ok(_) => HttpResponse::Ok().json(serde_json::json!({ "success": true })),
         Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({ "error": e })),
+    }
+}
+
+/// Request body for setting the workspace push content level.
+#[derive(Debug, Deserialize)]
+pub struct UpdateContentLevelRequest {
+    /// `detailed` (rich context) | `private` ("tap to view").
+    pub detail: String,
+}
+
+/// GET /api/admin/notification-content — the workspace's push content level.
+/// Admin-only.
+pub async fn get_notification_content_level(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+) -> HttpResponse {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
+        return e;
+    }
+    let Some(workspace_id) = actor_workspace_id(&req) else {
+        return errors::unauthorized("Authentication required");
+    };
+    let mut conn = match errors::db_conn(&pool) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+    match crate::repository::workspaces::get_notification_push_detail(&mut conn, workspace_id) {
+        Ok(detailed) => HttpResponse::Ok().json(serde_json::json!({
+            "detail": if detailed { "detailed" } else { "private" }
+        })),
+        Err(e) => {
+            HttpResponse::InternalServerError().json(serde_json::json!({ "error": e.to_string() }))
+        }
+    }
+}
+
+/// PUT /api/admin/notification-content — set the workspace push content level.
+/// Admin-only.
+pub async fn set_notification_content_level(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+    body: web::Json<UpdateContentLevelRequest>,
+) -> HttpResponse {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
+        return e;
+    }
+    let detailed = match body.detail.as_str() {
+        "detailed" => true,
+        "private" => false,
+        other => return errors::bad_request(format!("Invalid detail: {other}")),
+    };
+    let claims = match req.extensions().get::<Claims>() {
+        Some(c) => c.clone(),
+        None => return HttpResponse::Unauthorized().finish(),
+    };
+    let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
+        Ok(u) => u,
+        Err(_) => return errors::bad_request("Invalid user UUID"),
+    };
+    let Some(workspace_id) = actor_workspace_id(&req) else {
+        return errors::unauthorized("Authentication required");
+    };
+    let mut conn = match errors::db_conn(&pool) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+    let actor =
+        crate::sync::actor::ActorContext::user(user_uuid, None).with_workspace(workspace_id);
+    let res = crate::sync::session::with_actor_bypass_context(&mut conn, &actor, |conn| {
+        crate::repository::workspaces::set_notification_push_detail(conn, workspace_id, detailed)
+    });
+    match res {
+        Ok(_) => HttpResponse::Ok().json(serde_json::json!({ "success": true })),
+        Err(e) => {
+            HttpResponse::InternalServerError().json(serde_json::json!({ "error": e.to_string() }))
+        }
     }
 }
 

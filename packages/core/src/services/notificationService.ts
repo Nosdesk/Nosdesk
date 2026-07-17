@@ -254,6 +254,25 @@ export async function unregisterPushDevice(token: string): Promise<void> {
   await apiClient.delete(`/notifications/devices/${encodeURIComponent(token)}`);
 }
 
+/** Workspace push content level: `detailed` (ticket subject + who acted) or
+ *  `private` (generic label, "tap to view"). Admin-controlled. */
+export type NotificationContentLevel = 'detailed' | 'private';
+
+/** Get the workspace's push content level (admin-only). */
+export async function getNotificationContentLevel(): Promise<NotificationContentLevel> {
+  const response = await apiClient.get<{ detail: NotificationContentLevel }>(
+    '/admin/notification-content'
+  );
+  return response.data.detail;
+}
+
+/** Set the workspace's push content level (admin-only). */
+export async function setNotificationContentLevel(
+  detail: NotificationContentLevel
+): Promise<void> {
+  await apiClient.put('/admin/notification-content', { detail });
+}
+
 /**
  * Get user's notifications
  */
@@ -345,6 +364,8 @@ export default {
   updateNotificationPreference,
   getWorkspaceNotificationDefaults,
   updateWorkspaceNotificationDefault,
+  getNotificationContentLevel,
+  setNotificationContentLevel,
   channelSupportsDigest,
   registerPushDevice,
   unregisterPushDevice,

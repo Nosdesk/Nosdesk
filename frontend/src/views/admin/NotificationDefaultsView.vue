@@ -15,13 +15,17 @@ import Callout from '@/components/common/Callout.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
 import AlertMessage from '@/components/common/AlertMessage.vue';
 import BaseDropdown, { type DropdownOption } from '@/components/common/BaseDropdown.vue';
+import SegmentedControl from '@/components/common/SegmentedControl.vue';
 import {
   getWorkspaceNotificationDefaults,
   updateWorkspaceNotificationDefault,
+  getNotificationContentLevel,
+  setNotificationContentLevel,
   channelSupportsDigest,
   NOTIFICATION_CHANNELS,
   type WorkspaceNotificationDefault,
   type NotificationFrequency,
+  type NotificationContentLevel,
 } from '@nosdesk/core/services/notificationService';
 import { useToastStore } from '@nosdesk/core/stores/toast';
 import { extractErrorMessage } from '@/utils/errors';
@@ -42,6 +46,30 @@ const isLoading = ref(true);
 const loadError = ref('');
 const saving = ref<string | null>(null);
 const defaults = ref<WorkspaceNotificationDefault[]>([]);
+
+// Push content level (workspace-wide): detailed context vs private "tap to view".
+const contentLevel = ref<NotificationContentLevel>('detailed');
+const contentSaving = ref(false);
+const contentOptions = computed(() => [
+  { value: 'detailed', label: t('admin-notification-content-detailed') },
+  { value: 'private', label: t('admin-notification-content-private') },
+]);
+
+const setContentLevel = async (level: NotificationContentLevel) => {
+  if (level === contentLevel.value) return;
+  const previous = contentLevel.value;
+  contentLevel.value = level;
+  contentSaving.value = true;
+  try {
+    await setNotificationContentLevel(level);
+    toast.success(t('admin-notification-content-saved'));
+  } catch (err) {
+    contentLevel.value = previous;
+    toast.error(extractErrorMessage(err, t('admin-notification-content-error')));
+  } finally {
+    contentSaving.value = false;
+  }
+};
 
 const channels = computed(() =>
   NOTIFICATION_CHANNELS.map((channel) => ({
@@ -146,7 +174,12 @@ const toggleLock = (row: WorkspaceNotificationDefault, channelCode: string) =>
 
 onMounted(async () => {
   try {
-    defaults.value = await getWorkspaceNotificationDefaults();
+    const [rows, level] = await Promise.all([
+      getWorkspaceNotificationDefaults(),
+      getNotificationContentLevel().catch(() => 'detailed' as NotificationContentLevel),
+    ]);
+    defaults.value = rows;
+    contentLevel.value = level;
   } catch (err) {
     loadError.value = extractErrorMessage(err, t('admin-notification-defaults-error-load'));
   } finally {
@@ -174,6 +207,25 @@ const gridColumns = computed(
         <template #header>{{ t('admin-notification-defaults-lock-explainer-title') }}</template>
         {{ t('admin-notification-defaults-lock-explainer-body') }}
       </Callout>
+
+      <!-- Push content level: detailed context vs private "tap to view". -->
+      <SectionCard content-padding="p-4 sm:p-6">
+        <template #leading>
+          <span class="text-accent inline-flex"><Icon name="bell" /></span>
+        </template>
+        <template #title>{{ t('admin-notification-content-title') }}</template>
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p class="text-sm text-secondary">{{ t('admin-notification-content-description') }}</p>
+          <div class="flex-shrink-0" :class="{ 'opacity-60 pointer-events-none': contentSaving }">
+            <SegmentedControl
+              :model-value="contentLevel"
+              :options="contentOptions"
+              :aria-label="t('admin-notification-content-title')"
+              @update:model-value="setContentLevel($event as NotificationContentLevel)"
+            />
+          </div>
+        </div>
+      </SectionCard>
 
       <AlertMessage v-if="loadError" type="error" :message="loadError" />
 
