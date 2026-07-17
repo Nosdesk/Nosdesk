@@ -3674,6 +3674,12 @@ admin-notification-defaults-error-load = Couldn't load notification defaults
 admin-nav-notification-defaults-title = Notification defaults
 admin-nav-notification-defaults-description = Set workspace-wide notification defaults members inherit
 route-title-admin-notification-defaults = Notification defaults
+admin-notification-content-title = Push notification detail
+admin-notification-content-description = How much a mobile push shows. Detailed includes the ticket subject and who acted (never the message text); Private shows only the type — members tap to view.
+admin-notification-content-detailed = Detailed
+admin-notification-content-private = Private
+admin-notification-content-saved = Notification detail updated
+admin-notification-content-error = Couldn't update notification detail
 
 # Settings: passkeys (PasskeySettings)
 settings-passkey-section-title = Passkeys

@@ -365,6 +365,44 @@ pub fn set_seat_limit(
         .execute(conn)
 }
 
+/// Whether the workspace's push notifications carry rich context (`detailed`,
+/// the default) or only the generic type label (`private`, "tap to view").
+/// Read from `settings.notification_push_detail`; absent/unknown → detailed.
+pub fn get_notification_push_detail(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+) -> QueryResult<bool> {
+    let settings: Option<serde_json::Value> = workspaces::table
+        .filter(workspaces::id.eq(workspace_id))
+        .select(workspaces::settings)
+        .first(conn)
+        .optional()?;
+    Ok(settings
+        .as_ref()
+        .and_then(|s| s.get("notification_push_detail"))
+        .and_then(|v| v.as_str())
+        != Some("private"))
+}
+
+// sync-audit-only: server-side workspace notification preference on the global `workspaces` meta-table; not on any tenant's live-sync stream
+/// Set the workspace's push content level (admin): `true` = detailed (rich
+/// context), `false` = private ("tap to view"). Merges into the `settings`
+/// JSONB via `jsonb_set` so other keys are preserved.
+pub fn set_notification_push_detail(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    detailed: bool,
+) -> QueryResult<usize> {
+    let value = if detailed { "detailed" } else { "private" };
+    diesel::sql_query(
+        "UPDATE workspaces SET settings = jsonb_set(COALESCE(settings, '{}'::jsonb), \
+         '{notification_push_detail}', to_jsonb($1::text)) WHERE id = $2",
+    )
+    .bind::<diesel::sql_types::Text, _>(value)
+    .bind::<diesel::sql_types::Integer, _>(workspace_id)
+    .execute(conn)
+}
+
 /// Resolve the workspace that should be the audit-context root for a
 /// credential-verified-but-pre-session action on this user (MFA
 /// enable at login, password-reset confirm, invitation accept). In

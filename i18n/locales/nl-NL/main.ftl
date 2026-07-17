@@ -3507,6 +3507,12 @@ admin-notification-defaults-error-load = Kan standaard meldingsinstellingen niet
 admin-nav-notification-defaults-title = Standaard meldingsinstellingen
 admin-nav-notification-defaults-description = Werkruimtebrede standaard meldingsinstellingen instellen die leden erven
 route-title-admin-notification-defaults = Standaard meldingsinstellingen
+admin-notification-content-title = Detail van pushmeldingen
+admin-notification-content-description = Hoeveel een mobiele pushmelding toont. Gedetailleerd bevat het ticketonderwerp en wie de actie deed (nooit de berichttekst); Privé toont alleen het type — leden tikken om te bekijken.
+admin-notification-content-detailed = Gedetailleerd
+admin-notification-content-private = Privé
+admin-notification-content-saved = Meldingsdetail bijgewerkt
+admin-notification-content-error = Kan meldingsdetail niet bijwerken
 
 # Instellingen: passkeys (PasskeySettings)
 settings-passkey-section-title = Passkeys

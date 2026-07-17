@@ -3516,6 +3516,12 @@ admin-notification-defaults-error-load = Impossible de charger les paramètres d
 admin-nav-notification-defaults-title = Paramètres de notification par défaut
 admin-nav-notification-defaults-description = Définir les paramètres de notification par défaut de l'espace de travail dont héritent les membres
 route-title-admin-notification-defaults = Paramètres de notification par défaut
+admin-notification-content-title = Détail des notifications push
+admin-notification-content-description = Ce qu'affiche une notification push mobile. Détaillé inclut le sujet du ticket et l'auteur de l'action (jamais le texte du message) ; Privé n'affiche que le type — les membres appuient pour voir.
+admin-notification-content-detailed = Détaillé
+admin-notification-content-private = Privé
+admin-notification-content-saved = Détail des notifications mis à jour
+admin-notification-content-error = Impossible de mettre à jour le détail des notifications
 
 # Paramètres : clés d'accès (PasskeySettings)
 settings-passkey-section-title = Clés d'accès

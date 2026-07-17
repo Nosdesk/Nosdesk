@@ -5,10 +5,13 @@
 //! is false, so push preferences are visible in settings yet inert (nothing is
 //! silently dropped — `notify()` filters out unavailable channels).
 //!
-//! **Privacy:** the payload is minimal — a generic title from the notification
-//! type + an entity ref for the deep-link, never the ticket subject/body. The
-//! app fetches real content after the tap, so Apple/Google/FCM never see
-//! customer data.
+//! **Privacy:** the payload carries CONTEXT, never message content. In the
+//! workspace's `detailed` mode (admin default): the ticket subject + a "who did
+//! what" line (`push_body`) — the same information already in the notification
+//! email. In `private` mode: only the generic type label ("tap to view"). A
+//! comment's text, etc. is never sent in either mode. Lock-screen exposure is
+//! handled by the OS (iOS "Show Previews: When Unlocked"; Android `visibility:
+//! PRIVATE`). Set via `workspaces.settings.notification_push_detail`.
 
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -17,11 +20,16 @@ use super::super::types::{DeliverableNotification, NotificationChannel};
 use super::{ChannelError, ChannelResult, NotificationDeliveryChannel};
 use crate::db::Pool;
 
-/// A minimal, PII-free push payload.
+/// A push payload. Content is context-only (never the message body itself):
+/// in the workspace's `detailed` mode `title` is the ticket subject and `body`
+/// is a "who did what" line; in `private` mode `title` is the generic type
+/// label and `body` is `None` ("tap to view"). Either way it carries no comment
+/// text — the same exposure as the notification email.
 #[derive(Debug, Clone)]
 pub struct PushPayload {
-    /// Generic, derived from the notification type (e.g. "Assigned to Ticket").
     pub title: String,
+    /// Context line ("Alice mentioned you"); `None` in the workspace's private mode.
+    pub body: Option<String>,
     pub notification_type: String,
     pub entity_type: String,
     pub entity_id: i32,
@@ -102,9 +110,42 @@ impl NotificationDeliveryChannel for PushChannel {
             return Ok(());
         }
 
+        // Workspace admin content level: `detailed` (default) enriches the push
+        // with context — the ticket subject + a "who did what" line; `private`
+        // sends only the generic type label ("tap to view"). Never the message
+        // body itself, in either mode.
+        let detailed = crate::sync::session::background_run(
+            &self.pool,
+            "background:push_ws_content_level",
+            |conn| {
+                crate::repository::workspaces::get_notification_push_detail(
+                    conn,
+                    notification.payload.workspace_id,
+                )
+            },
+        )
+        .unwrap_or(true);
+
+        let ntype = &notification.payload.notification_type;
+        let (title, body) = if detailed {
+            let ctx = notification.payload.entity.context_title();
+            let title = if ctx.trim().is_empty() {
+                ntype.title().to_string()
+            } else {
+                ctx
+            };
+            (
+                title,
+                Some(ntype.push_body(&notification.payload.actor.name)),
+            )
+        } else {
+            (ntype.title().to_string(), None)
+        };
+
         let payload = PushPayload {
-            title: notification.payload.notification_type.title().to_string(),
-            notification_type: notification.payload.notification_type.as_str().to_string(),
+            title,
+            body,
+            notification_type: ntype.as_str().to_string(),
             entity_type: notification.payload.entity.entity_type().to_string(),
             entity_id: notification.payload.entity.entity_id(),
             ticket_id: notification.payload.entity.ticket_id(),
