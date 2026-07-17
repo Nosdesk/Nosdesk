@@ -41,8 +41,8 @@ dependencies {
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
     implementation(project(":tauri-android"))
-    // NOTE: FCM (firebase-messaging) is intentionally NOT added yet — it would
-    // require google-services.json to build. The Android token path is a stub
-    // until FCM is provisioned; add `com.google.firebase:firebase-messaging` +
-    // the google-services Gradle plugin then.
+    // Firebase Cloud Messaging. The BoM pins compatible versions; the app module
+    // applies the google-services plugin (needs google-services.json).
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-messaging")
 }
