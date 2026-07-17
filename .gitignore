@@ -99,3 +99,6 @@ fly.hosted-test.toml
 
 # Enterprise license signing key (private). Public counterpart is committed + embedded.
 backend/license_private.pem
+
+# Firebase client config (per-machine; contains the FCM API key)
+google-services.json
