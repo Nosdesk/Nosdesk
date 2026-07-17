@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark cold-start launch field. Matches the iOS LaunchScreen dark
+         appearance (#08090A) and the web splash dark default in splash.js. -->
+    <color name="launch_background">#FF08090A</color>
+</resources>

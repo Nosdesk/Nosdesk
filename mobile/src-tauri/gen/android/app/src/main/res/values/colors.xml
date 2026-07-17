@@ -7,4 +7,9 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <!-- Cold-start launch field. Matches the iOS LaunchScreen (LaunchBackground
+         colorset) and the web splash defaults in splash.js so the native
+         starting window → WebView → web splash hand off with no flash. Light
+         here; dark override in values-night/colors.xml. -->
+    <color name="launch_background">#FFF3F4F6</color>
 </resources>
