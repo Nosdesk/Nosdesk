@@ -70,3 +70,7 @@ dependencies {
 }
 
 apply(from = "tauri.build.gradle.kts")
+
+// FCM: reads app/google-services.json. Applied last so it sees the android
+// config above. Requires google-services.json in this module (gen/android/app/).
+apply(plugin = "com.google.gms.google-services")

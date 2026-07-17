@@ -1,3 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- FCM service (foreground display; background is auto-handled). -->
+        <service
+            android:name="com.nosdesk.plugin.push.PushMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!-- Channel a backgrounded FCM notification auto-posts to. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="nosdesk_notifications" />
+    </application>
 </manifest>
