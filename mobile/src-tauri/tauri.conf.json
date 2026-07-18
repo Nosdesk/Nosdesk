@@ -37,5 +37,13 @@
     "android": {
       "debugApplicationIdSuffix": ".debug"
     }
+  },
+  "plugins": {
+    "deep-link": {
+      "mobile": [
+        { "scheme": ["https"], "host": "*.nosdesk.app", "pathPrefix": ["/tickets"], "appLink": true },
+        { "scheme": ["https"], "host": "*.nosdesk.dev", "pathPrefix": ["/tickets"], "appLink": true }
+      ]
+    }
   }
 }

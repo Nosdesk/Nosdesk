@@ -18,6 +18,7 @@
     "web-auth:allow-authenticate",
     "secure-store:default",
     "haptics:allow-impact-feedback",
-    "push:default"
+    "push:default",
+    "deep-link:default"
   ]
 }

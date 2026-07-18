@@ -40,6 +40,21 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="nosdesk" />
             </intent-filter>
+            <!-- App Links: ticket deep links (https://<slug>.nosdesk.app/tickets/...).
+                 iOS Universal Links (associated-domains entitlement + AASA) are the
+                 primary path; Android is best-effort. NOTE: android:autoVerify of a
+                 wildcard host is not reliably verifiable (Android verifies concrete
+                 hosts via /.well-known/assetlinks.json), so with the wildcard the
+                 link may open via a chooser rather than directly. Reliable Android
+                 verification would need concrete tenant hosts or the central-link-
+                 domain approach (see the plan). -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="*.nosdesk.app" android:pathPrefix="/tickets" />
+                <data android:scheme="https" android:host="*.nosdesk.dev" android:pathPrefix="/tickets" />
+            </intent-filter>
         </activity>
 
         <provider

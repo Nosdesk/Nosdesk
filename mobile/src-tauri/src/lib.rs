@@ -7,6 +7,9 @@ pub fn run() {
     .plugin(tauri_plugin_http::init())
     // System-browser OAuth (ASWebAuthenticationSession) for native OIDC login.
     .plugin(tauri_plugin_web_auth::init())
+    // iOS Universal Links / Android App Links for ticket deep links; the JS
+    // side listens via onOpenUrl (see mobile/src). Config in tauri.conf.json.
+    .plugin(tauri_plugin_deep_link::init())
     // Keystore/Keychain-backed storage for the auth refresh token.
     .plugin(tauri_plugin_secure_store::init())
     // APNs/FCM push device-token registration (iOS live, Android stubbed).
