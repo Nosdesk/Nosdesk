@@ -134,6 +134,66 @@ if (isTauriRuntime()) {
   })
 }
 
+// Ticket deep links (iOS Universal Links / Android App Links). Same shape as
+// the push route above: resolve where the tapped/scanned URL goes, waiting for
+// the session on a cold start. v1 rule: a ticket link whose host is the server
+// we're connected to opens the ticket in-app; a different tenant, or a server
+// we're not connected to, opens in the system browser.
+if (isTauriRuntime()) {
+  onMounted(async () => {
+    try {
+      const { getInitialDeepLink, onDeepLink, openInBrowser, getStoredServer } =
+        await import('@nosdesk/mobile')
+      await router.isReady()
+
+      const handleDeepLink = (rawUrl: string) => {
+        let url: URL
+        try {
+          url = new URL(rawUrl)
+        } catch {
+          return
+        }
+        const isTicket = /\/tickets\/\d+/.test(url.pathname)
+        let sameServer = false
+        const server = getStoredServer()
+        if (server) {
+          try {
+            sameServer = new URL(server).host === url.host
+          } catch {
+            /* malformed stored server: treat as not matching */
+          }
+        }
+        if (!isTicket || !sameServer) {
+          void openInBrowser(rawUrl)
+          return
+        }
+        // Same tenant: open in-app. Navigate now if signed in, else once the
+        // session resolves (cold start, or after signing into this server).
+        const go = () => void router.push(url.pathname)
+        if (authStore.isAuthenticated) {
+          go()
+        } else {
+          const stop = watch(
+            () => authStore.isAuthenticated,
+            (authed) => {
+              if (authed) {
+                stop()
+                void nextTick(go)
+              }
+            },
+          )
+        }
+      }
+
+      const initial = await getInitialDeepLink()
+      if (initial) handleDeepLink(initial)
+      await onDeepLink(handleDeepLink)
+    } catch {
+      // Deep-linking is best-effort; never block app startup.
+    }
+  })
+}
+
 // State for navbar collapse
 const navbarCollapsed = ref(false)
 const handleNavCollapse = (collapsed: boolean) => {

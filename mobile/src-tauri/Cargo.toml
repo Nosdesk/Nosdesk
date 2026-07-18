@@ -38,6 +38,9 @@ tauri-plugin-web-auth = "1"
 # /.well-known files are the OS-level source of truth; mobile/src does the
 # per-tenant routing in onOpenUrl.
 tauri-plugin-deep-link = "2"
+# Open a URL in the system browser: the cross-tenant / not-connected fallback
+# for a ticket deep link the app can't open in place (see mobile/src/deepLink.ts).
+tauri-plugin-opener = "2"
 # Keystore/Keychain-backed secure storage for the refresh token, native iOS +
 # Android plugin code (see ../tauri-plugin-secure-store).
 tauri-plugin-secure-store = { path = "../tauri-plugin-secure-store" }

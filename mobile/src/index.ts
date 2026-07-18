@@ -12,6 +12,7 @@ export { bootstrapMobile, type MobileBootstrapOptions } from './bootstrap'
 export { setSession, clearSession, setServer } from './transport'
 export { loginWithOidc, logoutViaOidc } from './oidc'
 export { registerForPush, unregisterForPush, getPendingNotificationRoute } from './push'
+export { getInitialDeepLink, onDeepLink, openInBrowser } from './deepLink'
 export {
   getStoredServer,
   clearStoredServer,
