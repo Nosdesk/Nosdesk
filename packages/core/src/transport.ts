@@ -36,6 +36,13 @@ export interface AuthStrategy {
   hasSession(): boolean
   /** Tear down local session state after an unrecoverable 401. Web: no-op. */
   onSessionLost(): void
+  /**
+   * Intentional sign-out teardown of the client-held session, distinct from
+   * the involuntary `onSessionLost`. Web: clear the JS-accessible auth cookies.
+   * Mobile: drop the bearer + keychain refresh token and unregister push. The
+   * server-side session revocation happens separately (POST /auth/logout).
+   */
+  endSession(): Promise<void>
 }
 
 export interface TransportConfig {

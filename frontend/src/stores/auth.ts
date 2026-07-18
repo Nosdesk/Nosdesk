@@ -13,6 +13,8 @@ import { translate } from '@/i18n';
 import { extractErrorMessage } from '@/utils/errors';
 import { activeWorkspaceSlug } from '@/services/activeWorkspace';
 import { getWorkspaceRouting } from '@nosdesk/core/services/instanceConfig';
+import { isTauriRuntime } from '@/platform';
+import { transport } from '@nosdesk/core/transport';
 
 // Configure axios to use relative URLs and send cookies
 // This will make requests go to the same server that served the frontend
@@ -488,11 +490,15 @@ export const useAuthStore = defineStore('auth', () => {
       // Continue with frontend logout even if backend call fails
     }
 
-    // Manually clear the csrf_token cookie (not httpOnly, so deletion is possible)
-    // This ensures isAuthenticated becomes false immediately
-    document.cookie = 'csrf_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
-    document.cookie = 'access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
-    document.cookie = 'refresh_token=; path=/api/auth/refresh; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+    // Platform-local session teardown through the transport seam: web clears
+    // the JS-accessible auth cookies (so isAuthenticated flips false at once);
+    // mobile drops the bearer + keychain refresh token and unregisters push.
+    // Keeps the platform specifics in each AuthStrategy, not in this store.
+    try {
+      await transport().auth.endSession();
+    } catch (e) {
+      logger.error('Failed to tear down the local session on logout', e);
+    }
 
     // Clear user data
     user.value = null;
@@ -529,8 +535,13 @@ export const useAuthStore = defineStore('auth', () => {
     // Remove auth provider header
     delete axios.defaults.headers.common['X-Auth-Provider'];
 
-    // For OIDC users, also logout from the identity provider (e.g., Keycloak)
-    if (isOidcUser) {
+    // RP-initiated logout at the IdP is a WEB-only browser navigation. On
+    // native (Tauri) we must not run it: redirecting the in-app webview to the
+    // IdP end_session endpoint strands the user on the provider's hosted page
+    // (a tauri:// post_logout_redirect_uri can never return to the app), and
+    // hosted has no server-side logout flow anyway. Native sign-out is the
+    // local teardown above (endSession) plus routing back to the login screen.
+    if (isOidcUser && !isTauriRuntime()) {
       try {
         const response = await apiClient.post('/auth/oauth/logout', {
           provider_type: 'oidc',

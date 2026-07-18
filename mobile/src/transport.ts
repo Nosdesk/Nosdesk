@@ -127,6 +127,12 @@ const bearerAuthStrategy: AuthStrategy = {
     void store?.clear()
     syncAssetProxy()
   },
+  // Intentional sign-out: drop the bearer + keychain refresh token and
+  // unregister this device for push. `clearSession` already does exactly this
+  // teardown, so the seam just delegates to it.
+  endSession() {
+    return clearSession()
+  },
 }
 
 /**
