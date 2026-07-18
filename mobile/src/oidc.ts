@@ -171,3 +171,23 @@ export async function loginWithOidc(): Promise<void> {
   if (!session.access_token || !session.refresh_token) throw new Error('No session returned')
   await setSession(session.access_token, session.refresh_token)
 }
+
+/**
+ * Drive RP-initiated (front-channel) logout at the IdP. Opens the server-built
+ * `end_session` URL in the system browser (`ASWebAuthenticationSession`), which
+ * clears the shared IdP session cookie and returns on our custom scheme
+ * (`nosdesk://auth/logout-callback`, registered as the client's
+ * post_logout_redirect_uri).
+ *
+ * Best-effort by contract: the caller has already cleared the local session, so
+ * a user cancel or any browser error must not throw — sign-out proceeds either
+ * way. We just await the round-trip so the IdP cookie is gone before the app
+ * returns to its login screen.
+ */
+export async function logoutViaOidc(logoutUrl: string): Promise<void> {
+  try {
+    await authenticate({ url: logoutUrl, callbackScheme: CALLBACK_SCHEME })
+  } catch {
+    // Swallowed deliberately — see the doc comment.
+  }
+}

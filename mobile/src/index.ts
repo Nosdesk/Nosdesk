@@ -10,7 +10,7 @@
  */
 export { bootstrapMobile, type MobileBootstrapOptions } from './bootstrap'
 export { setSession, clearSession, setServer } from './transport'
-export { loginWithOidc } from './oidc'
+export { loginWithOidc, logoutViaOidc } from './oidc'
 export { registerForPush, unregisterForPush, getPendingNotificationRoute } from './push'
 export {
   getStoredServer,
