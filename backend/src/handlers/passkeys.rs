@@ -667,12 +667,13 @@ pub async fn finish_passkey_login(
     // (workspace_members is workspace-isolated).
     let user_uuid = user.uuid;
     super::helpers::pin_request_workspace(&req, &mut conn);
-    let session = super::auth::create_session_record(&user_uuid, &req, &mut conn).map_err(|e| {
-        error!(
-            "Failed to create session for passkey login {}: {:?}",
-            user_uuid, e
-        );
-    });
+    let session =
+        super::auth::create_session_record(&user_uuid, &req, &mut conn, None).map_err(|e| {
+            error!(
+                "Failed to create session for passkey login {}: {:?}",
+                user_uuid, e
+            );
+        });
     let session = match session {
         Ok(s) => s,
         Err(_) => return errors::internal("Failed to create authentication session"),
@@ -1319,12 +1320,13 @@ pub async fn finish_passkey_setup_login(
     // (workspace_members is workspace-isolated).
     let user_uuid = user.uuid;
     super::helpers::pin_request_workspace(&req, &mut conn);
-    let session = super::auth::create_session_record(&user_uuid, &req, &mut conn).map_err(|e| {
-        error!(
-            "Failed to create session for passkey setup login {}: {:?}",
-            user_uuid, e
-        );
-    });
+    let session =
+        super::auth::create_session_record(&user_uuid, &req, &mut conn, None).map_err(|e| {
+            error!(
+                "Failed to create session for passkey setup login {}: {:?}",
+                user_uuid, e
+            );
+        });
     let session = match session {
         Ok(s) => s,
         Err(_) => return errors::internal("Failed to create authentication session"),

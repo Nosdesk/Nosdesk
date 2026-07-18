@@ -3812,6 +3812,10 @@ pub struct ActiveSession {
     pub expires_at: chrono::NaiveDateTime,
     pub is_current: bool,
     pub session_id: Uuid,
+    /// OIDC id_token from login, kept for RP-initiated logout (id_token_hint).
+    /// NULL for local/password logins. Queryable is positional, so this must
+    /// stay last, matching the appended column in the schema.
+    pub oidc_id_token: Option<String>,
 }
 
 /// New active session for creation
@@ -3825,6 +3829,8 @@ pub struct NewActiveSession {
     pub location: Option<String>,
     pub expires_at: chrono::NaiveDateTime,
     pub is_current: bool,
+    /// See `ActiveSession::oidc_id_token`. Set by the OIDC login paths only.
+    pub oidc_id_token: Option<String>,
 }
 
 /// Refresh token for JWT token rotation
