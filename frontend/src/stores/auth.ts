@@ -13,6 +13,8 @@ import { translate } from '@/i18n';
 import { extractErrorMessage } from '@/utils/errors';
 import { activeWorkspaceSlug } from '@/services/activeWorkspace';
 import { getWorkspaceRouting } from '@nosdesk/core/services/instanceConfig';
+import { isTauriRuntime } from '@/platform';
+import { transport } from '@nosdesk/core/transport';
 
 // Configure axios to use relative URLs and send cookies
 // This will make requests go to the same server that served the frontend
@@ -476,23 +478,33 @@ export const useAuthStore = defineStore('auth', () => {
     // next successful sign-in (setAuthData / fetchUserData).
     setLoggingOut(true);
 
-    // Check if user logged in via OIDC provider
-    const currentProvider = authProvider.value;
-    const isOidcUser = currentProvider === 'oidc';
+    // Per-surface post-logout redirect for RP-initiated (front-channel) logout.
+    // Web returns to /login; native returns on its custom scheme (which the app
+    // intercepts). The backend only mints a logout_url when this session was an
+    // OIDC one, so no client-side provider check is needed.
+    const redirectUri = isTauriRuntime()
+      ? 'nosdesk://auth/logout-callback'
+      : window.location.origin + '/login';
 
+    // Revoke the session server-side while credentials are still live, and get
+    // back the IdP front-channel logout URL (if this was an OIDC session).
+    let logoutUrl: string | undefined;
     try {
-      // Call backend logout endpoint to clear cookies
-      await authService.logout();
+      ({ logoutUrl } = await authService.logout({ redirectUri }));
     } catch (err) {
       logger.error('Logout request failed:', err);
       // Continue with frontend logout even if backend call fails
     }
 
-    // Manually clear the csrf_token cookie (not httpOnly, so deletion is possible)
-    // This ensures isAuthenticated becomes false immediately
-    document.cookie = 'csrf_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
-    document.cookie = 'access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
-    document.cookie = 'refresh_token=; path=/api/auth/refresh; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+    // Platform-local session teardown through the transport seam: web clears
+    // the JS-accessible auth cookies (so isAuthenticated flips false at once);
+    // mobile drops the bearer + keychain refresh token and unregisters push.
+    // Keeps the platform specifics in each AuthStrategy, not in this store.
+    try {
+      await transport().auth.endSession();
+    } catch (e) {
+      logger.error('Failed to tear down the local session on logout', e);
+    }
 
     // Clear user data
     user.value = null;
@@ -529,26 +541,31 @@ export const useAuthStore = defineStore('auth', () => {
     // Remove auth provider header
     delete axios.defaults.headers.common['X-Auth-Provider'];
 
-    // For OIDC users, also logout from the identity provider (e.g., Keycloak)
-    if (isOidcUser) {
-      try {
-        const response = await apiClient.post('/auth/oauth/logout', {
-          provider_type: 'oidc',
-          redirect_uri: window.location.origin + '/login'
-        });
-
-        if (response.data.logout_url) {
-          // Redirect to OIDC provider's logout endpoint
-          window.location.href = response.data.logout_url;
-          return; // Full redirect in progress, skip router navigation
+    // RP-initiated logout at the IdP, if the session was an OIDC one. Ending
+    // the IdP session (not just the local one) is what stops a re-login from
+    // silently re-authenticating as the same user.
+    if (logoutUrl) {
+      if (isTauriRuntime()) {
+        // Native: open the end_session URL in the system browser (which clears
+        // the shared IdP cookie) and return on the custom scheme. Best-effort:
+        // the local session is already gone, so a cancel/error must not block
+        // routing back to the login screen.
+        try {
+          const { logoutViaOidc } = await import('@nosdesk/mobile');
+          await logoutViaOidc(logoutUrl);
+        } catch (e) {
+          logger.error('Native IdP logout failed', e);
         }
-      } catch (err) {
-        logger.error('OIDC logout request failed:', err);
-        // Continue with normal redirect if OIDC logout fails
+      } else {
+        // Web: full-page navigation to the IdP end_session endpoint, which
+        // redirects back to redirectUri (/login) once the session is ended.
+        window.location.href = logoutUrl;
+        return; // full redirect in progress, skip router navigation
       }
     }
 
-    // Redirect to login page (for non-OIDC users or if OIDC logout fails)
+    // Return to the login screen (non-OIDC sessions, native, or a failed
+    // web redirect).
     router.push('/login');
   }
 

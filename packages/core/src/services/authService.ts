@@ -247,11 +247,18 @@ class AuthService {
   }
 
   /**
-   * Logout the current user (clears httpOnly cookies on server)
+   * Log out the current user: revokes the session server-side (clears httpOnly
+   * cookies on web). When `redirectUri` is passed and the session was
+   * established via OIDC, the server returns a front-channel `logoutUrl` (with
+   * the session's id_token as `id_token_hint`) that the caller navigates to in
+   * order to end the IdP session too. Returns an empty object otherwise.
    */
-  async logout(): Promise<void> {
+  async logout(opts?: { redirectUri?: string }): Promise<{ logoutUrl?: string }> {
     try {
-      await apiClient.post('/auth/logout');
+      const body = opts?.redirectUri ? { redirect_uri: opts.redirectUri } : {};
+      const res = await apiClient.post('/auth/logout', body);
+      const logoutUrl = (res.data as { logout_url?: string | null } | undefined)?.logout_url;
+      return { logoutUrl: logoutUrl ?? undefined };
     } catch (error) {
       logger.error('Logout failed', { error });
       throw error;

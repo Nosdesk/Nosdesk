@@ -118,6 +118,7 @@ async fn bootstrap_streams_tickets_for_a_non_default_workspace() {
                 location: None,
                 expires_at: (chrono::Utc::now() + chrono::Duration::hours(1)).naive_utc(),
                 is_current: true,
+                oidc_id_token: None,
             },
         )
         .expect("create session");

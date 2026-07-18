@@ -141,8 +141,8 @@ fn mint_portal_session(
     request: &HttpRequest,
     conn: &mut DbConnection,
 ) -> Result<PortalSessionCookies, HttpResponse> {
-    let session =
-        crate::handlers::auth::create_session_record(&user.uuid, request, conn).map_err(|e| {
+    let session = crate::handlers::auth::create_session_record(&user.uuid, request, conn, None)
+        .map_err(|e| {
             tracing::error!(error = ?e, "portal session: failed to create session record");
             HttpResponse::InternalServerError().json(json!({
                 "status": "error",

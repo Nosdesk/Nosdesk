@@ -241,6 +241,7 @@ pub fn create_session_record(
     user_uuid: &Uuid,
     request: &HttpRequest,
     conn: &mut DbConnection,
+    oidc_id_token: Option<&str>,
 ) -> Result<crate::models::ActiveSession, diesel::result::Error> {
     // Resolve the client IP once: stored as INET, and (when a GeoIP
     // database is configured) used for a coarse "City, Country" label.
@@ -266,6 +267,7 @@ pub fn create_session_record(
         location,
         expires_at: chrono::Utc::now().naive_utc() + chrono::Duration::days(7),
         is_current: true,
+        oidc_id_token: oidc_id_token.map(str::to_owned),
     };
 
     crate::repository::active_sessions::create_session(conn, new_session)
@@ -278,7 +280,8 @@ pub(crate) fn complete_login(
     request: &HttpRequest,
     conn: &mut DbConnection,
 ) -> HttpResponse {
-    match establish_login_session(user, request, conn) {
+    // Local / password logins carry no OIDC id_token.
+    match establish_login_session(user, request, conn, None) {
         Ok((response, tokens)) => build_auth_response(request, response, &tokens),
         Err(error_response) => error_response,
     }
@@ -296,8 +299,9 @@ pub(crate) fn complete_login_redirect(
     request: &HttpRequest,
     conn: &mut DbConnection,
     location: &str,
+    oidc_id_token: Option<&str>,
 ) -> HttpResponse {
-    match establish_login_session(user, request, conn) {
+    match establish_login_session(user, request, conn, oidc_id_token) {
         Ok((_response, tokens)) => build_auth_cookie_redirect(&tokens, location),
         Err(error_response) => error_response,
     }
@@ -309,6 +313,7 @@ pub(crate) fn establish_login_session(
     user: crate::models::User,
     request: &HttpRequest,
     conn: &mut DbConnection,
+    oidc_id_token: Option<&str>,
 ) -> Result<(crate::models::LoginResponse, jwt_helpers::LoginTokens), HttpResponse> {
     let user_uuid = user.uuid;
 
@@ -316,7 +321,7 @@ pub(crate) fn establish_login_session(
     // resolves under RLS (workspace_members is workspace-isolated).
     helpers::pin_request_workspace(request, conn);
 
-    let session = match create_session_record(&user_uuid, request, conn) {
+    let session = match create_session_record(&user_uuid, request, conn, oidc_id_token) {
         Ok(s) => s,
         Err(e) => {
             tracing::error!("Failed to create session for user {}: {}", user_uuid, e);
@@ -358,7 +363,7 @@ fn complete_mfa_login(
     // resolves under RLS (workspace_members is workspace-isolated).
     helpers::pin_request_workspace(request, conn);
 
-    let session = match create_session_record(&user_uuid, request, conn) {
+    let session = match create_session_record(&user_uuid, request, conn, None) {
         Ok(s) => s,
         Err(e) => {
             tracing::error!("Failed to create session for user {}: {}", user_uuid, e);
@@ -961,16 +966,52 @@ pub async fn recovery_login(
     )
 }
 
-/// Logout endpoint - revokes session from DB and clears cookies
-pub async fn logout(db_pool: web::Data<crate::db::Pool>, req: HttpRequest) -> impl Responder {
+/// Optional body for `/auth/logout`. When the caller wants RP-initiated
+/// (front-channel) logout at the OIDC provider, it passes the surface's
+/// `redirect_uri` (web: `<origin>/login`; mobile: `nosdesk://auth/logout-callback`)
+/// and gets back a `logout_url` to navigate to.
+#[derive(serde::Deserialize)]
+pub struct LogoutRequest {
+    pub redirect_uri: Option<String>,
+}
+
+/// Logout endpoint - revokes session from DB and clears cookies. When the
+/// session was established via OIDC and the caller supplies a `redirect_uri`,
+/// also returns a front-channel `logout_url` (with the session's stored
+/// id_token as `id_token_hint`) so the client can end the IdP session too.
+pub async fn logout(
+    db_pool: web::Data<crate::db::Pool>,
+    req: HttpRequest,
+    body: Option<web::Json<LogoutRequest>>,
+) -> impl Responder {
     use crate::utils::cookies::{
         delete_access_token_cookie, delete_csrf_token_cookie, delete_refresh_token_cookie,
     };
+
+    let redirect_uri = body.and_then(|b| b.into_inner().redirect_uri);
+    let mut logout_url: Option<String> = None;
 
     // Best-effort session revocation — CASCADE handles linked refresh_tokens
     if let (Ok(claims), Ok(mut conn)) = (JwtUtils::extract_claims(&req), helpers::db_conn(&db_pool))
     {
         if let Some(sid) = claims.session_uuid() {
+            // Build the RP-initiated logout URL BEFORE revoking (revocation
+            // deletes the row and its stored id_token). Only when the caller
+            // asked (redirect_uri) and this session carries an OIDC id_token.
+            // The redirect_uri is not trusted here: it only reaches the IdP's
+            // end_session URL, which Hydra validates against the client's
+            // registered post_logout_redirect_uris.
+            if let Some(redirect_uri) = redirect_uri.as_deref() {
+                if let Ok(session) =
+                    crate::repository::active_sessions::get_session_by_session_id(&mut conn, &sid)
+                {
+                    if let Some(id_token) = session.oidc_id_token.as_deref() {
+                        logout_url =
+                            crate::oidc::generate_logout_url(redirect_uri, Some(id_token), None)
+                                .await;
+                    }
+                }
+            }
             match crate::repository::active_sessions::revoke_session_by_uuid(&mut conn, &sid) {
                 Ok(n) => tracing::info!("Logout: revoked {n} session(s) for sid {sid}"),
                 Err(e) => tracing::warn!("Logout: failed to revoke session {sid}: {e}"),
@@ -998,7 +1039,11 @@ pub async fn logout(db_pool: web::Data<crate::db::Pool>, req: HttpRequest) -> im
         .cookie(delete_csrf_token_cookie())
         .json(json!({
             "success": true,
-            "message": "Logged out successfully"
+            "message": "Logged out successfully",
+            // Null unless this was an OIDC session and a redirect_uri was given.
+            // The client navigates here (web) / opens it in the system browser
+            // (mobile) to end the IdP session too.
+            "logout_url": logout_url
         }))
 }
 
@@ -2161,7 +2206,7 @@ pub async fn mfa_enable_login(
             // Pin the workspace so the response's workspace_role resolves
             // under RLS (workspace_members is workspace-isolated).
             helpers::pin_request_workspace(&http_request, &mut conn);
-            let session = match create_session_record(&user_uuid, &http_request, &mut conn) {
+            let session = match create_session_record(&user_uuid, &http_request, &mut conn, None) {
                 Ok(s) => s,
                 Err(e) => {
                     tracing::error!(
@@ -2534,7 +2579,7 @@ pub async fn refresh_token(
         Some(sid) => sid,
         None => {
             // Token created before this migration — create a new session
-            match create_session_record(&user.uuid, &request, &mut conn) {
+            match create_session_record(&user.uuid, &request, &mut conn, None) {
                 Ok(session) => session.session_id,
                 Err(e) => {
                     tracing::error!("Failed to create session during refresh: {}", e);

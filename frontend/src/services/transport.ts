@@ -46,6 +46,16 @@ const cookieAuthStrategy: AuthStrategy = {
   // The auth cookies are httpOnly, so JS can't clear them; the server's
   // /auth/logout does. A no-op here keeps the long-standing web behaviour.
   onSessionLost() {},
+  async endSession() {
+    // Clear the JS-accessible auth cookies on intentional sign-out. The
+    // httpOnly access/refresh cookies are cleared server-side by /auth/logout;
+    // csrf_token is not httpOnly, so clearing it here flips `hasSession()`
+    // (and the store's isAuthenticated) false immediately. The access/refresh
+    // lines are retained defensively for any non-httpOnly deployment.
+    document.cookie = 'csrf_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
+    document.cookie = 'access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
+    document.cookie = 'refresh_token=; path=/api/auth/refresh; expires=Thu, 01 Jan 1970 00:00:00 GMT'
+  },
 }
 
 configureTransport({

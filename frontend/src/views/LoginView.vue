@@ -2,6 +2,7 @@
 <script setup lang="ts">
 import { ref, onMounted, nextTick, computed } from "vue";
 import { useRouter, useRoute } from "vue-router";
+import { resolvePostLoginPath } from "@/router";
 import { useAuthStore } from "@/stores/auth";
 import { useMfaSetupStore } from "@nosdesk/core/stores/mfaSetup";
 import { useBrandingStore } from "@/stores/branding";
@@ -394,13 +395,18 @@ const handleOidcLoginClick = async () => {
     try {
       const { loginWithOidc, registerForPush } = await import('@nosdesk/mobile');
       await loginWithOidc();
-      await authStore.fetchUserData();
+      // Force past the 5s fetch cooldown: a fresh session must load the user
+      // even if a pre-sign-out /auth/me attempt is still within the window.
+      await authStore.fetchUserData({ force: true });
       authStore.setAuthProvider('oidc');
       // Session is live — register this device for push (best-effort; never
       // blocks routing into the app).
       void registerForPush();
-      const redirectPath = router.currentRoute.value.query.redirect?.toString() || "/";
-      router.push(redirectPath);
+      const redirectPath = router.currentRoute.value.query.redirect?.toString();
+      // Resolve + set the active workspace before navigating so the first
+      // dashboard request carries the X-Nosdesk-Workspace header. An in-app
+      // login after sign-out otherwise lands with no workspace selected.
+      router.push(await resolvePostLoginPath(redirectPath));
     } catch (error) {
       const err = error as Error;
       errorMessage.value = err.message || "Sign-in failed";

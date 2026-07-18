@@ -57,6 +57,7 @@ diesel::table! {
         expires_at -> Timestamptz,
         is_current -> Bool,
         session_id -> Uuid,
+        oidc_id_token -> Nullable<Text>,
     }
 }
 
@@ -2410,8 +2411,6 @@ diesel::joinable!(tickets -> ticket_categories (category_id));
 diesel::joinable!(tickets -> workflow_states (workflow_state_id));
 diesel::joinable!(tickets -> workspaces (workspace_id));
 diesel::joinable!(user_addresses -> workspaces (workspace_id));
-diesel::joinable!(user_push_devices -> users (user_uuid));
-diesel::joinable!(user_push_devices -> workspaces (workspace_id));
 diesel::joinable!(user_auth_identities -> workspaces (workspace_id));
 diesel::joinable!(user_field_schema -> users (created_by));
 diesel::joinable!(user_field_schema -> workspaces (workspace_id));
@@ -2420,6 +2419,8 @@ diesel::joinable!(user_groups -> workspaces (workspace_id));
 diesel::joinable!(user_phone_numbers -> workspaces (workspace_id));
 diesel::joinable!(user_preferences -> users (user_uuid));
 diesel::joinable!(user_profiles -> workspaces (workspace_id));
+diesel::joinable!(user_push_devices -> users (user_uuid));
+diesel::joinable!(user_push_devices -> workspaces (workspace_id));
 diesel::joinable!(user_recovery_codes -> users (user_uuid));
 diesel::joinable!(user_ticket_views -> tickets (ticket_id));
 diesel::joinable!(user_ticket_views -> users (user_uuid));

@@ -143,6 +143,7 @@ mod tests {
             location: None,
             expires_at: (Utc::now() + chrono::Duration::hours(1)).naive_utc(),
             is_current: false,
+            oidc_id_token: None,
         }
     }
 

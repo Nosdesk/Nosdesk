@@ -151,8 +151,15 @@ pub async fn generate_logout_url(
         params.push(("state", s.to_string()));
     }
 
-    if let Some(config) = get_config() {
-        params.push(("client_id", config.client_id.clone()));
+    // Only send `client_id` when there is NO `id_token_hint`. With a hint,
+    // Hydra identifies the client from the token, and a `client_id` that
+    // disagrees with the token's audience (e.g. the web client_id here vs a
+    // mobile id_token minted for the native client) is rejected. The hint is
+    // sufficient on its own.
+    if id_token_hint.is_none() {
+        if let Some(config) = get_config() {
+            params.push(("client_id", config.client_id.clone()));
+        }
     }
 
     let query_string: String = params
@@ -454,7 +461,7 @@ pub async fn exchange_code(
     // Per-tenant OAuth callback override (hosted mode); must equal the
     // redirect_uri used at authorize time. `None` uses the configured one.
     callback_redirect: Option<String>,
-) -> Result<OidcUserInfo, String> {
+) -> Result<(OidcUserInfo, String), String> {
     let client = get_oidc_client().await?;
     let config = OidcConfig::from_env()?;
 
@@ -483,12 +490,16 @@ pub async fn exchange_code(
 
     let user_info = extract_user_info(&claims, &config)?;
 
+    // Serialised (compact-JWT) id_token, kept for a later RP-initiated logout
+    // as the `id_token_hint`. The session row is where it comes to rest.
+    let id_token_str = id_token.to_string();
+
     info!(
         "OIDC: Successfully authenticated user with sub: {}",
         user_info.sub
     );
 
-    Ok(user_info)
+    Ok((user_info, id_token_str))
 }
 
 /// Verify an ID token presented by the native (mobile) app and return its user

@@ -812,6 +812,9 @@ pub async fn oauth_callback(
                         &request,
                         &mut conn,
                         &safe_post_login_location(&state_data.redirect_uri),
+                        // Microsoft logout uses its own endpoint (no id_token_hint
+                        // requirement), so nothing to store here.
+                        None,
                     )
                 }
             }
@@ -849,7 +852,7 @@ pub async fn oauth_callback(
         // hosted mode); it travels in the signed state, tamper-proof.
         match oidc::exchange_code(code, &auth_data, state_data.callback_redirect_uri.clone()).await
         {
-            Ok(user_info) => {
+            Ok((user_info, id_token)) => {
                 // Check if this is a user connection request (vs. a standard login)
                 if is_connection {
                     // Connection request - check if this identity is already linked
@@ -996,6 +999,7 @@ pub async fn oauth_callback(
                         &request,
                         &mut conn,
                         &safe_post_login_location(&state_data.redirect_uri),
+                        Some(&id_token),
                     )
                 }
             }
@@ -1512,7 +1516,13 @@ pub async fn native_oidc_login(
         }
     };
 
-    match crate::handlers::auth::establish_login_session(user, &request, &mut conn) {
+    match crate::handlers::auth::establish_login_session(
+        user,
+        &request,
+        &mut conn,
+        // The verified id_token the app presented, kept for RP-initiated logout.
+        Some(&body.id_token),
+    ) {
         Ok((response, tokens)) => {
             crate::handlers::auth::build_auth_response(&request, response, &tokens)
         }

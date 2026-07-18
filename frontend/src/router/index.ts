@@ -2,7 +2,7 @@ import { createRouter, createWebHistory, type RouteLocationNormalized } from 'vu
 import { withWorkspaceRouting, installWorkspaceGuard, installSlugCarrier, workspaceSlugOf } from './workspaceRouting'
 import { installNavigationTracking } from './navigation'
 import { getWorkspaceRouting } from '@nosdesk/core/services/instanceConfig'
-import { lastWorkspaceSlug } from '@/services/activeWorkspace'
+import { lastWorkspaceSlug, setActiveWorkspaceSlug } from '@/services/activeWorkspace'
 import DashboardView from '../views/DashboardView.vue'
 import TicketView from '../views/TicketView.vue'
 import LoginView from '../views/LoginView.vue'
@@ -1046,6 +1046,32 @@ async function defaultWorkspaceSlug(): Promise<string | null> {
   const last = lastWorkspaceSlug();
   if (last && slugs.includes(last)) return last;
   return store.workspaces[0]?.slug ?? null;
+}
+
+/**
+ * Resolve where to land after a successful login, establishing the
+ * workspace selection eagerly. Login paths call this instead of pushing a
+ * bare `/`.
+ *
+ * Why login must own this: an in-app login (no full page reload — e.g. the
+ * Tauri app signing back in after sign-out, which clears the active-workspace
+ * slug) re-runs the guard's post-login landing against retained module state,
+ * where it can leave the slug unset. Every request then omits the
+ * `X-Nosdesk-Workspace` header and workspace-scoped calls fail closed
+ * (`NoWorkspaceSelected`), which no in-session refresh recovers — only a cold
+ * start does. Resolving + setting the slug here makes it deterministic.
+ *
+ * A `redirect` target from the login guard already carries its workspace slug
+ * (path-mode fullPaths are slugged), so it is honoured as-is; only the bare-`/`
+ * case needs the default workspace resolved. Host mode has no slug concept.
+ */
+export async function resolvePostLoginPath(redirect?: string | null): Promise<string> {
+  if (redirect && redirect !== '/') return redirect;
+  if (getWorkspaceRouting() !== 'path') return '/';
+  const slug = await defaultWorkspaceSlug();
+  if (!slug) return '/'; // no membership: the guard routes to no-workspace-access
+  setActiveWorkspaceSlug(slug);
+  return `/${slug}`;
 }
 
 /**
