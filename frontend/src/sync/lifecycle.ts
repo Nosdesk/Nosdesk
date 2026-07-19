@@ -49,6 +49,24 @@ const state: LifecycleState = {
   memoryOnly: false,
 }
 
+/** Memory-only counts as hydrated (it still bootstraps and serves; only
+ *  warm-start persistence is lost). Gating subscribe/runBootstrap/pullDelta on
+ *  `state.handle` alone stranded memory-only groups empty until a force-quit. */
+function isHydrated(): boolean {
+  return state.handle !== null || state.memoryOnly
+}
+
+/**
+ * Bootstrap every group that subscribed before hydrate() finished. subscribe()
+ * adds the group to the pool's set but defers its fetch when the runtime isn't
+ * hydrated yet; this drains that backlog once hydration completes (IDB or
+ * memory-only), so an early subscriber isn't left empty until the next tearDown.
+ */
+function bootstrapDeferredGroups(): void {
+  const groups = Array.from(pool.getSubscribedGroups())
+  if (groups.length > 0) void runBootstrap(groups)
+}
+
 /**
  * Single-flight sync-runtime bootstrap. `fetchServerIdentity` + `hydrate` +
  * `attachSseBridge` are one-time setup, but they can be reached concurrently —
@@ -183,6 +201,9 @@ export async function hydrate(
     state.memoryOnly = true
     queue.setIdbHandle(null)
     startDeltaPollFallback()
+    // Memory-only is still a hydrated runtime: drain any group that subscribed
+    // while IDB open was in flight so it bootstraps rather than staying empty.
+    bootstrapDeferredGroups()
     return
   }
 
@@ -255,6 +276,9 @@ export async function hydrate(
   // where SSE is wedged behind a corporate proxy or the EventSource
   // is mid-reconnect. Idempotent — only starts a single timer.
   startDeltaPollFallback()
+
+  // Drain groups that subscribed before hydrate() finished (see subscribe()).
+  bootstrapDeferredGroups()
 }
 
 /** Fetch the server's compiled schema hash and database instance id.
@@ -311,7 +335,10 @@ export async function fetchServerIdentity(): Promise<{
 export async function subscribe(group: string): Promise<void> {
   if (pool.getSubscribedGroups().has(group)) return
   pool.subscribe(group)
-  if (!state.handle) {
+  if (!isHydrated()) {
+    // Not hydrated yet: hydrate() replays the subscribed set once it finishes
+    // (bootstrapDeferredGroups), so this group still loads. Memory-only counts
+    // as hydrated, so this branch is only the genuine pre-hydrate window.
     logger.warn('subscribe() called before hydrate(); deferring bootstrap', { group })
     return
   }
@@ -324,7 +351,7 @@ export async function subscribe(group: string): Promise<void> {
  * a periodic-poll fallback when SSE is wedged.
  */
 export async function pullDelta(): Promise<void> {
-  if (!state.handle) return
+  if (!isHydrated()) return
   const groups = Array.from(pool.getSubscribedGroups())
   if (groups.length === 0) return
   const from = pool.getLastSyncId()
@@ -363,7 +390,10 @@ export async function pullDelta(): Promise<void> {
  * full subscription list) and for incremental group expansion.
  */
 async function runBootstrap(groups: string[]): Promise<void> {
-  if (!state.handle) return
+  // Bootstrap fills the in-memory pool; it needs a hydrated runtime, NOT an IDB
+  // handle. In memory-only mode the persistence writes below are individually
+  // skipped, but the fetch + pool.upsert still run so views populate.
+  if (!isHydrated()) return
   const url = `/sync/bootstrap?groups=${encodeURIComponent(groups.join(','))}&schema=${encodeURIComponent(state.schemaHash)}`
   let res: Response
   try {
@@ -437,10 +467,14 @@ async function runBootstrap(groups: string[]): Promise<void> {
         // Bootstrap finished successfully — persist any tail and
         // advance the cursor.
         await flushPersistBatch()
-        if (bootstrapMeta && state.handle) {
+        if (bootstrapMeta) {
+          // Advance the in-memory cursor always; persist it only when IDB is
+          // available (memory-only keeps the cursor in the pool for delta polls).
           pool.setCursor(bootstrapMeta.last_xid8, bootstrapMeta.last_sync_id)
-          await idb.setLastSyncId(state.handle, bootstrapMeta.last_sync_id)
-          await idb.setLastXid8(state.handle, bootstrapMeta.last_xid8)
+          if (state.handle) {
+            await idb.setLastSyncId(state.handle, bootstrapMeta.last_sync_id)
+            await idb.setLastXid8(state.handle, bootstrapMeta.last_xid8)
+          }
         }
       } else if ('__error__' in line) {
         logger.error('bootstrap streamed error envelope', { line })

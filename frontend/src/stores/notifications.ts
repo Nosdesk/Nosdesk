@@ -46,6 +46,7 @@ import {
   type Notification,
 } from '@nosdesk/core/services/notificationService'
 import { onSyncActions } from '@nosdesk/core/sync/observers'
+import { workspaceReady } from '@/services/activeWorkspace'
 
 const PAGE_SIZE = 20
 
@@ -80,6 +81,8 @@ export function useNotificationsList() {
       lastPage.length === PAGE_SIZE
         ? allPages.flat().length
         : null,
+    // Hold until a workspace is selected (see useUnreadCount).
+    enabled: () => workspaceReady(),
   })
 }
 
@@ -89,6 +92,9 @@ export function useUnreadCount() {
   return useQuery({
     key: NOTIFICATIONS_KEYS.unreadCount(),
     query: () => getUnreadCount(),
+    // Hold until a workspace is selected so the always-mounted bell doesn't fire
+    // header-less on first login (NoWorkspaceSelected).
+    enabled: () => workspaceReady(),
   })
 }
 
@@ -100,6 +106,8 @@ export function useUnseenCount() {
   return useQuery({
     key: NOTIFICATIONS_KEYS.unseenCount(),
     query: () => getUnseenCount(),
+    // Hold until a workspace is selected (see useUnreadCount).
+    enabled: () => workspaceReady(),
   })
 }
 

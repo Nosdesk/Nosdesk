@@ -5,6 +5,7 @@
  * the URL before it wires up routing. Instance-global (identical for every
  * workspace); per-workspace config lives behind auth.
  */
+import { readonly, ref, type Ref } from 'vue';
 import apiClient from '../apiClient';
 import { logger } from '../utils/logger';
 
@@ -42,11 +43,18 @@ let inboundForwardingEnabled = false;
 // is judged in the 'host' default and wrongly 404'd while the fetch is in flight.
 let configPromise: Promise<void> | null = null;
 
+// Reactive latch: flips true once the fetch SUCCEEDS (a failure clears the memo
+// to retry, see fetchInstanceConfig). Lets the workspace-ready gate tell "still
+// the 'host' default because we haven't resolved yet" from a real answer, so it
+// never acts on the pre-fetch default. Owned here (the fetch's owner) so nothing
+// fires a premature /config request just to observe completion.
+const configResolved = ref(false);
+
 /**
- * Fetch instance config once at bootstrap. The endpoint is public, so this is
- * safe before auth. Failures are swallowed and leave the 'host' default, so a
- * config blip can never strand the app on a route topology it can't serve.
- * Idempotent: repeat calls return the same in-flight/settled promise.
+ * Fetch instance config once per server. The endpoint is public, so it's safe
+ * before auth. Idempotent: repeat calls share one in-flight/settled promise. A
+ * failed fetch clears the memo so the next call retries instead of latching the
+ * 'host' default; resetInstanceConfig() re-arms it when the server changes.
  */
 export function fetchInstanceConfig(): Promise<void> {
   if (!configPromise) {
@@ -62,13 +70,40 @@ export function fetchInstanceConfig(): Promise<void> {
         if (typeof data?.inbound_forwarding_enabled === 'boolean') {
           inboundForwardingEnabled = data.inbound_forwarding_enabled;
         }
+        configResolved.value = true;
       } catch (e) {
-        logger.error('Failed to fetch instance config; defaulting workspace_routing=host', e);
+        logger.error('Failed to fetch instance config; will retry on next call', e);
+        // A failed fetch must NOT latch the 'host' default for the session. Clear
+        // the memo so the next caller (e.g. the router guard, once the mobile
+        // base URL is configured) retries. Leaving configResolved false keeps
+        // workspace-ready gates closed rather than firing header-less.
+        configPromise = null;
       }
     })();
   }
   return configPromise;
 }
+
+/**
+ * Forget the cached instance config so the next {@link fetchInstanceConfig}
+ * re-resolves it. The config is SERVER-SPECIFIC (routing topology differs per
+ * instance), so the mobile transport calls this whenever it points at a new
+ * server: without it, a value fetched against the default/bootstrap server (or a
+ * pre-server-selection failed fetch) would leak across and strand the app in the
+ * wrong routing mode for the whole session.
+ */
+export function resetInstanceConfig(): void {
+  configPromise = null;
+  configResolved.value = false;
+  workspaceRouting = 'host';
+  deploymentMode = 'self_hosted';
+  inboundForwardingEnabled = false;
+}
+
+/** Reactive: `true` once {@link fetchInstanceConfig} has settled (success or
+ *  failure). Consumers gating on the routing mode read this so they don't act
+ *  on the pre-fetch 'host' default. */
+export const instanceConfigResolvedRef: Readonly<Ref<boolean>> = readonly(configResolved);
 
 /** Where the workspace lives in the URL. 'host' until the config resolves. */
 export function getWorkspaceRouting(): WorkspaceRouting {

@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { resolvePostLoginPath } from '@/router'
 import apiClient from '@nosdesk/core/apiClient'
 import { useMicrosoftAuth } from '@/composables/useMicrosoftAuth'
 import AuthCallbackCard, { type ErrorInfo } from '@/components/auth/AuthCallbackCard.vue'
@@ -162,7 +163,9 @@ onMounted(async () => {
       }
       sessionStorage.removeItem('authRedirect')
 
-      setTimeout(() => router.push(redirectPath), 500)
+      // Resolve the workspace so path mode lands on `/<slug>` (host mode: `/`).
+      const target = await resolvePostLoginPath(redirectPath)
+      setTimeout(() => router.push(target), 500)
     } else {
       error.value = t('auth-callback-error-invalid-response')
       detailedError.value = JSON.stringify(data, null, 2)
