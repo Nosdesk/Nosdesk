@@ -353,13 +353,17 @@ defineExpose({ openAddFilter })
 
       <div class="flex-1 min-w-2" />
 
-      <!-- Density quick-toggle. Three icon buttons. Hidden below
-           md: — phones don't have meaningful row density choices. -->
-      <ListDensityToggle
-        class="hidden md:inline-flex"
-        :density="density"
-        @set-density="(v) => emit('set-density', v)"
-      />
+      <!-- Density quick-toggle. Three icon buttons. Hidden below md: on a
+           WRAPPER, not the component root: ListDensityToggle's root is
+           `inline-flex`, which fights a merged `hidden` (source order wins, so
+           `hidden` loses and it shows on phones). Same fix as the ViewSwitcher
+           wrappers above. -->
+      <div class="hidden md:inline-flex">
+        <ListDensityToggle
+          :density="density"
+          @set-density="(v) => emit('set-density', v)"
+        />
+      </div>
 
       <!-- Split-view toggle. Two-pane SVG so the icon reads as
            "list + preview" not just generic 'split'. Hidden below
@@ -384,22 +388,24 @@ defineExpose({ openAddFilter })
         </svg>
       </button>
 
-      <!-- Column / density / grouping controls. Power-user chrome,
-           hidden below md: to keep the mobile toolbar shallow. -->
-      <DisplayMenu
-        class="hidden md:inline-flex"
-        :visible="visibleColumns"
-        :density="density"
-        :group-by="groupBy"
-        :can-save-to-view="canSaveLayoutToView"
-        :layout-dirty="layoutDirty"
-        :available-columns="availableColumns"
-        @toggle-column="(id) => emit('toggle-column', id)"
-        @set-density="(v) => emit('set-density', v)"
-        @set-group-by="(v) => emit('set-group-by', v)"
-        @reset="emit('reset-layout')"
-        @save="emit('save-layout-to-view')"
-      />
+      <!-- Column / density / grouping controls. Power-user chrome, hidden below
+           md: on a WRAPPER (DisplayMenu's root is `inline-flex`, see the density
+           wrapper above) to keep the mobile toolbar shallow. -->
+      <div class="hidden md:inline-flex">
+        <DisplayMenu
+          :visible="visibleColumns"
+          :density="density"
+          :group-by="groupBy"
+          :can-save-to-view="canSaveLayoutToView"
+          :layout-dirty="layoutDirty"
+          :available-columns="availableColumns"
+          @toggle-column="(id) => emit('toggle-column', id)"
+          @set-density="(v) => emit('set-density', v)"
+          @set-group-by="(v) => emit('set-group-by', v)"
+          @reset="emit('reset-layout')"
+          @save="emit('save-layout-to-view')"
+        />
+      </div>
 
       <!-- The local "New ticket" button used to live here as a
            fallback for the (broken) site-header Create button.
