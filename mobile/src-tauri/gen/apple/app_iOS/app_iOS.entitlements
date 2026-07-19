@@ -4,13 +4,10 @@
 <dict>
 	<key>aps-environment</key>
 	<string>development</string>
-	<!-- Universal Links: a scanned ticket QR (https://<slug>.nosdesk.app/tickets/<id>)
-	     opens the app. Wildcard covers every tenant subdomain; Apple fetches the
-	     AASA from each host, which the single product backend serves. -->
 	<key>com.apple.developer.associated-domains</key>
 	<array>
-		<string>applinks:*.nosdesk.app</string>
-		<string>applinks:*.nosdesk.dev</string>
+		<string>applinks:app.nosdesk.com</string>
+		<string>applinks:app.nosdesk.dev</string>
 	</array>
 </dict>
 </plist>

@@ -24,7 +24,15 @@ const isSwitchingWorkspace = ref(false);
 export function useWorkspaceSwitch() {
   const router = useRouter();
 
-  async function switchWorkspace(entry: MyWorkspaceEntry): Promise<void> {
+  /**
+   * Switch to `entry`. Lands on the workspace home by default, or on
+   * `destinationPath` (already slug-prefixed, e.g. a ticket deep link
+   * `/acme/tickets/8`) when the caller wants to arrive somewhere specific.
+   */
+  async function switchWorkspace(
+    entry: MyWorkspaceEntry,
+    destinationPath?: string,
+  ): Promise<void> {
     if (getWorkspaceRouting() !== 'path') {
       navigateToWorkspace(entry);
       return;
@@ -37,10 +45,11 @@ export function useWorkspaceSwitch() {
       await nextTick();
       const { resetWorkspaceScopedState } = await import('@/stores/workspaceReset');
       await resetWorkspaceScopedState();
-      // Navigate to the new workspace's home. The prefix guard sets the active
-      // slug and the hydrate guard re-bootstraps + re-attaches SSE for it (the
-      // pool's IDB handle was closed by the reset, so it starts clean).
-      await router.push(`/${entry.slug}`);
+      // Navigate to the target (workspace home, or a specific deep-link path).
+      // The prefix guard sets the active slug and the hydrate guard re-bootstraps
+      // + re-attaches SSE for it (the pool's IDB handle was closed by the reset,
+      // so it starts clean).
+      await router.push(destinationPath ?? `/${entry.slug}`);
       const { useBrandingStore } = await import('@/stores/branding');
       await useBrandingStore().loadBranding();
     } catch (e) {
