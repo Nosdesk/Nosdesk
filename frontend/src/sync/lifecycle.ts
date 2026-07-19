@@ -11,6 +11,7 @@
  * - `tearDown()` releases the IndexedDB handle and resets the pool;
  *   called on sign-out.
  */
+import { watch } from 'vue'
 import { logger } from '@nosdesk/core/utils/logger'
 import * as pool from '@nosdesk/core/sync/pool'
 import * as idb from './idb'
@@ -21,7 +22,7 @@ import { notifySyncActions } from '@nosdesk/core/sync/observers'
 import { applyWorkspaceCapabilities } from '@/composables/useWorkspaceCapabilities'
 import { purgeAllCollabDocs } from '@/utils/collabLocalCache'
 import { apiBaseUrl, transport } from '@nosdesk/core/transport'
-import { workspaceHeaders } from '@/services/activeWorkspace'
+import { workspaceHeaders, workspaceReady, workspaceReadyRef } from '@/services/activeWorkspace'
 import type {
   BootstrapLine,
   BootstrapMeta,
@@ -56,16 +57,37 @@ function isHydrated(): boolean {
   return state.handle !== null || state.memoryOnly
 }
 
+/** A workspace-scoped fetch (bootstrap/delta) may only fire once the runtime is
+ *  hydrated AND a workspace is selected. `workspaceReady()` is the same gate the
+ *  Colada queries use (true in host mode, or once the path-mode slug is set);
+ *  without it the sync engine sends header-less requests that fail 400
+ *  NoWorkspaceSelected, the 10s delta poll spamming them all session. */
+function canFetchWorkspace(): boolean {
+  return isHydrated() && workspaceReady()
+}
+
 /**
- * Bootstrap every group that subscribed before hydrate() finished. subscribe()
- * adds the group to the pool's set but defers its fetch when the runtime isn't
- * hydrated yet; this drains that backlog once hydration completes (IDB or
- * memory-only), so an early subscriber isn't left empty until the next tearDown.
+ * Bootstrap every subscribed group. Called after hydrate() and whenever the
+ * workspace becomes ready, to drain groups whose fetch subscribe() deferred
+ * (it adds the group to the pool's set but defers the fetch when the runtime
+ * isn't hydrated or no workspace is selected), so none is left empty until the
+ * next tearDown.
  */
 function bootstrapDeferredGroups(): void {
   const groups = Array.from(pool.getSubscribedGroups())
   if (groups.length > 0) void runBootstrap(groups)
 }
+
+// Re-fire once a workspace is selected: an early subscribe (or a hydrate that
+// finished before the slug was set) deferred its bootstrap and the delta poll
+// was skipped. Draining here makes arriving at a ready workspace immediate
+// rather than waiting up to one poll interval.
+watch(workspaceReadyRef, (ready) => {
+  if (ready && isHydrated()) {
+    bootstrapDeferredGroups()
+    void pullDelta()
+  }
+})
 
 /**
  * Single-flight sync-runtime bootstrap. `fetchServerIdentity` + `hydrate` +
@@ -335,11 +357,11 @@ export async function fetchServerIdentity(): Promise<{
 export async function subscribe(group: string): Promise<void> {
   if (pool.getSubscribedGroups().has(group)) return
   pool.subscribe(group)
-  if (!isHydrated()) {
-    // Not hydrated yet: hydrate() replays the subscribed set once it finishes
-    // (bootstrapDeferredGroups), so this group still loads. Memory-only counts
-    // as hydrated, so this branch is only the genuine pre-hydrate window.
-    logger.warn('subscribe() called before hydrate(); deferring bootstrap', { group })
+  if (!canFetchWorkspace()) {
+    // Runtime not hydrated, or no workspace selected yet: the group stays in the
+    // pool set and its bootstrap is drained by bootstrapDeferredGroups once
+    // hydrate finishes or the workspace becomes ready (see the watch above).
+    logger.warn('subscribe() deferred: runtime not ready', { group })
     return
   }
   await runBootstrap([group])
@@ -351,7 +373,7 @@ export async function subscribe(group: string): Promise<void> {
  * a periodic-poll fallback when SSE is wedged.
  */
 export async function pullDelta(): Promise<void> {
-  if (!isHydrated()) return
+  if (!canFetchWorkspace()) return
   const groups = Array.from(pool.getSubscribedGroups())
   if (groups.length === 0) return
   const from = pool.getLastSyncId()
@@ -390,10 +412,10 @@ export async function pullDelta(): Promise<void> {
  * full subscription list) and for incremental group expansion.
  */
 async function runBootstrap(groups: string[]): Promise<void> {
-  // Bootstrap fills the in-memory pool; it needs a hydrated runtime, NOT an IDB
-  // handle. In memory-only mode the persistence writes below are individually
-  // skipped, but the fetch + pool.upsert still run so views populate.
-  if (!isHydrated()) return
+  // Needs a hydrated runtime AND a selected workspace (not an IDB handle). In
+  // memory-only mode the persistence writes below are individually skipped, but
+  // the fetch + pool.upsert still run so views populate.
+  if (!canFetchWorkspace()) return
   const url = `/sync/bootstrap?groups=${encodeURIComponent(groups.join(','))}&schema=${encodeURIComponent(state.schemaHash)}`
   let res: Response
   try {

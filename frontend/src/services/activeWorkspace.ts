@@ -69,7 +69,7 @@ addRequestHeaderProvider(workspaceHeaders);
  * `getWorkspaceRouting()` is read non-reactively on purpose: routing is settled
  * before `instanceConfigResolvedRef` flips, so gating on the latter is enough.
  */
-const workspaceReadyRef = computed<boolean>(() => {
+export const workspaceReadyRef = computed<boolean>(() => {
   if (!instanceConfigResolvedRef.value) return false;
   if (getWorkspaceRouting() !== 'path') return true;
   return slug.value !== null;
