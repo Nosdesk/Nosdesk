@@ -9,8 +9,12 @@
  * set in path mode; `null` in host mode means no header is sent and the backend
  * resolves the workspace from the Host, as today.
  */
-import { readonly, ref, type Ref } from 'vue';
+import { computed, readonly, ref, type Ref } from 'vue';
 import { addRequestHeaderProvider } from '@nosdesk/core/transport';
+import {
+  getWorkspaceRouting,
+  instanceConfigResolvedRef,
+} from '@nosdesk/core/services/instanceConfig';
 
 const LAST_WORKSPACE_KEY = 'nosdesk:last-workspace';
 
@@ -53,6 +57,28 @@ export function workspaceHeaders(): Record<string, string> {
 // workspace guard imports this module before any request fires, so the workspace
 // header is available early — ahead of the diagnostics provider apiConfig adds.
 addRequestHeaderProvider(workspaceHeaders);
+
+/**
+ * Reactive gate for whether a workspace-scoped request may fire yet. Workspace-
+ * scoped Colada queries read it in `enabled` so nothing fires header-less in the
+ * first-login window (auth flips true before the slug is set), which would fail
+ * closed as `NoWorkspaceSelected`. Not ready until `/api/config` resolves (the
+ * 'host' default is not an answer); host mode is ready once resolved (backend
+ * resolves from Host); path mode is ready once a slug is selected.
+ *
+ * `getWorkspaceRouting()` is read non-reactively on purpose: routing is settled
+ * before `instanceConfigResolvedRef` flips, so gating on the latter is enough.
+ */
+export const workspaceReadyRef = computed<boolean>(() => {
+  if (!instanceConfigResolvedRef.value) return false;
+  if (getWorkspaceRouting() !== 'path') return true;
+  return slug.value !== null;
+});
+
+/** Non-reactive read of the workspace-ready gate, for use outside a template. */
+export function workspaceReady(): boolean {
+  return workspaceReadyRef.value;
+}
 
 /** The last workspace slug this device was on, for the post-login landing. */
 export function lastWorkspaceSlug(): string | null {

@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { ref, onMounted, nextTick, computed } from "vue";
 import { useRouter, useRoute } from "vue-router";
-import { resolvePostLoginPath } from "@/router";
+import { landAfterLogin } from "@/router";
 import { useAuthStore } from "@/stores/auth";
 import { useMfaSetupStore } from "@nosdesk/core/stores/mfaSetup";
 import { useBrandingStore } from "@/stores/branding";
@@ -247,11 +247,11 @@ const handleMfaPaste = (event: ClipboardEvent) => {
 // Apply a successful passkey login and redirect. The passkey response
 // carries a slimmer user shape than the canonical User type; the auth
 // store hydrates the rest from /me on its first authenticated fetch.
-const completePasskeyLogin = (result: PasskeyLoginResult) => {
+const completePasskeyLogin = async (result: PasskeyLoginResult) => {
   authStore.user = result.user as unknown as typeof authStore.user;
   authStore.setAuthProvider('local');
-  const redirectPath = router.currentRoute.value.query.redirect?.toString() || "/";
-  router.push(redirectPath);
+  // Lands on the resolved workspace (path mode), honouring any ?redirect=.
+  await landAfterLogin();
 };
 
 const handlePasskeyLogin = async () => {
@@ -266,7 +266,7 @@ const handlePasskeyLogin = async () => {
     const result = await loginWithPasskey(emailToUse);
 
     if (result) {
-      completePasskeyLogin(result);
+      await completePasskeyLogin(result);
     } else if (passkeyError.value) {
       errorMessage.value = passkeyError.value;
     }
@@ -284,7 +284,7 @@ const handlePasskeyLogin = async () => {
 // unaffected. Started once the login form is confirmed to be showing.
 const startConditionalPasskeyLogin = async () => {
   const result = await loginWithPasskeyConditional();
-  if (result) completePasskeyLogin(result);
+  if (result) await completePasskeyLogin(result);
 };
 
 // Handle passkey MFA verification (after password login, passkey is the second factor)
@@ -305,8 +305,7 @@ const handlePasskeyMfaVerify = async () => {
       authStore.passkeyMfaRequired = false;
       authStore.mfaUserUuid = '';
 
-      const redirectPath = router.currentRoute.value.query.redirect?.toString() || "/";
-      router.push(redirectPath);
+      await landAfterLogin();
     } else if (passkeyError.value) {
       errorMessage.value = passkeyError.value;
     }
@@ -343,8 +342,7 @@ const handleRecoveryLogin = async () => {
       recoveryMode.value = false;
       recoveryCode.value = '';
 
-      const redirectPath = router.currentRoute.value.query.redirect?.toString() || "/";
-      router.push(redirectPath);
+      await landAfterLogin();
     } else {
       errorMessage.value = response.data.message || 'Recovery code verification failed';
     }
@@ -397,16 +395,19 @@ const handleOidcLoginClick = async () => {
       await loginWithOidc();
       // Force past the 5s fetch cooldown: a fresh session must load the user
       // even if a pre-sign-out /auth/me attempt is still within the window.
+      // This must run BEFORE resolving the workspace: resolvePostLoginPath reads
+      // the myWorkspaces store, whose query is gated on isAuthenticated, which
+      // fetchUserData is what flips true.
       await authStore.fetchUserData({ force: true });
       authStore.setAuthProvider('oidc');
       // Session is live — register this device for push (best-effort; never
       // blocks routing into the app).
       void registerForPush();
-      const redirectPath = router.currentRoute.value.query.redirect?.toString();
-      // Resolve + set the active workspace before navigating so the first
-      // dashboard request carries the X-Nosdesk-Workspace header. An in-app
-      // login after sign-out otherwise lands with no workspace selected.
-      router.push(await resolvePostLoginPath(redirectPath));
+      // Resolve + set the active workspace before navigating so views mount with
+      // the slug (and thus the X-Nosdesk-Workspace header). The brief window
+      // between the auth flip above and the slug being set is covered by the
+      // workspaceReady gate on always-mounted queries (notifications, dashboard).
+      await landAfterLogin();
     } catch (error) {
       const err = error as Error;
       errorMessage.value = err.message || "Sign-in failed";

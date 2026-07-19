@@ -5,7 +5,7 @@ import axios from 'axios';
 import apiClient from '@nosdesk/core/apiClient';
 import { setLoggingOut } from '@/services/apiConfig';
 import authService from '@nosdesk/core/services/authService';
-import router from '@/router';
+import router, { landAfterLogin } from '@/router';
 import type { User, LoginCredentials } from '@nosdesk/core/types';
 import { useThemeStore } from './theme';
 import { useDateStore } from '@nosdesk/core/stores/dateStore';
@@ -256,7 +256,8 @@ export const useAuthStore = defineStore('auth', () => {
       // Handle successful login (cookies set by backend, csrf_token in response)
       if (response.data.success && response.data.csrf_token) {
         setAuthData(response.data.user);
-        router.push('/');
+        // Land on the resolved workspace (path mode), honouring any ?redirect=.
+        await landAfterLogin();
         return true;
       }
 
@@ -314,8 +315,8 @@ export const useAuthStore = defineStore('auth', () => {
           userName: user.value?.name
         });
 
-        logger.debug('🔐 MFA Login: Attempting redirect to /');
-        await router.push('/');
+        logger.debug('🔐 MFA Login: Attempting redirect');
+        await landAfterLogin();
         logger.debug('🔐 MFA Login: Redirect completed');
         return true;
       }
@@ -422,7 +423,7 @@ export const useAuthStore = defineStore('auth', () => {
           setAuthData(response.user);
           mfaSetupRequired.value = false;
           mfaUserUuid.value = '';
-          router.push('/');
+          await landAfterLogin();
           return true;
         }
         

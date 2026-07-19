@@ -1,7 +1,7 @@
 import { createRouter, createWebHistory, type RouteLocationNormalized } from 'vue-router'
 import { withWorkspaceRouting, installWorkspaceGuard, installSlugCarrier, workspaceSlugOf } from './workspaceRouting'
 import { installNavigationTracking } from './navigation'
-import { getWorkspaceRouting } from '@nosdesk/core/services/instanceConfig'
+import { fetchInstanceConfig, getWorkspaceRouting } from '@nosdesk/core/services/instanceConfig'
 import { lastWorkspaceSlug, setActiveWorkspaceSlug } from '@/services/activeWorkspace'
 import DashboardView from '../views/DashboardView.vue'
 import TicketView from '../views/TicketView.vue'
@@ -1067,11 +1067,28 @@ async function defaultWorkspaceSlug(): Promise<string | null> {
  */
 export async function resolvePostLoginPath(redirect?: string | null): Promise<string> {
   if (redirect && redirect !== '/') return redirect;
+  // Never decide on the pre-fetch 'host' default: a hosted (path-mode) instance
+  // would then skip slug resolution and land on a bare '/' with no workspace.
+  await fetchInstanceConfig();
   if (getWorkspaceRouting() !== 'path') return '/';
   const slug = await defaultWorkspaceSlug();
   if (!slug) return '/'; // no membership: the guard routes to no-workspace-access
   setActiveWorkspaceSlug(slug);
   return `/${slug}`;
+}
+
+/**
+ * Navigate to the post-login landing. Every login surface calls this instead of
+ * pushing a path itself, so the workspace is resolved once and the `?redirect=`
+ * target is honoured uniformly. Pass an explicit target (e.g. OAuth's stored
+ * path) to override the query, or `null` to ignore it.
+ */
+export async function landAfterLogin(redirect?: string | null): Promise<void> {
+  const target =
+    redirect === undefined
+      ? router.currentRoute.value.query.redirect?.toString()
+      : (redirect ?? undefined);
+  await router.push(await resolvePostLoginPath(target));
 }
 
 /**

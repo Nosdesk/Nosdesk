@@ -16,6 +16,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useDashboardLayoutStore } from '@/stores/dashboardLayout'
 import { WIDGET_REGISTRY, type DashboardStatsGroup } from '@/views/dashboard/widgets'
 import { getStats, type StatsBundle } from '@/services/dashboardService'
+import { workspaceReady } from '@/services/activeWorkspace'
 
 export interface DashboardStatsHandle {
   bundle: ComputedRef<StatsBundle | undefined>
@@ -63,8 +64,10 @@ export function useDashboardStats(): DashboardStatsHandle {
   const query = useQuery({
     key: () => ['dashboard', 'stats', userUuid.value, include.value.join(',')],
     query: () => getStats({ include: include.value, user: userUuid.value }),
-    // Don't fire when there's nobody to fetch for or nothing to compute.
-    enabled: () => !!userUuid.value && include.value.length > 0,
+    // Hold until a workspace is selected (path mode) so the query doesn't fire
+    // header-less and fail NoWorkspaceSelected; also nothing to fetch/compute.
+    enabled: () =>
+      workspaceReady() && !!userUuid.value && include.value.length > 0,
   })
 
   // `status === 'pending'` means no data has ever resolved into the

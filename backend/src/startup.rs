@@ -653,6 +653,14 @@ pub fn configure_app(
             // Public instance config (routing topology) read at SPA startup
             .route("/api/config", web::get().to(crate::handlers::app_config::get_public_config))
 
+            // Mobile deep-linking association files (iOS Universal Links +
+            // Android App Links). Unauthenticated, served on every tenant
+            // origin ahead of the SPA catch-all so a scanned ticket QR opens
+            // the app. Must be JSON with no redirect (Apple/Google fetch them
+            // directly). See handlers::well_known.
+            .route("/.well-known/apple-app-site-association", web::get().to(crate::handlers::well_known::apple_app_site_association))
+            .route("/.well-known/assetlinks.json", web::get().to(crate::handlers::well_known::assetlinks))
+
             // Inbound-email webhook (hosted): AWS SNS POSTs here when SES
             // receives forwarded mail. Unauthenticated by necessity (SNS is
             // server-to-server); the handler verifies the SNS signature.

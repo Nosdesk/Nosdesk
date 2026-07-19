@@ -18,6 +18,14 @@
     "web-auth:allow-authenticate",
     "secure-store:default",
     "haptics:allow-impact-feedback",
-    "push:default"
+    "push:default",
+    "deep-link:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "comment": "Cross-tenant deep-link fallback: open the ticket URL in the system browser. HTTPS only.",
+      "allow": [
+        { "url": "https://*" }
+      ]
+    }
   ]
 }

@@ -32,6 +32,15 @@ tauri-plugin-haptics = "2"
 # System-browser OAuth (ASWebAuthenticationSession / Custom Tabs) for the native
 # OIDC login against the central IdP (see mobile/src/oidc.ts).
 tauri-plugin-web-auth = "1"
+# iOS Universal Links / Android App Links: routes a scanned ticket QR
+# (https://<slug>.nosdesk.app/tickets/<id>) into the app. The associated-domains
+# entitlement (gen/apple) + App Links intent-filter (gen/android) + the backend
+# /.well-known files are the OS-level source of truth; mobile/src does the
+# per-tenant routing in onOpenUrl.
+tauri-plugin-deep-link = "2"
+# Open a URL in the system browser: the cross-tenant / not-connected fallback
+# for a ticket deep link the app can't open in place (see mobile/src/deepLink.ts).
+tauri-plugin-opener = "2"
 # Keystore/Keychain-backed secure storage for the refresh token, native iOS +
 # Android plugin code (see ../tauri-plugin-secure-store).
 tauri-plugin-secure-store = { path = "../tauri-plugin-secure-store" }

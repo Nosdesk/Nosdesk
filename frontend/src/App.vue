@@ -40,6 +40,9 @@ import { useBrandingStore } from '@/stores/branding'
 import { loadPlugins, initializeEventDispatcher } from '@/plugins'
 import { useAuthStore } from '@/stores/auth'
 import { usePageActionsStore } from '@nosdesk/core/stores/pageActions'
+import { useMyWorkspacesStore } from '@/stores/myWorkspaces'
+import { activeWorkspaceSlug } from '@/services/activeWorkspace'
+import { getWorkspaceRouting, fetchInstanceConfig } from '@nosdesk/core/services/instanceConfig'
 
 const fluent = useFluent()
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
@@ -51,7 +54,7 @@ const brandingStore = useBrandingStore()
 useFavicon(() => brandingStore.faviconUrl)
 
 const route = useRoute()
-const { isSwitchingWorkspace } = useWorkspaceSwitch()
+const { isSwitchingWorkspace, switchWorkspace } = useWorkspaceSwitch()
 const router = useRouter()
 const isBlankLayout = computed(() => route.meta.layout === 'blank')
 
@@ -128,6 +131,99 @@ if (isTauriRuntime()) {
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') void drain()
       })
+    } catch {
+      // Deep-linking is best-effort; never block app startup.
+    }
+  })
+}
+
+// Ticket deep links (iOS Universal Links / Android App Links). Same shape as
+// the push route above: resolve where the tapped/scanned URL goes, waiting for
+// the session on a cold start. v1 rule: a ticket link whose host is the server
+// we're connected to opens the ticket in-app; a different tenant, or a server
+// we're not connected to, opens in the system browser.
+if (isTauriRuntime()) {
+  onMounted(async () => {
+    try {
+      const { getInitialDeepLink, onDeepLink, openInBrowser, getStoredServer } =
+        await import('@nosdesk/mobile')
+      await router.isReady()
+
+      const handleDeepLink = (rawUrl: string) => {
+        let url: URL
+        try {
+          url = new URL(rawUrl)
+        } catch {
+          return
+        }
+        const isTicket = /\/tickets\/\d+/.test(url.pathname)
+        let sameServer = false
+        const server = getStoredServer()
+        if (server) {
+          try {
+            sameServer = new URL(server).host === url.host
+          } catch {
+            /* malformed stored server: treat as not matching */
+          }
+        }
+        if (!isTicket || !sameServer) {
+          void openInBrowser(rawUrl)
+          return
+        }
+        // Same server: open in-app. Navigate now if signed in, else once the
+        // session resolves (cold start, or after signing into this server).
+        const go = async () => {
+          // In path mode the first path segment is the target workspace slug.
+          // A link into a workspace other than the one currently loaded needs a
+          // real switch (teardown + re-hydrate the sync pool for the target),
+          // not a bare push, which would leave the pool keyed to the previous
+          // tenant and 404 the ticket. Host mode carries no slug in the path;
+          // same-origin already implies the same tenant, so a push is correct.
+          await fetchInstanceConfig()
+          if (getWorkspaceRouting() !== 'path') {
+            void router.push(url.pathname)
+            return
+          }
+          const targetSlug = url.pathname.split('/')[1] || null
+          if (!targetSlug || targetSlug === activeWorkspaceSlug()) {
+            void router.push(url.pathname)
+            return
+          }
+          const store = useMyWorkspacesStore()
+          if (store.workspaces.length === 0) {
+            try {
+              await store.refetch()
+            } catch {
+              /* fall through: the membership check below opens the web fallback */
+            }
+          }
+          const entry = store.workspaces.find((w) => w.slug === targetSlug)
+          if (!entry) {
+            // Not a member of the target workspace: open on the web rather than
+            // bouncing to no-workspace-access in-app.
+            void openInBrowser(rawUrl)
+            return
+          }
+          await switchWorkspace(entry, url.pathname)
+        }
+        if (authStore.isAuthenticated) {
+          void go()
+        } else {
+          const stop = watch(
+            () => authStore.isAuthenticated,
+            (authed) => {
+              if (authed) {
+                stop()
+                void nextTick(go)
+              }
+            },
+          )
+        }
+      }
+
+      const initial = await getInitialDeepLink()
+      if (initial) handleDeepLink(initial)
+      await onDeepLink(handleDeepLink)
     } catch {
       // Deep-linking is best-effort; never block app startup.
     }

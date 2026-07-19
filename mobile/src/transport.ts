@@ -17,6 +17,7 @@ import {
   configureTransport,
   type AuthStrategy,
 } from '@nosdesk/core/transport'
+import { resetInstanceConfig } from '@nosdesk/core/services/instanceConfig'
 import { apiBaseUrlFor, collabWsBaseUrlFor, storeServer } from './serverConfig'
 import type { SecureStore } from './secureStore'
 
@@ -150,6 +151,11 @@ export async function configureServer(origin: string): Promise<void> {
     auth: bearerAuthStrategy,
   })
   syncAssetProxy()
+  // The instance config (routing topology) is server-specific. Forget any value
+  // resolved against the previous/default server so the next fetch resolves it
+  // against THIS one, else a stale/failed 'host' result strands path-mode
+  // servers with no workspace slug (every workspace request → NoWorkspaceSelected).
+  resetInstanceConfig()
 }
 
 /**

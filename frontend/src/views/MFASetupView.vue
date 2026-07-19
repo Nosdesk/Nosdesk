@@ -197,6 +197,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
+import { landAfterLogin } from '@/router';
 import { useFluent } from 'fluent-vue';
 import { useAuthStore } from '@/stores/auth';
 import { useMfaSetupStore } from '@nosdesk/core/stores/mfaSetup';
@@ -278,7 +279,7 @@ onMounted(async () => {
   if (authStore.user && !authStore.mfaSetupRequired) {
     console.log('✅ User already authenticated, redirecting to dashboard');
     mfaSetupStore.clearCredentials();
-    router.push('/');
+    await landAfterLogin();
     return;
   }
 
@@ -350,23 +351,23 @@ const handlePasskeySetupError = (error: string) => {
 // Handle additional method setup success
 const handleAdditionalSetupSuccess = async (message: string) => {
   if (message === 'setup-complete' || message === 'Passkey created successfully') {
-    finishSetup();
+    void finishSetup();
   }
 };
 
 // Handle back button
 const handleBack = () => {
   if (mfaMethod.value === 'passkey-additional' || mfaMethod.value === 'totp-additional') {
-    finishSetup();
+    void finishSetup();
   } else {
     mfaMethod.value = 'choose';
   }
 };
 
 // Finish setup and redirect
-const finishSetup = () => {
+const finishSetup = async () => {
   mfaSetupStore.clearCredentials();
-  router.push('/');
+  await landAfterLogin();
 };
 
 // Navigation back to login
