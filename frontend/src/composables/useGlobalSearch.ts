@@ -5,6 +5,7 @@ import { searchService } from '@nosdesk/core/services/searchService';
 import type { SearchResult, SearchResponse, GroupedSearchResults, SearchEntityType, SearchSortOrder } from '@nosdesk/core/types/search';
 import { groupResultsByType, emptyGroupedResults, ENTITY_DISPLAY_ORDER, ENTITY_TYPE_CONFIG } from '@nosdesk/core/types/search';
 import { translate } from '@/i18n';
+import { primeKeyboard } from '@/composables/keyboardPrimer';
 
 /** Mutually exclusive states for the search surface. */
 export type SearchState = 'prompt' | 'searching' | 'results' | 'empty' | 'error';
@@ -127,6 +128,12 @@ const selectedAuthorIndex = ref(0);
 const FROM_TOKEN_RE = /(^|\s)from:(\S*)$/i;
 
 let keyboardListenerRegistered = false;
+let historyListenerRegistered = false;
+// True while closeSearch() must NOT pop the pushed history entry itself: either
+// a popstate (OS/edge-swipe back) already consumed it, or navigateToResult is
+// about to replace it. Without this guard closeSearch would pop again and
+// navigate the page underneath.
+let closingViaHistory = false;
 
 /** Step an index by `delta` within `[0, len)`, wrapping at both ends. */
 function wrapIndex(index: number, len: number, delta: number): number {
@@ -282,6 +289,13 @@ export function useGlobalSearch() {
   };
 
   const openSearch = (types?: string) => {
+    const wasOpen = isOpen.value;
+    // Raise the keyboard synchronously in the opening tap (the real input mounts
+    // a tick too late to focus in the gesture; iOS only shows the keyboard for a
+    // focus inside user activation). See keyboardPrimer. Only on a fresh open:
+    // re-priming while already open would blur the live input without handing
+    // focus back (no enter transition fires to refocus it).
+    if (!wasOpen) primeKeyboard();
     isOpen.value = true;
     query.value = '';
     activeTypes.value = types;
@@ -289,9 +303,19 @@ export function useGlobalSearch() {
     selectedScopeIndex.value = 0;
     resetAuthor();
     resetResults();
+    // Push a history entry so the OS/edge-swipe back gesture (and Android
+    // hardware back) closes the palette instead of navigating the page under it.
+    if (!wasOpen) {
+      try {
+        history.pushState({ ...history.state, nosdeskSearch: true }, '');
+      } catch {
+        // history unavailable: fall back to the X / Esc affordances.
+      }
+    }
   };
 
   const closeSearch = () => {
+    if (!isOpen.value) return; // idempotent (popstate + X can both fire)
     isOpen.value = false;
     query.value = '';
     activeTypes.value = undefined;
@@ -299,6 +323,16 @@ export function useGlobalSearch() {
     selectedScopeIndex.value = 0;
     resetAuthor();
     resetResults();
+    // Closed by the X / backdrop / Esc (not by a back navigation): pop the
+    // entry openSearch pushed so history stays clean. A popstate-driven close
+    // already consumed it, so skip (else we'd navigate the page underneath).
+    if (!closingViaHistory && history.state?.nosdeskSearch) {
+      try {
+        history.back();
+      } catch {
+        /* no-op */
+      }
+    }
   };
 
   const clearTypes = () => {
@@ -357,8 +391,18 @@ export function useGlobalSearch() {
   );
 
   const navigateToResult = (result: SearchResult) => {
+    // Close WITHOUT popping the pushed entry (that would race the push below),
+    // then overwrite it with the destination so back from the result lands on
+    // the page the palette was opened from, not a reopened palette.
+    const viaSearchEntry = !!history.state?.nosdeskSearch;
+    closingViaHistory = true;
     closeSearch();
-    router.push(result.url);
+    closingViaHistory = false;
+    if (viaSearchEntry) {
+      router.replace(result.url);
+    } else {
+      router.push(result.url);
+    }
   };
 
   // Keyboard navigation
@@ -458,10 +502,24 @@ export function useGlobalSearch() {
     }
   };
 
+  // Back navigation (OS/edge-swipe back, Android hardware back) closes the
+  // palette instead of leaving the page. Paired with the pushState in
+  // openSearch: the pop consumes that entry, so closeSearch must not pop again.
+  const handlePopState = () => {
+    if (!isOpen.value) return;
+    closingViaHistory = true;
+    closeSearch();
+    closingViaHistory = false;
+  };
+
   onMounted(() => {
     if (!keyboardListenerRegistered) {
       window.addEventListener('keydown', handleKeyDown);
       keyboardListenerRegistered = true;
+    }
+    if (!historyListenerRegistered) {
+      window.addEventListener('popstate', handlePopState);
+      historyListenerRegistered = true;
     }
   });
 
