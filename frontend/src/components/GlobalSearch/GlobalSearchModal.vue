@@ -129,6 +129,68 @@ const resultGroups = ENTITY_DISPLAY_ORDER.map(type => ({
   type,
   key: ENTITY_TYPE_CONFIG[type].key,
 }));
+
+// ---------------------------------------------------------------
+// Swipe-down-to-dismiss (mobile sheet only). Arms only when the
+// results are scrolled to the top so a downward pull dismisses the
+// sheet instead of fighting a mid-list scroll; touch keyboards have
+// no Esc, so this joins the X and the back-gesture as an exit.
+// ---------------------------------------------------------------
+const DISMISS_PX = 80;
+const dragY = ref(0);
+const dragging = ref(false);
+const snapping = ref(false);
+let startY = 0;
+let armed = false;
+
+const dragStyle = computed(() => {
+  if (!dragging.value && !snapping.value && dragY.value === 0) return {};
+  return {
+    transform: `translateY(${dragY.value}px)`,
+    transition: dragging.value ? 'none' : 'transform 0.22s cubic-bezier(0.16,1,0.3,1)',
+  };
+});
+
+const onTouchStart = (e: TouchEvent) => {
+  if (e.touches.length !== 1 || window.innerWidth >= 640) return;
+  startY = e.touches[0].clientY;
+  // Arm only from the top of the results, so scrolling down through the
+  // list never turns into a dismiss.
+  armed = (resultsRef.value?.scrollTop ?? 0) <= 0;
+  dragging.value = false;
+};
+
+const onTouchMove = (e: TouchEvent) => {
+  if (!armed) return;
+  const dy = e.touches[0].clientY - startY;
+  if (dy <= 0) {
+    // Upward: hand it back to normal scrolling.
+    if (!dragging.value) armed = false;
+    return;
+  }
+  dragging.value = true;
+  dragY.value = dy;
+  e.preventDefault();
+};
+
+const onTouchEnd = () => {
+  armed = false;
+  if (!dragging.value) return;
+  dragging.value = false;
+  if (dragY.value > DISMISS_PX) {
+    closeSearch();
+    dragY.value = 0;
+    return;
+  }
+  // Snap back: keep the transform through the transition, then clear it.
+  snapping.value = true;
+  requestAnimationFrame(() => {
+    dragY.value = 0;
+  });
+  window.setTimeout(() => {
+    snapping.value = false;
+  }, 240);
+};
 </script>
 
 <template>
@@ -159,6 +221,11 @@ const resultGroups = ENTITY_DISPLAY_ORDER.map(type => ({
           role="dialog"
           aria-modal="true"
           :aria-label="t('search-global-aria-label')"
+          :style="dragStyle"
+          @touchstart.passive="onTouchStart"
+          @touchmove="onTouchMove"
+          @touchend.passive="onTouchEnd"
+          @touchcancel.passive="onTouchEnd"
         >
           <!-- Search header. Single row, no border on the input. -->
           <div class="flex items-center gap-2.5 px-4 h-12 border-b border-default flex-shrink-0">
