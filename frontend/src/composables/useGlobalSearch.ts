@@ -5,6 +5,7 @@ import { searchService } from '@nosdesk/core/services/searchService';
 import type { SearchResult, SearchResponse, GroupedSearchResults, SearchEntityType, SearchSortOrder } from '@nosdesk/core/types/search';
 import { groupResultsByType, emptyGroupedResults, ENTITY_DISPLAY_ORDER, ENTITY_TYPE_CONFIG } from '@nosdesk/core/types/search';
 import { translate } from '@/i18n';
+import { primeKeyboard } from '@/composables/keyboardPrimer';
 
 /** Mutually exclusive states for the search surface. */
 export type SearchState = 'prompt' | 'searching' | 'results' | 'empty' | 'error';
@@ -289,6 +290,12 @@ export function useGlobalSearch() {
 
   const openSearch = (types?: string) => {
     const wasOpen = isOpen.value;
+    // Raise the keyboard synchronously in the opening tap (the real input mounts
+    // a tick too late to focus in the gesture; iOS only shows the keyboard for a
+    // focus inside user activation). See keyboardPrimer. Only on a fresh open:
+    // re-priming while already open would blur the live input without handing
+    // focus back (no enter transition fires to refocus it).
+    if (!wasOpen) primeKeyboard();
     isOpen.value = true;
     query.value = '';
     activeTypes.value = types;

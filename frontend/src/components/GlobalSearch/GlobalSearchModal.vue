@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, computed } from 'vue';
+import { ref, watch, computed, onScopeDispose } from 'vue';
 import { useFluent } from 'fluent-vue';
 import { useGlobalSearch, SCOPE_OPTIONS } from '@/composables/useGlobalSearch';
 import { useVisualViewport } from '@/composables/useVisualViewport';
@@ -47,10 +47,8 @@ const {
   navigateToResult,
 } = useGlobalSearch();
 
-// While the palette is open, mirror the visual viewport into CSS vars
-// so the mobile sheet can size itself to the visible area — this is
-// what keeps the footer and results above the on-screen keyboard on
-// iOS/WKWebView, where the layout viewport never resizes.
+// Publish `--keyboard-height` while open, so the mobile input bar can dock just
+// above the keyboard (the only element that moves).
 useVisualViewport(isOpen);
 
 const filterLabels = computed<Record<string, string>>(() => ({
@@ -90,12 +88,12 @@ const scopeRows = computed(() =>
 const inputRef = ref<HTMLInputElement | null>(null);
 const resultsRef = ref<HTMLDivElement | null>(null);
 
-watch(isOpen, async (open) => {
-  if (open) {
-    await nextTick();
-    inputRef.value?.focus();
-  }
-});
+// Take the caret once the sheet is entering. On mobile the keyboard is already
+// up (raised by the primer inside the opening tap), so this only moves focus
+// into the real input, it never has to raise the keyboard itself. `preventScroll`
+// guards WKWebView's scroll-to-input jump (a no-op under the body scroll-lock,
+// but free).
+const focusInput = () => inputRef.value?.focus({ preventScroll: true });
 
 // Scoping from a group header or scope row must not drop focus from
 // the input — the whole point is to keep typing.
@@ -131,43 +129,68 @@ const resultGroups = ENTITY_DISPLAY_ORDER.map(type => ({
 }));
 
 // ---------------------------------------------------------------
-// Swipe-down-to-dismiss (mobile sheet only). Arms only when the
-// results are scrolled to the top so a downward pull dismisses the
-// sheet instead of fighting a mid-list scroll; touch keyboards have
-// no Esc, so this joins the X and the back-gesture as an exit.
+// Swipe-down-to-dismiss + open/close motion (mobile sheet).
+//
+// A full-screen sheet slides on the Y axis (Apple HIG / Material / vaul),
+// not scale-fade like the desktop palette. A downward flick OR a drag past
+// ~20% dismisses, and the close continues from the finger's release point
+// straight off-screen (velocity-aware), never jumping back to origin.
+// Curves: vaul/iOS open `cubic-bezier(.32,.72,0,1)`; an emphasized-accelerate
+// close so the fling momentum carries.
 // ---------------------------------------------------------------
-const DISMISS_PX = 80;
+const OPEN_EASE = 'cubic-bezier(0.32, 0.72, 0, 1)';
+const CLOSE_EASE = 'cubic-bezier(0.3, 0, 0.8, 0.15)';
+const OPEN_MS = 440;
+const VELOCITY_DISMISS = 0.4; // px/ms downward flick
+const DISTANCE_FRACTION = 0.2; // or dragged past 20% of the sheet height
+
+const isMobile = () => window.innerWidth < 640;
+const reduceMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
 const dragY = ref(0);
 const dragging = ref(false);
 const snapping = ref(false);
 let startY = 0;
 let armed = false;
 
+// Downward velocity: EMA of per-frame px/ms, so a late flick still counts.
+let vel = 0;
+let lastDy = 0;
+let lastT = 0;
+let flingVel = 0; // handed to the leave hook on dismiss
+
 const dragStyle = computed(() => {
   if (!dragging.value && !snapping.value && dragY.value === 0) return {};
   return {
     transform: `translateY(${dragY.value}px)`,
     transition: dragging.value ? 'none' : 'transform 0.22s cubic-bezier(0.16,1,0.3,1)',
+    willChange: 'transform',
   };
 });
 
 const onTouchStart = (e: TouchEvent) => {
-  if (e.touches.length !== 1 || window.innerWidth >= 640) return;
+  if (e.touches.length !== 1 || !isMobile()) return;
   startY = e.touches[0].clientY;
-  // Arm only from the top of the results, so scrolling down through the
-  // list never turns into a dismiss.
+  // Arm only from the top of the results, so scrolling down never dismisses.
   armed = (resultsRef.value?.scrollTop ?? 0) <= 0;
   dragging.value = false;
+  vel = 0;
+  lastDy = 0;
+  lastT = performance.now();
 };
 
 const onTouchMove = (e: TouchEvent) => {
   if (!armed) return;
   const dy = e.touches[0].clientY - startY;
   if (dy <= 0) {
-    // Upward: hand it back to normal scrolling.
-    if (!dragging.value) armed = false;
+    if (!dragging.value) armed = false; // upward: hand back to scrolling
     return;
   }
+  const now = performance.now();
+  const dt = now - lastT;
+  if (dt > 0) vel = vel * 0.7 + ((dy - lastDy) / dt) * 0.3;
+  lastDy = dy;
+  lastT = now;
   dragging.value = true;
   dragY.value = dy;
   e.preventDefault();
@@ -177,34 +200,164 @@ const onTouchEnd = () => {
   armed = false;
   if (!dragging.value) return;
   dragging.value = false;
-  if (dragY.value > DISMISS_PX) {
-    closeSearch();
-    dragY.value = 0;
+  const height =
+    (document.querySelector('.search-card') as HTMLElement | null)?.getBoundingClientRect()
+      .height ?? window.innerHeight;
+  if (vel > VELOCITY_DISMISS || dragY.value > height * DISTANCE_FRACTION) {
+    flingVel = Math.max(vel, 0);
+    closeSearch(); // leave hook slides from dragY off-screen; do NOT reset dragY
     return;
   }
-  // Snap back: keep the transform through the transition, then clear it.
+  // Snap back to rest.
   snapping.value = true;
-  requestAnimationFrame(() => {
-    dragY.value = 0;
-  });
-  window.setTimeout(() => {
-    snapping.value = false;
-  }, 240);
+  requestAnimationFrame(() => (dragY.value = 0));
+  window.setTimeout(() => (snapping.value = false), 240);
 };
+
+// ---------------------------------------------------------------
+// Enter/leave motion via WAAPI in JS hooks (the Transition uses
+// `:css=false`). Mobile slides on Y; desktop keeps the scale-pop. The
+// mobile leave starts from the live drag offset so a swipe flows straight
+// into the close, and its duration derives from the fling velocity.
+// ---------------------------------------------------------------
+const cardOf = (el: Element) => el.querySelector('.search-card') as HTMLElement;
+const backdropOf = (el: Element) => el.querySelector('.search-backdrop') as HTMLElement | null;
+
+const onBeforeEnter = (el: Element) => {
+  if (isMobile() && !reduceMotion()) cardOf(el).style.transform = 'translateY(100%)';
+};
+
+const onEnter = (el: Element, done: () => void) => {
+  const card = cardOf(el);
+  const clear = () => {
+    card.style.transform = '';
+    done();
+  };
+  focusInput(); // keyboard is already up on mobile (primer); just take the caret
+  if (reduceMotion()) {
+    clear();
+    return;
+  }
+  const mobile = isMobile();
+  backdropOf(el)?.animate([{ opacity: 0 }, { opacity: 1 }], {
+    duration: mobile ? 280 : 150,
+    easing: 'ease-out',
+    fill: 'backwards',
+  });
+  const anim = mobile
+    ? card.animate([{ transform: 'translateY(100%)' }, { transform: 'translateY(0)' }], {
+        duration: OPEN_MS,
+        easing: OPEN_EASE,
+        fill: 'backwards',
+      })
+    : card.animate(
+        [
+          { opacity: 0, transform: 'scale(0.97) translateY(-6px)' },
+          { opacity: 1, transform: 'none' },
+        ],
+        { duration: 180, easing: 'cubic-bezier(0.16,1,0.3,1)', fill: 'backwards' },
+      );
+  anim.onfinish = clear;
+  anim.oncancel = clear;
+};
+
+const onLeave = (el: Element, done: () => void) => {
+  const card = cardOf(el);
+  const backdrop = backdropOf(el);
+  const finish = () => {
+    dragY.value = 0;
+    flingVel = 0;
+    done();
+  };
+  if (reduceMotion()) {
+    finish();
+    return;
+  }
+  if (isMobile()) {
+    const from = dragY.value;
+    const height = card.getBoundingClientRect().height || window.innerHeight;
+    const remaining = Math.max(height - from, 1);
+    const duration = flingVel > 0.1 ? Math.min(360, Math.max(160, remaining / flingVel)) : 260;
+    backdrop?.animate([{ opacity: 1 }, { opacity: 0 }], {
+      duration: Math.min(duration, 200),
+      easing: 'ease-out',
+      fill: 'forwards',
+    });
+    const anim = card.animate(
+      [{ transform: `translateY(${from}px)` }, { transform: 'translateY(100%)' }],
+      { duration, easing: CLOSE_EASE, fill: 'forwards' },
+    );
+    anim.onfinish = finish;
+    anim.oncancel = finish;
+  } else {
+    backdrop?.animate([{ opacity: 1 }, { opacity: 0 }], {
+      duration: 150,
+      easing: 'ease',
+      fill: 'forwards',
+    });
+    const anim = card.animate(
+      [
+        { opacity: 1, transform: 'none' },
+        { opacity: 0, transform: 'scale(0.98)' },
+      ],
+      { duration: 150, easing: 'ease', fill: 'forwards' },
+    );
+    anim.onfinish = finish;
+    anim.oncancel = finish;
+  }
+};
+
+// ---------------------------------------------------------------
+// Background scroll-lock (mobile). A position:fixed body (not
+// overflow:hidden, which iOS ignores for rubber-band / keyboard
+// pan) stops the layout viewport from panning under the keyboard,
+// which is what otherwise slides the fixed sheet out of the visible
+// band. The overlay is itself position:fixed (Teleported to body),
+// so it escapes the lock and its results list keeps scrolling.
+// ---------------------------------------------------------------
+let restoreScroll: (() => void) | null = null;
+
+const lockBody = () => {
+  if (restoreScroll || window.innerWidth >= 640) return;
+  const y = window.scrollY;
+  const s = document.body.style;
+  const prev = { position: s.position, top: s.top, left: s.left, right: s.right, width: s.width };
+  s.position = 'fixed';
+  s.top = `-${y}px`;
+  s.left = '0';
+  s.right = '0';
+  s.width = '100%';
+  restoreScroll = () => {
+    Object.assign(document.body.style, prev);
+    window.scrollTo(0, y);
+    restoreScroll = null;
+  };
+};
+
+watch(isOpen, (open) => (open ? lockBody() : restoreScroll?.()), { immediate: true });
+onScopeDispose(() => restoreScroll?.());
 </script>
 
 <template>
   <Teleport to="body">
-    <Transition name="search-modal" appear>
+    <Transition
+      :css="false"
+      appear
+      @before-enter="onBeforeEnter"
+      @enter="onEnter"
+      @appear="onEnter"
+      @leave="onLeave"
+    >
       <div
         v-if="isOpen"
-        class="fixed inset-0 z-overlay flex items-start justify-center sm:px-4 sm:pt-[15dvh]"
+        class="search-overlay fixed inset-0 z-overlay flex items-start justify-center sm:px-4 sm:pt-[15dvh]"
       >
         <!-- Backdrop. Subtle blur, click to dismiss. Fully covered by
              the sheet below `sm`, where the header close button takes
-             over dismissal. -->
+             over dismissal. Opacity is animated by the enter/leave hooks
+             (search-backdrop). -->
         <div
-          class="absolute inset-0 bg-black/40 dark:bg-black/60 backdrop-blur-sm"
+          class="search-backdrop absolute inset-0 bg-black/40 dark:bg-black/60 backdrop-blur-sm"
           @click="closeSearch"
         />
 
@@ -227,53 +380,60 @@ const onTouchEnd = () => {
           @touchend.passive="onTouchEnd"
           @touchcancel.passive="onTouchEnd"
         >
-          <!-- Search header. Single row, no border on the input. -->
-          <div class="flex items-center gap-2.5 px-4 h-12 border-b border-default flex-shrink-0">
-            <Icon name="search" size="md" class="flex-shrink-0 text-tertiary" />
+          <!-- Search input bar. Desktop: top header. Mobile: docks to the
+               bottom, above the keyboard (see .search-inputbar), Firefox/Brave
+               style, so the results fill the space above it. The wrapper owns
+               the docking/border/background (and, on mobile, extends its
+               background into the home-indicator safe area); the inner row is a
+               clean fixed-height input line so the safe area never distorts it. -->
+          <div class="search-inputbar flex-shrink-0">
+            <div class="flex items-center gap-2.5 px-4 h-12">
+              <Icon name="search" size="md" class="flex-shrink-0 text-tertiary" />
 
-            <button
-              v-if="activeTypes"
-              @click="clearTypes"
-              class="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-medium rounded-md bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 transition-colors flex-shrink-0"
-            >
-              {{ scopeLabel(activeTypes) }}
-              <Icon name="close" size="xs" />
-            </button>
+              <button
+                v-if="activeTypes"
+                @click="clearTypes"
+                class="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-medium rounded-md bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 transition-colors flex-shrink-0"
+              >
+                {{ scopeLabel(activeTypes) }}
+                <Icon name="close" size="xs" />
+              </button>
 
-            <!-- Person filter chip. Composes with the scope chip; the
-                 leading "from" prefix reads as the operator that set it. -->
-            <button
-              v-if="authorFilter"
-              @click="clearAuthor"
-              class="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-medium rounded-md bg-brand-pink/10 text-brand-pink border border-brand-pink/20 hover:bg-brand-pink/20 transition-colors flex-shrink-0 max-w-[10rem]"
-              :title="t('search-global-from-chip', { name: authorFilter.name })"
-            >
-              <Icon name="user" size="xs" class="flex-shrink-0" />
-              <span class="truncate">{{ authorFilter.name }}</span>
-              <Icon name="close" size="xs" class="flex-shrink-0" />
-            </button>
+              <!-- Person filter chip. Composes with the scope chip; the
+                   leading "from" prefix reads as the operator that set it. -->
+              <button
+                v-if="authorFilter"
+                @click="clearAuthor"
+                class="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-medium rounded-md bg-brand-pink/10 text-brand-pink border border-brand-pink/20 hover:bg-brand-pink/20 transition-colors flex-shrink-0 max-w-[10rem]"
+                :title="t('search-global-from-chip', { name: authorFilter.name })"
+              >
+                <Icon name="user" size="xs" class="flex-shrink-0" />
+                <span class="truncate">{{ authorFilter.name }}</span>
+                <Icon name="close" size="xs" class="flex-shrink-0" />
+              </button>
 
-            <input
-              ref="inputRef"
-              v-model="query"
-              type="text"
-              :placeholder="placeholder"
-              class="flex-1 bg-transparent text-primary placeholder-tertiary/60 outline-none text-sm font-medium"
-              autocomplete="off"
-              spellcheck="false"
-            />
+              <input
+                ref="inputRef"
+                v-model="query"
+                type="text"
+                :placeholder="placeholder"
+                class="flex-1 bg-transparent text-primary placeholder-tertiary/60 outline-none text-sm font-medium"
+                autocomplete="off"
+                spellcheck="false"
+              />
 
-            <!-- Mobile-only close. The sheet covers the backdrop and
-                 touch keyboards have no Esc, so the exit affordance
-                 must live in the chrome. -->
-            <button
-              type="button"
-              class="sm:hidden flex-shrink-0 -mr-1 p-1.5 rounded-md text-tertiary hover:text-secondary hover:bg-surface-hover/60 transition-colors"
-              :aria-label="t('search-global-hint-close')"
-              @click="closeSearch"
-            >
-              <Icon name="close" size="sm" />
-            </button>
+              <!-- Mobile-only close. The sheet covers the backdrop and
+                   touch keyboards have no Esc, so the exit affordance
+                   must live in the chrome. -->
+              <button
+                type="button"
+                class="sm:hidden flex-shrink-0 -mr-1 p-1.5 rounded-md text-tertiary hover:text-secondary hover:bg-surface-hover/60 transition-colors"
+                :aria-label="t('search-global-hint-close')"
+                @click="closeSearch"
+              >
+                <Icon name="close" size="sm" />
+              </button>
+            </div>
           </div>
 
           <!-- Results region. Holds all body states; `min-h-0`
@@ -494,53 +654,65 @@ const onTouchEnd = () => {
 </template>
 
 <style scoped>
-/* Mobile: full-height, top-anchored sheet. Height tracks the visual
-   viewport (set by useVisualViewport while open) so the on-screen
-   keyboard shrinks the sheet instead of covering its lower half; the
-   dvh fallback covers browsers without the API and the moments before
-   the first viewport event lands. Safe-area padding keeps the input
-   row out of the status bar / notch (viewport-fit=cover). */
+/* Divider under the input row. This lives on the bar (not the row) because the
+   Tailwind border moved off the row in the split; the mobile block below flips
+   it to a top border since the bar docks to the bottom there. */
+.search-inputbar {
+  border-bottom: 1px solid var(--color-default);
+}
+
+/* Mobile: static full-screen overlay with the input docked to the bottom and
+   riding the keyboard (Firefox/Brave style). Only the input bar tracks the
+   keyboard; the overlay/results never resize, which is what kept every
+   sheet-resizing approach feeling "forced". */
 @media (max-width: 639.98px) {
+  .search-overlay {
+    height: 100dvh;
+  }
+
   .search-card {
-    height: var(--visual-viewport-height, 100dvh);
+    height: 100%;
     max-height: none;
     border-radius: 0;
     padding-top: env(safe-area-inset-top);
+    --input-bar-h: 3rem; /* matches the h-12 input row */
   }
 
-  /* No footer on mobile — the results list runs to the sheet's
-     bottom edge, so it carries the home-indicator clearance itself
-     (when the keyboard is up the sheet already ends above it). */
-  .search-results {
+  /* Input bar docked to the bottom, riding the keyboard via ONE compositor
+     transform (no transition: visualViewport fires throughout the keyboard
+     animation so it tracks 1:1; easing would make it lag). The border flips to
+     the top edge, and it needs an opaque background since it now floats over
+     the results; its padding-bottom extends that background into the
+     home-indicator safe area below the fixed-height row. */
+  .search-inputbar {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    transform: translateY(calc(-1 * var(--keyboard-height, 0px)));
+    will-change: transform;
+    border-bottom: 0;
+    border-top: 1px solid var(--color-default);
+    background: var(--color-surface);
     padding-bottom: env(safe-area-inset-bottom);
   }
+  /* Keyboard up: the bar rests on the keyboard, so drop the home-indicator inset. */
+  .search-card:has(input:focus, textarea:focus, [contenteditable]:focus) .search-inputbar {
+    padding-bottom: 0;
+  }
+
+  /* Results fill the space above the docked input; pad the bottom so the last
+     row clears the input bar + keyboard. Padding changes don't move the scroll
+     offset, so toggling the keyboard never jumps the list. */
+  .search-results {
+    padding-bottom: calc(
+      var(--input-bar-h) + var(--keyboard-height, 0px) + env(safe-area-inset-bottom)
+    );
+  }
 }
 
-.search-modal-enter-active,
-.search-modal-leave-active {
-  transition: opacity 0.15s ease;
-}
-
-.search-modal-enter-active > div:last-child,
-.search-modal-leave-active > div:last-child {
-  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.15s ease;
-}
-
-.search-modal-enter-from,
-.search-modal-leave-to {
-  opacity: 0;
-}
-
-.search-modal-enter-from > div:last-child {
-  opacity: 0;
-  transform: scale(0.97) translateY(-6px);
-}
-
-.search-modal-leave-to > div:last-child {
-  opacity: 0;
-  transform: scale(0.98);
-}
-
+/* Enter/leave motion is driven by the WAAPI hooks in <script> (the
+   Transition runs with :css=false), so there are no transition classes here. */
 
 /* Subtle scrollbar on the results area. */
 .overflow-y-auto {
