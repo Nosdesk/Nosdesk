@@ -107,6 +107,7 @@ impl SearchService {
         let doc_count = service.reader.searcher().num_docs();
         if doc_count == 0 {
             info!("Search index is empty, rebuilding from database");
+            // cross-tenant: full reindex spans every tenant.
             match crate::sync::session::background_run(
                 pool,
                 "background:search_initial_index_build",
@@ -255,6 +256,7 @@ impl SearchService {
         use diesel::prelude::*;
 
         let loaded: Option<(models::User, Option<String>, Vec<i32>)> =
+            // cross-tenant: user identity and memberships span workspaces.
             crate::sync::session::background_run(
                 &self.pool,
                 "background:search_reindex_user",
@@ -298,6 +300,7 @@ impl SearchService {
         &self,
         user_uuid: uuid::Uuid,
     ) -> Result<Vec<i32>, Box<dyn std::error::Error + Send + Sync>> {
+        // cross-tenant: membership set spans workspaces.
         let ids = crate::sync::session::background_run(
             &self.pool,
             "background:search_user_memberships",
@@ -332,6 +335,7 @@ impl SearchService {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         use diesel::OptionalExtension;
         let loaded: Option<(models::Ticket, Option<models::ArticleContent>)> =
+            // cross-tenant: reindex by entity id from the cross-tenant sync stream (workspace not threaded through).
             crate::sync::session::background_run(
                 &self.pool,
                 "background:search_reindex_ticket",
@@ -362,6 +366,7 @@ impl SearchService {
         comment_id: i32,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         use diesel::OptionalExtension;
+        // cross-tenant: reindex by entity id from the cross-tenant sync stream (workspace not threaded through).
         let loaded: Option<(models::Comment, String)> = crate::sync::session::background_run(
             &self.pool,
             "background:search_reindex_comment",
@@ -390,6 +395,7 @@ impl SearchService {
         page_id: i32,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         use diesel::OptionalExtension;
+        // cross-tenant: reindex by entity id from the cross-tenant sync stream (workspace not threaded through).
         let page: Option<models::DocumentationPage> = crate::sync::session::background_run(
             &self.pool,
             "background:search_reindex_documentation",
@@ -409,6 +415,7 @@ impl SearchService {
         device_id: i32,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         use diesel::OptionalExtension;
+        // cross-tenant: reindex by entity id from the cross-tenant sync stream (workspace not threaded through).
         let device: Option<models::Asset> = crate::sync::session::background_run(
             &self.pool,
             "background:search_reindex_device",
@@ -427,6 +434,7 @@ impl SearchService {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         use crate::schema::projects;
         use diesel::prelude::*;
+        // cross-tenant: reindex by entity id from the cross-tenant sync stream (workspace not threaded through).
         let project: Option<models::Project> = crate::sync::session::background_run(
             &self.pool,
             "background:search_reindex_project",

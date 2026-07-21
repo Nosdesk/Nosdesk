@@ -96,6 +96,7 @@ impl NotificationDeliveryChannel for PushChannel {
         // Active device tokens, loaded under bypass: this is a background
         // dispatcher, and push targets a user across all their devices, so we
         // don't want RLS to filter by a single workspace pin.
+        // cross-tenant: a user's push devices span workspaces; targets load across all of them.
         let targets: Vec<PushTarget> = crate::sync::session::background_run(
             &self.pool,
             "background:push_load_devices",
@@ -114,9 +115,10 @@ impl NotificationDeliveryChannel for PushChannel {
         // with context — the ticket subject + a "who did what" line; `private`
         // sends only the generic type label ("tap to view"). Never the message
         // body itself, in either mode.
-        let detailed = crate::sync::session::background_run(
+        let detailed = crate::sync::session::run_in_workspace(
             &self.pool,
             "background:push_ws_content_level",
+            notification.payload.workspace_id,
             |conn| {
                 crate::repository::workspaces::get_notification_push_detail(
                     conn,
@@ -153,6 +155,7 @@ impl NotificationDeliveryChannel for PushChannel {
 
         let invalid = self.sender.send(&targets, &payload).await;
         if !invalid.is_empty() {
+            // cross-tenant: device-token cleanup spans the user's devices across workspaces.
             let _ = crate::sync::session::background_run(
                 &self.pool,
                 "background:push_prune_tokens",

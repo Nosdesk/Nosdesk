@@ -120,6 +120,7 @@ async fn run(
     // RLS-enabled; the supervisor is platform-level (manages every
     // workspace's enabled channels), so background_run with bypass
     // is correct.
+    // cross-tenant: the supervisor hydrates every tenant's channels.
     match crate::sync::session::background_run(
         &deps.pool,
         "background:channel_supervisor_hydrate",
@@ -169,6 +170,7 @@ async fn reconcile(id: i32, registry: &mut ChannelRegistry, deps: &RegistryDeps)
 
     // channels is RLS-enabled; reconcile is cross-tenant
     // (supervisor manages every workspace's channels).
+    // cross-tenant: platform supervisor loads a channel by id before its workspace is known.
     let channel = match crate::sync::session::background_run(
         &deps.pool,
         "background:channel_supervisor_reconcile",

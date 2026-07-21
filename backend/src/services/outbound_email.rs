@@ -44,6 +44,7 @@ use crate::utils::email::{DkimAlgorithm, DkimSigner, EmailConfig, EmailService, 
 /// shared relay's reputation. Fails OPEN: a lookup error attempts the send
 /// rather than silently dropping it, matching the worker.
 pub fn recipient_is_suppressed(pool: &Pool, recipient: &str) -> bool {
+    // cross-tenant: email_suppressions is a global list (keyed by address, no workspace).
     crate::sync::session::background_run(pool, "background:direct_send_suppress_check", |conn| {
         crate::repository::email_suppressions::is_suppressed(conn, recipient)
     })

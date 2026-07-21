@@ -97,6 +97,7 @@ impl WebhookService {
         pool: &Pool,
         delivery_tx: &mpsc::Sender<DeliveryTask>,
     ) -> Result<bool, String> {
+        // cross-tenant: claims outbox rows across every tenant; per-row work pins the workspace inside the txn.
         let (tasks, more): (Vec<DeliveryTask>, bool) = crate::sync::session::background_run(
             pool,
             "background:webhook_outbox_dispatch",
@@ -284,6 +285,7 @@ impl WebhookService {
         // webhook_deliveries + webhooks are RLS-enabled; the retry
         // worker runs cross-workspace. Fetch pending + their
         // webhook rows in one bypass txn.
+        // cross-tenant: reads pending retries across every tenant to build the task list (no tenant writes here).
         let tasks: Vec<DeliveryTask> = crate::sync::session::background_run(
             pool,
             "background:webhook_process_retries",

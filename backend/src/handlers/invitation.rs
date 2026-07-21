@@ -237,6 +237,7 @@ pub async fn accept_invitation(
     // otherwise the runtime role reads no membership and the accept 500s.
     // Fail loud if the user genuinely has no membership.
     let workspace_id =
+        // cross-tenant: pre-session workspace resolution: only the invited user is known here.
         match crate::sync::session::background_run(&db_pool, "background:invitation_accept", |c| {
             crate::repository::workspaces::primary_workspace_for_user(c, user.uuid)
         }) {

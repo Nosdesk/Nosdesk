@@ -178,7 +178,11 @@ impl NotificationService {
                     );
                     // Mark channel as delivered
                     if let Err(e) = self
-                        .mark_channel_delivered(notification_id, channel_type)
+                        .mark_channel_delivered(
+                            notification_id,
+                            deliverable.payload.workspace_id,
+                            channel_type,
+                        )
                         .await
                     {
                         tracing::warn!(error = %e, "Failed to mark channel as delivered");
@@ -345,13 +349,17 @@ impl NotificationService {
     async fn mark_channel_delivered(
         &self,
         notification_id: i32,
+        workspace_id_val: i32,
         channel: NotificationChannel,
     ) -> Result<(), String> {
         use crate::schema::notifications::dsl::*;
 
-        crate::sync::session::background_run(
+        // Scoped to the notification's workspace (RLS on notifications), matching
+        // the create and read paths.
+        crate::sync::session::run_in_workspace(
             &self.pool,
             "background:notification_channel_delivered",
+            workspace_id_val,
             |conn| {
                 // Get current channels_delivered
                 let current: Notification = notifications.find(notification_id).first(conn)?;
@@ -399,6 +407,7 @@ impl NotificationService {
         // but routing through background_run keeps every method
         // here uniform and the role baseline reset that set_actor
         // performs is harmless for non-tenant reads.
+        // cross-tenant: notification_types is a global system catalog (no workspace).
         let type_id: i32 = crate::sync::session::background_run(
             &self.pool,
             "background:notification_type_lookup",
@@ -424,14 +433,16 @@ impl NotificationService {
     pub async fn get_unread(
         &self,
         user_uuid_val: &Uuid,
+        workspace_id_val: i32,
         limit: i64,
     ) -> Result<Vec<NotificationResponse>, String> {
         use crate::schema::notification_types;
         use crate::schema::notifications::dsl::*;
 
-        let results: Vec<(Notification, String)> = crate::sync::session::background_run(
+        let results: Vec<(Notification, String)> = crate::sync::session::run_in_workspace(
             &self.pool,
             "background:notification_get_unread",
+            workspace_id_val,
             |conn| {
                 notifications
                     .inner_join(notification_types::table)
@@ -481,15 +492,17 @@ impl NotificationService {
     pub async fn get_all(
         &self,
         user_uuid_val: &Uuid,
+        workspace_id_val: i32,
         limit: i64,
         offset: i64,
     ) -> Result<Vec<NotificationResponse>, String> {
         use crate::schema::notification_types;
         use crate::schema::notifications::dsl::*;
 
-        let results: Vec<(Notification, String)> = crate::sync::session::background_run(
+        let results: Vec<(Notification, String)> = crate::sync::session::run_in_workspace(
             &self.pool,
             "background:notification_get_all",
+            workspace_id_val,
             |conn| {
                 notifications
                     .inner_join(notification_types::table)
@@ -536,12 +549,17 @@ impl NotificationService {
     }
 
     /// Get unread notification count for a user
-    pub async fn get_unread_count(&self, user_uuid_val: &Uuid) -> Result<i64, String> {
+    pub async fn get_unread_count(
+        &self,
+        user_uuid_val: &Uuid,
+        workspace_id_val: i32,
+    ) -> Result<i64, String> {
         use crate::schema::notifications::dsl::*;
 
-        crate::sync::session::background_run(
+        crate::sync::session::run_in_workspace(
             &self.pool,
             "background:notification_unread_count",
+            workspace_id_val,
             |conn| {
                 notifications
                     .filter(user_uuid.eq(user_uuid_val))
@@ -559,13 +577,15 @@ impl NotificationService {
     pub async fn mark_read(
         &self,
         user_uuid_val: &Uuid,
+        workspace_id_val: i32,
         notification_ids: &[i32],
     ) -> Result<usize, String> {
         use crate::schema::notifications::dsl::*;
 
-        crate::sync::session::background_run(
+        crate::sync::session::run_in_workspace(
             &self.pool,
             "background:notification_mark_read",
+            workspace_id_val,
             |conn| {
                 diesel::update(
                     notifications
@@ -580,12 +600,17 @@ impl NotificationService {
     }
 
     /// Mark all notifications as read for a user
-    pub async fn mark_all_read(&self, user_uuid_val: &Uuid) -> Result<usize, String> {
+    pub async fn mark_all_read(
+        &self,
+        user_uuid_val: &Uuid,
+        workspace_id_val: i32,
+    ) -> Result<usize, String> {
         use crate::schema::notifications::dsl::*;
 
-        crate::sync::session::background_run(
+        crate::sync::session::run_in_workspace(
             &self.pool,
             "background:notification_mark_all_read",
+            workspace_id_val,
             |conn| {
                 diesel::update(
                     notifications
@@ -602,12 +627,17 @@ impl NotificationService {
     /// Count unseen, active (not archived) notifications for a user.
     /// Drives the bell badge: opening the panel marks items seen and
     /// clears the badge without marking each one read (seen != read).
-    pub async fn get_unseen_count(&self, user_uuid_val: &Uuid) -> Result<i64, String> {
+    pub async fn get_unseen_count(
+        &self,
+        user_uuid_val: &Uuid,
+        workspace_id_val: i32,
+    ) -> Result<i64, String> {
         use crate::schema::notifications::dsl::*;
 
-        crate::sync::session::background_run(
+        crate::sync::session::run_in_workspace(
             &self.pool,
             "background:notification_unseen_count",
+            workspace_id_val,
             |conn| {
                 notifications
                     .filter(user_uuid.eq(user_uuid_val))
@@ -629,12 +659,17 @@ impl NotificationService {
     /// Mark all of a user's unseen notifications as seen (badge clear on
     /// panel/inbox open). Distinct from mark-all-read: seeing clears the
     /// badge; reading is a separate, explicit per-item action.
-    pub async fn mark_all_seen(&self, user_uuid_val: &Uuid) -> Result<usize, String> {
+    pub async fn mark_all_seen(
+        &self,
+        user_uuid_val: &Uuid,
+        workspace_id_val: i32,
+    ) -> Result<usize, String> {
         use crate::schema::notifications::dsl::*;
 
-        crate::sync::session::background_run(
+        crate::sync::session::run_in_workspace(
             &self.pool,
             "background:notification_mark_all_seen",
+            workspace_id_val,
             |conn| {
                 diesel::update(
                     notifications
@@ -653,13 +688,15 @@ impl NotificationService {
     pub async fn mark_unread(
         &self,
         user_uuid_val: &Uuid,
+        workspace_id_val: i32,
         notification_ids: &[i32],
     ) -> Result<usize, String> {
         use crate::schema::notifications::dsl::*;
 
-        crate::sync::session::background_run(
+        crate::sync::session::run_in_workspace(
             &self.pool,
             "background:notification_mark_unread",
+            workspace_id_val,
             |conn| {
                 diesel::update(
                     notifications
@@ -679,14 +716,16 @@ impl NotificationService {
     pub async fn set_archived(
         &self,
         user_uuid_val: &Uuid,
+        workspace_id_val: i32,
         notification_ids: &[i32],
         archived: bool,
     ) -> Result<usize, String> {
         use crate::schema::notifications::dsl::*;
 
-        crate::sync::session::background_run(
+        crate::sync::session::run_in_workspace(
             &self.pool,
             "background:notification_set_archived",
+            workspace_id_val,
             |conn| {
                 diesel::update(
                     notifications
@@ -711,20 +750,26 @@ impl NotificationService {
     pub async fn snooze(
         &self,
         user_uuid_val: &Uuid,
+        workspace_id_val: i32,
         notification_ids: &[i32],
         until: chrono::NaiveDateTime,
     ) -> Result<usize, String> {
         use crate::schema::notifications::dsl::*;
 
-        crate::sync::session::background_run(&self.pool, "background:notification_snooze", |conn| {
-            diesel::update(
-                notifications
-                    .filter(user_uuid.eq(user_uuid_val))
-                    .filter(id.eq_any(notification_ids)),
-            )
-            .set(snoozed_until.eq(Some(until)))
-            .execute(conn)
-        })
+        crate::sync::session::run_in_workspace(
+            &self.pool,
+            "background:notification_snooze",
+            workspace_id_val,
+            |conn| {
+                diesel::update(
+                    notifications
+                        .filter(user_uuid.eq(user_uuid_val))
+                        .filter(id.eq_any(notification_ids)),
+                )
+                .set(snoozed_until.eq(Some(until)))
+                .execute(conn)
+            },
+        )
         .map_err(|e| format!("Update failed: {e}"))
     }
 
@@ -732,18 +777,24 @@ impl NotificationService {
     pub async fn delete_notifications(
         &self,
         user_uuid_val: &Uuid,
+        workspace_id_val: i32,
         notification_ids: &[i32],
     ) -> Result<usize, String> {
         use crate::schema::notifications::dsl::*;
 
-        crate::sync::session::background_run(&self.pool, "background:notification_delete", |conn| {
-            diesel::delete(
-                notifications
-                    .filter(user_uuid.eq(user_uuid_val))
-                    .filter(id.eq_any(notification_ids)),
-            )
-            .execute(conn)
-        })
+        crate::sync::session::run_in_workspace(
+            &self.pool,
+            "background:notification_delete",
+            workspace_id_val,
+            |conn| {
+                diesel::delete(
+                    notifications
+                        .filter(user_uuid.eq(user_uuid_val))
+                        .filter(id.eq_any(notification_ids)),
+                )
+                .execute(conn)
+            },
+        )
         .map_err(|e| format!("Delete failed: {e}"))
     }
 }

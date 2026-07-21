@@ -493,11 +493,14 @@ async fn classify_error(channel: &Channel, err: &ChannelError, deps: &RegistryDe
 }
 
 async fn record_last_error(channel: &Channel, msg: &str, deps: &RegistryDeps) {
-    // channels is RLS-enabled; channel supervisor is platform-
-    // level (manages every workspace's channels), so bypass.
-    if let Err(e) = crate::sync::session::background_run(
+    // The channel belongs to one workspace, so pin to it: the re-read and the
+    // runtime_state update then run RLS-scoped (and carry the workspace/actor
+    // context an audited write needs) instead of a blanket bypass that could
+    // touch another tenant's channel row.
+    if let Err(e) = crate::sync::session::run_in_workspace(
         &deps.pool,
         "background:channel_record_last_error",
+        channel.workspace_id,
         |conn| write_last_error(conn, channel, Some(msg)),
     ) {
         warn!(channel = channel.id, error = %e, "failed to persist last_error");

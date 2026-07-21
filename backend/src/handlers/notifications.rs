@@ -413,11 +413,16 @@ pub async fn get_notifications(
     let offset = helpers::clamp_offset(query.offset);
     let unread_only = query.unread_only.unwrap_or(false);
 
+    let Some(workspace_id) = actor_workspace_id(&req) else {
+        return errors::unauthorized("Authentication required");
+    };
     let result = if unread_only {
-        notification_service.get_unread(&user_uuid, limit).await
+        notification_service
+            .get_unread(&user_uuid, workspace_id, limit)
+            .await
     } else {
         notification_service
-            .get_all(&user_uuid, limit, offset)
+            .get_all(&user_uuid, workspace_id, limit, offset)
             .await
     };
 
@@ -446,7 +451,13 @@ pub async fn get_unread_count(
         Err(_) => return errors::bad_request("Invalid user UUID"),
     };
 
-    match notification_service.get_unread_count(&user_uuid).await {
+    let Some(workspace_id) = actor_workspace_id(&req) else {
+        return errors::unauthorized("Authentication required");
+    };
+    match notification_service
+        .get_unread_count(&user_uuid, workspace_id)
+        .await
+    {
         Ok(count) => HttpResponse::Ok().json(serde_json::json!({ "count": count })),
         Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
             "error": e
@@ -473,7 +484,13 @@ pub async fn get_unseen_count(
         Err(_) => return errors::bad_request("Invalid user UUID"),
     };
 
-    match notification_service.get_unseen_count(&user_uuid).await {
+    let Some(workspace_id) = actor_workspace_id(&req) else {
+        return errors::unauthorized("Authentication required");
+    };
+    match notification_service
+        .get_unseen_count(&user_uuid, workspace_id)
+        .await
+    {
         Ok(count) => HttpResponse::Ok().json(serde_json::json!({ "count": count })),
         Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
             "error": e
@@ -499,7 +516,13 @@ pub async fn mark_all_seen(
         Err(_) => return errors::bad_request("Invalid user UUID"),
     };
 
-    match notification_service.mark_all_seen(&user_uuid).await {
+    let Some(workspace_id) = actor_workspace_id(&req) else {
+        return errors::unauthorized("Authentication required");
+    };
+    match notification_service
+        .mark_all_seen(&user_uuid, workspace_id)
+        .await
+    {
         Ok(count) => HttpResponse::Ok().json(serde_json::json!({
             "success": true,
             "count": count
@@ -528,8 +551,11 @@ pub async fn mark_notifications_unread(
         Err(_) => return errors::bad_request("Invalid user UUID"),
     };
 
+    let Some(workspace_id) = actor_workspace_id(&req) else {
+        return errors::unauthorized("Authentication required");
+    };
     match notification_service
-        .mark_unread(&user_uuid, &body.notification_ids)
+        .mark_unread(&user_uuid, workspace_id, &body.notification_ids)
         .await
     {
         Ok(count) => HttpResponse::Ok().json(serde_json::json!({
@@ -558,8 +584,11 @@ pub async fn archive_notifications(
         Err(_) => return errors::bad_request("Invalid user UUID"),
     };
 
+    let Some(workspace_id) = actor_workspace_id(&req) else {
+        return errors::unauthorized("Authentication required");
+    };
     match notification_service
-        .set_archived(&user_uuid, &body.notification_ids, true)
+        .set_archived(&user_uuid, workspace_id, &body.notification_ids, true)
         .await
     {
         Ok(count) => HttpResponse::Ok().json(serde_json::json!({
@@ -588,8 +617,11 @@ pub async fn unarchive_notifications(
         Err(_) => return errors::bad_request("Invalid user UUID"),
     };
 
+    let Some(workspace_id) = actor_workspace_id(&req) else {
+        return errors::unauthorized("Authentication required");
+    };
     match notification_service
-        .set_archived(&user_uuid, &body.notification_ids, false)
+        .set_archived(&user_uuid, workspace_id, &body.notification_ids, false)
         .await
     {
         Ok(count) => HttpResponse::Ok().json(serde_json::json!({
@@ -619,8 +651,16 @@ pub async fn snooze_notifications(
         Err(_) => return errors::bad_request("Invalid user UUID"),
     };
 
+    let Some(workspace_id) = actor_workspace_id(&req) else {
+        return errors::unauthorized("Authentication required");
+    };
     match notification_service
-        .snooze(&user_uuid, &body.notification_ids, body.until.naive_utc())
+        .snooze(
+            &user_uuid,
+            workspace_id,
+            &body.notification_ids,
+            body.until.naive_utc(),
+        )
         .await
     {
         Ok(count) => HttpResponse::Ok().json(serde_json::json!({
@@ -649,8 +689,11 @@ pub async fn mark_notifications_read(
         Err(_) => return errors::bad_request("Invalid user UUID"),
     };
 
+    let Some(workspace_id) = actor_workspace_id(&req) else {
+        return errors::unauthorized("Authentication required");
+    };
     match notification_service
-        .mark_read(&user_uuid, &body.notification_ids)
+        .mark_read(&user_uuid, workspace_id, &body.notification_ids)
         .await
     {
         Ok(count) => HttpResponse::Ok().json(serde_json::json!({
@@ -680,7 +723,13 @@ pub async fn mark_all_notifications_read(
         Err(_) => return errors::bad_request("Invalid user UUID"),
     };
 
-    match notification_service.mark_all_read(&user_uuid).await {
+    let Some(workspace_id) = actor_workspace_id(&req) else {
+        return errors::unauthorized("Authentication required");
+    };
+    match notification_service
+        .mark_all_read(&user_uuid, workspace_id)
+        .await
+    {
         Ok(count) => HttpResponse::Ok().json(serde_json::json!({
             "success": true,
             "count": count
@@ -799,8 +848,11 @@ pub async fn delete_notifications(
         Err(_) => return errors::bad_request("Invalid user UUID"),
     };
 
+    let Some(workspace_id) = actor_workspace_id(&req) else {
+        return errors::unauthorized("Authentication required");
+    };
     match notification_service
-        .delete_notifications(&user_uuid, &body.notification_ids)
+        .delete_notifications(&user_uuid, workspace_id, &body.notification_ids)
         .await
     {
         Ok(count) => HttpResponse::Ok().json(serde_json::json!({

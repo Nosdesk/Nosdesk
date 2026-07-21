@@ -56,6 +56,7 @@ pub async fn list(req: HttpRequest, pool: web::Data<Pool>) -> HttpResponse {
     }
 
     let since = chrono::Utc::now().naive_utc() - chrono::Duration::days(7);
+    // cross-tenant: inbound_dead_letters is an untenanted platform-admin table.
     let result = crate::sync::session::background_run(&pool, "inbound:list_dead_letters", |conn| {
         let rows = repo::list_recent(conn, DEFAULT_LIMIT.min(MAX_LIMIT))?;
         let count_7d = repo::count_since(conn, since)?;

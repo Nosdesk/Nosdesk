@@ -103,7 +103,16 @@ impl PreferenceService {
             workspace_notification_defaults as wnd,
         };
 
-        // RLS-enabled tables read by a background dispatcher → bypass txn.
+        // notification_preferences is GLOBAL per user: its unique key is
+        // (user_uuid, notification_type_id, channel) with workspace_id excluded,
+        // so a user has ONE override row (stamped under their primary workspace)
+        // that applies across all their workspaces. Reading it under an RLS pin
+        // to some other active workspace would filter that row out (the table
+        // FORCEs a workspace_id = app.workspace_id policy) and silently drop the
+        // user's prefs. So read under bypass; the per-workspace
+        // workspace_notification_defaults is scoped by the explicit workspace_id
+        // filter in the query below.
+        // cross-tenant: notification_preferences is global per user (unique key excludes workspace_id); wnd is filtered by workspace_id in the query.
         let (default_channels, ws_defaults, user_prefs) = crate::sync::session::background_run(
             &self.pool,
             "background:notification_pref_load",
@@ -227,6 +236,7 @@ impl PreferenceService {
         // notification_preferences carries an audit trigger but has no
         // workspace_id of its own; resolve the user's primary workspace to pin
         // the actor so the trigger's audit_log insert has a workspace_id.
+        // cross-tenant: pre-write workspace resolution: only the user is known; the upsert below runs pinned.
         let resolved_workspace = crate::sync::session::background_run(
             &self.pool,
             "background:notification_pref_set",
@@ -276,6 +286,7 @@ impl PreferenceService {
     /// unaffected. Preferences are global per user; the resolved workspace only
     /// pins the audit trigger.
     pub async fn disable_all_email(&self, user_uuid_val: &Uuid) -> Result<(), String> {
+        // cross-tenant: pre-write workspace resolution: only the user is known; the write below runs pinned.
         let resolved_workspace = crate::sync::session::background_run(
             &self.pool,
             "background:notification_unsubscribe",
@@ -319,6 +330,7 @@ impl PreferenceService {
             workspace_notification_defaults as wnd,
         };
 
+        // cross-tenant: resolves the user's primary workspace (only the user is known at this call).
         let (types, ws_defaults, user_prefs) = crate::sync::session::background_run(
             &self.pool,
             "background:notification_pref_get_all",
@@ -404,9 +416,13 @@ impl PreferenceService {
     ) -> Result<Vec<WorkspaceNotificationDefaultResponse>, String> {
         use crate::schema::{notification_types as nt, workspace_notification_defaults as wnd};
 
-        let (types, ws_defaults) = crate::sync::session::background_run(
+        // Pin to the workspace: RLS scopes the workspace-defaults read to it,
+        // making the isolation structural rather than resting on the manual
+        // workspace_id filter. notification_types is a global catalog (no RLS).
+        let (types, ws_defaults) = crate::sync::session::run_in_workspace(
             &self.pool,
             "background:notification_ws_defaults_get",
+            workspace_id_val,
             |conn| {
                 let types: Vec<NotificationTypeModel> = nt::table.order(nt::id).load(conn)?;
                 let ws_defaults: Vec<(i32, String, String, bool)> = wnd::table
