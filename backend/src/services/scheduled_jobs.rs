@@ -139,6 +139,7 @@ pub async fn send_notification_digests(pool: Pool) -> Result<()> {
         #[diesel(sql_type = Text)]
         title: String,
     }
+    // cross-tenant: cross-workspace scan builds the digest work-list; each item is handled per-workspace below.
     let pending: Vec<PendingRow> = crate::sync::session::background_run(
         &pool,
         "background:notification_digest_scan",
@@ -184,6 +185,7 @@ pub async fn send_notification_digests(pool: Pool) -> Result<()> {
             #[diesel(sql_type = Text)]
             email: String,
         }
+        // cross-tenant: user_emails is a global identity table (no workspace to pin to).
         let recipient: Option<String> = crate::sync::session::background_run(
             &pool,
             "background:notification_digest_email",
@@ -390,6 +392,7 @@ pub async fn prune_csp_reports(pool: Pool) -> Result<()> {
     // background_run so the DELETE isn't filtered to zero rows
     // post-DSN-flip.
     let removed =
+        // cross-tenant: cross-workspace retention prune of csp_reports.
         crate::sync::session::background_run(&pool, "scheduler:prune_csp_reports", |conn| {
             crate::repository::csp_reports::prune_older_than(conn, days)
         })
@@ -431,6 +434,7 @@ pub async fn prune_webhook_deliveries(pool: Pool) -> Result<()> {
     let days = retention_days("WEBHOOK_DELIVERY_RETENTION_DAYS", 30);
     // webhook_deliveries is RLS-enabled; cross-tenant prune.
     let removed =
+        // cross-tenant: cross-workspace retention prune of webhook_deliveries.
         crate::sync::session::background_run(&pool, "scheduler:prune_webhook_deliveries", |conn| {
             crate::repository::webhooks::prune_deliveries_older_than(conn, days)
         })
@@ -538,6 +542,7 @@ async fn drop_old_event_partitions(
 /// 60s.
 pub async fn sweep_outbound_email_leases(pool: Pool) -> Result<()> {
     // outbound_emails is RLS-enabled; cross-workspace sweep.
+    // cross-tenant: operational lease sweep across every tenant's outbound queue.
     let swept = crate::sync::session::background_run(
         &pool,
         "scheduler:sweep_outbound_email_leases",

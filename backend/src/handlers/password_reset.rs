@@ -151,6 +151,7 @@ async fn issue_password_reset(
     // (RLS-isolated) and is inherently cross-tenant here (we only have the
     // email, no request workspace), so it runs elevated. A user with no
     // membership gets no email rather than a NULL-workspace insert failure.
+    // cross-tenant: pre-auth resolution: only the email is known; the branding read and enqueue below run pinned.
     let workspace = match crate::sync::session::background_run(
         &pool,
         "background:password_reset",

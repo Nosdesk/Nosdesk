@@ -165,6 +165,7 @@ fn initial_watermark(pool: &Pool) -> Result<crate::sync::feed::FeedCursor, anyho
     // latest *settled* row by commit order; in-flight rows have a
     // higher xid8 and are delivered once they settle.
     let row: Option<(i64, i64)> =
+        // cross-tenant: watermark over the cross-tenant sync_actions outbox.
         crate::sync::session::background_run(pool, "background:sync_outbox_watermark", |conn| {
             sync_actions::table
                 .filter(crate::sync::feed::below_horizon())
@@ -256,6 +257,7 @@ async fn drain_since(
             // workspace's sync_actions. Commit-safe cursor: only settled
             // rows (xid8 below the horizon), ordered by (xid8, sync_id),
             // strictly after the cursor — see `crate::sync::feed`.
+            // cross-tenant: drains the cross-tenant sync_actions outbox.
             let rows = crate::sync::session::background_run(
                 &pool,
                 "background:sync_outbox_drain",

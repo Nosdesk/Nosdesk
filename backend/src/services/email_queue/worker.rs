@@ -95,6 +95,7 @@ pub async fn run_one_drain(
     // that drains across whatever rows are ready; no request-bound
     // workspace pin exists here.
     let claimed =
+        // cross-tenant: queue drain claims outbound rows across every tenant.
         crate::sync::session::background_run(&pool, "background:email_queue_claim", |conn| {
             repo::claim_batch(conn, repo::DEFAULT_BATCH_SIZE, LEASE_SECONDS)
         })
@@ -120,6 +121,7 @@ pub async fn run_one_drain(
     let ws_services = if workspace_ids.is_empty() {
         std::collections::HashMap::new()
     } else {
+        // cross-tenant: resolves sender identities for a batch spanning multiple workspaces.
         crate::sync::session::background_run(&pool, "background:email_queue_resolve", |conn| {
             resolver.resolve_batch(conn, &workspace_ids)
         })
@@ -167,6 +169,7 @@ pub async fn run_one_drain(
             let suppressed = if row.mail_class
                 == crate::models::outbound_email_mail_class::NOTIFICATION
             {
+                // cross-tenant: email_suppressions is a global list (keyed by address, no workspace).
                 crate::sync::session::background_run(
                     &pool,
                     "background:email_queue_suppress_check",

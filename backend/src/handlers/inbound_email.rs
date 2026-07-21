@@ -124,6 +124,7 @@ pub async fn receive(
     let resolved = match &token {
         Some(tok) => {
             let tok = tok.clone();
+            // cross-tenant: token to workspace routing: the workspace is unknown until the forwarding token resolves.
             match crate::sync::session::background_run(
                 &pool,
                 "inbound:resolve_token",
@@ -158,6 +159,7 @@ pub async fn receive(
             match &managed_slug_candidate {
                 Some(slug) => {
                     let slug = slug.clone();
+                    // cross-tenant: slug to workspace routing: the workspace is unknown until the slug resolves.
                     match crate::sync::session::background_run(
                         &pool,
                         "inbound:resolve_slug",
@@ -332,6 +334,7 @@ fn record_dead_letter(
         s3_key: object_key.to_string(),
         reason: reason.to_string(),
     };
+    // cross-tenant: inbound_dead_letters is an untenanted platform table.
     match crate::sync::session::background_run(pool, "inbound:dead_letter", move |conn| {
         inbound_dead_letters::record(conn, row)
     }) {

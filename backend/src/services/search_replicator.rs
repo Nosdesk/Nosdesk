@@ -102,6 +102,7 @@ async fn run(database_url: String, pool: Pool, search: Arc<SearchService>) {
 fn initial_watermark(pool: &Pool) -> Result<i64, anyhow::Error> {
     // sync_actions is RLS-enabled; the replicator reads across every
     // workspace (the index spans tenants), so it bypasses via background_run.
+    // cross-tenant: watermark over the cross-tenant sync_actions feed.
     let max_id: Option<i64> = crate::sync::session::background_run(
         pool,
         "background:search_replicator_watermark",
@@ -175,6 +176,7 @@ async fn drain_since(
         // index writer lock, neither of which is async-friendly.
         let (last_sync_id, count) =
             tokio::task::spawn_blocking(move || -> Result<(Option<i64>, usize), anyhow::Error> {
+                // cross-tenant: pages the cross-tenant sync_actions feed.
                 let rows: Vec<IndexRow> = crate::sync::session::background_run(
                     &pool,
                     "background:search_replicator_drain",

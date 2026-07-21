@@ -175,6 +175,7 @@ pub struct ReverifyStats {
 /// Runs as a scheduled job. Lists verified workspaces under a bypass connection
 /// (cross-workspace scan), then re-verifies each one workspace-pinned.
 pub async fn reverify_all(pool: &Pool) -> Result<ReverifyStats, VerifyError> {
+    // cross-tenant: cross-workspace scan of verified domains; each is then verified via run_in_workspace.
     let ids = crate::sync::session::background_run(pool, "dkim-reverify-list", |conn| {
         ws_settings::verified_domain_workspace_ids(conn)
     })

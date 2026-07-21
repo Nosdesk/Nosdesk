@@ -349,6 +349,7 @@ impl NotificationService {
     ) -> Result<(), String> {
         use crate::schema::notifications::dsl::*;
 
+        // cross-tenant: mark-delivered by notification id; the delivery pipeline does not thread the workspace through. TODO: plumb payload.workspace_id and pin.
         crate::sync::session::background_run(
             &self.pool,
             "background:notification_channel_delivered",
@@ -399,6 +400,7 @@ impl NotificationService {
         // but routing through background_run keeps every method
         // here uniform and the role baseline reset that set_actor
         // performs is harmless for non-tenant reads.
+        // cross-tenant: notification_types is a global system catalog (no workspace).
         let type_id: i32 = crate::sync::session::background_run(
             &self.pool,
             "background:notification_type_lookup",
@@ -429,6 +431,7 @@ impl NotificationService {
         use crate::schema::notification_types;
         use crate::schema::notifications::dsl::*;
 
+        // cross-tenant: user-global inbox: read by user_uuid across the user's workspaces (a bell is per-user, not per-workspace).
         let results: Vec<(Notification, String)> = crate::sync::session::background_run(
             &self.pool,
             "background:notification_get_unread",
@@ -487,6 +490,7 @@ impl NotificationService {
         use crate::schema::notification_types;
         use crate::schema::notifications::dsl::*;
 
+        // cross-tenant: user-global inbox read, keyed by user_uuid across the user's workspaces.
         let results: Vec<(Notification, String)> = crate::sync::session::background_run(
             &self.pool,
             "background:notification_get_all",
@@ -539,6 +543,7 @@ impl NotificationService {
     pub async fn get_unread_count(&self, user_uuid_val: &Uuid) -> Result<i64, String> {
         use crate::schema::notifications::dsl::*;
 
+        // cross-tenant: user-global inbox count, keyed by user_uuid across the user's workspaces.
         crate::sync::session::background_run(
             &self.pool,
             "background:notification_unread_count",
@@ -563,6 +568,7 @@ impl NotificationService {
     ) -> Result<usize, String> {
         use crate::schema::notifications::dsl::*;
 
+        // cross-tenant: user-global inbox write (mark-read by user_uuid across workspaces).
         crate::sync::session::background_run(
             &self.pool,
             "background:notification_mark_read",
@@ -583,6 +589,7 @@ impl NotificationService {
     pub async fn mark_all_read(&self, user_uuid_val: &Uuid) -> Result<usize, String> {
         use crate::schema::notifications::dsl::*;
 
+        // cross-tenant: user-global inbox write (mark-all-read by user_uuid across workspaces).
         crate::sync::session::background_run(
             &self.pool,
             "background:notification_mark_all_read",
@@ -605,6 +612,7 @@ impl NotificationService {
     pub async fn get_unseen_count(&self, user_uuid_val: &Uuid) -> Result<i64, String> {
         use crate::schema::notifications::dsl::*;
 
+        // cross-tenant: user-global inbox count (unseen) keyed by user_uuid across workspaces.
         crate::sync::session::background_run(
             &self.pool,
             "background:notification_unseen_count",
@@ -632,6 +640,7 @@ impl NotificationService {
     pub async fn mark_all_seen(&self, user_uuid_val: &Uuid) -> Result<usize, String> {
         use crate::schema::notifications::dsl::*;
 
+        // cross-tenant: user-global inbox write (mark-all-seen by user_uuid across workspaces).
         crate::sync::session::background_run(
             &self.pool,
             "background:notification_mark_all_seen",
@@ -657,6 +666,7 @@ impl NotificationService {
     ) -> Result<usize, String> {
         use crate::schema::notifications::dsl::*;
 
+        // cross-tenant: user-global inbox write (mark-unread by user_uuid across workspaces).
         crate::sync::session::background_run(
             &self.pool,
             "background:notification_mark_unread",
@@ -684,6 +694,7 @@ impl NotificationService {
     ) -> Result<usize, String> {
         use crate::schema::notifications::dsl::*;
 
+        // cross-tenant: user-global inbox write (archive by user_uuid across workspaces).
         crate::sync::session::background_run(
             &self.pool,
             "background:notification_set_archived",
@@ -716,6 +727,7 @@ impl NotificationService {
     ) -> Result<usize, String> {
         use crate::schema::notifications::dsl::*;
 
+        // cross-tenant: user-global inbox write (snooze by user_uuid across workspaces).
         crate::sync::session::background_run(&self.pool, "background:notification_snooze", |conn| {
             diesel::update(
                 notifications
@@ -736,6 +748,7 @@ impl NotificationService {
     ) -> Result<usize, String> {
         use crate::schema::notifications::dsl::*;
 
+        // cross-tenant: user-global inbox write (delete by user_uuid across workspaces).
         crate::sync::session::background_run(&self.pool, "background:notification_delete", |conn| {
             diesel::delete(
                 notifications
