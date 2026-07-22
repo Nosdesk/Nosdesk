@@ -190,6 +190,17 @@ jobs:
       - name: Plugin SDK lint (@nosdesk/plugin-sdk)
         run: pnpm --filter @nosdesk/plugin-sdk run lint
 
+      - name: Plugin runtime type-check (@nosdesk/plugin-runtime)
+        run: pnpm --filter @nosdesk/plugin-runtime run type-check
+
+      - name: Plugin runtime lint (@nosdesk/plugin-runtime)
+        run: pnpm --filter @nosdesk/plugin-runtime run lint
+
+      # Also a real integration check: the runtime must bundle with the SDK +
+      # comlink into a valid ESM (catches an SDK contract break).
+      - name: Plugin runtime build (@nosdesk/plugin-runtime)
+        run: pnpm --filter @nosdesk/plugin-runtime run build
+
       - name: Audit
         # Advisory only — must not hard-block merges. npm retired the legacy
         # audit endpoint (returns HTTP 410), which older `pnpm audit` still
