@@ -184,6 +184,12 @@ jobs:
       - name: Core boundary guard (@nosdesk/core)
         run: pnpm --filter @nosdesk/core run lint
 
+      - name: Plugin SDK type-check (@nosdesk/plugin-sdk)
+        run: pnpm --filter @nosdesk/plugin-sdk run type-check
+
+      - name: Plugin SDK lint (@nosdesk/plugin-sdk)
+        run: pnpm --filter @nosdesk/plugin-sdk run lint
+
       - name: Audit
         # Advisory only — must not hard-block merges. npm retired the legacy
         # audit endpoint (returns HTTP 410), which older `pnpm audit` still

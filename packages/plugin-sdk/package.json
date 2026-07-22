@@ -1,0 +1,25 @@
+{
+  "name": "@nosdesk/plugin-sdk",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Typed contract + iframe-side bridge for Nosdesk sandboxed plugins.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src"
+  },
+  "dependencies": {
+    "comlink": "^4.4.2"
+  },
+  "devDependencies": {
+    "@nosdesk/core": "workspace:*",
+    "@vue/tsconfig": "^0.9.0",
+    "eslint": "^10.2.1",
+    "typescript": "^6.0.0",
+    "typescript-eslint": "^8.59.1"
+  }
+}
