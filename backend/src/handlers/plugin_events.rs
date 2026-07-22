@@ -41,16 +41,45 @@ pub struct PluginEventBody {
     pub op: SyncOp,
     pub event_type: String,
     pub data: Value,
-    /// Optional explicit groups; defaults to the workspace group when
-    /// absent. Plugins can scope an event to a ticket / project by
-    /// setting groups themselves.
-    #[serde(default)]
-    pub groups: Option<Vec<String>>,
     #[serde(default)]
     pub causation_id: Option<Uuid>,
 }
 
 const PLUGIN_EVENT_TYPE_MAX: usize = 64;
+/// The recorded `aggregate_id` is metadata on the row (fan-out is workspace-
+/// scoped host-side, not driven by this value); bound it anyway.
+const PLUGIN_AGGREGATE_ID_MAX: usize = 128;
+/// Cap the event payload. The row fans out to every workspace SSE client and,
+/// by `event_type`, to external webhook subscribers, so an oversized body is an
+/// amplification vector.
+const PLUGIN_EVENT_DATA_MAX: usize = 32 * 1024;
+/// Per (workspace, plugin) emission budget, bounds how fast any one member can
+/// drive plugin-attributed fan-out.
+const PLUGIN_EVENT_RATE_MAX: u32 = 120;
+const PLUGIN_EVENT_RATE_WINDOW_SECS: u64 = 60;
+
+/// Pure, DB-free bounds on the event body. Returns the client error message on
+/// rejection. (The signature-visible half of the B6 hardening; the group and
+/// rate constraints live in the handler because they need request context.)
+fn validate_event_body(body: &PluginEventBody) -> Result<(), &'static str> {
+    if body.event_type.trim().is_empty() || body.event_type.len() > PLUGIN_EVENT_TYPE_MAX {
+        return Err("event_type must be 1 to 64 characters");
+    }
+    if body.aggregate_id.trim().is_empty() {
+        return Err("aggregate_id is required");
+    }
+    if body.aggregate_id.len() > PLUGIN_AGGREGATE_ID_MAX {
+        return Err("aggregate_id is too long");
+    }
+    if serde_json::to_vec(&body.data)
+        .map(|v| v.len())
+        .unwrap_or(usize::MAX)
+        > PLUGIN_EVENT_DATA_MAX
+    {
+        return Err("event data exceeds the size limit");
+    }
+    Ok(())
+}
 
 /// POST /api/plugins/{plugin_uuid}/events
 pub async fn emit_plugin_event(
@@ -62,11 +91,8 @@ pub async fn emit_plugin_event(
     let plugin_uuid = path.into_inner();
 
     let body = body.into_inner();
-    if body.event_type.trim().is_empty() || body.event_type.len() > PLUGIN_EVENT_TYPE_MAX {
-        return errors::bad_request("event_type must be 1 to 64 characters");
-    }
-    if body.aggregate_id.trim().is_empty() {
-        return errors::bad_request("aggregate_id is required");
+    if let Err(msg) = validate_event_body(&body) {
+        return errors::bad_request(msg);
     }
 
     // Caller must be authenticated (plugins run inside the user's
@@ -136,6 +162,37 @@ pub async fn emit_plugin_event(
         .get::<RequestContext>()
         .and_then(|ctx| ctx.actor.workspace_id);
 
+    // Bound the rate any single member can drive plugin-attributed fan-out
+    // (SSE + external webhooks). Fail open on a Redis outage: this is
+    // abuse-limiting, not an auth gate, so a limiter outage must not break
+    // plugin events, but log it.
+    {
+        let redis_url = crate::utils::rate_limit::get_redis_url();
+        let key = format!(
+            "plugin_events:{}:{}",
+            workspace_id.unwrap_or(0),
+            plugin_uuid
+        );
+        match crate::utils::rate_limit::RateLimiter::check_rate_limit(
+            &redis_url,
+            &key,
+            PLUGIN_EVENT_RATE_MAX,
+            PLUGIN_EVENT_RATE_WINDOW_SECS,
+        )
+        .await
+        {
+            Ok(true) => {}
+            Ok(false) => {
+                warn!(plugin_uuid = %plugin_uuid, "plugin event rate limit exceeded");
+                return errors::too_many_requests(
+                    "Too many plugin events",
+                    PLUGIN_EVENT_RATE_WINDOW_SECS,
+                );
+            }
+            Err(e) => warn!(error = %e, "plugin event rate limiter unavailable; allowing"),
+        }
+    }
+
     let user_ref = format!("plugin:{} via user:{}", plugin.name, claims.sub);
     let actor = ActorContext {
         kind: crate::sync::actor::ActorKind::Plugin,
@@ -151,7 +208,12 @@ pub async fn emit_plugin_event(
         workspace_id,
     };
 
-    let groups = body.groups.unwrap_or_else(groups::workspace);
+    // Fan-out is workspace-scoped host-side. We deliberately do NOT accept a
+    // caller-supplied `groups` list: it would let any member target arbitrary
+    // SSE topics (another user's stream, an arbitrary ticket) with a forged,
+    // plugin-attributed event. Per-entity scoping returns with the sandbox
+    // redesign, behind a real access check. (B6)
+    let groups = groups::workspace();
     let aggregate = body.aggregate;
     let event_type_owned = body.event_type.clone();
 
@@ -195,5 +257,67 @@ pub async fn emit_plugin_event(
             );
             errors::internal("Failed to record plugin event")
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{json, Value};
+
+    fn body(event_type: &str, aggregate_id: &str, data: Value) -> PluginEventBody {
+        PluginEventBody {
+            aggregate: SyncAggregate::Ticket,
+            aggregate_id: aggregate_id.to_string(),
+            op: SyncOp::Update,
+            event_type: event_type.to_string(),
+            data,
+            causation_id: None,
+        }
+    }
+
+    #[test]
+    fn accepts_a_reasonable_event() {
+        assert!(validate_event_body(&body("x.done", "42", json!({ "a": 1 }))).is_ok());
+    }
+
+    #[test]
+    fn rejects_empty_or_overlong_event_type() {
+        assert!(validate_event_body(&body("   ", "42", Value::Null)).is_err());
+        let long = "e".repeat(PLUGIN_EVENT_TYPE_MAX + 1);
+        assert!(validate_event_body(&body(&long, "42", Value::Null)).is_err());
+    }
+
+    #[test]
+    fn rejects_empty_or_overlong_aggregate_id() {
+        assert!(validate_event_body(&body("x", "", Value::Null)).is_err());
+        let long = "1".repeat(PLUGIN_AGGREGATE_ID_MAX + 1);
+        assert!(validate_event_body(&body("x", &long, Value::Null)).is_err());
+    }
+
+    #[test]
+    fn rejects_oversized_data() {
+        let big = json!({ "blob": "x".repeat(PLUGIN_EVENT_DATA_MAX) });
+        assert!(validate_event_body(&body("x", "42", big)).is_err());
+    }
+
+    /// B6 structural guard: a caller cannot supply `groups`. Unknown fields are
+    /// ignored on deserialize, so an injected topic list is dropped and fan-out
+    /// is always host-derived (`groups::workspace()`).
+    #[test]
+    fn caller_supplied_groups_are_dropped() {
+        let parsed: PluginEventBody = serde_json::from_value(json!({
+            "aggregate": "ticket",
+            "aggregate_id": "42",
+            "op": "U",
+            "event_type": "x.done",
+            "data": {},
+            "groups": ["user:00000000-0000-0000-0000-000000000000", "ticket:99"],
+        }))
+        .expect("body parses, ignoring the injected groups");
+        // There is no `groups` field to carry the injected topics; the handler
+        // always emits to the workspace group.
+        assert_eq!(parsed.aggregate_id, "42");
+        assert_eq!(parsed.event_type, "x.done");
     }
 }
