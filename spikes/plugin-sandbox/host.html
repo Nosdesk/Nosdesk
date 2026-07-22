@@ -1,0 +1,96 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>plugin-sandbox spike</title>
+    <style>
+      body { font: 14px system-ui, sans-serif; margin: 2rem; max-width: 780px; }
+      table { border-collapse: collapse; margin: 1rem 0; width: 100%; }
+      td, th { border: 1px solid #ccc; padding: 6px 10px; text-align: left; vertical-align: top; }
+      .p { color: #0a0; font-weight: 600; }
+      .f { color: #c00; font-weight: 600; }
+      code { background: #f3f3f3; padding: 1px 4px; }
+      iframe { width: 320px; height: 60px; border: 1px solid #ddd; margin-top: 1rem; }
+    </style>
+  </head>
+  <body>
+    <h1>Plugin sandbox spike 0</h1>
+    <p>host origin: <code id="o"></code></p>
+    <table>
+      <thead><tr><th>Check</th><th>Result</th></tr></thead>
+      <tbody id="r"></tbody>
+    </table>
+    <!-- No `credentialless`: Chromium-only + unsupported in WebKit/iOS, and only
+         needed for COEP/SharedArrayBuffer, which the bridge does not use. The
+         opaque origin + connect-src none already prevent credentialed requests. -->
+    <iframe id="f" sandbox="allow-scripts" referrerpolicy="no-referrer" allow=""></iframe>
+    <script type="module">
+      // Sandbox base. Default = a separate origin (this host, port 5311). With
+      // ?mode=same = SAME origin under /so, which proves a same-origin `src`
+      // still opaque-ifies under sandbox="allow-scripts" (the zero-config
+      // self-host path: cookie/localStorage must STILL throw).
+      const SAME_ORIGIN = new URLSearchParams(location.search).get('mode') === 'same';
+      const SANDBOX = SAME_ORIGIN
+        ? `${location.origin}/so`
+        : `${location.protocol}//${location.hostname}:5311`;
+      document.cookie = 'spike_host_cookie=secret; SameSite=Lax';
+      document.getElementById('o').textContent = location.origin;
+      const rows = document.getElementById('r');
+      // Machine-readable hook so Playwright (or any driver) can assert without
+      // scraping the DOM: window.__spike.done + window.__spike.results[].
+      const results = [];
+      window.__spike = { done: false, results };
+      const finish = () => {
+        settled = true;
+        window.__spike.done = true;
+      };
+      const row = (name, ok, detail) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML =
+          `<td>${name}</td><td class="${ok ? 'p' : 'f'}">${ok ? 'PASS' : 'FAIL'}` +
+          `${detail ? ' — ' + detail : ''}</td>`;
+        rows.appendChild(tr);
+        results.push({ name, ok, detail });
+      };
+
+      const f = document.getElementById('f');
+      const chan = new MessageChannel();
+      let settled = false;
+
+      chan.port1.onmessage = (e) => {
+        const m = e.data;
+        if (m.type === 'mounted') {
+          const ok = m.ok !== false;
+          row('M1 opaque-origin iframe imports runtime + bundle, runs mount() under strict CSP', ok, m.info);
+          if (ok) chan.port1.postMessage({ type: 'selfcheck' });
+          else finish();
+        } else if (m.type === 'selfcheck') {
+          row('M2 MessageChannel round-trip host &lt;-&gt; iframe', true);
+          row('M3a document.cookie unreachable in sandbox', m.cookie.blocked, m.cookie.info);
+          row('M3b localStorage unreachable in sandbox', m.storage.blocked, m.storage.info);
+          row('M3c direct fetch to host origin blocked (connect-src none)', m.hostFetch.blocked, m.hostFetch.info);
+          finish();
+        }
+      };
+
+      f.addEventListener('load', () => {
+        // Transfer the port to THIS iframe's contentWindow. Opaque-origin frames
+        // report event.origin === "null", so we rely on the port capability +
+        // targeting this exact window, not on origin-string validation.
+        f.contentWindow.postMessage({ type: 'init', hostOrigin: location.origin }, '*', [chan.port2]);
+      });
+      // Token authorizes the one runtime load; no cookies needed.
+      f.src = `${SANDBOX}/runtime.html?token=spike-token`;
+
+      // Generous watchdog: a cold Playwright-WebKit cross-origin module load can
+      // take >4s of browser warm-up. On real hardware this settles in well under
+      // a second; this only guards a genuine hang.
+      setTimeout(() => {
+        if (!settled) {
+          row('handshake completed', false, 'no response — check the console; likely CSP/CORS or opaque-origin module loading');
+          finish();
+        }
+      }, 12_000);
+    </script>
+  </body>
+</html>
