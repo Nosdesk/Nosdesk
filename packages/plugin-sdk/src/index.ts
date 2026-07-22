@@ -15,6 +15,10 @@
 export { connectToHost, proxy } from './connect';
 export type { PluginRuntime } from './connect';
 
+// Host-side bridge (used by the app + the bridge harness, not by plugins).
+export { createRemoteHostApi, postInit, postContext } from './host';
+export type { HostBridge } from './host';
+
 export type {
   HostApi,
   PluginContext,
