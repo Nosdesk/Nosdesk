@@ -196,10 +196,14 @@ jobs:
       - name: Plugin runtime lint (@nosdesk/plugin-runtime)
         run: pnpm --filter @nosdesk/plugin-runtime run lint
 
-      # Also a real integration check: the runtime must bundle with the SDK +
-      # comlink into a valid ESM (catches an SDK contract break).
-      - name: Plugin runtime build (@nosdesk/plugin-runtime)
-        run: pnpm --filter @nosdesk/plugin-runtime run build
+      # Build the runtime and assert the committed, backend-served bundle is in
+      # sync with its source. Doubles as an integration check that the runtime +
+      # SDK + comlink compose into valid ESM; the drift check catches a
+      # runtime.ts (or SDK) change that wasn't rebuilt + committed.
+      - name: Plugin runtime build + drift check
+        run: |
+          pnpm --filter @nosdesk/plugin-runtime run build
+          git diff --exit-code backend/src/handlers/plugin_sandbox/runtime.js
 
       - name: Audit
         # Advisory only — must not hard-block merges. npm retired the legacy

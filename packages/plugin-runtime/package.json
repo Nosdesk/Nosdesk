@@ -5,7 +5,7 @@
   "type": "module",
   "description": "The Vue-free iframe runtime for Nosdesk sandboxed plugins: establishes the host bridge, imports the token-authorized bundle, mounts it.",
   "scripts": {
-    "build": "esbuild src/runtime.ts --bundle --format=esm --minify --target=es2022 --outfile=dist/runtime.js",
+    "build": "esbuild src/runtime.ts --bundle --format=esm --target=es2022 --banner:js='// GENERATED from @nosdesk/plugin-runtime src/runtime.ts by `pnpm --filter @nosdesk/plugin-runtime build`. Do not edit by hand; CI drift-checks it.' --outfile=../../backend/src/handlers/plugin_sandbox/runtime.js",
     "type-check": "tsc --noEmit",
     "lint": "eslint src"
   },
