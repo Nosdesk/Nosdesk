@@ -1,0 +1,15 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Nosdesk plugin</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- Relative path resolves to /__plugin-sandbox/runtime.js on whichever
+         origin served this shell. Under the opaque sandbox origin this is a
+         cross-origin module fetch (CORS). CSP script-src lists the explicit
+         runtime origin (an opaque origin can't use 'self'). -->
+    <script type="module" src="./runtime.js"></script>
+  </body>
+</html>
