@@ -1,0 +1,15 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>plugin bridge harness — host</title>
+  </head>
+  <body data-sandbox-origin="http://127.0.0.1:5321">
+    <h1>plugin bridge harness</h1>
+    <!-- The plugin's notify() arg lands here, on the host origin. -->
+    <div id="result">pending</div>
+    <div id="host-log"></div>
+    <div id="frame-slot"></div>
+    <script type="module" src="./host.js"></script>
+  </body>
+</html>

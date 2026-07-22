@@ -1,0 +1,14 @@
+{
+  "name": "plugin-bridge-harness",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "serve": "node build.mjs && node serve.mjs",
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1",
+    "esbuild": "^0.25.0"
+  }
+}

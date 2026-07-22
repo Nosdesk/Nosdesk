@@ -1,0 +1,14 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>plugin runtime</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- The real @nosdesk/plugin-runtime bundle: reads ?t, connectToHost(),
+         imports ./bundle?t=<token>, mounts. Loaded from the explicit sandbox
+         host (CSP script-src lists it); cross-origin module fetch => CORS. -->
+    <script type="module" src="./runtime.js"></script>
+  </body>
+</html>
