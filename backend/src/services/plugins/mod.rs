@@ -3,6 +3,7 @@
 //! Services for plugin functionality including external request proxying
 //! and provisioning.
 
+pub mod bundle_token;
 pub mod install;
 pub mod lifecycle;
 pub mod local_key;

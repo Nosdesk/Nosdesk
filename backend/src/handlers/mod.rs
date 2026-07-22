@@ -57,6 +57,7 @@ pub mod passkeys;
 pub mod password_reset;
 pub mod plugin_collections;
 pub mod plugin_events;
+pub mod plugin_sandbox;
 pub mod plugins;
 pub mod portal;
 pub mod projects;

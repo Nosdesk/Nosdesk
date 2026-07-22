@@ -796,6 +796,14 @@ pub fn configure_app(
                     .configure(crate::handlers::internal_workspaces::config)
             )
 
+            // === PLUGIN SANDBOX (unauthenticated; token-gated) ===
+            // Serves the sandboxed-iframe runtime + token-authorized bundle bytes
+            // at /__plugin-sandbox/*. Outside /api by design: the sandbox iframe
+            // is credential-less (no cookie), so the bundle is authorized by a
+            // short-lived token, not the session. `SecurityHeaders` skips this
+            // path so the runtime's own CSP (and cross-origin framing) survive.
+            .configure(crate::handlers::plugin_sandbox::config)
+
             // === PROTECTED ROUTES (AUTHENTICATION REQUIRED) ===
             // Supports both cookie-based auth (browser) and Bearer token auth (API clients)
             .service(

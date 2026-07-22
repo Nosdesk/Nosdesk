@@ -409,6 +409,16 @@ where
 
         Box::pin(async move {
             let mut res = fut.await?;
+
+            // The plugin sandbox routes serve their own precise headers (a
+            // runtime-specific CSP, CORS, CORP). The app-wide policy must NOT
+            // apply, in particular `X-Frame-Options: DENY` below would block the
+            // sandbox iframe, which is embedded (cross-origin framing that only
+            // CSP `frame-ancestors` can express). Leave them untouched.
+            if path.starts_with("/__plugin-sandbox") {
+                return Ok(res);
+            }
+
             let headers = res.headers_mut();
 
             // Cache-Control: only set defaults when the handler

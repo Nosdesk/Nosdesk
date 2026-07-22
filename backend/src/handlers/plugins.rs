@@ -99,6 +99,13 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         "/plugins/{uuid}/bundle",
         web::get().to(crate::handlers::plugins::serve_plugin_bundle),
     )
+    // Mint a short-lived token the sandbox iframe uses to fetch this plugin's
+    // bundle cross-origin (it can't send the session cookie). The sandbox
+    // runtime + token-gated /bundle live at the top-level /__plugin-sandbox scope.
+    .route(
+        "/plugins/{uuid}/bundle-token",
+        web::get().to(crate::handlers::plugin_sandbox::mint_bundle_token),
+    )
     .route(
         "/plugins/{uuid}/icon",
         web::get().to(crate::handlers::plugins::serve_plugin_icon),

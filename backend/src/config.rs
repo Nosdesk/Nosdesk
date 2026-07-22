@@ -35,6 +35,12 @@ pub struct Config {
     pub max_payload_size: usize,
     pub frontend_url: String,
     pub additional_origins: Vec<String>,
+    /// Optional separate origin the plugin sandbox runtime is served from
+    /// (`NOSDESK_SANDBOX_ORIGIN`, e.g. `https://plugins.example.com`). Defense in
+    /// depth only: plugins always run in an opaque sandboxed iframe regardless.
+    /// When `None`, the runtime is served from the app origin under
+    /// `/__plugin-sandbox/*` (the zero-config self-host / dev default).
+    pub sandbox_origin: Option<String>,
     /// Tenant domain suffix for hosted-mode CORS (M5 Task 6); `None` self-hosted.
     pub tenant_domain: Option<String>,
     /// Graceful-drain budget for in-flight HTTP requests on shutdown, passed to
@@ -201,6 +207,13 @@ impl Config {
             .and_then(|s| s.parse::<u64>().ok())
             .unwrap_or(25);
 
+        // Optional separate origin for the plugin sandbox runtime (defense in
+        // depth; the opaque iframe isolates plugins regardless). Trailing slash
+        // trimmed so callers can build `<origin>/__plugin-sandbox/...` cleanly.
+        let sandbox_origin = get("NOSDESK_SANDBOX_ORIGIN")
+            .map(|s| s.trim().trim_end_matches('/').to_string())
+            .filter(|s| !s.is_empty());
+
         Ok(Config {
             environment,
             is_production,
@@ -213,6 +226,7 @@ impl Config {
             max_payload_size,
             frontend_url,
             additional_origins,
+            sandbox_origin,
             tenant_domain,
             shutdown_timeout_secs,
         })
