@@ -588,12 +588,14 @@ export function getHostApiForPlugin(plugin: Plugin): PluginAPI {
     case 'local':
       return createPluginAPI(plugin);
     case 'community':
-      // The sandboxed transport for community-tier plugins is not
-      // wired yet; until it ships, community plugins fall back to
-      // the in-process impl. The architectural review's stricter
-      // posture (run community in a null-origin iframe) is a
-      // committed follow-up, not a regression in security from
-      // today's behaviour.
+      // Community plugins RENDER in the opaque-origin iframe sandbox
+      // (`PluginSlotItem` -> `PluginSandboxFrame`, host API bridged via
+      // `createHostApiImpl`), never through this in-process instance.
+      // This arm is reached only by the event dispatcher's per-plugin
+      // cache; the in-process impl there is inert for community plugins
+      // (component rendering is gated off, and event delivery to
+      // sandboxed plugins is a committed follow-up), so returning it is
+      // harmless and keeps the dispatcher's loop uniform.
       return createPluginAPI(plugin);
     default:
       // Unknown tier (forward-compat for future tiers we haven't

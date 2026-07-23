@@ -349,6 +349,16 @@ const pluginService = {
       throw error;
     }
   },
+
+  // Mint a short-lived, workspace + plugin + bundle-hash scoped token the
+  // sandbox iframe uses to fetch this plugin's bundle cross-origin (it can't
+  // send the session cookie). `runtime_url` is the ready-to-embed iframe src.
+  async getBundleToken(
+    pluginUuid: string,
+  ): Promise<{ token: string; runtime_url: string; expires_in: number }> {
+    const response = await apiClient.get(`/plugins/${pluginUuid}/bundle-token`);
+    return response.data;
+  },
 };
 
 export default pluginService;
