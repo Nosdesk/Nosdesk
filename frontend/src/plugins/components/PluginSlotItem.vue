@@ -10,6 +10,8 @@ import { onErrorCaptured, ref, watchEffect } from 'vue';
 import { getLoadedPlugin, type PluginSlotRegistration } from '../loader';
 import { getHostApiForPlugin } from '../api';
 import { createPluginComponent, canRenderComponent } from '../componentLoader';
+import { isSandboxed } from '../sandboxHostApi';
+import PluginSandboxFrame from './PluginSandboxFrame.vue';
 import { logger } from '@nosdesk/core/utils/logger';
 import type { Ticket } from '@nosdesk/core/types/ticket';
 import type { Asset } from '@nosdesk/core/types/asset';
@@ -30,17 +32,23 @@ onErrorCaptured((err) => {
   return false;
 });
 
-// Check if this plugin can render a component (has bundle, trusted, etc.)
-const canRender = canRenderComponent(props.registration.pluginUuid);
+// Sandboxed (community-tier) plugins render in an iframe via PluginSandboxFrame,
+// not the in-process Vue-component path. Resolve the tier first so we don't build
+// an in-process API/component for them.
+const loaded = getLoadedPlugin(props.registration.pluginUuid);
+const sandboxed = loaded ? isSandboxed(loaded.plugin) : false;
+
+// Check if this plugin can render a component in-process (has bundle, trusted).
+const canRender = !sandboxed && canRenderComponent(props.registration.pluginUuid);
 
 // Create async component once at setup (stable reference prevents re-fetching)
 const asyncComponent = canRender
   ? createPluginComponent(props.registration.pluginUuid, props.registration.componentName)
   : null;
 
-// Create plugin API once at setup
-const loaded = getLoadedPlugin(props.registration.pluginUuid);
-const api = loaded ? getHostApiForPlugin(loaded.plugin) : null;
+// Create the in-process plugin API once at setup (sandboxed plugins get theirs
+// inside the frame, over the bridge).
+const api = !sandboxed && loaded ? getHostApiForPlugin(loaded.plugin) : null;
 
 // Keep API context in sync with props
 watchEffect(() => {
@@ -64,6 +72,14 @@ watchEffect(() => {
       <div class="font-medium">Plugin Error</div>
       <div class="text-xs mt-1">{{ error }}</div>
     </div>
+
+    <!-- Sandboxed (community-tier) plugin: opaque-origin iframe over the bridge -->
+    <PluginSandboxFrame
+      v-else-if="sandboxed && loaded"
+      :plugin="loaded.plugin"
+      :ticket="ticket"
+      :device="device"
+    />
 
     <!-- Render component (bundle is preloaded so this resolves instantly) -->
     <component
