@@ -18,6 +18,11 @@
 # crates that are stable-enough-not-to-need-releases.
 version = 2
 yanked = "deny"
+# Only gate "unmaintained" advisories for direct workspace deps, not transitive
+# ones (matches the policy above). Without this, a fresh unmaintained advisory on
+# a crate deep in the tree (e.g. smallstr via yrs) fails CI repo-wide with nothing
+# actionable. Vulnerability advisories are still gated for the whole tree.
+unmaintained = "workspace"
 ignore = [
     # RUSTSEC-2023-0071 — rsa 0.9.10 "Marvin Attack" timing sidechannel
     # on RSA decryption. 5.9 medium. No upstream fix.
