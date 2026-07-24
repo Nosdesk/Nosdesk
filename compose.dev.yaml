@@ -250,6 +250,8 @@ services:
       - core_node_modules:/repo/packages/core/node_modules
       - ./mobile:/repo/mobile
       - mobile_node_modules:/repo/mobile/node_modules
+      - ./packages/plugin-sdk:/repo/packages/plugin-sdk
+      - plugin_sdk_node_modules:/repo/packages/plugin-sdk/node_modules
       # pnpm workspace node_modules live in volumes (not on the host bind
       # mount) so the symlinked store resolves and host artifacts don't collide.
       - frontend_node_modules:/repo/node_modules
@@ -272,6 +274,8 @@ volumes:
   core_node_modules:
     driver: local
   mobile_node_modules:
+    driver: local
+  plugin_sdk_node_modules:
     driver: local
   backend_cargo_cache:
     driver: local
