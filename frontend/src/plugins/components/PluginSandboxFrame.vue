@@ -32,8 +32,15 @@ const error = ref<string | null>(null);
 let bridge: HostBridge | null = null;
 let connected = false;
 
+// The context is posted over postMessage (structured clone), so it must be a
+// plain, clone-safe projection. The props are Vue reactive proxies and may carry
+// non-cloneable fields; a JSON round-trip strips both the reactivity and anything
+// structured clone would reject.
+function plain<T>(value: T | undefined): T | null {
+  return value == null ? null : (JSON.parse(JSON.stringify(value)) as T);
+}
 function snapshot(): PluginContext {
-  return { ticket: props.ticket ?? null, device: props.device ?? null };
+  return { ticket: plain(props.ticket), device: plain(props.device) };
 }
 
 function onFrameLoad(): void {
