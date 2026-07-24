@@ -353,10 +353,25 @@ function connectToHost() {
     window.addEventListener("message", onMessage);
   });
 }
+function reportHeight(height) {
+  window.parent.postMessage({ type: "nosdesk-plugin-height", height }, "*");
+}
 
 // src/runtime.ts
 var token = new URLSearchParams(location.search).get("t");
 var root = document.getElementById("root");
+function observeHeight(el) {
+  let last = -1;
+  const report = () => {
+    const h = Math.ceil(el.getBoundingClientRect().height);
+    if (h > 0 && h !== last) {
+      last = h;
+      reportHeight(h);
+    }
+  };
+  new ResizeObserver(report).observe(el);
+  report();
+}
 async function boot() {
   if (!root) throw new Error("sandbox runtime: no #root element");
   if (!token) throw new Error("sandbox runtime: missing bundle token");
@@ -371,6 +386,7 @@ async function boot() {
   }
   const plugin = mod.default;
   let cleanup = plugin.mount(root, runtime.api, runtime.context) ?? void 0;
+  observeHeight(root);
   runtime.onContextChange((ctx) => {
     if (cleanup) cleanup();
     root.replaceChildren();

@@ -10,7 +10,7 @@
  * no cookies, no first-party DOM, all host access flows through the bridge.
  */
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { createRemoteHostApi, postContext, postInit } from '@nosdesk/plugin-sdk';
+import { createRemoteHostApi, postContext, postInit, watchPluginHeight } from '@nosdesk/plugin-sdk';
 import type { HostBridge, PluginContext } from '@nosdesk/plugin-sdk';
 import pluginService from '@nosdesk/core/services/pluginService';
 import { logger } from '@nosdesk/core/utils/logger';
@@ -29,9 +29,11 @@ const props = defineProps<{
 const frameRef = ref<HTMLIFrameElement | null>(null);
 const runtimeUrl = ref<string | null>(null);
 const error = ref<string | null>(null);
+const iframeHeight = ref<number | null>(null);
 
 let bridge: HostBridge | null = null;
 let unregisterInstance: (() => void) | null = null;
+let stopHeight: (() => void) | null = null;
 let connected = false;
 
 // The context is posted over postMessage (structured clone), so it must be a
@@ -58,6 +60,15 @@ function onFrameLoad(): void {
   bridge = createRemoteHostApi(hostApi);
   postInit(win, bridge, snapshot());
   connected = true;
+
+  // Size the iframe to the plugin's reported content height.
+  stopHeight?.();
+  const iframe = frameRef.value;
+  stopHeight = iframe
+    ? watchPluginHeight(iframe, (px) => {
+        iframeHeight.value = px;
+      })
+    : null;
 }
 
 onMounted(async () => {
@@ -84,6 +95,8 @@ onBeforeUnmount(() => {
   bridge = null;
   unregisterInstance?.();
   unregisterInstance = null;
+  stopHeight?.();
+  stopHeight = null;
   connected = false;
 });
 </script>
@@ -106,6 +119,7 @@ onBeforeUnmount(() => {
       sandbox="allow-scripts"
       referrerpolicy="no-referrer"
       class="plugin-sandbox-iframe"
+      :style="iframeHeight ? { height: `${iframeHeight}px` } : undefined"
       @load="onFrameLoad"
     />
   </div>
@@ -117,9 +131,10 @@ onBeforeUnmount(() => {
   width: 100%;
   border: 0;
   background: transparent;
-  /* v1: a fixed min-height. Auto-resize to content (a plugin-reported height
-     over the bridge) is a follow-up; a cross-origin iframe can't self-size. */
-  min-height: 8rem;
+  /* Height tracks the plugin's reported content height (inline style, set from
+     the runtime's ResizeObserver over the bridge). min-height is the floor until
+     the first report arrives. */
+  min-height: 4rem;
 }
 
 @media print {

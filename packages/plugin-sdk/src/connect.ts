@@ -71,3 +71,14 @@ export function connectToHost(): Promise<PluginRuntime> {
 /** Re-export so a plugin can wrap its own callbacks (e.g. for `api.on`) when it
  * needs to pass a function across the bridge. */
 export const proxy = Comlink.proxy;
+
+/**
+ * Report the plugin's current content height (px) to the host so it can size the
+ * iframe to the content (a cross-origin sandboxed iframe can't self-size). Posted
+ * as a plain window message to the parent, not over the Comlink port; the host
+ * matches it by `event.source` (the port is the API capability, this is display
+ * only). The runtime calls this automatically via a ResizeObserver.
+ */
+export function reportHeight(height: number): void {
+  window.parent.postMessage({ type: 'nosdesk-plugin-height', height }, '*');
+}
