@@ -33,7 +33,6 @@ export {
 // Event Dispatcher
 export {
   initializeEventDispatcher,
-  refreshPluginApis,
   isEventDispatcherInitialized,
   stopEventDispatcher,
 } from './eventDispatcher';
