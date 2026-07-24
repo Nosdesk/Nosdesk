@@ -9,11 +9,27 @@
 // and served by the backend at /__plugin-sandbox/runtime.js. It is NOT loadable
 // standalone: connectToHost() resolves only once the host posts the init message
 // with the transferred MessageChannel port (the host bridge, sandbox step 4).
-import { connectToHost } from '@nosdesk/plugin-sdk';
+import { connectToHost, reportHeight } from '@nosdesk/plugin-sdk';
 import type { PluginModule } from '@nosdesk/plugin-sdk';
 
 const token = new URLSearchParams(location.search).get('t');
 const root = document.getElementById('root');
+
+// Report content height to the host on every change so it can size the iframe
+// (a cross-origin sandboxed iframe can't self-size). Deduped to avoid a resize
+// feedback loop.
+function observeHeight(el: HTMLElement): void {
+  let last = -1;
+  const report = (): void => {
+    const h = Math.ceil(el.getBoundingClientRect().height);
+    if (h > 0 && h !== last) {
+      last = h;
+      reportHeight(h);
+    }
+  };
+  new ResizeObserver(report).observe(el);
+  report();
+}
 
 async function boot(): Promise<void> {
   if (!root) throw new Error('sandbox runtime: no #root element');
@@ -33,6 +49,7 @@ async function boot(): Promise<void> {
   const plugin = mod.default;
 
   let cleanup = plugin.mount(root, runtime.api, runtime.context) ?? undefined;
+  observeHeight(root);
 
   // v1 context updates are coarse: re-mount on change. A plugin that wants
   // fine-grained updates can hold its own state and diff; a richer update

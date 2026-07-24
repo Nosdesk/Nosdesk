@@ -46,3 +46,29 @@ export function postInit(target: Window, bridge: HostBridge, context: PluginCont
 export function postContext(target: Window, context: PluginContext): void {
   target.postMessage({ type: 'nosdesk-plugin-context', context }, '*');
 }
+
+interface PluginHeightMessage {
+  type: 'nosdesk-plugin-height';
+  height: number;
+}
+
+/**
+ * Listen for content-height reports from a specific plugin iframe so the host can
+ * size it to its content. Matches by `event.source === iframe.contentWindow` (an
+ * opaque sandboxed frame has origin `"null"`, so source identity is the check, not
+ * the origin). Returns a cleanup fn. Pairs with the runtime's `reportHeight`.
+ */
+export function watchPluginHeight(
+  iframe: HTMLIFrameElement,
+  onHeight: (px: number) => void,
+): () => void {
+  function onMessage(event: MessageEvent): void {
+    if (event.source !== iframe.contentWindow) return;
+    const data = event.data as PluginHeightMessage | undefined;
+    if (data?.type === 'nosdesk-plugin-height' && typeof data.height === 'number') {
+      onHeight(data.height);
+    }
+  }
+  window.addEventListener('message', onMessage);
+  return () => window.removeEventListener('message', onMessage);
+}
