@@ -23,6 +23,7 @@ export type {
   HostApi,
   PluginContext,
   PluginModule,
+  PluginInstance,
   PluginComment,
   PluginAttachment,
   PluginCollection,

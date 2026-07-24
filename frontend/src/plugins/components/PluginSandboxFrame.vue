@@ -22,8 +22,12 @@ import { registerPluginInstance } from '../pluginInstances';
 
 const props = defineProps<{
   plugin: Plugin;
+  /** Which manifest component this frame renders (a bundle may declare several). */
+  component: { name: string; slot: string };
   ticket?: Ticket;
   device?: Asset;
+  /** Monotonic counter from the host action menu; forwarded to the plugin. */
+  actionActivated?: number;
 }>();
 
 const frameRef = ref<HTMLIFrameElement | null>(null);
@@ -44,7 +48,12 @@ function plain<T>(value: T | undefined): T | null {
   return value == null ? null : (JSON.parse(JSON.stringify(value)) as T);
 }
 function snapshot(): PluginContext {
-  return { ticket: plain(props.ticket), device: plain(props.device) };
+  return {
+    ticket: plain(props.ticket),
+    device: plain(props.device),
+    component: { name: props.component.name, slot: props.component.slot },
+    actionActivated: props.actionActivated,
+  };
 }
 
 function onFrameLoad(): void {
@@ -81,9 +90,10 @@ onMounted(async () => {
   }
 });
 
-// Push a fresh context snapshot whenever the slot's ticket/device changes.
+// Push a fresh context snapshot whenever ticket/device or the action counter
+// changes (the action counter is how a host menu trigger reaches the plugin).
 watch(
-  [() => props.ticket, () => props.device],
+  [() => props.ticket, () => props.device, () => props.actionActivated],
   () => {
     const win = frameRef.value?.contentWindow;
     if (connected && win) postContext(win, snapshot());
