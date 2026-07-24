@@ -33,6 +33,7 @@ provide('pluginSlot', props.slotName);
     v-for="reg in registrations"
     :key="`${reg.pluginUuid}-${reg.componentName}`"
     :registration="reg"
+    :slot-name="slotName"
     :ticket="ticket"
     :device="device"
     :actionActivated="actionActivatedMap?.get(`${reg.pluginUuid}:${reg.componentName}`)"

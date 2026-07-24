@@ -326,7 +326,7 @@ function generateUUID() {
 function connectToHost() {
   return new Promise((resolve) => {
     const listeners = /* @__PURE__ */ new Set();
-    let context = { ticket: null, device: null };
+    let context = { ticket: null, device: null, component: { name: "", slot: "" } };
     let connected = false;
     function onMessage(event) {
       const data = event.data;
@@ -358,6 +358,11 @@ function reportHeight(height) {
 }
 
 // src/runtime.ts
+function toInstance(result) {
+  if (typeof result === "function") return { unmount: result };
+  if (result && typeof result === "object") return result;
+  return {};
+}
 var token = new URLSearchParams(location.search).get("t");
 var root = document.getElementById("root");
 function observeHeight(el) {
@@ -385,12 +390,16 @@ async function boot() {
     throw new Error("sandbox runtime: bundle has no default { mount } export");
   }
   const plugin = mod.default;
-  let cleanup = plugin.mount(root, runtime.api, runtime.context) ?? void 0;
+  let instance = toInstance(plugin.mount(root, runtime.api, runtime.context));
   observeHeight(root);
   runtime.onContextChange((ctx) => {
-    if (cleanup) cleanup();
+    if (instance.update) {
+      instance.update(ctx);
+      return;
+    }
+    instance.unmount?.();
     root.replaceChildren();
-    cleanup = plugin.mount(root, runtime.api, ctx) ?? void 0;
+    instance = toInstance(plugin.mount(root, runtime.api, ctx));
   });
 }
 boot().catch((e) => {

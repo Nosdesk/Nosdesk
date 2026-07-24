@@ -119,12 +119,31 @@ export interface HostApi {
 export interface PluginContext {
   ticket: Ticket | null;
   device: Asset | null;
+  /** Which of the plugin's manifest components this mount is rendering. A bundle
+   * may declare several (different slots); the plugin switches its UI on `name`
+   * (the manifest `components` map key) / `slot`. */
+  component: { name: string; slot: string };
+  /** Monotonic counter for this component's declared `action` (a host menu
+   * trigger). Increments on each activation; absent if the component declares no
+   * action. The plugin reacts (e.g. opens a panel) when it changes. */
+  actionActivated?: number;
+}
+
+/** What a plugin's `mount` may return to get granular updates instead of a
+ * re-mount: `update` is called with each new context, `unmount` on teardown.
+ * Both optional — omitting `update` falls back to unmount + re-mount. */
+export interface PluginInstance {
+  update?(context: PluginContext): void;
+  unmount?(): void;
 }
 
 /** A plugin bundle's default export: the framework-agnostic entry. The runtime
- * calls `mount` once the bridge is ready; a returned function is the teardown. */
+ * calls `mount` once the bridge is ready. Return nothing or a teardown function
+ * for a simple plugin (re-mounted on context change), or a `PluginInstance` to
+ * handle context updates in place. */
 export interface PluginModule {
   mount(rootEl: HTMLElement, api: import('comlink').Remote<HostApi>, context: PluginContext):
     | void
-    | (() => void);
+    | (() => void)
+    | PluginInstance;
 }

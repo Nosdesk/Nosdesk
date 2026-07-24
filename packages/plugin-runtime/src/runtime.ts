@@ -10,7 +10,14 @@
 // standalone: connectToHost() resolves only once the host posts the init message
 // with the transferred MessageChannel port (the host bridge, sandbox step 4).
 import { connectToHost, reportHeight } from '@nosdesk/plugin-sdk';
-import type { PluginModule } from '@nosdesk/plugin-sdk';
+import type { PluginInstance, PluginModule } from '@nosdesk/plugin-sdk';
+
+/** Normalize the value a plugin's `mount` returns into a `PluginInstance`. */
+function toInstance(result: void | (() => void) | PluginInstance): PluginInstance {
+  if (typeof result === 'function') return { unmount: result };
+  if (result && typeof result === 'object') return result;
+  return {};
+}
 
 const token = new URLSearchParams(location.search).get('t');
 const root = document.getElementById('root');
@@ -48,16 +55,20 @@ async function boot(): Promise<void> {
   }
   const plugin = mod.default;
 
-  let cleanup = plugin.mount(root, runtime.api, runtime.context) ?? undefined;
+  let instance = toInstance(plugin.mount(root, runtime.api, runtime.context));
   observeHeight(root);
 
-  // v1 context updates are coarse: re-mount on change. A plugin that wants
-  // fine-grained updates can hold its own state and diff; a richer update
-  // channel can come later without changing the mount contract.
+  // On context change (ticket/device/action), prefer the plugin's in-place
+  // `update` (no re-mount, keeps state — needed for action signals); fall back to
+  // unmount + re-mount for simple plugins that returned void / a cleanup fn.
   runtime.onContextChange((ctx) => {
-    if (cleanup) cleanup();
+    if (instance.update) {
+      instance.update(ctx);
+      return;
+    }
+    instance.unmount?.();
     root.replaceChildren();
-    cleanup = plugin.mount(root, runtime.api, ctx) ?? undefined;
+    instance = toInstance(plugin.mount(root, runtime.api, ctx));
   });
 }
 

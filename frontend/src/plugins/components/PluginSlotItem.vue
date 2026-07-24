@@ -19,6 +19,7 @@ import type { Asset } from '@nosdesk/core/types/asset';
 
 const props = defineProps<{
   registration: PluginSlotRegistration;
+  slotName: string;
   ticket?: Ticket;
   device?: Asset;
   actionActivated?: number;
@@ -85,8 +86,10 @@ watchEffect(() => {
     <PluginSandboxFrame
       v-else-if="sandboxed && loaded"
       :plugin="loaded.plugin"
+      :component="{ name: registration.componentName, slot: slotName }"
       :ticket="ticket"
       :device="device"
+      :actionActivated="actionActivated"
     />
 
     <!-- Render component (bundle is preloaded so this resolves instantly) -->
