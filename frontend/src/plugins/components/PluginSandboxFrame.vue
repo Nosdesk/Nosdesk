@@ -18,6 +18,7 @@ import type { Plugin } from '@nosdesk/core/types/plugin';
 import type { Ticket } from '@nosdesk/core/types/ticket';
 import type { Asset } from '@nosdesk/core/types/asset';
 import { createHostApiImpl } from '../sandboxHostApi';
+import { registerPluginInstance } from '../pluginInstances';
 
 const props = defineProps<{
   plugin: Plugin;
@@ -30,6 +31,7 @@ const runtimeUrl = ref<string | null>(null);
 const error = ref<string | null>(null);
 
 let bridge: HostBridge | null = null;
+let unregisterInstance: (() => void) | null = null;
 let connected = false;
 
 // The context is posted over postMessage (structured clone), so it must be a
@@ -48,7 +50,12 @@ function onFrameLoad(): void {
   if (!win) return;
   // A fresh bridge per load (the runtime reloads on token refresh / remount).
   bridge?.dispose();
-  bridge = createRemoteHostApi(createHostApiImpl(props.plugin));
+  unregisterInstance?.();
+  const { hostApi, inproc } = createHostApiImpl(props.plugin);
+  // Register the backing instance so the event dispatcher can reach this
+  // sandboxed plugin's `on` handlers (they land on `inproc`, over the bridge).
+  unregisterInstance = registerPluginInstance(props.plugin.uuid, inproc);
+  bridge = createRemoteHostApi(hostApi);
   postInit(win, bridge, snapshot());
   connected = true;
 }
@@ -75,6 +82,8 @@ watch(
 onBeforeUnmount(() => {
   bridge?.dispose();
   bridge = null;
+  unregisterInstance?.();
+  unregisterInstance = null;
   connected = false;
 });
 </script>

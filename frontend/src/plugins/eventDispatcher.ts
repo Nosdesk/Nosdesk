@@ -10,8 +10,8 @@
 
 import { onSyncActions } from '@nosdesk/core/sync/observers';
 import type { SyncAction } from '@nosdesk/core/sync/types';
-import { getLoadedPlugins } from './loader';
-import { getHostApiForPlugin } from './api';
+import { getLoadedPlugin } from './loader';
+import { forEachLiveInstance } from './pluginInstances';
 import { logger } from '@nosdesk/core/utils/logger';
 import type { PluginEvent } from '@nosdesk/core/types/plugin';
 
@@ -67,9 +67,6 @@ const RESTRICTED_EVENTS: PluginEvent[] = [
 // Event Dispatcher
 // =============================================================================
 
-// Cached plugin APIs for event dispatch
-const pluginApis = new Map<string, ReturnType<typeof getHostApiForPlugin>>();
-
 // Cleanup function reference
 let cleanupFn: (() => void) | null = null;
 
@@ -86,16 +83,7 @@ export function initializeEventDispatcher(): () => void {
     return cleanupFn;
   }
 
-  // Build plugin API cache
-  pluginApis.clear();
-  for (const { plugin } of getLoadedPlugins()) {
-    pluginApis.set(plugin.uuid, getHostApiForPlugin(plugin));
-  }
-
-  logger.info('Event dispatcher initialized', {
-    pluginCount: pluginApis.size,
-    plugins: Array.from(pluginApis.keys()),
-  });
+  logger.info('Event dispatcher initialized');
 
   // Subscribe to the sync change-stream. Each action maps to zero or
   // more plugin events; the action itself is the payload so handlers
@@ -110,7 +98,6 @@ export function initializeEventDispatcher(): () => void {
 
   cleanupFn = () => {
     unsubscribe();
-    pluginApis.clear();
     cleanupFn = null;
     logger.debug('Event dispatcher cleaned up');
   };
@@ -119,28 +106,27 @@ export function initializeEventDispatcher(): () => void {
 }
 
 /**
- * Dispatch an event to all plugin handlers
+ * Dispatch an event to every live plugin instance's handlers.
+ *
+ * Iterates the live-instance registry (populated by the render paths:
+ * `PluginSlotItem` for in-process plugins, `PluginSandboxFrame` /
+ * `createHostApiImpl` for sandboxed ones), so handlers land wherever the plugin
+ * actually registered them — including across the bridge for a sandboxed plugin,
+ * whose `_getEventHandlers` returns the wrappers that forward to the Comlink
+ * proxy.
  */
 function dispatchToPlugins(event: PluginEvent, data: unknown): void {
   const isRestricted = RESTRICTED_EVENTS.includes(event);
 
-  for (const [uuid, api] of pluginApis) {
-    // Skip restricted events for community plugins
-    if (isRestricted) {
-      const loadedPlugins = getLoadedPlugins();
-      const loadedPlugin = loadedPlugins.find(p => p.plugin.uuid === uuid);
-      if (loadedPlugin?.plugin.trust_level === 'community') {
-        continue;
-      }
+  forEachLiveInstance((uuid, api) => {
+    // Skip restricted events for community plugins.
+    if (isRestricted && getLoadedPlugin(uuid)?.plugin.trust_level === 'community') {
+      return;
     }
 
-    // Get and call all handlers for this event
-    const handlers = api._getEventHandlers(event);
-
-    for (const handler of handlers) {
+    for (const handler of api._getEventHandlers(event)) {
       try {
         const result = handler(data);
-        // Handle async handlers
         if (result instanceof Promise) {
           result.catch((error) => {
             logger.error(`Plugin ${uuid} async handler error for ${event}`, { error });
@@ -150,18 +136,7 @@ function dispatchToPlugins(event: PluginEvent, data: unknown): void {
         logger.error(`Plugin ${uuid} handler error for ${event}`, { error });
       }
     }
-  }
-}
-
-/**
- * Refresh the plugin API cache (call after plugins are reloaded)
- */
-export function refreshPluginApis(): void {
-  pluginApis.clear();
-  for (const { plugin } of getLoadedPlugins()) {
-    pluginApis.set(plugin.uuid, getHostApiForPlugin(plugin));
-  }
-  logger.debug('Plugin APIs refreshed', { count: pluginApis.size });
+  });
 }
 
 /**

@@ -13,7 +13,7 @@
 import { proxy } from '@nosdesk/plugin-sdk';
 import type { HostApi, PluginFetchOptions } from '@nosdesk/plugin-sdk';
 import type { Plugin } from '@nosdesk/core/types/plugin';
-import { createPluginAPI } from './api';
+import { createPluginAPI, type PluginAPI } from './api';
 
 /**
  * Which tiers render in the iframe sandbox. Community (and any future untrusted
@@ -25,11 +25,16 @@ export function isSandboxed(plugin: Plugin): boolean {
   return plugin.trust_level === 'community';
 }
 
-/** Build the `HostApi` a sandboxed plugin sees, backed by the in-process impl. */
-export function createHostApiImpl(plugin: Plugin): HostApi {
+/**
+ * Build the `HostApi` a sandboxed plugin sees, backed by the in-process impl.
+ * Returns the `inproc` instance too: the frame registers it in the live-instance
+ * registry so the event dispatcher reaches the plugin's `on` handlers (which land
+ * on `inproc` and forward across the bridge).
+ */
+export function createHostApiImpl(plugin: Plugin): { hostApi: HostApi; inproc: PluginAPI } {
   const inproc = createPluginAPI(plugin);
 
-  return {
+  const hostApi: HostApi = {
     version: inproc.version,
     plugin: inproc.plugin,
 
@@ -102,4 +107,6 @@ export function createHostApiImpl(plugin: Plugin): HostApi {
       },
     },
   };
+
+  return { hostApi, inproc };
 }

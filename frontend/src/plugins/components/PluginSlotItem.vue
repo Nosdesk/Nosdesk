@@ -6,11 +6,12 @@
  * Handles its own API creation and component loading.
  * Bundles are preloaded during plugin init so components render instantly.
  */
-import { onErrorCaptured, ref, watchEffect } from 'vue';
+import { onErrorCaptured, onUnmounted, ref, watchEffect } from 'vue';
 import { getLoadedPlugin, type PluginSlotRegistration } from '../loader';
 import { getHostApiForPlugin } from '../api';
 import { createPluginComponent, canRenderComponent } from '../componentLoader';
 import { isSandboxed } from '../sandboxHostApi';
+import { registerPluginInstance } from '../pluginInstances';
 import PluginSandboxFrame from './PluginSandboxFrame.vue';
 import { logger } from '@nosdesk/core/utils/logger';
 import type { Ticket } from '@nosdesk/core/types/ticket';
@@ -49,6 +50,13 @@ const asyncComponent = canRender
 // Create the in-process plugin API once at setup (sandboxed plugins get theirs
 // inside the frame, over the bridge).
 const api = !sandboxed && loaded ? getHostApiForPlugin(loaded.plugin) : null;
+
+// Register this instance so the event dispatcher reaches its `on` handlers; drop
+// it on unmount. (Sandboxed plugins register their own backing instance in the
+// frame.)
+if (api && loaded) {
+  onUnmounted(registerPluginInstance(loaded.plugin.uuid, api));
+}
 
 // Keep API context in sync with props
 watchEffect(() => {
