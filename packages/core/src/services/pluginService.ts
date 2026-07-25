@@ -80,6 +80,20 @@ const pluginService = {
   },
 
   /**
+   * Consent to a plugin's requested permission scope (admin only), advancing it
+   * from `awaiting_consent` to `installed`.
+   */
+  async consentToPlugin(uuid: string): Promise<Plugin> {
+    try {
+      const response = await apiClient.post(`/admin/plugins/${uuid}/consent`);
+      return response.data;
+    } catch (error) {
+      logger.error('Failed to consent to plugin', { error, uuid });
+      throw error;
+    }
+  },
+
+  /**
    * Uninstall a plugin (admin only)
    */
   async uninstallPlugin(uuid: string): Promise<void> {

@@ -4753,6 +4753,8 @@ plugin-state-active = Actif
 plugin-state-disabled = Désactivé
 plugin-state-quarantined = En quarantaine
 plugin-state-uninstalled = Désinstallé
+# MACHINE TRANSLATION, pending native review
+plugin-state-awaiting-consent = En attente d'approbation
 
 # Plugin admin: trust tier pills (PluginTrustBadge)
 plugin-trust-official = Officiel
@@ -5741,6 +5743,17 @@ plugin-permission-collection-read-label = Lire les collections
 plugin-permission-collection-read-description = Lire les enregistrements de collections typées
 plugin-permission-collection-write-label = Écrire les collections
 plugin-permission-collection-write-description = Créer et mettre à jour les enregistrements de collections typées
+# MACHINE TRANSLATION, pending native review
+plugin-permission-network-label = Accès réseau
+plugin-permission-network-description = Effectuer des requêtes réseau vers { $host }
+plugin-permission-unknown-label = { $permission }
+plugin-permission-unknown-description = Une autorisation non reconnue
+plugin-permission-destructive-badge = Peut modifier des données
+plugin-detail-consent-heading = Autorisations demandées
+plugin-detail-consent-pending-title = En attente de votre approbation
+plugin-detail-consent-pending-body = Ce plugin ne s'exécutera pas tant que vous n'aurez pas examiné et approuvé les autorisations qu'il demande.
+plugin-detail-consent-approve = Approuver et activer
+plugin-detail-consent-approving = Approbation…
 error-resource-not-found = La ressource demandée est introuvable.
 error-network = Impossible de joindre le serveur. Il est peut-être hors ligne ou injoignable.
 error-timeout = La requête a expiré. Le serveur la traite peut-être encore.

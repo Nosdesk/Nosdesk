@@ -64,6 +64,7 @@ const stateCounts = computed(() => {
     disabled: 0,
     quarantined: 0,
     uninstalled: 0,
+    awaiting_consent: 0,
   };
   for (const p of plugins.value) counts[p.state]++;
   return counts;
@@ -125,9 +126,10 @@ const STATE_LABELS: Record<PluginState, string> = {
   disabled: 'Disabled',
   quarantined: 'Quarantined',
   uninstalled: 'Uninstalled',
+  awaiting_consent: 'Awaiting consent',
 };
 
-const STATE_FILTER_ORDER: PluginState[] = ['installed', 'disabled', 'quarantined', 'uninstalled'];
+const STATE_FILTER_ORDER: PluginState[] = ['installed', 'awaiting_consent', 'disabled', 'quarantined', 'uninstalled'];
 </script>
 
 <template>

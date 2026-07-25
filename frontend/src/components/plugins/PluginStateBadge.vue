@@ -35,6 +35,10 @@ const STYLES: Record<PluginState, { pillClass: string; textClass: string }> = {
     pillClass: 'bg-surface-alt text-tertiary',
     textClass: 'text-tertiary',
   },
+  awaiting_consent: {
+    pillClass: 'bg-status-warning/10 text-status-warning',
+    textClass: 'text-status-warning',
+  },
 };
 
 const LABEL_KEY: Record<PluginState, string> = {
@@ -42,6 +46,7 @@ const LABEL_KEY: Record<PluginState, string> = {
   disabled: 'plugin-state-disabled',
   quarantined: 'plugin-state-quarantined',
   uninstalled: 'plugin-state-uninstalled',
+  awaiting_consent: 'plugin-state-awaiting-consent',
 };
 
 const label = computed(() => t(LABEL_KEY[props.state]));
