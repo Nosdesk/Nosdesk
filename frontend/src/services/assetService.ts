@@ -1,4 +1,5 @@
 import apiClient from '@nosdesk/core/apiClient';
+import type { AxiosRequestConfig } from 'axios';
 import type { Asset, AssetFormData } from '@nosdesk/core/types/asset';
 import type { PaginationParams, PaginatedResponse } from '@nosdesk/core/types/pagination';
 import { logger } from '@nosdesk/core/utils/logger';
@@ -345,13 +346,13 @@ export const clearAssetModel = async (assetId: number): Promise<Asset> => {
  * @param device - The updated device data
  * @returns Promise<Asset> - A promise that resolves to the updated device
  */
-export const updateAsset = async (id: number, device: Partial<Asset>): Promise<Asset> => {
+export const updateAsset = async (id: number, device: Partial<Asset>, config?: AxiosRequestConfig): Promise<Asset> => {
   try {
     // Forward the partial directly. Pass B removed the
     // hand-mapped column projection; the backend DeviceUpdate
     // accepts only the universal columns plus kind/attributes,
     // which is exactly the shape `Partial<Asset>` carries.
-    const response = await apiClient.put(`/assets/${id}`, device);
+    const response = await apiClient.put(`/assets/${id}`, device, config);
     return transformDeviceResponse(response.data);
   } catch (error) {
     logger.error('Failed to update device', { error, deviceId: id });
