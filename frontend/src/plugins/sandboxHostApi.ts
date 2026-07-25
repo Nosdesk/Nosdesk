@@ -10,7 +10,7 @@
 //
 // The bridge itself (`createRemoteHostApi`) is pure transport; every permission
 // check still runs here, in-process, exactly as for a first-party plugin.
-import { proxy } from '@nosdesk/plugin-sdk';
+import { proxy, BridgeGovernor, governHostApi } from '@nosdesk/plugin-sdk';
 import type { HostApi, PluginFetchOptions } from '@nosdesk/plugin-sdk';
 import type { Plugin } from '@nosdesk/core/types/plugin';
 import { createPluginAPI, type PluginAPI } from './api';
@@ -104,5 +104,8 @@ export function createHostApiImpl(plugin: Plugin): { hostApi: HostApi; inproc: P
     },
   };
 
-  return { hostApi, inproc };
+  // Meter every bridge call: rate limit + in-flight cap + per-call timeout, per
+  // plugin instance. The plugin sees over-limit calls as thrown errors; the host
+  // stays protected from a buggy or hostile plugin flooding shared capacity.
+  return { hostApi: governHostApi(hostApi, new BridgeGovernor()), inproc };
 }
