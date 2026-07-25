@@ -7,7 +7,9 @@
 //   - `fetch` returns a plain object, not a live `Response`.
 //   - `context` is a snapshot passed to `mount` (+ `onContextChange`), not a
 //     live reactive getter.
-//   - `on(...)`'s handler is a callback wrapped by the SDK with Comlink.proxy.
+//   - `on(...)` takes a plain handler; the runtime keeps it local and proxies
+//     the bridge callback itself (see `PluginHostApi`), so plugins never touch
+//     Comlink.proxy.
 //   - the host-internal `_setContext` / `_getEventHandlers` are not exposed.
 //
 // Domain types are re-exported from `@nosdesk/core/types` so plugin authors
@@ -148,6 +150,19 @@ export interface HostApi {
   ui: { isPrinting(): Promise<boolean> };
 }
 
+/**
+ * The host API as a plugin actually receives it in `mount`. Identical to the
+ * Comlink-remote `HostApi` except for `on`: the runtime intercepts it, keeps the
+ * handler local to the iframe, and registers its own Comlink-proxied dispatcher
+ * with the host. That's what makes events work at all — a plugin's own bundled
+ * Comlink has a different `proxyMarker` than the runtime's `api`, so a
+ * plugin-proxied callback can't cross the bridge (it fails to structured-clone).
+ * With this, the plugin just passes a plain function and gets back an
+ * unsubscribe. */
+export type PluginHostApi = Omit<import('comlink').Remote<HostApi>, 'on'> & {
+  on(event: PluginEvent, handler: PluginEventHandler): Promise<() => void>;
+};
+
 /** The host-provided context, snapshotted into the iframe. It is not a live
  * object (it can't cross postMessage reactively); updates arrive via
  * `onContextChange`. */
@@ -177,7 +192,7 @@ export interface PluginInstance {
  * for a simple plugin (re-mounted on context change), or a `PluginInstance` to
  * handle context updates in place. */
 export interface PluginModule {
-  mount(rootEl: HTMLElement, api: import('comlink').Remote<HostApi>, context: PluginContext):
+  mount(rootEl: HTMLElement, api: PluginHostApi, context: PluginContext):
     | void
     | (() => void)
     | PluginInstance;

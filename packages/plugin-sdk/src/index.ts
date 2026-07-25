@@ -23,6 +23,7 @@ export type { GovernorOptions } from './governor';
 
 export type {
   HostApi,
+  PluginHostApi,
   PluginContext,
   PluginModule,
   PluginInstance,
