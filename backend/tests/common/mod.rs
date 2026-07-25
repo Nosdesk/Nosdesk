@@ -652,6 +652,9 @@ fn seed_one_workspace(conn: &mut TestPooledConn, label: &str) -> WorkspaceSeed {
                 signer_source: None,
                 signature_metadata: None,
                 icon_svg: None,
+                consented_permissions: None,
+                consented_at: None,
+                consented_by: None,
             };
             let plugin: backend::models::Plugin = diesel::insert_into(plugins::table)
                 .values(&new_plugin)

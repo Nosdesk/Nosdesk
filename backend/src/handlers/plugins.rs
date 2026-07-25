@@ -75,6 +75,10 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         web::delete().to(crate::handlers::plugins::uninstall_plugin),
     )
     .route(
+        "/admin/plugins/{uuid}/consent",
+        web::post().to(crate::handlers::plugins::consent_to_plugin),
+    )
+    .route(
         "/admin/plugins/{uuid}/settings",
         web::get().to(crate::handlers::plugins::get_plugin_settings),
     )
@@ -490,6 +494,70 @@ pub async fn update_plugin(
         Err(e) => {
             error!("Failed to serialize plugin response: {}", e);
             errors::internal("Plugin updated but response failed")
+        }
+    }
+}
+
+enum ConsentResult {
+    Consented(Box<crate::models::Plugin>),
+    NotPending(crate::models::PluginState),
+}
+
+/// Consent to a plugin's requested permission scope (admin only), advancing it
+/// from `AwaitingConsent` to `Installed`. Records the consented scope + who/when
+/// so a later version that widens scope can require re-consent. The consented set
+/// is the plugin's currently-requested manifest permissions (what the admin saw).
+pub async fn consent_to_plugin(
+    req: HttpRequest,
+    pool: web::Data<Pool>,
+    path: web::Path<Uuid>,
+) -> impl Responder {
+    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
+        return e;
+    }
+    let claims = match req.extensions().get::<Claims>() {
+        Some(c) => c.clone(),
+        None => return errors::unauthorized("Authentication required"),
+    };
+    let Some(user_uuid) = Uuid::parse_str(&claims.sub).ok() else {
+        return errors::unauthorized("Authentication required");
+    };
+    let plugin_uuid = path.into_inner();
+    let actor = workspace_pinned_actor(&req, "plugins_admin");
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
+
+    let result = actor_session::with_actor_context::<_, DieselError>(&mut conn, &actor, |conn| {
+        let plugin = plugin_repo::get_plugin_by_uuid(conn, plugin_uuid)?;
+        if !matches!(plugin.state, crate::models::PluginState::AwaitingConsent) {
+            return Ok(ConsentResult::NotPending(plugin.state));
+        }
+        let perms: Vec<String> = plugin
+            .parse_manifest()
+            .map(|m| m.permissions.iter().map(|p| p.as_string()).collect())
+            .unwrap_or_default();
+        let updated =
+            plugin_repo::consent_plugin(conn, plugin_uuid, serde_json::json!(perms), user_uuid)?;
+        Ok(ConsentResult::Consented(Box::new(updated)))
+    });
+
+    match result {
+        Ok(ConsentResult::Consented(plugin)) => match PluginResponse::try_from(*plugin) {
+            Ok(response) => HttpResponse::Ok().json(response),
+            Err(e) => {
+                error!("Failed to serialize consented plugin: {}", e);
+                errors::internal("Consented but response failed")
+            }
+        },
+        Ok(ConsentResult::NotPending(state)) => {
+            errors::conflict(format!("Plugin is not awaiting consent (state: {state})"))
+        }
+        Err(DieselError::NotFound) => errors::not_found_msg("Plugin not found"),
+        Err(e) => {
+            error!("Failed to consent to plugin: {}", e);
+            errors::internal("Failed to consent to plugin")
         }
     }
 }
