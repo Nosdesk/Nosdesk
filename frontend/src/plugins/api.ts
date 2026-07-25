@@ -1,20 +1,13 @@
 /**
  * Plugin API
  *
- * Defines the `PluginAPI` interface (the host-side contract every
- * plugin sees) and the in-process implementation that backs
- * official, verified, and local-tier plugins. Plugin code receives
- * a value typed as `PluginAPI`; whether the underlying methods run
- * directly against Vue stores (this file) or marshal across a
- * postMessage boundary to a sandboxed iframe (planned follow-up
- * for community-tier plugins) is a host-side detail the plugin
- * never needs to know.
- *
- * That single-interface, multiple-impl shape is the architectural
- * commitment behind the eventual community-tier sandbox: when the
- * remote impl lands, plugin authors don't change a line of code,
- * and the only place that decides which transport to use is the
- * `getHostApiForPlugin` factory below.
+ * Defines the `PluginAPI` interface (the host-side contract) and its
+ * implementation, `createPluginAPI`. Every plugin now runs in the opaque-origin
+ * sandbox, so this impl is never handed to a plugin directly: `createHostApiImpl`
+ * (sandboxHostApi.ts) wraps it behind the Comlink bridge, and every permission
+ * check + service call still runs here, in-process, on the host side. The old
+ * in-process render path (and the `getHostApiForPlugin` tier dispatch) was
+ * removed in the sandbox-all migration.
  */
 
 import pluginService from '@nosdesk/core/services/pluginService';
@@ -130,12 +123,6 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
       }
     }
     return false;
-  };
-
-  // Current context (set by the UI slot system)
-  let context: PluginContext = {
-    ticket: null,
-    device: null,
   };
 
   // Attribution header on plugin-initiated writes: the backend records
@@ -553,16 +540,6 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
       },
     },
 
-    // === CONTEXT: Current state ===
-    get context(): PluginContext {
-      return context;
-    },
-
-    // Internal: Set context (called by slot system)
-    _setContext(newContext: Partial<PluginContext>): void {
-      context = { ...context, ...newContext };
-    },
-
     // Internal: Get event handlers for dispatching
     _getEventHandlers(event: PluginEvent): EventHandler[] {
       return eventHandlers.get(event) || [];
@@ -654,59 +631,12 @@ export interface PluginAPI {
   // UI helpers
   ui: PluginUIHelpers;
 
-  // Current context
-  context: PluginContext;
-
-  // Internal methods (not for plugin use)
-  _setContext(context: Partial<PluginContext>): void;
+  // Internal: event handlers the dispatcher reads. Context is delivered to
+  // sandboxed plugins by the frame (postInit/postContext), not through this
+  // object, so there's no context getter / setter here any more.
   _getEventHandlers(event: PluginEvent): EventHandler[];
 }
 
-// =============================================================================
-// HostApi factory dispatch
-// =============================================================================
-
-/**
- * Build the `PluginAPI` instance a plugin will see, picking the
- * implementation by trust tier.
- *
- * Today every tier returns the in-process implementation built
- * by `createPluginAPI`. The dispatch exists so the eventual
- * community-tier iframe sandbox slots in here without touching
- * the three call sites in `componentLoader`, `eventDispatcher`,
- * and `PluginSlotItem`. When that lands, the `community` arm
- * will return a Comlink-wrapped remote that satisfies the same
- * `PluginAPI` interface; plugin code is unchanged.
- *
- * Keeping the dispatch in one function (rather than inlining the
- * tier check at every call site) is the DRY guarantee that the
- * tier-to-transport policy can't drift between callers.
- */
-export function getHostApiForPlugin(plugin: Plugin): PluginAPI {
-  switch (plugin.trust_level) {
-    case 'official':
-    case 'verified':
-    case 'local':
-      return createPluginAPI(plugin);
-    case 'community':
-      // Community plugins RENDER in the opaque-origin iframe sandbox
-      // (`PluginSlotItem` -> `PluginSandboxFrame`, host API bridged via
-      // `createHostApiImpl`), never through this in-process instance.
-      // This arm is reached only by the event dispatcher's per-plugin
-      // cache; the in-process impl there is inert for community plugins
-      // (component rendering is gated off, and event delivery to
-      // sandboxed plugins is a committed follow-up), so returning it is
-      // harmless and keeps the dispatcher's loop uniform.
-      return createPluginAPI(plugin);
-    default:
-      // Unknown tier (forward-compat for future tiers we haven't
-      // taught the frontend about). Fail closed by routing through
-      // the in-process impl, which gates on declared permissions
-      // anyway. Logged so operators notice.
-      logger.warn('Unknown plugin trust_level; defaulting to in-process API', {
-        plugin: plugin.name,
-        trust_level: plugin.trust_level,
-      });
-      return createPluginAPI(plugin);
-  }
-}
+// `getHostApiForPlugin` (the tier-dispatch) was removed in the sandbox-all
+// migration: every tier runs in the iframe sandbox, so the only consumer of
+// `createPluginAPI` is `createHostApiImpl`, which wraps it behind the bridge.

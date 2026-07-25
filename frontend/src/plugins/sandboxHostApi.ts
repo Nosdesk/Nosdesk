@@ -16,16 +16,6 @@ import type { Plugin } from '@nosdesk/core/types/plugin';
 import { createPluginAPI, type PluginAPI } from './api';
 
 /**
- * Which tiers render in the iframe sandbox. Community (and any future untrusted
- * tier) run sandboxed; official/verified/local stay on the in-process Vue-
- * component path until they migrate to the `{ mount }` contract. Keeping this in
- * one place mirrors `getHostApiForPlugin`'s single-dispatch DRY guarantee.
- */
-export function isSandboxed(plugin: Plugin): boolean {
-  return plugin.trust_level === 'community';
-}
-
-/**
  * Build the `HostApi` a sandboxed plugin sees, backed by the in-process impl.
  * Returns the `inproc` instance too: the frame registers it in the live-instance
  * registry so the event dispatcher reaches the plugin's `on` handlers (which land
