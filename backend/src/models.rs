@@ -5900,6 +5900,22 @@ impl Plugin {
             .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok())
             .unwrap_or_default()
     }
+
+    /// The effective granted permission set for runtime enforcement: the recorded
+    /// consented set when consent exists, else (legacy rows installed before the
+    /// consent gate) the manifest's requested set. Empty on a manifest parse
+    /// failure — fail closed. `consented_permissions == Some([])` is an explicit
+    /// grant of nothing, distinct from `None` (no consent recorded), so the
+    /// fallback keys off `is_none()`, not emptiness.
+    pub fn effective_permission_set(&self) -> Vec<String> {
+        match &self.consented_permissions {
+            Some(v) => serde_json::from_value::<Vec<String>>(v.clone()).unwrap_or_default(),
+            None => self
+                .parse_manifest()
+                .map(|m| m.permissions.iter().map(|p| p.as_string()).collect())
+                .unwrap_or_default(),
+        }
+    }
 }
 
 /// Lifecycle state of a plugin row. Stored as a `VARCHAR(32)` in
@@ -6052,6 +6068,12 @@ pub struct PluginUpdate {
     /// fields' `Option<T>` because clearing-to-NULL on update is
     /// realistic here (a new plugin version might drop its icon).
     pub icon_svg: Option<Option<Vec<u8>>>,
+    /// Consent bookkeeping, kept in lockstep with the served manifest by the
+    /// update path. `None` leaves the column alone (used when an update requires
+    /// re-consent — the admin's approval re-records it against the new manifest).
+    pub consented_permissions: Option<serde_json::Value>,
+    pub consented_at: Option<NaiveDateTime>,
+    pub consented_by: Option<Uuid>,
 }
 
 /// Plugin bundle update changeset. `bundle_js` carries the raw
@@ -6629,6 +6651,11 @@ pub struct PluginResponse {
     pub bundle_size: Option<i32>,
     pub bundle_uploaded_at: Option<NaiveDateTime>,
     pub source: String,
+    /// The permission set the admin consented to, as a string array. `None` for
+    /// legacy rows installed before the consent gate (the frontend then falls
+    /// back to the manifest's requested set). This is the AUTHORITATIVE grant the
+    /// UI + runtime gate against, not `manifest.permissions`.
+    pub consented_permissions: Option<Vec<String>>,
     /// When non-null, the publisher that signed this plugin has been
     /// revoked from `plugin_trusted_publishers`. The plugin keeps
     /// running (we don't tear down installed rows on revocation),
@@ -6668,6 +6695,9 @@ impl TryFrom<Plugin> for PluginResponse {
             bundle_size: p.bundle_size,
             bundle_uploaded_at: p.bundle_uploaded_at,
             source: p.source,
+            consented_permissions: p
+                .consented_permissions
+                .and_then(|v| serde_json::from_value::<Vec<String>>(v).ok()),
             // Default to None; handlers enrich via a separate
             // revocation map lookup so the conversion stays
             // dependency-free and the bulk list endpoint can resolve
