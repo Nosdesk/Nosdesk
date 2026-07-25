@@ -1,4 +1,5 @@
 import apiClient from '../apiClient';
+import type { AxiosRequestConfig } from 'axios';
 import { logger } from '../utils/logger';
 import { RequestManager } from '../utils/requestManager';
 import type {
@@ -126,9 +127,9 @@ export const createTicket = async (ticket: Omit<Ticket, 'id' | 'created' | 'modi
   }
 };
 
-export const updateTicket = async (id: number, ticket: Partial<Ticket>): Promise<Ticket> => {
+export const updateTicket = async (id: number, ticket: Partial<Ticket>, config?: AxiosRequestConfig): Promise<Ticket> => {
   try {
-    const response = await apiClient.patch(`/tickets/${id}`, ticket);
+    const response = await apiClient.patch(`/tickets/${id}`, ticket, config);
     return response.data;
   } catch (error) {
     logger.error('Failed to update ticket', { error, ticketId: id });
@@ -155,9 +156,9 @@ export const previewTicketField = async (
   await apiClient.post(`/tickets/${id}/field-preview`, { field, value });
 };
 
-export const deleteTicket = async (id: number): Promise<void> => {
+export const deleteTicket = async (id: number, config?: AxiosRequestConfig): Promise<void> => {
   try {
-    await apiClient.delete(`/tickets/${id}`);
+    await apiClient.delete(`/tickets/${id}`, config);
   } catch (error) {
     logger.error('Failed to delete ticket', { error, ticketId: id });
     throw error;

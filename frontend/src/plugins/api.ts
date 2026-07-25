@@ -138,6 +138,11 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
     device: null,
   };
 
+  // Attribution header on plugin-initiated writes: the backend records
+  // `actor_ref = plugin:<uuid>` in the audit / sync trail so a plugin's writes
+  // are traceable (the actor stays the user — the plugin acts as them).
+  const pluginAttribution = { headers: { 'X-Nosdesk-Plugin': plugin.uuid } };
+
   const api: PluginAPI = {
     version: '1.0.0',
 
@@ -197,7 +202,7 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
           return null;
         }
         try {
-          return await updateTicket(id, patch as Partial<Ticket>);
+          return await updateTicket(id, patch as Partial<Ticket>, pluginAttribution);
         } catch (error) {
           logger.error(`Plugin ${plugin.name} failed to update ticket`, { id, error });
           return null;
@@ -209,7 +214,7 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
           return false;
         }
         try {
-          await deleteTicket(id);
+          await deleteTicket(id, pluginAttribution);
           return true;
         } catch (error) {
           logger.error(`Plugin ${plugin.name} failed to delete ticket`, { id, error });
@@ -249,7 +254,7 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
           return null;
         }
         try {
-          return await updateAsset(id, patch as Partial<Asset>);
+          return await updateAsset(id, patch as Partial<Asset>, pluginAttribution);
         } catch (error) {
           logger.error(`Plugin ${plugin.name} failed to update device`, { id, error });
           return null;

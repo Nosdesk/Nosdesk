@@ -1620,6 +1620,10 @@ pub async fn build_server(
                 // does not, so the preflight must allow them.
                 "X-Auth-Mode",
                 "X-Nosdesk-Workspace",
+                // Plugin-initiated writes carry this so the backend attributes
+                // them in the audit trail; must survive the cross-origin (native
+                // app) preflight like the selection header above.
+                "X-Nosdesk-Plugin",
             ])
             .expose_headers(vec!["content-disposition"])
             .supports_credentials()

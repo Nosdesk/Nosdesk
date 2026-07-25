@@ -415,6 +415,20 @@ pub fn populate(req: &ServiceRequest, claims: &Claims) {
         // reports it from the actor).
         Span::current().record("workspace_id", ws.workspace_id);
     }
+    // Plugin-initiated writes (from the sandbox host API) carry
+    // `X-Nosdesk-Plugin: <uuid>`. Record it as the actor reference so the audit /
+    // sync trail attributes the write to the plugin. The actor stays
+    // `kind = user` (authz is unchanged — the plugin acts as the user, bounded by
+    // the user's own perms + RLS); this only annotates *who initiated* it.
+    // Best-effort: a malformed or absent header simply leaves the reference unset.
+    if let Some(plugin_uuid) = req
+        .headers()
+        .get("X-Nosdesk-Plugin")
+        .and_then(|h| h.to_str().ok())
+        .and_then(|s| Uuid::parse_str(s).ok())
+    {
+        actor.reference = Some(format!("plugin:{plugin_uuid}"));
+    }
     record_user_on_span(&claims.sub, ActorKind::User.as_str());
     req.extensions_mut()
         .insert(RequestContext::new(correlation_id, actor));
