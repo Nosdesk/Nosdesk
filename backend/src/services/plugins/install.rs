@@ -500,6 +500,21 @@ fn update_row(
     )?)
 }
 
+/// Untrusted tiers require a workspace admin to consent to the requested scope
+/// before the plugin serves. Trusted tiers auto-consent: official is
+/// Nosdesk-curated (the vetting is the consent) and local is operator
+/// CLI-installed (they saw the manifest, higher privilege).
+fn tier_requires_consent(trust_level: &str) -> bool {
+    matches!(trust_level, "verified" | "community")
+}
+
+/// The manifest's requested permissions as a JSON array of strings — the shape
+/// stored in `plugins.consented_permissions`.
+fn requested_permission_json(manifest: &PluginManifest) -> serde_json::Value {
+    let perms: Vec<String> = manifest.permissions.iter().map(|p| p.as_string()).collect();
+    serde_json::json!(perms)
+}
+
 fn create_row(
     conn: &mut DbConnection,
     manifest: &PluginManifest,
@@ -508,13 +523,35 @@ fn create_row(
     options: &InstallOptions,
     icon_bytes: Option<Vec<u8>>,
 ) -> Result<Plugin, InstallError> {
+    // Consent landing: untrusted tiers (verified / community) require an admin to
+    // approve the requested scope, so they land in `AwaitingConsent` (created but
+    // not served); trusted tiers (official / local) auto-advance and record the
+    // consent now. A new row has no prior consent, so there's no subset
+    // short-circuit here (that lives in the update path / re-consent, tracked as a
+    // follow-up).
+    let (state, consented_permissions, consented_at, consented_by) =
+        if tier_requires_consent(&signer.trust_level) {
+            (
+                crate::models::PluginState::AwaitingConsent,
+                None,
+                None,
+                None,
+            )
+        } else {
+            (
+                crate::models::PluginState::Installed,
+                Some(requested_permission_json(manifest)),
+                Some(Utc::now().naive_utc()),
+                options.installed_by,
+            )
+        };
     let new_plugin = NewPlugin {
         name: manifest.name.clone(),
         display_name: manifest.display_name.clone(),
         version: manifest.version.clone(),
         description: manifest.description.clone(),
         manifest: manifest_json,
-        state: crate::models::PluginState::Installed,
+        state,
         trust_level: signer.trust_level,
         installed_by: options.installed_by,
         source: options.source.to_string(),
@@ -522,6 +559,9 @@ fn create_row(
         signer_source: signer.signer_source,
         signature_metadata: signer.signature_metadata,
         icon_svg: icon_bytes,
+        consented_permissions,
+        consented_at,
+        consented_by,
     };
     // The install pipeline is the only production constructor of
     // `InstallToken`, so this call is the unique entry point for

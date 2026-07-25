@@ -225,7 +225,9 @@ pub fn apply(
             // ----- Uninstall (preserve) -----
             (PluginState::Installed, PluginAction::UninstallPreserve)
             | (PluginState::Disabled, PluginAction::UninstallPreserve)
-            | (PluginState::Quarantined, PluginAction::UninstallPreserve) => {
+            | (PluginState::Quarantined, PluginAction::UninstallPreserve)
+            // Rejecting a never-consented plugin is an uninstall from AwaitingConsent.
+            | (PluginState::AwaitingConsent, PluginAction::UninstallPreserve) => {
                 let updated = set_state(tx, plugin_uuid, PluginState::Uninstalled)?;
                 log_lifecycle(tx, &updated, &action, prior, actor)?;
                 Ok(ActionOutcome::StateChanged {
@@ -536,6 +538,9 @@ mod integration_tests {
             signer_source: Some("nosdesk-root".to_string()),
             signature_metadata: None,
             icon_svg: None,
+            consented_permissions: None,
+            consented_at: None,
+            consented_by: None,
         };
         plugin_repo::create_plugin(conn, new_plugin, InstallToken::for_test())
             .expect("test plugin insert must succeed")

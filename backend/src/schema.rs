@@ -1240,6 +1240,9 @@ diesel::table! {
         state -> Varchar,
         bundle_js -> Nullable<Bytea>,
         workspace_id -> Int4,
+        consented_permissions -> Nullable<Jsonb>,
+        consented_at -> Nullable<Timestamptz>,
+        consented_by -> Nullable<Uuid>,
     }
 }
 
@@ -2356,7 +2359,6 @@ diesel::joinable!(plugin_collection_schemas -> plugins (plugin_id));
 diesel::joinable!(plugin_collection_schemas -> workspaces (workspace_id));
 diesel::joinable!(plugin_data -> plugins (plugin_id));
 diesel::joinable!(plugin_data -> workspaces (workspace_id));
-diesel::joinable!(plugins -> users (installed_by));
 diesel::joinable!(plugins -> workspaces (workspace_id));
 diesel::joinable!(project_tickets -> projects (project_id));
 diesel::joinable!(project_tickets -> tickets (ticket_id));

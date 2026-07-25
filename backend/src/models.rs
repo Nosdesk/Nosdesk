@@ -5876,6 +5876,12 @@ pub struct Plugin {
     /// at `install::MAX_BUNDLE_SIZE` (500 KB).
     pub bundle_js: Option<Vec<u8>>,
     pub workspace_id: i32,
+    /// The exact permission set an admin consented to (JSON array of permission
+    /// strings), or `None` before first consent. A later version whose
+    /// permissions aren't a subset of this requires re-consent.
+    pub consented_permissions: Option<serde_json::Value>,
+    pub consented_at: Option<NaiveDateTime>,
+    pub consented_by: Option<Uuid>,
 }
 
 impl Plugin {
@@ -5884,6 +5890,15 @@ impl Plugin {
     /// only need a yes/no view.
     pub fn is_active(&self) -> bool {
         matches!(self.state, PluginState::Installed)
+    }
+
+    /// The permission set the admin consented to, as a `Vec<String>`. Empty when
+    /// no consent recorded yet (parses the `consented_permissions` JSON array).
+    pub fn consented_permission_set(&self) -> Vec<String> {
+        self.consented_permissions
+            .as_ref()
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok())
+            .unwrap_or_default()
     }
 }
 
@@ -5925,6 +5940,12 @@ pub enum PluginState {
     /// plugin name reattaches the data automatically. Bundle is
     /// removed from disk.
     Uninstalled,
+    /// Installed but not yet consented to: the row exists and the bundle is
+    /// stored, but it is NOT served (the loader serves only `Installed`), so this
+    /// state is inert until an admin approves the requested permission scope,
+    /// which advances it to `Installed`. Untrusted tiers (verified / community)
+    /// land here at install; trusted tiers (official / local) auto-advance.
+    AwaitingConsent,
 }
 
 impl PluginState {
@@ -5934,6 +5955,7 @@ impl PluginState {
             PluginState::Disabled => "disabled",
             PluginState::Quarantined => "quarantined",
             PluginState::Uninstalled => "uninstalled",
+            PluginState::AwaitingConsent => "awaiting_consent",
         }
     }
 
@@ -5943,6 +5965,7 @@ impl PluginState {
             "disabled" => Ok(PluginState::Disabled),
             "quarantined" => Ok(PluginState::Quarantined),
             "uninstalled" => Ok(PluginState::Uninstalled),
+            "awaiting_consent" => Ok(PluginState::AwaitingConsent),
             other => Err(format!("unknown plugin state {other:?}")),
         }
     }
@@ -5994,7 +6017,8 @@ pub struct NewPlugin {
     pub version: String,
     pub description: Option<String>,
     pub manifest: serde_json::Value,
-    /// Initial lifecycle state, almost always `PluginState::Installed`.
+    /// Initial lifecycle state: `Installed` for auto-consented (official / local)
+    /// tiers, `AwaitingConsent` for the tiers that require admin consent.
     pub state: PluginState,
     pub trust_level: String,
     pub installed_by: Option<Uuid>,
@@ -6003,6 +6027,11 @@ pub struct NewPlugin {
     pub signer_source: Option<String>,
     pub signature_metadata: Option<serde_json::Value>,
     pub icon_svg: Option<Vec<u8>>,
+    /// Consent recorded at install for auto-consented tiers (the manifest's
+    /// permission set); `None` when the plugin lands in `AwaitingConsent`.
+    pub consented_permissions: Option<serde_json::Value>,
+    pub consented_at: Option<NaiveDateTime>,
+    pub consented_by: Option<Uuid>,
 }
 
 /// Plugin update changeset

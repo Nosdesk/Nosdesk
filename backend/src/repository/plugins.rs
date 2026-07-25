@@ -161,6 +161,31 @@ pub fn delete_plugin_by_uuid(
 }
 
 /// Update a plugin's bundle metadata
+/// Advance an `AwaitingConsent` plugin to `Installed`, recording the consented
+/// permission set + who/when. The state guard is in the WHERE clause, so a plugin
+/// that isn't awaiting consent matches no rows (`NotFound`). RLS-scoped by the
+/// caller's workspace pin; the `plugins` UPDATE is audited via the row trigger.
+// sync-audit-only: plugin state flip + recorded consent scope — covered by the audit_log trigger on plugins, no sync aggregate
+pub fn consent_plugin(
+    conn: &mut DbConnection,
+    plugin_uuid: Uuid,
+    permissions: serde_json::Value,
+    consented_by: Uuid,
+) -> Result<Plugin, diesel::result::Error> {
+    diesel::update(
+        plugins::table
+            .filter(plugins::uuid.eq(plugin_uuid))
+            .filter(plugins::state.eq(crate::models::PluginState::AwaitingConsent)),
+    )
+    .set((
+        plugins::state.eq(crate::models::PluginState::Installed),
+        plugins::consented_permissions.eq(permissions),
+        plugins::consented_at.eq(chrono::Utc::now().naive_utc()),
+        plugins::consented_by.eq(consented_by),
+    ))
+    .get_result(conn)
+}
+
 pub fn update_plugin_bundle(
     conn: &mut DbConnection,
     plugin_uuid: Uuid,
@@ -610,6 +635,9 @@ mod tests {
             signer_source: None,
             signature_metadata: None,
             icon_svg: None,
+            consented_permissions: None,
+            consented_at: None,
+            consented_by: None,
         }
     }
 
