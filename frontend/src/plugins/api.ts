@@ -92,7 +92,14 @@ export interface PluginFetchOptions extends Omit<RequestInit, 'body'> {
  * The API is sandboxed - each plugin gets its own instance with access only to what it's permitted.
  */
 export function createPluginAPI(plugin: Plugin): PluginAPI {
-  const permissions = new Set<string>(plugin.manifest.permissions);
+  // The effective grant is the CONSENTED set, not the raw manifest — an admin
+  // may have approved a narrower scope, and the manifest can widen on update
+  // ahead of re-consent. Fall back to the manifest only for legacy rows with no
+  // consent recorded (`consented_permissions === null`). This mirrors the
+  // backend's `Plugin::effective_permission_set`.
+  const permissions = new Set<string>(
+    plugin.consented_permissions ?? plugin.manifest.permissions,
+  );
   const eventHandlers = new Map<PluginEvent, EventHandler[]>();
 
   // Typed permission check. Accepts non-network permissions

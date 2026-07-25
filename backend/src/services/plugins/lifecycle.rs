@@ -76,6 +76,13 @@ pub enum PluginAction {
     /// the action is refused with `SignerMismatch` to prevent
     /// cross-publisher data inheritance.
     Reinstall { signer_pubkey: Option<String> },
+    /// An update widened the plugin's requested permission scope
+    /// beyond what was consented, so it must be re-approved by an
+    /// admin before serving again. From `Installed` or `Disabled`.
+    /// Set by the install/update path (not user-initiated); the
+    /// widened manifest is already written, `consented_permissions`
+    /// stays at the prior scope until the admin re-consents.
+    RequireReconsent,
 }
 
 impl PluginAction {
@@ -88,6 +95,7 @@ impl PluginAction {
             Self::UninstallPreserve => "UninstallPreserve",
             Self::UninstallCascade => "UninstallCascade",
             Self::Reinstall { .. } => "Reinstall",
+            Self::RequireReconsent => "RequireReconsent",
         }
     }
 }
@@ -293,6 +301,17 @@ pub fn apply(
                 })
             }
 
+            // ----- Re-consent required (scope-widening update) -----
+            (PluginState::Installed, PluginAction::RequireReconsent)
+            | (PluginState::Disabled, PluginAction::RequireReconsent) => {
+                let updated = set_state(tx, plugin_uuid, PluginState::AwaitingConsent)?;
+                log_lifecycle(tx, &updated, &action, prior, actor)?;
+                Ok(ActionOutcome::StateChanged {
+                    plugin: updated,
+                    prior_state: prior,
+                })
+            }
+
             // ----- Everything else is a refused transition -----
             (from, action) => Err(ActionError::InvalidTransition {
                 from,
@@ -400,6 +419,8 @@ mod tests {
             (PluginState::Quarantined, "UninstallCascade"),
             (PluginState::Uninstalled, "UninstallCascade"),
             (PluginState::Uninstalled, "Reinstall"),
+            (PluginState::Installed, "RequireReconsent"),
+            (PluginState::Disabled, "RequireReconsent"),
         ]
     }
 
@@ -416,6 +437,7 @@ mod tests {
             PluginAction::Reinstall {
                 signer_pubkey: Some("pk".into()),
             },
+            PluginAction::RequireReconsent,
         ]
     }
 

@@ -266,6 +266,10 @@ export interface Plugin {
    * loader treats only `installed` as a serving-eligible state. */
   state: PluginState;
   trust_level: PluginTrustLevel;
+  /** The permission set the admin consented to — the AUTHORITATIVE grant the
+   *  runtime gates against, not `manifest.permissions`. `null` for legacy rows
+   *  installed before the consent gate (callers fall back to the manifest set). */
+  consented_permissions: string[] | null;
   source: PluginSource;
   installed_by: string | null;
   installed_at: string;

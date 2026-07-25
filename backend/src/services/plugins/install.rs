@@ -479,12 +479,21 @@ fn update_row(
         Some(icon_bytes.clone())
     };
 
+    // Re-consent gate: an update that widens the requested permission scope
+    // beyond what was consented must be re-approved by an admin before it serves
+    // again (untrusted tiers). Trusted tiers (official / local) auto-consent to
+    // the new scope, matching install-time behaviour. Computed against the
+    // pre-update effective grant.
+    let old_effective = existing.effective_permission_set();
+    let new_perms: Vec<String> = manifest.permissions.iter().map(|p| p.as_string()).collect();
+    let needs_reconsent = reconsent_required(&old_effective, &new_perms, &signer.trust_level);
+
     let update = PluginUpdate {
         display_name: Some(manifest.display_name.clone()),
         version: Some(manifest.version.clone()),
         description: manifest.description.clone(),
         manifest: Some(manifest_json),
-        // State changes flow through `lifecycle::apply` (above);
+        // State changes flow through `lifecycle::apply` (above / below);
         // never write `state` directly from the install path.
         state: None,
         trust_level: Some(signer.trust_level.clone()),
@@ -492,12 +501,37 @@ fn update_row(
         signer_source: signer.signer_source.clone(),
         signature_metadata: signer.signature_metadata.clone(),
         icon_svg: icon_update,
+        // Keep the consented set authoritative + in lockstep with the served
+        // manifest on an auto-consented or non-widening update. When re-consent
+        // is required, leave it at the prior scope (the admin's approval
+        // re-records it) and transition to AwaitingConsent below.
+        consented_permissions: (!needs_reconsent).then(|| serde_json::json!(new_perms)),
+        consented_at: (!needs_reconsent).then(|| Utc::now().naive_utc()),
+        consented_by: if needs_reconsent { None } else { installed_by },
     };
-    Ok(plugin_repo::update_plugin_by_uuid(
-        conn,
-        existing.uuid,
-        update,
-    )?)
+    let updated = plugin_repo::update_plugin_by_uuid(conn, existing.uuid, update)?;
+
+    if needs_reconsent {
+        use crate::services::plugins::lifecycle::{apply, ActionError, PluginAction};
+        // Installed / Disabled -> AwaitingConsent: stop serving the widened scope
+        // until an admin re-approves. Atomic within the outer install txn.
+        match apply(
+            conn,
+            existing.uuid,
+            PluginAction::RequireReconsent,
+            installed_by,
+        ) {
+            Ok(_) => {}
+            Err(ActionError::Db(e)) => return Err(InstallError::Db(e)),
+            Err(e) => {
+                return Err(InstallError::InvalidManifest(format!(
+                    "re-consent transition failed: {e}"
+                )))
+            }
+        }
+        return Ok(plugin_repo::get_plugin_by_uuid(conn, existing.uuid)?);
+    }
+    Ok(updated)
 }
 
 /// Untrusted tiers require a workspace admin to consent to the requested scope
@@ -506,6 +540,16 @@ fn update_row(
 /// CLI-installed (they saw the manifest, higher privilege).
 fn tier_requires_consent(trust_level: &str) -> bool {
     matches!(trust_level, "verified" | "community")
+}
+
+/// Whether an update from the `old_effective` grant to the `new_perms` requested
+/// scope on a `trust_level` plugin must be re-approved by an admin before serving
+/// again. Trusted tiers (official / local) auto-consent to the new scope;
+/// untrusted tiers (verified / community) re-consent only when the scope actually
+/// widens — i.e. the update requests a permission not already granted. A same-or-
+/// narrower update keeps serving.
+fn reconsent_required(old_effective: &[String], new_perms: &[String], trust_level: &str) -> bool {
+    tier_requires_consent(trust_level) && new_perms.iter().any(|p| !old_effective.contains(p))
 }
 
 /// The manifest's requested permissions as a JSON array of strings — the shape
@@ -694,5 +738,84 @@ fn provision_settings_from_env(
             settings_count,
             plugin.name
         );
+    }
+}
+
+#[cfg(test)]
+mod reconsent_tests {
+    use super::reconsent_required;
+
+    fn v(perms: &[&str]) -> Vec<String> {
+        perms.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn untrusted_tier_widening_requires_reconsent() {
+        // community/verified: a new permission not already granted re-gates.
+        assert!(reconsent_required(
+            &v(&["ticket:read"]),
+            &v(&["ticket:read", "ticket:write"]),
+            "community"
+        ));
+        assert!(reconsent_required(
+            &v(&["ticket:read"]),
+            &v(&["ticket:read", "asset:write"]),
+            "verified"
+        ));
+        // A brand-new scope on an empty prior grant widens.
+        assert!(reconsent_required(
+            &v(&[]),
+            &v(&["ticket:read"]),
+            "community"
+        ));
+    }
+
+    #[test]
+    fn untrusted_tier_same_or_narrower_keeps_serving() {
+        assert!(!reconsent_required(
+            &v(&["ticket:read", "ticket:write"]),
+            &v(&["ticket:read", "ticket:write"]),
+            "community"
+        ));
+        assert!(!reconsent_required(
+            &v(&["ticket:read", "ticket:write"]),
+            &v(&["ticket:read"]),
+            "community"
+        ));
+        assert!(!reconsent_required(
+            &v(&["ticket:read"]),
+            &v(&[]),
+            "verified"
+        ));
+    }
+
+    #[test]
+    fn trusted_tiers_auto_consent_even_when_widening() {
+        // official/local never re-gate — they auto-consent to the new scope.
+        assert!(!reconsent_required(
+            &v(&["ticket:read"]),
+            &v(&["ticket:read", "ticket:delete"]),
+            "official"
+        ));
+        assert!(!reconsent_required(
+            &v(&[]),
+            &v(&["ticket:write", "network:example.com"]),
+            "local"
+        ));
+    }
+
+    #[test]
+    fn network_permissions_compared_verbatim() {
+        // A different host is a distinct permission string, so it widens.
+        assert!(reconsent_required(
+            &v(&["network:a.com"]),
+            &v(&["network:a.com", "network:b.com"]),
+            "community"
+        ));
+        assert!(!reconsent_required(
+            &v(&["network:a.com"]),
+            &v(&["network:a.com"]),
+            "community"
+        ));
     }
 }
