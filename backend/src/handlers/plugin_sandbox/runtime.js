@@ -323,6 +323,47 @@ function generateUUID() {
 }
 
 // ../plugin-sdk/src/connect.ts
+function wrapEvents(remote) {
+  const local = /* @__PURE__ */ new Map();
+  const remoteUnsub = /* @__PURE__ */ new Map();
+  const dispatch = (event, data) => {
+    const set = local.get(event);
+    if (!set) return;
+    for (const h of [...set]) {
+      try {
+        void h(data);
+      } catch {
+      }
+    }
+  };
+  const on = async (event, handler) => {
+    let set = local.get(event);
+    if (!set) {
+      set = /* @__PURE__ */ new Set();
+      local.set(event, set);
+      remoteUnsub.set(event, remote.on(event, proxy((d) => dispatch(event, d))));
+    }
+    set.add(handler);
+    return () => {
+      const s = local.get(event);
+      if (!s) return;
+      s.delete(handler);
+      if (s.size === 0) {
+        local.delete(event);
+        const unsubP = remoteUnsub.get(event);
+        remoteUnsub.delete(event);
+        void unsubP?.then((fn) => fn()).catch(() => {
+        });
+      }
+    };
+  };
+  return new Proxy(remote, {
+    get(target, prop, receiver) {
+      if (prop === "on") return on;
+      return Reflect.get(target, prop, receiver);
+    }
+  });
+}
 function connectToHost() {
   return new Promise((resolve) => {
     const listeners = /* @__PURE__ */ new Set();
@@ -334,7 +375,7 @@ function connectToHost() {
       if (!connected && data.type === "nosdesk-plugin-init" && event.ports[0]) {
         connected = true;
         context = data.context;
-        const api = wrap(event.ports[0]);
+        const api = wrapEvents(wrap(event.ports[0]));
         resolve({
           api,
           context,
