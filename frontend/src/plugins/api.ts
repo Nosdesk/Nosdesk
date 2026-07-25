@@ -18,8 +18,9 @@
  */
 
 import pluginService from '@nosdesk/core/services/pluginService';
-import { getTicketById, getTickets, addCommentToTicket } from '@nosdesk/core/services/ticketService';
-import { getAssetById, getAssets } from '@/services/assetService';
+import { getTicketById, getTickets, addCommentToTicket, updateTicket, deleteTicket } from '@nosdesk/core/services/ticketService';
+import { getAssetById, getAssets, updateAsset } from '@/services/assetService';
+import userService from '@/services/userService';
 import { logger } from '@nosdesk/core/utils/logger';
 import { useToastStore } from '@nosdesk/core/stores/toast';
 import type { Plugin, PluginPermission, PluginProxyRequest, PluginEvent, CollectionRow, CollectionListResponse } from '@nosdesk/core/types/plugin';
@@ -44,6 +45,30 @@ export interface PluginAttachment {
   thumbnailUrl: string | null;
   ticketId: number;
   commentId: number;
+}
+
+/** Writable-field subset a plugin may patch on a ticket (`ticket:write`). */
+export interface PluginTicketPatch {
+  title?: string;
+  priority?: string;
+  workflow_state_id?: number;
+  assignee?: string | null;
+}
+
+/** Writable-field subset a plugin may patch on an asset (`asset:write`). */
+export interface PluginAssetPatch {
+  name?: string;
+  status?: string;
+  location?: string | null;
+}
+
+/** Safe user projection for `user:read` (identity only). */
+export interface PluginUser {
+  uuid: string;
+  name: string;
+  email: string;
+  avatarUrl: string | null;
+  role: string;
 }
 
 export interface PluginContext {
@@ -163,6 +188,34 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
           return false;
         }
       },
+      // Acts as the current user: the write hits the same endpoint the app uses,
+      // bounded by the user's own perms + RLS. Restrict to the patch's safe field
+      // subset (never a full ticket).
+      async update(id: number, patch: PluginTicketPatch): Promise<Ticket | null> {
+        if (!hasPermission('ticket:write')) {
+          logger.warn(`Plugin ${plugin.name} denied ticket:write permission`);
+          return null;
+        }
+        try {
+          return await updateTicket(id, patch as Partial<Ticket>);
+        } catch (error) {
+          logger.error(`Plugin ${plugin.name} failed to update ticket`, { id, error });
+          return null;
+        }
+      },
+      async delete(id: number): Promise<boolean> {
+        if (!hasPermission('ticket:delete')) {
+          logger.warn(`Plugin ${plugin.name} denied ticket:delete permission`);
+          return false;
+        }
+        try {
+          await deleteTicket(id);
+          return true;
+        } catch (error) {
+          logger.error(`Plugin ${plugin.name} failed to delete ticket`, { id, error });
+          return false;
+        }
+      },
     },
 
     devices: {
@@ -188,6 +241,42 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
         } catch (error) {
           logger.error(`Plugin ${plugin.name} failed to list devices`, { error });
           return [];
+        }
+      },
+      async update(id: number, patch: PluginAssetPatch): Promise<Asset | null> {
+        if (!hasPermission('asset:write')) {
+          logger.warn(`Plugin ${plugin.name} denied asset:write permission`);
+          return null;
+        }
+        try {
+          return await updateAsset(id, patch as Partial<Asset>);
+        } catch (error) {
+          logger.error(`Plugin ${plugin.name} failed to update device`, { id, error });
+          return null;
+        }
+      },
+    },
+
+    // === READ: Users (identity projection) ===
+    users: {
+      async get(uuid: string): Promise<PluginUser | null> {
+        if (!hasPermission('user:read')) {
+          logger.warn(`Plugin ${plugin.name} denied user:read permission`);
+          return null;
+        }
+        try {
+          const u = await userService.getUserByUuid(uuid);
+          if (!u) return null;
+          return {
+            uuid: u.uuid,
+            name: u.name,
+            email: u.email,
+            avatarUrl: u.avatar_url ?? null,
+            role: (u.workspace_role ?? u.platform_role) as string,
+          };
+        } catch (error) {
+          logger.error(`Plugin ${plugin.name} failed to get user`, { uuid, error });
+          return null;
         }
       },
     },
@@ -509,11 +598,18 @@ export interface PluginAPI {
     get(id: number): Promise<Ticket | null>;
     list(): Promise<Ticket[]>;
     addComment(ticketId: number, comment: PluginComment): Promise<boolean>;
+    update(id: number, patch: PluginTicketPatch): Promise<Ticket | null>;
+    delete(id: number): Promise<boolean>;
   };
 
   devices: {
     get(id: number): Promise<Asset | null>;
     list(): Promise<Asset[]>;
+    update(id: number, patch: PluginAssetPatch): Promise<Asset | null>;
+  };
+
+  users: {
+    get(uuid: string): Promise<PluginUser | null>;
   };
 
   // Attachment access

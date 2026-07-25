@@ -28,6 +28,31 @@ export interface PluginComment {
   is_internal?: boolean;
 }
 
+/** The writable-field subset a plugin may patch on a ticket (`ticket:write`).
+ * Deliberately narrow, not the full ticket. */
+export interface PluginTicketPatch {
+  title?: string;
+  priority?: string;
+  workflow_state_id?: number;
+  assignee?: string | null;
+}
+
+/** The writable-field subset a plugin may patch on an asset (`asset:write`). */
+export interface PluginAssetPatch {
+  name?: string;
+  status?: string;
+  location?: string | null;
+}
+
+/** A safe user projection for `user:read` — identity only, workspace members. */
+export interface PluginUser {
+  uuid: string;
+  name: string;
+  email: string;
+  avatarUrl: string | null;
+  role: string;
+}
+
 /** A ticket attachment as exposed to plugins. */
 export interface PluginAttachment {
   id: number;
@@ -86,10 +111,20 @@ export interface HostApi {
     get(id: number): Promise<Ticket | null>;
     list(): Promise<Ticket[]>;
     addComment(ticketId: number, comment: PluginComment): Promise<boolean>;
+    /** Patch a ticket (`ticket:write`). Acts as the current user. */
+    update(id: number, patch: PluginTicketPatch): Promise<Ticket | null>;
+    /** Delete a ticket (`ticket:delete`). Acts as the current user. */
+    delete(id: number): Promise<boolean>;
   };
   devices: {
     get(id: number): Promise<Asset | null>;
     list(): Promise<Asset[]>;
+    /** Patch an asset (`asset:write`). Acts as the current user. */
+    update(id: number, patch: PluginAssetPatch): Promise<Asset | null>;
+  };
+  users: {
+    /** Fetch a workspace member's identity projection (`user:read`). */
+    get(uuid: string): Promise<PluginUser | null>;
   };
   attachments: {
     list(ticketId: number): Promise<PluginAttachment[]>;
