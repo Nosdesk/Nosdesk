@@ -4915,6 +4915,7 @@ plugin-state-active = Active
 plugin-state-disabled = Disabled
 plugin-state-quarantined = Quarantined
 plugin-state-uninstalled = Uninstalled
+plugin-state-awaiting-consent = Awaiting consent
 
 # Plugin admin: trust tier pills (PluginTrustBadge)
 plugin-trust-official = Official
@@ -5957,6 +5958,16 @@ plugin-permission-collection-read-label = Read Collections
 plugin-permission-collection-read-description = Read typed collection rows
 plugin-permission-collection-write-label = Write Collections
 plugin-permission-collection-write-description = Create and update typed collection rows
+plugin-permission-network-label = Network access
+plugin-permission-network-description = Make network requests to { $host }
+plugin-permission-unknown-label = { $permission }
+plugin-permission-unknown-description = An unrecognized permission
+plugin-permission-destructive-badge = Can change data
+plugin-detail-consent-heading = Permissions requested
+plugin-detail-consent-pending-title = Awaiting your approval
+plugin-detail-consent-pending-body = This plugin won't run until you review and approve the permissions it requests.
+plugin-detail-consent-approve = Approve & enable
+plugin-detail-consent-approving = Approving…
 error-resource-not-found = The requested resource was not found.
 error-network = Couldn't reach the server. It may be offline or unreachable.
 error-timeout = The request timed out. The server may still be processing it.

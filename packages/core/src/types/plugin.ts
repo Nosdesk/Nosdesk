@@ -148,7 +148,10 @@ export type PluginState =
   | 'installed'
   | 'disabled'
   | 'quarantined'
-  | 'uninstalled';
+  | 'uninstalled'
+  // Installed but not yet consented to (untrusted tiers): stored but not served
+  // until an admin approves the requested permission scope.
+  | 'awaiting_consent';
 
 // =============================================================================
 // Registry types (mirror the JSON served by nosdesk.com)
@@ -438,18 +441,58 @@ export type PluginPermission =
  * `translate()`. The install-confirmation UI is the intended
  * consumer; until it lands, keep the table in step with the
  * backend allowlist so we have ready strings when it ships. */
-export const PLUGIN_PERMISSIONS: { value: PluginPermission; labelKey: string; descriptionKey: string }[] = [
+export interface PermissionMeta {
+  value: PluginPermission;
+  labelKey: string;
+  descriptionKey: string;
+  /** Grants that can modify or remove shared data — flagged prominently on the
+   * consent screen. */
+  destructive?: boolean;
+}
+
+export const PLUGIN_PERMISSIONS: PermissionMeta[] = [
   { value: 'ticket:read',       labelKey: 'plugin-permission-ticket-read-label',       descriptionKey: 'plugin-permission-ticket-read-description' },
-  { value: 'ticket:write',      labelKey: 'plugin-permission-ticket-write-label',      descriptionKey: 'plugin-permission-ticket-write-description' },
+  { value: 'ticket:write',      labelKey: 'plugin-permission-ticket-write-label',      descriptionKey: 'plugin-permission-ticket-write-description',   destructive: true },
   { value: 'ticket:comment',    labelKey: 'plugin-permission-ticket-comment-label',    descriptionKey: 'plugin-permission-ticket-comment-description' },
-  { value: 'ticket:delete',     labelKey: 'plugin-permission-ticket-delete-label',     descriptionKey: 'plugin-permission-ticket-delete-description' },
+  { value: 'ticket:delete',     labelKey: 'plugin-permission-ticket-delete-label',     descriptionKey: 'plugin-permission-ticket-delete-description',  destructive: true },
   { value: 'asset:read',       labelKey: 'plugin-permission-asset-read-label',       descriptionKey: 'plugin-permission-asset-read-description' },
-  { value: 'asset:write',      labelKey: 'plugin-permission-asset-write-label',      descriptionKey: 'plugin-permission-asset-write-description' },
+  { value: 'asset:write',      labelKey: 'plugin-permission-asset-write-label',      descriptionKey: 'plugin-permission-asset-write-description',    destructive: true },
   { value: 'user:read',         labelKey: 'plugin-permission-user-read-label',         descriptionKey: 'plugin-permission-user-read-description' },
   { value: 'storage:plugin',    labelKey: 'plugin-permission-storage-plugin-label',    descriptionKey: 'plugin-permission-storage-plugin-description' },
   { value: 'collection:read',   labelKey: 'plugin-permission-collection-read-label',   descriptionKey: 'plugin-permission-collection-read-description' },
   { value: 'collection:write',  labelKey: 'plugin-permission-collection-write-label',  descriptionKey: 'plugin-permission-collection-write-description' },
 ];
+
+/** How a single requested permission renders on the consent screen / detail
+ * page. Handles `network:<host>` (not in the static table) and unknown values.
+ * Returns i18n keys + optional interpolation args, resolved by the caller. */
+export interface PermissionDescriptor {
+  labelKey: string;
+  descriptionKey: string;
+  destructive: boolean;
+  args?: Record<string, string>;
+}
+
+export function describePermission(value: PluginPermission | string): PermissionDescriptor {
+  if (value.startsWith('network:')) {
+    return {
+      labelKey: 'plugin-permission-network-label',
+      descriptionKey: 'plugin-permission-network-description',
+      destructive: false,
+      args: { host: value.slice('network:'.length) },
+    };
+  }
+  const entry = PLUGIN_PERMISSIONS.find((p) => p.value === value);
+  if (entry) {
+    return { labelKey: entry.labelKey, descriptionKey: entry.descriptionKey, destructive: !!entry.destructive };
+  }
+  return {
+    labelKey: 'plugin-permission-unknown-label',
+    descriptionKey: 'plugin-permission-unknown-description',
+    destructive: false,
+    args: { permission: value },
+  };
+}
 
 // =============================================================================
 // Plugin Events

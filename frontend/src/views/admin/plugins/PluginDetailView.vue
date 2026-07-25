@@ -34,6 +34,7 @@ import pluginService from '@nosdesk/core/services/pluginService';
 import { unloadPlugin } from '@/plugins/loader';
 import { logger } from '@nosdesk/core/utils/logger';
 import type { Plugin, PluginSetting } from '@nosdesk/core/types/plugin';
+import PluginPermissionList from '@/components/plugins/PluginPermissionList.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -108,6 +109,26 @@ async function loadSettings() {
 function announce(msg: string) {
   successMessage.value = msg;
   setTimeout(() => (successMessage.value = ''), 3000);
+}
+
+// Consent gate: untrusted-tier plugins land in `awaiting_consent` and don't run
+// until an admin approves their requested permission scope.
+const isAwaitingConsent = computed(() => plugin.value?.state === 'awaiting_consent');
+const consentInFlight = ref(false);
+async function approveConsent() {
+  if (!plugin.value) return;
+  consentInFlight.value = true;
+  errorMessage.value = '';
+  try {
+    await pluginService.consentToPlugin(uuid.value);
+    await pluginQuery.refetch();
+    announce(t('plugin-detail-consent-approve'));
+  } catch (error) {
+    logger.error('Failed to consent to plugin', { error, uuid: uuid.value });
+    errorMessage.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    consentInFlight.value = false;
+  }
 }
 
 function isSecretConfigured(key: string): boolean {
@@ -316,6 +337,26 @@ const saveButtonLabel = computed(() =>
         </div>
       </header>
 
+      <!-- Consent gate: pending admin approval of the requested permission scope -->
+      <section
+        v-if="isAwaitingConsent"
+        class="rounded-xl border border-status-warning/40 bg-status-warning/5 p-5"
+      >
+        <h2 class="font-semibold text-primary">{{ t('plugin-detail-consent-pending-title') }}</h2>
+        <p class="mt-1 text-sm text-secondary">{{ t('plugin-detail-consent-pending-body') }}</p>
+        <div class="mt-4">
+          <h3 class="mb-2 text-xs tracking-wide text-tertiary uppercase">
+            {{ t('plugin-detail-consent-heading') }}
+          </h3>
+          <PluginPermissionList :permissions="plugin.manifest.permissions" />
+        </div>
+        <div class="mt-4">
+          <Button variant="primary" :disabled="consentInFlight" @click="approveConsent">
+            {{ consentInFlight ? t('plugin-detail-consent-approving') : t('plugin-detail-consent-approve') }}
+          </Button>
+        </div>
+      </section>
+
       <!-- Lifecycle actions -->
       <section
         aria-labelledby="lifecycle-heading"
@@ -507,9 +548,14 @@ const saveButtonLabel = computed(() =>
             <dt class="text-xs tracking-wide text-tertiary uppercase">{{ t('plugin-detail-metadata-source') }}</dt>
             <dd class="mt-1 text-secondary">{{ plugin.source }}</dd>
           </div>
-          <div>
+          <div class="sm:col-span-2">
             <dt class="text-xs tracking-wide text-tertiary uppercase">{{ t('plugin-detail-metadata-permissions') }}</dt>
-            <dd class="mt-1 text-secondary">{{ t('plugin-detail-metadata-permissions-count', { count: plugin.manifest.permissions.length }) }}</dd>
+            <dd class="mt-2">
+              <PluginPermissionList :permissions="plugin.manifest.permissions" />
+              <span v-if="!plugin.manifest.permissions.length" class="text-secondary">
+                {{ t('plugin-detail-metadata-permissions-count', { count: 0 }) }}
+              </span>
+            </dd>
           </div>
           <div v-if="plugin.manifest.repository" class="sm:col-span-2">
             <dt class="text-xs tracking-wide text-tertiary uppercase">{{ t('plugin-detail-metadata-repository') }}</dt>

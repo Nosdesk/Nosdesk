@@ -4744,6 +4744,8 @@ plugin-state-active = Actief
 plugin-state-disabled = Uitgeschakeld
 plugin-state-quarantined = In quarantaine
 plugin-state-uninstalled = Verwijderd
+# MACHINE TRANSLATION, pending native review
+plugin-state-awaiting-consent = Wacht op goedkeuring
 
 # Plugin admin: trust tier pills (PluginTrustBadge)
 plugin-trust-official = Officieel
@@ -5732,6 +5734,17 @@ plugin-permission-collection-read-label = Collecties lezen
 plugin-permission-collection-read-description = Records uit getypeerde collecties lezen
 plugin-permission-collection-write-label = Collecties schrijven
 plugin-permission-collection-write-description = Records in getypeerde collecties aanmaken en bijwerken
+# MACHINE TRANSLATION, pending native review
+plugin-permission-network-label = Netwerktoegang
+plugin-permission-network-description = Netwerkverzoeken doen naar { $host }
+plugin-permission-unknown-label = { $permission }
+plugin-permission-unknown-description = Een niet-herkende machtiging
+plugin-permission-destructive-badge = Kan gegevens wijzigen
+plugin-detail-consent-heading = Gevraagde machtigingen
+plugin-detail-consent-pending-title = Wacht op uw goedkeuring
+plugin-detail-consent-pending-body = Deze plugin wordt pas uitgevoerd nadat u de gevraagde machtigingen hebt bekeken en goedgekeurd.
+plugin-detail-consent-approve = Goedkeuren en inschakelen
+plugin-detail-consent-approving = Goedkeuren…
 error-resource-not-found = De gevraagde bron is niet gevonden.
 error-network = Kan de server niet bereiken. Mogelijk is deze offline of onbereikbaar.
 error-timeout = De aanvraag is verlopen. De server verwerkt deze mogelijk nog.
