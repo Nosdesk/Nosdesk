@@ -9,7 +9,6 @@ import { ref, shallowRef, reactive, type ShallowRef } from 'vue';
 import pluginService from '@nosdesk/core/services/pluginService';
 import { logger } from '@nosdesk/core/utils/logger';
 import { translate } from '@/i18n';
-import { preloadPluginBundle } from './componentLoader';
 import type { Plugin, PluginSlot, PluginManifest } from '@nosdesk/core/types/plugin';
 import { PLUGIN_SLOTS } from '@nosdesk/core/types/plugin';
 
@@ -179,11 +178,6 @@ async function loadPlugin(plugin: Plugin): Promise<void> {
       componentName,
       totalInSlot: slotRegistrations.get(slot)?.length,
     });
-  }
-
-  // Preload bundle so components render instantly (no async loading flash)
-  if (plugin.trust_level !== 'community' && plugin.bundle_uploaded_at) {
-    await preloadPluginBundle(plugin.uuid);
   }
 
   logger.debug(`Loaded plugin: ${plugin.name}`, {

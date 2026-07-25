@@ -19,16 +19,10 @@ export {
   loadError,
 } from './loader';
 
-// Plugin API
-export { createPluginAPI, getHostApiForPlugin, type PluginAPI } from './api';
-
-// Component Loader
-export {
-  createPluginComponent,
-  canRenderComponent,
-  clearPluginCache,
-  clearAllPluginCaches,
-} from './componentLoader';
+// Plugin API (createPluginAPI backs the sandbox host bridge; there is no
+// in-process render path any more, so getHostApiForPlugin + the component loader
+// were removed in the sandbox-all migration).
+export { createPluginAPI, type PluginAPI } from './api';
 
 // Event Dispatcher
 export {
