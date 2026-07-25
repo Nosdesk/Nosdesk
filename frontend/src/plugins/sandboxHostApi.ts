@@ -42,10 +42,16 @@ export function createHostApiImpl(plugin: Plugin): { hostApi: HostApi; inproc: P
       get: (id) => inproc.tickets.get(id),
       list: () => inproc.tickets.list(),
       addComment: (id, comment) => inproc.tickets.addComment(id, comment),
+      update: (id, patch) => inproc.tickets.update(id, patch),
+      delete: (id) => inproc.tickets.delete(id),
     },
     devices: {
       get: (id) => inproc.devices.get(id),
       list: () => inproc.devices.list(),
+      update: (id, patch) => inproc.devices.update(id, patch),
+    },
+    users: {
+      get: (uuid) => inproc.users.get(uuid),
     },
     attachments: {
       async list(ticketId) {
