@@ -8,6 +8,8 @@
 // Plugin Loader
 export {
   loadPlugins,
+  reconcileEnabledPlugins,
+  startPluginLifecycleSync,
   getSlotRegistrations,
   getLoadedPlugin,
   getLoadedPlugins,
