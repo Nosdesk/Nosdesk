@@ -1095,6 +1095,15 @@ pub async fn get_plugin_activity(
 // Plugin Proxy Handler
 // =============================================================================
 
+/// Per-(workspace, plugin) budget on credentialed egress. The proxy injects the
+/// plugin's admin-configured secrets into an outbound request whose path/body the
+/// caller controls; any workspace member can drive it (inherent to a client-side
+/// plugin holding a server-side credential — see docs/plugin-enforcement-design.md
+/// Decision 4). The host allowlist + these caps + the audit trail are the
+/// mitigations. Mirrors the plugin-event emitter's budget.
+const PLUGIN_PROXY_RATE_MAX: u32 = 60;
+const PLUGIN_PROXY_RATE_WINDOW_SECS: u64 = 60;
+
 /// Proxy an external request for a plugin (authenticated users)
 pub async fn proxy_plugin_request(
     req: HttpRequest,
@@ -1146,6 +1155,58 @@ pub async fn proxy_plugin_request(
             return errors::internal("Failed to get plugin");
         }
     };
+
+    let workspace_id = req
+        .extensions()
+        .get::<RequestContext>()
+        .and_then(|ctx| ctx.actor.workspace_id);
+
+    // Bound how fast any member can drive this plugin's credentialed egress.
+    // Fail open on a Redis outage (abuse-limiting, not an auth gate), but log.
+    {
+        let redis_url = crate::utils::rate_limit::get_redis_url();
+        let key = format!("plugin_proxy:{}:{}", workspace_id.unwrap_or(0), plugin_uuid);
+        match crate::utils::rate_limit::RateLimiter::check_rate_limit(
+            &redis_url,
+            &key,
+            PLUGIN_PROXY_RATE_MAX,
+            PLUGIN_PROXY_RATE_WINDOW_SECS,
+        )
+        .await
+        {
+            Ok(true) => {}
+            Ok(false) => {
+                warn!(plugin_uuid = %plugin_uuid, "plugin proxy rate limit exceeded");
+                return errors::too_many_requests(
+                    "Too many plugin proxy requests",
+                    PLUGIN_PROXY_RATE_WINDOW_SECS,
+                );
+            }
+            Err(e) => warn!(error = %e, "plugin proxy rate limiter unavailable; allowing"),
+        }
+    }
+
+    // Audit the credentialed egress: record who drove it + the target host (never
+    // the injected secret or the body). Ops grep on `target=plugin_audit`.
+    let actor_ref = req
+        .extensions()
+        .get::<Claims>()
+        .map(|c| c.sub.clone())
+        .unwrap_or_default();
+    let target_host = url::Url::parse(&body.url)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_string))
+        .unwrap_or_else(|| "<unparseable>".to_string());
+    info!(
+        target: "plugin_audit",
+        plugin_uuid = %plugin.uuid,
+        plugin_name = %plugin.name,
+        actor = %actor_ref,
+        method = %body.method,
+        target_host = %target_host,
+        workspace_id = ?workspace_id,
+        "plugin proxy egress"
+    );
 
     // Parse the manifest
     let manifest = match plugin.parse_manifest() {
