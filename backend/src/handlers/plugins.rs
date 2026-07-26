@@ -846,6 +846,60 @@ pub async fn delete_plugin_setting(
 }
 
 // =============================================================================
+// Plugin-owned data authorization gate
+// =============================================================================
+
+/// Refusal from [`authorize_plugin_data_request`], each mapping to the right
+/// HTTP status. Keeps the load + Installed + consented-permission gate in one
+/// place for the plugin-owned data endpoints (storage, collections).
+pub enum PluginGate {
+    /// No such plugin in this workspace (RLS-scoped).
+    NotFound,
+    /// The plugin exists but isn't Installed (disabled / quarantined / awaiting
+    /// consent) — its data surface is closed.
+    Inactive,
+    /// The plugin is active but its consented grant doesn't include the needed
+    /// permission.
+    Forbidden(&'static str),
+}
+
+impl PluginGate {
+    pub fn into_response(self) -> HttpResponse {
+        match self {
+            PluginGate::NotFound => errors::not_found_msg("Plugin not found"),
+            PluginGate::Inactive => errors::forbidden("Plugin is not active"),
+            PluginGate::Forbidden(msg) => errors::forbidden(msg),
+        }
+    }
+}
+
+/// Load a plugin and authorize a plugin-owned data request: it must exist (under
+/// workspace RLS), be Installed, and have `needed` in its effective (consented)
+/// grant. The outer `Result` is the DB error channel (propagate with `?`); the
+/// inner is the authorization decision — callers fold `Err(gate)` into their own
+/// outcome enum and render it with `gate.into_response()`. This is the
+/// server-side boundary: `api.ts`'s check is defense-in-depth, not the gate.
+pub fn authorize_plugin_data_request(
+    conn: &mut crate::db::DbConnection,
+    plugin_uuid: Uuid,
+    needed: &str,
+    denied_msg: &'static str,
+) -> Result<Result<crate::models::Plugin, PluginGate>, DieselError> {
+    let plugin = match plugin_repo::get_plugin_by_uuid(conn, plugin_uuid) {
+        Ok(p) => p,
+        Err(DieselError::NotFound) => return Ok(Err(PluginGate::NotFound)),
+        Err(e) => return Err(e),
+    };
+    if !plugin.is_active() {
+        return Ok(Err(PluginGate::Inactive));
+    }
+    if !plugin.has_effective_permission(needed) {
+        return Ok(Err(PluginGate::Forbidden(denied_msg)));
+    }
+    Ok(Ok(plugin))
+}
+
+// =============================================================================
 // Plugin Storage Handlers (for plugin runtime use)
 // =============================================================================
 
@@ -864,20 +918,20 @@ pub async fn get_plugin_storage(
     enum StorageOutcome {
         Ok(crate::models::PluginData),
         Empty,
-        PluginNotFound,
-        PluginDisabled,
+        Gate(PluginGate),
     }
 
     let key_for_closure = key.clone();
     let outcome = tc.run(|conn| {
-        let plugin = match plugin_repo::get_plugin_by_uuid(conn, plugin_uuid) {
+        let plugin = match authorize_plugin_data_request(
+            conn,
+            plugin_uuid,
+            "storage:plugin",
+            "Plugin has not been granted storage access",
+        )? {
             Ok(p) => p,
-            Err(DieselError::NotFound) => return Ok(StorageOutcome::PluginNotFound),
-            Err(e) => return Err(e),
+            Err(gate) => return Ok(StorageOutcome::Gate(gate)),
         };
-        if !plugin.is_active() {
-            return Ok(StorageOutcome::PluginDisabled);
-        }
         match plugin_repo::get_plugin_storage_entry(conn, plugin.id, &key_for_closure) {
             Ok(entry) => Ok::<_, DieselError>(StorageOutcome::Ok(entry)),
             Err(DieselError::NotFound) => Ok(StorageOutcome::Empty),
@@ -893,8 +947,7 @@ pub async fn get_plugin_storage(
             "key": key,
             "value": null
         })),
-        Ok(StorageOutcome::PluginNotFound) => errors::not_found_msg("Plugin not found"),
-        Ok(StorageOutcome::PluginDisabled) => errors::forbidden("Plugin is disabled"),
+        Ok(StorageOutcome::Gate(gate)) => gate.into_response(),
         Err(e) => {
             error!("Failed to get plugin storage: {}", e);
             errors::internal("Failed to get storage")
@@ -918,21 +971,21 @@ pub async fn set_plugin_storage(
 
     enum StorageOutcome {
         Ok(crate::models::PluginData),
-        PluginNotFound,
-        PluginDisabled,
+        Gate(PluginGate),
     }
 
     let key = body.key.clone();
     let value = body.value.clone();
     let outcome = tc.run(|conn| {
-        let plugin = match plugin_repo::get_plugin_by_uuid(conn, plugin_uuid) {
+        let plugin = match authorize_plugin_data_request(
+            conn,
+            plugin_uuid,
+            "storage:plugin",
+            "Plugin has not been granted storage access",
+        )? {
             Ok(p) => p,
-            Err(DieselError::NotFound) => return Ok(StorageOutcome::PluginNotFound),
-            Err(e) => return Err(e),
+            Err(gate) => return Ok(StorageOutcome::Gate(gate)),
         };
-        if !plugin.is_active() {
-            return Ok(StorageOutcome::PluginDisabled);
-        }
         let entry = plugin_repo::set_plugin_storage(conn, plugin.id, key, Some(value))?;
         Ok::<_, DieselError>(StorageOutcome::Ok(entry))
     });
@@ -941,8 +994,7 @@ pub async fn set_plugin_storage(
         Ok(StorageOutcome::Ok(entry)) => {
             HttpResponse::Ok().json(PluginStorageResponse::from(entry))
         }
-        Ok(StorageOutcome::PluginNotFound) => errors::not_found_msg("Plugin not found"),
-        Ok(StorageOutcome::PluginDisabled) => errors::forbidden("Plugin is disabled"),
+        Ok(StorageOutcome::Gate(gate)) => gate.into_response(),
         Err(e) => {
             error!("Failed to set plugin storage: {}", e);
             errors::internal("Failed to set storage")
@@ -964,27 +1016,26 @@ pub async fn delete_plugin_storage(
 
     enum StorageOutcome {
         Deleted,
-        PluginNotFound,
-        PluginDisabled,
+        Gate(PluginGate),
     }
 
     let outcome = tc.run(|conn| {
-        let plugin = match plugin_repo::get_plugin_by_uuid(conn, plugin_uuid) {
+        let plugin = match authorize_plugin_data_request(
+            conn,
+            plugin_uuid,
+            "storage:plugin",
+            "Plugin has not been granted storage access",
+        )? {
             Ok(p) => p,
-            Err(DieselError::NotFound) => return Ok(StorageOutcome::PluginNotFound),
-            Err(e) => return Err(e),
+            Err(gate) => return Ok(StorageOutcome::Gate(gate)),
         };
-        if !plugin.is_active() {
-            return Ok(StorageOutcome::PluginDisabled);
-        }
         plugin_repo::delete_plugin_storage_entry(conn, plugin.id, &key)?;
         Ok::<_, DieselError>(StorageOutcome::Deleted)
     });
 
     match outcome {
         Ok(StorageOutcome::Deleted) => HttpResponse::NoContent().finish(),
-        Ok(StorageOutcome::PluginNotFound) => errors::not_found_msg("Plugin not found"),
-        Ok(StorageOutcome::PluginDisabled) => errors::forbidden("Plugin is disabled"),
+        Ok(StorageOutcome::Gate(gate)) => gate.into_response(),
         Err(e) => {
             error!("Failed to delete plugin storage: {}", e);
             errors::internal("Failed to delete storage")

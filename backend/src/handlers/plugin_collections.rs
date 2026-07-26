@@ -10,13 +10,13 @@ use uuid::Uuid;
 use crate::extractors::TenantConn;
 use crate::handlers::errors;
 use crate::handlers::helpers;
+use crate::handlers::plugins::{authorize_plugin_data_request, PluginGate};
 use crate::models::{
     Claims, CollectionListResponse, CollectionQueryParams, CollectionRowResponse,
     CollectionSchemaResponse, CreateCollectionRowRequest, NewPluginCollectionRow,
     PluginCollectionRowUpdate, UpdateCollectionRowRequest,
 };
 use crate::repository::plugin_collections as collection_repo;
-use crate::repository::plugins as plugin_repo;
 use crate::services::plugins::validation;
 use crate::utils::i18n;
 use crate::utils::locale::request_locale;
@@ -52,7 +52,7 @@ fn get_claims(req: &HttpRequest) -> Result<Claims, HttpResponse> {
 /// internal error without leaking HttpResponse into the txn closure.
 enum SchemaLookup {
     Ok(crate::models::PluginCollectionSchema, crate::models::Plugin),
-    PluginNotFound,
+    Gate(PluginGate),
     CollectionNotFound,
 }
 
@@ -75,14 +75,18 @@ pub async fn list_collections(
 
     enum ListOutcome {
         Ok(Vec<CollectionSchemaResponse>),
-        PluginNotFound,
+        Gate(PluginGate),
     }
 
     let outcome = tc.run(|conn| {
-        let plugin = match plugin_repo::get_plugin_by_uuid(conn, plugin_uuid) {
+        let plugin = match authorize_plugin_data_request(
+            conn,
+            plugin_uuid,
+            "collection:read",
+            "Plugin has not been granted collection access",
+        )? {
             Ok(p) => p,
-            Err(DieselError::NotFound) => return Ok(ListOutcome::PluginNotFound),
-            Err(e) => return Err(e),
+            Err(gate) => return Ok(ListOutcome::Gate(gate)),
         };
 
         let schemas = collection_repo::get_schemas_by_plugin(conn, plugin.id)?;
@@ -106,7 +110,7 @@ pub async fn list_collections(
 
     match outcome {
         Ok(ListOutcome::Ok(resp)) => HttpResponse::Ok().json(resp),
-        Ok(ListOutcome::PluginNotFound) => errors::not_found_msg("Plugin not found"),
+        Ok(ListOutcome::Gate(gate)) => gate.into_response(),
         Err(e) => {
             error!("Failed to list collections: {}", e);
             errors::internal("Failed to get collections")
@@ -128,10 +132,14 @@ pub async fn get_collection_schema(
     let path = path.into_inner();
 
     let outcome = tc.run(|conn| {
-        let plugin = match plugin_repo::get_plugin_by_uuid(conn, path.uuid) {
+        let plugin = match authorize_plugin_data_request(
+            conn,
+            path.uuid,
+            "collection:read",
+            "Plugin has not been granted collection access",
+        )? {
             Ok(p) => p,
-            Err(DieselError::NotFound) => return Ok(SchemaLookup::PluginNotFound),
-            Err(e) => return Err(e),
+            Err(gate) => return Ok(SchemaLookup::Gate(gate)),
         };
         let schema = match collection_repo::get_schema_by_name(conn, plugin.id, &path.name) {
             Ok(s) => s,
@@ -157,7 +165,7 @@ pub async fn get_collection_schema(
                 row_count,
             })
         }
-        Ok(SchemaLookup::PluginNotFound) => errors::not_found_msg("Plugin not found"),
+        Ok(SchemaLookup::Gate(gate)) => gate.into_response(),
         Ok(SchemaLookup::CollectionNotFound) => errors::not_found_msg("Collection not found"),
         Err(e) => {
             error!("Failed to get collection schema: {}", e);
@@ -196,15 +204,19 @@ pub async fn list_collection_rows(
 
     enum RowsOutcome {
         Ok(Vec<crate::models::PluginCollectionRow>, i64),
-        PluginNotFound,
+        Gate(PluginGate),
         CollectionNotFound,
     }
 
     let outcome = tc.run(|conn| {
-        let plugin = match plugin_repo::get_plugin_by_uuid(conn, path.uuid) {
+        let plugin = match authorize_plugin_data_request(
+            conn,
+            path.uuid,
+            "collection:read",
+            "Plugin has not been granted collection access",
+        )? {
             Ok(p) => p,
-            Err(DieselError::NotFound) => return Ok(RowsOutcome::PluginNotFound),
-            Err(e) => return Err(e),
+            Err(gate) => return Ok(RowsOutcome::Gate(gate)),
         };
         let schema = match collection_repo::get_schema_by_name(conn, plugin.id, &path.name) {
             Ok(s) => s,
@@ -228,7 +240,7 @@ pub async fn list_collection_rows(
             rows: rows.into_iter().map(CollectionRowResponse::from).collect(),
             total,
         }),
-        Ok(RowsOutcome::PluginNotFound) => errors::not_found_msg("Plugin not found"),
+        Ok(RowsOutcome::Gate(gate)) => gate.into_response(),
         Ok(RowsOutcome::CollectionNotFound) => errors::not_found_msg("Collection not found"),
         Err(e) => {
             error!("Failed to list collection rows: {}", e);
@@ -256,16 +268,20 @@ pub async fn create_collection_row(
 
     enum CreateOutcome {
         Ok(crate::models::PluginCollectionRow),
-        PluginNotFound,
+        Gate(PluginGate),
         CollectionNotFound,
         ValidationError(String),
     }
 
     let outcome = tc.run(|conn| {
-        let plugin = match plugin_repo::get_plugin_by_uuid(conn, path.uuid) {
+        let plugin = match authorize_plugin_data_request(
+            conn,
+            path.uuid,
+            "collection:write",
+            "Plugin has not been granted collection write access",
+        )? {
             Ok(p) => p,
-            Err(DieselError::NotFound) => return Ok(CreateOutcome::PluginNotFound),
-            Err(e) => return Err(e),
+            Err(gate) => return Ok(CreateOutcome::Gate(gate)),
         };
         let schema = match collection_repo::get_schema_by_name(conn, plugin.id, &path.name) {
             Ok(s) => s,
@@ -296,7 +312,7 @@ pub async fn create_collection_row(
         Ok(CreateOutcome::Ok(row)) => {
             HttpResponse::Created().json(CollectionRowResponse::from(row))
         }
-        Ok(CreateOutcome::PluginNotFound) => errors::not_found_msg("Plugin not found"),
+        Ok(CreateOutcome::Gate(gate)) => gate.into_response(),
         Ok(CreateOutcome::CollectionNotFound) => errors::not_found_msg("Collection not found"),
         Ok(CreateOutcome::ValidationError(msg)) => {
             HttpResponse::BadRequest().json(serde_json::json!({
@@ -327,15 +343,19 @@ pub async fn get_collection_row(
 
     enum GetOutcome {
         Ok(crate::models::PluginCollectionRow),
-        PluginNotFound,
+        Gate(PluginGate),
         RowNotFound,
     }
 
     let outcome = tc.run(|conn| {
-        match plugin_repo::get_plugin_by_uuid(conn, path.uuid) {
+        match authorize_plugin_data_request(
+            conn,
+            path.uuid,
+            "collection:read",
+            "Plugin has not been granted collection access",
+        )? {
             Ok(_) => {}
-            Err(DieselError::NotFound) => return Ok(GetOutcome::PluginNotFound),
-            Err(e) => return Err(e),
+            Err(gate) => return Ok(GetOutcome::Gate(gate)),
         }
         match collection_repo::get_row_by_uuid(conn, path.row_uuid) {
             Ok(row) => Ok::<_, DieselError>(GetOutcome::Ok(row)),
@@ -346,7 +366,7 @@ pub async fn get_collection_row(
 
     match outcome {
         Ok(GetOutcome::Ok(row)) => HttpResponse::Ok().json(CollectionRowResponse::from(row)),
-        Ok(GetOutcome::PluginNotFound) => errors::not_found_msg("Plugin not found"),
+        Ok(GetOutcome::Gate(gate)) => gate.into_response(),
         Ok(GetOutcome::RowNotFound) => errors::not_found_msg("Row not found"),
         Err(e) => {
             error!("Failed to get collection row: {}", e);
@@ -373,17 +393,21 @@ pub async fn update_collection_row(
 
     enum UpdateOutcome {
         Ok(crate::models::PluginCollectionRow),
-        PluginNotFound,
+        Gate(PluginGate),
         CollectionNotFound,
         RowNotFound,
         ValidationError(String),
     }
 
     let outcome = tc.run(|conn| {
-        let plugin = match plugin_repo::get_plugin_by_uuid(conn, path.uuid) {
+        let plugin = match authorize_plugin_data_request(
+            conn,
+            path.uuid,
+            "collection:write",
+            "Plugin has not been granted collection write access",
+        )? {
             Ok(p) => p,
-            Err(DieselError::NotFound) => return Ok(UpdateOutcome::PluginNotFound),
-            Err(e) => return Err(e),
+            Err(gate) => return Ok(UpdateOutcome::Gate(gate)),
         };
         let schema = match collection_repo::get_schema_by_name(conn, plugin.id, &path.name) {
             Ok(s) => s,
@@ -413,7 +437,7 @@ pub async fn update_collection_row(
 
     match outcome {
         Ok(UpdateOutcome::Ok(row)) => HttpResponse::Ok().json(CollectionRowResponse::from(row)),
-        Ok(UpdateOutcome::PluginNotFound) => errors::not_found_msg("Plugin not found"),
+        Ok(UpdateOutcome::Gate(gate)) => gate.into_response(),
         Ok(UpdateOutcome::CollectionNotFound) => errors::not_found_msg("Collection not found"),
         Ok(UpdateOutcome::RowNotFound) => errors::not_found_msg("Row not found"),
         Ok(UpdateOutcome::ValidationError(msg)) => {
@@ -445,15 +469,19 @@ pub async fn delete_collection_row(
 
     enum DeleteOutcome {
         Deleted,
-        PluginNotFound,
+        Gate(PluginGate),
         RowNotFound,
     }
 
     let outcome = tc.run(|conn| {
-        match plugin_repo::get_plugin_by_uuid(conn, path.uuid) {
+        match authorize_plugin_data_request(
+            conn,
+            path.uuid,
+            "collection:write",
+            "Plugin has not been granted collection write access",
+        )? {
             Ok(_) => {}
-            Err(DieselError::NotFound) => return Ok(DeleteOutcome::PluginNotFound),
-            Err(e) => return Err(e),
+            Err(gate) => return Ok(DeleteOutcome::Gate(gate)),
         }
         match collection_repo::delete_row(conn, path.row_uuid)? {
             n if n > 0 => Ok::<_, DieselError>(DeleteOutcome::Deleted),
@@ -463,7 +491,7 @@ pub async fn delete_collection_row(
 
     match outcome {
         Ok(DeleteOutcome::Deleted) => HttpResponse::NoContent().finish(),
-        Ok(DeleteOutcome::PluginNotFound) => errors::not_found_msg("Plugin not found"),
+        Ok(DeleteOutcome::Gate(gate)) => gate.into_response(),
         Ok(DeleteOutcome::RowNotFound) => errors::not_found_msg("Row not found"),
         Err(e) => {
             error!("Failed to delete collection row: {}", e);

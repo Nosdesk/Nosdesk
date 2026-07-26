@@ -5916,6 +5916,15 @@ impl Plugin {
                 .unwrap_or_default(),
         }
     }
+
+    /// Whether the plugin's effective (consented) grant includes `needed`. The
+    /// server-side authorization gate for plugin-owned data endpoints (storage,
+    /// collections). Exact-string match, so it's for the fixed capability
+    /// permissions (`storage:plugin`, `collection:read`, ...), not `network:*`
+    /// host patterns (the proxy enforces those against the target host).
+    pub fn has_effective_permission(&self, needed: &str) -> bool {
+        self.effective_permission_set().iter().any(|p| p == needed)
+    }
 }
 
 /// Lifecycle state of a plugin row. Stored as a `VARCHAR(32)` in
