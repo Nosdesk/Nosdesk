@@ -7,6 +7,8 @@
 
 import { ref, shallowRef, reactive, type ShallowRef } from 'vue';
 import pluginService from '@nosdesk/core/services/pluginService';
+import { onSyncActions } from '@nosdesk/core/sync/observers';
+import type { SyncAction } from '@nosdesk/core/sync/types';
 import { logger } from '@nosdesk/core/utils/logger';
 import { translate } from '@/i18n';
 import type { Plugin, PluginSlot, PluginManifest } from '@nosdesk/core/types/plugin';
@@ -222,6 +224,72 @@ export function unloadPlugin(uuid: string): void {
   }
 
   logger.info(`Unloaded plugin: ${uuid}`);
+}
+
+/**
+ * Reconcile the loaded set against the server's enabled list: unload plugins that
+ * are no longer enabled (disabled / quarantined / uninstalled) and load any newly
+ * enabled ones. `/plugins/enabled` returns only `installed` plugins, so a single
+ * refetch + diff covers every lifecycle transition. Idempotent; safe to call
+ * repeatedly.
+ */
+export async function reconcileEnabledPlugins(): Promise<void> {
+  let enabled: Plugin[];
+  try {
+    enabled = await pluginService.listEnabledPlugins();
+  } catch (error) {
+    logger.warn('Plugin reconcile: failed to fetch enabled list', { error });
+    return;
+  }
+  const enabledByUuid = new Set(enabled.map(p => p.uuid));
+
+  // Unload anything no longer enabled — this tears down its sandbox frame in
+  // EVERY open session, not just the admin tab that flipped the state, so a
+  // disabled or signer-revoked (quarantined) plugin actually stops running.
+  for (const uuid of [...loadedPlugins.value.keys()]) {
+    if (!enabledByUuid.has(uuid)) {
+      unloadPlugin(uuid);
+    }
+  }
+  // Load anything newly enabled (re-enabled or freshly installed).
+  for (const plugin of enabled) {
+    if (!loadedPlugins.value.has(plugin.uuid)) {
+      await loadPlugin(plugin);
+    }
+  }
+}
+
+const PLUGIN_LIFECYCLE_EVENTS = new Set([
+  'plugin.installed',
+  'plugin.updated',
+  'plugin.uninstalled',
+]);
+
+let lifecycleUnsub: (() => void) | null = null;
+let reconcileTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Subscribe to plugin lifecycle sync actions so every session reconciles its
+ * loaded plugins as their state changes server-side — not only the acting admin's
+ * tab. Debounced to coalesce bursts. Returns a cleanup fn; idempotent.
+ */
+export function startPluginLifecycleSync(): () => void {
+  if (lifecycleUnsub) return lifecycleUnsub;
+  const unsub = onSyncActions((actions: SyncAction[]) => {
+    if (!actions.some(a => PLUGIN_LIFECYCLE_EVENTS.has(a.event_type))) return;
+    if (reconcileTimer) clearTimeout(reconcileTimer);
+    reconcileTimer = setTimeout(() => {
+      reconcileTimer = null;
+      void reconcileEnabledPlugins();
+    }, 400);
+  });
+  lifecycleUnsub = () => {
+    unsub();
+    if (reconcileTimer) clearTimeout(reconcileTimer);
+    reconcileTimer = null;
+    lifecycleUnsub = null;
+  };
+  return lifecycleUnsub;
 }
 
 /**

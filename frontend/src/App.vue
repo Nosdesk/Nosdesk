@@ -37,7 +37,7 @@ const usePageTransition = !isTauriRuntime()
 import { setMentionNavigationHandler } from '@/plugins/prosemirror-mention-view'
 import authService from '@nosdesk/core/services/authService'
 import { useBrandingStore } from '@/stores/branding'
-import { loadPlugins, initializeEventDispatcher } from '@/plugins'
+import { loadPlugins, initializeEventDispatcher, startPluginLifecycleSync } from '@/plugins'
 import { useAuthStore } from '@/stores/auth'
 import { usePageActionsStore } from '@nosdesk/core/stores/pageActions'
 import { useMyWorkspacesStore } from '@/stores/myWorkspaces'
@@ -304,6 +304,7 @@ const handleCreateClick = () => {
 // Initialize plugins after authentication
 const authStore = useAuthStore();
 let eventDispatcherCleanup: (() => void) | null = null;
+let pluginLifecycleCleanup: (() => void) | null = null;
 
 // Watch auth state and load plugins when authenticated
 // immediate: true handles initial state, watch handles subsequent changes
@@ -314,6 +315,10 @@ watch(
       try {
         await loadPlugins();
         eventDispatcherCleanup = initializeEventDispatcher();
+        // Tear down / load plugins in this session as their state changes
+        // server-side (disable / quarantine / uninstall / re-enable), not just
+        // in the admin tab that flipped the state.
+        pluginLifecycleCleanup = startPluginLifecycleSync();
       } catch (error) {
         console.error('Failed to initialize plugins:', error);
       }
@@ -321,6 +326,8 @@ watch(
       // Cleanup on logout
       eventDispatcherCleanup?.();
       eventDispatcherCleanup = null;
+      pluginLifecycleCleanup?.();
+      pluginLifecycleCleanup = null;
     }
   },
   { immediate: true }
