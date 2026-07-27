@@ -119,14 +119,17 @@ onMounted(() => {
   void mintToken();
 });
 
-// Push a fresh context snapshot whenever ticket/device or the action counter
-// changes (the action counter is how a host menu trigger reaches the plugin).
+// Push a fresh context snapshot whenever ticket/asset, the component, or the
+// action counter changes. `deep` is required: the sync pool patches ticket/asset
+// rows IN PLACE (same object identity), so a shallow, reference-keyed watch would
+// miss field updates and leave the plugin on stale context.
 watch(
-  [() => props.ticket, () => props.device, () => props.actionActivated],
+  [() => props.ticket, () => props.device, () => props.component, () => props.actionActivated],
   () => {
     const win = frameRef.value?.contentWindow;
     if (connected && win) postContext(win, snapshot());
   },
+  { deep: true },
 );
 
 onBeforeUnmount(() => {

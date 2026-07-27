@@ -323,6 +323,7 @@ function generateUUID() {
 }
 
 // ../plugin-sdk/src/connect.ts
+var CONNECT_TIMEOUT_MS = 1e4;
 function wrapEvents(remote) {
   const local = /* @__PURE__ */ new Map();
   const remoteUnsub = /* @__PURE__ */ new Map();
@@ -360,25 +361,41 @@ function wrapEvents(remote) {
       }
     };
   };
-  return new Proxy(remote, {
+  const reset = () => {
+    for (const unsubP of remoteUnsub.values()) {
+      void unsubP.then((fn) => fn()).catch(() => {
+      });
+    }
+    remoteUnsub.clear();
+    local.clear();
+  };
+  const api = new Proxy(remote, {
     get(target, prop, receiver) {
       if (prop === "on") return on;
       return Reflect.get(target, prop, receiver);
     }
   });
+  return { api, reset };
 }
 function connectToHost() {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const listeners = /* @__PURE__ */ new Set();
     let context = { ticket: null, asset: null, component: { name: "", slot: "" } };
     let connected = false;
+    const timer = setTimeout(() => {
+      if (!connected) {
+        window.removeEventListener("message", onMessage);
+        reject(new Error("sandbox runtime: host did not connect in time"));
+      }
+    }, CONNECT_TIMEOUT_MS);
     function onMessage(event) {
       const data = event.data;
       if (!data || typeof data !== "object") return;
       if (!connected && data.type === "nosdesk-plugin-init" && event.ports[0]) {
         connected = true;
+        clearTimeout(timer);
         context = data.context;
-        const api = wrapEvents(wrap(event.ports[0]));
+        const { api, reset } = wrapEvents(wrap(event.ports[0]));
         resolve({
           api,
           context,
@@ -387,7 +404,8 @@ function connectToHost() {
             return () => {
               listeners.delete(cb);
             };
-          }
+          },
+          resetEvents: reset
         });
       } else if (data.type === "nosdesk-plugin-context") {
         context = data.context;
@@ -448,6 +466,7 @@ async function boot() {
       return;
     }
     instance.unmount?.();
+    runtime.resetEvents();
     root.replaceChildren();
     instance = toInstance(plugin.mount(root, runtime.api, ctx));
   });

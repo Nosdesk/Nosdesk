@@ -108,12 +108,10 @@ export function initializeEventDispatcher(): () => void {
 /**
  * Dispatch an event to every live plugin instance's handlers.
  *
- * Iterates the live-instance registry (populated by the render paths:
- * `PluginSlotItem` for in-process plugins, `PluginSandboxFrame` /
- * `createHostApiImpl` for sandboxed ones), so handlers land wherever the plugin
- * actually registered them — including across the bridge for a sandboxed plugin,
- * whose `_getEventHandlers` returns the wrappers that forward to the Comlink
- * proxy.
+ * Iterates the live-instance registry (populated by `PluginSandboxFrame` via
+ * `createHostApiImpl`), so handlers land on the in-process instance the plugin's
+ * `api.on` registered on — its `_getEventHandlers` returns the wrappers that
+ * forward each event across the bridge to the sandboxed plugin.
  */
 /**
  * The read permission an event requires — event payloads carry the entity's

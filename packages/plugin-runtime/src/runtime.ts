@@ -76,6 +76,10 @@ async function boot(): Promise<void> {
       return;
     }
     instance.unmount?.();
+    // Drop the prior mount's api.on subscriptions so a simple plugin that
+    // subscribes in mount doesn't accumulate handlers (and duplicate deliveries)
+    // across re-mounts.
+    runtime.resetEvents();
     root.replaceChildren();
     instance = toInstance(plugin.mount(root, runtime.api, ctx));
   });
