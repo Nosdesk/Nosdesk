@@ -49,7 +49,16 @@ async function boot(): Promise<void> {
   // external runtime import: the bundle is fetched from the sandbox origin at
   // load time, never bundled here.
   const bundleUrl = `./bundle?t=${encodeURIComponent(token)}`;
-  const mod = (await import(/* @vite-ignore */ bundleUrl)) as { default?: PluginModule };
+  let mod: { default?: PluginModule };
+  try {
+    mod = (await import(/* @vite-ignore */ bundleUrl)) as { default?: PluginModule };
+  } catch (e) {
+    // The bundle fetch failed — most often the ~60s bundle token expired before
+    // an iframe reload (bfcache eviction / renderer crash). Ask the host to
+    // re-mint a fresh token and reload us, rather than dead-ending on a 403.
+    window.parent.postMessage({ type: 'nosdesk-plugin-bundle-error' }, '*');
+    throw e;
+  }
   if (!mod.default || typeof mod.default.mount !== 'function') {
     throw new Error('sandbox runtime: bundle has no default { mount } export');
   }

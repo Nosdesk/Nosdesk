@@ -40,6 +40,12 @@ let unregisterInstance: (() => void) | null = null;
 let stopHeight: (() => void) | null = null;
 let connected = false;
 
+// The bundle token lives ~60s; an iframe reload after expiry (bfcache / crash)
+// re-fetches the bundle with a stale token and 403s. The runtime signals us, and
+// we re-mint + reload — bounded so a genuinely broken bundle can't loop forever.
+const MAX_BUNDLE_RETRIES = 3;
+let bundleRetries = 0;
+
 // The context is posted over postMessage (structured clone), so it must be a
 // plain, clone-safe projection. The props are Vue reactive proxies and may carry
 // non-cloneable fields; a JSON round-trip strips both the reactivity and anything
@@ -76,11 +82,16 @@ function onFrameLoad(): void {
   stopHeight = iframe
     ? watchPluginHeight(iframe, (px) => {
         iframeHeight.value = px;
+        // A height report means the bundle loaded + mounted + rendered: the
+        // token was fresh, so reset the refresh budget for the next expiry.
+        bundleRetries = 0;
       })
     : null;
 }
 
-onMounted(async () => {
+// Mint a fresh bundle token and (re)point the iframe at the runtime. Changing
+// `runtimeUrl` swaps the `:src`, which reloads the frame with the new token.
+async function mintToken(): Promise<void> {
   try {
     const { runtime_url } = await pluginService.getBundleToken(props.plugin.uuid);
     runtimeUrl.value = runtime_url;
@@ -88,6 +99,24 @@ onMounted(async () => {
     logger.error('Failed to mint plugin bundle token', { plugin: props.plugin.name, error: e });
     error.value = 'Failed to load plugin';
   }
+}
+
+// The runtime posts this when its bundle fetch failed (usually an expired token
+// on a reload). Re-mint + reload, bounded by the retry budget.
+function onWindowMessage(event: MessageEvent): void {
+  if (event.source !== frameRef.value?.contentWindow) return;
+  if ((event.data as { type?: string } | undefined)?.type !== 'nosdesk-plugin-bundle-error') return;
+  if (bundleRetries >= MAX_BUNDLE_RETRIES) {
+    error.value = 'Failed to load plugin';
+    return;
+  }
+  bundleRetries += 1;
+  void mintToken();
+}
+
+onMounted(() => {
+  window.addEventListener('message', onWindowMessage);
+  void mintToken();
 });
 
 // Push a fresh context snapshot whenever ticket/device or the action counter
@@ -101,6 +130,7 @@ watch(
 );
 
 onBeforeUnmount(() => {
+  window.removeEventListener('message', onWindowMessage);
   bridge?.dispose();
   bridge = null;
   unregisterInstance?.();
