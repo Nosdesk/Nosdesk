@@ -903,6 +903,13 @@ pub fn authorize_plugin_data_request(
 // Plugin Storage Handlers (for plugin runtime use)
 // =============================================================================
 
+/// Bounds on the plugin key/value store so an untrusted plugin can't exhaust the
+/// row's workspace. Overwrites of an existing key don't count against the entry
+/// quota; only new keys do.
+const MAX_STORAGE_KEY_LEN: usize = 256;
+const MAX_STORAGE_VALUE_BYTES: usize = 64 * 1024;
+const MAX_STORAGE_ENTRIES_PER_PLUGIN: i64 = 1000;
+
 /// Get storage value for a plugin (authenticated users - for plugin use)
 pub async fn get_plugin_storage(
     req: HttpRequest,
@@ -969,9 +976,24 @@ pub async fn set_plugin_storage(
     let plugin_uuid = path.into_inner();
     let body = body.into_inner();
 
+    if body.key.is_empty() || body.key.len() > MAX_STORAGE_KEY_LEN {
+        return errors::bad_request(format!(
+            "storage key must be 1..={MAX_STORAGE_KEY_LEN} characters"
+        ));
+    }
+    let value_size = serde_json::to_vec(&body.value)
+        .map(|v| v.len())
+        .unwrap_or(usize::MAX);
+    if value_size > MAX_STORAGE_VALUE_BYTES {
+        return errors::bad_request(format!(
+            "storage value is {value_size} bytes, exceeds {MAX_STORAGE_VALUE_BYTES}"
+        ));
+    }
+
     enum StorageOutcome {
         Ok(crate::models::PluginData),
         Gate(PluginGate),
+        QuotaExceeded,
     }
 
     let key = body.key.clone();
@@ -986,6 +1008,17 @@ pub async fn set_plugin_storage(
             Ok(p) => p,
             Err(gate) => return Ok(StorageOutcome::Gate(gate)),
         };
+        // Per-plugin key quota — new keys only (an overwrite of an existing key
+        // is always allowed, even at the cap).
+        let is_new = matches!(
+            plugin_repo::get_plugin_storage_entry(conn, plugin.id, &key),
+            Err(DieselError::NotFound)
+        );
+        if is_new
+            && plugin_repo::count_plugin_storage(conn, plugin.id)? >= MAX_STORAGE_ENTRIES_PER_PLUGIN
+        {
+            return Ok(StorageOutcome::QuotaExceeded);
+        }
         let entry = plugin_repo::set_plugin_storage(conn, plugin.id, key, Some(value))?;
         Ok::<_, DieselError>(StorageOutcome::Ok(entry))
     });
@@ -995,6 +1028,9 @@ pub async fn set_plugin_storage(
             HttpResponse::Ok().json(PluginStorageResponse::from(entry))
         }
         Ok(StorageOutcome::Gate(gate)) => gate.into_response(),
+        Ok(StorageOutcome::QuotaExceeded) => errors::bad_request(format!(
+            "storage entry quota exceeded (max {MAX_STORAGE_ENTRIES_PER_PLUGIN} keys)"
+        )),
         Err(e) => {
             error!("Failed to set plugin storage: {}", e);
             errors::internal("Failed to set storage")

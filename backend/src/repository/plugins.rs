@@ -536,6 +536,18 @@ pub fn get_plugin_storage_entry(
     get_plugin_data_entry(conn, plugin_id, "storage", key)
 }
 
+/// Count a plugin's storage entries (for the per-plugin key quota).
+pub fn count_plugin_storage(
+    conn: &mut DbConnection,
+    plugin_id: i32,
+) -> Result<i64, diesel::result::Error> {
+    plugin_data::table
+        .filter(plugin_data::plugin_id.eq(plugin_id))
+        .filter(plugin_data::data_type.eq("storage"))
+        .count()
+        .get_result(conn)
+}
+
 // sync-audit-only: Plugin local storage / activity log — covered by the audit_log trigger on plugin_data and plugin_collection_rows
 /// Set a plugin storage entry (upsert)
 pub fn set_plugin_storage(
