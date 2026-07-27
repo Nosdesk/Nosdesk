@@ -20,6 +20,8 @@ export { createRemoteHostApi, postInit, postContext, watchPluginHeight } from '.
 export type { HostBridge } from './host';
 export { BridgeGovernor, governHostApi, DEFAULT_GOVERNOR_OPTIONS } from './governor';
 export type { GovernorOptions } from './governor';
+export { PluginApiError, asPluginApiError } from './errors';
+export type { PluginApiErrorCode } from './errors';
 
 export type {
   HostApi,

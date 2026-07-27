@@ -101,8 +101,13 @@ export interface PluginCollection {
 
 /**
  * The host API a sandboxed plugin calls over the Comlink bridge. Each call is a
- * round-trip; the host enforces the plugin's manifest permissions per call. A
- * method rejects (or the sub-API is absent) when a permission isn't granted.
+ * round-trip; the host enforces the plugin's consented permissions per call.
+ *
+ * Failure contract: a call THROWS a `PluginApiError` (recover with
+ * `asPluginApiError`, branch on `.code`: `denied` | `invalid` | `rate_limited` |
+ * `timeout` | `upstream`). `null` is returned only for a genuine not-found — a
+ * `get` of a resource that doesn't exist. So `null` means "not there"; a throw
+ * means "couldn't".
  */
 export interface HostApi {
   /** Runtime API version (semver); the major is the breaking-change signal. */
@@ -135,8 +140,9 @@ export interface HostApi {
       ticketId: number,
     ): Promise<{ data: string; name: string; mimeType: string } | null>;
   };
-  /** Outbound HTTP via the host's SSRF-guarded, manifest-allowlisted proxy. */
-  fetch(url: string, options?: PluginFetchOptions): Promise<PluginFetchResponse | null>;
+  /** Outbound HTTP via the host's SSRF-guarded, manifest-allowlisted proxy.
+   * Throws a `PluginApiError` on denial / invalid URL / upstream failure. */
+  fetch(url: string, options?: PluginFetchOptions): Promise<PluginFetchResponse>;
   storage: {
     get<T>(key: string): Promise<T | null>;
     set<T>(key: string, value: T): Promise<boolean>;
