@@ -1,6 +1,13 @@
 import * as Comlink from 'comlink';
 
-import type { HostApi, PluginHostApi, PluginContext, PluginEvent, PluginEventHandler } from './types';
+import type {
+  HostApi,
+  PluginHostApi,
+  PluginContext,
+  PluginEvent,
+  PluginEventHandler,
+  PluginEventPayload,
+} from './types';
 
 /** Protocol messages the host posts to the plugin iframe's `contentWindow`. */
 interface HostInitMessage {
@@ -40,13 +47,13 @@ function wrapEvents(remote: Comlink.Remote<HostApi>): PluginHostApi {
   const local = new Map<PluginEvent, Set<PluginEventHandler>>();
   const remoteUnsub = new Map<PluginEvent, Promise<() => Promise<void>>>();
 
-  const dispatch = (event: PluginEvent, data: unknown): void => {
+  const dispatch = (event: PluginEvent, payload: PluginEventPayload): void => {
     const set = local.get(event);
     if (!set) return;
     // Copy so a handler that unsubscribes mid-dispatch doesn't skip the next.
     for (const h of [...set]) {
       try {
-        void h(data);
+        void h(payload);
       } catch {
         // Isolate one handler's failure from the others.
       }
@@ -58,7 +65,10 @@ function wrapEvents(remote: Comlink.Remote<HostApi>): PluginHostApi {
     if (!set) {
       set = new Set();
       local.set(event, set);
-      remoteUnsub.set(event, remote.on(event, Comlink.proxy((d: unknown) => dispatch(event, d))));
+      remoteUnsub.set(
+        event,
+        remote.on(event, Comlink.proxy((d: PluginEventPayload) => dispatch(event, d))),
+      );
     }
     set.add(handler);
     return () => {

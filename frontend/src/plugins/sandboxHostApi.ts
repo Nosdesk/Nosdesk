@@ -11,7 +11,7 @@
 // The bridge itself (`createRemoteHostApi`) is pure transport; every permission
 // check still runs here, in-process, exactly as for a first-party plugin.
 import { proxy, BridgeGovernor, governHostApi } from '@nosdesk/plugin-sdk';
-import type { HostApi, PluginFetchOptions } from '@nosdesk/plugin-sdk';
+import type { HostApi, PluginFetchOptions, PluginEventPayload } from '@nosdesk/plugin-sdk';
 import type { Plugin } from '@nosdesk/core/types/plugin';
 import { createPluginAPI, type PluginAPI } from './api';
 
@@ -83,12 +83,12 @@ export function createHostApiImpl(plugin: Plugin): { hostApi: HostApi; inproc: P
     },
 
     // The plugin passes a Comlink-proxied handler; forward it into the
-    // in-process registry and proxy the unsubscribe back. (Dispatch of events to
-    // sandboxed plugins is wired in a follow-up; registration is inert until
-    // then, but never throws.)
+    // in-process registry (the event dispatcher fans workspace sync actions to it
+    // over the bridge) and proxy the unsubscribe back. The dispatcher passes the
+    // sync action, which is `PluginEventPayload`-shaped.
     async on(event, handler) {
       const unsubscribe = inproc.on(event, (data) => {
-        void handler(data);
+        void handler(data as PluginEventPayload);
       });
       return proxy(async () => {
         unsubscribe();
