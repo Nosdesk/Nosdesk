@@ -1,11 +1,12 @@
 // Registry of the LIVE plugin API instances a plugin's event handlers actually
 // land on, so the event dispatcher can reach them.
 //
-// `getHostApiForPlugin` / `createPluginAPI` return a fresh instance per call, and
-// context is per-instance (a plugin in two slots has two independent contexts).
-// So `api.on(...)` handlers register on the specific instance the render path
-// created — the in-process one held by a `PluginSlotItem`, or the in-process one
-// wrapped behind a sandboxed plugin's `createHostApiImpl`. The dispatcher must
+// `createPluginAPI` returns a fresh instance per call, and context is
+// per-instance (a plugin in two slots has two independent contexts). So
+// `api.on(...)` handlers register on the specific instance the render path
+// created — the in-process `PluginAPI` a sandboxed plugin's `createHostApiImpl`
+// wraps behind the bridge (there is no in-process render path any more). The
+// dispatcher must
 // iterate exactly those live instances (not a throwaway of its own), which is
 // what this registry provides. Each mounted instance registers on setup and
 // unregisters on unmount; a plugin rendered in N places has N live instances and

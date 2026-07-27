@@ -29,7 +29,13 @@ export interface PluginRuntime {
   /** Subscribe to context snapshots the host pushes after connect; returns an
    * unsubscribe. */
   onContextChange(cb: (ctx: PluginContext) => void): () => void;
+  /** Drop all `api.on` subscriptions. The runtime calls this before re-mounting a
+   * simple plugin so event handlers don't accumulate across re-mounts. */
+  resetEvents(): void;
 }
+
+/** How long to wait for the host's init message before giving up. */
+const CONNECT_TIMEOUT_MS = 10_000;
 
 /**
  * Wrap the Comlink-remote host API so `api.on(event, handler)` works with a plain
@@ -43,7 +49,10 @@ export interface PluginRuntime {
  * matches). The host calls that one dispatcher; we fan out to local handlers.
  * Every other member passes straight through to the remote.
  */
-function wrapEvents(remote: Comlink.Remote<HostApi>): PluginHostApi {
+function wrapEvents(remote: Comlink.Remote<HostApi>): {
+  api: PluginHostApi;
+  reset: () => void;
+} {
   const local = new Map<PluginEvent, Set<PluginEventHandler>>();
   const remoteUnsub = new Map<PluginEvent, Promise<() => Promise<void>>>();
 
@@ -85,12 +94,28 @@ function wrapEvents(remote: Comlink.Remote<HostApi>): PluginHostApi {
     };
   };
 
-  return new Proxy(remote, {
+  // Drop every local subscription + its single host-side dispatcher. The runtime
+  // calls this before re-mounting a simple plugin (one that returned void, so the
+  // runtime unmount+re-mounts on context change) — otherwise a plugin that
+  // subscribes in `mount` would accumulate a handler per re-mount and receive
+  // each event N times. A plugin returning `{ update }` is never re-mounted, so
+  // its subscriptions persist.
+  const reset = (): void => {
+    for (const unsubP of remoteUnsub.values()) {
+      void unsubP.then((fn) => fn()).catch(() => {});
+    }
+    remoteUnsub.clear();
+    local.clear();
+  };
+
+  const api = new Proxy(remote, {
     get(target, prop, receiver) {
       if (prop === 'on') return on;
       return Reflect.get(target, prop, receiver);
     },
   }) as unknown as PluginHostApi;
+
+  return { api, reset };
 }
 
 /**
@@ -105,12 +130,22 @@ function wrapEvents(remote: Comlink.Remote<HostApi>): PluginHostApi {
  * and communicate only over that port afterwards.
  */
 export function connectToHost(): Promise<PluginRuntime> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const listeners = new Set<(ctx: PluginContext) => void>();
     // Placeholder until the host's init message delivers the real context; the
     // runtime resolves with `data.context`, so this is never handed to a plugin.
     let context: PluginContext = { ticket: null, asset: null, component: { name: '', slot: '' } };
     let connected = false;
+
+    // Fail loudly if the host never connects (dropped port / host disposed before
+    // postInit) so `boot()` can render an error instead of hanging on a blank
+    // frame. The listener stays after connect — context updates reuse it.
+    const timer = setTimeout(() => {
+      if (!connected) {
+        window.removeEventListener('message', onMessage);
+        reject(new Error('sandbox runtime: host did not connect in time'));
+      }
+    }, CONNECT_TIMEOUT_MS);
 
     function onMessage(event: MessageEvent) {
       const data = event.data as HostInitMessage | HostContextMessage | undefined;
@@ -118,8 +153,9 @@ export function connectToHost(): Promise<PluginRuntime> {
 
       if (!connected && data.type === 'nosdesk-plugin-init' && event.ports[0]) {
         connected = true;
+        clearTimeout(timer);
         context = data.context;
-        const api = wrapEvents(Comlink.wrap<HostApi>(event.ports[0]));
+        const { api, reset } = wrapEvents(Comlink.wrap<HostApi>(event.ports[0]));
         resolve({
           api,
           context,
@@ -129,6 +165,7 @@ export function connectToHost(): Promise<PluginRuntime> {
               listeners.delete(cb);
             };
           },
+          resetEvents: reset,
         });
       } else if (data.type === 'nosdesk-plugin-context') {
         context = data.context;
