@@ -206,6 +206,12 @@ export interface HostApi {
   collections(name: string): Promise<PluginCollection>;
   /** Subscribe to a host event; resolves to an async unsubscribe. */
   on(event: PluginEvent, handler: PluginEventHandler): Promise<() => Promise<void>>;
+  settings: {
+    /** Read one of the plugin's admin-configured settings. Secrets are redacted
+     * (a `secret`-type setting's value is always `null` — the egress proxy
+     * injects them server-side); `null` also for an unset key. */
+    get(key: string): Promise<unknown | null>;
+  };
   notify(message: string, type?: 'info' | 'success' | 'warning' | 'error'): Promise<void>;
   ui: { isPrinting(): Promise<boolean> };
 }

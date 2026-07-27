@@ -520,6 +520,21 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
       };
     },
 
+    // === SETTINGS: The plugin's own admin-configured config ===
+    settings: {
+      async get(key: string): Promise<unknown | null> {
+        try {
+          const settings = await pluginService.getRuntimeSettings(plugin.uuid);
+          const s = settings.find((x) => x.key === key);
+          // A secret's value is redacted to null server-side; unset keys are
+          // absent. Either way the plugin gets null, never the secret.
+          return s ? (s.value ?? null) : null;
+        } catch (error) {
+          throw upstream('failed to get setting', error);
+        }
+      },
+    },
+
     // === NOTIFY: User feedback ===
     // Surface plugin notifications through the same toast store
     // the rest of the app uses. Plugin name is the toast title so
@@ -624,6 +639,11 @@ export interface PluginAPI {
       delete(uuid: string): Promise<boolean>;
       list(params?: { limit?: number; offset?: number; filter?: string; sort_by?: string; sort_order?: string }): Promise<CollectionListResponse>;
     };
+  };
+
+  // The plugin's own admin-configured settings (secrets redacted)
+  settings: {
+    get(key: string): Promise<unknown | null>;
   };
 
   // Event subscription
