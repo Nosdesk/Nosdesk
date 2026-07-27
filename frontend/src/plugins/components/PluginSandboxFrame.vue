@@ -56,7 +56,7 @@ function plain<T>(value: T | undefined): T | null {
 function snapshot(): PluginContext {
   return {
     ticket: plain(props.ticket),
-    device: plain(props.device),
+    asset: plain(props.device),
     component: { name: props.component.name, slot: props.component.slot },
     actionActivated: props.actionActivated,
   };

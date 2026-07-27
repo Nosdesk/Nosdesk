@@ -367,7 +367,7 @@ function wrapEvents(remote) {
 function connectToHost() {
   return new Promise((resolve) => {
     const listeners = /* @__PURE__ */ new Set();
-    let context = { ticket: null, device: null, component: { name: "", slot: "" } };
+    let context = { ticket: null, asset: null, component: { name: "", slot: "" } };
     let connected = false;
     function onMessage(event) {
       const data = event.data;

@@ -66,7 +66,7 @@ export interface PluginUser {
 
 export interface PluginContext {
   ticket: Ticket | null;
-  device: Asset | null;
+  asset: Asset | null;
 }
 
 export interface PluginUIHelpers {
@@ -217,28 +217,28 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
       },
     },
 
-    devices: {
+    assets: {
       async get(id: number): Promise<Asset | null> {
         if (!hasPermission('asset:read')) {
-          logger.warn(`Plugin ${plugin.name} denied device:read permission`);
+          logger.warn(`Plugin ${plugin.name} denied asset:read permission`);
           return null;
         }
         try {
           return await getAssetById(id);
         } catch (error) {
-          logger.error(`Plugin ${plugin.name} failed to get device`, { id, error });
+          logger.error(`Plugin ${plugin.name} failed to get asset`, { id, error });
           return null;
         }
       },
       async list(): Promise<Asset[]> {
         if (!hasPermission('asset:read')) {
-          logger.warn(`Plugin ${plugin.name} denied device:read permission`);
+          logger.warn(`Plugin ${plugin.name} denied asset:read permission`);
           return [];
         }
         try {
           return await getAssets();
         } catch (error) {
-          logger.error(`Plugin ${plugin.name} failed to list devices`, { error });
+          logger.error(`Plugin ${plugin.name} failed to list assets`, { error });
           return [];
         }
       },
@@ -250,7 +250,7 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
         try {
           return await updateAsset(id, patch as Partial<Asset>, pluginAttribution);
         } catch (error) {
-          logger.error(`Plugin ${plugin.name} failed to update device`, { id, error });
+          logger.error(`Plugin ${plugin.name} failed to update asset`, { id, error });
           return null;
         }
       },
@@ -591,7 +591,7 @@ export interface PluginAPI {
     delete(id: number): Promise<boolean>;
   };
 
-  devices: {
+  assets: {
     get(id: number): Promise<Asset | null>;
     list(): Promise<Asset[]>;
     update(id: number, patch: PluginAssetPatch): Promise<Asset | null>;

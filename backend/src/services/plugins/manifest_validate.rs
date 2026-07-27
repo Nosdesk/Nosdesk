@@ -73,8 +73,9 @@ pub(crate) const KNOWN_SLOTS: &[&str] = &[
 /// matching object on the `context` prop.
 pub(crate) const KNOWN_CONTEXTS: &[&str] = &[
     "ticket",
+    // Delivered to `asset-*` slots as `context.asset`.
+    "asset",
     // Reserved:
-    "device",
     "user",
     "comment",
     "documentation_page",

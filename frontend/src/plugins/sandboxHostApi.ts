@@ -35,10 +35,10 @@ export function createHostApiImpl(plugin: Plugin): { hostApi: HostApi; inproc: P
       update: (id, patch) => inproc.tickets.update(id, patch),
       delete: (id) => inproc.tickets.delete(id),
     },
-    devices: {
-      get: (id) => inproc.devices.get(id),
-      list: () => inproc.devices.list(),
-      update: (id, patch) => inproc.devices.update(id, patch),
+    assets: {
+      get: (id) => inproc.assets.get(id),
+      list: () => inproc.assets.list(),
+      update: (id, patch) => inproc.assets.update(id, patch),
     },
     users: {
       get: (uuid) => inproc.users.get(uuid),
