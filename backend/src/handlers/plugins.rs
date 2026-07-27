@@ -130,6 +130,10 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         "/plugins/{uuid}/proxy",
         web::post().to(crate::handlers::plugins::proxy_plugin_request),
     )
+    .route(
+        "/plugins/{uuid}/settings",
+        web::get().to(crate::handlers::plugins::get_plugin_runtime_settings),
+    )
     // ===== PLUGIN EVENT EMISSION =====
     // Authenticated user iframes can call this to record a
     // plugin-emitted event in sync_actions with
@@ -1287,6 +1291,54 @@ pub async fn proxy_plugin_request(
             // method, 504 timeout, 502 other network faults (was a flat 400).
             error!("Proxy request failed: {}", e);
             HttpResponse::build(e.status_code()).json(serde_json::json!({ "error": e.to_string() }))
+        }
+    }
+}
+
+/// Read a plugin's own settings at runtime (non-admin, for plugin use). Secret
+/// values are redacted by `PluginSettingResponse` (`value: None` when
+/// `is_secret`) — a plugin never sees its admin-configured secrets, which are
+/// injected server-side by the egress proxy. Requires the plugin to be Installed.
+pub async fn get_plugin_runtime_settings(
+    req: HttpRequest,
+    mut tc: TenantConn,
+    path: web::Path<Uuid>,
+) -> impl Responder {
+    if req.extensions().get::<Claims>().is_none() {
+        return errors::unauthorized("Authentication required");
+    }
+    let plugin_uuid = path.into_inner();
+
+    enum Outcome {
+        Ok(Vec<crate::models::PluginData>),
+        NotFound,
+        Inactive,
+    }
+
+    let outcome = tc.run(|conn| {
+        let plugin = match plugin_repo::get_plugin_by_uuid(conn, plugin_uuid) {
+            Ok(p) => p,
+            Err(DieselError::NotFound) => return Ok(Outcome::NotFound),
+            Err(e) => return Err(e),
+        };
+        if !plugin.is_active() {
+            return Ok(Outcome::Inactive);
+        }
+        let settings = plugin_repo::get_plugin_settings(conn, plugin.id)?;
+        Ok::<_, DieselError>(Outcome::Ok(settings))
+    });
+
+    match outcome {
+        Ok(Outcome::Ok(settings)) => {
+            let response: Vec<PluginSettingResponse> =
+                settings.into_iter().map(Into::into).collect();
+            HttpResponse::Ok().json(response)
+        }
+        Ok(Outcome::NotFound) => errors::not_found_msg("Plugin not found"),
+        Ok(Outcome::Inactive) => errors::forbidden("Plugin is not active"),
+        Err(e) => {
+            error!("Failed to get plugin runtime settings: {}", e);
+            errors::internal("Failed to get settings")
         }
     }
 }

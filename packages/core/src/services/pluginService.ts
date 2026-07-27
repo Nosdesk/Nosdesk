@@ -189,6 +189,20 @@ const pluginService = {
   },
 
   /**
+   * Read a plugin's own settings at runtime (non-admin, for the plugin bridge).
+   * Secret values are redacted server-side (`value: null` when `is_secret`).
+   */
+  async getRuntimeSettings(uuid: string): Promise<PluginSetting[]> {
+    try {
+      const response = await apiClient.get(`/plugins/${uuid}/settings`);
+      return response.data || [];
+    } catch (error) {
+      logger.error('Failed to get plugin runtime settings', { error, uuid });
+      throw error;
+    }
+  },
+
+  /**
    * Set a plugin setting (admin only)
    */
   async setPluginSetting(uuid: string, request: SetPluginSettingRequest): Promise<PluginSetting> {

@@ -80,6 +80,10 @@ export function createHostApiImpl(plugin: Plugin): { hostApi: HostApi; inproc: P
       delete: (key) => inproc.storage.delete(key),
     },
 
+    settings: {
+      get: (key) => inproc.settings.get(key),
+    },
+
     // A collection sub-API is stateful (bound to `name`); proxy it so the
     // plugin's calls on it round-trip too.
     async collections(name) {
