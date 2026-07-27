@@ -12,6 +12,7 @@ pub mod provisioning;
 pub mod proxy;
 pub mod registry;
 pub mod signing;
+pub mod slot_registry;
 pub mod svg_validate;
 pub mod trust;
 pub mod types;

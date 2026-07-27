@@ -15,8 +15,7 @@ import type { HostBridge, PluginContext } from '@nosdesk/plugin-sdk';
 import pluginService from '@nosdesk/core/services/pluginService';
 import { logger } from '@nosdesk/core/utils/logger';
 import type { Plugin } from '@nosdesk/core/types/plugin';
-import type { Ticket } from '@nosdesk/core/types/ticket';
-import type { Asset } from '@nosdesk/core/types/asset';
+import type { PluginSlotContext } from '../context';
 import { createHostApiImpl } from '../sandboxHostApi';
 import { registerPluginInstance } from '../pluginInstances';
 
@@ -24,8 +23,8 @@ const props = defineProps<{
   plugin: Plugin;
   /** Which manifest component this frame renders (a bundle may declare several). */
   component: { name: string; slot: string };
-  ticket?: Ticket;
-  device?: Asset;
+  /** Host-provided context bag; the snapshot projects its fields onto the wire. */
+  context?: PluginSlotContext;
   /** Monotonic counter from the host action menu; forwarded to the plugin. */
   actionActivated?: number;
 }>();
@@ -55,8 +54,8 @@ function plain<T>(value: T | undefined): T | null {
 }
 function snapshot(): PluginContext {
   return {
-    ticket: plain(props.ticket),
-    asset: plain(props.device),
+    ticket: plain(props.context?.ticket),
+    asset: plain(props.context?.asset),
     component: { name: props.component.name, slot: props.component.slot },
     actionActivated: props.actionActivated,
   };
@@ -119,12 +118,12 @@ onMounted(() => {
   void mintToken();
 });
 
-// Push a fresh context snapshot whenever ticket/asset, the component, or the
+// Push a fresh context snapshot whenever the context bag, the component, or the
 // action counter changes. `deep` is required: the sync pool patches ticket/asset
 // rows IN PLACE (same object identity), so a shallow, reference-keyed watch would
 // miss field updates and leave the plugin on stale context.
 watch(
-  [() => props.ticket, () => props.device, () => props.component, () => props.actionActivated],
+  [() => props.context, () => props.component, () => props.actionActivated],
   () => {
     const win = frameRef.value?.contentWindow;
     if (connected && win) postContext(win, snapshot());

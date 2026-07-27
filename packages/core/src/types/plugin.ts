@@ -384,39 +384,24 @@ export interface PluginProxyResponse {
 // =============================================================================
 // Plugin UI Slots
 // =============================================================================
+//
+// The slot taxonomy now lives in its own single-source module (also read by the
+// Rust validator via a generated JSON). Re-exported here so existing importers
+// of `PluginSlot` / `PLUGIN_SLOTS` keep working. `PluginSlot` accepts both the
+// canonical dotted names and the legacy flat aliases during the migration.
+// New code should import from `./pluginSlots` directly.
+export type { AnySlotName, CanonicalSlotName, LegacySlotName, SlotDef } from './pluginSlots';
+export {
+  SLOT_REGISTRY,
+  SLOT_NAMES,
+  PLUGIN_SLOTS,
+  getSlot,
+  isKnownSlot,
+  canonicalSlotName,
+} from './pluginSlots';
+import type { AnySlotName } from './pluginSlots';
 
-export type PluginSlot =
-  // Global slots
-  | 'navbar-items'
-  | 'settings-integrations'
-  // Ticket context
-  | 'ticket-header-actions'
-  | 'ticket-sidebar'
-  | 'ticket-tabs'
-  | 'ticket-footer-actions'
-  // Document context
-  | 'document-toolbar'
-  | 'document-sidebar'
-  // Asset context
-  | 'asset-header-actions'
-  | 'asset-info-panels';
-
-export const PLUGIN_SLOTS: Record<PluginSlot, { multiple: boolean; description: string }> = {
-  // Global slots
-  'navbar-items': { multiple: true, description: 'Add items to the navigation bar' },
-  'settings-integrations': { multiple: true, description: 'Add pages to Settings > Integrations' },
-  // Ticket context
-  'ticket-header-actions': { multiple: true, description: 'Add buttons to ticket header' },
-  'ticket-sidebar': { multiple: true, description: 'Add panels to ticket sidebar' },
-  'ticket-tabs': { multiple: true, description: 'Add tabs to ticket view' },
-  'ticket-footer-actions': { multiple: true, description: 'Add buttons to ticket footer' },
-  // Document context
-  'document-toolbar': { multiple: true, description: 'Add actions to document toolbar' },
-  'document-sidebar': { multiple: true, description: 'Add panels to document sidebar' },
-  // Asset context
-  'asset-header-actions': { multiple: true, description: 'Add buttons to device header' },
-  'asset-info-panels': { multiple: true, description: 'Add info panels to device view' },
-};
+export type PluginSlot = AnySlotName;
 
 // =============================================================================
 // Plugin Permissions

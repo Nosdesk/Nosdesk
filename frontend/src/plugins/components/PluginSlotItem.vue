@@ -8,16 +8,14 @@
  */
 import { onErrorCaptured, ref } from 'vue';
 import { getLoadedPlugin, type PluginSlotRegistration } from '../loader';
+import type { PluginSlotContext } from '../context';
 import PluginSandboxFrame from './PluginSandboxFrame.vue';
 import { logger } from '@nosdesk/core/utils/logger';
-import type { Ticket } from '@nosdesk/core/types/ticket';
-import type { Asset } from '@nosdesk/core/types/asset';
 
 const props = defineProps<{
   registration: PluginSlotRegistration;
   slotName: string;
-  ticket?: Ticket;
-  device?: Asset;
+  context?: PluginSlotContext;
   actionActivated?: number;
 }>();
 
@@ -48,8 +46,7 @@ const loaded = getLoadedPlugin(props.registration.pluginUuid);
       v-else-if="loaded"
       :plugin="loaded.plugin"
       :component="{ name: registration.componentName, slot: slotName }"
-      :ticket="ticket"
-      :device="device"
+      :context="context"
       :actionActivated="actionActivated"
     />
   </div>

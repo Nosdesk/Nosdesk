@@ -202,7 +202,7 @@ const overflowMenuItems = computed<MenuItem[]>(() => {
         },
     ];
 
-    const pluginActions = getActionRegistrations('ticket-sidebar');
+    const pluginActions = getActionRegistrations('ticket.sidebar.panel');
     pluginActions.forEach((action, idx) => {
         items.push({
             id: `plugin:${action.pluginUuid}:${action.componentName}`,
@@ -673,7 +673,7 @@ const rootEl = ref<HTMLElement | null>(null);
 
                             <TicketLoansCard :ticket-id="ticket.id" :requester-uuid="ticket.requester" :has-devices="devices.length > 0" />
 
-                            <PluginSlot slot-name="ticket-sidebar" :ticket="pluginTicket" :actionActivatedMap="pluginActionActivatedMap" />
+                            <PluginSlot target="ticket.sidebar.panel" :context="{ ticket: pluginTicket }" :action-activated-map="pluginActionActivatedMap" />
                         </template>
 
                         </div>
