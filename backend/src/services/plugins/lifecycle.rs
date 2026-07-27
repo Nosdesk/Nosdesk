@@ -212,8 +212,12 @@ pub fn apply(
             }
 
             // ----- Quarantine -----
+            // Also from AwaitingConsent: a signer-revocation sweep can hit a
+            // not-yet-consented plugin, and it must be quarantinable (not error
+            // out) even though it isn't serving.
             (PluginState::Installed, PluginAction::Quarantine { .. })
-            | (PluginState::Disabled, PluginAction::Quarantine { .. }) => {
+            | (PluginState::Disabled, PluginAction::Quarantine { .. })
+            | (PluginState::AwaitingConsent, PluginAction::Quarantine { .. }) => {
                 let updated = set_state(tx, plugin_uuid, PluginState::Quarantined)?;
                 log_lifecycle(tx, &updated, &action, prior, actor)?;
                 Ok(ActionOutcome::StateChanged {
@@ -421,6 +425,9 @@ mod tests {
             (PluginState::Uninstalled, "Reinstall"),
             (PluginState::Installed, "RequireReconsent"),
             (PluginState::Disabled, "RequireReconsent"),
+            (PluginState::AwaitingConsent, "Quarantine"),
+            (PluginState::AwaitingConsent, "UninstallPreserve"),
+            (PluginState::AwaitingConsent, "UninstallCascade"),
         ]
     }
 
@@ -441,12 +448,13 @@ mod tests {
         ]
     }
 
-    fn all_states() -> [PluginState; 4] {
+    fn all_states() -> [PluginState; 5] {
         [
             PluginState::Installed,
             PluginState::Disabled,
             PluginState::Quarantined,
             PluginState::Uninstalled,
+            PluginState::AwaitingConsent,
         ]
     }
 
