@@ -1028,7 +1028,7 @@ useSyncActions(
               />
             </SectionCard>
 
-            <PluginSlot slot-name="asset-info-panels" :device="device" />
+            <PluginSlot target="asset.info.panel" :context="{ asset: device }" />
           </div>
 
           <!-- Rail: groups + record metadata (small, secondary facts). -->

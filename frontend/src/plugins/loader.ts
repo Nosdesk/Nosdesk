@@ -14,7 +14,7 @@ import type { SyncAction } from '@nosdesk/core/sync/types';
 import { logger } from '@nosdesk/core/utils/logger';
 import { translate } from '@/i18n';
 import type { Plugin, PluginSlot, PluginManifest } from '@nosdesk/core/types/plugin';
-import { isKnownSlot } from '@nosdesk/core/types/plugin';
+import { canonicalSlotName } from '@nosdesk/core/types/plugin';
 
 // =============================================================================
 // Types
@@ -136,14 +136,17 @@ async function loadPlugin(plugin: Plugin): Promise<void> {
     // server-side, but we don't want a typoed slot to register a
     // garbage entry that no host template will ever mount. Skip
     // and log instead.
-    if (!isKnownSlot(config.slot)) {
+    // Normalize the manifest's slot (canonical dotted name or legacy alias) to
+    // its canonical name so registrations key consistently and mounts query by
+    // the dotted target regardless of which form the manifest declared.
+    const slot = canonicalSlotName(config.slot);
+    if (!slot) {
       logger.warn(
         `Skipping plugin component with unknown slot: ${config.slot}`,
         { plugin: plugin.name, componentName }
       );
       continue;
     }
-    const slot = config.slot as PluginSlot;
 
     // Resolve %key% labels against the manifest's i18n tables at load time.
     const l10n = (v: string | undefined): string | undefined =>

@@ -2,30 +2,30 @@
 /**
  * Plugin Slot Component
  *
- * Renders plugin components registered for a specific slot.
- * Provides context (ticket, device, etc.) to plugin components.
+ * Renders every plugin component registered for a slot `target`. Takes the
+ * canonical dotted target name (a legacy alias is accepted and normalized) plus
+ * a typed `context` bag, and provides the resolved slot name to descendants.
  */
 import { computed, provide } from 'vue';
 import { slotRegistrations } from '../loader';
-import type { PluginSlot as SlotType } from '@nosdesk/core/types/plugin';
-import type { Ticket } from '@nosdesk/core/types/ticket';
-import type { Asset } from '@nosdesk/core/types/asset';
+import type { PluginSlotContext } from '../context';
+import { canonicalSlotName } from '@nosdesk/core/types/plugin';
+import type { PluginSlot } from '@nosdesk/core/types/plugin';
 import PluginSlotItem from './PluginSlotItem.vue';
 
 const props = defineProps<{
-  slotName: SlotType;
-  ticket?: Ticket;
-  device?: Asset;
+  /** Canonical dotted slot name (e.g. `ticket.sidebar.panel`); an alias works too. */
+  target: string;
+  /** Host-provided context; the mount fills the field its slot declares. */
+  context?: PluginSlotContext;
   actionActivatedMap?: Map<string, number>;
 }>();
 
-// Get registrations for this slot
-const registrations = computed(() => {
-  return slotRegistrations.get(props.slotName) || [];
-});
+// Registrations are keyed by canonical name; normalize an alias-passed target.
+const canonical = computed(() => canonicalSlotName(props.target) ?? props.target);
+const registrations = computed(() => slotRegistrations.get(canonical.value as PluginSlot) ?? []);
 
-// Provide slot name for nested components
-provide('pluginSlot', props.slotName);
+provide('pluginSlot', canonical);
 </script>
 
 <template>
@@ -33,9 +33,8 @@ provide('pluginSlot', props.slotName);
     v-for="reg in registrations"
     :key="`${reg.pluginUuid}-${reg.componentName}`"
     :registration="reg"
-    :slot-name="slotName"
-    :ticket="ticket"
-    :device="device"
-    :actionActivated="actionActivatedMap?.get(`${reg.pluginUuid}:${reg.componentName}`)"
+    :slot-name="canonical"
+    :context="context"
+    :action-activated="actionActivatedMap?.get(`${reg.pluginUuid}:${reg.componentName}`)"
   />
 </template>
