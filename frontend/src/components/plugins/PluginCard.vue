@@ -18,6 +18,8 @@ import { computed, type DeepReadonly } from 'vue';
 import { useFluent } from 'fluent-vue';
 import type { Plugin } from '@nosdesk/core/types/plugin';
 import { formatDate } from '@nosdesk/core/utils/dateUtils';
+import { useDateStore } from '@nosdesk/core/stores/dateStore';
+import { resolvePluginI18n, type PluginI18n } from '@nosdesk/core/utils/pluginI18n';
 import PluginIcon from './PluginIcon.vue';
 import PluginStateBadge from './PluginStateBadge.vue';
 import PluginTrustBadge from './PluginTrustBadge.vue';
@@ -35,6 +37,11 @@ interface Props {
 }
 
 const { plugin, showStateAlways = false } = defineProps<Props>();
+
+const dateStore = useDateStore();
+const displayName = computed(() =>
+  resolvePluginI18n(plugin.display_name, plugin.manifest.i18n as PluginI18n | undefined, dateStore.locale),
+);
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
@@ -54,11 +61,11 @@ const srPermissionCount = computed(() => t('plugin-card-sr-permission-count'));
   <article class="overflow-hidden rounded-xl border border-default bg-surface">
     <div class="p-4">
       <div class="flex items-start gap-3">
-        <PluginIcon :uuid="plugin.uuid" :alt="plugin.display_name" />
+        <PluginIcon :uuid="plugin.uuid" :alt="displayName" />
 
         <div class="min-w-0 flex-1">
           <header class="flex flex-wrap items-center gap-1.5 sm:gap-2">
-            <h3 class="font-semibold text-primary">{{ plugin.display_name }}</h3>
+            <h3 class="font-semibold text-primary">{{ displayName }}</h3>
             <code class="rounded bg-surface-alt px-1.5 py-0.5 font-mono text-xs text-secondary">
               v{{ plugin.version }}
             </code>

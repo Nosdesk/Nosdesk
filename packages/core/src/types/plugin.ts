@@ -51,6 +51,10 @@ export interface PluginManifest {
   url_handlers?: PluginUrlHandler[];
   /** RESERVED for typed inter-plugin exports. */
   extensions?: unknown;
+  /** Per-locale string tables. A localizable field may be `%key%`, resolved
+   *  against `i18n[locale][key]` (falling back to `i18n['en-US'][key]`, then the
+   *  literal). See `resolvePluginI18n`. */
+  i18n?: Record<string, Record<string, string>>;
 }
 
 export interface PluginCommandDefinition {

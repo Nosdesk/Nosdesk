@@ -6413,6 +6413,15 @@ pub struct PluginManifest {
     /// any non-empty value at install.
     #[serde(default)]
     pub extensions: std::collections::BTreeMap<String, serde_json::Value>,
+
+    /// Per-locale string tables for localizing surface-visible fields. A
+    /// localizable field (`displayName`, `components[].label`/`action.label`,
+    /// `settings[].label`/`description`/`options[].label`) may be `%key%`, which
+    /// the UI resolves against `i18n[<locale>][<key>]`, falling back to
+    /// `i18n["en-US"][<key>]`, then the literal. Every `%key%` used MUST be
+    /// defined for `en-US` (validated at install), so a fallback always exists.
+    #[serde(default)]
+    pub i18n: std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
 }
 
 /// Engine compatibility constraints. Both values are required.
