@@ -82,7 +82,16 @@ export interface PluginFetchResponse {
 
 /** A host-event handler. The SDK wraps it with `Comlink.proxy` so it can cross
  * the bridge. */
-export type PluginEventHandler = (data: unknown) => void | Promise<void>;
+/** The payload an event handler receives: the sync action's type, the affected
+ * aggregate's id, and its entity projection in `data`. A subset of the host's
+ * internal sync action — the fields a plugin can rely on. */
+export interface PluginEventPayload {
+  event_type: string;
+  aggregate_id: string;
+  data: unknown;
+}
+
+export type PluginEventHandler = (payload: PluginEventPayload) => void | Promise<void>;
 
 /** CRUD over one plugin collection. */
 export interface PluginCollection {

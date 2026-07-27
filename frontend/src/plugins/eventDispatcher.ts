@@ -115,12 +115,32 @@ export function initializeEventDispatcher(): () => void {
  * whose `_getEventHandlers` returns the wrappers that forward to the Comlink
  * proxy.
  */
+/**
+ * The read permission an event requires — event payloads carry the entity's
+ * projection in `data`, so subscribing must be gated on the matching read grant
+ * (else a zero-permission plugin could observe ticket/asset data). `document:*`
+ * has no read permission yet, so it fails closed (returns null -> denied).
+ */
+function requiredReadPermission(event: PluginEvent): string | null {
+  if (event.startsWith('ticket:')) return 'ticket:read';
+  if (event.startsWith('asset:')) return 'asset:read';
+  return null;
+}
+
 function dispatchToPlugins(event: PluginEvent, data: unknown): void {
   const isRestricted = RESTRICTED_EVENTS.includes(event);
+  const needed = requiredReadPermission(event);
 
   forEachLiveInstance((uuid, api) => {
+    const loaded = getLoadedPlugin(uuid);
+    if (!loaded) return;
     // Skip restricted events for community plugins.
-    if (isRestricted && getLoadedPlugin(uuid)?.plugin.trust_level === 'community') {
+    if (isRestricted && loaded.plugin.trust_level === 'community') {
+      return;
+    }
+    // Gate on the matching read permission from the CONSENTED set (fail closed).
+    const granted = loaded.plugin.consented_permissions ?? loaded.plugin.manifest.permissions;
+    if (!needed || !granted.includes(needed)) {
       return;
     }
 

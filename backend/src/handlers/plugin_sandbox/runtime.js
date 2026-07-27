@@ -326,12 +326,12 @@ function generateUUID() {
 function wrapEvents(remote) {
   const local = /* @__PURE__ */ new Map();
   const remoteUnsub = /* @__PURE__ */ new Map();
-  const dispatch = (event, data) => {
+  const dispatch = (event, payload) => {
     const set = local.get(event);
     if (!set) return;
     for (const h of [...set]) {
       try {
-        void h(data);
+        void h(payload);
       } catch {
       }
     }
@@ -341,7 +341,10 @@ function wrapEvents(remote) {
     if (!set) {
       set = /* @__PURE__ */ new Set();
       local.set(event, set);
-      remoteUnsub.set(event, remote.on(event, proxy((d) => dispatch(event, d))));
+      remoteUnsub.set(
+        event,
+        remote.on(event, proxy((d) => dispatch(event, d)))
+      );
     }
     set.add(handler);
     return () => {

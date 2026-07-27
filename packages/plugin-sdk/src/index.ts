@@ -38,6 +38,7 @@ export type {
   PluginFetchOptions,
   PluginFetchResponse,
   PluginEventHandler,
+  PluginEventPayload,
   // Domain types, re-exported so authors import only from this package.
   Ticket,
   Asset,
