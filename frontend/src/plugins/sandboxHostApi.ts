@@ -60,8 +60,9 @@ export function createHostApiImpl(plugin: Plugin): { hostApi: HostApi; inproc: P
     },
 
     async fetch(url, options) {
+      // inproc.fetch throws a PluginApiError on denial / invalid URL / failure;
+      // a returned Response is always a real response.
       const res = await inproc.fetch(url, options as PluginFetchOptions);
-      if (!res) return null;
       const headers: Record<string, string> = {};
       res.headers.forEach((value, key) => {
         headers[key] = value;

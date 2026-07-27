@@ -16,6 +16,7 @@ import { getAssetById, getAssets, updateAsset } from '@/services/assetService';
 import userService from '@/services/userService';
 import { logger } from '@nosdesk/core/utils/logger';
 import { useToastStore } from '@nosdesk/core/stores/toast';
+import { PluginApiError } from '@nosdesk/plugin-sdk';
 import type { Plugin, PluginPermission, PluginProxyRequest, PluginEvent, CollectionRow, CollectionListResponse } from '@nosdesk/core/types/plugin';
 import type { Ticket } from '@nosdesk/core/types/ticket';
 import type { Asset } from '@nosdesk/core/types/asset';
@@ -137,6 +138,18 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
   // are traceable (the actor stays the user — the plugin acts as them).
   const pluginAttribution = { headers: { 'X-Nosdesk-Plugin': plugin.uuid } };
 
+  // Unified failure reporting: denial and upstream failure THROW a typed
+  // PluginApiError (the plugin catches + inspects `code`); `null` is reserved for
+  // a genuine not-found. Both are `never` so callers don't need a trailing return.
+  const denied = (perm: string): never => {
+    logger.warn(`Plugin ${plugin.name} denied ${perm}`);
+    throw new PluginApiError('denied', `${perm} not granted`);
+  };
+  const upstream = (what: string, error: unknown): never => {
+    logger.error(`Plugin ${plugin.name} ${what}`, { error });
+    throw new PluginApiError('upstream', what);
+  };
+
   const api: PluginAPI = {
     version: '1.0.0',
 
@@ -151,107 +164,75 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
     // === READ: Access core data ===
     tickets: {
       async get(id: number): Promise<Ticket | null> {
-        if (!hasPermission('ticket:read')) {
-          logger.warn(`Plugin ${plugin.name} denied ticket:read permission`);
-          return null;
-        }
+        if (!hasPermission('ticket:read')) denied('ticket:read');
         try {
           return await getTicketById(id);
         } catch (error) {
-          logger.error(`Plugin ${plugin.name} failed to get ticket`, { id, error });
-          return null;
+          throw upstream('failed to get ticket', error);
         }
       },
       async list(): Promise<Ticket[]> {
-        if (!hasPermission('ticket:read')) {
-          logger.warn(`Plugin ${plugin.name} denied ticket:read permission`);
-          return [];
-        }
+        if (!hasPermission('ticket:read')) denied('ticket:read');
         try {
           return await getTickets();
         } catch (error) {
-          logger.error(`Plugin ${plugin.name} failed to list tickets`, { error });
-          return [];
+          throw upstream('failed to list tickets', error);
         }
       },
       async addComment(ticketId: number, comment: PluginComment): Promise<boolean> {
-        if (!hasPermission('ticket:comment')) {
-          logger.warn(`Plugin ${plugin.name} denied ticket:comment permission`);
-          return false;
-        }
+        if (!hasPermission('ticket:comment')) denied('ticket:comment');
         try {
           await addCommentToTicket(ticketId, comment.content, []);
           return true;
         } catch (error) {
-          logger.error(`Plugin ${plugin.name} failed to add comment`, { ticketId, error });
-          return false;
+          throw upstream('failed to add comment', error);
         }
       },
       // Acts as the current user: the write hits the same endpoint the app uses,
       // bounded by the user's own perms + RLS. Restrict to the patch's safe field
       // subset (never a full ticket).
       async update(id: number, patch: PluginTicketPatch): Promise<Ticket | null> {
-        if (!hasPermission('ticket:write')) {
-          logger.warn(`Plugin ${plugin.name} denied ticket:write permission`);
-          return null;
-        }
+        if (!hasPermission('ticket:write')) denied('ticket:write');
         try {
           return await updateTicket(id, patch as Partial<Ticket>, pluginAttribution);
         } catch (error) {
-          logger.error(`Plugin ${plugin.name} failed to update ticket`, { id, error });
-          return null;
+          throw upstream('failed to update ticket', error);
         }
       },
       async delete(id: number): Promise<boolean> {
-        if (!hasPermission('ticket:delete')) {
-          logger.warn(`Plugin ${plugin.name} denied ticket:delete permission`);
-          return false;
-        }
+        if (!hasPermission('ticket:delete')) denied('ticket:delete');
         try {
           await deleteTicket(id, pluginAttribution);
           return true;
         } catch (error) {
-          logger.error(`Plugin ${plugin.name} failed to delete ticket`, { id, error });
-          return false;
+          throw upstream('failed to delete ticket', error);
         }
       },
     },
 
     assets: {
       async get(id: number): Promise<Asset | null> {
-        if (!hasPermission('asset:read')) {
-          logger.warn(`Plugin ${plugin.name} denied asset:read permission`);
-          return null;
-        }
+        if (!hasPermission('asset:read')) denied('asset:read');
         try {
           return await getAssetById(id);
         } catch (error) {
-          logger.error(`Plugin ${plugin.name} failed to get asset`, { id, error });
-          return null;
+          throw upstream('failed to get asset', error);
         }
       },
       async list(): Promise<Asset[]> {
-        if (!hasPermission('asset:read')) {
-          logger.warn(`Plugin ${plugin.name} denied asset:read permission`);
-          return [];
-        }
+        if (!hasPermission('asset:read')) denied('asset:read');
         try {
           return await getAssets();
         } catch (error) {
-          logger.error(`Plugin ${plugin.name} failed to list assets`, { error });
-          return [];
+          throw upstream('failed to list assets', error);
         }
       },
       async update(id: number, patch: PluginAssetPatch): Promise<Asset | null> {
-        if (!hasPermission('asset:write')) {
-          logger.warn(`Plugin ${plugin.name} denied asset:write permission`);
-          return null;
-        }
+        if (!hasPermission('asset:write')) denied('asset:write');
         try {
           return await updateAsset(id, patch as Partial<Asset>, pluginAttribution);
         } catch (error) {
-          logger.error(`Plugin ${plugin.name} failed to update asset`, { id, error });
-          return null;
+          throw upstream('failed to update asset', error);
         }
       },
     },
@@ -259,10 +240,7 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
     // === READ: Users (identity projection) ===
     users: {
       async get(uuid: string): Promise<PluginUser | null> {
-        if (!hasPermission('user:read')) {
-          logger.warn(`Plugin ${plugin.name} denied user:read permission`);
-          return null;
-        }
+        if (!hasPermission('user:read')) denied('user:read');
         try {
           const u = await userService.getUserByUuid(uuid);
           if (!u) return null;
@@ -274,8 +252,7 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
             role: (u.workspace_role ?? u.platform_role) as string,
           };
         } catch (error) {
-          logger.error(`Plugin ${plugin.name} failed to get user`, { uuid, error });
-          return null;
+          throw upstream('failed to get user', error);
         }
       },
     },
@@ -283,10 +260,7 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
     // === ATTACHMENTS: Access ticket attachments ===
     attachments: {
       async list(ticketId: number): Promise<PluginAttachment[]> {
-        if (!hasPermission('ticket:read')) {
-          logger.warn(`Plugin ${plugin.name} denied ticket:read permission`);
-          return [];
-        }
+        if (!hasPermission('ticket:read')) denied('ticket:read');
         try {
           const ticket = await getTicketById(ticketId);
           if (!ticket) return [];
@@ -307,15 +281,11 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
           }
           return result;
         } catch (error) {
-          logger.error(`Plugin ${plugin.name} failed to list attachments`, { ticketId, error });
-          return [];
+          throw upstream('failed to list attachments', error);
         }
       },
       async getContent(attachmentId: number, ticketId: number): Promise<{ blob: Blob; name: string; mimeType: string } | null> {
-        if (!hasPermission('ticket:read')) {
-          logger.warn(`Plugin ${plugin.name} denied ticket:read permission`);
-          return null;
-        }
+        if (!hasPermission('ticket:read')) denied('ticket:read');
         try {
           const attachments = await api.attachments.list(ticketId);
           const att = attachments.find(a => a.id === attachmentId);
@@ -325,15 +295,11 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
           const blob = await response.blob();
           return { blob, name: att.name, mimeType: att.mimeType || 'application/octet-stream' };
         } catch (error) {
-          logger.error(`Plugin ${plugin.name} failed to get attachment content`, { attachmentId, ticketId, error });
-          return null;
+          throw upstream('failed to get attachment content', error);
         }
       },
       async getBase64(attachmentId: number, ticketId: number): Promise<{ data: string; name: string; mimeType: string } | null> {
-        if (!hasPermission('ticket:read')) {
-          logger.warn(`Plugin ${plugin.name} denied ticket:read permission`);
-          return null;
-        }
+        if (!hasPermission('ticket:read')) denied('ticket:read');
         try {
           const content = await api.attachments.getContent(attachmentId, ticketId);
           if (!content) return null;
@@ -346,8 +312,7 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
           const data = btoa(binary);
           return { data, name: content.name, mimeType: content.mimeType };
         } catch (error) {
-          logger.error(`Plugin ${plugin.name} failed to get attachment base64`, { attachmentId, ticketId, error });
-          return null;
+          throw upstream('failed to get attachment base64', error);
         }
       },
     },
@@ -357,20 +322,16 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
     // permission enforcement, but we also fail closed here so a
     // denied plugin doesn't burn round-trips and the rejection
     // pattern is consistent with every other gated method.
-    async fetch(url: string, options?: PluginFetchOptions): Promise<Response | null> {
+    async fetch(url: string, options?: PluginFetchOptions): Promise<Response> {
       let parsed: URL;
       try {
         parsed = new URL(url);
       } catch {
         logger.warn(`Plugin ${plugin.name} fetch refused: invalid URL`, { url });
-        return null;
+        throw new PluginApiError('invalid', `invalid fetch URL: ${url}`);
       }
       if (!hasNetworkPermission(parsed.host)) {
-        logger.warn(
-          `Plugin ${plugin.name} fetch refused: no matching network:<host> permission`,
-          { host: parsed.host }
-        );
-        return null;
+        denied(`network:${parsed.host}`);
       }
 
       try {
@@ -390,50 +351,37 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
           headers: response.headers,
         });
       } catch (error) {
-        logger.error(`Plugin ${plugin.name} fetch failed`, { url, error });
-        return null;
-      }
+          throw upstream('fetch failed', error);
+        }
     },
 
     // === STORE: Plugin data ===
     storage: {
       async get<T>(key: string): Promise<T | null> {
-        if (!hasPermission('storage:plugin')) {
-          logger.warn(`Plugin ${plugin.name} denied storage:plugin permission`);
-          return null;
-        }
+        if (!hasPermission('storage:plugin')) denied('storage:plugin');
         try {
           const result = await pluginService.getStorage(plugin.uuid, key);
           return result.value as T;
         } catch (error) {
-          logger.error(`Plugin ${plugin.name} failed to get storage`, { key, error });
-          return null;
+          throw upstream('failed to get storage', error);
         }
       },
       async set<T>(key: string, value: T): Promise<boolean> {
-        if (!hasPermission('storage:plugin')) {
-          logger.warn(`Plugin ${plugin.name} denied storage:plugin permission`);
-          return false;
-        }
+        if (!hasPermission('storage:plugin')) denied('storage:plugin');
         try {
           await pluginService.setStorage(plugin.uuid, { key, value });
           return true;
         } catch (error) {
-          logger.error(`Plugin ${plugin.name} failed to set storage`, { key, error });
-          return false;
+          throw upstream('failed to set storage', error);
         }
       },
       async delete(key: string): Promise<boolean> {
-        if (!hasPermission('storage:plugin')) {
-          logger.warn(`Plugin ${plugin.name} denied storage:plugin permission`);
-          return false;
-        }
+        if (!hasPermission('storage:plugin')) denied('storage:plugin');
         try {
           await pluginService.deleteStorage(plugin.uuid, key);
           return true;
         } catch (error) {
-          logger.error(`Plugin ${plugin.name} failed to delete storage`, { key, error });
-          return false;
+          throw upstream('failed to delete storage', error);
         }
       },
     },
@@ -446,65 +394,45 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
 
         return {
           async create(data: Record<string, unknown>): Promise<CollectionRow | null> {
-            if (!hasCollectionWrite) {
-              logger.warn(`Plugin ${plugin.name} denied collection:write permission`);
-              return null;
-            }
+            if (!hasCollectionWrite) denied('collection:write');
             try {
               return await pluginService.createCollectionRow(plugin.uuid, collectionName, data);
             } catch (error) {
-              logger.error(`Plugin ${plugin.name} failed to create collection row`, { collectionName, error });
-              return null;
-            }
+          throw upstream('failed to create collection row', error);
+        }
           },
           async get(uuid: string): Promise<CollectionRow | null> {
-            if (!hasCollectionRead) {
-              logger.warn(`Plugin ${plugin.name} denied collection:read permission`);
-              return null;
-            }
+            if (!hasCollectionRead) denied('collection:read');
             try {
               return await pluginService.getCollectionRow(plugin.uuid, collectionName, uuid);
             } catch (error) {
-              logger.error(`Plugin ${plugin.name} failed to get collection row`, { collectionName, uuid, error });
-              return null;
-            }
+          throw upstream('failed to get collection row', error);
+        }
           },
           async update(uuid: string, data: Record<string, unknown>): Promise<CollectionRow | null> {
-            if (!hasCollectionWrite) {
-              logger.warn(`Plugin ${plugin.name} denied collection:write permission`);
-              return null;
-            }
+            if (!hasCollectionWrite) denied('collection:write');
             try {
               return await pluginService.updateCollectionRow(plugin.uuid, collectionName, uuid, data);
             } catch (error) {
-              logger.error(`Plugin ${plugin.name} failed to update collection row`, { collectionName, uuid, error });
-              return null;
-            }
+          throw upstream('failed to update collection row', error);
+        }
           },
           async delete(uuid: string): Promise<boolean> {
-            if (!hasCollectionWrite) {
-              logger.warn(`Plugin ${plugin.name} denied collection:write permission`);
-              return false;
-            }
+            if (!hasCollectionWrite) denied('collection:write');
             try {
               await pluginService.deleteCollectionRow(plugin.uuid, collectionName, uuid);
               return true;
             } catch (error) {
-              logger.error(`Plugin ${plugin.name} failed to delete collection row`, { collectionName, uuid, error });
-              return false;
-            }
+          throw upstream('failed to delete collection row', error);
+        }
           },
           async list(params?: { limit?: number; offset?: number; filter?: string; sort_by?: string; sort_order?: string }): Promise<CollectionListResponse> {
-            if (!hasCollectionRead) {
-              logger.warn(`Plugin ${plugin.name} denied collection:read permission`);
-              return { rows: [], total: 0 };
-            }
+            if (!hasCollectionRead) denied('collection:read');
             try {
               return await pluginService.listCollectionRows(plugin.uuid, collectionName, params);
             } catch (error) {
-              logger.error(`Plugin ${plugin.name} failed to list collection rows`, { collectionName, error });
-              return { rows: [], total: 0 };
-            }
+          throw upstream('failed to list collection rows', error);
+        }
           },
         };
       },
@@ -609,7 +537,7 @@ export interface PluginAPI {
   };
 
   // External requests
-  fetch(url: string, options?: PluginFetchOptions): Promise<Response | null>;
+  fetch(url: string, options?: PluginFetchOptions): Promise<Response>;
 
   // Plugin storage
   storage: {

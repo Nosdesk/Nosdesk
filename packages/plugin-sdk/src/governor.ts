@@ -5,6 +5,7 @@
 // Every host API method a plugin invokes goes through `BridgeGovernor.run`, which
 // rejects over-limit calls (the plugin sees a thrown error) rather than letting
 // them pile up on the host. Per plugin instance — each frame gets its own budget.
+import { PluginApiError } from './errors';
 
 export interface GovernorOptions {
   /** Max calls allowed within `windowMs`. */
@@ -35,12 +36,13 @@ export class BridgeGovernor {
     const windowStart = now - this.opts.windowMs;
     this.calls = this.calls.filter((t) => t > windowStart);
     if (this.calls.length >= this.opts.maxCallsPerWindow) {
-      throw new Error(
-        `plugin bridge rate limit exceeded (${this.opts.maxCallsPerWindow}/${this.opts.windowMs}ms)`,
+      throw new PluginApiError(
+        'rate_limited',
+        `bridge rate limit exceeded (${this.opts.maxCallsPerWindow}/${this.opts.windowMs}ms)`,
       );
     }
     if (this.inFlight >= this.opts.maxInFlight) {
-      throw new Error(`plugin bridge in-flight limit exceeded (${this.opts.maxInFlight})`);
+      throw new PluginApiError('rate_limited', `bridge in-flight limit exceeded (${this.opts.maxInFlight})`);
     }
     this.calls.push(now);
     this.inFlight += 1;
@@ -54,7 +56,10 @@ export class BridgeGovernor {
   private withTimeout<T>(p: Promise<T>): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(
-        () => reject(new Error(`plugin bridge call timed out after ${this.opts.callTimeoutMs}ms`)),
+        () =>
+          reject(
+            new PluginApiError('timeout', `bridge call timed out after ${this.opts.callTimeoutMs}ms`),
+          ),
         this.opts.callTimeoutMs,
       );
       p.then(
