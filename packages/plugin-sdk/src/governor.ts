@@ -73,7 +73,7 @@ export class BridgeGovernor {
 
 /**
  * Wrap a host API object so every method call is metered by `governor`. Recurses
- * into sub-objects (e.g. `tickets`, `devices`) so nested methods are covered too;
+ * into sub-objects (e.g. `tickets`, `assets`) so nested methods are covered too;
  * a method's *return value* is not re-wrapped, so a Comlink-proxied sub-API
  * returned from a method (e.g. `collections(name)`) keeps its own transport (its
  * per-call metering is a follow-up). Non-function properties pass through.

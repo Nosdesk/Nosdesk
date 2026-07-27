@@ -118,7 +118,7 @@ export interface HostApi {
     /** Delete a ticket (`ticket:delete`). Acts as the current user. */
     delete(id: number): Promise<boolean>;
   };
-  devices: {
+  assets: {
     get(id: number): Promise<Asset | null>;
     list(): Promise<Asset[]>;
     /** Patch an asset (`asset:write`). Acts as the current user. */
@@ -168,7 +168,7 @@ export type PluginHostApi = Omit<import('comlink').Remote<HostApi>, 'on'> & {
  * `onContextChange`. */
 export interface PluginContext {
   ticket: Ticket | null;
-  device: Asset | null;
+  asset: Asset | null;
   /** Which of the plugin's manifest components this mount is rendering. A bundle
    * may declare several (different slots); the plugin switches its UI on `name`
    * (the manifest `components` map key) / `slot`. */

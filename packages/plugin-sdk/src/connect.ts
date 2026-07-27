@@ -99,7 +99,7 @@ export function connectToHost(): Promise<PluginRuntime> {
     const listeners = new Set<(ctx: PluginContext) => void>();
     // Placeholder until the host's init message delivers the real context; the
     // runtime resolves with `data.context`, so this is never handed to a plugin.
-    let context: PluginContext = { ticket: null, device: null, component: { name: '', slot: '' } };
+    let context: PluginContext = { ticket: null, asset: null, component: { name: '', slot: '' } };
     let connected = false;
 
     function onMessage(event: MessageEvent) {
