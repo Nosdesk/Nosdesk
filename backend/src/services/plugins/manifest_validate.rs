@@ -39,35 +39,13 @@ pub const SUPPORTED_PLUGIN_API_VERSION: &str = "1";
 // adding a new permission means extending that enum plus the
 // matching handler enforcement, not editing a list here.
 
-/// Slot identifiers from the canonical taxonomy declared in
-/// `frontend/src/types/plugin.ts::PLUGIN_SLOTS`. Plugins may
-/// declare any slot in this list at install time; if the runtime
-/// hasn't yet added a `<PluginSlot slot-name="x">` mount point
-/// for the slot, the plugin's contribution is a silent no-op
-/// (matches the VS Code contribution-point model).
-///
-/// Adding a slot is a two-step coordinated change: extend the
-/// frontend `PluginSlot` union + `PLUGIN_SLOTS` registry, and
-/// add the literal here. Mounting the slot in a Vue template is
-/// independent: plugins can author against the slot before
-/// the template lands, the contribution just doesn't render
-/// until the mount point exists.
-pub(crate) const KNOWN_SLOTS: &[&str] = &[
-    // Global
-    "navbar-items",
-    "settings-integrations",
-    // Ticket context
-    "ticket-header-actions",
-    "ticket-sidebar",
-    "ticket-tabs",
-    "ticket-footer-actions",
-    // Document context
-    "document-toolbar",
-    "document-sidebar",
-    // Asset context
-    "asset-header-actions",
-    "asset-info-panels",
-];
+// Slot identifiers come from the single source of truth in
+// `packages/core/src/types/pluginSlots.ts`, generated into
+// `plugin_slots.generated.json` and read via `slot_registry`. A plugin may
+// target any canonical name or legacy alias in the registry; a slot with no
+// live mount point yet (`status: "reserved"`) is a silent no-op until one
+// lands (the VS Code contribution-point model). Adding a slot is a one-place
+// edit in the TS registry followed by `build:slots`.
 
 /// Context types a component can request. The runtime passes the
 /// matching object on the `context` prop.
@@ -631,7 +609,7 @@ fn validate_component(component: &PluginComponentConfig) -> Result<(), ManifestV
         ));
     }
 
-    if !KNOWN_SLOTS.contains(&component.slot.as_str()) {
+    if !crate::services::plugins::slot_registry::is_known_slot(&component.slot) {
         return Err(ManifestValidationError::InvalidSlot(component.slot.clone()));
     }
     for ctx in &component.context {

@@ -1,0 +1,120 @@
+[
+  {
+    "name": "ticket.sidebar.panel",
+    "mechanism": "panel",
+    "context": "ticket",
+    "cardinality": "many",
+    "order": 100,
+    "status": "stable",
+    "aliases": [
+      "ticket-sidebar"
+    ],
+    "description": "Panels in the ticket sidebar"
+  },
+  {
+    "name": "asset.info.panel",
+    "mechanism": "panel",
+    "context": "asset",
+    "cardinality": "many",
+    "order": 100,
+    "status": "stable",
+    "aliases": [
+      "asset-info-panels"
+    ],
+    "description": "Info panels on the asset view"
+  },
+  {
+    "name": "settings.integrations.page",
+    "mechanism": "panel",
+    "context": "none",
+    "cardinality": "many",
+    "order": 100,
+    "status": "reserved",
+    "aliases": [
+      "settings-integrations"
+    ],
+    "description": "Pages under Settings > Integrations"
+  },
+  {
+    "name": "dashboard.widget",
+    "mechanism": "panel",
+    "context": "none",
+    "cardinality": "many",
+    "order": 100,
+    "status": "reserved",
+    "aliases": [],
+    "description": "Widgets on the dashboard"
+  },
+  {
+    "name": "ticket.tab.panel",
+    "mechanism": "panel",
+    "context": "ticket",
+    "cardinality": "many",
+    "order": 100,
+    "status": "reserved",
+    "aliases": [
+      "ticket-tabs"
+    ],
+    "description": "Tabs on the ticket view"
+  },
+  {
+    "name": "document.sidebar.panel",
+    "mechanism": "panel",
+    "context": "documentationPage",
+    "cardinality": "many",
+    "order": 100,
+    "status": "reserved",
+    "aliases": [
+      "document-sidebar"
+    ],
+    "description": "Panels in the document sidebar"
+  },
+  {
+    "name": "ticket.header.action",
+    "mechanism": "action",
+    "context": "ticket",
+    "cardinality": "many",
+    "order": 100,
+    "status": "reserved",
+    "aliases": [
+      "ticket-header-actions"
+    ],
+    "description": "Actions in the ticket header menu"
+  },
+  {
+    "name": "asset.header.action",
+    "mechanism": "action",
+    "context": "asset",
+    "cardinality": "many",
+    "order": 100,
+    "status": "reserved",
+    "aliases": [
+      "asset-header-actions"
+    ],
+    "description": "Actions in the asset header menu"
+  },
+  {
+    "name": "document.toolbar.action",
+    "mechanism": "action",
+    "context": "documentationPage",
+    "cardinality": "many",
+    "order": 100,
+    "status": "reserved",
+    "aliases": [
+      "document-toolbar"
+    ],
+    "description": "Actions in the document toolbar menu"
+  },
+  {
+    "name": "nav.item",
+    "mechanism": "action",
+    "context": "none",
+    "cardinality": "many",
+    "order": 100,
+    "status": "reserved",
+    "aliases": [
+      "navbar-items"
+    ],
+    "description": "Links in the navigation sidebar"
+  }
+]

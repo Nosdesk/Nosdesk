@@ -10,7 +10,8 @@
   },
   "scripts": {
     "type-check": "vue-tsc --noEmit",
-    "lint": "eslint src"
+    "lint": "eslint src",
+    "build:slots": "node scripts/gen-plugin-slots.mjs"
   },
   "dependencies": {
     "@pinia/colada": "^1.2.0",

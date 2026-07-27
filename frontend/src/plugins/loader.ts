@@ -14,7 +14,7 @@ import type { SyncAction } from '@nosdesk/core/sync/types';
 import { logger } from '@nosdesk/core/utils/logger';
 import { translate } from '@/i18n';
 import type { Plugin, PluginSlot, PluginManifest } from '@nosdesk/core/types/plugin';
-import { PLUGIN_SLOTS } from '@nosdesk/core/types/plugin';
+import { isKnownSlot } from '@nosdesk/core/types/plugin';
 
 // =============================================================================
 // Types
@@ -136,7 +136,7 @@ async function loadPlugin(plugin: Plugin): Promise<void> {
     // server-side, but we don't want a typoed slot to register a
     // garbage entry that no host template will ever mount. Skip
     // and log instead.
-    if (!(config.slot in PLUGIN_SLOTS)) {
+    if (!isKnownSlot(config.slot)) {
       logger.warn(
         `Skipping plugin component with unknown slot: ${config.slot}`,
         { plugin: plugin.name, componentName }

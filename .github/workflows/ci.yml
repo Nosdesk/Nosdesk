@@ -205,6 +205,14 @@ jobs:
           pnpm --filter @nosdesk/plugin-runtime run build
           git diff --exit-code backend/src/handlers/plugin_sandbox/runtime.js
 
+      # Regenerate the backend's slot allowlist from the single-source TS
+      # registry and assert the committed JSON is in sync — catches a
+      # pluginSlots.ts edit that wasn't regenerated + committed.
+      - name: Plugin slot registry gen + drift check
+        run: |
+          pnpm --filter @nosdesk/core run build:slots
+          git diff --exit-code backend/src/services/plugins/plugin_slots.generated.json
+
       - name: Audit
         # Advisory only — must not hard-block merges. npm retired the legacy
         # audit endpoint (returns HTTP 410), which older `pnpm audit` still
