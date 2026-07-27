@@ -10,15 +10,37 @@
 
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
+use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 use crate::utils::jwt::JWT_SECRET;
 
-/// Fixed discriminator: a session token can't be replayed as a bundle token and
-/// vice-versa (the claim shapes already differ; this is belt-and-suspenders).
+/// Fixed discriminator: kept as belt-and-suspenders, but no longer the only thing
+/// separating a bundle token from a session token — see `bundle_key`.
 const TYP: &str = "plugin_bundle";
 const TTL_SECS: u64 = 60;
+/// Clock-skew tolerance on `exp`. Small: mint + verify run on the same backend
+/// (or a clock-synced cluster), and the whole point of the ~60s TTL is a tight
+/// replay window, so the previous 30s (half the lifetime) is dropped to 5s.
+const LEEWAY_SECS: u64 = 5;
+
+/// Domain-separation label for the bundle-token signing key. Bumping the suffix
+/// rotates every outstanding token.
+const BUNDLE_KEY_LABEL: &[u8] = b"nosdesk-plugin-bundle-token-v1";
+
+/// A dedicated HS256 key for bundle tokens, DERIVED from `JWT_SECRET` via
+/// `HMAC-SHA256(JWT_SECRET, label)`. So a session token (signed with the raw
+/// `JWT_SECRET`) can't be verified as a bundle token and vice-versa, and leaking
+/// the bundle key doesn't reveal `JWT_SECRET`. No new operator config: the key is
+/// derived, not a separate env var.
+fn bundle_key() -> &'static [u8] {
+    static KEY: OnceLock<Vec<u8>> = OnceLock::new();
+    KEY.get_or_init(|| {
+        let k = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, JWT_SECRET.as_bytes());
+        ring::hmac::sign(&k, BUNDLE_KEY_LABEL).as_ref().to_vec()
+    })
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PluginBundleClaims {
@@ -70,7 +92,7 @@ pub fn mint(
     encode(
         &Header::default(),
         &claims,
-        &EncodingKey::from_secret(JWT_SECRET.as_bytes()),
+        &EncodingKey::from_secret(bundle_key()),
     )
     .map_err(BundleTokenError::Encode)
 }
@@ -79,10 +101,9 @@ pub fn verify(token: &str) -> Result<PluginBundleClaims, BundleTokenError> {
     let mut v = Validation::new(Algorithm::HS256);
     v.validate_exp = true;
     v.validate_aud = false; // our tokens carry no audience
-    v.leeway = 30;
-    let data =
-        decode::<PluginBundleClaims>(token, &DecodingKey::from_secret(JWT_SECRET.as_bytes()), &v)
-            .map_err(BundleTokenError::Decode)?;
+    v.leeway = LEEWAY_SECS;
+    let data = decode::<PluginBundleClaims>(token, &DecodingKey::from_secret(bundle_key()), &v)
+        .map_err(BundleTokenError::Decode)?;
     if data.claims.typ != TYP {
         return Err(BundleTokenError::WrongType);
     }
@@ -134,13 +155,41 @@ mod tests {
             exp: now + 60,
             iat: now,
         };
+        // Sign with the bundle key so the signature passes and the `typ` guard is
+        // what rejects it.
         let t = encode(
             &Header::default(),
             &forged,
-            &EncodingKey::from_secret(JWT_SECRET.as_bytes()),
+            &EncodingKey::from_secret(bundle_key()),
         )
         .unwrap();
         assert!(matches!(verify(&t), Err(BundleTokenError::WrongType)));
+    }
+
+    #[test]
+    fn rejects_token_signed_with_session_key() {
+        // Key separation: a token signed with the raw JWT_SECRET (a session token)
+        // must not verify as a bundle token, even with a valid `typ`.
+        set_secret();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let claims = PluginBundleClaims {
+            typ: TYP.to_string(),
+            workspace_id: 1,
+            plugin_uuid: Uuid::now_v7(),
+            bundle_hash: "x".to_string(),
+            exp: now + 60,
+            iat: now,
+        };
+        let t = encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(JWT_SECRET.as_bytes()),
+        )
+        .unwrap();
+        assert!(matches!(verify(&t), Err(BundleTokenError::Decode(_))));
     }
 
     #[test]

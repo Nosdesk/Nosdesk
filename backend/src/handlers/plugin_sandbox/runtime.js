@@ -423,10 +423,16 @@ async function boot() {
   if (!token) throw new Error("sandbox runtime: missing bundle token");
   const runtime = await connectToHost();
   const bundleUrl = `./bundle?t=${encodeURIComponent(token)}`;
-  const mod = await import(
-    /* @vite-ignore */
-    bundleUrl
-  );
+  let mod;
+  try {
+    mod = await import(
+      /* @vite-ignore */
+      bundleUrl
+    );
+  } catch (e) {
+    window.parent.postMessage({ type: "nosdesk-plugin-bundle-error" }, "*");
+    throw e;
+  }
   if (!mod.default || typeof mod.default.mount !== "function") {
     throw new Error("sandbox runtime: bundle has no default { mount } export");
   }
