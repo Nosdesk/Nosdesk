@@ -34,6 +34,8 @@ export function createHostApiImpl(plugin: Plugin): { hostApi: HostApi; inproc: P
       addComment: (id, comment) => inproc.tickets.addComment(id, comment),
       update: (id, patch) => inproc.tickets.update(id, patch),
       delete: (id) => inproc.tickets.delete(id),
+      workflowStates: () => inproc.tickets.workflowStates(),
+      priorities: () => inproc.tickets.priorities(),
     },
     assets: {
       get: (id) => inproc.assets.get(id),
@@ -41,7 +43,9 @@ export function createHostApiImpl(plugin: Plugin): { hostApi: HostApi; inproc: P
       update: (id, patch) => inproc.assets.update(id, patch),
     },
     users: {
+      me: () => inproc.users.me(),
       get: (uuid) => inproc.users.get(uuid),
+      list: (query) => inproc.users.list(query),
     },
     attachments: {
       async list(ticketId) {

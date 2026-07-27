@@ -93,6 +93,41 @@ export interface PluginEventPayload {
 
 export type PluginEventHandler = (payload: PluginEventPayload) => void | Promise<void>;
 
+/** Query for `api.users.list` — mirrors the validated server params. */
+export interface PluginUserQuery {
+  /** Free-text over name/email (server truncates to 100 chars). */
+  search?: string;
+  /** Filter by role. */
+  role?: 'admin' | 'agent' | 'user';
+  /** Page size, 1..100 (default 25). */
+  limit?: number;
+  /** 1-based page. */
+  page?: number;
+  sortBy?: 'name' | 'email' | 'role' | 'created_at' | 'updated_at';
+  sortOrder?: 'asc' | 'desc';
+}
+
+/** A page of workspace members from `api.users.list`. */
+export interface PluginUserList {
+  users: PluginUser[];
+  /** Total matching the query across all pages. */
+  total: number;
+}
+
+/** A workspace workflow state — the values a ticket's `workflow_state_id` can
+ * take. `category` is the fixed system bucket; `name`/`color` are configurable. */
+export interface PluginWorkflowState {
+  id: number;
+  name: string;
+  category: string;
+  color: string;
+  position: number;
+  is_default: boolean;
+}
+
+/** The fixed ticket priority scale. */
+export type PluginPriority = 'low' | 'medium' | 'high';
+
 /** CRUD over one plugin collection. */
 export interface PluginCollection {
   create(data: Record<string, unknown>): Promise<CollectionRow | null>;
@@ -131,6 +166,11 @@ export interface HostApi {
     update(id: number, patch: PluginTicketPatch): Promise<Ticket | null>;
     /** Delete a ticket (`ticket:delete`). Acts as the current user. */
     delete(id: number): Promise<boolean>;
+    /** The workspace's workflow states — the valid `workflow_state_id` values for
+     * `update` (`ticket:read`). */
+    workflowStates(): Promise<PluginWorkflowState[]>;
+    /** The fixed priority scale for `update`'s `priority` field. */
+    priorities(): Promise<PluginPriority[]>;
   };
   assets: {
     get(id: number): Promise<Asset | null>;
@@ -139,8 +179,13 @@ export interface HostApi {
     update(id: number, patch: PluginAssetPatch): Promise<Asset | null>;
   };
   users: {
+    /** The current (acting) user's identity projection. Ambient — no permission
+     * (the plugin already runs in this user's session). */
+    me(): Promise<PluginUser | null>;
     /** Fetch a workspace member's identity projection (`user:read`). */
     get(uuid: string): Promise<PluginUser | null>;
+    /** Search workspace members (`user:read`). */
+    list(query?: PluginUserQuery): Promise<PluginUserList>;
   };
   attachments: {
     list(ticketId: number): Promise<PluginAttachment[]>;
