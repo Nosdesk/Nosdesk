@@ -39,7 +39,6 @@ export interface PluginComment {
   content: string;
   /** Post as an internal note (hidden from the requester, not relayed). */
   is_internal?: boolean;
-  metadata?: Record<string, unknown>;
 }
 
 export interface PluginAttachment {
@@ -77,10 +76,6 @@ export interface PluginUser {
   role: string;
 }
 
-export interface PluginContext {
-  ticket: Ticket | null;
-  asset: Asset | null;
-}
 
 export interface PluginUIHelpers {
   /** Check if the page is currently being printed (via matchMedia) */
@@ -405,7 +400,11 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
           url,
           method: (options?.method as PluginProxyRequest['method']) || 'GET',
           headers: options?.headers as Record<string, string>,
-          body: options?.body ? (typeof options.body === 'string' ? JSON.parse(options.body) : options.body) : undefined,
+          // Pass the body through as-is; the backend encodes per `content_type`
+          // ('json' default, or 'form'). Never JSON.parse a string body — a
+          // pre-encoded form/text/XML string is not JSON and would throw. Only
+          // null/undefined mean "no body" (so '' and 0 are preserved).
+          body: options?.body ?? undefined,
           content_type: options?.content_type,
         };
 
