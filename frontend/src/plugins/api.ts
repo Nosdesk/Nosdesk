@@ -14,12 +14,22 @@ import pluginService from '@nosdesk/core/services/pluginService';
 import { getTicketById, getTickets, addCommentToTicket, updateTicket, deleteTicket } from '@nosdesk/core/services/ticketService';
 import { getAssetById, getAssets, updateAsset } from '@/services/assetService';
 import userService from '@/services/userService';
+import { useAuthStore } from '@/stores/auth';
 import { logger } from '@nosdesk/core/utils/logger';
 import { useToastStore } from '@nosdesk/core/stores/toast';
+import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates';
+import { PRIORITY_OPTIONS } from '@nosdesk/core/constants/ticketOptions';
 import { PluginApiError } from '@nosdesk/plugin-sdk';
+import type {
+  PluginUserQuery,
+  PluginUserList,
+  PluginWorkflowState,
+  PluginPriority,
+} from '@nosdesk/plugin-sdk';
 import type { Plugin, PluginPermission, PluginProxyRequest, PluginEvent, CollectionRow, CollectionListResponse } from '@nosdesk/core/types/plugin';
 import type { Ticket } from '@nosdesk/core/types/ticket';
 import type { Asset } from '@nosdesk/core/types/asset';
+import type { User } from '@nosdesk/core/types/user';
 
 // =============================================================================
 // Types
@@ -152,6 +162,16 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
     throw new PluginApiError('upstream', what);
   };
 
+  // Identity-only projection: never expose more of a user than name/email/avatar/
+  // role, whatever the underlying record carries.
+  const toPluginUser = (u: User): PluginUser => ({
+    uuid: u.uuid,
+    name: u.name,
+    email: u.email,
+    avatarUrl: u.avatar_url ?? null,
+    role: (u.workspace_role ?? u.platform_role) as string,
+  });
+
   const api: PluginAPI = {
     version: '1.0.0',
 
@@ -217,6 +237,28 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
           throw upstream('failed to delete ticket', error);
         }
       },
+      // Reference data so a plugin can build a valid `update({ workflow_state_id })`
+      // without hardcoding ints. `ticket:read` gates it (it's workspace config).
+      async workflowStates(): Promise<PluginWorkflowState[]> {
+        if (!hasPermission('ticket:read')) denied('ticket:read');
+        try {
+          const states = await useWorkflowStatesStore().load();
+          return states.map((s) => ({
+            id: s.id,
+            name: s.name,
+            category: s.category,
+            color: s.color,
+            position: s.position,
+            is_default: s.is_default,
+          }));
+        } catch (error) {
+          throw upstream('failed to list workflow states', error);
+        }
+      },
+      // The fixed priority scale (static; no gate).
+      async priorities(): Promise<PluginPriority[]> {
+        return PRIORITY_OPTIONS.map((o) => o.value);
+      },
     },
 
     assets: {
@@ -248,20 +290,35 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
 
     // === READ: Users (identity projection) ===
     users: {
+      // Ambient: the current user's own identity (the plugin runs in their
+      // session). No permission gate — no more than `api.plugin` already implies.
+      async me(): Promise<PluginUser | null> {
+        const u = useAuthStore().user;
+        return u ? toPluginUser(u as User) : null;
+      },
       async get(uuid: string): Promise<PluginUser | null> {
         if (!hasPermission('user:read')) denied('user:read');
         try {
           const u = await userService.getUserByUuid(uuid);
-          if (!u) return null;
-          return {
-            uuid: u.uuid,
-            name: u.name,
-            email: u.email,
-            avatarUrl: u.avatar_url ?? null,
-            role: (u.workspace_role ?? u.platform_role) as string,
-          };
+          return u ? toPluginUser(u) : null;
         } catch (error) {
           throw upstream('failed to get user', error);
+        }
+      },
+      async list(query: PluginUserQuery = {}): Promise<PluginUserList> {
+        if (!hasPermission('user:read')) denied('user:read');
+        try {
+          const page = await userService.getPaginatedUsers({
+            page: query.page ?? 1,
+            pageSize: Math.min(query.limit ?? 25, 100),
+            search: query.search || undefined,
+            role: query.role,
+            sortField: query.sortBy,
+            sortDirection: query.sortOrder,
+          });
+          return { users: page.data.map(toPluginUser), total: page.total };
+        } catch (error) {
+          throw upstream('failed to list users', error);
         }
       },
     },
@@ -526,6 +583,8 @@ export interface PluginAPI {
     addComment(ticketId: number, comment: PluginComment): Promise<boolean>;
     update(id: number, patch: PluginTicketPatch): Promise<Ticket | null>;
     delete(id: number): Promise<boolean>;
+    workflowStates(): Promise<PluginWorkflowState[]>;
+    priorities(): Promise<PluginPriority[]>;
   };
 
   assets: {
@@ -535,7 +594,9 @@ export interface PluginAPI {
   };
 
   users: {
+    me(): Promise<PluginUser | null>;
     get(uuid: string): Promise<PluginUser | null>;
+    list(query?: PluginUserQuery): Promise<PluginUserList>;
   };
 
   // Attachment access
