@@ -7,6 +7,8 @@
 
 import { ref, shallowRef, reactive, type ShallowRef } from 'vue';
 import pluginService from '@nosdesk/core/services/pluginService';
+import { useDateStore } from '@nosdesk/core/stores/dateStore';
+import { resolvePluginI18n } from '@nosdesk/core/utils/pluginI18n';
 import { onSyncActions } from '@nosdesk/core/sync/observers';
 import type { SyncAction } from '@nosdesk/core/sync/types';
 import { logger } from '@nosdesk/core/utils/logger';
@@ -143,11 +145,15 @@ async function loadPlugin(plugin: Plugin): Promise<void> {
     }
     const slot = config.slot as PluginSlot;
 
+    // Resolve %key% labels against the manifest's i18n tables at load time.
+    const l10n = (v: string | undefined): string | undefined =>
+      v == null ? v : resolvePluginI18n(v, plugin.manifest.i18n, useDateStore().locale);
+
     const registration: PluginSlotRegistration = {
       pluginUuid: plugin.uuid,
       pluginName: plugin.name,
       componentName,
-      label: config.label,
+      label: l10n(config.label),
       icon: config.icon,
       context: config.context || [],
     };
@@ -162,13 +168,13 @@ async function loadPlugin(plugin: Plugin): Promise<void> {
         pluginName: plugin.name,
         componentName,
         slot,
-        label: config.action.label,
+        label: l10n(config.action.label) ?? config.action.label,
         // Per-component icon comes from the manifest's component
         // config (small inline glyph or override). Plugin-level
         // identity icon is served from /api/plugins/<uuid>/icon and
         // referenced separately by the plugin list views.
         icon: config.icon,
-        componentLabel: config.label,
+        componentLabel: l10n(config.label),
       };
 
       const existingActions = actionRegistrations.get(slot) || [];

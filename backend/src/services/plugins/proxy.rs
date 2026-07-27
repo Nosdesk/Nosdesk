@@ -593,6 +593,7 @@ mod tests {
             menus: std::collections::BTreeMap::new(),
             url_handlers: vec![],
             extensions: std::collections::BTreeMap::new(),
+            i18n: std::collections::BTreeMap::new(),
         }
     }
 

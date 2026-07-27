@@ -33,6 +33,8 @@ import PluginTrustBadge from '@/components/plugins/PluginTrustBadge.vue';
 import pluginService from '@nosdesk/core/services/pluginService';
 import { unloadPlugin } from '@/plugins/loader';
 import { logger } from '@nosdesk/core/utils/logger';
+import { useDateStore } from '@nosdesk/core/stores/dateStore';
+import { resolvePluginI18n } from '@nosdesk/core/utils/pluginI18n';
 import type { Plugin, PluginSetting } from '@nosdesk/core/types/plugin';
 import PluginPermissionList from '@/components/plugins/PluginPermissionList.vue';
 
@@ -67,6 +69,11 @@ const pluginQuery = useQuery({
   enabled: () => !!uuid.value,
 });
 const plugin = computed<Plugin | null>(() => pluginQuery.data.value ?? null);
+
+// Resolve a plugin-authored `%key%` string against the manifest's i18n tables.
+const dateStore = useDateStore();
+const l10n = (value: string | null | undefined): string =>
+  resolvePluginI18n(value, plugin.value?.manifest.i18n, dateStore.locale);
 const loadOp = computed(() => ({
   isPending: pluginQuery.asyncStatus.value === 'loading',
   isError: pluginQuery.state.value.status === 'error',
@@ -320,9 +327,9 @@ const saveButtonLabel = computed(() =>
     <template v-if="plugin">
       <!-- Header card -->
       <header class="flex flex-col gap-4 rounded-xl border border-default bg-surface p-5 sm:flex-row sm:items-start">
-        <PluginIcon :uuid="plugin.uuid" :alt="plugin.display_name" size="lg" />
+        <PluginIcon :uuid="plugin.uuid" :alt="l10n(plugin.display_name)" size="lg" />
         <div class="min-w-0 flex-1">
-          <h1 class="text-2xl font-bold text-primary">{{ plugin.display_name }}</h1>
+          <h1 class="text-2xl font-bold text-primary">{{ l10n(plugin.display_name) }}</h1>
           <p class="mt-1 font-mono text-xs text-tertiary">{{ plugin.name }}</p>
           <div class="mt-3 flex flex-wrap items-center gap-2 text-sm">
             <code class="rounded bg-surface-alt px-1.5 py-0.5 font-mono text-xs text-secondary">
@@ -404,11 +411,11 @@ const saveButtonLabel = computed(() =>
           >
             <div>
               <label :for="`setting-${def.key}`" class="block text-sm font-medium text-primary">
-                {{ def.label }}
+                {{ l10n(def.label) }}
                 <span v-if="def.required" class="text-status-error" :aria-label="requiredAriaLabel">*</span>
               </label>
               <p v-if="def.description" class="mt-1 text-xs text-tertiary">
-                {{ def.description }}
+                {{ l10n(def.description) }}
               </p>
             </div>
 

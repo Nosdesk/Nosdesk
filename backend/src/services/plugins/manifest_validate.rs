@@ -187,9 +187,17 @@ pub enum ManifestValidationError {
     ReservedFieldNotEmpty {
         field: &'static str,
     },
-    LocalisationKeyReserved {
+    /// A localizable field uses `%key%` but the key isn't defined in
+    /// `i18n["en-US"]`, so it has no fallback and would render as the literal
+    /// `%key%`.
+    UnresolvedI18nKey {
         location: &'static str,
-        value: String,
+        key: String,
+    },
+    /// An `i18n` string table has an empty value.
+    EmptyI18nValue {
+        locale: String,
+        key: String,
     },
     InvalidContactUrl(String),
     InvalidBugsUrl(String),
@@ -256,9 +264,13 @@ impl std::fmt::Display for ManifestValidationError {
                 f,
                 "manifest.{field} is a reserved field and is not yet honoured by this Nosdesk version; remove or set to empty"
             ),
-            Self::LocalisationKeyReserved { location, value } => write!(
+            Self::UnresolvedI18nKey { location, key } => write!(
                 f,
-                "{location} value {value:?} matches the reserved localisation syntax %key%; future Nosdesk versions will resolve these from i18n bundles. Use literal text or wait."
+                "{location} uses %{key}% but i18n[\"en-US\"][\"{key}\"] is not defined; every localisation key must have an en-US fallback"
+            ),
+            Self::EmptyI18nValue { locale, key } => write!(
+                f,
+                "i18n[{locale:?}][{key:?}] is empty"
             ),
             Self::InvalidContactUrl(s) => write!(
                 f,
@@ -432,28 +444,42 @@ pub fn validate(
         }
     }
 
-    // Localisation syntax reservation: any string of the form
-    // `%key%` is reserved for a future i18n resolver. Refuse
-    // surface-visible strings that look like keys today so plugins
-    // can't accidentally claim the syntax.
-    if looks_like_localisation_key(&manifest.display_name) {
-        errors.push(ManifestValidationError::LocalisationKeyReserved {
-            location: "displayName",
-            value: manifest.display_name.clone(),
-        });
-    }
-    for setting in &manifest.settings {
-        if looks_like_localisation_key(&setting.label) {
-            errors.push(ManifestValidationError::LocalisationKeyReserved {
-                location: "settings[].label",
-                value: setting.label.clone(),
-            });
+    // Localisation: a surface-visible field may be `%key%`, resolved by the UI
+    // against `manifest.i18n`. Every key used must have an en-US fallback, so it
+    // always resolves to something.
+    let fallback = manifest.i18n.get(FALLBACK_LOCALE);
+    let mut check_l10n = |location: &'static str, value: &str| {
+        if let Some(e) = check_localizable(fallback, location, value) {
+            errors.push(e);
         }
+    };
+    check_l10n("displayName", &manifest.display_name);
+    for setting in &manifest.settings {
+        check_l10n("settings[].label", &setting.label);
         if let Some(d) = &setting.description {
-            if looks_like_localisation_key(d) {
-                errors.push(ManifestValidationError::LocalisationKeyReserved {
-                    location: "settings[].description",
-                    value: d.clone(),
+            check_l10n("settings[].description", d);
+        }
+        if let Some(opts) = &setting.options {
+            for opt in opts {
+                check_l10n("settings[].options[].label", &opt.label);
+            }
+        }
+    }
+    for comp in manifest.components.values() {
+        if let Some(l) = &comp.label {
+            check_l10n("components[].label", l);
+        }
+        if let Some(a) = &comp.action {
+            check_l10n("components[].action.label", &a.label);
+        }
+    }
+    // Reject empty i18n values (a `%key%` resolving to "" is a silent bug).
+    for (loc, table) in &manifest.i18n {
+        for (k, v) in table {
+            if v.trim().is_empty() {
+                errors.push(ManifestValidationError::EmptyI18nValue {
+                    locale: loc.clone(),
+                    key: k.clone(),
                 });
             }
         }
@@ -470,14 +496,38 @@ pub fn validate(
 /// `%`, identifier characters (letters, digits, underscore, dot),
 /// trailing `%`. Used to refuse manifest strings that would collide
 /// with future i18n bundles.
-fn looks_like_localisation_key(s: &str) -> bool {
-    let inner = match s.strip_prefix('%').and_then(|s| s.strip_suffix('%')) {
-        Some(i) if !i.is_empty() => i,
-        _ => return false,
-    };
-    inner
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
+/// The locale every `%key%` must be defined for, so a fallback always exists.
+const FALLBACK_LOCALE: &str = "en-US";
+
+/// If `s` is a `%key%` reference, return the inner key. Grammar: leading `%`,
+/// non-empty inner of `[A-Za-z0-9_.]`, trailing `%`. The UI resolver matches this.
+pub(crate) fn i18n_key(s: &str) -> Option<&str> {
+    s.strip_prefix('%')
+        .and_then(|s| s.strip_suffix('%'))
+        .filter(|inner| {
+            !inner.is_empty()
+                && inner
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
+        })
+}
+
+/// Validate a localizable field: if it's a `%key%`, the key must exist in the
+/// en-US fallback table.
+fn check_localizable(
+    fallback: Option<&std::collections::BTreeMap<String, String>>,
+    location: &'static str,
+    value: &str,
+) -> Option<ManifestValidationError> {
+    let key = i18n_key(value)?;
+    if fallback.is_some_and(|m| m.contains_key(key)) {
+        None
+    } else {
+        Some(ManifestValidationError::UnresolvedI18nKey {
+            location,
+            key: key.to_string(),
+        })
+    }
 }
 
 /// Canonical plugin-name rules. 1-100 chars, lowercase ASCII +
@@ -721,6 +771,7 @@ mod tests {
             menus: std::collections::BTreeMap::new(),
             url_handlers: vec![],
             extensions: std::collections::BTreeMap::new(),
+            i18n: std::collections::BTreeMap::new(),
         }
     }
 
@@ -1033,15 +1084,39 @@ mod tests {
     }
 
     #[test]
-    fn rejects_localisation_key_in_display_name() {
+    fn rejects_i18n_key_without_en_us_fallback() {
         let mut m = baseline_manifest();
         m.display_name = "%my.app.name%".into();
         assert_err!(
             validate(&m, &ctx_official()),
-            ManifestValidationError::LocalisationKeyReserved {
+            ManifestValidationError::UnresolvedI18nKey {
                 location: "displayName",
                 ..
             },
+        );
+    }
+
+    #[test]
+    fn accepts_i18n_key_with_en_us_fallback() {
+        let mut m = baseline_manifest();
+        m.display_name = "%my.app.name%".into();
+        m.i18n.insert(
+            "en-US".into(),
+            std::collections::BTreeMap::from([("my.app.name".to_string(), "My App".to_string())]),
+        );
+        assert!(validate(&m, &ctx_official()).is_ok());
+    }
+
+    #[test]
+    fn rejects_empty_i18n_value() {
+        let mut m = baseline_manifest();
+        m.i18n.insert(
+            "en-US".into(),
+            std::collections::BTreeMap::from([("k".to_string(), "  ".to_string())]),
+        );
+        assert_err!(
+            validate(&m, &ctx_official()),
+            ManifestValidationError::EmptyI18nValue { .. },
         );
     }
 
