@@ -36,6 +36,10 @@ pub struct CollectionRowPath {
     row_uuid: Uuid,
 }
 
+/// Cap on rows per collection so an untrusted plugin can't grow
+/// `plugin_collection_rows` unbounded.
+const MAX_ROWS_PER_COLLECTION: i64 = 50_000;
+
 // =============================================================================
 // Helpers
 // =============================================================================
@@ -270,6 +274,7 @@ pub async fn create_collection_row(
         Ok(crate::models::PluginCollectionRow),
         Gate(PluginGate),
         CollectionNotFound,
+        RowLimitExceeded,
         ValidationError(String),
     }
 
@@ -288,6 +293,12 @@ pub async fn create_collection_row(
             Err(DieselError::NotFound) => return Ok(CreateOutcome::CollectionNotFound),
             Err(e) => return Err(e),
         };
+
+        // Bound growth: an untrusted plugin must not be able to grow a collection
+        // unbounded.
+        if collection_repo::count_rows_by_schema(conn, schema.id)? >= MAX_ROWS_PER_COLLECTION {
+            return Ok(CreateOutcome::RowLimitExceeded);
+        }
 
         // Parse the collection definition from the schema for validation
         if let Ok(definition) =
@@ -314,6 +325,9 @@ pub async fn create_collection_row(
         }
         Ok(CreateOutcome::Gate(gate)) => gate.into_response(),
         Ok(CreateOutcome::CollectionNotFound) => errors::not_found_msg("Collection not found"),
+        Ok(CreateOutcome::RowLimitExceeded) => errors::bad_request(format!(
+            "collection row limit exceeded (max {MAX_ROWS_PER_COLLECTION} rows)"
+        )),
         Ok(CreateOutcome::ValidationError(msg)) => {
             HttpResponse::BadRequest().json(serde_json::json!({
                 "error": i18n::tr(&locale, "backend-error-validation"),
