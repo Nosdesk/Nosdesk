@@ -234,7 +234,8 @@ export const addCommentToTicket = async (
   content: string,
   attachments: { url: string; name: string }[] = [],
   isInternal: boolean = false,
-  clientId?: string
+  clientId?: string,
+  config?: AxiosRequestConfig
 ): Promise<Comment> => {
   try {
     const response = await apiClient.post(`/tickets/${ticketId}/comments`, {
@@ -257,7 +258,7 @@ export const addCommentToTicket = async (
       // optimistic create reconciles structurally (see sync/optimisticCreates).
       // Omitted (undefined) by callers that don't opt in; backend defaults None.
       client_id: clientId,
-    });
+    }, config);
     return response.data;
   } catch (error) {
     logger.error('Failed to add comment to ticket', { error, ticketId });

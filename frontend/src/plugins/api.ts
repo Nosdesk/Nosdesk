@@ -27,6 +27,8 @@ import type { Asset } from '@nosdesk/core/types/asset';
 
 export interface PluginComment {
   content: string;
+  /** Post as an internal note (hidden from the requester, not relayed). */
+  is_internal?: boolean;
   metadata?: Record<string, unknown>;
 }
 
@@ -182,7 +184,14 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
       async addComment(ticketId: number, comment: PluginComment): Promise<boolean> {
         if (!hasPermission('ticket:comment')) denied('ticket:comment');
         try {
-          await addCommentToTicket(ticketId, comment.content, []);
+          await addCommentToTicket(
+            ticketId,
+            comment.content,
+            [],
+            comment.is_internal ?? false,
+            undefined,
+            pluginAttribution,
+          );
           return true;
         } catch (error) {
           throw upstream('failed to add comment', error);
