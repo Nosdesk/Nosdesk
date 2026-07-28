@@ -1280,9 +1280,18 @@ pub async fn proxy_plugin_request(
         }
     }
 
-    // Execute the proxied request with secrets for auth injection
+    // Execute the proxied request with secrets for auth injection. Egress is
+    // gated on the effective (consented) permission set, not the raw manifest,
+    // consistent with every other plugin authorization check.
+    let network_perms = plugin.effective_permission_set();
     match proxy_service
-        .proxy_request(&plugin.name, &manifest, body.into_inner(), &secrets)
+        .proxy_request(
+            &plugin.name,
+            &manifest,
+            &network_perms,
+            body.into_inner(),
+            &secrets,
+        )
         .await
     {
         Ok(response) => HttpResponse::Ok().json(response),

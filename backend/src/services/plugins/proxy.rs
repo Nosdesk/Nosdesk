@@ -109,13 +109,15 @@ impl PluginProxyService {
 
     /// Check if a plugin has permission to access a URL.
     ///
-    /// Both the URL host and the manifest's `network:<pattern>`
-    /// permissions go through the same `Host` / `HostPattern`
-    /// parsers, so case, normalisation, and wildcard semantics are
-    /// shared with the validator. Any URL that doesn't normalise
-    /// to a valid named host (IP literals, malformed URLs) is
-    /// refused outright.
-    fn has_permission(&self, manifest: &PluginManifest, url: &str) -> bool {
+    /// `network_perms` is the plugin's EFFECTIVE (consented) permission set, not
+    /// the raw manifest, so egress is authorized from the same trusted grant the
+    /// rest of the plugin surface enforces on (a scope the admin actually
+    /// consented to, reflecting mid-session revoke). Both the URL host and each
+    /// `network:<pattern>` permission go through the same `Host` / `HostPattern`
+    /// parsers, so case, normalisation, and wildcard semantics are shared with
+    /// the validator. Any URL that doesn't normalise to a valid named host (IP
+    /// literals, malformed URLs) is refused outright.
+    fn has_permission(&self, network_perms: &[String], url: &str) -> bool {
         let parsed = match url::Url::parse(url) {
             Ok(u) => u,
             Err(_) => return false,
@@ -127,11 +129,12 @@ impl PluginProxyService {
             return false;
         };
 
-        manifest
-            .permissions
-            .iter()
-            .filter_map(crate::services::plugins::types::Permission::network_pattern)
-            .any(|pattern| pattern.matches(&host))
+        network_perms.iter().any(|perm| {
+            crate::services::plugins::types::Permission::parse(perm)
+                .ok()
+                .and_then(|p| p.network_pattern().map(|pattern| pattern.matches(&host)))
+                .unwrap_or(false)
+        })
     }
 
     /// Get the auth header name that the manifest's auth config would inject for a given URL.
@@ -158,6 +161,7 @@ impl PluginProxyService {
         plugin_name: &str,
         url: &str,
         manifest: &PluginManifest,
+        network_perms: &[String],
         secrets: &HashMap<String, String>,
     ) -> Result<Option<(String, String)>, PluginProxyError> {
         // A URL that reached here already passed `has_permission` (which parses
@@ -225,7 +229,7 @@ impl PluginProxyService {
                 // to any host) and the IP-literal SSRF guard (a literal
                 // token_url host bypasses the resolver). See
                 // security-audit-2026-06.
-                if !self.has_permission(manifest, token_url) {
+                if !self.has_permission(network_perms, token_url) {
                     warn!(
                         plugin = plugin_name,
                         token_url = token_url,
@@ -362,11 +366,12 @@ impl PluginProxyService {
         &self,
         plugin_name: &str,
         manifest: &PluginManifest,
+        network_perms: &[String],
         request: PluginProxyRequest,
         secrets: &HashMap<String, String>,
     ) -> Result<PluginProxyResponse, PluginProxyError> {
         // Check permission
-        if !self.has_permission(manifest, &request.url) {
+        if !self.has_permission(network_perms, &request.url) {
             warn!(
                 plugin = plugin_name,
                 url = request.url,
@@ -427,7 +432,7 @@ impl PluginProxyService {
         // closed rather than sending the request without the intended
         // credentials.
         if let Some((header_name, header_value)) = self
-            .get_auth_for_url(plugin_name, &request.url, manifest, secrets)
+            .get_auth_for_url(plugin_name, &request.url, manifest, network_perms, secrets)
             .await?
         {
             debug!(
@@ -601,14 +606,21 @@ mod tests {
         Host::parse(s).expect("test host must be valid")
     }
 
+    /// Effective permission strings for a test manifest. In these unit tests the
+    /// consented set equals the manifest (no reconsent state), so deriving it
+    /// from the manifest mirrors what the handler passes at runtime.
+    fn net_perms(manifest: &PluginManifest) -> Vec<String> {
+        manifest.permissions.iter().map(|p| p.as_string()).collect()
+    }
+
     #[test]
     fn test_exact_domain_permission() {
         let service = PluginProxyService::new();
         let manifest = create_test_manifest(vec!["network:api.example.com"]);
 
-        assert!(service.has_permission(&manifest, "https://api.example.com/v1/data"));
-        assert!(!service.has_permission(&manifest, "https://other.example.com/data"));
-        assert!(!service.has_permission(&manifest, "https://api.other.com/data"));
+        assert!(service.has_permission(&net_perms(&manifest), "https://api.example.com/v1/data"));
+        assert!(!service.has_permission(&net_perms(&manifest), "https://other.example.com/data"));
+        assert!(!service.has_permission(&net_perms(&manifest), "https://api.other.com/data"));
     }
 
     #[test]
@@ -616,10 +628,10 @@ mod tests {
         let service = PluginProxyService::new();
         let manifest = create_test_manifest(vec!["network:*.example.com"]);
 
-        assert!(service.has_permission(&manifest, "https://api.example.com/v1/data"));
-        assert!(service.has_permission(&manifest, "https://www.example.com/data"));
-        assert!(service.has_permission(&manifest, "https://example.com/data"));
-        assert!(!service.has_permission(&manifest, "https://api.other.com/data"));
+        assert!(service.has_permission(&net_perms(&manifest), "https://api.example.com/v1/data"));
+        assert!(service.has_permission(&net_perms(&manifest), "https://www.example.com/data"));
+        assert!(service.has_permission(&net_perms(&manifest), "https://example.com/data"));
+        assert!(!service.has_permission(&net_perms(&manifest), "https://api.other.com/data"));
     }
 
     #[test]
@@ -629,7 +641,7 @@ mod tests {
         // outcome for the spec we documented; record it.
         let service = PluginProxyService::new();
         let manifest = create_test_manifest(vec!["network:*.example.com"]);
-        assert!(!service.has_permission(&manifest, "https://v1.api.example.com/data"));
+        assert!(!service.has_permission(&net_perms(&manifest), "https://v1.api.example.com/data"));
     }
 
     #[test]
@@ -640,7 +652,7 @@ mod tests {
         // both sides so the match is consistent.
         let service = PluginProxyService::new();
         let manifest = create_test_manifest(vec!["network:api.example.com"]);
-        assert!(service.has_permission(&manifest, "https://API.EXAMPLE.COM/data"));
+        assert!(service.has_permission(&net_perms(&manifest), "https://API.EXAMPLE.COM/data"));
     }
 
     #[test]
@@ -649,7 +661,7 @@ mod tests {
         // named host. `Host::parse` rejects IP literals.
         let service = PluginProxyService::new();
         let manifest = create_test_manifest(vec!["network:*.example.com"]);
-        assert!(!service.has_permission(&manifest, "https://127.0.0.1/data"));
+        assert!(!service.has_permission(&net_perms(&manifest), "https://127.0.0.1/data"));
     }
 
     #[test]
@@ -657,7 +669,7 @@ mod tests {
         let service = PluginProxyService::new();
         let manifest = create_test_manifest(vec!["ticket:read"]);
 
-        assert!(!service.has_permission(&manifest, "https://api.example.com/data"));
+        assert!(!service.has_permission(&net_perms(&manifest), "https://api.example.com/data"));
     }
 
     #[test]
@@ -723,7 +735,13 @@ mod tests {
         secrets.insert("github_token".to_string(), "ghp_test123".to_string());
 
         let result = service
-            .get_auth_for_url("test", "https://api.github.com/repos", &manifest, &secrets)
+            .get_auth_for_url(
+                "test",
+                "https://api.github.com/repos",
+                &manifest,
+                &net_perms(&manifest),
+                &secrets,
+            )
             .await
             .expect("auth resolution should not error");
 
@@ -755,7 +773,13 @@ mod tests {
         secrets.insert("pass".to_string(), "secret".to_string());
 
         let result = service
-            .get_auth_for_url("test", "https://api.example.com/data", &manifest, &secrets)
+            .get_auth_for_url(
+                "test",
+                "https://api.example.com/data",
+                &manifest,
+                &net_perms(&manifest),
+                &secrets,
+            )
             .await
             .expect("auth resolution should not error");
 
@@ -787,7 +811,13 @@ mod tests {
         secrets.insert("api_key".to_string(), "key123".to_string());
 
         let result = service
-            .get_auth_for_url("test", "https://api.example.com/data", &manifest, &secrets)
+            .get_auth_for_url(
+                "test",
+                "https://api.example.com/data",
+                &manifest,
+                &net_perms(&manifest),
+                &secrets,
+            )
             .await
             .expect("auth resolution should not error");
 
@@ -804,7 +834,13 @@ mod tests {
 
         let secrets = HashMap::new();
         let result = service
-            .get_auth_for_url("test", "https://api.example.com/data", &manifest, &secrets)
+            .get_auth_for_url(
+                "test",
+                "https://api.example.com/data",
+                &manifest,
+                &net_perms(&manifest),
+                &secrets,
+            )
             .await
             .expect("auth resolution should not error");
 
@@ -830,7 +866,13 @@ mod tests {
         // Empty secrets map: the declared secret can't be resolved.
         let secrets = HashMap::new();
         let result = service
-            .get_auth_for_url("test", "https://api.example.com/data", &manifest, &secrets)
+            .get_auth_for_url(
+                "test",
+                "https://api.example.com/data",
+                &manifest,
+                &net_perms(&manifest),
+                &secrets,
+            )
             .await;
 
         assert!(

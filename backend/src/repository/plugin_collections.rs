@@ -87,33 +87,55 @@ pub fn create_row(
         .get_result(conn)
 }
 
-/// Get a row by UUID
+/// Get a row by UUID, scoped to its owning collection schema.
+///
+/// The `sid` filter is the object-level authorization boundary: schemas are
+/// resolved per `(plugin_id, collection_name)`, so requiring the row to belong
+/// to `sid` scopes the lookup to the plugin AND the named collection in the
+/// request path. Without it, any workspace member with a plugin holding
+/// `collection:read` could read another plugin's row by its UUID (RLS only
+/// scopes to the tenant, not to the plugin).
 pub fn get_row_by_uuid(
     conn: &mut DbConnection,
+    sid: i32,
     row_uuid: Uuid,
 ) -> Result<PluginCollectionRow, diesel::result::Error> {
     plugin_collection_rows::table
+        .filter(plugin_collection_rows::schema_id.eq(sid))
         .filter(plugin_collection_rows::uuid.eq(row_uuid))
         .first::<PluginCollectionRow>(conn)
 }
 
 // sync-audit-only: Plugin local storage / activity log — covered by the audit_log trigger on plugin_data and plugin_collection_rows
-/// Update a row
+/// Update a row, scoped to its owning collection schema (see `get_row_by_uuid`).
 pub fn update_row(
     conn: &mut DbConnection,
+    sid: i32,
     row_uuid: Uuid,
     update: PluginCollectionRowUpdate,
 ) -> Result<PluginCollectionRow, diesel::result::Error> {
-    diesel::update(plugin_collection_rows::table.filter(plugin_collection_rows::uuid.eq(row_uuid)))
-        .set(&update)
-        .get_result(conn)
+    diesel::update(
+        plugin_collection_rows::table
+            .filter(plugin_collection_rows::schema_id.eq(sid))
+            .filter(plugin_collection_rows::uuid.eq(row_uuid)),
+    )
+    .set(&update)
+    .get_result(conn)
 }
 
 // sync-audit-only: Plugin local storage / activity log — covered by the audit_log trigger on plugin_data and plugin_collection_rows
-/// Delete a row
-pub fn delete_row(conn: &mut DbConnection, row_uuid: Uuid) -> Result<usize, diesel::result::Error> {
-    diesel::delete(plugin_collection_rows::table.filter(plugin_collection_rows::uuid.eq(row_uuid)))
-        .execute(conn)
+/// Delete a row, scoped to its owning collection schema (see `get_row_by_uuid`).
+pub fn delete_row(
+    conn: &mut DbConnection,
+    sid: i32,
+    row_uuid: Uuid,
+) -> Result<usize, diesel::result::Error> {
+    diesel::delete(
+        plugin_collection_rows::table
+            .filter(plugin_collection_rows::schema_id.eq(sid))
+            .filter(plugin_collection_rows::uuid.eq(row_uuid)),
+    )
+    .execute(conn)
 }
 
 // sync-audit-only: Plugin local storage / activity log — covered by the audit_log trigger on plugin_data and plugin_collection_rows

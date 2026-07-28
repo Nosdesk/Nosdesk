@@ -358,20 +358,28 @@ pub async fn get_collection_row(
     enum GetOutcome {
         Ok(crate::models::PluginCollectionRow),
         Gate(PluginGate),
+        CollectionNotFound,
         RowNotFound,
     }
 
     let outcome = tc.run(|conn| {
-        match authorize_plugin_data_request(
+        let plugin = match authorize_plugin_data_request(
             conn,
             path.uuid,
             "collection:read",
             "Plugin has not been granted collection access",
         )? {
-            Ok(_) => {}
+            Ok(p) => p,
             Err(gate) => return Ok(GetOutcome::Gate(gate)),
-        }
-        match collection_repo::get_row_by_uuid(conn, path.row_uuid) {
+        };
+        // Resolve the collection named in the path so the row lookup is scoped
+        // to it (and thus to the authorized plugin), not just to the row UUID.
+        let schema = match collection_repo::get_schema_by_name(conn, plugin.id, &path.name) {
+            Ok(s) => s,
+            Err(DieselError::NotFound) => return Ok(GetOutcome::CollectionNotFound),
+            Err(e) => return Err(e),
+        };
+        match collection_repo::get_row_by_uuid(conn, schema.id, path.row_uuid) {
             Ok(row) => Ok::<_, DieselError>(GetOutcome::Ok(row)),
             Err(DieselError::NotFound) => Ok(GetOutcome::RowNotFound),
             Err(e) => Err(e),
@@ -381,6 +389,7 @@ pub async fn get_collection_row(
     match outcome {
         Ok(GetOutcome::Ok(row)) => HttpResponse::Ok().json(CollectionRowResponse::from(row)),
         Ok(GetOutcome::Gate(gate)) => gate.into_response(),
+        Ok(GetOutcome::CollectionNotFound) => errors::not_found_msg("Collection not found"),
         Ok(GetOutcome::RowNotFound) => errors::not_found_msg("Row not found"),
         Err(e) => {
             error!("Failed to get collection row: {}", e);
@@ -442,7 +451,7 @@ pub async fn update_collection_row(
             data: Some(body_data.clone()),
         };
 
-        match collection_repo::update_row(conn, path.row_uuid, update) {
+        match collection_repo::update_row(conn, schema.id, path.row_uuid, update) {
             Ok(row) => Ok::<_, DieselError>(UpdateOutcome::Ok(row)),
             Err(DieselError::NotFound) => Ok(UpdateOutcome::RowNotFound),
             Err(e) => Err(e),
@@ -484,20 +493,28 @@ pub async fn delete_collection_row(
     enum DeleteOutcome {
         Deleted,
         Gate(PluginGate),
+        CollectionNotFound,
         RowNotFound,
     }
 
     let outcome = tc.run(|conn| {
-        match authorize_plugin_data_request(
+        let plugin = match authorize_plugin_data_request(
             conn,
             path.uuid,
             "collection:write",
             "Plugin has not been granted collection write access",
         )? {
-            Ok(_) => {}
+            Ok(p) => p,
             Err(gate) => return Ok(DeleteOutcome::Gate(gate)),
-        }
-        match collection_repo::delete_row(conn, path.row_uuid)? {
+        };
+        // Scope the delete to the named collection (and thus the authorized
+        // plugin), not just the row UUID.
+        let schema = match collection_repo::get_schema_by_name(conn, plugin.id, &path.name) {
+            Ok(s) => s,
+            Err(DieselError::NotFound) => return Ok(DeleteOutcome::CollectionNotFound),
+            Err(e) => return Err(e),
+        };
+        match collection_repo::delete_row(conn, schema.id, path.row_uuid)? {
             n if n > 0 => Ok::<_, DieselError>(DeleteOutcome::Deleted),
             _ => Ok(DeleteOutcome::RowNotFound),
         }
@@ -506,6 +523,7 @@ pub async fn delete_collection_row(
     match outcome {
         Ok(DeleteOutcome::Deleted) => HttpResponse::NoContent().finish(),
         Ok(DeleteOutcome::Gate(gate)) => gate.into_response(),
+        Ok(DeleteOutcome::CollectionNotFound) => errors::not_found_msg("Collection not found"),
         Ok(DeleteOutcome::RowNotFound) => errors::not_found_msg("Row not found"),
         Err(e) => {
             error!("Failed to delete collection row: {}", e);
