@@ -83,9 +83,9 @@ export const SLOT_REGISTRY = [
     context: 'none',
     cardinality: 'many',
     order: 100,
-    status: 'reserved',
+    status: 'stable',
     aliases: ['settings-integrations'],
-    description: 'Pages under Settings > Integrations',
+    description: "A plugin's configuration page, shown on its admin detail view",
   },
   {
     name: 'dashboard.widget',

@@ -4769,6 +4769,8 @@ plugin-detail-loading = Plugin laden...
 plugin-detail-loading-settings = Instellingen laden...
 plugin-detail-lifecycle-heading = Levenscyclus
 plugin-detail-settings-heading = Instellingen
+# machine, door een moedertaalspreker te controleren
+plugin-detail-integration-page-heading = Configuratie
 plugin-detail-metadata-heading = Metadata
 plugin-detail-metadata-source = Bron
 plugin-detail-metadata-permissions = Machtigingen
