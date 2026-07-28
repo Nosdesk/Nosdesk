@@ -20,11 +20,16 @@ import { useToastStore } from '@nosdesk/core/stores/toast';
 import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates';
 import { PRIORITY_OPTIONS } from '@nosdesk/core/constants/ticketOptions';
 import { PluginApiError } from '@nosdesk/plugin-sdk';
+import { effectivePermissions } from './permissions';
 import type {
   PluginUserQuery,
   PluginUserList,
   PluginWorkflowState,
   PluginPriority,
+  PluginComment,
+  PluginTicketPatch,
+  PluginAssetPatch,
+  PluginUser,
 } from '@nosdesk/plugin-sdk';
 import type { Plugin, PluginPermission, PluginProxyRequest, PluginEvent, CollectionRow, CollectionListResponse } from '@nosdesk/core/types/plugin';
 import type { Ticket } from '@nosdesk/core/types/ticket';
@@ -35,12 +40,15 @@ import type { User } from '@nosdesk/core/types/user';
 // Types
 // =============================================================================
 
-export interface PluginComment {
-  content: string;
-  /** Post as an internal note (hidden from the requester, not relayed). */
-  is_internal?: boolean;
-}
+// PluginComment / PluginTicketPatch / PluginAssetPatch / PluginUser are the
+// author-facing boundary DTOs; they live in `@nosdesk/plugin-sdk` (imported
+// above) so the host impl and the SDK share one definition.
 
+/**
+ * Host-side attachment shape. Deliberately fuller than the SDK's author-facing
+ * `PluginAttachment` (nullable `mimeType`/`size`, plus `ticketId`/`commentId`);
+ * `sandboxHostApi.ts` narrows it to the SDK subset at the bridge boundary.
+ */
 export interface PluginAttachment {
   id: number;
   name: string;
@@ -51,31 +59,6 @@ export interface PluginAttachment {
   ticketId: number;
   commentId: number;
 }
-
-/** Writable-field subset a plugin may patch on a ticket (`ticket:write`). */
-export interface PluginTicketPatch {
-  title?: string;
-  priority?: string;
-  workflow_state_id?: number;
-  assignee?: string | null;
-}
-
-/** Writable-field subset a plugin may patch on an asset (`asset:write`). */
-export interface PluginAssetPatch {
-  name?: string;
-  status?: string;
-  location?: string | null;
-}
-
-/** Safe user projection for `user:read` (identity only). */
-export interface PluginUser {
-  uuid: string;
-  name: string;
-  email: string;
-  avatarUrl: string | null;
-  role: string;
-}
-
 
 export interface PluginUIHelpers {
   /** Check if the page is currently being printed (via matchMedia) */
@@ -100,14 +83,9 @@ export interface PluginFetchOptions extends Omit<RequestInit, 'body'> {
  * The API is sandboxed - each plugin gets its own instance with access only to what it's permitted.
  */
 export function createPluginAPI(plugin: Plugin): PluginAPI {
-  // The effective grant is the CONSENTED set, not the raw manifest — an admin
-  // may have approved a narrower scope, and the manifest can widen on update
-  // ahead of re-consent. Fall back to the manifest only for legacy rows with no
-  // consent recorded (`consented_permissions === null`). This mirrors the
-  // backend's `Plugin::effective_permission_set`.
-  const permissions = new Set<string>(
-    plugin.consented_permissions ?? plugin.manifest.permissions,
-  );
+  // The effective grant is the CONSENTED set, not the raw manifest (see
+  // `effectivePermissions`).
+  const permissions = new Set<string>(effectivePermissions(plugin));
   const eventHandlers = new Map<PluginEvent, EventHandler[]>();
 
   // Typed permission check. Accepts non-network permissions
@@ -416,8 +394,8 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
           headers: response.headers,
         });
       } catch (error) {
-          throw upstream('fetch failed', error);
-        }
+        throw upstream('fetch failed', error);
+      }
     },
 
     // === STORE: Plugin data ===
@@ -463,24 +441,24 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
             try {
               return await pluginService.createCollectionRow(plugin.uuid, collectionName, data);
             } catch (error) {
-          throw upstream('failed to create collection row', error);
-        }
+              throw upstream('failed to create collection row', error);
+            }
           },
           async get(uuid: string): Promise<CollectionRow | null> {
             if (!hasCollectionRead) denied('collection:read');
             try {
               return await pluginService.getCollectionRow(plugin.uuid, collectionName, uuid);
             } catch (error) {
-          throw upstream('failed to get collection row', error);
-        }
+              throw upstream('failed to get collection row', error);
+            }
           },
           async update(uuid: string, data: Record<string, unknown>): Promise<CollectionRow | null> {
             if (!hasCollectionWrite) denied('collection:write');
             try {
               return await pluginService.updateCollectionRow(plugin.uuid, collectionName, uuid, data);
             } catch (error) {
-          throw upstream('failed to update collection row', error);
-        }
+              throw upstream('failed to update collection row', error);
+            }
           },
           async delete(uuid: string): Promise<boolean> {
             if (!hasCollectionWrite) denied('collection:write');
@@ -488,16 +466,16 @@ export function createPluginAPI(plugin: Plugin): PluginAPI {
               await pluginService.deleteCollectionRow(plugin.uuid, collectionName, uuid);
               return true;
             } catch (error) {
-          throw upstream('failed to delete collection row', error);
-        }
+              throw upstream('failed to delete collection row', error);
+            }
           },
           async list(params?: { limit?: number; offset?: number; filter?: string; sort_by?: string; sort_order?: string }): Promise<CollectionListResponse> {
             if (!hasCollectionRead) denied('collection:read');
             try {
               return await pluginService.listCollectionRows(plugin.uuid, collectionName, params);
             } catch (error) {
-          throw upstream('failed to list collection rows', error);
-        }
+              throw upstream('failed to list collection rows', error);
+            }
           },
         };
       },

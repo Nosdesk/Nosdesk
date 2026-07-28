@@ -386,19 +386,12 @@ export interface PluginProxyResponse {
 // =============================================================================
 //
 // The slot taxonomy now lives in its own single-source module (also read by the
-// Rust validator via a generated JSON). Re-exported here so existing importers
-// of `PluginSlot` / `PLUGIN_SLOTS` keep working. `PluginSlot` accepts both the
-// canonical dotted names and the legacy flat aliases during the migration.
-// New code should import from `./pluginSlots` directly.
+// Rust validator via a generated JSON). Re-exported here so importers of
+// `PluginSlot` and the registry helpers keep working. `PluginSlot` accepts both
+// the canonical dotted names and the legacy flat aliases during the migration.
+// New code may import from `./pluginSlots` directly.
 export type { AnySlotName, CanonicalSlotName, LegacySlotName, SlotDef } from './pluginSlots';
-export {
-  SLOT_REGISTRY,
-  SLOT_NAMES,
-  PLUGIN_SLOTS,
-  getSlot,
-  isKnownSlot,
-  canonicalSlotName,
-} from './pluginSlots';
+export { SLOT_REGISTRY, SLOT_NAMES, getSlot, isKnownSlot, canonicalSlotName } from './pluginSlots';
 import type { AnySlotName } from './pluginSlots';
 
 export type PluginSlot = AnySlotName;

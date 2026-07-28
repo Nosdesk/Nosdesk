@@ -12,6 +12,7 @@ import { onSyncActions } from '@nosdesk/core/sync/observers';
 import type { SyncAction } from '@nosdesk/core/sync/types';
 import { getLoadedPlugin } from './loader';
 import { forEachLiveInstance } from './pluginInstances';
+import { effectivePermissions } from './permissions';
 import { logger } from '@nosdesk/core/utils/logger';
 import type { PluginEvent } from '@nosdesk/core/types/plugin';
 
@@ -136,8 +137,9 @@ function dispatchToPlugins(event: PluginEvent, data: unknown): void {
     if (isRestricted && loaded.plugin.trust_level === 'community') {
       return;
     }
-    // Gate on the matching read permission from the CONSENTED set (fail closed).
-    const granted = loaded.plugin.consented_permissions ?? loaded.plugin.manifest.permissions;
+    // Gate on the matching read permission from the effective (consented) set,
+    // fail closed.
+    const granted = effectivePermissions(loaded.plugin);
     if (!needed || !granted.includes(needed)) {
       return;
     }

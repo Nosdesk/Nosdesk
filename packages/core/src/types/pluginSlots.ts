@@ -189,9 +189,3 @@ export function canonicalSlotName(name: string): CanonicalSlotName | undefined {
 
 /** All canonical names, in registry order. */
 export const SLOT_NAMES = SLOT_REGISTRY.map((s) => s.name) as readonly CanonicalSlotName[];
-
-// Back-compat shim for the old `PLUGIN_SLOTS` shape (`{ multiple, description }`),
-// keyed by canonical name. Prefer `getSlot()` / `SLOT_REGISTRY` in new code.
-export const PLUGIN_SLOTS = Object.fromEntries(
-  SLOT_REGISTRY.map((s) => [s.name, { multiple: s.cardinality === 'many', description: s.description }]),
-) as Record<CanonicalSlotName, { multiple: boolean; description: string }>;
