@@ -12,7 +12,6 @@ import type { Ticket } from "@nosdesk/core/types/ticket";
 // Composables
 import { useTicketDetail } from "@/sync/stores/ticketDetail";
 import { subscribe } from "@/sync/lifecycle";
-import { useTicketUiStore } from "@nosdesk/core/stores/ticketUi";
 import { useTicketSSE } from "@/composables/useTicketSSE";
 import { useTitleManager } from "@/composables/useTitleManager";
 import { useTicketDrag, shouldSuppressTicketDrop } from "@/composables/useTicketDrag";
@@ -46,7 +45,7 @@ import Modal from "@/components/Modal.vue";
 import NotFoundIllustration from "@/components/common/NotFoundIllustration.vue";
 import SectionCard from "@/components/common/SectionCard.vue";
 import PluginSlot from "@/plugins/components/PluginSlot.vue";
-import { getActionRegistrations } from "@/plugins/loader";
+import { usePluginActions, pluginActionScope } from "@/plugins/usePluginActions";
 import { useCreateTicketAction } from "@/composables/useCreateTicketAction";
 
 
@@ -160,17 +159,19 @@ const showDropAffordance = computed(() => {
            dragState.value.ticket?.id !== ticket.value?.id;
 });
 
-// Unified "+ Add" menu state — plugin activation counters live in
-// `useTicketUiStore` keyed by ticket id so they survive component
-// unmount (Phase 4 will drop KeepAlive on TicketView; the store is
-// the new home for this state). Falls back to an empty map for
-// pre-route or transitional states.
-const ticketUi = useTicketUiStore();
-const pluginActionActivatedMap = computed(() =>
-    ticketId.value !== undefined
-        ? ticketUi.getPluginActivations(ticketId.value)
-        : new Map<string, number>()
+// Plugin action contributions in the ticket overflow menu. `usePluginActions`
+// owns the id format and the per-ticket activation counters (scoped so distinct
+// tickets don't share state, and surviving component unmount). Scope is unset
+// for pre-route / transitional states, which makes `activate` a no-op and the
+// map empty.
+const ticketActionScope = computed(() =>
+    ticketId.value !== undefined ? pluginActionScope('ticket', ticketId.value) : undefined
 );
+const {
+    items: pluginActionItems,
+    activatedMap: pluginActionActivatedMap,
+    activate: activatePluginAction,
+} = usePluginActions('ticket.sidebar.panel', ticketActionScope);
 
 // Plugins consume the canonical `Ticket` shape. The pool-derived
 // view-model is structurally narrower (denormalised workflow_state,
@@ -202,13 +203,12 @@ const overflowMenuItems = computed<MenuItem[]>(() => {
         },
     ];
 
-    const pluginActions = getActionRegistrations('ticket.sidebar.panel');
-    pluginActions.forEach((action, idx) => {
+    pluginActionItems.value.forEach((action, idx) => {
         items.push({
-            id: `plugin:${action.pluginUuid}:${action.componentName}`,
+            id: action.id,
             label: action.label,
             iconUrl: action.icon,
-            trailing: action.componentLabel || action.pluginName,
+            trailing: action.trailing,
             // Divider above the first plugin item so plugin
             // contributions read as a distinct group.
             divider: idx === 0,
@@ -266,9 +266,9 @@ const handleOverflowSelect = (itemId: string) => {
         // Two-step destructive flow: opening the modal is the
         // first click, the modal's confirm button is the second.
         showDeleteConfirm.value = true;
-    } else if (itemId.startsWith('plugin:') && ticketId.value !== undefined) {
-        const key = itemId.replace('plugin:', '');
-        ticketUi.activatePluginAction(ticketId.value, key);
+    } else {
+        // Plugin action ids are namespaced; `activate` no-ops on anything else.
+        activatePluginAction(itemId);
     }
 };
 

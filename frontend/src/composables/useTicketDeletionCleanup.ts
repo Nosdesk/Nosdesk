@@ -14,8 +14,8 @@
  *     IndexedDB cache, via `useCollabSessionStore.purgeData`.
  *   - In-progress comment draft text/internal flag (localStorage)
  *     via `useTicketDraftsStore.clearDraft`.
- *   - In-memory pending attachments + plugin-activation counters
- *     via `useTicketUiStore.clear*`.
+ *   - In-memory pending attachments via `useTicketUiStore.clearAttachments`
+ *     and plugin-action activation counters via `clearPluginActionScope`.
  *   - Recent-tickets sidebar / dashboard widget cache, so the
  *     deleted entry vanishes without a manual refresh. The
  *     backend's `ON DELETE CASCADE` on `user_ticket_views.ticket_id`
@@ -37,6 +37,7 @@ import { useSyncActions } from '@/composables/useSyncActions'
 import { useCollabSessionStore } from '@/stores/collabSession'
 import { useTicketDraftsStore } from '@nosdesk/core/stores/ticketDrafts'
 import { useTicketUiStore } from '@nosdesk/core/stores/ticketUi'
+import { clearPluginActionScope, pluginActionScope } from '@/plugins/usePluginActions'
 import { useMyWorkspacesStore } from '@/stores/myWorkspaces'
 import { useSyncTicketsStore } from '@/sync/stores/tickets'
 import { RECENT_TICKETS_KEY } from '@/stores/recentTickets'
@@ -66,7 +67,7 @@ export function useTicketDeletionCleanup(): void {
     }
     drafts.clearDraft(id)
     ui.clearAttachments(id)
-    ui.clearPluginActivations(id)
+    clearPluginActionScope(pluginActionScope('ticket', id))
 
     // Recent-tickets sidebar / dashboard widget: drop the cached
     // detail row, then invalidate the list so Pinia Colada

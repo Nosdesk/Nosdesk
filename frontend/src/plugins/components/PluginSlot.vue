@@ -11,6 +11,7 @@ import { slotRegistrations } from '../loader';
 import type { PluginSlotContext } from '../context';
 import { canonicalSlotName } from '@nosdesk/core/types/plugin';
 import type { PluginSlot } from '@nosdesk/core/types/plugin';
+import { pluginActivationKey } from '../usePluginActions';
 import PluginSlotItem from './PluginSlotItem.vue';
 
 const props = defineProps<{
@@ -18,7 +19,8 @@ const props = defineProps<{
   target: string;
   /** Host-provided context; the mount fills the field its slot declares. */
   context?: PluginSlotContext;
-  actionActivatedMap?: Map<string, number>;
+  /** Per-component activation counters from `usePluginActions`. */
+  actionActivatedMap?: ReadonlyMap<string, number>;
 }>();
 
 // Registrations are keyed by canonical name; normalize an alias-passed target.
@@ -35,6 +37,6 @@ provide('pluginSlot', canonical);
     :registration="reg"
     :slot-name="canonical"
     :context="context"
-    :action-activated="actionActivatedMap?.get(`${reg.pluginUuid}:${reg.componentName}`)"
+    :action-activated="actionActivatedMap?.get(pluginActivationKey(reg.pluginUuid, reg.componentName))"
   />
 </template>
