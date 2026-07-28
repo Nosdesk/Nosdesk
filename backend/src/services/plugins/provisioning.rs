@@ -281,11 +281,15 @@ fn provision_zip(conn: &mut DbConnection, zip_path: &Path, label: &str) -> Provi
         skip_if_unchanged: true,
     };
 
-    // System actor so the audit_log row carries an attribution
-    // rather than a NULL actor_uuid. The install_verified
-    // transaction becomes a savepoint that inherits the GUCs set
-    // by with_actor_context.
-    let actor = ActorContext::system("background:plugin_provisioner");
+    // Bootstrap actor: a system actor PINNED to the bootstrap workspace. The
+    // pin is required, not cosmetic — `plugins` is workspace-scoped with FORCE
+    // RLS and its `workspace_id` defaults from `app.workspace_id`, so an unpinned
+    // actor makes the INSERT violate the RLS WITH CHECK (and the NOT NULL
+    // default). `bootstrap` is the purpose-built helper for exactly this
+    // (bootstrap-time plugin install); it also gives the audit row a real
+    // attribution. Filesystem-provisioned plugins land in the bootstrap
+    // workspace (the self-hosted single-tenant case); hosted ships no baked zips.
+    let actor = ActorContext::bootstrap("background:plugin_provisioner");
     let result =
         actor_session::with_actor_context::<_, install::InstallError>(conn, &actor, |conn| {
             install::install_verified(conn, &files, signer, tier, options)
