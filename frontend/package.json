@@ -14,8 +14,8 @@
     "preview": "vite preview",
     "build-only": "vite build",
     "type-check": "vue-tsc --build",
-    "lint": "eslint . && node scripts/check-view-roots.mjs",
-    "lint:fix": "eslint . --fix && node scripts/check-view-roots.mjs",
+    "lint": "eslint . && node scripts/check-view-roots.mjs && node scripts/check-plugin-slot-mounts.mjs",
+    "lint:fix": "eslint . --fix && node scripts/check-view-roots.mjs && node scripts/check-plugin-slot-mounts.mjs",
     "lint:views": "node scripts/check-view-roots.mjs"
   },
   "dependencies": {
