@@ -522,8 +522,17 @@ fn plugin_install(zip_path: &Path) -> Result<()> {
         skip_if_unchanged: false,
     };
 
-    let outcome = install::install_verified(&mut conn, &verified.files, signer, tier, options)
-        .map_err(|e| anyhow!("install failed: {e}"))?;
+    // Pin the bootstrap workspace: `plugins` is workspace-scoped with FORCE RLS
+    // and its `workspace_id` defaults from `app.workspace_id`, so the INSERT
+    // needs a workspace context to satisfy the RLS WITH CHECK (and the NOT NULL
+    // default). `bootstrap` is the purpose-built helper for CLI-time install.
+    let actor = backend::sync::actor::ActorContext::bootstrap("cli:plugin_install");
+    let outcome = backend::sync::session::with_actor_context::<_, install::InstallError>(
+        &mut conn,
+        &actor,
+        |conn| install::install_verified(conn, &verified.files, signer, tier, options),
+    )
+    .map_err(|e| anyhow!("install failed: {e}"))?;
 
     let (action, plugin) = match &outcome {
         install::InstallOutcome::Created(p) => ("installed", p),
