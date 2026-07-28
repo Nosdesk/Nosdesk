@@ -5088,6 +5088,11 @@ dashboard-leave-confirm-label = Verwerpen
 
 dashboard-add-widget-title = Widget toevoegen
 dashboard-add-widget-all-added = Alle beschikbare widgets staan al op je dashboard.
+# machine, door een moedertaalspreker te controleren
+dashboard-add-widget-tab-plugins = Plug-ins
+dashboard-widget-plugin-title = Plug-inwidget
+dashboard-widget-plugin-description = Een widget van een geïnstalleerde plug-in.
+dashboard-widget-plugin-unavailable = Deze plug-in is niet meer beschikbaar.
 
 dashboard-staff-queue-title = Wachtrij
 dashboard-staff-queue-configure-aria = Wachtrijstatistieken configureren

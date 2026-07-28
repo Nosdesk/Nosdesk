@@ -38,6 +38,7 @@ const StarredDocsWidget = defineAsyncComponent(() => import('./StarredDocsWidget
 const MyDevicesWidget = defineAsyncComponent(() => import('./MyAssetsWidget.vue'))
 const ChannelHealthWidget = defineAsyncComponent(() => import('./ChannelHealthWidget.vue'))
 const SavedViewWidget = defineAsyncComponent(() => import('./SavedViewWidget.vue'))
+const PluginDashboardWidget = defineAsyncComponent(() => import('./PluginDashboardWidget.vue'))
 const KpiTile = defineAsyncComponent(() => import('./charts/KpiTile.vue'))
 
 /**
@@ -54,6 +55,34 @@ export function isSavedViewWidgetId(id: string): boolean {
 
 export function savedViewWidgetId(uuid: string): string {
   return `${SAVED_VIEW_WIDGET_PREFIX}${uuid}`
+}
+
+/**
+ * Synthetic widget id prefix for plugin-contributed dashboard widgets.
+ * Layouts persist `plugin_widget:<uuid>:<component>`; `widgetById` recognises
+ * the prefix and synthesises a registry entry pointing at the shared
+ * PluginDashboardWidget shell (same approach as saved-view widgets), so plugin
+ * widgets never bloat the static registry.
+ */
+export const PLUGIN_WIDGET_PREFIX = 'plugin_widget:'
+
+export function isPluginWidgetId(id: string): boolean {
+  return id.startsWith(PLUGIN_WIDGET_PREFIX)
+}
+
+export function pluginWidgetId(pluginUuid: string, componentName: string): string {
+  return `${PLUGIN_WIDGET_PREFIX}${pluginUuid}:${componentName}`
+}
+
+/** Parse a `plugin_widget:<uuid>:<component>` id, or null if it isn't one. */
+export function parsePluginWidgetId(
+  id: string,
+): { pluginUuid: string; componentName: string } | null {
+  if (!isPluginWidgetId(id)) return null
+  const rest = id.slice(PLUGIN_WIDGET_PREFIX.length)
+  const sep = rest.indexOf(':')
+  if (sep <= 0 || sep === rest.length - 1) return null
+  return { pluginUuid: rest.slice(0, sep), componentName: rest.slice(sep + 1) }
 }
 
 /** Preview illustration kind for the add-widget picker. Each maps to a
@@ -624,6 +653,28 @@ export function widgetById(id: string): WidgetDef | undefined {
       span: 1,
       roles: ['technician', 'admin', 'user'],
       defaultVisible: false,
+    }
+  }
+  const pluginWidget = parsePluginWidgetId(id)
+  if (pluginWidget) {
+    // The shell self-titles from the plugin's component label; the generic
+    // `titleKey` only surfaces in title-less contexts (e.g. the drag ghost).
+    return {
+      id,
+      titleKey: 'dashboard-widget-plugin-title',
+      descriptionKey: 'dashboard-widget-plugin-description',
+      component: PluginDashboardWidget,
+      props: {
+        pluginUuid: pluginWidget.pluginUuid,
+        componentName: pluginWidget.componentName,
+      },
+      span: 1,
+      roles: ['technician', 'admin'],
+      defaultVisible: false,
+      // The sandbox iframe auto-heights to its content, so size the widget to
+      // that rather than stretching it to the grid row (which would leave empty
+      // space below the plugin's content).
+      naturalHeight: true,
     }
   }
   return WIDGET_REGISTRY.find((w) => w.id === id)

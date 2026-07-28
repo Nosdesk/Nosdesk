@@ -5097,6 +5097,11 @@ dashboard-leave-confirm-label = Abandonner
 
 dashboard-add-widget-title = Ajouter un widget
 dashboard-add-widget-all-added = Tous les widgets disponibles figurent déjà sur votre tableau de bord.
+# machine, à relire par un locuteur natif
+dashboard-add-widget-tab-plugins = Extensions
+dashboard-widget-plugin-title = Widget d'extension
+dashboard-widget-plugin-description = Un widget fourni par une extension installée.
+dashboard-widget-plugin-unavailable = Cette extension n'est plus disponible.
 
 dashboard-staff-queue-title = File d'attente
 dashboard-staff-queue-configure-aria = Configurer les indicateurs de la file

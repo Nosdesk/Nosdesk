@@ -1,5 +1,5 @@
 <!--
-Picker for adding a widget back to the dashboard. Two tabs:
+Picker for adding a widget back to the dashboard. Up to three tabs:
 
   * **System widgets** — the static registry entries the current
     role can use that aren't already visible on the canvas (the
@@ -8,10 +8,14 @@ Picker for adding a widget back to the dashboard. Two tabs:
     something other than the default list (the workspace's pickable
     chart-backed views). Clicking one drops a SavedViewWidget onto
     the canvas with the synthetic id `saved_view:<uuid>`.
+  * **Plugins** — dashboard widgets contributed by installed plugins
+    (technician / admin only); adds the synthetic id
+    `plugin_widget:<uuid>:<component>`. Shown only when at least one
+    is available.
 
-Adding via either tab writes through `store.show`, which goes via
-the transactional working copy so the add can be undone / discarded
-like any other edit.
+Adding via any tab writes through `store.show`, which goes via the
+transactional working copy so the add can be undone / discarded like
+any other edit.
 -->
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
@@ -19,9 +23,12 @@ import Modal from '@/components/Modal.vue'
 import { useFluent } from 'fluent-vue'
 import { useQuery } from '@pinia/colada'
 import { useDashboardLayoutStore } from '@/stores/dashboardLayout'
-import { savedViewWidgetId, widgetPreviewKind, savedViewPreviewKind } from './widgets'
+import { savedViewWidgetId, widgetPreviewKind, savedViewPreviewKind, pluginWidgetId } from './widgets'
 import WidgetPreview from './WidgetPreview.vue'
 import { savedViewsService, type SavedView } from '@/services/savedViewsService'
+import { getSlotRegistrations, type PluginSlotRegistration } from '@/plugins/loader'
+import { useAuthStore } from '@/stores/auth'
+import { effectiveRole } from '@nosdesk/core/types/user'
 
 const fluent = useFluent()
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
@@ -30,9 +37,25 @@ const props = defineProps<{ show: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
 
 const store = useDashboardLayoutStore()
+const auth = useAuthStore()
 
-type Tab = 'system' | 'saved-views'
+type Tab = 'system' | 'saved-views' | 'plugins'
 const tab = ref<Tab>('system')
+
+// Plugin dashboard widgets are opt-in and gated to technician / admin (matching
+// the synthesised widget's roles). Only offer ones not already on the canvas.
+const canUsePluginWidgets = computed(() => {
+  const role = auth.user ? effectiveRole(auth.user) : 'user'
+  return role === 'technician' || role === 'admin'
+})
+const pluginWidgets = computed<PluginSlotRegistration[]>(() => {
+  if (!canUsePluginWidgets.value) return []
+  return getSlotRegistrations('dashboard.widget').filter((r) => {
+    const id = pluginWidgetId(r.pluginUuid, r.componentName)
+    const entry = store.layout.widgets.find((w) => w.id === id)
+    return !entry || !entry.visible
+  })
+})
 
 // Refetch the pickable saved views every time the modal opens so a
 // view promoted to chart-shape in another tab shows up here without
@@ -77,6 +100,11 @@ function chooseSystem(id: string) {
 
 function chooseSavedView(view: SavedView) {
   store.show(savedViewWidgetId(view.uuid))
+  emit('close')
+}
+
+function choosePlugin(reg: PluginSlotRegistration) {
+  store.show(pluginWidgetId(reg.pluginUuid, reg.componentName))
   emit('close')
 }
 
@@ -131,6 +159,22 @@ watch(
         >
           {{ t('dashboard-add-widget-tab-saved-views') }}
           <span class="text-tertiary ml-1">({{ pickableSavedViews.length }})</span>
+        </button>
+        <button
+          v-if="pluginWidgets.length > 0"
+          type="button"
+          role="tab"
+          :aria-selected="tab === 'plugins'"
+          :class="[
+            'px-3 py-1.5 text-xs font-medium transition-colors',
+            tab === 'plugins'
+              ? 'text-primary border-b-2 border-accent -mb-px'
+              : 'text-tertiary hover:text-primary',
+          ]"
+          @click="tab = 'plugins'"
+        >
+          {{ t('dashboard-add-widget-tab-plugins') }}
+          <span class="text-tertiary ml-1">({{ pluginWidgets.length }})</span>
         </button>
       </div>
 
@@ -193,6 +237,27 @@ watch(
                 <span class="text-xs text-tertiary">
                   {{ t(`dashboard-saved-view-viz-label-${v.viz_type ?? 'list'}`) }}
                 </span>
+              </div>
+            </button>
+          </li>
+        </ul>
+      </div>
+
+      <!-- Plugin widgets tab -->
+      <div v-show="tab === 'plugins'">
+        <ul class="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <li v-for="w in pluginWidgets" :key="`${w.pluginUuid}:${w.componentName}`">
+            <button
+              type="button"
+              class="group flex h-full w-full flex-col overflow-hidden rounded-lg border border-default text-left transition-colors hover:border-accent"
+              @click="choosePlugin(w)"
+            >
+              <div class="aspect-[16/9] w-full border-b border-default bg-surface-alt p-2.5">
+                <WidgetPreview kind="status" />
+              </div>
+              <div class="flex flex-1 flex-col gap-0.5 p-2.5 group-hover:bg-surface-hover">
+                <span class="text-sm font-medium text-primary">{{ w.label ?? w.pluginName }}</span>
+                <span class="text-xs text-tertiary">{{ w.pluginName }}</span>
               </div>
             </button>
           </li>

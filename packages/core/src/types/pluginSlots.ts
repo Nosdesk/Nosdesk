@@ -93,9 +93,9 @@ export const SLOT_REGISTRY = [
     context: 'none',
     cardinality: 'many',
     order: 100,
-    status: 'reserved',
+    status: 'stable',
     aliases: [],
-    description: 'Widgets on the dashboard',
+    description: 'Widgets on the dashboard (opt-in via the Add widget picker)',
   },
   {
     name: 'ticket.tab.panel',
