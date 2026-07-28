@@ -128,6 +128,16 @@ export const SLOT_REGISTRY = [
     description: 'Actions in the ticket header menu (open the component in a modal)',
   },
   {
+    name: 'ticket.bulk.action',
+    mechanism: 'action',
+    context: 'ticket',
+    cardinality: 'many',
+    order: 100,
+    status: 'stable',
+    aliases: [],
+    description: 'Actions on a ticket selection (open the component in a modal)',
+  },
+  {
     name: 'asset.header.action',
     mechanism: 'action',
     context: 'asset',

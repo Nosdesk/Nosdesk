@@ -235,6 +235,9 @@ export type PluginHostApi = Omit<import('comlink').Remote<HostApi>, 'on'> & {
 export interface PluginContext {
   ticket: Ticket | null;
   asset: Asset | null;
+  /** Selected ticket ids for a bulk action (`ticket.bulk.action`). The plugin
+   * operates on the whole selection. Null / absent outside a bulk context. */
+  ticketIds?: number[] | null;
   /** Which of the plugin's manifest components this mount is rendering. A bundle
    * may declare several (different slots); the plugin switches its UI on `name`
    * (the manifest `components` map key) / `slot`. */

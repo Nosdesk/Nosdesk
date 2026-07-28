@@ -13,6 +13,8 @@ import type { Asset } from '@nosdesk/core/types/asset';
 export interface PluginSlotContext {
   ticket?: Ticket;
   asset?: Asset;
+  /** Selected ticket ids for a bulk action (`ticket.bulk.action`). */
+  ticketIds?: number[];
   // Future context types (e.g. `documentationPage`) land here alongside a
   // matching line in PluginSandboxFrame's snapshot() and the SDK wire type.
 }
