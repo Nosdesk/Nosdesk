@@ -238,6 +238,8 @@ empty-plugins-installed-description = Les plugins étendent { $app } avec des in
 # Persistent shell.
 nav-group-work = Travail
 nav-group-resources = Ressources
+# machine, à relire par un locuteur natif
+nav-group-plugins = Extensions
 nav-dashboard = Tableau de bord
 nav-tickets = Tickets
 nav-projects = Projets
@@ -5423,6 +5425,9 @@ route-title-help = Aide
 route-title-dashboard = Tableau de bord
 route-title-inbox = Boîte de réception
 route-title-tickets = Tickets
+# machine, à relire par un locuteur natif
+route-title-plugin-page = Extension
+plugin-page-unavailable = Cette page d'extension n'est pas disponible.
 route-title-ticket-view = Voir le ticket
 route-title-user-profile = Profil utilisateur
 route-title-user-settings = Paramètres utilisateur

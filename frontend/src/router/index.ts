@@ -196,6 +196,18 @@ const router = createRouter({
       }
     },
     {
+      // Full-page plugin surface for a `nav.item` contribution (see
+      // plugins/pluginPage.ts). The view resolves the plugin + component from
+      // the params and renders it in a sandbox frame.
+      path: '/plugins/:uuid/pages/:component',
+      name: 'plugin-page',
+      component: () => import('@/views/PluginPageView.vue'),
+      meta: {
+        requiresAuth: true,
+        titleKey: 'route-title-plugin-page',
+      }
+    },
+    {
       path: '/tickets/:id',
       name: 'ticket-view',
       component: TicketView,

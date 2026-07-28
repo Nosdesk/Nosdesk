@@ -235,6 +235,8 @@ empty-plugins-installed-description = Plugins breiden { $app } uit met aangepast
 # Persistent shell.
 nav-group-work = Werk
 nav-group-resources = Bronnen
+# machine, door een moedertaalspreker te controleren
+nav-group-plugins = Plug-ins
 nav-dashboard = Dashboard
 nav-tickets = Tickets
 nav-projects = Projecten
@@ -5414,6 +5416,9 @@ route-title-help = Hulp
 route-title-dashboard = Dashboard
 route-title-inbox = Inbox
 route-title-tickets = Tickets
+# machine, door een moedertaalspreker te controleren
+route-title-plugin-page = Plug-in
+plugin-page-unavailable = Deze plug-inpagina is niet beschikbaar.
 route-title-ticket-view = Ticket bekijken
 route-title-user-profile = Gebruikersprofiel
 route-title-user-settings = Gebruikersinstellingen
