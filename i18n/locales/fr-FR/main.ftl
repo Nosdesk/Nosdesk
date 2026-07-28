@@ -4780,6 +4780,8 @@ plugin-detail-lifecycle-heading = Cycle de vie
 plugin-detail-settings-heading = Paramètres
 # machine, à relire par un locuteur natif
 plugin-detail-integration-page-heading = Configuration
+# machine, à relire par un locuteur natif
+plugin-modal-title = Extension
 plugin-detail-metadata-heading = Métadonnées
 plugin-detail-metadata-source = Source
 plugin-detail-metadata-permissions = Permissions
