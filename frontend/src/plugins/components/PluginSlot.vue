@@ -21,11 +21,17 @@ const props = defineProps<{
   context?: PluginSlotContext;
   /** Per-component activation counters from `usePluginActions`. */
   actionActivatedMap?: ReadonlyMap<string, number>;
+  /** Render only the given plugin's contributions (e.g. a plugin's own config
+   *  page on its detail view). Omit to render every plugin's contribution. */
+  pluginUuid?: string;
 }>();
 
 // Registrations are keyed by canonical name; normalize an alias-passed target.
 const canonical = computed(() => canonicalSlotName(props.target) ?? props.target);
-const registrations = computed(() => slotRegistrations.get(canonical.value as PluginSlot) ?? []);
+const registrations = computed(() => {
+  const all = slotRegistrations.get(canonical.value as PluginSlot) ?? [];
+  return props.pluginUuid ? all.filter((r) => r.pluginUuid === props.pluginUuid) : all;
+});
 
 provide('pluginSlot', canonical);
 </script>

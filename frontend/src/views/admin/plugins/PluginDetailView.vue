@@ -31,12 +31,14 @@ import PluginIcon from '@/components/plugins/PluginIcon.vue';
 import PluginStateBadge from '@/components/plugins/PluginStateBadge.vue';
 import PluginTrustBadge from '@/components/plugins/PluginTrustBadge.vue';
 import pluginService from '@nosdesk/core/services/pluginService';
-import { unloadPlugin } from '@/plugins/loader';
+import { unloadPlugin, getLoadedPlugin } from '@/plugins/loader';
 import { logger } from '@nosdesk/core/utils/logger';
 import { useDateStore } from '@nosdesk/core/stores/dateStore';
 import { resolvePluginI18n } from '@nosdesk/core/utils/pluginI18n';
 import type { Plugin, PluginSetting } from '@nosdesk/core/types/plugin';
+import { canonicalSlotName } from '@nosdesk/core/types/plugin';
 import PluginPermissionList from '@/components/plugins/PluginPermissionList.vue';
+import PluginSlot from '@/plugins/components/PluginSlot.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -74,6 +76,17 @@ const plugin = computed<Plugin | null>(() => pluginQuery.data.value ?? null);
 const dateStore = useDateStore();
 const l10n = (value: string | null | undefined): string =>
   resolvePluginI18n(value, plugin.value?.manifest.i18n, dateStore.locale);
+
+// Show the plugin's own config panel (`settings.integrations.page`) when it both
+// declares that component AND is loaded into the slot registry (i.e. enabled) —
+// so a disabled plugin that declares one doesn't render an empty heading.
+const showIntegrationPanel = computed(() => {
+  const p = plugin.value;
+  if (!p || !getLoadedPlugin(p.uuid)) return false;
+  return Object.values(p.manifest.components).some(
+    (c) => canonicalSlotName(c.slot) === 'settings.integrations.page',
+  );
+});
 const loadOp = computed(() => ({
   isPending: pluginQuery.asyncStatus.value === 'loading',
   isError: pluginQuery.state.value.status === 'error',
@@ -542,6 +555,19 @@ const saveButtonLabel = computed(() =>
             </div>
           </footer>
         </form>
+      </section>
+
+      <!-- Plugin-rendered configuration page (settings.integrations.page). A
+           sandboxed panel the plugin fills; scoped to this plugin only. -->
+      <section
+        v-if="showIntegrationPanel"
+        aria-labelledby="integration-page-heading"
+        class="rounded-xl border border-default bg-surface p-5"
+      >
+        <h2 id="integration-page-heading" class="mb-4 font-semibold text-primary">
+          {{ t('plugin-detail-integration-page-heading') }}
+        </h2>
+        <PluginSlot target="settings.integrations.page" :plugin-uuid="plugin.uuid" />
       </section>
 
       <!-- Metadata -->
