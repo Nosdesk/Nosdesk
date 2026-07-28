@@ -20,6 +20,9 @@ import { useThemeStore } from "@/stores/theme";
 import Icon from "@/components/common/Icon.vue";
 import UnreadBadge from "@/components/common/UnreadBadge.vue";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher.vue";
+import NavLinkIcon from "@/components/NavLinkIcon.vue";
+import { getSlotRegistrations } from "@/plugins/loader";
+import { pluginPagePath } from "@/plugins/pluginPage";
 
 // Global search
 const { openSearch } = useGlobalSearch();
@@ -135,6 +138,12 @@ interface NavLink {
      *  only "active" trigger. Without this, e.g. `/` would
      *  match every route (since every path starts with `/`). */
     exact?: boolean;
+    /** Pre-resolved literal label (plugin nav items). When set, rendered
+     *  instead of `$t(text)` — plugin labels aren't FTL keys. */
+    rawLabel?: string;
+    /** Icon URL (plugin nav items). When set, rendered as an `<img>` instead of
+     *  the `icon` SVG path. */
+    iconUrl?: string;
 }
 interface NavGroup {
     label: string;
@@ -143,7 +152,7 @@ interface NavGroup {
 // `text` and `label` are FTL keys; templates render them via
 // `$t(link.text)` / `$t(group.label)` so the nav re-renders
 // when the active locale flips.
-const navGroups: NavGroup[] = [
+const staticNavGroups: NavGroup[] = [
     {
         label: "nav-group-work",
         links: [
@@ -187,10 +196,33 @@ const navGroups: NavGroup[] = [
     },
 ];
 
+// Plugin `nav.item` contributions become a trailing "Plugins" group linking to
+// each plugin's full-page surface. Labels are pre-resolved at load time; icons
+// are plugin icon URLs (rendered as <img>, not an SVG path). The group appears
+// only when a plugin contributes one.
+const pluginNavGroup = computed<NavGroup | null>(() => {
+    const regs = getSlotRegistrations('nav.item');
+    if (regs.length === 0) return null;
+    return {
+        label: "nav-group-plugins",
+        links: regs.map((r) => ({
+            to: pluginPagePath(r.pluginUuid, r.componentName),
+            icon: "",
+            iconUrl: r.icon,
+            text: "",
+            rawLabel: r.label ?? r.pluginName,
+        })),
+    };
+});
+
+const navGroups = computed<NavGroup[]>(() =>
+    pluginNavGroup.value ? [...staticNavGroups, pluginNavGroup.value] : staticNavGroups,
+);
+
 /** Flat list used by the collapsed / compact-nav layouts where
  *  section headers wouldn't fit. Kept derived so adding a new
  *  link only ever requires editing the grouped source. */
-const navLinks: NavLink[] = navGroups.flatMap((g) => g.links);
+const navLinks = computed<NavLink[]>(() => navGroups.value.flatMap((g) => g.links));
 
 /** Synthetic NavLink for the inbox. Kept out of `navGroups` (which
  *  drives the desktop sidebar) because Inbox lives in the header
@@ -203,11 +235,14 @@ const INBOX_MOBILE_LINK: NavLink = {
     text: 'nav-inbox',
 };
 
-/** All routes a user can pin to the mobile bar. The full set is
- *  the sidebar's navLinks plus the synthetic Inbox entry; Search
- *  stays a fixed cell on the bar (it's a button, not a route)
- *  and "More" is the overflow opener, also fixed. */
-const pinnableLinks = computed<NavLink[]>(() => [INBOX_MOBILE_LINK, ...navLinks]);
+/** All routes a user can pin to the mobile bar. The static core routes plus the
+ *  synthetic Inbox entry; Search stays a fixed cell on the bar (it's a button,
+ *  not a route) and "More" is the overflow opener, also fixed. Plugin nav items
+ *  are intentionally excluded — the mobile pin set is a curated core-route set. */
+const pinnableLinks = computed<NavLink[]>(() => [
+    INBOX_MOBILE_LINK,
+    ...staticNavGroups.flatMap((g) => g.links),
+]);
 
 const { pinnedPaths, isPinned, togglePin, resetToDefaults, remainingSlots } =
     useMobileNavPins();
@@ -423,20 +458,13 @@ const isOverflowRouteActive = computed(() =>
                             ? 'bg-surface-alt/80 text-primary font-medium'
                             : 'text-secondary hover:bg-surface-hover hover:text-primary'
                     "
-                    :title="$t(link.text)"
+                    :title="link.rawLabel ?? $t(link.text)"
                 >
                     <div
                         v-if="isRouteActive(link.to, link.exact)"
                         class="absolute left-0 top-0 bottom-0 w-1 bg-accent w-full h-0.5 top-auto"
                     ></div>
-                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                        <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            :d="link.icon"
-                        />
-                    </svg>
+                    <NavLinkIcon :icon="link.icon" :icon-url="link.iconUrl" />
                 </RouterLink>
             </div>
 
@@ -452,20 +480,13 @@ const isOverflowRouteActive = computed(() =>
                             ? 'bg-surface-alt/80 text-primary font-medium'
                             : 'text-secondary hover:bg-surface-hover hover:text-primary'
                     "
-                    :title="$t(link.text)"
+                    :title="link.rawLabel ?? $t(link.text)"
                 >
                     <div
                         v-if="isRouteActive(link.to, link.exact)"
                         class="absolute left-0 top-0 bottom-0 w-1 bg-accent"
                     ></div>
-                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                        <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            :d="link.icon"
-                        />
-                    </svg>
+                    <NavLinkIcon :icon="link.icon" :icon-url="link.iconUrl" />
                 </RouterLink>
             </div>
 
@@ -496,15 +517,8 @@ const isOverflowRouteActive = computed(() =>
                             v-if="isRouteActive(link.to, link.exact)"
                             class="absolute left-0 top-0 bottom-0 w-1 bg-accent"
                         ></div>
-                        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                            <path
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                stroke-width="2"
-                                :d="link.icon"
-                            />
-                        </svg>
-                        <span class="text-sm whitespace-nowrap">{{ $t(link.text) }}</span>
+                        <NavLinkIcon :icon="link.icon" :icon-url="link.iconUrl" />
+                        <span class="text-sm whitespace-nowrap">{{ link.rawLabel ?? $t(link.text) }}</span>
                     </RouterLink>
                 </div>
             </div>

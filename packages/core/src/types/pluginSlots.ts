@@ -163,9 +163,9 @@ export const SLOT_REGISTRY = [
     context: 'none',
     cardinality: 'many',
     order: 100,
-    status: 'reserved',
+    status: 'stable',
     aliases: ['navbar-items'],
-    description: 'Links in the navigation sidebar',
+    description: 'A nav-sidebar link to a full-page plugin surface',
   },
 ] as const satisfies readonly SlotDef[];
 

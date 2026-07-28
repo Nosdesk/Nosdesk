@@ -287,6 +287,7 @@ empty-plugins-installed-description = Plugins extend { $app } with custom integr
 # Persistent shell — strings that render on every page.
 nav-group-work = Work
 nav-group-resources = Resources
+nav-group-plugins = Plugins
 nav-dashboard = Dashboard
 nav-tickets = Tickets
 nav-projects = Projects
@@ -5634,6 +5635,8 @@ route-title-help = Help
 route-title-dashboard = Dashboard
 route-title-inbox = Inbox
 route-title-tickets = Tickets
+route-title-plugin-page = Plugin
+plugin-page-unavailable = This plugin page is not available.
 route-title-ticket-view = View ticket
 route-title-user-profile = User profile
 route-title-user-settings = User settings
