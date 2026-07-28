@@ -123,9 +123,9 @@ export const SLOT_REGISTRY = [
     context: 'ticket',
     cardinality: 'many',
     order: 100,
-    status: 'reserved',
+    status: 'stable',
     aliases: ['ticket-header-actions'],
-    description: 'Actions in the ticket header menu',
+    description: 'Actions in the ticket header menu (open the component in a modal)',
   },
   {
     name: 'asset.header.action',

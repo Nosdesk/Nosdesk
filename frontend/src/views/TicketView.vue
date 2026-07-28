@@ -45,7 +45,8 @@ import Modal from "@/components/Modal.vue";
 import NotFoundIllustration from "@/components/common/NotFoundIllustration.vue";
 import SectionCard from "@/components/common/SectionCard.vue";
 import PluginSlot from "@/plugins/components/PluginSlot.vue";
-import { usePluginActions, pluginActionScope } from "@/plugins/usePluginActions";
+import { usePluginActions, pluginActionScope, parsePluginMenuActionId } from "@/plugins/usePluginActions";
+import { openPluginModal } from "@/plugins/usePluginModal";
 import { useCreateTicketAction } from "@/composables/useCreateTicketAction";
 
 
@@ -159,11 +160,15 @@ const showDropAffordance = computed(() => {
            dragState.value.ticket?.id !== ticket.value?.id;
 });
 
-// Plugin action contributions in the ticket overflow menu. `usePluginActions`
-// owns the id format and the per-ticket activation counters (scoped so distinct
-// tickets don't share state, and surviving component unmount). Scope is unset
-// for pre-route / transitional states, which makes `activate` a no-op and the
-// map empty.
+// Plugin action contributions in the ticket overflow menu. Two kinds:
+//   * Sidebar-panel actions (a panel that self-declares an action): selecting
+//     one pokes the already-mounted sidebar iframe via an activation counter.
+//   * Header actions (`ticket.header.action`): selecting one opens the plugin's
+//     component in the on-demand modal surface (no persistent panel needed).
+// `usePluginActions` owns the id format and the per-ticket activation counters
+// (scoped so distinct tickets don't share state, and surviving component
+// unmount). Scope is unset for pre-route / transitional states, which makes
+// `activate` a no-op and the map empty.
 const ticketActionScope = computed(() =>
     ticketId.value !== undefined ? pluginActionScope('ticket', ticketId.value) : undefined
 );
@@ -172,6 +177,7 @@ const {
     activatedMap: pluginActionActivatedMap,
     activate: activatePluginAction,
 } = usePluginActions('ticket.sidebar.panel', ticketActionScope);
+const { items: pluginHeaderActionItems } = usePluginActions('ticket.header.action', ticketActionScope);
 
 // Plugins consume the canonical `Ticket` shape. The pool-derived
 // view-model is structurally narrower (denormalised workflow_state,
@@ -203,7 +209,8 @@ const overflowMenuItems = computed<MenuItem[]>(() => {
         },
     ];
 
-    pluginActionItems.value.forEach((action, idx) => {
+    // Both action kinds share the plugin group; divider above the first one.
+    [...pluginActionItems.value, ...pluginHeaderActionItems.value].forEach((action, idx) => {
         items.push({
             id: action.id,
             label: action.label,
@@ -266,8 +273,21 @@ const handleOverflowSelect = (itemId: string) => {
         // Two-step destructive flow: opening the modal is the
         // first click, the modal's confirm button is the second.
         showDeleteConfirm.value = true;
+    } else if (pluginHeaderActionItems.value.some((a) => a.id === itemId)) {
+        // Header action: open the plugin's component in the on-demand modal,
+        // handing it the current ticket as context.
+        const parsed = parsePluginMenuActionId(itemId);
+        if (parsed) {
+            openPluginModal({
+                pluginUuid: parsed.pluginUuid,
+                componentName: parsed.componentName,
+                slot: 'ticket.header.action',
+                context: { ticket: pluginTicket.value },
+            });
+        }
     } else {
-        // Plugin action ids are namespaced; `activate` no-ops on anything else.
+        // Sidebar-panel action: `activate` pokes the mounted iframe (no-ops on
+        // any non-plugin id).
         activatePluginAction(itemId);
     }
 };

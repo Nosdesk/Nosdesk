@@ -37,6 +37,17 @@ function menuIdToActivationKey(menuId: string): string | undefined {
   return menuId.startsWith(MENU_PREFIX) ? menuId.slice(MENU_PREFIX.length) : undefined;
 }
 
+/** Parse a plugin menu-action id back into its plugin + component parts. */
+export function parsePluginMenuActionId(
+  menuId: string,
+): { pluginUuid: string; componentName: string } | undefined {
+  const key = menuIdToActivationKey(menuId);
+  if (key === undefined) return undefined;
+  const sep = key.indexOf(':');
+  if (sep <= 0 || sep === key.length - 1) return undefined;
+  return { pluginUuid: key.slice(0, sep), componentName: key.slice(sep + 1) };
+}
+
 /** Stable scope string isolating one entity's activation counters. */
 export function pluginActionScope(entity: string, id: string | number): string {
   return `${entity}:${id}`;

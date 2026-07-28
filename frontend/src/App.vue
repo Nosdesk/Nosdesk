@@ -15,6 +15,7 @@ import RouteProgress from './components/common/RouteProgress.vue'
 import LoadingSpinner from './components/common/LoadingSpinner.vue'
 import { useWorkspaceSwitch } from '@/composables/useWorkspaceSwitch'
 import { GlobalSearchModal } from './components/GlobalSearch'
+import PluginModalHost from '@/plugins/components/PluginModalHost.vue'
 import { useTitleManager } from '@/composables/useTitleManager'
 import { useMobileSearch } from '@/composables/useMobileSearch'
 import { useCursorScanlines } from '@/composables/useCursorScanlines'
@@ -489,6 +490,9 @@ onMounted(async () => {
 
   <!-- Global Search Modal -->
   <GlobalSearchModal />
+
+  <!-- On-demand plugin modal surface (opened by plugin action contributions) -->
+  <PluginModalHost />
 </template>
 
 <style>

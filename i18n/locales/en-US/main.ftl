@@ -4940,6 +4940,7 @@ plugin-detail-loading-settings = Loading settings...
 plugin-detail-lifecycle-heading = Lifecycle
 plugin-detail-settings-heading = Settings
 plugin-detail-integration-page-heading = Configuration
+plugin-modal-title = Plugin
 plugin-detail-metadata-heading = Metadata
 plugin-detail-metadata-source = Source
 plugin-detail-metadata-permissions = Permissions
