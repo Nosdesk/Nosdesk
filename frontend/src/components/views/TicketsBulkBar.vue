@@ -33,6 +33,8 @@ import { PRIORITY_OPTIONS } from '@nosdesk/core/constants/ticketOptions'
 import type { TicketPriority } from '@nosdesk/core/constants/ticketOptions'
 import { WORKFLOW_CATEGORIES, getCategoryLabel, type WorkflowStateCategory } from '@nosdesk/core/types/workflow'
 import { useSyncTicketsStore } from '@/sync/stores/tickets'
+import { getSlotRegistrations } from '@/plugins/loader'
+import { openPluginModal } from '@/plugins/usePluginModal'
 
 const props = defineProps<{
   /** Selected ticket ids (strings, since useBulkSelection's set
@@ -179,6 +181,20 @@ const canMerge = computed(() => selectedTickets.value.length >= 2)
 function onMerged(): void {
   showMergeDialog.value = false
   emit('clear')
+}
+
+// ---- Plugin bulk actions --------------------------------------
+// Plugins contributing a `ticket.bulk.action` render as buttons here; clicking
+// one opens the plugin's component in the on-demand modal, handing it the
+// current ticket-id selection. Labels are already i18n-resolved at load time.
+const pluginBulkActions = computed(() => getSlotRegistrations('ticket.bulk.action'))
+function runPluginBulkAction(reg: { pluginUuid: string; componentName: string }): void {
+  openPluginModal({
+    pluginUuid: reg.pluginUuid,
+    componentName: reg.componentName,
+    slot: 'ticket.bulk.action',
+    context: { ticketIds: ids.value },
+  })
 }
 </script>
 
@@ -342,6 +358,23 @@ function onMerged(): void {
         >
           <Icon name="link" class="w-3.5 h-3.5" />
           <span>{{ $t('ticket-list-bulk-merge') }}</span>
+        </button>
+      </template>
+
+      <!-- Plugin bulk actions — each opens the plugin's component in a modal
+           with the current selection. -->
+      <template v-if="pluginBulkActions.length > 0">
+        <span class="h-4 w-px bg-default mx-1" aria-hidden="true" />
+        <button
+          v-for="action in pluginBulkActions"
+          :key="`${action.pluginUuid}:${action.componentName}`"
+          type="button"
+          class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-secondary hover:text-primary hover:bg-surface-hover transition-colors"
+          @click="runPluginBulkAction(action)"
+        >
+          <img v-if="action.icon" :src="action.icon" class="w-3.5 h-3.5" alt="" />
+          <Icon v-else name="puzzle" class="w-3.5 h-3.5" />
+          <span>{{ action.label ?? action.pluginName }}</span>
         </button>
       </template>
 
