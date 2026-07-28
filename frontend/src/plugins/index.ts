@@ -1,8 +1,8 @@
 /**
  * Plugin System
  *
- * Entry point for the Nosdesk plugin system.
- * Exports the loader, API factory, and UI components.
+ * Entry point for the Nosdesk plugin system: the loader, the API factory, and
+ * the event dispatcher.
  */
 
 // Plugin Loader
@@ -33,7 +33,5 @@ export {
   stopEventDispatcher,
 } from './eventDispatcher';
 
-// UI Components
-export { default as PluginSlot } from './components/PluginSlot.vue';
-export { default as PluginLoading } from './components/PluginLoading.vue';
-export { default as PluginError } from './components/PluginError.vue';
+// PluginSlot is imported directly from './components/PluginSlot.vue' at its two
+// mount sites; it isn't re-exported here to avoid an unused barrel entry.

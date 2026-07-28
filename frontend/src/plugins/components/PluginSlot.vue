@@ -10,13 +10,13 @@ import { computed, provide } from 'vue';
 import { slotRegistrations } from '../loader';
 import type { PluginSlotContext } from '../context';
 import { canonicalSlotName } from '@nosdesk/core/types/plugin';
-import type { PluginSlot } from '@nosdesk/core/types/plugin';
+import type { PluginSlot, AnySlotName } from '@nosdesk/core/types/plugin';
 import { pluginActivationKey } from '../usePluginActions';
 import PluginSlotItem from './PluginSlotItem.vue';
 
 const props = defineProps<{
   /** Canonical dotted slot name (e.g. `ticket.sidebar.panel`); an alias works too. */
-  target: string;
+  target: AnySlotName;
   /** Host-provided context; the mount fills the field its slot declares. */
   context?: PluginSlotContext;
   /** Per-component activation counters from `usePluginActions`. */
