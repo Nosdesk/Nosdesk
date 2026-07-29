@@ -329,7 +329,10 @@ pub struct SecurityHeaders;
 
 impl SecurityHeaders {
     fn build_csp_value() -> (String, bool) {
-        let plugin_sandbox_origin = std::env::var("PLUGIN_SANDBOX_ORIGIN")
+        // Same var the sandbox handler (handlers/plugin_sandbox.rs) and config.rs
+        // read. The CSP's frame-src has to allow exactly the origin the runtime is
+        // served from, so the name must match across all three sites.
+        let plugin_sandbox_origin = std::env::var("NOSDESK_SANDBOX_ORIGIN")
             .ok()
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
