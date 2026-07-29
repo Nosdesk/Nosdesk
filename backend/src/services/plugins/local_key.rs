@@ -30,6 +30,7 @@ pub enum LocalKeyError {
     DbInsert(diesel::result::Error),
     Generate(String),
     Encrypt(String),
+    Decrypt(String),
 }
 
 impl std::fmt::Display for LocalKeyError {
@@ -39,6 +40,7 @@ impl std::fmt::Display for LocalKeyError {
             Self::DbInsert(e) => write!(f, "insert local signing key: {e}"),
             Self::Generate(m) => write!(f, "generate local signing keypair: {m}"),
             Self::Encrypt(m) => write!(f, "encrypt local signing key at rest: {m}"),
+            Self::Decrypt(m) => write!(f, "decrypt local signing key: {m}"),
         }
     }
 }
@@ -112,4 +114,20 @@ pub struct LocalKeyInfo {
     /// `true` if this call generated the key (first boot); `false` if
     /// it was already present.
     pub created: bool,
+}
+
+/// Load and decrypt the instance's local signing key as PKCS8 bytes, for signing
+/// a plugin at the `local` tier (the CLI `sign --local` path). Generates the key
+/// first on a fresh instance so signing works immediately. The bytes are the raw
+/// PKCS8 an `Ed25519KeyPair` is built from; they are secret and zeroized on drop.
+pub fn load_local_signing_pkcs8(
+    conn: &mut DbConnection,
+) -> Result<zeroize::Zeroizing<Vec<u8>>, LocalKeyError> {
+    ensure_local_signing_key(conn)?;
+    let row = plugin_publishers::get_local_signing_key(conn)
+        .map_err(LocalKeyError::DbLoad)?
+        .ok_or(LocalKeyError::DbLoad(diesel::result::Error::NotFound))?;
+    encryption::keyring()
+        .decrypt(&row.encrypted_sk, AAD_CONTEXT)
+        .map_err(|e| LocalKeyError::Decrypt(e.to_string()))
 }
