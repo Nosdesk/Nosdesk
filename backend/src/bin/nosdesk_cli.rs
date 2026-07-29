@@ -160,22 +160,34 @@ enum PluginCommand {
     /// can be installed. Reads every top-level file in <DIR> (the
     /// manifest, bundle, and any other assets), computes the
     /// canonical digest, and embeds an Ed25519 signature envelope.
-    /// No database access.
+    ///
+    /// Signs with a key file (`--key`) OR the instance's own local
+    /// signing key (`--local`). `--local` reads the DB (needs
+    /// `DATABASE_URL` + the encryption env) and produces a zip that
+    /// installs at the `local` tier on this instance; `--key` needs no
+    /// database.
     Sign {
         #[arg(value_name = "DIR", help = "Plugin source directory")]
         dir: PathBuf,
         #[arg(
             long,
             value_name = "SK",
+            conflicts_with = "local",
+            required_unless_present = "local",
             help = "Path to the PKCS8 private key (the .sk file from gen-key)"
         )]
-        key: PathBuf,
+        key: Option<PathBuf>,
+        #[arg(
+            long,
+            help = "Sign with this instance's own local signing key (installs at the `local` tier). Requires DATABASE_URL + the encryption env."
+        )]
+        local: bool,
         #[arg(long, short = 'o', value_name = "ZIP", help = "Output zip path")]
         out: PathBuf,
         #[arg(
             long,
             default_value = "local",
-            help = "signer_source label stamped into the envelope"
+            help = "signer_source label stamped into the envelope (ignored with --local, which is always `local`)"
         )]
         source: String,
     },
@@ -397,9 +409,10 @@ fn run_plugin(cmd: PluginCommand) -> Result<()> {
         PluginCommand::Sign {
             dir,
             key,
+            local,
             out,
             source,
-        } => plugin_sign(&dir, &key, &out, &source),
+        } => plugin_sign(&dir, key.as_deref(), local, &out, &source),
         PluginCommand::Verify { zip } => plugin_verify(&zip),
         PluginCommand::Install { zip } => plugin_install(&zip),
     }
@@ -436,7 +449,13 @@ fn plugin_gen_key(prefix: &Path) -> Result<()> {
     Ok(())
 }
 
-fn plugin_sign(dir: &Path, key_path: &Path, out: &Path, source: &str) -> Result<()> {
+fn plugin_sign(
+    dir: &Path,
+    key_path: Option<&Path>,
+    local: bool,
+    out: &Path,
+    source: &str,
+) -> Result<()> {
     if !dir.is_dir() {
         bail!("{} is not a directory", dir.display());
     }
@@ -444,8 +463,27 @@ fn plugin_sign(dir: &Path, key_path: &Path, out: &Path, source: &str) -> Result<
         bail!("refusing to overwrite existing zip: {}", out.display());
     }
 
-    let pkcs8 = fs::read(key_path)
-        .with_context(|| format!("reading signing key {}", key_path.display()))?;
+    // Sign with the instance's own local key (`--local`) or a key file
+    // (`--key`). clap enforces exactly one, but keep the source string honest:
+    // `--local` always stamps `local` so the envelope matches the tier the
+    // install path resolves it to.
+    let (pkcs8, source): (Vec<u8>, &str) = if local {
+        // The instance key is encrypted at rest under the master key, so the
+        // keyring has to be initialised from the env first (the server binary
+        // does this in main; the CLI does it lazily for the one command needing
+        // it).
+        backend::utils::encryption::init_keyring()
+            .map_err(|e| anyhow!("initialising encryption keyring: {e}"))?;
+        let mut conn = connect_db()?;
+        let sk = backend::services::plugins::local_key::load_local_signing_pkcs8(&mut conn)
+            .map_err(|e| anyhow!("loading instance local signing key: {e}"))?;
+        (sk.to_vec(), "local")
+    } else {
+        let key_path = key_path.ok_or_else(|| anyhow!("--key or --local is required"))?;
+        let sk = fs::read(key_path)
+            .with_context(|| format!("reading signing key {}", key_path.display()))?;
+        (sk, source)
+    };
     let keypair =
         Ed25519KeyPair::from_pkcs8(&pkcs8).map_err(|e| anyhow!("parsing signing key: {e:?}"))?;
 
