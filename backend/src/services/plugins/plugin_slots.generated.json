@@ -24,6 +24,16 @@
     "description": "Info panels on the asset view"
   },
   {
+    "name": "user.sidebar.panel",
+    "mechanism": "panel",
+    "context": "user",
+    "cardinality": "many",
+    "order": 100,
+    "status": "stable",
+    "aliases": [],
+    "description": "Info panels on the user profile view"
+  },
+  {
     "name": "settings.integrations.page",
     "mechanism": "panel",
     "context": "none",

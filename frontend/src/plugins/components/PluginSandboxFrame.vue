@@ -56,6 +56,7 @@ function snapshot(): PluginContext {
   return {
     ticket: plain(props.context?.ticket),
     asset: plain(props.context?.asset),
+    user: plain(props.context?.user),
     ticketIds: plain(props.context?.ticketIds),
     component: { name: props.component.name, slot: props.component.slot },
     actionActivated: props.actionActivated,

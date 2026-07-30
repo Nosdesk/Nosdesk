@@ -18,6 +18,7 @@ import BaseDropdown from "@/components/common/BaseDropdown.vue";
 import Icon from "@/components/common/Icon.vue";
 import Spinner from "@/components/common/Spinner.vue";
 import SectionCard from "@/components/common/SectionCard.vue";
+import PluginSlot from "@/plugins/components/PluginSlot.vue";
 import { RouterLink } from "vue-router";
 import userService from "@/services/userService";
 import { useColorFilter } from "@/composables/useColorFilter";
@@ -67,6 +68,9 @@ const userProfile = computed<UserProfile | null>(() => {
     // Department is a placeholder until the backend carries it.
     return { ...user, department: 'IT Support', joinedDate: user.created_at };
 });
+// The raw profile handed to plugin panels: the real user record, without the
+// display-only `department`/`joinedDate` placeholders `userProfile` adds.
+const pluginUser = computed(() => profileQuery.bundle.value?.user ?? undefined);
 const devices = computed<Asset[]>(() => profileQuery.bundle.value?.devices ?? []);
 const groups = computed<Group[]>(() => profileQuery.bundle.value?.groups ?? []);
 
@@ -770,6 +774,12 @@ watch(
                                 </button>
                             </div>
                         </SectionCard>
+
+                        <!-- Plugin panels contributed to the user profile -->
+                        <PluginSlot
+                            target="user.sidebar.panel"
+                            :context="{ user: pluginUser }"
+                        />
                     </div>
 
                     <!-- Tickets Area -->

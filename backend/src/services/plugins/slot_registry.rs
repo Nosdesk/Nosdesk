@@ -72,7 +72,7 @@ mod tests {
             assert!(
                 matches!(
                     s.context.as_str(),
-                    "ticket" | "asset" | "documentationPage" | "none"
+                    "ticket" | "asset" | "user" | "documentationPage" | "none"
                 ),
                 "unknown context {} on {}",
                 s.context,
