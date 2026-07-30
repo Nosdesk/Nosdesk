@@ -38,6 +38,10 @@ export interface PluginManifest {
   tags?: string[];
   screenshots?: string[];
   permissions: string[];
+  /** Optional author-supplied justification per permission, keyed by the exact
+   *  permission string. Untrusted display text: render escaped, never treat as a
+   *  grant. Keys that don't match a requested permission are ignored. */
+  permission_reasons?: Record<string, string>;
   components: Record<string, PluginComponentConfig>;
   events: string[];
   settings: PluginSettingDefinition[];
@@ -421,7 +425,8 @@ export type PluginPermission =
   | 'storage:plugin'
   | 'collection:read'
   | 'collection:write'
-  | `network:${string}`;
+  | `network:${string}`
+  | `resource:${string}`;
 
 /** Permission metadata, keys resolved at render time via
  * `translate()`. The install-confirmation UI is the intended
@@ -466,6 +471,19 @@ export function describePermission(value: PluginPermission | string): Permission
       descriptionKey: 'plugin-permission-network-description',
       destructive: false,
       args: { host: value.slice('network:'.length) },
+    };
+  }
+  if (value.startsWith('resource:')) {
+    // resource:<kind>:<host>
+    const rest = value.slice('resource:'.length);
+    const sep = rest.indexOf(':');
+    const kind = sep > 0 ? rest.slice(0, sep) : rest;
+    const host = sep > 0 ? rest.slice(sep + 1) : '';
+    return {
+      labelKey: 'plugin-permission-resource-label',
+      descriptionKey: 'plugin-permission-resource-description',
+      destructive: false,
+      args: { kind, host },
     };
   }
   const entry = PLUGIN_PERMISSIONS.find((p) => p.value === value);

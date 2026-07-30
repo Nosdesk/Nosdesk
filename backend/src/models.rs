@@ -6355,6 +6355,15 @@ pub struct PluginManifest {
     #[serde(default)]
     pub permissions: Vec<crate::services::plugins::types::Permission>,
 
+    /// Optional author-supplied justifications, keyed by the exact
+    /// permission string (`"resource:img:*.tile.openstreetmap.org"`),
+    /// surfaced verbatim on the consent screen so the operator can
+    /// judge each grant. Untrusted display text: the consent UI
+    /// escapes it and never treats it as a grant. Keys that don't
+    /// match a requested permission are ignored.
+    #[serde(default)]
+    pub permission_reasons: std::collections::BTreeMap<String, String>,
+
     /// Components this plugin contributes. Keyed by component name
     /// (used as the entry-point key in the bundle's default export).
     #[serde(default)]
