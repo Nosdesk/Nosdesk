@@ -380,7 +380,12 @@ function wrapEvents(remote) {
 function connectToHost() {
   return new Promise((resolve, reject) => {
     const listeners = /* @__PURE__ */ new Set();
-    let context = { ticket: null, asset: null, component: { name: "", slot: "" } };
+    let context = {
+      ticket: null,
+      asset: null,
+      user: null,
+      component: { name: "", slot: "" }
+    };
     let connected = false;
     const timer = setTimeout(() => {
       if (!connected) {
