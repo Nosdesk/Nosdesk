@@ -9,13 +9,22 @@ import { useFluent } from 'fluent-vue';
 import { describePermission } from '@nosdesk/core/types/plugin';
 import type { PluginPermission } from '@nosdesk/core/types/plugin';
 
-const props = defineProps<{ permissions: (PluginPermission | string)[] }>();
+const props = defineProps<{
+  permissions: (PluginPermission | string)[];
+  /** Author-supplied justifications keyed by permission string. Untrusted
+   *  display text: rendered via text interpolation (escaped), never a grant. */
+  reasons?: Record<string, string>;
+}>();
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
 const items = computed(() =>
-  props.permissions.map((value) => ({ value, ...describePermission(value) })),
+  props.permissions.map((value) => ({
+    value,
+    ...describePermission(value),
+    reason: props.reasons?.[value]?.trim() || null,
+  })),
 );
 </script>
 
@@ -38,6 +47,12 @@ const items = computed(() =>
           </span>
         </div>
         <p class="mt-0.5 text-xs text-secondary">{{ t(perm.descriptionKey, perm.args) }}</p>
+        <p
+          v-if="perm.reason"
+          class="mt-1 border-l-2 border-default pl-2 text-xs italic text-tertiary"
+        >
+          {{ t('plugin-permission-reason-prefix') }} {{ perm.reason }}
+        </p>
       </div>
     </li>
   </ul>

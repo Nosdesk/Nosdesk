@@ -5760,6 +5760,12 @@ plugin-permission-collection-write-description = Créer et mettre à jour les en
 # MACHINE TRANSLATION, pending native review
 plugin-permission-network-label = Accès réseau
 plugin-permission-network-description = Effectuer des requêtes réseau vers { $host }
+# MACHINE TRANSLATION, pending native review
+plugin-permission-resource-label = Charger des ressources { $kind }
+# MACHINE TRANSLATION, pending native review
+plugin-permission-resource-description = Charger { $kind } depuis { $host } dans la vue du plugin. Une origine approuvée peut recevoir des données via l'URL de la ressource, n'autorisez donc que les hôtes de confiance.
+# MACHINE TRANSLATION, pending native review
+plugin-permission-reason-prefix = Raison de l'auteur :
 plugin-permission-unknown-label = { $permission }
 plugin-permission-unknown-description = Une autorisation non reconnue
 plugin-permission-destructive-badge = Peut modifier des données

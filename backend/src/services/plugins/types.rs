@@ -359,6 +359,41 @@ impl<'de> Deserialize<'de> for WebUrl {
 ///
 /// The serde impls preserve the wire format on the way out, so
 /// JSON manifests round-trip identically.
+/// A browser-resource category a plugin can request an external origin for, via
+/// a `resource:<kind>:<host>` permission. Each maps to exactly one CSP directive
+/// the host widens on that plugin's sandbox iframe. Deliberately limited to
+/// passive, one-way loads (img/font/media + external style): `script-src` and
+/// `connect-src` are NEVER widened by this capability (remote code stays banned,
+/// data egress stays on the `api.fetch` proxy).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ResourceKind {
+    Img,
+    Font,
+    Media,
+    Style,
+}
+
+impl ResourceKind {
+    fn parse(s: &str) -> Option<Self> {
+        match s {
+            "img" => Some(Self::Img),
+            "font" => Some(Self::Font),
+            "media" => Some(Self::Media),
+            "style" => Some(Self::Style),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Img => "img",
+            Self::Font => "font",
+            Self::Media => "media",
+            Self::Style => "style",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Permission {
     TicketRead,
@@ -372,6 +407,9 @@ pub enum Permission {
     CollectionRead,
     CollectionWrite,
     Network(HostPattern),
+    /// `resource:<kind>:<host>` — widens the plugin's sandbox CSP to load
+    /// passive resources of `kind` from `host` (HTTPS enforced at emission).
+    Resource(ResourceKind, HostPattern),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -381,6 +419,10 @@ pub enum PermissionError {
     Unknown(String),
     /// `network:<pattern>` was malformed.
     NetworkPattern(HostPatternError),
+    /// `resource:<kind>:<host>` named an unknown kind.
+    UnknownResourceKind(String),
+    /// `resource:<kind>:<host>` had a malformed host.
+    ResourcePattern(HostPatternError),
     Empty,
 }
 
@@ -389,6 +431,11 @@ impl fmt::Display for PermissionError {
         match self {
             Self::Unknown(s) => write!(f, "unknown permission {s:?}"),
             Self::NetworkPattern(e) => write!(f, "invalid network permission: {e}"),
+            Self::UnknownResourceKind(s) => write!(
+                f,
+                "unknown resource kind {s:?} (expected img, font, media, or style)"
+            ),
+            Self::ResourcePattern(e) => write!(f, "invalid resource permission: {e}"),
             Self::Empty => write!(f, "permission string is empty"),
         }
     }
@@ -405,6 +452,16 @@ impl Permission {
         if let Some(host_str) = s.strip_prefix("network:") {
             let pattern = HostPattern::parse(host_str).map_err(PermissionError::NetworkPattern)?;
             return Ok(Permission::Network(pattern));
+        }
+        if let Some(rest) = s.strip_prefix("resource:") {
+            // resource:<kind>:<host-pattern>
+            let (kind_str, host_str) = rest
+                .split_once(':')
+                .ok_or_else(|| PermissionError::Unknown(s.to_string()))?;
+            let kind = ResourceKind::parse(kind_str)
+                .ok_or_else(|| PermissionError::UnknownResourceKind(kind_str.to_string()))?;
+            let pattern = HostPattern::parse(host_str).map_err(PermissionError::ResourcePattern)?;
+            return Ok(Permission::Resource(kind, pattern));
         }
         match s {
             "ticket:read" => Ok(Permission::TicketRead),
@@ -434,12 +491,24 @@ impl Permission {
             Permission::CollectionRead => "collection:read".to_string(),
             Permission::CollectionWrite => "collection:write".to_string(),
             Permission::Network(p) => format!("network:{}", p.as_string()),
+            Permission::Resource(kind, p) => {
+                format!("resource:{}:{}", kind.as_str(), p.as_string())
+            }
         }
     }
 
     pub fn network_pattern(&self) -> Option<&HostPattern> {
         match self {
             Permission::Network(p) => Some(p),
+            _ => None,
+        }
+    }
+
+    /// The `(kind, host)` of a `resource:*` permission, else `None`. Used by the
+    /// sandbox to build the per-plugin CSP.
+    pub fn resource_pattern(&self) -> Option<(ResourceKind, &HostPattern)> {
+        match self {
+            Permission::Resource(kind, p) => Some((*kind, p)),
             _ => None,
         }
     }
@@ -776,12 +845,54 @@ mod tests {
     }
 
     #[test]
+    fn permission_parses_resource_kinds() {
+        let cases = [
+            ("resource:img:*.tile.openstreetmap.org", ResourceKind::Img),
+            ("resource:font:fonts.example.com", ResourceKind::Font),
+            ("resource:media:cdn.example.com", ResourceKind::Media),
+            ("resource:style:*.cartocdn.com", ResourceKind::Style),
+        ];
+        for (s, want) in cases {
+            match Permission::parse(s).unwrap() {
+                Permission::Resource(kind, _) => assert_eq!(kind, want, "{s}"),
+                other => panic!("expected resource permission for {s}, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn permission_rejects_malformed_resource() {
+        // Missing host segment.
+        assert!(matches!(
+            Permission::parse("resource:img"),
+            Err(PermissionError::Unknown(_))
+        ));
+        // Unknown kind.
+        assert!(matches!(
+            Permission::parse("resource:script:evil.example.com"),
+            Err(PermissionError::UnknownResourceKind(_))
+        ));
+        // Bare-wildcard host.
+        assert!(matches!(
+            Permission::parse("resource:img:*"),
+            Err(PermissionError::ResourcePattern(_))
+        ));
+        // Deep wildcard.
+        assert!(matches!(
+            Permission::parse("resource:img:*.*.example.com"),
+            Err(PermissionError::ResourcePattern(_))
+        ));
+    }
+
+    #[test]
     fn permission_round_trips_through_serde() {
         let inputs = [
             "ticket:read",
             "storage:plugin",
             "network:api.github.com",
             "network:*.github.com",
+            "resource:img:*.tile.openstreetmap.org",
+            "resource:style:cdn.example.com",
         ];
         for s in inputs {
             let p = Permission::parse(s).unwrap();
