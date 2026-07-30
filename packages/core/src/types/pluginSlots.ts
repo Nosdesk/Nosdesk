@@ -26,7 +26,7 @@
 export type SlotMechanism = 'panel' | 'action';
 
 /** The single host-provided context object a mount hands to the plugin. */
-export type SlotContextType = 'ticket' | 'asset' | 'documentationPage' | 'none';
+export type SlotContextType = 'ticket' | 'asset' | 'user' | 'documentationPage' | 'none';
 
 /** Whether one plugin may contribute once or many times to a slot. */
 export type SlotCardinality = 'one' | 'many';
@@ -76,6 +76,16 @@ export const SLOT_REGISTRY = [
     status: 'stable',
     aliases: ['asset-info-panels'],
     description: 'Info panels on the asset view',
+  },
+  {
+    name: 'user.sidebar.panel',
+    mechanism: 'panel',
+    context: 'user',
+    cardinality: 'many',
+    order: 100,
+    status: 'stable',
+    aliases: [],
+    description: 'Info panels on the user profile view',
   },
   {
     name: 'settings.integrations.page',

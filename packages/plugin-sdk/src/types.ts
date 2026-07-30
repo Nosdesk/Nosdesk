@@ -17,12 +17,13 @@
 import type {
   Ticket,
   Asset,
+  User,
   CollectionRow,
   CollectionListResponse,
   PluginEvent,
 } from '@nosdesk/core/types';
 
-export type { Ticket, Asset, CollectionRow, CollectionListResponse, PluginEvent };
+export type { Ticket, Asset, User, CollectionRow, CollectionListResponse, PluginEvent };
 
 /** A comment a plugin adds to a ticket. */
 export interface PluginComment {
@@ -235,6 +236,9 @@ export type PluginHostApi = Omit<import('comlink').Remote<HostApi>, 'on'> & {
 export interface PluginContext {
   ticket: Ticket | null;
   asset: Asset | null;
+  /** The profile being viewed (`user.sidebar.panel`). Null outside a user
+   * context. */
+  user: User | null;
   /** Selected ticket ids for a bulk action (`ticket.bulk.action`). The plugin
    * operates on the whole selection. Null / absent outside a bulk context. */
   ticketIds?: number[] | null;
