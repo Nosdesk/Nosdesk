@@ -252,6 +252,21 @@ export interface PluginContext {
   actionActivated?: number;
 }
 
+/** The host's active design language, snapshotted into the iframe so a plugin's
+ * UI matches the app. The runtime injects `tokens` as `--nd-*` CSS variables and
+ * a base stylesheet, so most plugins never touch this object; it is exposed for
+ * the rare plugin that must branch in JS (e.g. light vs dark map tiles). Values
+ * are resolved for whatever theme is active, and re-pushed when it changes. */
+export interface PluginTheme {
+  /** Resolved `--nd-*` token values, keyed WITHOUT the `--nd-` prefix
+   * (`surface`, `text`, `accent`, ...). Injected as CSS variables by the runtime. */
+  tokens: Record<string, string>;
+  /** Coarse light/dark signal, for plugins that pick assets by scheme. */
+  colorScheme: 'light' | 'dark';
+  /** The active theme id (`light`, `dark`, `epaper`, ...). */
+  name: string;
+}
+
 /** What a plugin's `mount` may return to get granular updates instead of a
  * re-mount: `update` is called with each new context, `unmount` on teardown.
  * Both optional — omitting `update` falls back to unmount + re-mount. */
