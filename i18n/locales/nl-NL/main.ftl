@@ -5751,6 +5751,12 @@ plugin-permission-collection-write-description = Records in getypeerde collectie
 # MACHINE TRANSLATION, pending native review
 plugin-permission-network-label = Netwerktoegang
 plugin-permission-network-description = Netwerkverzoeken doen naar { $host }
+# MACHINE TRANSLATION, pending native review
+plugin-permission-resource-label = { $kind }-bronnen laden
+# MACHINE TRANSLATION, pending native review
+plugin-permission-resource-description = { $kind } laden vanaf { $host } in de eigen weergave van de plug-in. Een goedgekeurde oorsprong kan gegevens ontvangen via de bron-URL, sta daarom alleen vertrouwde hosts toe.
+# MACHINE TRANSLATION, pending native review
+plugin-permission-reason-prefix = Reden van de auteur:
 plugin-permission-unknown-label = { $permission }
 plugin-permission-unknown-description = Een niet-herkende machtiging
 plugin-permission-destructive-badge = Kan gegevens wijzigen

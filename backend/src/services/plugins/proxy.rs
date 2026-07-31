@@ -588,6 +588,7 @@ mod tests {
                 .into_iter()
                 .map(|p| Permission::parse(p).expect("test permission must be valid"))
                 .collect(),
+            permission_reasons: Default::default(),
             components: std::collections::BTreeMap::new(),
             events: vec![],
             settings: vec![],

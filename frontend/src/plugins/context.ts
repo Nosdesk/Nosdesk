@@ -1,5 +1,6 @@
 import type { Ticket } from '@nosdesk/core/types/ticket';
 import type { Asset } from '@nosdesk/core/types/asset';
+import type { User } from '@nosdesk/core/types/user';
 
 /**
  * The host-provided context bag handed to a plugin slot.
@@ -13,6 +14,8 @@ import type { Asset } from '@nosdesk/core/types/asset';
 export interface PluginSlotContext {
   ticket?: Ticket;
   asset?: Asset;
+  /** The profile being viewed (`user.sidebar.panel`). */
+  user?: User;
   /** Selected ticket ids for a bulk action (`ticket.bulk.action`). */
   ticketIds?: number[];
   // Future context types (e.g. `documentationPage`) land here alongside a

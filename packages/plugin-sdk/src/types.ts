@@ -17,12 +17,13 @@
 import type {
   Ticket,
   Asset,
+  User,
   CollectionRow,
   CollectionListResponse,
   PluginEvent,
 } from '@nosdesk/core/types';
 
-export type { Ticket, Asset, CollectionRow, CollectionListResponse, PluginEvent };
+export type { Ticket, Asset, User, CollectionRow, CollectionListResponse, PluginEvent };
 
 /** A comment a plugin adds to a ticket. */
 export interface PluginComment {
@@ -235,6 +236,9 @@ export type PluginHostApi = Omit<import('comlink').Remote<HostApi>, 'on'> & {
 export interface PluginContext {
   ticket: Ticket | null;
   asset: Asset | null;
+  /** The profile being viewed (`user.sidebar.panel`). Null outside a user
+   * context. */
+  user: User | null;
   /** Selected ticket ids for a bulk action (`ticket.bulk.action`). The plugin
    * operates on the whole selection. Null / absent outside a bulk context. */
   ticketIds?: number[] | null;
@@ -246,6 +250,21 @@ export interface PluginContext {
    * trigger). Increments on each activation; absent if the component declares no
    * action. The plugin reacts (e.g. opens a panel) when it changes. */
   actionActivated?: number;
+}
+
+/** The host's active design language, snapshotted into the iframe so a plugin's
+ * UI matches the app. The runtime injects `tokens` as `--nd-*` CSS variables and
+ * a base stylesheet, so most plugins never touch this object; it is exposed for
+ * the rare plugin that must branch in JS (e.g. light vs dark map tiles). Values
+ * are resolved for whatever theme is active, and re-pushed when it changes. */
+export interface PluginTheme {
+  /** Resolved `--nd-*` token values, keyed WITHOUT the `--nd-` prefix
+   * (`surface`, `text`, `accent`, ...). Injected as CSS variables by the runtime. */
+  tokens: Record<string, string>;
+  /** Coarse light/dark signal, for plugins that pick assets by scheme. */
+  colorScheme: 'light' | 'dark';
+  /** The active theme id (`light`, `dark`, `epaper`, ...). */
+  name: string;
 }
 
 /** What a plugin's `mount` may return to get granular updates instead of a

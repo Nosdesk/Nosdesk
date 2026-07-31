@@ -368,7 +368,10 @@ const saveButtonLabel = computed(() =>
           <h3 class="mb-2 text-xs tracking-wide text-tertiary uppercase">
             {{ t('plugin-detail-consent-heading') }}
           </h3>
-          <PluginPermissionList :permissions="plugin.manifest.permissions" />
+          <PluginPermissionList
+            :permissions="plugin.manifest.permissions"
+            :reasons="plugin.manifest.permission_reasons"
+          />
         </div>
         <div class="mt-4">
           <Button variant="primary" :disabled="consentInFlight" @click="approveConsent">
@@ -584,7 +587,10 @@ const saveButtonLabel = computed(() =>
           <div class="sm:col-span-2">
             <dt class="text-xs tracking-wide text-tertiary uppercase">{{ t('plugin-detail-metadata-permissions') }}</dt>
             <dd class="mt-2">
-              <PluginPermissionList :permissions="plugin.manifest.permissions" />
+              <PluginPermissionList
+                :permissions="plugin.manifest.permissions"
+                :reasons="plugin.manifest.permission_reasons"
+              />
               <span v-if="!plugin.manifest.permissions.length" class="text-secondary">
                 {{ t('plugin-detail-metadata-permissions-count', { count: 0 }) }}
               </span>

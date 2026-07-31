@@ -739,6 +739,7 @@ mod tests {
             tags: vec!["github".into()],
             screenshots: vec![],
             permissions: vec![perm("ticket:read"), perm("network:api.github.com")],
+            permission_reasons: Default::default(),
             components: std::collections::BTreeMap::new(),
             events: vec!["ticket:created".into()],
             settings: vec![],

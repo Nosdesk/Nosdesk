@@ -380,7 +380,14 @@ function wrapEvents(remote) {
 function connectToHost() {
   return new Promise((resolve, reject) => {
     const listeners = /* @__PURE__ */ new Set();
-    let context = { ticket: null, asset: null, component: { name: "", slot: "" } };
+    const themeListeners = /* @__PURE__ */ new Set();
+    let context = {
+      ticket: null,
+      asset: null,
+      user: null,
+      component: { name: "", slot: "" }
+    };
+    let theme = { tokens: {}, colorScheme: "light", name: "light" };
     let connected = false;
     const timer = setTimeout(() => {
       if (!connected) {
@@ -395,14 +402,22 @@ function connectToHost() {
         connected = true;
         clearTimeout(timer);
         context = data.context;
+        theme = data.theme;
         const { api, reset } = wrapEvents(wrap(event.ports[0]));
         resolve({
           api,
           context,
+          theme,
           onContextChange(cb) {
             listeners.add(cb);
             return () => {
               listeners.delete(cb);
+            };
+          },
+          onThemeChange(cb) {
+            themeListeners.add(cb);
+            return () => {
+              themeListeners.delete(cb);
             };
           },
           resetEvents: reset
@@ -410,6 +425,9 @@ function connectToHost() {
       } else if (data.type === "nosdesk-plugin-context") {
         context = data.context;
         for (const cb of listeners) cb(context);
+      } else if (data.type === "nosdesk-plugin-theme") {
+        theme = data.theme;
+        for (const cb of themeListeners) cb(theme);
       }
     }
     window.addEventListener("message", onMessage);
@@ -419,6 +437,83 @@ function reportHeight(height) {
   window.parent.postMessage({ type: "nosdesk-plugin-height", height }, "*");
 }
 
+// src/pluginUiCss.ts
+var PLUGIN_UI_CSS = `
+:root { --nd-radius: 8px; color-scheme: light dark; }
+
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: var(--nd-font-sans, system-ui, -apple-system, sans-serif);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--nd-text, #1f2937);
+  background: transparent;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Scrollbars matched to the app's subtle style. */
+* { scrollbar-width: thin; scrollbar-color: var(--nd-border-strong, #cbd5e1) transparent; }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: var(--nd-border-strong, #cbd5e1); border-radius: 4px; }
+*::-webkit-scrollbar-thumb:hover { background: var(--nd-text-tertiary, #9ca3af); }
+*::-webkit-scrollbar-track { background: transparent; }
+
+a { color: var(--nd-accent, #FF6B1A); }
+
+.nd-btn {
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: var(--nd-radius, 8px);
+  border: 1px solid var(--nd-border, #e5e7eb);
+  background: var(--nd-surface, #ffffff);
+  color: var(--nd-text, #1f2937);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.nd-btn:hover { background: var(--nd-surface-hover, #f3f4f6); }
+.nd-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.nd-btn--primary {
+  background: var(--nd-accent, #FF6B1A);
+  border-color: var(--nd-accent, #FF6B1A);
+  color: var(--nd-on-accent, #000000);
+}
+.nd-btn--primary:hover {
+  background: var(--nd-accent-hover, #EB5808);
+  border-color: var(--nd-accent-hover, #EB5808);
+}
+
+.nd-input, .nd-textarea {
+  font: inherit;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid var(--nd-border, #e5e7eb);
+  border-radius: var(--nd-radius, 8px);
+  background: var(--nd-surface, #ffffff);
+  color: var(--nd-text, #1f2937);
+}
+.nd-input::placeholder, .nd-textarea::placeholder { color: var(--nd-text-tertiary, #9ca3af); }
+.nd-input:focus, .nd-textarea:focus {
+  outline: none;
+  border-color: var(--nd-accent, #FF6B1A);
+}
+.nd-textarea { resize: vertical; }
+
+.nd-card {
+  border: 1px solid var(--nd-border, #e5e7eb);
+  border-radius: var(--nd-radius, 8px);
+  background: var(--nd-surface-alt, #f9fafb);
+  padding: 12px;
+}
+
+.nd-label { font-weight: 600; color: var(--nd-text, #1f2937); }
+.nd-muted { color: var(--nd-text-tertiary, #6b7280); }
+`;
+
 // src/runtime.ts
 function toInstance(result) {
   if (typeof result === "function") return { unmount: result };
@@ -427,6 +522,27 @@ function toInstance(result) {
 }
 var token = new URLSearchParams(location.search).get("t");
 var root = document.getElementById("root");
+function injectBaseCss() {
+  if (document.getElementById("nd-base")) return;
+  const style = document.createElement("style");
+  style.id = "nd-base";
+  style.textContent = PLUGIN_UI_CSS;
+  document.head.appendChild(style);
+}
+function injectTokens(theme) {
+  let style = document.getElementById("nd-tokens");
+  if (!style) {
+    style = document.createElement("style");
+    style.id = "nd-tokens";
+    document.head.appendChild(style);
+  }
+  const vars = Object.entries(theme.tokens).map(([k, v]) => `  --nd-${k}: ${v};`).join("\n");
+  style.textContent = `:root {
+${vars}
+}`;
+  document.documentElement.setAttribute("data-nd-color-scheme", theme.colorScheme);
+  document.documentElement.setAttribute("data-nd-theme", theme.name);
+}
 function observeHeight(el) {
   let last = -1;
   const report = () => {
@@ -443,6 +559,9 @@ async function boot() {
   if (!root) throw new Error("sandbox runtime: no #root element");
   if (!token) throw new Error("sandbox runtime: missing bundle token");
   const runtime = await connectToHost();
+  injectBaseCss();
+  injectTokens(runtime.theme);
+  runtime.onThemeChange(injectTokens);
   const bundleUrl = `./bundle?t=${encodeURIComponent(token)}`;
   let mod;
   try {

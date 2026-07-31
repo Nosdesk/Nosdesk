@@ -4,6 +4,7 @@ import type {
   HostApi,
   PluginHostApi,
   PluginContext,
+  PluginTheme,
   PluginEvent,
   PluginEventHandler,
   PluginEventPayload,
@@ -13,10 +14,15 @@ import type {
 interface HostInitMessage {
   type: 'nosdesk-plugin-init';
   context: PluginContext;
+  theme: PluginTheme;
 }
 interface HostContextMessage {
   type: 'nosdesk-plugin-context';
   context: PluginContext;
+}
+interface HostThemeMessage {
+  type: 'nosdesk-plugin-theme';
+  theme: PluginTheme;
 }
 
 /** The ready plugin runtime handed to a plugin's `mount`. */
@@ -26,9 +32,15 @@ export interface PluginRuntime {
   api: PluginHostApi;
   /** The context snapshot at connect time. */
   context: PluginContext;
+  /** The host design tokens at connect time. The runtime injects these; a plugin
+   * rarely reads it directly. */
+  theme: PluginTheme;
   /** Subscribe to context snapshots the host pushes after connect; returns an
    * unsubscribe. */
   onContextChange(cb: (ctx: PluginContext) => void): () => void;
+  /** Subscribe to design-token snapshots the host pushes on a theme change;
+   * returns an unsubscribe. The runtime uses this to re-inject the variables. */
+  onThemeChange(cb: (theme: PluginTheme) => void): () => void;
   /** Drop all `api.on` subscriptions. The runtime calls this before re-mounting a
    * simple plugin so event handlers don't accumulate across re-mounts. */
   resetEvents(): void;
@@ -132,9 +144,16 @@ function wrapEvents(remote: Comlink.Remote<HostApi>): {
 export function connectToHost(): Promise<PluginRuntime> {
   return new Promise((resolve, reject) => {
     const listeners = new Set<(ctx: PluginContext) => void>();
+    const themeListeners = new Set<(theme: PluginTheme) => void>();
     // Placeholder until the host's init message delivers the real context; the
     // runtime resolves with `data.context`, so this is never handed to a plugin.
-    let context: PluginContext = { ticket: null, asset: null, component: { name: '', slot: '' } };
+    let context: PluginContext = {
+      ticket: null,
+      asset: null,
+      user: null,
+      component: { name: '', slot: '' },
+    };
+    let theme: PluginTheme = { tokens: {}, colorScheme: 'light', name: 'light' };
     let connected = false;
 
     // Fail loudly if the host never connects (dropped port / host disposed before
@@ -148,21 +167,33 @@ export function connectToHost(): Promise<PluginRuntime> {
     }, CONNECT_TIMEOUT_MS);
 
     function onMessage(event: MessageEvent) {
-      const data = event.data as HostInitMessage | HostContextMessage | undefined;
+      const data = event.data as
+        | HostInitMessage
+        | HostContextMessage
+        | HostThemeMessage
+        | undefined;
       if (!data || typeof data !== 'object') return;
 
       if (!connected && data.type === 'nosdesk-plugin-init' && event.ports[0]) {
         connected = true;
         clearTimeout(timer);
         context = data.context;
+        theme = data.theme;
         const { api, reset } = wrapEvents(Comlink.wrap<HostApi>(event.ports[0]));
         resolve({
           api,
           context,
+          theme,
           onContextChange(cb) {
             listeners.add(cb);
             return () => {
               listeners.delete(cb);
+            };
+          },
+          onThemeChange(cb) {
+            themeListeners.add(cb);
+            return () => {
+              themeListeners.delete(cb);
             };
           },
           resetEvents: reset,
@@ -170,6 +201,9 @@ export function connectToHost(): Promise<PluginRuntime> {
       } else if (data.type === 'nosdesk-plugin-context') {
         context = data.context;
         for (const cb of listeners) cb(context);
+      } else if (data.type === 'nosdesk-plugin-theme') {
+        theme = data.theme;
+        for (const cb of themeListeners) cb(theme);
       }
     }
 
