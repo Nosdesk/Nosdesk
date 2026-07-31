@@ -1,44 +1,27 @@
 <script setup lang="ts">
 /**
- * Renders a tier-distinct pill for the plugin lifecycle state.
- * Drives the row badge AND the read-only label that replaces the
- * toggle for non-toggleable states. Centralised here so the list
- * view, detail view, and registry view can't drift.
+ * Lifecycle-state pill for a plugin. A thin wrapper over the shared
+ * StatusPill so plugin badges use the same tone palette as every other
+ * status in the app. Centralised here so the list, detail, and registry
+ * views can't drift.
  */
 import { computed } from 'vue';
 import { useFluent } from 'fluent-vue';
 import type { PluginState } from '@nosdesk/core/types/plugin';
+import StatusPill from '@/components/common/StatusPill.vue';
+import type { StatusPillTone } from '@/components/common/statusPillTone';
 
-interface Props {
-  state: PluginState;
-}
-
-const props = defineProps<Props>();
+const props = defineProps<{ state: PluginState }>();
 
 const fluent = useFluent();
-const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
+const t = (key: string) => fluent.$t(key);
 
-const STYLES: Record<PluginState, { pillClass: string; textClass: string }> = {
-  installed: {
-    pillClass: 'bg-status-success/10 text-status-success',
-    textClass: 'text-status-success',
-  },
-  disabled: {
-    pillClass: 'bg-status-warning/10 text-status-warning',
-    textClass: 'text-status-warning',
-  },
-  quarantined: {
-    pillClass: 'bg-status-error/10 text-status-error',
-    textClass: 'text-status-error',
-  },
-  uninstalled: {
-    pillClass: 'bg-surface-alt text-tertiary',
-    textClass: 'text-tertiary',
-  },
-  awaiting_consent: {
-    pillClass: 'bg-status-warning/10 text-status-warning',
-    textClass: 'text-status-warning',
-  },
+const TONE: Record<PluginState, StatusPillTone> = {
+  installed: 'positive',
+  awaiting_consent: 'caution',
+  disabled: 'neutral',
+  quarantined: 'critical',
+  uninstalled: 'neutral',
 };
 
 const LABEL_KEY: Record<PluginState, string> = {
@@ -50,14 +33,9 @@ const LABEL_KEY: Record<PluginState, string> = {
 };
 
 const label = computed(() => t(LABEL_KEY[props.state]));
-const pillClass = computed(() => STYLES[props.state].pillClass);
+const tone = computed(() => TONE[props.state]);
 </script>
 
 <template>
-  <span
-    class="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium"
-    :class="pillClass"
-  >
-    {{ label }}
-  </span>
+  <StatusPill :tone="tone" :label="label" />
 </template>
