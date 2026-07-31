@@ -10,12 +10,20 @@
  * no cookies, no first-party DOM, all host access flows through the bridge.
  */
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { createRemoteHostApi, postContext, postInit, watchPluginHeight } from '@nosdesk/plugin-sdk';
-import type { HostBridge, PluginContext } from '@nosdesk/plugin-sdk';
+import {
+  createRemoteHostApi,
+  postContext,
+  postInit,
+  postTheme,
+  watchPluginHeight,
+} from '@nosdesk/plugin-sdk';
+import type { HostBridge, PluginContext, PluginTheme } from '@nosdesk/plugin-sdk';
 import pluginService from '@nosdesk/core/services/pluginService';
 import { logger } from '@nosdesk/core/utils/logger';
 import type { Plugin } from '@nosdesk/core/types/plugin';
+import { useThemeStore } from '@/stores/theme';
 import type { PluginSlotContext } from '../context';
+import { snapshotPluginTheme } from '../theme';
 import { createHostApiImpl } from '../sandboxHostApi';
 import { registerPluginInstance } from '../pluginInstances';
 
@@ -33,6 +41,17 @@ const frameRef = ref<HTMLIFrameElement | null>(null);
 const runtimeUrl = ref<string | null>(null);
 const error = ref<string | null>(null);
 const iframeHeight = ref<number | null>(null);
+
+const themeStore = useThemeStore();
+
+// The host design tokens for the plugin sandbox, read fresh so they reflect the
+// active theme (and accent override). The runtime injects them as `--nd-*`.
+function themeSnapshot(): PluginTheme {
+  return snapshotPluginTheme(
+    themeStore.isDarkMode ? 'dark' : 'light',
+    themeStore.effectiveTheme?.meta?.id ?? themeStore.currentTheme,
+  );
+}
 
 let bridge: HostBridge | null = null;
 let unregisterInstance: (() => void) | null = null;
@@ -74,7 +93,7 @@ function onFrameLoad(): void {
   // sandboxed plugin's `on` handlers (they land on `inproc`, over the bridge).
   unregisterInstance = registerPluginInstance(props.plugin.uuid, inproc);
   bridge = createRemoteHostApi(hostApi);
-  postInit(win, bridge, snapshot());
+  postInit(win, bridge, snapshot(), themeSnapshot());
   connected = true;
 
   // Size the iframe to the plugin's reported content height.
@@ -131,6 +150,22 @@ watch(
     if (connected && win) postContext(win, snapshot());
   },
   { deep: true },
+);
+
+// Re-push the design tokens when the host theme or accent changes. `flush: 'post'`
+// so the DOM has the new theme applied before `snapshotPluginTheme` reads the
+// resolved values off `:root`.
+watch(
+  [
+    () => themeStore.isDarkMode,
+    () => themeStore.effectiveTheme?.meta?.id,
+    () => themeStore.accentColorOverride,
+  ],
+  () => {
+    const win = frameRef.value?.contentWindow;
+    if (connected && win) postTheme(win, themeSnapshot());
+  },
+  { flush: 'post' },
 );
 
 onBeforeUnmount(() => {

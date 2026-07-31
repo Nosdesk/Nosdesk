@@ -55,6 +55,10 @@ iframe.setAttribute('sandbox', 'allow-scripts');
 iframe.src = `${sandboxOrigin}/runtime.html?t=${TOKEN}`;
 iframe.addEventListener('load', () => {
   const bridge = createRemoteHostApi(impl);
-  postInit(iframe.contentWindow as Window, bridge, context);
+  postInit(iframe.contentWindow as Window, bridge, context, {
+    tokens: {},
+    colorScheme: 'light',
+    name: 'light',
+  });
 });
 document.getElementById('frame-slot')?.appendChild(iframe);

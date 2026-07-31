@@ -1,6 +1,6 @@
 import * as Comlink from 'comlink';
 
-import type { HostApi, PluginContext } from './types';
+import type { HostApi, PluginContext, PluginTheme } from './types';
 
 /**
  * The host end of the plugin bridge. `createRemoteHostApi` exposes a `HostApi`
@@ -38,13 +38,24 @@ export function createRemoteHostApi(impl: HostApi): HostBridge {
  * once the iframe has loaded. Mirrors the message the SDK's `connectToHost`
  * awaits.
  */
-export function postInit(target: Window, bridge: HostBridge, context: PluginContext): void {
-  target.postMessage({ type: 'nosdesk-plugin-init', context }, '*', [bridge.port]);
+export function postInit(
+  target: Window,
+  bridge: HostBridge,
+  context: PluginContext,
+  theme: PluginTheme,
+): void {
+  target.postMessage({ type: 'nosdesk-plugin-init', context, theme }, '*', [bridge.port]);
 }
 
 /** Push a fresh context snapshot to an already-connected plugin iframe. */
 export function postContext(target: Window, context: PluginContext): void {
   target.postMessage({ type: 'nosdesk-plugin-context', context }, '*');
+}
+
+/** Push a fresh design-token snapshot to an already-connected plugin iframe (on a
+ * host theme change). The runtime re-injects the `--nd-*` variables. */
+export function postTheme(target: Window, theme: PluginTheme): void {
+  target.postMessage({ type: 'nosdesk-plugin-theme', theme }, '*');
 }
 
 interface PluginHeightMessage {
