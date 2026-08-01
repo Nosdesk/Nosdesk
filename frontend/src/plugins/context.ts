@@ -1,6 +1,7 @@
 import type { Ticket } from '@nosdesk/core/types/ticket';
 import type { Asset } from '@nosdesk/core/types/asset';
 import type { User } from '@nosdesk/core/types/user';
+import type { UserAddress } from '@nosdesk/core/services/userContactService';
 
 /**
  * The host-provided context bag handed to a plugin slot.
@@ -16,6 +17,9 @@ export interface PluginSlotContext {
   asset?: Asset;
   /** The profile being viewed (`user.sidebar.panel`). */
   user?: User;
+  /** A single address row to enrich (`user.address.panel`). Projected to the
+   * wire `PluginAddress` in the sandbox snapshot. */
+  address?: UserAddress;
   /** Selected ticket ids for a bulk action (`ticket.bulk.action`). */
   ticketIds?: number[];
   // Future context types (e.g. `documentationPage`) land here alongside a

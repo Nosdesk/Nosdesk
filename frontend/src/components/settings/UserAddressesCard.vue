@@ -11,6 +11,7 @@ import Checkbox from '@/components/common/Checkbox.vue';
 import BaseDropdown, { type DropdownOption } from '@/components/common/BaseDropdown.vue';
 import Icon from '@/components/common/Icon.vue';
 import ContactBadges from '@/components/settings/ContactBadges.vue';
+import PluginSlot from '@/plugins/components/PluginSlot.vue';
 import { useContactList } from '@/composables/useContactList';
 import {
   listUserAddresses,
@@ -106,60 +107,67 @@ function formatAddress(a: UserAddress): string {
 
     <div
       v-if="showAddForm && editable"
-      class="mb-3 p-3 bg-surface-alt rounded-lg border border-subtle flex flex-col gap-2"
+      class="mb-3 rounded-lg border border-default p-4 flex flex-col gap-3"
     >
       <div class="flex items-center gap-3">
         <BaseDropdown v-model="draft.address_type" :options="typeOptions" class="shrink-0" />
         <Checkbox v-model="draft.is_primary" :label="t('user-addresses-primary')" />
       </div>
-      <FormInput v-model="draft.street" :placeholder="t('user-addresses-field-street')" size="sm" />
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <FormInput v-model="draft.city" :placeholder="t('user-addresses-field-city')" size="sm" />
-        <FormInput v-model="draft.region" :placeholder="t('user-addresses-field-region')" size="sm" />
-        <FormInput v-model="draft.postal_code" :placeholder="t('user-addresses-field-postal')" size="sm" />
-        <FormInput v-model="draft.country" :placeholder="t('user-addresses-field-country')" size="sm" />
+      <FormInput v-model="draft.street" :label="t('user-addresses-field-street')" size="sm" />
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <FormInput v-model="draft.city" :label="t('user-addresses-field-city')" size="sm" />
+        <FormInput v-model="draft.region" :label="t('user-addresses-field-region')" size="sm" />
+        <FormInput v-model="draft.postal_code" :label="t('user-addresses-field-postal')" size="sm" />
+        <FormInput v-model="draft.country" :label="t('user-addresses-field-country')" size="sm" />
       </div>
-      <div class="flex justify-end gap-2">
+      <div class="flex justify-end gap-2 pt-1">
+        <Button variant="secondary" size="sm" @click="cancel">{{ t('common-cancel') }}</Button>
         <Button size="sm" :loading="saving" :disabled="draftEmpty" @click="submit">
           {{ t('user-addresses-add') }}
         </Button>
-        <Button variant="secondary" size="sm" @click="cancel">{{ t('common-cancel') }}</Button>
       </div>
     </div>
 
     <p v-if="addresses.length === 0" class="text-sm text-tertiary py-2">{{ t('user-addresses-empty') }}</p>
 
-    <div v-else class="flex flex-col gap-2">
+    <div v-else class="flex flex-col gap-3">
       <div
         v-for="a in addresses"
         :key="a.id"
-        class="flex items-start gap-3 p-3 bg-surface-alt rounded-lg"
+        class="bg-surface-alt rounded-lg border border-subtle overflow-hidden"
       >
-        <Icon name="folder" size="md" class="text-secondary shrink-0 mt-0.5" />
-        <div class="min-w-0 flex-1">
-          <div class="flex items-center gap-2 flex-wrap">
-            <span class="text-xs text-tertiary">{{ t(`user-addresses-type-${a.address_type}`) }}</span>
-            <ContactBadges
-              :primary="a.is_primary"
-              :primary-label="t('user-addresses-primary')"
-              :synced="!!a.source"
-            />
+        <div class="flex items-start gap-3 p-3">
+          <Icon name="mapPin" size="md" class="text-secondary shrink-0 mt-0.5" />
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="text-xs font-medium text-tertiary uppercase tracking-wide">
+                {{ t(`user-addresses-type-${a.address_type}`) }}
+              </span>
+              <ContactBadges
+                :primary="a.is_primary"
+                :primary-label="t('user-addresses-primary')"
+                :synced="!!a.source"
+              />
+            </div>
+            <span class="text-sm text-primary">{{ formatAddress(a) || '—' }}</span>
           </div>
-          <span class="text-sm text-primary">{{ formatAddress(a) || '—' }}</span>
+          <div v-if="editable && !a.source" class="flex items-center gap-2 shrink-0">
+            <Button v-if="!a.is_primary" variant="secondary" size="sm" @click="setPrimary(a)">
+              {{ t('user-addresses-set-primary') }}
+            </Button>
+            <Button
+              variant="ghost-danger"
+              size="sm"
+              :aria-label="t('common-delete')"
+              @click="pendingDelete = a"
+            >
+              {{ t('common-delete') }}
+            </Button>
+          </div>
         </div>
-        <div v-if="editable && !a.source" class="flex items-center gap-2 shrink-0">
-          <Button v-if="!a.is_primary" variant="secondary" size="sm" @click="setPrimary(a)">
-            {{ t('user-addresses-set-primary') }}
-          </Button>
-          <Button
-            variant="ghost-danger"
-            size="sm"
-            :aria-label="t('common-delete')"
-            @click="pendingDelete = a"
-          >
-            {{ t('common-delete') }}
-          </Button>
-        </div>
+        <!-- Per-address plugin enrichment (e.g. the Locations plugin's map).
+             Renders nothing when no plugin targets user.address.panel. -->
+        <PluginSlot target="user.address.panel" :context="{ address: a }" />
       </div>
     </div>
 

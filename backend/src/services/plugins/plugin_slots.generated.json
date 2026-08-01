@@ -34,6 +34,16 @@
     "description": "Info panels on the user profile view"
   },
   {
+    "name": "user.address.panel",
+    "mechanism": "panel",
+    "context": "address",
+    "cardinality": "many",
+    "order": 100,
+    "status": "stable",
+    "aliases": [],
+    "description": "Enrichment panel per address row on a user's addresses card"
+  },
+  {
     "name": "settings.integrations.page",
     "mechanism": "panel",
     "context": "none",

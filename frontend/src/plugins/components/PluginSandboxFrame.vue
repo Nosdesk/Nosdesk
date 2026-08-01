@@ -17,10 +17,11 @@ import {
   postTheme,
   watchPluginHeight,
 } from '@nosdesk/plugin-sdk';
-import type { HostBridge, PluginContext, PluginTheme } from '@nosdesk/plugin-sdk';
+import type { HostBridge, PluginContext, PluginTheme, PluginAddress } from '@nosdesk/plugin-sdk';
 import pluginService from '@nosdesk/core/services/pluginService';
 import { logger } from '@nosdesk/core/utils/logger';
 import type { Plugin } from '@nosdesk/core/types/plugin';
+import type { UserAddress } from '@nosdesk/core/services/userContactService';
 import { useThemeStore } from '@/stores/theme';
 import type { PluginSlotContext } from '../context';
 import { snapshotPluginTheme } from '../theme';
@@ -71,11 +72,32 @@ let bundleRetries = 0;
 function plain<T>(value: T | undefined): T | null {
   return value == null ? null : (JSON.parse(JSON.stringify(value)) as T);
 }
+// Project the host address row onto the clean `PluginAddress` wire shape
+// (camelCase + a `formatted` one-liner the plugin geocodes / shows).
+function toPluginAddress(a: UserAddress | undefined): PluginAddress | null {
+  if (!a) return null;
+  const formatted = [a.street, a.city, a.region, a.postal_code, a.country]
+    .filter(Boolean)
+    .join(', ');
+  return {
+    id: a.id,
+    addressType: a.address_type,
+    isPrimary: a.is_primary,
+    street: a.street,
+    city: a.city,
+    region: a.region,
+    postalCode: a.postal_code,
+    country: a.country,
+    label: a.label,
+    formatted,
+  };
+}
 function snapshot(): PluginContext {
   return {
     ticket: plain(props.context?.ticket),
     asset: plain(props.context?.asset),
     user: plain(props.context?.user),
+    address: toPluginAddress(props.context?.address),
     ticketIds: plain(props.context?.ticketIds),
     component: { name: props.component.name, slot: props.component.slot },
     actionActivated: props.actionActivated,

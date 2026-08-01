@@ -230,6 +230,24 @@ export type PluginHostApi = Omit<import('comlink').Remote<HostApi>, 'on'> & {
   on(event: PluginEvent, handler: PluginEventHandler): Promise<() => void>;
 };
 
+/** A single structured address a plugin enriches (`user.address.panel`). A clean
+ * camelCase projection of the host's vCard address row, plus `formatted` (the
+ * fields joined into one line) for geocoding / display. */
+export interface PluginAddress {
+  id: number;
+  /** `work` / `home` / `other`. */
+  addressType: string;
+  isPrimary: boolean;
+  street: string | null;
+  city: string | null;
+  region: string | null;
+  postalCode: string | null;
+  country: string | null;
+  label: string | null;
+  /** The non-empty fields joined with ", " — the string to geocode / show. */
+  formatted: string;
+}
+
 /** The host-provided context, snapshotted into the iframe. It is not a live
  * object (it can't cross postMessage reactively); updates arrive via
  * `onContextChange`. */
@@ -239,6 +257,8 @@ export interface PluginContext {
   /** The profile being viewed (`user.sidebar.panel`). Null outside a user
    * context. */
   user: User | null;
+  /** The address this panel enriches (`user.address.panel`). Null elsewhere. */
+  address: PluginAddress | null;
   /** Selected ticket ids for a bulk action (`ticket.bulk.action`). The plugin
    * operates on the whole selection. Null / absent outside a bulk context. */
   ticketIds?: number[] | null;
