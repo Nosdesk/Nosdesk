@@ -10,6 +10,7 @@ import {
   getNotificationPreferences,
   updateNotificationPreference,
   channelSupportsDigest,
+  channelSupportsQuiet,
   NOTIFICATION_CHANNELS,
   type NotificationPreference,
   type NotificationFrequency,
@@ -107,11 +108,15 @@ const typeDescription = (row: NotificationPreference) =>
     row.description ?? ''
   );
 
-// Frequency choices for a channel — `digest` only where the channel batches.
+// Frequency choices for a channel — `quiet` only for in-app (bell without a
+// toast), `digest` only where the channel batches (email).
 const frequencyOptions = (channelCode: string): DropdownOption[] => {
   const options: DropdownOption[] = [
     { value: 'instant', label: t('settings-notifications-frequency-instant') },
   ];
+  if (channelSupportsQuiet(channelCode)) {
+    options.push({ value: 'quiet', label: t('settings-notifications-frequency-quiet') });
+  }
   if (channelSupportsDigest(channelCode)) {
     options.push({ value: 'digest', label: t('settings-notifications-frequency-digest') });
   }

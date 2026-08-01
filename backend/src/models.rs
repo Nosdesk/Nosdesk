@@ -5516,6 +5516,10 @@ pub struct NotificationType {
     pub category: String,
     pub default_channels: serde_json::Value,
     pub created_at: NaiveDateTime,
+    /// Whether this kind interrupts by default: drives the default in-app
+    /// frequency (`true` → `instant`/toast, `false` → `quiet`/bell-only). A user
+    /// can still override per channel. Must stay LAST to match `schema.rs`.
+    pub interrupts: bool,
 }
 
 /// Persistent notification record

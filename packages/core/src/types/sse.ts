@@ -76,6 +76,11 @@ export interface NotificationReceivedEventData {
     actor: NotificationActor
     metadata?: Record<string, unknown>
     timestamp: string
+    /** Whether the client should INTERRUPT (toast + desktop) vs let it land
+     *  quietly in the bell. Reflects the recipient's resolved in-app frequency
+     *  (instant → true, quiet → false). Absent on pre-#2 payloads → treat as
+     *  true (interrupt) so nothing is silently dropped mid-rollout. */
+    interrupts?: boolean
   }
 }
 

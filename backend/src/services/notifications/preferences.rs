@@ -43,7 +43,14 @@ pub struct PreferenceService {
     /// Cache keyed by (user, workspace) → type code → the channels that resolve
     /// to `instant` (i.e. deliver now). Workspace is part of the key because a
     /// user's effective delivery depends on the workspace's admin defaults.
-    cache: Arc<RwLock<HashMap<(Uuid, i32), HashMap<String, Vec<NotificationChannel>>>>>,
+    cache: Arc<
+        RwLock<
+            HashMap<
+                (Uuid, i32),
+                HashMap<String, Vec<(NotificationChannel, NotificationFrequency)>>,
+            >,
+        >,
+    >,
 }
 
 impl PreferenceService {
@@ -57,25 +64,30 @@ impl PreferenceService {
     /// Channels to deliver *immediately* (`instant`) for this user, in this
     /// workspace, for this type. `digest` rows are collected later by the digest
     /// batcher; `off` never delivers.
-    pub async fn get_enabled_channels(
+    /// The resolved deliver-now `(channel, frequency)` pairs for this (user,
+    /// workspace, type): every channel to deliver immediately. For in-app that is
+    /// `instant` OR `quiet` (both land in the bell; they differ only in whether
+    /// the client interrupts); for email/push only `instant`. `digest` (collected
+    /// later by the batcher) and `off` never appear here. Cached.
+    async fn resolve_delivery(
         &self,
         user_uuid: &Uuid,
         workspace_id: i32,
         notification_type: &NotificationTypeCode,
-    ) -> Result<Vec<NotificationChannel>, String> {
+    ) -> Result<Vec<(NotificationChannel, NotificationFrequency)>, String> {
         let type_code = notification_type.as_str().to_string();
         let key = (*user_uuid, workspace_id);
 
         {
             let cache = self.cache.read().await;
             if let Some(user_prefs) = cache.get(&key) {
-                if let Some(channels) = user_prefs.get(&type_code) {
-                    return Ok(channels.clone());
+                if let Some(pairs) = user_prefs.get(&type_code) {
+                    return Ok(pairs.clone());
                 }
             }
         }
 
-        let channels = self
+        let pairs = self
             .load_preferences_from_db(user_uuid, workspace_id, &type_code)
             .await?;
 
@@ -84,10 +96,44 @@ impl PreferenceService {
             cache
                 .entry(key)
                 .or_default()
-                .insert(type_code, channels.clone());
+                .insert(type_code, pairs.clone());
         }
 
-        Ok(channels)
+        Ok(pairs)
+    }
+
+    /// Channels to deliver *now* for this (user, workspace, type). Thin wrapper
+    /// over `resolve_delivery` (drops the resolved frequency).
+    pub async fn get_enabled_channels(
+        &self,
+        user_uuid: &Uuid,
+        workspace_id: i32,
+        notification_type: &NotificationTypeCode,
+    ) -> Result<Vec<NotificationChannel>, String> {
+        Ok(self
+            .resolve_delivery(user_uuid, workspace_id, notification_type)
+            .await?
+            .into_iter()
+            .map(|(channel, _)| channel)
+            .collect())
+    }
+
+    /// Whether the recipient's resolved IN-APP frequency is `instant` (the client
+    /// should interrupt with a toast + desktop notification) vs `quiet` (land in
+    /// the bell only). `false` when in-app doesn't deliver at all.
+    pub async fn in_app_interrupts(
+        &self,
+        user_uuid: &Uuid,
+        workspace_id: i32,
+        notification_type: &NotificationTypeCode,
+    ) -> Result<bool, String> {
+        Ok(self
+            .resolve_delivery(user_uuid, workspace_id, notification_type)
+            .await?
+            .into_iter()
+            .any(|(channel, freq)| {
+                channel == NotificationChannel::InApp && freq == NotificationFrequency::Instant
+            }))
     }
 
     /// Resolve the `instant` channels for one (user, workspace, type) across the
@@ -97,7 +143,7 @@ impl PreferenceService {
         user_uuid_val: &Uuid,
         workspace_id_val: i32,
         type_code: &str,
-    ) -> Result<Vec<NotificationChannel>, String> {
+    ) -> Result<Vec<(NotificationChannel, NotificationFrequency)>, String> {
         use crate::schema::{
             notification_preferences as np, notification_types as nt,
             workspace_notification_defaults as wnd,
@@ -113,30 +159,40 @@ impl PreferenceService {
         // workspace_notification_defaults is scoped by the explicit workspace_id
         // filter in the query below.
         // cross-tenant: notification_preferences is global per user (unique key excludes workspace_id); wnd is filtered by workspace_id in the query.
-        let (default_channels, ws_defaults, user_prefs) = crate::sync::session::background_run(
-            &self.pool,
-            "background:notification_pref_load",
-            |conn| {
-                let (type_id, default_channels): (i32, serde_json::Value) = nt::table
-                    .filter(nt::code.eq(type_code))
-                    .select((nt::id, nt::default_channels))
-                    .first(conn)?;
-                let ws_defaults: Vec<(String, String, bool)> = wnd::table
-                    .filter(wnd::workspace_id.eq(workspace_id_val))
-                    .filter(wnd::notification_type_id.eq(type_id))
-                    .select((wnd::channel, wnd::frequency, wnd::locked))
-                    .load(conn)
-                    .unwrap_or_default();
-                let user_prefs: Vec<(String, bool, Option<String>)> = np::table
-                    .filter(np::user_uuid.eq(user_uuid_val))
-                    .filter(np::notification_type_id.eq(type_id))
-                    .select((np::channel, np::enabled, np::frequency))
-                    .load(conn)
-                    .unwrap_or_default();
-                Ok::<_, diesel::result::Error>((default_channels, ws_defaults, user_prefs))
-            },
-        )
-        .map_err(|e| format!("Failed to load notification preferences: {e}"))?;
+        let (default_channels, type_interrupts, ws_defaults, user_prefs) =
+            crate::sync::session::background_run(
+                &self.pool,
+                "background:notification_pref_load",
+                |conn| {
+                    let (type_id, default_channels, type_interrupts): (
+                        i32,
+                        serde_json::Value,
+                        bool,
+                    ) = nt::table
+                        .filter(nt::code.eq(type_code))
+                        .select((nt::id, nt::default_channels, nt::interrupts))
+                        .first(conn)?;
+                    let ws_defaults: Vec<(String, String, bool)> = wnd::table
+                        .filter(wnd::workspace_id.eq(workspace_id_val))
+                        .filter(wnd::notification_type_id.eq(type_id))
+                        .select((wnd::channel, wnd::frequency, wnd::locked))
+                        .load(conn)
+                        .unwrap_or_default();
+                    let user_prefs: Vec<(String, bool, Option<String>)> = np::table
+                        .filter(np::user_uuid.eq(user_uuid_val))
+                        .filter(np::notification_type_id.eq(type_id))
+                        .select((np::channel, np::enabled, np::frequency))
+                        .load(conn)
+                        .unwrap_or_default();
+                    Ok::<_, diesel::result::Error>((
+                        default_channels,
+                        type_interrupts,
+                        ws_defaults,
+                        user_prefs,
+                    ))
+                },
+            )
+            .map_err(|e| format!("Failed to load notification preferences: {e}"))?;
 
         let system_defaults = self.parse_default_channels(&default_channels);
         let ws_map = Self::ws_default_map(ws_defaults);
@@ -144,9 +200,27 @@ impl PreferenceService {
 
         Ok(RESOLVED_CHANNELS
             .into_iter()
-            .filter(|ch| {
-                Self::resolve_channel(ch, &system_defaults, &ws_map, &user_map).0
-                    == NotificationFrequency::Instant
+            .filter_map(|ch| {
+                let freq = Self::resolve_channel(
+                    &ch,
+                    type_interrupts,
+                    &system_defaults,
+                    &ws_map,
+                    &user_map,
+                )
+                .0;
+                // A channel that can't be quiet (email/push) coerces quiet ->
+                // instant, so a mis-set quiet still delivers rather than vanishing.
+                let freq = if freq == NotificationFrequency::Quiet && !ch.supports_quiet() {
+                    NotificationFrequency::Instant
+                } else {
+                    freq
+                };
+                // Deliver-now = instant on any channel, or quiet on in-app (bell
+                // without an interrupt). digest/off are not delivered here.
+                let delivers_now = freq == NotificationFrequency::Instant
+                    || (freq == NotificationFrequency::Quiet && ch.supports_quiet());
+                delivers_now.then_some((ch, freq))
             })
             .collect())
     }
@@ -154,18 +228,25 @@ impl PreferenceService {
     /// Effective `(frequency, locked)` for one channel across the inheritance.
     fn resolve_channel(
         channel: &NotificationChannel,
+        type_interrupts: bool,
         system_defaults: &[NotificationChannel],
         ws_map: &HashMap<String, (NotificationFrequency, bool)>,
         user_map: &HashMap<String, NotificationFrequency>,
     ) -> (NotificationFrequency, bool) {
         let key = channel.as_str();
-        // Base = workspace default if set, else the system default (listed
-        // channel → instant, else off).
+        // Base = workspace default if set, else the system default. A listed
+        // channel defaults to `instant`, EXCEPT in-app on an informational
+        // (non-interrupting) type, which defaults to `quiet` (bell only). A
+        // channel not in the default list is `off`.
         let (base, locked) = match ws_map.get(key) {
             Some((freq, locked)) => (*freq, *locked),
             None => {
                 let f = if system_defaults.contains(channel) {
-                    NotificationFrequency::Instant
+                    if channel.supports_quiet() && !type_interrupts {
+                        NotificationFrequency::Quiet
+                    } else {
+                        NotificationFrequency::Instant
+                    }
                 } else {
                     NotificationFrequency::Off
                 };
@@ -225,12 +306,18 @@ impl PreferenceService {
         use crate::schema::notification_preferences::dsl::*;
         use crate::schema::notification_types;
 
-        let frequency_val =
-            if frequency_val == NotificationFrequency::Digest && !channel_val.supports_digest() {
+        // Coerce a frequency the channel can't honour to `instant` (rather than
+        // silently dropping delivery): `digest` is email-only, `quiet` is
+        // in-app-only.
+        let frequency_val = match frequency_val {
+            NotificationFrequency::Digest if !channel_val.supports_digest() => {
                 NotificationFrequency::Instant
-            } else {
-                frequency_val
-            };
+            }
+            NotificationFrequency::Quiet if !channel_val.supports_quiet() => {
+                NotificationFrequency::Instant
+            }
+            other => other,
+        };
         let enabled_val = frequency_val.to_enabled();
 
         // notification_preferences carries an audit trigger but has no
@@ -387,8 +474,13 @@ impl PreferenceService {
             let mut frequencies = HashMap::new();
             let mut locked = HashMap::new();
             for ch in RESOLVED_CHANNELS {
-                let (freq, is_locked) =
-                    Self::resolve_channel(&ch, &system_defaults, &ws_map, &user_map);
+                let (freq, is_locked) = Self::resolve_channel(
+                    &ch,
+                    notif_type.interrupts,
+                    &system_defaults,
+                    &ws_map,
+                    &user_map,
+                );
                 channels.insert(ch.as_str().to_string(), freq.to_enabled());
                 frequencies.insert(ch.as_str().to_string(), freq.as_str().to_string());
                 locked.insert(ch.as_str().to_string(), is_locked);
@@ -498,12 +590,18 @@ impl PreferenceService {
         use crate::schema::notification_types;
         use crate::schema::workspace_notification_defaults::dsl::*;
 
-        let frequency_val =
-            if frequency_val == NotificationFrequency::Digest && !channel_val.supports_digest() {
+        // Coerce a frequency the channel can't honour to `instant` (rather than
+        // silently dropping delivery): `digest` is email-only, `quiet` is
+        // in-app-only.
+        let frequency_val = match frequency_val {
+            NotificationFrequency::Digest if !channel_val.supports_digest() => {
                 NotificationFrequency::Instant
-            } else {
-                frequency_val
-            };
+            }
+            NotificationFrequency::Quiet if !channel_val.supports_quiet() => {
+                NotificationFrequency::Instant
+            }
+            other => other,
+        };
 
         let mut conn = self
             .pool
@@ -559,11 +657,11 @@ mod tests {
         let ws = HashMap::new();
         let user = HashMap::new();
         assert_eq!(
-            PreferenceService::resolve_channel(&ch("in_app"), &sys, &ws, &user),
+            PreferenceService::resolve_channel(&ch("in_app"), true, &sys, &ws, &user),
             (NotificationFrequency::Instant, false)
         );
         assert_eq!(
-            PreferenceService::resolve_channel(&ch("email"), &sys, &ws, &user),
+            PreferenceService::resolve_channel(&ch("email"), true, &sys, &ws, &user),
             (NotificationFrequency::Off, false)
         );
     }
@@ -575,7 +673,7 @@ mod tests {
         ws.insert("email".to_string(), (NotificationFrequency::Digest, false));
         let user = HashMap::new();
         assert_eq!(
-            PreferenceService::resolve_channel(&ch("email"), &sys, &ws, &user),
+            PreferenceService::resolve_channel(&ch("email"), true, &sys, &ws, &user),
             (NotificationFrequency::Digest, false)
         );
     }
@@ -590,15 +688,43 @@ mod tests {
         // Unlocked workspace default → the user's override wins.
         ws.insert("email".to_string(), (NotificationFrequency::Instant, false));
         assert_eq!(
-            PreferenceService::resolve_channel(&ch("email"), &sys, &ws, &user).0,
+            PreferenceService::resolve_channel(&ch("email"), true, &sys, &ws, &user).0,
             NotificationFrequency::Off
         );
 
         // Locked workspace default → the user cannot override it.
         ws.insert("email".to_string(), (NotificationFrequency::Instant, true));
         assert_eq!(
-            PreferenceService::resolve_channel(&ch("email"), &sys, &ws, &user),
+            PreferenceService::resolve_channel(&ch("email"), true, &sys, &ws, &user),
             (NotificationFrequency::Instant, true)
+        );
+    }
+
+    #[test]
+    fn in_app_default_follows_type_interrupt_classification() {
+        // in_app is a system default. An interrupting type defaults it to
+        // instant (toast); an informational type defaults it to quiet (bell
+        // only). Email ignores the quiet notion regardless.
+        let sys = vec![NotificationChannel::InApp, NotificationChannel::Email];
+        let ws = HashMap::new();
+        let user = HashMap::new();
+
+        assert_eq!(
+            PreferenceService::resolve_channel(&ch("in_app"), true, &sys, &ws, &user).0,
+            NotificationFrequency::Instant,
+            "interrupting type → in-app instant"
+        );
+        assert_eq!(
+            PreferenceService::resolve_channel(&ch("in_app"), false, &sys, &ws, &user).0,
+            NotificationFrequency::Quiet,
+            "informational type → in-app quiet"
+        );
+        // Email has no quiet tier: it stays instant even for an informational
+        // (non-interrupting) type.
+        assert_eq!(
+            PreferenceService::resolve_channel(&ch("email"), false, &sys, &ws, &user).0,
+            NotificationFrequency::Instant,
+            "email default is instant regardless of interrupt classification"
         );
     }
 }

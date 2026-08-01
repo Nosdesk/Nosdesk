@@ -1028,6 +1028,7 @@ diesel::table! {
         category -> Varchar,
         default_channels -> Jsonb,
         created_at -> Timestamptz,
+        interrupts -> Bool,
     }
 }
 

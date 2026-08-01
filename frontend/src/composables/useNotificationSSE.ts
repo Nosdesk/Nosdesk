@@ -17,34 +17,6 @@ import type { NotificationReceivedEventData } from '@nosdesk/core/types/sse';
 
 type NotificationEventData = NotificationReceivedEventData['notification'];
 
-// Which notification kinds may reach the INTERRUPT channel (a toast + desktop
-// popup + sound). Per the alarm-discipline review: only signals that require the
-// recipient to act — or are direct human communication — should interrupt; the
-// rest land quietly in the bell/inbox (which updates via the notifications
-// store's own SSE handler, independent of this gate). So an informational kind
-// still appears in the bell and bumps the unseen badge, it just doesn't pop.
-//
-//   Interrupt: mentioned, comment_added, ticket_assigned, sla_breached, loan_overdue
-//   Quiet:     ticket_status_changed, asset_low_stock, loan_due_soon,
-//              doc_page_updated, ticket_created_requester
-const INTERRUPTING_TYPES = new Set<string>([
-  'mentioned',
-  'comment_added',
-  'ticket_assigned',
-  'sla_breached',
-  'loan_overdue',
-]);
-
-/**
- * True when a notification kind warrants an interrupt (toast + desktop), vs
- * landing quietly in the bell. Unknown kinds default to QUIET: a new signal must
- * be classified into the interrupt set to earn the interrupt, it doesn't inherit
- * it (the review's "default new sources to non-interruptive" principle).
- */
-function shouldInterrupt(notificationType: string | undefined): boolean {
-  return !!notificationType && INTERRUPTING_TYPES.has(notificationType);
-}
-
 export function useNotificationSSE() {
   const authStore = useAuthStore();
   const toastStore = useToastStore();
@@ -59,11 +31,12 @@ export function useNotificationSSE() {
         return;
       }
 
-      // Rationalize the interrupt channel: informational kinds still land in the
-      // bell (via the notifications store's separate handler) but do not toast,
-      // raise a desktop notification, or sound. Only alarm / human-comms kinds
-      // interrupt.
-      if (!shouldInterrupt(notification.notification_type)) {
+      // Rationalize the interrupt channel: the backend resolves whether this
+      // event interrupts (the recipient's in-app frequency — instant vs quiet).
+      // A `quiet` notification still lands in the bell (via the notifications
+      // store's separate handler) but does not toast, raise a desktop
+      // notification, or sound. `interrupts` absent (legacy payload) → interrupt.
+      if (notification.interrupts === false) {
         return;
       }
 

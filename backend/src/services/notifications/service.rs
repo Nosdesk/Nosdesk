@@ -141,9 +141,19 @@ impl NotificationService {
             return Ok(());
         }
 
-        // 3. Persist notification to database
+        // 3. Persist notification to database. The in-app payload carries whether
+        //    the client should interrupt (resolved in-app frequency == instant)
+        //    vs land quietly in the bell.
+        let interrupts = self
+            .preference_service
+            .in_app_interrupts(
+                &payload.recipient_uuid,
+                payload.workspace_id,
+                &payload.notification_type,
+            )
+            .await?;
         let notification_id = self
-            .persist_notification(&payload, &deliverable_channels)
+            .persist_notification(&payload, &deliverable_channels, interrupts)
             .await?;
 
         // 4. Create deliverable notification
@@ -212,6 +222,7 @@ impl NotificationService {
         &self,
         payload: &NotificationPayload,
         channels: &[NotificationChannel],
+        interrupts: bool,
     ) -> Result<i32, String> {
         use crate::schema::notifications;
 
@@ -322,6 +333,7 @@ impl NotificationService {
                         actor: payload.actor.clone(),
                         metadata: payload.metadata.clone(),
                         timestamp: payload.created_at,
+                        interrupts,
                     };
                     emit::record(
                         conn,
