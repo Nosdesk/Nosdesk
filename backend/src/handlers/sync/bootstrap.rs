@@ -683,6 +683,7 @@ fn stream_bootstrap_inner(
                 "affected_devices": affected_devices,
                 "cycle_id": cycle_membership.get(&t.id),
                 "sla": sla,
+                "sla_override": t.sla_override,
                 "recurrence_rule": t.recurrence_rule,
                 "tag_ids": tag_membership.get(&t.id).cloned().unwrap_or_default(),
                 "watcher_uuids": watcher_membership.get(&t.id).cloned().unwrap_or_default(),

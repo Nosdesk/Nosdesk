@@ -1760,6 +1760,8 @@ diesel::table! {
         start_date -> Nullable<Timestamptz>,
         sla_clock_started_at -> Nullable<Timestamptz>,
         sla_paused_at -> Nullable<Timestamptz>,
+        #[max_length = 16]
+        sla_override -> Varchar,
     }
 }
 

@@ -387,6 +387,7 @@ pub fn update_ticket_partial(
         ticket_update.recurrence_rule.is_some(),
         ticket_update.recurrence_template_id.is_some(),
         ticket_update.resolution_notes.is_some(),
+        ticket_update.sla_override.is_some(),
     ]
     .into_iter()
     .filter(|b| *b)
@@ -439,7 +440,8 @@ pub fn update_ticket_partial(
         // correctly clears a stale pill from the card.
         let pill_affecting = ticket_update.workflow_state_id.is_some()
             || ticket_update.priority.is_some()
-            || ticket_update.category_id.is_some();
+            || ticket_update.category_id.is_some()
+            || ticket_update.sla_override.is_some();
         let mut data = json!({
             "id": result.id,
             "title": result.title,
@@ -469,6 +471,7 @@ pub fn update_ticket_partial(
             "closed_at": result.closed_at,
             "submitted_via": result.submitted_via,
             "origin_channel_id": result.origin_channel_id,
+            "sla_override": result.sla_override,
         });
         if pill_affecting {
             if let Some(obj) = data.as_object_mut() {

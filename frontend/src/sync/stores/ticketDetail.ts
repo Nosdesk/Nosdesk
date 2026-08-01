@@ -69,6 +69,8 @@ interface SyncTicketDetail {
   watcher_uuids?: string[]
   cycle_id?: number | null
   sla?: import('@nosdesk/core/types/sla').SlaPill | null
+  /** Per-ticket SLA override: `'auto'` (normal) or `'none'` (SLA removed). */
+  sla_override?: 'auto' | 'none'
   created_by?: string | null
   closed_by?: string | null
   closed_at?: string | null
@@ -230,6 +232,7 @@ export function useTicketDetail(
       closed_by: r.closed_by ?? null,
       closed_at: r.closed_at ?? null,
       sla: r.sla ?? null,
+      sla_override: r.sla_override ?? 'auto',
       cycle: cycle.value,
       resolution_notes: r.resolution_notes,
       tag_ids: r.tag_ids ?? [],
@@ -336,6 +339,13 @@ export function useTicketDetail(
     const r = row.value
     if (!r || r.priority === priority) return
     await patchTicket({ priority }, { priority: r.priority })
+  }
+
+  async function updateSlaOverride(value: 'auto' | 'none'): Promise<void> {
+    const r = row.value
+    const current = r?.sla_override ?? 'auto'
+    if (!r || current === value) return
+    await patchTicket({ sla_override: value }, { sla_override: current })
   }
 
   async function updateCategory(categoryStr: string): Promise<void> {
@@ -782,6 +792,7 @@ export function useTicketDetail(
     // scalar writes
     updateWorkflowState,
     updatePriority,
+    updateSlaOverride,
     updateCategory,
     updateRequester,
     updateAssignee,
