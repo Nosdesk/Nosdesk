@@ -983,12 +983,13 @@ async fn fanout_breach(
         NotificationActor, NotificationEntity, NotificationPayload, NotificationTypeCode,
     };
 
-    // System-triggered: no human actor. nil uuid + "System" name is
-    // the convention other system-triggered notifications would use.
+    // System-triggered: no human actor. `kind: System` marks the origin;
+    // the nil uuid + "System" name feed the self-skip and display.
     let actor = NotificationActor {
         uuid: uuid::Uuid::nil(),
         name: "System".to_string(),
         avatar_thumb: None,
+        kind: crate::sync::ActorKind::System,
     };
     let entity = NotificationEntity::Ticket {
         id: ctx.ticket_id,
@@ -1147,12 +1148,14 @@ pub async fn loan_due_reminders(
         let payload = NotificationPayload::new(
             type_code,
             c.borrower_user_uuid,
-            // System reminder: a sentinel actor (no human triggered it). The
-            // actor uuid is only used for the self-skip + display, not stored.
+            // System reminder: a sentinel actor (no human triggered it).
+            // `kind: System` marks the origin; the uuid is only used for the
+            // self-skip + display, not stored.
             NotificationActor {
                 uuid: uuid::Uuid::nil(),
                 name: "Nosdesk".to_string(),
                 avatar_thumb: None,
+                kind: crate::sync::ActorKind::System,
             },
             NotificationEntity::Asset {
                 id: c.asset_id,

@@ -136,6 +136,51 @@ impl PreferenceService {
             }))
     }
 
+    /// Whether this user has opted to be interrupted (toast / desktop) ONLY by
+    /// human-originated notifications. Stored on `user_preferences` (global per
+    /// user). Consulted only when a would-interrupt notification has a non-human
+    /// actor, so it stays off the hot path for ordinary human notifications.
+    pub async fn interrupt_human_only(&self, user_uuid: &Uuid) -> Result<bool, String> {
+        let uuid = *user_uuid;
+        // cross-tenant: user_preferences is global per user (keyed by user_uuid, no workspace_id).
+        crate::sync::session::background_run(
+            &self.pool,
+            "background:interrupt_human_only",
+            move |conn| {
+                use crate::schema::user_preferences as up;
+                up::table
+                    .find(uuid)
+                    .select(up::interrupt_human_only)
+                    .first::<bool>(conn)
+                    .optional()
+            },
+        )
+        .map(|flag| flag.unwrap_or(false))
+        .map_err(|e| format!("Failed to load interrupt-origin setting: {e}"))
+    }
+
+    /// Set this user's "only interrupt me for human-originated events" toggle.
+    pub async fn set_interrupt_human_only(
+        &self,
+        user_uuid: &Uuid,
+        value: bool,
+    ) -> Result<(), String> {
+        let uuid = *user_uuid;
+        // cross-tenant: user_preferences is global per user (keyed by user_uuid, no workspace_id).
+        crate::sync::session::background_run(
+            &self.pool,
+            "background:set_interrupt_human_only",
+            move |conn| {
+                use crate::schema::user_preferences as up;
+                diesel::update(up::table.find(uuid))
+                    .set(up::interrupt_human_only.eq(value))
+                    .execute(conn)
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| format!("Failed to save interrupt-origin setting: {e}"))
+    }
+
     /// Resolve the `instant` channels for one (user, workspace, type) across the
     /// full inheritance.
     async fn load_preferences_from_db(

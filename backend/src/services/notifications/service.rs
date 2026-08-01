@@ -144,7 +144,7 @@ impl NotificationService {
         // 3. Persist notification to database. The in-app payload carries whether
         //    the client should interrupt (resolved in-app frequency == instant)
         //    vs land quietly in the bell.
-        let interrupts = self
+        let mut interrupts = self
             .preference_service
             .in_app_interrupts(
                 &payload.recipient_uuid,
@@ -152,6 +152,21 @@ impl NotificationService {
                 &payload.notification_type,
             )
             .await?;
+
+        // Origin filter: a user can opt to be interrupted only by human-
+        // originated events, so a non-human actor (scheduled jobs, rule
+        // automations) lands quietly in the bell. Only checked when the
+        // notification would otherwise interrupt AND the actor is non-human,
+        // keeping it off the hot path for ordinary human notifications.
+        if interrupts
+            && payload.actor.kind != crate::sync::ActorKind::User
+            && self
+                .preference_service
+                .interrupt_human_only(&payload.recipient_uuid)
+                .await?
+        {
+            interrupts = false;
+        }
         let notification_id = self
             .persist_notification(&payload, &deliverable_channels, interrupts)
             .await?;

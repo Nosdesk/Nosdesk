@@ -7,6 +7,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::sync::ActorKind;
+
 /// Notification type codes - matches database notification_types.code
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -73,12 +75,12 @@ impl NotificationTypeCode {
 
     /// Short "who did what" line for a context-enriched push body — combined with
     /// the entity's `context_title()` it reads e.g. "Alice mentioned you" under
-    /// the ticket subject. Never includes message content. `actor` is the person
-    /// who triggered it; empty or "System" collapses to an actor-less phrase.
-    pub fn push_body(&self, actor: &str) -> String {
-        let who = match actor.trim() {
-            "" | "System" => None,
-            name => Some(name),
+    /// the ticket subject. Never includes message content. A non-human actor
+    /// (`system` / `plugin`) or an empty name collapses to an actor-less phrase.
+    pub fn push_body(&self, actor: &NotificationActor) -> String {
+        let who = match actor.kind {
+            ActorKind::User if !actor.name.trim().is_empty() => Some(actor.name.trim()),
+            _ => None,
         };
         match self {
             Self::TicketAssigned => match who {
@@ -292,6 +294,12 @@ pub struct NotificationActor {
     pub uuid: Uuid,
     pub name: String,
     pub avatar_thumb: Option<String>,
+    /// Origin of the trigger: a human `user`, or a non-human `system`
+    /// (scheduled jobs, rule automations) / `plugin`. Drives actor-less
+    /// phrasing in push bodies and the per-user "humans only" interrupt
+    /// filter. `#[serde(default)]` reads a pre-`kind` payload as `User`.
+    #[serde(default)]
+    pub kind: ActorKind,
 }
 
 /// Core notification data structure - input to NotificationService
@@ -544,6 +552,7 @@ mod tests {
             uuid: Uuid::new_v4(),
             name: "Actor".to_string(),
             avatar_thumb: None,
+            kind: ActorKind::User,
         };
         let entity = NotificationEntity::Ticket {
             id: 1,
@@ -577,6 +586,7 @@ mod tests {
             uuid: Uuid::new_v4(),
             name: "Actor".to_string(),
             avatar_thumb: None,
+            kind: ActorKind::User,
         };
         let entity = NotificationEntity::Comment {
             id: 5,
@@ -605,5 +615,43 @@ mod tests {
         assert_eq!(event.entity_id, 5);
         assert_eq!(event.ticket_id, 10);
         assert_eq!(event.body.as_deref(), Some("hello"));
+    }
+
+    #[test]
+    fn push_body_names_human_actor_but_omits_non_human() {
+        let human = NotificationActor {
+            uuid: Uuid::new_v4(),
+            name: "Alice".to_string(),
+            avatar_thumb: None,
+            kind: ActorKind::User,
+        };
+        let system = NotificationActor {
+            uuid: Uuid::nil(),
+            name: "System".to_string(),
+            avatar_thumb: None,
+            kind: ActorKind::System,
+        };
+        // A human actor is named in the "who did what" phrase.
+        assert_eq!(
+            NotificationTypeCode::Mentioned.push_body(&human),
+            "Alice mentioned you"
+        );
+        // A non-human actor collapses to the actor-less phrase — driven by
+        // `kind`, not by the actor's name string.
+        assert_eq!(
+            NotificationTypeCode::Mentioned.push_body(&system),
+            "You were mentioned"
+        );
+        // A user actor with a blank name also collapses.
+        let nameless = NotificationActor {
+            uuid: Uuid::new_v4(),
+            name: "  ".to_string(),
+            avatar_thumb: None,
+            kind: ActorKind::User,
+        };
+        assert_eq!(
+            NotificationTypeCode::TicketAssigned.push_body(&nameless),
+            "Assigned to you"
+        );
     }
 }

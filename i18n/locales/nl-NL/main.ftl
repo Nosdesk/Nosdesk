@@ -3481,6 +3481,12 @@ settings-notifications-browser-banner-enable = Meldingen inschakelen
 settings-notifications-browser-enabled-success = Browsermeldingen ingeschakeld
 settings-notifications-browser-denied-error = Toestemming voor browsermeldingen geweigerd
 settings-notifications-quick-settings-title = Snelle instellingen
+# MACHINE TRANSLATION, pending native review
+settings-notifications-interrupt-origin-title = Onderbrekingen
+# MACHINE TRANSLATION, pending native review
+settings-notifications-interrupt-origin-label = Onderbreek me alleen voor mensen
+# MACHINE TRANSLATION, pending native review
+settings-notifications-interrupt-origin-description = Toon een pop-up en bureaubladmelding alleen voor acties van mensen. Automatische meldingen (SLA-overschrijdingen, te late uitleningen, automatische toewijzing) blijven zichtbaar in de bel.
 settings-notifications-channel-toggle-all-label = Alle { $channel }-meldingen
 settings-notifications-column-header = Melding
 settings-notifications-load-error = Kan meldingsvoorkeuren niet laden

@@ -204,6 +204,24 @@ export async function updateNotificationPreference(
 }
 
 /**
+ * Whether the signed-in user has opted to be interrupted (toast / desktop)
+ * only by human-originated notifications. When true, system/automation
+ * triggers (SLA breach, loan overdue, rule auto-assignment) land quietly in
+ * the bell.
+ */
+export async function getInterruptHumanOnly(): Promise<boolean> {
+  const response = await apiClient.get<{ human_only: boolean }>(
+    '/notifications/interrupt-preferences'
+  );
+  return response.data.human_only;
+}
+
+/** Set the origin-based interrupt preference for the signed-in user. */
+export async function setInterruptHumanOnly(humanOnly: boolean): Promise<void> {
+  await apiClient.put('/notifications/interrupt-preferences', { human_only: humanOnly });
+}
+
+/**
  * Get the workspace's notification DEFAULTS matrix (admin-only). One row per
  * type with the effective default frequency + `locked` per channel.
  */

@@ -33,7 +33,7 @@
 //! let payload = NotificationPayload::new(
 //!     NotificationTypeCode::TicketAssigned,
 //!     recipient_uuid,
-//!     NotificationActor { uuid, name, avatar_thumb },
+//!     NotificationActor { uuid, name, avatar_thumb, kind },
 //!     NotificationEntity::Ticket { id, title },
 //!     ticket.workspace_id, // the entity's workspace; the row is pinned here
 //! )

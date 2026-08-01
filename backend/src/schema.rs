@@ -1883,6 +1883,7 @@ diesel::table! {
         timezone -> Nullable<Text>,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        interrupt_human_only -> Bool,
     }
 }
 

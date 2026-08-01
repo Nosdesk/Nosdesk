@@ -700,6 +700,7 @@ pub async fn create_ticket(
                                             uuid: Uuid::nil(),
                                             name: "System".to_string(),
                                             avatar_thumb: None,
+                                            kind: crate::sync::ActorKind::System,
                                         },
                                         NotificationEntity::Ticket {
                                             id: ticket_id,
@@ -988,6 +989,7 @@ pub async fn create_empty_ticket(
                                     uuid: Uuid::nil(), // System actor
                                     name: "System".to_string(),
                                     avatar_thumb: None,
+                                    kind: crate::sync::ActorKind::System,
                                 },
                                 NotificationEntity::Ticket {
                                     id: ticket_id,
@@ -1420,6 +1422,7 @@ pub async fn update_ticket_partial(
                                                 uuid: Uuid::nil(), // System actor
                                                 name: "System".to_string(),
                                                 avatar_thumb: None,
+                                                kind: crate::sync::ActorKind::System,
                                             },
                                             NotificationEntity::Ticket {
                                                 id: ticket_id,
@@ -1465,6 +1468,7 @@ pub async fn update_ticket_partial(
                             uuid: user.uuid,
                             name: user.name.clone(),
                             avatar_thumb: user.avatar_thumb.clone(),
+                            kind: crate::sync::ActorKind::User,
                         })
                 });
 
