@@ -151,6 +151,7 @@ export function connectToHost(): Promise<PluginRuntime> {
       ticket: null,
       asset: null,
       user: null,
+      address: null,
       component: { name: '', slot: '' },
     };
     let theme: PluginTheme = { tokens: {}, colorScheme: 'light', name: 'light' };

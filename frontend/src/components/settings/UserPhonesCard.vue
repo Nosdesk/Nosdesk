@@ -80,23 +80,24 @@ const confirmMessage = computed(() =>
 
     <div
       v-if="showAddForm && editable"
-      class="mb-3 p-3 bg-surface-alt rounded-lg border border-subtle flex flex-col sm:flex-row sm:items-center gap-2"
+      class="mb-3 rounded-lg border border-default p-4 flex flex-col gap-3"
     >
-      <BaseDropdown v-model="draft.phone_type" :options="typeOptions" class="shrink-0" />
+      <div class="flex items-center gap-3">
+        <BaseDropdown v-model="draft.phone_type" :options="typeOptions" class="shrink-0" />
+        <Checkbox v-model="draft.is_primary" :label="t('user-phones-primary')" />
+      </div>
       <FormInput
         v-model="draft.phone"
         type="tel"
-        class="flex-1"
-        :placeholder="t('user-phones-add-placeholder')"
+        :label="t('user-phones-add-placeholder')"
         size="sm"
         @keyup.enter="submit"
       />
-      <Checkbox v-model="draft.is_primary" :label="t('user-phones-primary')" />
-      <div class="flex gap-2 shrink-0">
+      <div class="flex justify-end gap-2 pt-1">
+        <Button variant="secondary" size="sm" @click="cancel">{{ t('common-cancel') }}</Button>
         <Button size="sm" :loading="saving" :disabled="!draft.phone.trim()" @click="submit">
           {{ t('user-phones-add') }}
         </Button>
-        <Button variant="secondary" size="sm" @click="cancel">{{ t('common-cancel') }}</Button>
       </div>
     </div>
 

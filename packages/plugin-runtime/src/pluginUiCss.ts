@@ -12,7 +12,17 @@
 export const PLUGIN_UI_CSS = `
 :root { --nd-radius: 8px; color-scheme: light dark; }
 
+/* Baseline reset: border-box so a border/padding never widens an element past
+   its width (the classic source of a stray 100%+2px horizontal scrollbar in a
+   width-constrained panel). */
+*, *::before, *::after { box-sizing: border-box; }
+
 html, body { margin: 0; padding: 0; }
+/* The host sizes the iframe to the plugin's reported content height, so the
+   document itself is never a horizontal scroll container: clip rather than show
+   a spurious x-scrollbar. Vertical stays visible so nothing is silently hidden
+   if a height report ever lags. */
+body { overflow-x: hidden; }
 body {
   font-family: var(--nd-font-sans, system-ui, -apple-system, sans-serif);
   font-size: 13px;

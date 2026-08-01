@@ -27,6 +27,7 @@ export type {
   HostApi,
   PluginHostApi,
   PluginContext,
+  PluginAddress,
   PluginTheme,
   PluginModule,
   PluginInstance,

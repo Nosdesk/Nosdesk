@@ -53,6 +53,8 @@ pub(crate) const KNOWN_CONTEXTS: &[&str] = &[
     "ticket",
     // Delivered to `asset-*` slots as `context.asset`.
     "asset",
+    // Delivered to `user.address.panel` as `context.address`.
+    "address",
     // Reserved:
     "user",
     "comment",

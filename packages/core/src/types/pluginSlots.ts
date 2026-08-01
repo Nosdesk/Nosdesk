@@ -26,7 +26,13 @@
 export type SlotMechanism = 'panel' | 'action';
 
 /** The single host-provided context object a mount hands to the plugin. */
-export type SlotContextType = 'ticket' | 'asset' | 'user' | 'documentationPage' | 'none';
+export type SlotContextType =
+  | 'ticket'
+  | 'asset'
+  | 'user'
+  | 'address'
+  | 'documentationPage'
+  | 'none';
 
 /** Whether one plugin may contribute once or many times to a slot. */
 export type SlotCardinality = 'one' | 'many';
@@ -86,6 +92,16 @@ export const SLOT_REGISTRY = [
     status: 'stable',
     aliases: [],
     description: 'Info panels on the user profile view',
+  },
+  {
+    name: 'user.address.panel',
+    mechanism: 'panel',
+    context: 'address',
+    cardinality: 'many',
+    order: 100,
+    status: 'stable',
+    aliases: [],
+    description: "Enrichment panel per address row on a user's addresses card",
   },
   {
     name: 'settings.integrations.page',
