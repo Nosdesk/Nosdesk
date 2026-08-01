@@ -3494,6 +3494,8 @@ settings-notifications-info-footer = E-mailmeldingen zijn snelheidsbeperkt om uw
 
 # Meldingsfrequentie, pushkanaal + standaardinstellingen beheerder (2026-07-16)
 settings-notifications-frequency-instant = Direct
+# MACHINE TRANSLATION, pending native review
+settings-notifications-frequency-quiet = Stil (geen pop-up)
 settings-notifications-frequency-digest = Dagelijks overzicht
 settings-notifications-frequency-off = Uit
 settings-notifications-frequency-mixed = Gemengd

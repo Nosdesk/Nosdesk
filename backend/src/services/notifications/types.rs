@@ -146,6 +146,13 @@ impl NotificationChannel {
     pub fn supports_digest(&self) -> bool {
         matches!(self, Self::Email)
     }
+
+    /// Whether `quiet` (deliver-but-don't-interrupt) is meaningful. Only in-app
+    /// has an inbox that can hold a notification without interrupting; email and
+    /// push are deliver-or-not, so they coerce a `quiet` preference to `instant`.
+    pub fn supports_quiet(&self) -> bool {
+        matches!(self, Self::InApp)
+    }
 }
 
 /// Per-(user, type, channel) delivery frequency — replaces the binary
@@ -154,8 +161,12 @@ impl NotificationChannel {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NotificationFrequency {
-    /// Deliver immediately on this channel.
+    /// Deliver immediately on this channel (in-app: toast + desktop interrupt).
     Instant,
+    /// Deliver to the in-app inbox (bell + unseen badge) WITHOUT interrupting —
+    /// no toast / desktop popup. In-app only (see `supports_quiet`); other
+    /// channels coerce it to `Instant`.
+    Quiet,
     /// Batch into a periodic summary (email only — see `supports_digest`).
     Digest,
     /// Never deliver on this channel.
@@ -166,6 +177,7 @@ impl NotificationFrequency {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Instant => "instant",
+            Self::Quiet => "quiet",
             Self::Digest => "digest",
             Self::Off => "off",
         }
@@ -174,6 +186,7 @@ impl NotificationFrequency {
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "instant" => Some(Self::Instant),
+            "quiet" => Some(Self::Quiet),
             "digest" => Some(Self::Digest),
             "off" => Some(Self::Off),
             _ => None,
@@ -366,6 +379,16 @@ pub struct NotificationEvent {
     #[serde(default)]
     pub metadata: serde_json::Value,
     pub timestamp: DateTime<Utc>,
+    /// Whether the client should INTERRUPT (toast + desktop) for this event, vs
+    /// let it land quietly in the bell. Reflects the recipient's RESOLVED in-app
+    /// frequency (`instant` → true, `quiet` → false). Defaults to `true` on the
+    /// legacy `From` path (which lacks the resolved frequency).
+    #[serde(default = "default_true")]
+    pub interrupts: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl From<&DeliverableNotification> for NotificationEvent {
@@ -381,6 +404,7 @@ impl From<&DeliverableNotification> for NotificationEvent {
             actor: notification.payload.actor.clone(),
             metadata: notification.payload.metadata.clone(),
             timestamp: notification.payload.created_at,
+            interrupts: true,
         }
     }
 }

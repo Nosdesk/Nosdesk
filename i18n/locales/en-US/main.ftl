@@ -3653,6 +3653,7 @@ settings-notifications-info-footer = Email notifications are rate limited to pre
 
 # Notification frequency, push channel + admin defaults (2026-07-16)
 settings-notifications-frequency-instant = Instant
+settings-notifications-frequency-quiet = Quiet (no popup)
 settings-notifications-frequency-digest = Daily digest
 settings-notifications-frequency-off = Off
 settings-notifications-frequency-mixed = Mixed

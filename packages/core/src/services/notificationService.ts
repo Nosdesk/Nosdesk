@@ -12,7 +12,7 @@ import apiClient from '../apiClient';
  * - `digest`  — batch into a periodic summary (email only; see `channelSupportsDigest`)
  * - `off`     — never deliver on this channel
  */
-export type NotificationFrequency = 'instant' | 'digest' | 'off';
+export type NotificationFrequency = 'instant' | 'quiet' | 'digest' | 'off';
 
 /** Whether `digest` is a meaningful frequency for a channel. Only the email
  *  channel batches into a summary; in-app is a live stream and push is
@@ -20,6 +20,13 @@ export type NotificationFrequency = 'instant' | 'digest' | 'off';
  *  the backend `NotificationChannel::supports_digest`. */
 export function channelSupportsDigest(channelCode: string): boolean {
   return channelCode === 'email';
+}
+
+/** Whether `quiet` (deliver to the bell but don't toast/interrupt) is a
+ *  meaningful frequency for a channel. Only in-app has an inbox that can hold a
+ *  notification without interrupting. Mirrors `NotificationChannel::supports_quiet`. */
+export function channelSupportsQuiet(channelCode: string): boolean {
+  return channelCode === 'in_app';
 }
 
 export interface NotificationPreference {

@@ -3503,6 +3503,8 @@ settings-notifications-info-footer = Les notifications par e-mail sont limitées
 
 # Fréquence de notification, canal push + valeurs par défaut admin (2026-07-16)
 settings-notifications-frequency-instant = Instantané
+# MACHINE TRANSLATION, pending native review
+settings-notifications-frequency-quiet = Discret (sans pop-up)
 settings-notifications-frequency-digest = Résumé quotidien
 settings-notifications-frequency-off = Désactivé
 settings-notifications-frequency-mixed = Mixte
