@@ -1723,6 +1723,10 @@ admin-sla-workspace-default = Workspace default
 admin-sla-field-no-sla = No SLA
 admin-sla-field-no-sla-hint = Tickets this policy matches get no SLA. Scope it with a filter above to remove SLAs from a class of tickets.
 admin-sla-no-sla-label = No SLA
+admin-sla-field-clock-start = Clock starts
+admin-sla-field-clock-start-hint = From activation: the clock starts when the ticket first becomes active, so backlog time isn't counted. From submission: the clock runs from ticket creation.
+admin-sla-clock-start-activated = From activation
+admin-sla-clock-start-created = From submission
 admin-sla-create = Create
 
 # Admin: Branding (BrandingSettingsView). Custom app name, primary

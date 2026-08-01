@@ -367,6 +367,8 @@ mod tests {
             sla_resolution_target_at: None,
             sla_resolution_breached_at: None,
             spam_suspected: false,
+            sla_clock_started_at: None,
+            sla_paused_at: None,
         }
     }
 

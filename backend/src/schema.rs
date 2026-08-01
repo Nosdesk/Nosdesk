@@ -1524,6 +1524,8 @@ diesel::table! {
         workspace_id -> Int4,
         assignee_group_id_filter -> Nullable<Int4>,
         no_sla -> Bool,
+        #[max_length = 16]
+        clock_start -> Varchar,
     }
 }
 
@@ -1756,6 +1758,8 @@ diesel::table! {
         uuid -> Uuid,
         spam_suspected -> Bool,
         start_date -> Nullable<Timestamptz>,
+        sla_clock_started_at -> Nullable<Timestamptz>,
+        sla_paused_at -> Nullable<Timestamptz>,
     }
 }
 

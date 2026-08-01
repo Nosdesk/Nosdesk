@@ -103,6 +103,7 @@ pub struct NewSlaPolicy {
     pub assignee_group_id_filter: Option<i32>,
     pub is_default: bool,
     pub no_sla: bool,
+    pub clock_start: String,
     pub created_by: Option<Uuid>,
 }
 
@@ -118,6 +119,7 @@ pub struct SlaPolicyPatch {
     pub assignee_group_id_filter: Option<Option<i32>>,
     pub is_default: Option<bool>,
     pub no_sla: Option<bool>,
+    pub clock_start: Option<String>,
     pub updated_at: Option<chrono::DateTime<Utc>>,
 }
 
@@ -133,6 +135,9 @@ pub struct SlaPolicyBody {
     pub is_default: Option<bool>,
     #[serde(default)]
     pub no_sla: Option<bool>,
+    /// `"created"` or `"activated"` (default). See services::sla::ClockStart.
+    #[serde(default)]
+    pub clock_start: Option<String>,
 }
 
 pub fn list_policies(conn: &mut DbConnection) -> QueryResult<Vec<SlaPolicy>> {
@@ -158,6 +163,7 @@ pub fn create_policy(
             assignee_group_id_filter: body.assignee_group_id_filter,
             is_default: body.is_default.unwrap_or(false),
             no_sla: body.no_sla.unwrap_or(false),
+            clock_start: body.clock_start.unwrap_or_else(|| "activated".to_string()),
             created_by: actor,
         })
         .get_result(conn)
@@ -217,6 +223,7 @@ pub fn seed_defaults_if_empty(
             assignee_group_id_filter: None,
             is_default: Some(true),
             no_sla: Some(false),
+            clock_start: None, // -> "activated" (the instant-breach fix)
         },
         created_by,
     )?;
@@ -240,6 +247,7 @@ pub fn update_policy(
         assignee_group_id_filter: Some(body.assignee_group_id_filter),
         is_default: body.is_default,
         no_sla: body.no_sla,
+        clock_start: body.clock_start,
         updated_at: Some(Utc::now()),
     };
     diesel::update(sla_policies::table.find(id))
