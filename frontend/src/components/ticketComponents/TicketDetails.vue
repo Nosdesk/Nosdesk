@@ -125,6 +125,9 @@ const props = defineProps<{
      *  handler computes the same shape on read so this sidebar
      *  can render the countdown without a second round-trip. */
     sla?: SlaPayload | null;
+    /** Per-ticket SLA override: `'auto'` (normal) or `'none'` (SLA removed for
+     *  this ticket, regardless of policy). */
+    sla_override?: 'auto' | 'none';
     /** Cycle membership embedded by the detail handler. The chip is
      *  clickable and opens the cycle's detail board at /cycles/:uuid. */
     cycle?: {
@@ -191,6 +194,7 @@ const emit = defineEmits<{
   /** Resolution notes — empty string normalises to null upstream
    *  in `useTicketData` so this emit can use either shape. */
   (e: "update:resolutionNotes", value: string | null): void;
+  (e: "update:slaOverride", value: 'auto' | 'none'): void;
   /** Replace the ticket's tag set. Backend computes the diff. */
   (e: "update:tag-ids", value: number[]): void;
   /** Toggle the current user's watch status on this ticket. */
@@ -1053,39 +1057,68 @@ watchEffect(async () => {
                `deriveSlaState` (shared with the list cell). -->
           <div
             v-if="slaState"
-            class="flex items-center justify-between gap-2 text-xs min-h-6"
+            class="group flex items-center justify-between gap-2 text-xs min-h-6"
             :title="slaState.detail"
           >
             <span class="text-tertiary font-medium">{{ t('ticket-detail-sla-label') }}</span>
-            <button
-              ref="slaPillRef"
-              type="button"
-              class="inline-flex items-center gap-1.5 transition-colors duration-200 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-              :class="slaState.toneClass"
-              :aria-expanded="slaExplainOpen"
-              :aria-label="t('ticket-detail-sla-explain-aria')"
-              @click="slaExplainOpen = !slaExplainOpen"
-            >
-              <Icon name="clock" class="w-3.5 h-3.5" />
-              <span class="font-medium">{{ slaState.statusLabel }}</span>
-              <!-- Countdown for active timers; pause/breach detail
-                   otherwise. Either way the suffix sits in tertiary
-                   text after a bullet for the same visual weight. -->
-              <span
-                v-if="!slaState.breached && !slaState.paused"
-                class="text-tertiary tabular-nums"
-              >· {{ slaState.compactLabel }}</span>
-              <span
-                v-else-if="slaPillDetail"
-                class="text-tertiary tabular-nums"
-              >· {{ slaPillDetail }}</span>
-            </button>
-            <SlaExplainPopover
-              :anchor="slaPillRef"
-              :open="slaExplainOpen"
-              :ticket-id="ticket.id"
-              @close="slaExplainOpen = false"
-            />
+            <div class="flex items-center gap-2">
+              <!-- Remove SLA for this ticket (revealed on row hover). -->
+              <button
+                type="button"
+                class="text-[11px] text-tertiary hover:text-status-error transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                :title="t('ticket-detail-sla-remove-title')"
+                @click="emit('update:slaOverride', 'none')"
+              >
+                {{ t('ticket-detail-sla-remove') }}
+              </button>
+              <button
+                ref="slaPillRef"
+                type="button"
+                class="inline-flex items-center gap-1.5 transition-colors duration-200 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                :class="slaState.toneClass"
+                :aria-expanded="slaExplainOpen"
+                :aria-label="t('ticket-detail-sla-explain-aria')"
+                @click="slaExplainOpen = !slaExplainOpen"
+              >
+                <Icon name="clock" class="w-3.5 h-3.5" />
+                <span class="font-medium">{{ slaState.statusLabel }}</span>
+                <!-- Countdown for active timers; pause/breach detail
+                     otherwise. Either way the suffix sits in tertiary
+                     text after a bullet for the same visual weight. -->
+                <span
+                  v-if="!slaState.breached && !slaState.paused"
+                  class="text-tertiary tabular-nums"
+                >· {{ slaState.compactLabel }}</span>
+                <span
+                  v-else-if="slaPillDetail"
+                  class="text-tertiary tabular-nums"
+                >· {{ slaPillDetail }}</span>
+              </button>
+              <SlaExplainPopover
+                :anchor="slaPillRef"
+                :open="slaExplainOpen"
+                :ticket-id="ticket.id"
+                @close="slaExplainOpen = false"
+              />
+            </div>
+          </div>
+
+          <!-- SLA manually removed for this ticket: no pill, a restore action. -->
+          <div
+            v-else-if="ticket.sla_override === 'none'"
+            class="flex items-center justify-between gap-2 text-xs min-h-6"
+          >
+            <span class="text-tertiary font-medium">{{ t('ticket-detail-sla-label') }}</span>
+            <div class="flex items-center gap-2">
+              <span class="text-tertiary italic">{{ t('ticket-detail-sla-removed') }}</span>
+              <button
+                type="button"
+                class="text-[11px] text-tertiary hover:text-accent transition-colors"
+                @click="emit('update:slaOverride', 'auto')"
+              >
+                {{ t('ticket-detail-sla-restore') }}
+              </button>
+            </div>
           </div>
 
           <!-- Scheduling group: due date + recurrence collapsed

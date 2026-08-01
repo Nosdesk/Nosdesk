@@ -983,10 +983,13 @@ pub struct Ticket {
     /// (no pill). Set when the ticket first enters a non-pausing state.
     pub sla_clock_started_at: Option<NaiveDateTime>,
     /// When the current SLA pause began, so a resume can add the paused business
-    /// time back onto `sla_clock_started_at`. NULL = not currently paused. Must
-    /// stay the LAST two fields to match `schema.rs` column order (positional
-    /// Queryable).
+    /// time back onto `sla_clock_started_at`. NULL = not currently paused.
     pub sla_paused_at: Option<NaiveDateTime>,
+    /// Per-ticket SLA override: `"auto"` (normal policy resolution) or `"none"`
+    /// (this ticket has no SLA regardless of matching policies — the manual
+    /// escape hatch, short-circuited at the top of `compute_pill`). Must stay the
+    /// LAST field to match `schema.rs` column order (positional Queryable).
+    pub sla_override: String,
 }
 
 /// Merge metadata for a ticket that was merged into another (the satellite of
@@ -1074,6 +1077,10 @@ pub struct TicketUpdate {
     /// Cleared to `false` by the "not spam" action; never set true via the API
     /// (only the inbound pipeline flags spam).
     pub spam_suspected: Option<bool>,
+    /// Per-ticket SLA override: `"auto"` / `"none"`. Outer `None` leaves it
+    /// unchanged; `Some(_)` sets it. A change recomputes the pill (see
+    /// `pill_affecting` in `update_ticket_partial`).
+    pub sla_override: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable)]

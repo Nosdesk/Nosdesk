@@ -3966,6 +3966,14 @@ ticket-detail-add-assignee = Ajouter un destinataire
 ticket-detail-claim = Prendre
 ticket-detail-claim-title = M'attribuer ce ticket
 ticket-detail-sla-label = SLA
+# MACHINE TRANSLATION, pending native review
+ticket-detail-sla-remove = Retirer
+# MACHINE TRANSLATION, pending native review
+ticket-detail-sla-remove-title = Retirer le SLA pour ce ticket
+# MACHINE TRANSLATION, pending native review
+ticket-detail-sla-removed = Aucun SLA (retiré)
+# MACHINE TRANSLATION, pending native review
+ticket-detail-sla-restore = Rétablir
 ticket-detail-sla-paused-target = échéance { $target }
 ticket-detail-scheduling-label = Planification
 ticket-detail-scheduling-none = Aucune

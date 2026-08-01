@@ -103,6 +103,7 @@ const {
     recentlyAddedCommentIds,
     updateWorkflowState,
     updatePriority,
+    updateSlaOverride,
     updateCategory,
     updateRequester,
     updateAssignee,
@@ -672,6 +673,7 @@ const rootEl = ref<HTMLElement | null>(null);
                                 @update:startDate="updateStartDate"
                                 @update:recurrenceRule="updateRecurrenceRule"
                                 @update:resolutionNotes="updateResolutionNotes"
+                                @update:slaOverride="updateSlaOverride"
                                 @update:tag-ids="updateTags"
                                 @toggle-watch="handleToggleWatch"
                                 @add-device="showDeviceModal = true"

@@ -3957,6 +3957,14 @@ ticket-detail-add-assignee = Toegewezene toevoegen
 ticket-detail-claim = Claimen
 ticket-detail-claim-title = Ken dit ticket aan jezelf toe
 ticket-detail-sla-label = SLA
+# MACHINE TRANSLATION, pending native review
+ticket-detail-sla-remove = Verwijderen
+# MACHINE TRANSLATION, pending native review
+ticket-detail-sla-remove-title = De SLA voor dit ticket verwijderen
+# MACHINE TRANSLATION, pending native review
+ticket-detail-sla-removed = Geen SLA (verwijderd)
+# MACHINE TRANSLATION, pending native review
+ticket-detail-sla-restore = Herstellen
 ticket-detail-sla-paused-target = doel { $target }
 ticket-detail-scheduling-label = Planning
 ticket-detail-scheduling-none = Geen

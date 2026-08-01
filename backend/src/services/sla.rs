@@ -398,6 +398,13 @@ pub fn compute_pill(
     holidays: &HashSet<NaiveDate>,
     now: DateTime<Utc>,
 ) -> Option<SlaPill> {
+    // A per-ticket override to `none` wins over any policy: no SLA. Checked here
+    // (the single point every read path routes through) so it also clears the
+    // materialised targets.
+    if ticket.sla_override == "none" {
+        return None;
+    }
+
     // A No-SLA policy that wins matching means this ticket has no SLA: no pill.
     // Both the bootstrap read and the recompute path route through here, so this
     // one check covers every surface (and clears the materialised targets, since
@@ -539,6 +546,10 @@ fn advance_sla_clock(conn: &mut crate::db::DbConnection, ticket: &mut Ticket) {
     use crate::schema::{sla_policies, tickets, workflow_states};
     use diesel::prelude::*;
 
+    // An overridden-off ticket has no SLA — nothing to anchor.
+    if ticket.sla_override == "none" {
+        return;
+    }
     let Ok(policies) = sla_policies::table.load::<SlaPolicy>(conn) else {
         return;
     };
@@ -873,6 +884,10 @@ pub fn scan_open_ticket_buckets(
             .and_then(|u| groups_by_assignee.get(&u))
             .map(|v| v.as_slice())
             .unwrap_or(&[]);
+        // A per-ticket override to `none` has no SLA — exclude from the counts.
+        if ticket.sla_override == "none" {
+            continue;
+        }
         let Some(policy) = pick_policy(&ctx.policies, &ticket, assignee_groups) else {
             continue;
         };
@@ -1007,6 +1022,7 @@ mod tests {
             spam_suspected: false,
             sla_clock_started_at: None,
             sla_paused_at: None,
+            sla_override: "auto".to_string(),
         }
     }
 
@@ -1042,6 +1058,17 @@ mod tests {
             Utc::now(),
         );
         assert!(pill.is_none(), "a No-SLA policy must produce no pill");
+    }
+
+    #[test]
+    fn ticket_override_none_wins_over_matching_policy() {
+        // The per-ticket escape hatch: override=none removes the SLA even when a
+        // normal applies-policy matches.
+        let mut t = ticket(None);
+        t.sla_override = "none".to_string();
+        let p = policy(1, None, true); // has targets + a calendar
+        let pill = compute_pill(&t, false, &p, &all_hours_cal(), &HashSet::new(), Utc::now());
+        assert!(pill.is_none(), "sla_override=none removes the SLA");
     }
 
     fn all_hours_cal() -> WorkingCalendar {
