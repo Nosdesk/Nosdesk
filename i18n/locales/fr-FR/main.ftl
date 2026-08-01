@@ -1570,6 +1570,12 @@ admin-sla-priority-low = basse
 admin-sla-priority-medium = moyenne
 admin-sla-priority-high = haute
 admin-sla-workspace-default = Défaut de l'espace de travail
+# MACHINE TRANSLATION, pending native review
+admin-sla-field-no-sla = Aucun SLA
+# MACHINE TRANSLATION, pending native review
+admin-sla-field-no-sla-hint = Les tickets correspondant à cette politique n'ont aucun SLA. Restreignez-la avec un filtre ci-dessus pour retirer les SLA d'une catégorie de tickets.
+# MACHINE TRANSLATION, pending native review
+admin-sla-no-sla-label = Aucun SLA
 admin-sla-create = Créer
 
 # Admin : Marque.

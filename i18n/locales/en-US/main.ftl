@@ -1720,6 +1720,9 @@ admin-sla-priority-low = low
 admin-sla-priority-medium = medium
 admin-sla-priority-high = high
 admin-sla-workspace-default = Workspace default
+admin-sla-field-no-sla = No SLA
+admin-sla-field-no-sla-hint = Tickets this policy matches get no SLA. Scope it with a filter above to remove SLAs from a class of tickets.
+admin-sla-no-sla-label = No SLA
 admin-sla-create = Create
 
 # Admin: Branding (BrandingSettingsView). Custom app name, primary

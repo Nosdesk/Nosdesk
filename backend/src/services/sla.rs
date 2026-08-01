@@ -323,6 +323,14 @@ pub fn compute_pill(
     holidays: &HashSet<NaiveDate>,
     now: DateTime<Utc>,
 ) -> Option<SlaPill> {
+    // A No-SLA policy that wins matching means this ticket has no SLA: no pill.
+    // Both the bootstrap read and the recompute path route through here, so this
+    // one check covers every surface (and clears the materialised targets, since
+    // callers treat `None` as "no SLA").
+    if policy.no_sla {
+        return None;
+    }
+
     let created_utc = DateTime::<Utc>::from_naive_utc_and_offset(ticket.created_at, Utc);
 
     let response = policy
@@ -661,6 +669,11 @@ pub fn scan_open_ticket_buckets(
         let Some(policy) = pick_policy(&ctx.policies, &ticket, assignee_groups) else {
             continue;
         };
+        // A No-SLA policy means this ticket has no SLA — exclude it from the SLA
+        // health counts rather than defaulting it into on_track / total.
+        if policy.no_sla {
+            continue;
+        }
 
         // No calendar attached -> no pill; the policy still matches
         // the ticket so it counts toward `total` but lands in
@@ -746,6 +759,7 @@ mod tests {
             updated_at: Utc::now(),
             created_by: None,
             workspace_id: 1,
+            no_sla: false,
             // No need to backfill new ticket fields; the matcher
             // doesn't read them and Ticket is built per-test.
         }
@@ -784,6 +798,40 @@ mod tests {
             sla_resolution_breached_at: None,
             spam_suspected: false,
         }
+    }
+
+    #[test]
+    fn no_sla_policy_wins_precedence_but_yields_no_pill() {
+        // A more-specific No-SLA policy beats the catch-all default (precedence
+        // is unchanged), and a ticket it matches gets no pill.
+        let mut no_sla_policy = policy(2, Some(10), false);
+        no_sla_policy.no_sla = true;
+        let default_policy = policy(1, None, true);
+        let policies = vec![default_policy, no_sla_policy.clone()];
+        let t = ticket(Some(Uuid::new_v4()));
+
+        // pick_policy still selects the most-specific (group) policy.
+        let picked = pick_policy(&policies, &t, &[10]).expect("a policy matches");
+        assert_eq!(picked.id, 2);
+        assert!(picked.no_sla);
+
+        // But compute_pill on a No-SLA policy renders nothing, regardless of
+        // configured targets / calendar.
+        let calendar = cal(serde_json::json!({
+            "mon": [["00:00", "23:59"]], "tue": [["00:00", "23:59"]],
+            "wed": [["00:00", "23:59"]], "thu": [["00:00", "23:59"]],
+            "fri": [["00:00", "23:59"]], "sat": [["00:00", "23:59"]],
+            "sun": [["00:00", "23:59"]]
+        }));
+        let pill = compute_pill(
+            &t,
+            false,
+            &no_sla_policy,
+            &calendar,
+            &HashSet::new(),
+            Utc::now(),
+        );
+        assert!(pill.is_none(), "a No-SLA policy must produce no pill");
     }
 
     #[test]

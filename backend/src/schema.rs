@@ -1523,6 +1523,7 @@ diesel::table! {
         created_by -> Nullable<Uuid>,
         workspace_id -> Int4,
         assignee_group_id_filter -> Nullable<Int4>,
+        no_sla -> Bool,
     }
 }
 
