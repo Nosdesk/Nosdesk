@@ -30,7 +30,7 @@ import {
   buildWorkflowDropdownOptions,
   isCategoryHeaderValue,
 } from '@nosdesk/core/types/workflow'
-import { useSlaState, useSlaTimers, isSlaDormant, type SlaState } from '@/composables/useSlaState'
+import { useSlaState, useSlaTimers, type SlaState } from '@/composables/useSlaState'
 import {
   formatCleanRelativeTime,
   formatDateTime,
@@ -115,10 +115,6 @@ function fullDateTime(iso: string | null | undefined): string {
 
 const slaState = useSlaState(toRef(props, 'card'))
 const slaTimers = useSlaTimers(toRef(props, 'card'))
-
-// Hide the SLA chrome for a dormant SLA (paused + never started, e.g. a backlog
-// request) so tickets that don't need one aren't cluttered with a frozen timer.
-const slaDormant = computed(() => isSlaDormant(props.card))
 
 // What the SLA section renders: both timers labelled when the policy
 // has both targets configured, otherwise the one timer unlabeled.
@@ -278,7 +274,7 @@ async function updateDueDate(iso: string | null): Promise<void> {
                 />
               </span>
               <span
-                v-if="slaState && !slaDormant"
+                v-if="slaState"
                 class="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 h-6 rounded-md border border-subtle transition-colors duration-200"
                 :class="slaState.toneClass"
               >
@@ -384,7 +380,7 @@ async function updateDueDate(iso: string | null): Promise<void> {
                row is unlabeled (the section heading already names
                what it is). The bar gives peripheral urgency; the
                detail line carries the precise time + target. -->
-          <section v-if="slaRows.length > 0 && !slaDormant" class="px-4 pt-3 pb-3 border-t border-subtle/60 flex flex-col gap-2.5">
+          <section v-if="slaRows.length > 0" class="px-4 pt-3 pb-3 border-t border-subtle/60 flex flex-col gap-2.5">
             <h3 class="text-[10px] uppercase tracking-wider font-semibold text-tertiary">
               {{ $t('views-ticket-preview-sla') }}
             </h3>

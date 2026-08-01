@@ -1573,6 +1573,14 @@ admin-sla-field-no-sla = Geen SLA
 admin-sla-field-no-sla-hint = Tickets die aan dit beleid voldoen krijgen geen SLA. Beperk het met een filter hierboven om SLA's voor een groep tickets te verwijderen.
 # MACHINE TRANSLATION, pending native review
 admin-sla-no-sla-label = Geen SLA
+# MACHINE TRANSLATION, pending native review
+admin-sla-field-clock-start = Klok start
+# MACHINE TRANSLATION, pending native review
+admin-sla-field-clock-start-hint = Bij activering: de klok start wanneer het ticket voor het eerst actief wordt, wachtrijtijd telt dus niet mee. Bij indiening: de klok loopt vanaf het aanmaken van het ticket.
+# MACHINE TRANSLATION, pending native review
+admin-sla-clock-start-activated = Bij activering
+# MACHINE TRANSLATION, pending native review
+admin-sla-clock-start-created = Bij indiening
 admin-sla-create = Aanmaken
 
 # Beheer: Branding.

@@ -365,6 +365,8 @@ pub struct SlaExplainPolicy {
     /// When true the matched policy grants NO SLA — the popover explains why the
     /// ticket has no timer despite a policy matching.
     pub no_sla: bool,
+    /// `"created"` or `"activated"` — when this policy's clock starts.
+    pub clock_start: String,
     pub target_response_minutes: Option<i32>,
     pub target_resolution_minutes: Option<i32>,
     pub calendar: Option<SlaExplainCalendar>,
@@ -465,6 +467,7 @@ pub async fn explain_for_ticket(
                     name: policy.name.clone(),
                     is_default: policy.is_default,
                     no_sla: policy.no_sla,
+                    clock_start: policy.clock_start.clone(),
                     target_response_minutes: policy.target_response_minutes,
                     target_resolution_minutes: policy.target_resolution_minutes,
                     calendar,

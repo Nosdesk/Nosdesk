@@ -26,7 +26,8 @@
 //! transitions.
 
 use chrono::{
-    DateTime, Datelike, Duration, NaiveDate, NaiveTime, TimeZone, Timelike, Utc, Weekday,
+    DateTime, Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Timelike, Utc,
+    Weekday,
 };
 use chrono_tz::Tz;
 use std::collections::{HashMap, HashSet};
@@ -161,6 +162,57 @@ pub fn add_business_minutes(
     // Fall-through: refuse to lie about the breach time when the
     // schedule has no working hours at all.
     start
+}
+
+/// Business minutes elapsed in `[start, end)` for a calendar — the inverse of
+/// [`add_business_minutes`]. Used to advance the SLA anchor past a pause: on
+/// resume we push the anchor forward by exactly the working time that elapsed
+/// while paused, so paused time doesn't count against the target. Nights,
+/// weekends, and holidays contribute zero.
+pub fn business_minutes_between(
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    calendar: &WorkingCalendar,
+    holidays: &HashSet<NaiveDate>,
+) -> i64 {
+    if end <= start {
+        return 0;
+    }
+    let tz = parse_tz(&calendar.timezone);
+    let schedule = parse_schedule(&calendar.schedule);
+    let end_local = end.with_timezone(&tz);
+    let mut local = start.with_timezone(&tz);
+    let mut total: i64 = 0;
+
+    const MAX_DAYS: u32 = 365 * 5;
+    for _ in 0..MAX_DAYS {
+        if local >= end_local {
+            break;
+        }
+        let date = local.date_naive();
+        let day_ranges = &schedule.days[day_index(date.weekday())];
+        if day_ranges.is_empty() || holidays.contains(&date) {
+            local = next_day_midnight(&tz, date);
+            continue;
+        }
+        // On the first day `local` carries the start time; on later days it's
+        // midnight (cursor 0). Cap the final day at `end`'s minute.
+        let cursor = local.hour() as i32 * 60 + local.minute() as i32;
+        let day_cap = if end_local.date_naive() == date {
+            end_local.hour() as i32 * 60 + end_local.minute() as i32
+        } else {
+            24 * 60
+        };
+        for range in day_ranges {
+            let seg_start = cursor.max(range.open_minutes);
+            let seg_end = range.close_minutes.min(day_cap);
+            if seg_end > seg_start {
+                total += (seg_end - seg_start) as i64;
+            }
+        }
+        local = next_day_midnight(&tz, date);
+    }
+    total
 }
 
 fn next_day_midnight(tz: &Tz, date: NaiveDate) -> DateTime<Tz> {
@@ -303,11 +355,34 @@ fn compute_timer(
     }
 }
 
+/// When a policy's SLA clock starts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClockStart {
+    /// From ticket creation; the clock runs continuously (the workflow pause is
+    /// ignored — the promise is measured from submission).
+    Created,
+    /// From the ticket's first entry into a non-pausing (Active) state; pause
+    /// then subtracts. Until that first activation the clock is `not_started`.
+    Activated,
+}
+
+impl ClockStart {
+    /// Parse the policy's stored string; anything unrecognised (incl. legacy
+    /// rows) falls back to `Activated`, the bug-fixing default.
+    pub fn parse(s: &str) -> Self {
+        match s {
+            "created" => ClockStart::Created,
+            _ => ClockStart::Activated,
+        }
+    }
+}
+
 /// Compute the SLA pill payload for a ticket — both response +
 /// resolution timers, gated on which policy targets are configured.
 /// `paused` is the workflow state's own `pauses_sla` flag (resolved
 /// at the caller from `WorkflowState::pauses_sla`); when true the
-/// timers stop counting. The response timer also stops counting once
+/// timers stop counting (for an `activated`-clock policy; a `created`
+/// policy runs continuously and ignores it). The response timer also stops counting once
 /// `first_response_at` is stamped, regardless of pause state — at
 /// that point the response was either met or breached, and the wall
 /// clock has nothing left to say about it.
@@ -333,6 +408,30 @@ pub fn compute_pill(
 
     let created_utc = DateTime::<Utc>::from_naive_utc_and_offset(ticket.created_at, Utc);
 
+    // Resolve the effective anchor (where the clock counts from) and whether it's
+    // currently frozen, per the policy's clock-start mode. This is the P2 fix for
+    // the created_at-anchored instant-breach.
+    let (anchor, effective_paused) = match ClockStart::parse(&policy.clock_start) {
+        // Runs continuously from submission; the workflow pause doesn't apply
+        // (the promise is measured from when the client contacted us).
+        ClockStart::Created => (created_utc, false),
+        ClockStart::Activated => match ticket.sla_clock_started_at {
+            // Started: the anchor already absorbed prior paused time (pushed
+            // forward on each resume). Honour the current workflow pause — it
+            // freezes the timer now and is subtracted on the next resume.
+            Some(started) => (
+                DateTime::<Utc>::from_naive_utc_and_offset(started, Utc),
+                paused,
+            ),
+            // No anchor yet. A currently-active ticket predates the stamp (a
+            // pre-migration row) — fall back to created_at so it keeps showing an
+            // SLA and self-heals on its next transition. Currently paused
+            // (backlog/triage) means the clock genuinely never started: no pill.
+            None if !paused => (created_utc, false),
+            None => return None,
+        },
+    };
+
     let response = policy
         .target_response_minutes
         .filter(|m| *m > 0)
@@ -342,9 +441,9 @@ pub fn compute_pill(
                 .map(|t| DateTime::<Utc>::from_naive_utc_and_offset(t, Utc));
             compute_timer(
                 minutes as i64,
-                created_utc,
+                anchor,
                 met_at,
-                paused,
+                effective_paused,
                 calendar,
                 holidays,
                 now,
@@ -357,9 +456,9 @@ pub fn compute_pill(
         .map(|minutes| {
             compute_timer(
                 minutes as i64,
-                created_utc,
+                anchor,
                 None,
-                paused,
+                effective_paused,
                 calendar,
                 holidays,
                 now,
@@ -412,12 +511,120 @@ pub fn recompute_and_stamp_sla_for_ticket(
     conn: &mut crate::db::DbConnection,
     ticket: &Ticket,
 ) -> serde_json::Value {
-    let pill = load_pill_for_ticket(conn, ticket);
+    // Advance the activation-clock state machine first (stamp the anchor on first
+    // activation, record a pause start, or push the anchor past a finished pause)
+    // so the pill below reflects the fresh anchor. Runs under the caller's actor
+    // context, so the audited write on the ticket carries workspace context.
+    let mut ticket = ticket.clone();
+    advance_sla_clock(conn, &mut ticket);
+
+    let pill = load_pill_for_ticket(conn, &ticket);
     let (response_target, resolution_target) =
         pill.as_ref().map(targets_from_pill).unwrap_or((None, None));
     set_sla_targets(conn, ticket.id, response_target, resolution_target);
     pill.and_then(|p| serde_json::to_value(p).ok())
         .unwrap_or(serde_json::Value::Null)
+}
+
+/// Advance one ticket's SLA clock after a workflow transition. Only
+/// `activated`-clock policies use the anchor; a `created` / No-SLA / unmatched
+/// ticket is left untouched. Mutates the ticket's anchor fields in memory to
+/// match the persisted write so the caller's pill computation sees the fresh
+/// values. State machine over `(sla_clock_started_at, sla_paused_at)`:
+///   - no anchor + now active        -> stamp the anchor (first activation)
+///   - anchor, running + now paused   -> record the pause start
+///   - anchor, paused + now active    -> push the anchor past the paused business
+///                                       time (pausing subtracts) and clear it
+fn advance_sla_clock(conn: &mut crate::db::DbConnection, ticket: &mut Ticket) {
+    use crate::schema::{sla_policies, tickets, workflow_states};
+    use diesel::prelude::*;
+
+    let Ok(policies) = sla_policies::table.load::<SlaPolicy>(conn) else {
+        return;
+    };
+    let group_ids = ticket
+        .assignee_uuid
+        .and_then(|u| crate::repository::groups::get_group_ids_for_user(conn, &u).ok())
+        .unwrap_or_default();
+    let Some(policy) = pick_policy(&policies, ticket, &group_ids) else {
+        return;
+    };
+    if policy.no_sla || ClockStart::parse(&policy.clock_start) != ClockStart::Activated {
+        return;
+    }
+
+    // Missing state row defaults to paused (mirrors load_pill_for_ticket).
+    let now_paused = workflow_states::table
+        .find(ticket.workflow_state_id)
+        .select(workflow_states::pauses_sla)
+        .first::<bool>(conn)
+        .unwrap_or(true);
+    let now = Utc::now();
+
+    let (new_anchor, new_paused_at): (Option<NaiveDateTime>, Option<NaiveDateTime>) =
+        match (ticket.sla_clock_started_at, ticket.sla_paused_at) {
+            (None, _) if now_paused => (None, None), // still not started
+            (None, _) => (Some(now.naive_utc()), None), // first activation
+            (Some(anchor), None) if now_paused => (Some(anchor), Some(now.naive_utc())), // pause
+            (Some(anchor), None) => (Some(anchor), None), // running
+            (Some(anchor), Some(paused_at)) if now_paused => (Some(anchor), Some(paused_at)), // held
+            (Some(anchor), Some(paused_at)) => {
+                // Resume: advance the anchor past the paused working time.
+                (
+                    Some(push_anchor_past_pause(conn, policy, anchor, paused_at, now)),
+                    None,
+                )
+            }
+        };
+
+    if new_anchor != ticket.sla_clock_started_at || new_paused_at != ticket.sla_paused_at {
+        let _ = diesel::update(tickets::table.find(ticket.id))
+            .set((
+                tickets::sla_clock_started_at.eq(new_anchor),
+                tickets::sla_paused_at.eq(new_paused_at),
+            ))
+            .execute(conn);
+        ticket.sla_clock_started_at = new_anchor;
+        ticket.sla_paused_at = new_paused_at;
+    }
+}
+
+/// Push the SLA anchor forward by the business time that elapsed during a pause,
+/// so the paused window doesn't count toward the target. Falls back to the
+/// unchanged anchor if the policy has no calendar to measure against.
+fn push_anchor_past_pause(
+    conn: &mut crate::db::DbConnection,
+    policy: &SlaPolicy,
+    anchor: NaiveDateTime,
+    paused_at: NaiveDateTime,
+    now: DateTime<Utc>,
+) -> NaiveDateTime {
+    use crate::schema::{working_calendar_holidays, working_calendars};
+    use diesel::prelude::*;
+
+    let Some(cal_id) = policy.working_calendar_id else {
+        return anchor;
+    };
+    let Ok(calendar) = working_calendars::table
+        .find(cal_id)
+        .first::<WorkingCalendar>(conn)
+    else {
+        return anchor;
+    };
+    let holiday_rows: Vec<WorkingCalendarHoliday> = working_calendar_holidays::table
+        .filter(working_calendar_holidays::calendar_id.eq(cal_id))
+        .load(conn)
+        .unwrap_or_default();
+    let year = Utc::now().year();
+    let holidays: HashSet<NaiveDate> = holiday_rows
+        .iter()
+        .flat_map(|h| crate::repository::sla::expand_holiday(h, year))
+        .collect();
+
+    let paused_from = DateTime::<Utc>::from_naive_utc_and_offset(paused_at, Utc);
+    let paused_business = business_minutes_between(paused_from, now, &calendar, &holidays);
+    let anchor_utc = DateTime::<Utc>::from_naive_utc_and_offset(anchor, Utc);
+    add_business_minutes(anchor_utc, paused_business, &calendar, &holidays).naive_utc()
 }
 
 /// Load every input the engine needs for one ticket and run
@@ -760,6 +967,7 @@ mod tests {
             created_by: None,
             workspace_id: 1,
             no_sla: false,
+            clock_start: "created".to_string(),
             // No need to backfill new ticket fields; the matcher
             // doesn't read them and Ticket is built per-test.
         }
@@ -797,6 +1005,8 @@ mod tests {
             sla_resolution_target_at: None,
             sla_resolution_breached_at: None,
             spam_suspected: false,
+            sla_clock_started_at: None,
+            sla_paused_at: None,
         }
     }
 
@@ -832,6 +1042,157 @@ mod tests {
             Utc::now(),
         );
         assert!(pill.is_none(), "a No-SLA policy must produce no pill");
+    }
+
+    fn all_hours_cal() -> WorkingCalendar {
+        cal(serde_json::json!({
+            "mon": [["00:00", "23:59"]], "tue": [["00:00", "23:59"]],
+            "wed": [["00:00", "23:59"]], "thu": [["00:00", "23:59"]],
+            "fri": [["00:00", "23:59"]], "sat": [["00:00", "23:59"]],
+            "sun": [["00:00", "23:59"]]
+        }))
+    }
+
+    fn business_cal() -> WorkingCalendar {
+        cal(serde_json::json!({
+            "mon": [["09:00", "17:00"]], "tue": [["09:00", "17:00"]],
+            "wed": [["09:00", "17:00"]], "thu": [["09:00", "17:00"]],
+            "fri": [["09:00", "17:00"]], "sat": [], "sun": []
+        }))
+    }
+
+    #[test]
+    fn business_minutes_between_counts_within_day() {
+        let start = Utc.with_ymd_and_hms(2026, 5, 4, 10, 0, 0).unwrap(); // Monday
+        let end = start + Duration::hours(3);
+        assert_eq!(
+            business_minutes_between(start, end, &all_hours_cal(), &HashSet::new()),
+            180
+        );
+    }
+
+    #[test]
+    fn business_minutes_between_skips_weekend() {
+        // Friday 16:00 -> Monday 10:00 on a 09:00-17:00 M-F calendar:
+        // Fri 16-17 = 60, weekend = 0, Mon 09-10 = 60 -> 120.
+        let start = Utc.with_ymd_and_hms(2026, 5, 1, 16, 0, 0).unwrap(); // Friday
+        let end = Utc.with_ymd_and_hms(2026, 5, 4, 10, 0, 0).unwrap(); // Monday
+        assert_eq!(
+            business_minutes_between(start, end, &business_cal(), &HashSet::new()),
+            120
+        );
+    }
+
+    fn activated_policy() -> SlaPolicy {
+        let mut p = policy(1, None, true);
+        p.clock_start = "activated".to_string();
+        p.target_response_minutes = Some(60);
+        p.target_resolution_minutes = None;
+        p
+    }
+
+    #[test]
+    fn activated_clock_not_started_yields_no_pill() {
+        // Never activated (no anchor) and currently paused (backlog) -> no SLA.
+        let t = ticket(None); // sla_clock_started_at = None
+        let pill = compute_pill(
+            &t,
+            true, // paused (in a pre-active state)
+            &activated_policy(),
+            &all_hours_cal(),
+            &HashSet::new(),
+            Utc::now(),
+        );
+        assert!(
+            pill.is_none(),
+            "an activated clock with no anchor + paused is not_started"
+        );
+    }
+
+    #[test]
+    fn activated_clock_falls_back_to_created_when_active_without_anchor() {
+        // Pre-migration active ticket (no anchor, not paused) keeps an SLA,
+        // anchored at created_at, and self-heals on its next transition.
+        let mut t = ticket(None);
+        t.created_at = Utc
+            .with_ymd_and_hms(2026, 5, 4, 10, 0, 0)
+            .unwrap()
+            .naive_utc();
+        let pill = compute_pill(
+            &t,
+            false,
+            &activated_policy(),
+            &all_hours_cal(),
+            &HashSet::new(),
+            Utc.with_ymd_and_hms(2026, 5, 4, 10, 30, 0).unwrap(),
+        )
+        .expect("active ticket keeps an SLA via the created fallback");
+        // target = created + 60 min.
+        assert_eq!(
+            pill.response.unwrap().target_at,
+            Utc.with_ymd_and_hms(2026, 5, 4, 11, 0, 0).unwrap()
+        );
+    }
+
+    #[test]
+    fn activated_clock_anchors_at_started_at_not_created() {
+        // The fix: target is anchored to activation, not creation, so a ticket
+        // that sat in backlog for days doesn't breach the instant it's activated.
+        let mut t = ticket(None);
+        t.created_at = Utc
+            .with_ymd_and_hms(2026, 5, 1, 9, 0, 0)
+            .unwrap()
+            .naive_utc();
+        t.sla_clock_started_at = Some(
+            Utc.with_ymd_and_hms(2026, 5, 4, 10, 0, 0)
+                .unwrap()
+                .naive_utc(),
+        ); // activated 3 days later
+        let pill = compute_pill(
+            &t,
+            false,
+            &activated_policy(),
+            &all_hours_cal(),
+            &HashSet::new(),
+            Utc.with_ymd_and_hms(2026, 5, 4, 10, 5, 0).unwrap(),
+        )
+        .expect("started clock renders a pill");
+        let resp = pill.response.unwrap();
+        // target = activation + 60 min (NOT created + 60), and not breached.
+        assert_eq!(
+            resp.target_at,
+            Utc.with_ymd_and_hms(2026, 5, 4, 11, 0, 0).unwrap()
+        );
+        assert!(
+            !resp.breached,
+            "freshly activated ticket is not instantly breached"
+        );
+    }
+
+    #[test]
+    fn created_clock_ignores_pause() {
+        // A created-clock policy runs continuously from submission; the workflow
+        // pause doesn't freeze it.
+        let mut p = activated_policy();
+        p.clock_start = "created".to_string();
+        let mut t = ticket(None);
+        t.created_at = Utc
+            .with_ymd_and_hms(2026, 5, 4, 10, 0, 0)
+            .unwrap()
+            .naive_utc();
+        let pill = compute_pill(
+            &t,
+            true, // workflow says paused
+            &p,
+            &all_hours_cal(),
+            &HashSet::new(),
+            Utc.with_ymd_and_hms(2026, 5, 4, 10, 30, 0).unwrap(),
+        )
+        .expect("created clock renders a pill even while the state pauses");
+        assert!(
+            !pill.response.unwrap().paused,
+            "created clock ignores the workflow pause"
+        );
     }
 
     #[test]

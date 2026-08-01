@@ -410,6 +410,7 @@ function emptyPolicyDraft(): SlaPolicyBody {
     assignee_group_id_filter: null,
     is_default: false,
     no_sla: false,
+    clock_start: 'activated',
   }
 }
 
@@ -437,6 +438,7 @@ function openEditPolicy(p: SlaPolicy): void {
     assignee_group_id_filter: p.assignee_group_id_filter,
     is_default: p.is_default,
     no_sla: p.no_sla,
+    clock_start: p.clock_start,
   }
   policyOpen.value = true
 }
@@ -506,6 +508,7 @@ async function togglePolicyDefault(p: SlaPolicy): Promise<void> {
       assignee_group_id_filter: p.assignee_group_id_filter,
       is_default: !p.is_default,
       no_sla: p.no_sla,
+      clock_start: p.clock_start,
     })
     queryCache.setQueryData(
       POLICIES_KEY,
@@ -620,6 +623,10 @@ const calendarDropdownOptions = computed(() => [
 const holidayImportOptions = computed(() => [
   { value: '', label: t('admin-sla-holiday-import-placeholder') },
   ...HOLIDAY_TEMPLATE_LIST.map((tpl) => ({ value: tpl.code, label: tpl.name })),
+])
+const clockStartOptions = computed(() => [
+  { value: 'activated', label: t('admin-sla-clock-start-activated') },
+  { value: 'created', label: t('admin-sla-clock-start-created') },
 ])
 </script>
 
@@ -1129,6 +1136,16 @@ const holidayImportOptions = computed(() => [
               :min="0"
               @update:model-value="(v) => (policyDraft.target_resolution_minutes = v ?? undefined)"
             />
+          </div>
+          <div class="flex flex-col gap-1">
+            <BaseDropdown
+              :label="$t('admin-sla-field-clock-start')"
+              :model-value="policyDraft.clock_start ?? 'activated'"
+              :options="clockStartOptions"
+              size="sm"
+              @update:model-value="(v) => (policyDraft.clock_start = String(v))"
+            />
+            <p class="text-[11px] text-tertiary">{{ $t('admin-sla-field-clock-start-hint') }}</p>
           </div>
         </fieldset>
 

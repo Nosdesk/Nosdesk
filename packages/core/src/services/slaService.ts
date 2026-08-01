@@ -24,6 +24,9 @@ export interface SlaPolicy {
   /** When true this policy grants NO SLA to the tickets it matches (via the
    *  most-specific-wins precedence) — targets / calendar are irrelevant. */
   no_sla: boolean
+  /** When the clock starts: `'created'` (from submission) or `'activated'`
+   *  (from the ticket's first active state; default). */
+  clock_start: string
   created_at: string
   updated_at: string
   created_by: string | null
@@ -65,6 +68,7 @@ export interface SlaPolicyBody {
   assignee_group_id_filter?: number | null
   is_default?: boolean
   no_sla?: boolean
+  clock_start?: string
 }
 
 export const slaService = {
@@ -166,6 +170,8 @@ export interface SlaExplainPolicy {
   is_default: boolean
   /** When true the matched policy grants no SLA (targets/calendar irrelevant). */
   no_sla: boolean
+  /** `'created'` or `'activated'` — when the matched policy's clock starts. */
+  clock_start: string
   target_response_minutes: number | null
   target_resolution_minutes: number | null
   calendar: SlaExplainCalendar | null

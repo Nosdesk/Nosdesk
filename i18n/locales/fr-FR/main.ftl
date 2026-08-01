@@ -1576,6 +1576,14 @@ admin-sla-field-no-sla = Aucun SLA
 admin-sla-field-no-sla-hint = Les tickets correspondant à cette politique n'ont aucun SLA. Restreignez-la avec un filtre ci-dessus pour retirer les SLA d'une catégorie de tickets.
 # MACHINE TRANSLATION, pending native review
 admin-sla-no-sla-label = Aucun SLA
+# MACHINE TRANSLATION, pending native review
+admin-sla-field-clock-start = Départ du compteur
+# MACHINE TRANSLATION, pending native review
+admin-sla-field-clock-start-hint = À l'activation : le compteur démarre lorsque le ticket devient actif pour la première fois, le temps en attente n'est donc pas compté. À la soumission : le compteur part de la création du ticket.
+# MACHINE TRANSLATION, pending native review
+admin-sla-clock-start-activated = À l'activation
+# MACHINE TRANSLATION, pending native review
+admin-sla-clock-start-created = À la soumission
 admin-sla-create = Créer
 
 # Admin : Marque.

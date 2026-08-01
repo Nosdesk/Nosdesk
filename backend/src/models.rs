@@ -382,6 +382,11 @@ pub struct SlaPolicy {
     /// tickets (e.g. requests) by adding a more-specific No-SLA policy that beats
     /// the catch-all default. Targets / calendar are irrelevant when set.
     pub no_sla: bool,
+    /// When the clock starts: `"created"` (from ticket creation) or `"activated"`
+    /// (from the ticket's first entry into a non-pausing state). Parsed via
+    /// [`crate::services::sla::ClockStart`]; unknown values fall back to
+    /// `activated`. Must stay the LAST field (positional Queryable).
+    pub clock_start: String,
 }
 
 /// Operation kind recorded in `sync_actions.op`. The fourth variant
@@ -971,9 +976,17 @@ pub struct Ticket {
     /// Optional planning start for the gantt timeline. NULL means
     /// unplanned; the gantt falls back to created_at for a bar's left
     /// edge. A planning field, distinct from the factual created_at.
-    /// Must stay the LAST field to match `schema.rs` column order
-    /// (positional Queryable).
     pub start_date: Option<NaiveDateTime>,
+    /// P2 SLA clock: the effective start of the SLA window (also pushed forward
+    /// by paused business time, so pausing subtracts). NULL = the clock has
+    /// never started; for an `activated`-clock policy that means `not_started`
+    /// (no pill). Set when the ticket first enters a non-pausing state.
+    pub sla_clock_started_at: Option<NaiveDateTime>,
+    /// When the current SLA pause began, so a resume can add the paused business
+    /// time back onto `sla_clock_started_at`. NULL = not currently paused. Must
+    /// stay the LAST two fields to match `schema.rs` column order (positional
+    /// Queryable).
+    pub sla_paused_at: Option<NaiveDateTime>,
 }
 
 /// Merge metadata for a ticket that was merged into another (the satellite of
