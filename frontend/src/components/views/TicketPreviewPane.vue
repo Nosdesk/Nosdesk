@@ -204,10 +204,9 @@ async function updateDueDate(iso: string | null): Promise<void> {
       </p>
     </div>
 
-    <Transition name="preview-fade" mode="out-in">
+    <Transition name="preview-fade">
       <div
         v-if="card"
-        :key="card.id"
         class="flex flex-col flex-1 min-h-0"
       >
         <!-- Top strip: breadcrumb + actions -->
@@ -464,11 +463,12 @@ async function updateDueDate(iso: string | null): Promise<void> {
 </template>
 
 <style scoped>
-/* Cross-fade when arrowing between rows. The leave-active /
-   enter-active overlap is what makes this feel like a panel
-   "morphing" rather than empty-then-filling. mode=out-in keeps
-   us from stacking two ticket bodies on top of each other
-   during the transition window. */
+/* Enter/leave for the pane body itself: it fades + slides in on the
+   first selection and out on deselection. Switching BETWEEN tickets
+   updates the same element in place (the body is bound reactively to
+   `card`, no keyed remount), so the entry animation doesn't replay on
+   every selection — the fields, pills, and SLA bar just transition to
+   the new values. */
 .preview-fade-enter-active,
 .preview-fade-leave-active {
   transition:
