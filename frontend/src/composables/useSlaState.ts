@@ -23,7 +23,32 @@
  */
 import { computed, onMounted, onUnmounted, ref, type ComputedRef, type Ref } from 'vue'
 import type { CardData } from '@nosdesk/core/sync/views/types'
+import type { WorkflowStateCategory } from '@nosdesk/core/types/workflow'
 import { getDateConfig } from '@nosdesk/core/utils/dateUtils'
+
+// Categories where a ticket hasn't started being worked, so its SLA clock has
+// never run. Used to hide a dormant (paused, never-started) SLA from tickets
+// that don't really need one — a backlog request shouldn't surface a frozen
+// "Paused" timer with concrete targets.
+const PRE_ACTIVE_CATEGORIES: readonly WorkflowStateCategory[] = ['triage', 'backlog']
+
+/**
+ * True when a card's SLA is present but DORMANT: paused while the ticket is
+ * still in a pre-active state (triage/backlog), i.e. the clock has never
+ * started. Consumers hide the SLA chrome for these so a backlog/request ticket
+ * doesn't display a meaningless frozen SLA. A genuine on-hold SLA (paused in a
+ * post-active state like `in_review`, which HAS run) is not dormant and stays
+ * visible.
+ *
+ * The payload carries no "has ever run" signal, so we proxy "never started"
+ * with the current pre-active category. A ticket reopened from active back to
+ * backlog reads as dormant — acceptable for a de-noise gate; a precise
+ * signal belongs to a future SLA-state model.
+ */
+export function isSlaDormant(card: CardData | null | undefined): boolean {
+  if (!card?.sla?.paused) return false
+  return PRE_ACTIVE_CATEGORIES.includes(card.workflow_state.category)
+}
 
 // Single shared tick: re-emits the wall clock so every consumer's
 // computed re-evaluates together. 30s is a sweet spot — fast enough

@@ -21,6 +21,9 @@ export interface SlaPolicy {
   category_id_filter: number | null
   assignee_group_id_filter: number | null
   is_default: boolean
+  /** When true this policy grants NO SLA to the tickets it matches (via the
+   *  most-specific-wins precedence) — targets / calendar are irrelevant. */
+  no_sla: boolean
   created_at: string
   updated_at: string
   created_by: string | null
@@ -61,6 +64,7 @@ export interface SlaPolicyBody {
   category_id_filter?: number | null
   assignee_group_id_filter?: number | null
   is_default?: boolean
+  no_sla?: boolean
 }
 
 export const slaService = {
@@ -160,6 +164,8 @@ export interface SlaExplainPolicy {
   id: number
   name: string
   is_default: boolean
+  /** When true the matched policy grants no SLA (targets/calendar irrelevant). */
+  no_sla: boolean
   target_response_minutes: number | null
   target_resolution_minutes: number | null
   calendar: SlaExplainCalendar | null

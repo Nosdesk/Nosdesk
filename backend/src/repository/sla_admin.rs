@@ -102,6 +102,7 @@ pub struct NewSlaPolicy {
     pub category_id_filter: Option<i32>,
     pub assignee_group_id_filter: Option<i32>,
     pub is_default: bool,
+    pub no_sla: bool,
     pub created_by: Option<Uuid>,
 }
 
@@ -116,6 +117,7 @@ pub struct SlaPolicyPatch {
     pub category_id_filter: Option<Option<i32>>,
     pub assignee_group_id_filter: Option<Option<i32>>,
     pub is_default: Option<bool>,
+    pub no_sla: Option<bool>,
     pub updated_at: Option<chrono::DateTime<Utc>>,
 }
 
@@ -129,6 +131,8 @@ pub struct SlaPolicyBody {
     pub category_id_filter: Option<i32>,
     pub assignee_group_id_filter: Option<i32>,
     pub is_default: Option<bool>,
+    #[serde(default)]
+    pub no_sla: Option<bool>,
 }
 
 pub fn list_policies(conn: &mut DbConnection) -> QueryResult<Vec<SlaPolicy>> {
@@ -153,6 +157,7 @@ pub fn create_policy(
             category_id_filter: body.category_id_filter,
             assignee_group_id_filter: body.assignee_group_id_filter,
             is_default: body.is_default.unwrap_or(false),
+            no_sla: body.no_sla.unwrap_or(false),
             created_by: actor,
         })
         .get_result(conn)
@@ -211,6 +216,7 @@ pub fn seed_defaults_if_empty(
             category_id_filter: None,
             assignee_group_id_filter: None,
             is_default: Some(true),
+            no_sla: Some(false),
         },
         created_by,
     )?;
@@ -233,6 +239,7 @@ pub fn update_policy(
         category_id_filter: Some(body.category_id_filter),
         assignee_group_id_filter: Some(body.assignee_group_id_filter),
         is_default: body.is_default,
+        no_sla: body.no_sla,
         updated_at: Some(Utc::now()),
     };
     diesel::update(sla_policies::table.find(id))

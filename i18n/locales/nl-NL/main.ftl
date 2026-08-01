@@ -1567,6 +1567,12 @@ admin-sla-priority-low = laag
 admin-sla-priority-medium = gemiddeld
 admin-sla-priority-high = hoog
 admin-sla-workspace-default = Werkruimtestandaard
+# MACHINE TRANSLATION, pending native review
+admin-sla-field-no-sla = Geen SLA
+# MACHINE TRANSLATION, pending native review
+admin-sla-field-no-sla-hint = Tickets die aan dit beleid voldoen krijgen geen SLA. Beperk het met een filter hierboven om SLA's voor een groep tickets te verwijderen.
+# MACHINE TRANSLATION, pending native review
+admin-sla-no-sla-label = Geen SLA
 admin-sla-create = Aanmaken
 
 # Beheer: Branding.

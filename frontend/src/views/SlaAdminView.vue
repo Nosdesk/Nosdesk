@@ -409,6 +409,7 @@ function emptyPolicyDraft(): SlaPolicyBody {
     category_id_filter: null,
     assignee_group_id_filter: null,
     is_default: false,
+    no_sla: false,
   }
 }
 
@@ -435,6 +436,7 @@ function openEditPolicy(p: SlaPolicy): void {
     category_id_filter: p.category_id_filter,
     assignee_group_id_filter: p.assignee_group_id_filter,
     is_default: p.is_default,
+    no_sla: p.no_sla,
   }
   policyOpen.value = true
 }
@@ -503,6 +505,7 @@ async function togglePolicyDefault(p: SlaPolicy): Promise<void> {
       category_id_filter: p.category_id_filter,
       assignee_group_id_filter: p.assignee_group_id_filter,
       is_default: !p.is_default,
+      no_sla: p.no_sla,
     })
     queryCache.setQueryData(
       POLICIES_KEY,
@@ -779,12 +782,15 @@ const holidayImportOptions = computed(() => [
                 <tr v-for="p in policies" :key="p.id" class="bg-surface">
                   <td class="px-3 py-2 text-primary">{{ p.name }}</td>
                   <td class="px-3 py-2 text-secondary tabular-nums whitespace-nowrap">
-                    {{ fmtMinutes(p.target_response_minutes) }}
-                    <span class="text-tertiary"> / </span>
-                    {{ fmtMinutes(p.target_resolution_minutes) }}
+                    <span v-if="p.no_sla" class="text-tertiary italic">{{ $t('admin-sla-no-sla-label') }}</span>
+                    <template v-else>
+                      {{ fmtMinutes(p.target_response_minutes) }}
+                      <span class="text-tertiary"> / </span>
+                      {{ fmtMinutes(p.target_resolution_minutes) }}
+                    </template>
                   </td>
                   <td class="px-3 py-2 text-secondary">
-                    {{ calendarName(p.working_calendar_id) }}
+                    {{ p.no_sla ? '—' : calendarName(p.working_calendar_id) }}
                   </td>
                   <td class="px-3 py-2 whitespace-nowrap">
                     <template v-if="countsFor(p.id).total === 0">
@@ -1078,8 +1084,22 @@ const holidayImportOptions = computed(() => [
           </div>
         </fieldset>
 
-        <!-- Targets: what the engine computes for each match. -->
-        <fieldset class="flex flex-col gap-2">
+        <!-- No SLA: this policy grants no SLA to the tickets it matches. With
+             the most-specific-wins precedence, a filtered No-SLA policy scopes
+             SLAs away from a class of tickets (e.g. requests). -->
+        <div class="flex flex-col gap-1">
+          <Checkbox
+            :model-value="!!policyDraft.no_sla"
+            size="sm"
+            :label="$t('admin-sla-field-no-sla')"
+            @update:model-value="(v: boolean) => (policyDraft.no_sla = v)"
+          />
+          <p class="text-[11px] text-tertiary pl-6">{{ $t('admin-sla-field-no-sla-hint') }}</p>
+        </div>
+
+        <!-- Targets: what the engine computes for each match. Irrelevant (and
+             hidden) for a No-SLA policy. -->
+        <fieldset v-if="!policyDraft.no_sla" class="flex flex-col gap-2">
           <legend
             class="text-[11px] font-medium text-tertiary uppercase tracking-wide mb-1"
           >

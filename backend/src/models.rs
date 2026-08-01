@@ -377,6 +377,11 @@ pub struct SlaPolicy {
     pub created_by: Option<Uuid>,
     pub workspace_id: i32,
     pub assignee_group_id_filter: Option<i32>,
+    /// When true, a ticket this policy matches gets NO SLA. Combined with the
+    /// most-specific-wins matching, an admin scopes SLAs away from a class of
+    /// tickets (e.g. requests) by adding a more-specific No-SLA policy that beats
+    /// the catch-all default. Targets / calendar are irrelevant when set.
+    pub no_sla: bool,
 }
 
 /// Operation kind recorded in `sync_actions.op`. The fourth variant
