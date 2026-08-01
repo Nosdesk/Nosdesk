@@ -158,8 +158,8 @@ impl PreferenceService {
         // user's prefs. So read under bypass; the per-workspace
         // workspace_notification_defaults is scoped by the explicit workspace_id
         // filter in the query below.
-        // cross-tenant: notification_preferences is global per user (unique key excludes workspace_id); wnd is filtered by workspace_id in the query.
         let (default_channels, type_interrupts, ws_defaults, user_prefs) =
+            // cross-tenant: notification_preferences is global per user (unique key excludes workspace_id); wnd is filtered by workspace_id in the query.
             crate::sync::session::background_run(
                 &self.pool,
                 "background:notification_pref_load",
