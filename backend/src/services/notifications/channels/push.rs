@@ -136,10 +136,7 @@ impl NotificationDeliveryChannel for PushChannel {
             } else {
                 ctx
             };
-            (
-                title,
-                Some(ntype.push_body(&notification.payload.actor.name)),
-            )
+            (title, Some(ntype.push_body(&notification.payload.actor)))
         } else {
             (ntype.title().to_string(), None)
         };

@@ -1069,6 +1069,7 @@ pub async fn update_documentation_page(
                 uuid: user_uuid,
                 name: actor_name,
                 avatar_thumb: None,
+                kind: crate::sync::ActorKind::User,
             };
             let entity = NotificationEntity::DocumentationPage {
                 id: page_id,

@@ -802,6 +802,7 @@ pub async fn add_comment_to_ticket(
                         uuid: commenter_uuid,
                         name: commenter_name,
                         avatar_thumb: commenter_avatar,
+                        kind: crate::sync::ActorKind::User,
                     };
 
                     // Send CommentAdded notification to requester/assignee

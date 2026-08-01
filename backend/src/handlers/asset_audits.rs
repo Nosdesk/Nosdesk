@@ -139,6 +139,7 @@ pub async fn record(
                                 uuid: actor_uuid,
                                 name: actor_name.clone(),
                                 avatar_thumb: None,
+                                kind: crate::sync::ActorKind::User,
                             },
                             NotificationEntity::Asset {
                                 id: asset_id,

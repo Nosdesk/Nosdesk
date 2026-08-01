@@ -2463,6 +2463,9 @@ pub struct UserPreferences {
     pub timezone: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
+    /// When true, only human-originated notifications interrupt (toast /
+    /// desktop); system/automation-triggered ones land quietly in the bell.
+    pub interrupt_human_only: bool,
 }
 
 // ============================================================================

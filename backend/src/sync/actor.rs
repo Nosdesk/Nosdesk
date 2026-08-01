@@ -22,8 +22,13 @@ use uuid::Uuid;
 /// WorkspaceContext or from a workspace_members lookup.
 pub const BOOTSTRAP_WORKSPACE_ID: i32 = 1;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ActorKind {
+    /// A human user acting through the app. The default so that a
+    /// notification actor deserialized from a pre-`kind` payload reads as
+    /// a person (the common case) rather than a system actor.
+    #[default]
     User,
     System,
     Plugin,

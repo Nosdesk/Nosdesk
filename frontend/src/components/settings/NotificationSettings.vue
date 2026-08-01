@@ -6,9 +6,12 @@ import Icon from '@/components/common/Icon.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
 import Button from '@/components/common/Button.vue';
 import BaseDropdown, { type DropdownOption } from '@/components/common/BaseDropdown.vue';
+import ToggleSwitch from '@/components/common/ToggleSwitch.vue';
 import {
   getNotificationPreferences,
   updateNotificationPreference,
+  getInterruptHumanOnly,
+  setInterruptHumanOnly,
   channelSupportsDigest,
   channelSupportsQuiet,
   NOTIFICATION_CHANNELS,
@@ -51,6 +54,13 @@ const isLoading = ref(true);
 const isSaving = ref<string | null>(null);
 const preferences = ref<NotificationPreference[]>([]);
 const browserPermission = ref<NotificationPermission>('default');
+
+// Origin-based interrupt setting: when on, only human-originated events
+// interrupt (toast / desktop); system/automation triggers stay in the bell.
+// Self-only (the endpoint targets the signed-in user), so it's hidden when an
+// admin is managing another user's matrix.
+const humanOnly = ref(false);
+const savingHumanOnly = ref(false);
 
 // Localized channel columns (canonical order + which channels exist come from
 // the shared NOTIFICATION_CHANNELS list: in_app, email, push).
@@ -201,9 +211,30 @@ const requestBrowserPermission = async () => {
   }
 };
 
+const setHumanOnly = async (value: boolean) => {
+  savingHumanOnly.value = true;
+  try {
+    await setInterruptHumanOnly(value);
+    humanOnly.value = value;
+    emit('success', t('settings-notifications-preference-update-success'));
+  } catch {
+    emit('error', t('settings-notifications-preference-update-error'));
+  } finally {
+    savingHumanOnly.value = false;
+  }
+};
+
 onMounted(async () => {
   try {
-    preferences.value = await getNotificationPreferences();
+    const [prefs] = await Promise.all([
+      getNotificationPreferences(),
+      isManagingOtherUser.value
+        ? Promise.resolve()
+        : getInterruptHumanOnly().then((value) => {
+            humanOnly.value = value;
+          }),
+    ]);
+    preferences.value = prefs;
     if ('Notification' in window) {
       browserPermission.value = Notification.permission;
     }
@@ -257,6 +288,23 @@ const gridColumns = computed(
           </div>
         </div>
       </div>
+
+      <!-- Interruption origin: only human-originated events interrupt (toast /
+           desktop); system/automation triggers stay in the bell. Self-only. -->
+      <SectionCard v-if="!isManagingOtherUser" content-padding="p-4 sm:p-6">
+        <template #leading>
+          <span class="text-accent inline-flex"><Icon name="bell" /></span>
+        </template>
+        <template #title>{{ $t('settings-notifications-interrupt-origin-title') }}</template>
+
+        <ToggleSwitch
+          :model-value="humanOnly"
+          :disabled="savingHumanOnly"
+          :label="$t('settings-notifications-interrupt-origin-label')"
+          :description="$t('settings-notifications-interrupt-origin-description')"
+          @update:model-value="setHumanOnly"
+        />
+      </SectionCard>
 
       <!-- Quick Settings: bulk-apply one frequency to every type on a channel. -->
       <SectionCard content-padding="p-4 sm:p-6">

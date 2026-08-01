@@ -3490,6 +3490,12 @@ settings-notifications-browser-banner-enable = Activer les notifications
 settings-notifications-browser-enabled-success = Notifications du navigateur activées
 settings-notifications-browser-denied-error = Autorisation de notification du navigateur refusée
 settings-notifications-quick-settings-title = Réglages rapides
+# MACHINE TRANSLATION, pending native review
+settings-notifications-interrupt-origin-title = Interruptions
+# MACHINE TRANSLATION, pending native review
+settings-notifications-interrupt-origin-label = M'interrompre uniquement pour les personnes
+# MACHINE TRANSLATION, pending native review
+settings-notifications-interrupt-origin-description = Afficher une notification et une alerte bureau uniquement pour les actions effectuées par des personnes. Les notifications automatiques (dépassements de SLA, prêts en retard, attribution automatique) restent visibles dans la cloche.
 settings-notifications-channel-toggle-all-label = Toutes les notifications { $channel }
 settings-notifications-column-header = Notification
 settings-notifications-load-error = Échec du chargement des préférences de notification

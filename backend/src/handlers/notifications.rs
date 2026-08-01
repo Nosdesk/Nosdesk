@@ -97,6 +97,15 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             "/notifications/preferences",
             web::put().to(update_preference),
         )
+        // Per-user origin-based interrupt setting ("humans only").
+        .route(
+            "/notifications/interrupt-preferences",
+            web::get().to(get_interrupt_preferences),
+        )
+        .route(
+            "/notifications/interrupt-preferences",
+            web::put().to(set_interrupt_preferences),
+        )
         // Workspace-admin defaults (the middle inheritance layer). Admin-gated.
         .route(
             "/admin/notification-defaults",
@@ -827,6 +836,67 @@ pub async fn update_preference(
         Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
             "error": e
         })),
+    }
+}
+
+/// Get the user's origin-based interrupt setting.
+///
+/// GET /api/notifications/interrupt-preferences → `{ "human_only": bool }`
+pub async fn get_interrupt_preferences(
+    req: HttpRequest,
+    notification_service: web::Data<NotificationService>,
+) -> HttpResponse {
+    let claims = match req.extensions().get::<Claims>() {
+        Some(c) => c.clone(),
+        None => return HttpResponse::Unauthorized().finish(),
+    };
+    let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
+        Ok(u) => u,
+        Err(_) => return errors::bad_request("Invalid user UUID"),
+    };
+
+    match notification_service
+        .preferences()
+        .interrupt_human_only(&user_uuid)
+        .await
+    {
+        Ok(human_only) => HttpResponse::Ok().json(serde_json::json!({ "human_only": human_only })),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({ "error": e })),
+    }
+}
+
+/// Request body for the origin-based interrupt setting.
+#[derive(Debug, Deserialize)]
+pub struct InterruptPreferencesRequest {
+    /// When true, only human-originated notifications interrupt (toast /
+    /// desktop); system/automation-triggered ones land quietly in the bell.
+    pub human_only: bool,
+}
+
+/// Set the user's origin-based interrupt setting.
+///
+/// PUT /api/notifications/interrupt-preferences  body: `{ "human_only": bool }`
+pub async fn set_interrupt_preferences(
+    req: HttpRequest,
+    notification_service: web::Data<NotificationService>,
+    body: web::Json<InterruptPreferencesRequest>,
+) -> HttpResponse {
+    let claims = match req.extensions().get::<Claims>() {
+        Some(c) => c.clone(),
+        None => return HttpResponse::Unauthorized().finish(),
+    };
+    let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
+        Ok(u) => u,
+        Err(_) => return errors::bad_request("Invalid user UUID"),
+    };
+
+    match notification_service
+        .preferences()
+        .set_interrupt_human_only(&user_uuid, body.human_only)
+        .await
+    {
+        Ok(_) => HttpResponse::Ok().json(serde_json::json!({ "success": true })),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({ "error": e })),
     }
 }
 

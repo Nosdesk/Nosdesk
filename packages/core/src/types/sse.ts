@@ -58,6 +58,10 @@ export interface NotificationActor {
   uuid: string
   name: string
   avatar_thumb?: string
+  /** Origin of the trigger: a human `user`, or a non-human `system`
+   *  (scheduled jobs, rule automations) / `plugin`. Absent on pre-#3
+   *  payloads → treat as `user`. */
+  kind?: 'user' | 'system' | 'plugin'
 }
 
 /**
