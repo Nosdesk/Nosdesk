@@ -407,6 +407,60 @@ pub async fn prune_csp_reports(pool: Pool) -> Result<()> {
     Ok(())
 }
 
+/// Auto-archive stale notifications so the bell/inbox self-prunes instead of
+/// growing without bound. Read notifications older than
+/// `NOTIFICATION_READ_RETENTION_DAYS` (default 30) are archived; anything older
+/// than `NOTIFICATION_MAX_RETENTION_DAYS` (default 90) is archived regardless of
+/// read state, so an ignored unread pile still gets a ceiling.
+///
+/// Archiving sets `archived_at` (the reversible archive axis, not a delete);
+/// the notification stays retrievable under the inbox's archived filter. No SSE
+/// is emitted — a live client picks up the change on its next bell fetch, same
+/// as the other maintenance sweeps.
+pub async fn auto_archive_stale_notifications(pool: Pool) -> Result<()> {
+    use crate::schema::notifications::dsl as n;
+    use diesel::prelude::*;
+
+    let read_days = retention_days("NOTIFICATION_READ_RETENTION_DAYS", 30);
+    let max_days = retention_days("NOTIFICATION_MAX_RETENTION_DAYS", 90);
+    let now = chrono::Utc::now().naive_utc();
+    let read_cutoff = now - chrono::Duration::days(read_days as i64);
+    let max_cutoff = now - chrono::Duration::days(max_days as i64);
+
+    // notifications is RLS-enabled and this sweep crosses every workspace
+    // (scheduler is platform-level), so elevate via background_run. notifications
+    // isn't audited, so a cross-workspace bulk UPDATE is safe (no audit_log
+    // workspace_id NOT NULL to satisfy).
+    // cross-tenant: cross-workspace retention sweep of the notification inbox.
+    let archived = crate::sync::session::background_run(
+        &pool,
+        "scheduler:auto_archive_notifications",
+        move |conn| {
+            diesel::update(
+                n::notifications.filter(n::archived_at.is_null()).filter(
+                    n::is_read
+                        .eq(true)
+                        .and(n::created_at.lt(read_cutoff))
+                        .or(n::created_at.lt(max_cutoff)),
+                ),
+            )
+            .set(n::archived_at.eq(now))
+            .execute(conn)
+        },
+    )
+    .map_err(|e| anyhow::anyhow!("auto-archive notifications: {e}"))?;
+
+    if archived > 0 {
+        info!(
+            archived,
+            read_retention_days = read_days,
+            max_retention_days = max_days,
+            "scheduler: stale notifications auto-archived"
+        );
+    }
+    Ok(())
+}
+
 /// Prune `security_events` rows past the retention window. Long window
 /// by default (one year) — login / MFA / password-reset records remain
 /// useful for "did anyone touch this account last March?" investigations.

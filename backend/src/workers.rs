@@ -62,6 +62,19 @@ pub fn spawn_scheduled_jobs(
             move || jobs::send_notification_digests(p.clone()),
         );
 
+        // Daily: auto-archive stale notifications so the bell/inbox self-prunes
+        // (read older than 30d, or anything older than 90d). archived_at is the
+        // reversible archive axis, so nothing is lost — the user can still find
+        // them under the archived filter.
+        let p = pool.clone();
+        spawn_periodic(
+            "notifications.auto_archive",
+            Duration::from_secs(24 * 60 * 60),
+            scheduler_shutdown.clone(),
+            scheduler_status.clone(),
+            move || jobs::auto_archive_stale_notifications(p.clone()),
+        );
+
         // Every 30 min: Microsoft Graph delta sync (skipped at runtime
         // when the provider isn't configured).
         let p = pool.clone();
