@@ -28,6 +28,23 @@ const INTERRUPT_BURST_WINDOW_SECS: i64 = 60;
 /// Max interrupting notifications per recipient per window before downgrade.
 const INTERRUPT_BURST_LIMIT: i64 = 5;
 
+/// Earned-interrupt window (days): the lookback over which a recipient's
+/// engagement with a notification kind is measured.
+const EARNED_INTERRUPT_WINDOW_DAYS: i64 = 30;
+/// Minimum SEEN notifications of a kind before its interrupt right can be
+/// revoked — below this there isn't enough signal to auto-tune.
+const EARNED_INTERRUPT_MIN_SEEN: i64 = 12;
+/// A kind keeps its interrupt right while the recipient reads at least this
+/// fraction of the ones they saw; below it, the kind has stopped earning it.
+const EARNED_INTERRUPT_MIN_READ_RATE: f64 = 0.15;
+
+/// Whether a kind's interrupt right is revoked purely from the seen/read
+/// signal (before the explicit-preference veto). Extracted for unit testing.
+fn earned_interrupt_ignored(seen: i64, read: i64) -> bool {
+    seen >= EARNED_INTERRUPT_MIN_SEEN
+        && (read as f64) < (seen as f64) * EARNED_INTERRUPT_MIN_READ_RATE
+}
+
 /// Central notification service that orchestrates notification creation and delivery
 pub struct NotificationService {
     pool: Pool,
@@ -187,6 +204,22 @@ impl NotificationService {
         {
             interrupts = false;
         }
+
+        // Earned interrupts: a kind keeps its right to interrupt only while the
+        // recipient engages with it. If they consistently see-but-don't-read
+        // this kind, downgrade to quiet (still in the bell). Explicit prefs win;
+        // toast-only users are never counted (see `earned_interrupt_ok`).
+        if interrupts
+            && !self
+                .earned_interrupt_ok(
+                    &payload.recipient_uuid,
+                    payload.workspace_id,
+                    payload.notification_type.as_str(),
+                )
+                .await?
+        {
+            interrupts = false;
+        }
         let notification_id = self
             .persist_notification(&payload, &deliverable_channels, interrupts)
             .await?;
@@ -283,6 +316,90 @@ impl NotificationService {
         .map_err(|e| format!("Failed to count recent interrupts: {e}"))?;
 
         Ok(count >= INTERRUPT_BURST_LIMIT)
+    }
+
+    /// Whether this notification's interrupt right still stands under earned
+    /// interrupts. A kind keeps interrupting only while the recipient engages
+    /// with it: if, over the recent window, they SAW at least
+    /// `EARNED_INTERRUPT_MIN_SEEN` notifications of the kind in this workspace
+    /// but READ fewer than `EARNED_INTERRUPT_MIN_READ_RATE` of them, the kind
+    /// has stopped earning its interrupt and this one lands quietly in the bell.
+    ///
+    /// Safeguards:
+    /// - The denominator is SEEN notifications (`seen_at` is stamped only when
+    ///   the recipient opens the bell), so a user who lives off toasts and never
+    ///   opens the bell is never counted and never muted.
+    /// - An explicit in-app preference for the kind always wins — auto-tuning
+    ///   only touches recipients who are on the default.
+    /// - It only ever downgrades to quiet (the bell keeps the row) and recovers
+    ///   on its own once the recipient starts engaging again.
+    ///
+    /// Runs on the interrupting minority path only; the read-rate scan is
+    /// bounded by the window + the `idx_notifications_user_created` index. If it
+    /// ever gets hot, materialise the per-(user, kind) verdict in a daily sweep
+    /// instead of scanning per send.
+    async fn earned_interrupt_ok(
+        &self,
+        recipient_uuid: &Uuid,
+        workspace_id: i32,
+        type_code: &str,
+    ) -> Result<bool, String> {
+        let type_id = self.get_notification_type_id(type_code).await?;
+        let recipient = *recipient_uuid;
+        let cutoff = Utc::now().naive_utc() - chrono::Duration::days(EARNED_INTERRUPT_WINDOW_DAYS);
+
+        // Per-workspace engagement, RLS-scoped like the persist path.
+        let (seen, read) = crate::sync::session::run_in_workspace(
+            &self.pool,
+            "background:earned_interrupt_engagement",
+            workspace_id,
+            move |conn| {
+                use crate::schema::notifications as n;
+                let seen: i64 = n::table
+                    .filter(n::user_uuid.eq(recipient))
+                    .filter(n::notification_type_id.eq(type_id))
+                    .filter(n::seen_at.is_not_null())
+                    .filter(n::created_at.gt(cutoff))
+                    .count()
+                    .get_result(conn)?;
+                let read: i64 = n::table
+                    .filter(n::user_uuid.eq(recipient))
+                    .filter(n::notification_type_id.eq(type_id))
+                    .filter(n::seen_at.is_not_null())
+                    .filter(n::created_at.gt(cutoff))
+                    .filter(n::is_read.eq(true))
+                    .count()
+                    .get_result(conn)?;
+                Ok((seen, read))
+            },
+        )
+        .map_err(|e| format!("Failed to measure notification engagement: {e}"))?;
+
+        // Not enough signal, or a healthy read share → the interrupt stands.
+        if !earned_interrupt_ignored(seen, read) {
+            return Ok(true);
+        }
+
+        // Strong ignore signal: revoke the interrupt UNLESS the recipient set an
+        // explicit in-app preference for this kind (respect their choice).
+        // cross-tenant: notification_preferences is global per user (unique key excludes workspace_id).
+        let has_explicit = crate::sync::session::background_run(
+            &self.pool,
+            "background:earned_interrupt_explicit_pref",
+            move |conn| {
+                use crate::schema::notification_preferences as np;
+                diesel::select(diesel::dsl::exists(
+                    np::table
+                        .filter(np::user_uuid.eq(recipient))
+                        .filter(np::notification_type_id.eq(type_id))
+                        .filter(np::channel.eq("in_app")),
+                ))
+                .get_result::<bool>(conn)
+            },
+        )
+        .map_err(|e| format!("Failed to check explicit notification preference: {e}"))?;
+
+        Ok(has_explicit)
     }
 
     /// Persist notification to database
@@ -877,5 +994,43 @@ impl NotificationService {
             },
         )
         .map_err(|e| format!("Delete failed: {e}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::earned_interrupt_ignored;
+
+    #[test]
+    fn insufficient_sample_never_revokes() {
+        // Below the minimum seen count there isn't enough signal, even at a 0%
+        // read rate.
+        assert!(!earned_interrupt_ignored(0, 0));
+        assert!(!earned_interrupt_ignored(11, 0));
+    }
+
+    #[test]
+    fn healthy_read_share_keeps_the_interrupt() {
+        // 12 seen, 3 read = 25% ≥ 15% → interrupt stands.
+        assert!(!earned_interrupt_ignored(12, 3));
+        // All read.
+        assert!(!earned_interrupt_ignored(40, 40));
+    }
+
+    #[test]
+    fn consistent_ignore_revokes() {
+        // 20 seen, 1 read = 5% < 15% → revoked (subject to the explicit-pref
+        // veto, applied by the caller).
+        assert!(earned_interrupt_ignored(20, 1));
+        // 12 seen, 0 read.
+        assert!(earned_interrupt_ignored(12, 0));
+    }
+
+    #[test]
+    fn boundary_read_rate_is_inclusive_keep() {
+        // Exactly 15% of 20 is 3 reads → kept (>= threshold).
+        assert!(!earned_interrupt_ignored(20, 3));
+        // 2 of 20 = 10% → revoked.
+        assert!(earned_interrupt_ignored(20, 2));
     }
 }
