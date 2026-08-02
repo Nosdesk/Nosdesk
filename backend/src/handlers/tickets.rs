@@ -1784,6 +1784,7 @@ pub async fn bulk_tickets(
     mut tc: TenantConn,
     storage: crate::extractors::ScopedStorage,
     search_service: web::Data<Arc<SearchService>>,
+    notification_service: web::Data<NotificationService>,
     body: web::Json<BulkActionRequest>,
 ) -> impl Responder {
     // Authentication guard.
@@ -1915,33 +1916,87 @@ pub async fn bulk_tickets(
 
             // One connection/transaction for the batch, each id in its own
             // savepoint. update_ticket_partial emits ticket.assignee_changed;
-            // the pool delivers it. No discrete SSE.
+            // the pool delivers the pill. No discrete SSE. Collect the tickets
+            // whose assignee actually changed so we can fire the same
+            // TicketAssigned notification the single-item PATCH path fires
+            // (`update_ticket_partial` handler) — bulk assign was silently
+            // skipping it.
+            let mut assigned: Vec<(i32, String, i32, Uuid)> = Vec::new();
             let updated = tc
                 .run(|conn| {
                     let mut n = 0;
                     for id in ids {
+                        let old_assignee = repository::get_ticket_by_id(conn, *id)
+                            .ok()
+                            .and_then(|t| t.assignee_uuid);
                         let update = TicketUpdate {
                             assignee_uuid: Some(assignee_uuid),
                             updated_at: Some(chrono::Utc::now().naive_utc()),
                             ..Default::default()
                         };
-                        if conn
-                            .transaction(|conn| {
-                                repository::update_ticket_partial(
-                                    conn,
-                                    *id,
-                                    update,
-                                    Some(search_service.get_ref()),
-                                )
-                            })
-                            .is_ok()
-                        {
+                        if let Ok(t) = conn.transaction(|conn| {
+                            repository::update_ticket_partial(
+                                conn,
+                                *id,
+                                update,
+                                Some(search_service.get_ref()),
+                            )
+                        }) {
                             n += 1;
+                            // Notify only on a real change (skip no-op
+                            // re-assignments), mirroring the single-item guard.
+                            if let Some(new_assignee) = t.assignee_uuid {
+                                if Some(new_assignee) != old_assignee {
+                                    assigned.push((
+                                        t.id,
+                                        t.title.clone(),
+                                        t.workspace_id,
+                                        new_assignee,
+                                    ));
+                                }
+                            }
                         }
                     }
                     Ok(n)
                 })
                 .unwrap_or(0);
+
+            // Notify each newly-assigned user off the response path, the same
+            // TicketAssigned notification a single assign fires. A large batch
+            // to one assignee is tamed by the interrupt burst-cap (they land in
+            // the bell past the toast threshold), so no coalescing here.
+            if !assigned.is_empty() {
+                let actor = tc
+                    .run(|conn| repository::get_user_by_uuid(&auth.user_uuid, conn))
+                    .ok()
+                    .map(|user| NotificationActor {
+                        uuid: user.uuid,
+                        name: user.name.clone(),
+                        avatar_thumb: user.avatar_thumb.clone(),
+                        kind: crate::sync::ActorKind::User,
+                    });
+                if let Some(actor) = actor {
+                    let notification_service = notification_service.clone();
+                    tokio::spawn(async move {
+                        for (ticket_id, title, workspace_id, recipient) in assigned {
+                            let payload = NotificationPayload::new(
+                                NotificationTypeCode::TicketAssigned,
+                                recipient,
+                                actor.clone(),
+                                NotificationEntity::Ticket {
+                                    id: ticket_id,
+                                    title,
+                                },
+                                workspace_id,
+                            )
+                            .with_body(format!("You have been assigned to ticket #{ticket_id}"));
+                            if let Err(e) = notification_service.notify(payload).await {
+                                warn!(error = %e, "Failed to send bulk assignment notification");
+                            }
+                        }
+                    });
+                }
+            }
 
             HttpResponse::Ok().json(json!({ "affected": updated }))
         }
