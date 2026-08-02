@@ -21,6 +21,13 @@ use super::types::{
     NotificationPayload,
 };
 
+/// Interrupt burst-cap window (seconds). A recipient who already received
+/// `INTERRUPT_BURST_LIMIT` interrupting notifications within this window has
+/// further interrupts downgraded to quiet (bell only) until it drains.
+const INTERRUPT_BURST_WINDOW_SECS: i64 = 60;
+/// Max interrupting notifications per recipient per window before downgrade.
+const INTERRUPT_BURST_LIMIT: i64 = 5;
+
 /// Central notification service that orchestrates notification creation and delivery
 pub struct NotificationService {
     pool: Pool,
@@ -167,6 +174,19 @@ impl NotificationService {
         {
             interrupts = false;
         }
+
+        // Burst cap: if this would interrupt but the recipient has already been
+        // interrupted `INTERRUPT_BURST_LIMIT` times in the last window, downgrade
+        // to quiet — it still lands in the bell, it just doesn't add another
+        // toast to a storm. Counts only interrupting rows, so a flood of quiet
+        // notifications never suppresses a genuine one.
+        if interrupts
+            && self
+                .interrupt_burst_exceeded(&payload.recipient_uuid, payload.workspace_id)
+                .await?
+        {
+            interrupts = false;
+        }
         let notification_id = self
             .persist_notification(&payload, &deliverable_channels, interrupts)
             .await?;
@@ -230,6 +250,39 @@ impl NotificationService {
         }
 
         Ok(())
+    }
+
+    /// Whether the recipient has already been interrupted at least
+    /// `INTERRUPT_BURST_LIMIT` times within the last `INTERRUPT_BURST_WINDOW_SECS`
+    /// in this workspace. Counts persisted `interrupts = true` rows (the bell
+    /// stays complete regardless). Pinned to the entity's workspace so it runs
+    /// under RLS like the persist path.
+    async fn interrupt_burst_exceeded(
+        &self,
+        recipient_uuid: &Uuid,
+        workspace_id: i32,
+    ) -> Result<bool, String> {
+        use crate::schema::notifications;
+
+        let recipient = *recipient_uuid;
+        let cutoff =
+            Utc::now().naive_utc() - chrono::Duration::seconds(INTERRUPT_BURST_WINDOW_SECS);
+        let count = crate::sync::session::run_in_workspace(
+            &self.pool,
+            "background:interrupt_burst_count",
+            workspace_id,
+            move |conn| {
+                notifications::table
+                    .filter(notifications::user_uuid.eq(recipient))
+                    .filter(notifications::interrupts.eq(true))
+                    .filter(notifications::created_at.gt(cutoff))
+                    .count()
+                    .get_result::<i64>(conn)
+            },
+        )
+        .map_err(|e| format!("Failed to count recent interrupts: {e}"))?;
+
+        Ok(count >= INTERRUPT_BURST_LIMIT)
     }
 
     /// Persist notification to database
@@ -296,6 +349,7 @@ impl NotificationService {
             body: payload.body.clone(),
             metadata: Some(metadata),
             channels_delivered: serde_json::json!([]),
+            interrupts,
         };
 
         // The notification sync emit IS the in-app delivery, so gate it

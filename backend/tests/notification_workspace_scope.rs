@@ -52,6 +52,7 @@ fn insert_notification(
                 body: None,
                 metadata: None,
                 channels_delivered: serde_json::json!([]),
+                interrupts: true,
             })
             .execute(c)
     })

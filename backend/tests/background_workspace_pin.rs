@@ -44,6 +44,7 @@ fn new_notification(user_uuid: uuid::Uuid, type_id: i32) -> NewNotification {
         body: Some("hello".to_string()),
         metadata: None,
         channels_delivered: serde_json::json!([]),
+        interrupts: true,
     }
 }
 

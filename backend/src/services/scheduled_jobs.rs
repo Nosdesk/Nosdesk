@@ -772,19 +772,15 @@ pub async fn detect_sla_breaches(
         return Ok(());
     }
 
-    let (mut processed, mut failed) = (0usize, 0usize);
+    // Do all the DB work first (stamp + sync_action + webhook per ticket,
+    // inside process_one_breach), collecting the breach contexts. Notification
+    // fanout happens after, coalesced per recipient, so a recipient with many
+    // tickets breaching in one sweep gets one summary rather than a storm.
+    let mut breaches: Vec<BreachContext> = Vec::new();
+    let mut failed = 0usize;
     for (ticket_id, kind, workspace_id) in candidates {
         match process_one_breach(&mut conn, ticket_id, kind, workspace_id) {
-            Ok(Some(ctx)) => {
-                processed += 1;
-                // Async fanout outside the DB workspace context: notify
-                // the assignee + watchers via NotificationService (in-app
-                // + email). The pill repaint and webhook deliveries both
-                // flow from the `ticket.sla_breached` sync_action emitted
-                // inside process_one_breach (pool + webhook outbox); no
-                // discrete SSE is involved.
-                fanout_breach(&notification_service, &ctx).await;
-            }
+            Ok(Some(ctx)) => breaches.push(ctx),
             Ok(None) => {} // lost the idempotency race — normal no-op
             Err(e) => {
                 failed += 1;
@@ -797,6 +793,13 @@ pub async fn detect_sla_breaches(
             }
         }
     }
+
+    let processed = breaches.len();
+    // Async fanout outside the DB workspace context: notify the assignee +
+    // watchers via NotificationService (in-app + email). The pill repaint and
+    // webhook deliveries already flowed from the `ticket.sla_breached`
+    // sync_action emitted inside process_one_breach; no discrete SSE here.
+    coalesced_fanout(&notification_service, &breaches).await;
 
     if processed > 0 || failed > 0 {
         info!(processed, failed, "scheduler: SLA breach detection swept");
@@ -970,18 +973,107 @@ fn process_one_breach(
     })
 }
 
-/// Async fanout for one detected breach. The DB work already
-/// committed in `process_one_breach` (incl. the `ticket.sla_breached`
-/// sync_action that drives the pool pill repaint + the webhook outbox);
-/// this only does the notification surfaces: in-app + email to the
-/// assignee and every watcher (deduped).
-async fn fanout_breach(
+/// One coalesced notification to send: the recipient, the workspace it belongs
+/// to, the representative ticket to link to, and the (single or summary) body.
+struct CoalescedNotice {
+    recipient: uuid::Uuid,
+    workspace_id: i32,
+    ticket_id: i32,
+    ticket_title: String,
+    body: String,
+}
+
+/// Group a sweep's breaches into one notification per (recipient, workspace).
+/// Keyed by workspace too because one sweep spans every workspace's breaches
+/// and a summary must not mix tickets across workspaces (nor notify into the
+/// wrong one). A recipient with one breached ticket gets the per-ticket body;
+/// one with several gets a single summary linking to the most-overdue ticket.
+/// Pure so the grouping + summary logic is unit-tested without the DB.
+fn coalesce_breaches(breaches: &[BreachContext]) -> Vec<CoalescedNotice> {
+    use std::collections::BTreeMap;
+
+    let mut by_recipient: BTreeMap<(uuid::Uuid, i32), Vec<&BreachContext>> = BTreeMap::new();
+    for b in breaches {
+        let mut recipients: Vec<uuid::Uuid> = b
+            .assignee_uuid
+            .into_iter()
+            .chain(b.watcher_uuids.iter().copied())
+            .collect();
+        recipients.sort();
+        recipients.dedup();
+        for recipient in recipients {
+            by_recipient
+                .entry((recipient, b.workspace_id))
+                .or_default()
+                .push(b);
+        }
+    }
+
+    by_recipient
+        .into_iter()
+        .map(|((recipient, workspace_id), tickets)| {
+            if tickets.len() == 1 {
+                let b = tickets[0];
+                CoalescedNotice {
+                    recipient,
+                    workspace_id,
+                    ticket_id: b.ticket_id,
+                    ticket_title: b.ticket_title.clone(),
+                    body: format!(
+                        "{} SLA on #{} \"{}\" breached at {}",
+                        b.kind.label(),
+                        b.ticket_id,
+                        b.ticket_title,
+                        b.breached_at.format("%Y-%m-%d %H:%M UTC"),
+                    ),
+                }
+            } else {
+                // Summarise. Link to the most-overdue ticket as the
+                // representative entity; list the first few ids so the body is
+                // actionable.
+                let rep = tickets
+                    .iter()
+                    .min_by_key(|b| b.breached_at)
+                    .expect("len > 1");
+                let shown: Vec<String> = tickets
+                    .iter()
+                    .take(3)
+                    .map(|b| format!("#{}", b.ticket_id))
+                    .collect();
+                let more = tickets.len().saturating_sub(shown.len());
+                let listing = if more > 0 {
+                    format!("{} and {} more", shown.join(", "), more)
+                } else {
+                    shown.join(", ")
+                };
+                CoalescedNotice {
+                    recipient,
+                    workspace_id,
+                    ticket_id: rep.ticket_id,
+                    ticket_title: rep.ticket_title.clone(),
+                    body: format!("{} tickets breached their SLA: {}", tickets.len(), listing),
+                }
+            }
+        })
+        .collect()
+}
+
+/// Coalesced notification fanout for a sweep's detected breaches. The DB work
+/// already committed per ticket in `process_one_breach` (incl. the
+/// `ticket.sla_breached` sync_action that drives the pool pill repaint + the
+/// webhook outbox); this only does the in-app + email surfaces. Grouping is in
+/// `coalesce_breaches`; this just turns each notice into a payload + notify.
+async fn coalesced_fanout(
     notification_service: &crate::services::notifications::NotificationService,
-    ctx: &BreachContext,
+    breaches: &[BreachContext],
 ) {
     use crate::services::notifications::types::{
         NotificationActor, NotificationEntity, NotificationPayload, NotificationTypeCode,
     };
+
+    if breaches.is_empty() {
+        return;
+    }
 
     // System-triggered: no human actor. `kind: System` marks the origin;
     // the nil uuid + "System" name feed the self-skip and display.
@@ -991,44 +1083,22 @@ async fn fanout_breach(
         avatar_thumb: None,
         kind: crate::sync::ActorKind::System,
     };
-    let entity = NotificationEntity::Ticket {
-        id: ctx.ticket_id,
-        title: ctx.ticket_title.clone(),
-    };
 
-    let timer_label = ctx.kind.label();
-    let body = format!(
-        "{} SLA on #{} \"{}\" breached at {}",
-        timer_label,
-        ctx.ticket_id,
-        ctx.ticket_title,
-        ctx.breached_at.format("%Y-%m-%d %H:%M UTC"),
-    );
-
-    // Recipients: assignee + watchers, deduped. Skip if no recipient
-    // (an unassigned ticket with no watchers has nobody to notify —
-    // the pill still flips via the sync_action; the webhook still
-    // fires below).
-    let mut recipients: Vec<uuid::Uuid> = ctx
-        .assignee_uuid
-        .into_iter()
-        .chain(ctx.watcher_uuids.iter().copied())
-        .collect();
-    recipients.sort();
-    recipients.dedup();
-    for recipient in recipients {
+    for notice in coalesce_breaches(breaches) {
         let payload = NotificationPayload::new(
             NotificationTypeCode::SlaBreached,
-            recipient,
+            notice.recipient,
             actor.clone(),
-            entity.clone(),
-            ctx.workspace_id,
+            NotificationEntity::Ticket {
+                id: notice.ticket_id,
+                title: notice.ticket_title,
+            },
+            notice.workspace_id,
         )
-        .with_body(body.clone());
+        .with_body(notice.body);
         if let Err(e) = notification_service.notify(payload).await {
             warn!(
-                ticket_id = ctx.ticket_id,
-                recipient = %recipient,
+                recipient = %notice.recipient,
                 error = %e,
                 "scheduler:sla_breach: notify failed"
             );
@@ -1204,6 +1274,87 @@ pub async fn loan_due_reminders(
 mod tests {
     use super::*;
     use diesel::r2d2;
+
+    fn breach(
+        ticket_id: i32,
+        workspace_id: i32,
+        assignee: uuid::Uuid,
+        secs_overdue: i64,
+    ) -> BreachContext {
+        BreachContext {
+            ticket_id,
+            ticket_title: format!("Ticket {ticket_id}"),
+            workspace_id,
+            kind: SlaBreachKind::Response,
+            breached_at: chrono::Utc::now() - chrono::Duration::seconds(secs_overdue),
+            assignee_uuid: Some(assignee),
+            watcher_uuids: vec![],
+        }
+    }
+
+    #[test]
+    fn coalesce_single_breach_is_per_ticket_body() {
+        let user = uuid::Uuid::now_v7();
+        let notices = coalesce_breaches(&[breach(7, 1, user, 60)]);
+        assert_eq!(notices.len(), 1);
+        assert_eq!(notices[0].ticket_id, 7);
+        assert!(
+            notices[0].body.starts_with("Response SLA on #7"),
+            "single breach uses the per-ticket body, got: {}",
+            notices[0].body
+        );
+    }
+
+    #[test]
+    fn coalesce_multiple_breaches_summarise_and_link_most_overdue() {
+        let user = uuid::Uuid::now_v7();
+        // #10 is the most overdue (largest secs_overdue → earliest breached_at).
+        let notices = coalesce_breaches(&[
+            breach(20, 1, user, 100),
+            breach(10, 1, user, 300),
+            breach(30, 1, user, 50),
+        ]);
+        assert_eq!(
+            notices.len(),
+            1,
+            "three breaches for one recipient collapse"
+        );
+        let n = &notices[0];
+        assert!(
+            n.body.starts_with("3 tickets breached their SLA:"),
+            "got: {}",
+            n.body
+        );
+        assert_eq!(n.ticket_id, 10, "links to the most-overdue ticket");
+    }
+
+    #[test]
+    fn coalesce_does_not_merge_across_workspaces() {
+        let user = uuid::Uuid::now_v7();
+        let notices = coalesce_breaches(&[breach(1, 1, user, 60), breach(2, 2, user, 60)]);
+        assert_eq!(
+            notices.len(),
+            2,
+            "the same user's breaches in different workspaces stay separate"
+        );
+        assert!(notices
+            .iter()
+            .all(|n| n.body.starts_with("Response SLA on #")));
+    }
+
+    #[test]
+    fn coalesce_summary_caps_the_id_list_with_more() {
+        let user = uuid::Uuid::now_v7();
+        let breaches: Vec<BreachContext> =
+            (1..=5).map(|i| breach(i, 1, user, 60 + i as i64)).collect();
+        let notices = coalesce_breaches(&breaches);
+        assert_eq!(notices.len(), 1);
+        assert!(
+            notices[0].body.contains("and 2 more"),
+            "5 tickets shows 3 ids + \"and 2 more\", got: {}",
+            notices[0].body
+        );
+    }
 
     // A real 2-connection pool (no test-transaction wrapper) so two
     // sessions can be held at once to observe advisory-lock contention.

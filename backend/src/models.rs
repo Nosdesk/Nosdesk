@@ -5550,6 +5550,11 @@ pub struct Notification {
     pub seen_at: Option<NaiveDateTime>,
     pub archived_at: Option<NaiveDateTime>,
     pub snoozed_until: Option<NaiveDateTime>,
+    /// Whether this notification interrupted (toast / desktop) vs landed
+    /// quietly in the bell. Reflects the recipient's resolved delivery at
+    /// send time; the send path counts recent `interrupts = true` rows to
+    /// cap interrupt bursts.
+    pub interrupts: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -5564,6 +5569,7 @@ pub struct NewNotification {
     pub body: Option<String>,
     pub metadata: Option<serde_json::Value>,
     pub channels_delivered: serde_json::Value,
+    pub interrupts: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
