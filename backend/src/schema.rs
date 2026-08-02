@@ -1053,6 +1053,7 @@ diesel::table! {
         seen_at -> Nullable<Timestamptz>,
         archived_at -> Nullable<Timestamptz>,
         snoozed_until -> Nullable<Timestamptz>,
+        interrupts -> Bool,
     }
 }
 
