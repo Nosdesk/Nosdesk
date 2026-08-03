@@ -1,29 +1,33 @@
-# Welcome to Nosdesk
+Nosdesk is a helpdesk with a knowledge base built in. It tracks support tickets, groups work into projects and cycles, and keeps a record of the devices you support. Documentation lives here too, including the page you are reading.
 
-Nosdesk is your team's knowledge base and helpdesk platform. This documentation system helps you organize, share, and collaborate on information across your organization.
+## Start here
 
-## Getting Started
+Tickets are where most of the work happens. Incoming email becomes a ticket, and your replies go back to the requester. See [working the ticket queue](https://nosdesk.com/docs/guide/ticket-queue).
 
-Here are a few things you can do:
+For a tour of the sidebar, search, and your dashboard, read [finding your way around](https://nosdesk.com/docs/guide/getting-around).
 
-- **Create pages** using the sidebar navigation - click the + button to add new documents
-- **Organize with hierarchy** - drag and drop pages in the sidebar to nest them under parent pages
-- **Collaborate in real-time** - multiple team members can edit the same document simultaneously
-- **Use rich formatting** - headings, lists, code blocks, images, links, and more
-- **Embed documents** - use the Insert menu to embed other documents inline
-- **Export to Markdown** - download any page as a `.md` file
+Notifications cover mentions, assignments, and SLA breaches, and you choose which of them interrupt you. See [notifications and mentions](https://nosdesk.com/docs/guide/notifications).
 
-## Collections
+## Documentation
 
-Documents can belong to multiple collections for flexible organization:
+You are reading a page in the Getting Started collection. Pages live in collections, and a page can belong to more than one.
 
-- **Getting Started** - You're reading a page in this collection right now
-- **Tickets** - Documents created from ticket notes are automatically added here
-- Create your own collections to organize documentation by team, project, or topic
+- Add a page with the + button in the sidebar, and drag pages to nest them
+- Type `/` in the editor for formatting commands, and `@` to mention a teammate
+- Several people can edit a page at once, and everyone sees the changes as they happen
+- Paste a ticket URL into a page to link it to that ticket
+- Collection visibility controls which groups can read a collection
 
-## Tips
+More in [writing and sharing documentation](https://nosdesk.com/docs/guide/knowledge-base).
 
-- Use `/` slash commands in the editor for quick formatting
-- Mention team members with `@` to reference them in documents
-- Link to tickets by pasting a ticket URL into the editor
-- Set collection visibility to control which groups can access specific documentation
+## Projects and assets
+
+Projects and cycles group work over time. See [projects and cycles](https://nosdesk.com/docs/guide/projects-and-cycles).
+
+Assets track the devices you support and connect them to the tickets about them. See [assets and devices](https://nosdesk.com/docs/guide/assets-and-devices).
+
+## For administrators
+
+Email, authentication, SLA policies, and workspace settings are under Settings. The [configuration guide](https://nosdesk.com/docs/operations/configuration) walks through the options.
+
+Full documentation lives at [nosdesk.com/docs](https://nosdesk.com/docs).

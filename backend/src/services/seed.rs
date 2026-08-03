@@ -329,6 +329,11 @@ enum InlineSpan<'a> {
     Bold(&'a str),
     Italic(&'a str),
     Code(&'a str),
+    /// `[text](href)` — carries the destination through as a real link mark.
+    Link {
+        text: &'a str,
+        href: &'a str,
+    },
 }
 
 /// Parse inline markdown into an XmlDeltaPrelim with proper text formatting attributes.
@@ -360,6 +365,17 @@ fn parse_inline_to_delta(text: &str) -> XmlDeltaPrelim {
                 let attrs = HashMap::from([(Arc::from("code"), Any::Bool(true))]);
                 delta.push(Delta::insert_with(s, attrs));
             }
+            InlineSpan::Link { text, href } => {
+                // Unlike the boolean marks, `link` carries attributes, so the
+                // mark value is the ProseMirror attrs map (schema: href
+                // required, title optional) rather than `true`.
+                let link_attrs = Any::from(HashMap::from([(
+                    "href".to_string(),
+                    Any::String(href.into()),
+                )]));
+                let attrs = HashMap::from([(Arc::from("link"), link_attrs)]);
+                delta.push(Delta::insert_with(text, attrs));
+            }
         }
     }
 
@@ -375,7 +391,7 @@ fn parse_inline_to_delta(text: &str) -> XmlDeltaPrelim {
 }
 
 /// Parse a line of text into inline spans, recognizing **bold**, *italic*, `code`,
-/// and [link text](url) (links rendered as plain text).
+/// and [link text](href).
 fn parse_inline_spans(text: &str) -> Vec<InlineSpan<'_>> {
     let mut spans = Vec::new();
     let mut remaining = text;
@@ -416,14 +432,24 @@ fn parse_inline_spans(text: &str) -> Vec<InlineSpan<'_>> {
                 }
             }
 
-            // Link: [text](url) -> render as plain text
+            // Link: [text](href)
             if after.starts_with('[') {
                 if let Some(bracket_end) = after.find(']') {
                     let link_text = &after[1..bracket_end];
                     let after_bracket = &after[bracket_end + 1..];
                     if after_bracket.starts_with('(') {
                         if let Some(paren_end) = after_bracket.find(')') {
-                            spans.push(InlineSpan::Plain(link_text));
+                            let href = &after_bracket[1..paren_end];
+                            // An empty href would produce a link mark with no
+                            // destination; fall back to plain text.
+                            if href.is_empty() {
+                                spans.push(InlineSpan::Plain(link_text));
+                            } else {
+                                spans.push(InlineSpan::Link {
+                                    text: link_text,
+                                    href,
+                                });
+                            }
                             remaining = &after_bracket[paren_end + 1..];
                             continue;
                         }
@@ -441,6 +467,59 @@ fn parse_inline_spans(text: &str) -> Vec<InlineSpan<'_>> {
     }
 
     spans
+}
+
+#[cfg(test)]
+mod inline_tests {
+    use super::{parse_inline_spans, InlineSpan};
+
+    /// The seeded welcome page links out to the public docs, so the converter
+    /// has to carry the destination through. It used to drop the href and
+    /// render link text as plain text.
+    #[test]
+    fn link_keeps_its_href() {
+        let spans = parse_inline_spans("see the [user guide](https://nosdesk.com/docs/guide) now");
+        let link = spans
+            .iter()
+            .find_map(|s| match s {
+                InlineSpan::Link { text, href } => Some((*text, *href)),
+                _ => None,
+            })
+            .expect("a link span");
+        assert_eq!(link, ("user guide", "https://nosdesk.com/docs/guide"));
+    }
+
+    #[test]
+    fn empty_href_falls_back_to_plain_text() {
+        let spans = parse_inline_spans("[bare]()");
+        assert!(
+            !spans.iter().any(|s| matches!(s, InlineSpan::Link { .. })),
+            "an empty href must not produce a destination-less link mark"
+        );
+    }
+
+    /// End-to-end guard on the shipped welcome page: it converts, and the
+    /// public-docs links survive into the encoded document. Fails both if the
+    /// converter drops hrefs again and if the seed file loses its links.
+    #[test]
+    fn seeded_welcome_page_encodes_real_links() {
+        let markdown = include_str!("../../seeds/getting-started.md");
+        let bytes = super::markdown_to_yjs(markdown).expect("welcome markdown converts");
+        let encoded = String::from_utf8_lossy(&bytes);
+        assert!(encoded.contains("link"), "link mark is encoded");
+        assert!(
+            encoded.contains("https://nosdesk.com/docs/guide/ticket-queue"),
+            "the href is carried into the document, not dropped"
+        );
+    }
+
+    #[test]
+    fn other_inline_marks_still_parse() {
+        let spans = parse_inline_spans("**b** *i* `c`");
+        assert!(spans.iter().any(|s| matches!(s, InlineSpan::Bold("b"))));
+        assert!(spans.iter().any(|s| matches!(s, InlineSpan::Italic("i"))));
+        assert!(spans.iter().any(|s| matches!(s, InlineSpan::Code("c"))));
+    }
 }
 
 #[cfg(test)]
