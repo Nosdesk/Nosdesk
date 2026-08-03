@@ -133,6 +133,7 @@ WORKDIR /repo
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY frontend/package.json ./frontend/
 COPY packages/core/package.json ./packages/core/
+COPY packages/plugin-sdk/package.json ./packages/plugin-sdk/
 COPY mobile/package.json ./mobile/
 RUN pnpm install --frozen-lockfile --filter nosdesk-frontend...
 
@@ -141,6 +142,7 @@ RUN pnpm install --frozen-lockfile --filter nosdesk-frontend...
 # shell and irrelevant to the web build.
 COPY frontend ./frontend
 COPY packages/core ./packages/core
+COPY packages/plugin-sdk ./packages/plugin-sdk
 COPY mobile/src ./mobile/src
 # Shared Fluent catalogues. Vite's `import.meta.glob` in
 # src/i18n/index.ts resolves `../../../i18n/locales/...` three levels up
