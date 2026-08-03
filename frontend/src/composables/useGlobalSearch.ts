@@ -423,7 +423,7 @@ export function useGlobalSearch() {
   };
 
   const handleKeyDown = (event: KeyboardEvent) => {
-    if ((event.metaKey || event.ctrlKey) && event.key === 'k') {
+    if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key === 'k') {
       event.preventDefault();
       isOpen.value ? closeSearch() : openSearch();
       return;

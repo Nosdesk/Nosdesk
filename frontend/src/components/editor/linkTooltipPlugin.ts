@@ -233,3 +233,30 @@ export function removeLink() {
     return true;
   };
 }
+
+/**
+ * Paste-to-link: pasting a URL over a text selection turns the selection into
+ * a link instead of replacing it (the Notion/Slack/Figma convention). With no
+ * selection the paste falls through untouched — the ticket-link plugin and
+ * plain text insertion behave as before. Register BEFORE plugins that also
+ * handle URL pastes.
+ */
+export function createPasteLinkPlugin() {
+  return new Plugin({
+    props: {
+      handlePaste(view, event) {
+        const text = event.clipboardData?.getData("text/plain")?.trim();
+        if (!text || !/^https?:\/\/\S+$/.test(text)) return false;
+        const { from, to, empty } = view.state.selection;
+        if (empty) return false;
+        const linkType = view.state.schema.marks.link;
+        if (!linkType) return false;
+        const tr = view.state.tr;
+        tr.removeMark(from, to, linkType);
+        tr.addMark(from, to, linkType.create({ href: text }));
+        view.dispatch(tr);
+        return true;
+      },
+    },
+  });
+}

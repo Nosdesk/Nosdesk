@@ -26,6 +26,7 @@ import LinkTooltip from "./editor/LinkTooltip.vue";
 import RevisionHistory from "./editor/RevisionHistory.vue";
 import {
     createLinkTooltipPlugin,
+    createPasteLinkPlugin,
     showLinkTooltip,
     hideLinkTooltip,
     applyLink,
@@ -724,6 +725,7 @@ const initEditor = async () => {
                             linkTooltipState.value = state;
                         },
                     }),
+                    createPasteLinkPlugin(), // before ticket-link: URL over selection = link it
                     createTicketLinkPlugin(),
                     createEmbeddedDocumentPlugin(),
                     keymap({
@@ -732,7 +734,7 @@ const initEditor = async () => {
                         "Mod-Shift-z": redo,
                         "Mod-b": toggleMark(schema.marks.strong),
                         "Mod-i": toggleMark(schema.marks.em),
-                        "Mod-k": showLinkTooltip(true), // Cmd+K to add/edit link
+                        "Mod-Shift-k": showLinkTooltip(true), // Cmd+Shift+K to add/edit link (Cmd+K belongs to global search)
                         "Mod-Alt-c": setBlockType(schema.nodes.code_block),
                         // Exit code block with triple backticks
                         "```": (state, dispatch) => {
