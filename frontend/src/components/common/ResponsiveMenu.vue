@@ -102,7 +102,9 @@ const ariaLabel = computed(() => props.ariaLabel ?? props.title)
        chrome. Backdrop tap dismisses; drag the handle past the
        threshold dismisses; otherwise springs back. -->
   <Teleport to="body">
-    <Transition name="sheet-backdrop">
+    <!-- `appear` so a menu that mounts already-open (lazily mounted
+         popovers) still animates in rather than snapping. -->
+    <Transition name="sheet-backdrop" appear>
       <div
         v-if="open && isMobile"
         class="fixed inset-0 z-backdrop bg-black/40"
@@ -110,7 +112,7 @@ const ariaLabel = computed(() => props.ariaLabel ?? props.title)
         @click="emit('close')"
       />
     </Transition>
-    <Transition name="sheet">
+    <Transition name="sheet" appear>
       <div v-if="open && isMobile" class="fixed inset-x-0 bottom-0 z-overlay">
         <!-- Inner panel: the Vue transition slides the WRAPPER on enter/leave,
              this panel carries the drag offset. Two elements so the two transforms

@@ -70,37 +70,41 @@ export function useResponsiveSheet(
   const breakpoint = opts.breakpoint ?? '(min-width: 768px)'
   const dismissThreshold = opts.dismissThreshold ?? 100
 
-  const isMobile = ref(false)
-  const dragOffset = ref(0)
-  const isDragging = ref(false)
-  let dragStartY = 0
-
   // -----------------------------------------------------------
   // Breakpoint reactivity
   // -----------------------------------------------------------
-  let mql: MediaQueryList | null = null
+  // Resolved during setup, not in onMounted. Deferring it meant
+  // `isMobile` always started `false` and then flipped to its real
+  // value once mounted, which (a) rendered one frame of desktop
+  // popover chrome on a phone and (b) tripped the dismiss watcher
+  // below — the `prev !== undefined` guard it used to carry never
+  // engaged, because `prev` was `false` on that first fire, not
+  // `undefined`. Harmless while every consumer mounted closed, but a
+  // menu that mounts already-open (a lazily mounted popover) closed
+  // itself immediately on mobile.
+  const mql: MediaQueryList | null =
+    typeof window === 'undefined' ? null : window.matchMedia(breakpoint)
+
+  const isMobile = ref(mql ? !mql.matches : false)
+  const dragOffset = ref(0)
+  const isDragging = ref(false)
+  let dragStartY = 0
 
   function syncBreakpoint(e: MediaQueryListEvent | MediaQueryList) {
     isMobile.value = !e.matches
   }
 
-  onMounted(() => {
-    if (typeof window === 'undefined') return
-    mql = window.matchMedia(breakpoint)
-    syncBreakpoint(mql)
-    mql.addEventListener('change', syncBreakpoint)
-  })
+  onMounted(() => mql?.addEventListener('change', syncBreakpoint))
 
-  onScopeDispose(() => {
-    mql?.removeEventListener('change', syncBreakpoint)
-    mql = null
-  })
+  onScopeDispose(() => mql?.removeEventListener('change', syncBreakpoint))
 
   // Cross-breakpoint dismiss: avoid morphing a desktop popover
   // into a mobile sheet (or vice versa) — the geometries are
-  // different enough that the animation always looks broken.
-  watch(isMobile, (_now, prev) => {
-    if (opts.open.value && prev !== undefined) opts.onDismiss()
+  // different enough that the animation always looks broken. Only
+  // genuine breakpoint changes reach here now that the initial value
+  // is resolved synchronously.
+  watch(isMobile, () => {
+    if (opts.open.value) opts.onDismiss()
   })
 
   // Reset drag state on each open so a previous drag doesn't

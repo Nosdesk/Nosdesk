@@ -381,6 +381,8 @@ const router = createRouter({
         requiresAuth: true,
         workspaceAdminRequired: true,
         titleKey: 'route-title-workspace-members',
+        createButtonTextKey: 'workspace-members-invite',
+        createButtonIcon: 'user',
       }
     },
     // Assets (formerly /devices). The list / create / detail
