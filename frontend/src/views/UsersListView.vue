@@ -141,12 +141,28 @@ const groupAxes: GroupAxisDef<User>[] = [
   },
 ]
 
+/**
+ * Every column is server-sortable: `name`, `role`, `email`,
+ * `created_at`, `open_ticket_count` and `device_count` all have match
+ * arms in `backend/src/repository/users.rs`. The last three sort via
+ * correlated subqueries, since email and the two counts aren't `users`
+ * columns — the handler enriches each page with them after LIMIT.
+ *
+ * Widths use bounded px maxes rather than `auto` so the `1fr` identity
+ * column keeps the slack: grid grows non-flexible tracks to their
+ * growth limit before expanding `fr` ones, so an `auto` max lets a long
+ * email starve the name column down to min-content. Mins are sized to
+ * stay under the ~768px the desktop table gets at its narrowest (a
+ * 1024px viewport less the 256px navbar); the grid is clipped, not
+ * scrollable, if they don't.
+ */
 const columns = computed(() => [
-  { field: 'user', label: t('user-mgmt-column-user'), width: '1fr', sortable: true, sortKey: 'name', responsive: 'always' as const },
-  { field: 'role', label: t('user-mgmt-column-role'), width: 'minmax(100px,auto)', sortable: true, responsive: 'always' as const },
-  { field: 'open_ticket_count', label: t('user-mgmt-column-tickets'), width: 'minmax(80px,auto)', sortable: false, responsive: 'md' as const },
-  { field: 'device_count', label: t('user-mgmt-column-assets'), width: 'minmax(80px,auto)', sortable: false, responsive: 'md' as const },
-  { field: 'created_at', label: t('user-mgmt-column-joined'), width: 'minmax(140px,auto)', sortable: false, responsive: 'lg' as const, defaultHidden: true },
+  { field: 'user', label: t('user-mgmt-column-user'), width: 'minmax(160px,1fr)', sortable: true, sortKey: 'name', responsive: 'always' as const },
+  { field: 'email', label: t('user-mgmt-column-email'), width: 'minmax(150px,260px)', sortable: true, responsive: 'always' as const },
+  { field: 'role', label: t('user-mgmt-column-role'), width: 'minmax(90px,120px)', sortable: true, responsive: 'always' as const },
+  { field: 'open_ticket_count', label: t('user-mgmt-column-tickets'), width: 'minmax(70px,90px)', sortable: true, responsive: 'md' as const },
+  { field: 'device_count', label: t('user-mgmt-column-assets'), width: 'minmax(70px,90px)', sortable: true, responsive: 'md' as const },
+  { field: 'created_at', label: t('user-mgmt-column-joined'), width: 'minmax(110px,150px)', sortable: true, responsive: 'lg' as const, defaultHidden: true },
 ])
 
 // Shell composable bundling controls + page + selection + chip
@@ -377,11 +393,13 @@ function formatPurgeAt(deletedAt: string): string {
           @toggle-bucket="listView.grouping.toggleCollapsed"
         >
           <template #cell-user="{ item }">
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 min-w-0">
+              <!-- Name only. Email has its own sortable column now, so
+                   stacking it here would print it twice and force a
+                   two-line row. -->
               <UserInfoCell
                 :user-id="item.uuid"
                 :user-name="item.name"
-                :email="item.email"
                 :avatar="item.avatar_thumb || item.avatar_url"
                 :show-avatar="true"
               />
@@ -415,6 +433,14 @@ function formatPurgeAt(deletedAt: string): string {
                 </button>
               </template>
             </div>
+          </template>
+
+          <!-- The primary address from `user_emails`; a user can hold
+               several, and rows without one sort last rather than
+               leading an A-Z sort with a blank cell. -->
+          <template #cell-email="{ item }">
+            <span v-if="item.email" class="text-sm text-secondary truncate">{{ item.email }}</span>
+            <span v-else class="text-sm text-tertiary">{{ $t('user-mgmt-no-email') }}</span>
           </template>
 
           <template #cell-role="{ item }">
@@ -512,10 +538,8 @@ function formatPurgeAt(deletedAt: string): string {
           :page-size="listView.controls.pageSize.value"
           :page-size-options="listView.controls.pageSizeOptions"
           :is-infinite-mode="listView.controls.isInfiniteMode.value"
-          :show-import="true"
           @update:current-page="listView.controls.handlePageChange"
           @update:page-size="listView.controls.handlePageSizeChange"
-          @import="() => {}"
         />
       </template>
     </ListPageLayout>

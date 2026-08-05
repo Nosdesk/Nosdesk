@@ -553,6 +553,11 @@ pub async fn get_paginated_users(
     let page_size = query.page_size.unwrap_or(25).clamp(1, 100);
 
     // Validate sort_field against allowed columns
+    // Gate before the repository sees it. Anything not listed here is
+    // dropped to `None` and the repository falls back to name-ascending
+    // — so a field with a sort arm but no entry here silently does
+    // nothing. The two `*_count` fields sort via correlated subqueries
+    // (see `get_paginated_users`), not real columns.
     let allowed_sort_fields = [
         "name",
         "first_name",
@@ -561,6 +566,8 @@ pub async fn get_paginated_users(
         "role",
         "created_at",
         "updated_at",
+        "open_ticket_count",
+        "device_count",
     ];
     let sort_field = query.sort_field.as_ref().and_then(|f| {
         let f_lower = f.to_lowercase();
