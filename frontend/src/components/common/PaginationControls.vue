@@ -27,7 +27,6 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   'update:currentPage': [page: number]
   'update:pageSize': [size: number]
-  'go-to-item': [itemId: number]
 }>()
 
 // Use shared mobile detection (md breakpoint = 768px for pagination)
@@ -36,10 +35,6 @@ const { isMobile } = useMobileDetection('md')
 // Page input state
 const pageInputValue = ref(props.currentPage.toString())
 const pageInput = ref<HTMLInputElement | null>(null)
-
-// Go-to-item input state
-const goToItemValue = ref('')
-const goToItemInput = ref<HTMLInputElement | null>(null)
 
 // Watch for currentPage changes to update input value
 watch(() => props.currentPage, (newPage) => {
@@ -75,25 +70,6 @@ const handlePageInputKeydown = (event: KeyboardEvent) => {
   } else if (event.key === 'Escape') {
     pageInputValue.value = props.currentPage.toString()
     pageInput.value?.blur()
-  }
-}
-
-// Handle go-to-item input
-const handleGoToItem = () => {
-  const itemId = parseInt(goToItemValue.value)
-  if (!isNaN(itemId) && itemId > 0) {
-    emit('go-to-item', itemId)
-    goToItemValue.value = ''
-  }
-}
-
-const handleGoToItemKeydown = (event: KeyboardEvent) => {
-  if (event.key === 'Enter') {
-    handleGoToItem()
-    goToItemInput.value?.blur()
-  } else if (event.key === 'Escape') {
-    goToItemValue.value = ''
-    goToItemInput.value?.blur()
   }
 }
 
@@ -269,26 +245,12 @@ const hasMultiplePages = computed(() => !props.isInfiniteMode && props.totalPage
         </template>
       </div>
 
-      <!-- Right: Go to item (infinite) or page info (pagination) -->
+      <!-- Right: page info. The infinite-mode branch used to hold a
+           "Go to #" input, removed because no consumer ever listened
+           for the `go-to-item` it emitted, and its label was
+           hard-coded English. -->
       <div class="flex items-center gap-2 flex-shrink-0">
-        <template v-if="isInfiniteMode">
-          <!-- Go to ticket input -->
-          <div class="flex items-center gap-1.5 text-sm text-secondary">
-            <span>Go to #</span>
-            <input
-              v-model="goToItemValue"
-              @keydown="handleGoToItemKeydown"
-              @focus="handleInputFocus"
-              type="number"
-              min="1"
-              :placeholder="t('pagination-controls-id-placeholder')"
-              class="w-14 px-1.5 py-0.5 text-sm bg-surface-alt border border-default text-primary rounded focus:ring-accent focus:border-accent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-mono text-center"
-              ref="goToItemInput"
-            />
-          </div>
-        </template>
-
-        <template v-else>
+        <template v-if="!isInfiniteMode">
           <!-- Page info with direct input -->
           <div class="flex items-center gap-1.5 text-sm text-secondary">
             <span>{{ t('pagination-controls-page') }}</span>

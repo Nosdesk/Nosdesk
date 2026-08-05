@@ -26,7 +26,10 @@ const displayEmpty = () => props.emptyText ?? fluent.$t('filter-assignee-unassig
 </script>
 
 <template>
-  <div v-if="userId" class="flex items-center gap-2">
+  <!-- `min-w-0` so the name's `truncate` can actually engage. Without
+       it this flex item keeps its default `min-width: auto` and a long
+       name overflows into the next column instead of ellipsing. -->
+  <div v-if="userId" class="flex items-center gap-2 min-w-0">
     <UserAvatar
       :uuid="userId"
       :fallbackName="userName"

@@ -874,7 +874,6 @@ empty-workspace-members-description = Use the form above to add the first member
 # Tenant self-serve workspace member management (P1.3)
 route-title-workspace-members = Team
 workspace-members-title = Team
-workspace-members-subtitle = Manage who can access this workspace and what they can do.
 workspace-members-invite = Invite teammate
 workspace-members-empty-description = Invite teammates to collaborate in this workspace.
 workspace-members-error-forbidden = You can only manage agents and members. Managing admins or owners requires the owner role.
@@ -4874,7 +4873,6 @@ ptr-refreshing = Refreshing…
 ptr-updated = Updated
 pagination-controls-page = Page
 pagination-controls-show = Show
-pagination-controls-id-placeholder = ID
 asset-modal-title = Select an asset
 asset-modal-search-placeholder = Search assets by name, hostname, serial number, manufacturer, or user...
 asset-modal-owner = Owner

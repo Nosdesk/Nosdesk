@@ -232,17 +232,34 @@ export function useDataTableColumns<C extends DataTableColumnLike>(
     return loadWidths(widthsStorageKey(storageNamespace, getViewId())) ?? new Map()
   }
 
-  /** Drop ids that no longer exist in the registry; append new
-   *  ids the user hasn't seen yet to the tail so adding a column
-   *  to the registry surfaces it without wiping the user's
-   *  customisation. */
+  /** Drop ids that no longer exist in the registry, and splice in ids
+   *  the user hasn't seen yet, so adding a column to the registry
+   *  surfaces it without wiping the user's customisation.
+   *
+   *  A new id lands next to the registry neighbour it was declared
+   *  after, not at the tail. Tail-appending looks harmless until a
+   *  column is inserted mid-registry: everyone with a stored order
+   *  (which `persist()` writes the first time they reorder, hide, or
+   *  resize anything) would see it stranded at the far right, nowhere
+   *  near where it was declared. */
   function reconcileOrder(stored: string[]): string[] {
     const registryIds = new Set(columns.value.map((c) => c.field))
-    const cleaned = stored.filter((id) => registryIds.has(id))
-    for (const c of columns.value) {
-      if (!cleaned.includes(c.field)) cleaned.push(c.field)
-    }
-    return cleaned
+    const result = stored.filter((id) => registryIds.has(id))
+    columns.value.forEach((col, registryIndex) => {
+      if (result.includes(col.field)) return
+      // Anchor on the nearest preceding registry column the user
+      // already has; fall back to the front when there isn't one.
+      let insertAt = 0
+      for (let i = registryIndex - 1; i >= 0; i--) {
+        const anchor = result.indexOf(columns.value[i].field)
+        if (anchor !== -1) {
+          insertAt = anchor + 1
+          break
+        }
+      }
+      result.splice(insertAt, 0, col.field)
+    })
+    return result
   }
 
   // Reload state when the active view changes (saved-view
@@ -280,13 +297,13 @@ export function useDataTableColumns<C extends DataTableColumnLike>(
    *  keep their CSS-grid semantics until the user manually
    *  resizes.
    *
-   *  A flexible (`fr`) column is the one that absorbs slack so the
-   *  grid fills its container; never pin it to a stored pixel width
-   *  (which would leave dead space on wide displays). This also
-   *  self-heals a stale override left from before the column was
-   *  made non-resizable. */
+   *  Flexible (`fr`) columns used to be exempt, because one column
+   *  has to absorb the row's slack or the grid stops filling its
+   *  container. `DataTable` now renders a trailing spacer track that
+   *  takes that job as soon as no `fr` column is left, so pinning a
+   *  flexible column to px no longer leaves a ragged right edge and
+   *  every column can be resized. */
   function withEffectiveWidth(col: C): C {
-    if (typeof col.width === 'string' && col.width.includes('fr')) return col
     const override = widthOverrides.value.get(col.field)
     if (override == null) return col
     return { ...col, width: `${override}px` }
@@ -404,23 +421,44 @@ export function useDataTableColumns<C extends DataTableColumnLike>(
     event.stopPropagation()
 
     const minPx = col.minWidthPx ?? DEFAULT_MIN_WIDTH_PX
-    const maxPx = col.maxWidthPx ?? DEFAULT_MAX_WIDTH_PX
+    // Never clamp below where the column already renders. A flexible
+    // (`fr`) column routinely measures wider than DEFAULT_MAX_WIDTH_PX
+    // — the Users list's identity column is ~950px on a 1920px display
+    // — and clamping to 800 would snap it visibly narrower on the first
+    // pointermove, before the user had dragged anywhere near the bound.
+    const maxPx = Math.max(
+      col.maxWidthPx ?? DEFAULT_MAX_WIDTH_PX,
+      Math.round(startWidthPx),
+    )
+    const clamp = (raw: number) => Math.min(maxPx, Math.max(minPx, raw))
     resizingId.value = field
 
     const writeWidth = (px: number): void => {
       const map = new Map(widthOverrides.value)
-      map.set(field, Math.round(px))
+      map.set(field, Math.round(clamp(px)))
       widthOverrides.value = map
     }
+
+    // `useDragGesture` seeds `pendingValue` with `startValue` and only
+    // reassigns it in `onMove`, so a pointerdown/up with no movement
+    // still reaches `onCommit`. Without this flag a stray click on the
+    // 4px handle would pin a flexible column to its current pixel width
+    // forever — it would stop reflowing on resize, and for a pinned
+    // column like `user` the only way back is `reset()`.
+    let moved = false
 
     resizeDrag.begin(event, {
       axis: 'x',
       startValue: startWidthPx,
-      clamp: (raw) => Math.min(maxPx, Math.max(minPx, raw)),
-      onUpdate: writeWidth,
+      clamp,
+      onUpdate: (px) => {
+        moved = true
+        writeWidth(px)
+      },
       onCommit: (finalWidth) => {
-        writeWidth(finalWidth)
         resizingId.value = null
+        if (!moved) return
+        writeWidth(finalWidth)
         persist()
       },
     })

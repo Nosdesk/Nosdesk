@@ -17,6 +17,25 @@
 /** Per-workspace role values. */
 export type WorkspaceRole = 'owner' | 'admin' | 'agent' | 'member';
 
+/** Every role, most privileged first. Menus and pickers iterate this
+ *  so the order is identical wherever roles are listed. */
+export const WORKSPACE_ROLES: readonly WorkspaceRole[] = [
+  'owner',
+  'admin',
+  'agent',
+  'member',
+] as const;
+
+/** Tier ordering, mirroring the backend `WorkspaceRole` enum's `Ord`.
+ *  Higher outranks lower; used for "can this caller manage that role"
+ *  checks and for sorting a member list by seniority. */
+export const WORKSPACE_ROLE_RANK: Record<WorkspaceRole, number> = {
+  member: 0,
+  agent: 1,
+  admin: 2,
+  owner: 3,
+};
+
 /** Server-returned workspace summary (`WorkspaceSummary` in admin_workspaces.rs). */
 export interface Workspace {
   id: number;

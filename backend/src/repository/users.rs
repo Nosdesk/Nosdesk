@@ -249,6 +249,31 @@ pub fn get_paginated_users(
         ELSE 3 END"
     );
 
+    // Sort-only correlated subqueries for the three fields that aren't
+    // `users` columns. The handler enriches each page with the primary
+    // email and the ticket / asset counts *after* LIMIT, so without
+    // these the list could only ever be ordered by name and role.
+    //
+    // Each fragment deliberately mirrors the predicates of its
+    // counterpart in `handlers::users` (`get_open_ticket_counts_batch`
+    // / `get_device_counts_batch` / `get_primary_emails_batch`) — same
+    // joins, same filters, and likewise no explicit workspace
+    // predicate, leaving that to RLS on the same connection. If the
+    // ORDER BY counted a different set than the displayed number, the
+    // column would sort into an order the numbers appear to contradict.
+    //
+    // Static SQL, and `workspace_id` is an i32, so there is nothing
+    // interpolated that could be injected. Same idiom as
+    // `role_rank_sql` above.
+    const OPEN_TICKET_COUNT_SQL: &str = "(SELECT COUNT(*) FROM tickets t \
+         JOIN workflow_states ws ON ws.id = t.workflow_state_id \
+         WHERE t.assignee_uuid = users.uuid \
+           AND ws.category IN ('triage', 'backlog', 'active', 'in_review'))";
+    const DEVICE_COUNT_SQL: &str = "(SELECT COUNT(*) FROM assets a \
+         WHERE a.primary_user_uuid = users.uuid)";
+    const PRIMARY_EMAIL_SQL: &str = "(SELECT ue.email FROM user_emails ue \
+         WHERE ue.user_uuid = users.uuid AND ue.is_primary LIMIT 1)";
+
     // Count query with filters
     let mut count_query = users::table.into_boxed();
     if let Some(ref uuids) = search_uuids {
@@ -278,15 +303,59 @@ pub fn get_paginated_users(
         DeletedFilter::All => query,
     };
     query = match (sort_field.as_deref(), sort_direction.as_deref()) {
-        (Some("name"), Some("asc")) => query.order(users::name.asc()),
-        (Some("name"), _) => query.order(users::name.desc()),
-        (Some("role"), Some("asc")) => {
-            query.order(diesel::dsl::sql::<diesel::sql_types::Integer>(&role_rank_sql).asc())
-        }
-        (Some("role"), _) => {
-            query.order(diesel::dsl::sql::<diesel::sql_types::Integer>(&role_rank_sql).desc())
-        }
-        _ => query.order(users::name.asc()),
+        (Some("name"), Some("asc")) => query
+            .order(users::name.asc())
+            .then_order_by(users::uuid.asc()),
+        (Some("name"), _) => query
+            .order(users::name.desc())
+            .then_order_by(users::uuid.asc()),
+        (Some("role"), Some("asc")) => query
+            .order(diesel::dsl::sql::<diesel::sql_types::Integer>(&role_rank_sql).asc())
+            .then_order_by(users::uuid.asc()),
+        (Some("role"), _) => query
+            .order(diesel::dsl::sql::<diesel::sql_types::Integer>(&role_rank_sql).desc())
+            .then_order_by(users::uuid.asc()),
+        (Some("created_at"), Some("asc")) => query
+            .order(users::created_at.asc())
+            .then_order_by(users::uuid.asc()),
+        (Some("created_at"), _) => query
+            .order(users::created_at.desc())
+            .then_order_by(users::uuid.asc()),
+        // A user with no primary email row sorts last either way,
+        // rather than leading an A-Z sort with a blank cell.
+        (Some("email"), Some("asc")) => query
+            .order(
+                diesel::dsl::sql::<diesel::sql_types::Nullable<diesel::sql_types::Text>>(
+                    PRIMARY_EMAIL_SQL,
+                )
+                .asc()
+                .nulls_last(),
+            )
+            .then_order_by(users::uuid.asc()),
+        (Some("email"), _) => query
+            .order(
+                diesel::dsl::sql::<diesel::sql_types::Nullable<diesel::sql_types::Text>>(
+                    PRIMARY_EMAIL_SQL,
+                )
+                .desc()
+                .nulls_last(),
+            )
+            .then_order_by(users::uuid.asc()),
+        (Some("open_ticket_count"), Some("asc")) => query
+            .order(diesel::dsl::sql::<diesel::sql_types::BigInt>(OPEN_TICKET_COUNT_SQL).asc())
+            .then_order_by(users::uuid.asc()),
+        (Some("open_ticket_count"), _) => query
+            .order(diesel::dsl::sql::<diesel::sql_types::BigInt>(OPEN_TICKET_COUNT_SQL).desc())
+            .then_order_by(users::uuid.asc()),
+        (Some("device_count"), Some("asc")) => query
+            .order(diesel::dsl::sql::<diesel::sql_types::BigInt>(DEVICE_COUNT_SQL).asc())
+            .then_order_by(users::uuid.asc()),
+        (Some("device_count"), _) => query
+            .order(diesel::dsl::sql::<diesel::sql_types::BigInt>(DEVICE_COUNT_SQL).desc())
+            .then_order_by(users::uuid.asc()),
+        _ => query
+            .order(users::name.asc())
+            .then_order_by(users::uuid.asc()),
     };
 
     let offset = (page - 1) * page_size;

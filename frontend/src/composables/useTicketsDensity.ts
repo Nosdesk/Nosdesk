@@ -58,3 +58,7 @@ export function useTicketsDensity(): UseTicketsDensity {
 export function useProjectsDensity(): UseTicketsDensity {
   return useListDensity('projects-list-density')
 }
+
+export function useAssetsDensity(): UseTicketsDensity {
+  return useListDensity('assets-list-density')
+}
