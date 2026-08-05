@@ -89,11 +89,18 @@ const displayedModels = computed(() => {
 });
 
 const columns: Column[] = [
-  { field: 'name', label: t('asset-catalog-col-model'), width: '1fr', sortable: true, responsive: 'always' },
-  { field: 'manufacturer', label: t('asset-model-field-manufacturer'), width: 'minmax(140px,auto)', sortable: true, responsive: 'always' },
-  { field: 'kind', label: t('asset-catalog-col-type'), width: 'minmax(120px,auto)', sortable: true, responsive: 'md' },
-  { field: 'part_number', label: t('asset-catalog-col-part-number'), width: 'minmax(120px,auto)', sortable: false, responsive: 'lg' },
-  { field: 'actions', label: '', width: 'minmax(56px,auto)', sortable: false, responsive: 'always' },
+  // Bounded px maxes, never `auto`: CSS Grid grows non-flexible tracks
+  // toward their limit before it expands `fr` ones, so an `auto` max
+  // lets a long manufacturer starve the model-name column down to
+  // min-content. Bounding the rest leaves `name` the slack. Minimums
+  // sum well under the 768px this table gets at its narrowest (a 1024px
+  // viewport less the 256px navbar); the grid clips rather than
+  // scrolling if they don't.
+  { field: 'name', label: t('asset-catalog-col-model'), width: 'minmax(180px,1fr)', sortable: true, responsive: 'always' },
+  { field: 'manufacturer', label: t('asset-model-field-manufacturer'), width: 'minmax(120px,200px)', sortable: true, responsive: 'always' },
+  { field: 'kind', label: t('asset-catalog-col-type'), width: 'minmax(100px,160px)', sortable: true, responsive: 'md' },
+  { field: 'part_number', label: t('asset-catalog-col-part-number'), width: 'minmax(100px,170px)', sortable: false, responsive: 'lg' },
+  { field: 'actions', label: '', width: 'minmax(56px,72px)', sortable: false, responsive: 'always' },
 ];
 
 // ---- Model modal -------------------------------------------------

@@ -109,10 +109,16 @@ const displayed = computed<AssetGroupSummary[]>(() => {
 });
 
 const columns: Column[] = [
-  { field: 'name', label: t('admin-asset-groups-field-name'), width: '1fr', sortable: true, responsive: 'always' },
-  { field: 'description', label: t('admin-asset-groups-field-description'), width: 'minmax(160px,2fr)', sortable: false, responsive: 'lg' },
-  { field: 'members', label: t('admin-asset-groups-col-members'), width: 'minmax(96px,auto)', sortable: true, responsive: 'md' },
-  { field: 'actions', label: '', width: 'minmax(132px,auto)', sortable: false, responsive: 'always' },
+  // Bounded px maxes so `name` is the only flexible track and keeps the
+  // slack. Description was `2fr` against the name column's `1fr`, which
+  // handed the supporting text twice the width of the identity column
+  // it supports. Minimums sum under the 768px this table gets at its
+  // narrowest (a 1024px viewport less the 256px navbar); the grid clips
+  // rather than scrolling if they don't.
+  { field: 'name', label: t('admin-asset-groups-field-name'), width: 'minmax(180px,1fr)', sortable: true, responsive: 'always' },
+  { field: 'description', label: t('admin-asset-groups-field-description'), width: 'minmax(160px,340px)', sortable: false, responsive: 'lg' },
+  { field: 'members', label: t('admin-asset-groups-col-members'), width: 'minmax(90px,120px)', sortable: true, responsive: 'md' },
+  { field: 'actions', label: '', width: 'minmax(120px,150px)', sortable: false, responsive: 'always' },
 ];
 
 // ---- Create / edit modal -------------------------------------------------
