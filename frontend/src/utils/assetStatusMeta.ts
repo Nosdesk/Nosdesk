@@ -86,6 +86,21 @@ export function metaForAssetStatus(status: string | null | undefined): AssetStat
   return FALLBACK;
 }
 
+/**
+ * Just the text-colour token from a status's `colorClass`, for the
+ * badge's `plain` variant (tinted icon, no pill chrome). Derived from
+ * the same string the pill uses rather than duplicated onto every META
+ * entry, so the two renderings can't drift apart. The literal class
+ * names still appear in `colorClass`, so Tailwind's scanner keeps
+ * emitting them.
+ */
+export function assetStatusTextClass(status: string | null | undefined): string {
+  const token = metaForAssetStatus(status)
+    .colorClass.split(' ')
+    .find((cls) => cls.startsWith('text-'));
+  return token ?? 'text-secondary';
+}
+
 export function assetStatusLabel(
   t: (key: string) => string,
   status: string | null | undefined,

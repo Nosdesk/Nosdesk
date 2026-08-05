@@ -8,7 +8,7 @@ import { computed } from 'vue'
 import { useFluent } from 'fluent-vue'
 import Icon from '@/components/common/Icon.vue'
 import AssetStatusBadge from '@/components/assets/AssetStatusBadge.vue'
-import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery'
+import { StatusBadgeCell } from '@/components/common/cells'
 import type { Asset } from '@nosdesk/core/types/asset'
 
 const props = defineProps<{ asset: Asset }>()
@@ -16,11 +16,6 @@ const emit = defineEmits<{ (e: 'open', asset: Asset): void }>()
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
-const { kinds } = useAssetKindsQuery()
-const kindLabel = computed(() => {
-  const match = kinds.value.find((k) => k.slug === props.asset.kind)
-  return match?.label ?? props.asset.kind
-})
 
 const isLowStock = computed(() => {
   const q = props.asset.quantity
@@ -28,6 +23,15 @@ const isLowStock = computed(() => {
   if (q == null || th == null) return false
   return parseFloat(q) <= parseFloat(th)
 })
+
+const warrantyStatus = computed(
+  () => (props.asset.attributes?.warranty_status as string | undefined) ?? '',
+)
+/** Expiring or already expired: the only two worth a badge, matching
+ *  the desktop table. Everything else stays quiet. */
+const needsWarrantyAttention = computed(
+  () => warrantyStatus.value === 'Warning' || warrantyStatus.value === 'Expired',
+)
 </script>
 
 <template>
@@ -54,9 +58,12 @@ const isLowStock = computed(() => {
       </div>
 
       <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1 text-xs">
+        <!-- Kind is dropped for the same reason the desktop table
+             hides it by default: it reads the same for every row on a
+             device-only workspace. The low-stock badge below still
+             marks the one kind that behaves differently. -->
         <span v-if="asset.model" class="text-secondary">{{ asset.model }}</span>
         <span v-if="asset.location" class="text-tertiary truncate max-w-[140px]">{{ asset.location }}</span>
-        <span class="text-tertiary">{{ kindLabel }}</span>
         <span v-if="asset.serial_number" class="text-tertiary font-mono">{{ asset.serial_number }}</span>
       </div>
 
@@ -69,19 +76,15 @@ const isLowStock = computed(() => {
         >
           {{ t('assets-list-low-stock-badge') }}
         </span>
-        <AssetStatusBadge :status="asset.status || 'in_service'" />
-        <span
-          v-if="asset.attributes?.warranty_status"
-          class="inline-flex items-center px-1.5 py-0.5 rounded font-medium border"
-          :class="{
-            'bg-status-success-muted text-status-success border-status-success/30': asset.attributes.warranty_status === 'Active',
-            'bg-status-warning-muted text-status-warning border-status-warning/30': asset.attributes.warranty_status === 'Warning',
-            'bg-status-error-muted text-status-error border-status-error/30': asset.attributes.warranty_status === 'Expired',
-            'bg-surface-alt text-secondary border-default': asset.attributes.warranty_status === 'Unknown'
-          }"
-        >
-          {{ asset.attributes.warranty_status }}
-        </span>
+        <AssetStatusBadge :status="asset.status || 'in_service'" variant="plain" />
+        <!-- Shared cell rather than the colour map this used to
+             hand-roll, so the warranty palette lives in one place. -->
+        <StatusBadgeCell
+          v-if="needsWarrantyAttention"
+          type="warranty"
+          size="xs"
+          :value="warrantyStatus"
+        />
       </div>
     </div>
 

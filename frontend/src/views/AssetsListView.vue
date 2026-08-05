@@ -14,7 +14,9 @@ import ContextMenu, { type MenuItem } from '@/components/common/ContextMenu.vue'
 import { ICON_REGISTRY } from '@/components/common/icons'
 import { useClipboard } from '@/composables/useClipboard'
 import ListPageLayout, { type ListPageLayoutExpose } from '@/components/common/ListPageLayout.vue'
+import ListDensityToggle from '@/components/common/ListDensityToggle.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
+import { useAssetsDensity } from '@/composables/useTicketsDensity'
 import ListViewToolbar from '@/components/views/ListViewToolbar.vue'
 import ListViewModals from '@/components/views/ListViewModals.vue'
 import { useListView } from '@/composables/useListView'
@@ -55,6 +57,19 @@ const auth = useAuthStore()
 const userUuid = computed<string | null>(() => auth.user?.uuid ?? null)
 const { kinds } = useAssetKindsQuery()
 const kindLabelBySlug = computed(() => new Map(kinds.value.map((kind) => [kind.slug, kind.label])))
+
+// Row density, persisted per-view. Assets previously took DataTable's
+// `px-2 py-3` default, which put rows at roughly 3x the compact
+// tickets row.
+//
+// `rowClass` pins a fixed row height (28px at compact, a 24px content
+// box once padding is off), so every cell has to fit inside it or it
+// clips against its neighbours. The current ceiling is the warranty
+// exception badge at 22px (`size="xs"`); the status cell is a 16px
+// plain glyph, the avatar 20px, the name 20px. Anything taller added
+// to a cell here needs that budget rechecked.
+const { density, setDensity, rowClass, cellPadding } = useAssetsDensity()
+
 const { locations: knownLocations } = useAssetLocationsQuery()
 const assetGroupsStore = useAssetGroupsStore()
 void assetGroupsStore.load()
@@ -68,6 +83,16 @@ const groupOptions = computed(() =>
 
 function assetKindLabel(kind: string): string {
   return kindLabelBySlug.value.get(kind) ?? kind
+}
+
+/** Warranty lives in the `attributes` JSONB bag, not a column. */
+function warrantyStatus(asset: Asset): string {
+  return (asset.attributes?.warranty_status as string | undefined) ?? ''
+}
+/** Expiring or already expired: the only two worth a badge. */
+function needsWarrantyAttention(asset: Asset): boolean {
+  const status = warrantyStatus(asset)
+  return status === 'Warning' || status === 'Expired'
 }
 
 const locationOptions = computed(() =>
@@ -275,20 +300,59 @@ const groupAxes: GroupAxisDef<Asset>[] = [
   },
 ]
 
-// Available sortable fields: id, name, hostname, serial_number,
-// model, warranty_status, manufacturer, created_at, updated_at,
-// last_sync_time.
+/**
+ * Server-sortable fields, from the match in
+ * `backend/src/repository/assets.rs`: id, name, model, manufacturer,
+ * location, status, serial_number, quantity, created_at, updated_at.
+ * Anything else falls through that match's `_` arm and silently
+ * re-sorts by name, so `hostname` and `warranty_status` are marked
+ * unsortable here — both live in the `attributes` JSONB bag and have
+ * no column to order by.
+ */
+
+/**
+ * Column widths are `minmax(min, max)` with a *bounded* max, never
+ * `auto`. CSS Grid grows non-flexible tracks toward their growth limit
+ * before it expands `fr` tracks, so an `auto` max let a long location
+ * ("Building B - Comms Room") claim ~300px while the pinned name
+ * column collapsed to min-content and truncated. Bounding every other
+ * max leaves `name` the slack, which is what `1fr` was meant to do.
+ *
+ * The minimums are the load-bearing part. Nothing scrolls
+ * horizontally — `PageScroll` is `overflow-y-auto` inside an
+ * `overflow-hidden` wrapper — so a grid wider than its container is
+ * *clipped*, not reachable. The narrowest the desktop table ever
+ * renders at is a 1024px viewport (below that `ListPageLayout` swaps
+ * in the mobile body) minus the 256px `w-64` navbar, i.e. 768px. The
+ * default-visible mins plus the ~40px selection column must stay
+ * under that, which is what caps `name` at a 175px minimum.
+ *
+ * Keep the maxes in px, not `fr`: `useDataTableColumns` skips its
+ * stored width override for any column whose width contains `fr`
+ * (see its `applyWidth`), so an `fr` max would silently make that
+ * column non-resizable. The maxes are layout defaults only — a user
+ * drag is clamped by the composable's own 60/800 bounds, deliberately
+ * so an explicit resize can override this table's opinion.
+ *
+ * `kind` and `quantity` are hidden by default: kind reads the same for
+ * every row on a device-only workspace, and quantity is populated only
+ * for `bulk` kinds. Both are static rather than derived from the kinds
+ * registry — that query resolves *after* setup, and a field appearing
+ * in the registry late gets tail-appended by `reconcileOrder`, which
+ * would shuffle the column to the far right and overwrite the user's
+ * saved order on every load.
+ */
 const columns = computed(() => [
-  { field: 'name', label: t('assets-list-column-device'), width: '1fr', sortable: true, responsive: 'always' as const },
-  { field: 'kind', label: t('asset-detail-field-kind'), width: 'minmax(120px,auto)', sortable: false, responsive: 'md' as const },
-  { field: 'serial_number', label: t('assets-list-column-serial'), width: 'minmax(140px,auto)', sortable: true, responsive: 'md' as const },
-  { field: 'hostname', label: t('assets-list-column-hostname'), width: 'minmax(120px,auto)', sortable: true, responsive: 'lg' as const, defaultHidden: true },
-  { field: 'model', label: t('assets-list-column-model'), width: 'minmax(120px,auto)', sortable: true, responsive: 'lg' as const },
-  { field: 'location', label: t('assets-list-column-location'), width: 'minmax(140px,auto)', sortable: true, responsive: 'lg' as const },
-  { field: 'primary_user', label: t('assets-list-column-user'), width: 'minmax(140px,auto)', sortable: false, responsive: 'md' as const },
-  { field: 'quantity', label: t('assets-list-column-stock'), width: 'minmax(100px,auto)', sortable: true, responsive: 'md' as const },
-  { field: 'status', label: t('assets-list-column-status'), width: 'minmax(110px,auto)', sortable: true, responsive: 'always' as const },
-  { field: 'warranty_status', label: t('assets-list-column-warranty'), width: 'minmax(100px,auto)', sortable: true, responsive: 'always' as const },
+  { field: 'name', label: t('assets-list-column-device'), width: 'minmax(170px,1fr)', sortable: true, responsive: 'always' as const },
+  { field: 'kind', label: t('asset-detail-field-kind'), width: 'minmax(85px,125px)', sortable: false, responsive: 'md' as const, defaultHidden: true },
+  { field: 'serial_number', label: t('assets-list-column-serial'), width: 'minmax(86px,150px)', sortable: true, responsive: 'md' as const },
+  { field: 'hostname', label: t('assets-list-column-hostname'), width: 'minmax(95px,165px)', sortable: false, responsive: 'lg' as const, defaultHidden: true },
+  { field: 'model', label: t('assets-list-column-model'), width: 'minmax(98px,185px)', sortable: true, responsive: 'lg' as const },
+  { field: 'location', label: t('assets-list-column-location'), width: 'minmax(98px,185px)', sortable: true, responsive: 'lg' as const },
+  { field: 'primary_user', label: t('assets-list-column-user'), width: 'minmax(98px,170px)', sortable: false, responsive: 'md' as const },
+  { field: 'quantity', label: t('assets-list-column-stock'), width: 'minmax(78px,110px)', sortable: true, responsive: 'md' as const, defaultHidden: true },
+  { field: 'status', label: t('assets-list-column-status'), width: 'minmax(84px,118px)', sortable: true, responsive: 'always' as const },
+  { field: 'warranty_status', label: t('assets-list-column-warranty'), width: 'minmax(70px,98px)', sortable: false, responsive: 'always' as const },
 ])
 
 // Shell composable bundling controls + page + selection + chip
@@ -559,6 +623,16 @@ async function exportAssetsCsv(scope?: 'history') {
         @save-as="listView.showSaveModal.value = true"
       >
         <template #append>
+          <!-- Desktop table only; the mobile body is a card list, and
+               ListPageLayout swaps to it below 1024px. The `hidden`
+               goes on a WRAPPER, not the component: ListDensityToggle's
+               own root carries a base `inline-flex`, which Tailwind
+               emits after `.hidden` and so wins the merge, silently
+               leaving the toggle visible but inert. Same reason
+               TicketsHeader wraps it. -->
+          <div class="hidden lg:block">
+            <ListDensityToggle :density="density" @set-density="setDensity" />
+          </div>
           <button
             type="button"
             class="inline-flex items-center text-[11px] px-2 h-6 rounded-md border border-default text-secondary hover:text-primary hover:bg-surface-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-secondary"
@@ -603,6 +677,8 @@ async function exportAssetsCsv(scope?: 'history') {
         :column-reorder="listView.tableColumns.reorderBundle"
         :column-resize="listView.tableColumns.resizeBundle"
         :loading="isBackgroundRefresh"
+        :row-class="rowClass"
+        :cell-padding="cellPadding"
         @update:sort="listView.controls.handleSortUpdate"
         @toggle-selection="listView.dt.onToggleSelection"
         @toggle-all="listView.dt.onToggleAll"
@@ -610,29 +686,42 @@ async function exportAssetsCsv(scope?: 'history') {
         @row-contextmenu="onAssetContextMenu"
         @toggle-bucket="listView.grouping.toggleCollapsed"
       >
+        <!-- Single line, manufacturer inline. It used to stack over a
+             second line, which is what a fixed row height can't
+             accommodate: at compact the row is 28px and a stacked cell
+             needs ~38px, so it would overflow its own row. Inline also
+             stops the name column wrapping, which was the other half
+             of the ~100px rows. -->
         <template #cell-name="{ item }">
-          <div class="flex flex-col gap-0.5">
-            <div class="flex items-center gap-1.5">
-              <TextCell :value="item.name" font-weight="medium" />
-              <div v-if="item.groups?.length" class="flex items-center gap-1 flex-shrink-0">
-                <span
-                  v-for="group in item.groups.slice(0, 3)"
-                  :key="group.id"
-                  class="w-2 h-2 rounded-full flex-shrink-0"
-                  :style="{ backgroundColor: group.color || 'var(--color-text-tertiary)' }"
-                  :title="group.name"
-                />
-                <span v-if="item.groups.length > 3" class="text-[10px] text-tertiary">+{{ item.groups.length - 3 }}</span>
-              </div>
+          <div class="flex items-center gap-1.5 min-w-0">
+            <TextCell :value="item.name" font-weight="medium" />
+            <!-- Capped and non-shrinking so it can't compete with the
+                 name for the track. As equal-shrink truncating
+                 siblings both gave up width proportionally, which made
+                 the pinned identity column read worse than before. -->
+            <span
+              v-if="item.manufacturer"
+              class="text-xs text-tertiary truncate flex-shrink-0 max-w-[35%]"
+            >
+              {{ item.manufacturer }}
+            </span>
+            <div v-if="item.groups?.length" class="flex items-center gap-1 flex-shrink-0">
               <span
-                v-if="isLowStock(item)"
-                class="text-[10px] px-1.5 py-0.5 rounded-full bg-status-warning/15 text-status-warning whitespace-nowrap font-medium"
-                :title="$t('assets-list-low-stock-tooltip', { quantity: item.quantity ?? '', unit: item.unit ?? '', threshold: item.low_stock_threshold ?? '' })"
-              >
-                {{ $t('assets-list-low-stock-badge') }}
-              </span>
+                v-for="group in item.groups.slice(0, 3)"
+                :key="group.id"
+                class="w-2 h-2 rounded-full flex-shrink-0"
+                :style="{ backgroundColor: group.color || 'var(--color-text-tertiary)' }"
+                :title="group.name"
+              />
+              <span v-if="item.groups.length > 3" class="text-[10px] text-tertiary">+{{ item.groups.length - 3 }}</span>
             </div>
-            <span v-if="item.manufacturer" class="text-xs text-tertiary">{{ item.manufacturer }}</span>
+            <span
+              v-if="isLowStock(item)"
+              class="text-[10px] px-1.5 py-0.5 rounded-full bg-status-warning/15 text-status-warning whitespace-nowrap font-medium flex-shrink-0"
+              :title="$t('assets-list-low-stock-tooltip', { quantity: item.quantity ?? '', unit: item.unit ?? '', threshold: item.low_stock_threshold ?? '' })"
+            >
+              {{ $t('assets-list-low-stock-badge') }}
+            </span>
           </div>
         </template>
 
@@ -657,11 +746,15 @@ async function exportAssetsCsv(scope?: 'history') {
         </template>
 
         <template #cell-primary_user="{ item }">
+          <!-- `xs` (20px), not the default `sm` (24px): a compact row's
+               content box is exactly 24px, so `sm` sits flush with no
+               margin for error. -->
           <UserAvatarCell
             v-if="item.primary_user"
             :user-id="item.primary_user.uuid"
             :user-name="item.primary_user.name"
             :avatar="item.primary_user.avatar_thumb || item.primary_user.avatar_url"
+            size="xs"
             :show-name="true"
           />
           <span v-else class="text-xs text-tertiary">{{ $t('assets-list-unassigned') }}</span>
@@ -675,11 +768,20 @@ async function exportAssetsCsv(scope?: 'history') {
         </template>
 
         <template #cell-status="{ item }">
-          <AssetStatusBadge :status="item.status || 'in_service'" />
+          <AssetStatusBadge :status="item.status || 'in_service'" variant="plain" />
         </template>
 
+        <!-- Only the states that want acting on carry a badge. "Active"
+             and "Unknown" are the overwhelming majority, so a pill on
+             every row spends attention on the rows that need none. -->
         <template #cell-warranty_status="{ item }">
-          <StatusBadgeCell type="warranty" :value="(item.attributes?.warranty_status as string | undefined) || ''" />
+          <StatusBadgeCell
+            v-if="needsWarrantyAttention(item)"
+            type="warranty"
+            size="xs"
+            :value="warrantyStatus(item)"
+          />
+          <span v-else class="text-xs text-tertiary truncate">{{ warrantyStatus(item) || '-' }}</span>
         </template>
       </DataTable>
     </template>
@@ -729,10 +831,8 @@ async function exportAssetsCsv(scope?: 'history') {
         :page-size="listView.controls.pageSize.value"
         :page-size-options="listView.controls.pageSizeOptions"
         :is-infinite-mode="listView.controls.isInfiniteMode.value"
-        :show-import="true"
         @update:current-page="listView.controls.handlePageChange"
         @update:page-size="listView.controls.handlePageSizeChange"
-        @import="() => {}"
       />
     </template>
   </ListPageLayout>

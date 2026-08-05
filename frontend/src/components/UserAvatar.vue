@@ -149,7 +149,10 @@ watch(avatarUrl, () => {
     :class="[
       { 'cursor-pointer hover:opacity-80': clickable && uuid },
       size === 'full' ? 'h-full aspect-square' : '',
-      showName ? 'gap-2' : ''
+      // `min-w-0` only when a name is rendered: it lets the name span's
+      // `truncate` engage in a width-constrained parent. The avatar
+      // itself is already `flex-shrink-0`, so it can't be squashed.
+      showName ? 'gap-2 min-w-0' : ''
     ]"
     @click="navigateToProfile"
   >
