@@ -117,6 +117,10 @@ export interface PluginComponentConfig {
   action?: {
     label: string;
   };
+  /** Override the host chrome for this contribution (`panel` slots only).
+   *  Omit to take the slot's default from `SLOT_REGISTRY`. Set `'none'` for
+   *  full-bleed content a card would frame wrongly. */
+  chrome?: SlotChrome;
 }
 
 export interface PluginSettingDefinition {
@@ -394,9 +398,15 @@ export interface PluginProxyResponse {
 // `PluginSlot` and the registry helpers keep working. `PluginSlot` accepts both
 // the canonical dotted names and the legacy flat aliases during the migration.
 // New code may import from `./pluginSlots` directly.
-export type { AnySlotName, CanonicalSlotName, LegacySlotName, SlotDef } from './pluginSlots';
+export type {
+  AnySlotName,
+  CanonicalSlotName,
+  LegacySlotName,
+  SlotChrome,
+  SlotDef,
+} from './pluginSlots';
 export { SLOT_REGISTRY, SLOT_NAMES, getSlot, isKnownSlot, canonicalSlotName } from './pluginSlots';
-import type { AnySlotName } from './pluginSlots';
+import type { AnySlotName, SlotChrome } from './pluginSlots';
 
 export type PluginSlot = AnySlotName;
 

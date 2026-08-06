@@ -13,8 +13,8 @@ import { onSyncActions } from '@nosdesk/core/sync/observers';
 import type { SyncAction } from '@nosdesk/core/sync/types';
 import { logger } from '@nosdesk/core/utils/logger';
 import { translate } from '@/i18n';
-import type { Plugin, PluginSlot, PluginManifest } from '@nosdesk/core/types/plugin';
-import { canonicalSlotName } from '@nosdesk/core/types/plugin';
+import type { Plugin, PluginSlot, PluginManifest, SlotChrome } from '@nosdesk/core/types/plugin';
+import { canonicalSlotName, getSlot } from '@nosdesk/core/types/plugin';
 
 // =============================================================================
 // Types
@@ -32,6 +32,8 @@ export interface PluginSlotRegistration {
   label?: string;
   icon?: string;
   context: string[];
+  /** Resolved host chrome: the component's override, else the slot default. */
+  chrome: SlotChrome;
 }
 
 export interface PluginActionRegistration {
@@ -152,6 +154,12 @@ async function loadPlugin(plugin: Plugin): Promise<void> {
     const l10n = (v: string | undefined): string | undefined =>
       v == null ? v : resolvePluginI18n(v, plugin.manifest.i18n, useDateStore().locale);
 
+    // Resolve the chrome once, here, so every mount reads one field instead
+    // of re-deriving the component-override-else-slot-default rule. `getSlot`
+    // is total for a canonicalised name, but fall back to 'none' rather than
+    // assert: an unwrapped panel is a smaller failure than a thrown mount.
+    const chrome: SlotChrome = config.chrome ?? getSlot(slot)?.chrome ?? 'none';
+
     const registration: PluginSlotRegistration = {
       pluginUuid: plugin.uuid,
       pluginName: plugin.name,
@@ -159,6 +167,7 @@ async function loadPlugin(plugin: Plugin): Promise<void> {
       label: l10n(config.label),
       icon: config.icon,
       context: config.context || [],
+      chrome,
     };
 
     const existing = slotRegistrations.get(slot) || [];

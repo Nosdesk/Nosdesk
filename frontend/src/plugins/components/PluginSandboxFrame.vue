@@ -9,7 +9,7 @@
  * `sandbox="allow-scripts"` (no `allow-same-origin`), so it is a null origin:
  * no cookies, no first-party DOM, all host access flows through the bridge.
  */
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import {
   createRemoteHostApi,
   postContext,
@@ -38,10 +38,29 @@ const props = defineProps<{
   actionActivated?: number;
 }>();
 
+const emit = defineEmits<{
+  /** Latest content height the plugin reported. `0` means it rendered nothing,
+   *  which lets a parent collapse its chrome; `null` means nothing reported
+   *  yet. Parents must keep this component MOUNTED when collapsing (height 0,
+   *  not `v-if`), or a plugin that starts empty and fills in later can never
+   *  report its way back. */
+  (e: 'contentHeight', px: number | null): void;
+}>();
+
 const frameRef = ref<HTMLIFrameElement | null>(null);
 const runtimeUrl = ref<string | null>(null);
 const error = ref<string | null>(null);
 const iframeHeight = ref<number | null>(null);
+
+watch(iframeHeight, (px) => emit('contentHeight', px));
+
+/** Only a real, positive measurement pins the iframe's height. `0` (rendered
+ *  nothing) and `-1` (has content, unmeasurable while the host hides it) are
+ *  signals for the parent's chrome, not sizes; letting either reach the inline
+ *  style would emit `height: -1px` or lock a recovering frame at zero. */
+const pinnedHeight = computed(() =>
+  iframeHeight.value != null && iframeHeight.value > 0 ? iframeHeight.value : null,
+);
 
 const themeStore = useThemeStore();
 
@@ -204,13 +223,14 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="plugin-sandbox-frame" :data-plugin="plugin.name">
-    <!-- Error state (hidden on print) -->
+    <!-- Error state (hidden on print). Matches the app's inline error
+         treatment (centred, small, `text-status-error`) rather than drawing
+         its own red box, which read as foreign next to built-in cards. -->
     <div
       v-if="error"
-      class="print:hidden p-3 bg-red-500/10 border border-red-500/30 rounded text-sm text-red-400"
+      class="print:hidden flex items-center justify-center px-4 py-6 text-center text-xs text-status-error"
     >
-      <div class="font-medium">Plugin Error</div>
-      <div class="text-xs mt-1">{{ error }}</div>
+      {{ error }}
     </div>
 
     <iframe
@@ -220,7 +240,7 @@ onBeforeUnmount(() => {
       sandbox="allow-scripts"
       referrerpolicy="no-referrer"
       class="plugin-sandbox-iframe"
-      :style="iframeHeight ? { height: `${iframeHeight}px` } : undefined"
+      :style="pinnedHeight != null ? { height: `${pinnedHeight}px` } : undefined"
       @load="onFrameLoad"
     />
   </div>
@@ -233,9 +253,14 @@ onBeforeUnmount(() => {
   border: 0;
   background: transparent;
   /* Height tracks the plugin's reported content height (inline style, set from
-     the runtime's ResizeObserver over the bridge). min-height is the floor until
-     the first report arrives. */
-  min-height: 4rem;
+     the runtime's ResizeObserver over the bridge).
+
+     No min-height floor: one used to hold the frame at 4rem until the first
+     report landed, so every panel painted an empty 64px box and then jumped to
+     its real height, and a plugin that rendered nothing held 64px of blank
+     space forever. Starting at 0 and growing means the only motion is the
+     content arriving. The host chrome renders immediately either way, so there
+     is no blank-then-pop, and nothing here needs a skeleton. */
 }
 
 @media print {

@@ -12,7 +12,9 @@ interface Props {
   uuid?: string;
   src?: string;
   alt: string;
-  size?: 'sm' | 'md' | 'lg';
+  /** `xs` matches the 16px leading glyph a `SectionCard` header expects; the
+   *  larger sizes are for list rows and detail headers. */
+  size?: 'xs' | 'sm' | 'md' | 'lg';
 }
 
 const props = withDefaults(defineProps<Props>(), { size: 'md' });
@@ -30,12 +32,14 @@ watch(resolvedSrc, () => {
 });
 
 const sizeClasses: Record<NonNullable<Props['size']>, string> = {
+  xs: 'h-4 w-4 rounded-[3px]',
   sm: 'h-8 w-8 rounded-md',
   md: 'h-10 w-10 rounded-lg',
   lg: 'h-20 w-20 rounded-2xl',
 };
 
 const glyphSizes: Record<NonNullable<Props['size']>, string> = {
+  xs: 'h-2.5 w-2.5',
   sm: 'h-4 w-4',
   md: 'h-5 w-5',
   lg: 'h-10 w-10',

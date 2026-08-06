@@ -4,6 +4,7 @@
     "mechanism": "panel",
     "context": "ticket",
     "cardinality": "many",
+    "chrome": "card",
     "order": 100,
     "status": "stable",
     "aliases": [
@@ -16,6 +17,7 @@
     "mechanism": "panel",
     "context": "asset",
     "cardinality": "many",
+    "chrome": "card",
     "order": 100,
     "status": "stable",
     "aliases": [
@@ -28,6 +30,7 @@
     "mechanism": "panel",
     "context": "user",
     "cardinality": "many",
+    "chrome": "card",
     "order": 100,
     "status": "stable",
     "aliases": [],
@@ -38,6 +41,7 @@
     "mechanism": "panel",
     "context": "address",
     "cardinality": "many",
+    "chrome": "none",
     "order": 100,
     "status": "stable",
     "aliases": [],
@@ -48,6 +52,7 @@
     "mechanism": "panel",
     "context": "none",
     "cardinality": "many",
+    "chrome": "none",
     "order": 100,
     "status": "stable",
     "aliases": [
@@ -60,6 +65,7 @@
     "mechanism": "panel",
     "context": "none",
     "cardinality": "many",
+    "chrome": "none",
     "order": 100,
     "status": "stable",
     "aliases": [],
@@ -70,6 +76,7 @@
     "mechanism": "panel",
     "context": "ticket",
     "cardinality": "many",
+    "chrome": "none",
     "order": 100,
     "status": "reserved",
     "aliases": [
@@ -82,6 +89,7 @@
     "mechanism": "panel",
     "context": "documentationPage",
     "cardinality": "many",
+    "chrome": "card",
     "order": 100,
     "status": "reserved",
     "aliases": [
@@ -94,6 +102,7 @@
     "mechanism": "action",
     "context": "ticket",
     "cardinality": "many",
+    "chrome": "none",
     "order": 100,
     "status": "stable",
     "aliases": [
@@ -106,6 +115,7 @@
     "mechanism": "action",
     "context": "ticket",
     "cardinality": "many",
+    "chrome": "none",
     "order": 100,
     "status": "stable",
     "aliases": [],
@@ -116,6 +126,7 @@
     "mechanism": "action",
     "context": "asset",
     "cardinality": "many",
+    "chrome": "none",
     "order": 100,
     "status": "reserved",
     "aliases": [
@@ -128,6 +139,7 @@
     "mechanism": "action",
     "context": "documentationPage",
     "cardinality": "many",
+    "chrome": "none",
     "order": 100,
     "status": "reserved",
     "aliases": [
@@ -140,6 +152,7 @@
     "mechanism": "action",
     "context": "none",
     "cardinality": "many",
+    "chrome": "none",
     "order": 100,
     "status": "stable",
     "aliases": [

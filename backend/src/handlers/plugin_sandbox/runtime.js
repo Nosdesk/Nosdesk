@@ -514,11 +514,22 @@ a { color: var(--nd-accent, #FF6B1A); }
 }
 .nd-textarea { resize: vertical; }
 
+/* An INNER sub-card, for grouping content inside a panel.
+ *
+ * This is deliberately not the app's outer card. A panel on a \`card\`-chrome
+ * slot is already wrapped by the host in the real \`SectionCard\` (border,
+ * radius, surface, header pill, 12px body padding), so a plugin that drew the
+ * outer card itself would produce a card inside a card. Use \`.nd-card\` only to
+ * subdivide, and use the surface-alt background so it reads as recessed
+ * against the host card it sits in.
+ *
+ * A contribution that genuinely needs to own its outer frame declares
+ * \`"chrome": "none"\` in its manifest and gets a bare, unwrapped iframe. */
 .nd-card {
   border: 1px solid var(--nd-border, #e5e7eb);
-  border-radius: var(--nd-radius, 8px);
+  border-radius: var(--nd-radius-sm, 6px);
   background: var(--nd-surface-alt, #f9fafb);
-  padding: 12px;
+  padding: var(--nd-space-sm, 8px);
 }
 
 .nd-label { font-weight: 600; color: var(--nd-text, #1f2937); }
@@ -554,16 +565,51 @@ ${vars}
   document.documentElement.setAttribute("data-nd-color-scheme", theme.colorScheme);
   document.documentElement.setAttribute("data-nd-theme", theme.name);
 }
+var HAS_CONTENT_UNMEASURED = -1;
+var CHASE_INTERVAL_MS = 50;
+var CHASE_MAX_TRIES = 40;
 function observeHeight(el) {
   let last = -1;
   const report = () => {
+    const isEmpty = el.children.length === 0 && !el.textContent?.trim();
+    if (isEmpty) {
+      if (last !== 0) {
+        last = 0;
+        reportHeight(0);
+      }
+      return;
+    }
     const h = Math.ceil(el.getBoundingClientRect().height);
-    if (h > 0 && h !== last) {
-      last = h;
-      reportHeight(h);
+    if (h > 0) {
+      if (h !== last) {
+        last = h;
+        reportHeight(h);
+      }
+      return;
+    }
+    if (last !== HAS_CONTENT_UNMEASURED) {
+      last = HAS_CONTENT_UNMEASURED;
+      reportHeight(HAS_CONTENT_UNMEASURED);
+      let tries = 0;
+      const chase = () => {
+        if (last !== HAS_CONTENT_UNMEASURED) return;
+        const px = Math.ceil(el.getBoundingClientRect().height);
+        if (px > 0) {
+          last = px;
+          reportHeight(px);
+          return;
+        }
+        if (++tries < CHASE_MAX_TRIES) setTimeout(chase, CHASE_INTERVAL_MS);
+      };
+      setTimeout(chase, CHASE_INTERVAL_MS);
     }
   };
   new ResizeObserver(report).observe(el);
+  new MutationObserver(report).observe(el, {
+    childList: true,
+    subtree: true,
+    characterData: true
+  });
   report();
 }
 async function boot() {
@@ -588,8 +634,10 @@ async function boot() {
     throw new Error("sandbox runtime: bundle has no default { mount } export");
   }
   const plugin = mod.default;
-  let instance = toInstance(plugin.mount(root, runtime.api, runtime.context));
-  observeHeight(root);
+  const mounted = plugin.mount(root, runtime.api, runtime.context);
+  let instance = toInstance(mounted);
+  void Promise.resolve(mounted).catch(() => {
+  }).then(() => observeHeight(root));
   runtime.onContextChange((ctx) => {
     if (instance.update) {
       instance.update(ctx);

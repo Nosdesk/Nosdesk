@@ -38,6 +38,25 @@ export type SlotContextType =
 export type SlotCardinality = 'one' | 'many';
 
 /**
+ * The chrome the HOST draws around a `panel` contribution.
+ *
+ *   * `card` — the host wraps the iframe in the app's `SectionCard`: same
+ *     radius, border, surface and compact header pill as every built-in card,
+ *     titled from the manifest `label`. The plugin fills the body only, so it
+ *     must NOT draw its own outer card (that reads as a double border).
+ *   * `none` — the host mounts the bare frame. For contributions whose host
+ *     already supplies chrome (a widget shell, a page heading) or that sit
+ *     inline inside another card, where a second card would be wrong.
+ *
+ * This is the slot's DEFAULT; a manifest component may override it (see
+ * `chrome` on the component config) for genuinely full-bleed content.
+ *
+ * Meaningless on `action` slots, which the host renders as native chrome
+ * already; they are declared `none` and validation rejects an override.
+ */
+export type SlotChrome = 'card' | 'none';
+
+/**
  * Lifecycle of a slot in the taxonomy.
  *   * `stable`       — has a live mount point; renders today.
  *   * `reserved`     — declared for authors to target, no mount yet (silent
@@ -52,6 +71,8 @@ export interface SlotDef {
   readonly mechanism: SlotMechanism;
   readonly context: SlotContextType;
   readonly cardinality: SlotCardinality;
+  /** Host chrome drawn around a contribution, unless the component overrides. */
+  readonly chrome: SlotChrome;
   /** Default sort order within the slot; host tiebreaks by install order. */
   readonly order: number;
   readonly status: SlotStatus;
@@ -68,6 +89,7 @@ export const SLOT_REGISTRY = [
     mechanism: 'panel',
     context: 'ticket',
     cardinality: 'many',
+    chrome: 'card',
     order: 100,
     status: 'stable',
     aliases: ['ticket-sidebar'],
@@ -78,6 +100,7 @@ export const SLOT_REGISTRY = [
     mechanism: 'panel',
     context: 'asset',
     cardinality: 'many',
+    chrome: 'card',
     order: 100,
     status: 'stable',
     aliases: ['asset-info-panels'],
@@ -88,6 +111,7 @@ export const SLOT_REGISTRY = [
     mechanism: 'panel',
     context: 'user',
     cardinality: 'many',
+    chrome: 'card',
     order: 100,
     status: 'stable',
     aliases: [],
@@ -98,6 +122,9 @@ export const SLOT_REGISTRY = [
     mechanism: 'panel',
     context: 'address',
     cardinality: 'many',
+    // Inline enrichment under an address row that is already inside the
+    // addresses card; a card here would nest one card in another.
+    chrome: 'none',
     order: 100,
     status: 'stable',
     aliases: [],
@@ -108,6 +135,8 @@ export const SLOT_REGISTRY = [
     mechanism: 'panel',
     context: 'none',
     cardinality: 'many',
+    // The detail view already frames this with its own section heading.
+    chrome: 'none',
     order: 100,
     status: 'stable',
     aliases: ['settings-integrations'],
@@ -118,6 +147,9 @@ export const SLOT_REGISTRY = [
     mechanism: 'panel',
     context: 'none',
     cardinality: 'many',
+    // `PluginDashboardWidget` already mounts these inside
+    // `DashboardWidgetShell`, which supplies the title and body metrics.
+    chrome: 'none',
     order: 100,
     status: 'stable',
     aliases: [],
@@ -128,6 +160,8 @@ export const SLOT_REGISTRY = [
     mechanism: 'panel',
     context: 'ticket',
     cardinality: 'many',
+    // A tab body is already inside the tab frame.
+    chrome: 'none',
     order: 100,
     status: 'reserved',
     aliases: ['ticket-tabs'],
@@ -138,6 +172,7 @@ export const SLOT_REGISTRY = [
     mechanism: 'panel',
     context: 'documentationPage',
     cardinality: 'many',
+    chrome: 'card',
     order: 100,
     status: 'reserved',
     aliases: ['document-sidebar'],
@@ -148,6 +183,7 @@ export const SLOT_REGISTRY = [
     mechanism: 'action',
     context: 'ticket',
     cardinality: 'many',
+    chrome: 'none',
     order: 100,
     status: 'stable',
     aliases: ['ticket-header-actions'],
@@ -158,6 +194,7 @@ export const SLOT_REGISTRY = [
     mechanism: 'action',
     context: 'ticket',
     cardinality: 'many',
+    chrome: 'none',
     order: 100,
     status: 'stable',
     aliases: [],
@@ -168,6 +205,7 @@ export const SLOT_REGISTRY = [
     mechanism: 'action',
     context: 'asset',
     cardinality: 'many',
+    chrome: 'none',
     order: 100,
     status: 'reserved',
     aliases: ['asset-header-actions'],
@@ -178,6 +216,7 @@ export const SLOT_REGISTRY = [
     mechanism: 'action',
     context: 'documentationPage',
     cardinality: 'many',
+    chrome: 'none',
     order: 100,
     status: 'reserved',
     aliases: ['document-toolbar'],
@@ -188,6 +227,7 @@ export const SLOT_REGISTRY = [
     mechanism: 'action',
     context: 'none',
     cardinality: 'many',
+    chrome: 'none',
     order: 100,
     status: 'stable',
     aliases: ['navbar-items'],
