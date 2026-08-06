@@ -123,6 +123,10 @@ pub enum ManifestValidationError {
     InvalidEvent(String),
     InvalidSlot(String),
     InvalidContext(String),
+    /// `chrome` was set on an `action` slot, which draws no iframe frame.
+    ChromeOnNonPanelSlot {
+        slot: String,
+    },
     InvalidComponentKind(String),
     UnsupportedComponentKind(String),
     InvalidSettingType(String),
@@ -194,6 +198,10 @@ impl std::fmt::Display for ManifestValidationError {
             Self::InvalidEvent(e) => write!(f, "unknown event {e:?}"),
             Self::InvalidSlot(s) => write!(f, "unknown slot {s:?}"),
             Self::InvalidContext(c) => write!(f, "unknown component context {c:?}"),
+            Self::ChromeOnNonPanelSlot { slot } => write!(
+                f,
+                "slot {slot:?} renders as native host chrome, so \"chrome\" does not apply"
+            ),
             Self::InvalidComponentKind(k) => write!(f, "invalid component kind {k:?}"),
             Self::UnsupportedComponentKind(k) => write!(
                 f,
@@ -611,13 +619,22 @@ fn validate_component(component: &PluginComponentConfig) -> Result<(), ManifestV
         ));
     }
 
-    if !crate::services::plugins::slot_registry::is_known_slot(&component.slot) {
+    let Some(slot) = crate::services::plugins::slot_registry::get_slot(&component.slot) else {
         return Err(ManifestValidationError::InvalidSlot(component.slot.clone()));
-    }
+    };
     for ctx in &component.context {
         if !KNOWN_CONTEXTS.contains(&ctx.as_str()) {
             return Err(ManifestValidationError::InvalidContext(ctx.clone()));
         }
+    }
+    // `chrome` describes the frame the host draws around an iframe panel. An
+    // action slot has no iframe (the host renders a menu item / nav link and
+    // the component opens in a modal), so accepting the key there would
+    // silently do nothing. Refuse it instead of ignoring it.
+    if component.chrome.is_some() && slot.mechanism != "panel" {
+        return Err(ManifestValidationError::ChromeOnNonPanelSlot {
+            slot: component.slot.clone(),
+        });
     }
     Ok(())
 }
@@ -854,6 +871,7 @@ mod tests {
                 label: None,
                 icon: None,
                 action: None,
+                chrome: None,
             },
         );
         assert_err!(
@@ -875,12 +893,58 @@ mod tests {
                 label: None,
                 icon: None,
                 action: None,
+                chrome: None,
             },
         );
         assert_err!(
             validate(&m, &ctx_official()),
             ManifestValidationError::InvalidSlot(_)
         );
+    }
+
+    /// `chrome` describes the frame the host draws around an iframe panel, so
+    /// it is meaningless on an action slot. Refused rather than ignored, or an
+    /// author would set it, see nothing change, and have no idea why.
+    #[test]
+    fn rejects_chrome_on_an_action_slot() {
+        let mut m = baseline_manifest();
+        m.components.insert(
+            "Foo".into(),
+            PluginComponentConfig {
+                kind: PluginComponentKind::Slot,
+                slot: "ticket.header.action".into(),
+                entry: "Foo".into(),
+                context: vec![],
+                label: None,
+                icon: None,
+                action: None,
+                chrome: Some(crate::models::PluginComponentChrome::Card),
+            },
+        );
+        assert_err!(
+            validate(&m, &ctx_official()),
+            ManifestValidationError::ChromeOnNonPanelSlot { slot } if slot == "ticket.header.action",
+        );
+    }
+
+    /// The same key on a panel slot is the supported opt-out.
+    #[test]
+    fn accepts_chrome_on_a_panel_slot() {
+        let mut m = baseline_manifest();
+        m.components.insert(
+            "Foo".into(),
+            PluginComponentConfig {
+                kind: PluginComponentKind::Slot,
+                slot: "ticket.sidebar.panel".into(),
+                entry: "Foo".into(),
+                context: vec![],
+                label: None,
+                icon: None,
+                action: None,
+                chrome: Some(crate::models::PluginComponentChrome::None),
+            },
+        );
+        assert!(validate(&m, &ctx_official()).is_ok());
     }
 
     #[test]

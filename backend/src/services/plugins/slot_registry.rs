@@ -21,12 +21,21 @@ pub struct SlotDef {
     pub mechanism: String,
     pub context: String,
     pub cardinality: String,
+    /// Host chrome drawn around a contribution ("card" / "none"), unless the
+    /// manifest component overrides it. Defaulted so an older generated JSON
+    /// (or a hand-rolled fixture) still parses.
+    #[serde(default = "default_chrome")]
+    pub chrome: String,
     pub order: i64,
     pub status: String,
     /// Legacy flat names still accepted at validation time.
     #[serde(default)]
     pub aliases: Vec<String>,
     pub description: String,
+}
+
+fn default_chrome() -> String {
+    "none".to_string()
 }
 
 static RAW: &str = include_str!("plugin_slots.generated.json");
@@ -40,9 +49,14 @@ pub static SLOT_REGISTRY: LazyLock<Vec<SlotDef>> = LazyLock::new(|| {
 
 /// True if `name` matches a canonical slot name or any of its aliases.
 pub fn is_known_slot(name: &str) -> bool {
+    get_slot(name).is_some()
+}
+
+/// Resolve a canonical-or-alias slot name to its definition.
+pub fn get_slot(name: &str) -> Option<&'static SlotDef> {
     SLOT_REGISTRY
         .iter()
-        .any(|s| s.name == name || s.aliases.iter().any(|a| a == name))
+        .find(|s| s.name == name || s.aliases.iter().any(|a| a == name))
 }
 
 #[cfg(test)]
@@ -81,6 +95,28 @@ mod tests {
             assert!(matches!(s.cardinality.as_str(), "one" | "many"));
             assert!(s.order >= 0);
             assert!(!s.description.is_empty());
+        }
+    }
+
+    #[test]
+    fn chrome_is_known_and_action_slots_carry_none() {
+        for s in SLOT_REGISTRY.iter() {
+            assert!(
+                matches!(s.chrome.as_str(), "card" | "none"),
+                "unknown chrome {} on {}",
+                s.chrome,
+                s.name
+            );
+            // An action slot is rendered as native host chrome (menu item, nav
+            // link), so there is no iframe to wrap. Anything but "none" here
+            // would mean the generator and the taxonomy have diverged.
+            if s.mechanism == "action" {
+                assert_eq!(
+                    s.chrome, "none",
+                    "action slot {} must not draw a card",
+                    s.name
+                );
+            }
         }
     }
 

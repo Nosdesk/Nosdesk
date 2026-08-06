@@ -51,19 +51,93 @@ function injectTokens(theme: PluginTheme): void {
   document.documentElement.setAttribute('data-nd-theme', theme.name);
 }
 
+/**
+ * Sentinel height meaning "this plugin has content, but its height cannot be
+ * measured right now". See the recovery path in `observeHeight`.
+ *
+ * The height wire contract is three-state:
+ *   * `> 0` — the content height, in px.
+ *   * `0`   — the plugin rendered nothing; the host collapses its chrome.
+ *   * `-1`  — has content, height unknown; the host restores layout and waits.
+ */
+const HAS_CONTENT_UNMEASURED = -1;
+
+/** Re-measure cadence after announcing HAS_CONTENT, and how many attempts
+ *  before giving up. ~2s total: long enough to cover the host's un-hide and
+ *  reflow, short enough that a genuinely zero-height plugin stops cheaply. */
+const CHASE_INTERVAL_MS = 50;
+const CHASE_MAX_TRIES = 40;
+
 // Report content height to the host on every change so it can size the iframe
 // (a cross-origin sandboxed iframe can't self-size). Deduped to avoid a resize
 // feedback loop.
 function observeHeight(el: HTMLElement): void {
   let last = -1;
   const report = (): void => {
+    // "Drew nothing" is reported as an explicit 0 so the host can collapse the
+    // whole contribution (chrome included) instead of leaving an empty card.
+    // Deliberately measured from the CONTENT, not the height: a plugin whose
+    // root measures 0 because the host collapsed the iframe must not be read as
+    // empty, or the two would latch each other at zero and it could never grow
+    // back. An empty root cannot feedback-loop, since it does not depend on the
+    // iframe's own size.
+    const isEmpty = el.children.length === 0 && !el.textContent?.trim();
+    if (isEmpty) {
+      if (last !== 0) {
+        last = 0;
+        reportHeight(0);
+      }
+      return;
+    }
     const h = Math.ceil(el.getBoundingClientRect().height);
-    if (h > 0 && h !== last) {
-      last = h;
-      reportHeight(h);
+    if (h > 0) {
+      if (h !== last) {
+        last = h;
+        reportHeight(h);
+      }
+      return;
+    }
+    // Non-empty but unmeasurable. This is the recovery path: after an empty
+    // report the host hides the frame with `display: none`, which suspends
+    // layout here, so a plugin that fills in after a fetch measures 0 and its
+    // real height could never be reported. Mutations still fire while hidden,
+    // so announce HAS_CONTENT and the host restores layout.
+    if (last !== HAS_CONTENT_UNMEASURED) {
+      last = HAS_CONTENT_UNMEASURED;
+      reportHeight(HAS_CONTENT_UNMEASURED);
+      // Then re-measure until it takes. The ResizeObserver above does NOT fire
+      // when the host flips `display` back on — observed: the frame un-hid but
+      // stayed at the iframe's default 150px forever — so the true height has
+      // to be chased here rather than waited for. Bounded, so a plugin that is
+      // legitimately zero-height doesn't spin.
+      let tries = 0;
+      const chase = (): void => {
+        if (last !== HAS_CONTENT_UNMEASURED) return; // a real height landed
+        const px = Math.ceil(el.getBoundingClientRect().height);
+        if (px > 0) {
+          last = px;
+          reportHeight(px);
+          return;
+        }
+        if (++tries < CHASE_MAX_TRIES) setTimeout(chase, CHASE_INTERVAL_MS);
+      };
+      // `setTimeout`, NOT `requestAnimationFrame`: rendering is suspended in a
+      // `display: none` iframe, so a rAF callback queued here never runs and
+      // the chase would silently do nothing (observed: the frame un-hid and
+      // stayed at the iframe's default 150px). Timers still fire while hidden.
+      setTimeout(chase, CHASE_INTERVAL_MS);
     }
   };
   new ResizeObserver(report).observe(el);
+  // The ResizeObserver only fires on a size CHANGE, and a root that starts
+  // empty and stays empty never changes size, so the initial 0 would never be
+  // sent. A MutationObserver covers the empty <-> non-empty transitions that
+  // carry no size change of their own.
+  new MutationObserver(report).observe(el, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+  });
   report();
 }
 
@@ -100,8 +174,19 @@ async function boot(): Promise<void> {
   }
   const plugin = mod.default;
 
-  let instance = toInstance(plugin.mount(root, runtime.api, runtime.context));
-  observeHeight(root);
+  const mounted = plugin.mount(root, runtime.api, runtime.context);
+  let instance = toInstance(mounted);
+  // Start height/emptiness reporting only once the mount has SETTLED. `mount`
+  // is commonly async (it awaits host-API calls before appending anything), and
+  // observing immediately measured a root that was merely still rendering as
+  // "the plugin drew nothing" — every async plugin reported empty within ~200ms
+  // of load and the host collapsed its chrome before it ever painted.
+  void Promise.resolve(mounted)
+    .catch(() => {
+      // A failed mount still needs observation: it reports empty, which is the
+      // honest signal, and the host collapses rather than framing a blank card.
+    })
+    .then(() => observeHeight(root));
 
   // On context change (ticket/device/action), prefer the plugin's in-place
   // `update` (no re-mount, keeps state — needed for action signals); fall back to

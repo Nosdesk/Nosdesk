@@ -6593,6 +6593,34 @@ pub struct PluginComponentConfig {
     pub label: Option<String>,
     pub icon: Option<String>,
     pub action: Option<PluginComponentAction>,
+
+    /// Override the host chrome drawn around this component, for `panel`
+    /// slots only. `None` (the usual case) takes the slot's default from
+    /// the generated slot registry. Set `Chrome::None` for genuinely
+    /// full-bleed content (a map, a media surface) that a card would frame
+    /// wrongly. Rejected on `action` slots, which have no iframe to wrap.
+    pub chrome: Option<PluginComponentChrome>,
+}
+
+/// Host chrome around a panel contribution. Mirrors the TS `SlotChrome`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginComponentChrome {
+    /// The app's `SectionCard`: border, radius, surface and a header pill
+    /// titled from `label`. The plugin fills the body only.
+    Card,
+    /// Bare frame, no host chrome.
+    None,
+}
+
+impl PluginComponentChrome {
+    /// Wire-format string (matches the serde `rename_all`).
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Card => "card",
+            Self::None => "none",
+        }
+    }
 }
 
 /// Component kind. Only `Slot` is implemented in v1; the others
