@@ -108,13 +108,35 @@ export interface BoardCard {
   y: number
 }
 
-/** The first card fully on screen, or null when none is — which is itself
- *  meaningful on a phone, where a board can open on empty columns.
+/**
+ * A card to drive a gesture against, scrolling it into view if needed.
  *
- *  Selected by `data-card-id`, a stable hook on the card root. An earlier
+ * Scrolling matters because the specs run against shared demo data that drifts:
+ * a card can end up in a column that is off-screen, and a spec asserting drag
+ * BEHAVIOUR should not fail because of where a previous run left the data.
+ * Whether a card is on screen *without* scrolling is a separate question, and
+ * `project-views-mobile.spec.ts` asserts that one directly.
+ */
+export async function visibleCard(page: Page): Promise<BoardCard | null> {
+  const found = await firstOnScreenCard(page)
+  if (found) return found
+  // Bring the first column that has a card into view, then look again.
+  await page.evaluate((sel) => {
+    const board = document.querySelector(sel)
+    const card = board?.querySelector('[data-card-id]')
+    if (board && card) {
+      const r = card.getBoundingClientRect()
+      board.scrollLeft += r.left - board.getBoundingClientRect().left
+    }
+  }, BOARD)
+  await page.waitForTimeout(600)
+  return firstOnScreenCard(page)
+}
+
+/** Selected by `data-card-id`, a stable hook on the card root. An earlier
  *  version matched on element geometry and silently started finding nothing
  *  when the cards moved and the incidental wrapper sizes changed. */
-export function visibleCard(page: Page): Promise<BoardCard | null> {
+function firstOnScreenCard(page: Page): Promise<BoardCard | null> {
   return page.evaluate((sel) => {
     const board = document.querySelector(sel)
     if (!board) return null
@@ -156,6 +178,28 @@ export function columnOfCard(page: Page, id: string): Promise<string | null> {
         if (column.querySelector(`[data-card-id="${id}"]`)) return heading
       }
       return null
+    },
+    { sel: BOARD, id },
+  )
+}
+
+/**
+ * Which way to drag a card so it lands on a column that exists: +1 right, -1
+ * left. A card already in the last column has nowhere to go rightwards.
+ *
+ * Without this the drag specs pile every card into the rightmost column over
+ * repeated runs against the same demo data, and then fail because the move they
+ * ask for is impossible. Choosing the direction also keeps the data balanced:
+ * cards oscillate instead of drifting to an edge.
+ */
+export function dragDirection(page: Page, id: string): Promise<number> {
+  return page.evaluate(
+    ({ sel, id }) => {
+      const inner = document.querySelector(sel)?.firstElementChild
+      if (!inner) return 1
+      const columns = [...inner.children]
+      const index = columns.findIndex((c) => c.querySelector(`[data-card-id="${id}"]`))
+      return index >= 0 && index === columns.length - 1 ? -1 : 1
     },
     { sel: BOARD, id },
   )

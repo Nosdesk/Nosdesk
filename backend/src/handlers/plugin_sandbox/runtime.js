@@ -573,19 +573,11 @@ a { color: var(--nd-accent, #FF6B1A); }
 `;
 
 // src/heightProtocol.ts
-var HAS_CONTENT_UNMEASURED = -1;
 function decideHeightReport(input) {
   const { isEmpty, measuredPx, last } = input;
-  if (isEmpty) {
-    if (last === 0) return { report: null, last, chase: false };
-    return { report: 0, last: 0, chase: false };
-  }
-  if (measuredPx > 0) {
-    if (measuredPx === last) return { report: null, last, chase: false };
-    return { report: measuredPx, last: measuredPx, chase: false };
-  }
-  if (last === HAS_CONTENT_UNMEASURED) return { report: null, last, chase: false };
-  return { report: HAS_CONTENT_UNMEASURED, last: HAS_CONTENT_UNMEASURED, chase: true };
+  const height = isEmpty ? 0 : Math.max(0, measuredPx);
+  if (height === last) return { report: null, last };
+  return { report: height, last: height };
 }
 var CONTAINER_NARROW_MAX = 480;
 var CONTAINER_MEDIUM_MAX = 768;
@@ -653,34 +645,20 @@ function applyLayout(context) {
   if (!context.layout) return;
   document.documentElement.setAttribute("data-nd-app-breakpoint", context.layout.breakpoint);
 }
-var CHASE_INTERVAL_MS = 50;
-var CHASE_MAX_TRIES = 40;
 var MOUNT_SETTLE_TIMEOUT_MS = 3e3;
 function observeHeight(el) {
   let last = null;
-  const measure = () => Math.ceil(el.getBoundingClientRect().height);
-  const isEmpty = () => el.children.length === 0 && !el.textContent?.trim();
   const report = () => {
     const decision = decideHeightReport({
-      isEmpty: isEmpty(),
-      measuredPx: measure(),
+      // Emptiness is read from CONTENT, never from height: a root that measures
+      // 0 only because the host collapsed the frame must not read as empty, or
+      // the two latch each other at zero and it can never grow back.
+      isEmpty: el.children.length === 0 && !el.textContent?.trim(),
+      measuredPx: Math.ceil(el.getBoundingClientRect().height),
       last
     });
     last = decision.last;
     if (decision.report !== null) reportHeight(decision.report);
-    if (!decision.chase) return;
-    let tries = 0;
-    const chase = () => {
-      if (last !== HAS_CONTENT_UNMEASURED) return;
-      const px = measure();
-      if (px > 0) {
-        last = px;
-        reportHeight(px);
-        return;
-      }
-      if (++tries < CHASE_MAX_TRIES) setTimeout(chase, CHASE_INTERVAL_MS);
-    };
-    setTimeout(chase, CHASE_INTERVAL_MS);
   };
   new ResizeObserver(report).observe(el);
   new MutationObserver(report).observe(el, {

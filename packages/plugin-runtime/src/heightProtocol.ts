@@ -1,35 +1,31 @@
 /**
  * The guest -> host height protocol, as a pure decision.
  *
- * Extracted from `observeHeight` so the rules can be asserted directly. They
- * are subtle enough to have produced two bugs already: a `requestAnimationFrame`
- * chase that never ran because rendering is suspended in a hidden iframe, and a
- * `last` seed of `-1` that collided with the HAS_CONTENT sentinel and swallowed
- * the first report from a panel measured while hidden.
- *
- * Three states go over the wire:
+ * Two states go over the wire:
  *   * `> 0` — the content height in px. The host pins the iframe to it.
- *   * `0`   — the plugin rendered nothing. The host collapses the whole
- *             contribution, chrome included.
- *   * `-1`  — the plugin HAS content but cannot be measured right now, because
- *             the host has hidden it after a previous empty report and hiding
- *             suspends layout. The host restores layout; the guest then chases
- *             the real height (mutations still fire while hidden, which is how
- *             this is noticed at all).
+ *   * `0`   — the plugin rendered nothing. The host drops its chrome and
+ *             collapses the contribution to zero height.
+ *
+ * There is deliberately no "has content but cannot be measured" sentinel. An
+ * earlier version collapsed with `display: none`, which suspends layout inside
+ * the iframe, so a plugin that filled in later could no longer measure itself
+ * and needed a third state to ask for layout back, plus a timer loop to chase
+ * the real height once it returned. That chain existed only to avoid one stray
+ * flex gap, and it produced two bugs of its own. Collapsing with `block-size: 0`
+ * keeps layout alive, so the guest's ResizeObserver keeps working and a plugin
+ * that fills in late is reported the same way as any other content change.
+ *
+ * Emptiness is measured from CONTENT, never from height: a root that measures 0
+ * because the host collapsed the frame must not read as empty, or the two latch
+ * each other at zero and it can never grow back.
  */
 
-export const HAS_CONTENT_UNMEASURED = -1
-
 export interface HeightInput {
-  /** The plugin's root drew nothing: no element children, no text. Measured
-   *  from CONTENT, never from height — a root that measures 0 only because the
-   *  host collapsed the frame must NOT read as empty, or the two latch each
-   *  other at zero and it can never grow back. */
+  /** The plugin's root drew nothing: no element children, no text. */
   isEmpty: boolean
-  /** Measured content height. 0 when layout is suspended (host hid us). */
+  /** Measured content height. */
   measuredPx: number
-  /** Last value reported, or null if nothing has been reported yet. Null
-   *  rather than a number so no seed can collide with a sentinel. */
+  /** Last value reported, or null if nothing has been reported yet. */
   last: number | null
 }
 
@@ -38,28 +34,14 @@ export interface HeightDecision {
   report: number | null
   /** The `last` value to carry forward. */
   last: number | null
-  /** Start re-measuring: we have content but could not size it, so the host
-   *  needs to give layout back before the real height can be read. */
-  chase: boolean
 }
 
 export function decideHeightReport(input: HeightInput): HeightDecision {
   const { isEmpty, measuredPx, last } = input
-
-  if (isEmpty) {
-    // Deduped: only announce the transition into empty.
-    if (last === 0) return { report: null, last, chase: false }
-    return { report: 0, last: 0, chase: false }
-  }
-
-  if (measuredPx > 0) {
-    if (measuredPx === last) return { report: null, last, chase: false }
-    return { report: measuredPx, last: measuredPx, chase: false }
-  }
-
-  // Non-empty but unmeasurable: ask for layout back, then chase the real value.
-  if (last === HAS_CONTENT_UNMEASURED) return { report: null, last, chase: false }
-  return { report: HAS_CONTENT_UNMEASURED, last: HAS_CONTENT_UNMEASURED, chase: true }
+  // Clamp: a measurement can only ever be a size, never negative.
+  const height = isEmpty ? 0 : Math.max(0, measuredPx)
+  if (height === last) return { report: null, last }
+  return { report: height, last: height }
 }
 
 /** Container-width buckets for `data-nd-container`.

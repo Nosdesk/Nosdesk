@@ -54,15 +54,19 @@ const title = computed(
 </script>
 
 <template>
-  <!-- The wrapper is hidden when the plugin draws nothing, but the frame stays
-       MOUNTED inside it: a plugin that starts empty and fills in after a fetch
-       has to keep reporting, and unmounting the iframe would strand it empty
-       forever (it would re-mount, draw nothing, and report empty again).
+  <!-- Collapsed to zero height when the plugin draws nothing, with the frame
+       still MOUNTED inside: a plugin that starts empty and fills in after a
+       fetch has to keep reporting, and unmounting the iframe would strand it
+       empty forever (it would re-mount, draw nothing, and report empty again).
 
-       `display: none` rather than a zero height, because these stacks are
-       `flex flex-col gap-3` and a zero-height child still draws a gap. Hiding
-       suspends layout in the guest, which is why the runtime falls back to the
-       HAS_CONTENT sentinel to ask for layout back. -->
+       Zero height rather than `display: none` on purpose. Hiding suspends
+       layout inside the iframe, so the guest could no longer measure itself and
+       needed a third protocol state to ask for layout back plus a timer loop to
+       chase the height once it returned. Clipping keeps layout alive, so a
+       late-filling plugin is just another content change. The cost is that
+       these stacks are `flex flex-col gap-3`, so a collapsed item still leaves
+       one gap's worth of space; that is invisible whitespace between two cards,
+       and far cheaper than the machinery it replaces. -->
   <div
     class="plugin-slot-item"
     :class="{ 'plugin-slot-item--empty': isEmpty }"
@@ -114,8 +118,11 @@ const title = computed(
   contain: layout style;
 }
 
-/* Hidden, not unmounted — see the template comment. */
+/* Collapsed, not unmounted and not hidden — see the template comment. Clipping
+   keeps the frame laid out, which is what lets the guest keep measuring. */
 .plugin-slot-item--empty {
-  display: none;
+  block-size: 0;
+  overflow: hidden;
+  pointer-events: none;
 }
 </style>

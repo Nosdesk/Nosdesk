@@ -5,6 +5,7 @@ import {
   Touch,
   boardScrollLeft,
   columnOfCard,
+  dragDirection,
   panDirection,
   gotoAndSettle,
   login,
@@ -75,11 +76,12 @@ test.describe('kanban touch drag', () => {
     const from = await columnOfCard(page, card!.id)
     expect(from, 'card should start in a resolvable column').not.toBeNull()
 
+    const dir = await dragDirection(page, card!.id)
     const touch = await Touch.create(context, page)
     await touch.start(card!.x, card!.y)
     await page.waitForTimeout(500)
-    // Rightwards, onto the neighbouring column that is partly on screen.
-    await touch.drag(card!.x, card!.y, 200, page, 14)
+    // Onto a neighbouring column that actually exists in that direction.
+    await touch.drag(card!.x, card!.y, 200 * dir, page, 14)
     await touch.end()
     await page.waitForTimeout(1500)
 
@@ -104,10 +106,11 @@ test.describe('kanban mouse drag', () => {
     const from = await columnOfCard(page, card!.id)
     expect(from).not.toBeNull()
 
+    const dir = await dragDirection(page, card!.id)
     await page.mouse.move(card!.x, card!.y)
     await page.mouse.down()
     for (let i = 1; i <= 12; i++) {
-      await page.mouse.move(card!.x + i * 28, card!.y)
+      await page.mouse.move(card!.x + i * 28 * dir, card!.y)
       await page.waitForTimeout(16)
     }
     await page.mouse.up()

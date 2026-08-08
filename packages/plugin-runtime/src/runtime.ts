@@ -17,11 +17,7 @@ import type {
   PluginTheme,
 } from '@nosdesk/plugin-sdk';
 import { PLUGIN_UI_CSS } from './pluginUiCss';
-import {
-  HAS_CONTENT_UNMEASURED,
-  containerSize,
-  decideHeightReport,
-} from './heightProtocol';
+import { containerSize, decideHeightReport } from './heightProtocol';
 
 /** Normalize the value a plugin's `mount` returns into a `PluginInstance`. */
 function toInstance(result: void | (() => void) | PluginInstance): PluginInstance {
@@ -133,61 +129,27 @@ function applyLayout(context: PluginContext): void {
   document.documentElement.setAttribute('data-nd-app-breakpoint', context.layout.breakpoint);
 }
 
-/** Re-measure cadence after announcing HAS_CONTENT, and how many attempts
- *  before giving up. ~2s total: long enough to cover the host's un-hide and
- *  reflow, short enough that a genuinely zero-height plugin stops cheaply. */
-const CHASE_INTERVAL_MS = 50;
-const CHASE_MAX_TRIES = 40;
-
 /** How long to wait for `mount` to settle before observing height anyway. */
 const MOUNT_SETTLE_TIMEOUT_MS = 3000;
 
 // Report content height to the host on every change so it can size the iframe
 // (a cross-origin sandboxed iframe can't self-size). Deduped to avoid a resize
-// feedback loop.
+// feedback loop. The decision itself lives in ./heightProtocol.
 function observeHeight(el: HTMLElement): void {
-  // `null`, not -1: -1 IS the HAS_CONTENT_UNMEASURED sentinel, so seeding with
-  // it would make the "already reported unmeasured" guard below true on the
-  // very first measurement and swallow the report. A panel whose first measure
-  // is non-empty but unmeasurable (mounted inside an already-hidden container)
-  // would then never announce itself and would sit at the default height.
   let last: number | null = null;
-  const measure = (): number => Math.ceil(el.getBoundingClientRect().height);
-  // Emptiness is read from CONTENT, never from height: a root that measures 0
-  // only because the host collapsed the frame must not read as empty, or the
-  // two latch each other at zero and it can never grow back.
-  const isEmpty = (): boolean => el.children.length === 0 && !el.textContent?.trim();
-
   const report = (): void => {
     const decision = decideHeightReport({
-      isEmpty: isEmpty(),
-      measuredPx: measure(),
+      // Emptiness is read from CONTENT, never from height: a root that measures
+      // 0 only because the host collapsed the frame must not read as empty, or
+      // the two latch each other at zero and it can never grow back.
+      isEmpty: el.children.length === 0 && !el.textContent?.trim(),
+      measuredPx: Math.ceil(el.getBoundingClientRect().height),
       last,
     });
     last = decision.last;
     if (decision.report !== null) reportHeight(decision.report);
-    if (!decision.chase) return;
-
-    // Re-measure until it takes. The ResizeObserver does NOT fire when the host
-    // flips `display` back on — observed: the frame un-hid but stayed at the
-    // iframe's default 150px forever — so the true height has to be chased
-    // rather than waited for. Bounded, so a genuinely zero-height plugin stops.
-    let tries = 0;
-    const chase = (): void => {
-      if (last !== HAS_CONTENT_UNMEASURED) return; // a real height landed
-      const px = measure();
-      if (px > 0) {
-        last = px;
-        reportHeight(px);
-        return;
-      }
-      if (++tries < CHASE_MAX_TRIES) setTimeout(chase, CHASE_INTERVAL_MS);
-    };
-    // `setTimeout`, NOT `requestAnimationFrame`: rendering is suspended in a
-    // `display: none` iframe, so a rAF callback queued here never runs and the
-    // chase would silently do nothing. Timers still fire while hidden.
-    setTimeout(chase, CHASE_INTERVAL_MS);
   };
+
   new ResizeObserver(report).observe(el);
   // The ResizeObserver only fires on a size CHANGE, and a root that starts
   // empty and stays empty never changes size, so the initial 0 would never be
