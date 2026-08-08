@@ -296,7 +296,7 @@ async function onMoveMenuSelect(id: string): Promise<void> {
       <template #actions>
         <button
           type="button"
-          class="text-xs font-medium rounded-md px-3 py-1.5 bg-accent text-on-accent hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          class="text-xs font-medium rounded-md px-3 py-1.5 min-h-[44px] sm:min-h-0 inline-flex items-center justify-center bg-accent text-on-accent hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           @click="showCreate = true"
         >{{ $t('project-cycles-new-button') }}</button>
       </template>
@@ -333,7 +333,7 @@ async function onMoveMenuSelect(id: string): Promise<void> {
             </span>
             <button
               type="button"
-              class="text-xs font-medium rounded-md px-3 py-1.5 border border-status-warning/50 hover:bg-status-warning/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-status-warning"
+              class="text-xs font-medium rounded-md px-3 py-1.5 min-h-[44px] sm:min-h-0 inline-flex items-center justify-center border border-status-warning/50 hover:bg-status-warning/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-status-warning"
               @click="requestCompleteCycle(activeCycle.uuid)"
             >{{ $t('project-cycles-action-complete') }}</button>
           </div>
@@ -348,7 +348,7 @@ async function onMoveMenuSelect(id: string): Promise<void> {
             </span>
             <button
               type="button"
-              class="text-xs font-medium rounded-md px-3 py-1.5 bg-accent text-on-accent hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              class="text-xs font-medium rounded-md px-3 py-1.5 min-h-[44px] sm:min-h-0 inline-flex items-center justify-center bg-accent text-on-accent hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               @click="promoteToActive(upcomingCycles[0].uuid)"
             >{{ $t('project-cycles-action-start') }}</button>
           </div>
@@ -415,9 +415,13 @@ async function onMoveMenuSelect(id: string): Promise<void> {
                           class="shrink-0"
                         />
                       </button>
+                      <!-- `pointer-coarse:opacity-100`: there is no hover on touch, so
+                           without it this menu is permanently invisible, and it is the
+                           only way to move a ticket between cycles from this view. Same
+                           convention as `TicketDetails` / `CustomDropdown`. -->
                       <button
                         type="button"
-                        class="mr-2 p-1 rounded text-tertiary opacity-0 group-hover/row:opacity-100 focus:opacity-100 hover:text-primary hover:bg-surface-alt focus:outline-none focus-visible:ring-2 focus-visible:ring-accent transition-opacity"
+                        class="mr-2 p-1 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 inline-flex items-center justify-center rounded text-tertiary opacity-0 group-hover/row:opacity-100 pointer-coarse:opacity-100 focus:opacity-100 hover:text-primary hover:bg-surface-alt focus:outline-none focus-visible:ring-2 focus-visible:ring-accent transition-opacity"
                         :aria-label="$t('project-cycles-ticket-menu')"
                         @click="openMoveMenu(ticket, $event)"
                       >
@@ -546,12 +550,12 @@ async function onMoveMenuSelect(id: string): Promise<void> {
         <div class="flex justify-end gap-2">
           <button
             type="button"
-            class="text-xs font-medium rounded-md px-3 py-1.5 border border-default hover:bg-surface-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            class="text-xs font-medium rounded-md px-3 py-1.5 min-h-[44px] sm:min-h-0 inline-flex items-center justify-center border border-default hover:bg-surface-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             @click="showCreate = false"
           >{{ $t('project-cycles-cancel-button') }}</button>
           <button
             type="button"
-            class="text-xs font-medium rounded-md px-3 py-1.5 bg-accent text-on-accent hover:opacity-90 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            class="text-xs font-medium rounded-md px-3 py-1.5 min-h-[44px] sm:min-h-0 inline-flex items-center justify-center bg-accent text-on-accent hover:opacity-90 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             :disabled="!newCycleName.trim() || createPending"
             @click="createCycle"
           >{{ $t('project-cycles-create-submit') }}</button>

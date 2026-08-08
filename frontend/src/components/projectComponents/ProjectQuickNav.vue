@@ -20,7 +20,7 @@ const links = [
       v-for="link in links"
       :key="link.suffix"
       :to="`/projects/${projectId}${link.suffix}`"
-      class="rounded px-1.5 py-0.5 text-tertiary transition-colors hover:bg-surface-hover hover:text-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      class="rounded px-1.5 py-0.5 min-h-[44px] sm:min-h-0 inline-flex items-center text-tertiary transition-colors hover:bg-surface-hover hover:text-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
     >
       {{ $t(link.labelKey) }}
     </RouterLink>

@@ -209,7 +209,7 @@ const handleCreateClick = () => {
         v-if="showBackArrow"
         type="button"
         aria-label="Go back"
-        class="flex-shrink-0 -ml-1 p-1.5 text-secondary hover:text-primary rounded"
+        class="flex-shrink-0 -ml-1 p-1.5 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 inline-flex items-center justify-center text-secondary hover:text-primary rounded"
         @click="goBack()"
       >
         <Icon name="chevronLeft" size="md" />
@@ -316,7 +316,7 @@ const handleCreateClick = () => {
         <button
           v-if="props.showCreateButton"
           @click="handleCreateClick"
-          class="group flex create-button px-2.5 py-1.5 sm:px-3 text-sm font-medium text-secondary border border-default rounded-lg hover:text-primary hover:border-accent hover:bg-accent-muted transition-colors items-center gap-2"
+          class="group flex create-button px-2.5 py-1.5 sm:px-3 min-h-[44px] sm:min-h-0 text-sm font-medium text-secondary border border-default rounded-lg hover:text-primary hover:border-accent hover:bg-accent-muted transition-colors items-center gap-2"
           :aria-label="t('ui-site-header-create-aria', { action: resolvedCreateButtonText })"
           :title="resolvedCreateButtonText"
         >
@@ -352,7 +352,7 @@ const handleCreateClick = () => {
           <button
             ref="buttonRef"
             @click="toggleUserMenu"
-            class="flex items-center justify-center hover:ring-2 hover:ring-accent rounded-full focus:outline-none focus:ring-2 focus:ring-accent"
+            class="flex items-center justify-center min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 hover:ring-2 hover:ring-accent rounded-full focus:outline-none focus:ring-2 focus:ring-accent"
             aria-haspopup="true"
             :aria-expanded="showUserMenu"
           >

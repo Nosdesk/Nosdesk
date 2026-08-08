@@ -55,7 +55,7 @@ function handleSelect(id: string) {
     <button
       ref="triggerRef"
       type="button"
-      class="p-1.5 rounded-md hover:bg-surface-hover transition-colors text-secondary hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      class="p-1.5 rounded-md hover:bg-surface-hover transition-colors text-secondary hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent inline-flex items-center justify-center min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0"
       :class="{ 'bg-surface-hover text-primary': isOpen }"
       :title="t('project-actions-menu-trigger')"
       :aria-label="t('project-actions-menu-trigger')"

@@ -1099,7 +1099,7 @@ function open(card: CardData): void {
               @click.stop
             >
               <span
-                class="h-3 w-px bg-strong opacity-0 group-hover/bar:opacity-60 transition-opacity"
+                class="h-3 w-px bg-strong opacity-0 group-hover/bar:opacity-60 pointer-coarse:opacity-60 transition-opacity"
               ></span>
             </span>
             <span
@@ -1109,7 +1109,7 @@ function open(card: CardData): void {
               @click.stop
             >
               <span
-                class="h-3 w-px bg-strong opacity-0 group-hover/bar:opacity-60 transition-opacity"
+                class="h-3 w-px bg-strong opacity-0 group-hover/bar:opacity-60 pointer-coarse:opacity-60 transition-opacity"
               ></span>
             </span>
           </button>

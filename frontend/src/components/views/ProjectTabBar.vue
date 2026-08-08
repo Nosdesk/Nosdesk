@@ -62,7 +62,7 @@ function go(tab: Tab): void {
         type="button"
         role="tab"
         :aria-selected="tab.id === activeId"
-        class="text-sm font-medium px-3 py-2 -mb-px border-b-2 transition-colors"
+        class="text-sm font-medium px-3 py-2 min-h-[44px] sm:min-h-0 inline-flex items-center -mb-px border-b-2 transition-colors"
         :class="tab.id === activeId
           ? 'text-primary border-accent'
           : 'text-tertiary border-transparent hover:text-secondary hover:border-subtle'"
