@@ -25,6 +25,7 @@ import type { UserAddress } from '@nosdesk/core/services/userContactService';
 import { useThemeStore } from '@/stores/theme';
 import type { PluginSlotContext } from '../context';
 import { snapshotPluginTheme } from '../theme';
+import { usePluginLayout } from '../layout';
 import { createHostApiImpl } from '../sandboxHostApi';
 import { registerPluginInstance } from '../pluginInstances';
 
@@ -63,6 +64,7 @@ const pinnedHeight = computed(() =>
 );
 
 const themeStore = useThemeStore();
+const layout = usePluginLayout();
 
 // The host design tokens for the plugin sandbox, read fresh so they reflect the
 // active theme (and accent override). The runtime injects them as `--nd-*`.
@@ -119,6 +121,7 @@ function snapshot(): PluginContext {
     address: toPluginAddress(props.context?.address),
     ticketIds: plain(props.context?.ticketIds),
     component: { name: props.component.name, slot: props.component.slot },
+    layout: { ...layout.value },
     actionActivated: props.actionActivated,
   };
 }
@@ -184,8 +187,18 @@ onMounted(() => {
 // action counter changes. `deep` is required: the sync pool patches ticket/asset
 // rows IN PLACE (same object identity), so a shallow, reference-keyed watch would
 // miss field updates and leave the plugin on stale context.
+// The breakpoint is watched as a STRING, not as `layout` itself. The computed
+// re-evaluates on every debounced resize and returns a fresh object, so
+// watching the ref would re-post the whole context (a full JSON clone of the
+// ticket / asset / user bag, per frame) every 150ms for the length of a drag.
+// Watching the bucket means one push per breakpoint crossing.
 watch(
-  [() => props.context, () => props.component, () => props.actionActivated],
+  [
+    () => props.context,
+    () => props.component,
+    () => props.actionActivated,
+    () => layout.value.breakpoint,
+  ],
   () => {
     const win = frameRef.value?.contentWindow;
     if (connected && win) postContext(win, snapshot());

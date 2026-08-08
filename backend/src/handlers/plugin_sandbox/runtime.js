@@ -534,6 +534,42 @@ a { color: var(--nd-accent, #FF6B1A); }
 
 .nd-label { font-weight: 600; color: var(--nd-text, #1f2937); }
 .nd-muted { color: var(--nd-text-tertiary, #6b7280); }
+
+/* --- Responsive contract ---------------------------------------------------
+ *
+ * READ THIS BEFORE WRITING A MEDIA QUERY. A plugin runs in its own document, so
+ * a media query here resolves against the PANEL, not the app window. In a
+ * ~336px sidebar panel, \`@media (min-width: 768px)\` is false on every display
+ * ever made. That is container behaviour, and it is usually what you want, but
+ * it is not what "min-width: 768px" suggests.
+ *
+ * Two attributes are stamped on \`<html>\`, plus \`--nd-container-width\`:
+ *
+ *   [data-nd-container]      narrow | medium | wide   how wide THIS panel is
+ *   [data-nd-app-breakpoint] base | sm | md | lg | xl what the APP is doing
+ *   [data-nd-pointer]        coarse | fine            touch or mouse
+ *
+ * \`data-nd-pointer\` is a convenience for JS; in CSS just write
+ * \`@media (pointer: coarse)\`, which resolves correctly in here because pointer
+ * is a device capability rather than a size.
+ *
+ * Lay the panel out against \`data-nd-container\` (or a plain media query, which
+ * means the same thing). Reach for \`data-nd-app-breakpoint\` only to MATCH an
+ * app-level decision, e.g. going flat because the app went to its stacked
+ * mobile layout even though the panel itself did not get narrower.
+ *
+ *   [data-nd-container="narrow"] .my-grid { grid-template-columns: 1fr; }
+ *   [data-nd-app-breakpoint="base"] .my-toolbar { display: none; }
+ *
+ * \`context.layout.breakpoint\` carries the app breakpoint for JS; the other two
+ * are readable from the document itself.
+ */
+
+/* Touch targets. The app sizes its own controls to 44px under a coarse
+ * pointer; the kit's controls follow so a plugin gets it without asking. */
+@media (pointer: coarse) {
+  .nd-btn, .nd-input, .nd-textarea { min-height: 44px; }
+}
 `;
 
 // src/runtime.ts
@@ -565,11 +601,48 @@ ${vars}
   document.documentElement.setAttribute("data-nd-color-scheme", theme.colorScheme);
   document.documentElement.setAttribute("data-nd-theme", theme.name);
 }
+var CONTAINER_NARROW_MAX = 480;
+var CONTAINER_MEDIUM_MAX = 768;
+function containerSize(width) {
+  if (width < CONTAINER_NARROW_MAX) return "narrow";
+  if (width < CONTAINER_MEDIUM_MAX) return "medium";
+  return "wide";
+}
+function observeContainer() {
+  const el = document.documentElement;
+  let lastWidth = -1;
+  let lastBucket = "";
+  const apply = () => {
+    const width = el.clientWidth;
+    if (width === lastWidth) return;
+    lastWidth = width;
+    el.style.setProperty("--nd-container-width", `${width}px`);
+    const bucket = containerSize(width);
+    if (bucket !== lastBucket) {
+      lastBucket = bucket;
+      el.setAttribute("data-nd-container", bucket);
+    }
+  };
+  new ResizeObserver(apply).observe(el);
+  apply();
+}
+function observePointer() {
+  if (!window.matchMedia) return;
+  const mq = window.matchMedia("(pointer: coarse)");
+  const apply = () => document.documentElement.setAttribute("data-nd-pointer", mq.matches ? "coarse" : "fine");
+  mq.addEventListener("change", apply);
+  apply();
+}
+function applyLayout(context) {
+  if (!context.layout) return;
+  document.documentElement.setAttribute("data-nd-app-breakpoint", context.layout.breakpoint);
+}
 var HAS_CONTENT_UNMEASURED = -1;
 var CHASE_INTERVAL_MS = 50;
 var CHASE_MAX_TRIES = 40;
+var MOUNT_SETTLE_TIMEOUT_MS = 3e3;
 function observeHeight(el) {
-  let last = -1;
+  let last = null;
   const report = () => {
     const isEmpty = el.children.length === 0 && !el.textContent?.trim();
     if (isEmpty) {
@@ -619,6 +692,9 @@ async function boot() {
   injectBaseCss();
   injectTokens(runtime.theme);
   runtime.onThemeChange(injectTokens);
+  observeContainer();
+  observePointer();
+  applyLayout(runtime.context);
   const bundleUrl = `./bundle?t=${encodeURIComponent(token)}`;
   let mod;
   try {
@@ -636,9 +712,18 @@ async function boot() {
   const plugin = mod.default;
   const mounted = plugin.mount(root, runtime.api, runtime.context);
   let instance = toInstance(mounted);
-  void Promise.resolve(mounted).catch(() => {
-  }).then(() => observeHeight(root));
+  void Promise.race([
+    Promise.resolve(mounted).catch(() => {
+    }),
+    // A mount that never settles must not disable height reporting outright.
+    // Awaiting it unconditionally means one hung await inside a plugin (a host
+    // call that never resolves) leaves the frame stuck at the iframe's default
+    // 150px forever, chrome and all. Observed with a real bundle, so this is a
+    // failure mode plugins hit in practice, not a theoretical one.
+    new Promise((resolve) => setTimeout(resolve, MOUNT_SETTLE_TIMEOUT_MS))
+  ]).then(() => observeHeight(root));
   runtime.onContextChange((ctx) => {
+    applyLayout(ctx);
     if (instance.update) {
       instance.update(ctx);
       return;

@@ -109,4 +109,40 @@ a { color: var(--nd-accent, #FF6B1A); }
 
 .nd-label { font-weight: 600; color: var(--nd-text, #1f2937); }
 .nd-muted { color: var(--nd-text-tertiary, #6b7280); }
+
+/* --- Responsive contract ---------------------------------------------------
+ *
+ * READ THIS BEFORE WRITING A MEDIA QUERY. A plugin runs in its own document, so
+ * a media query here resolves against the PANEL, not the app window. In a
+ * ~336px sidebar panel, \`@media (min-width: 768px)\` is false on every display
+ * ever made. That is container behaviour, and it is usually what you want, but
+ * it is not what "min-width: 768px" suggests.
+ *
+ * Two attributes are stamped on \`<html>\`, plus \`--nd-container-width\`:
+ *
+ *   [data-nd-container]      narrow | medium | wide   how wide THIS panel is
+ *   [data-nd-app-breakpoint] base | sm | md | lg | xl what the APP is doing
+ *   [data-nd-pointer]        coarse | fine            touch or mouse
+ *
+ * \`data-nd-pointer\` is a convenience for JS; in CSS just write
+ * \`@media (pointer: coarse)\`, which resolves correctly in here because pointer
+ * is a device capability rather than a size.
+ *
+ * Lay the panel out against \`data-nd-container\` (or a plain media query, which
+ * means the same thing). Reach for \`data-nd-app-breakpoint\` only to MATCH an
+ * app-level decision, e.g. going flat because the app went to its stacked
+ * mobile layout even though the panel itself did not get narrower.
+ *
+ *   [data-nd-container="narrow"] .my-grid { grid-template-columns: 1fr; }
+ *   [data-nd-app-breakpoint="base"] .my-toolbar { display: none; }
+ *
+ * \`context.layout.breakpoint\` carries the app breakpoint for JS; the other two
+ * are readable from the document itself.
+ */
+
+/* Touch targets. The app sizes its own controls to 44px under a coarse
+ * pointer; the kit's controls follow so a plugin gets it without asking. */
+@media (pointer: coarse) {
+  .nd-btn, .nd-input, .nd-textarea { min-height: 44px; }
+}
 `;
