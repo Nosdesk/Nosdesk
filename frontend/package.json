@@ -16,8 +16,8 @@
     "type-check": "vue-tsc --build",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "lint": "eslint . && node scripts/check-view-roots.mjs && node scripts/check-plugin-slot-mounts.mjs",
-    "lint:fix": "eslint . --fix && node scripts/check-view-roots.mjs && node scripts/check-plugin-slot-mounts.mjs",
+    "lint": "eslint . && node scripts/check-view-roots.mjs && node scripts/check-plugin-slot-mounts.mjs && node scripts/check-component-display-classes.mjs",
+    "lint:fix": "eslint . --fix && node scripts/check-view-roots.mjs && node scripts/check-plugin-slot-mounts.mjs && node scripts/check-component-display-classes.mjs",
     "lint:views": "node scripts/check-view-roots.mjs"
   },
   "dependencies": {
