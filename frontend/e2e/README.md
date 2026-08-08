@@ -23,11 +23,18 @@ Two projects run: `phone` (390x844, touch) and `desktop` (1680x1000). Specs opt
 in with `test.skip(({ hasTouch }) => ...)`, so touch and pointer behaviour are
 asserted on the surface each belongs to.
 
-## Why this is not in CI
+## In CI
 
-It needs the full stack and seeded data. Wiring that into CI is worthwhile but
-is its own piece of work; until then this runs on demand, and the unit tests
-(`pnpm --filter nosdesk-frontend run test`) cover the pure logic in CI.
+`.github/workflows/e2e.yml` boots the stack with docker compose, bootstraps an
+admin via `nosdesk-cli admin create`, seeds demo data and runs this suite. It is
+a **separate workflow** from `ci.yml`, on a nightly schedule plus manual
+dispatch, so a flake in a 45-minute full-stack job never blocks a merge on the
+type-check and unit-test signal.
+
+It was written from the sequence that works locally but has not yet been
+observed green in CI; expect the first runs to need adjustment, and treat it as
+informational until it has settled. `ci.yml` runs the unit tests
+(`pnpm --filter nosdesk-frontend run test`) on every push regardless.
 
 ## Notes for editing these specs
 
