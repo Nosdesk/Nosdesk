@@ -102,3 +102,7 @@ backend/license_private.pem
 
 # Firebase client config (per-machine; contains the FCM API key)
 google-services.json
+
+# Playwright e2e artifacts (frontend/)
+test-results/
+playwright-report/

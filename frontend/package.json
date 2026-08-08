@@ -14,6 +14,8 @@
     "preview": "vite preview",
     "build-only": "vite build",
     "type-check": "vue-tsc --build",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
     "lint": "eslint . && node scripts/check-view-roots.mjs && node scripts/check-plugin-slot-mounts.mjs",
     "lint:fix": "eslint . --fix && node scripts/check-view-roots.mjs && node scripts/check-plugin-slot-mounts.mjs",
     "lint:views": "node scripts/check-view-roots.mjs"
@@ -22,8 +24,8 @@
     "@date-fns/tz": "^1.4.1",
     "@fluent/bundle": "^0.19.1",
     "@nosdesk/core": "workspace:*",
-    "@nosdesk/plugin-sdk": "workspace:*",
     "@nosdesk/mobile": "workspace:*",
+    "@nosdesk/plugin-sdk": "workspace:*",
     "@pinia/colada": "^1.2.0",
     "@simplewebauthn/browser": "^13.2.2",
     "@simplewebauthn/types": "^12.0.0",
@@ -66,6 +68,7 @@
     "yjs": "^13.6.29"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4.0.15",
     "@tailwindcss/typography": "^0.5.10",
     "@tsconfig/node24": "^24.0.0",
@@ -81,6 +84,7 @@
     "eslint": "^10.2.1",
     "eslint-plugin-unused-imports": "^4.4.1",
     "eslint-plugin-vue": "^10.9.0",
+    "jsdom": "^30.0.1",
     "npm-run-all2": "^8.0.0",
     "postcss": "^8.5.3",
     "tailwindcss": "^4.0.15",
@@ -88,6 +92,7 @@
     "typescript": "^6.0.0",
     "typescript-eslint": "^8.59.1",
     "vite": "^8.0.0",
+    "vitest": "^3.2.7",
     "vue-tsc": "^3.2.0"
   }
 }

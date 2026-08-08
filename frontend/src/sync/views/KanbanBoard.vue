@@ -855,6 +855,7 @@ function affectedDevicesTooltip(card: CardData): string {
               <article
                 v-for="card in sublane.cards"
                 :key="card.id"
+                :data-card-id="card.id"
                 class="bg-surface rounded-lg border border-default hover:border-strong p-2 cursor-grab select-none transition-colors"
                 :class="{
                   'ring-2 ring-accent': isSelected(card.id),

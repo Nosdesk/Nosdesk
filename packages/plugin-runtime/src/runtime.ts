@@ -17,6 +17,11 @@ import type {
   PluginTheme,
 } from '@nosdesk/plugin-sdk';
 import { PLUGIN_UI_CSS } from './pluginUiCss';
+import {
+  HAS_CONTENT_UNMEASURED,
+  containerSize,
+  decideHeightReport,
+} from './heightProtocol';
 
 /** Normalize the value a plugin's `mount` returns into a `PluginInstance`. */
 function toInstance(result: void | (() => void) | PluginInstance): PluginInstance {
@@ -80,17 +85,9 @@ function injectTokens(theme: PluginTheme): void {
 // All three are stamped on `<html>` so plugin CSS can select on them, and the
 // app breakpoint is also on `context.layout` for JS.
 
-/** Upper bounds (exclusive) for the container scale. Deliberately NOT the app's
- *  breakpoints: a panel lives in 300-700px, where `sm`/`md`/`lg` would bucket
- *  almost everything into one value and tell a plugin nothing. */
-const CONTAINER_NARROW_MAX = 480;
-const CONTAINER_MEDIUM_MAX = 768;
-
-function containerSize(width: number): 'narrow' | 'medium' | 'wide' {
-  if (width < CONTAINER_NARROW_MAX) return 'narrow';
-  if (width < CONTAINER_MEDIUM_MAX) return 'medium';
-  return 'wide';
-}
+// Container bucketing and the height-report rules are pure, and subtle enough
+// to have caused two bugs, so they live in ./heightProtocol where they can be
+// unit-tested directly. This module keeps only the DOM wiring.
 
 /** Stamp the panel's own width onto `<html>`, live. `--nd-container-width` is
  *  the exact px for plugins that need to compute; `data-nd-container` is the
@@ -136,17 +133,6 @@ function applyLayout(context: PluginContext): void {
   document.documentElement.setAttribute('data-nd-app-breakpoint', context.layout.breakpoint);
 }
 
-/**
- * Sentinel height meaning "this plugin has content, but its height cannot be
- * measured right now". See the recovery path in `observeHeight`.
- *
- * The height wire contract is three-state:
- *   * `> 0` — the content height, in px.
- *   * `0`   — the plugin rendered nothing; the host collapses its chrome.
- *   * `-1`  — has content, height unknown; the host restores layout and waits.
- */
-const HAS_CONTENT_UNMEASURED = -1;
-
 /** Re-measure cadence after announcing HAS_CONTENT, and how many attempts
  *  before giving up. ~2s total: long enough to cover the host's un-hide and
  *  reflow, short enough that a genuinely zero-height plugin stops cheaply. */
@@ -166,60 +152,41 @@ function observeHeight(el: HTMLElement): void {
   // is non-empty but unmeasurable (mounted inside an already-hidden container)
   // would then never announce itself and would sit at the default height.
   let last: number | null = null;
+  const measure = (): number => Math.ceil(el.getBoundingClientRect().height);
+  // Emptiness is read from CONTENT, never from height: a root that measures 0
+  // only because the host collapsed the frame must not read as empty, or the
+  // two latch each other at zero and it can never grow back.
+  const isEmpty = (): boolean => el.children.length === 0 && !el.textContent?.trim();
+
   const report = (): void => {
-    // "Drew nothing" is reported as an explicit 0 so the host can collapse the
-    // whole contribution (chrome included) instead of leaving an empty card.
-    // Deliberately measured from the CONTENT, not the height: a plugin whose
-    // root measures 0 because the host collapsed the iframe must not be read as
-    // empty, or the two would latch each other at zero and it could never grow
-    // back. An empty root cannot feedback-loop, since it does not depend on the
-    // iframe's own size.
-    const isEmpty = el.children.length === 0 && !el.textContent?.trim();
-    if (isEmpty) {
-      if (last !== 0) {
-        last = 0;
-        reportHeight(0);
+    const decision = decideHeightReport({
+      isEmpty: isEmpty(),
+      measuredPx: measure(),
+      last,
+    });
+    last = decision.last;
+    if (decision.report !== null) reportHeight(decision.report);
+    if (!decision.chase) return;
+
+    // Re-measure until it takes. The ResizeObserver does NOT fire when the host
+    // flips `display` back on — observed: the frame un-hid but stayed at the
+    // iframe's default 150px forever — so the true height has to be chased
+    // rather than waited for. Bounded, so a genuinely zero-height plugin stops.
+    let tries = 0;
+    const chase = (): void => {
+      if (last !== HAS_CONTENT_UNMEASURED) return; // a real height landed
+      const px = measure();
+      if (px > 0) {
+        last = px;
+        reportHeight(px);
+        return;
       }
-      return;
-    }
-    const h = Math.ceil(el.getBoundingClientRect().height);
-    if (h > 0) {
-      if (h !== last) {
-        last = h;
-        reportHeight(h);
-      }
-      return;
-    }
-    // Non-empty but unmeasurable. This is the recovery path: after an empty
-    // report the host hides the frame with `display: none`, which suspends
-    // layout here, so a plugin that fills in after a fetch measures 0 and its
-    // real height could never be reported. Mutations still fire while hidden,
-    // so announce HAS_CONTENT and the host restores layout.
-    if (last !== HAS_CONTENT_UNMEASURED) {
-      last = HAS_CONTENT_UNMEASURED;
-      reportHeight(HAS_CONTENT_UNMEASURED);
-      // Then re-measure until it takes. The ResizeObserver above does NOT fire
-      // when the host flips `display` back on — observed: the frame un-hid but
-      // stayed at the iframe's default 150px forever — so the true height has
-      // to be chased here rather than waited for. Bounded, so a plugin that is
-      // legitimately zero-height doesn't spin.
-      let tries = 0;
-      const chase = (): void => {
-        if (last !== HAS_CONTENT_UNMEASURED) return; // a real height landed
-        const px = Math.ceil(el.getBoundingClientRect().height);
-        if (px > 0) {
-          last = px;
-          reportHeight(px);
-          return;
-        }
-        if (++tries < CHASE_MAX_TRIES) setTimeout(chase, CHASE_INTERVAL_MS);
-      };
-      // `setTimeout`, NOT `requestAnimationFrame`: rendering is suspended in a
-      // `display: none` iframe, so a rAF callback queued here never runs and
-      // the chase would silently do nothing (observed: the frame un-hid and
-      // stayed at the iframe's default 150px). Timers still fire while hidden.
-      setTimeout(chase, CHASE_INTERVAL_MS);
-    }
+      if (++tries < CHASE_MAX_TRIES) setTimeout(chase, CHASE_INTERVAL_MS);
+    };
+    // `setTimeout`, NOT `requestAnimationFrame`: rendering is suspended in a
+    // `display: none` iframe, so a rAF callback queued here never runs and the
+    // chase would silently do nothing. Timers still fire while hidden.
+    setTimeout(chase, CHASE_INTERVAL_MS);
   };
   new ResizeObserver(report).observe(el);
   // The ResizeObserver only fires on a size CHANGE, and a root that starts

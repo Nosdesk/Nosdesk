@@ -7,7 +7,8 @@
   "scripts": {
     "build": "esbuild src/runtime.ts --bundle --format=esm --target=es2022 --banner:js='// GENERATED from @nosdesk/plugin-runtime src/runtime.ts by `pnpm --filter @nosdesk/plugin-runtime build`. Do not edit by hand; CI drift-checks it.' --outfile=../../backend/src/handlers/plugin_sandbox/runtime.js",
     "type-check": "tsc --noEmit",
-    "lint": "eslint src"
+    "lint": "eslint src",
+    "test": "vitest run"
   },
   "dependencies": {
     "@nosdesk/plugin-sdk": "workspace:*"
@@ -17,6 +18,7 @@
     "esbuild": "^0.25.0",
     "eslint": "^10.2.1",
     "typescript": "^6.0.0",
-    "typescript-eslint": "^8.59.1"
+    "typescript-eslint": "^8.59.1",
+    "vitest": "^3.2.7"
   }
 }
