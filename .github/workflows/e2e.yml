@@ -55,12 +55,14 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      # compose reads .env for the postgres credentials and secrets. The
-      # example file carries working defaults for everything the stack needs
-      # locally; CI only has to override what must not be a placeholder.
+      # compose reads the ROOT .env, not backend/env.example: the latter is the
+      # backend process's own config and carries no POSTGRES_* variables, so
+      # copying it left the postgres container with no superuser password and
+      # it refused to initialise. The root example carries working defaults for
+      # the whole stack; CI only overrides what must not be a placeholder.
       - name: Compose env
         run: |
-          cp backend/env.example .env
+          cp .env.example .env
           {
             echo "JWT_SECRET=$(openssl rand -hex 32)"
             echo "MFA_KEK_V1=$(openssl rand -hex 32)"
