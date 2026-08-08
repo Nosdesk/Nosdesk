@@ -41,10 +41,11 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   /** Latest content height the plugin reported. `0` means it rendered nothing,
-   *  which lets a parent collapse its chrome; `null` means nothing reported
-   *  yet. Parents must keep this component MOUNTED when collapsing (height 0,
-   *  not `v-if`), or a plugin that starts empty and fills in later can never
-   *  report its way back. */
+   *  which lets a parent drop its chrome; `null` means nothing reported yet.
+   *  Parents must keep this component MOUNTED and LAID OUT when collapsing
+   *  (zero height and clipping, never `v-if` or `display: none`), or the guest
+   *  stops being able to measure itself and a plugin that fills in later can
+   *  never report its way back. */
   (e: 'contentHeight', px: number | null): void;
 }>();
 
@@ -55,13 +56,11 @@ const iframeHeight = ref<number | null>(null);
 
 watch(iframeHeight, (px) => emit('contentHeight', px));
 
-/** Only a real, positive measurement pins the iframe's height. `0` (rendered
- *  nothing) and `-1` (has content, unmeasurable while the host hides it) are
- *  signals for the parent's chrome, not sizes; letting either reach the inline
- *  style would emit `height: -1px` or lock a recovering frame at zero. */
-const pinnedHeight = computed(() =>
-  iframeHeight.value != null && iframeHeight.value > 0 ? iframeHeight.value : null,
-);
+/** Every report is a size, so it pins directly: `0` collapses the frame, which
+ *  is exactly what the parent wants when the plugin drew nothing. `null` means
+ *  nothing has been reported yet, so the iframe keeps its natural height until
+ *  the first measurement rather than flashing to zero. */
+const pinnedHeight = computed(() => iframeHeight.value);
 
 const themeStore = useThemeStore();
 const layout = usePluginLayout();

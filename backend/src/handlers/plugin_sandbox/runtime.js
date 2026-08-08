@@ -572,6 +572,21 @@ a { color: var(--nd-accent, #FF6B1A); }
 }
 `;
 
+// src/heightProtocol.ts
+function decideHeightReport(input) {
+  const { isEmpty, measuredPx, last } = input;
+  const height = isEmpty ? 0 : Math.max(0, measuredPx);
+  if (height === last) return { report: null, last };
+  return { report: height, last: height };
+}
+var CONTAINER_NARROW_MAX = 480;
+var CONTAINER_MEDIUM_MAX = 768;
+function containerSize(width) {
+  if (width < CONTAINER_NARROW_MAX) return "narrow";
+  if (width < CONTAINER_MEDIUM_MAX) return "medium";
+  return "wide";
+}
+
 // src/runtime.ts
 function toInstance(result) {
   if (typeof result === "function") return { unmount: result };
@@ -600,13 +615,6 @@ ${vars}
 }`;
   document.documentElement.setAttribute("data-nd-color-scheme", theme.colorScheme);
   document.documentElement.setAttribute("data-nd-theme", theme.name);
-}
-var CONTAINER_NARROW_MAX = 480;
-var CONTAINER_MEDIUM_MAX = 768;
-function containerSize(width) {
-  if (width < CONTAINER_NARROW_MAX) return "narrow";
-  if (width < CONTAINER_MEDIUM_MAX) return "medium";
-  return "wide";
 }
 function observeContainer() {
   const el = document.documentElement;
@@ -637,45 +645,20 @@ function applyLayout(context) {
   if (!context.layout) return;
   document.documentElement.setAttribute("data-nd-app-breakpoint", context.layout.breakpoint);
 }
-var HAS_CONTENT_UNMEASURED = -1;
-var CHASE_INTERVAL_MS = 50;
-var CHASE_MAX_TRIES = 40;
 var MOUNT_SETTLE_TIMEOUT_MS = 3e3;
 function observeHeight(el) {
   let last = null;
   const report = () => {
-    const isEmpty = el.children.length === 0 && !el.textContent?.trim();
-    if (isEmpty) {
-      if (last !== 0) {
-        last = 0;
-        reportHeight(0);
-      }
-      return;
-    }
-    const h = Math.ceil(el.getBoundingClientRect().height);
-    if (h > 0) {
-      if (h !== last) {
-        last = h;
-        reportHeight(h);
-      }
-      return;
-    }
-    if (last !== HAS_CONTENT_UNMEASURED) {
-      last = HAS_CONTENT_UNMEASURED;
-      reportHeight(HAS_CONTENT_UNMEASURED);
-      let tries = 0;
-      const chase = () => {
-        if (last !== HAS_CONTENT_UNMEASURED) return;
-        const px = Math.ceil(el.getBoundingClientRect().height);
-        if (px > 0) {
-          last = px;
-          reportHeight(px);
-          return;
-        }
-        if (++tries < CHASE_MAX_TRIES) setTimeout(chase, CHASE_INTERVAL_MS);
-      };
-      setTimeout(chase, CHASE_INTERVAL_MS);
-    }
+    const decision = decideHeightReport({
+      // Emptiness is read from CONTENT, never from height: a root that measures
+      // 0 only because the host collapsed the frame must not read as empty, or
+      // the two latch each other at zero and it can never grow back.
+      isEmpty: el.children.length === 0 && !el.textContent?.trim(),
+      measuredPx: Math.ceil(el.getBoundingClientRect().height),
+      last
+    });
+    last = decision.last;
+    if (decision.report !== null) reportHeight(decision.report);
   };
   new ResizeObserver(report).observe(el);
   new MutationObserver(report).observe(el, {

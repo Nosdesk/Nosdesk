@@ -178,6 +178,12 @@ jobs:
       - name: vue-tsc
         run: pnpm --filter nosdesk-frontend run type-check
 
+      # Unit tests only. The Playwright suite under frontend/e2e needs the full
+      # dev stack (backend + postgres + seeded demo data), so it runs on demand
+      # against a running stack rather than in CI; see playwright.config.ts.
+      - name: Frontend unit tests
+        run: pnpm --filter nosdesk-frontend run test
+
       - name: Core type-check (@nosdesk/core)
         run: pnpm --filter @nosdesk/core run type-check
 
@@ -195,6 +201,11 @@ jobs:
 
       - name: Plugin runtime lint (@nosdesk/plugin-runtime)
         run: pnpm --filter @nosdesk/plugin-runtime run lint
+
+      # The guest -> host height protocol (0 / -1 / >0). Pure, and subtle
+      # enough to have produced two shipped bugs, so it is asserted directly.
+      - name: Plugin runtime tests (@nosdesk/plugin-runtime)
+        run: pnpm --filter @nosdesk/plugin-runtime run test
 
       # Build the runtime and assert the committed, backend-served bundle is in
       # sync with its source. Doubles as an integration check that the runtime +

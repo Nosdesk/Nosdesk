@@ -1,0 +1,135 @@
+name: E2E
+
+# Playwright against a real stack.
+#
+# Deliberately a SEPARATE workflow from ci.yml rather than another job in it.
+# This one boots the whole application — postgres, migrations, a bootstrapped
+# admin, seeded demo data, a built frontend — and that is a lot of moving parts
+# to stabilise. Keeping it separate means a flake here does not block merges on
+# the type-check and unit-test signal that ci.yml provides.
+#
+# STATUS: written from the known-good local sequence but not yet observed
+# passing in CI; the first runs are expected to need adjustment. Promote it to
+# a required check once it has been green for a while.
+#
+# It uses docker compose (the same path `make dev` uses) rather than
+# reassembling the stack from parts in YAML. The dev compose already knows how
+# to provision the unprivileged `nosdesk_app` runtime role, run migrations under
+# a separate privileged URL, and wire the frontend build into the directory the
+# backend serves. Replicating that here would be a second source of truth that
+# silently drifts from the one developers actually run.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Nightly, so drift is caught without adding latency to every push.
+    - cron: '0 15 * * *'
+  pull_request:
+    paths:
+      - 'frontend/e2e/**'
+      - 'frontend/playwright.config.ts'
+      - '.github/workflows/e2e.yml'
+
+jobs:
+  e2e:
+    name: Playwright
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      # The Rust image build plus the runner's preinstalled toolchains will
+      # otherwise fill the disk, as the backend job already found.
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          large-packages: false
+
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # compose reads the ROOT .env, not backend/env.example: the latter is the
+      # backend process's own config and carries no POSTGRES_* variables, so
+      # copying it left the postgres container with no superuser password and
+      # it refused to initialise. The root example carries working defaults for
+      # the whole stack; CI only overrides what must not be a placeholder.
+      - name: Compose env
+        run: |
+          cp .env.example .env
+          {
+            echo "JWT_SECRET=$(openssl rand -hex 32)"
+            echo "MFA_KEK_V1=$(openssl rand -hex 32)"
+            # The app enforces its own origin on collab websockets, so this has
+            # to match the origin Playwright drives.
+            echo "FRONTEND_URL=http://localhost:8080"
+            # The seeded demo agents would otherwise be gated behind one-time
+            # MFA enrolment, which the specs do not automate.
+            echo "REQUIRE_ADMIN_MFA=false"
+          } >> .env
+
+      - name: Start the stack
+        run: docker compose -f compose.yaml -f compose.dev.yaml up -d --build
+
+      # The backend runs its own migrations on boot, so "serving" means the
+      # schema is in place too.
+      - name: Wait for the backend
+        run: |
+          for i in $(seq 1 90); do
+            if curl -sf -o /dev/null http://localhost:8080/; then echo "up"; exit 0; fi
+            sleep 5
+          done
+          echo "backend did not come up"
+          docker compose -f compose.yaml -f compose.dev.yaml logs --tail 200 nosdesk
+          exit 1
+
+      # `seed_demo` needs a workspace and an admin, which normally come from the
+      # web onboarding flow. The CLI is the documented headless equivalent.
+      - name: Bootstrap admin
+        run: |
+          printf 'CiAdmin1234!' | docker compose -f compose.yaml -f compose.dev.yaml exec -T nosdesk \
+            nosdesk-cli admin create --name "CI Admin" --email ci-admin@example.test --password-stdin
+
+      - name: Seed demo data
+        run: |
+          docker compose -f compose.yaml -f compose.dev.yaml exec -T nosdesk \
+            cargo run --bin seed_demo
+
+      # frontend-watch builds into the directory the backend serves; the specs
+      # assert on rendered layout, so the build has to have landed first.
+      - name: Wait for the frontend build
+        run: |
+          for i in $(seq 1 60); do
+            if docker compose -f compose.yaml -f compose.dev.yaml logs frontend-watch 2>/dev/null | grep -q "built in"; then
+              echo "built"; exit 0
+            fi
+            sleep 5
+          done
+          echo "frontend build did not complete"
+          docker compose -f compose.yaml -f compose.dev.yaml logs --tail 100 frontend-watch
+          exit 1
+
+      - name: Install Playwright chromium
+        run: pnpm --filter nosdesk-frontend exec playwright install --with-deps chromium
+
+      - name: Run e2e
+        env:
+          E2E_BASE_URL: http://localhost:8080
+        run: pnpm --filter nosdesk-frontend run test:e2e
+
+      - name: Stack logs on failure
+        if: failure()
+        run: docker compose -f compose.yaml -f compose.dev.yaml logs --tail 300
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7

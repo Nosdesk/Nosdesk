@@ -25,15 +25,9 @@ import { ref, type Ref } from 'vue'
 import { addDays } from 'date-fns'
 import { createDragEdgeScroller } from '@/composables/useDragEdgeScroll'
 import { daysBetween } from '@/composables/useGanttViewport'
+import { createTouchHold } from '@/sync/views/touchHold'
 
-/** Hold before a touch press on a bar BODY becomes a drag. Matches the kanban
- *  (`views/drag.ts`): on touch, swipe pans the timeline and hold picks the bar
- *  up, because the browser resolves that ambiguity in favour of panning and
- *  cancels the drag otherwise. Resize handles are exempt: grabbing one is
- *  already unambiguous, so those drag from the first move. */
-const LONG_PRESS_MS = 350
-/** Movement during the hold that abandons it in favour of panning. */
-const TOUCH_SLOP_PX = 10
+
 
 export type BarDragMode = 'move' | 'start' | 'due'
 
@@ -74,8 +68,9 @@ export function useBarDrag(options: {
   let downX = 0
   let downDay = 0
   let suppressClick = false
-  let isTouchPress = false
-  let longPressTimer: ReturnType<typeof setTimeout> | null = null
+  // Hold-to-drag on touch, shared with the kanban. Resize handles are exempt:
+  // grabbing one is already unambiguous, so only the bar BODY waits for a hold.
+  const touchHold = createTouchHold(() => dragging)
 
   const edgeScroller = createDragEdgeScroller({
     getTargets: () => {
@@ -107,7 +102,6 @@ export function useBarDrag(options: {
     mode = m
     downX = event.clientX
     downDay = dayAt(event.clientX)
-    isTouchPress = event.pointerType === 'touch'
     dragging = m !== 'move' // handles drag immediately; body waits for threshold
     preview.value = {
       cardId: bar.cardId,
@@ -125,29 +119,13 @@ export function useBarDrag(options: {
     window.addEventListener('pointerup', onPointerUp)
     window.addEventListener('pointercancel', cancel)
     window.addEventListener('keydown', onKeyDown)
-    if (isTouchPress) {
-      // Non-passive, or `preventDefault` below is ignored: Chrome makes
-      // window-level `touchmove` listeners passive by default.
-      window.addEventListener('touchmove', onTouchMove, { passive: false })
-      // Grabbing a resize handle is unambiguous, so it drags from the first
-      // move. Grabbing the bar BODY competes with panning the timeline, which
-      // the browser would otherwise win, so that one waits for a hold.
-      if (m === 'move') {
-        longPressTimer = setTimeout(() => {
-          longPressTimer = null
-          if (mode !== 'move' || dragging) return
-          dragging = true
-          options.onDragStart?.()
-          edgeScroller.start()
-          document.body.style.userSelect = 'none'
-        }, LONG_PRESS_MS)
-      }
-    }
-  }
-
-  /** Stops the timeline scrolling once a drag owns the gesture. */
-  function onTouchMove(event: TouchEvent): void {
-    if (dragging && event.cancelable) event.preventDefault()
+    touchHold.begin(event, () => {
+      if (mode !== 'move' || dragging) return
+      dragging = true
+      options.onDragStart?.()
+      edgeScroller.start()
+      document.body.style.userSelect = 'none'
+    })
   }
 
   function applyPointer(clientX: number): void {
@@ -176,8 +154,8 @@ export function useBarDrag(options: {
     if (!dragging && mode === 'move') {
       // On touch, movement before the hold completes is a pan, not a drag.
       // Abandon the press so the browser keeps the gesture.
-      if (isTouchPress) {
-        if (Math.abs(event.clientX - downX) > TOUCH_SLOP_PX) teardown()
+      if (touchHold.isTouch) {
+        if (touchHold.exceedsSlop(event.clientX - downX)) teardown()
         return
       }
       if (Math.abs(event.clientX - downX) <= 4) return
@@ -220,15 +198,10 @@ export function useBarDrag(options: {
   }
 
   function teardown(): void {
-    if (longPressTimer !== null) {
-      clearTimeout(longPressTimer)
-      longPressTimer = null
-    }
-    isTouchPress = false
+    touchHold.end()
     window.removeEventListener('pointermove', onPointerMove)
     window.removeEventListener('pointerup', onPointerUp)
     window.removeEventListener('pointercancel', cancel)
-    window.removeEventListener('touchmove', onTouchMove)
     window.removeEventListener('keydown', onKeyDown)
     edgeScroller.stop()
     document.body.style.userSelect = ''
