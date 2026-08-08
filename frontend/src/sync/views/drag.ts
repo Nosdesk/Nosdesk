@@ -64,6 +64,25 @@ export interface UseDragDropOptions {
 
 const CLICK_THRESHOLD_PX = 5
 
+/**
+ * Touch activation. A horizontal swipe on a card is ambiguous: pan the board,
+ * or pick the card up? Distance alone cannot tell them apart, and the browser
+ * resolves the ambiguity first and in favour of panning, cancelling the drag
+ * (measured: a touch-drag scrolled the board 612 -> 1212 and the card never
+ * moved). So touch presses activate on TIME, not distance: swipe to pan, hold
+ * to pick up, which is what every touch board does.
+ *
+ * Note this is deliberately NOT solved with `touch-action: none` on the card.
+ * That would hand every card-originated gesture to the drag and leave a phone
+ * user almost no surface to pan the board from, since cards cover most of a
+ * column. Instead the window-level `touchmove` listener below preventDefaults
+ * only AFTER the hold has activated: until then the browser pans normally, and
+ * once activated the scroll never starts, so pointer events keep flowing.
+ */
+const LONG_PRESS_MS = 350
+/** Movement during the hold that aborts it and lets the browser pan instead. */
+const TOUCH_SLOP_PX = 10
+
 export function useDragDrop(options: UseDragDropOptions): {
   state: Reactive<DragState>
   onPointerDown: (cardId: number, event: PointerEvent) => void
@@ -81,6 +100,8 @@ export function useDragDrop(options: UseDragDropOptions): {
   let startX = 0
   let startY = 0
   let activeCardId: number | null = null
+  let isTouchPress = false
+  let longPressTimer: ReturnType<typeof setTimeout> | null = null
   const clickThreshold = options.clickThreshold ?? CLICK_THRESHOLD_PX
   const getEdgeScrollTargets = options.getEdgeScrollTargets ?? getDefaultDragScrollTargets
   const edgeScroller = createDragEdgeScroller({
@@ -92,7 +113,42 @@ export function useDragDrop(options: UseDragDropOptions): {
     },
   })
 
+  function cancelLongPress(): void {
+    if (longPressTimer !== null) {
+      clearTimeout(longPressTimer)
+      longPressTimer = null
+    }
+  }
+
+  /** Promote the press to a drag. Shared by the mouse path (moved past the
+   *  click threshold) and the touch path (held long enough). */
+  function activateDrag(): void {
+    if (state.isDragging || activeCardId === null) return
+    // Compute the dragged set from the selection if the active card is in it;
+    // otherwise just the active card. This is what makes "select 5, drag any
+    // one of them, all 5 move" work.
+    const sel = options.selection?.() ?? null
+    if (sel && sel.has(activeCardId)) {
+      state.draggedCardIds = [activeCardId, ...Array.from(sel).filter((id) => id !== activeCardId)]
+    } else {
+      state.draggedCardIds = [activeCardId]
+    }
+    state.isDragging = true
+    // Suppress text selection during drag.
+    document.body.style.userSelect = 'none'
+    edgeScroller.start()
+  }
+
+  /** Non-passive so `preventDefault` can still stop the scroll from starting.
+   *  Chrome makes window-level `touchmove` listeners passive by default, which
+   *  would silently make this a no-op, hence the explicit option below. */
+  function onTouchMove(event: TouchEvent): void {
+    if (state.isDragging && event.cancelable) event.preventDefault()
+  }
+
   function reset(): void {
+    cancelLongPress()
+    isTouchPress = false
     edgeScroller.stop()
     state.draggedCardIds = []
     state.hoverLane = null
@@ -110,11 +166,19 @@ export function useDragDrop(options: UseDragDropOptions): {
     startX = event.clientX
     startY = event.clientY
     activeCardId = cardId
+    isTouchPress = event.pointerType === 'touch'
     state.dragPosition = { x: event.clientX, y: event.clientY }
     window.addEventListener('pointermove', onPointerMove)
     window.addEventListener('pointerup', onPointerUp)
     window.addEventListener('pointercancel', onPointerCancel)
     window.addEventListener('keydown', onKeyDown)
+    if (isTouchPress) {
+      window.addEventListener('touchmove', onTouchMove, { passive: false })
+      longPressTimer = setTimeout(() => {
+        longPressTimer = null
+        activateDrag()
+      }, LONG_PRESS_MS)
+    }
   }
 
   function onKeyDown(event: KeyboardEvent): void {
@@ -131,22 +195,19 @@ export function useDragDrop(options: UseDragDropOptions): {
     const dx = event.clientX - startX
     const dy = event.clientY - startY
     const moved = Math.hypot(dx, dy) > clickThreshold
-    if (!state.isDragging && moved) {
-      // Promote press to drag. Compute the dragged set from the
-      // selection if the active card is in it; otherwise just the
-      // active card. This is what makes "select 5, drag any one of
-      // them, all 5 move" work.
-      const sel = options.selection?.() ?? null
-      if (sel && sel.has(activeCardId)) {
-        state.draggedCardIds = [activeCardId, ...Array.from(sel).filter((id) => id !== activeCardId)]
-      } else {
-        state.draggedCardIds = [activeCardId]
+    if (!state.isDragging && isTouchPress) {
+      // Still inside the hold window. Movement here means the user is swiping
+      // to pan, not picking the card up: drop the press and let the browser
+      // have the gesture. (It will usually follow with `pointercancel` once it
+      // takes over, which resets the rest.)
+      if (Math.hypot(dx, dy) > TOUCH_SLOP_PX) {
+        cancelLongPress()
+        cleanupListeners()
+        reset()
       }
-      state.isDragging = true
-      // Suppress text selection during drag.
-      document.body.style.userSelect = 'none'
-      edgeScroller.start()
+      return
     }
+    if (!state.isDragging && moved) activateDrag()
     if (state.isDragging) {
       state.dragPosition = { x: event.clientX, y: event.clientY }
       state.hoverLane = options.resolveLaneAt(event.clientX, event.clientY)
@@ -188,9 +249,11 @@ export function useDragDrop(options: UseDragDropOptions): {
   }
 
   function cleanupListeners(): void {
+    cancelLongPress()
     window.removeEventListener('pointermove', onPointerMove)
     window.removeEventListener('pointerup', onPointerUp)
     window.removeEventListener('pointercancel', onPointerCancel)
+    window.removeEventListener('touchmove', onTouchMove)
     window.removeEventListener('keydown', onKeyDown)
   }
 
