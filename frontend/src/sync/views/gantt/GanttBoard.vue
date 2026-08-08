@@ -741,12 +741,19 @@ function open(card: CardData): void {
          and timeline bars are the SAME grid rows, so they align by
          construction. The timeline column is the full canvas width
          (the viewport derives the range from content bounds), so
-         horizontal navigation is native scrolling. Lane width is the
-         --lane-w CSS var. -->
+         horizontal navigation is native scrolling.
+
+         Lane width is the --lane-w CSS var, scaled by container width.
+         A flat 200px ate more than half a 390px phone and left ~190px of
+         actual timeline, which is not enough to read a schedule against;
+         140px keeps titles legible (they truncate, with a `title`) while
+         roughly doubling the timeline. `useGanttViewport` measures the
+         lane element rather than assuming a constant, so the viewport
+         maths follows this automatically. -->
     <div
       v-else
       ref="scrollerEl"
-      class="grid flex-1 min-h-0 overflow-auto outline-none [--lane-w:200px] @3xl:[--lane-w:240px]"
+      class="grid flex-1 min-h-0 overflow-auto outline-none [--lane-w:140px] @lg:[--lane-w:200px] @3xl:[--lane-w:240px]"
       :style="{
         gridTemplateColumns: `var(--lane-w) ${totalWidth}px`,
         gridTemplateRows: 'auto 1fr',
@@ -1121,11 +1128,18 @@ function open(card: CardData): void {
 
         <!-- Tickets exist, but nothing is scheduled (all in the tray).
              Anchored to the visible window, not the canvas, so the
-             hint stays centered while scrolling. -->
+             hint stays centered while scrolling.
+
+             The width is the MEASURED visible timeline (`viewportWidth`
+             already nets off the lane column). It used to carry a 240px
+             floor, which on a phone exceeded the ~190px actually on screen:
+             the box overflowed to the right and clipped its own centred
+             text mid-sentence. The floor now only covers the first paint,
+             before the scroller has been measured. -->
         <div
           v-if="bars.length === 0"
-          class="absolute inset-y-0 flex flex-col items-center justify-center gap-3 px-6 text-center"
-          :style="{ left: `${scrollX}px`, width: `${Math.max(viewportWidth, 240)}px` }"
+          class="absolute inset-y-0 flex flex-col items-center justify-center gap-3 px-4 text-center"
+          :style="{ left: `${scrollX}px`, width: `${viewportWidth > 0 ? viewportWidth : 240}px` }"
         >
           <p class="text-sm text-tertiary max-w-sm">{{ t('gantt-nothing-scheduled') }}</p>
         </div>
