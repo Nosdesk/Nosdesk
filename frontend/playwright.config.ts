@@ -27,8 +27,12 @@ export default defineConfig({
   workers: 1,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [['github'], ['list']] : [['list']],
-  timeout: 60_000,
-  expect: { timeout: 10_000 },
+  // Generous on CI. Each spec logs in, waits for the sync pool to fill, and
+  // then drives a multi-step gesture; on a shared runner that is comfortably
+  // slower than a dev machine, and the first CI run timed out on the last and
+  // slowest test at 60s while asserting nothing wrong.
+  timeout: process.env.CI ? 150_000 : 60_000,
+  expect: { timeout: process.env.CI ? 20_000 : 10_000 },
   use: {
     baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:8080',
     // The dev stack may be served over a self-signed cert on some hosts.
