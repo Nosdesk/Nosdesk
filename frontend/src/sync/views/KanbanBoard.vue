@@ -22,7 +22,7 @@
  * on, one sub-lane up/down. Mirrors the drag dispatch path; both
  * end up in `dispatchMove`.
  */
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useFluent } from 'fluent-vue'
 
@@ -488,6 +488,52 @@ function onKeyDown(event: KeyboardEvent): void {
   moveSelectionByKey(direction)
 }
 
+const boardEl = ref<HTMLElement | null>(null)
+
+/**
+ * Open the board on work, not on empty columns.
+ *
+ * Columns render in workflow order, so the board opens on Triage / Backlog —
+ * routinely empty, while the actual tickets sit further right. On a desktop
+ * every column is on screen and that costs nothing, but on a phone one column
+ * fills the viewport, so a project could open on a blank board with its
+ * tickets several swipes away.
+ *
+ * Fires on the first render that actually HAS cards, not on mount: the sync
+ * pool fills in after mount, so on mount every lane is still empty, the search
+ * below finds nothing and the board would stay on the empty columns forever.
+ *
+ * Runs once, and only when the target is genuinely off screen, so it reads as
+ * where the board opened rather than as a jump. Anyone who scrolls afterwards
+ * keeps their position: the `landed` latch stops this re-running.
+ */
+function scrollToFirstPopulatedLane(): void {
+  const el = boardEl.value
+  if (!el) return
+  // All columns already fit: there is nothing to land on.
+  if (el.scrollWidth <= el.clientWidth + 1) return
+  const idx = lanes.value.findIndex((lane) => lane.totalCards > 0)
+  if (idx <= 0) return // no cards at all, or the first column already has them
+  const inner = el.firstElementChild
+  const column = inner?.children[idx] as HTMLElement | undefined
+  if (!column) return
+  const left = column.getBoundingClientRect().left - el.getBoundingClientRect().left + el.scrollLeft
+  // Already visible — don't move the board just to align it.
+  if (left < el.clientWidth) return
+  el.scrollLeft = left
+}
+
+const landed = ref(false)
+watch(
+  () => props.cards.length,
+  (count) => {
+    if (landed.value || count === 0) return
+    landed.value = true
+    void nextTick(scrollToFirstPopulatedLane)
+  },
+  { immediate: true },
+)
+
 onMounted(() => {
   window.addEventListener('keydown', onKeyDown)
   document.addEventListener('dragend', onExternalDragEnd)
@@ -738,6 +784,7 @@ function affectedDevicesTooltip(card: CardData): string {
          headers use position:sticky against this element so they pin while
          the board scrolls. -->
     <div
+      ref="boardEl"
       class="kanban-board flex flex-1 min-h-0 min-w-0 overflow-x-auto overflow-y-auto max-md:snap-x max-md:snap-mandatory"
       @click="clearSelection"
       @dragover="onExternalDragOver"

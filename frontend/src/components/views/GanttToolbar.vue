@@ -87,7 +87,7 @@ function handleSelect(id: string): void {
         v-for="z in GANTT_ZOOMS"
         :key="z"
         type="button"
-        class="text-xs px-2.5 py-1 transition-colors"
+        class="text-xs px-2.5 py-1 min-h-[44px] sm:min-h-0 inline-flex items-center justify-center transition-colors"
         :class="viewport.zoom.value === z
           ? 'bg-accent text-on-accent font-medium'
           : 'text-secondary hover:bg-surface-hover'"
@@ -137,7 +137,7 @@ function handleSelect(id: string): void {
       <button
         ref="triggerRef"
         type="button"
-        class="p-1.5 rounded-md hover:bg-surface-hover transition-colors text-secondary hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        class="p-1.5 rounded-md hover:bg-surface-hover transition-colors text-secondary hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent inline-flex items-center justify-center min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0"
         :class="{ 'bg-surface-hover text-primary': isOpen }"
         :title="$t('gantt-more-controls')"
         :aria-label="$t('gantt-more-controls')"
