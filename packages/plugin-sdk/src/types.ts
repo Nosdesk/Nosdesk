@@ -251,6 +251,32 @@ export interface PluginAddress {
 /** The host-provided context, snapshotted into the iframe. It is not a live
  * object (it can't cross postMessage reactively); updates arrive via
  * `onContextChange`. */
+/**
+ * Host layout facts a plugin cannot derive from inside its own iframe.
+ *
+ * A sandboxed panel is a separate document, so its media queries resolve
+ * against the IFRAME box, not the app viewport. That is the right default for
+ * laying a panel out (see `data-nd-container` in the runtime), but it means a
+ * plugin has no way to see app-level decisions: a 336px sidebar panel measures
+ * the same on a phone as on a 4K display, while the app around it has switched
+ * layout entirely.
+ *
+ * Deliberately only what the guest CANNOT work out for itself. Pointer type,
+ * colour scheme and reduced-motion are device-level and resolve correctly
+ * inside the iframe, so they stay guest-side rather than being mirrored here;
+ * the app's viewport width is the one fact that does not survive the boundary.
+ *
+ * The value is BUCKETED, never raw pixels, so the host pushes only when the
+ * bucket actually flips rather than on every resize. A plugin that wants its
+ * own width should measure itself or read `--nd-container-width`.
+ */
+export interface PluginLayout {
+  /** The app's active viewport breakpoint, on the host's own scale
+   *  (`sm` 640, `md` 768, `lg` 1024, `xl` 1280; `base` below `sm`). Use this to
+   *  MATCH an app-level decision, not to lay out the panel itself. */
+  breakpoint: 'base' | 'sm' | 'md' | 'lg' | 'xl';
+}
+
 export interface PluginContext {
   ticket: Ticket | null;
   asset: Asset | null;
@@ -266,6 +292,8 @@ export interface PluginContext {
    * may declare several (different slots); the plugin switches its UI on `name`
    * (the manifest `components` map key) / `slot`. */
   component: { name: string; slot: string };
+  /** Host layout signals; see `PluginLayout`. Absent on an older host. */
+  layout?: PluginLayout;
   /** Monotonic counter for this component's declared `action` (a host menu
    * trigger). Increments on each activation; absent if the component declares no
    * action. The plugin reacts (e.g. opens a panel) when it changes. */

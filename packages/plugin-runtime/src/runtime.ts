@@ -10,7 +10,12 @@
 // standalone: connectToHost() resolves only once the host posts the init message
 // with the transferred MessageChannel port (the host bridge, sandbox step 4).
 import { connectToHost, reportHeight } from '@nosdesk/plugin-sdk';
-import type { PluginInstance, PluginModule, PluginTheme } from '@nosdesk/plugin-sdk';
+import type {
+  PluginContext,
+  PluginInstance,
+  PluginModule,
+  PluginTheme,
+} from '@nosdesk/plugin-sdk';
 import { PLUGIN_UI_CSS } from './pluginUiCss';
 
 /** Normalize the value a plugin's `mount` returns into a `PluginInstance`. */
@@ -51,6 +56,86 @@ function injectTokens(theme: PluginTheme): void {
   document.documentElement.setAttribute('data-nd-theme', theme.name);
 }
 
+// --- Responsive signals ------------------------------------------------------
+//
+// Two independent axes, and conflating them is the trap:
+//
+//   * `data-nd-container` — how wide THIS PANEL is. Measured here, because the
+//     iframe's viewport IS the panel's container. This is what a plugin should
+//     lay itself out against, and it is also why a plugin's own media queries
+//     behave like container queries: `@media (min-width: 768px)` is false in a
+//     336px sidebar panel no matter how wide the display is. That is correct,
+//     and usually what you want, but it surprises authors who expect "desktop".
+//
+//   * `data-nd-app-breakpoint` — what the APP around the panel is doing. Cannot
+//     be measured from in here (a sidebar panel is the same width on a phone as
+//     on a 4K display), so the host pushes it on the context channel. Use it
+//     only to match an app-level decision.
+//
+//   * `data-nd-pointer` — touch or mouse. Resolved HERE, not pushed: pointer is
+//     a device capability, so `matchMedia` answers correctly inside the iframe.
+//     Mirroring it from the host would add a second source of truth that can
+//     only go stale.
+//
+// All three are stamped on `<html>` so plugin CSS can select on them, and the
+// app breakpoint is also on `context.layout` for JS.
+
+/** Upper bounds (exclusive) for the container scale. Deliberately NOT the app's
+ *  breakpoints: a panel lives in 300-700px, where `sm`/`md`/`lg` would bucket
+ *  almost everything into one value and tell a plugin nothing. */
+const CONTAINER_NARROW_MAX = 480;
+const CONTAINER_MEDIUM_MAX = 768;
+
+function containerSize(width: number): 'narrow' | 'medium' | 'wide' {
+  if (width < CONTAINER_NARROW_MAX) return 'narrow';
+  if (width < CONTAINER_MEDIUM_MAX) return 'medium';
+  return 'wide';
+}
+
+/** Stamp the panel's own width onto `<html>`, live. `--nd-container-width` is
+ *  the exact px for plugins that need to compute; `data-nd-container` is the
+ *  bucket for CSS selectors. */
+function observeContainer(): void {
+  const el = document.documentElement;
+  let lastWidth = -1;
+  let lastBucket = '';
+  const apply = (): void => {
+    const width = el.clientWidth;
+    // Guarded: a ResizeObserver fires per frame through a host drag, and every
+    // write here invalidates style for anything reading the variable. Writing
+    // only on change also keeps a plugin that SIZES itself from
+    // `--nd-container-width` from feeding its own observer.
+    if (width === lastWidth) return;
+    lastWidth = width;
+    el.style.setProperty('--nd-container-width', `${width}px`);
+    const bucket = containerSize(width);
+    if (bucket !== lastBucket) {
+      lastBucket = bucket;
+      el.setAttribute('data-nd-container', bucket);
+    }
+  };
+  new ResizeObserver(apply).observe(el);
+  apply();
+}
+
+/** Stamp the pointer type, live. A device can gain or lose a fine pointer mid
+ *  session (tablet docked to a trackpad), and the listener costs nothing. */
+function observePointer(): void {
+  if (!window.matchMedia) return;
+  const mq = window.matchMedia('(pointer: coarse)');
+  const apply = (): void =>
+    document.documentElement.setAttribute('data-nd-pointer', mq.matches ? 'coarse' : 'fine');
+  mq.addEventListener('change', apply);
+  apply();
+}
+
+/** Stamp the host's app breakpoint. Called on every context push; the value is
+ *  bucketed host-side, so this is a handful of writes, not a resize firehose. */
+function applyLayout(context: PluginContext): void {
+  if (!context.layout) return;
+  document.documentElement.setAttribute('data-nd-app-breakpoint', context.layout.breakpoint);
+}
+
 /**
  * Sentinel height meaning "this plugin has content, but its height cannot be
  * measured right now". See the recovery path in `observeHeight`.
@@ -68,11 +153,19 @@ const HAS_CONTENT_UNMEASURED = -1;
 const CHASE_INTERVAL_MS = 50;
 const CHASE_MAX_TRIES = 40;
 
+/** How long to wait for `mount` to settle before observing height anyway. */
+const MOUNT_SETTLE_TIMEOUT_MS = 3000;
+
 // Report content height to the host on every change so it can size the iframe
 // (a cross-origin sandboxed iframe can't self-size). Deduped to avoid a resize
 // feedback loop.
 function observeHeight(el: HTMLElement): void {
-  let last = -1;
+  // `null`, not -1: -1 IS the HAS_CONTENT_UNMEASURED sentinel, so seeding with
+  // it would make the "already reported unmeasured" guard below true on the
+  // very first measurement and swallow the report. A panel whose first measure
+  // is non-empty but unmeasurable (mounted inside an already-hidden container)
+  // would then never announce itself and would sit at the default height.
+  let last: number | null = null;
   const report = (): void => {
     // "Drew nothing" is reported as an explicit 0 so the host can collapse the
     // whole contribution (chrome included) instead of leaving an empty card.
@@ -155,6 +248,13 @@ async function boot(): Promise<void> {
   injectTokens(runtime.theme);
   runtime.onThemeChange(injectTokens);
 
+  // Responsive signals, both stamped before the plugin paints so its first
+  // render already sees the right container bucket and app breakpoint rather
+  // than laying out once and reflowing.
+  observeContainer();
+  observePointer();
+  applyLayout(runtime.context);
+
   // Built as a runtime string (not a literal) so the bundler treats it as an
   // external runtime import: the bundle is fetched from the sandbox origin at
   // load time, never bundled here.
@@ -181,17 +281,24 @@ async function boot(): Promise<void> {
   // observing immediately measured a root that was merely still rendering as
   // "the plugin drew nothing" — every async plugin reported empty within ~200ms
   // of load and the host collapsed its chrome before it ever painted.
-  void Promise.resolve(mounted)
-    .catch(() => {
+  void Promise.race([
+    Promise.resolve(mounted).catch(() => {
       // A failed mount still needs observation: it reports empty, which is the
       // honest signal, and the host collapses rather than framing a blank card.
-    })
-    .then(() => observeHeight(root));
+    }),
+    // A mount that never settles must not disable height reporting outright.
+    // Awaiting it unconditionally means one hung await inside a plugin (a host
+    // call that never resolves) leaves the frame stuck at the iframe's default
+    // 150px forever, chrome and all. Observed with a real bundle, so this is a
+    // failure mode plugins hit in practice, not a theoretical one.
+    new Promise<void>((resolve) => setTimeout(resolve, MOUNT_SETTLE_TIMEOUT_MS)),
+  ]).then(() => observeHeight(root));
 
   // On context change (ticket/device/action), prefer the plugin's in-place
   // `update` (no re-mount, keeps state — needed for action signals); fall back to
   // unmount + re-mount for simple plugins that returned void / a cleanup fn.
   runtime.onContextChange((ctx) => {
+    applyLayout(ctx);
     if (instance.update) {
       instance.update(ctx);
       return;
