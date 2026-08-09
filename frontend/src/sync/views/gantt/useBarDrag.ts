@@ -66,6 +66,7 @@ export function useBarDrag(options: {
   let mode: BarDragMode | null = null
   let dragging = false
   let downX = 0
+  let downY = 0
   let downDay = 0
   let suppressClick = false
   // Hold-to-drag on touch, shared with the kanban. Resize handles are exempt:
@@ -101,6 +102,7 @@ export function useBarDrag(options: {
     pointerId = event.pointerId
     mode = m
     downX = event.clientX
+    downY = event.clientY
     downDay = dayAt(event.clientX)
     dragging = m !== 'move' // handles drag immediately; body waits for threshold
     preview.value = {
@@ -114,6 +116,7 @@ export function useBarDrag(options: {
     if (dragging) {
       options.onDragStart?.()
       edgeScroller.start()
+      edgeScroller.update(downX, downY)
     }
     window.addEventListener('pointermove', onPointerMove)
     window.addEventListener('pointerup', onPointerUp)
@@ -124,6 +127,8 @@ export function useBarDrag(options: {
       dragging = true
       options.onDragStart?.()
       edgeScroller.start()
+      // Seed the pointer, or the scroller pans from its (0, 0) default.
+      edgeScroller.update(downX, downY)
       document.body.style.userSelect = 'none'
     })
   }

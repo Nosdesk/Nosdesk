@@ -10,6 +10,17 @@ export interface DragEdgeScrollTarget {
 const EDGE_BAND = 180
 /** Maximum scroll velocity (px per frame at ~60fps). */
 const EDGE_MAX = 12
+/** Cap the band at a fraction of the axis so a narrow viewport keeps a neutral
+ *  middle. At a flat 180px on a 390px phone the two bands leave a 30px gap, so
+ *  nearly every drag auto-pans and the board feels like it is fleeing the
+ *  finger. 20% gives ~78px bands there and is a no-op on desktop, where 180px
+ *  is already well under the cap. */
+const EDGE_BAND_MAX_FRACTION = 0.2
+
+/** The band actually used for an axis of the given length. */
+export function bandForAxis(axisLength: number, band = EDGE_BAND): number {
+  return Math.min(band, Math.floor(axisLength * EDGE_BAND_MAX_FRACTION))
+}
 
 export function scrollDeltaForEdge(
   pointer: number,
@@ -126,13 +137,13 @@ export function createDragEdgeScroller(options?: {
     for (const { el, axes } of getTargets(x, y)) {
       if (!el.isConnected) continue
       if (axes === 'x' || axes === 'both') {
-        const dx = scrollDeltaForEdge(x, 0, viewW, band, maxSpeed)
+        const dx = scrollDeltaForEdge(x, 0, viewW, bandForAxis(viewW, band), maxSpeed)
         if (dx !== 0 && el.scrollWidth > el.clientWidth) {
           el.scrollLeft += dx
         }
       }
       if (axes === 'y' || axes === 'both') {
-        const dy = scrollDeltaForEdge(y, 0, viewH, band, maxSpeed)
+        const dy = scrollDeltaForEdge(y, 0, viewH, bandForAxis(viewH, band), maxSpeed)
         if (dy !== 0 && el.scrollHeight > el.clientHeight) {
           el.scrollTop += dy
         }

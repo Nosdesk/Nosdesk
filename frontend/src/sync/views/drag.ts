@@ -112,6 +112,11 @@ export function useDragDrop(options: UseDragDropOptions): {
     // Suppress text selection during drag.
     document.body.style.userSelect = 'none'
     edgeScroller.start()
+    // Seed the scroller with where the finger actually is. It defaults to
+    // (0, 0), which sits deep in the left edge band, so a long-press that has
+    // not moved yet would auto-pan the board away at full speed until the first
+    // pointermove corrected it.
+    edgeScroller.update(startX, startY)
   }
 
   function reset(): void {
