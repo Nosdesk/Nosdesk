@@ -1,7 +1,9 @@
 import { useAggregate } from '@nosdesk/core/sync/composables'
 import * as pool from '@nosdesk/core/sync/pool'
 import { projectService } from '@nosdesk/core/services/projectService'
+import { useToastStore } from '@nosdesk/core/stores/toast'
 import { logger } from '@nosdesk/core/utils/logger'
+import { translate } from '@/i18n'
 import type { ProjectTicketAssoc } from '@/composables/useProjectTickets'
 
 export function projectTicketLinkKey(projectId: number, ticketId: number): string {
@@ -38,6 +40,14 @@ export function useProjectTicketLink() {
     } catch (err) {
       logger.error('Failed to add ticket to project', { projectId, ticketId, error: err })
       pool.remove('project_ticket', key)
+      // Tell the user. The optimistic row is rolled back above, so without this
+      // the ticket simply blinks out of the board and the composer closes as
+      // though it worked — the failure is invisible. Members hit this routinely:
+      // linking requires agent privileges and the API answers 403.
+      useToastStore().error(
+        translate('project-link-ticket-failed'),
+        err instanceof Error ? err.message : undefined,
+      )
       return false
     }
   }

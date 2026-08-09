@@ -2666,6 +2666,8 @@ project-cycles-confirm-complete-backlog = { $count ->
 project-cycles-move-to = Verplaatsen naar { $name }
 project-cycles-remove-from-cycle = Uit cyclus verwijderen
 project-cycles-ticket-menu = Ticketacties
+# Koppelen van ticket aan project mislukt (machinevertaling, nog na te kijken).
+project-link-ticket-failed = Kan dat ticket niet aan het project toevoegen
 project-cycles-promote-blocked-title = Er is al een actieve cyclus
 project-cycles-promote-blocked = Per project kan maar één cyclus actief zijn. Rond de huidige cyclus eerst af of archiveer deze.
 project-cycles-promote-blocked-ok = Begrepen

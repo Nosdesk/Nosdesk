@@ -54,6 +54,8 @@ import {
   useTicketDrag,
 } from '@/composables/useTicketDrag'
 import { useProjectTicketLink } from '@/composables/useProjectTicketLink'
+import { subscribe } from '@/sync/lifecycle'
+import { useMyWorkspacesStore } from '@/stores/myWorkspaces'
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
 import { useMobileDetection } from '@/composables/useMobileDetection'
 
@@ -95,6 +97,27 @@ const props = withDefaults(defineProps<{
 
 const ticketsStore = useSyncTicketsStore()
 const workflowStatesStore = useWorkflowStatesStore()
+const myWorkspaces = useMyWorkspacesStore()
+
+/**
+ * Warm the workspace pool before offering existing tickets to link.
+ *
+ * `quickAddMatches` reads `ticketsStore.all()`, which only holds what the
+ * subscribed groups have bootstrapped. The project route subscribes to
+ * `project:N` alone, so on a cold load the pool contains this project's tickets
+ * and nothing else — every candidate is filtered out as already-on-board and
+ * the composer silently offers nothing. It only ever appeared to work because
+ * the tickets and projects lists subscribe to the workspace group, leaving the
+ * pool warm when you navigate in from one. Deep-link straight to a board, which
+ * is the normal case on a phone, and half the composer does nothing.
+ *
+ * `subscribe` is idempotent, so opening the composer repeatedly costs nothing.
+ */
+function warmTicketPool(): void {
+  const id = myWorkspaces.activeWorkspaceId
+  if (id == null) return
+  void subscribe(`workspace:${id}`)
+}
 const { linkToProject } = useProjectTicketLink()
 
 // ---------------------------------------------------------------
@@ -663,6 +686,7 @@ const boardAnchor = computed(() => ({
 }))
 
 function openAddSheet(cat: WorkflowStateCategory): void {
+  warmTicketPool()
   quickAddCategory.value = cat
   quickAddTitle.value = ''
   quickAddHighlight.value = -1
@@ -695,6 +719,7 @@ function openQuickAdd(cat: WorkflowStateCategory): void {
     openAddSheet(cat)
     return
   }
+  warmTicketPool()
   quickAddCategory.value = cat
   quickAddTitle.value = ''
   quickAddHighlight.value = -1
