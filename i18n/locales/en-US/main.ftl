@@ -6165,6 +6165,8 @@ gantt-pan-next = Pan later
 gantt-more-controls = More controls
 gantt-unscheduled = Unscheduled ({ $count })
 gantt-nothing-scheduled = Nothing is scheduled yet. Set a due date to place tickets on the timeline.
+# Date line on a vertical-timeline block that has only a deadline, no planned span.
+gantt-due-short = Due { $date }
 gantt-empty-title = No tickets on the timeline yet
 gantt-empty-description = Tickets with a due date show up here, laid out across time. Add one from the board to get started.
 gantt-hover-dates = Dates
@@ -6523,6 +6525,12 @@ gantt-tickets-of-total-in-view =
     { $count ->
         [one] { $visible } of { $count } ticket in view
        *[other] { $visible } of { $count } tickets in view
+    }
+# Vertical timeline (mobile) has no scroll window, so it reports a plain total.
+gantt-tickets-total =
+    { $count ->
+        [one] { $count } ticket
+       *[other] { $count } tickets
     }
 saved-view-name-this = Name this view
 saved-view-copy-suffix = { $name } copy

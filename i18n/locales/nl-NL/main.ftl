@@ -5983,6 +5983,8 @@ gantt-pan-next = Naar rechts schuiven
 gantt-more-controls = Meer instellingen
 gantt-unscheduled = Niet gepland ({ $count })
 gantt-nothing-scheduled = Er is nog niets gepland. Stel een vervaldatum in om tickets op de tijdlijn te plaatsen.
+# Datumregel op een verticaal tijdlijnblok (machinevertaling, nog na te kijken door een moedertaalspreker).
+gantt-due-short = Deadline { $date }
 # Lege staat van de tijdlijn (machine, na te kijken door moedertaalspreker).
 gantt-empty-title = Nog geen tickets op de tijdlijn
 gantt-empty-description = Tickets met een vervaldatum verschijnen hier, uitgezet in de tijd. Voeg er een toe vanuit het bord om te beginnen.
@@ -6347,6 +6349,12 @@ gantt-tickets-of-total-in-view =
     { $count ->
         [one] { $visible } van { $count } ticket zichtbaar
        *[other] { $visible } van { $count } tickets zichtbaar
+    }
+# Eenvoudig totaal voor de verticale tijdlijn (machinevertaling, nog na te kijken).
+gantt-tickets-total =
+    { $count ->
+        [one] { $count } ticket
+       *[other] { $count } tickets
     }
 saved-view-name-this = Geef deze weergave een naam
 saved-view-copy-suffix = Kopie van { $name }

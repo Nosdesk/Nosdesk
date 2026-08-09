@@ -21,6 +21,8 @@ import { useListDensity } from '@/composables/useTicketsDensity'
 import { useProjectDependencies } from '@/composables/useProjectDependencies'
 import { getCategoryLabel, WORKFLOW_CATEGORIES } from '@nosdesk/core/types/workflow'
 import GanttBoard from '@/sync/views/gantt/GanttBoard.vue'
+import VerticalTimeline from '@/sync/views/gantt/VerticalTimeline.vue'
+import { useMobileDetection } from '@/composables/useMobileDetection'
 import type { ScheduledCard } from '@/sync/views/gantt/rowModel'
 import GanttToolbar from '@/components/views/GanttToolbar.vue'
 import ProjectTabBar from '@/components/views/ProjectTabBar.vue'
@@ -61,6 +63,8 @@ const cycleOrder = computed(() => {
   )
   return new Map(sorted.map((c, i) => [`cycle:${c.id}`, i]))
 })
+
+const { isMobile } = useMobileDetection('md')
 
 const grouping = useListGrouping<ScheduledCard>({
   storageNamespace: 'gantt',
@@ -150,12 +154,17 @@ function reschedule(
   void ticketsStore.patchKanbanFields(cardId, patch)
 }
 
-const headerSubtitle = computed(() =>
-  t('gantt-tickets-of-total-in-view', {
+const headerSubtitle = computed(() => {
+  // `visibleCount` counts bars inside the HORIZONTAL viewport's scroll window.
+  // The vertical timeline has no such window — it lays every scheduled ticket
+  // out down the page — so the counter reported "0 of 4 in view" while four
+  // were plainly on screen. Below `md` report the plain total instead.
+  if (isMobile.value) return t('gantt-tickets-total', { count: cards.value.length })
+  return t('gantt-tickets-of-total-in-view', {
     count: cards.value.length,
     visible: viewport.visibleCount.value,
-  }),
-)
+  })
+})
 </script>
 
 <template>
@@ -172,6 +181,7 @@ const headerSubtitle = computed(() =>
     <ProjectTabBar :project-id="projectId">
       <template #actions>
         <GanttToolbar
+        v-if="!isMobile"
           :viewport="viewport"
           :grouping="grouping"
           :density="density"
@@ -194,7 +204,19 @@ const headerSubtitle = computed(() =>
       >{{ t('gantt-retry') }}</button>
     </div>
 
+    <!-- Below `md` the gantt transposes: time runs down and concurrent tickets
+         become columns. A horizontal gantt is bounded by time span, which no
+         phone can satisfy (3737px of canvas in 390px); the vertical form is
+         bounded by concurrency instead, and puts the unbounded axis on the one
+         the device scrolls naturally. See docs/plans/gantt-mobile-research.md. -->
+    <VerticalTimeline
+      v-if="isMobile"
+      class="flex-1 min-h-0"
+      :cards="cards"
+      :on-card-click="openCard"
+    />
     <GanttBoard
+      v-else
       class="flex-1 min-h-0"
       :cards="cards"
       :edges="edges"
