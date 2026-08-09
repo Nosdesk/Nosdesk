@@ -34,7 +34,8 @@ jobs:
   e2e:
     name: Playwright
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Cold-start dominated: a from-scratch backend build can take 15 of these.
+    timeout-minutes: 60
     steps:
       # The Rust image build plus the runner's preinstalled toolchains will
       # otherwise fill the disk, as the backend job already found.
@@ -79,13 +80,26 @@ jobs:
 
       # The backend runs its own migrations on boot, so "serving" means the
       # schema is in place too.
+      #
+      # The long pole is a cold cargo build inside the container, which has no
+      # cache to hit on a fresh runner. The previous 7.5 minute budget expired
+      # mid-compile and reported "backend did not come up" for a stack that was
+      # building normally, so E2E went red on main and on unrelated PRs. Bail
+      # immediately if the container actually died, so a real failure stays fast
+      # rather than sitting out the whole budget.
       - name: Wait for the backend
         run: |
-          for i in $(seq 1 90); do
+          cid=$(docker compose -f compose.yaml -f compose.dev.yaml ps -q nosdesk)
+          for i in $(seq 1 240); do
             if curl -sf -o /dev/null http://localhost:8080/; then echo "up"; exit 0; fi
+            if [ -n "$cid" ] && [ "$(docker inspect -f '{{.State.Running}}' "$cid")" != "true" ]; then
+              echo "backend container exited"
+              docker compose -f compose.yaml -f compose.dev.yaml logs --tail 200 nosdesk
+              exit 1
+            fi
             sleep 5
           done
-          echo "backend did not come up"
+          echo "backend did not come up within 20 minutes"
           docker compose -f compose.yaml -f compose.dev.yaml logs --tail 200 nosdesk
           exit 1
 
@@ -105,7 +119,7 @@ jobs:
       # assert on rendered layout, so the build has to have landed first.
       - name: Wait for the frontend build
         run: |
-          for i in $(seq 1 60); do
+          for i in $(seq 1 120); do
             if docker compose -f compose.yaml -f compose.dev.yaml logs frontend-watch 2>/dev/null | grep -q "built in"; then
               echo "built"; exit 0
             fi
