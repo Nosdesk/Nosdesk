@@ -72,7 +72,13 @@ test.describe('project views on a phone', () => {
 
   test('the board opens on a column that has work in it', async ({ page }) => {
     await login(page)
-    await gotoAndSettle(page, `/projects/${PROJECT_WITH_TICKETS}`)
+    await gotoAndSettle(page, `/projects/${PROJECT_WITH_TICKETS}`, '[data-card-id]')
+
+    // Separated from the visibility check on purpose: without this, a pool that
+    // had not hydrated yet reads as "the board opened on the wrong column",
+    // which is how this failed in CI while the landing scroll was working.
+    const cardsRendered = await page.locator('[data-card-id]').count()
+    expect(cardsRendered, 'the project should have cards to land on').toBeGreaterThan(0)
 
     // Columns render in workflow order, so the board would otherwise open on
     // Triage / Backlog — routinely empty — with the tickets several swipes away.
