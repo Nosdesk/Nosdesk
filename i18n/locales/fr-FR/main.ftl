@@ -5992,6 +5992,8 @@ gantt-pan-next = Décaler vers la droite
 gantt-more-controls = Plus de commandes
 gantt-unscheduled = Non planifiés ({ $count })
 gantt-nothing-scheduled = Rien n'est encore planifié. Définissez une échéance pour placer les tickets sur la chronologie.
+# Ligne de date sur un bloc de chronologie verticale (machine, à relire par un locuteur natif).
+gantt-due-short = Échéance { $date }
 # État vide de la chronologie (machine, à relire par un locuteur natif).
 gantt-empty-title = Aucun ticket sur la chronologie pour l'instant
 gantt-empty-description = Les tickets avec une date d'échéance apparaissent ici, répartis dans le temps. Ajoutez-en un depuis le tableau pour commencer.
@@ -6355,6 +6357,12 @@ gantt-tickets-of-total-in-view =
     { $count ->
         [one] { $visible } sur { $count } ticket affiché
        *[other] { $visible } sur { $count } tickets affichés
+    }
+# Total simple pour la chronologie verticale (machine, à relire par un locuteur natif).
+gantt-tickets-total =
+    { $count ->
+        [one] { $count } ticket
+       *[other] { $count } tickets
     }
 saved-view-name-this = Nommer cette vue
 saved-view-copy-suffix = Copie de { $name }

@@ -1,0 +1,407 @@
+<script setup lang="ts">
+/**
+ * Vertical timeline — the gantt, transposed for a phone.
+ *
+ * Time runs DOWN; concurrent tickets sit side by side as columns. This is the
+ * mobile calendar day-view pattern applied to tickets: a ticket with
+ * start -> due is structurally an event with start -> end, and everyone
+ * already reads that layout without being taught it.
+ *
+ * Why transpose at all (see docs/plans/gantt-mobile-research.md): a horizontal
+ * gantt is bounded by TIME SPAN, and 90 days will never fit in 390px. Vertical
+ * is bounded by CONCURRENCY instead — how many tickets are in flight at the
+ * same moment, which is a much smaller number — and the axis that is unbounded
+ * (time) becomes the one the device scrolls naturally.
+ *
+ * Three ideas borrowed from the timespace canvas:
+ *
+ *   1. Proportional flow. Distance down the screen IS distance in time, so a
+ *      block's height is its duration. This is what separates a timeline from
+ *      an agenda list, where every row is the same height and simultaneity is
+ *      invisible.
+ *   2. The calendar is a lens, not a container. Civic marks are an ADAPTIVE
+ *      measure resolved to whatever the current scale can legibly carry —
+ *      days, then weeks, then months — rather than a fixed grid.
+ *   3. A fidelity ladder. Content climbs detail as it gets more room:
+ *      mark -> titled chip -> full card. This is what stops high concurrency
+ *      turning to mush: narrow columns degrade to legible marks instead of
+ *      clipped text.
+ *
+ * Also from timespace: precision is provenance. `spanOf` falls back to
+ * `created_at` when a ticket has no authored `start_date`, which is a
+ * low-precision guess presented as fact. Inferred starts render hatched so a
+ * plan does not masquerade as a measurement.
+ */
+import { computed, ref } from 'vue'
+import { useFluent } from 'fluent-vue'
+import { addDays, differenceInCalendarDays, format, startOfDay, startOfMonth, startOfWeek } from 'date-fns'
+import type { CardData } from '@nosdesk/core/sync/views/types'
+import { splitSchedule, type ScheduledCard } from './rowModel'
+import {
+  GUTTER,
+  assignLanes,
+  canvasWidth,
+  fidelityFor,
+  laneCount as countLanes,
+  laneWidth as widthForLanes,
+} from './verticalLayout'
+import { TERMINAL_CATEGORIES, coarseStatusBucket } from '@nosdesk/core/types/workflow'
+import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
+import UserAvatar from '@/components/UserAvatar.vue'
+
+const fluent = useFluent()
+const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
+
+const props = withDefaults(defineProps<{
+  cards: readonly CardData[]
+  onCardClick?: (cardId: number) => void
+}>(), { onCardClick: undefined })
+
+/** Vertical scale. 36px/day keeps a fortnight on ~500px, which is one
+ *  comfortable scroll, and leaves a single-day block tall enough to letter. */
+const PX_PER_DAY = 36
+/** Minimum spacing between civic marks before the ruler steps up a unit. Set
+ *  below PX_PER_DAY so a day-scale window actually gets DAY marks: at 44 the
+ *  ruler stepped straight to weeks and a ten-day window carried two labels,
+ *  leaving nothing to read block heights against. A 10px label needs nowhere
+ *  near 36px of clearance. */
+const MIN_TICK_PX = 30
+
+const rootEl = ref<HTMLElement | null>(null)
+const width = ref(390)
+const viewportHeight = ref(600)
+
+const split = computed(() => splitSchedule(props.cards))
+
+/**
+ * Only work that is still in flight gets a bar.
+ *
+ * `spanOf` gives a TERMINAL ticket `created_at -> closed_at`, which is a record
+ * of how long it was open, not a plan. Rendering the two identically conflates
+ * a measurement with an intention, and on a phone it is actively destructive: a
+ * single cancelled ticket that sat open for six weeks stretches the window to
+ * six weeks and pushes everything actually scheduled off-screen. Desktop
+ * survives this because you can zoom out; this view has no room to.
+ */
+const scheduled = computed<ScheduledCard[]>(() =>
+  split.value.scheduled
+    .filter((s) => !TERMINAL_CATEGORIES.has(s.card.workflow_state.category))
+    .map((s) => {
+      // Precision is provenance. `spanOf` fills a missing `start_date` from
+      // `created_at`, so a ticket raised two months ago and due next week draws
+      // as a two-month plan — a guess rendered with the confidence of a fact.
+      // Without an authored start we know the DEADLINE, not the span, so it
+      // renders as a day-tall marker at the due date instead of a fabricated
+      // bar. This is also what makes the window usable: one such ticket
+      // previously stretched it to 58 days and pushed everything else away.
+      if (s.card.start_date) return s
+      return { ...s, start: addDays(s.end, -1) }
+    }),
+)
+const unscheduled = computed(() => split.value.unscheduled)
+
+/** Window covering everything scheduled, padded a day each side so bars do not
+ *  sit flush against the ends. */
+const window_ = computed(() => {
+  const items = scheduled.value
+  if (items.length === 0) {
+    const today = startOfDay(new Date())
+    return { start: addDays(today, -1), days: 14 }
+  }
+  let min = items[0].start
+  let max = items[0].end
+  for (const it of items) {
+    if (it.start < min) min = it.start
+    if (it.end > max) max = it.end
+  }
+  const start = addDays(startOfDay(min), -1)
+  // Always cover at least a screenful of time. A tight window ended the canvas
+  // two-thirds up the display and left a large blank below it, which reads as a
+  // view that failed to finish loading rather than as a plan that finishes
+  // early. Extending the window keeps the ruler running to the bottom edge.
+  const spanned = differenceInCalendarDays(max, start) + 2
+  const screenful = Math.ceil(viewportHeight.value / PX_PER_DAY)
+  return { start, days: Math.max(3, spanned, screenful) }
+})
+
+const canvasHeight = computed(() => window_.value.days * PX_PER_DAY)
+
+// Lane assignment + the fidelity ladder live in ./verticalLayout as pure
+// functions so the concurrency ceiling can be asserted in a unit test rather
+// than inferred from a screenshot of whatever the data happens to hold.
+const placed = computed(() => assignLanes(scheduled.value))
+const lanes = computed(() => countLanes(placed.value))
+const laneWidth = computed(() => widthForLanes(width.value, lanes.value))
+/** Equals the viewport until concurrency pushes columns onto their legibility
+ *  floor, past which the canvas is wider and the view pans sideways. */
+const canvasW = computed(() => canvasWidth(width.value, lanes.value))
+
+/** Fidelity for a block, given the room its column and duration give it. */
+function fidelity(heightPx: number): 'full' | 'compact' | 'mark' {
+  return fidelityFor(laneWidth.value, heightPx)
+}
+
+function blockHeight(p: { item: ScheduledCard }): number {
+  return Math.max(22, differenceInCalendarDays(p.item.end, p.item.start) * PX_PER_DAY)
+}
+
+/** The civic ruler, resolved to the coarsest unit the scale can carry legibly:
+ *  days while they are far enough apart, then weeks, then months. */
+const ticks = computed(() => {
+  const { start, days } = window_.value
+  const out: Array<{ y: number; label: string; strong: boolean }> = []
+  const dayPx = PX_PER_DAY
+  const unit = dayPx >= MIN_TICK_PX ? 'day' : dayPx * 7 >= MIN_TICK_PX ? 'week' : 'month'
+  let cursor =
+    unit === 'day' ? startOfDay(start)
+      : unit === 'week' ? startOfWeek(start, { weekStartsOn: 1 })
+        : startOfMonth(start)
+  const end = addDays(start, days)
+  while (cursor < end) {
+    const offset = differenceInCalendarDays(cursor, start)
+    if (offset >= 0) {
+      out.push({
+        y: offset * dayPx,
+        label:
+          unit === 'day' ? format(cursor, 'EEE d')
+            : unit === 'week' ? format(cursor, 'd MMM')
+              : format(cursor, 'MMM'),
+        strong: unit !== 'day' || cursor.getDay() === 1,
+      })
+    }
+    cursor = unit === 'day' ? addDays(cursor, 1) : unit === 'week' ? addDays(cursor, 7) : startOfMonth(addDays(cursor, 32))
+  }
+  return out
+})
+
+const todayY = computed(() => {
+  const offset = differenceInCalendarDays(startOfDay(new Date()), window_.value.start)
+  if (offset < 0 || offset > window_.value.days) return null
+  return offset * PX_PER_DAY
+})
+
+function blockStyle(p: { item: ScheduledCard; lane: number }) {
+  const top = differenceInCalendarDays(p.item.start, window_.value.start) * PX_PER_DAY
+  const height = blockHeight(p)
+  return {
+    top: `${top}px`,
+    height: `${height}px`,
+    left: `${GUTTER + p.lane * laneWidth.value}px`,
+    width: `${Math.max(14, laneWidth.value - 4)}px`,
+  }
+}
+
+/** The block's own date line. A timeline block should say WHEN without making
+ *  the reader measure it against the ruler. Deadline-only tickets say "due X";
+ *  planned spans say the range. */
+function dateLabel(item: ScheduledCard): string {
+  if (!item.card.start_date) return t('gantt-due-short', { date: format(item.end, 'd MMM') })
+  // Collapse the month when both ends share one: "7 – 13 Aug", not
+  // "7 Aug – 13 Aug", which wraps mid-range in an 80px column and reads as a
+  // broken string rather than a date.
+  const sameMonth = item.start.getMonth() === item.end.getMonth()
+    && item.start.getFullYear() === item.end.getFullYear()
+  return sameMonth
+    ? `${format(item.start, 'd')} – ${format(item.end, 'd MMM')}`
+    : `${format(item.start, 'd MMM')} – ${format(item.end, 'd MMM')}`
+}
+
+/** Status as a muted fill, matching the desktop bar. Kept separable from
+ *  priority so the two signals never merge into one colour. */
+function statusClass(card: CardData): string {
+  switch (coarseStatusBucket(card.workflow_state.category)) {
+    case 'open':
+      return 'bg-status-open-muted border-status-open/40'
+    case 'in-progress':
+      return 'bg-status-in-progress-muted border-status-in-progress/40'
+    default:
+      return 'bg-status-closed-muted border-status-closed/40'
+  }
+}
+
+/** Priority as a thin accent on the LEADING edge. The desktop bar puts this on
+ *  the left because time runs right; here time runs down, so the leading edge
+ *  is the top. Same signal, transposed with the axis. */
+function priorityEdgeClass(p: CardData['priority']): string {
+  if (p === 'urgent' || p === 'high') return 'border-t-[3px] border-t-priority-high'
+  if (p === 'medium') return 'border-t-[3px] border-t-priority-medium'
+  if (p === 'low') return 'border-t-[3px] border-t-priority-low'
+  return ''
+}
+
+/** Weekend bands, so the ruler reads as a calendar at a glance rather than as
+ *  anonymous gridlines. */
+const weekends = computed(() => {
+  const { start, days } = window_.value
+  const out: Array<{ y: number; h: number }> = []
+  for (let i = 0; i < days; i++) {
+    const day = addDays(start, i).getDay()
+    if (day === 0 || day === 6) out.push({ y: i * PX_PER_DAY, h: PX_PER_DAY })
+  }
+  return out
+})
+
+/** True when the bar's left edge is a guess (`created_at`) rather than an
+ *  authored `start_date`. Rendered hatched: a plan should not read as a fact. */
+function inferredStart(card: CardData): boolean {
+  return !card.start_date
+}
+
+function onResize(el: HTMLElement | null): void {
+  if (!el) return
+  rootEl.value = el
+  width.value = el.clientWidth
+  viewportHeight.value = el.clientHeight
+  new ResizeObserver(() => {
+    width.value = el.clientWidth
+    viewportHeight.value = el.clientHeight
+  }).observe(el)
+}
+</script>
+
+<template>
+  <div :ref="(el) => onResize(el as HTMLElement | null)" class="flex flex-col min-h-0 flex-1">
+    <!-- Nothing scheduled: say so plainly rather than presenting an empty
+         ruler, which reads as a broken view. -->
+    <div
+      v-if="scheduled.length === 0"
+      class="flex-1 min-h-0 flex items-center justify-center px-8 text-center"
+    >
+      <p class="text-sm text-tertiary max-w-[16rem]">{{ t('gantt-nothing-scheduled') }}</p>
+    </div>
+
+    <!-- Scrolls in both axes, but only one of them is ever unbounded: down is
+         time, across is concurrency and stays put entirely below five parallel
+         tickets. Touch pans a single element diagonally, so no nested scrollers
+         compete for the gesture. -->
+    <div v-else class="flex-1 min-h-0 overflow-auto overscroll-contain">
+      <!-- Canvas. Height is proportional to the window's duration, so vertical
+           distance is time; nothing here is a fixed-height row. Width is the
+           viewport unless concurrency has outgrown it. -->
+      <!-- pb keeps the last block clear of the tab bar and the home indicator. -->
+      <div class="relative pb-16" :style="{ height: `${canvasHeight}px`, width: `${canvasW}px` }">
+        <!-- Weekends. Drawn under the measure so the grid reads as a calendar.
+             Banding starts after the gutter: the bands belong to the plotting
+             area, and keeping the ruler a clean strip is what lets its labels
+             stay pinned while the lanes pan under them. -->
+        <div
+          v-for="w in weekends"
+          :key="`w${w.y}`"
+          class="absolute right-0 bg-strong/[0.045] pointer-events-none"
+          :style="{ top: `${w.y}px`, height: `${w.h}px`, left: `${GUTTER}px` }"
+        />
+
+        <!-- Adaptive civic measure. -->
+        <div
+          v-for="tick in ticks"
+          :key="tick.y"
+          class="absolute left-0 right-0 flex items-start gap-2"
+          :style="{ top: `${tick.y}px` }"
+        >
+          <!-- Pinned: the ruler is the reference for everything on the canvas,
+               so panning across concurrency must not take it off-screen. -->
+          <span
+            class="sticky left-0 z-20 w-11 shrink-0 pl-1 py-0.5 bg-surface text-[10px] tabular-nums leading-none"
+            :class="tick.strong ? 'text-secondary' : 'text-tertiary'"
+          >{{ tick.label }}</span>
+          <span
+            class="flex-1 border-t"
+            :class="tick.strong ? 'border-default' : 'border-subtle'"
+          />
+        </div>
+
+        <!-- Now. Starts after the gutter so it never strikes through a ruler
+             label, and carries a dot so it reads as a marker not a divider. -->
+        <div
+          v-if="todayY !== null"
+          class="absolute right-0 z-10 pointer-events-none flex items-center"
+          :style="{ top: `${todayY}px`, left: `${GUTTER - 4}px` }"
+        >
+          <span class="sticky left-11 h-1.5 w-1.5 rounded-full bg-accent shrink-0" />
+          <span class="flex-1 border-t border-accent/60" />
+        </div>
+
+        <!-- Tickets. Height is duration; column is a concurrency lane. -->
+        <button
+          v-for="p in placed"
+          :key="p.item.card.id"
+          type="button"
+          class="absolute rounded-md border text-left overflow-hidden motion-safe:transition-[box-shadow,filter] motion-safe:duration-150 active:brightness-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          :class="[
+            statusClass(p.item.card),
+            priorityEdgeClass(p.item.card.priority),
+            inferredStart(p.item.card) ? 'nd-inferred-start' : '',
+          ]"
+          :style="blockStyle(p)"
+          :title="`#${p.item.card.id} ${p.item.card.title}`"
+          @click="onCardClick?.(p.item.card.id)"
+        >
+          <template v-if="fidelity(blockHeight(p)) === 'full'">
+            <div class="px-1.5 py-1 flex flex-col gap-1 h-full">
+              <div class="flex items-center gap-1">
+                <span class="text-[10px] tabular-nums text-tertiary">#{{ p.item.card.id }}</span>
+                <PriorityIndicator
+                  v-if="p.item.card.priority !== 'none'"
+                  :priority="(p.item.card.priority === 'urgent' ? 'high' : p.item.card.priority) as 'low' | 'medium' | 'high'"
+                  size="xs"
+                />
+              </div>
+              <span class="text-[11px] leading-tight text-primary line-clamp-3">{{ p.item.card.title }}</span>
+              <span class="text-[10px] text-tertiary tabular-nums whitespace-nowrap">{{ dateLabel(p.item) }}</span>
+              <UserAvatar
+                v-if="p.item.card.assignee_uuid"
+                :uuid="p.item.card.assignee_uuid"
+                size="xxs"
+                :showName="false"
+                :clickable="false"
+                class="mt-auto"
+              />
+            </div>
+          </template>
+
+          <template v-else-if="fidelity(blockHeight(p)) === 'compact'">
+            <div class="px-1.5 py-1 h-full flex flex-col gap-0.5">
+              <span class="text-[10px] tabular-nums text-tertiary">#{{ p.item.card.id }}</span>
+              <span class="block text-[11px] leading-tight text-primary line-clamp-4">{{ p.item.card.title }}</span>
+              <span class="mt-auto text-[10px] text-tertiary tabular-nums whitespace-nowrap">{{ dateLabel(p.item) }}</span>
+            </div>
+          </template>
+
+          <!-- Mark. Too small in one axis or both to letter, so it carries the
+               id only and stays tappable rather than clipping text mid-word. -->
+          <template v-else>
+            <span class="flex items-center justify-center w-full h-full bg-accent/15 text-[10px] tabular-nums text-secondary">
+              #{{ p.item.card.id }}
+            </span>
+          </template>
+        </button>
+      </div>
+    </div>
+
+    <!-- Tickets with no due date have no position on a time axis, so they sit
+         outside the canvas rather than being given a fabricated one. -->
+    <div v-if="unscheduled.length > 0" class="shrink-0 border-t border-default bg-surface-alt">
+      <div class="px-3 pt-2 pb-1 text-[11px] uppercase tracking-wide text-tertiary">
+        {{ t('gantt-unscheduled', { count: unscheduled.length }) }}
+      </div>
+      <button
+        v-for="card in unscheduled"
+        :key="card.id"
+        type="button"
+        class="w-full flex items-center gap-2 px-3 min-h-[44px] text-left border-t border-subtle active:bg-surface-hover"
+        @click="onCardClick?.(card.id)"
+      >
+        <span class="text-[11px] tabular-nums text-tertiary shrink-0">#{{ card.id }}</span>
+        <span class="flex-1 min-w-0 truncate text-[13px] text-primary">{{ card.title }}</span>
+      </button>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+/* An inferred start is a guess, not a measurement: hatch the leading edge so a
+   plan does not read as a fact. */
+.nd-inferred-start {
+  border-top-style: dashed;
+}
+</style>
