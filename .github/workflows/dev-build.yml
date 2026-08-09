@@ -100,8 +100,13 @@ jobs:
           cache-from: type=registry,ref=ghcr.io/nosdesk/nosdesk:buildcache-dev
           cache-to: type=registry,ref=ghcr.io/nosdesk/nosdesk:buildcache-dev,mode=max
 
-      # `-c` pins the app config from the repo rather than whatever the app
-      # last deployed with, so the deploy is reproducible from this ref.
+      # No `--config`: `fly.hosted-test.toml` is gitignored on purpose (it is
+      # personal-org deploy config and this repo is public), so CI never has a
+      # copy. The app's own stored configuration governs the deploy instead,
+      # which means scaling and env changes are made with `fly` against the app
+      # rather than by editing a file here. That is the right split given the
+      # config is deliberately private, but it does mean this workflow ships the
+      # image, not the configuration.
       - name: Deploy to nosdesk-dev
         if: ${{ inputs.deploy }}
         env:
@@ -109,7 +114,6 @@ jobs:
         run: |
           flyctl deploy \
             --app nosdesk-dev \
-            --config fly.hosted-test.toml \
             --image registry.fly.io/nosdesk-dev:dev-${{ steps.vars.outputs.sha }}
 
       - name: Summary
@@ -127,7 +131,7 @@ jobs:
               echo "Not deployed. To ship it:"
               echo ""
               echo '```sh'
-              echo "fly deploy -a nosdesk-dev -c fly.hosted-test.toml \\"
+              echo "fly deploy -a nosdesk-dev \\"
               echo "  --image registry.fly.io/nosdesk-dev:dev-${{ steps.vars.outputs.sha }}"
               echo '```'
             fi
