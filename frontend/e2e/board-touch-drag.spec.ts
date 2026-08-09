@@ -58,13 +58,49 @@ test.describe('kanban touch drag', () => {
     await touch.start(card!.x, card!.y)
     // Past the long-press threshold (350ms) without moving.
     await page.waitForTimeout(500)
-    await touch.drag(card!.x, card!.y, 200, page, 14)
+    // Deliberately a SHORT move that stays out of the edge bands: a drag held
+    // near an edge is supposed to auto-pan (see the next test), so a long drag
+    // here would assert the opposite of the intended behaviour.
+    await touch.drag(card!.x, card!.y, 30, page, 6)
 
     const during = await boardScrollLeft(page)
     await touch.end()
     await page.waitForTimeout(1200)
 
-    expect(during, 'once the hold has activated, the drag owns the gesture').toBe(before)
+    expect(during, 'away from the edges the drag owns the gesture, no panning').toBe(before)
+  })
+
+  /**
+   * Drag-to-edge auto-pan. This silently did nothing for the whole of the
+   * board's mobile life: `scroll-snap-type: x mandatory` (mobile-only, for
+   * finger-flick column paging) snapped back every one of the edge scroller's
+   * ~12px-per-frame increments, so the board never moved while a card was held
+   * at the edge.
+   */
+  test('holding a dragged card at the edge pans the board', async ({ page, context }) => {
+    await login(page)
+    await gotoAndSettle(page, `/projects/${PROJECT_WITH_TICKETS}`)
+
+    const card = await visibleCard(page)
+    expect(card).not.toBeNull()
+
+    const before = await boardScrollLeft(page)
+    const width = page.viewportSize()!.width
+    // Head for whichever edge the board can actually scroll towards.
+    const towardsRight = before < 10
+    const edgeX = towardsRight ? width - 8 : 8
+
+    const touch = await Touch.create(context, page)
+    await touch.start(card!.x, card!.y)
+    await page.waitForTimeout(500)
+    await touch.move(edgeX, card!.y)
+    // Hold still at the edge: panning is driven by a rAF loop reading the last
+    // pointer position, not by further movement.
+    await page.waitForTimeout(1200)
+    const during = await boardScrollLeft(page)
+    await touch.end()
+
+    expect(during, 'the board should pan while a card is held at the edge').not.toBe(before)
   })
 
   test('dropping on another column moves the card', async ({ page, context }) => {

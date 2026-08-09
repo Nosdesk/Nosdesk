@@ -2832,6 +2832,9 @@ project-cycles-confirm-complete-backlog = { $count ->
 project-cycles-move-to = Move to { $name }
 project-cycles-remove-from-cycle = Remove from cycle
 project-cycles-ticket-menu = Ticket actions
+# Shown when linking an existing ticket to a project fails (e.g. the user
+# lacks agent privileges and the API answers 403).
+project-link-ticket-failed = Could not add that ticket to the project
 project-cycles-promote-blocked-title = A cycle is already active
 project-cycles-promote-blocked = Only one cycle can be active per project. Complete or archive the current cycle first.
 project-cycles-promote-blocked-ok = Got it

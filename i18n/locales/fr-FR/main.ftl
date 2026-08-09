@@ -2669,6 +2669,8 @@ project-cycles-confirm-complete-backlog = { $count ->
 project-cycles-move-to = Déplacer vers { $name }
 project-cycles-remove-from-cycle = Retirer du cycle
 project-cycles-ticket-menu = Actions du ticket
+# Échec de l'ajout d'un ticket à un projet (machine, à relire par un locuteur natif).
+project-link-ticket-failed = Impossible d'ajouter ce ticket au projet
 project-cycles-promote-blocked-title = Un cycle est déjà actif
 project-cycles-promote-blocked = Un seul cycle peut être actif par projet. Terminez ou archivez d'abord le cycle en cours.
 project-cycles-promote-blocked-ok = Compris

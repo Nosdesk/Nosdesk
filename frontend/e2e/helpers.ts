@@ -29,10 +29,23 @@ export async function login(page: Page): Promise<void> {
  * The pool loads AFTER mount, so asserting immediately reads an empty board.
  * This is not cosmetic: the kanban landing scroll originally hooked `onMounted`
  * and silently did nothing for exactly this reason.
+ *
+ * Pass `waitFor` whenever the assertion needs data on screen. The bare form is
+ * a fixed settle, which is a duration standing in for a condition: it is enough
+ * on a laptop and not on a loaded CI runner, where the landing-scroll test
+ * measured an empty board and failed both attempts while passing locally.
+ * Layout assertions that hold on an empty view can keep using the bare form.
  */
-export async function gotoAndSettle(page: Page, path: string): Promise<void> {
+export async function gotoAndSettle(page: Page, path: string, waitFor?: string): Promise<void> {
   await page.goto(path, { waitUntil: 'domcontentloaded' })
-  await page.waitForTimeout(4000)
+  if (waitFor === undefined) {
+    await page.waitForTimeout(4000)
+    return
+  }
+  await page.waitForSelector(waitFor, { timeout: 30_000 })
+  // The landing scroll runs on the tick after the cards arrive, so the element
+  // existing is not yet the board having settled where it opens.
+  await page.waitForTimeout(750)
 }
 
 /** Real touch events through CDP. Playwright's `touchscreen` only taps, and a

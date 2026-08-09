@@ -54,6 +54,10 @@ import {
   useTicketDrag,
 } from '@/composables/useTicketDrag'
 import { useProjectTicketLink } from '@/composables/useProjectTicketLink'
+import { subscribe } from '@/sync/lifecycle'
+import { useMyWorkspacesStore } from '@/stores/myWorkspaces'
+import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue'
+import { useMobileDetection } from '@/composables/useMobileDetection'
 
 /** Sub-lane keys are derived from the secondary axis value:
  *   - assignee_uuid: the uuid string, or '__none__' if null
@@ -93,6 +97,27 @@ const props = withDefaults(defineProps<{
 
 const ticketsStore = useSyncTicketsStore()
 const workflowStatesStore = useWorkflowStatesStore()
+const myWorkspaces = useMyWorkspacesStore()
+
+/**
+ * Warm the workspace pool before offering existing tickets to link.
+ *
+ * `quickAddMatches` reads `ticketsStore.all()`, which only holds what the
+ * subscribed groups have bootstrapped. The project route subscribes to
+ * `project:N` alone, so on a cold load the pool contains this project's tickets
+ * and nothing else — every candidate is filtered out as already-on-board and
+ * the composer silently offers nothing. It only ever appeared to work because
+ * the tickets and projects lists subscribe to the workspace group, leaving the
+ * pool warm when you navigate in from one. Deep-link straight to a board, which
+ * is the normal case on a phone, and half the composer does nothing.
+ *
+ * `subscribe` is idempotent, so opening the composer repeatedly costs nothing.
+ */
+function warmTicketPool(): void {
+  const id = myWorkspaces.activeWorkspaceId
+  if (id == null) return
+  void subscribe(`workspace:${id}`)
+}
 const { linkToProject } = useProjectTicketLink()
 
 // ---------------------------------------------------------------
@@ -632,7 +657,69 @@ watch(quickAddTitle, () => {
   quickAddHighlight.value = quickAddTitle.value.trim() ? 0 : -1
 })
 
+/**
+ * Below `md` the composer is a bottom sheet instead of an inline input.
+ *
+ * The inline version is a desktop interaction that does not survive touch: its
+ * option rows commit on `mousedown.prevent` (a trick to beat the input's blur,
+ * which behaves differently under touch), the input closes the composer on
+ * blur so a tap on a suggestion could dismiss the list before it registered,
+ * the dropdown opens upward inside a ~290px column, its rows are ~26px tall,
+ * and the on-screen keyboard covers the very area the suggestions render in.
+ *
+ * `ResponsiveMenu` renders the same slot as a popover on desktop and a
+ * dismissible bottom sheet below `md`, so only the presentation differs — the
+ * state and both commit paths (`submitQuickAdd` / `addExisting`) are shared.
+ */
+const { isMobile } = useMobileDetection('md')
+// Shares `quickAddCategory` with the inline composer rather than tracking its
+// own column: `quickAddMatches` keys off it, so a separate ref left the sheet
+// permanently empty. `sheetOpen` is the only extra state — which presentation
+// is showing.
+const sheetOpen = ref(false)
+const sheetLane = computed<Lane | null>(
+  () => lanes.value.find((l) => l.id === quickAddCategory.value) ?? null,
+)
+const boardAnchor = computed(() => ({
+  type: 'element' as const,
+  element: () => boardEl.value,
+}))
+
+function openAddSheet(cat: WorkflowStateCategory): void {
+  warmTicketPool()
+  quickAddCategory.value = cat
+  quickAddTitle.value = ''
+  quickAddHighlight.value = -1
+  sheetOpen.value = true
+}
+
+function closeAddSheet(): void {
+  sheetOpen.value = false
+  closeQuickAdd()
+}
+
+async function sheetCreate(): Promise<void> {
+  const lane = sheetLane.value
+  if (!lane) return
+  await submitQuickAdd(lane)
+  closeAddSheet()
+}
+
+async function sheetAddExisting(ticketId: number): Promise<void> {
+  const lane = sheetLane.value
+  if (!lane) return
+  await addExisting(lane, ticketId)
+  closeAddSheet()
+}
+
 function openQuickAdd(cat: WorkflowStateCategory): void {
+  // Touch gets the sheet; pointer devices keep the inline composer, which is
+  // faster for successive entry and has working keyboard navigation.
+  if (isMobile.value) {
+    openAddSheet(cat)
+    return
+  }
+  warmTicketPool()
   quickAddCategory.value = cat
   quickAddTitle.value = ''
   quickAddHighlight.value = -1
@@ -783,9 +870,19 @@ function affectedDevicesTooltip(card: CardData): string {
          Lanes grow with their cards — no nested column scrollports. Column
          headers use position:sticky against this element so they pin while
          the board scrolls. -->
+    <!-- `scroll-snap-type: none` while dragging, as an INLINE style.
+         Column snapping (max-md:snap-mandatory) is for finger-flick paging, but
+         it also snaps back every small programmatic scroll, which silently
+         killed drag-to-edge auto-pan on mobile: ten successive `scrollLeft -=
+         12` (what the edge scroller does per frame) moved the board 0px, while
+         a single -200 jump moved it. Desktop never saw this because the snap
+         classes are `max-md:`. Inline rather than a `snap-none` class because
+         two competing `scroll-snap-type` utilities would be resolved by
+         stylesheet order, not by which one we wrote last. -->
     <div
       ref="boardEl"
       class="kanban-board flex flex-1 min-h-0 min-w-0 overflow-x-auto overflow-y-auto max-md:snap-x max-md:snap-mandatory"
+      :style="dragState.isDragging ? { scrollSnapType: 'none' } : undefined"
       @click="clearSelection"
       @dragover="onExternalDragOver"
       @drop="onExternalDrop"
@@ -979,7 +1076,7 @@ function affectedDevicesTooltip(card: CardData): string {
             v-if="onQuickAdd && lane.defaultState"
             class="relative px-1.5 pb-1.5 pt-0.5 shrink-0"
           >
-            <template v-if="quickAddCategory === lane.id">
+            <template v-if="quickAddCategory === lane.id && !sheetOpen">
               <input
                 :ref="(el) => focusQuickAdd(el as Element | null)"
                 v-model="quickAddTitle"
@@ -1048,6 +1145,80 @@ function affectedDevicesTooltip(card: CardData): string {
     </div>
 
     <!-- Floating drag preview -->
+    <!-- Mobile composer. Rows are >=44px and the whole surface is
+         screen-anchored, so neither the column width nor the on-screen
+         keyboard squeezes it. Commits on `click`, not `mousedown`. -->
+    <ResponsiveMenu
+      :open="sheetOpen && sheetLane !== null"
+      :anchor="boardAnchor"
+      :title="sheetLane ? t('kanban-quick-add-aria', { column: sheetLane.label }) : ''"
+      role="dialog"
+      :auto-focus="false"
+      @close="closeAddSheet"
+    >
+      <div class="flex flex-col min-h-0">
+        <div class="p-3 border-b border-subtle shrink-0">
+          <input
+            v-model="quickAddTitle"
+            type="text"
+            enterkeyhint="done"
+            class="w-full min-h-[44px] rounded-lg border border-default bg-surface px-3 text-[15px] text-primary placeholder:text-tertiary focus:outline-none focus:ring-2 focus:ring-accent"
+            :placeholder="projectId != null ? t('kanban-composer-placeholder') : t('kanban-quick-add-placeholder')"
+          />
+        </div>
+
+        <div class="overflow-y-auto min-h-0">
+          <button
+            v-if="quickAddCanCreate"
+            type="button"
+            class="w-full flex items-center gap-2 px-3 min-h-[52px] text-left text-[15px] text-primary border-b border-subtle active:bg-surface-hover"
+            @click="sheetCreate"
+          >
+            <span class="text-accent shrink-0 text-lg leading-none">+</span>
+            <span class="truncate">{{ t('kanban-composer-create', { title: quickAddTitle.trim() }) }}</span>
+          </button>
+
+          <div
+            v-if="quickAddMatches.length > 0"
+            class="px-3 pt-3 pb-1 text-[11px] uppercase tracking-wide text-tertiary"
+          >
+            {{ quickAddTitle.trim() ? t('kanban-composer-existing') : t('kanban-composer-recent') }}
+          </div>
+
+          <button
+            v-for="match in quickAddMatches"
+            :key="match.id"
+            type="button"
+            class="w-full flex items-center gap-2.5 px-3 min-h-[52px] py-2 text-left border-b border-subtle active:bg-surface-hover"
+            @click="sheetAddExisting(match.id)"
+          >
+            <span class="text-tertiary tabular-nums shrink-0 text-[13px]">#{{ match.id }}</span>
+            <span class="flex-1 min-w-0 truncate text-[15px] text-primary">{{ match.title }}</span>
+            <PriorityIndicator
+              v-if="match.priority && match.priority !== 'none'"
+              :priority="(match.priority === 'urgent' ? 'high' : match.priority) as 'low' | 'medium' | 'high'"
+              size="xs"
+            />
+            <UserAvatar
+              v-if="match.assignee_uuid"
+              :uuid="match.assignee_uuid"
+              size="xxs"
+              :showName="false"
+              :clickable="false"
+              class="shrink-0"
+            />
+          </button>
+
+          <p
+            v-if="!quickAddCanCreate && quickAddMatches.length === 0"
+            class="px-3 py-6 text-center text-sm text-tertiary"
+          >
+            {{ t('kanban-composer-recent') }}
+          </p>
+        </div>
+      </div>
+    </ResponsiveMenu>
+
     <TicketDragPreview
       v-if="kanbanDragPreview"
       :ticket="kanbanDragPreview.ticket"
