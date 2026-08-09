@@ -1,19 +1,30 @@
-name: Dev image
+name: Dev deploy
 
-# On-demand PRIVATE dev build for staging testing, WITHOUT cutting a version
-# tag. Builds the chosen branch/SHA and pushes to GHCR only, tagged
-# `dev-<short-sha>` plus the floating `dev`. No Docker Hub, no GitHub Release,
-# so the in-app updater (stable-only /releases/latest) never sees it.
+# Build any branch and put it on the hosted dev app, in one dispatch.
 #
-# Deploy the result:
-#   fly deploy -a nosdesk-dev --image ghcr.io/nosdesk/nosdesk:dev-<short-sha>
+#   gh workflow run dev-build.yml -f ref=feat/whatever
 #
-# Trigger it (the workflow must be on the default branch to be dispatchable;
-# the `ref` input picks what to BUILD, which can be any branch):
-#   gh workflow run dev-build.yml -f ref=feat/tenant-origin-awareness
+# The image goes to Fly's per-app registry (registry.fly.io/nosdesk-dev), NOT
+# GHCR. Dev builds happen often and every one used to leave a `dev-<sha>`
+# package behind in the org's GHCR namespace forever; Fly's registry is scoped
+# to the app it deploys, costs nothing extra, and is what `fly deploy` pulls
+# from natively. GHCR stays for releases.
 #
-# Required repository secret: NOSDESK_ROOT_PUBKEY (same as Release). GHCR uses
-# the built-in GITHUB_TOKEN via the packages: write permission below.
+# The build CACHE does still live in GHCR, deliberately: it is a single tag
+# that each run overwrites rather than an accumulating set, and GitHub's own
+# 10 GB action-cache cap evicts the Rust target dir so a registry cache is the
+# only thing that survives between runs.
+#
+# The workflow must exist on the default branch to be dispatchable; the `ref`
+# input chooses what to BUILD and can be any branch.
+#
+# Secrets:
+#   NOSDESK_ROOT_PUBKEY — as Release.
+#   FLY_API_TOKEN       — an APP-SCOPED deploy token, minted with
+#                         `fly tokens create deploy -a nosdesk-dev`. Deliberately
+#                         not an account token: this repo should not hold
+#                         credentials that can reach production, which bills to
+#                         a different org.
 
 on:
   workflow_dispatch:
@@ -22,6 +33,11 @@ on:
         description: 'Branch, tag, or SHA to build (defaults to the ref this run was dispatched from)'
         required: false
         type: string
+      deploy:
+        description: 'Deploy to nosdesk-dev after building'
+        required: false
+        default: true
+        type: boolean
 
 concurrency:
   # One dev build per target ref at a time; a newer dispatch supersedes it.
@@ -30,9 +46,10 @@ concurrency:
 
 jobs:
   image:
-    name: Build & push dev image
+    name: Build & deploy dev image
     runs-on: ubuntu-latest
     permissions:
+      # For the GHCR build cache only; images go to Fly.
       packages: write
     steps:
       - uses: actions/checkout@v6
@@ -46,7 +63,18 @@ jobs:
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GHCR
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      # Writes credentials for registry.fly.io into the Docker config, which
+      # buildx then uses to push.
+      - name: Log in to the Fly registry
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: flyctl auth docker
+
+      # Cache only. Kept separate from the release cache: the fast profile
+      # cooks different artifacts.
+      - name: Log in to GHCR (build cache)
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -58,31 +86,53 @@ jobs:
         with:
           context: .
           file: backend/Dockerfile
+          # amd64: Fly runs x86_64, and building it here natively avoids the
+          # QEMU emulation an arm64 laptop would need.
           platforms: linux/amd64
           push: true
-          tags: |
-            ghcr.io/nosdesk/nosdesk:dev-${{ steps.vars.outputs.sha }}
-            ghcr.io/nosdesk/nosdesk:dev
+          tags: registry.fly.io/nosdesk-dev:dev-${{ steps.vars.outputs.sha }}
           build-args: |
             NOSDESK_ROOT_PUBKEY=${{ secrets.NOSDESK_ROOT_PUBKEY }}
             NOSDESK_VERSION=dev-${{ steps.vars.outputs.sha }}
             VITE_BUILD_SHA=${{ steps.vars.outputs.sha }}
             CARGO_PROFILE=fast
           provenance: false
-          # Registry cache (no 10 GB GHA-cache cap, so the heavy Rust target
-          # actually survives between runs). Dedicated dev ref: the fast
-          # profile cooks different artifacts than release.
           cache-from: type=registry,ref=ghcr.io/nosdesk/nosdesk:buildcache-dev
           cache-to: type=registry,ref=ghcr.io/nosdesk/nosdesk:buildcache-dev,mode=max
 
-      - name: Deploy hint
+      # No `--config`: `fly.hosted-test.toml` is gitignored on purpose (it is
+      # personal-org deploy config and this repo is public), so CI never has a
+      # copy. The app's own stored configuration governs the deploy instead,
+      # which means scaling and env changes are made with `fly` against the app
+      # rather than by editing a file here. That is the right split given the
+      # config is deliberately private, but it does mean this workflow ships the
+      # image, not the configuration.
+      - name: Deploy to nosdesk-dev
+        if: ${{ inputs.deploy }}
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          flyctl deploy \
+            --app nosdesk-dev \
+            --image registry.fly.io/nosdesk-dev:dev-${{ steps.vars.outputs.sha }}
+
+      - name: Summary
         run: |
           {
-            echo "### Dev image pushed"
+            echo "### Dev image"
             echo ""
             echo "Built \`${{ inputs.ref || github.ref }}\` @ \`${{ steps.vars.outputs.sha }}\`"
             echo ""
-            echo '```sh'
-            echo "fly deploy -a nosdesk-dev --image ghcr.io/nosdesk/nosdesk:dev-${{ steps.vars.outputs.sha }}"
-            echo '```'
+            if [ "${{ inputs.deploy }}" = "true" ]; then
+              echo "Deployed to **nosdesk-dev**."
+              echo ""
+              echo "The app applies pending migrations on boot, so no separate step is needed."
+            else
+              echo "Not deployed. To ship it:"
+              echo ""
+              echo '```sh'
+              echo "fly deploy -a nosdesk-dev \\"
+              echo "  --image registry.fly.io/nosdesk-dev:dev-${{ steps.vars.outputs.sha }}"
+              echo '```'
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
