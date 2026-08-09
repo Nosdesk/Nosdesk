@@ -37,6 +37,14 @@ import { useFluent } from 'fluent-vue'
 import { addDays, differenceInCalendarDays, format, startOfDay, startOfMonth, startOfWeek } from 'date-fns'
 import type { CardData } from '@nosdesk/core/sync/views/types'
 import { splitSchedule, type ScheduledCard } from './rowModel'
+import {
+  GUTTER,
+  assignLanes,
+  canvasWidth,
+  fidelityFor,
+  laneCount as countLanes,
+  laneWidth as widthForLanes,
+} from './verticalLayout'
 import { TERMINAL_CATEGORIES, coarseStatusBucket } from '@nosdesk/core/types/workflow'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
@@ -52,16 +60,16 @@ const props = withDefaults(defineProps<{
 /** Vertical scale. 36px/day keeps a fortnight on ~500px, which is one
  *  comfortable scroll, and leaves a single-day block tall enough to letter. */
 const PX_PER_DAY = 36
-/** Gutter holding the time ruler. */
-const GUTTER = 48
-/** Minimum spacing between civic marks before the ruler steps up a unit. */
-const MIN_TICK_PX = 44
-/** Fidelity thresholds, in px of column width. */
-const WIDTH_FULL = 132
-const WIDTH_COMPACT = 68
+/** Minimum spacing between civic marks before the ruler steps up a unit. Set
+ *  below PX_PER_DAY so a day-scale window actually gets DAY marks: at 44 the
+ *  ruler stepped straight to weeks and a ten-day window carried two labels,
+ *  leaving nothing to read block heights against. A 10px label needs nowhere
+ *  near 36px of clearance. */
+const MIN_TICK_PX = 30
 
 const rootEl = ref<HTMLElement | null>(null)
 const width = ref(390)
+const viewportHeight = ref(600)
 
 const split = computed(() => splitSchedule(props.cards))
 
@@ -107,48 +115,30 @@ const window_ = computed(() => {
     if (it.end > max) max = it.end
   }
   const start = addDays(startOfDay(min), -1)
-  return { start, days: Math.max(3, differenceInCalendarDays(max, start) + 2) }
+  // Always cover at least a screenful of time. A tight window ended the canvas
+  // two-thirds up the display and left a large blank below it, which reads as a
+  // view that failed to finish loading rather than as a plan that finishes
+  // early. Extending the window keeps the ruler running to the bottom edge.
+  const spanned = differenceInCalendarDays(max, start) + 2
+  const screenful = Math.ceil(viewportHeight.value / PX_PER_DAY)
+  return { start, days: Math.max(3, spanned, screenful) }
 })
 
 const canvasHeight = computed(() => window_.value.days * PX_PER_DAY)
 
-/** Greedy interval partitioning: each ticket takes the first column free at its
- *  start. Column count therefore equals peak concurrency — the exact quantity
- *  this layout is bounded by. */
-const placed = computed(() => {
-  const sorted = [...scheduled.value].sort((a, b) => a.start.getTime() - b.start.getTime())
-  const laneFreeAt: number[] = []
-  const out: Array<{ item: ScheduledCard; lane: number }> = []
-  for (const item of sorted) {
-    let lane = laneFreeAt.findIndex((free) => free <= item.start.getTime())
-    if (lane === -1) {
-      lane = laneFreeAt.length
-      laneFreeAt.push(0)
-    }
-    laneFreeAt[lane] = item.end.getTime()
-    out.push({ item, lane })
-  }
-  return out
-})
+// Lane assignment + the fidelity ladder live in ./verticalLayout as pure
+// functions so the concurrency ceiling can be asserted in a unit test rather
+// than inferred from a screenshot of whatever the data happens to hold.
+const placed = computed(() => assignLanes(scheduled.value))
+const lanes = computed(() => countLanes(placed.value))
+const laneWidth = computed(() => widthForLanes(width.value, lanes.value))
+/** Equals the viewport until concurrency pushes columns onto their legibility
+ *  floor, past which the canvas is wider and the view pans sideways. */
+const canvasW = computed(() => canvasWidth(width.value, lanes.value))
 
-const laneCount = computed(() => Math.max(1, new Set(placed.value.map((p) => p.lane)).size))
-const laneWidth = computed(() => Math.max(18, (width.value - GUTTER - 8) / laneCount.value))
-
-/** Minimum block height that can carry a title without clipping it. */
-const HEIGHT_TITLE = 56
-
-/**
- * mark -> chip -> card, by how much room a block actually got.
- *
- * Keyed on BOTH axes, not just column width. A one-day deadline marker is 36px
- * tall however wide its column is, and a title rendered into it clips
- * mid-word — which is exactly what the first prototype did.
- */
-function fidelityFor(heightPx: number): 'full' | 'compact' | 'mark' {
-  if (heightPx < HEIGHT_TITLE) return 'mark'
-  if (laneWidth.value >= WIDTH_FULL) return 'full'
-  if (laneWidth.value >= WIDTH_COMPACT) return 'compact'
-  return 'mark'
+/** Fidelity for a block, given the room its column and duration give it. */
+function fidelity(heightPx: number): 'full' | 'compact' | 'mark' {
+  return fidelityFor(laneWidth.value, heightPx)
 }
 
 function blockHeight(p: { item: ScheduledCard }): number {
@@ -261,7 +251,11 @@ function onResize(el: HTMLElement | null): void {
   if (!el) return
   rootEl.value = el
   width.value = el.clientWidth
-  new ResizeObserver(() => { width.value = el.clientWidth }).observe(el)
+  viewportHeight.value = el.clientHeight
+  new ResizeObserver(() => {
+    width.value = el.clientWidth
+    viewportHeight.value = el.clientHeight
+  }).observe(el)
 }
 </script>
 
@@ -276,17 +270,25 @@ function onResize(el: HTMLElement | null): void {
       <p class="text-sm text-tertiary max-w-[16rem]">{{ t('gantt-nothing-scheduled') }}</p>
     </div>
 
-    <div v-else class="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+    <!-- Scrolls in both axes, but only one of them is ever unbounded: down is
+         time, across is concurrency and stays put entirely below five parallel
+         tickets. Touch pans a single element diagonally, so no nested scrollers
+         compete for the gesture. -->
+    <div v-else class="flex-1 min-h-0 overflow-auto overscroll-contain">
       <!-- Canvas. Height is proportional to the window's duration, so vertical
-           distance is time; nothing here is a fixed-height row. -->
+           distance is time; nothing here is a fixed-height row. Width is the
+           viewport unless concurrency has outgrown it. -->
       <!-- pb keeps the last block clear of the tab bar and the home indicator. -->
-      <div class="relative pb-16" :style="{ height: `${canvasHeight}px` }">
-        <!-- Weekends. Drawn under the measure so the grid reads as a calendar. -->
+      <div class="relative pb-16" :style="{ height: `${canvasHeight}px`, width: `${canvasW}px` }">
+        <!-- Weekends. Drawn under the measure so the grid reads as a calendar.
+             Banding starts after the gutter: the bands belong to the plotting
+             area, and keeping the ruler a clean strip is what lets its labels
+             stay pinned while the lanes pan under them. -->
         <div
           v-for="w in weekends"
           :key="`w${w.y}`"
-          class="absolute left-0 right-0 bg-strong/[0.045] pointer-events-none"
-          :style="{ top: `${w.y}px`, height: `${w.h}px` }"
+          class="absolute right-0 bg-strong/[0.045] pointer-events-none"
+          :style="{ top: `${w.y}px`, height: `${w.h}px`, left: `${GUTTER}px` }"
         />
 
         <!-- Adaptive civic measure. -->
@@ -296,8 +298,10 @@ function onResize(el: HTMLElement | null): void {
           class="absolute left-0 right-0 flex items-start gap-2"
           :style="{ top: `${tick.y}px` }"
         >
+          <!-- Pinned: the ruler is the reference for everything on the canvas,
+               so panning across concurrency must not take it off-screen. -->
           <span
-            class="w-11 shrink-0 pl-1 text-[10px] tabular-nums leading-none"
+            class="sticky left-0 z-20 w-11 shrink-0 pl-1 py-0.5 bg-surface text-[10px] tabular-nums leading-none"
             :class="tick.strong ? 'text-secondary' : 'text-tertiary'"
           >{{ tick.label }}</span>
           <span
@@ -313,7 +317,7 @@ function onResize(el: HTMLElement | null): void {
           class="absolute right-0 z-10 pointer-events-none flex items-center"
           :style="{ top: `${todayY}px`, left: `${GUTTER - 4}px` }"
         >
-          <span class="h-1.5 w-1.5 rounded-full bg-accent shrink-0" />
+          <span class="sticky left-11 h-1.5 w-1.5 rounded-full bg-accent shrink-0" />
           <span class="flex-1 border-t border-accent/60" />
         </div>
 
@@ -332,7 +336,7 @@ function onResize(el: HTMLElement | null): void {
           :title="`#${p.item.card.id} ${p.item.card.title}`"
           @click="onCardClick?.(p.item.card.id)"
         >
-          <template v-if="fidelityFor(blockHeight(p)) === 'full'">
+          <template v-if="fidelity(blockHeight(p)) === 'full'">
             <div class="px-1.5 py-1 flex flex-col gap-1 h-full">
               <div class="flex items-center gap-1">
                 <span class="text-[10px] tabular-nums text-tertiary">#{{ p.item.card.id }}</span>
@@ -355,7 +359,7 @@ function onResize(el: HTMLElement | null): void {
             </div>
           </template>
 
-          <template v-else-if="fidelityFor(blockHeight(p)) === 'compact'">
+          <template v-else-if="fidelity(blockHeight(p)) === 'compact'">
             <div class="px-1.5 py-1 h-full flex flex-col gap-0.5">
               <span class="text-[10px] tabular-nums text-tertiary">#{{ p.item.card.id }}</span>
               <span class="block text-[11px] leading-tight text-primary line-clamp-4">{{ p.item.card.title }}</span>
