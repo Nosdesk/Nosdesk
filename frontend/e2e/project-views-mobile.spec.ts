@@ -82,12 +82,20 @@ test.describe('project views on a phone', () => {
 
     // Columns render in workflow order, so the board would otherwise open on
     // Triage / Backlog — routinely empty — with the tickets several swipes away.
+    //
+    // Intersection, not full containment. `board-touch-drag.spec.ts` drives this
+    // same project and moves cards between columns, so which column the landing
+    // scroll targets varies by the time this runs; demanding a card sit ENTIRELY
+    // inside the viewport failed whenever the board came to rest between two
+    // columns, which is a snap position rather than a bug. Anything off-screen
+    // still reads as zero, so this keeps catching the case it exists for: the
+    // board opening on an empty column with the work several swipes away.
     const cardsOnScreen = await page.evaluate((sel) => {
       const board = document.querySelector(sel)
       if (!board) return -1
       return [...board.querySelectorAll('[data-card-id]')].filter((el) => {
         const r = el.getBoundingClientRect()
-        return r.width > 0 && r.left >= 0 && r.right <= window.innerWidth
+        return r.width > 0 && r.right > 0 && r.left < window.innerWidth
       }).length
     }, BOARD)
     expect(cardsOnScreen, 'at least one card should be visible on open').toBeGreaterThan(0)

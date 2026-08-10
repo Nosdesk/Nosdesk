@@ -5,6 +5,10 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      # Pinned rather than relying on "last stage wins": the Dockerfile also
+      # carries an `e2e` stage (runtime plus the demo seeder) that this stack
+      # must never pick up. compose.e2e.yaml overrides it.
+      target: runtime
       args:
         NOSDESK_ROOT_PUBKEY: ${NOSDESK_ROOT_PUBKEY:-}
     platform: linux/amd64

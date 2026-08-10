@@ -1,0 +1,36 @@
+# E2E override: run the built application image, not a compile-in-container
+# dev stack.
+#
+# `compose.dev.yaml` builds Dockerfile.dev and runs `cargo` inside the
+# container, so every CI run compiled the backend from scratch after the stack
+# was already up. That put a Rust build behind a "wait for the backend to
+# answer" loop, where a cold compile overrunning the budget was indistinguishable
+# from a broken backend, and it is what made E2E red on main.
+#
+# Here the binary and the frontend bundle are already in the image, so the
+# service answers in seconds and the wait loop measures startup rather than
+# compilation. It also means the specs drive the same image operators run.
+#
+# The `e2e` target is `runtime` plus the demo seeder; see backend/Dockerfile.
+services:
+  nosdesk:
+    image: nosdesk-e2e:local
+    build:
+      target: e2e
+      args:
+        # opt-level 0. Test wall-clock is dominated by the build, not by the
+        # server's speed, and the dev-image workflow already uses this profile.
+        CARGO_PROFILE: fast
+    environment:
+      # The same pin compose.dev.yaml carries, for the same reason.
+      # .env.example defaults ENVIRONMENT=production so a self-hoster copying it
+      # gets the production secret gates. Under that posture the backend
+      # refuses to start without a plugin trust root baked in at build time,
+      # and CI has no such secret on a fork PR.
+      #
+      # The IMAGE is still the one operators run; only the runtime posture is
+      # relaxed, which is the same trade the workflow already makes by setting
+      # REQUIRE_ADMIN_MFA=false. Pinned here rather than in the workflow's .env
+      # so that running this stack locally behaves identically to CI, which is
+      # exactly the divergence that let a production-only startup guard through.
+      ENVIRONMENT: development
