@@ -21,3 +21,16 @@ services:
         # opt-level 0. Test wall-clock is dominated by the build, not by the
         # server's speed, and the dev-image workflow already uses this profile.
         CARGO_PROFILE: fast
+    environment:
+      # The same pin compose.dev.yaml carries, for the same reason.
+      # .env.example defaults ENVIRONMENT=production so a self-hoster copying it
+      # gets the production secret gates. Under that posture the backend
+      # refuses to start without a plugin trust root baked in at build time,
+      # and CI has no such secret on a fork PR.
+      #
+      # The IMAGE is still the one operators run; only the runtime posture is
+      # relaxed, which is the same trade the workflow already makes by setting
+      # REQUIRE_ADMIN_MFA=false. Pinned here rather than in the workflow's .env
+      # so that running this stack locally behaves identically to CI, which is
+      # exactly the divergence that let a production-only startup guard through.
+      ENVIRONMENT: development
