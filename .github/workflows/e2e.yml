@@ -39,6 +39,9 @@ jobs:
   e2e:
     name: Playwright
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write   # write the build cache image
     # Cold-start dominated: a from-scratch backend build can take 15 of these.
     timeout-minutes: 60
     steps:
@@ -82,6 +85,16 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
+      # Needed to READ and WRITE the build cache image below. Without it buildx
+      # falls back to an anonymous token and cache-to fails the whole build with
+      # a 403.
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       # The one slow step, and the only one that benefits from caching. The
       # Dockerfile's cargo-chef stage keeps the dependency compile in its own
       # layer, so a source-only change reuses it. Registry cache rather than GHA
@@ -100,7 +113,11 @@ jobs:
             CARGO_PROFILE=fast
           provenance: false
           cache-from: type=registry,ref=ghcr.io/nosdesk/nosdesk:buildcache-e2e
-          cache-to: type=registry,ref=ghcr.io/nosdesk/nosdesk:buildcache-e2e,mode=max
+          # Reading the cache is safe from anywhere; writing it needs a token
+          # with packages:write, which a fork's GITHUB_TOKEN does not have. Left
+          # unguarded it fails the whole build on an outside contributor's PR
+          # rather than just skipping the cache write.
+          cache-to: ${{ !github.event.pull_request.head.repo.fork && 'type=registry,ref=ghcr.io/nosdesk/nosdesk:buildcache-e2e,mode=max' || '' }}
 
       # No --build: the image is already in the daemon under the tag the e2e
       # override names, so compose starts it rather than rebuilding.
