@@ -12,12 +12,16 @@ name: E2E
 # passing in CI; the first runs are expected to need adjustment. Promote it to
 # a required check once it has been green for a while.
 #
-# It uses docker compose (the same path `make dev` uses) rather than
-# reassembling the stack from parts in YAML. The dev compose already knows how
-# to provision the unprivileged `nosdesk_app` runtime role, run migrations under
-# a separate privileged URL, and wire the frontend build into the directory the
-# backend serves. Replicating that here would be a second source of truth that
-# silently drifts from the one developers actually run.
+# It uses docker compose rather than reassembling the stack from parts in YAML,
+# which would be a second source of truth that silently drifts from the one
+# operators actually run.
+#
+# It uses the PRODUCTION compose plus a small e2e override, not the dev compose.
+# The dev stack compiles the backend inside the container after the stack is
+# already up, which put a cold Rust build behind a "wait for the backend to
+# answer" loop: an overrunning compile was indistinguishable from a broken
+# backend, and that is what had E2E red on main. Here the image is built once,
+# with layer caching, and the container starts a binary.
 
 on:
   workflow_dispatch:
@@ -29,6 +33,7 @@ on:
       - 'frontend/e2e/**'
       - 'frontend/playwright.config.ts'
       - '.github/workflows/e2e.yml'
+      - 'compose.e2e.yaml'
 
 jobs:
   e2e:
@@ -75,59 +80,68 @@ jobs:
             echo "REQUIRE_ADMIN_MFA=false"
           } >> .env
 
+      - uses: docker/setup-buildx-action@v3
+
+      # The one slow step, and the only one that benefits from caching. The
+      # Dockerfile's cargo-chef stage keeps the dependency compile in its own
+      # layer, so a source-only change reuses it. Registry cache rather than GHA
+      # cache for the same reason release.yml uses one: the Rust target dir
+      # blows past GitHub's 10 GB per-repo cap and gets evicted, which turns
+      # every run back into a cold build.
+      - name: Build the application image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: backend/Dockerfile
+          target: e2e
+          load: true
+          tags: nosdesk-e2e:local
+          build-args: |
+            CARGO_PROFILE=fast
+          provenance: false
+          cache-from: type=registry,ref=ghcr.io/nosdesk/nosdesk:buildcache-e2e
+          cache-to: type=registry,ref=ghcr.io/nosdesk/nosdesk:buildcache-e2e,mode=max
+
+      # No --build: the image is already in the daemon under the tag the e2e
+      # override names, so compose starts it rather than rebuilding.
       - name: Start the stack
-        run: docker compose -f compose.yaml -f compose.dev.yaml up -d --build
+        run: docker compose -f compose.yaml -f compose.e2e.yaml up -d
 
       # The backend runs its own migrations on boot, so "serving" means the
-      # schema is in place too.
-      #
-      # The long pole is a cold cargo build inside the container, which has no
-      # cache to hit on a fresh runner. The previous 7.5 minute budget expired
-      # mid-compile and reported "backend did not come up" for a stack that was
-      # building normally, so E2E went red on main and on unrelated PRs. Bail
-      # immediately if the container actually died, so a real failure stays fast
-      # rather than sitting out the whole budget.
+      # schema is in place too. This is now a startup wait rather than a build
+      # wait, so the budget is short: if it is not answering in two minutes
+      # something is actually wrong. Bail as soon as the container exits.
       - name: Wait for the backend
         run: |
-          cid=$(docker compose -f compose.yaml -f compose.dev.yaml ps -q nosdesk)
-          for i in $(seq 1 240); do
+          cid=$(docker compose -f compose.yaml -f compose.e2e.yaml ps -q nosdesk)
+          for i in $(seq 1 60); do
             if curl -sf -o /dev/null http://localhost:8080/; then echo "up"; exit 0; fi
             if [ -n "$cid" ] && [ "$(docker inspect -f '{{.State.Running}}' "$cid")" != "true" ]; then
               echo "backend container exited"
-              docker compose -f compose.yaml -f compose.dev.yaml logs --tail 200 nosdesk
+              docker compose -f compose.yaml -f compose.e2e.yaml logs --tail 200 nosdesk
               exit 1
             fi
-            sleep 5
+            sleep 2
           done
-          echo "backend did not come up within 20 minutes"
-          docker compose -f compose.yaml -f compose.dev.yaml logs --tail 200 nosdesk
+          echo "backend did not come up within 2 minutes"
+          docker compose -f compose.yaml -f compose.e2e.yaml logs --tail 200 nosdesk
           exit 1
 
       # `seed_demo` needs a workspace and an admin, which normally come from the
       # web onboarding flow. The CLI is the documented headless equivalent.
       - name: Bootstrap admin
         run: |
-          printf 'CiAdmin1234!' | docker compose -f compose.yaml -f compose.dev.yaml exec -T nosdesk \
+          printf 'CiAdmin1234!' | docker compose -f compose.yaml -f compose.e2e.yaml exec -T nosdesk \
             nosdesk-cli admin create --name "CI Admin" --email ci-admin@example.test --password-stdin
 
+      # A compiled binary in the e2e image, not `cargo run`: nothing in this
+      # stack has a toolchain any more.
       - name: Seed demo data
         run: |
-          docker compose -f compose.yaml -f compose.dev.yaml exec -T nosdesk \
-            cargo run --bin seed_demo
+          docker compose -f compose.yaml -f compose.e2e.yaml exec -T nosdesk seed_demo
 
-      # frontend-watch builds into the directory the backend serves; the specs
-      # assert on rendered layout, so the build has to have landed first.
-      - name: Wait for the frontend build
-        run: |
-          for i in $(seq 1 120); do
-            if docker compose -f compose.yaml -f compose.dev.yaml logs frontend-watch 2>/dev/null | grep -q "built in"; then
-              echo "built"; exit 0
-            fi
-            sleep 5
-          done
-          echo "frontend build did not complete"
-          docker compose -f compose.yaml -f compose.dev.yaml logs --tail 100 frontend-watch
-          exit 1
+      # No "wait for the frontend build" step: the bundle is baked into the
+      # image, so there is no watcher to race.
 
       - name: Install Playwright chromium
         run: pnpm --filter nosdesk-frontend exec playwright install --with-deps chromium
@@ -139,7 +153,7 @@ jobs:
 
       - name: Stack logs on failure
         if: failure()
-        run: docker compose -f compose.yaml -f compose.dev.yaml logs --tail 300
+        run: docker compose -f compose.yaml -f compose.e2e.yaml logs --tail 300
 
       - uses: actions/upload-artifact@v4
         if: failure()

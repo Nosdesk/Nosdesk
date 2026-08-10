@@ -241,3 +241,31 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 
 # Run the application directly (backend handles database initialization)
 CMD ["./backend"]
+
+# Stage 6: the demo seeder, for the e2e image only.
+#
+# Its own stage `FROM builder` so it reuses that stage's warm target directory:
+# it compiles one extra binary rather than rebuilding the application. Nothing
+# in the default path depends on it, so `--target runtime` never runs it.
+FROM builder AS seed-builder
+ARG CARGO_PROFILE
+RUN sh -c 'if [ "$CARGO_PROFILE" = "release" ]; then \
+      cargo build --release --bin seed_demo; \
+    else \
+      cargo build --profile "$CARGO_PROFILE" --bin seed_demo; \
+    fi'
+
+# Stage 7: the image CI drives end-to-end tests against.
+#
+# `runtime` plus the demo seeder, so e2e exercises the SAME image operators run
+# instead of a dev stack that compiles inside the container on every CI run.
+# The seeder is deliberately not in `runtime`: a published image should not
+# carry a binary that writes demo tickets into a real deployment. Every consumer
+# of this Dockerfile pins `--target runtime` so appending this stage cannot
+# leak into a release.
+FROM runtime AS e2e
+ARG CARGO_PROFILE
+USER root
+COPY --from=seed-builder /app/target/${CARGO_PROFILE}/seed_demo /usr/local/bin/seed_demo
+RUN chmod +x /usr/local/bin/seed_demo
+USER appuser

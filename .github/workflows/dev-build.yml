@@ -86,6 +86,10 @@ jobs:
         with:
           context: .
           file: backend/Dockerfile
+          # Pinned rather than relying on "last stage wins": the Dockerfile also
+          # carries an `e2e` stage (runtime plus the demo seeder) that a deployed
+          # image must never pick up.
+          target: runtime
           # amd64: Fly runs x86_64, and building it here natively avoids the
           # QEMU emulation an arm64 laptop would need.
           platforms: linux/amd64

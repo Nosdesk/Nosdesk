@@ -1,0 +1,23 @@
+# E2E override: run the built application image, not a compile-in-container
+# dev stack.
+#
+# `compose.dev.yaml` builds Dockerfile.dev and runs `cargo` inside the
+# container, so every CI run compiled the backend from scratch after the stack
+# was already up. That put a Rust build behind a "wait for the backend to
+# answer" loop, where a cold compile overrunning the budget was indistinguishable
+# from a broken backend, and it is what made E2E red on main.
+#
+# Here the binary and the frontend bundle are already in the image, so the
+# service answers in seconds and the wait loop measures startup rather than
+# compilation. It also means the specs drive the same image operators run.
+#
+# The `e2e` target is `runtime` plus the demo seeder; see backend/Dockerfile.
+services:
+  nosdesk:
+    image: nosdesk-e2e:local
+    build:
+      target: e2e
+      args:
+        # opt-level 0. Test wall-clock is dominated by the build, not by the
+        # server's speed, and the dev-image workflow already uses this profile.
+        CARGO_PROFILE: fast

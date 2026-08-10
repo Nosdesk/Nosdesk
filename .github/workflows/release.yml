@@ -79,6 +79,10 @@ jobs:
         with:
           context: .
           file: backend/Dockerfile
+          # Pinned rather than relying on "last stage wins": the Dockerfile also
+          # carries an `e2e` stage (runtime plus the demo seeder) that a
+          # published image must never pick up.
+          target: runtime
           # amd64 matches the current deploy target. To also publish arm64,
           # add linux/arm64 here (slower: arm64 builds under QEMU on this runner).
           platforms: linux/amd64
