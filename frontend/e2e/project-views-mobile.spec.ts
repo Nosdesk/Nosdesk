@@ -1,5 +1,13 @@
 import { test, expect } from '@playwright/test'
-import { BOARD, PROJECT_SPARSE, PROJECT_WITH_TICKETS, gotoAndSettle, login } from './helpers'
+import {
+  BOARD,
+  PROJECT_SPARSE,
+  PROJECT_WITH_TICKETS,
+  Touch,
+  gotoAndSettle,
+  login,
+  visibleTimelineCard,
+} from './helpers'
 
 const PROJECT_ROUTES = (id: number): Array<[string, string]> => [
   ['projects list', '/projects'],
@@ -116,5 +124,49 @@ test.describe('project views on a phone', () => {
     const vw = page.viewportSize()!.width
     expect(box!.x, 'hint starts on screen').toBeGreaterThanOrEqual(0)
     expect(box!.x + box!.width, 'hint ends on screen').toBeLessThanOrEqual(vw + 1)
+  })
+
+  test('holding and moving a planned timeline block reschedules it, then restores it', async ({ page, context }) => {
+    await login(page)
+    await gotoAndSettle(page, `/projects/${PROJECT_WITH_TICKETS}/gantt`, '[data-timeline-card-id]')
+
+    const card = await visibleTimelineCard(page)
+    if (!card) test.skip(true, 'seed project has no planned timeline block to move')
+
+    const selector = `[data-timeline-card-id="${card!.id}"]`
+    const before = await page.locator(selector).boundingBox()
+    expect(before).not.toBeNull()
+
+    // The timeline's scale is 36px/day. Two days clears the touch slop and
+    // makes a snapped change unmistakable without running into the viewport
+    // edge, where the intentionally-enabled auto-scroll would be a different
+    // behaviour under test.
+    const delta = 72
+    const move = async (fromY: number, by: number): Promise<void> => {
+      const pushed = page.waitForRequest((request) =>
+        request.url().endsWith('/api/sync/push')
+          && request.method() === 'POST'
+          && request.postData()?.includes(`\"model_id\":\"${card!.id}\"`) === true
+          && request.postData()?.includes('start_date') === true
+          && request.postData()?.includes('due_date') === true,
+      )
+      const touch = await Touch.create(context, page)
+      await touch.start(card!.x, fromY)
+      await page.waitForTimeout(500)
+      for (let i = 1; i <= 8; i++) {
+        await touch.move(card!.x, fromY + (by * i) / 8)
+        await page.waitForTimeout(16)
+      }
+      await touch.end()
+      await pushed
+    }
+
+    await move(card!.y, delta)
+    await expect.poll(async () => (await page.locator(selector).boundingBox())?.y).toBeGreaterThan(before!.y + 40)
+
+    const moved = await page.locator(selector).boundingBox()
+    expect(moved).not.toBeNull()
+    await move(Math.round(moved!.y + moved!.height / 2), -delta)
+    await expect.poll(async () => (await page.locator(selector).boundingBox())?.y).toBeLessThan(before!.y + 8)
   })
 })

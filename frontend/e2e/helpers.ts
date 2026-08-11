@@ -121,6 +121,29 @@ export interface BoardCard {
   y: number
 }
 
+/** A planned block in the mobile vertical timeline. The E2E drag test uses a
+ * ticket with an authored start so its forward-and-back gesture restores the
+ * exact original dates, rather than promoting an inferred start as a side
+ * effect of the coverage itself. */
+export interface TimelineCard {
+  id: string
+  x: number
+  y: number
+}
+
+export async function visibleTimelineCard(page: Page): Promise<TimelineCard | null> {
+  const card = page.locator('[data-timeline-card-id][data-timeline-has-start-date="true"]').first()
+  if ((await card.count()) === 0) return null
+  await card.scrollIntoViewIfNeeded()
+  const box = await card.boundingBox()
+  if (!box) return null
+  return {
+    id: await card.getAttribute('data-timeline-card-id') ?? '',
+    x: Math.round(box.x + box.width / 2),
+    y: Math.round(box.y + box.height / 2),
+  }
+}
+
 /**
  * A card to drive a gesture against, scrolling it into view if needed.
  *

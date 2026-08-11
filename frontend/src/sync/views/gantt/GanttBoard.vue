@@ -34,7 +34,7 @@ import {
 import type { CardData } from '@nosdesk/core/sync/views/types'
 import type { DependencyEdge } from '@nosdesk/core/services/dependenciesService'
 import { TERMINAL_CATEGORIES, coarseStatusBucket } from '@nosdesk/core/types/workflow'
-import { GANTT_ZOOMS, startOfDay, type GanttViewport } from '@/composables/useGanttViewport'
+import { GANTT_ZOOMS, daysBetween, startOfDay, type GanttViewport } from '@/composables/useGanttViewport'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Icon from '@/components/common/Icon.vue'
 import HoverCard from '@/components/common/HoverCard.vue'
@@ -44,6 +44,14 @@ import GanttBarHoverCard from './GanttBarHoverCard.vue'
 import TicketDragPreview from '@/components/common/TicketDragPreview.vue'
 import { useDragDrop } from '@/sync/views/drag'
 import { useBarDrag } from './useBarDrag'
+import type { GanttCycle } from './types'
+import { naiveDay } from './types'
+import {
+  cycleBodyClass,
+  cycleStripClass,
+  datedCycleSpans,
+  projectCycleBand,
+} from './cycleSpans'
 import type { UseListGrouping } from '@/composables/useListGrouping'
 import type { Density } from '@/composables/useTicketsDensity'
 import {
@@ -59,16 +67,8 @@ import { buildRows, splitSchedule, type GanttRow, type ScheduledCard } from './r
 const fluent = useFluent()
 const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, args)
 
-/** The slice of a cycle the board renders (bands + grouping labels).
- *  Structural, so both the REST DTO and the pool row satisfy it. */
-export interface GanttCycle {
-  id: number
-  uuid: string
-  name: string
-  state: 'planned' | 'active' | 'completed'
-  start_at?: string | null
-  end_at?: string | null
-}
+// Re-export so existing importers of the board's cycle type keep working.
+export type { GanttCycle } from './types'
 
 const props = withDefaults(defineProps<{
   cards: readonly CardData[]
@@ -320,6 +320,9 @@ const todayInRange = computed(
 const todayX = computed(() => xOf(today.value))
 
 // ===================== Cycle bands =====================
+// Date-space spans are shared with the vertical timeline; this view
+// maps them through `xOf` (which is itself `days * pxPerDay` from the
+// canvas origin, so projectCycleBand + dayOffset matches xOf exactly).
 
 interface CycleBand {
   key: string
@@ -329,41 +332,21 @@ interface CycleBand {
   state: GanttCycle['state']
 }
 
-/** Cycles with both dates become shaded bands spanning their range.
- *  end_at is inclusive, so the band runs through the end of that day. */
 const cycleBands = computed<CycleBand[]>(() => {
   const max = totalWidth.value
-  const out: CycleBand[] = []
-  for (const c of props.cycles) {
-    if (!c.start_at || !c.end_at) continue
-    const rawLeft = xOf(startOfDay(new Date(c.start_at)))
-    const rawRight = xOf(addDays(startOfDay(new Date(c.end_at)), 1))
-    if (rawRight <= 0 || rawLeft >= max) continue
-    const left = Math.max(0, rawLeft)
-    out.push({
-      key: c.uuid,
-      left,
-      width: Math.max(1, Math.min(max, rawRight) - left),
-      label: c.name,
-      state: c.state,
-    })
-  }
-  return out
+  // projectCycleBand + daysBetween is exactly xOf for each edge.
+  return datedCycleSpans(props.cycles).flatMap((span) => {
+    const band = projectCycleBand(span, canvasStart.value, max, pxPerDay.value, daysBetween)
+    if (!band) return []
+    return [{
+      key: band.key,
+      left: band.offset,
+      width: band.extent,
+      label: band.label,
+      state: band.state,
+    }]
+  })
 })
-
-/** Strip-label tint by cycle state: active stands out, planned is
- *  neutral, completed is muted. */
-function cycleStripClass(state: GanttCycle['state']): string {
-  if (state === 'active') return 'bg-accent/15 text-accent border-accent/40'
-  if (state === 'planned') return 'bg-surface-hover text-secondary border-subtle'
-  return 'bg-surface-alt text-tertiary border-subtle'
-}
-
-/** Body shading: a faint wash so the band reads behind the bars
- *  without competing with them. */
-function cycleBodyClass(state: GanttCycle['state']): string {
-  return state === 'active' ? 'bg-accent/5' : 'bg-surface-hover/30'
-}
 
 // ===================== Bars =====================
 
@@ -398,14 +381,6 @@ watch(
 )
 onUnmounted(() => vp.attachScroller(null))
 
-/** Naive local-midnight datetime (no tz suffix). Dates round-trip
- *  through the backend's NaiveDateTime model, whose deserialiser
- *  rejects a trailing `Z`; sending the local day also keeps the bar
- *  anchored to the day the user dropped it on. */
-function naiveDay(d: Date): string {
-  return `${format(d, 'yyyy-MM-dd')}T00:00:00`
-}
-
 // Declared before `bars` because the visibleCount watchEffect below
 // evaluates that computed synchronously at setup.
 const barDrag = useBarDrag({
@@ -413,6 +388,7 @@ const barDrag = useBarDrag({
   canvasStart,
   bodyEl,
   scroller: scrollerEl,
+  axis: 'x',
   onDragStart: () => hover.dismiss(),
   onCommit: ({ cardId, mode, start, end }) => {
     if (mode === 'due') props.onReschedule?.(cardId, { due_date: naiveDay(end) })

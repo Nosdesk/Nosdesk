@@ -31,6 +31,10 @@
  * `created_at` when a ticket has no authored `start_date`, which is a
  * low-precision guess presented as fact. Inferred starts render hatched so a
  * plan does not masquerade as a measurement.
+ *
+ * Write path (deliberately narrower than desktop): hold-to-move the block
+ * preserves duration. No edge handles — a 36px day marker cannot host one —
+ * and no tray-to-canvas drop. One verb, the same `useBarDrag` model, time on Y.
  */
 import { computed, ref } from 'vue'
 import { useFluent } from 'fluent-vue'
@@ -45,6 +49,17 @@ import {
   laneCount as countLanes,
   laneWidth as widthForLanes,
 } from './verticalLayout'
+import { computeTimelineWindow } from './timelineWindow'
+import type { GanttCycle } from './types'
+import { naiveDay } from './types'
+import {
+  cycleBodyClass,
+  cycleStripClass,
+  datedCycleSpans,
+  projectCycleBand,
+} from './cycleSpans'
+import { useBarDrag } from './useBarDrag'
+import { daysBetween } from '@/composables/useGanttViewport'
 import { TERMINAL_CATEGORIES, coarseStatusBucket } from '@nosdesk/core/types/workflow'
 import PriorityIndicator from '@/components/common/PriorityIndicator.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
@@ -54,8 +69,23 @@ const t = (k: string, args?: Record<string, string | number>) => fluent.$t(k, ar
 
 const props = withDefaults(defineProps<{
   cards: readonly CardData[]
+  /** Project cycles, rendered as shaded context bands (dated ones only). */
+  cycles?: readonly GanttCycle[]
   onCardClick?: (cardId: number) => void
-}>(), { onCardClick: undefined })
+  /**
+   * Direct-manipulation write-back for body drag (moves start + due).
+   * Omitting the prop keeps the timeline read-only, same contract as
+   * the desktop board.
+   */
+  onReschedule?: (
+    cardId: number,
+    patch: { start_date?: string; due_date?: string },
+  ) => void
+}>(), {
+  cycles: () => [],
+  onCardClick: undefined,
+  onReschedule: undefined,
+})
 
 /** Vertical scale. 36px/day keeps a fortnight on ~500px, which is one
  *  comfortable scroll, and leaves a single-day block tall enough to letter. */
@@ -68,6 +98,8 @@ const PX_PER_DAY = 36
 const MIN_TICK_PX = 30
 
 const rootEl = ref<HTMLElement | null>(null)
+const scrollerEl = ref<HTMLElement | null>(null)
+const bodyEl = ref<HTMLElement | null>(null)
 const width = ref(390)
 const viewportHeight = ref(600)
 
@@ -100,41 +132,107 @@ const scheduled = computed<ScheduledCard[]>(() =>
 )
 const unscheduled = computed(() => split.value.unscheduled)
 
-/** Window covering everything scheduled, padded a day each side so bars do not
- *  sit flush against the ends. */
+const cycleSpans = computed(() => datedCycleSpans(props.cycles))
+
+/** Window covering scheduled work and dated cycles, padded and never
+ *  shorter than a screenful. Cycles expand the canvas so a framing
+ *  cycle is never clipped just because no ticket sits on its edges. */
 const window_ = computed(() => {
-  const items = scheduled.value
-  if (items.length === 0) {
-    const today = startOfDay(new Date())
-    return { start: addDays(today, -1), days: 14 }
-  }
-  let min = items[0].start
-  let max = items[0].end
-  for (const it of items) {
-    if (it.start < min) min = it.start
-    if (it.end > max) max = it.end
-  }
-  const start = addDays(startOfDay(min), -1)
-  // Always cover at least a screenful of time. A tight window ended the canvas
-  // two-thirds up the display and left a large blank below it, which reads as a
-  // view that failed to finish loading rather than as a plan that finishes
-  // early. Extending the window keeps the ruler running to the bottom edge.
-  const spanned = differenceInCalendarDays(max, start) + 2
-  const screenful = Math.ceil(viewportHeight.value / PX_PER_DAY)
-  return { start, days: Math.max(3, spanned, screenful) }
+  const spans = [
+    ...scheduled.value.map((s) => ({ start: s.start, end: s.end })),
+    ...cycleSpans.value.map((c) => ({ start: c.start, end: c.endExclusive })),
+  ]
+  return computeTimelineWindow(spans, {
+    viewportHeight: viewportHeight.value,
+    pxPerDay: PX_PER_DAY,
+  })
 })
 
 const canvasHeight = computed(() => window_.value.days * PX_PER_DAY)
 
+// ---- drag (move-only; axis Y) ------------------------------------------
+// Same model as the desktop board. Handles are intentionally absent: a
+// day-tall mark cannot host an edge grip, and duration-preserving move
+// is the high-value mobile verb ("this slipped a week").
+const pxPerDayRef = computed(() => PX_PER_DAY)
+const canvasStartRef = computed(() => window_.value.start)
+
+const barDrag = useBarDrag({
+  pxPerDay: pxPerDayRef,
+  canvasStart: canvasStartRef,
+  bodyEl,
+  scroller: scrollerEl,
+  axis: 'y',
+  onCommit: ({ cardId, start, end }) => {
+    // Body move always writes both edges (promotes an inferred start).
+    props.onReschedule?.(cardId, {
+      start_date: naiveDay(start),
+      due_date: naiveDay(end),
+    })
+  },
+})
+
+/** Scheduled items with the live drag preview applied, so the moving
+ *  block and its lane reassignment track the finger. */
+const scheduledLive = computed<ScheduledCard[]>(() => {
+  const p = barDrag.preview.value
+  if (!p) return scheduled.value
+  return scheduled.value.map((s) =>
+    s.card.id === p.cardId ? { ...s, start: p.start, end: p.end } : s,
+  )
+})
+
 // Lane assignment + the fidelity ladder live in ./verticalLayout as pure
 // functions so the concurrency ceiling can be asserted in a unit test rather
 // than inferred from a screenshot of whatever the data happens to hold.
-const placed = computed(() => assignLanes(scheduled.value))
+const placed = computed(() => assignLanes(scheduledLive.value))
 const lanes = computed(() => countLanes(placed.value))
 const laneWidth = computed(() => widthForLanes(width.value, lanes.value))
 /** Equals the viewport until concurrency pushes columns onto their legibility
  *  floor, past which the canvas is wider and the view pans sideways. */
 const canvasW = computed(() => canvasWidth(width.value, lanes.value))
+
+const cycleBands = computed(() =>
+  cycleSpans.value.flatMap((span) => {
+    const band = projectCycleBand(
+      span,
+      window_.value.start,
+      canvasHeight.value,
+      PX_PER_DAY,
+      daysBetween,
+    )
+    return band ? [band] : []
+  }),
+)
+
+/** Ghost of the pre-drag span so the move reads as a translation.
+ *  Lane comes from the pre-drag layout (scheduled, not live) so the
+ *  outline stays put while the block reflows under the finger. */
+const dragGhost = computed(() => {
+  const p = barDrag.preview.value
+  if (!p) return null
+  const top = daysBetween(window_.value.start, p.origStart) * PX_PER_DAY
+  const height = Math.max(22, daysBetween(p.origStart, p.origEnd) * PX_PER_DAY)
+  const origLane =
+    assignLanes(scheduled.value).find((x) => x.item.card.id === p.cardId)?.lane ?? 0
+  // Chip rides the live leading edge so it tracks the drop day.
+  const liveLane =
+    placed.value.find((x) => x.item.card.id === p.cardId)?.lane ?? origLane
+  const colW = Math.max(14, laneWidth.value - 4)
+  return {
+    top,
+    height,
+    left: GUTTER + origLane * laneWidth.value,
+    width: colW,
+    chipLabel: format(p.start, 'MMM d'),
+    chipTop: daysBetween(window_.value.start, p.start) * PX_PER_DAY,
+    chipLeft: GUTTER + liveLane * laneWidth.value + colW / 2,
+  }
+})
+
+const canReschedule = computed(() => !!props.onReschedule)
+/** Card currently under a live drag preview (template-friendly). */
+const draggingCardId = computed(() => barDrag.preview.value?.cardId ?? null)
 
 /** Fidelity for a block, given the room its column and duration give it. */
 function fidelity(heightPx: number): 'full' | 'compact' | 'mark' {
@@ -247,6 +345,22 @@ function inferredStart(card: CardData): boolean {
   return !card.start_date
 }
 
+function beginMove(p: { item: ScheduledCard }, event: PointerEvent): void {
+  if (!props.onReschedule) return
+  // Committed span only — never seed a drag from a live preview residual.
+  const base = scheduled.value.find((s) => s.card.id === p.item.card.id) ?? p.item
+  barDrag.begin(
+    'move',
+    { cardId: base.card.id, start: base.start, end: base.end },
+    event,
+  )
+}
+
+function onBlockClick(cardId: number): void {
+  if (barDrag.shouldSuppressClick()) return
+  props.onCardClick?.(cardId)
+}
+
 function onResize(el: HTMLElement | null): void {
   if (!el) return
   rootEl.value = el
@@ -264,7 +378,7 @@ function onResize(el: HTMLElement | null): void {
     <!-- Nothing scheduled: say so plainly rather than presenting an empty
          ruler, which reads as a broken view. -->
     <div
-      v-if="scheduled.length === 0"
+      v-if="scheduled.length === 0 && cycleBands.length === 0"
       class="flex-1 min-h-0 flex items-center justify-center px-8 text-center"
     >
       <p class="text-sm text-tertiary max-w-[16rem]">{{ t('gantt-nothing-scheduled') }}</p>
@@ -274,12 +388,20 @@ function onResize(el: HTMLElement | null): void {
          time, across is concurrency and stays put entirely below five parallel
          tickets. Touch pans a single element diagonally, so no nested scrollers
          compete for the gesture. -->
-    <div v-else class="flex-1 min-h-0 overflow-auto overscroll-contain">
+    <div
+      v-else
+      ref="scrollerEl"
+      class="flex-1 min-h-0 overflow-auto overscroll-contain"
+    >
       <!-- Canvas. Height is proportional to the window's duration, so vertical
            distance is time; nothing here is a fixed-height row. Width is the
            viewport unless concurrency has outgrown it. -->
       <!-- pb keeps the last block clear of the tab bar and the home indicator. -->
-      <div class="relative pb-16" :style="{ height: `${canvasHeight}px`, width: `${canvasW}px` }">
+      <div
+        ref="bodyEl"
+        class="relative pb-16"
+        :style="{ height: `${canvasHeight}px`, width: `${canvasW}px` }"
+      >
         <!-- Weekends. Drawn under the measure so the grid reads as a calendar.
              Banding starts after the gutter: the bands belong to the plotting
              area, and keeping the ruler a clean strip is what lets its labels
@@ -291,11 +413,24 @@ function onResize(el: HTMLElement | null): void {
           :style="{ top: `${w.y}px`, height: `${w.h}px`, left: `${GUTTER}px` }"
         />
 
+        <!-- Cycle band washes (behind bars, same nesting rule as weekends). -->
+        <div
+          v-for="band in cycleBands"
+          :key="`shade-${band.key}`"
+          class="absolute right-0 border-t border-b border-subtle/60 pointer-events-none"
+          :class="cycleBodyClass(band.state)"
+          :style="{
+            top: `${band.offset}px`,
+            height: `${band.extent}px`,
+            left: `${GUTTER}px`,
+          }"
+        />
+
         <!-- Adaptive civic measure. -->
         <div
           v-for="tick in ticks"
           :key="tick.y"
-          class="absolute left-0 right-0 flex items-start gap-2"
+          class="absolute left-0 right-0 flex items-start gap-2 pointer-events-none"
           :style="{ top: `${tick.y}px` }"
         >
           <!-- Pinned: the ruler is the reference for everything on the canvas,
@@ -310,6 +445,26 @@ function onResize(el: HTMLElement | null): void {
           />
         </div>
 
+        <!-- Cycle labels at the leading edge of each band. Sticky left so
+             pan-across-concurrency keeps the name; pointer-events-none so
+             they never steal a block's hold-to-drag. -->
+        <div
+          v-for="band in cycleBands"
+          :key="`label-${band.key}`"
+          class="absolute z-[5] pointer-events-none"
+          :style="{
+            top: `${band.offset + 2}px`,
+            left: `${GUTTER + 4}px`,
+            maxWidth: `${Math.max(48, canvasW - GUTTER - 12)}px`,
+          }"
+        >
+          <span
+            class="sticky left-12 inline-block max-w-full truncate rounded px-1.5 py-0.5 text-[10px] font-medium border"
+            :class="cycleStripClass(band.state)"
+            :title="band.label"
+          >{{ band.label }}</span>
+        </div>
+
         <!-- Now. Starts after the gutter so it never strikes through a ruler
              label, and carries a dot so it reads as a marker not a divider. -->
         <div
@@ -321,20 +476,48 @@ function onResize(el: HTMLElement | null): void {
           <span class="flex-1 border-t border-accent/60" />
         </div>
 
+        <!-- Ghost of the pre-drag position. -->
+        <div
+          v-if="dragGhost"
+          class="absolute rounded-md border border-dashed border-default/60 bg-surface/40 pointer-events-none z-[15]"
+          :style="{
+            top: `${dragGhost.top}px`,
+            height: `${dragGhost.height}px`,
+            left: `${dragGhost.left}px`,
+            width: `${dragGhost.width}px`,
+          }"
+        />
+
+        <!-- Live date chip while moving. -->
+        <div
+          v-if="dragGhost"
+          class="absolute z-30 pointer-events-none rounded-full bg-accent px-1.5 py-px text-[10px] font-semibold text-on-accent tabular-nums whitespace-nowrap"
+          :style="{
+            top: `${dragGhost.chipTop}px`,
+            left: `${dragGhost.chipLeft}px`,
+            transform: 'translate(-50%, -50%)',
+          }"
+        >{{ dragGhost.chipLabel }}</div>
+
         <!-- Tickets. Height is duration; column is a concurrency lane. -->
         <button
           v-for="p in placed"
           :key="p.item.card.id"
           type="button"
-          class="absolute rounded-md border text-left overflow-hidden motion-safe:transition-[box-shadow,filter] motion-safe:duration-150 active:brightness-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          :data-timeline-card-id="p.item.card.id"
+          :data-timeline-has-start-date="p.item.card.start_date ? 'true' : 'false'"
+          class="absolute rounded-md border text-left overflow-hidden motion-safe:transition-[box-shadow,filter] motion-safe:duration-150 active:brightness-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent z-[12]"
           :class="[
             statusClass(p.item.card),
             priorityEdgeClass(p.item.card.priority),
             inferredStart(p.item.card) ? 'nd-inferred-start' : '',
+            canReschedule ? 'cursor-grab active:cursor-grabbing' : '',
+            draggingCardId === p.item.card.id ? 'shadow-md ring-1 ring-accent/40' : '',
           ]"
           :style="blockStyle(p)"
           :title="`#${p.item.card.id} ${p.item.card.title}`"
-          @click="onCardClick?.(p.item.card.id)"
+          @pointerdown="beginMove(p, $event)"
+          @click="onBlockClick(p.item.card.id)"
         >
           <template v-if="fidelity(blockHeight(p)) === 'full'">
             <div class="px-1.5 py-1 flex flex-col gap-1 h-full">
