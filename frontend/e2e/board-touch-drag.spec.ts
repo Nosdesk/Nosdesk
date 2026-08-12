@@ -8,7 +8,6 @@ import {
   dragDirection,
   panDirection,
   gotoAndSettle,
-  login,
   visibleCard,
 } from './helpers'
 
@@ -27,7 +26,6 @@ test.describe('kanban touch drag', () => {
   test.skip(({ hasTouch }) => !hasTouch, 'touch-only behaviour')
 
   test('a quick swipe on a card pans the board', async ({ page, context }) => {
-    await login(page)
     await gotoAndSettle(page, `/projects/${PROJECT_BOARD}`)
 
     const card = await visibleCard(page)
@@ -47,7 +45,6 @@ test.describe('kanban touch drag', () => {
   })
 
   test('holding a card picks it up, and the board stays put', async ({ page, context }) => {
-    await login(page)
     await gotoAndSettle(page, `/projects/${PROJECT_BOARD}`)
 
     const card = await visibleCard(page)
@@ -78,7 +75,6 @@ test.describe('kanban touch drag', () => {
    * at the edge.
    */
   test('holding a dragged card at the edge pans the board', async ({ page, context }) => {
-    await login(page)
     await gotoAndSettle(page, `/projects/${PROJECT_BOARD}`)
 
     const card = await visibleCard(page)
@@ -104,7 +100,6 @@ test.describe('kanban touch drag', () => {
   })
 
   test('dropping on another column moves the card', async ({ page, context }) => {
-    await login(page)
     await gotoAndSettle(page, `/projects/${PROJECT_BOARD}`)
 
     const card = await visibleCard(page)
@@ -135,7 +130,6 @@ test.describe('kanban mouse drag', () => {
   /** The touch work refactored the shared activation path, so the mouse path
    *  is asserted too: it must still promote on distance, with no hold. */
   test('dragging with a mouse still moves a card', async ({ page }) => {
-    await login(page)
     await gotoAndSettle(page, `/projects/${PROJECT_BOARD}`)
 
     const card = await visibleCard(page)

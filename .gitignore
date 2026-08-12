@@ -106,3 +106,6 @@ google-services.json
 # Playwright e2e artifacts (frontend/)
 test-results/
 playwright-report/
+
+# Playwright saved auth session (live cookies)
+frontend/playwright/.auth/

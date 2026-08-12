@@ -42,6 +42,12 @@ export const PROJECT_TIMELINE = 3
 /** No scheduled work, so the timeline's empty state is reachable. */
 export const PROJECT_SPARSE = 1
 
+/**
+ * Where `auth.setup.ts` parks the signed-in session for the other projects.
+ * Gitignored: it holds live session cookies.
+ */
+export const AUTH_STATE = 'playwright/.auth/user.json'
+
 export async function login(page: Page): Promise<void> {
   await page.goto('/login', { waitUntil: 'domcontentloaded' })
   await page.waitForSelector('input[type="email"]')

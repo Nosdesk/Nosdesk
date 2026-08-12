@@ -6,7 +6,6 @@ import {
   PROJECT_TIMELINE,
   Touch,
   gotoAndSettle,
-  login,
   visibleTimelineCard,
 } from './helpers'
 
@@ -29,7 +28,6 @@ test.describe('project views on a phone', () => {
 
   for (const [name, path] of PROJECT_ROUTES(PROJECT_SPARSE)) {
     test(`${name} does not overflow the viewport`, async ({ page }) => {
-      await login(page)
       await gotoAndSettle(page, path)
 
       // The cardinal mobile bug: the page itself scrolling sideways. Content
@@ -45,7 +43,6 @@ test.describe('project views on a phone', () => {
   }
 
   test('no control renders outside the viewport', async ({ page }) => {
-    await login(page)
     await gotoAndSettle(page, '/projects')
 
     // Regression: `hidden lg:inline-flex` passed to a component merged with the
@@ -80,7 +77,6 @@ test.describe('project views on a phone', () => {
   })
 
   test('the board opens on a column that has work in it', async ({ page }) => {
-    await login(page)
     await gotoAndSettle(page, `/projects/${PROJECT_BOARD}`, '[data-card-id]')
 
     // Separated from the visibility check on purpose: without this, a pool that
@@ -113,7 +109,6 @@ test.describe('project views on a phone', () => {
   })
 
   test('the gantt keeps its empty state on screen', async ({ page }) => {
-    await login(page)
     await gotoAndSettle(page, `/projects/${PROJECT_SPARSE}/gantt`)
 
     // Regression: the hint carried a 240px minimum against a ~190px visible
@@ -130,7 +125,6 @@ test.describe('project views on a phone', () => {
   })
 
   test('holding and moving a planned timeline block reschedules it, then restores it', async ({ page, context }) => {
-    await login(page)
     await gotoAndSettle(page, `/projects/${PROJECT_TIMELINE}/gantt`, '[data-timeline-card-id]')
 
     // Not a skip. `seed-contract.spec.ts` already guarantees this project has a

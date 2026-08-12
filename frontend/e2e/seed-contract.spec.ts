@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { PROJECT_TIMELINE, PROJECT_SPARSE, PROJECT_BOARD, login } from './helpers'
+import { PROJECT_TIMELINE, PROJECT_SPARSE, PROJECT_BOARD } from './helpers'
 
 /**
  * The shape contract the rest of the suite is written against.
@@ -26,7 +26,6 @@ import { PROJECT_TIMELINE, PROJECT_SPARSE, PROJECT_BOARD, login } from './helper
  */
 test.describe('seed contract', () => {
   test('PROJECT_BOARD has board cards to land on', async ({ page }) => {
-    await login(page)
     await page.goto(`/projects/${PROJECT_BOARD}`, { waitUntil: 'domcontentloaded' })
     await expect(
       page.locator('[data-card-id]').first(),
@@ -35,7 +34,6 @@ test.describe('seed contract', () => {
   })
 
   test('PROJECT_TIMELINE has a planned timeline block', async ({ page }) => {
-    await login(page)
     await page.goto(`/projects/${PROJECT_TIMELINE}/gantt`, { waitUntil: 'domcontentloaded' })
     // A *planned* block: start AND due. A due-only ticket renders as a day-tall
     // marker, which is too short to grab and drag.
@@ -46,7 +44,6 @@ test.describe('seed contract', () => {
   })
 
   test('PROJECT_SPARSE has no scheduled work', async ({ page }) => {
-    await login(page)
     await page.goto(`/projects/${PROJECT_SPARSE}/gantt`, { waitUntil: 'domcontentloaded' })
     // Asserted through the empty state rather than "count is 0", so this waits
     // for a positive signal. A zero count would also be satisfied by a page that
