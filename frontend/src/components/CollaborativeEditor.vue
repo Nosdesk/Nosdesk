@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { logger } from '@nosdesk/core/utils/logger'
 // Collaborative Editor with Yjs for real-time document editing
 //
 // Logging behavior:
@@ -277,11 +278,8 @@ const showRevisionHistory = ref(false);
 
 // Extract ticket ID from docId (format: "ticket-123")
 const ticketId = computed(() => {
-    console.log('[CollaborativeEditor] docId:', props.docId);
     const match = props.docId.match(/ticket-(\d+)/);
-    const id = match ? parseInt(match[1], 10) : 0;
-    console.log('[CollaborativeEditor] Extracted ticketId:', id);
-    return id;
+    return match ? parseInt(match[1], 10) : 0;
 });
 
 // Toggle revision history sidebar
@@ -419,8 +417,10 @@ let updateV2DiagnosticHandler: ((update: Uint8Array) => void) | null = null;
 
 // Enhanced logging
 const log = {
+    // `logger.debug`, not `console.log`: the shared logger is level-gated
+    // (DEBUG is dropped in prod) and redacts token-ish context keys.
     info: (message: string, ...args: unknown[]) =>
-        console.log(`[YJS-Editor] ${message}`, ...args),
+        logger.debug(`[YJS-Editor] ${message}`, { args }),
     error: (message: string, ...args: unknown[]) =>
         console.error(`[YJS-Editor] ${message}`, ...args),
     debug: (message: string, ...args: unknown[]) => {
@@ -2352,11 +2352,6 @@ defineExpose({
                             connectedUser.user.uuid
                                 ? $t('editor-toolbar-user-title-uuid', { name: connectedUser.user.name, uuid: connectedUser.user.uuid })
                                 : $t('editor-toolbar-user-title', { name: connectedUser.user.name })
-                        "
-                        @click="
-                            () => {
-                                console.log('User data:', connectedUser.user);
-                            }
                         "
                     >
                         <UserAvatar

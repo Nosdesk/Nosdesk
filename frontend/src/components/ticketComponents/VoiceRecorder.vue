@@ -361,9 +361,7 @@ const startRecording = async () => {
     if (speechSupported.value) {
       resetSpeech();
       startSpeech();
-      console.log('[VoiceRecorder] Speech recognition started');
     } else {
-      console.log('[VoiceRecorder] Speech recognition not supported');
     }
   } catch (error) {
     console.error("Error accessing microphone:", error);
@@ -389,7 +387,6 @@ const stopRecording = () => {
         return;
       }
 
-      console.log('[VoiceRecorder] Emitting with transcription:', finalTranscription);
       emit('recordingComplete', {
         blob: audioBlob,
         duration: recordingTime.value,

@@ -272,7 +272,6 @@ const handleRecordingComplete = (recording: {
     duration: number;
     transcription?: string;
 }) => {
-    console.log('[CommentsAndAttachments] Recording complete, transcription:', recording.transcription);
 
     // Auto-stage the voice note as an attachment. The extension follows the
     // recorded format (iOS records mp4/m4a, others webm) so playback works and
@@ -291,11 +290,9 @@ const handleRecordingComplete = (recording: {
 
     if (recording.transcription) {
         (audioFile as any)._transcription = recording.transcription;
-        console.log('[CommentsAndAttachments] Attached transcription to file');
     }
 
     newAttachments.value = [...newAttachments.value, audioFile];
-    console.log('[CommentsAndAttachments] File _transcription:', (audioFile as any)._transcription);
     showRecordingInterface.value = false;
 };
 

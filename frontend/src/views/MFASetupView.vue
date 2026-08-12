@@ -196,7 +196,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { useRouter, useRoute } from 'vue-router';
+import { useRouter } from 'vue-router';
 import { landAfterLogin } from '@/router';
 import { useFluent } from 'fluent-vue';
 import { useAuthStore } from '@/stores/auth';
@@ -209,7 +209,6 @@ import LogoIcon from '@/components/icons/LogoIcon.vue';
 import Icon from '@/components/common/Icon.vue';
 
 const router = useRouter();
-const route = useRoute();
 const authStore = useAuthStore();
 const mfaSetupStore = useMfaSetupStore();
 const fluent = useFluent();
@@ -269,15 +268,9 @@ const backButtonText = computed(() => {
 
 // Security check and credential setup
 onMounted(async () => {
-  console.log('🔍 MFA Setup - Checking for credentials:', {
-    hasValidCredentials: mfaSetupStore.hasValidCredentials,
-    isAuthenticated: !!authStore.user,
-    route: route.fullPath
-  });
 
   // If user is already fully authenticated, redirect to dashboard
   if (authStore.user && !authStore.mfaSetupRequired) {
-    console.log('✅ User already authenticated, redirecting to dashboard');
     mfaSetupStore.clearCredentials();
     await landAfterLogin();
     return;
@@ -287,14 +280,12 @@ onMounted(async () => {
   if (mfaSetupStore.hasValidCredentials) {
     const creds = mfaSetupStore.getCredentials;
     if (creds) {
-      console.log('✅ Found valid setup credentials from:', creds.source);
       return;
     }
   }
 
   // No valid credentials - redirect back to login
   if (authStore.mfaSetupRequired && authStore.mfaUserUuid) {
-    console.log('🔄 No credentials found, but auth store indicates MFA setup required');
     errorMessage.value = t('mfa-setup-error-session-expired');
     setTimeout(() => {
       mfaSetupStore.clearCredentials();

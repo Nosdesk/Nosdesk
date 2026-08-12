@@ -87,13 +87,6 @@ const isDeviceView = computed(() => {
 
 // Only log in development mode
 if (import.meta.env.DEV) {
-  console.log("SiteHeader rendering with:", {
-    isTicketView: isTicketView.value,
-    isDocumentView: isDocumentView.value,
-    ticket: props.ticket,
-    document: props.document,
-    title: props.title,
-  });
 }
 
 // Use the provided title if available
@@ -110,7 +103,6 @@ const avatarSize = computed(() => isMobile.value ? 'lg' : 'md')
 const handleUpdateDocumentTitle = (newTitle: string) => {
   if (props.document) {
     if (import.meta.env.DEV) {
-      console.log(`SiteHeader: Updating document title to "${newTitle}" for document:`, props.document);
     }
     emit("updateDocumentTitle", newTitle);
   }
@@ -119,7 +111,6 @@ const handleUpdateDocumentTitle = (newTitle: string) => {
 const handlePreviewDocumentTitle = (newTitle: string) => {
   if (props.document) {
     if (import.meta.env.DEV) {
-      console.log(`SiteHeader: Previewing document title as "${newTitle}" for document:`, props.document);
     }
     emit("previewDocumentTitle", newTitle);
   }
@@ -134,7 +125,6 @@ const handleUpdateDocumentIcon = (newIcon: string) => {
 const handleUpdateTicketTitle = (newTitle: string) => {
   if (props.ticket) {
     if (import.meta.env.DEV) {
-      console.log(`SiteHeader: Updating ticket title to "${newTitle}" for ticket:`, props.ticket);
     }
     emit("updateTicketTitle", newTitle);
   }

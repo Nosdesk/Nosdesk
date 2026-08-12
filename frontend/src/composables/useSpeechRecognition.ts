@@ -94,7 +94,6 @@ export function useSpeechRecognition() {
       }
       interimTranscript.value = interimText
       if (import.meta.env.DEV) {
-        console.log('[useSpeechRecognition] Result:', { final: finalText, interim: interimText })
       }
     }
 

@@ -40,7 +40,6 @@ async function handleImageFiles(
   pos: number,
   options: ImageUploadPluginOptions
 ): Promise<void> {
-  console.log('[ImageUpload] handleImageFiles called with', files.length, 'files');
   const { schema } = view.state;
   const imageType = schema.nodes.image;
 
@@ -53,16 +52,13 @@ async function handleImageFiles(
 
   for (const file of files) {
     if (!file.type.startsWith('image/')) {
-      console.log('[ImageUpload] Skipping non-image file:', file.type);
       continue;
     }
 
-    console.log('[ImageUpload] Uploading file:', file.name, file.type, file.size, 'bytes');
 
     try {
       // Upload the image with ticket context if available
       const result = await uploadEditorImage(file, { ticketId: options.ticketId });
-      console.log('[ImageUpload] Upload successful, URL:', result.url);
 
       // Create the image node with the URL
       const imageNode = imageType.create({
@@ -74,7 +70,6 @@ async function handleImageFiles(
       // Insert the image at the position
       const tr = view.state.tr.insert(pos, imageNode);
       view.dispatch(tr);
-      console.log('[ImageUpload] Image node inserted at position', pos);
 
       // Update position for next image
       pos += imageNode.nodeSize;
