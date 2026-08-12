@@ -698,7 +698,12 @@ const handlePastedFiles = async (files: File[]) => {
                                         ? 'bg-surface-hover text-tertiary cursor-not-allowed'
                                         : isInternal
                                             ? 'bg-status-warning text-white hover:opacity-90'
-                                            : 'bg-accent text-white hover:opacity-90'
+                                            // `text-on-accent`, not `text-white`: the accent
+                                            // foreground is picked per theme by luminance, and
+                                            // brand orange resolves to BLACK. White here was
+                                            // low-contrast on the default theme and unreadable
+                                            // on the light-accent presets (everforest, gruvbox).
+                                            : 'bg-accent text-on-accent hover:opacity-90'
                                 ]"
                                 :aria-label="isInternal ? $t('ticket-comments-submit-note') : $t('ticket-comments-submit-reply')"
                                 :title="isInternal ? $t('ticket-comments-submit-note') : $t('ticket-comments-submit-reply')"
