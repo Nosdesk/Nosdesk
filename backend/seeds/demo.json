@@ -111,7 +111,7 @@
       "title": "Outlook not syncing shared mailbox after migration",
       "body_md": "The `ops@` shared mailbox stopped syncing in Outlook after we moved to 365. New mail only shows up on the web, not the desktop app. Removing and re-adding the account didn't help.",
       "category": "Bug", "priority": "high", "state_category": "active",
-      "requester": "noah", "assignee": "priya", "project": "m365", "cycle": "m365_rollout", "device": "lt0052", "created_days_ago": 4,
+      "requester": "noah", "assignee": "priya", "project": "m365", "cycle": "m365_rollout", "device": "lt0052", "start_in_days": -3, "due_in_days": 4, "created_days_ago": 4,
       "comments": [
         { "author": "priya", "body": "Automapping is stale post-migration. I'll remove the auto-mapped entry and re-add the mailbox manually - that usually forces a clean resync.", "minutes_after": 200 }
       ]
@@ -149,7 +149,7 @@
       "title": "Wi-Fi dead zone in Building B kitchen",
       "body_md": "No usable Wi-Fi in the Building B kitchen and breakout area. Signal drops to nothing about halfway down the corridor. Several people can't take calls there.",
       "category": "Bug", "priority": "medium", "state_category": "active",
-      "requester": "noah", "assignee": "tom", "device": "ap_b2k", "project": "network", "cycle": "net_install", "created_days_ago": 6,
+      "requester": "noah", "assignee": "tom", "device": "ap_b2k", "project": "network", "cycle": "net_install", "start_in_days": -1, "due_in_days": 6, "created_days_ago": 6,
       "comments": [
         { "author": "tom", "body": "Survey confirmed the gap. New AP (NET-APB2K) is on order for the kitchen; cabling run scheduled with the install wave.", "minutes_after": 240, "internal": true }
       ]
@@ -217,7 +217,7 @@
       "title": "OneDrive sync errors after migration",
       "body_md": "OneDrive shows a red X and 'sync pending' on dozens of files since the rollout. Some documents won't open because they're 'still uploading'.",
       "category": "Bug", "priority": "medium", "state_category": "active",
-      "requester": "grace", "assignee": "priya", "project": "m365", "cycle": "m365_rollout", "device": "lt0051", "created_days_ago": 5,
+      "requester": "grace", "assignee": "priya", "project": "m365", "cycle": "m365_rollout", "device": "lt0051", "start_in_days": -1, "due_in_days": 9, "created_days_ago": 5,
       "comments": [
         { "author": "priya", "body": "A few filenames have characters 365 rejects (colons and trailing spaces). I'll send a list to rename, then reset the sync client.", "minutes_after": 340 }
       ]
@@ -316,7 +316,7 @@
       "title": "Switch B-1 port flapping - network drops in Building B",
       "body_md": "Building B keeps losing network for 10-20 seconds at a time, several times an hour. Affects everyone on that floor. Started yesterday afternoon.",
       "category": "Bug", "priority": "urgent", "state_category": "active",
-      "requester": "noah", "assignee": "tom", "device": "sw_b1", "project": "network", "cycle": "net_install", "created_days_ago": 2,
+      "requester": "noah", "assignee": "tom", "device": "sw_b1", "project": "network", "cycle": "net_install", "start_in_days": -2, "due_in_days": 5, "created_days_ago": 2,
       "comments": [
         { "author": "tom", "body": "Uplink port on Switch B-1 is flapping - logs show link up/down every few minutes. Moving the uplink to a spare port now and will replace the SFP.", "minutes_after": 40 },
         { "author": "noah", "body": "Much better since lunchtime, no drops so far.", "minutes_after": 480 },
@@ -336,7 +336,7 @@
       "title": "SharePoint permissions wrong after migration",
       "body_md": "After the rollout, the whole Sales team can see the Deals Confidential SharePoint library. It should be restricted to directors only. This is sensitive - please fix urgently.",
       "category": "Bug", "priority": "high", "state_category": "active",
-      "requester": "liam", "assignee": "priya", "project": "m365", "cycle": "m365_rollout", "created_days_ago": 6,
+      "requester": "liam", "assignee": "priya", "project": "m365", "cycle": "m365_rollout", "start_in_days": 2, "due_in_days": 11, "created_days_ago": 6,
       "comments": [
         { "author": "priya", "body": "Confirmed - broken inheritance during migration re-granted the parent group. I've removed the inherited access and restored the directors-only permission. Auditing who accessed it in the window.", "minutes_after": 70 },
         { "author": "elena", "body": "Access logs show no downloads by non-directors during the exposure window. Documenting for the security record.", "minutes_after": 300, "internal": true }
@@ -416,7 +416,7 @@
       "title": "Cannot print to Building B printers over VPN",
       "body_md": "When I'm on VPN from home I can't see or print to any Building B printers. In the office it's fine. Several of the Ops team have the same issue.",
       "category": "Bug", "priority": "medium", "state_category": "active",
-      "requester": "noah", "assignee": "tom", "project": "network", "created_days_ago": 4,
+      "requester": "noah", "assignee": "tom", "project": "network", "start_in_days": 0, "due_in_days": 8, "created_days_ago": 4,
       "comments": [
         { "author": "tom", "body": "The print subnet isn't in the split-tunnel routes for the VPN. I'll add the Building B print range to the profile.", "minutes_after": 280 }
       ]
@@ -452,7 +452,7 @@
       "title": "Slow file transfers to Building B server",
       "body_md": "Copying files to the Building B file server is crawling - a 500 MB folder takes 20+ minutes. From Building A it's fine.",
       "category": "Bug", "priority": "medium", "state_category": "backlog",
-      "requester": "noah", "project": "network", "created_days_ago": 20
+      "requester": "noah", "project": "network", "due_in_days": 12, "created_days_ago": 20
     },
     {
       "title": "Request: onboarding checklist automation",

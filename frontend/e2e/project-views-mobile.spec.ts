@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test'
 import {
   BOARD,
+  PROJECT_BOARD,
   PROJECT_SPARSE,
-  PROJECT_WITH_TICKETS,
+  PROJECT_TIMELINE,
   Touch,
   gotoAndSettle,
   login,
@@ -80,7 +81,7 @@ test.describe('project views on a phone', () => {
 
   test('the board opens on a column that has work in it', async ({ page }) => {
     await login(page)
-    await gotoAndSettle(page, `/projects/${PROJECT_WITH_TICKETS}`, '[data-card-id]')
+    await gotoAndSettle(page, `/projects/${PROJECT_BOARD}`, '[data-card-id]')
 
     // Separated from the visibility check on purpose: without this, a pool that
     // had not hydrated yet reads as "the board opened on the wrong column",
@@ -91,13 +92,15 @@ test.describe('project views on a phone', () => {
     // Columns render in workflow order, so the board would otherwise open on
     // Triage / Backlog — routinely empty — with the tickets several swipes away.
     //
-    // Intersection, not full containment. `board-touch-drag.spec.ts` drives this
-    // same project and moves cards between columns, so which column the landing
-    // scroll targets varies by the time this runs; demanding a card sit ENTIRELY
-    // inside the viewport failed whenever the board came to rest between two
-    // columns, which is a snap position rather than a bug. Anything off-screen
-    // still reads as zero, so this keeps catching the case it exists for: the
-    // board opening on an empty column with the work several swipes away.
+    // Intersection, not full containment: the board snaps to columns, so it can
+    // legitimately come to rest between two with a card straddling the edge.
+    // Anything genuinely off-screen still reads as zero, so this keeps catching
+    // the case it exists for — the board opening on an empty column with the
+    // work several swipes away.
+    //
+    // The drag spec shares this project and rearranges its columns, which is
+    // deliberate and harmless here: this asserts that the board lands on a
+    // populated column, whichever one that happens to be.
     const cardsOnScreen = await page.evaluate((sel) => {
       const board = document.querySelector(sel)
       if (!board) return -1
@@ -128,10 +131,13 @@ test.describe('project views on a phone', () => {
 
   test('holding and moving a planned timeline block reschedules it, then restores it', async ({ page, context }) => {
     await login(page)
-    await gotoAndSettle(page, `/projects/${PROJECT_WITH_TICKETS}/gantt`, '[data-timeline-card-id]')
+    await gotoAndSettle(page, `/projects/${PROJECT_TIMELINE}/gantt`, '[data-timeline-card-id]')
 
+    // Not a skip. `seed-contract.spec.ts` already guarantees this project has a
+    // planned block, so an absence here is a real failure — and the old skip was
+    // unreachable anyway, because the selector wait above it timed out first.
     const card = await visibleTimelineCard(page)
-    if (!card) test.skip(true, 'seed project has no planned timeline block to move')
+    expect(card, 'seed contract guarantees a planned timeline block').not.toBeNull()
 
     const selector = `[data-timeline-card-id="${card!.id}"]`
     const before = await page.locator(selector).boundingBox()
