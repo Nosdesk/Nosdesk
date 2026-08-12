@@ -36,7 +36,7 @@
  * preserves duration. No edge handles — a 36px day marker cannot host one —
  * and no tray-to-canvas drop. One verb, the same `useBarDrag` model, time on Y.
  */
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { addDays, differenceInCalendarDays, format, startOfDay, startOfMonth, startOfWeek } from 'date-fns'
 import type { CardData } from '@nosdesk/core/sync/views/types'
@@ -49,7 +49,7 @@ import {
   laneCount as countLanes,
   laneWidth as widthForLanes,
 } from './verticalLayout'
-import { computeTimelineWindow } from './timelineWindow'
+import { computeTimelineWindow, landingScrollTop } from './timelineWindow'
 import type { GanttCycle } from './types'
 import { naiveDay } from './types'
 import {
@@ -278,6 +278,59 @@ const todayY = computed(() => {
   return offset * PX_PER_DAY
 })
 
+/**
+ * Open where the work is.
+ *
+ * Cycles expand the window, so a project whose cycles began months ago gets a
+ * canvas several screens tall with every live ticket at the bottom; opening at
+ * the top showed an empty calendar (measured: 6 bars, 0 visible, the first one
+ * 2988px down). The desktop board has the same hazard and solves it with
+ * `scrollToFirstPopulatedLane`; this is that, with time on Y.
+ *
+ * Fires on the first render that actually HAS bars, not on mount: the sync pool
+ * fills in after mount, so on mount there is nothing to aim at. Runs once — the
+ * `landed` latch keeps a later scroll from being yanked back.
+ */
+function landOnTheWork(): void {
+  const el = scrollerEl.value
+  if (!el) return
+  const tops = placed.value.map((p) => differenceInCalendarDays(p.item.start, window_.value.start) * PX_PER_DAY)
+  const bottoms = placed.value.map(
+    (p, i) => tops[i] + blockHeight(p),
+  )
+  el.scrollTop = landingScrollTop({
+    // Unclamped on purpose: outside the canvas is how an all-past or
+    // all-future plan is detected.
+    todayY: differenceInCalendarDays(startOfDay(new Date()), window_.value.start) * PX_PER_DAY,
+    firstBarTop: tops.length ? Math.min(...tops) : null,
+    lastBarBottom: bottoms.length ? Math.max(...bottoms) : null,
+    viewportHeight: el.clientHeight,
+    canvasHeight: canvasHeight.value,
+  })
+}
+
+/**
+ * Set the moment the reader takes control, after which nothing moves the
+ * canvas under them again.
+ *
+ * Latching on "we have landed once" is not enough. The sync pool streams bars
+ * in and the window is derived from that data, so the first bar to arrive lands
+ * on a 684px canvas which then grows to 3276px as the rest follow — a landing
+ * that was correct for a canvas which no longer exists, and measurably left the
+ * view at scrollTop 0. Re-landing on each change until the reader intervenes is
+ * what makes it settle in the right place.
+ */
+const userTookOver = ref(false)
+
+watch(
+  [() => placed.value.length, canvasHeight],
+  ([count]) => {
+    if (userTookOver.value || count === 0) return
+    void nextTick(landOnTheWork)
+  },
+  { immediate: true },
+)
+
 function blockStyle(p: { item: ScheduledCard; lane: number }) {
   const top = differenceInCalendarDays(p.item.start, window_.value.start) * PX_PER_DAY
   const height = blockHeight(p)
@@ -392,6 +445,9 @@ function onResize(el: HTMLElement | null): void {
       v-else
       ref="scrollerEl"
       class="flex-1 min-h-0 overflow-auto overscroll-contain"
+      @wheel.passive="userTookOver = true"
+      @touchstart.passive="userTookOver = true"
+      @pointerdown="userTookOver = true"
     >
       <!-- Canvas. Height is proportional to the window's duration, so vertical
            distance is time; nothing here is a fixed-height row. Width is the

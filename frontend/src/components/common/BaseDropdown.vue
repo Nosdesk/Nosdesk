@@ -146,7 +146,21 @@ const allSelected = computed(() => {
 const sizeClasses = computed(() => {
   switch (props.size) {
     case 'xs':
-      return { button: 'px-1.5 py-0.5 text-sm', menu: 'text-sm', option: 'px-3 py-1.5' }
+      // `py-0.5` gives a 26px-tall trigger, well under the 44px a finger needs,
+      // and `xs` is what the toolbars use — it was the only sub-44px control in
+      // the project views. Grow the target on a coarse pointer without touching
+      // the dense desktop size. Keyed on pointer type rather than a breakpoint
+      // so a narrow desktop window does not get touch sizing it has no use for.
+      //
+      // `min-h` rather than more padding: the trigger is already `flex
+      // items-center`, so stating the 44px floor once is exact, where padding
+      // arithmetic has to be re-derived whenever the font metrics move (2.5
+      // landed it on 42px).
+      return {
+        button: 'px-1.5 py-0.5 text-sm pointer-coarse:min-h-[44px] pointer-coarse:px-3',
+        menu: 'text-sm',
+        option: 'px-3 py-1.5 pointer-coarse:min-h-[44px]',
+      }
     case 'sm':
       return { button: 'px-3 py-1.5 text-sm', menu: 'text-sm', option: 'px-3 py-2' }
     case 'lg':
