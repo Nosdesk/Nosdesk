@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { logger } from '@nosdesk/core/utils/logger'
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { useFluent } from 'fluent-vue';
 import ProgressBar from '@/components/ticketComponents/ProgressBar.vue';
@@ -44,7 +45,7 @@ const formatTime = (seconds: number): string => {
 const log = (event: string, details?: any) => {
   // Only log critical events, not mouse movements
   if (!event.includes('mousemove') && !event.includes('showControls')) {
-    console.log(`[VideoPlayer] ${event}`, details || '');
+    logger.debug(`[VideoPlayer] ${event}`, { details });
   }
 };
 

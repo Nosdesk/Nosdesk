@@ -32,11 +32,6 @@ const props = withDefaults(defineProps<Props>(), {
   compact: false
 });
 
-// Debug logging
-if (props.attachment.transcription) {
-  console.log('[AttachmentPreview] Has transcription:', props.attachment.transcription);
-}
-
 const emit = defineEmits<{
   (e: 'delete'): void;
   (e: 'submit'): void;

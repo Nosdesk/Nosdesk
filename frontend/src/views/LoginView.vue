@@ -136,7 +136,6 @@ const handleLogin = async () => {
 
     // Check if MFA setup is required and redirect to MFA setup view
     if (authStore.mfaSetupRequired) {
-      console.log('🔄 MFA setup required, redirecting to MFA setup view');
 
       // Store credentials securely in memory-only Pinia store
       mfaSetupStore.setCredentials(email.value, password.value, 'login');

@@ -97,7 +97,7 @@ async function unverify() {
     ref="triggerRef"
     type="button"
     class="inline-flex items-center gap-1 rounded px-1 -mx-1 hover:bg-surface-hover transition-colors text-secondary"
-    :class="{ 'text-emerald-700 dark:text-emerald-400': state === 'fresh' }"
+    :class="{ 'text-status-success': state === 'fresh' }"
     :title="state === 'fresh'
       ? $t('docs-author-badge-title-verified', { author: authorName, relative: formatRelativeTime(page.verified_at!) })
       : $t('docs-author-badge-title-basic', { author: authorName })"

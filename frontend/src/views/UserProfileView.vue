@@ -267,7 +267,6 @@ const saveUser = async () => {
             }
 
             const newUser = await userService.createUser(userData);
-            console.log('✅ User created successfully:', newUser);
 
             if (!newUser?.uuid) {
                 console.error('User created but no UUID returned:', newUser);
@@ -276,9 +275,7 @@ const saveUser = async () => {
             }
 
             // Navigate to the newly created user (replace history so back button goes to users list)
-            console.log('🔄 Navigating to user:', `/users/${newUser.uuid}`);
             await router.replace(`/users/${newUser.uuid}`);
-            console.log('✅ Navigation complete');
         } else {
             // Update existing user
             if (!userProfile.value) return;

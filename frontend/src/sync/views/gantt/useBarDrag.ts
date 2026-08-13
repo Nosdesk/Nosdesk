@@ -7,6 +7,10 @@
  * continuous geometry with no lane and no click threshold on the
  * handles; the two models share nothing but pointer events.
  *
+ * Axis-agnostic: desktop runs time on X, the vertical timeline on Y.
+ * The drag model is identical; only which client coordinate maps to
+ * a day changes.
+ *
  * Semantics ("respect the data" rule):
  * - `due` handle: moves `due_date`, clamped after the start.
  * - `start` handle: moves `start_date`, clamped before the due.
@@ -27,9 +31,8 @@ import { createDragEdgeScroller } from '@/composables/useDragEdgeScroll'
 import { daysBetween } from '@/composables/useGanttViewport'
 import { createTouchHold } from '@/sync/views/touchHold'
 
-
-
 export type BarDragMode = 'move' | 'start' | 'due'
+export type BarDragAxis = 'x' | 'y'
 
 export interface BarDragPreview {
   cardId: number
@@ -49,17 +52,36 @@ export interface BarDragCommit {
   end: Date
 }
 
+/**
+ * Day offset (from canvasStart) under a client coordinate on the
+ * time axis. Pure so vertical and horizontal projection share one
+ * snap rule.
+ */
+export function dayOffsetAt(
+  client: number,
+  origin: number,
+  pxPerDay: number,
+): number {
+  return Math.round((client - origin) / pxPerDay)
+}
+
 export function useBarDrag(options: {
   pxPerDay: Ref<number>
   canvasStart: Ref<Date>
-  /** Timeline body cell; its rect's left edge is canvas x = 0. */
+  /** Timeline body; its rect's time-axis edge is canvas offset 0. */
   bodyEl: Ref<HTMLElement | null>
-  /** The two-axis scroll container, for edge auto-scroll. */
+  /** The scroll container, for edge auto-scroll. */
   scroller: Ref<HTMLElement | null>
+  /**
+   * Which client axis is time. Default `x` preserves the desktop
+   * board; the vertical timeline passes `y`.
+   */
+  axis?: BarDragAxis
   onCommit: (commit: BarDragCommit) => void
   /** Fired when a press becomes an actual drag (dismiss hover). */
   onDragStart?: () => void
 }) {
+  const axis: BarDragAxis = options.axis ?? 'x'
   const preview = ref<BarDragPreview | null>(null)
 
   let pointerId: number | null = null
@@ -76,21 +98,29 @@ export function useBarDrag(options: {
   const edgeScroller = createDragEdgeScroller({
     getTargets: () => {
       const el = options.scroller.value
-      return el ? [{ el, axes: 'x' as const }] : []
+      // Vertical canvas pans on both axes once concurrency exceeds the
+      // legibility floor; desktop gantt only edge-scrolls time (X).
+      const axes = axis === 'y' ? ('both' as const) : ('x' as const)
+      return el ? [{ el, axes }] : []
     },
-    onTick: (clientX) => {
+    onTick: (clientX, clientY) => {
       // Scrolling under a stationary pointer changes the day under
       // it; re-derive the preview.
-      if (dragging) applyPointer(clientX)
+      if (dragging) applyPointer(axisCoord(clientX, clientY))
     },
   })
 
-  /** Day offset (from canvasStart) under a client x. */
-  function dayAt(clientX: number): number {
+  function axisCoord(clientX: number, clientY: number): number {
+    return axis === 'y' ? clientY : clientX
+  }
+
+  /** Day offset (from canvasStart) under the pointer on the time axis. */
+  function dayAt(client: number): number {
     const body = options.bodyEl.value
     if (!body) return 0
     const rect = body.getBoundingClientRect()
-    return Math.round((clientX - rect.left) / options.pxPerDay.value)
+    const origin = axis === 'y' ? rect.top : rect.left
+    return dayOffsetAt(client, origin, options.pxPerDay.value)
   }
 
   function begin(
@@ -103,7 +133,7 @@ export function useBarDrag(options: {
     mode = m
     downX = event.clientX
     downY = event.clientY
-    downDay = dayAt(event.clientX)
+    downDay = dayAt(axisCoord(event.clientX, event.clientY))
     dragging = m !== 'move' // handles drag immediately; body waits for threshold
     preview.value = {
       cardId: bar.cardId,
@@ -133,19 +163,19 @@ export function useBarDrag(options: {
     })
   }
 
-  function applyPointer(clientX: number): void {
+  function applyPointer(client: number): void {
     const p = preview.value
     if (!p || !mode) return
     if (mode === 'due') {
-      let end = addDays(options.canvasStart.value, dayAt(clientX))
+      let end = addDays(options.canvasStart.value, dayAt(client))
       if (end.getTime() <= p.origStart.getTime()) end = addDays(p.origStart, 1)
       preview.value = { ...p, end }
     } else if (mode === 'start') {
-      let start = addDays(options.canvasStart.value, dayAt(clientX))
+      let start = addDays(options.canvasStart.value, dayAt(client))
       if (start.getTime() >= p.origEnd.getTime()) start = addDays(p.origEnd, -1)
       preview.value = { ...p, start }
     } else {
-      const delta = dayAt(clientX) - downDay
+      const delta = dayAt(client) - downDay
       preview.value = {
         ...p,
         start: addDays(p.origStart, delta),
@@ -160,17 +190,18 @@ export function useBarDrag(options: {
       // On touch, movement before the hold completes is a pan, not a drag.
       // Abandon the press so the browser keeps the gesture.
       if (touchHold.isTouch) {
-        if (touchHold.exceedsSlop(event.clientX - downX)) teardown()
+        if (touchHold.exceedsSlop(event.clientX - downX, event.clientY - downY)) teardown()
         return
       }
-      if (Math.abs(event.clientX - downX) <= 4) return
+      const delta = axis === 'y' ? event.clientY - downY : event.clientX - downX
+      if (Math.abs(delta) <= 4) return
       dragging = true
       options.onDragStart?.()
       edgeScroller.start()
       document.body.style.userSelect = 'none'
     }
     if (!dragging) return
-    applyPointer(event.clientX)
+    applyPointer(axisCoord(event.clientX, event.clientY))
     edgeScroller.update(event.clientX, event.clientY)
   }
 

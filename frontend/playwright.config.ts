@@ -1,5 +1,8 @@
 import { defineConfig, devices } from '@playwright/test'
 
+/** Saved session from `auth.setup.ts`; mirrors `AUTH_STATE` in e2e/helpers.ts. */
+const AUTH_STATE = 'playwright/.auth/user.json'
+
 /**
  * End-to-end tests against the running dev stack.
  *
@@ -42,23 +45,63 @@ export default defineConfig({
   },
   projects: [
     {
+      // Logs in once and saves the session. Everything downstream reuses it, so
+      // no spec drives the auth flow just to reach the page it actually tests.
+      name: 'auth',
+      testMatch: /auth\.setup\.ts/,
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 390, height: 844 },
+        hasTouch: true,
+        isMobile: true,
+      },
+    },
+    {
+      // Setup project: asserts the demo seed still has the shape the suite is
+      // written against. The phone/desktop projects DEPEND on it, so a seed
+      // that drifts skips them with one plain message instead of surfacing as
+      // an unrelated timeout deep in a spec. Phone viewport because the
+      // vertical timeline it probes only renders below `md`.
+      name: 'seed-contract',
+      testMatch: /seed-contract\.spec\.ts/,
+      dependencies: ['auth'],
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 390, height: 844 },
+        hasTouch: true,
+        isMobile: true,
+        storageState: AUTH_STATE,
+      },
+    },
+    {
       // Spelled out rather than using an `iPhone` preset: those imply WebKit,
       // and the touch specs drive real gestures through CDP
       // (`Input.dispatchTouchEvent`), which is Chromium-only. A preset would
       // silently switch engines and fail to launch. 390x844 is the iPhone 14
       // viewport, which is what the layout numbers in these specs refer to.
       name: 'phone',
+      dependencies: ['seed-contract'],
+      testIgnore: /(seed-contract\.spec|auth\.setup)\.ts/,
       use: {
         ...devices['Desktop Chrome'],
         viewport: { width: 390, height: 844 },
         hasTouch: true,
         isMobile: true,
         deviceScaleFactor: 3,
+        // After the device spread, not before: a preset key would otherwise
+        // win and silently drop the saved session.
+        storageState: AUTH_STATE,
       },
     },
     {
       name: 'desktop',
-      use: { ...devices['Desktop Chrome'], viewport: { width: 1680, height: 1000 } },
+      dependencies: ['seed-contract'],
+      testIgnore: /(seed-contract\.spec|auth\.setup)\.ts/,
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 1680, height: 1000 },
+        storageState: AUTH_STATE,
+      },
     },
   ],
 })

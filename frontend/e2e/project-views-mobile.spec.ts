@@ -1,5 +1,13 @@
 import { test, expect } from '@playwright/test'
-import { BOARD, PROJECT_SPARSE, PROJECT_WITH_TICKETS, gotoAndSettle, login } from './helpers'
+import {
+  BOARD,
+  PROJECT_BOARD,
+  PROJECT_SPARSE,
+  PROJECT_TIMELINE,
+  Touch,
+  gotoAndSettle,
+  visibleTimelineCard,
+} from './helpers'
 
 const PROJECT_ROUTES = (id: number): Array<[string, string]> => [
   ['projects list', '/projects'],
@@ -20,7 +28,6 @@ test.describe('project views on a phone', () => {
 
   for (const [name, path] of PROJECT_ROUTES(PROJECT_SPARSE)) {
     test(`${name} does not overflow the viewport`, async ({ page }) => {
-      await login(page)
       await gotoAndSettle(page, path)
 
       // The cardinal mobile bug: the page itself scrolling sideways. Content
@@ -36,7 +43,6 @@ test.describe('project views on a phone', () => {
   }
 
   test('no control renders outside the viewport', async ({ page }) => {
-    await login(page)
     await gotoAndSettle(page, '/projects')
 
     // Regression: `hidden lg:inline-flex` passed to a component merged with the
@@ -71,8 +77,7 @@ test.describe('project views on a phone', () => {
   })
 
   test('the board opens on a column that has work in it', async ({ page }) => {
-    await login(page)
-    await gotoAndSettle(page, `/projects/${PROJECT_WITH_TICKETS}`, '[data-card-id]')
+    await gotoAndSettle(page, `/projects/${PROJECT_BOARD}`, '[data-card-id]')
 
     // Separated from the visibility check on purpose: without this, a pool that
     // had not hydrated yet reads as "the board opened on the wrong column",
@@ -83,13 +88,15 @@ test.describe('project views on a phone', () => {
     // Columns render in workflow order, so the board would otherwise open on
     // Triage / Backlog — routinely empty — with the tickets several swipes away.
     //
-    // Intersection, not full containment. `board-touch-drag.spec.ts` drives this
-    // same project and moves cards between columns, so which column the landing
-    // scroll targets varies by the time this runs; demanding a card sit ENTIRELY
-    // inside the viewport failed whenever the board came to rest between two
-    // columns, which is a snap position rather than a bug. Anything off-screen
-    // still reads as zero, so this keeps catching the case it exists for: the
-    // board opening on an empty column with the work several swipes away.
+    // Intersection, not full containment: the board snaps to columns, so it can
+    // legitimately come to rest between two with a card straddling the edge.
+    // Anything genuinely off-screen still reads as zero, so this keeps catching
+    // the case it exists for — the board opening on an empty column with the
+    // work several swipes away.
+    //
+    // The drag spec shares this project and rearranges its columns, which is
+    // deliberate and harmless here: this asserts that the board lands on a
+    // populated column, whichever one that happens to be.
     const cardsOnScreen = await page.evaluate((sel) => {
       const board = document.querySelector(sel)
       if (!board) return -1
@@ -102,7 +109,6 @@ test.describe('project views on a phone', () => {
   })
 
   test('the gantt keeps its empty state on screen', async ({ page }) => {
-    await login(page)
     await gotoAndSettle(page, `/projects/${PROJECT_SPARSE}/gantt`)
 
     // Regression: the hint carried a 240px minimum against a ~190px visible
@@ -116,5 +122,51 @@ test.describe('project views on a phone', () => {
     const vw = page.viewportSize()!.width
     expect(box!.x, 'hint starts on screen').toBeGreaterThanOrEqual(0)
     expect(box!.x + box!.width, 'hint ends on screen').toBeLessThanOrEqual(vw + 1)
+  })
+
+  test('holding and moving a planned timeline block reschedules it, then restores it', async ({ page, context }) => {
+    await gotoAndSettle(page, `/projects/${PROJECT_TIMELINE}/gantt`, '[data-timeline-card-id]')
+
+    // Not a skip. `seed-contract.spec.ts` already guarantees this project has a
+    // planned block, so an absence here is a real failure — and the old skip was
+    // unreachable anyway, because the selector wait above it timed out first.
+    const card = await visibleTimelineCard(page)
+    expect(card, 'seed contract guarantees a planned timeline block').not.toBeNull()
+
+    const selector = `[data-timeline-card-id="${card!.id}"]`
+    const before = await page.locator(selector).boundingBox()
+    expect(before).not.toBeNull()
+
+    // The timeline's scale is 36px/day. Two days clears the touch slop and
+    // makes a snapped change unmistakable without running into the viewport
+    // edge, where the intentionally-enabled auto-scroll would be a different
+    // behaviour under test.
+    const delta = 72
+    const move = async (fromY: number, by: number): Promise<void> => {
+      const pushed = page.waitForRequest((request) =>
+        request.url().endsWith('/api/sync/push')
+          && request.method() === 'POST'
+          && request.postData()?.includes(`\"model_id\":\"${card!.id}\"`) === true
+          && request.postData()?.includes('start_date') === true
+          && request.postData()?.includes('due_date') === true,
+      )
+      const touch = await Touch.create(context, page)
+      await touch.start(card!.x, fromY)
+      await page.waitForTimeout(500)
+      for (let i = 1; i <= 8; i++) {
+        await touch.move(card!.x, fromY + (by * i) / 8)
+        await page.waitForTimeout(16)
+      }
+      await touch.end()
+      await pushed
+    }
+
+    await move(card!.y, delta)
+    await expect.poll(async () => (await page.locator(selector).boundingBox())?.y).toBeGreaterThan(before!.y + 40)
+
+    const moved = await page.locator(selector).boundingBox()
+    expect(moved).not.toBeNull()
+    await move(Math.round(moved!.y + moved!.height / 2), -delta)
+    await expect.poll(async () => (await page.locator(selector).boundingBox())?.y).toBeLessThan(before!.y + 8)
   })
 })

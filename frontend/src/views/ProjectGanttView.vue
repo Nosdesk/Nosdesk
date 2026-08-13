@@ -213,7 +213,9 @@ const headerSubtitle = computed(() => {
       v-if="isMobile"
       class="flex-1 min-h-0"
       :cards="cards"
+      :cycles="cycles"
       :on-card-click="openCard"
+      :on-reschedule="reschedule"
     />
     <GanttBoard
       v-else

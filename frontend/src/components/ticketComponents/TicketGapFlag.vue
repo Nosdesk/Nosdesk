@@ -41,16 +41,16 @@ async function unflag() {
 <template>
   <div
     v-if="isFlagged && gap"
-    class="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 flex items-start gap-2 print:hidden"
+    class="rounded-lg border border-status-warning/30 bg-status-warning-muted px-3 py-2 flex items-start gap-2 print:hidden"
   >
-    <Icon name="warning" class="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+    <Icon name="warning" class="text-status-warning flex-shrink-0 mt-0.5" />
     <div class="flex-1 min-w-0">
-      <p class="text-xs font-medium text-amber-800 dark:text-amber-200">
+      <p class="text-xs font-medium text-status-warning">
         {{ t('ticket-chip-gap-flagged') }}
       </p>
       <RouterLink
         :to="`/documentation/gaps/${gap.id}`"
-        class="text-[11px] text-amber-700 dark:text-amber-300 hover:underline"
+        class="text-[11px] text-status-warning hover:underline"
       >
         {{ t('ticket-chip-gap-view-queue') }}
       </RouterLink>

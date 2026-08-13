@@ -12,17 +12,18 @@
  */
 
 import type { App } from 'vue'
+import { logger } from '@nosdesk/core/utils/logger'
 // import * as Sentry from '@sentry/vue'
 // import router from '@/router'
 
 export function initErrorTracking(_app: App) {
   if (!import.meta.env.PROD) {
-    console.log('Error tracking disabled in development mode')
+    logger.debug('Error tracking disabled in development mode')
     return
   }
 
   // Stub implementation - will log to console in production for now
-  console.log('Error tracking initialized (stub)')
+  logger.info('Error tracking initialized (stub)')
 
   /*
   // To enable Sentry, uncomment this block:
@@ -103,7 +104,7 @@ export const ErrorTracker = {
   captureMessage: (message: string, level: 'info' | 'warning' | 'error' = 'info') => {
     if (import.meta.env.PROD) {
       // Stub implementation - log to console
-      console.log(`[ErrorTracker] ${level.toUpperCase()}:`, message)
+      logger.debug(`[ErrorTracker] ${level.toUpperCase()}: ${message}`)
 
       /*
       // To enable Sentry, uncomment this:
@@ -115,7 +116,7 @@ export const ErrorTracker = {
   setUser: (user: { id: string; username?: string; email?: string }) => {
     if (import.meta.env.PROD) {
       // Stub implementation - log to console
-      console.log('[ErrorTracker] User set:', user.id)
+      logger.debug('[ErrorTracker] User set', { id: user.id })
 
       /*
       // To enable Sentry, uncomment this:
@@ -127,7 +128,7 @@ export const ErrorTracker = {
   clearUser: () => {
     if (import.meta.env.PROD) {
       // Stub implementation - log to console
-      console.log('[ErrorTracker] User cleared')
+      logger.debug('[ErrorTracker] User cleared')
 
       /*
       // To enable Sentry, uncomment this:

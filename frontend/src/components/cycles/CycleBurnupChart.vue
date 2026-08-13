@@ -400,14 +400,22 @@ const readoutLeft = computed(() => xPct(hoverX.value) <= 55)
           >
 
           <!-- Direct end-of-line labels (one per series), anchored to the
-               right edge so they never overflow. -->
+               right edge so they never overflow.
+
+               On a plate, because anchoring to the edge only guarantees they
+               stay inside the frame, not that they stay off the lines: the
+               right gutter is 30 of 640 viewBox units, which is ~15px on a
+               phone, so a label several times that wide extends back over the
+               plot and the series stroke runs straight through the text. The
+               plate masks the stroke; it helps on a desktop too, where the two
+               series converge at the end of a finished cycle. -->
           <span
-            class="absolute right-0 -translate-y-1/2 font-medium text-secondary"
+            class="absolute right-0 -translate-y-1/2 rounded-sm bg-surface px-1 font-medium text-secondary"
             :style="{ top: `${yPct(labelYs.grey)}%` }"
             >{{ hasFuture ? t('cycle-burnup-label-pace') : t('cycle-burnup-legend-scope') }}</span
           >
           <span
-            class="absolute right-0 -translate-y-1/2 font-semibold text-accent"
+            class="absolute right-0 -translate-y-1/2 rounded-sm bg-surface px-1 font-semibold text-accent"
             :style="{ top: `${yPct(labelYs.accent)}%` }"
             >{{ hasFuture ? t('cycle-burnup-label-forecast') : t('cycle-burnup-legend-completed') }}</span
           >

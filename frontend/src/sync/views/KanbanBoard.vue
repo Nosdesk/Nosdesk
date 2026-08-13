@@ -887,7 +887,13 @@ function affectedDevicesTooltip(card: CardData): string {
       @dragover="onExternalDragOver"
       @drop="onExternalDrop"
     >
-      <div class="kanban-board-inner flex min-h-full min-w-min gap-3 p-3 items-start max-md:scroll-px-3">
+      <!-- `items-start` sizes each column to its content, which is right on a
+           desktop where every column is on screen and a ragged bottom edge
+           reads as "this one has less in it". Below `md` one column fills the
+           viewport, so content-sizing instead leaves a stunted white box
+           floating in grey — an empty lane rendered as 352px of nothing. Stretch
+           there so the column you are looking at occupies the screen. -->
+      <div class="kanban-board-inner flex min-h-full min-w-min gap-3 p-3 items-start max-md:items-stretch max-md:scroll-px-3">
       <div
         v-for="lane in lanes"
         :key="lane.id"

@@ -607,7 +607,7 @@ watch(documentObj, (newDocument) => {
         <button
           v-if="document && document.status !== 'published'"
           @click="handlePublishPage"
-          class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
+          class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-status-success text-white hover:opacity-90 transition-colors"
         >
           <Icon name="check" />
           <span class="hidden sm:inline">{{ $t('doc-detail-publish') }}</span>
@@ -618,7 +618,7 @@ watch(documentObj, (newDocument) => {
           v-if="isDocumentPage"
           @click="isStarred ? handleUnstar() : handleStar()"
           class="p-1.5 rounded-md hover:bg-surface-hover transition-colors"
-          :class="isStarred ? 'text-amber-500' : 'text-secondary hover:text-primary'"
+          :class="isStarred ? 'text-brand-gold' : 'text-secondary hover:text-primary'"
           :title="isStarred ? $t('doc-detail-unstar') : $t('doc-detail-star')"
         >
           <svg class="w-5 h-5" :fill="isStarred ? 'currentColor' : 'none'" stroke="currentColor" viewBox="0 0 24 24">
@@ -634,7 +634,7 @@ watch(documentObj, (newDocument) => {
           :title="copiedLink ? $t('doc-detail-copied') : $t('doc-detail-copy-link')"
         >
           <Icon v-if="!copiedLink" name="link" size="md" />
-          <Icon v-else name="check" size="md" class="text-emerald-500" />
+          <Icon v-else name="check" size="md" class="text-status-success" />
         </button>
 
         <!-- Document actions menu -->
@@ -707,8 +707,8 @@ watch(documentObj, (newDocument) => {
                 <!-- Metadata -->
                 <div class="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-tertiary">
                   <!-- Status Badge -->
-                  <span v-if="document.status === 'draft'" class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 font-medium">{{ $t('doc-detail-status-draft') }}</span>
-                  <span v-else-if="document.status === 'archived'" class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 dark:bg-gray-700/50 dark:text-gray-300 font-medium">{{ $t('doc-detail-status-archived') }}</span>
+                  <span v-if="document.status === 'draft'" class="text-[10px] px-1.5 py-0.5 rounded bg-status-warning-muted text-status-warning font-medium">{{ $t('doc-detail-status-draft') }}</span>
+                  <span v-else-if="document.status === 'archived'" class="text-[10px] px-1.5 py-0.5 rounded bg-surface-alt text-secondary font-medium">{{ $t('doc-detail-status-archived') }}</span>
 
                   <!--
                     Verification status chip — sits next to the
@@ -734,7 +734,7 @@ watch(documentObj, (newDocument) => {
                   <button
                     v-else-if="document.is_stale"
                     type="button"
-                    class="text-[10px] px-1.5 py-0.5 rounded font-medium bg-amber-500/15 text-amber-700 dark:text-amber-300 hover:bg-amber-500/25 transition-colors flex items-center gap-1 animate-pulse"
+                    class="text-[10px] px-1.5 py-0.5 rounded font-medium bg-status-warning-muted text-status-warning hover:bg-status-warning/25 transition-colors flex items-center gap-1 animate-pulse"
                     :title="$t('doc-detail-verification-stale-title')"
                     @click="verificationOpen = true"
                   >

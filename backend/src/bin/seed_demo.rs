@@ -123,6 +123,18 @@ struct DemoTicket {
     #[serde(default)]
     device: Option<String>,
     created_days_ago: i64,
+    /// Planned span, relative to seed time and signed the natural way round:
+    /// negative is in the past, positive in the future. Both optional and
+    /// independent — `due_in_days` alone is a deadline with no planned start,
+    /// which the timeline draws as a day-tall marker rather than a bar.
+    ///
+    /// Only meaningful on non-terminal tickets: the timeline filters finished
+    /// work out, and a plan attached to something already closed reads as a
+    /// record rather than an intention.
+    #[serde(default)]
+    start_in_days: Option<i64>,
+    #[serde(default)]
+    due_in_days: Option<i64>,
     #[serde(default)]
     closed_hours_after: Option<i64>,
     #[serde(default)]
@@ -448,8 +460,14 @@ fn seed(
             verification_state: None,
             origin_channel_id: None,
             triage_state: None,
-            due_date: None,
-            start_date: None,
+            // Signed the natural way round in the dataset, so `+3` reads as
+            // "three days from now" rather than needing a mental negation.
+            due_date: dt
+                .due_in_days
+                .map(|d| (now + Duration::days(d)).naive_utc()),
+            start_date: dt
+                .start_in_days
+                .map(|d| (now + Duration::days(d)).naive_utc()),
             recurrence_rule: None,
             recurrence_template_id: None,
             resolution_notes: None,

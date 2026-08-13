@@ -7,10 +7,46 @@ import type { BrowserContext, Page } from '@playwright/test'
 export const DEMO_EMAIL = 'noah@demo.nosdesk.test'
 export const DEMO_PASSWORD = 'Demo1234!'
 
-/** Demo projects. `WITH_TICKETS` has tickets spread across several columns,
- *  which is what makes the landing and drag specs meaningful. */
-export const PROJECT_WITH_TICKETS = 3
-export const PROJECT_SPARSE = 2
+/**
+ * Demo projects, split by SURFACE, because that is what determines whether one
+ * spec's writes can hurt another's assertions.
+ *
+ * Kanban drags move a card between columns. That is harmless to board
+ * assertions — a card in any column is still on the board — but it is fatal to
+ * timeline assertions, because cards drift monotonically toward `done` and
+ * terminal work is filtered out of the timeline. Repeated runs emptied the
+ * timeline of whichever project the drag spec shared with it.
+ *
+ * So the boards and the timeline get different projects. Restoring the card
+ * through a second drag was tried and abandoned: the board auto-pans mid-drag,
+ * so any drop coordinate computed beforehand is stale, and the restore missed
+ * by a column. Housekeeping should not be a second flaky gesture.
+ *
+ * The shapes these names promise are asserted once, up front, by
+ * `seed-contract.spec.ts` — so a seed change fails there with a plain message
+ * instead of surfacing as a timeout inside an unrelated spec.
+ *
+ * Shapes are stated as what `DEMO_EMAIL` can SEE, not what the database holds.
+ * That account is a member, so it sees only its own tickets: project 2 holds 16
+ * but shows this user 3, and only project 3's planned work belongs to them.
+ * Reading the raw table instead is what made a first pass at this hand the
+ * mutable project to one whose timeline is empty for the test user.
+ */
+/** Board specs, including the drags. They rearrange its columns freely; no
+ *  assertion here depends on which column a card is in. */
+export const PROJECT_BOARD = 2
+/** Timeline specs. The only project whose planned blocks are visible to this
+ *  user, so nothing may push its tickets into a terminal state. The reschedule
+ *  spec restores the dates it moves. */
+export const PROJECT_TIMELINE = 3
+/** No scheduled work, so the timeline's empty state is reachable. */
+export const PROJECT_SPARSE = 1
+
+/**
+ * Where `auth.setup.ts` parks the signed-in session for the other projects.
+ * Gitignored: it holds live session cookies.
+ */
+export const AUTH_STATE = 'playwright/.auth/user.json'
 
 export async function login(page: Page): Promise<void> {
   await page.goto('/login', { waitUntil: 'domcontentloaded' })
@@ -121,6 +157,29 @@ export interface BoardCard {
   y: number
 }
 
+/** A planned block in the mobile vertical timeline. The E2E drag test uses a
+ * ticket with an authored start so its forward-and-back gesture restores the
+ * exact original dates, rather than promoting an inferred start as a side
+ * effect of the coverage itself. */
+export interface TimelineCard {
+  id: string
+  x: number
+  y: number
+}
+
+export async function visibleTimelineCard(page: Page): Promise<TimelineCard | null> {
+  const card = page.locator('[data-timeline-card-id][data-timeline-has-start-date="true"]').first()
+  if ((await card.count()) === 0) return null
+  await card.scrollIntoViewIfNeeded()
+  const box = await card.boundingBox()
+  if (!box) return null
+  return {
+    id: await card.getAttribute('data-timeline-card-id') ?? '',
+    x: Math.round(box.x + box.width / 2),
+    y: Math.round(box.y + box.height / 2),
+  }
+}
+
 /**
  * A card to drive a gesture against, scrolling it into view if needed.
  *
@@ -178,6 +237,21 @@ function firstOnScreenCard(page: Page): Promise<BoardCard | null> {
  * card and taking the first ancestor in a plausible width range picked up the
  * wrong heading and reported a column the card was never in.
  */
+/**
+ * Locate one specific card by id, scrolling it into view first.
+ *
+ * `visibleCard` finds *a* card; this finds *the* card, which is what a restore
+ * step needs — after a move it sits in a different column, often off-screen.
+ */
+export async function cardById(page: Page, id: string): Promise<BoardCard | null> {
+  const el = page.locator(`[data-card-id="${id}"]`).first()
+  if ((await el.count()) === 0) return null
+  await el.scrollIntoViewIfNeeded()
+  const box = await el.boundingBox()
+  if (!box) return null
+  return { id, x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) }
+}
+
 export function columnOfCard(page: Page, id: string): Promise<string | null> {
   return page.evaluate(
     ({ sel, id }) => {
@@ -205,6 +279,38 @@ export function columnOfCard(page: Page, id: string): Promise<string | null> {
  * ask for is impossible. Choosing the direction also keeps the data balanced:
  * cards oscillate instead of drifting to an edge.
  */
+/**
+ * Viewport x of a column's centre, by its heading, scrolling it into view.
+ *
+ * A restore step cannot reverse the forward gesture by the same pixel delta:
+ * columns are ~74% of a phone viewport, so a fixed 200px nudge that was enough
+ * to leave a column is not necessarily enough to re-enter the original one, and
+ * the card lands one short. Targeting the column itself is width-independent.
+ */
+export async function columnCenterX(page: Page, heading: string): Promise<number | null> {
+  return page.evaluate(
+    ({ sel, heading }) => {
+      const inner = document.querySelector(sel)?.firstElementChild
+      if (!inner) return null
+      for (const column of [...inner.children]) {
+        const h = column.querySelector('h2, h3')?.textContent?.trim()
+        if (h !== heading) continue
+        const board = document.querySelector(sel) as HTMLElement
+        const r = column.getBoundingClientRect()
+        const br = board.getBoundingClientRect()
+        // Bring it fully on screen so the drop coordinate is reachable.
+        if (r.left < br.left || r.right > br.right) {
+          board.scrollLeft += r.left - br.left - 8
+        }
+        const after = column.getBoundingClientRect()
+        return Math.round(after.left + after.width / 2)
+      }
+      return null
+    },
+    { sel: BOARD, heading },
+  )
+}
+
 export function dragDirection(page: Page, id: string): Promise<number> {
   return page.evaluate(
     ({ sel, id }) => {

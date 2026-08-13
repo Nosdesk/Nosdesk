@@ -60,12 +60,10 @@ const scrollContainer = ref<HTMLElement | null>(null);
 // Load requester's devices first (for immediate display at top)
 const loadRequesterDevices = async () => {
   if (import.meta.env.DEV) {
-    console.log('DeviceSelectionModal: loadRequesterDevices called with requesterUuid:', props.requesterUuid);
   }
   
   if (!props.requesterUuid) {
     if (import.meta.env.DEV) {
-      console.log('DeviceSelectionModal: No requester UUID provided, skipping requester devices load');
     }
     return;
   }
@@ -73,13 +71,11 @@ const loadRequesterDevices = async () => {
   loadingRequesterDevices.value = true;
   try {
     if (import.meta.env.DEV) {
-      console.log(`DeviceSelectionModal: Fetching devices for requester ${props.requesterUuid}`);
     }
     
     const devices = await getAssetsByUser(props.requesterUuid);
     
     if (import.meta.env.DEV) {
-      console.log(`DeviceSelectionModal: Received ${devices.length} devices from getAssetsByUser:`, devices);
     }
     
     // Filter out already assigned devices
@@ -90,15 +86,12 @@ const loadRequesterDevices = async () => {
       );
       
       if (import.meta.env.DEV) {
-        console.log(`DeviceSelectionModal: Filtered out existing devices. ${devices.length} -> ${filteredDevices.length} devices`);
-        console.log('DeviceSelectionModal: Existing device IDs:', props.existingDeviceIds);
       }
     }
     
     requesterDevices.value = filteredDevices;
     
     if (import.meta.env.DEV) {
-      console.log(`DeviceSelectionModal: Set requesterDevices to ${filteredDevices.length} devices:`, filteredDevices);
     }
   } catch (err) {
     console.error('DeviceSelectionModal: Error loading requester devices:', err);
@@ -152,7 +145,6 @@ const loadDevices = async (page: number = 1, search: string = '', append: boolea
     hasMore.value = page < response.totalPages;
     currentPage.value = page;
     
-    console.log(`Loaded page ${page}: ${response.data.length} devices, total: ${response.total}`);
   } catch (err) {
     console.error('Error loading devices:', err);
     error.value = t('asset-modal-load-failed');
@@ -219,12 +211,6 @@ const allDevicesForDisplay = computed(() => {
   ];
   
   if (import.meta.env.DEV) {
-    console.log('DeviceSelectionModal: allDevicesForDisplay computed:', {
-      requesterDevicesCount: requesterDevices.value.length,
-      paginatedDevicesCount: devices.value.length,
-      totalCombined: combinedDevices.length,
-      combinedDevices
-    });
   }
   
   return combinedDevices;
@@ -244,11 +230,6 @@ const hasDevicesToShow = computed(() => {
 watch(() => props.show, (newValue) => {
   if (newValue) {
     if (import.meta.env.DEV) {
-      console.log('DeviceSelectionModal: Modal opened, initializing...', {
-        requesterUuid: props.requesterUuid,
-        existingDeviceIds: props.existingDeviceIds,
-        currentTicketId: props.currentTicketId
-      });
     }
     
     // Reset state
@@ -263,7 +244,6 @@ watch(() => props.show, (newValue) => {
     // Load initial data
     nextTick(() => {
       if (import.meta.env.DEV) {
-        console.log('DeviceSelectionModal: Starting data load in nextTick');
       }
       loadRequesterDevices();
       loadDevices(1, '', false);

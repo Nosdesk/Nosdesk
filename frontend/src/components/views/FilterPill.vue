@@ -6,8 +6,11 @@
  *  - Body click  -> opens the value picker (re-edit selection)
  *  - X button    -> removes the filter entirely
  *
- * Style mirrors the reference design: bordered amber/accent pill
- * with the facet label, a colon, and a short value summary.
+ * Styled as an active control: the same `border-accent/40 bg-accent/10
+ * text-accent` treatment GroupByMenu uses for an active axis, so an
+ * applied filter and an applied grouping read as one system. It was
+ * hardcoded amber, which drifted from the accent beside it and ignored
+ * the theme entirely — the accent is per-theme and workspace-brandable.
  *
  * Title-facet pills get a text input in the popover instead of
  * the checkbox list, so search lives in the same affordance as
@@ -73,12 +76,12 @@ function onRemove(e: MouseEvent): void {
   <div class="inline-flex">
     <div
       ref="triggerRef"
-      class="inline-flex items-center h-6 rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300 text-[11px] overflow-hidden"
+      class="inline-flex items-center h-6 rounded-md border border-accent/40 bg-accent/10 text-accent text-[11px] overflow-hidden"
     >
       <button
         type="button"
         class="inline-flex items-center gap-1 pl-2 pr-1.5 h-full transition-colors"
-        :class="open ? 'bg-amber-500/20' : 'hover:bg-amber-500/15'"
+        :class="open ? 'bg-accent/20' : 'hover:bg-accent/15'"
         :aria-expanded="open"
         aria-haspopup="menu"
         @click="open = !open"
@@ -88,7 +91,7 @@ function onRemove(e: MouseEvent): void {
       </button>
       <button
         type="button"
-        class="inline-flex items-center justify-center h-full pr-1.5 pl-0.5 hover:bg-amber-500/15 transition-colors"
+        class="inline-flex items-center justify-center h-full pr-1.5 pl-0.5 hover:bg-accent/15 transition-colors"
         :title="$t('views-filter-pill-remove-tooltip', { label })"
         @click="onRemove"
       >

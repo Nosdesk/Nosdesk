@@ -346,10 +346,8 @@ onMounted(async () => {
   try {
     // Only check if not already on onboarding or login pages
     if (route.name !== 'onboarding' && route.name !== 'login') {
-      console.log('🔄 App: Checking setup status on initialization...');
       const setupStatus = await authService.checkSetupStatus();
       if (setupStatus.requires_setup) {
-        console.log('🔄 App: System requires setup, redirecting to onboarding');
         router.push({ name: 'onboarding' });
       }
     }

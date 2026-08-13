@@ -99,7 +99,6 @@ const handleSelectRevision = async (revisionNumber: number | null) => {
 
     // Display the revision in the editor (read-only mode)
     editorRef.value.viewSnapshot(revisionData);
-    console.log('Revision data received:', revisionData);
   } catch (error) {
     console.error('Failed to fetch revision:', error);
   }
@@ -211,7 +210,6 @@ const confirmPromote = async () => {
         <RevisionList
           :ticket-id="ticketId"
           @select-revision="handleSelectRevision"
-          @restored="() => console.log('Revision restored')"
         />
       </aside>
     </div>

@@ -55,7 +55,6 @@ onMounted(() => {
 });
 
 const handlePdfReady = () => {
-  console.log('PDF loaded successfully');
 };
 
 const handlePdfError = (error: unknown) => {
@@ -73,7 +72,6 @@ const shareDocument = async () => {
   try {
     await navigator.clipboard.writeText(window.location.href);
     // Could add a toast notification here
-    console.log('Link copied to clipboard');
   } catch (err) {
     console.error('Failed to copy link:', err);
   }

@@ -272,7 +272,6 @@ const handleRecordingComplete = (recording: {
     duration: number;
     transcription?: string;
 }) => {
-    console.log('[CommentsAndAttachments] Recording complete, transcription:', recording.transcription);
 
     // Auto-stage the voice note as an attachment. The extension follows the
     // recorded format (iOS records mp4/m4a, others webm) so playback works and
@@ -291,11 +290,9 @@ const handleRecordingComplete = (recording: {
 
     if (recording.transcription) {
         (audioFile as any)._transcription = recording.transcription;
-        console.log('[CommentsAndAttachments] Attached transcription to file');
     }
 
     newAttachments.value = [...newAttachments.value, audioFile];
-    console.log('[CommentsAndAttachments] File _transcription:', (audioFile as any)._transcription);
     showRecordingInterface.value = false;
 };
 
@@ -698,7 +695,12 @@ const handlePastedFiles = async (files: File[]) => {
                                         ? 'bg-surface-hover text-tertiary cursor-not-allowed'
                                         : isInternal
                                             ? 'bg-status-warning text-white hover:opacity-90'
-                                            : 'bg-accent text-white hover:opacity-90'
+                                            // `text-on-accent`, not `text-white`: the accent
+                                            // foreground is picked per theme by luminance, and
+                                            // brand orange resolves to BLACK. White here was
+                                            // low-contrast on the default theme and unreadable
+                                            // on the light-accent presets (everforest, gruvbox).
+                                            : 'bg-accent text-on-accent hover:opacity-90'
                                 ]"
                                 :aria-label="isInternal ? $t('ticket-comments-submit-note') : $t('ticket-comments-submit-reply')"
                                 :title="isInternal ? $t('ticket-comments-submit-note') : $t('ticket-comments-submit-reply')"
