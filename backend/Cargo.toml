@@ -221,7 +221,7 @@ native-tls = "0.2"         # Underlying TLS connector type
 
 # LDAP / directory integration. native-tls features only (match the existing
 # TLS stack above; do NOT enable a rustls feature).
-ldap3 = { version = "0.11", default-features = false, features = ["tls-native"] }
+ldap3 = { version = "0.12", default-features = false, features = ["tls-native"] }
 mailparse = "0.16"         # RFC 5322 parser — headers, attachments, References chain
 
 # Application metrics. No recorder is installed by default — `counter!`
