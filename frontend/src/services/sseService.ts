@@ -78,12 +78,12 @@ class SSEService {
 
   // Get SSE token from backend with caching
   private async getSseToken(): Promise<string> {
-    // Return cached token if still valid (with 5 min buffer)
-    if (
-      this.sseToken &&
-      this.tokenExpiryTime &&
-      Date.now() < this.tokenExpiryTime - 300000
-    ) {
+    // `tokenExpiryTime` already has the refresh buffer subtracted (see below),
+    // so this is a plain comparison. The buffer is served by the backend rather
+    // than hardcoded here: the token TTL is deliberately short because it
+    // travels in the URL, and a buffer larger than the TTL would mean the cache
+    // never hits and every connect re-mints.
+    if (this.sseToken && this.tokenExpiryTime && Date.now() < this.tokenExpiryTime) {
       return this.sseToken;
     }
 
@@ -97,9 +97,13 @@ class SSEService {
       const response = await apiClient.post("/events/token");
       const data = response.data;
 
-      // Cache token and expiry
+      // Cache the token and the moment we should stop using it (expiry minus
+      // the backend-served refresh buffer), falling back to half the TTL if an
+      // older backend omits the field.
       this.sseToken = data.sse_token;
-      this.tokenExpiryTime = Date.now() + data.expires_in * 1000;
+      const bufferSecs = data.refresh_buffer ?? data.expires_in * 0.5;
+      this.tokenExpiryTime =
+        Date.now() + Math.max(0, data.expires_in - bufferSecs) * 1000;
 
       return this.sseToken!;
     } catch (error) {

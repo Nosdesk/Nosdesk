@@ -102,6 +102,30 @@ strip any client-supplied value. The `TRUSTED_PROXIES` gate
 is the second layer; the private bind is the first. See
 AUD-004 and `utils::client_ip`.
 
+#### Don't log query strings
+
+Two endpoints carry a credential in the URL: the SSE stream
+(`/api/events/stream`) and the collaboration WebSocket. This
+isn't a design preference. `EventSource` and `WebSocket`
+can't set an `Authorization` header, so the connection token
+has to ride a query parameter.
+
+Those tokens are deliberately short-lived (two minutes,
+`CONNECTION_TOKEN_TTL_SECS`), scoped to a single channel, and
+bound to one workspace. They're only accepted at connection
+setup. But most proxies, CDNs, and load balancers log the
+full request line including the query string by default, and
+the collab token is write-capable, so an access log that
+retains them is a store of replayable credentials for the
+length of that TTL.
+
+Configure your proxy to strip or redact query strings for
+those paths, or at minimum keep access logs to the same
+retention and access controls you'd give an auth log. On
+nginx a custom `log_format` using `$uri` rather than
+`$request` is enough. Cloudflare and most CDNs have an
+equivalent redaction setting.
+
 ## Threat model
 
 Nosdesk is a single-tenant helpdesk. There are four user
