@@ -118,6 +118,26 @@ pub fn client(timeout: Duration) -> reqwest::Result<reqwest::Client> {
         .build()
 }
 
+/// Same as [`client`] but follows no redirects at all, leaving 3xx for the
+/// caller to act on.
+///
+/// For callers whose authorization is per-URL rather than per-client. The
+/// redirect policy above is a `'static` closure fixed when the client is built,
+/// so it cannot see a caller's per-request allowlist; it re-checks the IP, which
+/// is all it can check. That is enough for callers whose only concern is SSRF,
+/// and not enough for the plugin proxy, where each hop must be re-checked
+/// against the consented `network:` grants of the specific plugin making the
+/// call. Those callers drive the redirect chain themselves and re-authorize
+/// every hop. See `services::plugins::proxy`.
+pub fn no_redirect_client(timeout: Duration) -> reqwest::Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .user_agent(concat!("nosdesk/", env!("CARGO_PKG_VERSION")))
+        .timeout(timeout)
+        .redirect(reqwest::redirect::Policy::none())
+        .dns_resolver(Arc::new(SafeResolver))
+        .build()
+}
+
 /// Same as [`client`] but pins `https_only(true)`. Used by the
 /// plugin registry, where every legitimate destination should be
 /// HTTPS — http:// downloads of a plugin bundle would be a clear
