@@ -107,7 +107,15 @@ struct RowText {
 /// base table carrying a live `workspace_id` column, minus the excluded ones.
 /// Introspected (not hardcoded) so a future migration's tenant table is picked
 /// up automatically, the same pattern the whole-DB backup uses.
-fn discover_workspace_tables(conn: &mut DbConnection) -> Result<Vec<String>, BackupError> {
+///
+/// Also the import's allowlist (`workspace_import::import_workspace`). Sharing
+/// one definition is the point: "what may be exported" and "what may be
+/// written back" are the same set by construction, so a new tenant table cannot
+/// be exportable but not importable, and no table outside the set can be
+/// written by an archive that names it.
+pub(crate) fn discover_workspace_tables(
+    conn: &mut DbConnection,
+) -> Result<Vec<String>, BackupError> {
     #[derive(QueryableByName)]
     struct TableName {
         #[diesel(sql_type = Text)]

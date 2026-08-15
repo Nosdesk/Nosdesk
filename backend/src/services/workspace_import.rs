@@ -306,6 +306,34 @@ pub fn import_workspace(
         // sync::emit.) SET LOCAL is scoped to this transaction.
         sql_query("SET LOCAL nosdesk.in_audit_read = 'true'").execute(conn)?;
 
+        // The archive decides which tables get written, and this runs BYPASSRLS
+        // with the audit triggers suppressed above. `table_exists_in_db` (in the
+        // insert helpers) only asserts a table EXISTS, so without this an
+        // archive naming a global/platform table would have its rows inserted
+        // there, unaudited. Platform-admin gated, so this is not an escalation
+        // path; it matters because the archive itself is an untrusted input
+        // (operators accept export files to perform migrations).
+        //
+        // Checked before anything is written, so a rejected archive leaves no
+        // partial workspace behind. `workspaces` and `users` are handled
+        // separately below and are legitimately present.
+        let allowed = crate::services::workspace_export::discover_workspace_tables(conn)?;
+        let allowed: HashSet<&str> = allowed.iter().map(String::as_str).collect();
+        let mut rejected: Vec<&str> = contents
+            .tables
+            .keys()
+            .map(String::as_str)
+            .filter(|t| *t != "workspaces" && *t != "users")
+            .filter(|t| !allowed.contains(t))
+            .collect();
+        if !rejected.is_empty() {
+            rejected.sort_unstable();
+            return Err(BackupError::CorruptedBackup(format!(
+                "archive names tables that are not workspace-scoped: {}",
+                rejected.join(", ")
+            )));
+        }
+
         let (new_ws_id, slug) = create_target_workspace(conn, contents, opts)?;
         upsert_members(conn, contents)?;
 
@@ -876,5 +904,111 @@ mod tests {
             new_ug, 1,
             "the id-less user_groups junction row was imported into the new workspace"
         );
+    }
+
+    /// An archive naming a table that is not workspace-scoped is refused
+    /// outright, before anything is written.
+    ///
+    /// The insert helpers validate that a table EXISTS (so the dynamic SQL is
+    /// not injectable) but not that it is a TENANT table. Since the import runs
+    /// BYPASSRLS with `nosdesk.in_audit_read` suppressing the audit triggers, a
+    /// crafted archive could otherwise write unaudited rows into a global or
+    /// platform table. Regression test for S2 (docs/security-audit-2026-08.md).
+    #[test]
+    fn archive_naming_a_non_tenant_table_is_refused() {
+        use crate::services::workspace_export::export_workspace;
+        use crate::sync::actor::ActorContext;
+        use crate::sync::session::with_actor_bypass_context;
+        use crate::test_helpers::setup_test_pool;
+        use diesel::sql_types::Integer;
+
+        fn as_diesel<T>(r: Result<T, BackupError>) -> Result<T, diesel::result::Error> {
+            r.map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))
+        }
+        #[derive(QueryableByName)]
+        struct IdRow {
+            #[diesel(sql_type = Integer)]
+            id: i32,
+        }
+        #[derive(QueryableByName)]
+        struct Cnt {
+            #[diesel(sql_type = diesel::sql_types::BigInt)]
+            n: i64,
+        }
+
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("test pool connection");
+        let actor = ActorContext::system("test:workspace_import_allowlist");
+
+        let src: i32 = with_actor_bypass_context(&mut conn, &actor, |c| {
+            let r: IdRow =
+                sql_query("SELECT id FROM workspaces ORDER BY id LIMIT 1").get_result(c)?;
+            Ok::<_, diesel::result::Error>(r.id)
+        })
+        .expect("a workspace exists in the test DB");
+
+        // Start from a genuine export so the manifest and every other table are
+        // exactly what the importer expects, then tamper with one entry. That is
+        // the realistic shape of this attack: a valid archive with an extra
+        // table spliced in, not a hand-built one that fails for other reasons.
+        let archive = with_actor_bypass_context(&mut conn, &actor, |c| {
+            as_diesel(export_workspace(c, src, None))
+        })
+        .expect("export succeeds");
+        let mut contents = read_archive(&archive, None).expect("read archive");
+
+        // `refresh_tokens` exists but carries no `workspace_id`, so it is
+        // outside the exportable/importable set. It is also the sharpest
+        // illustration of why the guard matters: a row forged into it is a
+        // usable session credential, written with the audit triggers suppressed
+        // and outside any tenant.
+        let before: i64 = with_actor_bypass_context(&mut conn, &actor, |c| {
+            let r: Cnt = sql_query("SELECT count(*) AS n FROM refresh_tokens").get_result(c)?;
+            Ok::<_, diesel::result::Error>(r.n)
+        })
+        .expect("count migrations");
+
+        contents.tables.insert(
+            "refresh_tokens".to_string(),
+            vec![json!({
+                "token_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+                "user_uuid": "00000000-0000-0000-0000-000000000001",
+                "expires_at": "2099-01-01T00:00:00Z",
+            })],
+        );
+
+        let unique = std::process::id();
+        let opts = ImportOptions {
+            slug_override: Some(format!("rejected-{unique}")),
+            uuid_override: Some("00000000-0000-0000-0000-0000000000fe".to_string()),
+            regenerate_uuids: true,
+        };
+
+        let err = with_actor_bypass_context(&mut conn, &actor, |c| {
+            Ok::<_, diesel::result::Error>(import_workspace(c, &contents, &opts).err())
+        })
+        .expect("the transaction itself runs")
+        .expect("import must refuse an archive naming a non-tenant table");
+
+        match err {
+            BackupError::CorruptedBackup(msg) => assert!(
+                msg.contains("refresh_tokens"),
+                "the error should name the offending table, got: {msg}"
+            ),
+            other => panic!("expected CorruptedBackup, got {other:?}"),
+        }
+
+        // Refused before any write: the offending table is untouched and no
+        // workspace was created.
+        let (after, leaked): (i64, i64) = with_actor_bypass_context(&mut conn, &actor, |c| {
+            let a: Cnt = sql_query("SELECT count(*) AS n FROM refresh_tokens").get_result(c)?;
+            let w: Cnt = sql_query("SELECT count(*) AS n FROM workspaces WHERE slug = $1")
+                .bind::<Text, _>(format!("rejected-{unique}"))
+                .get_result(c)?;
+            Ok::<_, diesel::result::Error>((a.n, w.n))
+        })
+        .expect("post-check counts");
+        assert_eq!(before, after, "no row was written to the non-tenant table");
+        assert_eq!(leaked, 0, "no partial workspace was left behind");
     }
 }
