@@ -93,7 +93,7 @@ lib0 = "0.16.10"
 bytes = "1.5.0"
 
 # Add base64 for encoding/decoding binary data
-base64 = "0.21.7"
+base64 = "0.22.1"
 
 # Add fastrand dependency
 fastrand = "2.0.0"
