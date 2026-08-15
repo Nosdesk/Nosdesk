@@ -142,7 +142,7 @@ sha2 = "0.10"
 # X.509 parser, used only to pull the RSA public key (SubjectPublicKeyInfo) out
 # of AWS's SNS signing certificate so we can verify the SNS message signature
 # on the inbound-email webhook. Narrow, read-only use; not a TLS trust path.
-x509-parser = "0.16"
+x509-parser = "0.18"
 zeroize = { version = "1.8.1", features = ["derive"] } # Memory zeroing for sensitive data
 hex = "0.4.3"             # Hex encoding/decoding
 constant_time_eq = "0.3"  # Constant-time comparison for CSRF tokens
