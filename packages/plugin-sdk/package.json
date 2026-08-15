@@ -19,7 +19,7 @@
     "@nosdesk/core": "workspace:*",
     "@vue/tsconfig": "^0.9.0",
     "eslint": "^10.8.1",
-    "typescript": "^6.0.0",
+    "typescript": "^7.0.2",
     "typescript-eslint": "^8.67.0"
   }
 }
