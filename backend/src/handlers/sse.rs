@@ -978,6 +978,9 @@ pub async fn get_sse_token(
     HttpResponse::Ok().json(json!({
         "sse_token": sse_token,
         "expires_in": crate::utils::jwt::CONNECTION_TOKEN_TTL_SECS,
+        // Served rather than hardcoded client-side: a client buffer larger than
+        // the TTL silently defeats its own cache.
+        "refresh_buffer": crate::utils::jwt::CONNECTION_TOKEN_REFRESH_BUFFER_SECS,
         "user_id": user_info.sub
     }))
 }

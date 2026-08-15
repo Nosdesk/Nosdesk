@@ -21,7 +21,27 @@ lazy_static::lazy_static! {
 /// source of truth: it sets both the JWT `exp` (in `create_connection_token`)
 /// and the `expires_in` the mint endpoints report to the client, so the client's
 /// refresh-before-expiry cache can never disagree with the real expiry.
-pub const CONNECTION_TOKEN_TTL_SECS: usize = 3600;
+///
+/// Deliberately short, because these are the only tokens that travel in a URL.
+/// `EventSource` and `WebSocket` cannot set headers, so both ride a query
+/// parameter, and query strings are logged by default at essentially every
+/// reverse proxy, CDN, and load balancer. That makes an ordinary access log a
+/// store of replayable credentials, and the collab token is write-capable.
+/// These are only ever presented at connection setup (an established stream is
+/// unaffected by expiry), so the useful lifetime is seconds, not an hour: the
+/// window only has to cover mint, navigate, connect, and the client re-mints
+/// through the authenticated session when its cache goes stale.
+///
+/// Kept above the 30s `leeway` in `validate_token` by a comfortable margin, and
+/// above `CONNECTION_TOKEN_REFRESH_BUFFER_SECS` so the client cache is still
+/// worth having. If this ever needs to be raised, prefer making the token
+/// single-use (exchanged for a session on connect) over lengthening it.
+pub const CONNECTION_TOKEN_TTL_SECS: usize = 120;
+
+/// How far before expiry the client should re-mint. Reported to the client so
+/// the two cannot drift; must stay well below [`CONNECTION_TOKEN_TTL_SECS`] or
+/// the client's cache never hits and every connect re-mints.
+pub const CONNECTION_TOKEN_REFRESH_BUFFER_SECS: usize = 30;
 
 /// JWT token creation and validation utilities
 pub struct JwtUtils;
@@ -66,7 +86,8 @@ impl JwtUtils {
         .map_err(JwtError::EncodingError)
     }
 
-    /// Mint a short-lived (1h), sessionless "connection token" for a URL-only
+    /// Mint a short-lived (`CONNECTION_TOKEN_TTL_SECS`), sessionless
+    /// "connection token" for a URL-only
     /// channel that can't send an `Authorization` header (EventSource SSE,
     /// WebSocket collab), so the token rides in the query string instead.
     /// `workspace_uuid` binds the selected workspace (Model C) so the channel
@@ -829,7 +850,48 @@ mod tests {
         }
     }
 
+    /// The URL-borne connection tokens must stay short-lived.
+    ///
+    /// These are the only credentials Nosdesk puts in a query string (EventSource
+    /// and WebSocket cannot set headers), and query strings land in proxy, CDN,
+    /// and load-balancer access logs by default. The collab variant is
+    /// write-capable, so the TTL is the whole exposure window for a token
+    /// recovered from a log. Guard rather than a comment, because "just bump the
+    /// TTL" is the natural fix for an unrelated reconnect bug.
     #[test]
+    fn connection_token_ttl_stays_short_and_above_its_buffer() {
+        assert!(
+            CONNECTION_TOKEN_TTL_SECS <= 300,
+            "connection tokens travel in the URL; a {CONNECTION_TOKEN_TTL_SECS}s TTL is too long \
+             a replay window. Make the token single-use instead of lengthening it."
+        );
+        // Below the 30s validation leeway the token could expire before it is
+        // usable; below the client buffer the cache never hits.
+        assert!(
+            CONNECTION_TOKEN_TTL_SECS > CONNECTION_TOKEN_REFRESH_BUFFER_SECS * 2,
+            "TTL must leave useful room above the refresh buffer, else every connect re-mints"
+        );
+    }
+
+    #[test]
+    fn connection_token_expiry_matches_the_advertised_ttl() {
+        unsafe {
+            std::env::set_var("JWT_SECRET", "test-secret-key-for-testing-only");
+        }
+        let _ = &*JWT_SECRET;
+
+        let token =
+            JwtUtils::create_collab_token(&uuid::Uuid::new_v4().to_string(), "member", None)
+                .expect("mint collab token");
+        let claims = JwtUtils::validate_token(&token).expect("validate");
+        assert_eq!(
+            claims.exp - claims.iat,
+            CONNECTION_TOKEN_TTL_SECS,
+            "the JWT exp must match the expires_in the mint endpoints report, or the client's \
+             refresh cache drifts from the real expiry"
+        );
+    }
+
     /// A crypto backend is compiled in.
     ///
     /// From jsonwebtoken 10 the crate dispatches through a backend trait, and
