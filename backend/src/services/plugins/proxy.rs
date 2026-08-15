@@ -98,7 +98,14 @@ impl PluginProxyService {
         // safe_http means the resolver refuses to dial private IPs
         // even if a manifest author lists a hostname that resolves
         // into RFC1918 / 169.254.x.x.
-        let client = crate::utils::safe_http::client(Duration::from_secs(30))
+        //
+        // `no_redirect_client`, not `client`: the shared redirect policy
+        // re-checks each hop for private IPs but cannot see this plugin's
+        // consented `network:` grants, so a 302 off a permitted host would
+        // otherwise leave the allowlist entirely (carrying a manifest-declared
+        // `apiKey` header with it, which reqwest does not treat as sensitive).
+        // `follow_redirects` drives the chain instead, re-authorizing each hop.
+        let client = crate::utils::safe_http::no_redirect_client(Duration::from_secs(30))
             .expect("Failed to create SSRF-safe HTTP client");
 
         Self {
@@ -358,6 +365,253 @@ impl PluginProxyService {
         }
     }
 
+    /// Maximum redirect hops the proxy will follow. Matches the shared
+    /// `safe_http` policy's cap.
+    const MAX_REDIRECTS: usize = 5;
+
+    /// Build one request against `url`, applying the allowlist and SSRF guards
+    /// and resolving auth *for that URL's host*.
+    ///
+    /// Called once per hop, which is the point: authorization is a property of
+    /// the URL being dialled, not of the call the plugin originally made. On a
+    /// redirect to a host with no declared auth, `get_auth_for_url` returns
+    /// `None` and no credential is attached.
+    ///
+    /// `include_body` is false on hops that a 301/302/303 has downgraded to GET.
+    #[allow(clippy::too_many_arguments)]
+    async fn build_hop_request(
+        &self,
+        url: &str,
+        method: Method,
+        plugin_name: &str,
+        manifest: &PluginManifest,
+        network_perms: &[String],
+        secrets: &HashMap<String, String>,
+        request: &PluginProxyRequest,
+        include_body: bool,
+    ) -> Result<reqwest::RequestBuilder, PluginProxyError> {
+        if !self.has_permission(network_perms, url) {
+            warn!(
+                plugin = plugin_name,
+                url, "Plugin denied access to URL - no matching external permission"
+            );
+            return Err(PluginProxyError::PermissionDenied {
+                plugin: plugin_name.to_string(),
+                url: url.to_string(),
+            });
+        }
+
+        // The safe_http resolver refuses internal IPs returned by DNS; this
+        // catches the IP-literal case, which never reaches the resolver.
+        if let Err(e) = crate::utils::safe_http::reject_unsafe_ip_literal(url) {
+            warn!(
+                plugin = plugin_name,
+                url,
+                error = %e,
+                "plugin proxy blocked by SSRF guard"
+            );
+            return Err(PluginProxyError::Blocked(e));
+        }
+
+        // Which header the auth config will inject for THIS url, so a
+        // plugin-supplied header cannot shadow it.
+        let auth_header_name = Self::get_auth_header_name(manifest, url);
+
+        let mut req = self.client.request(method.clone(), url);
+
+        if let Some(headers) = request.headers.clone() {
+            for (key, value) in headers {
+                let key_lower = key.to_lowercase();
+                // Always block host and user-agent overrides
+                if key_lower == "host" || key_lower == "user-agent" {
+                    continue;
+                }
+                // Block any header that the auth config will inject
+                if let Some(ref auth_header) = auth_header_name {
+                    if key_lower == *auth_header {
+                        continue;
+                    }
+                }
+                req = req.header(&key, &value);
+            }
+        }
+
+        // Inject authorization from the manifest's auth config. `Ok(None)` means
+        // no auth was declared for this host, so proceed unauthenticated; an
+        // `Err` means auth WAS declared but couldn't be resolved, so `?` fails
+        // closed rather than sending the request without the intended
+        // credentials.
+        if let Some((header_name, header_value)) = self
+            .get_auth_for_url(plugin_name, url, manifest, network_perms, secrets)
+            .await?
+        {
+            debug!(
+                plugin = plugin_name,
+                "Injecting auth header from manifest config"
+            );
+            req = req.header(&header_name, &header_value);
+        }
+
+        // Add custom User-Agent
+        req = req.header(
+            "User-Agent",
+            format!("Nosdesk-Plugin/{} ({})", manifest.version, plugin_name),
+        );
+
+        // Add body for methods that support it, or Content-Length: 0 for bodyless POSTs
+        let body = if include_body {
+            request.body.clone()
+        } else {
+            None
+        };
+        if let Some(body) = body {
+            match request.content_type.as_deref() {
+                Some("form") => {
+                    if let serde_json::Value::Object(map) = &body {
+                        let params: Vec<(String, String)> = map
+                            .iter()
+                            .map(|(k, v)| {
+                                (
+                                    k.clone(),
+                                    match v {
+                                        serde_json::Value::String(s) => s.clone(),
+                                        other => other.to_string(),
+                                    },
+                                )
+                            })
+                            .collect();
+                        req = req.form(&params);
+                    } else {
+                        req = req.json(&body);
+                    }
+                }
+                _ => {
+                    req = req.json(&body);
+                }
+            }
+        } else if include_body
+            && (method == Method::POST || method == Method::PUT || method == Method::PATCH)
+        {
+            // Some servers require Content-Length even for empty bodies
+            req = req.header("Content-Length", "0");
+        }
+
+        Ok(req)
+    }
+
+    /// Send `req`, following any redirect chain by hand.
+    ///
+    /// The client is built with `Policy::none()` so nothing is followed
+    /// implicitly. Each hop is rebuilt through [`Self::build_hop_request`],
+    /// which re-runs the `network:` allowlist check, the SSRF guard, and auth
+    /// resolution against the *new* URL.
+    ///
+    /// This exists because the two obvious alternatives are both wrong. Letting
+    /// reqwest follow redirects leaves the consented allowlist entirely (the
+    /// shared policy can only re-check the IP, not this plugin's grants) and
+    /// carries a manifest-declared `apiKey` header along with it, because
+    /// reqwest's cross-host header stripping only covers `Authorization`,
+    /// `Cookie`, and `Proxy-Authorization`. Refusing to follow redirects at all
+    /// would break plugins against ordinary APIs that redirect.
+    #[allow(clippy::too_many_arguments)]
+    async fn follow_redirects(
+        &self,
+        req: reqwest::RequestBuilder,
+        plugin_name: &str,
+        manifest: &PluginManifest,
+        network_perms: &[String],
+        secrets: &HashMap<String, String>,
+        request: &PluginProxyRequest,
+        method: &Method,
+    ) -> Result<reqwest::Response, PluginProxyError> {
+        let mut req = req;
+        let mut current_url = request.url.clone();
+        let mut current_method = method.clone();
+        let mut include_body = true;
+
+        for hop in 0..=Self::MAX_REDIRECTS {
+            let response = req.send().await.map_err(|e| {
+                error!(
+                    plugin = plugin_name,
+                    url = current_url,
+                    error = %e,
+                    "Failed to execute proxied request"
+                );
+                PluginProxyError::Network(e)
+            })?;
+
+            if !response.status().is_redirection() {
+                return Ok(response);
+            }
+            if hop == Self::MAX_REDIRECTS {
+                warn!(
+                    plugin = plugin_name,
+                    url = current_url,
+                    "plugin proxy stopped at the redirect cap"
+                );
+                return Ok(response);
+            }
+
+            // No usable Location: hand the 3xx back rather than guessing.
+            let Some(location) = response
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|v| v.to_str().ok())
+            else {
+                return Ok(response);
+            };
+
+            // Location may be relative; resolve it against the URL we just
+            // dialled, exactly as a browser or reqwest would.
+            let base =
+                url::Url::parse(&current_url).map_err(|_| PluginProxyError::PermissionDenied {
+                    plugin: plugin_name.to_string(),
+                    url: current_url.clone(),
+                })?;
+            let Ok(next) = base.join(location) else {
+                return Ok(response);
+            };
+
+            let status = response.status().as_u16();
+            // 303 always becomes GET; 301/302 do in practice for non-GET/HEAD.
+            // 307/308 preserve method and body by definition.
+            if status == 303 || ((status == 301 || status == 302) && current_method != Method::HEAD)
+            {
+                current_method = Method::GET;
+                include_body = false;
+            }
+
+            let next_url = next.to_string();
+            info!(
+                plugin = plugin_name,
+                from = current_url,
+                to = next_url,
+                status,
+                "plugin proxy following redirect (re-authorizing)"
+            );
+
+            // Rebuilding re-runs the allowlist + SSRF guards and re-resolves
+            // auth for the new host. A hop off the consented allowlist fails
+            // here with PermissionDenied, and a hop to a host with no declared
+            // auth carries no credential.
+            req = self
+                .build_hop_request(
+                    &next_url,
+                    current_method.clone(),
+                    plugin_name,
+                    manifest,
+                    network_perms,
+                    secrets,
+                    request,
+                    include_body,
+                )
+                .await?;
+            current_url = next_url;
+        }
+
+        unreachable!("redirect loop returns from inside the body")
+    }
+
     /// Execute a proxied request for a plugin
     ///
     /// The `secrets` parameter contains plugin settings marked as secrets,
@@ -402,112 +656,32 @@ impl PluginProxyService {
             _ => return Err(PluginProxyError::UnsupportedMethod(request.method.clone())),
         };
 
-        // Determine which header the auth config will inject (if any)
-        let auth_header_name = Self::get_auth_header_name(manifest, &request.url);
+        let req = self
+            .build_hop_request(
+                &request.url,
+                method.clone(),
+                plugin_name,
+                manifest,
+                network_perms,
+                secrets,
+                &request,
+                true,
+            )
+            .await?;
 
-        // Build the request
-        let mut req = self.client.request(method, &request.url);
-
-        // Add headers from request (strip any that would conflict with declared auth)
-        if let Some(headers) = request.headers {
-            for (key, value) in headers {
-                let key_lower = key.to_lowercase();
-                // Always block host and user-agent overrides
-                if key_lower == "host" || key_lower == "user-agent" {
-                    continue;
-                }
-                // Block any header that the auth config will inject
-                if let Some(ref auth_header) = auth_header_name {
-                    if key_lower == *auth_header {
-                        continue;
-                    }
-                }
-                req = req.header(&key, &value);
-            }
-        }
-
-        // Inject authorization from the manifest's auth config. `Ok(None)` means
-        // no auth was declared for this host, so proceed unauthenticated; an
-        // `Err` means auth WAS declared but couldn't be resolved, so `?` fails
-        // closed rather than sending the request without the intended
-        // credentials.
-        if let Some((header_name, header_value)) = self
-            .get_auth_for_url(plugin_name, &request.url, manifest, network_perms, secrets)
-            .await?
-        {
-            debug!(
-                plugin = plugin_name,
-                "Injecting auth header from manifest config"
-            );
-            req = req.header(&header_name, &header_value);
-        }
-
-        // Add custom User-Agent
-        req = req.header(
-            "User-Agent",
-            format!("Nosdesk-Plugin/{} ({})", manifest.version, plugin_name),
-        );
-
-        // Add body for methods that support it, or Content-Length: 0 for bodyless POSTs
-        if let Some(body) = request.body {
-            match request.content_type.as_deref() {
-                Some("form") => {
-                    if let serde_json::Value::Object(map) = &body {
-                        let params: Vec<(String, String)> = map
-                            .iter()
-                            .map(|(k, v)| {
-                                (
-                                    k.clone(),
-                                    match v {
-                                        serde_json::Value::String(s) => s.clone(),
-                                        other => other.to_string(),
-                                    },
-                                )
-                            })
-                            .collect();
-                        req = req.form(&params);
-                    } else {
-                        req = req.json(&body);
-                    }
-                }
-                _ => {
-                    req = req.json(&body);
-                }
-            }
-        } else if request.method.eq_ignore_ascii_case("POST")
-            || request.method.eq_ignore_ascii_case("PUT")
-            || request.method.eq_ignore_ascii_case("PATCH")
-        {
-            // Some servers require Content-Length even for empty bodies
-            req = req.header("Content-Length", "0");
-        }
-
-        // The safe_http client refuses internal IPs returned by
-        // DNS; this catches the IP-literal case (a manifest
-        // declaring `http://127.0.0.1/whatever` doesn't trigger
-        // the resolver). The manifest's network allowlist already
-        // ran upstream of this call, so reaching this guard is
-        // already the "manifest said it was OK" path.
-        if let Err(e) = crate::utils::safe_http::reject_unsafe_ip_literal(&request.url) {
-            warn!(
-                plugin = plugin_name,
-                url = request.url,
-                error = %e,
-                "plugin proxy blocked by SSRF guard"
-            );
-            return Err(PluginProxyError::Blocked(e));
-        }
-
-        // Execute the request
-        let response = req.send().await.map_err(|e| {
-            error!(
-                plugin = plugin_name,
-                url = request.url,
-                error = %e,
-                "Failed to execute proxied request"
-            );
-            PluginProxyError::Network(e)
-        })?;
+        // Execute the request, following redirects by hand so every hop is
+        // re-authorized against this plugin's grants (see `follow_redirects`).
+        let response = self
+            .follow_redirects(
+                req,
+                plugin_name,
+                manifest,
+                network_perms,
+                secrets,
+                &request,
+                &method,
+            )
+            .await?;
 
         let status = response.status().as_u16();
 
@@ -612,6 +786,179 @@ mod tests {
     /// from the manifest mirrors what the handler passes at runtime.
     fn net_perms(manifest: &PluginManifest) -> Vec<String> {
         manifest.permissions.iter().map(|p| p.as_string()).collect()
+    }
+
+    /// Serialises the tests that drive real connections to localhost.
+    ///
+    /// They work by setting `NOSDESK_OUTBOUND_ALLOWED_HOSTS` so the SSRF
+    /// resolver will dial loopback at all. That is process-global, so two of
+    /// them in parallel will clear it out from under each other mid-request and
+    /// the second fails with "resolves to non-routable address" rather than for
+    /// any reason to do with the code under test.
+    static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    /// Minimal one-shot HTTP server on an ephemeral localhost port. Returns the
+    /// bound port and a handle; the task serves exactly `responses.len()`
+    /// connections, one canned response each, in order.
+    ///
+    /// Hand-rolled rather than pulled from a mock-server crate: the whole point
+    /// is to exercise the real reqwest client through the real SSRF resolver,
+    /// and the responses needed here are two lines each.
+    async fn serve_canned(responses: Vec<String>) -> (u16, tokio::task::JoinHandle<()>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let handle = tokio::spawn(async move {
+            for body in responses {
+                let Ok((mut sock, _)) = listener.accept().await else {
+                    return;
+                };
+                let mut buf = [0u8; 2048];
+                let _ = sock.read(&mut buf).await;
+                let _ = sock.write_all(body.as_bytes()).await;
+                let _ = sock.flush().await;
+            }
+        });
+        (port, handle)
+    }
+
+    fn proxy_req(url: &str) -> PluginProxyRequest {
+        PluginProxyRequest {
+            url: url.to_string(),
+            method: "GET".to_string(),
+            headers: None,
+            body: None,
+            content_type: None,
+        }
+    }
+
+    /// A redirect off the consented allowlist must be refused, not followed.
+    ///
+    /// Before this guard the proxy let reqwest follow redirects: the shared
+    /// policy re-checked each hop's IP but not the plugin's `network:` grants,
+    /// so any declared host could bounce the proxy to an arbitrary public host
+    /// and read the response back. Regression test for S1
+    /// (docs/security-audit-2026-08.md).
+    #[tokio::test]
+    async fn redirect_off_the_allowlist_is_refused() {
+        let _guard = ENV_LOCK.lock().await;
+        std::env::set_var("NOSDESK_OUTBOUND_ALLOWED_HOSTS", "localhost");
+
+        let (port, _h) = serve_canned(vec!["HTTP/1.1 302 Found\r\nLocation: \
+             http://not-granted.example.com/steal\r\nContent-Length: 0\r\n\r\n"
+            .to_string()])
+        .await;
+
+        let service = PluginProxyService::new();
+        // Only localhost is granted; the redirect target is not.
+        let manifest = create_test_manifest(vec!["network:localhost"]);
+        let result = service
+            .proxy_request(
+                "test-plugin",
+                &manifest,
+                &net_perms(&manifest),
+                proxy_req(&format!("http://localhost:{port}/start")),
+                &HashMap::new(),
+            )
+            .await;
+
+        std::env::remove_var("NOSDESK_OUTBOUND_ALLOWED_HOSTS");
+
+        match result {
+            Err(PluginProxyError::PermissionDenied { url, .. }) => {
+                assert!(
+                    url.contains("not-granted.example.com"),
+                    "should name the refused hop, got {url}"
+                );
+            }
+            other => panic!("expected PermissionDenied on the redirect hop, got {other:?}"),
+        }
+    }
+
+    /// The complement: a redirect that stays inside the granted host is still
+    /// followed, so the guard above does not break ordinary APIs that redirect.
+    #[tokio::test]
+    async fn redirect_within_the_allowlist_is_followed() {
+        let _guard = ENV_LOCK.lock().await;
+        std::env::set_var("NOSDESK_OUTBOUND_ALLOWED_HOSTS", "localhost");
+
+        let (port, _h) = serve_canned(vec![
+            // Relative Location, resolved against the current URL.
+            "HTTP/1.1 302 Found\r\nLocation: /landed\r\nContent-Length: 0\r\n\r\n".to_string(),
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 14\r\n\r\n\
+             {\"ok\":\"true\"}"
+                .to_string(),
+        ])
+        .await;
+
+        let service = PluginProxyService::new();
+        let manifest = create_test_manifest(vec!["network:localhost"]);
+        let result = service
+            .proxy_request(
+                "test-plugin",
+                &manifest,
+                &net_perms(&manifest),
+                proxy_req(&format!("http://localhost:{port}/start")),
+                &HashMap::new(),
+            )
+            .await;
+
+        std::env::remove_var("NOSDESK_OUTBOUND_ALLOWED_HOSTS");
+
+        let response = result.expect("same-host redirect should be followed");
+        assert_eq!(response.status, 200);
+    }
+
+    /// A manifest-declared `apiKey` header is resolved per hop, keyed on the
+    /// host being dialled. reqwest only strips `Authorization` / `Cookie` /
+    /// `Proxy-Authorization` across hosts, so a custom header would otherwise
+    /// ride a redirect to the target. Asserting at the resolution layer: a host
+    /// with no declared auth yields no header at all.
+    #[tokio::test]
+    async fn api_key_header_is_not_resolved_for_an_undeclared_host() {
+        let mut manifest = create_test_manifest(vec![
+            "network:api.vendor.com",
+            "network:redirect-target.example.com",
+        ]);
+        manifest.auth.insert(
+            host("api.vendor.com"),
+            PluginAuthConfig::ApiKey {
+                header: "X-API-Key".to_string(),
+                secret: "vendor_key".to_string(),
+            },
+        );
+        let secrets = HashMap::from([("vendor_key".to_string(), "super-secret-value".to_string())]);
+        let service = PluginProxyService::new();
+        let perms = net_perms(&manifest);
+
+        // The declared host resolves the key.
+        let declared = service
+            .get_auth_for_url(
+                "test-plugin",
+                "https://api.vendor.com/v1/thing",
+                &manifest,
+                &perms,
+                &secrets,
+            )
+            .await
+            .expect("declared host resolves");
+        assert_eq!(
+            declared,
+            Some(("X-API-Key".to_string(), "super-secret-value".to_string()))
+        );
+
+        // A different host, even one the plugin may reach, resolves nothing.
+        let other = service
+            .get_auth_for_url(
+                "test-plugin",
+                "https://redirect-target.example.com/steal",
+                &manifest,
+                &perms,
+                &secrets,
+            )
+            .await
+            .expect("undeclared host is not an error");
+        assert_eq!(other, None, "the API key must not follow to another host");
     }
 
     #[test]
