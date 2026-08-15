@@ -1029,12 +1029,12 @@ fn read_signable_entries(dir: &Path) -> Result<Vec<signing::ArchiveEntry>> {
 }
 
 fn build_zip(entries: &[signing::ArchiveEntry], envelope: &[u8]) -> Result<Vec<u8>> {
-    use zip::write::FileOptions;
+    use zip::write::SimpleFileOptions;
     let mut buf = Vec::new();
     {
         let cursor = std::io::Cursor::new(&mut buf);
         let mut zip = zip::ZipWriter::new(cursor);
-        let options = FileOptions::default();
+        let options = SimpleFileOptions::default();
         for e in entries {
             zip.start_file(&e.name, options)?;
             zip.write_all(&e.bytes)?;

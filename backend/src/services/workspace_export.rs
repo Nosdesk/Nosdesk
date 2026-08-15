@@ -36,7 +36,7 @@ use diesel::prelude::*;
 use diesel::sql_query;
 use diesel::sql_types::{Integer, Text};
 use serde::{Deserialize, Serialize};
-use zip::write::FileOptions;
+use zip::write::SimpleFileOptions;
 use zip::ZipWriter;
 
 use crate::db::DbConnection;
@@ -45,8 +45,8 @@ use crate::services::backup::{
 };
 
 /// Shared zip entry options (Deflated, 0644), matching the whole-DB backup.
-fn zip_options() -> FileOptions {
-    FileOptions::default()
+fn zip_options() -> SimpleFileOptions {
+    SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated)
         .unix_permissions(0o644)
 }

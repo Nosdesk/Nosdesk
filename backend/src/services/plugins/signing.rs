@@ -674,7 +674,7 @@ fn base64_decode(s: &str) -> Result<Vec<u8>, base64::DecodeError> {
 mod tests {
     use super::*;
     use std::io::Write;
-    use zip::write::FileOptions;
+    use zip::write::SimpleFileOptions;
 
     fn rng_keypair() -> Ed25519KeyPair {
         let rng = SystemRandom::new();
@@ -687,7 +687,7 @@ mod tests {
         {
             let cursor = std::io::Cursor::new(&mut buf);
             let mut zip = zip::ZipWriter::new(cursor);
-            let options = FileOptions::default();
+            let options = SimpleFileOptions::default();
             for (name, bytes) in entries {
                 zip.start_file(*name, options).unwrap();
                 zip.write_all(bytes).unwrap();
