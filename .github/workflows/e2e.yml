@@ -91,7 +91,7 @@ jobs:
             echo "REQUIRE_ADMIN_MFA=false"
           } >> .env
 
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       # Needed to READ and WRITE the build cache image below. Without it buildx
       # falls back to an anonymous token and cache-to fails the whole build with
