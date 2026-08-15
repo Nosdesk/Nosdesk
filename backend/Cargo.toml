@@ -122,7 +122,7 @@ pdfium-render = { version = "0.8", features = ["image", "thread_safe"] }
 
 # Rate limiting for security
 actix-limitation = "0.5.1"
-redis = { version = "0.24", features = ["tokio-comp", "connection-manager"] }
+redis = { version = "1.5", features = ["tokio-comp", "connection-manager"] }
 
 # MFA (Multi-Factor Authentication) dependencies
 totp-rs = "5.4.0"         # TOTP (Time-based One-Time Password) implementation
