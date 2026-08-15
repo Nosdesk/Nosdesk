@@ -830,6 +830,38 @@ mod tests {
     }
 
     #[test]
+    /// A crypto backend is compiled in.
+    ///
+    /// From jsonwebtoken 10 the crate dispatches through a backend trait, and
+    /// its default feature set (`use_pem`) contains no provider. Dropping the
+    /// `aws_lc_rs` feature in Cargo.toml therefore still COMPILES, and then
+    /// fails every sign and verify at runtime: sessions, licence checks,
+    /// platform provisioning, push. Without this guard that shows up as a dozen
+    /// unrelated-looking failures across four modules, which is how it reached
+    /// us in the first place (Dependabot's 9 -> 11 bump, PR #203).
+    ///
+    /// HS256 alone is a sufficient probe: with no provider registered, every
+    /// algorithm family fails identically. The per-family coverage lives with
+    /// each consumer (licence EdDSA, APNs ECDSA, FCM RSA).
+    #[test]
+    fn a_jwt_crypto_backend_is_configured() {
+        unsafe {
+            std::env::set_var("JWT_SECRET", "test-secret-key-for-testing-only");
+        }
+        let _ = &*JWT_SECRET;
+
+        let token = JwtUtils::create_sse_token(&uuid::Uuid::new_v4().to_string(), "member", None)
+            .expect(
+                "signing failed: jsonwebtoken has no crypto backend. Restore \
+                 `features = [\"aws_lc_rs\"]` on the jsonwebtoken dependency in Cargo.toml.",
+            );
+        JwtUtils::validate_token(&token).expect(
+            "verification failed: jsonwebtoken has no crypto backend. Restore \
+             `features = [\"aws_lc_rs\"]` on the jsonwebtoken dependency in Cargo.toml.",
+        );
+    }
+
+    #[test]
     fn create_sse_token_has_sse_scope() {
         unsafe {
             std::env::set_var("JWT_SECRET", "test-secret-key-for-testing-only");
