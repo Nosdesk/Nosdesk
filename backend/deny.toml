@@ -79,6 +79,21 @@ allow = [
     # Foundation for data licensing; the Permissive variant explicitly
     # allows redistribution without source-disclosure obligations.
     "CDLA-Permissive-2.0",
+    # zip -> bzip2 -> libbz2-rs-sys. BSD-style, permissive, no copyleft
+    # and no source-disclosure obligation, so it clears the "not viral"
+    # bar this list is drawn against.
+    #
+    # New in the zip 8 tree only because zip swapped the C `bzip2-sys`
+    # for the pure-Rust `libbz2-rs-sys`; bzip2 support itself was already
+    # present under zip 0.6, so this widens the licence surface without
+    # widening what the binary actually does.
+    #
+    # We could instead drop the dependency entirely with
+    # `default-features = false, features = ["deflate"]`, since Nosdesk
+    # only ever WRITES Deflated. Not done: `plugins::signing` opens
+    # third-party plugin bundles, and narrowing the decompressors would
+    # reject an author's bundle built with any other method.
+    "bzip2-1.0.6",
 ]
 confidence-threshold = 0.93
 
