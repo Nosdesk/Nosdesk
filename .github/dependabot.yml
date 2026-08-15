@@ -38,6 +38,24 @@ updates:
       interval: weekly
     labels: [dependencies, frontend]
     open-pull-requests-limit: 5
+    ignore:
+      # TypeScript 7 is the Go-native compiler rewrite, and vue-tsc cannot
+      # drive it. vue-tsc type-checks a .vue file by splitting it into a
+      # script block, a template, and a synthesized render function in
+      # memory, then feeding those virtual files to the compiler through its
+      # programmatic API. That API is not stabilized for the native compiler
+      # until TypeScript 7.1, so vue-tsc crashes (ERR_INTERNAL_ASSERTION)
+      # rather than reporting type errors. Same blocker for svelte-check,
+      # astro check, and typescript-eslint.
+      #
+      # Nothing to fix on our side, and a weekly re-raise of an unmergeable
+      # PR is pure noise. Minor and patch updates still come through.
+      #
+      # Revisit when vue-tsc ships native-compiler support (expected within a
+      # release or two of TS 7.1, itself expected around October 2026); drop
+      # this block and let the major through.
+      - dependency-name: typescript
+        update-types: [version-update:semver-major]
     groups:
       npm-minor-patch:
         patterns: ['*']
