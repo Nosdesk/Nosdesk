@@ -39,7 +39,7 @@
     "extendable-media-recorder-wav-encoder": "^7.0.140",
     "fluent-vue": "^3.8.2",
     "heic2any": "^0.0.4",
-    "highlight.js": "^11.11.2",
+    "highlight.js": "^11.12.0",
     "jszip": "^3.10.1",
     "lowlight": "^3.3.0",
     "marked": "^18.0.9",

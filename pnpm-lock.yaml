@@ -65,8 +65,8 @@ importers:
         specifier: ^0.0.4
         version: 0.0.4
       highlight.js:
-        specifier: ^11.11.2
-        version: 11.11.2
+        specifier: ^11.12.0
+        version: 11.12.0
       jszip:
         specifier: ^3.10.1
         version: 3.10.1
@@ -93,7 +93,7 @@ importers:
         version: 1.2.3
       prosemirror-highlight:
         specifier: ^0.16.0
-        version: 0.16.0(@types/hast@3.0.4)(highlight.js@11.11.2)(lowlight@3.3.0)(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-transform@1.12.0)(prosemirror-view@1.42.2)
+        version: 0.16.0(@types/hast@3.0.4)(highlight.js@11.12.0)(lowlight@3.3.0)(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-transform@1.12.0)(prosemirror-view@1.42.2)
       prosemirror-history:
         specifier: 1.5.0
         version: 1.5.0
@@ -2058,6 +2058,10 @@ packages:
 
   highlight.js@11.11.2:
     resolution: {integrity: sha512-oaXMACAU0kzOMXBjWpNcX+vlwSBCIAiZ9BHa7gA15NOTtT2L/l8OSZDuqS2XppOhZBPJ7hm4o8ep2kyuip2uEQ==}
+    engines: {node: '>=12.0.0'}
+
+  highlight.js@11.12.0:
+    resolution: {integrity: sha512-nbfWpyRMcMrPMmDwJB+dhX/eiaPKtc2RB+0QZskqJ3WjRA/FDS0e9hZrx8EC/lbEv8gXy98FcDbNa/dspAaJMg==}
     engines: {node: '>=12.0.0'}
 
   hookable@5.5.3:
@@ -4793,6 +4797,8 @@ snapshots:
 
   highlight.js@11.11.2: {}
 
+  highlight.js@11.12.0: {}
+
   hookable@5.5.3: {}
 
   html-encoding-sniffer@6.0.0:
@@ -5293,10 +5299,10 @@ snapshots:
       prosemirror-state: 1.4.4
       prosemirror-view: 1.42.2
 
-  prosemirror-highlight@0.16.0(@types/hast@3.0.4)(highlight.js@11.11.2)(lowlight@3.3.0)(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-transform@1.12.0)(prosemirror-view@1.42.2):
+  prosemirror-highlight@0.16.0(@types/hast@3.0.4)(highlight.js@11.12.0)(lowlight@3.3.0)(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-transform@1.12.0)(prosemirror-view@1.42.2):
     optionalDependencies:
       '@types/hast': 3.0.4
-      highlight.js: 11.11.2
+      highlight.js: 11.12.0
       lowlight: 3.3.0
       prosemirror-model: 1.25.11
       prosemirror-state: 1.4.4
