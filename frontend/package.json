@@ -43,7 +43,7 @@
     "jszip": "^3.10.1",
     "lowlight": "^3.3.0",
     "marked": "^18.0.9",
-    "pdfjs-dist": "^5.0.375",
+    "pdfjs-dist": "^6.2.108",
     "pinia": "^3.0.4",
     "prosemirror-commands": "1.7.2",
     "prosemirror-dropcursor": "1.8.3",
