@@ -27,6 +27,12 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+# Default for any job that does not scope its own token. The jobs below
+# narrow or widen this explicitly; without it they would inherit the
+# repository default instead.
+permissions:
+  contents: read
+
 jobs:
   image:
     name: Build & push image
@@ -35,7 +41,9 @@ jobs:
       contents: write   # create the GitHub Release
       packages: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       - name: Short commit SHA
         id: vars
@@ -45,7 +53,7 @@ jobs:
       # `latest` is applied only to stable tags (no -rc/-beta prerelease).
       - name: Image metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           # Prerelease tags (-rc/-beta) publish to GHCR only; Docker Hub gets
           # stable releases only. metadata-action drops the disabled image.
@@ -57,10 +65,10 @@ jobs:
             type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
 
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -69,13 +77,13 @@ jobs:
       - name: Log in to Docker Hub
         # Stable tags only; prereleases publish to GHCR alone (no Docker Hub push).
         if: ${{ !contains(github.ref_name, '-') }}
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: backend/Dockerfile
@@ -107,7 +115,7 @@ jobs:
       # surfaces stable releases. Idempotent: a re-run updates the release.
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ steps.meta.outputs.version }}

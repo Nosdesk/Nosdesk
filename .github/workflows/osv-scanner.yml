@@ -1,0 +1,48 @@
+name: OSV-Scanner
+
+# Dependency vulnerability scanning across BOTH ecosystems from one tool
+# (Cargo.lock and pnpm-lock.yaml), replacing ci.yml's `pnpm audit --prod` step.
+# That step was advisory-only and permanently failing for infrastructure
+# reasons: npm retired the legacy audit endpoint it calls (HTTP 410). OSV
+# queries osv.dev instead, so it actually returns findings.
+#
+# This does NOT replace `cargo deny check`, which stays in ci.yml. cargo-deny
+# also gates licences, banned crates, and source allowlists, and its `ignore`
+# list is the reviewed triage record that SECURITY.md mirrors. OSV is the
+# second opinion on the advisory half, and the only opinion on the npm half.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'backend/Cargo.lock'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/osv-scanner.yml'
+  schedule:
+    # Weekly. Most findings arrive because the world changed, not because the
+    # lockfile did, so the cron matters more than the push trigger here.
+    - cron: '0 4 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    permissions:
+      security-events: write
+      contents: read
+      actions: read
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@8deb546fdb875b9996d27d4950be7312dac076a1 # v2.5.0
+    with:
+      # Recursive discovery rather than naming lockfiles explicitly: it picks up
+      # backend/Cargo.lock and pnpm-lock.yaml today, and any workspace added
+      # under packages/ or plugins/ later without an edit here.
+      scan-args: |-
+        --recursive
+        ./
+      # Report, do not block. The Rust advisory gate that IS allowed to fail a
+      # merge is `cargo deny check`, which has a reviewed ignore list; a raw OSV
+      # hit on a transitive crate with no reachable path should not stop work.
+      # Revisit once the first run's noise level is known.
+      fail-on-vuln: false

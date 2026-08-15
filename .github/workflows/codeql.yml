@@ -1,0 +1,68 @@
+name: CodeQL
+
+# First-party static analysis into the Security tab. Free on this repo (public).
+#
+# Rust is analysed with `build-mode: none`: CodeQL's Rust support went GA in
+# October 2025 and no longer needs to observe a real cargo build, so this does
+# not duplicate ci.yml's compile. That also keeps the job off the critical path
+# for merges, which is why findings land in the Security tab rather than as a
+# blocking check.
+#
+# `actions` is a language here, not a mistake: CodeQL scans workflow files for
+# injection and permission problems. It overlaps zizmor.yml deliberately (the
+# two disagree often enough to be worth both).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Weekly, so a new query release finds old code without waiting for a push
+    # to the relevant file.
+    - cron: '0 3 * * 1'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      # Upload results to code scanning.
+      security-events: write
+      contents: read
+    strategy:
+      # One language failing should still publish the others' results.
+      fail-fast: false
+      matrix:
+        include:
+          - language: rust
+            build-mode: none
+          - language: javascript-typescript
+            build-mode: none
+          - language: actions
+            build-mode: none
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          # security-extended over the default suite: this is a helpdesk holding
+          # customer data, and the extra false positives are triaged once in the
+          # Security tab rather than blocking a merge.
+          queries: security-extended
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4
+        with:
+          category: /language:${{ matrix.language }}
