@@ -43,7 +43,18 @@ actix-multipart = "0.6.1"
 csv = "1.3"        # RFC 4180 CSV parser for the admin bulk-import flow
 actix-files = "0.6.5"
 futures = "0.3"
-jsonwebtoken = "11.0.0"
+# The `aws_lc_rs` feature is NOT optional decoration. From 10.0 the crate
+# dispatches crypto through a backend trait and its default feature set
+# (`use_pem` only) contains no provider at all, so a plain `jsonwebtoken = "11"`
+# compiles and then fails EVERY sign and verify at runtime. Removing this
+# feature does not break the build; it breaks authentication.
+#
+# aws_lc_rs over rust_crypto because aws-lc-rs is already in the tree (rustls,
+# via the AWS SDKs and reqwest), so it adds no new crate and no new build
+# toolchain, and it avoids deepening our exposure to `rsa`, which carries
+# RUSTSEC-2023-0071. It covers all four families we use: HMAC (sessions, plugin
+# bundle tokens), EdDSA (licence + platform provisioning), ECDSA (APNs), RSA (FCM).
+jsonwebtoken = { version = "11.0.0", features = ["aws_lc_rs"] }
 bcrypt = "0.15.1"  # Legacy hashing - kept for existing recovery codes hashed before the argon2 migration; password hashing also still uses it
 argon2 = "0.5"     # MFA recovery code hashing (and future password migration target); OWASP-recommended memory-hard KDF
 actix-web-httpauth = "0.8.2"
