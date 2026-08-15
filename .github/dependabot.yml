@@ -1,0 +1,44 @@
+version: 2
+
+# The github-actions ecosystem is the one that matters most here. Every action
+# in .github/workflows is pinned to a full commit SHA (mutable tags are the
+# tj-actions/changed-files shape), and a SHA pin does not update itself.
+# Dependabot rewrites the SHA and keeps the trailing `# vN` comment in step, so
+# pinning does not decay into running a year-old action.
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels: [dependencies, ci]
+    groups:
+      # One PR for the routine bumps; anything with a security advisory still
+      # comes through on its own so it is not buried in a group.
+      actions:
+        patterns: ['*']
+        update-types: [minor, patch]
+
+  - package-ecosystem: cargo
+    directory: /backend
+    schedule:
+      interval: weekly
+    labels: [dependencies, backend]
+    # The tree is large and mostly transitive. Security updates always come
+    # through; routine minor/patch churn is grouped to keep the PR count sane.
+    open-pull-requests-limit: 5
+    groups:
+      cargo-minor-patch:
+        patterns: ['*']
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    labels: [dependencies, frontend]
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-patch:
+        patterns: ['*']
+        update-types: [minor, patch]

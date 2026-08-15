@@ -35,6 +35,12 @@ on:
       - '.github/workflows/e2e.yml'
       - 'compose.e2e.yaml'
 
+# Default for any job that does not scope its own token. The jobs below
+# narrow or widen this explicitly; without it they would inherit the
+# repository default instead.
+permissions:
+  contents: read
+
 jobs:
   e2e:
     name: Playwright
@@ -48,15 +54,17 @@ jobs:
       # The Rust image build plus the runner's preinstalled toolchains will
       # otherwise fill the disk, as the backend job already found.
       - name: Free disk space
-        uses: jlumbroso/free-disk-space@v1.3.1
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
         with:
           large-packages: false
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '24'
           cache: pnpm
@@ -83,13 +91,13 @@ jobs:
             echo "REQUIRE_ADMIN_MFA=false"
           } >> .env
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       # Needed to READ and WRITE the build cache image below. Without it buildx
       # falls back to an anonymous token and cache-to fails the whole build with
       # a 403.
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -102,7 +110,7 @@ jobs:
       # blows past GitHub's 10 GB per-repo cap and gets evicted, which turns
       # every run back into a cold build.
       - name: Build the application image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: backend/Dockerfile
@@ -172,7 +180,7 @@ jobs:
         if: failure()
         run: docker compose -f compose.yaml -f compose.e2e.yaml logs --tail 300
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: failure()
         with:
           name: playwright-report

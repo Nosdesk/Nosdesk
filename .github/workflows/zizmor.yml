@@ -1,0 +1,51 @@
+name: Actions audit
+
+# zizmor: static analysis for the workflows themselves (template injection,
+# credential leaks, permission misconfiguration, unpinned actions).
+#
+# This is the cheap deterministic half of the CI-supply-chain problem. The
+# workflows here hold DOCKERHUB_TOKEN, FLY_API_TOKEN, and NOSDESK_ROOT_PUBKEY,
+# and release.yml publishes the images operators actually pull, so a regression
+# in this file set is worth a blocking check. It runs in seconds.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+      - '.github/actions/**'
+      - '.github/dependabot.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  zizmor:
+    name: zizmor
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+      # Online audits resolve action refs against the API.
+      actions: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - uses: zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054 # v0.6.2
+        with:
+          # Pinned, not `latest`: the point of this workflow is supply-chain
+          # discipline, and a floating tool version is the same class of problem
+          # as a floating action tag.
+          version: 1.29.0
+          # Findings land in the Security tab. The job still fails on anything
+          # at or above min-severity, which is what makes it a real gate.
+          advanced-security: true
+          min-severity: low
+          min-confidence: medium

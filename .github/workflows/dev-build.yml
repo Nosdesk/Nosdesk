@@ -44,6 +44,12 @@ concurrency:
   group: dev-build-${{ inputs.ref || github.ref }}
   cancel-in-progress: true
 
+# Default for any job that does not scope its own token. The jobs below
+# narrow or widen this explicitly; without it they would inherit the
+# repository default instead.
+permissions:
+  contents: read
+
 jobs:
   image:
     name: Build & deploy dev image
@@ -52,18 +58,21 @@ jobs:
       # For the GHCR build cache only; images go to Fly.
       packages: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.ref || github.ref }}
+          # Nothing here pushes, so don't leave the token in .git/config where a
+          # later step (or a cached layer) could pick it up.
+          persist-credentials: false
 
       - name: Short commit SHA
         id: vars
         run: echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
-      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1 # master @ 2026-08-15
 
       # Writes credentials for registry.fly.io into the Docker config, which
       # buildx then uses to push.
@@ -75,14 +84,14 @@ jobs:
       # Cache only. Kept separate from the release cache: the fast profile
       # cooks different artifacts.
       - name: Log in to GHCR (build cache)
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: backend/Dockerfile
@@ -121,13 +130,22 @@ jobs:
             --image registry.fly.io/nosdesk-dev:dev-${{ steps.vars.outputs.sha }}
 
       - name: Summary
+        # Expressions go through `env`, not straight into the shell: a branch
+        # name is not a safe shell literal, and `${{ }}` interpolation happens
+        # before the shell ever sees the script. Dispatching this needs write
+        # access already, so this is hygiene rather than a live hole, but it is
+        # the pattern zizmor flags as template-injection.
+        env:
+          REF: ${{ inputs.ref || github.ref }}
+          SHA: ${{ steps.vars.outputs.sha }}
+          DEPLOY: ${{ inputs.deploy }}
         run: |
           {
             echo "### Dev image"
             echo ""
-            echo "Built \`${{ inputs.ref || github.ref }}\` @ \`${{ steps.vars.outputs.sha }}\`"
+            echo "Built \`$REF\` @ \`$SHA\`"
             echo ""
-            if [ "${{ inputs.deploy }}" = "true" ]; then
+            if [ "$DEPLOY" = "true" ]; then
               echo "Deployed to **nosdesk-dev**."
               echo ""
               echo "The app applies pending migrations on boot, so no separate step is needed."
@@ -136,7 +154,7 @@ jobs:
               echo ""
               echo '```sh'
               echo "fly deploy -a nosdesk-dev \\"
-              echo "  --image registry.fly.io/nosdesk-dev:dev-${{ steps.vars.outputs.sha }}"
+              echo "  --image registry.fly.io/nosdesk-dev:dev-$SHA"
               echo '```'
             fi
           } >> "$GITHUB_STEP_SUMMARY"
