@@ -1,11 +1,11 @@
 // GENERATED from @nosdesk/plugin-runtime src/runtime.ts by `pnpm --filter @nosdesk/plugin-runtime build`. Do not edit by hand; CI drift-checks it.
 
 // ../../node_modules/.pnpm/comlink@4.4.2/node_modules/comlink/dist/esm/comlink.mjs
-var proxyMarker = Symbol("Comlink.proxy");
-var createEndpoint = Symbol("Comlink.endpoint");
-var releaseProxy = Symbol("Comlink.releaseProxy");
-var finalizer = Symbol("Comlink.finalizer");
-var throwMarker = Symbol("Comlink.thrown");
+var proxyMarker = /* @__PURE__ */ Symbol("Comlink.proxy");
+var createEndpoint = /* @__PURE__ */ Symbol("Comlink.endpoint");
+var releaseProxy = /* @__PURE__ */ Symbol("Comlink.releaseProxy");
+var finalizer = /* @__PURE__ */ Symbol("Comlink.finalizer");
+var throwMarker = /* @__PURE__ */ Symbol("Comlink.thrown");
 var isObject = (val) => typeof val === "object" && val !== null || typeof val === "function";
 var proxyTransferHandler = {
   canHandle: (val) => isObject(val) && val[proxyMarker],
