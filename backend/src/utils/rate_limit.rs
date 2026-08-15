@@ -124,7 +124,7 @@ impl RateLimiter {
         redis::Script::new(script)
             .key(key)
             .arg(ttl_seconds)
-            .invoke_async::<_, ()>(&mut con)
+            .invoke_async::<()>(&mut con)
             .await
             .map_err(|e| RateLimitError::RedisError(e.to_string()))?;
 
