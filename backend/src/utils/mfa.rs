@@ -112,7 +112,7 @@ pub fn decrypt_mfa_secret(
 pub fn generate_totp_secret() -> SecretString {
     let mut secret_bytes = [0u8; 20]; // 20 bytes = 160 bits of entropy
     rand::thread_rng().fill_bytes(&mut secret_bytes);
-    let secret = base32::encode(base32::Alphabet::RFC4648 { padding: true }, &secret_bytes);
+    let secret = base32::encode(base32::Alphabet::Rfc4648 { padding: true }, &secret_bytes);
     SecretString::new(secret)
 }
 
@@ -886,7 +886,7 @@ mod tests {
     #[test]
     fn generate_totp_secret_is_valid_base32() {
         let secret = generate_totp_secret();
-        let decoded = base32::decode(base32::Alphabet::RFC4648 { padding: true }, secret.as_str());
+        let decoded = base32::decode(base32::Alphabet::Rfc4648 { padding: true }, secret.as_str());
         assert!(decoded.is_some());
         assert_eq!(decoded.unwrap().len(), 20); // 160 bits
     }
