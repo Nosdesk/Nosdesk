@@ -9,7 +9,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 use walkdir::WalkDir;
-use zip::write::FileOptions;
+use zip::write::SimpleFileOptions;
 use zip::{ZipArchive, ZipWriter};
 
 use crate::db::DbConnection;
@@ -576,7 +576,7 @@ fn build_inner_zip(
     // out of the writer via `finish()` without lifetime gymnastics.
     let cursor: Cursor<Vec<u8>> = Cursor::new(Vec::new());
     let mut zip = ZipWriter::new(cursor);
-    let options = FileOptions::default()
+    let options = SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated)
         .unix_permissions(0o644);
 

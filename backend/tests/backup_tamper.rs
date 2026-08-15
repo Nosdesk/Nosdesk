@@ -42,7 +42,7 @@ fn tamper_backup(path: &std::path::Path) {
                 }
             }
 
-            let options = zip::write::FileOptions::default()
+            let options = zip::write::SimpleFileOptions::default()
                 .compression_method(zip::CompressionMethod::Deflated);
             writer.start_file(&name, options).unwrap();
             writer.write_all(&content).unwrap();
