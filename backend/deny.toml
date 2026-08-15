@@ -33,13 +33,6 @@ ignore = [
     # primitives we exercise are unaffected. Revisit when rsa ships a
     # fix or openidconnect migrates away.
     { id = "RUSTSEC-2023-0071", reason = "signature verify only, not decrypt" },
-    # RUSTSEC-2026-0172 — diesel 2.3.9 possible use-after-free in
-    # SqliteConnection::deserialize_readonly_database. We depend on
-    # diesel with the `postgres` backend only (no `sqlite` feature), so
-    # the SQLite backend — and this function — is never compiled or
-    # called. Crate-level lockfile match only. Revisit if the sqlite
-    # feature is ever enabled.
-    { id = "RUSTSEC-2026-0172", reason = "diesel sqlite backend not enabled; vulnerable fn not compiled" },
 ]
 
 [bans]
