@@ -5,12 +5,20 @@ version: 2
 # tj-actions/changed-files shape), and a SHA pin does not update itself.
 # Dependabot rewrites the SHA and keeps the trailing `# vN` comment in step, so
 # pinning does not decay into running a year-old action.
+#
+# Every ecosystem sets a 7-day `cooldown`: a compromised package release is
+# usually caught within days, so a soak period avoids being the first consumer
+# of a bad version. Dependabot applies 3 days implicitly and zizmor's
+# dependabot-cooldown audit wants at least 7. It applies to VERSION updates
+# only, so security patches are never delayed by it.
 
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7   # see the note above
     labels: [dependencies, ci]
     groups:
       # One PR for the routine bumps; anything with a security advisory still
@@ -23,6 +31,8 @@ updates:
     directory: /backend
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7   # see the note above
     labels: [dependencies, backend]
     # The tree is large and mostly transitive. Security updates always come
     # through; routine minor/patch churn is grouped to keep the PR count sane.
@@ -36,6 +46,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7   # see the note above
     labels: [dependencies, frontend]
     open-pull-requests-limit: 5
     ignore:
