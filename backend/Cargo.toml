@@ -116,7 +116,7 @@ redis = { version = "0.24", features = ["tokio-comp", "connection-manager"] }
 # MFA (Multi-Factor Authentication) dependencies
 totp-rs = "5.4.0"         # TOTP (Time-based One-Time Password) implementation
 qrcode = "0.14.1"         # QR code generation
-base32 = "0.4.0"          # Base32 encoding for TOTP secrets
+base32 = "0.5.1"          # Base32 encoding for TOTP secrets
 
 # Security dependencies for MFA encryption and CSRF
 ring = "0.17.8"           # Cryptographic primitives for AES-256-GCM encryption and SHA-256 hashing
