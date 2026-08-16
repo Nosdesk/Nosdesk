@@ -75,6 +75,49 @@ pub struct DeltaResponse {
     pub last_xid8: i64,
     pub last_sync_id: i64,
     pub has_more: bool,
+    /// The caller's cursor predates the oldest action we still retain, so a
+    /// delta cannot reconstruct current state and the client must wipe its
+    /// cache and re-bootstrap.
+    ///
+    /// `sync_actions` is pruned by dropping whole monthly partitions
+    /// (`SYNC_ACTIONS_RETENTION_DAYS`, default 90). A client offline past that
+    /// horizon has a cursor pointing into dropped partitions: the deletes it
+    /// missed are gone, and a bootstrap alone cannot remove them because the
+    /// bootstrap stream only upserts. Without this flag the client believes it
+    /// caught up and keeps phantom rows indefinitely.
+    ///
+    /// Conservative by construction: `sync_id` is a sequence, so a gap below
+    /// the oldest retained row may be rolled-back ids rather than pruned rows.
+    /// A false positive costs one re-bootstrap; a false negative leaves the
+    /// cache silently wrong, so it errs toward resyncing.
+    pub resync_required: bool,
+}
+
+/// Smallest `sync_id` still present in `sync_actions`, or `None` when the
+/// table is empty.
+///
+/// Cheap: `PRIMARY KEY (sync_id, occurred_at)` on every partition, so this is a
+/// MergeAppend over per-partition index scans rather than a heap read.
+fn oldest_retained_sync_id(conn: &mut crate::db::DbConnection) -> QueryResult<Option<i64>> {
+    use diesel::dsl::min;
+    sync_actions::table
+        .select(min(sync_actions::sync_id))
+        .first(conn)
+}
+
+/// Whether `from` sits below the retained horizon, meaning actions between the
+/// cursor and the oldest surviving row have been pruned.
+///
+/// `from == 0` is exempt: that is a client with no cursor at all, which
+/// bootstraps rather than deltas, and every pruned table would otherwise
+/// report a resync it does not need.
+fn cursor_predates_retention(from: i64, oldest: Option<i64>) -> bool {
+    match oldest {
+        Some(min_id) => from > 0 && from + 1 < min_id,
+        // Nothing retained (fresh install, or everything pruned): there is no
+        // evidence of a gap to report, and a bootstrap will seed the cursor.
+        None => false,
+    }
 }
 
 pub async fn delta(
@@ -122,6 +165,20 @@ pub async fn delta(
             }
         }
     }
+    // Resolved before the early return: a client whose cursor has aged out
+    // needs to know that even when it currently has no granted groups,
+    // otherwise it sits on a stale cache until its permissions change.
+    let resync_required = match tc.run(|conn| oldest_retained_sync_id(conn)) {
+        Ok(oldest) => cursor_predates_retention(query.from, oldest),
+        Err(e) => {
+            // Don't fail the poll over the horizon probe. Reporting "no resync"
+            // keeps the client on its existing cache, which is the same
+            // position it was in before this signal existed.
+            error!(error = %e, "delta: oldest-retained probe failed; assuming no resync");
+            false
+        }
+    };
+
     if granted.is_empty() {
         // No groups in common between request and permission set;
         // return an empty delta rather than an error so clients can
@@ -131,6 +188,7 @@ pub async fn delta(
             last_xid8: query.from_xid8.unwrap_or(0),
             last_sync_id: query.from,
             has_more: false,
+            resync_required,
         });
     }
 
@@ -232,6 +290,7 @@ pub async fn delta(
         last_xid8,
         last_sync_id,
         has_more,
+        resync_required,
     })
 }
 
@@ -298,6 +357,51 @@ mod tests {
         let allowed = vec!["workspace:1".to_string()];
         let got = intersect_groups(" workspace:1 , workspace:1, ", &allowed);
         assert_eq!(got, vec!["workspace:1"]);
+    }
+
+    /// The horizon predicate, exhaustively. This is the whole decision: get it
+    /// wrong toward false and clients keep phantom rows silently; wrong toward
+    /// true and they re-bootstrap needlessly.
+    #[test]
+    fn cursor_predates_retention_boundaries() {
+        // Empty table: nothing to compare against, never signal.
+        assert!(!cursor_predates_retention(0, None));
+        assert!(!cursor_predates_retention(9_999, None));
+
+        // `from == 0` is a cursorless client; it bootstraps, so never signal
+        // even when the table has been pruned well past 0.
+        assert!(!cursor_predates_retention(0, Some(5_000)));
+
+        // Contiguous: the cursor sits exactly one below the oldest retained
+        // row, so the next row it wants is the one we still have. No gap.
+        assert!(!cursor_predates_retention(4_999, Some(5_000)));
+
+        // Cursor at or beyond the oldest retained row: caught up, no gap.
+        assert!(!cursor_predates_retention(5_000, Some(5_000)));
+        assert!(!cursor_predates_retention(9_999, Some(5_000)));
+
+        // Cursor two or more below: ids between it and the oldest survivor are
+        // gone. Conservative — they may have been rolled-back sequence values
+        // rather than pruned rows, and a needless re-bootstrap is the safe
+        // side of that ambiguity.
+        assert!(cursor_predates_retention(4_998, Some(5_000)));
+        assert!(cursor_predates_retention(1, Some(5_000)));
+    }
+
+    /// The probe runs against the real partitioned table, so a schema change
+    /// that breaks the MIN query surfaces here rather than as every client
+    /// silently never resyncing.
+    #[test]
+    fn oldest_retained_sync_id_reads_the_partitioned_table() {
+        let mut conn = crate::test_helpers::setup_test_connection();
+        let oldest = oldest_retained_sync_id(&mut conn).expect("probe query runs");
+        // Value depends on test-db contents; the contract is that it answers
+        // rather than errors, and that a present value is a positive sequence
+        // id which the predicate can compare against.
+        if let Some(v) = oldest {
+            assert!(v > 0, "sync_id is a positive sequence, got {v}");
+            assert!(!cursor_predates_retention(v, Some(v)));
+        }
     }
 
     #[test]
