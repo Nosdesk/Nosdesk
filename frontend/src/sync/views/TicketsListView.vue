@@ -387,7 +387,17 @@ watch(sortedCards, () => {
   if (splitViewActive.value) selection.selectFirstIfNone()
 })
 
-const isInitiallyLoading = computed(() => !bootstrapped.value)
+// Cache-first: the ticket pool is rehydrated from IndexedDB before this view
+// mounts, so a warm start already has rows while this mount re-runs the network
+// bootstrap (`bootstrapped` starts false again). Gating on the flag alone
+// therefore shows a loading state over data we already have. Gate on "no rows
+// yet" as well, so a warm launch paints immediately and the bootstrap
+// reconciles behind it; a genuine cold load (empty pool) still shows it.
+//
+// Same shape as ProjectsView, which has gated this way since it shipped.
+const isInitiallyLoading = computed(
+  () => !bootstrapped.value && allCards.value.length === 0,
+)
 
 function open(cardId: number): void {
   router.push(`/tickets/${cardId}`)
