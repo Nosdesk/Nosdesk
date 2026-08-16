@@ -72,6 +72,12 @@ export interface DeltaResponse {
   last_xid8: number
   last_sync_id: number
   has_more: boolean
+  /** The cursor sent predates the oldest action the server still retains, so
+   * a delta cannot reconstruct current state: the missed deletes have been
+   * pruned, and a bootstrap only upserts so it cannot remove them either.
+   * The client must wipe its cache and re-bootstrap. Optional so a client
+   * running against an older backend simply never sees it. */
+  resync_required?: boolean
 }
 
 export interface BootstrapMeta {
