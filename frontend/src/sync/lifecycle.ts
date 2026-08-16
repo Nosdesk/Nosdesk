@@ -41,6 +41,15 @@ interface LifecycleState {
    * browsing, quota, blocked). The runtime degrades to memory-only
    * — no persistence, no warm-start, but reads/writes still work. */
   memoryOnly: boolean
+  /** Set while a retention resync is wiping and re-bootstrapping. Both the
+   * 10s poll and the workspace-ready watch call pullDelta(), and a resync
+   * re-bootstraps (which can itself trigger a poll), so without this a single
+   * aged-out cursor could start several overlapping wipes. */
+  resyncing: boolean
+  /** The arguments hydrate() opened the database with. A retention resync
+   * wipes and reopens, and `IdbHandle` carries only the derived name, so the
+   * inputs have to be kept rather than reverse-engineered from it. */
+  openArgs: { userUuid: string; workspaceSlug: string | null } | null
 }
 
 const state: LifecycleState = {
@@ -48,6 +57,8 @@ const state: LifecycleState = {
   schemaHash: '',
   pollTimer: null,
   memoryOnly: false,
+  resyncing: false,
+  openArgs: null,
 }
 
 /** Memory-only counts as hydrated (it still bootstraps and serves; only
@@ -209,6 +220,7 @@ export async function hydrate(
   if (state.handle || state.memoryOnly) return
   pool.setSchemaHash(schemaHash)
   state.schemaHash = schemaHash
+  state.openArgs = { userUuid, workspaceSlug }
   setReferenceFetcher(referenceFetcher)
 
   // Try to open IDB; degrade gracefully if it's unavailable
@@ -372,6 +384,58 @@ export async function subscribe(group: string): Promise<void> {
  * Called on warm start (after rehydrate), on SSE reconnect, and on
  * a periodic-poll fallback when SSE is wedged.
  */
+/**
+ * Wipe the local cache and re-bootstrap, in response to the server reporting
+ * `resync_required` — our cursor has aged past `SYNC_ACTIONS_RETENTION_DAYS`,
+ * so the deletes we missed have been pruned and no delta can deliver them.
+ *
+ * Bootstrap alone cannot repair this: the stream only upserts, so a row deleted
+ * while we were away is never removed, it just stops being mentioned. Only
+ * dropping the cache first clears those phantoms.
+ *
+ * Collaborative-document caches are deliberately NOT purged. Those are keyed by
+ * the database instance epoch, which has not changed here; this is our cursor
+ * being old, not the server being a different database. Purging them would cost
+ * every open document a re-download for no correctness gain.
+ */
+async function resyncFromRetentionGap(): Promise<void> {
+  if (state.resyncing) return
+  state.resyncing = true
+  try {
+    // Capture before pool.reset() drops them: these are the groups to bring
+    // back, and re-subscribing is what makes the bootstrap fetch them.
+    const groups = Array.from(pool.getSubscribedGroups())
+    logger.warn('sync: cursor aged out of server retention; wiping and re-bootstrapping', {
+      groups,
+    })
+
+    if (state.handle && state.openArgs) {
+      const name = state.handle.name
+      const { userUuid, workspaceSlug } = state.openArgs
+      state.handle.db.close()
+      state.handle = null
+      queue.setIdbHandle(null)
+      await idb.wipe(name)
+      state.handle = await idb.open(userUuid, state.schemaHash, workspaceSlug)
+      queue.setIdbHandle(state.handle)
+    }
+
+    // reset() clears rows, cursor, subscriptions AND the schema hash. Restore
+    // the hash: runBootstrap compares the server's against it and would
+    // otherwise warn on a mismatch against an empty string every resync.
+    pool.reset()
+    pool.setSchemaHash(state.schemaHash)
+    for (const g of groups) pool.subscribe(g)
+    if (groups.length > 0) await runBootstrap(groups)
+  } catch (e) {
+    // Leave `resyncing` cleared so a later poll can retry. The cache may be
+    // half-wiped, which is still better than keeping known-phantom rows.
+    logger.error('sync: retention resync failed; will retry on a later poll', { error: e })
+  } finally {
+    state.resyncing = false
+  }
+}
+
 export async function pullDelta(): Promise<void> {
   if (!canFetchWorkspace()) return
   const groups = Array.from(pool.getSubscribedGroups())
@@ -391,6 +455,12 @@ export async function pullDelta(): Promise<void> {
       return
     }
     const body = (await res.json()) as DeltaResponse
+    if (body.resync_required) {
+      // Return without applying: this page is a partial view of a span we
+      // cannot complete, and the re-bootstrap replaces it wholesale.
+      await resyncFromRetentionGap()
+      return
+    }
     applyActions(body.actions)
     pool.setCursor(body.last_xid8, body.last_sync_id)
     if (state.handle) {
@@ -716,6 +786,8 @@ export async function tearDown(): Promise<void> {
   pool.reset()
   state.schemaHash = ''
   state.memoryOnly = false
+  state.openArgs = null
+  state.resyncing = false
   // Re-arm the single-flight bootstrap so the next navigation rebuilds the
   // runtime for the new session / workspace.
   runtimePromise = null
