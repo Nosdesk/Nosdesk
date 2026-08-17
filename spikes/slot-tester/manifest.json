@@ -1,0 +1,99 @@
+{
+  "manifest_version": 1,
+  "name": "slot-tester",
+  "displayName": "Slot Tester",
+  "version": "1.0.0",
+  "description": "Dev-only plugin that renders a distinct panel on every UI slot, for exercising the plugin extension points end to end.",
+  "license": "MIT",
+  "author": "Nosdesk Dev",
+  "engines": {
+    "nosdesk": ">=1.0.0",
+    "plugin_api": "1"
+  },
+  "permissions": [
+    "ticket:read",
+    "asset:read",
+    "user:read",
+    "storage:plugin"
+  ],
+  "settings": [
+    {
+      "key": "greeting",
+      "type": "string",
+      "label": "Greeting text",
+      "description": "Shown by the settings page panel to prove settings round-trip.",
+      "default": "hello"
+    }
+  ],
+  "components": {
+    "ticketSidebar": {
+      "slot": "ticket.sidebar.panel",
+      "entry": "ticketSidebar",
+      "context": ["ticket"],
+      "label": "Slot Tester"
+    },
+    "assetPanel": {
+      "slot": "asset.info.panel",
+      "entry": "assetPanel",
+      "context": ["asset"],
+      "label": "Slot Tester"
+    },
+    "emptyPanel": {
+      "slot": "ticket.sidebar.panel",
+      "entry": "emptyPanel",
+      "context": [],
+      "label": "Slot Tester (renders nothing)"
+    },
+    "hangPanel": {
+      "slot": "ticket.sidebar.panel",
+      "entry": "hangPanel",
+      "context": [],
+      "label": "Slot Tester (mount never settles)"
+    },
+    "latePanel": {
+      "slot": "ticket.sidebar.panel",
+      "entry": "latePanel",
+      "context": [],
+      "label": "Slot Tester (fills in late)"
+    },
+    "fullBleedPanel": {
+      "slot": "asset.info.panel",
+      "entry": "fullBleedPanel",
+      "context": [],
+      "label": "Slot Tester (full bleed)",
+      "chrome": "none"
+    },
+    "settingsPage": {
+      "slot": "settings.integrations.page",
+      "entry": "settingsPage",
+      "context": [],
+      "label": "Slot Tester Config"
+    },
+    "dashboardWidget": {
+      "slot": "dashboard.widget",
+      "entry": "dashboardWidget",
+      "context": [],
+      "label": "Slot Tester Widget"
+    },
+    "headerAction": {
+      "slot": "ticket.header.action",
+      "entry": "headerAction",
+      "context": ["ticket"],
+      "label": "Slot Tester",
+      "action": { "label": "Slot Tester: header action" }
+    },
+    "bulkAction": {
+      "slot": "ticket.bulk.action",
+      "entry": "bulkAction",
+      "context": ["ticket"],
+      "label": "Slot Tester (bulk)"
+    },
+    "navItem": {
+      "slot": "nav.item",
+      "entry": "navItem",
+      "context": [],
+      "label": "Slot Tester",
+      "icon": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'%3E%3Crect x='3' y='3' width='7' height='7' rx='1'/%3E%3Crect x='14' y='3' width='7' height='7' rx='1'/%3E%3Crect x='3' y='14' width='7' height='7' rx='1'/%3E%3Crect x='14' y='14' width='7' height='7' rx='1'/%3E%3C/svg%3E"
+    }
+  }
+}

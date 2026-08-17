@@ -1,58 +1,74 @@
 # @nosdesk/mobile
 
-The Tauri host for the mobile app. It runs the **existing** `frontend` Vue app
-(already mobile-first, bottom nav + safe-area insets) in a Tauri 2 shell and
-wires the headless `@nosdesk/core` seams to the native platform (bearer auth +
-native HTTP, vs the web's cookies + localStorage). There is no separate mobile
-UI; `@nosdesk/core` is what lets the one UI run in both hosts.
+The Tauri 2 host for the mobile app. There is no separate mobile UI: this runs
+the existing `frontend` Vue app and rebinds the headless `@nosdesk/core` seams
+to native (bearer auth and native HTTP, where web uses cookies and localStorage).
 
 ## Layout
 
-- `src-tauri/` — the Tauri 2 Rust shell. `tauri.conf.json` builds the frontend
-  (`frontendDist: ../../frontend/dist`, `beforeBuildCommand` runs the frontend
-  build) and serves its dev server in `tauri dev`. Registers `tauri-plugin-http`.
-- `src/` — the TS host layer the frontend loads when running under Tauri:
-  - `bootstrap.ts` / `index.ts` — `bootstrapMobile()` + `setSession`/`clearSession`.
-  - `transport.ts` — the `bearerAuthStrategy` (Authorization: Bearer + `X-Auth-Mode`).
-  - `apiClient.ts` — clears the web interceptors and installs the bearer ones +
-    the native-HTTP adapter on core's axios instance.
-  - `tauriHttpAdapter.ts` — axios adapter over `@tauri-apps/plugin-http` (the
-    `tauri://` origin can't reach the API cross-origin from the webview).
-  - `storageSetup.ts` / `loggerSetup.ts` — the general-KV + logger seams.
-  - `serverConfig.ts` — the server picker: persist the chosen origin (cloud or
-    self-hosted), derive the base URLs, and `validateServer()` (HTTPS + probes
-    `/api/auth/setup/status` to confirm it's a Nosdesk instance).
-  - `secureStore.ts` — the keychain `SecureStore` contract + an in-memory impl.
+`src-tauri/` is the Rust shell. `tauri.conf.json` points `frontendDist` at
+`../../frontend/dist` and rebuilds it via `beforeBuildCommand`.
 
-The frontend chooses the host at startup in `frontend/src/platform/index.ts`
-(`isTauriRuntime()` → `bootstrapMobile(...)`, else the web setup); the Tauri
-branch is a lazy chunk, so the web bundle stays Tauri-free.
+`src/` is the TS host layer the frontend loads under Tauri:
 
-## Verified
+| | |
+|---|---|
+| `bootstrap.ts`, `index.ts` | `bootstrapMobile()`, `setSession`, `clearSession` |
+| `transport.ts` | bearer auth strategy (`Authorization`, `X-Auth-Mode`) |
+| `apiClient.ts` | swaps core's web interceptors for the bearer ones |
+| `tauriHttpAdapter.ts` | axios adapter over `@tauri-apps/plugin-http` |
+| `serverConfig.ts` | server picker, base URLs, `validateServer()` |
+| `secureStore.ts` | `SecureStore` contract (iOS Keychain / Android Keystore) |
+| `storageSetup.ts`, `loggerSetup.ts` | general KV and logger seams |
 
-- `pnpm --filter @nosdesk/mobile run type-check` and `pnpm -C frontend run type-check` green.
-- `pnpm -C frontend run build-only` green; Tauri code is code-split out of the web entry chunk.
-- `cd src-tauri && cargo check` compiles the Rust shell.
+`frontend/src/platform/index.ts` picks the host at startup. The Tauri branch is
+a lazy chunk, so the web bundle stays Tauri-free.
 
-## NOT done (needs the mobile SDKs / a device)
+## Device builds
 
-- **Init the mobile targets** (Tauri CLI present, SDKs are not):
-  `pnpm --filter @nosdesk/mobile tauri ios init` / `tauri android init`
-  (iOS needs Xcode; Android needs the SDK + the `aarch64-*` Rust targets).
-  `pnpm --filter @nosdesk/mobile tauri dev` runs the desktop shell.
-- **Keychain `SecureStore`** (`secureStore.ts`): only `memorySecureStore` ships
-  (no cold-start persistence). Pick a non-biometric-gated keychain plugin
-  on-device, NOT Stronghold (deprecated) or the plaintext store plugin.
-- **Connect screen (Vue UI)** — the plumbing is here (`validateServer` /
-  `setServer` / `getStoredServer` / `DEFAULT_SERVER`); the actual first-run
-  "choose your Nosdesk server" screen + a settings entry to switch servers is
-  frontend work. Cloud is the default until then. To support arbitrary
-  self-hosted servers the `http` capability allows any `https://**` and the CSP
-  `connect-src` allows `https:`/`wss:` (still HTTPS-only, only the server the
-  user picks).
-- **Backend** must allowlist the Tauri origin for SSE (EventSource) + collab WS
-  per server (the http plugin handles REST natively, but SSE/WS go through the
-  webview).
-- App icons (placeholders), signing, store metadata; native enhancements (push,
-  biometric unlock, deep links, native passkeys); on-device smoke test
-  (login → `/me` → ticket list).
+```bash
+pnpm --filter @nosdesk/mobile exec tauri ios build --debug --export-method debugging
+xcrun devicectl device install app --device <UUID> src-tauri/gen/apple/build/arm64/Nosdesk.ipa
+```
+
+`--export-method debugging` produces a standalone app. `tauri ios dev` instead
+tethers the webview to the laptop's vite server, so the app stops working as
+soon as the laptop does.
+
+Gotchas:
+
+- The bundled UI comes from `frontend/dist`, so the app always ships a
+  production frontend build rather than whatever the dev stack has in
+  `backend/public`.
+- Touch `src-tauri/src/lib.rs` after a frontend-only change. The Rust side embeds
+  the assets and silently ships the previous bundle if it has no reason to
+  recompile.
+- Unlock the login keychain first or `CodeSign` fails at the end of an otherwise
+  clean build: `security -v unlock-keychain ~/Library/Keychains/login.keychain-db`.
+- Target the device by UUID (`xcrun devicectl list devices`). Device names often
+  contain a curly apostrophe, so passing a name with a straight quote
+  (`--device "Sam's iPhone"`) will not match.
+
+## Simulator
+
+`tauri ios build --target aarch64-sim` fails with `failed to rename app ...
+Directory not empty` when a device archive exists. Xcode still built the app, so
+skip Tauri's packaging and install its output:
+
+```bash
+xcrun simctl boot <SIM-UUID> && open -a Simulator
+xcrun simctl install <SIM-UUID> \
+  ~/Library/Developer/Xcode/DerivedData/app-*/Build/Products/debug-iphonesimulator/Nosdesk.app
+xcrun simctl launch <SIM-UUID> com.nosdesk.app
+```
+
+`simctl` installs, launches and screenshots but cannot tap or swipe. Driving the
+Simulator over AppleScript needs Accessibility permission and otherwise hangs
+until `AppleEvent timed out (-1712)`. Gesture testing needs a real device.
+
+## Open
+
+- Backend must allowlist the Tauri origin per server for SSE and collab WS. The
+  http plugin covers REST natively, but those two go through the webview.
+- App icons are placeholders. Signing and store metadata are not set up.
+- Native work not started: biometric unlock, native passkeys.
