@@ -18,7 +18,7 @@ export interface OnboardingStatus {
 /// (backend `handlers::auth::get_user_sessions`). `is_current` is the
 /// session backing the caller's current JWT.
 export interface SessionInfo {
-  id: number;
+  /** Stable per-session UUID. The only identifier the API accepts. */
   session_id: string;
   device_name: string | null;
   ip_address: string | null;
@@ -305,7 +305,7 @@ class AuthService {
   /**
    * Revoke a specific session
    */
-  async revokeSession(sessionId: number): Promise<void> {
+  async revokeSession(sessionId: string): Promise<void> {
     try {
       await apiClient.delete(`/auth/sessions/${sessionId}`);
     } catch (error) {

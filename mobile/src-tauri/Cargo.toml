@@ -25,6 +25,7 @@ tauri = { version = "2.11.3", features = [] }
 # Native HTTP client: the webview can't reach the API cross-origin from the
 # tauri:// origin, so REST goes through this (see mobile/src/tauriHttpAdapter.ts).
 tauri-plugin-http = "2"
+tauri-plugin-os = "2"
 tauri-plugin-log = "2"
 # Haptic feedback (iOS/Android only): the pull-to-refresh arm tick
 # (see frontend/src/platform/haptics.ts). No-ops on desktop.

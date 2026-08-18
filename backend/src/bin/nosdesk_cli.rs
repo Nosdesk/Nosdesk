@@ -739,9 +739,8 @@ fn admin_reset_password(email: &str) -> Result<()> {
     // Revoke sessions so the old credentials stop working
     // everywhere the user was logged in. Matches what the web
     // password-reset flow does.
-    let revoked =
-        backend::repository::active_sessions::revoke_other_sessions(&mut conn, &user.uuid, None)
-            .unwrap_or(0);
+    let revoked = backend::repository::active_sessions::revoke_all_sessions(&mut conn, &user.uuid)
+        .unwrap_or(0);
 
     println!("reset password for {} ({})", user.name, user.uuid);
     println!("revoked {revoked} active session(s)");
@@ -785,9 +784,8 @@ fn admin_clear_passkeys(email: &str) -> Result<()> {
 
     // Revoke sessions so a stale session can't keep the (now removed)
     // passkey association alive; matches reset-password's behaviour.
-    let revoked =
-        backend::repository::active_sessions::revoke_other_sessions(&mut conn, &user.uuid, None)
-            .unwrap_or(0);
+    let revoked = backend::repository::active_sessions::revoke_all_sessions(&mut conn, &user.uuid)
+        .unwrap_or(0);
 
     println!(
         "removed {removed} passkey(s) for {} ({})",

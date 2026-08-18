@@ -245,6 +245,9 @@ importers:
       '@tauri-apps/plugin-opener':
         specifier: ^2.0.0
         version: 2.5.4
+      '@tauri-apps/plugin-os':
+        specifier: ^2.3.2
+        version: 2.3.2
       axios:
         specifier: ^1.19.0
         version: 1.19.0
@@ -1229,6 +1232,9 @@ packages:
 
   '@tauri-apps/plugin-opener@2.5.4':
     resolution: {integrity: sha512-1HnPkb+AmgO29HBazm4uPLKB+r7zzcTBW1d0fyYp1uP+jwtpoiNDGKMMzz58SFp49nOIrxdE3aUJtT57lfO9CQ==}
+
+  '@tauri-apps/plugin-os@2.3.2':
+    resolution: {integrity: sha512-n+nXWeuSeF9wcEsSPmRnBEGrRgOy6jjkSU+UVCOV8YUGKb2erhDOxis7IqRXiRVHhY8XMKks00BJ0OAdkpf6+A==}
 
   '@tsconfig/node10@1.0.12':
     resolution: {integrity: sha512-UCYBaeFvM11aU2y3YPZ//O5Rhj+xKyzy7mvcIoAjASbigy8mHMryP5cK7dgjlz2hWxh1g5pLw084E0a/wlUSFQ==}
@@ -2512,10 +2518,6 @@ packages:
     resolution: {integrity: sha512-V7+vQEJ06Z+c5tSye8S+nHUfI51xoXIXjHQ99cQtKUkQqqO1kO/KCJUfZXuB47h/YBlDhah2H3hdUGXn8ie0oA==}
     engines: {node: '>=8.6'}
 
-  picomatch@4.0.4:
-    resolution: {integrity: sha512-QP88BAKvMam/3NxH6vj2o21R6MjxZUAd6nlwAS/pnGvN9IVLocLHxGYIzFhg6fUQ+5th6P4dv4eW9jX3DSIj7A==}
-    engines: {node: '>=12'}
-
   picomatch@4.0.5:
     resolution: {integrity: sha512-RvwwcruNjI1ncT5xRakeyS9Lf8lcItv34KD+aif+VH9kduAyfYBipGh12274xtenIPZ119/R9BdTBa8gAwSh0A==}
     engines: {node: '>=12'}
@@ -3791,6 +3793,10 @@ snapshots:
       '@tauri-apps/api': 2.11.1
 
   '@tauri-apps/plugin-opener@2.5.4':
+    dependencies:
+      '@tauri-apps/api': 2.11.1
+
+  '@tauri-apps/plugin-os@2.3.2':
     dependencies:
       '@tauri-apps/api': 2.11.1
 
@@ -5136,8 +5142,6 @@ snapshots:
   picocolors@1.1.1: {}
 
   picomatch@2.3.2: {}
-
-  picomatch@4.0.4: {}
 
   picomatch@4.0.5: {}
 

@@ -1740,20 +1740,17 @@ async fn sync_users(
                 continue;
             };
 
-            let revoked = crate::repository::active_sessions::revoke_other_sessions(
-                conn,
-                &identity.user_uuid,
-                None,
-            )
-            .unwrap_or_else(|e| {
-                warn!(
-                    error = ?e,
-                    user_uuid = %identity.user_uuid,
-                    ms_id = %removed_id,
-                    "Failed to revoke sessions for user removed from Entra ID",
-                );
-                0
-            });
+            let revoked =
+                crate::repository::active_sessions::revoke_all_sessions(conn, &identity.user_uuid)
+                    .unwrap_or_else(|e| {
+                        warn!(
+                            error = ?e,
+                            user_uuid = %identity.user_uuid,
+                            ms_id = %removed_id,
+                            "Failed to revoke sessions for user removed from Entra ID",
+                        );
+                        0
+                    });
 
             if let Err(e) = crate::utils::security_events::record_security_event(
                 conn,
@@ -1768,7 +1765,6 @@ async fn sync_users(
                         "action": "access_revoked_user_row_kept",
                     })),
                     request: None,
-                    session_id: None,
                 },
             ) {
                 warn!(

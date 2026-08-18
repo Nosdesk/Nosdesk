@@ -31,6 +31,7 @@ pub mod reset_tokens;
 pub mod safe_http;
 pub mod scopes;
 pub mod security_events;
+pub mod session_policy;
 pub mod slug;
 pub mod storage;
 pub mod template_variables;

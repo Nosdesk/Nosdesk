@@ -31,7 +31,6 @@ pub struct NewSecurityEvent {
     pub details: Option<serde_json::Value>,
     pub severity: String,
     pub created_at: chrono::NaiveDateTime,
-    pub session_id: Option<i32>,
 }
 
 /// Input shape for [`record_security_event`]. Keeps the call site short
@@ -49,7 +48,6 @@ pub struct SecurityEventInput<'a> {
     /// When supplied, IP and User-Agent are pulled from headers automatically.
     /// Handlers that don't have the request in scope can pass `None`.
     pub request: Option<&'a HttpRequest>,
-    pub session_id: Option<i32>,
 }
 
 /// Pull the client IP out of a request via the trusted-proxy-aware
@@ -90,7 +88,6 @@ pub fn record_security_event(
         details: event.details,
         severity: event.severity.to_string(),
         created_at: Utc::now().naive_utc(),
-        session_id: event.session_id,
     };
 
     diesel::insert_into(security_events::table)
@@ -135,7 +132,6 @@ mod tests {
                 severity: "info",
                 details: Some(serde_json::json!({ "k": "v" })),
                 request: None,
-                session_id: None,
             },
         )
         .expect("insert succeeds");
@@ -174,7 +170,6 @@ mod tests {
                     "reason": "invalid_credentials",
                 })),
                 request: None,
-                session_id: None,
             },
         )
         .expect("anonymous insert succeeds");

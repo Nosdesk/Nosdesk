@@ -116,7 +116,12 @@ pub fn config(cfg: &mut web::ServiceConfig) {
                     "/others",
                     web::delete().to(crate::handlers::revoke_all_other_sessions),
                 )
-                .route("/{id}", web::delete().to(crate::handlers::revoke_session)),
+                // Must stay after "/others": a trailing wildcard registered
+                // first would absorb the literal path.
+                .route(
+                    "/{session_id}",
+                    web::delete().to(crate::handlers::revoke_session),
+                ),
         )
         .service(
             web::scope("/mfa")
@@ -210,33 +215,111 @@ async fn log_password_change_event(
             // pre-dates the shared helper and keeps its previous "no IP"
             // behavior. If we want IP here later, wire the request in.
             request: None,
-            session_id: None,
         },
     )?;
 
     Ok(())
 }
 
-/// Parse a device name from a user-agent string.
-fn parse_device_name(ua: &str) -> &'static str {
-    if ua.contains("iPhone") {
-        "iPhone"
-    } else if ua.contains("iPad") {
-        "iPad"
-    } else if ua.contains("Android") {
-        "Android Asset"
-    } else if ua.contains("Macintosh") || ua.contains("Mac OS") {
-        "Mac"
-    } else if ua.contains("Windows") {
-        "Windows PC"
-    } else if ua.contains("Linux") {
-        "Linux"
-    } else {
-        "Unknown Asset"
+/// Header a native client uses to name the device it's signing in from.
+/// Self-reported and never trusted for anything: the value is only ever shown
+/// back to the same user in their own session list.
+pub const DEVICE_NAME_HEADER: &str = "X-Device-Name";
+
+/// Longest client-supplied device name we store. The column is
+/// `varchar(255)`, which Postgres counts in characters, not bytes.
+const DEVICE_NAME_MAX_CHARS: usize = 255;
+
+/// Normalize a client-supplied device name: trim, drop it if empty, and
+/// bound its length so a long name can't overflow the column.
+///
+/// Only native clients send one (they know the real device); browsers send
+/// nothing and the session list derives a label from the user-agent at render
+/// time, where it can be translated. The backend deliberately does no
+/// user-agent parsing: it produced hardcoded English that bypassed the i18n
+/// catalogue.
+fn sanitize_device_name(raw: Option<&str>) -> Option<String> {
+    raw.map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| crate::utils::utf8_trunc::char_prefix(s, DEVICE_NAME_MAX_CHARS))
+}
+
+/// Sign the user's *other* devices out after one of their authentication
+/// factors changed, keeping the caller signed in.
+///
+/// OWASP ASVS 5.0 requirement 7.4.3 asks for this after any factor is changed
+/// or removed, not just a password: someone who enrolled MFA or deleted a
+/// passkey is often responding to a suspected compromise, and the sessions an
+/// attacker holds survive the credential change otherwise.
+///
+/// Best-effort by design. The factor change itself has already been committed,
+/// so a revocation failure is logged rather than propagated: reporting the
+/// whole operation as failed would be a worse lie than the stale sessions.
+pub(crate) fn revoke_sessions_after_factor_change(
+    conn: &mut DbConnection,
+    req: &HttpRequest,
+    user_uuid: &Uuid,
+    factor: &'static str,
+) {
+    // Bind the extensions guard first: the Claims reference borrows from it,
+    // and a temporary would be dropped before the reference is read.
+    let current_sid = {
+        let extensions = req.extensions();
+        extensions
+            .get::<crate::models::Claims>()
+            .and_then(|claims| claims.session_uuid())
+    };
+
+    let Some(sid) = current_sid else {
+        // No identifiable current session, so "all except this one" has no
+        // meaning. Revoking everything would sign the user out mid-change;
+        // leave it and record nothing.
+        tracing::warn!(
+            %user_uuid,
+            factor,
+            "No session id in claims; skipped revoking other sessions after factor change"
+        );
+        return;
+    };
+
+    match crate::repository::active_sessions::revoke_other_sessions_by_uuid(conn, user_uuid, &sid) {
+        Ok(0) => {}
+        Ok(revoked) => {
+            info!(%user_uuid, factor, revoked, "Revoked other sessions after factor change");
+            let _ = crate::utils::security_events::record_security_event(
+                conn,
+                crate::utils::security_events::SecurityEventInput {
+                    user_uuid: Some(*user_uuid),
+                    event_type: "session_revoked",
+                    severity: "info",
+                    details: Some(json!({
+                        "reason": "auth_factor_changed",
+                        "factor": factor,
+                        "revoked_count": revoked,
+                    })),
+                    request: Some(req),
+                },
+            );
+        }
+        Err(e) => tracing::warn!(
+            %user_uuid,
+            factor,
+            error = %e,
+            "Failed to revoke other sessions after factor change"
+        ),
     }
 }
 
 /// Create a session record from an HTTP request. Returns the ActiveSession with its DB-generated session_id.
+///
+/// The device label comes from the `X-Device-Name` request header, which only
+/// native clients set (see [`sanitize_device_name`]). Reading it here rather
+/// than threading a parameter means every login path gets it, including the
+/// OIDC redirect flow, which has no request body to carry it.
+///
+/// Enforces the per-user session cap, evicting the least-recently-active
+/// sessions and recording a security event for them, so a login is never
+/// refused for holding too many.
 pub fn create_session_record(
     user_uuid: &Uuid,
     request: &HttpRequest,
@@ -255,9 +338,12 @@ pub fn create_session_record(
         .and_then(|h| h.to_str().ok())
         .map(|s| s.to_string());
 
-    let device_name = user_agent
-        .as_deref()
-        .map(|ua| parse_device_name(ua).to_string());
+    let device_name = sanitize_device_name(
+        request
+            .headers()
+            .get(DEVICE_NAME_HEADER)
+            .and_then(|h| h.to_str().ok()),
+    );
 
     let new_session = crate::models::NewActiveSession {
         user_uuid: *user_uuid,
@@ -265,12 +351,38 @@ pub fn create_session_record(
         ip_address,
         user_agent,
         location,
-        expires_at: chrono::Utc::now().naive_utc() + chrono::Duration::days(7),
-        is_current: true,
+        // A brand-new session's ceiling is further out than the idle window,
+        // so this is the full idle TTL; the clamp matters on refresh.
+        expires_at: crate::utils::session_policy::next_expiry(chrono::Utc::now().naive_utc()),
         oidc_id_token: oidc_id_token.map(str::to_owned),
     };
 
-    crate::repository::active_sessions::create_session(conn, new_session)
+    let (session, evicted) =
+        crate::repository::active_sessions::create_session_capped(conn, new_session)?;
+
+    if evicted > 0 {
+        info!(
+            user_uuid = %user_uuid,
+            evicted,
+            "Evicted least-recently-active session(s) at the per-user cap"
+        );
+        let _ = crate::utils::security_events::record_security_event(
+            conn,
+            crate::utils::security_events::SecurityEventInput {
+                user_uuid: Some(*user_uuid),
+                event_type: "session_revoked",
+                severity: "info",
+                details: Some(json!({
+                    "reason": "session_cap_evicted",
+                    "evicted_count": evicted,
+                    "max_sessions": crate::utils::session_policy::max_sessions_per_user(),
+                })),
+                request: Some(request),
+            },
+        );
+    }
+
+    Ok(session)
 }
 
 /// Create a session + token pair, returning an HttpResponse with auth cookies set.
@@ -341,7 +453,6 @@ pub(crate) fn establish_login_session(
             severity: "info",
             details: None,
             request: Some(request),
-            session_id: None,
         },
     );
 
@@ -382,7 +493,6 @@ fn complete_mfa_login(
             severity: "info",
             details: Some(json!({ "via": "mfa" })),
             request: Some(request),
-            session_id: None,
         },
     );
 
@@ -587,7 +697,6 @@ async fn try_ldap_login(
                     severity: "warning",
                     details: Some(json!({ "error": e.to_string() })),
                     request: Some(request),
-                    session_id: None,
                 },
             );
             None
@@ -713,7 +822,6 @@ pub async fn login(
                         "reason": "invalid_credentials",
                     })),
                     request: Some(&request),
-                    session_id: None,
                 },
             );
             if locked {
@@ -816,7 +924,6 @@ pub async fn mfa_login(
                 severity: if success { "info" } else { "warning" },
                 details: Some(json!({ "method": "totp_or_backup", "context": "login" })),
                 request: Some(&request),
-                session_id: None,
             },
         );
     };
@@ -1027,7 +1134,6 @@ pub async fn logout(
                     severity: "info",
                     details: Some(json!({ "reason": "logout" })),
                     request: Some(&req),
-                    session_id: None,
                 },
             );
         }
@@ -1695,6 +1801,9 @@ pub async fn mfa_enable(
             // Drop the setup secret cache entry — its job is done
             // and the persisted users.mfa_secret is authoritative.
             mfa::consume_setup_secret(&user_uuid).await;
+            // A new factor is in force; sessions that predate it should not
+            // continue on the strength of the old one.
+            revoke_sessions_after_factor_change(&mut conn, &req, &user_uuid, "mfa_enabled");
             // Return plaintext backup codes so the client can display them once
             HttpResponse::Ok().json(json!({
                 "status": "success",
@@ -1786,6 +1895,9 @@ pub async fn mfa_disable(
                 user_uuid,
                 claims.scope
             );
+            // Removing a factor is the case this matters most for: if the
+            // disable was an attacker's doing, the sessions to cut are theirs.
+            revoke_sessions_after_factor_change(&mut conn, &req, &user_uuid, "mfa_disabled");
             HttpResponse::Ok().json(json!({
                 "status": "success",
                 "message": "MFA disabled successfully"
@@ -2284,9 +2396,10 @@ pub async fn get_user_sessions(
     let session_responses: Vec<serde_json::Value> = sessions
         .into_iter()
         .map(|session| {
+            // "Current" is relative to the caller's own token, so it's
+            // computed per request rather than stored on the row.
             let is_current = current_sid == Some(session.session_id);
             json!({
-                "id": session.id,
                 "session_id": session.session_id.to_string(),
                 "device_name": session.device_name,
                 "ip_address": session.ip_address.map(|ip| ip.to_string()),
@@ -2306,13 +2419,17 @@ pub async fn get_user_sessions(
     }))
 }
 
-/// Revoke a specific session
+/// Revoke a specific session, addressed by its stable `session_id` UUID.
+///
+/// The UUID is the identifier the rest of the session surface uses (the JWT
+/// `sid` claim, the refresh-token FK), and unlike the integer primary key it
+/// isn't enumerable.
 pub async fn revoke_session(
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
-    path: web::Path<i32>,
+    path: web::Path<Uuid>,
 ) -> impl Responder {
-    let session_id = path.into_inner();
+    let target_sid = path.into_inner();
 
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
@@ -2333,7 +2450,7 @@ pub async fn revoke_session(
     // Verify the session belongs to this user before revoking. Return
     // 404 (not 403) when the row exists but isn't theirs, so the response
     // can't be used to probe for another user's session ids.
-    match crate::repository::active_sessions::get_session_by_id(&mut conn, session_id) {
+    match crate::repository::active_sessions::get_session_by_session_id(&mut conn, &target_sid) {
         Ok(session) if session.user_uuid == user_uuid => {
             // Session belongs to user, proceed with revocation
         }
@@ -2343,9 +2460,9 @@ pub async fn revoke_session(
     // Revoke the session. A count of 0 means it was already gone (e.g. a
     // double-click race); that's the desired end state, so the delete is
     // idempotent and still reports success.
-    match crate::repository::active_sessions::revoke_session(&mut conn, session_id) {
+    match crate::repository::active_sessions::revoke_session_by_uuid(&mut conn, &target_sid) {
         Ok(_) => {
-            info!(session_id = %session_id, user_uuid = %user_uuid, "Session revoked");
+            info!(session_id = %target_sid, user_uuid = %user_uuid, "Session revoked");
             let _ = crate::utils::security_events::record_security_event(
                 &mut conn,
                 crate::utils::security_events::SecurityEventInput {
@@ -2354,10 +2471,9 @@ pub async fn revoke_session(
                     severity: "info",
                     details: Some(json!({
                         "reason": "manual_revoke",
-                        "revoked_session_id": session_id
+                        "revoked_session_id": target_sid.to_string()
                     })),
                     request: Some(&req),
-                    session_id: None,
                 },
             );
             HttpResponse::Ok().json(json!({
@@ -2442,9 +2558,7 @@ pub async fn revoke_all_other_sessions(
         Some(sid) => crate::repository::active_sessions::revoke_other_sessions_by_uuid(
             &mut conn, &user_uuid, &sid,
         ),
-        None => {
-            crate::repository::active_sessions::revoke_other_sessions(&mut conn, &user_uuid, None)
-        }
+        None => crate::repository::active_sessions::revoke_all_sessions(&mut conn, &user_uuid),
     };
 
     match revoke_result {
@@ -2465,7 +2579,6 @@ pub async fn revoke_all_other_sessions(
                         "revoked_count": revoked_count
                     })),
                     request: Some(&req),
-                    session_id: None,
                 },
             );
             HttpResponse::Ok().json(json!({
@@ -2575,12 +2688,20 @@ pub async fn refresh_token(
     };
 
     // 5. Determine session_id (from token, or create new session for tokens without one)
-    let session_id = match old_token.session_id {
-        Some(sid) => sid,
+    let (session_id, session_created_at) = match old_token.session_id {
+        Some(sid) => {
+            match crate::repository::active_sessions::get_session_by_session_id(&mut conn, &sid) {
+                Ok(session) => (sid, session.created_at),
+                // The session is gone (revoked, evicted at the cap, or pruned
+                // as expired). The refresh token outlives it only in the window
+                // before the cascade lands, so treat it as revoked.
+                Err(_) => return errors::unauthorized("Session no longer active"),
+            }
+        }
         None => {
             // Token created before this migration — create a new session
             match create_session_record(&user.uuid, &request, &mut conn, None) {
-                Ok(session) => session.session_id,
+                Ok(session) => (session.session_id, session.created_at),
                 Err(e) => {
                     tracing::error!("Failed to create session during refresh: {}", e);
                     return errors::internal("Failed to create session");
@@ -2588,6 +2709,33 @@ pub async fn refresh_token(
             }
         }
     };
+
+    // 5b. Absolute lifetime. `created_at` never moves, so no amount of
+    // refreshing extends a session past the ceiling (ASVS 7.3.2). Revoke
+    // rather than just refusing, so the dead row doesn't linger until the
+    // hourly cleanup and the user is forced to re-authenticate.
+    let absolute_deadline = crate::utils::session_policy::absolute_deadline(session_created_at);
+    if absolute_deadline <= chrono::Utc::now().naive_utc() {
+        tracing::info!(
+            user_uuid = %user.uuid,
+            %session_id,
+            "Session reached its absolute lifetime; revoking"
+        );
+        let _ =
+            crate::repository::refresh_tokens::revoke_token_family(&mut conn, &old_token.family_id);
+        let _ = crate::repository::active_sessions::revoke_session_by_uuid(&mut conn, &session_id);
+        let _ = crate::utils::security_events::record_security_event(
+            &mut conn,
+            crate::utils::security_events::SecurityEventInput {
+                user_uuid: Some(user.uuid),
+                event_type: "session_revoked",
+                severity: "info",
+                details: Some(json!({ "reason": "absolute_lifetime_reached" })),
+                request: Some(&request),
+            },
+        );
+        return errors::unauthorized("Session expired, please sign in again");
+    }
 
     // 6. Generate new access JWT with same sid
     let new_access_token = match JwtUtils::create_token(&user, &session_id) {
@@ -2614,8 +2762,11 @@ pub async fn refresh_token(
         }
     }
 
-    // 9. Create new refresh token with same family_id and session_id
-    let new_refresh_expires = chrono::Utc::now().naive_utc() + chrono::Duration::days(7);
+    // 9. Create new refresh token with same family_id and session_id. Bounded
+    // by the session's ceiling too, so a live refresh token can't outlast the
+    // session it belongs to.
+    let new_refresh_expires =
+        crate::utils::session_policy::next_expiry(session_created_at).min(absolute_deadline);
     let new_refresh_record = crate::models::NewRefreshToken {
         token_hash: new_refresh_hash,
         user_uuid: user.uuid,
@@ -2631,8 +2782,9 @@ pub async fn refresh_token(
         return errors::internal("Failed to create refresh token");
     }
 
-    // 10. Update session activity
-    let new_session_expires = chrono::Utc::now().naive_utc() + chrono::Duration::days(7);
+    // 10. Update session activity. The sliding window is clamped to the
+    // ceiling, so expires_at converges on it as the session ages out.
+    let new_session_expires = crate::utils::session_policy::next_expiry(session_created_at);
     if let Err(e) = crate::repository::active_sessions::update_session_activity(
         &mut conn,
         &session_id,

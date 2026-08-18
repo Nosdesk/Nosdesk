@@ -114,17 +114,17 @@ function deviceLabel(session: SessionInfo): string {
 }
 
 // --- Per-session revoke ---
-const revokingId = ref<number | null>(null);
+const revokingId = ref<string | null>(null);
 
 async function handleRevoke(session: SessionInfo) {
-  revokingId.value = session.id;
+  revokingId.value = session.session_id;
   try {
-    await authService.revokeSession(session.id);
+    await authService.revokeSession(session.session_id);
     refresh();
     emit('success', t('settings-sessions-revoke-success'));
   } catch (err) {
     emit('error', extractErrorMessage(err, t('settings-sessions-revoke-error')));
-    logger.error('Failed to revoke session', { error: err, sessionId: session.id });
+    logger.error('Failed to revoke session', { error: err, sessionId: session.session_id });
   } finally {
     revokingId.value = null;
   }
@@ -202,7 +202,7 @@ async function handleRevokeAll() {
       <div v-else class="flex flex-col gap-2">
         <div
           v-for="session in sessions"
-          :key="session.id"
+          :key="session.session_id"
           class="flex items-center justify-between gap-3 p-3 bg-surface-alt rounded-lg"
         >
           <div class="flex items-center gap-3 min-w-0">
@@ -238,7 +238,7 @@ async function handleRevokeAll() {
             variant="ghost-danger"
             size="sm"
             class="flex-shrink-0"
-            :loading="revokingId === session.id"
+            :loading="revokingId === session.session_id"
             :disabled="revokingId !== null"
             :aria-label="$t('settings-sessions-revoke-aria', { device: deviceLabel(session) })"
             @click="handleRevoke(session)"

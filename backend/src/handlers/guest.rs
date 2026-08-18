@@ -271,7 +271,6 @@ fn log_guest_event(
             severity: "info",
             details: Some(details),
             request: Some(req),
-            session_id: None,
         },
     ) {
         warn!(error = %e, "Failed to record guest security event");
