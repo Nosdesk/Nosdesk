@@ -6619,3 +6619,14 @@ admin-asset-groups-filter-active = Actief
 admin-asset-groups-filter-archived = Gearchiveerd
 admin-asset-groups-filter-empty = Geen groepen komen overeen met dit filter.
 admin-asset-groups-col-members = Activa
+
+# Editor: image upload (imageUploadPlugin / CollaborativeEditor)
+editor-image-uploading = { $name } wordt geüpload
+editor-image-upload-failed = Uploaden van afbeelding mislukt
+editor-image-upload-failed-detail = { $name } kon niet worden geüpload. Probeer het opnieuw.
+editor-image-upload-no-target = Sla deze pagina op voordat je afbeeldingen toevoegt
+editor-image-upload-no-target-detail = Afbeeldingen horen bij een opgeslagen pagina. Sla deze pagina op en plak de afbeelding opnieuw.
+editor-image-upload-invalid = Afbeelding kan niet worden toegevoegd
+editor-image-upload-invalid-detail = { $name } is geen ondersteunde afbeelding, of is groter dan 10 MB.
+editor-image-upload-anchor-lost = Afbeelding kon niet worden geplaatst
+editor-image-upload-anchor-lost-detail = { $name } is geüpload, maar de plek waar je hem plakte is inmiddels gewijzigd. Plak hem opnieuw.

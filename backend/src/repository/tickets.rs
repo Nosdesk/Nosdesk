@@ -24,6 +24,20 @@ pub fn id_by_uuid(conn: &mut DbConnection, uuid: Uuid) -> QueryResult<Option<i32
         .optional()
 }
 
+/// The workspace that owns the resource with this UUID, or `None` when no row
+/// has it. Backs the collab image serve route, which derives the workspace
+/// from the resource because a direct browser file load carries no workspace
+/// selection header. Intended to be called elevated (BYPASSRLS): it reveals
+/// only a workspace id, and the caller gates on membership plus the document
+/// ACL under that workspace's pin.
+pub fn workspace_id_by_uuid(conn: &mut DbConnection, uuid: Uuid) -> QueryResult<Option<i32>> {
+    tickets::table
+        .filter(tickets::uuid.eq(uuid))
+        .select(tickets::workspace_id)
+        .first::<i32>(conn)
+        .optional()
+}
+
 /// Inverse of [`id_by_uuid`]: the immutable UUID for an integer id, or
 /// `None` if no live ticket has it. Used when building a UUID-keyed
 /// collab doc_id from an integer id (e.g. revision restore).

@@ -1,138 +1,161 @@
 /**
  * Editor Image Upload Service
  *
- * Handles image uploads for the collaborative editor, converting
- * pasted/dropped images to URL references instead of storing
- * base64 dataURIs in the Yjs document.
+ * Uploads images pasted or dropped into a collaborative editor and returns a
+ * URL reference for the `image` node. The node's payload stays a short URL:
+ * base64 dataURIs in the Yjs document are the failure mode this whole
+ * subsystem exists to avoid.
  *
- * This prevents Yjs/WebSocket sync issues with large binary data.
+ * The upload target is derived from the collab docId the editor is already
+ * bound to (`ws-{workspace_uuid}_{kind}-{resource_uuid}`), so documentation
+ * pages and collection descriptions work the same way tickets do. There is no
+ * fallback to the generic `/upload` staging endpoint: that stored into `temp/`
+ * and handed back an unreachable `/uploads/...` URL, which is what made pasted
+ * images look broken on documentation pages.
  */
 
+import apiClient from '@nosdesk/core/apiClient';
+import { parseCollabDocId } from '@nosdesk/core/utils/collabDocId';
 import uploadService from '@/services/uploadService';
 import { logger } from '@nosdesk/core/utils/logger';
+
+export type EditorImageErrorCode =
+  | 'no-target'
+  | 'invalid-file'
+  | 'upload-failed'
+  /** Uploaded fine, but the spot it was pasted at no longer exists. */
+  | 'anchor-lost';
+
+/**
+ * Typed so the editor can pick the right message per failure mode instead of
+ * swallowing every failure into one console line.
+ */
+export class EditorImageUploadError extends Error {
+  constructor(
+    readonly code: EditorImageErrorCode,
+    message: string,
+    readonly cause?: unknown
+  ) {
+    super(message);
+    this.name = 'EditorImageUploadError';
+  }
+}
 
 export interface EditorImageUploadResult {
   url: string;
   name: string;
-  id?: number;
   size?: number;
 }
 
 export interface EditorImageUploadOptions {
-  ticketId?: number;
+  /** Workspace-namespaced collab doc id the editor is bound to. */
+  docId: string;
   onProgress?: (message: string) => void;
 }
 
+interface UploadedEditorImage {
+  url: string;
+  name: string;
+  size?: number;
+}
+
 /**
- * Upload an image file for use in the collaborative editor
- * Returns a URL that can be used as the image src
- *
- * @param file - The image file to upload
- * @param options - Upload options including ticketId for ticket-specific storage
+ * Upload an image for use in the collaborative editor. Resolves to the final
+ * servable URL, already in `/api/files/collab/...` form; callers insert it as
+ * the image node's `src` verbatim.
  */
 export async function uploadEditorImage(
   file: File,
-  options: EditorImageUploadOptions = {}
+  options: EditorImageUploadOptions
 ): Promise<EditorImageUploadResult> {
-  const { ticketId, onProgress } = options;
+  const { docId, onProgress } = options;
 
-  // Validate the file
-  const validation = uploadService.validateFile(file, {
-    maxSizeMB: 10, // 10MB limit for editor images
-    allowedTypes: ['image/*']
-  });
-
-  if (!validation.valid) {
-    throw new Error(validation.error || 'Invalid file');
+  // A docId that does not parse means there is no document to attach to: the
+  // brand-new-page wizard's `documentation-new` sentinel, a legacy bare id, or
+  // an unresolved workspace. Fail loudly rather than staging the file
+  // somewhere it can never be served from.
+  if (!parseCollabDocId(docId)) {
+    throw new EditorImageUploadError(
+      'no-target',
+      `Cannot upload an image for an unsaved or unparseable document (got "${docId}")`
+    );
   }
 
-  // Convert HEIC to WebP if needed
+  const validation = uploadService.validateFile(file, {
+    maxSizeMB: 10,
+    allowedTypes: ['image/*'],
+  });
+  if (!validation.valid) {
+    throw new EditorImageUploadError('invalid-file', validation.error || 'Invalid file');
+  }
+
   const processedFile = await uploadService.convertHeicToJpeg(file, onProgress);
 
-  // Create form data for upload
   const formData = new FormData();
-  // Explicitly pass filename as third argument
+  // Explicit filename third argument: HEIC conversion renames the file.
   formData.append('files', processedFile, processedFile.name);
 
-  if (onProgress) {
-    onProgress('Uploading image...');
-  }
-
-  // Get CSRF token from cookie for the request
-  const csrfMatch = document.cookie.match(/csrf_token=([^;]+)/);
-  const csrfToken = csrfMatch ? csrfMatch[1] : '';
-
-  // Use ticket-specific endpoint if ticketId is provided
-  const uploadUrl = ticketId
-    ? `/api/tickets/${ticketId}/notes/images`
-    : '/api/upload';
-
-  logger.debug(`[EditorImage] Uploading to ${uploadUrl}`);
+  onProgress?.('Uploading image...');
 
   try {
-    // Use native fetch for FormData uploads - axios has issues with multipart boundary
-    // when Content-Type is set in default headers
-    const response = await fetch(uploadUrl, {
-      method: 'POST',
-      body: formData,
-      credentials: 'same-origin',
-      headers: {
-        'X-CSRF-Token': csrfToken
-      }
-      // Don't set Content-Type - browser will set it correctly with boundary for FormData
-    });
+    // Through the shared axios client, not raw fetch: the interceptor carries
+    // the workspace selection header and the active auth strategy (cookie CSRF
+    // on web, bearer in the Tauri webview). The per-request Content-Type
+    // override stops axios serialising the FormData as JSON; the browser then
+    // replaces it with a boundary-carrying multipart header.
+    const { data } = await apiClient.post<UploadedEditorImage[]>(
+      `/documents/${docId}/images`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    );
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Upload failed: ${response.status} ${errorText}`);
+    const uploaded = data?.[0];
+    if (!uploaded) {
+      throw new EditorImageUploadError('upload-failed', 'No file returned from upload');
     }
 
-    const data = await response.json();
+    onProgress?.('Upload complete');
+    logger.debug(`[EditorImage] Upload complete, URL: ${uploaded.url}`);
 
-    if (data && data.length > 0) {
-      const uploadedFile = data[0];
-
-      if (onProgress) {
-        onProgress('Upload complete');
-      }
-
-      // The URL returned from the ticket-specific endpoint is in format:
-      // /uploads/tickets/{ticketId}/notes/{uuid}_{filename}
-      // Convert to the API file serving endpoint:
-      // /api/files/tickets/{ticketId}/notes/{uuid}_{filename}
-      let finalUrl = uploadedFile.url;
-      if (ticketId && finalUrl.startsWith('/uploads/')) {
-        finalUrl = '/api/files/' + finalUrl.substring('/uploads/'.length);
-      }
-
-      logger.debug(`[EditorImage] Upload complete, URL: ${finalUrl}`);
-
-      return {
-        url: finalUrl,
-        name: uploadedFile.name,
-        id: uploadedFile.id,
-        size: uploadedFile.size
-      };
-    }
-
-    throw new Error('No file returned from upload');
+    return { url: uploaded.url, name: uploaded.name, size: uploaded.size };
   } catch (error) {
+    if (error instanceof EditorImageUploadError) {
+      throw error;
+    }
     logger.error('Failed to upload editor image:', error);
-    throw error;
+    throw new EditorImageUploadError('upload-failed', 'Image upload failed', error);
   }
 }
 
 /**
- * Convert a dataURL to a File object
+ * Convert a dataURL to a File, or null when it is not base64 encoded.
+ *
+ * Returns null rather than throwing: the caller runs inside ProseMirror's
+ * synchronous paste handler, and prosemirror-view calls
+ * `event.preventDefault()` only AFTER that handler returns (see `doPaste` in
+ * prosemirror-view/src/input.ts). An exception there would skip preventDefault
+ * entirely, letting the browser paste the raw base64 img into the contentEditable
+ * where the DOM observer reads it straight into the Yjs document.
+ *
+ * Percent-encoded data URLs are the common case that used to throw:
+ * `data:image/svg+xml,<svg .../>` has no base64 payload, so `atob` rejects it.
  */
-export function dataURLToFile(dataURL: string, filename: string): File {
-  const arr = dataURL.split(',');
-  const mimeMatch = arr[0].match(/:(.*?);/);
+export function dataURLToFile(dataURL: string, filename: string): File | null {
+  const [header, payload] = dataURL.split(',');
+  if (!header?.includes(';base64') || !payload) return null;
+
+  const mimeMatch = header.match(/:(.*?);/);
   const mime = mimeMatch ? mimeMatch[1] : 'image/png';
-  const bstr = atob(arr[1]);
+
+  let bstr: string;
+  try {
+    bstr = atob(payload);
+  } catch {
+    return null;
+  }
+
   let n = bstr.length;
   const u8arr = new Uint8Array(n);
-
   while (n--) {
     u8arr[n] = bstr.charCodeAt(n);
   }

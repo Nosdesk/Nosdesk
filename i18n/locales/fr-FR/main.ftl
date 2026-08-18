@@ -6627,3 +6627,14 @@ admin-asset-groups-filter-active = Actifs
 admin-asset-groups-filter-archived = Archivés
 admin-asset-groups-filter-empty = Aucun groupe ne correspond à ce filtre.
 admin-asset-groups-col-members = Actifs
+
+# Editor: image upload (imageUploadPlugin / CollaborativeEditor)
+editor-image-uploading = Téléversement de { $name }
+editor-image-upload-failed = Échec du téléversement de l'image
+editor-image-upload-failed-detail = { $name } n'a pas pu être téléversé. Veuillez réessayer.
+editor-image-upload-no-target = Enregistrez cette page avant d'ajouter des images
+editor-image-upload-no-target-detail = Les images sont rattachées à une page enregistrée. Enregistrez cette page, puis collez de nouveau l'image.
+editor-image-upload-invalid = Impossible d'ajouter l'image
+editor-image-upload-invalid-detail = { $name } n'est pas une image prise en charge, ou dépasse 10 Mo.
+editor-image-upload-anchor-lost = Impossible de placer l'image
+editor-image-upload-anchor-lost-detail = { $name } a bien été téléversé, mais l'endroit où vous l'avez collé a été modifié. Collez-la de nouveau.
