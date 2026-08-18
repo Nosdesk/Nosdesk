@@ -265,8 +265,17 @@ impl JwtUtils {
                         );
                         return Err(JwtError::SessionRevoked);
                     }
-                    if session.expires_at < chrono::Utc::now().naive_utc() {
+                    let now = chrono::Utc::now().naive_utc();
+                    if session.expires_at < now {
                         tracing::debug!("Session expired for sid {}", sid_str);
+                        return Err(JwtError::SessionRevoked);
+                    }
+                    // The absolute ceiling, checked here as well as on
+                    // refresh: an access token minted just before the deadline
+                    // would otherwise keep working for the rest of its 15
+                    // minutes. The row is already loaded, so this is free.
+                    if crate::utils::session_policy::absolute_deadline(session.created_at) <= now {
+                        tracing::debug!("Session past its absolute lifetime for sid {}", sid_str);
                         return Err(JwtError::SessionRevoked);
                     }
                 }
@@ -527,7 +536,8 @@ pub mod helpers {
         let refresh_token = JwtUtils::generate_refresh_token();
         let refresh_token_hash = JwtUtils::hash_refresh_token(&refresh_token);
 
-        let refresh_expires = chrono::Utc::now().naive_utc() + chrono::Duration::days(7);
+        let refresh_expires =
+            chrono::Utc::now().naive_utc() + crate::utils::session_policy::idle_ttl();
         crate::repository::refresh_tokens::create_refresh_token(
             conn,
             crate::models::NewRefreshToken {
@@ -576,7 +586,8 @@ pub mod helpers {
 
         let refresh_token = JwtUtils::generate_refresh_token();
         let refresh_token_hash = JwtUtils::hash_refresh_token(&refresh_token);
-        let refresh_expires = chrono::Utc::now().naive_utc() + chrono::Duration::days(7);
+        let refresh_expires =
+            chrono::Utc::now().naive_utc() + crate::utils::session_policy::idle_ttl();
         crate::repository::refresh_tokens::create_refresh_token(
             conn,
             crate::models::NewRefreshToken {

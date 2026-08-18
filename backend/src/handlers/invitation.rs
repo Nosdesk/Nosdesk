@@ -348,7 +348,6 @@ async fn log_invitation_acceptance_event(
                 "success": true
             })),
             request: Some(request),
-            session_id: None,
         },
     )?;
 

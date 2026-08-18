@@ -18,6 +18,8 @@
     "web-auth:allow-authenticate",
     "secure-store:default",
     "haptics:allow-impact-feedback",
+    "os:allow-platform",
+    "os:allow-version",
     "push:default",
     "deep-link:default",
     {

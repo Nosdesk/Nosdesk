@@ -12,6 +12,7 @@ import { setupLogger, type MobileLoggerOptions } from './loggerSetup'
 import { setupStorage } from './storageSetup'
 import { configureServer, setSecureStore } from './transport'
 import { setupApiClient } from './apiClient'
+import { setupDeviceName } from './deviceName'
 import { DEFAULT_SERVER, getStoredServer } from './serverConfig'
 import type { SecureStore } from './secureStore'
 
@@ -27,6 +28,9 @@ export async function bootstrapMobile(opts: MobileBootstrapOptions): Promise<voi
   setupStorage()
   setSecureStore(opts.secureStore)
   setupApiClient()
+  // Before configureServer: the header provider must be registered ahead of
+  // the first request, which the transport can fire as soon as it's pointed.
+  setupDeviceName()
   // Use the persisted server, else the default cloud. The connect/settings
   // screen can later override via setServer().
   await configureServer(getStoredServer() ?? DEFAULT_SERVER)

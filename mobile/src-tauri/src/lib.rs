@@ -19,6 +19,9 @@ pub fn run() {
     // Haptic feedback for the pull-to-refresh arm tick. iOS/Android only;
     // on desktop the commands error and the JS facade swallows it.
     .plugin(tauri_plugin_haptics::init())
+    // Platform + OS version, used to name this device in the user's session
+    // list (see mobile/src/deviceName.ts).
+    .plugin(tauri_plugin_os::init())
     // Authenticated asset proxy: the webview loads workspace-scoped files via
     // the `nosdesk-asset` scheme; Rust forwards them to the API with the bearer
     // and Range header. See src/asset_proxy.rs.

@@ -3838,7 +3838,6 @@ pub struct ActiveSession {
     pub created_at: chrono::NaiveDateTime,
     pub last_active: chrono::NaiveDateTime,
     pub expires_at: chrono::NaiveDateTime,
-    pub is_current: bool,
     pub session_id: Uuid,
     /// OIDC id_token from login, kept for RP-initiated logout (id_token_hint).
     /// NULL for local/password logins. Queryable is positional, so this must
@@ -3856,7 +3855,6 @@ pub struct NewActiveSession {
     pub user_agent: Option<String>,
     pub location: Option<String>,
     pub expires_at: chrono::NaiveDateTime,
-    pub is_current: bool,
     /// See `ActiveSession::oidc_id_token`. Set by the OIDC login paths only.
     pub oidc_id_token: Option<String>,
 }
@@ -3989,34 +3987,6 @@ pub struct ApiTokenInfo {
     pub last_used_at: Option<chrono::NaiveDateTime>,
 }
 
-/// Response model for active sessions in user profile
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ActiveSessionResponse {
-    pub id: i32,
-    pub session_id: String,
-    pub device_name: Option<String>,
-    pub location: Option<String>,
-    pub ip_address: Option<String>,
-    pub created_at: chrono::NaiveDateTime,
-    pub last_active: chrono::NaiveDateTime,
-    pub is_current: bool,
-}
-
-impl From<ActiveSession> for ActiveSessionResponse {
-    fn from(session: ActiveSession) -> Self {
-        ActiveSessionResponse {
-            id: session.id,
-            session_id: session.session_id.to_string(),
-            device_name: session.device_name,
-            location: session.location,
-            ip_address: session.ip_address.map(|ip| ip.to_string()),
-            created_at: session.created_at,
-            last_active: session.last_active,
-            is_current: session.is_current,
-        }
-    }
-}
-
 // ===== SECURITY EVENTS MODELS =====
 
 /// Security events for MFA and authentication monitoring
@@ -4035,7 +4005,6 @@ pub struct SecurityEvent {
     pub details: Option<serde_json::Value>,
     pub severity: String,
     pub created_at: chrono::NaiveDateTime,
-    pub session_id: Option<i32>,
 }
 
 /// New security event for creation
@@ -4049,7 +4018,6 @@ pub struct NewSecurityEvent {
     pub location: Option<String>,
     pub details: Option<serde_json::Value>,
     pub severity: String,
-    pub session_id: Option<i32>,
 }
 
 /// Security event types enum for type safety

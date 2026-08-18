@@ -54,7 +54,6 @@ fn session_jwt(pool: &backend::db::Pool, user: &backend::models::User) -> (uuid:
             user_agent: Some("nosdesk-mobile-test".into()),
             location: None,
             expires_at: (chrono::Utc::now() + chrono::Duration::hours(1)).naive_utc(),
-            is_current: true,
             oidc_id_token: None,
         },
     )

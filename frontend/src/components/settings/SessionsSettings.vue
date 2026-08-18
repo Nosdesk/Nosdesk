@@ -16,6 +16,10 @@ nothing (OAuth-only without MFA).
 
 The session list is cache-first via Pinia Colada so revisiting the tab
 is instant; revokes invalidate the query to refetch.
+
+Device labels are built here, not server-side, so they can be
+translated. Native clients (which know their real device) send a name
+the backend stores and this list prefers; browsers send none.
 -->
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
@@ -26,6 +30,7 @@ import { extractErrorMessage } from '@/utils/errors';
 import { logger } from '@nosdesk/core/utils/logger';
 import { formatRelativeTime, formatDate } from '@nosdesk/core/utils/dateUtils';
 import Icon from '@/components/common/Icon.vue';
+import type { IconName } from '@/components/common/icons';
 import Spinner from '@/components/common/Spinner.vue';
 import Button from '@/components/common/Button.vue';
 import FormInput from '@/components/common/FormInput.vue';
@@ -48,7 +53,14 @@ const sessionsQuery = useQuery({
   query: () => authService.getSessions(),
 });
 
-const sessions = computed<SessionInfo[]>(() => sessionsQuery.data.value ?? []);
+// The backend orders by last activity. Pin the caller's own session to the
+// top: it's the one they need to identify first when deciding what to revoke,
+// and it's the only row without a Sign out button.
+const sessions = computed<SessionInfo[]>(() =>
+  [...(sessionsQuery.data.value ?? [])].sort(
+    (a, b) => Number(b.is_current) - Number(a.is_current),
+  ),
+);
 const loading = computed(
   () => sessionsQuery.status.value === 'pending' && sessions.value.length === 0,
 );
@@ -86,10 +98,32 @@ onMounted(async () => {
 });
 
 /**
- * Human label for a session row. Prefer the backend-stored
- * device_name; otherwise derive a coarse "Browser on OS" from the
- * user-agent; otherwise a generic fallback. Deliberately minimal —
- * full UA parsing is not worth a dependency for a settings list.
+ * Coarse OS family from a user-agent, shared by the label and the icon so the
+ * two can never disagree. Deliberately minimal: full UA parsing is not worth a
+ * dependency for a settings list, and modern user-agents are frozen anyway.
+ */
+function osFamily(ua: string): 'windows' | 'ios' | 'macos' | 'android' | 'linux' | null {
+  if (/Windows/i.test(ua)) return 'windows';
+  if (/iPhone|iPad|iOS/i.test(ua)) return 'ios';
+  if (/Mac OS X|Macintosh/i.test(ua)) return 'macos';
+  if (/Android/i.test(ua)) return 'android';
+  if (/Linux/i.test(ua)) return 'linux';
+  return null;
+}
+
+const OS_LABELS: Record<NonNullable<ReturnType<typeof osFamily>>, string> = {
+  windows: 'Windows',
+  ios: 'iOS',
+  macos: 'macOS',
+  android: 'Android',
+  linux: 'Linux',
+};
+
+/**
+ * Human label for a session row. Native clients send their own name, which
+ * always wins; browsers send none, so a "Browser on OS" label is derived here
+ * where it can be translated. The backend deliberately stores no label of its
+ * own.
  */
 function deviceLabel(session: SessionInfo): string {
   if (session.device_name) return session.device_name;
@@ -102,29 +136,78 @@ function deviceLabel(session: SessionInfo): string {
     : /Chrome|Chromium/i.test(ua) ? 'Chrome'
     : /Safari/i.test(ua) ? 'Safari'
     : null;
-  const os =
-    /Windows/i.test(ua) ? 'Windows'
-    : /iPhone|iPad|iOS/i.test(ua) ? 'iOS'
-    : /Mac OS X|Macintosh/i.test(ua) ? 'macOS'
-    : /Android/i.test(ua) ? 'Android'
-    : /Linux/i.test(ua) ? 'Linux'
-    : null;
-  if (browser && os) return `${browser} ${t('settings-sessions-on')} ${os}`;
+  const family = osFamily(ua);
+  const os = family ? OS_LABELS[family] : null;
+  if (browser && os) return t('settings-sessions-device-label', { browser, os });
   return browser ?? os ?? t('settings-sessions-unknown-device');
 }
 
+/**
+ * How close to expiry a session has to be before the row says so. Sessions
+ * carry two clocks: a sliding 7-day idle window and a hard ceiling measured
+ * from sign-in. `expires_at` is whichever comes first, so a session in regular
+ * use always sits a full week out and never trips this. The warning therefore
+ * only appears when the session really is about to lapse, from disuse or from
+ * reaching the ceiling.
+ */
+const EXPIRY_WARNING_DAYS = 3;
+
+function expiringSoon(session: SessionInfo): boolean {
+  const remaining = new Date(session.expires_at).getTime() - Date.now();
+  return remaining > 0 && remaining <= EXPIRY_WARNING_DAYS * 24 * 60 * 60 * 1000;
+}
+
+/**
+ * Mark for the platform a session came from.
+ *
+ * Encodes the OS rather than a device shape because the OS is the part we can
+ * actually detect: nothing in a Windows or Linux user-agent distinguishes a
+ * laptop from a desktop, so a form-factor glyph would be guessing. It also
+ * differentiates better in practice, where most rows are desktop browsers and
+ * would otherwise all draw the same machine.
+ *
+ * Windows reuses the existing `microsoft` mosaic. `device` is the fallback for
+ * a platform we can't place.
+ */
+function platformIcon(session: SessionInfo): IconName {
+  const hint = `${session.device_name ?? ''} ${session.user_agent ?? ''}`;
+  switch (osFamily(hint)) {
+    case 'ios':
+    case 'macos':
+      return 'apple';
+    case 'windows':
+      return 'microsoft';
+    case 'android':
+      return 'android';
+    case 'linux':
+      return 'terminal';
+    default:
+      return 'device';
+  }
+}
+
+/**
+ * Whether this sign-in came from the installed app rather than a browser tab.
+ * Only native clients send a device name, so its presence is the signal. Worth
+ * surfacing because it's the one case where two rows are genuinely the same
+ * physical device.
+ */
+function isNativeApp(session: SessionInfo): boolean {
+  return Boolean(session.device_name);
+}
+
 // --- Per-session revoke ---
-const revokingId = ref<number | null>(null);
+const revokingId = ref<string | null>(null);
 
 async function handleRevoke(session: SessionInfo) {
-  revokingId.value = session.id;
+  revokingId.value = session.session_id;
   try {
-    await authService.revokeSession(session.id);
+    await authService.revokeSession(session.session_id);
     refresh();
     emit('success', t('settings-sessions-revoke-success'));
   } catch (err) {
     emit('error', extractErrorMessage(err, t('settings-sessions-revoke-error')));
-    logger.error('Failed to revoke session', { error: err, sessionId: session.id });
+    logger.error('Failed to revoke session', { error: err, sessionId: session.session_id });
   } finally {
     revokingId.value = null;
   }
@@ -199,46 +282,72 @@ async function handleRevokeAll() {
         <p class="text-sm text-secondary">{{ $t('settings-sessions-empty') }}</p>
       </div>
 
-      <div v-else class="flex flex-col gap-2">
+      <div v-else class="flex flex-col gap-4">
         <div
           v-for="session in sessions"
-          :key="session.id"
-          class="flex items-center justify-between gap-3 p-3 bg-surface-alt rounded-lg"
+          :key="session.session_id"
+          class="flex items-center justify-between gap-3 p-4 bg-surface-alt rounded-lg border border-subtle hover:border-default transition-colors"
         >
-          <div class="flex items-center gap-3 min-w-0">
-            <div class="w-10 h-10 rounded-lg bg-surface-hover flex items-center justify-center flex-shrink-0">
-              <Icon name="device" size="md" class="text-secondary" />
+          <div class="flex items-center gap-4 min-w-0">
+            <div class="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center flex-shrink-0">
+              <Icon :name="platformIcon(session)" size="md" class="text-accent" />
             </div>
             <div class="min-w-0">
-              <div class="text-sm font-medium text-primary truncate">
-                {{ deviceLabel(session) }}
+              <!-- wrap so the badge drops below the name at phone widths
+                   rather than squeezing it: the current session is the row
+                   the user most needs to read in full. -->
+              <div class="flex items-center gap-2 flex-wrap">
+                <p class="text-sm font-medium text-primary truncate">{{ deviceLabel(session) }}</p>
                 <span
                   v-if="session.is_current"
-                  class="ml-2 px-2 py-1 bg-status-success/20 text-status-success rounded text-xs"
+                  class="inline-flex items-center gap-1 text-xs text-status-success flex-shrink-0"
                 >
+                  <Icon name="check" size="xs" />
                   {{ $t('settings-sessions-current-badge') }}
                 </span>
+                <!-- Only native clients report a device name, so this marks
+                     the app rather than a browser tab on the same phone. -->
+                <span
+                  v-if="isNativeApp(session)"
+                  class="inline-flex items-center gap-1 text-xs text-secondary flex-shrink-0"
+                >
+                  <Icon name="lightning" size="xs" />
+                  {{ $t('settings-sessions-native-app-badge') }}
+                </span>
               </div>
-              <div class="text-xs text-tertiary truncate">
-                <span v-if="session.location">{{ session.location }} &middot; </span>
-                <span v-else-if="session.ip_address">{{ session.ip_address }} &middot; </span>
+              <!-- Recency leads, because it's what tells the user whether a
+                   row is them, and this line wraps instead of truncating: at
+                   phone widths a clipped "Activ…" loses exactly the token
+                   they came for. Location follows, so it's the part pushed to
+                   a second line. -->
+              <p class="text-xs text-tertiary mt-0.5">
                 {{ $t('settings-sessions-last-active', { time: formatRelativeTime(session.last_active, { addSuffix: true }) }) }}
-              </div>
-              <div class="text-xs text-tertiary truncate">
+                <!-- nowrap keeps the separator attached to what follows it,
+                     so a wrap moves "· Sydney" down whole instead of
+                     stranding the dot at the end of the line above. -->
+                <span v-if="session.location || session.ip_address" class="whitespace-nowrap">
+                  &middot; {{ session.location ?? session.ip_address }}
+                </span>
+              </p>
+              <p class="text-xs text-tertiary truncate mt-0.5">
                 {{ $t('settings-sessions-signed-in', { date: formatDate(session.created_at) }) }}
-              </div>
+              </p>
+              <p
+                v-if="expiringSoon(session)"
+                class="inline-flex items-center gap-1 text-xs text-status-warning mt-0.5"
+              >
+                <Icon name="warning" size="xs" class="flex-shrink-0" />
+                {{ $t('settings-sessions-expires-soon', { time: formatRelativeTime(session.expires_at, { addSuffix: true }) }) }}
+              </p>
             </div>
           </div>
 
-          <span v-if="session.is_current" class="text-xs text-tertiary flex-shrink-0">
-            {{ $t('settings-sessions-this-device') }}
-          </span>
           <Button
-            v-else
+            v-if="!session.is_current"
             variant="ghost-danger"
             size="sm"
             class="flex-shrink-0"
-            :loading="revokingId === session.id"
+            :loading="revokingId === session.session_id"
             :disabled="revokingId !== null"
             :aria-label="$t('settings-sessions-revoke-aria', { device: deviceLabel(session) })"
             @click="handleRevoke(session)"

@@ -29,6 +29,11 @@ pub struct Config {
     pub port: u16,
     pub rate_limit_per_minute: u64,
     pub auth_rate_limit_per_minute: u64,
+    /// Absolute ceiling on a session's life, in days
+    /// (`NOSDESK_SESSION_MAX_LIFETIME_DAYS`, default 30, clamped 1..90).
+    /// Resolved here so a bad value is reported at boot; the sessions code
+    /// reads the same value through `utils::session_policy`.
+    pub session_max_lifetime_days: i64,
     pub redis_url: String,
     pub max_file_size_mb: usize,
     /// `max_file_size_mb` in bytes, for the actix payload/multipart caps.
@@ -116,6 +121,23 @@ impl Config {
             .parse::<u64>()
             .unwrap_or(600)
             .clamp(120, 5000); // Higher limits for authenticated users: 120-5000 requests per minute
+
+        // Absolute session ceiling. Parsed through session_policy so this and
+        // the runtime lookup share one clamp; warn when the operator's value
+        // was out of range, because silently running a different policy than
+        // the one configured is the failure that goes unnoticed.
+        let raw_session_lifetime = get("NOSDESK_SESSION_MAX_LIFETIME_DAYS");
+        let session_max_lifetime_days =
+            crate::utils::session_policy::max_lifetime_days_from(raw_session_lifetime.as_deref());
+        if let Some(raw) = raw_session_lifetime.as_deref() {
+            if raw.trim().parse::<i64>() != Ok(session_max_lifetime_days) {
+                warn!(
+                    "NOSDESK_SESSION_MAX_LIFETIME_DAYS={raw} is not usable; using {session_max_lifetime_days} days (allowed {}..{})",
+                    crate::utils::session_policy::MIN_MAX_LIFETIME_DAYS,
+                    crate::utils::session_policy::MAX_MAX_LIFETIME_DAYS,
+                );
+            }
+        }
 
         // Redis is a hard dependency: HTTP + auth/MFA rate limiting, the Yjs
         // collab cache, and the `/readiness` probe all require it. Resolve ONE
@@ -221,6 +243,7 @@ impl Config {
             port,
             rate_limit_per_minute,
             auth_rate_limit_per_minute,
+            session_max_lifetime_days,
             redis_url,
             max_file_size_mb,
             max_payload_size,

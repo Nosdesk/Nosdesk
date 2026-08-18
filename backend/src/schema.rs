@@ -55,7 +55,6 @@ diesel::table! {
         created_at -> Timestamptz,
         last_active -> Timestamptz,
         expires_at -> Timestamptz,
-        is_current -> Bool,
         session_id -> Uuid,
         oidc_id_token -> Nullable<Text>,
     }
@@ -1465,7 +1464,6 @@ diesel::table! {
         #[max_length = 20]
         severity -> Varchar,
         created_at -> Timestamptz,
-        session_id -> Nullable<Int4>,
     }
 }
 
@@ -2389,7 +2387,6 @@ diesel::joinable!(rules -> workspaces (workspace_id));
 diesel::joinable!(saved_views -> users (created_by));
 diesel::joinable!(saved_views -> workspaces (workspace_id));
 diesel::joinable!(search_query_log -> workspaces (workspace_id));
-diesel::joinable!(security_events -> active_sessions (session_id));
 diesel::joinable!(security_events -> users (user_uuid));
 diesel::joinable!(site_settings -> users (updated_by));
 diesel::joinable!(site_settings -> workspaces (workspace_id));

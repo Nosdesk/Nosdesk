@@ -348,10 +348,7 @@ pub async fn reset_password_with_token(
             }
 
             // Revoke all sessions for security (user must log in again)
-            match crate::repository::active_sessions::revoke_other_sessions(
-                &mut conn, &user.uuid,
-                None, // Revoke ALL sessions including current (user must re-login)
-            ) {
+            match crate::repository::active_sessions::revoke_all_sessions(&mut conn, &user.uuid) {
                 Ok(revoked_count) => {
                     if revoked_count > 0 {
                         info!(
@@ -401,7 +398,6 @@ async fn log_password_reset_event(
                 "success": true
             })),
             request: Some(request),
-            session_id: None,
         },
     )?;
 

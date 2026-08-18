@@ -358,7 +358,6 @@ pub async fn finish_passkey_registration(
             severity: "info",
             details: Some(json!({ "credential_id": credential_id, "name": passkey_name })),
             request: Some(&req),
-            session_id: None,
         },
     );
 
@@ -657,7 +656,6 @@ pub async fn finish_passkey_login(
                     "reason": "WebAuthn backup_state flip; credential may now be synced to a different ecosystem",
                 })),
                 request: Some(&req),
-                session_id: None,
             },
         );
     }
@@ -891,11 +889,20 @@ pub async fn delete_passkey(
             severity: "warning",
             details: Some(json!({ "credential_id": credential_id })),
             request: Some(&req),
-            session_id: None,
         },
     );
 
     info!(credential_id = %credential_id, user_uuid = %user_uuid, "Passkey deleted");
+
+    // A factor was just removed; sign the user's other devices out (ASVS
+    // 7.4.3). Kept after the security event so the ordering in the log reads
+    // the way it happened.
+    crate::handlers::auth::revoke_sessions_after_factor_change(
+        &mut conn,
+        &req,
+        &user_uuid,
+        "passkey_deleted",
+    );
 
     HttpResponse::Ok().json(json!({
         "success": true
