@@ -378,7 +378,7 @@ const EMPTY_ROOM_EVICT_DELAY: Duration = Duration::from_secs(60);
 // collections own their overview content directly instead of
 // pointing at a sentinel "main page".
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum DocumentType {
+pub(crate) enum DocumentType {
     Ticket(i32),
     Documentation(i32),
     Collection(i32),
@@ -388,10 +388,35 @@ enum DocumentType {
 /// carries the resource's immutable UUID; the integer id used by the
 /// persistence layer is resolved from it (see [`ParsedDocId::resolve`]).
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum DocKind {
+pub(crate) enum DocKind {
     Ticket,
     Documentation,
     Collection,
+}
+
+impl DocKind {
+    /// The URL token for this kind. One token set spans three surfaces:
+    /// the collab doc_id (`ws-{uuid}_doc-{uuid}`), the image URL
+    /// (`/api/files/collab/doc/{uuid}/...`) and the storage folder
+    /// (`collab/doc/{uuid}/`). Deriving all three from one function is what
+    /// stops a rename from silently orphaning stored objects.
+    pub(crate) fn url_token(self) -> &'static str {
+        match self {
+            Self::Ticket => "ticket",
+            Self::Documentation => "doc",
+            Self::Collection => "collection",
+        }
+    }
+
+    /// Inverse of [`DocKind::url_token`]. `None` for an unrecognised token.
+    pub(crate) fn from_url_token(token: &str) -> Option<Self> {
+        match token {
+            "ticket" => Some(Self::Ticket),
+            "doc" => Some(Self::Documentation),
+            "collection" => Some(Self::Collection),
+            _ => None,
+        }
+    }
 }
 
 /// Result of parsing a workspace-namespaced doc_id
@@ -403,10 +428,10 @@ enum DocKind {
 /// UUID never recycles, so the resulting doc identity is stable across
 /// an integer-id reset.
 #[derive(Debug, Clone)]
-struct ParsedDocId {
-    workspace_uuid: Uuid,
-    kind: DocKind,
-    resource_uuid: Uuid,
+pub(crate) struct ParsedDocId {
+    pub(crate) workspace_uuid: Uuid,
+    pub(crate) kind: DocKind,
+    pub(crate) resource_uuid: Uuid,
 }
 
 impl ParsedDocId {
@@ -415,7 +440,7 @@ impl ParsedDocId {
     /// Returns `Ok(None)` when no live row has that UUID (resource
     /// deleted, or a stale client holding a recycled-but-different
     /// doc), which the WS handler turns into a clean rejection.
-    fn resolve(
+    pub(crate) fn resolve(
         &self,
         conn: &mut crate::db::DbConnection,
     ) -> diesel::QueryResult<Option<DocumentType>> {
@@ -441,7 +466,7 @@ impl ParsedDocId {
 /// variant maps cleanly to the operator-facing log line + the
 /// HTTP status the caller should return.
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum DocIdParseError {
+pub(crate) enum DocIdParseError {
     /// The doc_id didn't start with the `ws-{uuid}_` namespace
     /// prefix. The legacy bare-id form (`ticket-N`) lands here so
     /// stale clients failing to upgrade are surfaced loudly.
@@ -465,7 +490,7 @@ impl DocumentType {
     /// recreated, so the new docId doesn't collide with the old
     /// cache), AND the server-side guard the ws_handler uses to
     /// reject a client requesting another workspace's docId.
-    fn from_namespaced_doc_id(doc_id: &str) -> Result<ParsedDocId, DocIdParseError> {
+    pub(crate) fn from_namespaced_doc_id(doc_id: &str) -> Result<ParsedDocId, DocIdParseError> {
         let after_ws = doc_id
             .strip_prefix("ws-")
             .ok_or(DocIdParseError::MissingNamespace)?;
@@ -482,15 +507,12 @@ impl DocumentType {
         // `rest` starts with the `_`; drop it before parsing the
         // `{kind}-{resource_uuid}` handle.
         let resource = &rest[1..];
-        let (kind, uuid_str) = if let Some(rest) = resource.strip_prefix("ticket-") {
-            (DocKind::Ticket, rest)
-        } else if let Some(rest) = resource.strip_prefix("doc-") {
-            (DocKind::Documentation, rest)
-        } else if let Some(rest) = resource.strip_prefix("collection-") {
-            (DocKind::Collection, rest)
-        } else {
-            return Err(DocIdParseError::InvalidResource);
-        };
+        // Split on the FIRST `-` only: the resource UUID contains its own
+        // hyphens, so a greedy split would swallow part of it.
+        let (kind_token, uuid_str) = resource
+            .split_once('-')
+            .ok_or(DocIdParseError::InvalidResource)?;
+        let kind = DocKind::from_url_token(kind_token).ok_or(DocIdParseError::InvalidResource)?;
         let resource_uuid =
             Uuid::parse_str(uuid_str).map_err(|_| DocIdParseError::InvalidResource)?;
         Ok(ParsedDocId {
@@ -571,7 +593,7 @@ mod doc_id_tests {
 /// workspace-admin override. Reuses the same primitives as the REST
 /// ticket/documentation read paths and the SSE topic gate so the
 /// three can't drift. See security-audit-2026-06.
-struct DocAccessor {
+pub(crate) struct DocAccessor {
     vis: crate::repository::ticket_visibility::VisibilityContext,
     is_workspace_admin: bool,
 }
@@ -579,11 +601,48 @@ struct DocAccessor {
 impl DocAccessor {
     /// Build from the `AuthContext` extractor the REST handlers
     /// already destructure (uses the request-resolved workspace role).
-    fn from_auth(auth: &AuthContext) -> Self {
+    pub(crate) fn from_auth(auth: &AuthContext) -> Self {
         Self {
             vis: crate::repository::ticket_visibility::VisibilityContext::from_auth(auth),
             is_workspace_admin: auth.is_workspace_admin(),
         }
+    }
+
+    /// Build from a connection ALREADY PINNED to the resource's workspace.
+    ///
+    /// [`DocAccessor::from_auth`] reads the request-resolved workspace role,
+    /// which is wrong on the resource-derived file routes: a browser `<img>`
+    /// load carries no `X-Nosdesk-Workspace`, so the request resolved to no
+    /// workspace (or a different one). This resolves the role under the pin
+    /// instead, so the membership check and the document gate agree on one
+    /// workspace.
+    ///
+    /// `None` means "not a member of the pinned workspace", which callers
+    /// MUST turn into a 404, never a 403. That differs from
+    /// [`DocAccessor::from_claims`], which returns `Some` with a `None` role
+    /// because the WebSocket handshake gates membership separately. Do not
+    /// unify the two.
+    ///
+    /// Must be called inside `with_actor_context`: `workspace_members` is
+    /// RLS scoped, so on an unpinned connection a real member reads as a
+    /// non-member and this fails closed.
+    pub(crate) fn at_pinned_workspace(
+        conn: &mut crate::db::DbConnection,
+        user_uuid: Uuid,
+        platform_role: crate::models::PlatformRole,
+    ) -> Option<Self> {
+        let workspace_role = crate::repository::user_helpers::workspace_role(conn, user_uuid)?;
+        let vis = crate::repository::ticket_visibility::VisibilityContext::new(
+            user_uuid,
+            platform_role,
+            Some(workspace_role),
+        );
+        let is_workspace_admin = platform_role.is_platform_admin()
+            || workspace_role.meets(crate::models::WorkspaceRole::Admin);
+        Some(Self {
+            vis,
+            is_workspace_admin,
+        })
     }
 
     /// Build from JWT claims when no `AuthContext` is in scope (the
@@ -614,7 +673,7 @@ impl DocAccessor {
 /// True when `accessor` may read/edit `document`. The error type is
 /// Diesel's so callers can map a DB failure to a 500 and a `false`
 /// to a 404 (never 403: a 403 leaks existence, per OWASP IDOR).
-fn can_access_document(
+pub(crate) fn can_access_document(
     conn: &mut crate::db::DbConnection,
     accessor: &DocAccessor,
     document: &DocumentType,

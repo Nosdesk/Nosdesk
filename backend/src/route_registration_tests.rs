@@ -14,6 +14,19 @@
 use crate::test_helpers::assert_config_registers;
 
 #[actix_web::test]
+async fn collab_images_config_routes_registered() {
+    // Namespaced doc_id shape the editor builds: ws-{workspace_uuid}_doc-{page_uuid}.
+    assert_config_registers(
+        crate::handlers::collab_images::config,
+        &[(
+            "POST",
+            "/documents/ws-3f8e9d4c-1234-5678-9abc-def012345678_doc-019eb4e2-dbaa-75e5-9eb2-aa3dc7d8a7cb/images",
+        )],
+    )
+    .await;
+}
+
+#[actix_web::test]
 async fn sse_config_routes_registered() {
     assert_config_registers(crate::handlers::sse::config, &[("POST", "/events/token")]).await;
 }

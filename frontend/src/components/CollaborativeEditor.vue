@@ -74,6 +74,8 @@ import {
     ellipsis,
 } from "prosemirror-inputrules";
 import { createImageUploadPlugin } from "./editor/imageUploadPlugin";
+import { EditorImageUploadError } from "@/services/editorImageService";
+import { useToastStore } from "@nosdesk/core/stores/toast";
 import { syntaxHighlightPlugin } from "./editor/syntaxHighlightPlugin";
 import { twemojiPlugin } from "@/plugins/prosemirror-twemoji";
 import { createTicketDropIndicatorPlugin } from "./editor/ticketDropIndicatorPlugin";
@@ -111,6 +113,25 @@ const authStore = useAuthStore();
 
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
+
+const toast = useToastStore();
+
+// A failed paste used to vanish silently: the plugin calls preventDefault and
+// then only logged. Each failure mode gets its own message because they have
+// different fixes (save the page, pick a smaller image, retry).
+const handleImageUploadError = (error: unknown, file: { name: string }) => {
+    log.error("Image upload failed:", error);
+    const code = error instanceof EditorImageUploadError ? error.code : "upload-failed";
+    if (code === "no-target") {
+        toast.error(t("editor-image-upload-no-target"), t("editor-image-upload-no-target-detail"));
+    } else if (code === "anchor-lost") {
+        toast.error(t("editor-image-upload-anchor-lost"), t("editor-image-upload-anchor-lost-detail", { name: file.name }));
+    } else if (code === "invalid-file") {
+        toast.error(t("editor-image-upload-invalid"), t("editor-image-upload-invalid-detail", { name: file.name }));
+    } else {
+        toast.error(t("editor-image-upload-failed"), t("editor-image-upload-failed-detail", { name: file.name }));
+    }
+};
 
 // Set up Vue Router navigation for ticket link cards
 const router = useRouter();
@@ -871,10 +892,11 @@ const initEditor = async () => {
                     createTicketDropIndicatorPlugin(), // Shows drop indicator for ticket cards
                     // NOTE: gapCursor() removed - causes null reference errors with empty Yjs documents
                     createImageUploadPlugin({
-                        ticketId: props.ticketId,
+                        docId: props.docId,
+                        uploadingLabel: (filename: string) => t('editor-image-uploading', { name: filename }),
                         onUploadStart: () => log.debug('Image upload started'),
                         onUploadEnd: () => log.debug('Image upload completed'),
-                        onUploadError: (error) => log.error('Image upload failed:', error)
+                        onUploadError: handleImageUploadError,
                     }),
                     syntaxHighlightPlugin,
                     createMentionViewPlugin(),
