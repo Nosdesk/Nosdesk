@@ -77,7 +77,6 @@ fn unified_list_spans_all_three_tiers() {
                 severity: "warning",
                 details: Some(serde_json::json!({ "reason": "bad_password" })),
                 request: None,
-                session_id: None,
             },
         )?;
 
