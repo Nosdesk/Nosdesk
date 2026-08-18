@@ -32,8 +32,12 @@ This directory contains the modular settings components for the ProfileSettingsV
 ### `AuthMethodsSettings.vue`
 - Authentication methods management
 - OAuth provider connections (Google, GitHub)
-- Active session management
-- Session revocation functionality
+
+### `SessionsSettings.vue`
+- Active sessions, one row per signed-in device
+- Per-session sign-out, plus a bulk sign-out gated behind step-up re-auth
+- Self-only: the endpoints resolve the user from the JWT, so it takes no
+  target-user prop and is hidden in admin mode
 
 ### `index.ts`
 - Barrel export file for easy component importing

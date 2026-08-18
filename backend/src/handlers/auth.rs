@@ -2402,7 +2402,10 @@ pub async fn get_user_sessions(
             json!({
                 "session_id": session.session_id.to_string(),
                 "device_name": session.device_name,
-                "ip_address": session.ip_address.map(|ip| ip.to_string()),
+                // `.ip()`, not the whole IpNetwork: the column is INET, whose
+                // Display appends the prefix length, so the raw value renders
+                // as "203.0.113.4/32" in the session list.
+                "ip_address": session.ip_address.map(|ip| ip.ip().to_string()),
                 "user_agent": session.user_agent,
                 "location": session.location,
                 "created_at": session.created_at,
