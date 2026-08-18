@@ -135,6 +135,23 @@ pub fn page_id_by_uuid(conn: &mut DbConnection, uuid: uuid::Uuid) -> QueryResult
         .optional()
 }
 
+/// The workspace that owns the resource with this UUID, or `None` when no row
+/// has it. Backs the collab image serve route, which derives the workspace
+/// from the resource because a direct browser file load carries no workspace
+/// selection header. Intended to be called elevated (BYPASSRLS): it reveals
+/// only a workspace id, and the caller gates on membership plus the document
+/// ACL under that workspace's pin.
+pub fn page_workspace_id_by_uuid(
+    conn: &mut DbConnection,
+    uuid: uuid::Uuid,
+) -> QueryResult<Option<i32>> {
+    documentation_pages::table
+        .filter(documentation_pages::uuid.eq(uuid))
+        .select(documentation_pages::workspace_id)
+        .first::<i32>(conn)
+        .optional()
+}
+
 /// Inverse of [`page_id_by_uuid`]: the immutable UUID for an integer
 /// page id, or `None` if no live page has it. Used when building a
 /// UUID-keyed collab doc_id from an integer id (revision restore).

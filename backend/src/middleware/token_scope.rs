@@ -599,6 +599,15 @@ mod enforcement_tests {
             .await,
             StatusCode::FORBIDDEN
         );
+        assert_eq!(
+            status_for(
+                Some("*:read"),
+                Method::GET,
+                "/api/files/collab/doc/019eb4e2-dbaa-75e5-9eb2-aa3dc7d8a7cb/x.png"
+            )
+            .await,
+            StatusCode::FORBIDDEN
+        );
         // A full credential (cookie session / un-narrowed token) still reaches
         // the file handler.
         assert_eq!(

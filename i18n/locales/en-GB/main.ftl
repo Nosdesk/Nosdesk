@@ -5174,3 +5174,14 @@ gantt-tickets-of-total-in-view =
     }
 saved-view-name-this = Name this view
 saved-view-copy-suffix = { $name } copy
+
+# Editor: image upload (imageUploadPlugin / CollaborativeEditor)
+editor-image-uploading = Uploading { $name }
+editor-image-upload-failed = Image upload failed
+editor-image-upload-failed-detail = { $name } could not be uploaded. Please try again.
+editor-image-upload-no-target = Save this page before adding images
+editor-image-upload-no-target-detail = Images attach to a saved page. Save this page, then paste the image again.
+editor-image-upload-invalid = Image cannot be added
+editor-image-upload-invalid-detail = { $name } is not a supported image, or is larger than 10MB.
+editor-image-upload-anchor-lost = Image could not be placed
+editor-image-upload-anchor-lost-detail = { $name } uploaded, but the spot you pasted it into was edited away. Paste it again.

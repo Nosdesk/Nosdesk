@@ -24,6 +24,23 @@ pub fn collection_id_by_uuid(conn: &mut DbConnection, uuid: Uuid) -> QueryResult
         .optional()
 }
 
+/// The workspace that owns the resource with this UUID, or `None` when no row
+/// has it. Backs the collab image serve route, which derives the workspace
+/// from the resource because a direct browser file load carries no workspace
+/// selection header. Intended to be called elevated (BYPASSRLS): it reveals
+/// only a workspace id, and the caller gates on membership plus the document
+/// ACL under that workspace's pin.
+pub fn collection_workspace_id_by_uuid(
+    conn: &mut DbConnection,
+    uuid: Uuid,
+) -> QueryResult<Option<i32>> {
+    documentation_collections::table
+        .filter(documentation_collections::uuid.eq(uuid))
+        .select(documentation_collections::workspace_id)
+        .first::<i32>(conn)
+        .optional()
+}
+
 /// Sync-event payload for a documentation collection. Excludes the
 /// Yjs binary columns (`description_yjs` / `description_state_vector`).
 /// The rich description body flows through the collaborative-editor

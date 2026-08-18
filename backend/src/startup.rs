@@ -720,6 +720,12 @@ pub fn configure_app(
                     .wrap(actix_web::middleware::from_fn(crate::middleware::dual_auth_middleware))
                     .route("/tickets/{ticket_id}/notes/{filename:.*}", web::get().to(crate::handlers::serve_ticket_note_image))
                     .route("/tickets/{filename:.*}", web::get().to(crate::handlers::serve_ticket_file))
+                    // Collab-document images (documentation pages, collection
+                    // descriptions, ticket notes). Same "most specific first"
+                    // discipline as the ticket pair above: every route here has a
+                    // distinct literal first segment, so nothing can be swallowed by
+                    // a sibling's `{filename:.*}` tail.
+                    .route("/collab/{kind}/{resource_uuid}/{filename:.*}", web::get().to(crate::handlers::collab_images::serve_collab_document_image))
                     .route("/assets/{asset_id}/media/{filename:.*}", web::get().to(crate::handlers::asset_media::serve_asset_media_file))
                     .route("/temp/{filename:.*}", web::get().to(crate::handlers::serve_temp_file))
             )
@@ -961,6 +967,12 @@ pub fn configure_app(
 
                     // File upload endpoint
                     .configure(crate::handlers::files::config)
+
+                    // Collab-document image upload. Deliberately here rather
+                    // than under /api/collaboration: that scope carries
+                    // neither the rate limiter nor token-scope enforcement,
+                    // and a 10MB multipart write needs both.
+                    .configure(crate::handlers::collab_images::config)
 
                     // ===== SSE / SEARCH / NOTIFICATIONS / BUG REPORTS =====
                     .configure(crate::handlers::sse::config)
