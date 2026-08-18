@@ -434,6 +434,36 @@ export const ICON_REGISTRY = {
   material: {
     d: 'M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9',
   },
+
+  /* ---------------------------------------------------------------
+   * Platform marks. Used by the active-sessions list to show which
+   * OS a sign-in came from. Session rows carry an OS we can detect
+   * from the user-agent but no reliable form factor (nothing in a
+   * Windows or Linux UA says laptop vs desktop), so the icon encodes
+   * the thing we actually know. Windows reuses `microsoft` rather
+   * than adding a near-identical four-pane glyph.
+   * ------------------------------------------------------------- */
+  /** Apple with a leaf, for macOS and iOS sign-ins. Deliberately a
+   * plain apple rather than the bitten-apple logo: this repo is
+   * public, the fruit reads just as clearly at 20px, and the row's
+   * text label names the platform anyway. Chosen over three other
+   * drafts because the separated leaf survives the 20px session-row
+   * size, where a notched silhouette turns to mush. */
+  apple: {
+    d: 'M12 20.5c-3 0-5.3-3.4-5.3-7.4 0-2.8 1.7-4.7 3.8-4.7 1 0 1.5.4 1.5.4s.5-.4 1.5-.4c2.1 0 3.8 1.9 3.8 4.7 0 4-2.3 7.4-5.3 7.4z M12 8.8c0-2.4 1.8-4.3 4.2-4.5 0 2.4-1.8 4.3-4.2 4.5z',
+  },
+  /** Android robot head: dome, antennae, eyes. The robot is adapted
+   * from work shared by Google under CC BY 3.0. */
+  android: {
+    d: 'M6.5 15.5a5.5 5.5 0 0111 0h-11zM8.6 10.6L7 8m8.4 2.6L17 8M10 13h.01M14 13h.01',
+  },
+  /** Terminal prompt in a window (Heroicons `command-line`), the
+   * mark for Linux sign-ins. A penguin does not survive 24px in
+   * stroke, and a shell prompt is the metaphor this app's audience
+   * already reads as Linux. */
+  terminal: {
+    d: 'M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z',
+  },
 } satisfies Record<string, IconDef>
 
 export type IconName = keyof typeof ICON_REGISTRY

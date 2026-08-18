@@ -3594,6 +3594,7 @@ settings-sessions-empty = Geen actieve sessies gevonden.
 settings-sessions-unknown-device = Onbekend apparaat
 settings-sessions-device-label = { $browser } op { $os }
 settings-sessions-current-badge = Deze sessie
+settings-sessions-native-app-badge = App
 settings-sessions-last-active = Actief { $time }
 settings-sessions-signed-in = Aangemeld { $date }
 settings-sessions-expires-soon = Verloopt { $time }

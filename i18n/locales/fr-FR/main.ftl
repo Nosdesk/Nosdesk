@@ -3603,6 +3603,7 @@ settings-sessions-empty = Aucune session active trouvée.
 settings-sessions-unknown-device = Appareil inconnu
 settings-sessions-device-label = { $browser } sur { $os }
 settings-sessions-current-badge = Cette session
+settings-sessions-native-app-badge = Appli
 settings-sessions-last-active = Active { $time }
 settings-sessions-signed-in = Connexion { $date }
 settings-sessions-expires-soon = Expire { $time }

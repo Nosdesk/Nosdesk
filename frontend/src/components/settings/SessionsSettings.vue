@@ -30,6 +30,7 @@ import { extractErrorMessage } from '@/utils/errors';
 import { logger } from '@nosdesk/core/utils/logger';
 import { formatRelativeTime, formatDate } from '@nosdesk/core/utils/dateUtils';
 import Icon from '@/components/common/Icon.vue';
+import type { IconName } from '@/components/common/icons';
 import Spinner from '@/components/common/Spinner.vue';
 import Button from '@/components/common/Button.vue';
 import FormInput from '@/components/common/FormInput.vue';
@@ -157,16 +158,42 @@ function expiringSoon(session: SessionInfo): boolean {
 }
 
 /**
- * Icon matching the device kind, so a phone session doesn't show a desktop
- * monitor. Falls back to the generic endpoint icon when the platform is
- * unknown, including for named native sessions we can't classify.
+ * Mark for the platform a session came from.
+ *
+ * Encodes the OS rather than a device shape because the OS is the part we can
+ * actually detect: nothing in a Windows or Linux user-agent distinguishes a
+ * laptop from a desktop, so a form-factor glyph would be guessing. It also
+ * differentiates better in practice, where most rows are desktop browsers and
+ * would otherwise all draw the same machine.
+ *
+ * Windows reuses the existing `microsoft` mosaic. `device` is the fallback for
+ * a platform we can't place.
  */
-function deviceIcon(session: SessionInfo): 'phone' | 'laptop' | 'device' {
+function platformIcon(session: SessionInfo): IconName {
   const hint = `${session.device_name ?? ''} ${session.user_agent ?? ''}`;
-  const family = osFamily(hint);
-  if (family === 'ios' || family === 'android') return 'phone';
-  if (family === 'macos') return 'laptop';
-  return 'device';
+  switch (osFamily(hint)) {
+    case 'ios':
+    case 'macos':
+      return 'apple';
+    case 'windows':
+      return 'microsoft';
+    case 'android':
+      return 'android';
+    case 'linux':
+      return 'terminal';
+    default:
+      return 'device';
+  }
+}
+
+/**
+ * Whether this sign-in came from the installed app rather than a browser tab.
+ * Only native clients send a device name, so its presence is the signal. Worth
+ * surfacing because it's the one case where two rows are genuinely the same
+ * physical device.
+ */
+function isNativeApp(session: SessionInfo): boolean {
+  return Boolean(session.device_name);
 }
 
 // --- Per-session revoke ---
@@ -263,7 +290,7 @@ async function handleRevokeAll() {
         >
           <div class="flex items-center gap-4 min-w-0">
             <div class="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center flex-shrink-0">
-              <Icon :name="deviceIcon(session)" size="md" class="text-accent" />
+              <Icon :name="platformIcon(session)" size="md" class="text-accent" />
             </div>
             <div class="min-w-0">
               <!-- wrap so the badge drops below the name at phone widths
@@ -277,6 +304,15 @@ async function handleRevokeAll() {
                 >
                   <Icon name="check" size="xs" />
                   {{ $t('settings-sessions-current-badge') }}
+                </span>
+                <!-- Only native clients report a device name, so this marks
+                     the app rather than a browser tab on the same phone. -->
+                <span
+                  v-if="isNativeApp(session)"
+                  class="inline-flex items-center gap-1 text-xs text-secondary flex-shrink-0"
+                >
+                  <Icon name="lightning" size="xs" />
+                  {{ $t('settings-sessions-native-app-badge') }}
                 </span>
               </div>
               <!-- Recency leads, because it's what tells the user whether a
