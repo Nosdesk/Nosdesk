@@ -227,6 +227,7 @@ Triage policy:
 |---|---|---|
 | RUSTSEC-2023-0071 (rsa 0.9.10 Marvin Attack) | 5.9 medium | Transitive through `openidconnect`. Our use is signature verification only (validating signed JWTs from Microsoft Entra), not decryption. Marvin targets decryption oracles, not signatures. No upstream fix available. Codified in `deny.toml`. |
 | RUSTSEC-2024-0436 (paste 1.0.15 unmaintained) | warning | Was previously transitive via `image → ravif → rav1e`. Trimmed out by switching `image` to `default-features = false` and re-enabling only `webp`, `jpeg`, `png`, and `rayon`; `cargo tree -i -p paste` now returns empty. The crate remains in `Cargo.lock` as a conditional dep that would only activate if a consumer turned the `avif` feature back on, which is why `cargo audit` still surfaces it. Not in our shipped binary. |
+| RUSTSEC-2026-0258 (h2 unbounded empty DATA frames) | low | `h2` queues empty DATA frames without limit, so an undrained stream can grow memory unboundedly. The 0.4 line is patched: the lockfile moved 0.4.14 to 0.4.16. The entry remains because `actix-web` 4 depends on the 0.3 line, where no patched release exists (0.3.27 is the newest 0.3.x). Actix reads request bodies to completion rather than leaving streams undrained. Drop when `actix-web` moves to h2 0.4. Codified in `deny.toml`. |
 
 ### Confirmed-good surfaces
 

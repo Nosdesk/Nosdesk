@@ -33,6 +33,17 @@ ignore = [
     # primitives we exercise are unaffected. Revisit when rsa ships a
     # fix or openidconnect migrates away.
     { id = "RUSTSEC-2023-0071", reason = "signature verify only, not decrypt" },
+    # RUSTSEC-2026-0258 - h2 accepts and queues empty DATA frames without
+    # limit, so an undrained stream can grow memory unboundedly. Low
+    # severity. Patched in 0.4.16, which this lockfile now uses.
+    #
+    # The remaining hit is the 0.3 line, which actix-web 4 depends on and
+    # for which no patched release exists (0.3.27 is the newest 0.3.x).
+    # cargo-deny 0.20 only accepts `id` + `reason` here, so this cannot be
+    # scoped to that version; it is safe because the advisory's patched
+    # range is >=0.4.16, so our 0.4 line can never match it again. Drop
+    # this entry when actix-web moves to h2 0.4.
+    { id = "RUSTSEC-2026-0258", reason = "0.4 line patched to 0.4.16; no patched 0.3.x exists" },
 ]
 
 [bans]
