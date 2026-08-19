@@ -74,6 +74,7 @@ import {
     ellipsis,
 } from "prosemirror-inputrules";
 import { createImageUploadPlugin } from "./editor/imageUploadPlugin";
+import { parseCollabDocId } from "@nosdesk/core/utils/collabDocId";
 import { EditorImageUploadError } from "@/services/editorImageService";
 import { useToastStore } from "@nosdesk/core/stores/toast";
 import { syntaxHighlightPlugin } from "./editor/syntaxHighlightPlugin";
@@ -100,7 +101,13 @@ interface AwarenessUser {
 // Props
 interface Props {
     docId: string;
-    ticketId?: number;
+    /**
+     * Integer id of the resource `docId` names. The docId carries the
+     * immutable UUID, but the revision and embedding REST endpoints are
+     * integer-keyed, so the id cannot be derived from it and has to come
+     * from the mounting view. Omit for kinds with no such endpoints.
+     */
+    resourceId?: number;
     hideRevisionHistory?: boolean;
 }
 
@@ -202,12 +209,12 @@ const getEmbeddedUuids = (): string[] => {
     return [...new Set(uuids)];
 };
 
-// Sync embeddings to the backend
+// Sync embeddings to the backend. Documentation pages only; tickets and
+// collections have no embedding table.
 const syncEmbeddings = async () => {
-    // Only sync for documentation pages (docId starts with "doc-")
-    if (!props.docId.startsWith('doc-')) return;
-    const pageId = parseInt(props.docId.replace('doc-', ''), 10);
-    if (isNaN(pageId)) return;
+    if (docKind.value !== 'doc') return;
+    const pageId = props.resourceId;
+    if (!pageId) return;
 
     const embeddedUuids = getEmbeddedUuids();
     try {
@@ -297,11 +304,11 @@ const isViewingRevision = ref(false);
 const currentRevisionNumber = ref<number | null>(null);
 const showRevisionHistory = ref(false);
 
-// Extract ticket ID from docId (format: "ticket-123")
-const ticketId = computed(() => {
-    const match = props.docId.match(/ticket-(\d+)/);
-    return match ? parseInt(match[1], 10) : 0;
-});
+// Which kind of resource this editor is bound to. Parsed, not sniffed: the
+// docId is `ws-{workspace_uuid}_{kind}-{resource_uuid}`, so the old
+// `startsWith('ticket-')` / `match(/ticket-(\d+)/)` checks could never match
+// and silently disabled every feature gated on them.
+const docKind = computed(() => parseCollabDocId(props.docId)?.kind ?? null);
 
 // Toggle revision history sidebar
 const toggleRevisionHistory = () => {
@@ -1922,15 +1929,14 @@ const handleRevisionSelect = async (revisionNumber: number | null) => {
 
     log.info(`User selected revision ${revisionNumber}`);
     try {
-        const isTicket = props.docId.startsWith('ticket-');
-        const isDoc = props.docId.startsWith('doc-');
+        const id = props.resourceId;
         let endpoint: string | null = null;
-        if (isTicket) {
-            const id = ticketId.value;
-            if (id > 0) endpoint = `/collaboration/tickets/${id}/revisions/${revisionNumber}`;
-        } else if (isDoc) {
-            const id = parseInt(props.docId.replace('doc-', ''), 10);
-            if (Number.isFinite(id) && id > 0) endpoint = `/collaboration/docs/${id}/revisions/${revisionNumber}`;
+        if (id && id > 0) {
+            if (docKind.value === 'ticket') {
+                endpoint = `/collaboration/tickets/${id}/revisions/${revisionNumber}`;
+            } else if (docKind.value === 'doc') {
+                endpoint = `/collaboration/docs/${id}/revisions/${revisionNumber}`;
+            }
         }
         if (!endpoint) {
             log.error(`Unable to derive revision endpoint for docId=${props.docId}`);
@@ -2492,7 +2498,9 @@ defineExpose({
         <transition name="slide-left">
             <RevisionHistory
                 v-if="showRevisionHistory"
-                :ticket-id="ticketId"
+                :type="docKind === 'doc' ? 'documentation' : 'ticket'"
+                :ticket-id="docKind === 'ticket' ? props.resourceId : undefined"
+                :document-id="docKind === 'doc' ? props.resourceId : undefined"
                 @close="showRevisionHistory = false"
                 @select-revision="handleRevisionSelect"
                 @restored="handleRevisionRestored"

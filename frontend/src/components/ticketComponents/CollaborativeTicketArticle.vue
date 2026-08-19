@@ -195,7 +195,7 @@ const confirmPromote = async () => {
         ref="editorRef"
         v-model="content"
         :doc-id="docId"
-        :ticket-id="ticketId"
+        :resource-id="ticketId"
         :is-binary-update="true"
         :hide-revision-history="true"
         @update:model-value="handleContentChange"
