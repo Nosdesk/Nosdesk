@@ -123,7 +123,7 @@ async function restoreDocumentationRevision(revisionNumber: number): Promise<boo
   docRestoring.value = true
 
   try {
-    await apiClient.post(`/collaboration/docs/${props.documentId}/revisions/${revisionNumber}/restore`)
+    await apiClient.post(`/collaboration/docs/${props.documentId}/restore/${revisionNumber}`)
     await loadDocumentationRevisions()
     return true
   } catch (err) {

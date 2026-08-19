@@ -158,6 +158,16 @@ const documentObj = computed(() => {
 // the local-only fallback for the brand-new-page wizard, where
 // there's nothing in Yjs to share yet.
 const workspaces = useMyWorkspacesStore()
+
+// Integer page id for the revision + embedding endpoints, which are
+// integer-keyed while the collab docId carries the uuid. Null until the page
+// loads, and for the brand-new-page wizard.
+const pageId = computed(() => {
+  const raw = document.value && 'id' in document.value ? document.value.id : null
+  const n = Number(raw)
+  return Number.isFinite(n) && n > 0 ? n : undefined
+})
+
 const docId = computed(() => {
   const uuid = workspaces.activeWorkspace?.workspace_uuid
   if (!uuid) return null
@@ -797,6 +807,7 @@ watch(documentObj, (newDocument) => {
                 ref="editorRef"
                 v-model="editContent"
                 :doc-id="docId"
+                :resource-id="pageId"
                 :hide-revision-history="true"
                 :placeholder="$t('doc-detail-editor-placeholder')"
                 @update:modelValue="updateContent"
