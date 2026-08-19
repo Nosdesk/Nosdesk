@@ -377,6 +377,12 @@ function wrapEvents(remote) {
   });
   return { api, reset };
 }
+function isHostMessage(event, gate) {
+  if (gate.hostWindow === gate.selfWindow) return false;
+  if (event.source !== gate.hostWindow) return false;
+  if (gate.hostOrigin !== null && event.origin !== gate.hostOrigin) return false;
+  return true;
+}
 function connectToHost() {
   return new Promise((resolve, reject) => {
     const listeners = /* @__PURE__ */ new Set();
@@ -390,6 +396,7 @@ function connectToHost() {
     };
     let theme = { tokens: {}, colorScheme: "light", name: "light" };
     let connected = false;
+    let hostOrigin = null;
     const timer = setTimeout(() => {
       if (!connected) {
         window.removeEventListener("message", onMessage);
@@ -397,10 +404,14 @@ function connectToHost() {
       }
     }, CONNECT_TIMEOUT_MS);
     function onMessage(event) {
+      if (!isHostMessage(event, { hostWindow: window.parent, selfWindow: window, hostOrigin })) {
+        return;
+      }
       const data = event.data;
       if (!data || typeof data !== "object") return;
       if (!connected && data.type === "nosdesk-plugin-init" && event.ports[0]) {
         connected = true;
+        hostOrigin = event.origin;
         clearTimeout(timer);
         context = data.context;
         theme = data.theme;
@@ -423,10 +434,10 @@ function connectToHost() {
           },
           resetEvents: reset
         });
-      } else if (data.type === "nosdesk-plugin-context") {
+      } else if (connected && data.type === "nosdesk-plugin-context") {
         context = data.context;
         for (const cb of listeners) cb(context);
-      } else if (data.type === "nosdesk-plugin-theme") {
+      } else if (connected && data.type === "nosdesk-plugin-theme") {
         theme = data.theme;
         for (const cb of themeListeners) cb(theme);
       }

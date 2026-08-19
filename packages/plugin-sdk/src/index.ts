@@ -12,7 +12,7 @@
 //       root.textContent = t ? t.title : 'no ticket';
 //     },
 //   } satisfies PluginModule;
-export { connectToHost, proxy, reportHeight } from './connect';
+export { connectToHost, isHostMessage, proxy, reportHeight } from './connect';
 export type { PluginRuntime } from './connect';
 
 // Host-side bridge (used by the app + the bridge harness, not by plugins).

@@ -141,6 +141,34 @@ function wrapEvents(remote: Comlink.Remote<HostApi>): {
  * us (only the host can post to this specific `contentWindow` with the port),
  * and communicate only over that port afterwards.
  */
+/**
+ * Should a `message` event be treated as coming from our host?
+ *
+ * The runtime is a static asset compiled into the backend, so it cannot be
+ * templated with the deployment's app origin and has nothing to compare the
+ * first message against. Two config-free checks do the work instead:
+ *
+ *   * Only the frame that embedded us may drive the runtime. A window opened
+ *     directly at the runtime URL has no parent, so there is no host and
+ *     nothing is accepted; that closes the opener-driven handshake.
+ *   * Once a handshake completes, the origin that completed it is pinned, so a
+ *     later message from anywhere else cannot rewrite context or theme
+ *     mid-session.
+ *
+ * Defence in depth: the sandbox CSP already pins `frame-ancestors` to the app
+ * origin, so a third party cannot frame us in the first place. This keeps the
+ * guest side sound on its own if that ever regresses.
+ */
+export function isHostMessage(
+  event: { source: unknown; origin: string },
+  gate: { hostWindow: unknown; selfWindow: unknown; hostOrigin: string | null },
+): boolean {
+  if (gate.hostWindow === gate.selfWindow) return false;
+  if (event.source !== gate.hostWindow) return false;
+  if (gate.hostOrigin !== null && event.origin !== gate.hostOrigin) return false;
+  return true;
+}
+
 export function connectToHost(): Promise<PluginRuntime> {
   return new Promise((resolve, reject) => {
     const listeners = new Set<(ctx: PluginContext) => void>();
@@ -156,6 +184,8 @@ export function connectToHost(): Promise<PluginRuntime> {
     };
     let theme: PluginTheme = { tokens: {}, colorScheme: 'light', name: 'light' };
     let connected = false;
+    // Origin that completed the handshake; every later message must match it.
+    let hostOrigin: string | null = null;
 
     // Fail loudly if the host never connects (dropped port / host disposed before
     // postInit) so `boot()` can render an error instead of hanging on a blank
@@ -168,6 +198,11 @@ export function connectToHost(): Promise<PluginRuntime> {
     }, CONNECT_TIMEOUT_MS);
 
     function onMessage(event: MessageEvent) {
+      if (
+        !isHostMessage(event, { hostWindow: window.parent, selfWindow: window, hostOrigin })
+      ) {
+        return;
+      }
       const data = event.data as
         | HostInitMessage
         | HostContextMessage
@@ -177,6 +212,7 @@ export function connectToHost(): Promise<PluginRuntime> {
 
       if (!connected && data.type === 'nosdesk-plugin-init' && event.ports[0]) {
         connected = true;
+        hostOrigin = event.origin;
         clearTimeout(timer);
         context = data.context;
         theme = data.theme;
@@ -199,10 +235,10 @@ export function connectToHost(): Promise<PluginRuntime> {
           },
           resetEvents: reset,
         });
-      } else if (data.type === 'nosdesk-plugin-context') {
+      } else if (connected && data.type === 'nosdesk-plugin-context') {
         context = data.context;
         for (const cb of listeners) cb(context);
-      } else if (data.type === 'nosdesk-plugin-theme') {
+      } else if (connected && data.type === 'nosdesk-plugin-theme') {
         theme = data.theme;
         for (const cb of themeListeners) cb(theme);
       }
