@@ -283,18 +283,34 @@ const buildFolderStructure = (pages: DocumentationPageExport[]): Map<number, str
 /**
  * Create frontmatter for a markdown file
  */
+/**
+ * Quote a value as a YAML double-quoted scalar.
+ *
+ * Backslashes must be escaped BEFORE quotes, or the escape character itself
+ * is left unescaped: a title of `a\\` previously emitted `"a\\"`, an
+ * unterminated string, and any interior backslash produced an invalid YAML
+ * escape sequence. Control characters are dropped rather than escaped since
+ * they have no place in a title or slug.
+ */
+export const yamlString = (value: string): string =>
+  `"${String(value ?? '')
+     
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')}"`;
+
 const createFrontmatter = (page: DocumentationPageExport): string => {
   const frontmatter = [
     '---',
-    `title: "${page.title.replace(/"/g, '\\"')}"`,
-    `slug: "${page.slug}"`,
+    `title: ${yamlString(page.title)}`,
+    `slug: ${yamlString(page.slug)}`,
   ];
 
   if (page.icon) {
-    frontmatter.push(`icon: "${page.icon}"`);
+    frontmatter.push(`icon: ${yamlString(page.icon)}`);
   }
 
-  frontmatter.push(`status: "${page.status}"`);
+  frontmatter.push(`status: ${yamlString(page.status)}`);
   frontmatter.push(`created: ${page.created_at}`);
   frontmatter.push(`updated: ${page.updated_at}`);
   frontmatter.push('---');

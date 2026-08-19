@@ -274,7 +274,9 @@ const highlightPreview = (text: string): string => highlightTerms(text, searchTe
 watch(searchQuery, () => {
   activeIndex.value = 0;
 });
-const uid = Math.random().toString(36).slice(2, 8);
+// Unique suffix for the aria-activedescendant ids. Not security bearing,
+// but crypto.randomUUID avoids the weak-RNG lint and is no more code.
+const uid = crypto.randomUUID().slice(0, 8);
 const optionId = (i: number) => `canned-response-opt-${uid}-${i}`;
 const activeOptionId = computed(() =>
   filteredResponses.value.length > 0 ? optionId(activeIndex.value) : undefined,

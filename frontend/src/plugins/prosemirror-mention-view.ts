@@ -7,6 +7,7 @@
 import { Plugin } from 'prosemirror-state';
 import type { Node as PMNode } from 'prosemirror-model';
 import type { EditorView, NodeView } from 'prosemirror-view';
+import { isAllowedImageSrc } from '@/composables/useSanitise';
 
 // Navigation handler for mention clicks
 let mentionNavigationHandler: ((uuid: string) => void) | null = null;
@@ -64,26 +65,31 @@ function createMentionContent(uuid: string, name: string, avatarUrl: string | nu
   const avatar = document.createElement('span');
   avatar.className = 'mention-avatar';
 
-  if (avatarUrl) {
+  const appendFallback = () => {
+    const fallback = document.createElement('span');
+    fallback.className = 'mention-avatar-fallback';
+    fallback.textContent = getInitials(name);
+    fallback.style.backgroundColor = stringToColor(uuid);
+    avatar.appendChild(fallback);
+  };
+
+  // The avatar URL rides in the mention node's attrs, so it comes out of the
+  // collaborative document and any collaborator can set it. An off-origin
+  // src would make every viewer's browser fetch an attacker-chosen URL,
+  // leaking their IP and a read-receipt timestamp. Same allowlist the
+  // markdown/comment paths use.
+  if (avatarUrl && isAllowedImageSrc(avatarUrl)) {
     const img = document.createElement('img');
     img.src = avatarUrl;
     img.alt = name;
     img.className = 'mention-avatar-img';
     img.onerror = () => {
       img.style.display = 'none';
-      const fallback = document.createElement('span');
-      fallback.className = 'mention-avatar-fallback';
-      fallback.textContent = getInitials(name);
-      fallback.style.backgroundColor = stringToColor(uuid);
-      avatar.appendChild(fallback);
+      appendFallback();
     };
     avatar.appendChild(img);
   } else {
-    const fallback = document.createElement('span');
-    fallback.className = 'mention-avatar-fallback';
-    fallback.textContent = getInitials(name);
-    fallback.style.backgroundColor = stringToColor(uuid);
-    avatar.appendChild(fallback);
+    appendFallback();
   }
 
   // Create name element
