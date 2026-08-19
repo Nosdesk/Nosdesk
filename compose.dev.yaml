@@ -48,6 +48,13 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile.dev
+      # Compose merges `build` key by key, so the base file's
+      # `target: runtime` survives swapping the dockerfile and resolves
+      # against Dockerfile.dev, which only defines `development`. Without
+      # this override every build fails with
+      # `target stage "runtime" could not be found`, which takes out
+      # `make dev` and `docker compose watch` and therefore all source sync.
+      target: development
     # Empty default = host arch. Override with BACKEND_PLATFORM=linux/amd64
     # (or linux/arm64) to test the other architecture.
     platform: ${BACKEND_PLATFORM:-}
