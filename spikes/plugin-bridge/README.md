@@ -2,8 +2,12 @@
 
 Proves the host↔plugin **Comlink round-trip** for the plugin sandbox, using the
 real `@nosdesk/plugin-sdk` (`createRemoteHostApi` + `connectToHost`) and real
-`@nosdesk/plugin-runtime`, through an opaque-origin sandboxed iframe. Sibling to
-`../plugin-sandbox/` (which proves *isolation*); this one proves the *bridge*.
+`@nosdesk/plugin-runtime`, through an opaque-origin sandboxed iframe.
+
+Its sibling `../plugin-sandbox/` proved *isolation* and was deleted once the
+sandbox shipped (every trust tier now runs in the opaque-origin frame). This
+harness is kept because it exercises the real SDK and runtime rather than a
+stand-in.
 
 ```bash
 npm install

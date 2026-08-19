@@ -217,7 +217,26 @@ If you ever switch to a "Vite dev server on 5173 + backend on 8080"
 shape, you'll need a Vite proxy block for `/api/*`. Not configured
 today.
 
-### 4.7 Real SMTP testing requires switching compose files
+### 4.7 Plugins only render on the origin `FRONTEND_URL` names
+
+The plugin sandbox iframe is served with a CSP whose `frame-ancestors`
+is built from `FRONTEND_URL`. If you browse the dev stack on a
+different origin, the browser refuses to frame it and **every plugin
+silently fails to render**. The only symptom is an iframe whose
+document is `chrome-error://chromewebdata/`; nothing is logged to the
+console.
+
+So if `FRONTEND_URL=https://nosdesk.<host>.orb.local`, do plugin work
+on that URL, not `http://localhost:8080`. Check which you are on with:
+
+```bash
+docker compose -f compose.yaml -f compose.dev.yaml exec nosdesk printenv FRONTEND_URL
+```
+
+Same root cause as the collaboration WebSocket rejecting a mismatched
+origin.
+
+### 4.8 Real SMTP testing requires switching compose files
 
 The dev stack overrides `SMTP_HOST` to point at Mailpit. Outbound
 mail lands at http://localhost:8025 (the Mailpit UI). To exercise
