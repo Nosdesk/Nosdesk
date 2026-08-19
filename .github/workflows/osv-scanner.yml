@@ -15,9 +15,15 @@ on:
   push:
     branches: [main]
   pull_request:
+    # Globbed, not an explicit list. The scan below is recursive, so it already
+    # covers every lockfile in the repo; naming two of them here meant a PR
+    # touching any other one (mobile/src-tauri/Cargo.lock, a future workspace)
+    # got no scan at all and had to wait for the push or weekly run. That is how
+    # RUSTSEC-2026-0194/0195 sat on the mobile lockfile without a PR ever
+    # flagging them.
     paths:
-      - 'backend/Cargo.lock'
-      - 'pnpm-lock.yaml'
+      - '**/Cargo.lock'
+      - '**/pnpm-lock.yaml'
       - '.github/workflows/osv-scanner.yml'
   schedule:
     # Weekly. Most findings arrive because the world changed, not because the
