@@ -123,7 +123,6 @@ async fn tickets_config_routes_registered() {
             ("DELETE", "/comments/1"),
             ("GET", "/comments/1/raw.eml"),
             ("GET", "/image-proxy/1/1"),
-            ("POST", "/comments/1/attachments"),
             ("DELETE", "/attachments/1"),
         ],
     )

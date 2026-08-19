@@ -920,13 +920,6 @@ pub async fn delete_comment(
     }
 }
 
-pub async fn add_attachment_to_comment(
-    _: web::Path<i32>,
-    _: web::Data<crate::db::Pool>,
-) -> impl Responder {
-    HttpResponse::Ok().json(json!({"message": "Add attachment to comment handler placeholder"}))
-}
-
 /// Serve the raw RFC-822 source for an email-derived comment as
 /// `text/plain` so agents can fall back to the unparsed message
 /// when the quote splitter misfires or they need to inspect

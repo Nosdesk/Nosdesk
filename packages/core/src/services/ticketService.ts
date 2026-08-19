@@ -266,20 +266,6 @@ export const addCommentToTicket = async (
   }
 };
 
-// Add an attachment to a comment
-export const addAttachmentToComment = async (commentId: number, url: string, name: string): Promise<Attachment> => {
-  try {
-    const response = await apiClient.post(`/comments/${commentId}/attachments`, {
-      url,
-      name,
-    });
-    return response.data;
-  } catch (error) {
-    logger.error('Failed to add attachment to comment', { error, commentId });
-    throw error;
-  }
-};
-
 // Delete a comment
 export const deleteComment = async (commentId: number): Promise<void> => {
   try {
@@ -420,7 +406,6 @@ export default {
   linkTicket,
   unlinkTicket,
   addCommentToTicket,
-  addAttachmentToComment,
   deleteComment,
   deleteAttachment,
   getCommentsByTicketId,
