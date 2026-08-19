@@ -187,10 +187,6 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             web::get().to(crate::handlers::image_proxy::proxy_image),
         )
         .route(
-            "/comments/{comment_id}/attachments",
-            web::post().to(crate::handlers::add_attachment_to_comment),
-        )
-        .route(
             "/attachments/{id}",
             web::delete().to(crate::handlers::delete_attachment),
         );
