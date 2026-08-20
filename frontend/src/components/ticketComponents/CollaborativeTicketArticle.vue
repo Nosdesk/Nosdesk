@@ -1,6 +1,6 @@
 <!-- CollaborativeTicketArticle.vue -->
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue';
+import { ref, computed, onMounted, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
 import CollaborativeEditor from '@/components/CollaborativeEditor.vue';
@@ -103,6 +103,10 @@ const handleSelectRevision = async (revisionNumber: number | null) => {
     console.error('Failed to fetch revision:', error);
   }
 };
+
+// The editor owns which revision is on screen, so the list highlight follows it
+// whether the exit came from the list or from the overlay's own button.
+const activeRevisionNumber = computed(() => editorRef.value?.currentRevisionNumber ?? null);
 
 const toggleRevisionHistory = () => {
   // Closing: also exit any in-progress revision preview so the
@@ -209,6 +213,7 @@ const confirmPromote = async () => {
       >
         <RevisionList
           :ticket-id="ticketId"
+          :active-revision-number="activeRevisionNumber"
           @select-revision="handleSelectRevision"
         />
       </aside>

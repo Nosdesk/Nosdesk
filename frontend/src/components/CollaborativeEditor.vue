@@ -35,6 +35,7 @@ import {
     type LinkTooltipState,
 } from "./editor/linkTooltipPlugin";
 import { createTicketLinkPlugin, setTicketNavigationHandler } from "./editor/ticketLinkPlugin";
+import { mountRevisionView, decodeRevisionBytes, type RevisionViewHandle } from "./editor/revisionView";
 import { createEmbeddedDocumentPlugin, setDocumentNavigationHandler } from "./editor/embeddedDocumentPlugin";
 import DocumentPicker from "./editor/DocumentPicker.vue";
 import apiClient from "@nosdesk/core/apiClient";
@@ -722,6 +723,10 @@ const initEditor = async () => {
         }
 
         editorView = new EditorView(editorElement.value, {
+            // The revision overlay hides this view but leaves it mounted and
+            // syncing. Editing it while it cannot be seen would be an invisible
+            // change to the live document, so gate it for as long as it is covered.
+            editable: () => !isViewingRevision.value,
             state: EditorState.create({
                 doc: doc,
                 schema,
@@ -1753,6 +1758,12 @@ onBeforeUnmount(() => {
     // Sync embeddings before unmounting (fire-and-forget)
     syncEmbeddings();
 
+    // Tear down the revision overlay first: it owns a detached EditorView and a
+    // scratch Y.Doc, and the ydoc outlives this component via the refcounted
+    // collab session store.
+    revisionHandle?.destroy();
+    revisionHandle = null;
+
     cleanup();
     document.removeEventListener("mousedown", handleClickOutside);
     document.removeEventListener("keydown", handleKeydown);
@@ -1781,130 +1792,69 @@ onBeforeUnmount(() => {
     document.removeEventListener("visibilitychange", handleVisibilityChange);
 });
 
-// Store original state when viewing revisions
-let originalYXmlFragment: Y.XmlFragment | null = null;
-let originalEditorState: EditorState | null = null;
+// The detached revision viewer. The live editor is never re-stated, so there
+// is no "original state" to stash and restore; see editor/revisionView.ts for
+// why the previous approach lost remote edits.
+const revisionOverlayEl = ref<HTMLElement | null>(null);
+const revisionOverlayHost = ref<HTMLElement | null>(null);
+let revisionHandle: RevisionViewHandle | null = null;
 
-// Revision viewing methods
-function viewSnapshot(snapshotData: { revision_number: number; yjs_document_content: string }) {
-    if (!editorView || !ydoc || !yXmlFragment) {
-        log.error("Cannot view snapshot: editor not initialized");
+// Revision viewing. Renders the revision in a detached overlay; the live
+// editor keeps its state, its Yjs binding and its incoming updates throughout.
+async function viewSnapshot(snapshotData: { revision_number: number; yjs_document_content: string }) {
+    // Show the overlay host first so the ref resolves, then mount into it.
+    isViewingRevision.value = true;
+    currentRevisionNumber.value = snapshotData.revision_number;
+    await nextTick();
+
+    const mount = revisionOverlayEl.value;
+    if (!mount) {
+        isViewingRevision.value = false;
+        currentRevisionNumber.value = null;
+        log.error("Cannot view revision: overlay host not mounted");
         return;
     }
 
     try {
-        log.info(`Viewing revision ${snapshotData.revision_number}`);
-
-        // Store the original state for restoring later
-        if (!isViewingRevision.value) {
-            originalYXmlFragment = yXmlFragment;
-            originalEditorState = editorView.state;
-        }
-
-        // Decode the full document content for this revision
-        log.info(`Base64 yjs_document_content length: ${snapshotData.yjs_document_content.length}`);
-        const documentBytes = Uint8Array.from(atob(snapshotData.yjs_document_content), c => c.charCodeAt(0));
-        log.info(`Decoded bytes length: ${documentBytes.length}`);
-        log.info(`First 20 bytes: ${Array.from(documentBytes.slice(0, 20))}`);
-
-        // Create a temporary Yjs document for viewing this revision
-        // Disable GC to ensure all historical data is preserved
-        const tempDoc = new Y.Doc({ gc: false });
-
-        // Apply the revision's content to the temporary document FIRST
-        log.info(`Applying update to temp doc...`);
-        try {
-            Y.applyUpdate(tempDoc, documentBytes);
-            log.info(`Update applied successfully.`);
-        } catch (err) {
-            log.error(`Error applying update:`, err);
-            throw err;
-        }
-
-        // NOW get the fragment after the update has been applied
-        const tempFragment = tempDoc.getXmlFragment("prosemirror");
-        log.info(`Got fragment after update. Children: ${tempFragment.length}`);
-
-        // Debug: Log the Yjs fragment content
-        log.info(`Temp doc state after applying update: ${tempDoc.store.clients.size} clients`);
-        log.info(`Temp fragment children: ${tempFragment.length}`);
-        log.info(`Temp fragment content: ${tempFragment.toString()}`);
-
-        // Create a read-only ProseMirror state from this revision
-        const { doc } = initProseMirrorDoc(tempFragment, schema);
-
-        // Debug: Log the ProseMirror doc content
-        log.info(`ProseMirror doc from revision: ${doc.textContent}`);
-
-        // Create a read-only state with the revision content. The
-        // doc has no Yjs binding here (intentional — edits would be
-        // discarded on exit), but ProseMirror would still accept
-        // keystrokes into the local state if `editable` weren't
-        // overridden, which presents a confusing "looks like I'm
-        // typing, then it disappears" experience when the user
-        // exits the revision view.
-        const readOnlyState = EditorState.create({
-            doc,
+        revisionHandle?.destroy();
+        revisionHandle = mountRevisionView({
+            mount,
             schema,
+            updateBytes: decodeRevisionBytes(snapshotData.yjs_document_content),
+            // Node views only, so historical mentions, ticket cards and embeds
+            // render as they did when written. Nothing here dispatches.
             plugins: [
-                // Minimal plugins for read-only viewing
-                keymap(baseKeymap),
-                dropCursor(),
+                createTicketLinkPlugin(),
+                createEmbeddedDocumentPlugin(),
+                syntaxHighlightPlugin,
+                createMentionViewPlugin(),
                 twemojiPlugin,
             ],
         });
-
-        // Update the editor view to show this read-only state and
-        // mark it non-editable so dispatched transactions are
-        // rejected at the prop boundary, matching the user's
-        // expectation that historical revisions are immutable.
-        editorView.updateState(readOnlyState);
-        editorView.setProps({ editable: () => false });
-
-        // Mark as viewing revision
-        isViewingRevision.value = true;
-        currentRevisionNumber.value = snapshotData.revision_number;
-
-        log.info(`Successfully loaded revision ${snapshotData.revision_number} (read-only view)`);
+        // Focus the region: it is what Escape listens on, and it is where a
+        // screen reader should land now that it covers the document.
+        editorView?.setProps({});
+        revisionOverlayHost.value?.focus();
+        log.info(`Viewing revision ${snapshotData.revision_number} (read-only)`);
     } catch (error) {
-        log.error("Failed to view snapshot:", error);
-        // If viewing fails, make sure to clear the viewing state
+        revisionHandle = null;
         isViewingRevision.value = false;
         currentRevisionNumber.value = null;
+        log.error("Failed to view revision:", error);
         throw error;
     }
 }
 
 function exitRevisionView() {
-    if (!editorView || !originalEditorState || !originalYXmlFragment) {
-        log.error("Cannot exit revision view: no original state stored");
-        return;
-    }
-
-    try {
-        log.info("Exiting revision view, returning to live document");
-
-        // Restore the original editor state (connected to live Yjs
-        // doc) and flip the editable prop back on. The revision
-        // view setter installed `editable: () => false`; without
-        // this clear, the live doc would inherit the read-only
-        // gate and silently refuse the next keystroke.
-        editorView.updateState(originalEditorState);
-        editorView.setProps({ editable: () => true });
-
-        // Clear stored state
-        originalYXmlFragment = null;
-        originalEditorState = null;
-
-        // Mark as no longer viewing revision
-        isViewingRevision.value = false;
-        currentRevisionNumber.value = null;
-
-        log.info("Successfully returned to live editing");
-    } catch (error) {
-        log.error("Failed to exit revision view:", error);
-        throw error;
-    }
+    revisionHandle?.destroy();
+    revisionHandle = null;
+    isViewingRevision.value = false;
+    currentRevisionNumber.value = null;
+    // `editable` is a prop function; ProseMirror re-reads it on updateState.
+    editorView?.setProps({});
+    // The live view was never re-stated, so its selection survived and
+    // ProseMirror has been mapping it through remote edits the whole time.
+    nextTick(() => editorView?.focus());
 }
 
 // Handle revision selection from RevisionList.
@@ -1990,8 +1940,9 @@ defineExpose({
 
 <template>
     <div class="collaborative-editor">
-        <!-- Toolbar -->
-        <div class="toolbar">
+        <!-- Toolbar. Inert while a revision is on screen: its commands dispatch
+             straight to the live view, which is hidden under the overlay. -->
+        <div class="toolbar" :inert="isViewingRevision" :class="{ 'toolbar-inert': isViewingRevision }">
             <!-- Type Dropdown -->
             <div class="relative">
                 <button
@@ -2412,6 +2363,35 @@ defineExpose({
                 class="editor-container"
             ></div>
 
+            <!-- Revision overlay. Covers the live editor rather than replacing
+                 its state, so the document underneath keeps syncing. The bar is
+                 the only way out of a read-only revision, so it stays in view
+                 while the revision scrolls under it. -->
+            <div
+                v-if="isViewingRevision"
+                ref="revisionOverlayHost"
+                class="revision-overlay"
+                role="region"
+                tabindex="-1"
+                :aria-label="$t('editor-revision-view-aria', { revision: currentRevisionNumber ?? 0 })"
+                @keydown.esc="exitRevisionView"
+            >
+                <div class="revision-overlay-bar">
+                    <span class="revision-overlay-label">
+                        {{ $t('editor-revision-viewing-label', { revision: currentRevisionNumber ?? 0 }) }}
+                    </span>
+                    <button
+                        type="button"
+                        class="revision-overlay-exit"
+                        @click="exitRevisionView"
+                    >
+                        {{ $t('editor-revision-back-to-current') }}
+                    </button>
+                </div>
+                <!-- Mount target kept separate: the detached EditorView appends
+                     into this node, never into the bar. -->
+                <div ref="revisionOverlayEl"></div>
+            </div>
         </div>
 
         <!-- Mention Dropdown (teleported to body for proper positioning) -->
@@ -2690,6 +2670,61 @@ defineExpose({
     display: flex;
     flex-direction: column;
     min-height: 0;
+}
+
+/* Sits over the live editor. Opaque, because the live document is still
+   mounted and rendering underneath. */
+.revision-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 10;
+    overflow: auto;
+    background-color: var(--color-surface);
+}
+
+.toolbar-inert {
+    opacity: 0.5;
+}
+
+.revision-overlay:focus {
+    outline: none;
+}
+
+.revision-overlay-bar {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    background-color: var(--color-surface-alt);
+    border-bottom: 1px solid var(--color-default);
+}
+
+.revision-overlay-label {
+    font-size: 0.8125rem;
+    color: var(--color-secondary);
+}
+
+.revision-overlay-exit {
+    margin-left: auto;
+    padding: 0.25rem 0.625rem;
+    font-size: 0.8125rem;
+    color: var(--color-primary);
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-default);
+    border-radius: 0.375rem;
+    cursor: pointer;
+}
+
+.revision-overlay-exit:hover {
+    background-color: var(--color-surface-hover);
+}
+
+.revision-overlay .revision-view-content {
+    padding: 1rem;
+    outline: none;
 }
 
 .mention-dropdown {

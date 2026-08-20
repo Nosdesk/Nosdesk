@@ -6638,3 +6638,6 @@ editor-image-upload-invalid = Impossible d'ajouter l'image
 editor-image-upload-invalid-detail = { $name } n'est pas une image prise en charge, ou dépasse 10 Mo.
 editor-image-upload-anchor-lost = Impossible de placer l'image
 editor-image-upload-anchor-lost-detail = { $name } a bien été téléversé, mais l'endroit où vous l'avez collé a été modifié. Collez-la de nouveau.
+editor-revision-view-aria = Révision { $revision } affichée, lecture seule
+editor-revision-viewing-label = Révision { $revision } affichée
+editor-revision-back-to-current = Revenir à la version actuelle

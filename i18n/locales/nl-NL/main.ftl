@@ -6630,3 +6630,6 @@ editor-image-upload-invalid = Afbeelding kan niet worden toegevoegd
 editor-image-upload-invalid-detail = { $name } is geen ondersteunde afbeelding, of is groter dan 10 MB.
 editor-image-upload-anchor-lost = Afbeelding kon niet worden geplaatst
 editor-image-upload-anchor-lost-detail = { $name } is geüpload, maar de plek waar je hem plakte is inmiddels gewijzigd. Plak hem opnieuw.
+editor-revision-view-aria = Revisie { $revision } wordt getoond, alleen-lezen
+editor-revision-viewing-label = Revisie { $revision } wordt getoond
+editor-revision-back-to-current = Terug naar huidige versie
