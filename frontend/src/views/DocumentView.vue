@@ -238,6 +238,10 @@ const toggleRevisionHistory = () => {
   showRevisionHistory.value ? docPanel.close() : docPanel.open('history')
 }
 
+// The editor owns which revision is on screen, so the panel highlight follows
+// it whether the exit came from the list or from the overlay's own button.
+const activeRevisionNumber = computed(() => editorRef.value?.currentRevisionNumber ?? null)
+
 const handleSelectRevision = async (revisionNumber: number | null) => {
   if (!editorRef.value) return
 
@@ -832,6 +836,7 @@ watch(documentObj, (newDocument) => {
           :open="showRevisionHistory"
           type="documentation"
           :document-id="Number(currentPageId)"
+          :active-revision-number="activeRevisionNumber"
           class="flex-shrink-0"
           @close="handleCloseRevisionHistory"
           @select-revision="handleSelectRevision"

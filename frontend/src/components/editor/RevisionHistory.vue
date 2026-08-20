@@ -23,6 +23,7 @@ interface Props {
   ticketId?: number
   documentId?: number
   type?: 'ticket' | 'documentation'
+  activeRevisionNumber?: number | null
 }
 
 withDefaults(defineProps<Props>(), {
@@ -48,6 +49,7 @@ const emit = defineEmits<{
       :ticket-id="ticketId"
       :document-id="documentId"
       :type="type"
+      :active-revision-number="activeRevisionNumber"
       @select-revision="(n) => emit('selectRevision', n)"
       @restored="(n) => emit('restored', n)"
     />

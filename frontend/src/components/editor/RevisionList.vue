@@ -39,6 +39,12 @@ interface Props {
   ticketId?: number
   documentId?: number
   type?: 'ticket' | 'documentation'
+  /**
+   * Revision currently on screen in the editor, or null when the live document
+   * is showing. The editor owns this: a revision can be exited from the overlay
+   * as well as from this list, and the highlight has to follow either.
+   */
+  activeRevisionNumber?: number | null
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -160,6 +166,15 @@ const getUserName = (uuid: string): string | undefined => {
 }
 
 const selectedRevision = ref<ArticleRevision | null>(null)
+
+// The editor exited the revision view (overlay button, Escape, or a restore),
+// so drop the highlight this list set when the row was clicked.
+watch(
+  () => props.activeRevisionNumber,
+  (active) => {
+    if (active === null || active === undefined) selectedRevision.value = null
+  },
+)
 const showRestoreConfirm = ref(false)
 const revisionToRestore = ref<number | null>(null)
 

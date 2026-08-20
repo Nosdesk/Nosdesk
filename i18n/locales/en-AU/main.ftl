@@ -5197,3 +5197,6 @@ editor-image-upload-invalid = Image cannot be added
 editor-image-upload-invalid-detail = { $name } is not a supported image, or is larger than 10MB.
 editor-image-upload-anchor-lost = Image could not be placed
 editor-image-upload-anchor-lost-detail = { $name } uploaded, but the spot you pasted it into was edited away. Paste it again.
+editor-revision-view-aria = Viewing revision { $revision }, read only
+editor-revision-viewing-label = Viewing revision { $revision }
+editor-revision-back-to-current = Back to current version
