@@ -15,7 +15,7 @@ use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::{NewWorkspace, Workspace, WorkspaceMember};
-use crate::schema::{retired_slugs, workspace_members, workspaces};
+use crate::schema::{retired_slugs, site_settings, workspace_members, workspaces};
 
 /// Staff roles that count toward a workspace's `seat_limit`. Mirrors
 /// [`crate::models::WorkspaceRole::is_staff`]; kept as a literal array for the
@@ -610,6 +610,30 @@ pub fn list_memberships_for_user(
         .load::<(WorkspaceMember, Workspace)>(conn)
 }
 
+/// Branding logo for each of `workspace_ids`, as `(workspace_id, logo_url)`.
+///
+/// Kept separate from [`list_memberships_for_user`] rather than folded into its
+/// join: three other callers depend on that function's shape, and only the
+/// workspace switcher needs branding.
+///
+/// `site_settings` holds one row per workspace (`site_settings_workspace_id_key`),
+/// so this is a single indexed read over the caller's handful of memberships,
+/// not a per-workspace fetch. Rows are absent for a workspace with no settings
+/// row yet, so callers treat a missing entry as "no logo".
+///
+/// Reads across workspaces, so it needs a connection that bypasses RLS. The
+/// caller must have already narrowed `workspace_ids` to the user's own
+/// memberships; this function does no authorization of its own.
+pub fn logo_urls_for_workspaces(
+    conn: &mut DbConnection,
+    workspace_ids: &[i32],
+) -> QueryResult<Vec<(i32, Option<String>)>> {
+    site_settings::table
+        .filter(site_settings::workspace_id.eq_any(workspace_ids))
+        .select((site_settings::workspace_id, site_settings::logo_url))
+        .load(conn)
+}
+
 /// List every membership row for a workspace. Used by the admin
 /// member-management UI.
 pub fn list_workspace_members(
@@ -1067,6 +1091,50 @@ mod tests {
             !slugs.contains(&"memship-archived"),
             "archived workspace must not appear in /me/workspaces switcher list"
         );
+    }
+
+    #[test]
+    fn logo_urls_returns_only_requested_workspaces() {
+        use crate::schema::site_settings;
+
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+
+        let branded = fresh_workspace(&mut conn, "logo-branded");
+        let plain = fresh_workspace(&mut conn, "logo-plain");
+        let other = fresh_workspace(&mut conn, "logo-other");
+
+        let url = format!("/uploads/branding/{}/logo.png?v=1", branded.uuid);
+        for (ws, logo) in [
+            (&branded, Some(url.clone())),
+            (&other, Some("/other.png".into())),
+        ] {
+            as_admin(&mut conn, |c| {
+                diesel::insert_into(site_settings::table)
+                    .values((
+                        site_settings::workspace_id.eq(ws.id),
+                        site_settings::logo_url.eq(logo.clone()),
+                    ))
+                    .on_conflict(site_settings::workspace_id)
+                    .do_update()
+                    .set(site_settings::logo_url.eq(logo.clone()))
+                    .execute(c)
+            })
+            .expect("seed branding");
+        }
+
+        let rows = as_admin(&mut conn, |c| {
+            logo_urls_for_workspaces(c, &[branded.id, plain.id])
+        })
+        .expect("logo urls");
+
+        let found: std::collections::HashMap<i32, Option<String>> = rows.into_iter().collect();
+        assert_eq!(found.get(&branded.id), Some(&Some(url)));
+        // Present but unset reads as no logo, and the client draws a monogram.
+        assert!(matches!(found.get(&plain.id), None | Some(None)));
+        // A workspace the caller did not ask for is never returned, which is
+        // what keeps this from widening past the caller's memberships.
+        assert!(!found.contains_key(&other.id));
     }
 
     #[test]

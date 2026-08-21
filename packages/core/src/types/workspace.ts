@@ -67,6 +67,9 @@ export interface MyWorkspaceEntry {
   role: WorkspaceRole;
   invited_at: string;
   accepted_at: string | null;
+  /** Workspace branding logo. `null` for most workspaces, which never upload
+   *  one; surfaces fall back to a monogram rather than a broken image. */
+  logo_url: string | null;
 }
 
 /** Request body for POST /api/admin/workspaces. */

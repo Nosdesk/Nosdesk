@@ -12,15 +12,30 @@ import { logger } from '@nosdesk/core/utils/logger'
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import brandingService, { type BrandingConfig } from '@nosdesk/core/services/brandingService'
+import { activeWorkspaceSlugRef } from '@/services/activeWorkspace'
 
-const BRANDING_CACHE_KEY = 'nosdesk_branding_cache'
+const BRANDING_CACHE_PREFIX = 'nosdesk_branding_cache'
+
+/**
+ * Cache key for the workspace currently on screen.
+ *
+ * Scoped per workspace because the cache exists to paint branding before the
+ * fetch resolves: with one shared key, switching workspaces paints the previous
+ * tenant's logo and colours until the new config arrives. Falls back to the
+ * bare key when no slug is set, which is host mode and self-hosted, where there
+ * is only ever one workspace.
+ */
+function brandingCacheKey(): string {
+  const slug = activeWorkspaceSlugRef.value
+  return slug ? `${BRANDING_CACHE_PREFIX}:${slug}` : BRANDING_CACHE_PREFIX
+}
 
 /**
  * Load cached branding from localStorage
  */
 function loadCachedBranding(): BrandingConfig | null {
   try {
-    const cached = localStorage.getItem(BRANDING_CACHE_KEY)
+    const cached = localStorage.getItem(brandingCacheKey())
     if (cached) {
       return JSON.parse(cached)
     }
@@ -35,7 +50,7 @@ function loadCachedBranding(): BrandingConfig | null {
  */
 function saveBrandingCache(config: BrandingConfig): void {
   try {
-    localStorage.setItem(BRANDING_CACHE_KEY, JSON.stringify(config))
+    localStorage.setItem(brandingCacheKey(), JSON.stringify(config))
   } catch {
     // Ignore storage errors
   }
@@ -186,7 +201,7 @@ export const useBrandingStore = defineStore('branding', () => {
     }
     // Clear the cache
     try {
-      localStorage.removeItem(BRANDING_CACHE_KEY)
+      localStorage.removeItem(brandingCacheKey())
     } catch {
       // Ignore storage errors
     }

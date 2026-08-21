@@ -743,6 +743,10 @@ struct MyWorkspaceEntry {
     role: String,
     invited_at: chrono::DateTime<chrono::Utc>,
     accepted_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Workspace branding logo, for the switcher's mark. `None` when the
+    /// workspace has not uploaded one, which is the common case: the client
+    /// falls back to a monogram rather than a broken image.
+    logo_url: Option<String>,
 }
 
 pub async fn list_my_workspaces(req: HttpRequest, mut pc: PlatformConn) -> impl Responder {
@@ -757,26 +761,45 @@ pub async fn list_my_workspaces(req: HttpRequest, mut pc: PlatformConn) -> impl 
         }
     };
 
-    match pc.run(|conn| workspaces::list_memberships_for_user(conn, user_uuid)) {
-        Ok(rows) => {
-            let body: Vec<MyWorkspaceEntry> = rows
-                .into_iter()
-                .map(|(m, w)| MyWorkspaceEntry {
-                    workspace_id: w.id,
-                    workspace_uuid: w.uuid,
-                    slug: w.slug,
-                    name: w.name,
-                    custom_domain: w.custom_domain,
-                    role: m.role,
-                    invited_at: m.invited_at,
-                    accepted_at: m.accepted_at,
-                })
-                .collect();
-            HttpResponse::Ok().json(body)
-        }
+    // Memberships first, then branding for exactly those workspaces. The
+    // connection bypasses RLS (cross-workspace by nature), so the membership
+    // list is what constrains the branding read to workspaces the caller
+    // belongs to.
+    let rows = match pc.run(|conn| workspaces::list_memberships_for_user(conn, user_uuid)) {
+        Ok(rows) => rows,
         Err(e) => {
             error!(error = ?e, %user_uuid, "me/workspaces list failed");
-            errors::internal("Failed to load memberships")
+            return errors::internal("Failed to load memberships");
         }
-    }
+    };
+
+    let workspace_ids: Vec<i32> = rows.iter().map(|(_, w)| w.id).collect();
+    // Branding is decoration: if it fails, the switcher falls back to
+    // monograms rather than the whole list failing to load.
+    let logos: std::collections::HashMap<i32, String> = pc
+        .run(|conn| workspaces::logo_urls_for_workspaces(conn, &workspace_ids))
+        .unwrap_or_else(|e| {
+            warn!(error = ?e, %user_uuid, "workspace branding lookup failed");
+            Vec::new()
+        })
+        .into_iter()
+        .filter_map(|(id, url)| url.map(|u| (id, u)))
+        .collect();
+
+    let body: Vec<MyWorkspaceEntry> = rows
+        .into_iter()
+        .map(|(m, w)| MyWorkspaceEntry {
+            workspace_id: w.id,
+            workspace_uuid: w.uuid,
+            slug: w.slug,
+            name: w.name,
+            custom_domain: w.custom_domain,
+            role: m.role,
+            invited_at: m.invited_at,
+            accepted_at: m.accepted_at,
+            logo_url: logos.get(&w.id).cloned(),
+        })
+        .collect();
+
+    HttpResponse::Ok().json(body)
 }
