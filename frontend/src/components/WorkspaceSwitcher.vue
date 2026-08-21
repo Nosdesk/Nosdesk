@@ -7,6 +7,7 @@
 import { computed, ref } from 'vue';
 import { useFluent } from 'fluent-vue';
 import Icon from '@/components/common/Icon.vue';
+import { initialsFrom, monogramColor, monogramDataUri } from '@/utils/monogram';
 import MenuList, { type MenuItem } from '@/components/common/MenuList.vue';
 import ResponsiveMenu from '@/components/common/ResponsiveMenu.vue';
 import Spinner from '@/components/common/Spinner.vue';
@@ -47,6 +48,9 @@ const menuItems = computed<MenuItem[]>(() =>
     id: `ws:${ws.workspace_id}`,
     label: ws.name,
     trailing: roleLabel(ws.role),
+    // `checked` takes the icon gutter for the active row, which is the more
+    // useful signal there; the trigger already shows that workspace's mark.
+    iconUrl: ws.logo_url ?? monogramDataUri(ws.name, ws.workspace_uuid),
     checked: ws.workspace_id === store.activeWorkspaceId,
   })),
 );
@@ -63,6 +67,17 @@ function handleSelect(id: string): void {
   open.value = false;
   void switchWorkspace(entry);
 }
+
+/** Mark for the active workspace: its logo, else a monogram. */
+const activeMark = computed(() => {
+  const active = store.activeWorkspace;
+  if (!active) return null;
+  return {
+    logo: active.logo_url,
+    initials: initialsFrom(active.name),
+    color: monogramColor(active.workspace_uuid),
+  };
+});
 
 const triggerTitle = computed(() => {
   const active = store.activeWorkspace;
@@ -83,13 +98,32 @@ const triggerTitle = computed(() => {
           : 'px-2.5 py-1.5 gap-2 justify-between min-w-0'
       "
       :title="triggerTitle"
-      :aria-label="t('nav-workspace-switcher-label')"
+      :aria-label="
+        store.activeWorkspace
+          ? t('nav-workspace-switcher-current', { name: store.activeWorkspace.name })
+          : t('nav-workspace-switcher-label')
+      "
       :aria-expanded="open"
       aria-haspopup="menu"
       @click="open = !open"
     >
       <div class="flex items-center gap-2 min-w-0" :class="collapsed ? '' : 'flex-1'">
-        <Icon name="folder" class="shrink-0" />
+        <!-- Decorative: the workspace name sits in the label beside it, and in
+             the button's aria-label when the sidebar is collapsed. -->
+        <img
+          v-if="activeMark?.logo"
+          :src="activeMark.logo"
+          alt=""
+          class="h-5 w-5 shrink-0 rounded-[0.3125rem] object-cover"
+        />
+        <span
+          v-else-if="activeMark"
+          class="h-5 w-5 shrink-0 rounded-[0.3125rem] grid place-items-center text-[0.625rem] font-semibold leading-none text-white"
+          :style="{ backgroundColor: activeMark.color }"
+          aria-hidden="true"
+          >{{ activeMark.initials }}</span
+        >
+        <Icon v-else name="folder" class="shrink-0" />
         <template v-if="!collapsed">
           <span v-if="store.isLoading" class="text-sm inline-flex items-center gap-2">
             <Spinner size="xs" :label="$t('nav-workspace-switcher-loading')" />

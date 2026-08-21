@@ -254,6 +254,7 @@ nav-documentation = Documentation
 nav-inbox = Boîte de réception
 nav-collapse = Réduire
 nav-workspace-switcher-label = Espace de travail
+nav-workspace-switcher-current = Espace de travail : { $name }
 nav-workspace-switcher-loading = Chargement des espaces de travail…
 nav-search = Rechercher
 nav-more = Plus

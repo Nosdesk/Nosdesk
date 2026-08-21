@@ -140,6 +140,13 @@ async fn workspace_member_lifecycle_contract() {
     assert_eq!(body.len(), 1, "alice should see exactly 1 workspace");
     assert_eq!(body[0]["slug"], "memship-acme");
     assert_eq!(body[0]["role"], "agent");
+    // The switcher's mark: present in the payload, null until the workspace
+    // uploads a logo, which is what makes the client fall back to a monogram.
+    assert!(
+        body[0].get("logo_url").is_some(),
+        "logo_url must be serialized so the switcher can decide on a mark"
+    );
+    assert!(body[0]["logo_url"].is_null(), "no branding uploaded yet");
 
     // --- 3: re-add alice -> 200 already_member ---
     let mut resp = client

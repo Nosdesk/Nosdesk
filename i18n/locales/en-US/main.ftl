@@ -303,6 +303,7 @@ nav-documentation = Documentation
 nav-inbox = Inbox
 nav-collapse = Collapse
 nav-workspace-switcher-label = Workspace
+nav-workspace-switcher-current = Workspace: { $name }
 nav-workspace-switcher-loading = Loading workspaces…
 nav-search = Search
 nav-more = More

@@ -251,6 +251,7 @@ nav-documentation = Documentatie
 nav-inbox = Postvak
 nav-collapse = Inklappen
 nav-workspace-switcher-label = Werkruimte
+nav-workspace-switcher-current = Werkruimte: { $name }
 nav-workspace-switcher-loading = Werkruimtes laden…
 nav-search = Zoeken
 nav-more = Meer
