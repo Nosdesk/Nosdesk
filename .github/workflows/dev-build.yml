@@ -148,7 +148,7 @@ jobs:
             if [ "$DEPLOY" = "true" ]; then
               echo "Deployed to **nosdesk-dev**."
               echo ""
-              echo "The app applies pending migrations on boot, so no separate step is needed."
+              echo "Migrations ran in the release phase (\`/app/backend migrate\`); app machines refuse to boot against a pending schema."
             else
               echo "Not deployed. To ship it:"
               echo ""
