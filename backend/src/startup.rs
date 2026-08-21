@@ -645,7 +645,11 @@ pub fn configure_app(
             .route("/uploads/users/avatars/{filename:.*}", web::get().to(crate::handlers::serve_public_file))
             .route("/uploads/users/banners/{filename:.*}", web::get().to(crate::handlers::serve_public_file))
             .route("/uploads/users/thumbs/{filename:.*}", web::get().to(crate::handlers::serve_public_file))
-            .route("/uploads/branding/{filename:.*}", web::get().to(crate::handlers::branding::serve_branding_file))
+            // Workspace-scoped branding first. The legacy route below is
+            // single-segment (not `{filename:.*}`) so it cannot swallow this
+            // two-segment path, which a greedy tail pattern would.
+            .route("/uploads/branding/{workspace_uuid}/{filename}", web::get().to(crate::handlers::branding::serve_workspace_branding_file))
+            .route("/uploads/branding/{filename}", web::get().to(crate::handlers::branding::serve_branding_file))
 
             // Public branding config (needed for favicon/logo before login)
             .route("/api/branding", web::get().to(crate::handlers::branding::get_public_branding))

@@ -5,14 +5,51 @@ use serde::Deserialize;
 use serde_json::json;
 use tracing::{debug, error, info, warn};
 
+use std::sync::Arc;
+use uuid::Uuid;
+
 use crate::db::Pool;
-use crate::extractors::TenantConn;
+use crate::extractors::{ScopedStorage, TenantConn, WorkspaceContext};
 use crate::handlers::errors;
+use crate::handlers::files::serve_or_not_found;
 use crate::handlers::helpers;
 use crate::models::{SiteSettingsResponse, UpdateSiteSettings, WorkspaceRole};
 use crate::repository::site_settings;
 use crate::utils;
 use crate::utils::rbac::require_workspace_role;
+use crate::utils::storage::{Storage, WorkspaceScopedStorage};
+
+/// Logical storage folder for branding objects. Physically this sits under the
+/// workspace prefix `WorkspaceScopedStorage` adds, so one workspace's branding
+/// is not addressable from another.
+const BRANDING_DIR: &str = "branding";
+
+/// The workspace-relative storage path for a branding image.
+///
+/// Deterministic per type, like avatars (`users.rs`): a re-upload of the same
+/// format overwrites in place, so there is no directory scan to "clean up"
+/// after. Cache busting rides on a `?v=` query on the stored URL instead of a
+/// unique filename, so the object key stays stable.
+fn branding_logical_path(image_type: &str, file_ext: &str) -> String {
+    format!("{BRANDING_DIR}/{image_type}.{file_ext}")
+}
+
+/// The workspace-relative storage path a branding URL refers to, but only when
+/// the URL belongs to `workspace_uuid`.
+///
+/// Returns `None` for legacy flat URLs (`/uploads/branding/logo_123.png`) by
+/// design. Those objects predate workspace scoping and live in a directory
+/// shared by every workspace, so deleting one could remove another tenant's
+/// file. They are left to age out; the legacy route keeps serving them.
+fn owned_logical_path(url: &str, workspace_uuid: Uuid) -> Option<String> {
+    let rest = url.strip_prefix("/uploads/branding/")?;
+    let rest = rest.split('?').next().unwrap_or(rest);
+    let (uuid_segment, filename) = rest.split_once('/')?;
+    if uuid_segment != workspace_uuid.to_string() || !is_allowed_branding_filename(filename) {
+        return None;
+    }
+    Some(format!("{BRANDING_DIR}/{filename}"))
+}
 
 /// Branding routes (config + image upload), mounted inside the authenticated
 /// `/api` scope in main.rs.
@@ -259,6 +296,8 @@ pub async fn upload_branding_image(
     mut payload: Multipart,
     mut tc: TenantConn,
     req: HttpRequest,
+    ws: WorkspaceContext,
+    storage: ScopedStorage,
     type_query: web::Query<BrandingImageTypeQuery>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
@@ -352,34 +391,44 @@ pub async fn upload_branding_image(
             return errors::bad_request("File too large. Maximum size is 2MB");
         }
 
-        // Create storage path with timestamp for cache busting
-        let storage_dir = "branding";
-        let timestamp = std::time::SystemTime::now()
+        // What this type pointed at before, so a format change can have its
+        // now-unreferenced object removed once the new one is recorded.
+        let previous_url = tc
+            .run(site_settings::get_site_settings)
+            .ok()
+            .and_then(|settings| match image_type.as_str() {
+                "logo" => settings.logo_url,
+                "logo_light" => settings.logo_light_url,
+                "favicon" => settings.favicon_url,
+                _ => None,
+            });
+
+        let filename = format!("{image_type}.{file_ext}");
+        let logical_path = branding_logical_path(image_type, file_ext);
+        // The object key is stable, so the URL carries the version instead.
+        let version = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-        let filename = format!("{image_type}_{timestamp}.{file_ext}");
-        let storage_path = format!("{storage_dir}/{filename}");
-        let url = format!("/uploads/{storage_path}");
+        // The workspace is in the URL because branding is public and has to be
+        // addressable from another workspace's context (the switcher renders
+        // every workspace you belong to). Serving resolves it back to a scoped
+        // storage handle, so the object still cannot be read outside its prefix.
+        let url = format!(
+            "/uploads/{BRANDING_DIR}/{}/{filename}?v={version}",
+            ws.workspace_uuid
+        );
 
-        // Ensure directory exists
-        let dir_path = format!("uploads/{storage_dir}");
-        if let Err(e) = std::fs::create_dir_all(&dir_path) {
-            error!(error = ?e, dir_path = %dir_path, "Error creating branding directory");
-            return errors::internal("Failed to create storage directory");
-        }
-
-        // Clean up old files of the same type
-        cleanup_old_branding_images(&dir_path, image_type).await;
-
-        // Save the file
-        let file_path = format!("uploads/{storage_path}");
-        if let Err(e) = std::fs::write(&file_path, &file_data) {
-            error!(error = ?e, file_path = %file_path, "Error writing file");
+        if let Err(e) = storage
+            .get()
+            .put_file(&file_data, &logical_path, &content_type)
+            .await
+        {
+            error!(error = ?e, logical_path = %logical_path, "Error writing branding image");
             return errors::internal("Failed to save file");
         }
 
-        info!(file_path = %file_path, "Saved branding image");
+        info!(logical_path = %logical_path, workspace_id = %ws.workspace_id, "Saved branding image");
 
         // Update the database with the new URL
         let url_for_db = url.clone();
@@ -393,6 +442,20 @@ pub async fn upload_branding_image(
 
         match result {
             Ok(settings) => {
+                // Only once the row points at the new object, and only when the
+                // old key differs (a format change). Deleting first would risk
+                // losing the image if the update failed. `storage` is scoped, so
+                // this cannot reach another workspace's object even if the
+                // recorded URL were wrong.
+                if let Some(superseded) = previous_url
+                    .as_deref()
+                    .and_then(|u| owned_logical_path(u, ws.workspace_uuid))
+                    .filter(|path| path != &logical_path)
+                {
+                    if let Err(e) = storage.get().delete_file(&superseded).await {
+                        warn!(error = ?e, path = %superseded, "Failed to remove superseded branding image");
+                    }
+                }
                 let response: SiteSettingsResponse = settings.into();
                 return HttpResponse::Ok().json(json!({
                     "status": "success",
@@ -414,6 +477,8 @@ pub async fn upload_branding_image(
 pub async fn delete_branding_image(
     mut tc: TenantConn,
     req: HttpRequest,
+    ws: WorkspaceContext,
+    storage: ScopedStorage,
     type_query: web::Query<BrandingImageTypeQuery>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
@@ -459,11 +524,16 @@ pub async fn delete_branding_image(
         _ => None,
     };
 
-    // Delete the file if it exists
-    if let Some(url) = url_to_delete {
-        let file_path = format!("uploads{}", url.trim_start_matches("/uploads"));
-        if let Err(e) = std::fs::remove_file(&file_path) {
-            warn!(error = ?e, file_path = %file_path, "Failed to delete file");
+    // Remove the object through scoped storage, so this works on every backend
+    // and cannot address anything outside the workspace. A legacy flat URL
+    // yields `None` and is left in place: those objects are shared, so removing
+    // one could take another workspace's image with it.
+    if let Some(path) = url_to_delete
+        .as_deref()
+        .and_then(|u| owned_logical_path(u, ws.workspace_uuid))
+    {
+        if let Err(e) = storage.get().delete_file(&path).await {
+            warn!(error = ?e, path = %path, "Failed to delete branding image");
         }
     }
 
@@ -503,26 +573,6 @@ fn is_valid_hex_color(color: &str) -> bool {
     hex.chars().all(|c| c.is_ascii_hexdigit())
 }
 
-// Helper function to clean up old branding images
-async fn cleanup_old_branding_images(dir: &str, image_type: &str) {
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if let Some(stem) = path.file_stem() {
-                let stem_str = stem.to_string_lossy();
-                // Match files that start with the image type (e.g., "logo_1234567890")
-                if stem_str == image_type || stem_str.starts_with(&format!("{image_type}_")) {
-                    if let Err(e) = std::fs::remove_file(&path) {
-                        warn!(error = ?e, path = ?path, "Failed to cleanup old file");
-                    } else {
-                        debug!(path = ?path, "Cleaned up old file");
-                    }
-                }
-            }
-        }
-    }
-}
-
 /// Validate a branding filename against the exact shape the upload
 /// handler writes: `{type}[_{timestamp}].{ext}` (e.g.
 /// `logo_1699999999.png`). A `starts_with` prefix check is not enough
@@ -550,51 +600,91 @@ fn is_allowed_branding_filename(filename: &str) -> bool {
     })
 }
 
-// Serve branding files publicly (no auth required)
-pub async fn serve_branding_file(filename: web::Path<String>, _req: HttpRequest) -> impl Responder {
+/// GET `/uploads/branding/{workspace_uuid}/{filename}` (public).
+///
+/// Branding is deliberately public: host-mode login screens render the logo and
+/// favicon before anyone authenticates. The workspace comes from the path
+/// rather than the request so a page pinned to one workspace can still render
+/// another's mark, which is what the workspace switcher needs. Resolution goes
+/// through a scoped storage handle, so a request can only ever read objects
+/// under that workspace's prefix.
+pub async fn serve_workspace_branding_file(
+    path: web::Path<(Uuid, String)>,
+    req: HttpRequest,
+    base_storage: web::Data<Arc<dyn Storage>>,
+    pool: web::Data<Pool>,
+) -> impl Responder {
+    let (workspace_uuid, filename) = path.into_inner();
+
+    if !is_allowed_branding_filename(&filename) {
+        return HttpResponse::NotFound().finish();
+    }
+
+    let mut conn = match helpers::db_conn(&pool) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
+    // `workspaces` is the resolution table and reads without a pinned GUC. An
+    // unknown uuid is a plain 404: this is a public image route, so there is
+    // nothing to distinguish from a missing file.
+    let workspace = match crate::middleware::workspace_context::resolve_workspace_uuid(
+        &mut conn,
+        workspace_uuid,
+    ) {
+        Ok(Some(ctx)) => ctx,
+        Ok(None) => return HttpResponse::NotFound().finish(),
+        Err(e) => {
+            error!(error = ?e, %workspace_uuid, "Branding workspace resolution failed");
+            return HttpResponse::NotFound().finish();
+        }
+    };
+
+    let storage =
+        WorkspaceScopedStorage::arc(base_storage.get_ref().clone(), workspace.workspace_id);
+    let logical_path = format!("{BRANDING_DIR}/{filename}");
+    match serve_or_not_found(storage, &logical_path, &req).await {
+        Ok(response) => response,
+        Err(_) => HttpResponse::NotFound().finish(),
+    }
+}
+
+/// GET `/uploads/branding/{filename}` (public, legacy).
+///
+/// Serves branding uploaded before the objects were workspace-scoped, which sat
+/// in one directory shared by every workspace. Read-only and unscoped by
+/// necessity: there is no workspace in these paths to scope by. New uploads
+/// write scoped keys and rewrite the stored URL, so this drains on its own and
+/// no migration has to move files.
+pub async fn serve_branding_file(
+    filename: web::Path<String>,
+    req: HttpRequest,
+    base_storage: web::Data<Arc<dyn Storage>>,
+) -> impl Responder {
     let filename = filename.into_inner();
 
-    // Defence in depth: reject any path traversal before the
-    // exact-shape allowlist. `{filename:.*}` captures `/` and `..`,
-    // and there is no NormalizePath middleware, so an unsanitised
-    // `fs::read` here is an arbitrary-file-read sink.
+    // `is_safe_storage_path` rejects traversal, `is_allowed_branding_filename`
+    // pins the exact shape the old upload handler wrote. Both are kept: the
+    // storage backend takes a path, and a prefix check alone would let
+    // `logo/../../secret` through.
     if !crate::utils::storage::is_safe_storage_path(&filename)
         || !is_allowed_branding_filename(&filename)
     {
         return HttpResponse::NotFound().finish();
     }
 
-    let file_path = format!("uploads/branding/{filename}");
-
-    match std::fs::read(&file_path) {
-        Ok(content) => {
-            // Determine content type from extension
-            let content_type = if filename.ends_with(".svg") {
-                "image/svg+xml"
-            } else if filename.ends_with(".png") {
-                "image/png"
-            } else if filename.ends_with(".ico") {
-                "image/x-icon"
-            } else if filename.ends_with(".jpg") || filename.ends_with(".jpeg") {
-                "image/jpeg"
-            } else if filename.ends_with(".webp") {
-                "image/webp"
-            } else {
-                "application/octet-stream"
-            };
-
-            HttpResponse::Ok()
-                .content_type(content_type)
-                .insert_header(("Cache-Control", "public, max-age=86400"))
-                .body(content)
-        }
+    let logical_path = format!("{BRANDING_DIR}/{filename}");
+    match serve_or_not_found(base_storage.get_ref().clone(), &logical_path, &req).await {
+        Ok(response) => response,
         Err(_) => HttpResponse::NotFound().finish(),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::is_allowed_branding_filename;
+    use super::{
+        branding_logical_path, is_allowed_branding_filename, owned_logical_path, BRANDING_DIR,
+    };
+    use uuid::Uuid;
 
     #[test]
     fn rejects_traversal_and_unexpected_shapes() {
@@ -621,5 +711,69 @@ mod tests {
         assert!(is_allowed_branding_filename("logo_light_1699999999.webp"));
         assert!(is_allowed_branding_filename("favicon_123.ico"));
         assert!(is_allowed_branding_filename("favicon.ico"));
+    }
+
+    /// The object key carries no timestamp, so a re-upload overwrites in place.
+    /// This is what removes the need for any "delete the old ones" pass, which
+    /// is where the cross-workspace deletion came from.
+    #[test]
+    fn logical_path_is_deterministic_per_type() {
+        assert_eq!(branding_logical_path("logo", "png"), "branding/logo.png");
+        assert_eq!(
+            branding_logical_path("logo", "png"),
+            branding_logical_path("logo", "png")
+        );
+        assert_eq!(
+            branding_logical_path("logo_light", "webp"),
+            "branding/logo_light.webp"
+        );
+    }
+
+    /// The isolation property. A URL belonging to another workspace must never
+    /// resolve to a path this workspace's scoped storage would act on.
+    #[test]
+    fn owned_logical_path_only_claims_this_workspaces_objects() {
+        let mine = Uuid::from_u128(1);
+        let theirs = Uuid::from_u128(2);
+
+        assert_eq!(
+            owned_logical_path(&format!("/uploads/branding/{mine}/logo.png"), mine),
+            Some("branding/logo.png".to_string())
+        );
+        // Another workspace's object: not ours to touch.
+        assert_eq!(
+            owned_logical_path(&format!("/uploads/branding/{theirs}/logo.png"), mine),
+            None
+        );
+        // Legacy flat objects are shared, so they are never claimed.
+        assert_eq!(
+            owned_logical_path("/uploads/branding/logo_1699999999.png", mine),
+            None
+        );
+        // Cache-busting query is not part of the key.
+        assert_eq!(
+            owned_logical_path(&format!("/uploads/branding/{mine}/favicon.ico?v=123"), mine),
+            Some("branding/favicon.ico".to_string())
+        );
+        // Traversal and unrelated shapes.
+        assert_eq!(
+            owned_logical_path(&format!("/uploads/branding/{mine}/../../secret.png"), mine),
+            None
+        );
+        assert_eq!(
+            owned_logical_path("/uploads/tickets/1/file.png", mine),
+            None
+        );
+        assert_eq!(owned_logical_path("https://evil.test/logo.png", mine), None);
+    }
+
+    /// The URL the upload records and the key the serve route reconstructs are
+    /// two halves of one contract; a one-sided change breaks branding silently.
+    #[test]
+    fn served_key_matches_what_upload_records() {
+        let ws = Uuid::from_u128(7);
+        let logical = branding_logical_path("logo", "webp");
+        let url = format!("/uploads/{BRANDING_DIR}/{ws}/logo.webp?v=1699999999");
+        assert_eq!(owned_logical_path(&url, ws), Some(logical));
     }
 }

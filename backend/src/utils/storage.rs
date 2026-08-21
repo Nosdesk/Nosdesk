@@ -854,6 +854,9 @@ fn get_content_type(filename: &str) -> &'static str {
         "gif" => "image/gif",
         "webp" => "image/webp",
         "svg" => "image/svg+xml",
+        // Favicons are served with `X-Content-Type-Options: nosniff`, so an
+        // octet-stream fallback here means the browser refuses to render them.
+        "ico" => "image/x-icon",
         "mp4" => "video/mp4",
         "webm" => "video/webm",
         "mp3" => "audio/mpeg",
@@ -881,6 +884,8 @@ mod tests {
         assert_eq!(get_content_type("photo.gif"), "image/gif");
         assert_eq!(get_content_type("photo.webp"), "image/webp");
         assert_eq!(get_content_type("photo.svg"), "image/svg+xml");
+        // Branding favicons: nosniff makes the octet-stream fallback fatal.
+        assert_eq!(get_content_type("favicon.ico"), "image/x-icon");
         assert_eq!(get_content_type("doc.pdf"), "application/pdf");
         assert_eq!(get_content_type("data.json"), "application/json");
         assert_eq!(get_content_type("archive.zip"), "application/zip");
