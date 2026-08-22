@@ -10,11 +10,21 @@
  * Positioning, dismiss, focus, and the fade-scale transition
  * delegate to `<ResponsiveMenu>` (anchored popover on desktop,
  * bottom sheet on mobile), same as every other dropdown.
+ *
+ * Workspace switching lives here rather than in the sidebar so it
+ * exists on both surfaces: the sidebar is hidden on mobile, which
+ * left phones with no way to change workspace at all. Putting it
+ * behind the avatar also matches where account-level actions are
+ * expected, and `<ResponsiveMenu>` already gives it a bottom sheet
+ * on mobile for free.
  */
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import { useAuthStore } from '@/stores/auth'
+import { useMyWorkspacesStore } from '@/stores/myWorkspaces'
+import { useWorkspaceSwitch } from '@/composables/useWorkspaceSwitch'
+import { monogramDataUri } from '@/utils/monogram'
 import UserAvatar from './UserAvatar.vue'
 import ResponsiveMenu from './common/ResponsiveMenu.vue'
 import MenuList, { type MenuItem } from './common/MenuList.vue'
@@ -32,6 +42,8 @@ const emit = defineEmits<{ (e: 'close'): void }>()
 const router = useRouter()
 const authStore = useAuthStore()
 const fluent = useFluent()
+const workspaces = useMyWorkspacesStore()
+const { switchWorkspace } = useWorkspaceSwitch()
 
 const user = computed(() => {
   if (authStore.user) {
@@ -53,10 +65,44 @@ const anchor = computed(() => ({
   element: () => props.buttonRef ?? null,
 }))
 
-const items = computed<MenuItem[]>(() => {
-  const out: MenuItem[] = [
-    { id: 'settings', label: fluent.$t('user-menu-account'), icon: ICON_REGISTRY.account.d },
+/**
+ * Workspaces the caller belongs to, as a headed group. Empty unless there is
+ * more than one, so single-workspace installs see no change.
+ */
+const workspaceItems = computed<MenuItem[]>(() => {
+  if (!workspaces.showSwitcher) return []
+  return [
+    { id: 'ws-heading', label: fluent.$t('user-menu-workspaces'), heading: true },
+    ...workspaces.workspaces.map((ws) => ({
+      id: `ws:${ws.workspace_id}`,
+      label: ws.name,
+      // Real logo when the workspace has one, monogram otherwise. Most never
+      // upload one, so the monogram is the ordinary case.
+      iconUrl: ws.logo_url ?? monogramDataUri(ws.name, ws.workspace_uuid),
+      // `active`, not `checked`: a checkmark takes the icon gutter *instead of*
+      // the icon, which would hide the mark of the workspace you are in, which
+      // is the one you most need to see.
+      active: ws.workspace_id === workspaces.activeWorkspaceId,
+      // `active` alone tints the label, and colour must never be the only
+      // signal: which workspace you are in has to survive not being able to
+      // tell accent from body text.
+      trailing:
+        ws.workspace_id === workspaces.activeWorkspaceId
+          ? fluent.$t('user-menu-workspace-current')
+          : undefined,
+    })),
   ]
+})
+
+const items = computed<MenuItem[]>(() => {
+  const out: MenuItem[] = [...workspaceItems.value]
+  out.push({
+    id: 'settings',
+    label: fluent.$t('user-menu-account'),
+    icon: ICON_REGISTRY.account.d,
+    // Only when a workspace group precedes it.
+    divider: workspaceItems.value.length > 0,
+  })
   // Tenant self-serve: owners/admins of the current workspace get a
   // Team entry. Distinct from the platform-admin console below.
   const wsRole = authStore.user?.workspace_role
@@ -80,6 +126,15 @@ function handleProfileClick() {
 
 function handleSelect(id: string) {
   emit('close')
+  if (id.startsWith('ws:')) {
+    const workspaceId = Number(id.slice(3))
+    const entry = workspaces.workspaces.find((w) => w.workspace_id === workspaceId)
+    // Selecting the workspace you are already in just closes the menu.
+    if (entry && entry.workspace_id !== workspaces.activeWorkspaceId) {
+      void switchWorkspace(entry)
+    }
+    return
+  }
   switch (id) {
     case 'settings':
       router.push('/profile/settings')
