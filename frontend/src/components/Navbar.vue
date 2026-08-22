@@ -19,7 +19,6 @@ import { useBrandingStore } from "@/stores/branding";
 import { useThemeStore } from "@/stores/theme";
 import Icon from "@/components/common/Icon.vue";
 import UnreadBadge from "@/components/common/UnreadBadge.vue";
-import WorkspaceSwitcher from "@/components/WorkspaceSwitcher.vue";
 import NavLinkIcon from "@/components/NavLinkIcon.vue";
 import { getSlotRegistrations } from "@/plugins/loader";
 import { pluginPagePath } from "@/plugins/pluginPage";
@@ -403,7 +402,6 @@ const isOverflowRouteActive = computed(() =>
                 />
             </RouterLink>
 
-            <WorkspaceSwitcher :collapsed="isCollapsed" />
 
             <!-- Search Button - above nav links -->
             <button
