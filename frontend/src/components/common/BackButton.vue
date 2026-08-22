@@ -11,6 +11,10 @@ const props = defineProps<{
   label?: string;
   // Compact mode - smaller text, tighter spacing
   compact?: boolean;
+  // Icon-only: a square chevron with no visible text, for headers whose title
+  // sits immediately beside it and has no room for a label. `label` is still
+  // required in that case and becomes the accessible name.
+  iconOnly?: boolean;
 }>();
 
 // One intelligent back action: pop the in-app stack when there is a real
@@ -34,7 +38,18 @@ const { isMobile } = useMobileDetection('sm');
     children, which is how flexbox is meant to be used.
   -->
   <button
-    v-if="!isMobile"
+    v-if="!isMobile && iconOnly"
+    type="button"
+    @click="handleBack"
+    :title="label || 'Go back'"
+    :aria-label="label || 'Go back'"
+    class="p-1.5 -ml-1.5 rounded-md text-tertiary hover:text-primary hover:bg-surface-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent transition-colors shrink-0"
+  >
+    <Icon name="chevronLeft" size="md" />
+  </button>
+
+  <button
+    v-else-if="!isMobile"
     @click="handleBack"
     class="text-secondary hover:text-primary inline-flex items-center gap-1 group px-1 rounded"
     :class="compact ? 'h-6 text-xs' : 'h-8 text-sm'"

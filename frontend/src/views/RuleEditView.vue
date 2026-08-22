@@ -28,6 +28,13 @@ import Icon from '@/components/common/Icon.vue';
 import rulesService from '@nosdesk/core/services/rulesService';
 import { extractErrorMessage } from '@/utils/errors';
 import { useToastStore } from '@nosdesk/core/stores/toast';
+import { useMobileDetection } from '@/composables/useMobileDetection';
+
+// Desktop only: on mobile the leading back-arrow in SiteHeader is the single
+// back affordance, so this inline control hides to avoid two per screen. Same
+// contract BackButton encodes; kept inline here because this toolbar's
+// secondary-button styling is deliberate.
+const { isMobile } = useMobileDetection('sm');
 import type {
   CreateRuleRequest,
   Rule,
@@ -236,7 +243,7 @@ const priorityOptions = [
 <template>
   <div class="flex flex-col gap-6 max-w-3xl">
     <div class="flex items-center gap-3">
-      <Button variant="secondary" size="sm" @click="back">
+      <Button v-if="!isMobile" variant="secondary" size="sm" @click="back">
         <Icon name="chevronLeft" class="w-4 h-4" />
         <span>{{ t('admin-rule-editor-back') }}</span>
       </Button>

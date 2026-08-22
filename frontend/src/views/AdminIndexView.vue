@@ -31,14 +31,6 @@ const filteredGroups = computed(() =>
     <div class="flex-1 flex flex-col gap-4 px-4 sm:px-6 py-4 mx-auto w-full max-w-4xl">
       <!-- Header -->
       <div class="mb-2">
-        <!-- Phone/small tablet: back link (hidden at md+ where there's enough context) -->
-        <RouterLink
-          to="/"
-          class="md:hidden flex items-center gap-2 text-sm text-secondary hover:text-primary transition-colors mb-3"
-        >
-          <Icon name="chevronLeft" />
-          {{ $t('admin-back-to-dashboard') }}
-        </RouterLink>
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div>
             <h1 class="text-xl lg:text-2xl font-bold text-primary">{{ $t('admin-heading') }}</h1>

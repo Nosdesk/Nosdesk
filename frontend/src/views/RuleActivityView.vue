@@ -26,6 +26,13 @@ import Icon from '@/components/common/Icon.vue';
 import Skeleton from '@/components/common/Skeleton.vue';
 import SkeletonBar from '@/components/common/SkeletonBar.vue';
 import rulesService from '@nosdesk/core/services/rulesService';
+import { useMobileDetection } from '@/composables/useMobileDetection';
+
+// Desktop only: on mobile the leading back-arrow in SiteHeader is the single
+// back affordance, so this inline control hides to avoid two per screen. Same
+// contract BackButton encodes; kept inline here because this toolbar's
+// secondary-button styling is deliberate.
+const { isMobile } = useMobileDetection('sm');
 import type { RuleApplication, RuleApplicationStatus } from '@nosdesk/core/types/rule';
 
 const fluent = useFluent();
@@ -131,7 +138,7 @@ function back(): void {
 <template>
   <div class="flex flex-col gap-6">
     <div class="flex flex-wrap items-center gap-3">
-      <Button variant="secondary" size="sm" @click="back">
+      <Button v-if="!isMobile" variant="secondary" size="sm" @click="back">
         <Icon name="chevronLeft" class="w-4 h-4" />
         <span>{{ t('admin-rules-activity-back') }}</span>
       </Button>

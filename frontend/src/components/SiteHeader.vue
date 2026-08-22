@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { RouterLink, useRoute } from "vue-router";
-import { useBackNavigation } from '@/router/navigation';
+import { backFallback, useBackNavigation } from '@/router/navigation';
 import { useFluent } from 'fluent-vue';
 import type { FluentVariable } from '@fluent/bundle';
 import UserAvatar from "./UserAvatar.vue";
@@ -29,7 +29,12 @@ const { isMobile } = useMobileDetection('sm')
 const route = useRoute();
 const { canGoBack, goBack } = useBackNavigation();
 const showBackArrow = computed(
-  () => isMobile.value && (canGoBack.value || !!route.meta.parent),
+  () =>
+    isMobile.value &&
+    // A view-declared target counts: on a cold start there is no in-app history
+    // to pop and often no `meta.parent`, and the view no longer draws its own
+    // control, so without this a deep link would offer no way back.
+    (canGoBack.value || !!route.meta.parent || !!backFallback.value),
 );
 
 const authStore = useAuthStore();
@@ -200,7 +205,7 @@ const handleCreateClick = () => {
         type="button"
         aria-label="Go back"
         class="flex-shrink-0 -ml-1 p-1.5 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 inline-flex items-center justify-center text-secondary hover:text-primary rounded"
-        @click="goBack()"
+        @click="goBack(backFallback)"
       >
         <Icon name="chevronLeft" size="md" />
       </button>
