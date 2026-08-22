@@ -15,6 +15,8 @@
  * the same way it works on project detail.
  */
 import { computed, ref, watch } from 'vue'
+import BackButton from '@/components/common/BackButton.vue'
+import { useViewBackFallback } from '@/router/navigation'
 import { useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import { subscribe } from '@/sync/lifecycle'
@@ -171,13 +173,19 @@ function openCard(cardId: number): void {
   router.push(`/tickets/${cardId}`)
 }
 
-function backToCycles(): void {
-  // Cycles live under their project; return to that project's Cycles
-  // tab (fall back to history if the cycle hasn't loaded yet).
+// Cycles live under their project, so a deep link with no in-app history should
+// land on that project's Cycles tab rather than a generic parent. `BackButton`
+// pops the in-app stack first and only consults this when there is nothing to
+// pop, which is the case the old hand-rolled handler approximated with
+// `router.back()`.
+const cyclesFallback = computed<string | undefined>(() => {
   const projectId = cycle.value?.project_id
-  if (projectId != null) router.push(`/projects/${projectId}/cycles`)
-  else router.back()
-}
+  return projectId != null ? `/projects/${projectId}/cycles` : undefined
+})
+
+// Give the mobile header the same target the desktop button uses, so a deep
+// link to a cycle still has a way back to its project.
+useViewBackFallback(cyclesFallback)
 
 const stateLabel = computed<string>(() => {
   if (!cycle.value) return ''
@@ -204,15 +212,7 @@ const groupByOptions = computed(() => [
   <div class="flex flex-col h-full min-h-0 overflow-hidden">
     <header class="flex items-center justify-between px-6 py-4 border-b border-subtle bg-app">
       <div class="flex items-center gap-3 min-w-0">
-        <button
-          type="button"
-          class="p-1.5 -ml-1.5 rounded-md text-tertiary hover:text-primary hover:bg-surface-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-accent transition-colors shrink-0"
-          :title="$t('cycle-detail-back')"
-          :aria-label="$t('cycle-detail-back')"
-          @click="backToCycles"
-        >
-          <Icon name="chevronLeft" size="md" />
-        </button>
+        <BackButton icon-only :label="$t('cycle-detail-back')" :fallback-route="cyclesFallback" />
         <div class="min-w-0">
           <h1 class="text-xl font-semibold text-primary truncate">
             {{ cycle?.name ?? $t('cycle-detail-loading-name') }}

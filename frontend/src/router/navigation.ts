@@ -15,7 +15,14 @@
 // RETURNING a location (replace-style), so the login/workspace chain never
 // inflates the depth. Depth 0 == the entry point (nothing in-app to go back to).
 
-import { computed, ref } from 'vue'
+import {
+  computed,
+  onUnmounted,
+  ref,
+  toValue,
+  watchEffect,
+  type MaybeRefOrGetter,
+} from 'vue'
 import {
   useRoute,
   useRouter,
@@ -125,6 +132,37 @@ export function performBack(
  * `meta.parent` / derived parent (used only when there's no in-app history) —
  * the migration path for views that currently pass an explicit `fallbackRoute`.
  */
+/**
+ * A back target contributed by the view currently on screen.
+ *
+ * `meta.parent` covers hierarchies the route can express. Some cannot: a cycle
+ * lives under its project, but the project id is not in `/cycles/:uuid`, so the
+ * parent is only knowable once the cycle has loaded.
+ *
+ * Without this the mobile header has nothing to offer on a cold start (no
+ * in-app history to pop, no `meta.parent`), so a deep link would render no back
+ * affordance at all once the view stops drawing its own.
+ */
+const viewBackFallback = ref<string | undefined>(undefined)
+
+/** Read-only view of the current view's back target, for the header. */
+export const backFallback = computed(() => viewBackFallback.value)
+
+/**
+ * Declare this view's back target for as long as it is mounted. Reactive, so a
+ * target that resolves after data loads is picked up when it arrives.
+ */
+export function useViewBackFallback(
+  target: MaybeRefOrGetter<string | undefined>,
+): void {
+  watchEffect(() => {
+    viewBackFallback.value = toValue(target)
+  })
+  onUnmounted(() => {
+    viewBackFallback.value = undefined
+  })
+}
+
 export function useBackNavigation(): {
   canGoBack: typeof canGoBackInApp
   goBack: (fallback?: string) => void
