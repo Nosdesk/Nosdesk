@@ -90,6 +90,12 @@ import {
 } from "@/plugins/prosemirror-mentions";
 import { createMentionViewPlugin } from "@/plugins/prosemirror-mention-view";
 import { useUserMentionSearch } from "@/composables/useUserMentionSearch";
+// Same identity colour the workspace/user marks use, so one person reads as one
+// colour wherever they appear.
+import { monogramColor } from "@/utils/monogram";
+
+/** Fallback caret colour for an awareness state carrying no identity. */
+const NEUTRAL_CARET_COLOR = 'hsl(215, 15%, 45%)';
 
 // Yjs awareness user state structure
 interface AwarenessUser {
@@ -676,7 +682,10 @@ const initEditor = async () => {
         // sessions (per y-protocols/awareness.js).
         provider.awareness.setLocalStateField('user', {
             name: getUserDisplayName(),
-            color: getRandomColor(),
+            // Derived from the uuid rather than randomised per session: the same
+            // person keeps one colour across sessions and across surfaces, and
+            // two people no longer collide by chance out of a palette of eight.
+            color: authStore.user?.uuid ? monogramColor(authStore.user.uuid) : NEUTRAL_CARET_COLOR,
             uuid: authStore.user?.uuid || undefined,
             avatar: authStore.user?.avatar_thumb || authStore.user?.avatar_url || undefined,
         });
@@ -742,14 +751,37 @@ const initEditor = async () => {
                     yCursorPlugin(provider.awareness, {
                         // Custom cursor builder that handles missing users gracefully
                         cursorBuilder: (user: AwarenessUser | undefined, _clientId: number): HTMLElement => {
-                            const cursor = document.createElement('span');
-                            cursor.classList.add('ProseMirror-yjs-cursor');
-                            cursor.setAttribute('style', `border-color: ${user?.color || '#808080'}`);
-                            const userLabel = document.createElement('div');
-                            userLabel.setAttribute('style', `background-color: ${user?.color || '#808080'}`);
-                            userLabel.textContent = user?.name || 'Anonymous';
-                            cursor.appendChild(userLabel);
-                            return cursor;
+                            // Derive from the uuid rather than trusting the colour on the
+                            // wire, so a peer on an older build still renders in its
+                            // owner's colour. `user.color` is the fallback for awareness
+                            // states that carry no uuid.
+                            const color = user?.uuid
+                                ? monogramColor(user.uuid)
+                                : user?.color || NEUTRAL_CARET_COLOR;
+
+                            const caret = document.createElement('span');
+                            caret.classList.add('ProseMirror-yjs-cursor');
+                            // One custom property drives every part. Nothing reads
+                            // `currentColor`, which is what made the label render white
+                            // on white whenever the inline colour went missing.
+                            caret.style.setProperty('--yjs-caret-color', color);
+
+                            // Small permanent tab: enough to see someone is here without
+                            // a name label sitting over the line above.
+                            const flag = document.createElement('span');
+                            flag.className = 'yjs-caret-flag';
+
+                            // y-prosemirror keys this widget per client, so ProseMirror
+                            // rebuilds the element when THIS user's cursor moves and
+                            // reuses it when anyone else's awareness changes. The reveal
+                            // animation therefore replays on movement only, with no
+                            // timers to manage.
+                            const name = document.createElement('span');
+                            name.className = 'yjs-caret-name';
+                            name.textContent = user?.name || 'Anonymous';
+
+                            caret.append(flag, name);
+                            return caret;
                         },
                     }),
                     yUndoPlugin(),
@@ -1177,19 +1209,6 @@ const initEditor = async () => {
 };
 
 // Helper function to get random color for user
-const getRandomColor = () => {
-    const colors = [
-        "#f87171",
-        "#fb923c",
-        "#fbbf24",
-        "#a3e635",
-        "#34d399",
-        "#22d3ee",
-        "#60a5fa",
-        "#a78bfa",
-    ];
-    return colors[Math.floor(Math.random() * colors.length)];
-};
 
 // Helper function to get user display name
 const getUserDisplayName = () => {
@@ -3516,39 +3535,86 @@ defineExpose({
     flex-grow: 1;
 }
 
-/* This gives the remote user caret. The colors are automatically overwritten*/
+/* Remote collaborator caret.
+   Sized in `em` throughout so it tracks the editor's line-height and the
+   reader's zoom; the previous mix of fixed px against em offsets did neither.
+   Colour comes from one custom property set by the cursor builder, so no part
+   of this depends on `currentColor` (which is what let the label render white
+   on white when the inline colour was missing). */
 .ProseMirror-yjs-cursor {
     position: relative;
     margin-left: -1px;
     margin-right: -1px;
-    border-left: 1px solid orange;
-    border-right: 1px solid orange;
-    border-color: orange;
+    border-left: 0.125em solid var(--yjs-caret-color, hsl(215, 15%, 45%));
+    height: 1em;
     word-break: normal;
     pointer-events: none;
-    opacity: 1;
-    height: 1.2em;
 }
 
-/* This renders the username above the caret */
-.ProseMirror-yjs-cursor > div {
+/* Always-on tab at the top of the caret. Small enough that it never occludes
+   text, which is the job the permanent name label used to do badly. */
+.ProseMirror-yjs-cursor > .yjs-caret-flag {
     position: absolute;
-    top: -1.5em;
-    left: -2px;
-    font-size: 12px;
-    background-color: currentColor;
+    top: -0.18em;
+    left: -0.125em;
+    width: 0.45em;
+    height: 0.45em;
+    border-radius: 0.16em 0.16em 0.16em 0;
+    background-color: var(--yjs-caret-color, hsl(215, 15%, 45%));
+    /* The one interactive part: hovering the tab re-reveals the name. Kept off
+       the caret itself so it cannot interfere with selecting text. */
+    pointer-events: auto;
+}
+
+/* The name. Revealed by the rebuild animation when this user's cursor moves,
+   then faded out, so a document with several collaborators is not permanently
+   covered in labels. */
+.ProseMirror-yjs-cursor > .yjs-caret-name {
+    position: absolute;
+    bottom: 1.15em;
+    left: -0.125em;
+    padding: 0.1em 0.4em;
+    border-radius: 0.3em;
+    background-color: var(--yjs-caret-color, hsl(215, 15%, 45%));
+    /* Lightness is fixed where the colour is generated, so white clears 7:1
+       against every hue it can produce. */
+    color: #fff;
     font-family: var(--font-sans, 'Inter', ui-sans-serif, system-ui, sans-serif);
-    font-weight: normal;
-    line-height: normal;
-    user-select: none;
-    color: white;
-    padding: 1px 5px;
+    font-size: 0.75em;
+    font-weight: 500;
+    line-height: 1.4;
     white-space: nowrap;
-    border-radius: 4px;
-    max-width: 150px;
+    max-width: 12em;
     overflow: hidden;
     text-overflow: ellipsis;
+    user-select: none;
     z-index: 10;
+    opacity: 0;
+    animation: yjs-caret-name-reveal 2.4s ease-out forwards;
+}
+
+.ProseMirror-yjs-cursor > .yjs-caret-flag:hover ~ .yjs-caret-name {
+    animation: none;
+    opacity: 1;
+}
+
+@keyframes yjs-caret-name-reveal {
+    0%,
+    70% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 0;
+    }
+}
+
+/* No motion: the name stays hidden and hover is the way to read it, rather
+   than reinstating the permanent label this replaced. */
+@media (prefers-reduced-motion: reduce) {
+    .ProseMirror-yjs-cursor > .yjs-caret-name {
+        animation: none;
+        opacity: 0;
+    }
 }
 
 /* Revision History Sidebar */
