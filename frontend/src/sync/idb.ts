@@ -40,6 +40,8 @@ const META_KEY_LAST_XID8 = 'last_xid8'
 const META_KEY_SCHEMA_HASH = 'schema_hash'
 const META_KEY_SUBSCRIBED_GROUPS = 'subscribed_groups'
 const META_KEY_INSTANCE_ID = 'instance_id'
+const META_KEY_GROUP_WATERMARKS = 'group_watermarks'
+const META_KEY_MODEL_VERSIONS_TAG = 'model_versions_tag'
 
 export interface IdbHandle {
   db: IDBDatabase
@@ -257,6 +259,48 @@ export function setSubscribedGroups(handle: IdbHandle, groups: string[]): Promis
 
 export function getSubscribedGroups(handle: IdbHandle): Promise<string[] | undefined> {
   return getMeta<string[]>(handle, META_KEY_SUBSCRIBED_GROUPS)
+}
+
+export function getGroupWatermarks(handle: IdbHandle): Promise<Record<string, number> | undefined> {
+  return getMeta<Record<string, number>>(handle, META_KEY_GROUP_WATERMARKS)
+}
+
+/** Record that a full snapshot of each group completed at `xid8`. Presence
+ * of a group's watermark is the signal the warm-launch path reads for "this
+ * group's rows are fully cached; a delta can bring them current" — so it is
+ * only written when a bootstrap stream reached its `__end__` line. Wiping
+ * the database (schema / instance / retention resync) clears these with it. */
+export async function setGroupWatermarks(
+  handle: IdbHandle,
+  groups: string[],
+  xid8: number,
+): Promise<void> {
+  const current = (await getGroupWatermarks(handle)) ?? {}
+  for (const g of groups) current[g] = xid8
+  await putMeta(handle, META_KEY_GROUP_WATERMARKS, current)
+}
+
+/** Overwrite the watermark map wholesale. Used by the torn-cache prune,
+ * which drops watermarks for groups not subscribed when the session first
+ * advances the cursor (their cached rows stop tracking it from then on). */
+export function replaceGroupWatermarks(
+  handle: IdbHandle,
+  marks: Record<string, number>,
+): Promise<void> {
+  return putMeta(handle, META_KEY_GROUP_WATERMARKS, marks)
+}
+
+/** Client-side aggregate schema-version tag (see `SCHEMA_VERSIONS` in
+ * lifecycle.ts). Cached rows written under a different tag may have been
+ * filtered out on rehydrate, so a matching tag is part of the warm-launch
+ * gate: without it a version bump would leave those aggregates empty, since
+ * a delta only replays recent events, not the snapshot. */
+export function setModelVersionsTag(handle: IdbHandle, tag: string): Promise<void> {
+  return putMeta(handle, META_KEY_MODEL_VERSIONS_TAG, tag)
+}
+
+export function getModelVersionsTag(handle: IdbHandle): Promise<string | undefined> {
+  return getMeta<string>(handle, META_KEY_MODEL_VERSIONS_TAG)
 }
 
 export type { ModelRow }

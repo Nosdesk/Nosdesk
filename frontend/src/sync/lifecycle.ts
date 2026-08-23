@@ -50,6 +50,14 @@ interface LifecycleState {
    * wipes and reopens, and `IdbHandle` carries only the derived name, so the
    * inputs have to be kept rather than reverse-engineered from it. */
   openArgs: { userUuid: string; workspaceSlug: string | null } | null
+  /** False until this session's first successful catch-up (a delta apply or
+   * a bootstrap end). Until then an SSE frame may apply its rows but must
+   * NOT advance the cursor: the SSE bridge attaches while the launch
+   * catch-up is still in flight, and a frame that jumped the cursor to
+   * "now" would make the catch-up delta skip the whole offline span. The
+   * frame's events are also in `sync_actions`, so the catch-up re-delivers
+   * them; holding the cursor back loses nothing. */
+  caughtUp: boolean
 }
 
 const state: LifecycleState = {
@@ -59,6 +67,7 @@ const state: LifecycleState = {
   memoryOnly: false,
   resyncing: false,
   openArgs: null,
+  caughtUp: false,
 }
 
 /** Memory-only counts as hydrated (it still bootstraps and serves; only
@@ -78,15 +87,88 @@ function canFetchWorkspace(): boolean {
 }
 
 /**
- * Bootstrap every subscribed group. Called after hydrate() and whenever the
- * workspace becomes ready, to drain groups whose fetch subscribe() deferred
- * (it adds the group to the pool's set but defers the fetch when the runtime
- * isn't hydrated or no workspace is selected), so none is left empty until the
- * next tearDown.
+ * Bring every subscribed group current. Called after hydrate() and whenever
+ * the workspace becomes ready, to drain groups whose fetch subscribe()
+ * deferred (it adds the group to the pool's set but defers the fetch when the
+ * runtime isn't hydrated or no workspace is selected), so none is left empty
+ * until the next tearDown. Warm-cached groups catch up via delta; the rest
+ * bootstrap (see bringGroupsCurrent).
  */
 function bootstrapDeferredGroups(): void {
   const groups = Array.from(pool.getSubscribedGroups())
-  if (groups.length > 0) void runBootstrap(groups)
+  if (groups.length > 0) void bringGroupsCurrent(groups)
+}
+
+/**
+ * Split groups into warm (cached snapshot a delta can bring current) and cold
+ * (needs the full bootstrap stream). A group is warm only when ALL of:
+ *
+ *  - persistence is live and the rehydrated pool actually holds rows;
+ *  - the cached cursor is a real xid8 (a 0 cursor means no commit-safe
+ *    baseline to delta from);
+ *  - the cached rows were written under the current client aggregate
+ *    versions (a SCHEMA_VERSIONS bump filters old rows out on rehydrate,
+ *    and only a bootstrap re-fetches them — a delta never re-streams the
+ *    snapshot);
+ *  - the group holds a bootstrap watermark. Watermarks are written when a
+ *    group's snapshot stream completes and pruned when a session advances
+ *    the cursor while the group is unsubscribed (see pruneTornWatermarks),
+ *    so presence means "these cached rows have tracked the cursor
+ *    continuously since their snapshot".
+ */
+async function partitionWarmGroups(
+  groups: string[],
+): Promise<{ warm: string[]; cold: string[] }> {
+  if (!state.handle || pool.getLastXid8() <= 0 || pool.size() === 0) {
+    return { warm: [], cold: groups }
+  }
+  const versionsTag = await idb.getModelVersionsTag(state.handle)
+  if (versionsTag !== MODEL_VERSIONS_TAG) {
+    return { warm: [], cold: groups }
+  }
+  const watermarks = (await idb.getGroupWatermarks(state.handle)) ?? {}
+  const warm: string[] = []
+  const cold: string[] = []
+  for (const g of groups) {
+    ;(watermarks[g] != null ? warm : cold).push(g)
+  }
+  return { warm, cold }
+}
+
+/**
+ * Bring groups current: delta catch-up for warm-cached groups, full
+ * bootstrap for the rest. Delta runs FIRST — a bootstrap's `__end__`
+ * advances the global cursor to now, so catching the warm groups up from
+ * the cached cursor must happen before that or their missed events are
+ * skipped forever.
+ */
+async function bringGroupsCurrent(groups: string[]): Promise<void> {
+  if (groups.length === 0 || !canFetchWorkspace()) return
+  const { warm, cold } = await partitionWarmGroups(groups)
+  if (warm.length > 0) {
+    logger.info('sync warm launch: delta catch-up instead of snapshot re-stream', {
+      groups: warm,
+    })
+    await catchUpViaDelta()
+  }
+  if (cold.length > 0) {
+    await runBootstrap(cold)
+  }
+}
+
+/**
+ * Page through the delta feed until the cursor is current. Bounded so a
+ * pathological backlog can't spin here forever; anything left after the cap
+ * keeps arriving via the normal 10s poll / SSE.
+ */
+const CATCH_UP_MAX_PAGES = 20
+
+async function catchUpViaDelta(): Promise<void> {
+  for (let i = 0; i < CATCH_UP_MAX_PAGES; i++) {
+    const hasMore = await pullDelta()
+    if (!hasMore) return
+  }
+  logger.warn('sync warm launch: catch-up hit the page cap; poll continues the tail')
 }
 
 // Re-fire once a workspace is selected: an early subscribe (or a hydrate that
@@ -164,6 +246,43 @@ const SCHEMA_VERSIONS: Partial<Record<SyncAggregate, number>> = {
   cycle: 1,
   documentation_page: 1,
   documentation_collection: 1,
+}
+
+/**
+ * Tag identifying the client aggregate versions the cache was written under.
+ * Compared in partitionWarmGroups: rows persisted under a different map may
+ * have been filtered out on rehydrate, and only a full bootstrap re-fetches
+ * them, so any mismatch disqualifies the warm path wholesale.
+ */
+const MODEL_VERSIONS_TAG = JSON.stringify(SCHEMA_VERSIONS)
+
+/**
+ * Drop bootstrap watermarks for groups that are NOT subscribed at the moment
+ * this session first advances the cursor. From that advance on, the cursor
+ * moves past events those groups never apply, so their cached rows stop
+ * tracking it: a later launch must snapshot them again, not delta from a
+ * cursor they don't match. Runs once per session, and must complete BEFORE
+ * the first advanced cursor is persisted — a crash that persisted the moved
+ * cursor but kept the stale watermark would revive the torn cache as warm.
+ */
+let watermarksPruned = false
+
+async function pruneTornWatermarks(): Promise<void> {
+  if (watermarksPruned) return
+  watermarksPruned = true
+  if (!state.handle) return
+  const marks = (await idb.getGroupWatermarks(state.handle)) ?? {}
+  const subscribed = pool.getSubscribedGroups()
+  const kept: Record<string, number> = {}
+  for (const [g, xid8] of Object.entries(marks)) {
+    if (subscribed.has(g)) kept[g] = xid8
+  }
+  if (Object.keys(kept).length !== Object.keys(marks).length) {
+    logger.info('sync: pruning watermarks for unsubscribed groups', {
+      dropped: Object.keys(marks).filter((g) => !subscribed.has(g)),
+    })
+    await idb.replaceGroupWatermarks(state.handle, kept)
+  }
 }
 
 /**
@@ -362,9 +481,10 @@ export async function fetchServerIdentity(): Promise<{
 }
 
 /**
- * Subscribe to a sync group. If the group isn't already in the
- * pool, fetches a per-group bootstrap. Idempotent — calling twice
- * with the same group runs no extra work.
+ * Subscribe to a sync group. If the group isn't already in the pool, brings
+ * it current: a delta catch-up when its snapshot is warm-cached from a prior
+ * session, else a full per-group bootstrap. Idempotent — calling twice with
+ * the same group runs no extra work.
  */
 export async function subscribe(group: string): Promise<void> {
   if (pool.getSubscribedGroups().has(group)) return
@@ -376,7 +496,7 @@ export async function subscribe(group: string): Promise<void> {
     logger.warn('subscribe() deferred: runtime not ready', { group })
     return
   }
-  await runBootstrap([group])
+  await bringGroupsCurrent([group])
 }
 
 /**
@@ -436,10 +556,10 @@ async function resyncFromRetentionGap(): Promise<void> {
   }
 }
 
-export async function pullDelta(): Promise<void> {
-  if (!canFetchWorkspace()) return
+export async function pullDelta(): Promise<boolean> {
+  if (!canFetchWorkspace()) return false
   const groups = Array.from(pool.getSubscribedGroups())
-  if (groups.length === 0) return
+  if (groups.length === 0) return false
   const from = pool.getLastSyncId()
   const fromXid8 = pool.getLastXid8()
   // Send the commit-safe `from_xid8` only once a real xid8 has seeded
@@ -452,16 +572,27 @@ export async function pullDelta(): Promise<void> {
     const res = await syncFetch(url)
     if (!res.ok) {
       logger.warn('sync delta failed', { status: res.status })
-      return
+      return false
     }
     const body = (await res.json()) as DeltaResponse
     if (body.resync_required) {
       // Return without applying: this page is a partial view of a span we
       // cannot complete, and the re-bootstrap replaces it wholesale.
       await resyncFromRetentionGap()
-      return
+      return false
+    }
+    // Every delta carries current capability flags (absent only from an
+    // older backend or a failed server-side probe, where keeping the
+    // current flags is right). This is what keeps feature chrome correct
+    // on a warm launch that never re-streams the bootstrap `__meta__`.
+    if (body.capabilities) {
+      applyWorkspaceCapabilities(body.capabilities)
     }
     applyActions(body.actions)
+    // Torn-cache prune must land before the advanced cursor is persisted
+    // (see pruneTornWatermarks).
+    await pruneTornWatermarks()
+    state.caughtUp = true
     pool.setCursor(body.last_xid8, body.last_sync_id)
     if (state.handle) {
       await idb.setLastSyncId(state.handle, body.last_sync_id)
@@ -471,8 +602,10 @@ export async function pullDelta(): Promise<void> {
     // (useSyncActions) stay live even when SSE is wedged and this 10s
     // poll is the delivery path.
     notifySyncActions(body.actions)
+    return body.has_more
   } catch (e) {
     logger.warn('sync delta network error', { error: e })
+    return false
   }
 }
 
@@ -560,12 +693,28 @@ async function runBootstrap(groups: string[]): Promise<void> {
         // advance the cursor.
         await flushPersistBatch()
         if (bootstrapMeta) {
+          // The end line advances the cursor to now, which tears any cached
+          // group not currently subscribed; prune before persisting.
+          await pruneTornWatermarks()
+          state.caughtUp = true
           // Advance the in-memory cursor always; persist it only when IDB is
           // available (memory-only keeps the cursor in the pool for delta polls).
           pool.setCursor(bootstrapMeta.last_xid8, bootstrapMeta.last_sync_id)
           if (state.handle) {
             await idb.setLastSyncId(state.handle, bootstrapMeta.last_sync_id)
             await idb.setLastXid8(state.handle, bootstrapMeta.last_xid8)
+            // Watermark the snapshots the server actually granted (not the
+            // request list: a requested-but-denied group must not gain a
+            // watermark or the next launch would warm-path it into
+            // emptiness) + stamp the aggregate versions they were written
+            // under, so the next launch can bring these groups current
+            // with a delta instead of re-streaming the snapshot.
+            const granted = bootstrapMeta.groups_granted ?? []
+            const completed = groups.filter((g) => granted.includes(g))
+            if (completed.length > 0) {
+              await idb.setGroupWatermarks(state.handle, completed, bootstrapMeta.last_xid8)
+            }
+            await idb.setModelVersionsTag(state.handle, MODEL_VERSIONS_TAG)
           }
         }
       } else if ('__error__' in line) {
@@ -763,10 +912,24 @@ async function fetchMissingCycles(ids: string[]): Promise<void> {
 /** SSE handler: applies actions, advances the cursor, persists. */
 export function applySseFrame(actions: SyncAction[], lastXid8: number, lastSyncId: number): void {
   applyActions(actions)
+  // Until the session's first catch-up completes, a frame's rows apply but
+  // the cursor holds at its cached value: jumping it to the frame's "now"
+  // would make the in-flight catch-up delta skip the whole offline span
+  // (see LifecycleState.caughtUp). The catch-up re-delivers these events.
+  if (!state.caughtUp) {
+    notifySyncActions(actions)
+    return
+  }
   pool.setCursor(lastXid8, lastSyncId)
   if (state.handle) {
-    void idb.setLastSyncId(state.handle, lastSyncId)
-    void idb.setLastXid8(state.handle, lastXid8)
+    const handle = state.handle
+    // Prune-then-persist, sequenced: the advanced cursor must never be
+    // persisted ahead of the torn-watermark prune (see pruneTornWatermarks).
+    void (async () => {
+      await pruneTornWatermarks()
+      await idb.setLastSyncId(handle, lastSyncId)
+      await idb.setLastXid8(handle, lastXid8)
+    })()
   }
   // Notify imperative observers (useSyncActions) after the pool is
   // updated. This is the live SSE path, so observers fire on the
@@ -788,6 +951,8 @@ export async function tearDown(): Promise<void> {
   state.memoryOnly = false
   state.openArgs = null
   state.resyncing = false
+  state.caughtUp = false
+  watermarksPruned = false
   // Re-arm the single-flight bootstrap so the next navigation rebuilds the
   // runtime for the new session / workspace.
   runtimePromise = null
