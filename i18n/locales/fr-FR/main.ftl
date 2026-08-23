@@ -129,6 +129,11 @@ login-oidc-cta = Se connecter avec { $provider }
 login-oidc-logout-title = Se déconnecter du compte { $provider }
 login-oidc-connecting = Connexion...
 login-divider-or = ou
+# MACHINE TRANSLATION, pending native review
+login-error-no-seat = Ce compte n'a pas encore accès à un espace de travail. Demandez à votre administrateur de vous accorder l'accès, puis reconnectez-vous.
+login-error-no-email = Votre fournisseur d'identité n'a pas communiqué d'adresse e-mail pour ce compte. Demandez à votre administrateur de vérifier la configuration de connexion.
+login-error-email-unverified = Votre fournisseur d'identité n'a pas vérifié votre adresse e-mail, elle ne peut donc pas être utilisée pour se connecter ici. Vérifiez-la auprès du fournisseur, puis réessayez.
+login-error-generic = Échec de la connexion. Veuillez réessayer.
 login-mfa-title = Authentification à deux facteurs
 login-mfa-subtitle = Veuillez saisir votre code d'authentification
 login-mfa-code-label = Code d'authentification
@@ -3095,6 +3100,8 @@ error-page-go-home = Aller au tableau de bord
 # No workspace access (machine, à relire par un locuteur natif).
 no-workspace-access-title = Aucun accès à un espace de travail
 no-workspace-access-message = Votre compte n'est encore membre d'aucun espace de travail.
+# MACHINE TRANSLATION, pending native review
+no-workspace-access-signed-in-as = Vous êtes connecté en tant que { $email }.
 no-workspace-access-description = Demandez à votre administrateur de vous ajouter à un espace de travail, puis actualisez. Si vous venez d'être ajouté, une actualisation devrait suffire.
 no-workspace-access-refresh = Actualiser
 no-workspace-access-sign-out = Se déconnecter

@@ -126,6 +126,11 @@ login-oidc-cta = Inloggen met { $provider }
 login-oidc-logout-title = Uitloggen bij { $provider }-account
 login-oidc-connecting = Verbinden...
 login-divider-or = of
+# MACHINE TRANSLATION, pending native review
+login-error-no-seat = Dit account heeft nog geen toegang tot een werkruimte. Vraag uw beheerder om u toegang te geven en log daarna opnieuw in.
+login-error-no-email = Uw identiteitsprovider heeft geen e-mailadres voor dit account doorgegeven. Vraag uw beheerder om de inlogconfiguratie te controleren.
+login-error-email-unverified = Uw identiteitsprovider heeft uw e-mailadres niet geverifieerd, dus het kan hier niet worden gebruikt om in te loggen. Verifieer het bij de provider en probeer het opnieuw.
+login-error-generic = Inloggen mislukt. Probeer het opnieuw.
 login-mfa-title = Tweefactorauthenticatie
 login-mfa-subtitle = Voer uw authenticatiecode in
 login-mfa-code-label = Authenticatiecode
@@ -3086,6 +3091,8 @@ error-page-go-home = Naar dashboard
 # No workspace access (machine, te controleren door een moedertaalspreker).
 no-workspace-access-title = Geen toegang tot een werkruimte
 no-workspace-access-message = Je account is nog geen lid van een werkruimte.
+# MACHINE TRANSLATION, pending native review
+no-workspace-access-signed-in-as = Je bent ingelogd als { $email }.
 no-workspace-access-description = Vraag je beheerder om je aan een werkruimte toe te voegen en vernieuw daarna. Als je net bent toegevoegd, zou vernieuwen genoeg moeten zijn.
 no-workspace-access-refresh = Vernieuwen
 no-workspace-access-sign-out = Afmelden
