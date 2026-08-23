@@ -15,6 +15,8 @@ import { useSyncTicketsStore } from '@/sync/stores/tickets'
 import { useProjectCycles } from '@/composables/useProjectCycles'
 import { useProjectTickets } from '@/composables/useProjectTickets'
 import { useGanttViewport } from '@/composables/useGanttViewport'
+import { useGanttSort } from '@/composables/useGanttSort'
+import { sortCards } from '@/sync/views/gantt/sortCards'
 import { useListGrouping, NONE_AXIS_KEY } from '@/composables/useListGrouping'
 import { useUsersDirectory } from '@/composables/useUsersDirectory'
 import { useListDensity } from '@/composables/useTicketsDensity'
@@ -40,6 +42,12 @@ const ticketsStore = useSyncTicketsStore()
 
 const project = projectsStore.byId(projectId)
 const { cards } = useProjectTickets(projectId)
+
+// Row sort (waterfall by default). Sorting the flat list also orders rows
+// within each group, since the grouping projector buckets in input order.
+// The mobile vertical timeline ignores this: it is chronological by design.
+const sort = useGanttSort(() => String(projectId.value), t)
+const sortedCards = computed(() => sortCards(cards.value, sort.sortBy.value))
 
 // Cycles read live from the sync pool (bands + grouping); the seed
 // covers cold entry, SSE keeps them current.
@@ -184,6 +192,7 @@ const headerSubtitle = computed(() => {
         v-if="!isMobile"
           :viewport="viewport"
           :grouping="grouping"
+          :sort="sort"
           :density="density"
           :set-density="setDensity"
         />
@@ -220,7 +229,7 @@ const headerSubtitle = computed(() => {
     <GanttBoard
       v-else
       class="flex-1 min-h-0"
-      :cards="cards"
+      :cards="sortedCards"
       :edges="edges"
       :cycles="cycles"
       :viewport="viewport"

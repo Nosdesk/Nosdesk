@@ -6015,6 +6015,11 @@ gantt-hover-blocked-by = Bloqué par { $count }
 gantt-hover-reschedule-hint = Faites glisser le bord droit pour modifier l'échéance
 # Regroupement du Gantt (machine, à relire par un locuteur natif).
 gantt-group-by = Regrouper par
+# MACHINE TRANSLATION, pending native review
+gantt-sort-by = Trier les lignes par
+gantt-sort-start = Date de début
+gantt-sort-due = Date d'échéance
+gantt-sort-priority = Priorité
 gantt-group-cycle = Cycle
 gantt-group-state = État
 gantt-group-assignee = Responsable
