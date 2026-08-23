@@ -166,24 +166,13 @@ function expiringSoon(session: SessionInfo): boolean {
  * differentiates better in practice, where most rows are desktop browsers and
  * would otherwise all draw the same machine.
  *
- * Windows reuses the existing `microsoft` mosaic. `device` is the fallback for
- * a platform we can't place.
+ * `device` is the fallback for a platform we can't place.
  */
 function platformIcon(session: SessionInfo): IconName {
   const hint = `${session.device_name ?? ''} ${session.user_agent ?? ''}`;
-  switch (osFamily(hint)) {
-    case 'ios':
-    case 'macos':
-      return 'apple';
-    case 'windows':
-      return 'microsoft';
-    case 'android':
-      return 'android';
-    case 'linux':
-      return 'terminal';
-    default:
-      return 'device';
-  }
+  const family = osFamily(hint);
+  if (family === 'ios' || family === 'macos') return 'apple';
+  return family ?? 'device';
 }
 
 /**
