@@ -22,6 +22,7 @@ import FormInput from "@/components/common/FormInput.vue";
 import PasswordInput from "@/components/common/PasswordInput.vue";
 import { extractErrorMessage } from "@/utils/errors";
 import { isTauriRuntime } from "@/platform";
+import { useFluent } from "fluent-vue";
 
 // Get branding and theme stores
 const brandingStore = useBrandingStore();
@@ -66,6 +67,24 @@ const mfaToken = ref("");
 const recoveryMode = ref(false);
 const recoveryCode = ref("");
 
+const fluent = useFluent();
+
+// Machine-readable denial codes from the OAuth callback's
+// `/login?auth_error=<code>` redirect. Unknown codes render the generic
+// message; the URL text itself is never displayed.
+const AUTH_ERROR_KEYS: Record<string, string> = {
+  no_seat: "login-error-no-seat",
+  no_email: "login-error-no-email",
+  email_unverified: "login-error-email-unverified",
+};
+
+function consumeAuthErrorParam(): boolean {
+  const code = route.query.auth_error;
+  if (typeof code !== "string" || code === "") return false;
+  errorMessage.value = fluent.$t(AUTH_ERROR_KEYS[code] ?? "login-error-generic");
+  return true;
+}
+
 // Check for success message and email prefill from URL query params (e.g., from onboarding)
 onMounted(async () => {
   // Load branding if not already loaded (important for blank layout pages like login)
@@ -75,6 +94,11 @@ onMounted(async () => {
 
   // Check passkey support
   await checkPasskeySupport();
+
+  // A denial bounced from the OAuth callback. Surface it and, below, hold the
+  // SSO-only auto-redirect: re-initiating immediately would loop the user
+  // straight back into the flow that just denied them.
+  const deniedByCallback = consumeAuthErrorParam();
 
   // Check if onboarding is required before showing login
   try {
@@ -92,7 +116,7 @@ onMounted(async () => {
     // in, so go straight there instead of rendering a sign-in form the
     // user can't use. The local forms stay hidden (ssoOnly) as a fallback
     // if the redirect is blocked.
-    if (ssoOnly.value && oidcEnabled.value) {
+    if (ssoOnly.value && oidcEnabled.value && !deniedByCallback) {
       void handleOidcLoginClick();
       return;
     }
@@ -110,7 +134,7 @@ onMounted(async () => {
   }
 
   // Clean up the URL by removing the query parameters
-  if (route.query.message || route.query.email) {
+  if (route.query.message || route.query.email || route.query.auth_error) {
     router.replace({ name: "login" });
   }
 

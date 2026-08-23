@@ -39,6 +39,11 @@ async function signOut() {
           {{ $t('no-workspace-access-title') }}
         </h1>
         <p class="text-base text-secondary">{{ $t('no-workspace-access-message') }}</p>
+        <!-- Post-auth, so naming the account is safe, and it makes "wrong
+             account? sign out" actionable instead of a guessing game. -->
+        <p v-if="auth.user?.email" class="text-sm text-tertiary">
+          {{ $t('no-workspace-access-signed-in-as', { email: auth.user.email }) }}
+        </p>
       </div>
       <p class="text-sm text-tertiary">{{ $t('no-workspace-access-description') }}</p>
       <div class="flex gap-3">

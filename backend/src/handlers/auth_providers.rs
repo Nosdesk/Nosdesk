@@ -731,21 +731,11 @@ pub async fn oauth_callback(
                     let user_uuid = match user_uuid_param {
                         Some(uuid) => uuid,
                         None => {
-                            // If not explicit in URL params, the user should be authenticated
-                            // Get from request headers (auth token)
-                            let redirect_parts: Vec<&str> =
-                                state_data.redirect_uri.split('?').collect();
-                            let redirect_path = redirect_parts[0];
-
-                            // Error case - can't determine user
-                            let error_url = format!(
-                                "{}?auth_error={}",
-                                redirect_path, "Could not determine user account for connection"
+                            error!("Microsoft connect: no user_uuid in the signed state");
+                            return connect_result_redirect(
+                                &state_data.redirect_uri,
+                                &format!("auth_error={AUTH_ERROR_CONNECT_FAILED}"),
                             );
-
-                            return HttpResponse::Found()
-                                .append_header(("Location", error_url))
-                                .finish();
                         }
                     };
 
@@ -754,48 +744,25 @@ pub async fn oauth_callback(
                         .await
                     {
                         Ok(_) => {
-                            // Successful connection
-                            let redirect_parts: Vec<&str> =
-                                state_data.redirect_uri.split('?').collect();
-                            let redirect_path = redirect_parts[0];
-                            let success_url = format!("{redirect_path}?auth_success=true");
-
-                            // Redirect to success page
-                            HttpResponse::Found()
-                                .append_header(("Location", success_url))
-                                .finish()
+                            connect_result_redirect(&state_data.redirect_uri, "auth_success=true")
                         }
                         Err(e) => {
                             error!(error = %e, "Failed to connect account");
-
-                            // Error connecting
-                            let redirect_parts: Vec<&str> =
-                                state_data.redirect_uri.split('?').collect();
-                            let redirect_path = redirect_parts[0];
-                            let error_url = format!(
-                                "{}?auth_error={}",
-                                redirect_path,
-                                urlencoding::encode(&format!("Failed to connect account: {e}"))
-                            );
-
-                            HttpResponse::Found()
-                                .append_header(("Location", error_url))
-                                .finish()
+                            connect_result_redirect(
+                                &state_data.redirect_uri,
+                                &format!("auth_error={AUTH_ERROR_CONNECT_FAILED}"),
+                            )
                         }
                     }
                 } else {
                     // Regular login/signup flow
-                    let user = match resolve_login_user(
-                        &user_info,
-                        &provider.provider_type,
-                        &state_data,
-                        &mut conn,
-                    )
-                    .await
-                    {
-                        Ok(user) => user,
-                        Err(resp) => return resp,
-                    };
+                    let user =
+                        match resolve_login_user(&user_info, &provider.provider_type, &mut conn)
+                            .await
+                        {
+                            Ok(user) => user,
+                            Err(resp) => return resp,
+                        };
                     info!(user_uuid = %user.uuid, "OAuth: Completing login");
                     // OAuth provisioning mints users with no search observer, so
                     // this reindex both indexes a first-login user and refreshes
@@ -938,29 +905,14 @@ pub async fn oauth_callback(
                     .await
                     {
                         Ok(_) => {
-                            let redirect_parts: Vec<&str> =
-                                state_data.redirect_uri.split('?').collect();
-                            let redirect_path = redirect_parts[0];
-                            let success_url = format!("{redirect_path}?auth_success=true");
-
-                            HttpResponse::Found()
-                                .append_header(("Location", success_url))
-                                .finish()
+                            connect_result_redirect(&state_data.redirect_uri, "auth_success=true")
                         }
                         Err(e) => {
                             error!(error = %e, "Failed to connect OIDC account");
-                            let redirect_parts: Vec<&str> =
-                                state_data.redirect_uri.split('?').collect();
-                            let redirect_path = redirect_parts[0];
-                            let error_url = format!(
-                                "{}?auth_error={}",
-                                redirect_path,
-                                urlencoding::encode(&format!("Failed to connect account: {e}"))
-                            );
-
-                            HttpResponse::Found()
-                                .append_header(("Location", error_url))
-                                .finish()
+                            connect_result_redirect(
+                                &state_data.redirect_uri,
+                                &format!("auth_error={AUTH_ERROR_CONNECT_FAILED}"),
+                            )
                         }
                     }
                 } else {
@@ -974,13 +926,8 @@ pub async fn oauth_callback(
                         &config_utils::get_oidc_username_claim(),
                     );
 
-                    let user = match resolve_login_user(
-                        &claims,
-                        &oidc_identity_issuer(),
-                        &state_data,
-                        &mut conn,
-                    )
-                    .await
+                    let user = match resolve_login_user(&claims, &oidc_identity_issuer(), &mut conn)
+                        .await
                     {
                         Ok(user) => user,
                         Err(resp) => return resp,
@@ -1384,20 +1331,28 @@ fn callback_redirect_for(
     Some(format!("https://{host}/api/auth/oauth/callback"))
 }
 
-/// Build the standard auth-error redirect: bounce to the login redirect target
-/// with an `?auth_error=<message>` the frontend surfaces. Strips any existing
-/// query so the error is the only param.
-fn auth_error_redirect(redirect_uri: &str, message: &str) -> HttpResponse {
-    let redirect_path = redirect_uri.split('?').next().unwrap_or("/");
-    let error_url = format!(
-        "{}?auth_error={}",
-        redirect_path,
-        urlencoding::encode(message)
-    );
+/// Build the standard auth-error redirect: bounce to the login page with a
+/// machine-readable `?auth_error=<code>` the frontend maps to localized copy
+/// (unknown codes render a generic failure there).
+///
+/// The target is fixed. The client-supplied return path in the signed state
+/// must not be consulted here: the signature only proves what initiation was
+/// given, so an attacker-initiated flow would carry a validly signed hostile
+/// URL and this redirect would be an open redirector (RFC 9700 section 4.11).
+/// A denial always lands on the login page, so no return path is needed.
+fn auth_error_redirect(code: &str) -> HttpResponse {
     HttpResponse::Found()
-        .append_header(("Location", error_url))
+        .append_header(("Location", format!("/login?auth_error={code}")))
         .finish()
 }
+
+/// The resolved identity holds no seat; provisioning happens upstream.
+const AUTH_ERROR_NO_SEAT: &str = "no_seat";
+/// The provider returned no email address for the account.
+const AUTH_ERROR_NO_EMAIL: &str = "no_email";
+/// The provider did not vouch the email as verified, so the email-fallback
+/// seat link was refused (see `resolve_user_by_identity_or_email`).
+const AUTH_ERROR_EMAIL_UNVERIFIED: &str = "email_unverified";
 
 // Helper function to find or create a user from OAuth profile
 /// Lazy OIDC user provisioning, called from the OAuth callback when
@@ -1424,6 +1379,33 @@ fn safe_post_login_location(redirect_uri: &str) -> String {
         "/".to_string()
     }
 }
+
+/// Build the redirect back to the connect flow's in-app return page with a
+/// result query (`auth_success=true` / `auth_error=<code>`). The stored
+/// return target is client-supplied at initiation (typically an absolute
+/// `window.location.href`), so only its path survives: an absolute URL is
+/// reduced to its same-origin path and never followed to another host, which
+/// would otherwise be an open redirector on this path too (RFC 9700
+/// section 4.11). Free text never rides in the query; codes only.
+fn connect_result_redirect(redirect_uri: &str, result_query: &str) -> HttpResponse {
+    let target = redirect_uri.split('?').next().unwrap_or("");
+    let path = match target.split_once("://") {
+        // Absolute URL: keep the path after the authority, drop the host.
+        Some((_, rest)) => rest.find('/').map(|i| &rest[i..]).unwrap_or("/"),
+        None => target,
+    };
+    let path = if path.starts_with('/') && !path.starts_with("//") {
+        path
+    } else {
+        "/"
+    };
+    HttpResponse::Found()
+        .append_header(("Location", format!("{path}?{result_query}")))
+        .finish()
+}
+
+/// Connect-flow failure code (`?auth_error=`); details stay in server logs.
+const AUTH_ERROR_CONNECT_FAILED: &str = "connect_failed";
 
 /// Identity key (`user_auth_identities.provider_type`) for an OIDC login.
 ///
@@ -1508,7 +1490,11 @@ pub async fn native_oidc_login(
         Ok(Some(user)) => user,
         Ok(None) => {
             warn!(%email, "native OIDC login denied: no seat for this identity");
-            return errors::forbidden(CENTRAL_LOGIN_NO_SEAT_MSG);
+            // JSON API (native app), not a redirect: the human-readable body
+            // is fine here, unlike the browser path's code-only param.
+            return errors::forbidden(
+                "No workspace access for this account. Ask your administrator to invite you.",
+            );
         }
         Err(e) => {
             error!(error = %e, "native OIDC login: seat resolution failed");
@@ -1570,11 +1556,10 @@ fn issuer_for_identity(
 async fn resolve_login_user(
     claims: &OAuthLoginClaims,
     iss: &str,
-    state: &OAuthState,
     conn: &mut DbConnection,
 ) -> Result<crate::models::User, HttpResponse> {
     if crate::middleware::workspace_context::selection_resolution_enabled() {
-        return resolve_existing_seat_user(claims, iss, state, conn);
+        return resolve_existing_seat_user(claims, iss, conn);
     }
     let workspace_id = match crate::middleware::DeploymentMode::current() {
         crate::middleware::DeploymentMode::SelfHosted => crate::sync::actor::BOOTSTRAP_WORKSPACE_ID,
@@ -1596,12 +1581,11 @@ async fn resolve_login_user(
 fn resolve_existing_seat_user(
     claims: &OAuthLoginClaims,
     iss: &str,
-    state: &OAuthState,
     conn: &mut DbConnection,
 ) -> Result<crate::models::User, HttpResponse> {
     let email = claims.require_email().map_err(|e| {
         error!(error = %e, "Central-origin login: cannot read email from user_info");
-        auth_error_redirect(&state.redirect_uri, CENTRAL_LOGIN_NO_SEAT_MSG)
+        auth_error_redirect(AUTH_ERROR_NO_EMAIL)
     })?;
     // Resolve-only: pass no metadata / password_hash since we never create here.
     match crate::services::oauth_provisioning::resolve_user_by_identity_or_email(
@@ -1616,12 +1600,18 @@ fn resolve_existing_seat_user(
         &None,
     ) {
         Ok(Some(user)) => Ok(user),
+        // An unverified email gets its own code: the resolver refused the
+        // email-fallback link, so a provisioned seat may well exist and "no
+        // workspace access" would mislead. The code says nothing about whether
+        // an account exists, only that the provider would not vouch the email,
+        // so it stays enumeration-safe.
+        Ok(None) if !claims.email_verified => {
+            warn!(%email, "Central-origin login denied: provider did not verify the email");
+            Err(auth_error_redirect(AUTH_ERROR_EMAIL_UNVERIFIED))
+        }
         Ok(None) => {
             warn!(%email, "Central-origin login denied: no seat for this identity");
-            Err(auth_error_redirect(
-                &state.redirect_uri,
-                CENTRAL_LOGIN_NO_SEAT_MSG,
-            ))
+            Err(auth_error_redirect(AUTH_ERROR_NO_SEAT))
         }
         Err(e) => {
             error!(error = %e, "Seat resolution failed during central-origin login");
@@ -1629,11 +1619,6 @@ fn resolve_existing_seat_user(
         }
     }
 }
-
-/// Shown when a central-origin login resolves a valid identity that holds no
-/// workspace seat (membership is provisioned upstream, not at login).
-const CENTRAL_LOGIN_NO_SEAT_MSG: &str =
-    "No workspace access for this account. Ask your administrator to invite you.";
 
 async fn find_or_create_oauth_user(
     claims: &OAuthLoginClaims,
@@ -2120,12 +2105,38 @@ mod login_claims_tests {
     }
 
     #[test]
-    fn auth_error_redirect_strips_query_and_encodes_message() {
-        let resp = auth_error_redirect("/login?next=/x", "No seat here");
+    fn auth_error_redirect_is_fixed_target_with_code() {
+        let resp = auth_error_redirect(super::AUTH_ERROR_NO_SEAT);
         assert_eq!(resp.status(), actix_web::http::StatusCode::FOUND);
         let loc = resp.headers().get("location").unwrap().to_str().unwrap();
-        // Existing query stripped; message percent-encoded onto the clean path.
-        assert_eq!(loc, "/login?auth_error=No%20seat%20here");
+        assert_eq!(loc, "/login?auth_error=no_seat");
+    }
+
+    #[test]
+    fn connect_redirect_keeps_only_the_same_origin_path() {
+        let loc = |uri: &str| {
+            let resp = super::connect_result_redirect(uri, "auth_success=true");
+            resp.headers()
+                .get("location")
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_string()
+        };
+        // Relative path preserved; existing query replaced by the result.
+        assert_eq!(
+            loc("/profile/settings?x=1"),
+            "/profile/settings?auth_success=true"
+        );
+        // Absolute URL reduced to its path; the host is never followed.
+        assert_eq!(
+            loc("https://app.example/profile/settings"),
+            "/profile/settings?auth_success=true"
+        );
+        assert_eq!(loc("https://evil.example"), "/?auth_success=true");
+        assert_eq!(loc("//evil.example/x"), "/?auth_success=true");
+        assert_eq!(loc("javascript:alert(1)"), "/?auth_success=true");
+        assert_eq!(loc(""), "/?auth_success=true");
     }
 }
 
