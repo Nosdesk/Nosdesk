@@ -190,20 +190,12 @@ fn stream_bootstrap_inner(
     // Workspace capability flags. These are simple booleans the
     // frontend uses to gate optional UI surfaces (filter chips,
     // default visible columns, summary segments). Adding a flag
-    // here is the right place when the client should treat a
-    // feature as "exists for this workspace" vs "available
-    // everywhere" — eg. SLA chrome should hide entirely until
-    // an admin sets up at least one policy. Counts (rather than
-    // "any non-archived") are fine for v1: a workspace either
-    // has policies or it doesn't.
-    let sla_enabled: bool = {
-        use diesel::dsl::count_star;
-        let n: i64 = crate::schema::sla_policies::table
-            .select(count_star())
-            .first(conn)
-            .unwrap_or(0);
-        n > 0
-    };
+    // belongs in `capability_flags` (shared with the delta
+    // response) when the client should treat a feature as "exists
+    // for this workspace" vs "available everywhere" — eg. SLA
+    // chrome should hide entirely until an admin sets up at least
+    // one policy.
+    let capabilities = super::capability_flags(conn);
 
     // Header: schema hash, cursor, granted groups, and capability
     // flags. Clients read this once at the start of every
@@ -216,7 +208,7 @@ fn stream_bootstrap_inner(
                 "last_xid8": last_xid8,
                 "last_sync_id": last_sync_id,
                 "groups_granted": granted,
-                "sla_enabled": sla_enabled,
+                "sla_enabled": capabilities.sla_enabled,
             }
         }),
     )?;

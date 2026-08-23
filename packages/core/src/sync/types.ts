@@ -78,6 +78,14 @@ export interface DeltaResponse {
    * The client must wipe its cache and re-bootstrap. Optional so a client
    * running against an older backend simply never sees it. */
   resync_required?: boolean
+  /** Current workspace capability flags, same shape as the bootstrap
+   * `__meta__` flags. Carried on every delta so a warm launch that catches
+   * up without re-streaming the snapshot still converges on current flags.
+   * Absent (older backend, or a failed probe server-side) means "keep the
+   * flags you have". */
+  capabilities?: {
+    sla_enabled?: boolean
+  }
 }
 
 export interface BootstrapMeta {

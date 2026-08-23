@@ -36,9 +36,13 @@ const state: Ref<CapabilityState> = ref({ ...DEFAULT_STATE })
 export function applyWorkspaceCapabilities(meta: {
   sla_enabled?: boolean
 }): void {
-  state.value = {
+  const next: CapabilityState = {
     slaEnabled: meta.sla_enabled ?? false,
   }
+  // Flags now arrive on every delta poll; only swap the ref when a flag
+  // actually changed so watchers don't fire every 10 seconds.
+  if (next.slaEnabled === state.value.slaEnabled) return
+  state.value = next
 }
 
 /** Reset to defaults — used when the user logs out or switches

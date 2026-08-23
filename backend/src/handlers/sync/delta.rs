@@ -91,6 +91,13 @@ pub struct DeltaResponse {
     /// A false positive costs one re-bootstrap; a false negative leaves the
     /// cache silently wrong, so it errs toward resyncing.
     pub resync_required: bool,
+    /// Current workspace capability flags. Carried on every delta (not just
+    /// the bootstrap `__meta__`) so a warm launch that catches up via delta
+    /// without re-streaming the snapshot still converges on current flags.
+    /// `None` when the probe failed; the client keeps its current flags
+    /// rather than flickering chrome off over a transient error.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<super::CapabilityFlags>,
 }
 
 /// Smallest `sync_id` still present in `sync_actions`, or `None` when the
@@ -179,6 +186,16 @@ pub async fn delta(
         }
     };
 
+    // Cheap (count over a tiny table); every response carries current flags.
+    let capabilities =
+        match tc.run(|conn| Ok::<_, diesel::result::Error>(super::capability_flags(conn))) {
+            Ok(c) => Some(c),
+            Err(e) => {
+                error!(error = %e, "delta: capability probe failed; omitting flags");
+                None
+            }
+        };
+
     if granted.is_empty() {
         // No groups in common between request and permission set;
         // return an empty delta rather than an error so clients can
@@ -189,6 +206,7 @@ pub async fn delta(
             last_sync_id: query.from,
             has_more: false,
             resync_required,
+            capabilities,
         });
     }
 
@@ -291,6 +309,7 @@ pub async fn delta(
         last_sync_id,
         has_more,
         resync_required,
+        capabilities,
     })
 }
 
