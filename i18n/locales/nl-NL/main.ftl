@@ -6006,6 +6006,11 @@ gantt-hover-blocked-by = Geblokkeerd door { $count }
 gantt-hover-reschedule-hint = Sleep de rechterrand om de vervaldatum te wijzigen
 # Gantt-groepering (machinevertaling, na te kijken door een moedertaalspreker).
 gantt-group-by = Groeperen op
+# MACHINE TRANSLATION, pending native review
+gantt-sort-by = Rijen sorteren op
+gantt-sort-start = Startdatum
+gantt-sort-due = Vervaldatum
+gantt-sort-priority = Prioriteit
 gantt-group-cycle = Cyclus
 gantt-group-state = Status
 gantt-group-assignee = Toegewezene

@@ -27,6 +27,7 @@ import {
   useGanttViewport,
 } from '@/composables/useGanttViewport'
 import type { GroupOption } from '@/composables/useListGrouping'
+import type { UseGanttSort } from '@/composables/useGanttSort'
 import type { Density } from '@/composables/useTicketsDensity'
 import ListDensityToggle from '@/components/common/ListDensityToggle.vue'
 import type { ComputedRef, Ref } from 'vue'
@@ -42,6 +43,7 @@ interface GroupingControls {
 const props = defineProps<{
   viewport: ReturnType<typeof useGanttViewport>
   grouping?: GroupingControls
+  sort?: UseGanttSort
   density?: Density
   setDensity?: (value: Density) => void
 }>()
@@ -79,6 +81,17 @@ function handleSelect(id: string): void {
       class="w-32"
       :aria-label="$t('gantt-group-by')"
       @update:model-value="(v) => grouping!.setGroupBy(v as string)"
+    />
+
+    <!-- Row-sort picker (applies within the active grouping) -->
+    <BaseDropdown
+      v-if="sort"
+      :model-value="sort.sortBy.value"
+      :options="sort.options.value"
+      size="xs"
+      class="w-32"
+      :aria-label="$t('gantt-sort-by')"
+      @update:model-value="(v) => sort!.setSortBy(v as string)"
     />
 
     <!-- Zoom: always inline -->
