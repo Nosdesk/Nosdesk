@@ -2887,6 +2887,36 @@ docs-index-new-page = New page
 
 # Docs: documentation index toolbar (DocumentationIndexToolbar)
 docs-index-toolbar-search = Search documentation
+docs-index-toolbar-search-placeholder = Search documentation…
+docs-index-toolbar-stats = { $pages ->
+    [one] { $pages } page
+   *[other] { $pages } pages
+  } across { $collections ->
+    [one] { $collections } collection
+   *[other] { $collections } collections
+  }
+# Library ledger (CollectionBrowser)
+docs-index-library-heading = Library
+docs-index-library-count = { $count ->
+    [one] { $count } collection
+   *[other] { $count } collections
+  }
+docs-index-library-more-pages = { $count } more
+docs-index-library-updated = updated { $time }
+# Needs-attention rail card
+docs-index-attention-heading = Needs attention
+docs-index-attention-verification = Verification due
+docs-index-attention-empty = Nothing needs attention right now.
+docs-index-attention-gaps-link = View all gaps
+docs-index-attention-totals = { $gaps } gaps · { $stale } due
+docs-index-verification-never = never verified
+# Drafts strip
+docs-index-drafts-strip-count = { $count ->
+    [one] { $count } draft
+   *[other] { $count } drafts
+  }
+docs-index-drafts-strip-suffix = aren't in a collection yet
+docs-index-drafts-strip-review = Review drafts →
 docs-index-toolbar-search-shortcut = ⌘K
 docs-index-toolbar-new-collection = New collection
 docs-index-toolbar-more = More
