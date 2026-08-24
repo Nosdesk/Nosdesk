@@ -6670,6 +6670,13 @@ admin-asset-groups-col-members = Actifs
 
 # Editor: image upload (imageUploadPlugin / CollaborativeEditor)
 editor-image-uploading = Téléversement de { $name }
+# MACHINE TRANSLATION, pending native review
+editor-image-align-left = Aligner à gauche
+editor-image-align-center = Centrer
+editor-image-align-right = Aligner à droite
+editor-image-size-half = Demi-largeur
+editor-image-size-full = Pleine largeur
+editor-image-size-reset = Réinitialiser la taille
 editor-image-upload-failed = Échec du téléversement de l'image
 editor-image-upload-failed-detail = { $name } n'a pas pu être téléversé. Veuillez réessayer.
 editor-image-upload-no-target = Enregistrez cette page avant d'ajouter des images

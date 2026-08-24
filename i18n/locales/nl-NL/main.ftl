@@ -6662,6 +6662,13 @@ admin-asset-groups-col-members = Activa
 
 # Editor: image upload (imageUploadPlugin / CollaborativeEditor)
 editor-image-uploading = { $name } wordt geüpload
+# MACHINE TRANSLATION, pending native review
+editor-image-align-left = Links uitlijnen
+editor-image-align-center = Centreren
+editor-image-align-right = Rechts uitlijnen
+editor-image-size-half = Halve breedte
+editor-image-size-full = Volledige breedte
+editor-image-size-reset = Grootte herstellen
 editor-image-upload-failed = Uploaden van afbeelding mislukt
 editor-image-upload-failed-detail = { $name } kon niet worden geüpload. Probeer het opnieuw.
 editor-image-upload-no-target = Sla deze pagina op voordat je afbeeldingen toevoegt

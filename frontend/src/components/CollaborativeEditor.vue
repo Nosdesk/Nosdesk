@@ -75,6 +75,7 @@ import {
     ellipsis,
 } from "prosemirror-inputrules";
 import { createImageUploadPlugin } from "./editor/imageUploadPlugin";
+import { ImageNodeView } from "./editor/imageNodeView";
 import { parseCollabDocId } from "@nosdesk/core/utils/collabDocId";
 import { EditorImageUploadError } from "@/services/editorImageService";
 import { useToastStore } from "@nosdesk/core/stores/toast";
@@ -947,6 +948,12 @@ const initEditor = async () => {
                     twemojiPlugin,
                 ],
             }),
+            // Live view only: the revision overlay renders images via plain
+            // toDOM (sized, no handles), which is exactly right for read-only.
+            nodeViews: {
+                image: (node, view, getPos) =>
+                    new ImageNodeView(node, view, getPos, { t }),
+            },
         });
 
         // Initial mention users pre-warm via the composable's
@@ -3668,6 +3675,149 @@ defineExpose({
     to {
         transform: rotate(360deg);
     }
+}
+
+/* ============================================
+   RESIZABLE IMAGES (ImageNodeView + plain toDOM)
+   ============================================ */
+
+/* Widths are stored in px; this guard keeps them inside the container on
+   narrower viewports. Applies to the NodeView img AND plain toDOM renders
+   (revision overlay). */
+.ProseMirror img {
+    max-width: 100%;
+    height: auto;
+}
+
+/* Alignment. The NodeView wrapper shrinks to the image (fit-content) so the
+   corner handles always hug it; the margins place the shrunk box. Plain
+   toDOM imgs (revision overlay) get the same treatment directly. */
+.ProseMirror .pm-image[data-align],
+.ProseMirror img[data-align] {
+    display: block;
+    width: fit-content;
+    max-width: 100%;
+}
+.ProseMirror .pm-image[data-align='left'],
+.ProseMirror img[data-align='left'] {
+    margin-right: auto;
+}
+.ProseMirror .pm-image[data-align='center'],
+.ProseMirror img[data-align='center'] {
+    margin-left: auto;
+    margin-right: auto;
+}
+.ProseMirror .pm-image[data-align='right'],
+.ProseMirror img[data-align='right'] {
+    margin-left: auto;
+}
+
+.pm-image {
+    position: relative;
+    display: inline-block;
+    max-width: 100%;
+    line-height: 0;
+}
+
+.pm-image img {
+    max-width: 100%;
+    height: auto;
+}
+
+.pm-image.is-selected img {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+    border-radius: 2px;
+}
+
+.pm-image__handle {
+    display: none;
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    background: var(--color-surface);
+    border: 1.5px solid var(--color-accent);
+    border-radius: 50%;
+    touch-action: none;
+    z-index: 2;
+}
+.pm-image.is-selected .pm-image__handle {
+    display: block;
+}
+.pm-image__handle[data-dir='nw'] { top: -5px; left: -5px; cursor: nwse-resize; }
+.pm-image__handle[data-dir='ne'] { top: -5px; right: -5px; cursor: nesw-resize; }
+.pm-image__handle[data-dir='sw'] { bottom: -5px; left: -5px; cursor: nesw-resize; }
+.pm-image__handle[data-dir='se'] { bottom: -5px; right: -5px; cursor: nwse-resize; }
+
+.pm-image__badge {
+    display: none;
+    position: absolute;
+    bottom: 6px;
+    right: 6px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.65);
+    color: #fff;
+    font-size: 11px;
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+    z-index: 2;
+}
+.pm-image.is-resizing .pm-image__badge {
+    display: block;
+}
+
+.pm-image__toolbar {
+    display: none;
+    position: absolute;
+    top: -38px;
+    left: 50%;
+    transform: translateX(-50%);
+    align-items: center;
+    gap: 2px;
+    padding: 3px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-default);
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    line-height: normal;
+    white-space: nowrap;
+    z-index: 3;
+}
+.pm-image.is-selected .pm-image__toolbar {
+    display: inline-flex;
+}
+.pm-image.is-resizing .pm-image__toolbar {
+    display: none;
+}
+
+.pm-image__tool {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    border: none;
+    background: transparent;
+    color: var(--color-secondary);
+    cursor: pointer;
+}
+.pm-image__tool:hover {
+    background: var(--color-surface-hover);
+    color: var(--color-primary);
+}
+.pm-image__tool.is-active {
+    background: var(--color-accent-muted);
+    color: var(--color-accent);
+}
+
+.pm-image__toolsep {
+    width: 1px;
+    height: 16px;
+    margin: 0 3px;
+    background: var(--color-default);
 }
 
 /* ============================================

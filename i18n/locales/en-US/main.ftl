@@ -6748,6 +6748,12 @@ asset-catalog-manage-manufacturers = Manufacturers
 
 # Editor: image upload (imageUploadPlugin / CollaborativeEditor)
 editor-image-uploading = Uploading { $name }
+editor-image-align-left = Align left
+editor-image-align-center = Align center
+editor-image-align-right = Align right
+editor-image-size-half = Half width
+editor-image-size-full = Full width
+editor-image-size-reset = Reset size
 editor-image-upload-failed = Image upload failed
 editor-image-upload-failed-detail = { $name } could not be uploaded. Please try again.
 editor-image-upload-no-target = Save this page before adding images
