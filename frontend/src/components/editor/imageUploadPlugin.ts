@@ -396,6 +396,13 @@ export function createImageUploadPlugin(options: ImageUploadPluginOptions): Plug
       },
 
       handleDrop(view: EditorView, event: DragEvent, _slice: Slice, _moved: boolean): boolean {
+        // An internal drag is a MOVE, never an upload. ProseMirror stores the
+        // dragged slice in `view.dragging` for drags it initiated and its
+        // default drop handling relocates the node; Chromium additionally
+        // lists a dragged <img> in `dataTransfer.files`, which without this
+        // guard made a simple reposition re-upload the image as a new
+        // server-side copy at the drop point while leaving the original.
+        if (view.dragging) return false;
         const imageFiles = imageFilesFrom(event.dataTransfer?.files);
         if (!imageFiles.length) return false;
 
