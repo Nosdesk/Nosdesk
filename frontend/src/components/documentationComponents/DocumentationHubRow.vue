@@ -24,6 +24,9 @@ const props = defineProps<{
   updatedAt?: string | null
   /** Plain inline meta — verification labels, child counts, etc. */
   meta?: string
+  /** Rail mode: avatar + compact time only, no author name. Keeps the
+   *  title readable inside a narrow column regardless of viewport. */
+  compact?: boolean
 }>()
 
 const destination = computed(() => {
@@ -78,25 +81,29 @@ const fullTime = computed(() =>
         :clickable="false"
       />
       <template v-if="author?.name">
-        <span class="sr-only sm:hidden">{{ author.name }}</span>
-        <span class="hidden sm:inline truncate max-w-[8rem] text-[11px] leading-none text-tertiary">
+        <span class="sr-only" :class="{ 'sm:hidden': !compact }">{{ author.name }}</span>
+        <span
+          v-if="!compact"
+          class="hidden sm:inline truncate max-w-[8rem] text-[11px] leading-none text-tertiary"
+        >
           {{ author.name }}
         </span>
       </template>
       <span
-        v-if="author?.name && fullTime"
+        v-if="!compact && author?.name && fullTime"
         class="hidden sm:inline text-[11px] text-tertiary/60 shrink-0"
         aria-hidden="true"
       >·</span>
       <span
         v-if="compactTime"
-        class="sm:hidden text-[11px] leading-none text-tertiary whitespace-nowrap tabular-nums shrink-0"
+        class="text-[11px] leading-none text-tertiary whitespace-nowrap tabular-nums shrink-0"
+        :class="{ 'sm:hidden': !compact }"
         :title="fullTime"
       >
         {{ compactTime }}
       </span>
       <span
-        v-if="fullTime"
+        v-if="!compact && fullTime"
         class="hidden sm:inline text-[11px] leading-none text-tertiary whitespace-nowrap tabular-nums shrink-0"
       >
         {{ fullTime }}

@@ -2732,6 +2732,34 @@ docs-index-new-page = Nieuwe pagina
 
 # Docs: indexwerkbalk (DocumentationIndexToolbar)
 docs-index-toolbar-search = Documentatie doorzoeken
+# MACHINE TRANSLATION, pending native review
+docs-index-toolbar-search-placeholder = Documentatie doorzoeken…
+docs-index-toolbar-stats = { $pages ->
+    [one] { $pages } pagina
+   *[other] { $pages } pagina's
+  } in { $collections ->
+    [one] { $collections } collectie
+   *[other] { $collections } collecties
+  }
+docs-index-library-heading = Bibliotheek
+docs-index-library-count = { $count ->
+    [one] { $count } collectie
+   *[other] { $count } collecties
+  }
+docs-index-library-more-pages = { $count } meer
+docs-index-library-updated = bijgewerkt { $time }
+docs-index-attention-heading = Aandacht nodig
+docs-index-attention-verification = Verificatie nodig
+docs-index-attention-empty = Er is momenteel niets dat aandacht nodig heeft.
+docs-index-attention-gaps-link = Alle kennishiaten
+docs-index-attention-totals = { $gaps } hiaten · { $stale } te verifiëren
+docs-index-verification-never = nooit geverifieerd
+docs-index-drafts-strip-count = { $count ->
+    [one] { $count } concept
+   *[other] { $count } concepten
+  }
+docs-index-drafts-strip-suffix = zitten nog niet in een collectie
+docs-index-drafts-strip-review = Concepten bekijken →
 docs-index-toolbar-search-shortcut = ⌘K
 docs-index-toolbar-new-collection = Nieuwe collectie
 docs-index-toolbar-more = Meer

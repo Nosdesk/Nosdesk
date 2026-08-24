@@ -10,7 +10,7 @@ import { useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import { useAuthStore } from '@/stores/auth'
 import { usePublicSettingsStore } from '@nosdesk/core/stores/publicSettings'
-import { useSyncDocsStore } from '@nosdesk/core/sync/stores/documentation'
+import { useSyncDocsStore, isActivePage } from '@nosdesk/core/sync/stores/documentation'
 import { useGlobalSearch } from '@/composables/useGlobalSearch'
 import { useDetectClustersMutation } from '@/composables/useKnowledgeGaps'
 import { useToastStore } from '@nosdesk/core/stores/toast'
@@ -45,6 +45,11 @@ const archivedCount = computed(
 const trashCount = computed(
   () => docs.allPages.filter((p) => p.status === 'deleted').length,
 )
+
+// Header stats: active pages + collection count, so the index states its
+// scope up front instead of leaving the reader to infer it.
+const activePageCount = computed(() => docs.allPages.filter(isActivePage).length)
+const collectionCount = computed(() => docs.allCollections.length)
 
 const publicDocsEnabled = computed(
   () => publicSettings.settings?.guest_public_docs_enabled === true,
@@ -181,17 +186,22 @@ onMounted(() => {
 
 <template>
   <div class="flex items-center justify-between gap-4 w-full min-w-0">
-    <div class="flex items-center gap-2 min-w-0">
-      <Button
-        size="sm"
-        variant="secondary"
-        icon="search"
-        class="shrink-0"
+    <p class="hidden @3xl:block text-xs text-tertiary truncate min-w-0">
+      {{ $t('docs-index-toolbar-stats', { pages: activePageCount, collections: collectionCount }) }}
+    </p>
+
+    <div class="flex items-center gap-2 min-w-0 flex-1 @3xl:flex-none @3xl:ml-auto">
+      <!-- Search leads: styled as the field it opens, not a button. -->
+      <button
+        type="button"
+        class="flex items-center gap-2.5 h-8 px-3 flex-1 @3xl:flex-none @3xl:w-[360px] min-w-0 rounded-lg bg-surface-alt border border-default text-tertiary hover:border-strong hover:text-secondary transition-colors"
         :aria-label="$t('docs-index-toolbar-search')"
         @click="openDocSearch"
       >
-        {{ $t('docs-index-toolbar-search') }}
-      </Button>
+        <Icon name="search" size="sm" aria-hidden="true" />
+        <span class="text-[13px] truncate flex-1 text-left">{{ $t('docs-index-toolbar-search-placeholder') }}</span>
+        <kbd class="hidden sm:inline-flex items-center text-[11px] px-1.5 py-px rounded border border-default bg-surface text-tertiary">⌘K</kbd>
+      </button>
 
       <Button
         size="sm"

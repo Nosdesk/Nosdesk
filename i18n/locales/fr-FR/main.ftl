@@ -2735,6 +2735,34 @@ docs-index-new-page = Nouvelle page
 
 # Docs : barre d'outils de l'index (DocumentationIndexToolbar)
 docs-index-toolbar-search = Rechercher dans la documentation
+# MACHINE TRANSLATION, pending native review
+docs-index-toolbar-search-placeholder = Rechercher dans la documentation…
+docs-index-toolbar-stats = { $pages ->
+    [one] { $pages } page
+   *[other] { $pages } pages
+  } dans { $collections ->
+    [one] { $collections } collection
+   *[other] { $collections } collections
+  }
+docs-index-library-heading = Bibliothèque
+docs-index-library-count = { $count ->
+    [one] { $count } collection
+   *[other] { $count } collections
+  }
+docs-index-library-more-pages = { $count } de plus
+docs-index-library-updated = mise à jour { $time }
+docs-index-attention-heading = À traiter
+docs-index-attention-verification = Vérification à faire
+docs-index-attention-empty = Rien à traiter pour le moment.
+docs-index-attention-gaps-link = Toutes les lacunes
+docs-index-attention-totals = { $gaps } lacunes · { $stale } à vérifier
+docs-index-verification-never = jamais vérifiée
+docs-index-drafts-strip-count = { $count ->
+    [one] { $count } brouillon
+   *[other] { $count } brouillons
+  }
+docs-index-drafts-strip-suffix = ne sont pas encore dans une collection
+docs-index-drafts-strip-review = Passer en revue →
 docs-index-toolbar-search-shortcut = ⌘K
 docs-index-toolbar-new-collection = Nouvelle collection
 docs-index-toolbar-more = Plus

@@ -38,7 +38,7 @@ const titleManager = useTitleManager()
 const scrollEl = ref<HTMLElement | null>(null)
 
 const { createNewPage } = useDocumentation()
-const { allTree: pages, drafts: uncollectedPages } = useDocPages()
+const { allTree: pages } = useDocPages()
 const docs = useSyncDocsStore()
 const { gaps, isLoading: gapsLoading } = useKnowledgeGaps()
 
@@ -73,18 +73,14 @@ const recentlyUpdated = computed<Page[]>(() => {
   return flat
     .filter((p) => p.updated_at && p.status !== 'archived')
     .sort((a, b) => (b.updated_at ?? '').localeCompare(a.updated_at ?? ''))
-    .slice(0, 12)
+    .slice(0, 6)
 })
 
-const visibleStarred = computed(() => starredPages.value.slice(0, 10))
+const visibleStarred = computed(() => starredPages.value.slice(0, 8))
 
-const visibleGaps = computed(() => gaps.value.slice(0, 6))
-
-const visibleUncollected = computed<Page[]>(() =>
-  [...uncollectedPages.value]
-    .sort((a, b) => (b.updated_at ?? '').localeCompare(a.updated_at ?? ''))
-    .slice(0, 12),
-)
+/** The attention rail keeps each queue short; the full lists live behind
+ *  the footer links. */
+const visibleGaps = computed(() => gaps.value.slice(0, 3))
 
 /** Collection ids whose pages require verification. Used to gate the
  *  never-verified case so unverified pages in neutral collections
@@ -110,10 +106,12 @@ const verificationAttention = computed<Page[]>(() => {
     }
     return (b.updated_at ?? '').localeCompare(a.updated_at ?? '')
   })
-  return rows.slice(0, 10).map((r) => toPage(r))
+  return rows.slice(0, 3).map((r) => toPage(r))
 })
 
 const verificationCount = computed(() => docs.allPages.filter(pageNeedsAttention).length)
+
+const attentionCount = computed(() => gapCount.value + verificationCount.value)
 
 const totalPages = computed(() => flattenTree(pages.value).length)
 
@@ -124,17 +122,6 @@ function onCollectionCreated() {
 
 function pageAuthor(page: Page) {
   return page.last_edited_by ?? page.created_by
-}
-
-function gapMeta(gap: KnowledgeGap): string {
-  const parts: string[] = []
-  if (gap.evidence_count > 0) {
-    parts.push(t('docs-index-gap-evidence', { count: gap.evidence_count }))
-  }
-  if (gap.last_evidence_at) {
-    parts.push(formatRelativeTime(gap.last_evidence_at))
-  }
-  return parts.join(' · ')
 }
 
 function isSearchGap(title: string): boolean {
@@ -149,11 +136,9 @@ function gapImpactLabel(gap: KnowledgeGap): string {
 
 function verificationMeta(page: Page): string {
   if (!page.verified_at) {
-    return t('doc-detail-needs-verification')
+    return t('docs-index-verification-never')
   }
-  return t('docs-index-verification-stale-meta', {
-    time: formatRelativeTime(page.verified_at),
-  })
+  return formatRelativeTime(page.verified_at, { addSuffix: true })
 }
 
 onMounted(() => {
@@ -167,7 +152,7 @@ usePageCreateAction(handleCreatePage)
   <div class="flex-1 flex flex-col min-h-0">
     <PullToRefresh :target="scrollEl" />
     <header class="shrink-0 border-b border-subtle bg-surface">
-      <div class="px-4 sm:px-6 py-2.5 mx-auto w-full max-w-8xl">
+      <div class="@container px-4 sm:px-6 py-2.5 mx-auto w-full max-w-8xl">
         <DocumentationIndexToolbar @create-collection="showCreateCollectionModal = true" />
       </div>
     </header>
@@ -179,243 +164,186 @@ usePageCreateAction(handleCreatePage)
       @created="onCollectionCreated"
     />
 
-    <div ref="scrollEl" class="flex-1 min-h-0 overflow-auto">
-      <div class="flex flex-col gap-4 sm:gap-5 px-4 sm:px-6 py-4 mx-auto w-full max-w-8xl">
-        <CollectionBrowser
-          ref="collectionBrowserRef"
-          @create="showCreateCollectionModal = true"
-        />
+    <!-- @container: the two-column split keys off THIS panel's width, not the
+         viewport, so the layout stays correct whatever the nav sidebar does
+         (same convention as the gantt). -->
+    <div ref="scrollEl" class="@container flex-1 min-h-0 overflow-auto">
+      <div class="docs-index-layout px-4 sm:px-6 py-4 mx-auto w-full max-w-8xl">
+        <!-- Main column: the library leads; drafts collapse to one strip. -->
+        <div class="flex flex-col gap-4 sm:gap-5 min-w-0">
+          <CollectionBrowser
+            ref="collectionBrowserRef"
+            @create="showCreateCollectionModal = true"
+          />
 
-        <EmptyState
-          v-if="totalPages === 0"
-          variant="compact"
-          icon="document"
-          :title="$t('empty-documentation-index-title')"
-          :description="$t('empty-documentation-index-description')"
-          :action-label="$t('docs-index-new-page')"
-          @action="handleCreatePage"
-        />
+          <EmptyState
+            v-if="totalPages === 0"
+            variant="compact"
+            icon="document"
+            :title="$t('empty-documentation-index-title')"
+            :description="$t('empty-documentation-index-description')"
+            :action-label="$t('docs-index-new-page')"
+            @action="handleCreatePage"
+          />
 
-        <template v-if="totalPages > 0">
-          <div class="docs-index-pages-grid">
-            <SectionCard content-padding="p-1">
-              <template #title>{{ $t('docs-index-recently-updated') }}</template>
-              <template #headerActions>
-                <span
-                  v-if="recentlyUpdated.length > 0"
-                  class="text-[11px] text-tertiary tabular-nums font-normal"
-                >
-                  {{ $t('docs-index-recently-updated-count', { count: recentlyUpdated.length }) }}
-                </span>
-              </template>
-              <ul v-if="recentlyUpdated.length > 0" class="flex flex-col">
-                <li v-for="page in recentlyUpdated" :key="page.id">
-                  <DocumentationHubRow
-                    :page="page"
-                    :author="pageAuthor(page)"
-                    :updated-at="page.updated_at"
-                  />
-                </li>
-              </ul>
-              <p v-else class="px-2 py-2 text-[13px] text-tertiary">
-                {{ $t('docs-index-no-recent-activity') }}
-              </p>
-            </SectionCard>
-
-            <SectionCard content-padding="p-1">
-              <template #title>{{ $t('docs-index-starred') }}</template>
-              <template #headerActions>
-                <span
-                  v-if="visibleStarred.length > 0"
-                  class="text-[11px] text-tertiary tabular-nums font-normal"
-                >
-                  {{ starredPages.length }}
-                </span>
-              </template>
-              <ul v-if="visibleStarred.length > 0" class="flex flex-col">
-                <li v-for="sp in visibleStarred" :key="sp.page_id">
-                  <DocumentationHubRow
-                    :href="docUrl({ slug: sp.slug, id: sp.page_id })"
-                    :title="sp.title"
-                    :icon="sp.icon"
-                  />
-                </li>
-              </ul>
-              <p v-else class="px-2 py-2 text-[13px] text-tertiary">
-                {{ $t('docs-index-starred-hint') }}
-              </p>
-            </SectionCard>
-          </div>
-
-          <div class="docs-index-queue-grid">
-            <SectionCard
-              content-padding="p-1"
-              action-to="/documentation/gaps"
-              :action-label="$t('docs-index-gaps-view-all')"
-            >
-              <template #title>{{ $t('docs-index-gaps-heading') }}</template>
-              <template #headerActions>
-                <span
-                  v-if="gapCount > 0"
-                  class="text-[11px] text-tertiary tabular-nums font-normal"
-                >
-                  {{ gapCount }}
-                </span>
-              </template>
-              <p v-if="gapsLoading" class="px-2 py-2 text-[13px] text-tertiary">
-                {{ $t('docs-index-gaps-loading') }}
-              </p>
-              <ul v-else-if="visibleGaps.length > 0" class="flex flex-col">
-                <li v-for="gap in visibleGaps" :key="gap.id">
-                  <RouterLink
-                    :to="`/documentation/gaps/${gap.id}`"
-                    class="group flex items-center gap-2 py-1.5 min-h-7 px-2 -mx-2 rounded hover:bg-surface-hover transition-colors"
-                  >
-                    <Icon name="warning" size="xs" class="shrink-0 text-amber-500" aria-hidden="true" />
-                    <div class="flex items-center gap-1.5 min-w-0 flex-1">
-                      <span class="truncate text-[13px] leading-snug text-primary group-hover:text-accent transition-colors">
-                        {{ gap.title }}
-                      </span>
-                      <template v-if="gapMeta(gap)">
-                        <span class="shrink-0 text-[11px] text-tertiary/60" aria-hidden="true">·</span>
-                        <span class="shrink-0 text-[11px] text-tertiary whitespace-nowrap">
-                          {{ gapMeta(gap) }}
-                        </span>
-                      </template>
-                    </div>
-                    <span
-                      class="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-surface-alt text-tertiary tabular-nums"
-                    >
-                      {{ gapImpactLabel(gap) }}
-                    </span>
-                  </RouterLink>
-                </li>
-              </ul>
-              <p v-else class="px-2 py-2 text-[13px] text-tertiary">
-                {{ $t('docs-index-gaps-empty') }}
-              </p>
-            </SectionCard>
-
-            <SectionCard content-padding="p-1">
-              <template #title>{{ $t('docs-index-verification-heading') }}</template>
-              <template #headerActions>
-                <span
-                  v-if="verificationCount > 0"
-                  class="text-[11px] text-tertiary tabular-nums font-normal"
-                >
-                  {{ verificationCount }}
-                </span>
-              </template>
-              <ul v-if="verificationAttention.length > 0" class="flex flex-col">
-                <li v-for="page in verificationAttention" :key="page.id">
-                  <DocumentationHubRow
-                    :page="page"
-                    :meta="verificationMeta(page)"
-                  />
-                </li>
-              </ul>
-              <p v-else class="px-2 py-2 text-[13px] text-tertiary">
-                {{ $t('docs-index-verification-empty') }}
-              </p>
-            </SectionCard>
-          </div>
-
-          <SectionCard
-            content-padding="p-1"
-            action-to="/documentation/drafts"
-            :action-label="$t('docs-index-uncollected-view-all')"
+          <RouterLink
+            v-if="uncollectedCount > 0"
+            to="/documentation/drafts"
+            class="group flex items-center gap-2.5 px-4 py-2.5 bg-surface rounded-xl border border-default hover:border-strong transition-colors text-xs text-secondary"
           >
-            <template #title>{{ $t('docs-index-uncollected-heading') }}</template>
+            <Icon name="documentEdit" size="sm" class="text-tertiary shrink-0" aria-hidden="true" />
+            <span>
+              <span class="font-medium text-primary">{{ $t('docs-index-drafts-strip-count', { count: uncollectedCount }) }}</span>
+              {{ $t('docs-index-drafts-strip-suffix') }}
+            </span>
+            <span class="ml-auto text-[11px] font-medium text-accent group-hover:underline whitespace-nowrap">
+              {{ $t('docs-index-drafts-strip-review') }}
+            </span>
+          </RouterLink>
+        </div>
+
+        <!-- Rail: attention first, then activity, then personal. -->
+        <div v-if="totalPages > 0" class="flex flex-col gap-4 sm:gap-5 min-w-0">
+          <SectionCard content-padding="p-0" :clip-content="true">
+            <template #title>{{ $t('docs-index-attention-heading') }}</template>
             <template #headerActions>
-              <span class="text-[11px] text-tertiary tabular-nums font-normal">
-                {{ uncollectedCount }}
+              <span
+                v-if="attentionCount > 0"
+                class="inline-flex items-center h-[18px] px-1.5 rounded-full bg-status-warning-muted text-amber-700 text-[11px] font-semibold tabular-nums"
+              >
+                {{ attentionCount }}
               </span>
             </template>
-            <ul v-if="visibleUncollected.length > 0" class="docs-index-uncollected-grid">
-              <li v-for="page in visibleUncollected" :key="page.id">
+
+            <p v-if="gapsLoading && attentionCount === 0" class="px-3 py-2.5 text-[13px] text-tertiary">
+              {{ $t('docs-index-gaps-loading') }}
+            </p>
+            <p v-else-if="attentionCount === 0" class="px-3 py-2.5 text-[13px] text-tertiary">
+              {{ $t('docs-index-attention-empty') }}
+            </p>
+
+            <template v-else>
+              <template v-if="visibleGaps.length > 0">
+                <p class="px-3 pt-2 pb-1 text-[11px] font-semibold text-tertiary uppercase tracking-wide">
+                  {{ $t('docs-index-gaps-heading') }}
+                </p>
+                <ul class="flex flex-col px-1.5">
+                  <li v-for="gap in visibleGaps" :key="gap.id">
+                    <RouterLink
+                      :to="`/documentation/gaps/${gap.id}`"
+                      class="group flex items-center gap-2 py-1.5 px-1.5 rounded hover:bg-surface-hover transition-colors"
+                    >
+                      <Icon name="warning" size="xs" class="shrink-0 text-status-warning" aria-hidden="true" />
+                      <span class="truncate min-w-0 flex-1 text-[13px] leading-snug text-primary group-hover:text-accent transition-colors">
+                        {{ gap.title }}
+                      </span>
+                      <span class="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-surface-alt text-tertiary tabular-nums whitespace-nowrap">
+                        {{ gapImpactLabel(gap) }}
+                      </span>
+                    </RouterLink>
+                  </li>
+                </ul>
+              </template>
+
+              <template v-if="verificationAttention.length > 0">
+                <p
+                  class="px-3 pt-2 pb-1 text-[11px] font-semibold text-tertiary uppercase tracking-wide"
+                  :class="{ 'border-t border-subtle mt-1': visibleGaps.length > 0 }"
+                >
+                  {{ $t('docs-index-attention-verification') }}
+                </p>
+                <ul class="flex flex-col px-1.5 pb-1.5">
+                  <li v-for="page in verificationAttention" :key="page.id">
+                    <RouterLink
+                      :to="docUrl(page)"
+                      class="group flex items-center gap-2 py-1.5 px-1.5 rounded hover:bg-surface-hover transition-colors"
+                    >
+                      <span class="shrink-0 w-4 text-center text-sm leading-none opacity-80" aria-hidden="true">
+                        {{ page.icon || '📄' }}
+                      </span>
+                      <span class="truncate min-w-0 flex-1 text-[13px] leading-snug text-primary group-hover:text-accent transition-colors">
+                        {{ page.title }}
+                      </span>
+                      <span class="shrink-0 text-[11px] text-amber-700 whitespace-nowrap">
+                        {{ verificationMeta(page) }}
+                      </span>
+                    </RouterLink>
+                  </li>
+                </ul>
+              </template>
+
+              <div class="flex items-center justify-between px-3 py-2 border-t border-default bg-surface-alt/50">
+                <RouterLink to="/documentation/gaps" class="text-[11px] font-medium text-accent hover:underline">
+                  {{ $t('docs-index-attention-gaps-link') }}
+                </RouterLink>
+                <span class="text-[11px] text-tertiary tabular-nums">
+                  {{ $t('docs-index-attention-totals', { gaps: gapCount, stale: verificationCount }) }}
+                </span>
+              </div>
+            </template>
+          </SectionCard>
+
+          <SectionCard content-padding="p-1.5">
+            <template #title>{{ $t('docs-index-recently-updated') }}</template>
+            <ul v-if="recentlyUpdated.length > 0" class="flex flex-col">
+              <li v-for="page in recentlyUpdated" :key="page.id">
                 <DocumentationHubRow
                   :page="page"
-                  :meta="page.children?.length
-                    ? $t('docs-index-page-children', { count: page.children.length })
-                    : undefined"
-                  :author="page.children?.length ? undefined : pageAuthor(page)"
-                  :updated-at="page.children?.length ? undefined : page.updated_at"
+                  :author="pageAuthor(page)"
+                  :updated-at="page.updated_at"
+                  compact
                 />
               </li>
             </ul>
-            <p v-else class="px-2 py-2 text-[13px] text-tertiary">
-              {{ $t('docs-index-uncollected-empty') }}
+            <p v-else class="px-2 py-1.5 text-[13px] text-tertiary">
+              {{ $t('docs-index-no-recent-activity') }}
             </p>
           </SectionCard>
-        </template>
+
+          <SectionCard content-padding="p-1.5">
+            <template #title>{{ $t('docs-index-starred') }}</template>
+            <template #headerActions>
+              <span
+                v-if="visibleStarred.length > 0"
+                class="text-[11px] text-tertiary tabular-nums font-normal"
+              >
+                {{ starredPages.length }}
+              </span>
+            </template>
+            <ul v-if="visibleStarred.length > 0" class="flex flex-col">
+              <li v-for="sp in visibleStarred" :key="sp.page_id">
+                <DocumentationHubRow
+                  :href="docUrl({ slug: sp.slug, id: sp.page_id })"
+                  :title="sp.title"
+                  :icon="sp.icon"
+                  compact
+                />
+              </li>
+            </ul>
+            <p v-else class="px-2 py-1.5 text-[13px] text-tertiary">
+              {{ $t('docs-index-starred-hint') }}
+            </p>
+          </SectionCard>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.docs-index-queue-grid {
+.docs-index-layout {
   display: grid;
   gap: 1rem;
   grid-template-columns: 1fr;
+  align-items: start;
 }
 
-@media (min-width: 1024px) {
-  .docs-index-queue-grid {
+/* Rail splits off only when the content panel itself is wide enough for a
+   useful main column beside the fixed 21.75rem rail. */
+@container (min-width: 60rem) {
+  .docs-index-layout {
     gap: 1.25rem;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-.docs-index-pages-grid {
-  display: grid;
-  gap: 1rem;
-  grid-template-columns: 1fr;
-}
-
-@media (min-width: 1024px) {
-  .docs-index-pages-grid {
-    gap: 1.25rem;
-    grid-template-columns: repeat(12, minmax(0, 1fr));
-  }
-
-  .docs-index-pages-grid > * {
-    grid-column: span 6;
-  }
-}
-
-@media (min-width: 1280px) {
-  .docs-index-pages-grid > :first-child {
-    grid-column: span 7;
-  }
-
-  .docs-index-pages-grid > :nth-child(2) {
-    grid-column: span 5;
-  }
-}
-
-.docs-index-uncollected-grid {
-  display: grid;
-  gap: 0;
-  grid-template-columns: 1fr;
-}
-
-@media (min-width: 640px) {
-  .docs-index-uncollected-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    column-gap: 0.5rem;
-  }
-}
-
-@media (min-width: 1024px) {
-  .docs-index-uncollected-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-@media (min-width: 1536px) {
-  .docs-index-uncollected-grid {
-    grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+    grid-template-columns: minmax(0, 1fr) 21.75rem;
   }
 }
 </style>
