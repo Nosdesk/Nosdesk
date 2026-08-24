@@ -117,33 +117,64 @@ export const nodes: {[key: string]: NodeSpec} = {
     group: 'inline'
   },
   
-  // An inline image (<img>) node
+  // An inline image (<img>) node.
+  //
+  // `width` (px) and `align` are the resize/adjust state, persisted as
+  // defaulted attrs so documents authored before they existed load
+  // unchanged, and remote peers receive them through the normal Yjs attr
+  // sync. Height is never stored: the natural aspect ratio derives it,
+  // and a `max-width: 100%` style guard keeps any stored width inside
+  // the container. The node deliberately stays `inline`/`group: inline`:
+  // changing those against documents already stored in Yjs is a breaking
+  // schema change with no migration path.
   image: {
     inline: true,
     attrs: {
       ychange: { default: null },
       src: {},
       alt: { default: null },
-      title: { default: null }
+      title: { default: null },
+      /** Rendered width in px; null = natural size. */
+      width: { default: null },
+      /** 'left' | 'center' | 'right'; null = inline flow. */
+      align: { default: null }
     },
     group: 'inline',
     draggable: true,
     parseDOM: [{
       tag: 'img[src]',
       getAttrs(dom: HTMLElement) {
+        const styleWidth = /(?:^|;)\s*width:\s*(\d+(?:\.\d+)?)px/.exec(
+          dom.getAttribute('style') ?? ''
+        );
+        const attrWidth = dom.getAttribute('width');
+        const width = styleWidth
+          ? Math.round(Number(styleWidth[1]))
+          : attrWidth && /^\d+$/.test(attrWidth)
+            ? Number(attrWidth)
+            : null;
+        const align = dom.getAttribute('data-align');
         return {
           src: dom.getAttribute('src'),
           title: dom.getAttribute('title'),
-          alt: dom.getAttribute('alt')
+          alt: dom.getAttribute('alt'),
+          width,
+          align: align === 'left' || align === 'center' || align === 'right' ? align : null
         };
       }
     }],
     toDOM(node) {
-      const domAttrs = {
+      const domAttrs: Record<string, string> = {
         src: node.attrs.src,
         title: node.attrs.title,
         alt: node.attrs.alt
       };
+      if (node.attrs.width != null) {
+        domAttrs.style = `width: ${node.attrs.width}px`;
+      }
+      if (node.attrs.align) {
+        domAttrs['data-align'] = node.attrs.align;
+      }
       return ['img', calcYchangeDomAttrs(node.attrs, domAttrs)];
     }
   },
