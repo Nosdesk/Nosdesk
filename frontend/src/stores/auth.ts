@@ -78,6 +78,9 @@ export const useAuthStore = defineStore('auth', () => {
       user.value?.workspace_role === 'owner' ||
       user.value?.workspace_role === 'admin'
   );
+  // Strict workspace owner (not admin). Gates owner-only actions like the
+  // workspace data export; the backend enforces the same.
+  const isOwner = computed(() => user.value?.workspace_role === 'owner');
   const isTechnician = computed(() => isAdmin.value || user.value?.workspace_role === 'agent');
   // Standalone read-only audit role (Item C/D4). Distinct from admin:
   // an audit reviewer can reach only the audit surface, not the rest
@@ -588,6 +591,7 @@ export const useAuthStore = defineStore('auth', () => {
     mfaUserUuid,
     isAuthenticated,
     isAdmin,
+    isOwner,
     isTechnician,
     isAuditReviewer,
     isPlatformAdmin,

@@ -8,6 +8,9 @@
       <!-- System Information Section -->
       <SystemInfoCard />
 
+      <!-- Workspace data export (owner-only, self-serve DSAR return) -->
+      <WorkspaceDataExportCard v-if="authStore.isOwner" />
+
       <!-- Storage Management Section -->
       <div class="bg-surface border border-default rounded-xl hover:border-strong transition-colors">
         <div class="p-4 flex flex-col gap-3">
@@ -149,6 +152,7 @@ import { useRouter } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 
 import SystemInfoCard from '@/components/admin/SystemInfoCard.vue'
+import WorkspaceDataExportCard from '@/components/settings/WorkspaceDataExportCard.vue'
 import ConfirmModal from '@/components/common/ConfirmModal.vue'
 import Icon from '@/components/common/Icon.vue'
 import Button from '@/components/common/Button.vue'
