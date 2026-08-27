@@ -407,6 +407,61 @@ pub async fn prune_csp_reports(pool: Pool) -> Result<()> {
     Ok(())
 }
 
+/// Retention for self-serve workspace exports: fail jobs stuck in
+/// pending/processing (a crashed background task, since the spawn is
+/// fire-and-forget with no lease), then delete completed artifacts whose download
+/// window has passed (storage file + row). Cross-tenant, so it runs under
+/// background_run (BYPASSRLS) like the other sweeps.
+pub async fn cleanup_expired_workspace_exports(pool: Pool) -> Result<()> {
+    let now = chrono::Utc::now().naive_utc();
+    let stale_cutoff = (chrono::Utc::now() - chrono::Duration::hours(1)).naive_utc();
+
+    let failed =
+        // cross-tenant: recover exports stranded by a crashed background task.
+        crate::sync::session::background_run(&pool, "scheduler:workspace_export_stale", |conn| {
+            crate::repository::workspace_export_jobs::fail_stale(conn, stale_cutoff)
+        })
+        .map_err(|e| anyhow::anyhow!("fail stale workspace exports: {e}"))?;
+    if failed > 0 {
+        info!(count = failed, "scheduler: stale workspace exports failed");
+    }
+
+    let expired =
+        // cross-tenant: expired-artifact cleanup across every workspace.
+        crate::sync::session::background_run(&pool, "scheduler:workspace_export_expired", |conn| {
+            crate::repository::workspace_export_jobs::list_expired(conn, now)
+        })
+        .map_err(|e| anyhow::anyhow!("list expired workspace exports: {e}"))?;
+
+    let mut purged = 0usize;
+    for job in expired {
+        if let Some(key) = job.file_path.as_deref() {
+            let scoped = crate::utils::storage::WorkspaceScopedStorage::arc(
+                crate::utils::storage::process_storage(),
+                job.workspace_id,
+            );
+            if let Err(e) = scoped.delete_file(key).await {
+                // Leave the row so we retry next sweep rather than orphaning the file.
+                warn!(job_id = %job.id, error = ?e, "scheduler: export artifact delete failed; will retry");
+                continue;
+            }
+        }
+        let _ =
+            // cross-tenant: delete the expired export's row after its file is gone.
+            crate::sync::session::background_run(&pool, "scheduler:workspace_export_delete", |conn| {
+                crate::repository::workspace_export_jobs::delete(conn, job.id)
+            });
+        purged += 1;
+    }
+    if purged > 0 {
+        info!(
+            count = purged,
+            "scheduler: expired workspace exports purged"
+        );
+    }
+    Ok(())
+}
+
 /// Auto-archive stale notifications so the bell/inbox self-prunes instead of
 /// growing without bound. Read notifications older than
 /// `NOTIFICATION_READ_RETENTION_DAYS` (default 30) are archived; anything older

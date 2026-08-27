@@ -857,6 +857,8 @@ pub fn configure_app(
                     // requires ?confirm=<slug> matching the row.
                     .configure(crate::handlers::admin_workspaces::config)
                     .configure(crate::handlers::workspace_export::config)
+                    // Self-serve, Owner-gated workspace data export (DSAR return).
+                    .configure(crate::handlers::workspace_data_export::config)
 
                     // Guest access controls (admin only)
                     .configure(crate::handlers::guest_settings::config)

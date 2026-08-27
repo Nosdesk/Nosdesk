@@ -32,6 +32,19 @@ async fn sse_config_routes_registered() {
 }
 
 #[actix_web::test]
+async fn workspace_data_export_config_routes_registered() {
+    assert_config_registers(
+        crate::handlers::workspace_data_export::config,
+        &[
+            ("POST", "/workspace/export"),
+            ("GET", "/workspace/export/{id}"),
+            ("GET", "/workspace/export/{id}/download"),
+        ],
+    )
+    .await;
+}
+
+#[actix_web::test]
 async fn search_config_routes_registered() {
     assert_config_registers(
         crate::handlers::search::config,
