@@ -51,6 +51,17 @@ pub fn spawn_scheduled_jobs(
             move || jobs::cleanup_expired_refresh_tokens(p.clone()),
         );
 
+        // Hourly: fail stranded self-serve workspace exports and delete expired
+        // export artifacts (storage file + row) past their download window.
+        let p = pool.clone();
+        spawn_periodic(
+            "workspace_exports.cleanup",
+            Duration::from_secs(60 * 60),
+            scheduler_shutdown.clone(),
+            scheduler_status.clone(),
+            move || jobs::cleanup_expired_workspace_exports(p.clone()),
+        );
+
         // Daily: send notification email digests (batches the notifications a
         // user set to email=digest into one summary). Single-machine via lock.
         let p = pool.clone();

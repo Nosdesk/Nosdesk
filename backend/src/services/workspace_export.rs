@@ -60,7 +60,10 @@ const WORKSPACE_EXPORT_FORMAT_VERSION: u32 = 1;
 /// high-churn tables. They carry `workspace_id` but are the audit trail and the
 /// sync outbox, not core tenant data, and their partitioned shape complicates a
 /// scoped dump (matching the whole-DB backup's parent-only handling).
-const EXCLUDE_FROM_WORKSPACE_EXPORT: &[&str] = &["audit_log", "sync_actions"];
+// `workspace_export_jobs` carries a workspace_id but is operational metadata (job
+// status + storage keys), not tenant content, so it is excluded like audit_log.
+const EXCLUDE_FROM_WORKSPACE_EXPORT: &[&str] =
+    &["audit_log", "sync_actions", "workspace_export_jobs"];
 
 /// The export package manifest. Carries everything the Phase 2 import needs:
 /// the workspace identity, the member user uuids referenced by tenant rows, and

@@ -2110,6 +2110,22 @@ diesel::table! {
 }
 
 diesel::table! {
+    workspace_export_jobs (id) {
+        id -> Uuid,
+        workspace_id -> Int4,
+        requested_by -> Nullable<Uuid>,
+        #[max_length = 20]
+        status -> Varchar,
+        file_path -> Nullable<Text>,
+        file_size -> Nullable<Int8>,
+        error_message -> Nullable<Text>,
+        created_at -> Timestamptz,
+        completed_at -> Nullable<Timestamptz>,
+        expires_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
     workspace_ldap_settings (workspace_id) {
         workspace_id -> Int4,
         enabled -> Bool,
@@ -2445,6 +2461,7 @@ diesel::joinable!(working_calendar_holidays -> workspaces (workspace_id));
 diesel::joinable!(working_calendars -> users (created_by));
 diesel::joinable!(working_calendars -> workspaces (workspace_id));
 diesel::joinable!(workspace_email_settings -> workspaces (workspace_id));
+diesel::joinable!(workspace_export_jobs -> workspaces (workspace_id));
 diesel::joinable!(workspace_ldap_settings -> workspaces (workspace_id));
 diesel::joinable!(workspace_ldap_sync_state -> workspaces (workspace_id));
 diesel::joinable!(workspace_members -> users (user_uuid));
@@ -2569,6 +2586,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     working_calendar_holidays,
     working_calendars,
     workspace_email_settings,
+    workspace_export_jobs,
     workspace_ldap_settings,
     workspace_ldap_sync_state,
     workspace_members,
