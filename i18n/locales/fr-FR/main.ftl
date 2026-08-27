@@ -6688,3 +6688,22 @@ editor-image-upload-anchor-lost-detail = { $name } a bien été téléversé, ma
 editor-revision-view-aria = Révision { $revision } affichée, lecture seule
 editor-revision-viewing-label = Révision { $revision } affichée
 editor-revision-back-to-current = Revenir à la version actuelle
+
+# Settings: workspace data export (WorkspaceDataExportCard). Machine-translated, pending native review.
+settings-export-title = Exporter les données de l'espace de travail
+settings-export-description = Téléchargez une archive complète des données de cet espace de travail : tickets, commentaires, pièces jointes, contacts, et plus encore. Utile avant de fermer le compte ou pour vos propres archives.
+settings-export-action = Demander un export
+settings-export-action-new = Demander un nouvel export
+settings-export-preparing = Préparation…
+settings-export-password-label = Mot de passe (facultatif)
+settings-export-password-hint = Chiffrez l'archive avec un mot de passe. Vous en aurez besoin pour ouvrir le fichier.
+settings-export-status-processing = Préparation de votre export. Cela peut prendre quelques minutes pour un espace de travail volumineux.
+settings-export-status-ready = Votre export est prêt.
+settings-export-status-ready-until = Disponible jusqu'au { $date }.
+settings-export-download = Télécharger
+settings-export-status-expired = Votre dernier export a expiré. Demandez-en un nouveau.
+settings-export-status-failed = L'export n'a pas pu être terminé. Veuillez réessayer.
+settings-export-rate-limited = Vous pouvez demander un export par jour. Veuillez réessayer plus tard.
+settings-export-in-progress = Un export est déjà en cours.
+settings-export-success = Votre export est prêt à être téléchargé.
+settings-export-error = Impossible de démarrer l'export. Veuillez réessayer.

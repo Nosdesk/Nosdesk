@@ -41,6 +41,7 @@ const MIN_HOURS_BETWEEN_EXPORTS: i64 = 24;
 
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.route("/workspace/export", web::post().to(request_export))
+        .route("/workspace/export", web::get().to(list_latest_export))
         .route("/workspace/export/{id}", web::get().to(get_export_status))
         .route(
             "/workspace/export/{id}/download",
@@ -129,6 +130,24 @@ pub async fn request_export(
     });
 
     HttpResponse::Accepted().json(job_view(&job))
+}
+
+/// GET /api/workspace/export — the workspace's most recent export (or `null`),
+/// so the UI can resume an in-flight export or offer a ready download after a
+/// reload. Owner-only.
+pub async fn list_latest_export(
+    mut tc: TenantConn,
+    ws: WorkspaceContext,
+    req: HttpRequest,
+) -> impl Responder {
+    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Owner) {
+        return resp;
+    }
+    match tc.run(|conn| export_repo::latest_for_workspace(conn, ws.workspace_id)) {
+        Ok(Some(job)) => HttpResponse::Ok().json(job_view(&job)),
+        Ok(None) => HttpResponse::Ok().json(serde_json::Value::Null),
+        Err(e) => errors::internal(format!("latest export: {e}")),
+    }
 }
 
 /// GET /api/workspace/export/{id} — poll job status. Owner-only, workspace-scoped.

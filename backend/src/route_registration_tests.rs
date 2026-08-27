@@ -37,6 +37,7 @@ async fn workspace_data_export_config_routes_registered() {
         crate::handlers::workspace_data_export::config,
         &[
             ("POST", "/workspace/export"),
+            ("GET", "/workspace/export"),
             ("GET", "/workspace/export/{id}"),
             ("GET", "/workspace/export/{id}/download"),
         ],

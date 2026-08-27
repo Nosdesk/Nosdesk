@@ -6765,3 +6765,22 @@ editor-image-upload-anchor-lost-detail = { $name } uploaded, but the spot you pa
 editor-revision-view-aria = Viewing revision { $revision }, read only
 editor-revision-viewing-label = Viewing revision { $revision }
 editor-revision-back-to-current = Back to current version
+
+# Settings: workspace data export (WorkspaceDataExportCard).
+settings-export-title = Export workspace data
+settings-export-description = Download a complete archive of this workspace's data: tickets, comments, attachments, contacts, and more. Useful before closing the account, or for your own records.
+settings-export-action = Request export
+settings-export-action-new = Request new export
+settings-export-preparing = Preparing…
+settings-export-password-label = Password (optional)
+settings-export-password-hint = Encrypt the archive with a password. You will need it to open the file.
+settings-export-status-processing = Preparing your export. This can take a few minutes for a large workspace.
+settings-export-status-ready = Your export is ready.
+settings-export-status-ready-until = Available until { $date }.
+settings-export-download = Download
+settings-export-status-expired = Your last export has expired. Request a new one.
+settings-export-status-failed = The export could not be completed. Please try again.
+settings-export-rate-limited = You can request one export per day. Please try again later.
+settings-export-in-progress = An export is already in progress.
+settings-export-success = Your export is ready to download.
+settings-export-error = Could not start the export. Please try again.

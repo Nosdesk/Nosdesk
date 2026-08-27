@@ -6680,3 +6680,22 @@ editor-image-upload-anchor-lost-detail = { $name } is geüpload, maar de plek wa
 editor-revision-view-aria = Revisie { $revision } wordt getoond, alleen-lezen
 editor-revision-viewing-label = Revisie { $revision } wordt getoond
 editor-revision-back-to-current = Terug naar huidige versie
+
+# Settings: workspace data export (WorkspaceDataExportCard). Machine-translated, pending native review.
+settings-export-title = Werkruimtegegevens exporteren
+settings-export-description = Download een volledig archief van de gegevens van deze werkruimte: tickets, reacties, bijlagen, contacten en meer. Handig voordat je het account sluit of voor je eigen administratie.
+settings-export-action = Export aanvragen
+settings-export-action-new = Nieuwe export aanvragen
+settings-export-preparing = Voorbereiden…
+settings-export-password-label = Wachtwoord (optioneel)
+settings-export-password-hint = Versleutel het archief met een wachtwoord. Je hebt het nodig om het bestand te openen.
+settings-export-status-processing = Je export wordt voorbereid. Dit kan enkele minuten duren voor een grote werkruimte.
+settings-export-status-ready = Je export is klaar.
+settings-export-status-ready-until = Beschikbaar tot { $date }.
+settings-export-download = Downloaden
+settings-export-status-expired = Je laatste export is verlopen. Vraag een nieuwe aan.
+settings-export-status-failed = De export kon niet worden voltooid. Probeer het opnieuw.
+settings-export-rate-limited = Je kunt één export per dag aanvragen. Probeer het later opnieuw.
+settings-export-in-progress = Er is al een export bezig.
+settings-export-success = Je export is klaar om te downloaden.
+settings-export-error = Kan de export niet starten. Probeer het opnieuw.

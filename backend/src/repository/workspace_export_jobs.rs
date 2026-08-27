@@ -45,6 +45,19 @@ pub fn has_active(conn: &mut DbConnection, workspace_id: i32) -> QueryResult<boo
     .get_result(conn)
 }
 
+/// The most recent export job for a workspace (any status), so the UI can show
+/// an in-flight or ready export after a reload rather than losing track of it.
+pub fn latest_for_workspace(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+) -> QueryResult<Option<WorkspaceExportJob>> {
+    workspace_export_jobs::table
+        .filter(workspace_export_jobs::workspace_id.eq(workspace_id))
+        .order(workspace_export_jobs::created_at.desc())
+        .first(conn)
+        .optional()
+}
+
 /// The most recent completed export's `created_at` (drives the per-day limit).
 pub fn last_completed_at(
     conn: &mut DbConnection,
