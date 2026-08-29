@@ -18,7 +18,7 @@
   "devDependencies": {
     "@nosdesk/core": "workspace:*",
     "@vue/tsconfig": "^0.9.0",
-    "eslint": "^10.8.1",
+    "eslint": "^10.9.0",
     "typescript": "^6.0.0",
     "typescript-eslint": "^8.67.0"
   }
