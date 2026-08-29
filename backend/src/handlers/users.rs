@@ -843,6 +843,18 @@ pub async fn create_user(
             Err(resp) => return resp,
         };
 
+    // In hosted mode, user identity is owned by the control plane. Creating a
+    // local user here mints an account that can never sign in (no control-plane
+    // identity, and hosted local login is disabled), so refuse rather than
+    // strand a member, and direct admins to the control-plane seat invite.
+    // Self-hosted keeps the local creation flow below.
+    if !crate::middleware::workspace_context::local_credentials_permitted() {
+        return errors::forbidden(
+            "In hosted deployments, members are added from the Nosdesk control plane \
+             (Instances -> Seats). Direct user creation is only available in self-hosted mode.",
+        );
+    }
+
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
         Err(e) => return e,
