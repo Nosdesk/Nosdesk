@@ -8,7 +8,7 @@ import { extractErrorMessage } from '@/utils/errors';
 import Spinner from '@/components/common/Spinner.vue';
 import Button from '@/components/common/Button.vue';
 import FormInput from '@/components/common/FormInput.vue';
-import Icon from '@/components/common/Icon.vue';
+import StatusPill from '@/components/common/StatusPill.vue';
 import EmptyState from '@/components/common/EmptyState.vue';
 
 const fluent = useFluent();
@@ -134,7 +134,7 @@ watch(() => props.userUuid, () => {
 </script>
 
 <template>
-  <SectionCard content-padding="p-4 sm:p-6">
+  <SectionCard content-padding="">
     <template #title>{{ $t('settings-emails-section-title') }}</template>
     <template #headerActions>
       <Button
@@ -148,10 +148,10 @@ watch(() => props.userUuid, () => {
     </template>
 
     <!-- Add email form. Sits above the list while open, framed as an
-         input zone so it reads as distinct from the existing rows. -->
+         input zone so it reads as distinct from the flush row list. -->
     <div
       v-if="showAddForm && canEdit"
-      class="mb-3 p-3 bg-surface-alt rounded-lg border border-subtle flex flex-col sm:flex-row gap-2"
+      class="mx-4 my-4 p-3 bg-surface-alt rounded-lg border border-subtle flex flex-col sm:flex-row gap-2"
     >
       <FormInput
         v-model="newEmailAddress"
@@ -176,58 +176,48 @@ watch(() => props.userUuid, () => {
     </div>
 
     <!-- Empty state -->
-    <EmptyState
-      v-else-if="userEmails.length === 0"
-      icon="inbox"
-      variant="card"
-      :title="$t('settings-emails-empty')"
-      :action-label="canEdit && !showAddForm ? $t('settings-emails-add-button') : undefined"
-      @action="showAddForm = true"
-    />
+    <div v-else-if="userEmails.length === 0" class="p-4">
+      <EmptyState
+        icon="inbox"
+        variant="card"
+        :title="$t('settings-emails-empty')"
+        :action-label="canEdit && !showAddForm ? $t('settings-emails-add-button') : undefined"
+        @action="showAddForm = true"
+      />
+    </div>
 
-    <!-- Email list -->
-    <div v-else class="flex flex-col gap-2">
-      <div
+    <!-- Email list. Dense divider rows in the app's canonical list
+         vocabulary (mirrors TicketRow / MyAssetsWidget). -->
+    <ul v-else class="divide-y divide-default">
+      <li
         v-for="email in userEmails"
         :key="email.id"
-        class="flex flex-col sm:flex-row sm:items-start gap-3 p-3 bg-surface-alt rounded-lg"
+        class="flex flex-col gap-2 px-4 py-2.5 sm:flex-row sm:items-center sm:gap-3"
       >
-        <!-- Identity: envelope tile + address + metadata -->
-        <div class="flex items-center gap-3 min-w-0 flex-1">
-          <div class="w-10 h-10 rounded-lg bg-surface-hover flex items-center justify-center shrink-0">
-            <Icon name="email" size="md" class="text-secondary" />
+        <!-- Address + metadata -->
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-2 min-w-0">
+            <span class="text-sm text-primary truncate">{{ email.email }}</span>
+            <StatusPill
+              v-if="email.is_primary"
+              :label="$t('settings-emails-primary-badge')"
+              tone="accent"
+              :dot="false"
+              class="flex-shrink-0"
+            />
           </div>
-          <div class="min-w-0">
-            <div class="flex items-center gap-2 flex-wrap">
-              <span class="text-sm font-medium text-primary truncate">{{ email.email }}</span>
-              <span
-                v-if="email.is_primary"
-                class="px-2 py-0.5 rounded-full text-xs font-medium bg-accent/20 text-accent shrink-0"
-              >
-                {{ $t('settings-emails-primary-badge') }}
-              </span>
-            </div>
-            <div class="flex items-center gap-1.5 text-xs text-tertiary mt-0.5">
-              <span class="capitalize">{{ email.email_type || $t('settings-emails-type-personal') }}</span>
-              <template v-if="email.source">
-                <span class="text-border-default">&middot;</span>
-                <span class="capitalize">{{ email.source }}</span>
-              </template>
-            </div>
+          <div class="mt-0.5 text-[11px] text-tertiary truncate">
+            <span class="capitalize">{{ email.email_type || $t('settings-emails-type-personal') }}</span>
+            <template v-if="email.source"> &middot; <span class="capitalize">{{ email.source }}</span></template>
           </div>
         </div>
 
         <!-- Verification status + row actions -->
-        <div class="flex items-center gap-2 flex-wrap sm:justify-end shrink-0 pl-13 sm:pl-0">
-          <span
-            class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
-            :class="email.is_verified
-              ? 'bg-status-success/20 text-status-success'
-              : 'bg-status-warning/20 text-status-warning'"
-          >
-            <Icon :name="email.is_verified ? 'checkCircle' : 'warning'" size="xs" />
-            {{ email.is_verified ? $t('settings-emails-verified-badge') : $t('settings-emails-unverified-badge') }}
-          </span>
+        <div class="flex items-center gap-2 flex-wrap flex-shrink-0 sm:justify-end">
+          <StatusPill
+            :label="email.is_verified ? $t('settings-emails-verified-badge') : $t('settings-emails-unverified-badge')"
+            :tone="email.is_verified ? 'positive' : 'caution'"
+          />
 
           <template v-if="canEdit && email.id !== 0 && !email.is_primary">
             <Button variant="secondary" size="sm" @click="setAsPrimary(email.id, email.email)">
@@ -243,8 +233,8 @@ watch(() => props.userUuid, () => {
             </Button>
           </template>
         </div>
-      </div>
-    </div>
+      </li>
+    </ul>
 
     <ConfirmModal
       :show="pendingDeleteEmail !== null"
