@@ -138,7 +138,7 @@ rsa = "0.9"
 # SHA-256 digest for `rsa`'s PKCS#1 v1.5 signature verification (the SNS
 # message-signature check on the inbound-email webhook). RustCrypto, pairs
 # directly with the `rsa` crate's VerifyingKey<Sha256>.
-sha2 = "0.10"
+sha2 = "0.11"
 # X.509 parser, used only to pull the RSA public key (SubjectPublicKeyInfo) out
 # of AWS's SNS signing certificate so we can verify the SNS message signature
 # on the inbound-email webhook. Narrow, read-only use; not a TLS trust path.
