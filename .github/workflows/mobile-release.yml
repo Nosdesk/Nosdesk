@@ -91,12 +91,15 @@ jobs:
         with:
           workspaces: mobile/src-tauri -> target
 
-      - name: Select JDK 17 and pin the NDK
+      - name: Select JDK 17 and the preinstalled NDK
         run: |
           echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
           echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
-          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "ndk;30.0.14904198"
-          echo "NDK_HOME=$ANDROID_SDK_ROOT/ndk/30.0.14904198" >> "$GITHUB_ENV"
+          # Use the runner's preinstalled stable NDK (targetSdk 36 needs r27+,
+          # which it ships). Installing the local 30.x preview needs a canary
+          # channel + license and fails to provision cleanly here.
+          echo "NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+          echo "using NDK at $ANDROID_NDK_LATEST_HOME"
 
       - name: Install JS deps + build workspace prerequisites
         run: |
