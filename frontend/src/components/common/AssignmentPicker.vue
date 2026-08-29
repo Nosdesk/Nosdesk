@@ -24,6 +24,7 @@ import {
 } from 'reka-ui'
 import { useAssignmentPickerQueries } from '@/composables/useAssignmentPickerQueries'
 import Icon from '@/components/common/Icon.vue'
+import UserAvatar from '@/components/UserAvatar.vue'
 
 const { $t } = useFluent()
 // Reka's group reads its label id once, before the label mounts, so
@@ -184,15 +185,14 @@ const rowClass =
                   :text-value="user.name"
                   :class="rowClass"
                 >
-                  <div class="w-5 h-5 rounded-full bg-accent/20 flex items-center justify-center flex-shrink-0 overflow-hidden">
-                    <img
-                      v-if="user.avatar_url"
-                      :src="user.avatar_url"
-                      :alt="user.name"
-                      class="w-full h-full object-cover"
-                    />
-                    <span v-else class="text-3xs font-medium text-accent">{{ user.name.charAt(0).toUpperCase() }}</span>
-                  </div>
+                  <UserAvatar
+                    size="xs"
+                    :fallback-name="user.name"
+                    :fallback-avatar="user.avatar_url"
+                    :show-name="false"
+                    :clickable="false"
+                    class="flex-shrink-0"
+                  />
                   <div class="flex-1 min-w-0">
                     <div class="text-sm text-primary truncate">{{ user.name }}</div>
                     <div class="text-2xs text-tertiary truncate">{{ user.email }}</div>
