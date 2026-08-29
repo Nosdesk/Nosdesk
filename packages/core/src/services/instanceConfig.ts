@@ -19,6 +19,8 @@ interface InstanceConfig {
   workspace_routing: WorkspaceRouting;
   deployment_mode: DeploymentMode;
   inbound_forwarding_enabled: boolean;
+  /** Control-plane dashboard base URL (hosted mode); '' when unset. */
+  control_plane_url: string;
 }
 
 // Default 'host': the subdomain / self-hosted model every current deployment
@@ -36,6 +38,11 @@ let deploymentMode: DeploymentMode = 'self_hosted';
 // domain (the hosted SES-receiving path), absent on self-host. The admin UI
 // hides the forwarding channel type until the config confirms it's available.
 let inboundForwardingEnabled = false;
+
+// Control-plane dashboard base URL, hosted mode only. Empty by default and
+// until the config resolves; the hosted "add member" hand-off renders its link
+// only when this is non-empty (unset -> a plain explainer, never a dead form).
+let controlPlaneUrl = '';
 
 // Memoised so bootstrap and the router guard share one fetch. The guard awaits
 // this before reading the routing mode, so a cold load (hard refresh, deep link)
@@ -70,6 +77,9 @@ export function fetchInstanceConfig(): Promise<void> {
         if (typeof data?.inbound_forwarding_enabled === 'boolean') {
           inboundForwardingEnabled = data.inbound_forwarding_enabled;
         }
+        if (typeof data?.control_plane_url === 'string') {
+          controlPlaneUrl = data.control_plane_url;
+        }
         configResolved.value = true;
       } catch (e) {
         logger.error('Failed to fetch instance config; will retry on next call', e);
@@ -98,6 +108,7 @@ export function resetInstanceConfig(): void {
   workspaceRouting = 'host';
   deploymentMode = 'self_hosted';
   inboundForwardingEnabled = false;
+  controlPlaneUrl = '';
 }
 
 /** Reactive: `true` once {@link fetchInstanceConfig} has settled (success or
@@ -123,4 +134,10 @@ export function isHostedDeployment(): boolean {
 /** True when forwarding-based inbound email is available on this instance. */
 export function isInboundForwardingEnabled(): boolean {
   return inboundForwardingEnabled;
+}
+
+/** Control-plane dashboard base URL (hosted mode); '' when unset. Consumers
+ *  render a hand-off link only when non-empty. */
+export function getControlPlaneUrl(): string {
+  return controlPlaneUrl;
 }

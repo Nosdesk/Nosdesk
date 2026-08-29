@@ -36,9 +36,14 @@ pub async fn get_public_config() -> impl Responder {
     let inbound_forwarding_enabled = std::env::var("NOSDESK_INBOUND_DOMAIN")
         .map(|s| !s.is_empty())
         .unwrap_or(false);
+    // The control-plane dashboard base URL (hosted mode), where members are
+    // added and managed (Instances -> Seats). Empty when unset; the SPA renders
+    // the in-app "add member" hand-off link only when this is present.
+    let control_plane_url = std::env::var("CONTROL_PLANE_URL").unwrap_or_default();
     HttpResponse::Ok().json(json!({
         "workspace_routing": workspace_routing,
         "deployment_mode": deployment_mode,
         "inbound_forwarding_enabled": inbound_forwarding_enabled,
+        "control_plane_url": control_plane_url,
     }))
 }

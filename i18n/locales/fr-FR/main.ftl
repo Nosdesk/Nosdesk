@@ -2248,6 +2248,8 @@ user-mgmt-deleted-badge = Supprimé
 user-mgmt-deleted-purges-on = Suppression définitive le { $date }
 user-mgmt-restore = Restaurer l'utilisateur
 user-mgmt-restored = { $name } restauré
+# Traduction automatique, en attente de relecture par un locuteur natif.
+user-mgmt-hosted-add-in-control-plane = Les membres sont ajoutés dans la console de gestion Nosdesk.
 user-mgmt-restore-error = Impossible de restaurer cet utilisateur.
 user-mgmt-purge-now = Supprimer définitivement
 user-mgmt-purged = { $name } supprimé définitivement
