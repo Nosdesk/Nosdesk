@@ -6,3 +6,4 @@ vendor/
 *.mobileprovision
 *.cer
 fastlane/report.xml
+src-tauri/tauri.ios.conf.json

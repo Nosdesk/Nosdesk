@@ -62,15 +62,21 @@ jobs:
       - name: Install XcodeGen (Tauri generates the Xcode project with it)
         run: brew install xcodegen
 
-      - name: Write App Store Connect API key (automatic provisioning)
+      - name: Write ASC API key + iOS team config
         env:
           ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           KEY_DIR="$HOME/.appstoreconnect/private_keys"
           mkdir -p "$KEY_DIR"
           echo "$ASC_KEY_CONTENT" | base64 --decode > "$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8"
           echo "APPLE_API_KEY_PATH=$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8" >> "$GITHUB_ENV"
+          # Tauri requires the signing team in config (env alone doesn't reach
+          # the export step). Injected here so it stays out of the repo; Tauri
+          # auto-merges tauri.ios.conf.json.
+          printf '{"bundle":{"iOS":{"developmentTeam":"%s"}}}\n' "$APPLE_TEAM_ID" \
+            > mobile/src-tauri/tauri.ios.conf.json
 
       - name: Build + upload to TestFlight
         working-directory: mobile
