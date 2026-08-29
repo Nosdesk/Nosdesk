@@ -72,6 +72,12 @@ jobs:
           printf '{"bundle":{"iOS":{"developmentTeam":"%s"}}}\n' "$APPLE_TEAM_ID" \
             > mobile/src-tauri/tauri.ios.conf.json
 
+      - name: Force manual code signing in the iOS project (CI only)
+        run: |
+          perl -0pi -e 's/CODE_SIGN_STYLE: Automatic/CODE_SIGN_STYLE: Manual\n        PROVISIONING_PROFILE_SPECIFIER: "Nosdesk App Store"\n        CODE_SIGN_IDENTITY: "Apple Distribution"/' \
+            mobile/src-tauri/gen/apple/project.yml
+          grep -nE "CODE_SIGN|PROVISIONING_PROFILE_SPECIFIER|DEVELOPMENT_TEAM" mobile/src-tauri/gen/apple/project.yml
+
       - name: Build + upload to TestFlight
         working-directory: mobile
         env:
