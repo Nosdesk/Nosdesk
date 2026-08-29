@@ -67,15 +67,17 @@ jobs:
       - name: Install XcodeGen (Tauri generates the Xcode project with it)
         run: brew install xcodegen
 
-      - name: Write iOS team config
+      - name: Write iOS build config (team + unique build version)
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          # Tauri needs the signing team in config (env alone doesn't reach the
-          # export step). Injected here so it stays out of the repo; Tauri
-          # auto-merges tauri.ios.conf.json.
+          # Signing team via the auto-merged override (stays out of the repo).
           printf '{"bundle":{"iOS":{"developmentTeam":"%s"}}}\n' "$APPLE_TEAM_ID" \
             > mobile/src-tauri/tauri.ios.conf.json
+          # CFBundleVersion must increase each upload, and Tauri derives it from
+          # the app version at build time (overwriting any Info.plist edit), so
+          # patch the version to a unique, increasing value (CI checkout only).
+          python3 -c "import json,os; p='mobile/src-tauri/tauri.conf.json'; c=json.load(open(p)); c['version']='0.1.'+os.environ['BUILD_NUMBER']; json.dump(c,open(p,'w'),indent=2); print('app version ->', c['version'])"
 
       - name: Force manual code signing in the iOS project (CI only)
         run: |
