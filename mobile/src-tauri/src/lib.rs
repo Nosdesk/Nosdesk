@@ -69,14 +69,8 @@ pub fn run() {
               // swipe-back paints when the previous view's snapshot surface has
               // been reclaimed (common on a heavy page). Without it that
               // fallback is hard-coded white; with it, an evicted preview
-              // degrades to the theme colour. Guarded for the iOS 14 floor.
-              let responds: bool = msg_send![
-                wk,
-                respondsToSelector: objc2::sel!(setUnderPageBackgroundColor:)
-              ];
-              if responds {
-                let _: () = msg_send![wk, setUnderPageBackgroundColor: color];
-              }
+              // degrades to the theme colour.
+              let _: () = msg_send![wk, setUnderPageBackgroundColor: color];
               let scroll: *mut AnyObject = msg_send![wk, scrollView];
               if !scroll.is_null() {
                 let _: () = msg_send![scroll, setBackgroundColor: color];
