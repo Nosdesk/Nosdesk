@@ -81,9 +81,11 @@ jobs:
       - name: Build + upload to TestFlight
         working-directory: mobile
         env:
-          # Distribution cert; Tauri imports it into a keychain.
+          # Distribution cert + matching App Store profile; with the profile
+          # installed Tauri signs the export manually (no cloud signing).
           IOS_CERTIFICATE: ${{ secrets.IOS_DIST_CERT_P12_BASE64 }}
           IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+          IOS_MOBILE_PROVISION: ${{ secrets.IOS_PROFILE_BASE64 }}
           APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
           # Automatic provisioning via the API key (mints/updates the profile,
           # incl. Push). APPLE_API_KEY_PATH is set by the previous step.
