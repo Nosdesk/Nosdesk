@@ -215,10 +215,14 @@ const listView = useListView({
   pinnedColumnIds: ['user'],
 })
 
-// The deleted-users view is a platform-admin-only recovery surface
-// (matching who can restore/purge). The backend independently forces the
-// active filter for non-admins, so hiding the tab is the UI half of that
-// gate, not the enforcement.
+// Platform-admin gate for the account-lifecycle surfaces. Every user
+// mutation the backend exposes (bulk delete / set-role, single delete,
+// restore, purge) requires platform_admin, so a workspace admin who
+// isn't one would only hit "permission denied". We hide those
+// affordances rather than let them error: the deleted-users tab (its
+// restore/purge live there) and, via `selectable` on the table below,
+// row selection itself, which is only ever used to reach the bulk
+// actions. This is the UI half of the gate, not the enforcement.
 const isPlatformAdmin = computed(() => auth.user?.platform_role === 'platform_admin')
 
 // Active vs Deleted view. The "deleted" filter lives in the list-view
@@ -389,6 +393,7 @@ function formatPurgeAt(deletedAt: string): string {
           :data="items"
           :buckets="listView.buckets.value"
           :is-collapsed="listView.grouping.isCollapsed"
+          :selectable="isPlatformAdmin"
           :selected-items="listView.dt.selectedItems"
           item-id-field="uuid"
           :sort-field="listView.controls.sortField.value"
