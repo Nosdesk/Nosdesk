@@ -1,0 +1,105 @@
+# Fastlane pipeline for the Nosdesk Tauri mobile app.
+#
+# Division of labour: Tauri owns the build (frontend + Rust + native shell),
+# Fastlane owns signing and store upload. iOS signing uses `match` (certs in a
+# private git repo); Android signing uses a keystore written from a CI secret,
+# consumed by the release signingConfig in app/build.gradle.kts.
+#
+# The app selects its server at runtime, so one build serves any environment.
+# All paths are relative to `mobile/` (where fastlane runs).
+
+APP_ID          = ENV.fetch("APP_IDENTIFIER", "com.nosdesk.app")
+APPLE_PROJECT   = "src-tauri/gen/apple/#{ENV.fetch('APPLE_PROJECT_NAME', 'Nosdesk')}.xcodeproj"
+APPLE_INFO_PLIST = "src-tauri/gen/apple/app_iOS/Info.plist"
+IPA_PATH        = "src-tauri/gen/apple/build/arm64/#{ENV.fetch('APPLE_PROJECT_NAME', 'Nosdesk')}.ipa"
+AAB_PATH        = "src-tauri/gen/android/app/build/outputs/bundle/universalRelease/app-universal-release.aab"
+
+# Monotonic build number so re-uploads of the same marketing version never
+# collide on either store. CI passes github.run_number; local runs get 1.
+def build_number
+  ENV["BUILD_NUMBER"] || "1"
+end
+
+# Run the Tauri CLI through the workspace's pinned pnpm.
+def tauri(*args)
+  sh("pnpm", "tauri", *args)
+end
+
+platform :ios do
+  desc "Build and upload an iOS build to TestFlight"
+  lane :beta do
+    setup_ci # ephemeral keychain on hosted runners; a no-op locally
+
+    api_key = app_store_connect_api_key(
+      key_id: ENV.fetch("ASC_KEY_ID"),
+      issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+      key_content: ENV.fetch("ASC_KEY_CONTENT"), # base64 of the .p8
+      is_key_content_base64: true,
+    )
+
+    # Installs the distribution cert + appstore profile into the keychain.
+    match(type: "appstore", readonly: true, api_key: api_key)
+
+    # Stamp the build number before Tauri drives xcodebuild.
+    set_info_plist_value(path: APPLE_INFO_PLIST, key: "CFBundleVersion", value: build_number)
+
+    # Force manual signing with the profile match just installed, so Tauri's
+    # xcodebuild picks it up headlessly. match exports the profile name under
+    # this env key.
+    profile_name = ENV["sigh_#{APP_ID}_appstore_profile-name"]
+    update_code_signing_settings(
+      path: APPLE_PROJECT,
+      use_automatic_signing: false,
+      team_id: ENV.fetch("APPLE_TEAM_ID"),
+      code_sign_identity: "Apple Distribution",
+      profile_name: profile_name,
+    )
+
+    tauri("ios", "build", "--export-method", "app-store-connect")
+
+    upload_to_testflight(
+      api_key: api_key,
+      ipa: IPA_PATH,
+      skip_waiting_for_build_processing: true,
+    )
+  end
+
+  desc "Promote the latest TestFlight build to App Store review"
+  lane :release do
+    # First submission is done by hand in App Store Connect (listing, privacy,
+    # screenshots). Once the listing exists this can call deliver(...).
+    UI.message("Submit/promote in App Store Connect, or wire deliver() here.")
+  end
+end
+
+platform :android do
+  desc "Build and upload an Android build to the Play internal track"
+  lane :beta do
+    tauri("android", "build", "--aab")
+    upload_to_play_store(
+      track: "internal",
+      aab: AAB_PATH,
+      json_key: ENV.fetch("PLAY_JSON_KEY_PATH"),
+      release_status: "draft",
+      skip_upload_metadata: true,
+      skip_upload_changelogs: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+    )
+  end
+
+  desc "Promote the Play internal track to production"
+  lane :promote do
+    upload_to_play_store(
+      track: "internal",
+      track_promote_to: "production",
+      json_key: ENV.fetch("PLAY_JSON_KEY_PATH"),
+      skip_upload_apk: true,
+      skip_upload_aab: true,
+      skip_upload_metadata: true,
+      skip_upload_changelogs: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+    )
+  end
+end

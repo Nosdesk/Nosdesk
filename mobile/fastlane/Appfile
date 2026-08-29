@@ -1,0 +1,12 @@
+# App identifiers. Everything sensitive comes from the environment so nothing
+# is committed. See fastlane/README.md for the full variable list.
+
+app_identifier(ENV.fetch("APP_IDENTIFIER", "com.nosdesk.app"))
+
+# iOS / App Store Connect
+apple_id(ENV["APPLE_ID"]) if ENV["APPLE_ID"]
+team_id(ENV["APPLE_TEAM_ID"]) if ENV["APPLE_TEAM_ID"]
+itc_team_id(ENV["ITC_TEAM_ID"]) if ENV["ITC_TEAM_ID"]
+
+# Android / Google Play
+package_name(ENV.fetch("APP_IDENTIFIER", "com.nosdesk.app"))

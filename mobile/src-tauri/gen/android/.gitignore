@@ -18,3 +18,8 @@ keystore.properties
 
 /.tauri
 /tauri.settings.gradle
+# Release signing material written from CI secrets (never commit).
+app/keystore.properties
+*.jks
+*.keystore
+app/google-services.json

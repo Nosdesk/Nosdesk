@@ -1,0 +1,5 @@
+source "https://rubygems.org"
+
+# Mobile store automation (build signing + TestFlight / Play upload).
+# Run lanes with `bundle exec fastlane <platform> <lane>` from `mobile/`.
+gem "fastlane"
