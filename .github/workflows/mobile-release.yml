@@ -62,18 +62,12 @@ jobs:
       - name: Install XcodeGen (Tauri generates the Xcode project with it)
         run: brew install xcodegen
 
-      - name: Write ASC API key + iOS team config
+      - name: Write iOS team config
         env:
-          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          KEY_DIR="$HOME/.appstoreconnect/private_keys"
-          mkdir -p "$KEY_DIR"
-          echo "$ASC_KEY_CONTENT" | base64 --decode > "$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8"
-          echo "APPLE_API_KEY_PATH=$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8" >> "$GITHUB_ENV"
-          # Tauri requires the signing team in config (env alone doesn't reach
-          # the export step). Injected here so it stays out of the repo; Tauri
+          # Tauri needs the signing team in config (env alone doesn't reach the
+          # export step). Injected here so it stays out of the repo; Tauri
           # auto-merges tauri.ios.conf.json.
           printf '{"bundle":{"iOS":{"developmentTeam":"%s"}}}\n' "$APPLE_TEAM_ID" \
             > mobile/src-tauri/tauri.ios.conf.json
@@ -81,17 +75,15 @@ jobs:
       - name: Build + upload to TestFlight
         working-directory: mobile
         env:
-          # Distribution cert + matching App Store profile; with the profile
-          # installed Tauri signs the export manually (no cloud signing).
+          # Manual signing only: cert + matching App Store profile + team. The
+          # APPLE_API_* vars are deliberately absent — their presence makes Tauri
+          # pick automatic/cloud signing (which needs an Admin key); without them
+          # it signs the export manually with the profile below.
           IOS_CERTIFICATE: ${{ secrets.IOS_DIST_CERT_P12_BASE64 }}
           IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
           IOS_MOBILE_PROVISION: ${{ secrets.IOS_PROFILE_BASE64 }}
           APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
-          # Automatic provisioning via the API key (mints/updates the profile,
-          # incl. Push). APPLE_API_KEY_PATH is set by the previous step.
-          APPLE_API_ISSUER: ${{ secrets.ASC_ISSUER_ID }}
-          APPLE_API_KEY: ${{ secrets.ASC_KEY_ID }}
-          # ASC key for the TestFlight upload (fastlane).
+          # ASC key for the TestFlight upload only (fastlane), not for signing.
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
