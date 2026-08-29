@@ -37,22 +37,29 @@ platform :ios do
       is_key_content_base64: true,
     )
 
-    # Installs the distribution cert + appstore profile into the keychain.
-    match(type: "appstore", readonly: true, api_key: api_key)
+    # Distribution cert (.p12) + App Store profile come from CI secrets, which
+    # the workflow decodes to files. Import them so Tauri's xcodebuild can sign
+    # headlessly. setup_ci exposes the temp keychain via MATCH_KEYCHAIN_NAME.
+    import_certificate(
+      certificate_path: ENV.fetch("IOS_DIST_CERT_P12"),
+      certificate_password: ENV.fetch("IOS_DIST_CERT_PASSWORD"),
+      keychain_name: ENV.fetch("MATCH_KEYCHAIN_NAME", "fastlane_tmp_keychain"),
+      keychain_password: ENV.fetch("MATCH_KEYCHAIN_PASSWORD", ""),
+    )
+    install_provisioning_profile(path: ENV.fetch("IOS_PROFILE_PATH"))
 
     # Stamp the build number before Tauri drives xcodebuild.
     set_info_plist_value(path: APPLE_INFO_PLIST, key: "CFBundleVersion", value: build_number)
 
-    # Force manual signing with the profile match just installed, so Tauri's
-    # xcodebuild picks it up headlessly. match exports the profile name under
-    # this env key.
-    profile_name = ENV["sigh_#{APP_ID}_appstore_profile-name"]
+    # Force manual signing with the imported profile so Tauri's xcodebuild
+    # picks it up headlessly. The name is fixed at generation time (see the
+    # signing setup in fastlane/README.md).
     update_code_signing_settings(
       path: APPLE_PROJECT,
       use_automatic_signing: false,
       team_id: ENV.fetch("APPLE_TEAM_ID"),
       code_sign_identity: "Apple Distribution",
-      profile_name: profile_name,
+      profile_name: "Nosdesk App Store",
     )
 
     tauri("ios", "build", "--export-method", "app-store-connect")

@@ -5,7 +5,8 @@ CI is `.github/workflows/mobile-release.yml` (manual dispatch: pick `both`,
 `ios`, or `android`). The app picks its server at runtime, so one build serves
 staging and production.
 
-- **iOS** -> TestFlight (`fastlane ios beta`), signed with `match`.
+- **iOS** -> TestFlight (`fastlane ios beta`), signed with a distribution cert
+  + App Store profile imported from CI secrets (no `match`).
 - **Android** -> Play internal track (`fastlane android beta`), signed with an
   upload keystore. `fastlane android promote` moves internal -> production.
 
@@ -21,13 +22,16 @@ Build numbers come from `github.run_number` (env `BUILD_NUMBER` /
 2. **Google Play Console** ($25 once); create the app for `com.nosdesk.app`,
    enroll in **Play App Signing** with a dedicated *upload* key, and upload the
    first AAB by hand (the API can't create the app). After that `supply` works.
-3. **iOS signing (match), once, locally:** create a private git repo for the
-   certs, then from `mobile/`:
+3. **iOS signing, generated once via the API key** (no git repo). With a working
+   Ruby + `bundle install` under `mobile/`:
    ```sh
-   MATCH_GIT_URL=<repo> bundle exec fastlane match appstore
+   bundle exec fastlane cert --api_key_path <asc_key.json> --output_path ~/dev/nosdesk-signing --development false
+   bundle exec fastlane sigh --api_key_path <asc_key.json> --app_identifier com.nosdesk.app \
+     --provisioning_name "Nosdesk App Store" --cert_id <ID> --output_path ~/dev/nosdesk-signing
    ```
-   Give CI read access to that repo (a deploy key, or a PAT via
-   `MATCH_GIT_BASIC_AUTHORIZATION`).
+   Re-export the `.p12` with a password (`security export`), then base64 the
+   `.p12` + `.mobileprovision` into the secrets below. The cert/profile/`.p8`
+   live in `~/dev/nosdesk-signing` (back up).
 4. **Play service account:** in Google Cloud, a service account with the Play
    Developer API enabled, granted release permissions in the Play Console.
    Download its JSON key.
@@ -35,11 +39,12 @@ Build numbers come from `github.run_number` (env `BUILD_NUMBER` /
 ## GitHub secrets
 
 iOS:
-- `APPLE_ID`, `APPLE_TEAM_ID`, `ITC_TEAM_ID`
+- `APPLE_TEAM_ID`
 - `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_CONTENT` (base64 of the App Store
   Connect API `.p8`)
-- `MATCH_GIT_URL`, `MATCH_PASSWORD`, and either a deploy key or
-  `MATCH_GIT_BASIC_AUTHORIZATION` (base64 `user:token`)
+- `IOS_DIST_CERT_P12_BASE64` (base64 of the distribution `.p12`),
+  `IOS_DIST_CERT_PASSWORD`, `IOS_PROFILE_BASE64` (base64 of the App Store
+  `.mobileprovision`)
 
 Android:
 - `ANDROID_KEYSTORE_BASE64` (base64 of the upload `.jks`),
@@ -73,9 +78,8 @@ gitignored).
 
 Two legs need real accounts and will likely need one round of iteration:
 
-- the **iOS match -> Tauri xcodebuild signing handshake** (the CI runner's Xcode
-  version and the exact match profile name plumbed into
-  `update_code_signing_settings`), and
+- the **iOS signing -> Tauri xcodebuild handshake** (the CI runner's Xcode
+  version and the export step picking up the imported cert/profile), and
 - the **TestFlight / Play uploads** themselves.
 
 Everything else (frontend + Rust + native build, the Android signingConfig, the

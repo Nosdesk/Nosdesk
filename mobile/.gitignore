@@ -1,0 +1,8 @@
+
+# fastlane local install + never-commit signing material
+vendor/
+.bundle/
+*.p12
+*.mobileprovision
+*.cer
+fastlane/report.xml
