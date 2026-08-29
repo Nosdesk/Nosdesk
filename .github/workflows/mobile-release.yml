@@ -52,9 +52,12 @@ jobs:
           pnpm --filter @nosdesk/plugin-runtime run build
           pnpm --filter @nosdesk/core run build:slots
 
-      - name: Install fastlane
-        working-directory: mobile
-        run: bundle install
+      - name: Set up Ruby + fastlane
+        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+          working-directory: mobile
 
       - name: Build + upload to TestFlight
         working-directory: mobile
@@ -126,9 +129,12 @@ jobs:
           echo "$PLAY_JSON_KEY_BASE64" | base64 --decode > "$RUNNER_TEMP/play-key.json"
           echo "PLAY_JSON_KEY_PATH=$RUNNER_TEMP/play-key.json" >> "$GITHUB_ENV"
 
-      - name: Install fastlane
-        working-directory: mobile
-        run: bundle install
+      - name: Set up Ruby + fastlane
+        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+          working-directory: mobile
 
       - name: Build + upload to Play internal
         working-directory: mobile
