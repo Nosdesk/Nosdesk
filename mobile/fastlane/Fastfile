@@ -37,8 +37,14 @@ platform :ios do
       is_key_content_base64: true,
     )
 
-    # Stamp the build number before Tauri drives xcodebuild.
+    # Generate the Xcode project (gitignored; xcodegen builds it from
+    # project.yml). Required before build on a fresh CI checkout.
+    tauri("ios", "init", "--ci", "--skip-targets-install")
+
+    # Stamp the build number and re-assert export compliance (init regenerates
+    # the plist from templates).
     set_info_plist_value(path: APPLE_INFO_PLIST, key: "CFBundleVersion", value: build_number)
+    set_info_plist_value(path: APPLE_INFO_PLIST, key: "ITSAppUsesNonExemptEncryption", value: false)
 
     # Tauri owns the code signing. It imports the distribution cert and profile
     # and signs the archive from the environment the workflow sets:

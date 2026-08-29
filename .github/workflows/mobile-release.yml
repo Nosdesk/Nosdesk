@@ -59,6 +59,9 @@ jobs:
           bundler-cache: true
           working-directory: mobile
 
+      - name: Install XcodeGen (Tauri generates the Xcode project with it)
+        run: brew install xcodegen
+
       - name: Build + upload to TestFlight
         working-directory: mobile
         env:
