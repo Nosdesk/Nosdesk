@@ -80,7 +80,7 @@ platform :android do
       track: "internal",
       aab: AAB_PATH,
       json_key: ENV.fetch("PLAY_JSON_KEY_PATH"),
-      release_status: "draft",
+      release_status: "completed",
       skip_upload_metadata: true,
       skip_upload_changelogs: true,
       skip_upload_images: true,
