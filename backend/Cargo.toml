@@ -55,7 +55,7 @@ futures = "0.3"
 # RUSTSEC-2023-0071. It covers all four families we use: HMAC (sessions, plugin
 # bundle tokens), EdDSA (licence + platform provisioning), ECDSA (APNs), RSA (FCM).
 jsonwebtoken = { version = "11.0.0", features = ["aws_lc_rs"] }
-bcrypt = "0.15.1"  # Legacy hashing - kept for existing recovery codes hashed before the argon2 migration; password hashing also still uses it
+bcrypt = "0.19.3"  # Legacy hashing - kept for existing recovery codes hashed before the argon2 migration; password hashing also still uses it
 argon2 = "0.5"     # MFA recovery code hashing (and future password migration target); OWASP-recommended memory-hard KDF
 actix-web-httpauth = "0.8.2"
 regex = "1.11.0"
