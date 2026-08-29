@@ -3,6 +3,7 @@ import { ref, computed, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { useAssignmentPickerQueries } from '@/composables/useAssignmentPickerQueries'
 import Icon from '@/components/common/Icon.vue'
+import UserAvatar from '@/components/UserAvatar.vue'
 
 const { $t } = useFluent()
 
@@ -216,15 +217,14 @@ onBeforeUnmount(() => {
               @mousedown.prevent="selectUser(user)"
               class="w-full flex items-center gap-3 px-3 py-2.5 min-h-[44px] md:min-h-0 text-left hover:bg-surface-hover transition-colors"
             >
-              <div class="w-5 h-5 rounded-full bg-accent/20 flex items-center justify-center flex-shrink-0 overflow-hidden">
-                <img
-                  v-if="user.avatar_url"
-                  :src="user.avatar_url"
-                  :alt="user.name"
-                  class="w-full h-full object-cover"
-                />
-                <span v-else class="text-[10px] font-medium text-accent">{{ user.name.charAt(0).toUpperCase() }}</span>
-              </div>
+              <UserAvatar
+                size="xs"
+                :fallback-name="user.name"
+                :fallback-avatar="user.avatar_url"
+                :show-name="false"
+                :clickable="false"
+                class="flex-shrink-0"
+              />
               <div class="flex-1 min-w-0">
                 <div class="text-sm text-primary truncate">{{ user.name }}</div>
                 <div class="text-[11px] text-tertiary truncate">{{ user.email }}</div>
