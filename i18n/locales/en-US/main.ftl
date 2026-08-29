@@ -2392,6 +2392,7 @@ user-mgmt-deleted-badge = Deleted
 user-mgmt-deleted-purges-on = Purges on { $date }
 user-mgmt-restore = Restore user
 user-mgmt-restored = { $name } restored
+user-mgmt-hosted-add-in-control-plane = Members are added in the Nosdesk control plane.
 user-mgmt-restore-error = Failed to restore user.
 user-mgmt-purge-now = Permanently delete
 user-mgmt-purged = { $name } permanently deleted

@@ -6,6 +6,7 @@ import { useFluent } from 'fluent-vue'
 import { extractErrorMessage } from '@/utils/errors'
 import { formatDate } from '@nosdesk/core/utils/dateUtils'
 import { useToastStore } from '@nosdesk/core/stores/toast'
+import { isHostedDeployment, getControlPlaneUrl } from '@nosdesk/core/services/instanceConfig'
 
 import DataTable from '@/components/common/DataTable.vue'
 import PaginationControls from '@/components/common/PaginationControls.vue'
@@ -45,6 +46,15 @@ const scrollContainerRef = computed<HTMLElement | null>(
 )
 
 const navigateToCreateUser = () => {
+  // In hosted mode identity is owned by the control plane; a user created here
+  // can't sign in. Hand off to the control-plane dashboard (Instances -> Seats)
+  // rather than open a create form that produces a dead account.
+  if (isHostedDeployment()) {
+    const cp = getControlPlaneUrl()
+    if (cp) window.open(`${cp}/instances`, '_blank', 'noopener')
+    toast.info(t('user-mgmt-hosted-add-in-control-plane'))
+    return
+  }
   void router.push('/users/new')
 }
 const navigateToUser = (user: User) => {
