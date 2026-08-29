@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { formatDate as formatDateUtil } from '@nosdesk/core/utils/dateUtils';
 import { effectiveRole, type UserRole } from '@nosdesk/core/types/user';
 import { ref, computed, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -13,6 +12,7 @@ import UserEmailsCard from "@/components/settings/UserEmailsCard.vue";
 import UserContactCard from "@/components/settings/UserContactCard.vue";
 import UserPhonesCard from "@/components/settings/UserPhonesCard.vue";
 import UserAddressesCard from "@/components/settings/UserAddressesCard.vue";
+import UserDevicesCard from "@/components/settings/UserDevicesCard.vue";
 import UserAssignedTickets from "@/components/UserAssignedTickets.vue";
 import BaseDropdown from "@/components/common/BaseDropdown.vue";
 import Icon from "@/components/common/Icon.vue";
@@ -200,31 +200,6 @@ watch(
         }
     },
 );
-
-const formatDate = (dateString: string) => {
-    try {
-        const date = new Date(dateString);
-        const now = new Date();
-        const diffTime = now.getTime() - date.getTime();
-        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-        const diffHours = Math.floor(diffTime / (1000 * 60 * 60));
-        const diffMinutes = Math.floor(diffTime / (1000 * 60));
-
-        if (diffMinutes < 1) {
-            return t('user-profile-relative-just-now');
-        } else if (diffMinutes < 60) {
-            return t('user-profile-relative-minutes-ago', { count: diffMinutes });
-        } else if (diffHours < 24) {
-            return t('user-profile-relative-hours-ago', { count: diffHours });
-        } else if (diffDays < 30) {
-            return t('user-profile-relative-days-ago', { count: diffDays });
-        } else {
-            return formatDateUtil(dateString, "MMM d, yyyy");
-        }
-    } catch {
-        return dateString;
-    }
-};
 
 // Save user (create or update)
 const saveUser = async () => {
@@ -641,118 +616,59 @@ watch(
                 </div>
 
                 <!-- Responsive Container for existing user -->
-                <div
-                    v-else-if="userProfile"
-                    class="flex flex-col xl:flex-row gap-4"
-                >
-                    <!-- User Info Area -->
-                    <div class="flex flex-col gap-4 xl:w-1/2 xl:min-w-0">
-                        <!-- User Profile Card (Read-only in profile view) -->
-                        <UserProfileCard
-                            :user="userProfile"
-                            :canEdit="false"
-                            :showEditableFields="false"
-                        />
+                <div v-else-if="userProfile" class="flex flex-col gap-4">
+                    <!-- Identity header (full width) -->
+                    <UserProfileCard
+                        :user="userProfile"
+                        :canEdit="false"
+                        :showEditableFields="false"
+                    />
 
+                    <!-- Detail and ticket cards flow into an adaptive masonry that
+                         packs to fill the width; with no related tickets the detail
+                         cards spread across every column, so there is no dead half.
+                         Mobile stays a single column in the same order as before. -->
+                    <div class="columns-1 md:columns-2 xl:columns-3 gap-4">
                         <!-- Email Addresses Section -->
-                        <UserEmailsCard
-                            v-if="userProfile?.uuid"
-                            :user-uuid="userProfile.uuid"
-                            :can-edit="false"
-                        />
+                        <div v-if="userProfile?.uuid" class="mb-4 break-inside-avoid">
+                            <UserEmailsCard
+                                :user-uuid="userProfile.uuid"
+                                :can-edit="false"
+                            />
+                        </div>
 
                         <!-- Contact details: standard + custom fields -->
-                        <UserContactCard
-                            v-if="userProfile?.uuid"
-                            :uuid="userProfile.uuid"
-                            :editable="canEdit"
-                        />
+                        <div v-if="userProfile?.uuid" class="mb-4 break-inside-avoid">
+                            <UserContactCard
+                                :uuid="userProfile.uuid"
+                                :editable="canEdit"
+                            />
+                        </div>
 
-                        <!-- Phone numbers + addresses -->
-                        <UserPhonesCard
-                            v-if="userProfile?.uuid"
-                            :uuid="userProfile.uuid"
-                            :editable="canEdit"
-                        />
-                        <UserAddressesCard
-                            v-if="userProfile?.uuid"
-                            :uuid="userProfile.uuid"
-                            :editable="canEdit"
-                        />
+                        <!-- Phone numbers -->
+                        <div v-if="userProfile?.uuid" class="mb-4 break-inside-avoid">
+                            <UserPhonesCard
+                                :uuid="userProfile.uuid"
+                                :editable="canEdit"
+                            />
+                        </div>
+
+                        <!-- Addresses -->
+                        <div v-if="userProfile?.uuid" class="mb-4 break-inside-avoid">
+                            <UserAddressesCard
+                                :uuid="userProfile.uuid"
+                                :editable="canEdit"
+                            />
+                        </div>
 
                         <!-- Devices Section -->
-                        <SectionCard content-padding="p-3">
-                            <template #title>{{ $t('user-profile-assets-title') }}</template>
-                            <div>
-                                <div
-                                    v-if="devices.length === 0"
-                                    class="text-secondary text-sm"
-                                >
-                                    {{ $t('user-profile-assets-empty') }}
-                                </div>
-                                <div v-else class="flex flex-col gap-3">
-                                    <RouterLink
-                                        v-for="device in devices"
-                                        :key="device.id"
-                                        :to="`/devices/${device.id}`"
-                                        class="block bg-surface-alt p-3 rounded-lg hover:bg-surface-hover transition-colors"
-                                    >
-                                        <div
-                                            class="flex items-start justify-between"
-                                        >
-                                            <div class="flex-1">
-                                                <h3
-                                                    class="font-medium text-primary"
-                                                >
-                                                    {{ device.name }}
-                                                </h3>
-                                                <p
-                                                    class="text-sm text-secondary"
-                                                >
-                                                    {{
-                                                        device.manufacturer ||
-                                                        $t('user-profile-asset-manufacturer-unknown')
-                                                    }}
-                                                    {{ device.model }}
-                                                </p>
-                                                <p
-                                                    class="text-xs text-tertiary"
-                                                >
-                                                    {{ $t('user-profile-asset-last-updated', { when: formatDate(device.updated_at) }) }}
-                                                </p>
-                                            </div>
-                                            <div v-if="device.attributes?.warranty_status" class="flex-shrink-0 ml-3">
-                                                <span
-                                                    class="text-xs px-2 py-1 rounded-full"
-                                                    :class="{
-                                                        'text-status-success bg-status-success/20':
-                                                            device.attributes.warranty_status ===
-                                                            'Active',
-                                                        'text-status-warning bg-status-warning/20':
-                                                            device.attributes.warranty_status ===
-                                                            'Warning',
-                                                        'text-status-error bg-status-error/20':
-                                                            device.attributes.warranty_status ===
-                                                            'Expired',
-                                                        'text-secondary bg-surface-alt':
-                                                            device.attributes.warranty_status ===
-                                                            'Unknown',
-                                                    }"
-                                                >
-                                                    {{ device.attributes.warranty_status }}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    </RouterLink>
-                                </div>
-                            </div>
-                        </SectionCard>
+                        <div class="mb-4 break-inside-avoid">
+                            <UserDevicesCard :devices="devices" />
+                        </div>
 
                         <!-- Groups Section -->
-                        <SectionCard
-                            v-if="groups.length > 0"
-                            content-padding="p-3"
-                        >
+                        <div v-if="groups.length > 0" class="mb-4 break-inside-avoid">
+                        <SectionCard content-padding="p-3">
                             <template #title>{{ $t('user-profile-groups-title') }}</template>
                             <div class="flex flex-wrap gap-2">
                                 <button
@@ -771,32 +687,35 @@ watch(
                                 </button>
                             </div>
                         </SectionCard>
+                        </div>
 
-                        <!-- Plugin panels contributed to the user profile -->
-                        <PluginSlot
-                            target="user.sidebar.panel"
-                            :context="{ user: pluginUser }"
-                        />
-                    </div>
-
-                    <!-- Tickets Area -->
-                    <div class="flex flex-col gap-4 xl:w-1/2 xl:min-w-0">
-                        <!-- Assigned Tickets (only for technicians and admins) -->
-                        <UserAssignedTickets
-                            v-if="canHaveAssignedTickets"
-                            :user-uuid="userProfile.uuid"
-                            ticket-type="assigned"
-                            :limit="5"
-                            :show-filters="false"
-                        />
+                        <!-- Assigned Tickets (technicians and admins only) -->
+                        <div v-if="canHaveAssignedTickets" class="mb-4 break-inside-avoid">
+                            <UserAssignedTickets
+                                :user-uuid="userProfile.uuid"
+                                ticket-type="assigned"
+                                :limit="5"
+                                :show-filters="false"
+                            />
+                        </div>
 
                         <!-- Requested Tickets -->
-                        <UserAssignedTickets
-                            :user-uuid="userProfile.uuid"
-                            ticket-type="requested"
-                            :limit="5"
-                            :show-filters="false"
-                        />
+                        <div class="mb-4 break-inside-avoid">
+                            <UserAssignedTickets
+                                :user-uuid="userProfile.uuid"
+                                ticket-type="requested"
+                                :limit="5"
+                                :show-filters="false"
+                            />
+                        </div>
+
+                        <!-- Plugin panels contributed to the user profile -->
+                        <div class="mb-4 break-inside-avoid">
+                            <PluginSlot
+                                target="user.sidebar.panel"
+                                :context="{ user: pluginUser }"
+                            />
+                        </div>
                     </div>
                 </div>
             </div>
