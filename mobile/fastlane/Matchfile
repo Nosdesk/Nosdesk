@@ -1,0 +1,12 @@
+# iOS code signing via match: the distribution certificate and provisioning
+# profile live in a private git repo (MATCH_GIT_URL), encrypted with
+# MATCH_PASSWORD. Populate it once locally with `bundle exec fastlane match
+# appstore`; CI then reads it read-only. See fastlane/README.md.
+
+git_url(ENV["MATCH_GIT_URL"])
+storage_mode("git")
+type("appstore")
+app_identifier([ENV.fetch("APP_IDENTIFIER", "com.nosdesk.app")])
+
+# Never mint or mutate certs on CI; only the local bootstrap run may write.
+readonly(ENV["CI"] == "true")
