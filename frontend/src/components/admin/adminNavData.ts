@@ -180,7 +180,8 @@ export const adminNavGroups: AdminNavGroup[] = [
         descriptionKey: 'admin-nav-workspaces-description',
         icon: 'folder',
         route: '/admin/workspaces',
-        keywords: ['workspaces', 'tenants', 'lifecycle', 'archive', 'members', 'multi-tenant']
+        keywords: ['workspaces', 'tenants', 'lifecycle', 'archive', 'members', 'multi-tenant'],
+        platformAdminOnly: true
       },
       {
         titleKey: 'admin-nav-guest-access-title',
@@ -194,14 +195,16 @@ export const adminNavGroups: AdminNavGroup[] = [
         descriptionKey: 'admin-nav-auth-providers-description',
         icon: 'lock',
         route: '/admin/auth-providers',
-        keywords: ['auth', 'authentication', 'sso', 'saml', 'oidc', 'oauth', 'microsoft', 'entra', 'ldap', 'login', 'providers']
+        keywords: ['auth', 'authentication', 'sso', 'saml', 'oidc', 'oauth', 'microsoft', 'entra', 'ldap', 'login', 'providers'],
+        platformAdminOnly: true
       },
       {
         titleKey: 'admin-nav-search-title',
         descriptionKey: 'admin-nav-search-description',
         icon: 'search',
         route: '/admin/search',
-        keywords: ['search', 'index', 'indexing', 'reindex', 'statistics']
+        keywords: ['search', 'index', 'indexing', 'reindex', 'statistics'],
+        platformAdminOnly: true
       },
       {
         titleKey: 'admin-nav-system-settings-title',
@@ -215,7 +218,8 @@ export const adminNavGroups: AdminNavGroup[] = [
         descriptionKey: 'admin-nav-backup-restore-description',
         icon: 'archive',
         route: '/admin/backup-restore',
-        keywords: ['backup', 'restore', 'export', 'import', 'data', 'recovery']
+        keywords: ['backup', 'restore', 'export', 'import', 'data', 'recovery'],
+        platformAdminOnly: true
       },
       {
         titleKey: 'admin-nav-unrouted-inbound-title',
