@@ -865,13 +865,13 @@ const router = createRouter({
           path: 'inbound/unrouted',
           name: 'admin-inbound-unrouted',
           component: () => import('../views/InboundUnroutedView.vue'),
-          meta: { titleKey: 'route-title-admin-unrouted-inbound', requiresAuth: true, adminRequired: true }
+          meta: { titleKey: 'route-title-admin-unrouted-inbound', requiresAuth: true, adminRequired: true, platformAdminRequired: true }
         },
         {
           path: 'bug-reports',
           name: 'admin-bug-reports',
           component: () => import('../views/admin/BugReportsView.vue'),
-          meta: { titleKey: 'route-title-admin-bug-reports', requiresAuth: true, adminRequired: true }
+          meta: { titleKey: 'route-title-admin-bug-reports', requiresAuth: true, adminRequired: true, platformAdminRequired: true }
         },
         {
           path: 'data-import',
