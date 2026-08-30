@@ -143,17 +143,142 @@ pub fn admin_user_conn(
 ) -> Result<(Claims, User, DbConnection), HttpResponse> {
     let (claims, _caller_uuid, mut conn) = auth_conn(req, pool)?;
 
-    if !crate::utils::rbac::is_platform_admin(&claims) {
-        return Err(errors::forbidden("Admin access required"));
-    }
-
     let target_uuid = utils::parse_uuid(target_uuid_str)
         .map_err(|_| errors::bad_request("Invalid UUID format"))?;
+
+    // Was platform-admin-only. Now a workspace admin may recover a member of
+    // their OWN workspace (self-hosted), bounded to accounts they wholly own.
+    // The isolation lives in this gate, not the loose platform check.
+    authorize_target_user_action(req, pool, &claims, target_uuid, true)?;
 
     let user = repository::get_user_by_uuid(&target_uuid, &mut conn)
         .map_err(|_| errors::not_found("User"))?;
 
     Ok((claims, user, conn))
+}
+
+/// Why an admin action on a target user was denied (mapped to an HTTP response
+/// by [`authorize_target_user_action`]). Split from the response so the
+/// decision is unit-testable.
+enum TargetActionDenied {
+    NotWorkspaceAdmin,
+    TargetNotInWorkspace,
+    TargetInOtherWorkspaces,
+}
+
+/// Core decision for the self-hosted workspace-admin path (platform-admin and
+/// hosted mode are handled by the wrapper). `conn` is pinned to `ws_id` for the
+/// RLS-scoped membership reads and, when `require_sole_workspace`, reused to run
+/// the cross-workspace count under BYPASSRLS.
+fn target_action_decision(
+    conn: &mut DbConnection,
+    ws_id: i32,
+    caller_uuid: Uuid,
+    target_uuid: Uuid,
+    require_sole_workspace: bool,
+    actor: &ActorContext,
+) -> Result<(), TargetActionDenied> {
+    use crate::models::WorkspaceRole;
+
+    // Scope the RLS-isolated membership reads to the caller's workspace.
+    pin_workspace(conn, ws_id);
+
+    // Caller must be an admin/owner of this workspace.
+    let caller_admin = repository::workspaces::membership(conn, ws_id, caller_uuid)
+        .ok()
+        .flatten()
+        .is_some_and(|m| WorkspaceRole::from_db(&m.role).meets(WorkspaceRole::Admin));
+    if !caller_admin {
+        return Err(TargetActionDenied::NotWorkspaceAdmin);
+    }
+
+    // Target must be a member of the caller's workspace. This membership
+    // resolution IS the tenant-isolation boundary: without it a workspace-A
+    // admin could act on any global user uuid, including workspace-B users.
+    if repository::workspaces::membership(conn, ws_id, target_uuid)
+        .ok()
+        .flatten()
+        .is_none()
+    {
+        return Err(TargetActionDenied::TargetNotInWorkspace);
+    }
+
+    // Account-global credential ops (Decision 1): refuse when the target belongs
+    // to more than one workspace, since a single workspace's admin does not own
+    // the whole account. The cross-workspace count MUST run under BYPASSRLS:
+    // workspace_members is FORCE-isolated to `ws_id` on the pinned nosdesk_app
+    // conn, so a plain read would always see exactly one row and this guard would
+    // silently pass. (list_memberships_for_user excludes archived workspaces, so
+    // a stale archived membership does not block recovery.)
+    if require_sole_workspace {
+        // Fail closed: a failed cross-workspace count denies recovery rather
+        // than falling through to allow.
+        let count = crate::sync::session::with_actor_bypass_context(conn, actor, |c| {
+            Ok::<usize, diesel::result::Error>(
+                repository::workspaces::list_memberships_for_user(c, target_uuid)?.len(),
+            )
+        })
+        .unwrap_or(usize::MAX);
+        if count > 1 {
+            return Err(TargetActionDenied::TargetInOtherWorkspaces);
+        }
+    }
+
+    Ok(())
+}
+
+/// Authorize an admin action on a TARGET user (credential recovery, security
+/// posture read, invitation resend). Platform admins pass (cross-tenant
+/// operators). In hosted mode these functions are control-plane owned, so
+/// non-platform callers are refused with a control-plane hand-off. In
+/// self-hosted, a workspace admin may act only on a member of their own
+/// workspace; `require_sole_workspace` additionally refuses a target who also
+/// belongs to other workspaces (account-global credential ops). See
+/// docs/architecture/workspace-function-tiers.md (PR 2b).
+pub fn authorize_target_user_action(
+    req: &HttpRequest,
+    pool: &web::Data<Pool>,
+    claims: &Claims,
+    target_uuid: Uuid,
+    require_sole_workspace: bool,
+) -> Result<(), HttpResponse> {
+    if crate::utils::rbac::is_platform_admin(claims) {
+        return Ok(());
+    }
+    if !crate::middleware::workspace_context::local_credentials_permitted() {
+        return Err(errors::forbidden(
+            "In hosted deployments, member account recovery is handled from the \
+             Nosdesk control plane; it is only available in self-hosted mode.",
+        ));
+    }
+    let caller_uuid =
+        utils::parse_uuid(&claims.sub).map_err(|_| errors::bad_request("Invalid caller"))?;
+    let ws_id = match request_workspace_id(req) {
+        Some(id) => id,
+        None => return Err(errors::internal("Workspace context missing")),
+    };
+    let mut conn = db_conn(pool)?;
+    let actor = actor_for(req, "member_recovery_gate");
+    match target_action_decision(
+        &mut conn,
+        ws_id,
+        caller_uuid,
+        target_uuid,
+        require_sole_workspace,
+        &actor,
+    ) {
+        Ok(()) => Ok(()),
+        Err(TargetActionDenied::NotWorkspaceAdmin) => Err(errors::forbidden(
+            "This action requires workspace admin privileges.",
+        )),
+        Err(TargetActionDenied::TargetNotInWorkspace) => Err(errors::forbidden(
+            "This user is not a member of your workspace.",
+        )),
+        Err(TargetActionDenied::TargetInOtherWorkspaces) => Err(errors::forbidden(
+            "This member belongs to other workspaces; account recovery must go through \
+             an instance administrator.",
+        )),
+    }
 }
 
 /// Build an `ActorContext` from the JWT claims attached to the
@@ -197,4 +322,110 @@ pub fn actor_for(req: &HttpRequest, system_ref: &'static str) -> ActorContext {
         actor = actor.with_workspace(ws);
     }
     actor
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::NewWorkspace;
+    use crate::repository::workspaces::{add_membership, create_workspace};
+    use crate::schema::workspace_members;
+    use crate::sync::actor::ActorContext;
+    use crate::sync::session::with_actor_bypass_context;
+    use crate::test_helpers::{setup_test_pool, TestFixtures};
+    use diesel::prelude::*;
+
+    // workspaces / members are BYPASSRLS writes (nosdesk_app only has SELECT).
+    fn bypass<T, E: From<diesel::result::Error>>(
+        conn: &mut DbConnection,
+        f: impl FnOnce(&mut DbConnection) -> Result<T, E>,
+    ) -> Result<T, E> {
+        with_actor_bypass_context(conn, &ActorContext::system("test:helpers:target-gate"), f)
+    }
+
+    fn seed_ws(conn: &mut DbConnection, slug: &str) -> i32 {
+        bypass(conn, |c| {
+            create_workspace(
+                c,
+                &NewWorkspace {
+                    uuid: Uuid::now_v7(),
+                    slug: slug.to_string(),
+                    name: format!("Workspace {slug}"),
+                    seat_limit: None,
+                },
+            )
+        })
+        .expect("create workspace")
+        .id
+    }
+
+    // The cross-workspace isolation this gate exists to enforce. The sole-
+    // workspace count runs through the real BYPASSRLS path; a plain (RLS-scoped)
+    // count on the pinned nosdesk_app conn would see one row and wrongly admit a
+    // multi-workspace target, which is the exact bug this test guards.
+    #[test]
+    fn target_action_decision_enforces_workspace_isolation() {
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+
+        let ws_a = seed_ws(&mut conn, "gatea");
+        let ws_b = seed_ws(&mut conn, "gateb");
+
+        let admin = TestFixtures::create_user(&mut conn, "Gate Admin", "user");
+        let solo = TestFixtures::create_user(&mut conn, "Solo Member", "user");
+        let shared = TestFixtures::create_user(&mut conn, "Shared Member", "user");
+        let outsider = TestFixtures::create_user(&mut conn, "Outsider", "user");
+
+        bypass(&mut conn, |c| {
+            // create_user auto-enrolls each user in the default workspace (1);
+            // clear that so each has exactly the memberships this test sets up.
+            diesel::delete(
+                workspace_members::table.filter(workspace_members::user_uuid.eq_any([
+                    admin.uuid,
+                    solo.uuid,
+                    shared.uuid,
+                    outsider.uuid,
+                ])),
+            )
+            .execute(c)?;
+            add_membership(c, ws_a, admin.uuid, "admin")?;
+            add_membership(c, ws_a, solo.uuid, "member")?;
+            add_membership(c, ws_a, shared.uuid, "member")?;
+            add_membership(c, ws_b, shared.uuid, "member")?; // also in B
+            add_membership(c, ws_b, outsider.uuid, "member")?; // only in B
+            Ok::<(), diesel::result::Error>(())
+        })
+        .expect("seed memberships");
+
+        let actor = ActorContext::system("test:helpers:target-gate");
+
+        // Sole member of A -> allowed.
+        assert!(
+            target_action_decision(&mut conn, ws_a, admin.uuid, solo.uuid, true, &actor).is_ok()
+        );
+
+        // Member of A who also lives in B -> refused (account-global op).
+        assert!(matches!(
+            target_action_decision(&mut conn, ws_a, admin.uuid, shared.uuid, true, &actor),
+            Err(TargetActionDenied::TargetInOtherWorkspaces)
+        ));
+
+        // A user not in A -> refused (the isolation boundary).
+        assert!(matches!(
+            target_action_decision(&mut conn, ws_a, admin.uuid, outsider.uuid, true, &actor),
+            Err(TargetActionDenied::TargetNotInWorkspace)
+        ));
+
+        // Non-admin caller (solo is a plain member) -> refused.
+        assert!(matches!(
+            target_action_decision(&mut conn, ws_a, solo.uuid, shared.uuid, true, &actor),
+            Err(TargetActionDenied::NotWorkspaceAdmin)
+        ));
+
+        // resend path (no sole-workspace requirement): a multi-workspace member
+        // of A is allowed, only membership in the caller's workspace matters.
+        assert!(
+            target_action_decision(&mut conn, ws_a, admin.uuid, shared.uuid, false, &actor).is_ok()
+        );
+    }
 }
