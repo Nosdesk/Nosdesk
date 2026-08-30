@@ -55,14 +55,14 @@ pub async fn get_email_config(
     req: HttpRequest,
     resolver: web::Data<std::sync::Arc<crate::services::outbound_email::OutboundEmailResolver>>,
 ) -> impl Responder {
-    // Extract claims from cookie auth middleware
-    let claims = match req.extensions().get::<crate::models::Claims>() {
-        Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Authentication required"),
-    };
-
-    if !crate::utils::rbac::is_platform_admin(&claims) {
-        return errors::forbidden("Only administrators can view email configuration");
+    // Per-workspace email config: a workspace admin owns it. Was platform-admin,
+    // which broke the Setup tab's own bootstrap read for tenant admins. TenantConn
+    // scopes the read; the hosted branch below redacts the platform relay and
+    // reports the workspace's effective sending identity.
+    if let Err(resp) =
+        crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
+    {
+        return resp;
     }
 
     // SMTP transport. EmailService::from_env reports is_configured for the
@@ -160,14 +160,12 @@ pub async fn send_test_email(
     req: HttpRequest,
     request: web::Json<TestEmailRequest>,
 ) -> impl Responder {
-    // Extract claims from cookie auth middleware
-    let claims = match req.extensions().get::<crate::models::Claims>() {
-        Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Authentication required"),
-    };
-
-    if !crate::utils::rbac::is_platform_admin(&claims) {
-        return errors::forbidden("Only administrators can send test emails");
+    // Per-workspace test send (targets this workspace's identity). A workspace
+    // admin owns it, matching the sibling outbound endpoints. Was platform-admin.
+    if let Err(resp) =
+        crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
+    {
+        return resp;
     }
 
     // Create email service

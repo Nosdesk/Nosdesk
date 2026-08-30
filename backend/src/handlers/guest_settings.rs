@@ -1,13 +1,13 @@
 //! Admin-only handlers for the guest-access feature flags in `site_settings`.
 //! Exposed at `/api/admin/guest-settings`.
 
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use serde::Deserialize;
 use tracing::error;
 
 use crate::extractors::TenantConn;
 use crate::handlers::errors;
-use crate::models::{Claims, SiteSettingsResponse, UpdateSiteSettings};
+use crate::models::{SiteSettingsResponse, UpdateSiteSettings};
 use crate::repository::site_settings;
 use crate::utils;
 
@@ -39,7 +39,16 @@ pub struct UpdateGuestSettingsRequest {
     pub guest_ticket_intro_message: Option<Option<String>>,
 }
 
-pub async fn get_guest_settings(mut tc: TenantConn) -> impl Responder {
+pub async fn get_guest_settings(mut tc: TenantConn, req: HttpRequest) -> impl Responder {
+    // Per-workspace guest config (site_settings, RLS-isolated via TenantConn),
+    // so a workspace admin owns it. The read was ungated while the write
+    // demanded platform-admin; both are now workspace-admin. The public portal
+    // reads guest config through handlers/guest.rs, not this admin endpoint.
+    if let Err(resp) =
+        crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
+    {
+        return resp;
+    }
     match tc.run(site_settings::get_site_settings) {
         Ok(settings) => {
             let response: SiteSettingsResponse = settings.into();
@@ -57,14 +66,14 @@ pub async fn update_guest_settings(
     req: HttpRequest,
     body: web::Json<UpdateGuestSettingsRequest>,
 ) -> impl Responder {
-    let claims = match req.extensions().get::<Claims>() {
-        Some(c) => c.clone(),
-        None => return HttpResponse::Unauthorized().finish(),
-    };
-
-    if !crate::utils::rbac::is_platform_admin(&claims) {
-        return errors::forbidden("Admin required");
-    }
+    // Per-workspace guest config, so a workspace admin owns it. Was
+    // platform-admin, which dead-ended every tenant admin on save.
+    let claims =
+        match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
+        {
+            Ok(c) => c,
+            Err(resp) => return resp,
+        };
 
     let user_uuid = match utils::parse_uuid(&claims.sub) {
         Ok(u) => u,
