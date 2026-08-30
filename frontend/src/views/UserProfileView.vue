@@ -6,6 +6,8 @@ import { useUserProfileBundle } from '@/composables/useUserProfileBundle';
 import { useDelayedFlag } from '@/composables/useDelayedFlag';
 import { useFluent } from 'fluent-vue';
 import { useAuthStore } from "@/stores/auth";
+import { useToastStore } from '@nosdesk/core/stores/toast';
+import { isHostedDeployment, getControlPlaneUrl } from '@nosdesk/core/services/instanceConfig';
 import BackButton from "@/components/common/BackButton.vue";
 import UserProfileCard from "@/components/settings/UserProfileCard.vue";
 import UserEmailsCard from "@/components/settings/UserEmailsCard.vue";
@@ -52,6 +54,17 @@ const error = ref<string | null>(null);
 // Creation mode (no uuid, or "new") runs no query: it's a form.
 const userUuid = computed(() => route.params.uuid as string | undefined);
 const isCreationMode = computed(() => !userUuid.value || userUuid.value === 'new');
+const toast = useToastStore();
+
+// A deep link to the create form in hosted mode would build a dead, unloggable
+// account (identity is control-plane owned), so hand off to the control plane
+// like the Users-list create action rather than render the form.
+if (isCreationMode.value && isHostedDeployment()) {
+  const cp = getControlPlaneUrl();
+  if (cp) window.open(`${cp}/instances`, '_blank', 'noopener');
+  toast.info(t('user-mgmt-hosted-add-in-control-plane'));
+  void router.replace('/users');
+}
 
 // Shared bundle query (single source of truth for the cache key + shape;
 // see useUserProfileBundle). ProfileSettingsView uses the same composable,

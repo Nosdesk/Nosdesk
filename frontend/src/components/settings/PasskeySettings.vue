@@ -10,6 +10,7 @@ import Spinner from '@/components/common/Spinner.vue';
 import SectionCard from '@/components/common/SectionCard.vue';
 import { extractErrorMessage } from '@/utils/errors';
 import { formatDate as formatDateOnly } from '@nosdesk/core/utils/dateUtils';
+import { isHostedDeployment } from '@nosdesk/core/services/instanceConfig';
 import Button from '@/components/common/Button.vue';
 import FormInput from '@/components/common/FormInput.vue';
 import Modal from '@/components/Modal.vue';
@@ -50,6 +51,11 @@ const {
   formatDate,
   clearMessages,
 } = usePasskeys();
+
+// Passkeys registered here can only sign in when local auth is enabled, which
+// hosted mode disables (login is control-plane OIDC). Hide the enroll affordance
+// in hosted so a user can't create a credential that can never authenticate.
+const canAddPasskeyHere = computed(() => canAddPasskey.value && !isHostedDeployment());
 
 // Admin mode state
 const adminPasskeys = ref<PasskeyInfo[]>([]);
@@ -284,7 +290,7 @@ onMounted(async () => {
             <p class="text-sm text-secondary">{{ $t('settings-passkey-empty-title') }}</p>
             <p class="text-xs text-tertiary mt-0.5">{{ $t('settings-passkey-empty-self-description') }}</p>
           </div>
-          <Button class="flex-shrink-0" @click="showAddModal = true">
+          <Button v-if="canAddPasskeyHere" class="flex-shrink-0" @click="showAddModal = true">
             {{ $t('settings-passkey-add-button') }}
           </Button>
         </div>
@@ -337,7 +343,7 @@ onMounted(async () => {
 
           <!-- Add Passkey button at bottom of list -->
           <button
-            v-if="canAddPasskey"
+            v-if="canAddPasskeyHere"
             @click="showAddModal = true"
             class="flex items-center justify-center gap-2 p-4 border-2 border-dashed border-subtle hover:border-accent rounded-lg text-secondary hover:text-accent transition-colors"
           >
