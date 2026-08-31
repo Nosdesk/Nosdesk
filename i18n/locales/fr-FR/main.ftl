@@ -254,7 +254,7 @@ nav-asset-planner = Planificateur d'actifs
 # Tab strip across the top of the asset section. Used in place
 asset-tabs-inventory = Inventory
 asset-tabs-catalog = Catalogue
-nav-users = Utilisateurs
+nav-users = Personnes
 nav-documentation = Documentation
 nav-inbox = Boîte de réception
 nav-collapse = Réduire
@@ -2202,6 +2202,30 @@ user-mgmt-filter-deleted-on = Show deleted
 # user-mgmt-tab-* (machine, à relire par un locuteur natif).
 user-mgmt-tab-active = Actifs
 user-mgmt-tab-deleted = Supprimés
+# machine translation, en attente de relecture
+people-tab-team = Équipe
+# machine translation, en attente de relecture
+people-tab-requesters = Demandeurs
+# machine translation, en attente de relecture
+people-add-requester-title = Ajouter un demandeur
+# machine translation, en attente de relecture
+people-add-requester-description = Les demandeurs sont les clients qui créent des tickets. Ils se connectent à votre portail avec un lien magique, aucun siège n'est utilisé.
+# machine translation, en attente de relecture
+people-add-requester-name-label = Nom
+# machine translation, en attente de relecture
+people-add-requester-name-placeholder = Jean Dupont (ou un nom d'entreprise)
+# machine translation, en attente de relecture
+people-add-requester-email-label = E-mail
+# machine translation, en attente de relecture
+people-add-requester-email-placeholder = jean@exemple.com
+# machine translation, en attente de relecture
+people-add-requester-submit = Ajouter un demandeur
+# machine translation, en attente de relecture
+people-add-requester-invalid = Saisissez un nom et une adresse e-mail valide.
+# machine translation, en attente de relecture
+people-add-requester-success = { $name } ajouté comme demandeur.
+# machine translation, en attente de relecture
+people-add-requester-error = Impossible d'ajouter le demandeur.
 user-mgmt-grouping-role = Role
 user-mgmt-grouping-status = Status
 user-mgmt-grouping-status-active = Active
@@ -5523,7 +5547,7 @@ route-title-asset-create = Créer un actif
 route-title-asset-view = Détails de l'actif
 route-title-project-detail = Détails du projet
 route-title-error = Erreur
-route-title-users = Utilisateurs
+route-title-users = Personnes
 route-title-documentation-drafts = Brouillons
 route-title-collection = Collection
 route-title-documentation-archived = Archivés

@@ -251,7 +251,7 @@ nav-asset-planner = Activaplanner
 # Tab strip across the top of the asset section. Used in place
 asset-tabs-inventory = Inventory
 asset-tabs-catalog = Catalogus
-nav-users = Gebruikers
+nav-users = Personen
 nav-documentation = Documentatie
 nav-inbox = Postvak
 nav-collapse = Inklappen
@@ -2199,6 +2199,30 @@ user-mgmt-filter-deleted-on = Show deleted
 # user-mgmt-tab-* (machine translation, pending native review).
 user-mgmt-tab-active = Actief
 user-mgmt-tab-deleted = Verwijderd
+# machine translation, wacht op controle
+people-tab-team = Team
+# machine translation, wacht op controle
+people-tab-requesters = Aanvragers
+# machine translation, wacht op controle
+people-add-requester-title = Aanvrager toevoegen
+# machine translation, wacht op controle
+people-add-requester-description = Aanvragers zijn de klanten die tickets aanmaken. Ze melden zich aan bij uw portaal met een magische link, er wordt geen zetel gebruikt.
+# machine translation, wacht op controle
+people-add-requester-name-label = Naam
+# machine translation, wacht op controle
+people-add-requester-name-placeholder = Jan Jansen (of een bedrijfsnaam)
+# machine translation, wacht op controle
+people-add-requester-email-label = E-mail
+# machine translation, wacht op controle
+people-add-requester-email-placeholder = jan@voorbeeld.nl
+# machine translation, wacht op controle
+people-add-requester-submit = Aanvrager toevoegen
+# machine translation, wacht op controle
+people-add-requester-invalid = Voer een naam en een geldig e-mailadres in.
+# machine translation, wacht op controle
+people-add-requester-success = { $name } toegevoegd als aanvrager.
+# machine translation, wacht op controle
+people-add-requester-error = Kan de aanvrager niet toevoegen.
 user-mgmt-grouping-role = Role
 user-mgmt-grouping-status = Status
 user-mgmt-grouping-status-active = Active
@@ -5514,7 +5538,7 @@ route-title-asset-create = Activum aanmaken
 route-title-asset-view = Activumdetails
 route-title-project-detail = Projectdetails
 route-title-error = Fout
-route-title-users = Gebruikers
+route-title-users = Personen
 route-title-documentation-drafts = Concepten
 route-title-collection = Collectie
 route-title-documentation-archived = Gearchiveerd
