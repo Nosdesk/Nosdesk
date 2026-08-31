@@ -77,6 +77,15 @@ pub fn user_is_admin(conn: &mut DbConnection, user: &User) -> bool {
         || workspace_role(conn, user.uuid).is_some_and(|r| r.meets(WorkspaceRole::Admin))
 }
 
+/// True when the user holds a staff seat (owner/admin/agent) in the pinned
+/// workspace, i.e. a control-plane-owned seat under hosted. Reads
+/// `workspace_role` through the pinned GUC, like [`user_is_admin`]; callers
+/// pair it with `workspace_context::is_hosted()` to gate local mutation of a
+/// projected seat.
+pub fn user_is_staff(conn: &mut DbConnection, user: &User) -> bool {
+    workspace_role(conn, user.uuid).is_some_and(|r| r.is_staff())
+}
+
 /// Observer fired after a user record is successfully committed to the
 /// database. Implementors react to user creation (e.g. the search
 /// service maintains its index, audit logs append a row). The

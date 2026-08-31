@@ -1216,6 +1216,13 @@ pub async fn delete_user(
             "Administrator accounts cannot be deleted for security reasons",
         );
     }
+    // In hosted, a staff seat is control-plane-owned; the CP owns the account
+    // lifecycle (revoke demotes to member). Refuse a local delete and hand off.
+    if crate::middleware::workspace_context::is_hosted()
+        && crate::repository::user_helpers::user_is_staff(&mut conn, &target_user)
+    {
+        return errors::externally_managed();
+    }
     if target_user.deleted_at.is_some() {
         return errors::conflict("User is already soft-deleted");
     }
@@ -1271,6 +1278,10 @@ pub async fn restore_user(
         Err(e) => return e,
     };
 
+    // Pin the request workspace so user_is_staff below resolves the target's
+    // role through RLS (otherwise it reads None and the gate fails open).
+    helpers::pin_request_workspace(&req, &mut conn);
+
     let (_claims, user_uuid_parsed, target) =
         match require_admin_target(&req, &mut conn, uuid.as_str()) {
             Ok(t) => t,
@@ -1278,6 +1289,13 @@ pub async fn restore_user(
         };
     if target.deleted_at.is_none() {
         return errors::conflict("User is not soft-deleted");
+    }
+    // In hosted, re-activating a control-plane-owned staff seat locally would
+    // diverge from the projection; hand off to the control plane.
+    if crate::middleware::workspace_context::is_hosted()
+        && crate::repository::user_helpers::user_is_staff(&mut conn, &target)
+    {
+        return errors::externally_managed();
     }
 
     let actor = helpers::actor_for(&req, "users_admin");
@@ -1342,6 +1360,13 @@ pub async fn purge_user_now(
         return errors::bad_request(
             "Administrator accounts cannot be deleted for security reasons",
         );
+    }
+    // In hosted, a staff seat is control-plane-owned; erasure of a projected
+    // staff account is a control-plane concern. Refuse and hand off.
+    if crate::middleware::workspace_context::is_hosted()
+        && crate::repository::user_helpers::user_is_staff(&mut conn, &target)
+    {
+        return errors::externally_managed();
     }
 
     // Purge cascades across every workspace the user belongs to

@@ -550,6 +550,13 @@ pub async fn add_member(
         }
     };
 
+    // In hosted, adding a staff seat is the control plane's job (it projects the
+    // membership), so a local staff grant is refused and handed off. Requesters
+    // (member) may still be added directly.
+    if workspaces::staff_identity_externally_managed(parsed_role.as_str()) {
+        return errors::externally_managed();
+    }
+
     // Confirm the user exists; otherwise we'd silently fail an FK
     // check at INSERT time with a less-useful 500. Lookup uses
     // PlatformConn so BYPASSRLS sees rows in every workspace.
