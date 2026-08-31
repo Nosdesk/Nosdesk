@@ -193,6 +193,8 @@ const listView = useListView({
   fetchPage: (params) =>
     userService.getPaginatedUsers({
       ...params,
+      // Team is the default population when the filter is absent.
+      population: params.population === 'requesters' ? 'requesters' : 'team',
       deleted:
         typeof params.deleted === 'string' && params.deleted === 'deleted'
           ? 'deleted'
@@ -207,7 +209,7 @@ const listView = useListView({
     createIcon: 'user',
     onCreate: navigateToCreateUser,
   },
-  urlSyncParamKeys: ['role', 'deleted'],
+  urlSyncParamKeys: ['role', 'deleted', 'population'],
   scrollContainerRef,
   facets: userFacets,
   groupAxes,
@@ -236,6 +238,20 @@ const isDeletedView = computed(() => {
 function setDeletedView(deleted: boolean) {
   if (deleted === isDeletedView.value) return
   listView.chipFilters.toggleValue('deleted', 'deleted')
+}
+
+// The primary People split: Team (staff) vs Requesters (end-users). Drives the
+// backend `population` filter through the same URL-synced controls as `deleted`,
+// so switching refetches automatically. Team is the default.
+const population = computed<'team' | 'requesters'>(() => {
+  const v = listView.controls.filters.value['population']
+  const val = Array.isArray(v) ? v[0] : v
+  return val === 'requesters' ? 'requesters' : 'team'
+})
+const isRequesters = computed(() => population.value === 'requesters')
+function setPopulation(p: 'team' | 'requesters') {
+  if (p === population.value) return
+  listView.controls.handleFilterUpdate('population', p)
 }
 
 // Bulk delete: irreversible, so a confirm modal rather than the
@@ -338,26 +354,50 @@ function formatPurgeAt(deletedAt: string): string {
       @retry="listView.page.handleRetry"
     >
       <template #view-tabs>
-        <div
-          v-if="isPlatformAdmin"
-          class="inline-flex items-center gap-0.5 rounded-lg border border-default bg-surface-alt p-0.5"
-        >
-          <button
-            type="button"
-            class="px-3 py-1 text-sm font-medium rounded-md transition-colors"
-            :class="!isDeletedView ? 'bg-surface text-primary shadow-sm' : 'text-secondary hover:text-primary'"
-            @click="setDeletedView(false)"
+        <div class="flex items-center gap-2">
+          <!-- Primary: the People population split (staff Team vs end-user
+               Requesters). Everyone sees it; it drives the backend filter. -->
+          <div class="inline-flex items-center gap-0.5 rounded-lg border border-default bg-surface-alt p-0.5">
+            <button
+              type="button"
+              class="px-3 py-1 text-sm font-medium rounded-md transition-colors"
+              :class="!isRequesters ? 'bg-surface text-primary shadow-sm' : 'text-secondary hover:text-primary'"
+              @click="setPopulation('team')"
+            >
+              {{ $t('people-tab-team') }}
+            </button>
+            <button
+              type="button"
+              class="px-3 py-1 text-sm font-medium rounded-md transition-colors"
+              :class="isRequesters ? 'bg-surface text-primary shadow-sm' : 'text-secondary hover:text-primary'"
+              @click="setPopulation('requesters')"
+            >
+              {{ $t('people-tab-requesters') }}
+            </button>
+          </div>
+          <!-- Secondary: soft-delete recovery, a platform-admin surface and only
+               relevant to the Team roster. -->
+          <div
+            v-if="isPlatformAdmin && !isRequesters"
+            class="inline-flex items-center gap-0.5 rounded-lg border border-default bg-surface-alt p-0.5"
           >
-            {{ $t('user-mgmt-tab-active') }}
-          </button>
-          <button
-            type="button"
-            class="px-3 py-1 text-sm font-medium rounded-md transition-colors"
-            :class="isDeletedView ? 'bg-surface text-primary shadow-sm' : 'text-secondary hover:text-primary'"
-            @click="setDeletedView(true)"
-          >
-            {{ $t('user-mgmt-tab-deleted') }}
-          </button>
+            <button
+              type="button"
+              class="px-3 py-1 text-sm font-medium rounded-md transition-colors"
+              :class="!isDeletedView ? 'bg-surface text-primary shadow-sm' : 'text-secondary hover:text-primary'"
+              @click="setDeletedView(false)"
+            >
+              {{ $t('user-mgmt-tab-active') }}
+            </button>
+            <button
+              type="button"
+              class="px-3 py-1 text-sm font-medium rounded-md transition-colors"
+              :class="isDeletedView ? 'bg-surface text-primary shadow-sm' : 'text-secondary hover:text-primary'"
+              @click="setDeletedView(true)"
+            >
+              {{ $t('user-mgmt-tab-deleted') }}
+            </button>
+          </div>
         </div>
       </template>
 

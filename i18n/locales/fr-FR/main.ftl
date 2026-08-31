@@ -2202,6 +2202,10 @@ user-mgmt-filter-deleted-on = Show deleted
 # user-mgmt-tab-* (machine, à relire par un locuteur natif).
 user-mgmt-tab-active = Actifs
 user-mgmt-tab-deleted = Supprimés
+# machine translation, en attente de relecture
+people-tab-team = Équipe
+# machine translation, en attente de relecture
+people-tab-requesters = Demandeurs
 user-mgmt-grouping-role = Role
 user-mgmt-grouping-status = Status
 user-mgmt-grouping-status-active = Active

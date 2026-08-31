@@ -14,6 +14,9 @@ export type { User };
 // Extended pagination params for users
 export interface UserPaginationParams extends PaginationParams {
   role?: string;
+  /** People population: `"team"` (staff) or `"requesters"` (end-users).
+   * Absent shows the combined directory. */
+  population?: 'team' | 'requesters';
   /** Filter on soft-delete state. `"active"` (default) hides
    * soft-deleted rows; `"deleted"` shows only them; `"all"`
    * returns both. The admin "Deleted users" view flips this to
