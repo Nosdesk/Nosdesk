@@ -1021,7 +1021,11 @@ pub async fn create_user(
                 Some("manual".to_string()),
                 c,
                 Some(search_service.get_ref()),
+                // Product surface; staff creation in hosted is already refused
+                // earlier in this handler, so this never gates in practice.
+                repository::workspaces::SeatWriteAuthority::Product,
             )
+            .and_then(|o| o.into_created())
         },
     );
     match create_result {

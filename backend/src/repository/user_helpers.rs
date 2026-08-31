@@ -121,19 +121,37 @@ pub fn get_user_by_email(
         .first::<User>(conn)
 }
 
+/// Outcome of [`create_user_with_email`].
+pub enum CreateUserWithEmailOutcome {
+    Created(User, UserEmail),
+    /// A product-initiated attempt to create a control-plane-owned staff seat in
+    /// hosted; refused, nothing created. Hand off to the control plane.
+    ExternallyManaged,
+}
+
+impl CreateUserWithEmailOutcome {
+    /// Unwrap the created `(user, email)`. For callers that pass `ControlPlane`
+    /// authority or a requester (`member`) role and so can never be refused; a
+    /// refusal collapses to a rollback error rather than being handled inline.
+    pub fn into_created(self) -> Result<(User, UserEmail), diesel::result::Error> {
+        match self {
+            Self::Created(u, e) => Ok((u, e)),
+            Self::ExternallyManaged => Err(diesel::result::Error::RollbackTransaction),
+        }
+    }
+}
+
 /// Create a user with their primary email atomically.
-///
-/// `role` is the legacy `UserRole` projection carried on the
-/// emitted `user.created` sync event (the `users.role` column itself
-/// was dropped in the W2 cleanup, so it's event-only now).
 ///
 /// `workspace_role` is the per-workspace membership role written to
 /// `workspace_members`. It's a separate, explicit parameter rather
-/// than being derived from `role` because the two vocabularies don't
-/// line up: `WorkspaceRole::Owner` has no `UserRole` equivalent, so
-/// deriving the membership role from `UserRole` would make it
-/// impossible to provision an owner. Callers that just want the
-/// default mapping pass `WorkspaceRole::from_user_role(role)`.
+/// than being derived from any user-level role because the two
+/// vocabularies don't line up: `WorkspaceRole::Owner` has no `UserRole`
+/// equivalent, so deriving it would make it impossible to provision an owner.
+///
+/// `authority` gates the membership grant: a product-initiated staff seat in
+/// hosted is refused (`ExternallyManaged`); the control plane's own projection
+/// passes `ControlPlane` to bypass.
 pub fn create_user_with_email(
     new_user: crate::models::NewUser,
     workspace_role: WorkspaceRole,
@@ -142,11 +160,18 @@ pub fn create_user_with_email(
     email_source: Option<String>,
     conn: &mut DbConnection,
     observer: Option<&dyn UserCreatedObserver>,
-) -> Result<(User, UserEmail), diesel::result::Error> {
+    authority: crate::repository::workspaces::SeatWriteAuthority,
+) -> Result<CreateUserWithEmailOutcome, diesel::result::Error> {
     use crate::models::{SyncAggregate, SyncOp};
     use crate::sync::emit::{self, SyncEmit};
     use crate::sync::groups;
     use serde_json::json;
+
+    // In hosted, creating a staff seat is the control plane's job; a
+    // product-initiated staff create is refused before any write.
+    if authority.refuses_role(workspace_role.as_str()) {
+        return Ok(CreateUserWithEmailOutcome::ExternallyManaged);
+    }
 
     let result = conn.transaction::<_, diesel::result::Error, _>(|conn| {
         // Create user first
@@ -224,7 +249,7 @@ pub fn create_user_with_email(
         observer.user_created(&result.0, &result.1.email);
     }
 
-    Ok(result)
+    Ok(CreateUserWithEmailOutcome::Created(result.0, result.1))
 }
 
 /// Source tag written to `user_emails.source` when an account is created by
@@ -304,7 +329,12 @@ pub fn find_or_create_guest_user(
             Some(GUEST_EMAIL_SOURCE.to_string()),
             conn,
             observer,
-        ) {
+            // Guest auto-provisioning is a product surface, but always a
+            // requester (member), so the gate never fires.
+            crate::repository::workspaces::SeatWriteAuthority::Product,
+        )
+        .and_then(|o| o.into_created())
+        {
             Ok((user, _)) => Ok(GuestUserResult::Created(user)),
             // Race: a concurrent request created the row between our lookup
             // and our insert. Look it up again under the same transaction.
@@ -645,7 +675,9 @@ mod tests {
             None,
             &mut conn,
             None,
+            crate::repository::workspaces::SeatWriteAuthority::ControlPlane,
         )
+        .and_then(|o| o.into_created())
         .unwrap();
 
         assert_eq!(user.name, "Atomic");
