@@ -31,6 +31,9 @@ import UserEmailsCard from '@/components/settings/UserEmailsCard.vue';
 import userService from '@/services/userService';
 import type { User } from '@/services/userService';
 import { effectiveRole, rolesFromTier, type UserRole } from '@nosdesk/core/types/user';
+import { isIdentityExternallyManaged } from '@nosdesk/core/services/instanceConfig';
+import { controlPlaneSeatsUrl } from '@/services/activeWorkspace';
+import { openExternalUrl } from '@/platform';
 import { groupService } from '@nosdesk/core/services/groupService';
 import type { Group } from '@nosdesk/core/types/group';
 import apiClient from '@nosdesk/core/apiClient';
@@ -132,6 +135,17 @@ const isManagingOtherUser = computed(() => isAdminMode.value && !!targetUser.val
 const loadingTargetUser = computed(
   () => isAdminMode.value && userProfileBundle.isLoading.value,
 );
+
+// In hosted, a staff member's identity is control-plane-owned. When an admin is
+// managing such a user, the whole in-product settings surface (role, security,
+// invitation, delete) is moot, so it's replaced by a control-plane hand-off.
+const managedTargetExternallyManaged = computed(
+  () => isManagingOtherUser.value && isIdentityExternallyManaged(targetUser.value),
+);
+const manageInControlPlane = () => {
+  const url = controlPlaneSeatsUrl();
+  if (url) void openExternalUrl(url);
+};
 const updatingRole = ref(false);
 
 // Get the current user being edited (either targetUser for admin or authStore.user for self)
@@ -453,7 +467,7 @@ const cancelDelete = () => {
     </div>
 
     <!-- Mobile Tab Navigation (horizontal scroll) - sticky full-width on mobile -->
-    <div class="lg:hidden sticky top-0 z-20 bg-app border-b border-default">
+    <div v-if="!managedTargetExternallyManaged" class="lg:hidden sticky top-0 z-20 bg-app border-b border-default">
       <div class="px-4 sm:px-6 py-2">
         <HorizontalScrollContainer container-class="gap-2" fade-background="bg-app" :show-dots="false">
           <button
@@ -509,8 +523,31 @@ const cancelDelete = () => {
         {{ error }}
       </div>
 
+      <!-- Hosted staff: identity is control-plane-owned, so the whole
+           in-product settings surface is replaced by a hand-off. -->
+      <div
+        v-if="managedTargetExternallyManaged"
+        class="bg-surface rounded-xl border border-default p-6 flex flex-col items-start gap-4 max-w-2xl"
+      >
+        <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-accent/15 text-accent">
+          <Icon name="team" size="md" />
+        </div>
+        <div class="flex flex-col gap-1">
+          <h2 class="text-lg font-semibold text-primary">{{ t('user-settings-cp-managed-title') }}</h2>
+          <p class="text-sm text-secondary">{{ t('user-settings-cp-managed-body') }}</p>
+        </div>
+        <button
+          type="button"
+          @click="manageInControlPlane"
+          class="px-4 py-2 bg-accent text-on-accent rounded-lg hover:bg-accent-hover transition-colors text-sm font-medium flex items-center gap-2"
+        >
+          <Icon name="openExternal" />
+          {{ t('user-profile-action-manage-in-control-plane') }}
+        </button>
+      </div>
+
       <!-- Main content -->
-      <div class="flex flex-col lg:flex-row gap-4 lg:gap-6">
+      <div v-else class="flex flex-col lg:flex-row gap-4 lg:gap-6">
         <!-- Desktop Sidebar Navigation -->
         <aside class="hidden lg:block lg:w-64 flex-shrink-0">
           <div class="sticky top-4">

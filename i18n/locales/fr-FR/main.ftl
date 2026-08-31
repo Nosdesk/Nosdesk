@@ -6091,6 +6091,9 @@ user-cell-unknown = Inconnu
 user-settings-managing-for = Gestion des paramètres pour
 user-settings-groups-title = Groupes
 user-settings-role-management-title = Gestion des rôles
+# user-settings-cp-managed-* (machine, à relire par un locuteur natif).
+user-settings-cp-managed-title = Géré dans le plan de contrôle
+user-settings-cp-managed-body = Le compte, le rôle et la connexion de ce membre de l'équipe sont gérés dans le plan de contrôle Nosdesk. Ouvrez-le pour modifier son siège.
 user-settings-account-setup-title = Configuration du compte
 user-settings-account-setup-pending = En attente
 user-settings-invitation-pending = Invitation en attente
