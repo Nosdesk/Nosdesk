@@ -2667,10 +2667,6 @@ pub async fn resend_invitation(
     };
 
     // Only admins can resend invitations
-    if !is_platform_admin(&claims) {
-        return errors::forbidden("Only administrators can resend invitations");
-    }
-
     // Check email configuration. EmailService::from_env builds the SMTP
     // transport and reports is_configured for it.
     let smtp_configured = crate::utils::email::EmailService::from_env()
@@ -2686,6 +2682,17 @@ pub async fn resend_invitation(
         Ok(uuid) => uuid,
         Err(_) => return errors::bad_request("Invalid UUID format"),
     };
+
+    // Was platform-admin-only and looked up any global uuid, then invalidated
+    // its invitation tokens with no membership check. Now a workspace admin may
+    // resend only for a member of their OWN workspace (the isolation boundary);
+    // hosted invites are control-plane seats, so this is self-hosted only.
+    // (Token invalidation remains account-wide; per-workspace scoping is deferred.)
+    if let Err(resp) =
+        helpers::authorize_target_user_action(&req, &db_pool, &claims, uuid_parsed, false)
+    {
+        return resp;
+    }
 
     let user = match repository::get_user_by_uuid(&uuid_parsed, &mut conn) {
         Ok(user) => user,
@@ -3086,15 +3093,22 @@ pub async fn get_user_security_info(
 
     let target_uuid_str = path.into_inner();
 
-    // Authorization: self or admin
-    if claims.sub != target_uuid_str && !is_platform_admin(&claims) {
-        return errors::forbidden("Not authorized to access this resource");
-    }
-
     let target_uuid = match utils::parse_uuid(&target_uuid_str) {
         Ok(uuid) => uuid,
         Err(_) => return errors::bad_request("Invalid UUID format"),
     };
+
+    // Self, or a workspace admin of the target's own workspace (single-workspace
+    // bound; the panel discloses account-global MFA/passkey posture). Platform
+    // admins pass. Was self-or-platform, which dead-ended tenant admins trying
+    // to load a member's security panel.
+    if claims.sub != target_uuid_str {
+        if let Err(resp) =
+            helpers::authorize_target_user_action(&req, &db_pool, &claims, target_uuid, true)
+        {
+            return resp;
+        }
+    }
 
     let user = match repository::get_user_by_uuid(&target_uuid, &mut conn) {
         Ok(user) => user,
