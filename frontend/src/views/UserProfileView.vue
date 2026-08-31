@@ -139,6 +139,18 @@ const canHaveAssignedTickets = computed(() => {
     return role === 'technician' || role === 'admin';
 });
 
+// An agent may edit the CONTACT satellite (custom fields, phones, addresses) of
+// a requester (the `user` tier) in their workspace, matching the backend
+// contact-edit gate that A.2 widened for requesters. Name / email / role stay
+// self-or-admin, so this is the only edit path an agent gains.
+const targetIsRequester = computed(() => {
+    const role = userProfile.value ? effectiveRole(userProfile.value) : undefined;
+    return role === 'user';
+});
+const canEditContact = computed(
+    () => canEdit.value || (authStore.isTechnician && targetIsRequester.value),
+);
+
 // Update document title when user profile changes
 watch(userProfile, (newProfile) => {
     if (newProfile) {
@@ -654,7 +666,7 @@ watch(
                         <div v-if="userProfile?.uuid" class="mb-4 break-inside-avoid">
                             <UserContactCard
                                 :uuid="userProfile.uuid"
-                                :editable="canEdit"
+                                :editable="canEditContact"
                             />
                         </div>
 
@@ -662,7 +674,7 @@ watch(
                         <div v-if="userProfile?.uuid" class="mb-4 break-inside-avoid">
                             <UserPhonesCard
                                 :uuid="userProfile.uuid"
-                                :editable="canEdit"
+                                :editable="canEditContact"
                             />
                         </div>
 
@@ -670,7 +682,7 @@ watch(
                         <div v-if="userProfile?.uuid" class="mb-4 break-inside-avoid">
                             <UserAddressesCard
                                 :uuid="userProfile.uuid"
-                                :editable="canEdit"
+                                :editable="canEditContact"
                             />
                         </div>
 
