@@ -7,7 +7,9 @@ import { useDelayedFlag } from '@/composables/useDelayedFlag';
 import { useFluent } from 'fluent-vue';
 import { useAuthStore } from "@/stores/auth";
 import { useToastStore } from '@nosdesk/core/stores/toast';
-import { isHostedDeployment, getControlPlaneUrl } from '@nosdesk/core/services/instanceConfig';
+import { isHostedDeployment } from '@nosdesk/core/services/instanceConfig';
+import { controlPlaneSeatsUrl } from '@/services/activeWorkspace';
+import { openExternalUrl } from '@/platform';
 import BackButton from "@/components/common/BackButton.vue";
 import UserProfileCard from "@/components/settings/UserProfileCard.vue";
 import UserEmailsCard from "@/components/settings/UserEmailsCard.vue";
@@ -60,8 +62,10 @@ const toast = useToastStore();
 // account (identity is control-plane owned), so hand off to the control plane
 // like the Users-list create action rather than render the form.
 if (isCreationMode.value && isHostedDeployment()) {
-  const cp = getControlPlaneUrl();
-  if (cp) window.open(`${cp}/instances`, '_blank', 'noopener');
+  // Deep-link to this workspace's seats and open it in the system browser (not
+  // the app webview), matching the Users-list hand-off.
+  const url = controlPlaneSeatsUrl();
+  if (url) void openExternalUrl(url);
   toast.info(t('user-mgmt-hosted-add-in-control-plane'));
   void router.replace('/users');
 }
@@ -652,10 +656,12 @@ watch(
                     <!-- Detail and ticket cards flow into an adaptive masonry that
                          packs to fill the width; with no related tickets the detail
                          cards spread across every column, so there is no dead half.
-                         Mobile stays a single column in the same order as before. -->
-                    <div class="columns-1 md:columns-2 xl:columns-3 gap-4">
+                         Mobile is a plain flex column: CSS multi-column drops the
+                         cards' bottom margins, so the gap comes from the parent
+                         instead. md+ switches back to the masonry. -->
+                    <div class="flex flex-col gap-4 md:block md:columns-2 xl:columns-3">
                         <!-- Email Addresses Section -->
-                        <div v-if="userProfile?.uuid" class="mb-4 break-inside-avoid">
+                        <div v-if="userProfile?.uuid" class="break-inside-avoid md:mb-4">
                             <UserEmailsCard
                                 :user-uuid="userProfile.uuid"
                                 :can-edit="false"
@@ -663,7 +669,7 @@ watch(
                         </div>
 
                         <!-- Contact details: standard + custom fields -->
-                        <div v-if="userProfile?.uuid" class="mb-4 break-inside-avoid">
+                        <div v-if="userProfile?.uuid" class="break-inside-avoid md:mb-4">
                             <UserContactCard
                                 :uuid="userProfile.uuid"
                                 :editable="canEditContact"
@@ -671,7 +677,7 @@ watch(
                         </div>
 
                         <!-- Phone numbers -->
-                        <div v-if="userProfile?.uuid" class="mb-4 break-inside-avoid">
+                        <div v-if="userProfile?.uuid" class="break-inside-avoid md:mb-4">
                             <UserPhonesCard
                                 :uuid="userProfile.uuid"
                                 :editable="canEditContact"
@@ -679,7 +685,7 @@ watch(
                         </div>
 
                         <!-- Addresses -->
-                        <div v-if="userProfile?.uuid" class="mb-4 break-inside-avoid">
+                        <div v-if="userProfile?.uuid" class="break-inside-avoid md:mb-4">
                             <UserAddressesCard
                                 :uuid="userProfile.uuid"
                                 :editable="canEditContact"
@@ -687,12 +693,12 @@ watch(
                         </div>
 
                         <!-- Devices Section -->
-                        <div class="mb-4 break-inside-avoid">
+                        <div class="break-inside-avoid md:mb-4">
                             <UserDevicesCard :devices="devices" />
                         </div>
 
                         <!-- Groups Section -->
-                        <div v-if="groups.length > 0" class="mb-4 break-inside-avoid">
+                        <div v-if="groups.length > 0" class="break-inside-avoid md:mb-4">
                         <SectionCard content-padding="p-3">
                             <template #title>{{ $t('user-profile-groups-title') }}</template>
                             <div class="flex flex-wrap gap-2">
@@ -715,7 +721,7 @@ watch(
                         </div>
 
                         <!-- Assigned Tickets (technicians and admins only) -->
-                        <div v-if="canHaveAssignedTickets" class="mb-4 break-inside-avoid">
+                        <div v-if="canHaveAssignedTickets" class="break-inside-avoid md:mb-4">
                             <UserAssignedTickets
                                 :user-uuid="userProfile.uuid"
                                 ticket-type="assigned"
@@ -725,7 +731,7 @@ watch(
                         </div>
 
                         <!-- Requested Tickets -->
-                        <div class="mb-4 break-inside-avoid">
+                        <div class="break-inside-avoid md:mb-4">
                             <UserAssignedTickets
                                 :user-uuid="userProfile.uuid"
                                 ticket-type="requested"
@@ -735,7 +741,7 @@ watch(
                         </div>
 
                         <!-- Plugin panels contributed to the user profile -->
-                        <div class="mb-4 break-inside-avoid">
+                        <div class="break-inside-avoid md:mb-4">
                             <PluginSlot
                                 target="user.sidebar.panel"
                                 :context="{ user: pluginUser }"

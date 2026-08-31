@@ -8,6 +8,7 @@ import { formatDate } from '@nosdesk/core/utils/dateUtils'
 import { useToastStore } from '@nosdesk/core/stores/toast'
 import { isHostedDeployment } from '@nosdesk/core/services/instanceConfig'
 import { controlPlaneSeatsUrl } from '@/services/activeWorkspace'
+import { openExternalUrl } from '@/platform'
 
 import DataTable from '@/components/common/DataTable.vue'
 import PaginationControls from '@/components/common/PaginationControls.vue'
@@ -64,8 +65,10 @@ const navigateToCreateUser = () => {
   // rather than open a create form that produces a dead account.
   if (isHostedDeployment()) {
     // Deep-link to THIS workspace's seats, not the generic instances list.
+    // openExternalUrl uses the system browser in the native shell so the
+    // hand-off doesn't strand the user inside the app's webview.
     const url = controlPlaneSeatsUrl()
-    if (url) window.open(url, '_blank', 'noopener')
+    if (url) void openExternalUrl(url)
     toast.info(t('user-mgmt-hosted-add-in-control-plane'))
     return
   }
