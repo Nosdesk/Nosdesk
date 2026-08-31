@@ -2294,6 +2294,28 @@ pub async fn update_user_by_uuid(
             // workspace_members role for the request's workspace, both
             // inside the actor + workspace-scoped transaction.
             let ws_id = tc.workspace_id().unwrap_or_default();
+
+            // In hosted, a staff seat is control-plane-owned. Refuse a role
+            // change that touches one (the current OR the new role is a staff
+            // seat) and hand off to the control plane, matching the tenant gate.
+            let current_ws_role = tc.run(|conn| {
+                repository::workspaces::get_membership_role(conn, ws_id, user_uuid_parsed)
+            });
+            match current_ws_role {
+                Ok(current) => {
+                    let current = current.unwrap_or_default();
+                    if repository::workspaces::staff_identity_externally_managed(&current)
+                        || repository::workspaces::staff_identity_externally_managed(workspace_role)
+                    {
+                        return errors::externally_managed();
+                    }
+                }
+                Err(e) => {
+                    error!(error = ?e, user_uuid = %user_uuid_parsed, "Failed to read current role for staff gate");
+                    return errors::internal("Error updating user role");
+                }
+            }
+
             let role_result = tc.run(|conn| {
                 repository::users::set_user_roles(
                     conn,
@@ -3052,6 +3074,14 @@ pub async fn bulk_users(
             let workspace_role = workspace_role_enum.as_str();
             let platform_role = platform_role_enum.as_str();
 
+            // In hosted, promoting anyone into a staff seat is the control
+            // plane's job, so a bulk assignment of a staff role is refused
+            // outright; demotions of existing staff seats are skipped per-target
+            // in the loop below.
+            if repository::workspaces::staff_identity_externally_managed(workspace_role) {
+                return errors::externally_managed();
+            }
+
             // Same actor-context wrapping as the "delete" branch above:
             // the platform_role write hits the audited `users` table, so
             // it needs `app.workspace_id` pinned. The actor's workspace
@@ -3061,11 +3091,30 @@ pub async fn bulk_users(
             let actor = helpers::actor_for(&req, "users_admin");
             let ws_id = actor.workspace_id.unwrap_or_default();
             let mut updated = 0;
+            let mut skipped_staff = 0;
             for id in ids {
                 let uuid = match Uuid::parse_str(id) {
                     Ok(u) => u,
                     Err(_) => continue,
                 };
+
+                // Skip a target that currently holds a control-plane-owned staff
+                // seat: demoting it locally would desync the projection. (Not
+                // reachable from the UI, which disables bulk selection on the
+                // Team population in hosted, but the API must still fail closed.)
+                let current_role = crate::sync::session::with_actor_context::<
+                    _,
+                    diesel::result::Error,
+                >(&mut conn, &actor, |c| {
+                    repository::workspaces::get_membership_role(c, ws_id, uuid)
+                })
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+                if repository::workspaces::staff_identity_externally_managed(&current_role) {
+                    skipped_staff += 1;
+                    continue;
+                }
 
                 // Post-W2: bulk role change rewrites
                 // workspace_members.role and platform_role (mapped from
@@ -3083,7 +3132,7 @@ pub async fn bulk_users(
                 }
             }
 
-            HttpResponse::Ok().json(json!({ "affected": updated }))
+            HttpResponse::Ok().json(json!({ "affected": updated, "skipped_staff": skipped_staff }))
         }
 
         _ => HttpResponse::BadRequest().json(json!({
@@ -3224,7 +3273,12 @@ pub async fn admin_reset_user_password(
         &mut conn, &user.uuid, &new_hash,
     ) {
         Ok(count) => count,
-        Err(e) => {
+        // Hosted disables local passwords entirely, so this is a clean "not
+        // available here" rather than a server error.
+        Err(repository::user_auth_identities::LocalCredentialError::LocalAuthDisabled) => {
+            return errors::local_auth_disabled()
+        }
+        Err(repository::user_auth_identities::LocalCredentialError::Db(e)) => {
             error!(error = ?e, "Error updating password hash for user");
             return errors::internal("Failed to update password");
         }

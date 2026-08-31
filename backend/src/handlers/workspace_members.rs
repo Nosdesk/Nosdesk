@@ -97,13 +97,10 @@ fn forbidden_tier() -> HttpResponse {
 }
 
 /// The 409 for a staff-seat mutation refused because the control plane owns the
-/// seat in hosted mode. Carries a stable `error` code the SPA keys off to swap
-/// in the "manage in the control plane" hand-off.
+/// seat in hosted mode. Shared with the operator handlers via `errors` so every
+/// refusal carries the same `externally_managed` code.
 fn externally_managed_response() -> HttpResponse {
-    HttpResponse::Conflict().json(serde_json::json!({
-        "error": "externally_managed",
-        "message": "Team members are managed in the Nosdesk control plane. Add, re-role, or remove seats there.",
-    }))
+    errors::externally_managed()
 }
 
 /// Actor context for a membership write, attributed to the calling
