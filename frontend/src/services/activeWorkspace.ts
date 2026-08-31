@@ -12,6 +12,7 @@
 import { computed, readonly, ref, type Ref } from 'vue';
 import { addRequestHeaderProvider } from '@nosdesk/core/transport';
 import {
+  getControlPlaneUrl,
   getWorkspaceRouting,
   instanceConfigResolvedRef,
 } from '@nosdesk/core/services/instanceConfig';
@@ -37,6 +38,20 @@ export function setActiveWorkspaceSlug(next: string | null): void {
 /** Non-reactive read, for the axios interceptor / sync engine (outside Vue). */
 export function activeWorkspaceSlug(): string | null {
   return slug.value;
+}
+
+/**
+ * The control-plane Seats deep-link for the active workspace, so a hosted admin
+ * lands on THIS instance's seats rather than the generic instances list. The
+ * control plane resolves `?workspace=<slug>` to the instance (it owns the
+ * slug->instance mapping). Returns `''` when the control-plane URL is unknown
+ * (self-hosted, or the config has not resolved), so callers can skip the link.
+ */
+export function controlPlaneSeatsUrl(): string {
+  const cp = getControlPlaneUrl();
+  if (!cp) return '';
+  const s = slug.value;
+  return s ? `${cp}/instances?workspace=${encodeURIComponent(s)}` : `${cp}/instances`;
 }
 
 /** Reactive read, for UI (the workspace switcher's active-workspace highlight). */
