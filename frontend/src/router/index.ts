@@ -43,6 +43,11 @@ declare module 'vue-router' {
      * as opposed to `adminRequired` which also admits platform admins.
      * Used by the workspace member-management page. */
     workspaceAdminRequired?: boolean;
+    /** Gate to platform admins only (Nosdesk operators). Operator/instance
+     * surfaces a workspace admin must never reach even in the /admin console:
+     * cross-tenant workspace lifecycle, backups, search index, auth providers.
+     * Further restricts an `adminRequired` subtree (see checkPlatformAdminAccess). */
+    platformAdminRequired?: boolean;
     /** Within an adminRequired subtree, also allow the standalone
      * audit_reviewer role to reach this route (Item C/D4). */
     auditReviewerAllowed?: boolean;
@@ -666,7 +671,7 @@ const router = createRouter({
           path: 'workspaces',
           name: 'admin-workspaces',
           component: () => import('../views/admin/AdminWorkspacesView.vue'),
-          meta: { titleKey: 'route-title-admin-workspaces' }
+          meta: { titleKey: 'route-title-admin-workspaces', platformAdminRequired: true }
         },
         {
           path: 'workspaces/:id(\\d+)/members',
@@ -764,13 +769,13 @@ const router = createRouter({
           path: 'auth-providers',
           name: 'admin-auth-providers',
           component: () => import('../views/AuthProvidersView.vue'),
-          meta: { titleKey: 'route-title-admin-auth-providers' }
+          meta: { titleKey: 'route-title-admin-auth-providers', platformAdminRequired: true }
         },
         {
           path: 'search',
           name: 'admin-search',
           component: () => import('../views/SearchManagementView.vue'),
-          meta: { titleKey: 'route-title-admin-search' }
+          meta: { titleKey: 'route-title-admin-search', platformAdminRequired: true }
         },
         {
           path: 'system-settings',
@@ -896,7 +901,7 @@ const router = createRouter({
           path: 'backup-restore',
           name: 'admin-backup-restore',
           component: () => import('../views/BackupRestoreView.vue'),
-          meta: { titleKey: 'route-title-admin-backup-restore' }
+          meta: { titleKey: 'route-title-admin-backup-restore', platformAdminRequired: true }
         }
       ]
     },
@@ -1264,11 +1269,24 @@ async function checkWorkspaceAdminAccess(to: RouteLocationNormalized) {
   return { name: 'home' };
 }
 
+// Gate operator/instance routes to platform admins only. Runs after
+// checkAdminAccess (which admits workspace admins on an adminRequired subtree),
+// so it further restricts the operator subset a tenant admin must never reach,
+// matching the backend `require_platform_admin` gate on these handlers.
+async function checkPlatformAdminAccess(to: RouteLocationNormalized) {
+  const needs = to.matched.some((record) => record.meta.platformAdminRequired);
+  if (!needs) return;
+  const { useAuthStore } = await import('@/stores/auth');
+  if (useAuthStore().isPlatformAdmin) return;
+  return { name: 'home' };
+}
+
 // Register middleware in order of execution
 router.beforeEach(checkOnboarding);
 router.beforeEach(checkAuthentication);
 router.beforeEach(checkAdminAccess);
 router.beforeEach(checkWorkspaceAdminAccess);
+router.beforeEach(checkPlatformAdminAccess);
 
 // Diagnostic breadcrumb on every successful navigation. Uses
 // `to.path` (no query/fragment) and scrubUrl masks UUID segments

@@ -11,8 +11,10 @@
       <!-- Workspace data export (owner-only, self-serve DSAR return) -->
       <WorkspaceDataExportCard v-if="authStore.isOwner" />
 
-      <!-- Storage Management Section -->
-      <div class="bg-surface border border-default rounded-xl hover:border-strong transition-colors">
+      <!-- Storage Management Section. Instance-wide storage maintenance is a
+           platform-operator action (backend requires platform_admin); hidden
+           from workspace admins, who would only hit permission denied. -->
+      <div v-if="authStore.isPlatformAdmin" class="bg-surface border border-default rounded-xl hover:border-strong transition-colors">
         <div class="p-4 flex flex-col gap-3">
           <!-- Header row with icon -->
           <div class="flex items-center gap-3">
@@ -82,8 +84,9 @@
         </div>
       </div>
 
-      <!-- Thumbnail Regeneration Section -->
-      <div class="bg-surface border border-default rounded-xl hover:border-strong transition-colors">
+      <!-- Thumbnail Regeneration Section. Same as storage cleanup: an
+           instance-wide platform-operator action, hidden from workspace admins. -->
+      <div v-if="authStore.isPlatformAdmin" class="bg-surface border border-default rounded-xl hover:border-strong transition-colors">
         <div class="p-4 flex flex-col gap-3">
           <div class="flex items-center gap-3">
             <div class="flex-shrink-0 h-9 w-9 rounded-lg bg-accent/20 flex items-center justify-center text-accent">
