@@ -486,6 +486,7 @@ mod tests {
                 department: None,
                 custom_fields: json!({}),
                 display_name: Some("Workspace Persona".into()),
+                avatar_url: None,
             },
             Some(user.uuid),
         )
@@ -510,6 +511,7 @@ mod tests {
                 department: None,
                 custom_fields: json!({}),
                 display_name: None,
+                avatar_url: None,
             },
             Some(user.uuid),
         )
@@ -538,6 +540,7 @@ mod tests {
                 department: Some("IT".into()),
                 custom_fields: json!({ "gender": "x" }),
                 display_name: None,
+                avatar_url: None,
             },
             Some(user.uuid),
         )
@@ -554,6 +557,7 @@ mod tests {
                 department: Some("IT".into()),
                 custom_fields: json!({ "gender": "y" }),
                 display_name: None,
+                avatar_url: None,
             },
             Some(user.uuid),
         )
@@ -685,6 +689,7 @@ mod tests {
                 department: None,
                 custom_fields: json!({ "gender": "z" }),
                 display_name: None,
+                avatar_url: None,
             },
             None,
         )
