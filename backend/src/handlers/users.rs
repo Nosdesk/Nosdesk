@@ -487,6 +487,9 @@ pub struct PaginationParams {
     sort_direction: Option<String>,
     search: Option<String>,
     role: Option<String>,
+    /// People population: `"team"` (staff) or `"requesters"` (end-users).
+    /// Absent shows the combined directory.
+    population: Option<String>,
     /// Filter on soft-delete state. `"active"` (default) excludes
     /// rows with `deleted_at` set; `"deleted"` selects only those
     /// rows; `"all"` returns both. The admin "Deleted users" tab
@@ -620,6 +623,10 @@ pub async fn get_paginated_users(
         repository::users::DeletedFilter::Active
     };
 
+    // People population filter (Team = staff, Requesters = end-users); the
+    // combined directory when absent.
+    let population = repository::users::Population::from_query(query.population.as_deref());
+
     match repository::get_paginated_users(
         &mut conn,
         page,
@@ -628,6 +635,7 @@ pub async fn get_paginated_users(
         sort_direction,
         search,
         role,
+        population,
         deleted,
         ws.workspace_id,
     ) {

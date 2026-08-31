@@ -129,6 +129,39 @@ impl DeletedFilter {
     }
 }
 
+/// Which People population the caller wants: the staff Team or the end-user
+/// Requesters. Absent = the combined directory (no population filter).
+#[derive(Clone, Copy)]
+pub enum Population {
+    Team,
+    Requesters,
+}
+
+impl Population {
+    /// Parse the `population=` query value; unknown/absent = None (no filter).
+    pub fn from_query(value: Option<&str>) -> Option<Self> {
+        match value.map(str::trim).map(str::to_lowercase).as_deref() {
+            Some("team") => Some(Population::Team),
+            Some("requesters") | Some("requester") => Some(Population::Requesters),
+            _ => None,
+        }
+    }
+}
+
+/// The single definition of "this row is a requester (end-user)": platform role
+/// `user` and a workspace membership of `member` (or none). Team is its
+/// negation, so the split lives in one place. `workspace_id` is an i32, so the
+/// interpolation is injection-safe (same idiom as the role filter).
+fn requester_sql(workspace_id: i32) -> String {
+    format!(
+        "(users.platform_role = 'user' \
+         AND COALESCE((SELECT role FROM workspace_members \
+                       WHERE workspace_id = {workspace_id} AND user_uuid = users.uuid), \
+                      'member') = 'member')"
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn get_paginated_users(
     conn: &mut DbConnection,
     page: i64,
@@ -137,6 +170,7 @@ pub fn get_paginated_users(
     sort_direction: Option<String>,
     search: Option<String>,
     role: Option<String>,
+    population: Option<Population>,
     deleted: DeletedFilter,
     workspace_id: i32,
 ) -> Result<(Vec<User>, i64), Error> {
@@ -234,6 +268,13 @@ pub fn get_paginated_users(
         }
     };
 
+    // Coarse People split: Team = staff, Requesters = end-users. One predicate
+    // defines a requester; Team is its negation.
+    let population_sql: Option<String> = population.map(|p| match p {
+        Population::Requesters => requester_sql(workspace_id),
+        Population::Team => format!("NOT {}", requester_sql(workspace_id)),
+    });
+
     // CASE-rank used by sort-by-role: same tier ordering as the
     // derived projection (admin < technician < user < other), scoped to
     // the request's workspace.
@@ -282,6 +323,9 @@ pub fn get_paginated_users(
     if let Some(ref filter) = role_sql_filter {
         count_query = count_query.filter(diesel::dsl::sql::<diesel::sql_types::Bool>(filter));
     }
+    if let Some(ref filter) = population_sql {
+        count_query = count_query.filter(diesel::dsl::sql::<diesel::sql_types::Bool>(filter));
+    }
     count_query = match deleted {
         DeletedFilter::Active => count_query.filter(users::deleted_at.is_null()),
         DeletedFilter::Only => count_query.filter(users::deleted_at.is_not_null()),
@@ -293,6 +337,9 @@ pub fn get_paginated_users(
     let mut query = users::table.into_boxed();
     if let Some(ref uuids) = search_uuids {
         query = query.filter(users::uuid.eq_any(uuids.clone()));
+    }
+    if let Some(ref filter) = population_sql {
+        query = query.filter(diesel::dsl::sql::<diesel::sql_types::Bool>(filter));
     }
     if let Some(ref filter) = role_sql_filter {
         query = query.filter(diesel::dsl::sql::<diesel::sql_types::Bool>(filter));
@@ -944,6 +991,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             DeletedFilter::Active,
             crate::sync::actor::BOOTSTRAP_WORKSPACE_ID,
         )
@@ -968,6 +1016,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             DeletedFilter::Only,
             crate::sync::actor::BOOTSTRAP_WORKSPACE_ID,
         )
@@ -975,6 +1024,51 @@ mod tests {
         let uuids: Vec<Uuid> = rows.iter().map(|u| u.uuid).collect();
         assert!(!uuids.contains(&active.uuid));
         assert!(uuids.contains(&removed.uuid));
+    }
+
+    // The People split: Team = staff (here an agent), Requesters = end-users
+    // (a member). Both have platform_role `user`, so this exercises the
+    // membership half of requester_sql, the core of the split.
+    #[test]
+    fn population_filter_splits_team_from_requesters() {
+        let mut conn = setup_test_connection();
+        let ws = crate::sync::actor::BOOTSTRAP_WORKSPACE_ID;
+        let staff = TestFixtures::create_user(&mut conn, "PopStaff", "technician");
+        let requester = TestFixtures::create_user(&mut conn, "PopRequester", "user");
+
+        let mut ids = |pop| -> Vec<Uuid> {
+            get_paginated_users(
+                &mut conn,
+                1,
+                100,
+                None,
+                None,
+                None,
+                None,
+                Some(pop),
+                DeletedFilter::Active,
+                ws,
+            )
+            .unwrap()
+            .0
+            .iter()
+            .map(|u| u.uuid)
+            .collect()
+        };
+
+        let team = ids(Population::Team);
+        assert!(team.contains(&staff.uuid), "Team includes staff");
+        assert!(!team.contains(&requester.uuid), "Team excludes requesters");
+
+        let requesters = ids(Population::Requesters);
+        assert!(
+            requesters.contains(&requester.uuid),
+            "Requesters includes end-users"
+        );
+        assert!(
+            !requesters.contains(&staff.uuid),
+            "Requesters excludes staff"
+        );
     }
 
     #[test]
