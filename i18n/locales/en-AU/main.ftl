@@ -221,7 +221,7 @@ nav-asset-planner = Asset Planner
 # of duplicate sidebar entries for inventory list + planner.
 asset-tabs-inventory = Inventory
 asset-tabs-planner = Planner
-nav-users = Users
+nav-users = People
 nav-documentation = Documentation
 nav-inbox = Inbox
 nav-collapse = Collapse
@@ -4672,7 +4672,7 @@ route-title-asset-view = Asset details
 route-title-asset-planner = Asset planner
 route-title-project-detail = Project details
 route-title-error = Error
-route-title-users = Users
+route-title-users = People
 route-title-documentation-drafts = Drafts
 route-title-collection = Collection
 route-title-documentation-archived = Archived
