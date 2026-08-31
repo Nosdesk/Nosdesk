@@ -6,7 +6,8 @@ import { useFluent } from 'fluent-vue'
 import { extractErrorMessage } from '@/utils/errors'
 import { formatDate } from '@nosdesk/core/utils/dateUtils'
 import { useToastStore } from '@nosdesk/core/stores/toast'
-import { isHostedDeployment, getControlPlaneUrl } from '@nosdesk/core/services/instanceConfig'
+import { isHostedDeployment } from '@nosdesk/core/services/instanceConfig'
+import { controlPlaneSeatsUrl } from '@/services/activeWorkspace'
 
 import DataTable from '@/components/common/DataTable.vue'
 import PaginationControls from '@/components/common/PaginationControls.vue'
@@ -62,8 +63,9 @@ const navigateToCreateUser = () => {
   // can't sign in. Hand off to the control-plane dashboard (Instances -> Seats)
   // rather than open a create form that produces a dead account.
   if (isHostedDeployment()) {
-    const cp = getControlPlaneUrl()
-    if (cp) window.open(`${cp}/instances`, '_blank', 'noopener')
+    // Deep-link to THIS workspace's seats, not the generic instances list.
+    const url = controlPlaneSeatsUrl()
+    if (url) window.open(url, '_blank', 'noopener')
     toast.info(t('user-mgmt-hosted-add-in-control-plane'))
     return
   }
