@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, useTemplateRef } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useMutation, useQueryCache } from '@pinia/colada'
 import { useFluent } from 'fluent-vue'
 import { extractErrorMessage } from '@/utils/errors'
@@ -14,6 +14,8 @@ import BulkConfirmDialog from '@/components/common/BulkConfirmDialog.vue'
 import ListPageLayout, { type ListPageLayoutExpose } from '@/components/common/ListPageLayout.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Modal from '@/components/Modal.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import Button from '@/components/common/Button.vue'
 import ListViewToolbar from '@/components/views/ListViewToolbar.vue'
 import ListViewModals from '@/components/views/ListViewModals.vue'
 import { useListView } from '@/composables/useListView'
@@ -32,6 +34,16 @@ import { effectiveRole, type User, type UserRole } from '@nosdesk/core/types/use
 defineOptions({ name: 'UsersListView' })
 
 const router = useRouter()
+const route = useRoute()
+
+// The primary People split, sourced from the URL query (where the population
+// control syncs it) so it's available before the list machinery is built and
+// can drive the columns below. Team is the default. `setPopulation` (which sets
+// it through the list controls) is defined after `listView`.
+const population = computed<'team' | 'requesters'>(() =>
+  route.query.population === 'requesters' ? 'requesters' : 'team',
+)
+const isRequesters = computed(() => population.value === 'requesters')
 const queryCache = useQueryCache()
 const { isMobile } = useMobileDetection()
 const fluent = useFluent()
@@ -60,7 +72,15 @@ const navigateToCreateUser = () => {
 const navigateToUser = (user: User) => {
   void router.push(`/users/${user.uuid}`)
 }
-usePageCreateAction(navigateToCreateUser)
+// The header "+" is population-aware: staff use the control-plane hand-off (or
+// the create form on self-hosted), requesters open the lightweight in-product
+// Add-requester modal below.
+const showAddRequester = ref(false)
+const onPageCreate = () => {
+  if (isRequesters.value) showAddRequester.value = true
+  else navigateToCreateUser()
+}
+usePageCreateAction(onPageCreate)
 
 // Filter facets. Role is multi-select (backend accepts CSV via
 // parse_role); Name is the chip text-facet that drives
@@ -166,14 +186,29 @@ const groupAxes: GroupAxisDef<User>[] = [
  * 1024px viewport less the 256px navbar); the grid is clipped, not
  * scrollable, if they don't.
  */
-const columns = computed(() => [
-  { field: 'user', label: t('user-mgmt-column-user'), width: 'minmax(160px,1fr)', sortable: true, sortKey: 'name', responsive: 'always' as const },
-  { field: 'email', label: t('user-mgmt-column-email'), width: 'minmax(150px,260px)', sortable: true, responsive: 'always' as const },
-  { field: 'role', label: t('user-mgmt-column-role'), width: 'minmax(90px,120px)', sortable: true, responsive: 'always' as const },
-  { field: 'open_ticket_count', label: t('user-mgmt-column-tickets'), width: 'minmax(70px,90px)', sortable: true, responsive: 'md' as const },
-  { field: 'device_count', label: t('user-mgmt-column-assets'), width: 'minmax(70px,90px)', sortable: true, responsive: 'md' as const },
-  { field: 'created_at', label: t('user-mgmt-column-joined'), width: 'minmax(110px,150px)', sortable: true, responsive: 'lg' as const, defaultHidden: true },
-])
+// Columns adapt to the population. Requesters (end-users) have no role, no
+// assigned tickets, and no assets, so the staff-only columns would only ever
+// show zeros; the requester roster is a plain directory (name, email, added).
+// `user` and `email` are shared to keep the two sets DRY.
+const columns = computed(() => {
+  const userCol = { field: 'user', label: t('user-mgmt-column-user'), width: 'minmax(160px,1fr)', sortable: true, sortKey: 'name', responsive: 'always' as const }
+  const emailCol = { field: 'email', label: t('user-mgmt-column-email'), width: 'minmax(150px,260px)', sortable: true, responsive: 'always' as const }
+  if (isRequesters.value) {
+    return [
+      userCol,
+      { ...emailCol, width: 'minmax(150px,320px)' },
+      { field: 'created_at', label: t('user-mgmt-column-joined'), width: 'minmax(110px,150px)', sortable: true, responsive: 'md' as const },
+    ]
+  }
+  return [
+    userCol,
+    emailCol,
+    { field: 'role', label: t('user-mgmt-column-role'), width: 'minmax(90px,120px)', sortable: true, responsive: 'always' as const },
+    { field: 'open_ticket_count', label: t('user-mgmt-column-tickets'), width: 'minmax(70px,90px)', sortable: true, responsive: 'md' as const },
+    { field: 'device_count', label: t('user-mgmt-column-assets'), width: 'minmax(70px,90px)', sortable: true, responsive: 'md' as const },
+    { field: 'created_at', label: t('user-mgmt-column-joined'), width: 'minmax(110px,150px)', sortable: true, responsive: 'lg' as const, defaultHidden: true },
+  ]
+})
 
 // Shell composable bundling controls + page + selection + chip
 // filters + grouping + columns + saved-view round-trip. The
@@ -207,7 +242,7 @@ const listView = useListView({
   mobileSearch: {
     placeholder: t('user-mgmt-search-placeholder'),
     createIcon: 'user',
-    onCreate: navigateToCreateUser,
+    onCreate: onPageCreate,
   },
   urlSyncParamKeys: ['role', 'deleted', 'population'],
   scrollContainerRef,
@@ -240,15 +275,8 @@ function setDeletedView(deleted: boolean) {
   listView.chipFilters.toggleValue('deleted', 'deleted')
 }
 
-// The primary People split: Team (staff) vs Requesters (end-users). Drives the
-// backend `population` filter through the same URL-synced controls as `deleted`,
-// so switching refetches automatically. Team is the default.
-const population = computed<'team' | 'requesters'>(() => {
-  const v = listView.controls.filters.value['population']
-  const val = Array.isArray(v) ? v[0] : v
-  return val === 'requesters' ? 'requesters' : 'team'
-})
-const isRequesters = computed(() => population.value === 'requesters')
+// Switch population through the list controls, which URL-sync it; the read side
+// is the `population` computed near the top (sourced from the same URL query).
 function setPopulation(p: 'team' | 'requesters') {
   if (p === population.value) return
   listView.controls.handleFilterUpdate('population', p)
@@ -319,6 +347,34 @@ async function confirmPurge() {
     void queryCache.invalidateQueries({ key: usersKeys.root })
   } else {
     toast.error(t('user-mgmt-purge-error'))
+  }
+}
+
+// Add requester: a lightweight in-product create (role=user). Requesters are
+// tenant-local end-users, so no seat, no control plane, and no invitation email
+// (they sign in to the portal by magic link). Any agent may add one.
+const requesterName = ref('')
+const requesterEmail = ref('')
+const addingRequester = ref(false)
+async function submitAddRequester() {
+  const name = requesterName.value.trim()
+  const email = requesterEmail.value.trim()
+  if (!name || !email.includes('@')) {
+    toast.error(t('people-add-requester-invalid'))
+    return
+  }
+  addingRequester.value = true
+  try {
+    await userService.createUser({ name, email, role: 'user', send_invitation: false })
+    toast.success(t('people-add-requester-success', { name }))
+    showAddRequester.value = false
+    requesterName.value = ''
+    requesterEmail.value = ''
+    void queryCache.invalidateQueries({ key: usersKeys.root })
+  } catch (err) {
+    toast.error(extractErrorMessage(err, t('people-add-requester-error')))
+  } finally {
+    addingRequester.value = false
   }
 }
 
@@ -638,6 +694,38 @@ function formatPurgeAt(deletedAt: string): string {
           <span class="text-primary">{{ role.label }}</span>
         </button>
       </div>
+    </Modal>
+
+    <Modal
+      :show="showAddRequester"
+      :title="$t('people-add-requester-title')"
+      size="sm"
+      @close="showAddRequester = false"
+    >
+      <form class="flex flex-col gap-4 p-4" @submit.prevent="submitAddRequester">
+        <p class="text-sm text-secondary">{{ $t('people-add-requester-description') }}</p>
+        <FormInput
+          v-model="requesterName"
+          :label="$t('people-add-requester-name-label')"
+          :placeholder="$t('people-add-requester-name-placeholder')"
+          maxlength="255"
+        />
+        <FormInput
+          v-model="requesterEmail"
+          type="email"
+          :label="$t('people-add-requester-email-label')"
+          :placeholder="$t('people-add-requester-email-placeholder')"
+          maxlength="320"
+        />
+        <div class="flex justify-end gap-3 pt-1">
+          <Button variant="ghost" type="button" @click="showAddRequester = false">
+            {{ $t('common-cancel') }}
+          </Button>
+          <Button type="submit" :loading="addingRequester">
+            {{ $t('people-add-requester-submit') }}
+          </Button>
+        </div>
+      </form>
     </Modal>
 
     <ListViewModals :list-view="listView" />
