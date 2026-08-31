@@ -1034,6 +1034,8 @@ empty-workspace-members-description = Use the form above to add the first member
 route-title-workspace-members = Team
 workspace-members-title = Team
 workspace-members-invite = Teamlid uitnodigen
+# workspace-members-manage-in-control-plane (machine, door een moedertaalspreker na te kijken).
+workspace-members-manage-in-control-plane = Team beheren in het control plane
 workspace-members-empty-description = Nodig teamleden uit om samen te werken in deze werkruimte.
 workspace-members-error-forbidden = Je kunt alleen agents en leden beheren. Het beheren van beheerders of eigenaren vereist de eigenaarsrol.
 workspace-members-you = (jij)

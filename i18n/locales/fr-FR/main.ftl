@@ -1037,6 +1037,8 @@ empty-workspace-members-description = Use the form above to add the first member
 route-title-workspace-members = Équipe
 workspace-members-title = Équipe
 workspace-members-invite = Inviter un coéquipier
+# workspace-members-manage-in-control-plane (machine, à relire par un locuteur natif).
+workspace-members-manage-in-control-plane = Gérer l'équipe dans le plan de contrôle
 workspace-members-empty-description = Invitez des coéquipiers à collaborer dans cet espace de travail.
 workspace-members-error-forbidden = Vous ne pouvez gérer que les agents et les membres. La gestion des administrateurs ou des propriétaires nécessite le rôle de propriétaire.
 workspace-members-you = (vous)

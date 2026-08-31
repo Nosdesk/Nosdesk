@@ -1197,6 +1197,7 @@ empty-workspace-members-description = Use the form above to add the first member
 route-title-workspace-members = Team
 workspace-members-title = Team
 workspace-members-invite = Invite teammate
+workspace-members-manage-in-control-plane = Manage team in the control plane
 workspace-members-empty-description = Invite teammates to collaborate in this workspace.
 workspace-members-error-forbidden = You can only manage agents and members. Managing admins or owners requires the owner role.
 workspace-members-you = (you)
