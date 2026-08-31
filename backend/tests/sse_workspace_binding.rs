@@ -12,7 +12,7 @@
 use actix_web::{web, App};
 
 use backend::handlers::sse::{sse_events_stream, SseState};
-use backend::repository::workspaces::{add_membership, find_by_id};
+use backend::repository::workspaces::{add_membership, find_by_id, SeatWriteAuthority};
 use backend::sync::actor::ActorContext;
 use backend::sync::session::with_actor_context;
 use backend::utils::jwt::JwtUtils;
@@ -47,7 +47,13 @@ async fn stream_authorizes_against_the_token_bound_workspace() {
             .uuid;
         let actor = ActorContext::user(member.uuid, None).with_workspace(acme);
         with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |c| {
-            add_membership(c, acme, member.uuid, "member")?;
+            add_membership(
+                c,
+                acme,
+                member.uuid,
+                "member",
+                SeatWriteAuthority::ControlPlane,
+            )?;
             Ok(())
         })
         .expect("add membership");

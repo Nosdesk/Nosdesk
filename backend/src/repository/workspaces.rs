@@ -59,31 +59,33 @@ pub fn user_is_staff_anywhere(conn: &mut DbConnection, user_uuid: Uuid) -> Query
     Ok(n > 0)
 }
 
-/// Error from a membership write the product may not perform locally. Distinct
-/// from a DB error so a caller can tell "this seat is control-plane managed"
-/// apart from a query failure. Mirrors
-/// [`crate::repository::user_auth_identities::LocalCredentialError`].
-#[derive(Debug)]
-pub enum MembershipWriteError {
-    /// The write targets a control-plane-owned staff seat in hosted mode. Hand
-    /// off to the control plane (Instances -> Seats).
-    ExternallyManaged,
-    Db(DieselError),
+/// Who is performing a staff-membership write. In hosted, only the control
+/// plane may create, re-role, or remove a staff seat (owner/admin/agent); a
+/// product-initiated write is refused and handed off. Passing this makes the
+/// gate the DEFAULT: a caller must explicitly assert control-plane authority to
+/// bypass it, so a new or forgetful caller fails closed. Requesters (`member`)
+/// and self-hosted are never gated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SeatWriteAuthority {
+    /// A product-initiated write (tenant admin, operator console, LDAP, bulk).
+    Product,
+    /// The control plane's own authoritative projection (internal endpoints,
+    /// first-run bootstrap, OAuth login-time provisioning, dev seed).
+    ControlPlane,
 }
 
-impl std::fmt::Display for MembershipWriteError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::ExternallyManaged => write!(
-                f,
-                "staff membership is managed by the control plane in hosted mode"
-            ),
-            Self::Db(e) => write!(f, "{e}"),
-        }
+impl SeatWriteAuthority {
+    /// Whether a write assigning/granting `role` must be refused (a
+    /// product-initiated staff grant in hosted).
+    pub fn refuses_role(self, role: &str) -> bool {
+        self == SeatWriteAuthority::Product && staff_identity_externally_managed(role)
+    }
+    /// Whether a role CHANGE from `current` to `new` must be refused (either
+    /// side is a staff seat, product-initiated, in hosted).
+    pub fn refuses_change(self, current: &str, new: &str) -> bool {
+        self == SeatWriteAuthority::Product && staff_change_externally_managed(current, new)
     }
 }
-
-impl std::error::Error for MembershipWriteError {}
 
 /// Returned by [`create_workspace`] so the caller can distinguish a
 /// slug-collision from other DB failures without parsing error
@@ -295,19 +297,34 @@ pub fn membership(
 /// `workspace_id` is passed explicitly rather than read from the
 /// GUC because some callers (bootstrap admin setup) run before
 /// any workspace context has been threaded through.
+/// Outcome of [`add_membership`].
+#[derive(Debug, PartialEq, Eq)]
+pub enum AddMembershipOutcome {
+    /// The grant ran: `1` row inserted, or `0` when the membership already
+    /// existed (`ON CONFLICT DO NOTHING`).
+    Added(usize),
+    /// A product-initiated attempt to grant a control-plane-owned staff seat in
+    /// hosted; refused. Hand off to the control plane.
+    ExternallyManaged,
+}
+
 pub fn add_membership(
     conn: &mut DbConnection,
     workspace_id: i32,
     user_uuid: Uuid,
     role: &str,
-) -> QueryResult<usize> {
+    authority: SeatWriteAuthority,
+) -> QueryResult<AddMembershipOutcome> {
+    if authority.refuses_role(role) {
+        return Ok(AddMembershipOutcome::ExternallyManaged);
+    }
     // accepted_at is stamped at insert: every caller of this helper
     // grants an immediately-active membership (bootstrap admin, admin
     // direct-add of an existing user, OAuth provisioning), none of
     // which has a pending-invite step. The email-invite path creates
     // its membership via create_user_with_email and leaves accepted_at
     // NULL until accept_invitation stamps it.
-    diesel::sql_query(
+    let rows = diesel::sql_query(
         "INSERT INTO workspace_members (workspace_id, user_uuid, role, accepted_at) \
          VALUES ($1, $2, $3, now()) \
          ON CONFLICT (workspace_id, user_uuid) DO NOTHING",
@@ -315,7 +332,8 @@ pub fn add_membership(
     .bind::<diesel::sql_types::Integer, _>(workspace_id)
     .bind::<diesel::sql_types::Uuid, _>(user_uuid)
     .bind::<diesel::sql_types::Text, _>(role)
-    .execute(conn)
+    .execute(conn)?;
+    Ok(AddMembershipOutcome::Added(rows))
 }
 
 /// One `role` value read back from a membership upsert's `RETURNING`.
@@ -721,19 +739,32 @@ pub fn count_workspace_owners(conn: &mut DbConnection, workspace_id: i32) -> Que
         .get_result(conn)
 }
 
+/// Outcome of [`remove_membership`], so callers map each case to the right HTTP
+/// shape.
+#[derive(Debug, PartialEq, Eq)]
+pub enum RemoveMembershipOutcome {
+    /// The membership was removed.
+    Removed,
+    /// Nothing removed: the user wasn't a member, or removal would orphan the
+    /// last owner. Callers that need to tell these apart re-probe.
+    NotRemoved,
+    /// A product-initiated attempt to remove a control-plane-owned staff seat in
+    /// hosted; refused. Hand off to the control plane.
+    ExternallyManaged,
+}
+
 // sync-audit-only: removals are recorded by the tr_audit_workspace_members audit_log trigger (P1.4); no sync_actions aggregate
-/// Remove a user's membership in a workspace. Refuses to remove
-/// the last `owner` row by returning `Ok(0)` with no rows deleted
-/// (the handler maps this to 409). Returns the number of rows
-/// removed (0 if the user wasn't a member or removal would orphan
-/// the workspace, 1 on success).
+/// Remove a user's membership in a workspace. Refuses to remove the last `owner`
+/// row (returns `NotRemoved`, no delete), and refuses a product-initiated
+/// removal of a control-plane-owned staff seat in hosted (`ExternallyManaged`).
 pub fn remove_membership(
     conn: &mut DbConnection,
     workspace_id: i32,
     user_uuid: Uuid,
-) -> QueryResult<usize> {
-    // Need the row first so we can check whether removing it would
-    // leave the workspace owner-less.
+    authority: SeatWriteAuthority,
+) -> QueryResult<RemoveMembershipOutcome> {
+    // Need the row first so we can check the staff gate and whether removing it
+    // would leave the workspace owner-less.
     let existing = workspace_members::table
         .filter(workspace_members::workspace_id.eq(workspace_id))
         .filter(workspace_members::user_uuid.eq(user_uuid))
@@ -741,13 +772,17 @@ pub fn remove_membership(
         .optional()?;
     let row = match existing {
         Some(r) => r,
-        None => return Ok(0),
+        None => return Ok(RemoveMembershipOutcome::NotRemoved),
     };
+
+    if authority.refuses_role(&row.role) {
+        return Ok(RemoveMembershipOutcome::ExternallyManaged);
+    }
 
     if row.role == "owner" {
         let owners = count_workspace_owners(conn, workspace_id)?;
         if owners <= 1 {
-            return Ok(0);
+            return Ok(RemoveMembershipOutcome::NotRemoved);
         }
     }
 
@@ -756,7 +791,8 @@ pub fn remove_membership(
             .filter(workspace_members::workspace_id.eq(workspace_id))
             .filter(workspace_members::user_uuid.eq(user_uuid)),
     )
-    .execute(conn)
+    .execute(conn)?;
+    Ok(RemoveMembershipOutcome::Removed)
 }
 
 /// Outcome of [`update_membership_role`] so the handler can map
@@ -769,6 +805,9 @@ pub enum UpdateMembershipRoleResult {
     NotFound,
     /// Demoting this row would leave the workspace owner-less.
     LastOwner,
+    /// A product-initiated change touching a control-plane-owned staff seat in
+    /// hosted; refused. Hand off to the control plane.
+    ExternallyManaged,
 }
 
 /// The persisted workspace role for a member, or `None` if the user isn't a
@@ -813,6 +852,7 @@ pub fn update_membership_role(
     workspace_id: i32,
     user_uuid: Uuid,
     new_role: &str,
+    authority: SeatWriteAuthority,
 ) -> QueryResult<UpdateMembershipRoleResult> {
     let existing = workspace_members::table
         .filter(workspace_members::workspace_id.eq(workspace_id))
@@ -823,6 +863,10 @@ pub fn update_membership_role(
         Some(r) => r,
         None => return Ok(UpdateMembershipRoleResult::NotFound),
     };
+
+    if authority.refuses_change(&row.role, new_role) {
+        return Ok(UpdateMembershipRoleResult::ExternallyManaged);
+    }
 
     // Demoting an owner whose owner-count is exactly 1 would leave
     // the workspace orphaned.
@@ -843,51 +887,12 @@ pub fn update_membership_role(
     Ok(UpdateMembershipRoleResult::Updated(updated))
 }
 
-/// Gated entry for a **product-initiated** role change (tenant admin console or
-/// operator console). Refuses when the change touches a control-plane-owned
-/// staff seat in hosted mode, either because the member currently holds a staff
-/// role or the new role is a staff role, so the product can't desync the
-/// projection. The control plane's own `set_member_role` applies the
-/// authoritative change through the raw [`update_membership_role`].
-/// `current_role` is the member's existing role, which callers already load to
-/// authorize the change.
-pub fn update_membership_role_gated(
-    conn: &mut DbConnection,
-    workspace_id: i32,
-    user_uuid: Uuid,
-    current_role: &str,
-    new_role: &str,
-) -> Result<UpdateMembershipRoleResult, MembershipWriteError> {
-    if staff_change_externally_managed(current_role, new_role) {
-        return Err(MembershipWriteError::ExternallyManaged);
-    }
-    update_membership_role(conn, workspace_id, user_uuid, new_role)
-        .map_err(MembershipWriteError::Db)
-}
-
-/// Gated entry for a **product-initiated** membership removal. Refuses to remove
-/// a control-plane-owned staff seat in hosted mode; the control plane revokes
-/// seats through its own deprovision path (which demotes to `member`). Removing
-/// a requester (`member`) is always allowed. `current_role` is the member's
-/// existing role, which callers already load to authorize the removal.
-pub fn remove_membership_gated(
-    conn: &mut DbConnection,
-    workspace_id: i32,
-    user_uuid: Uuid,
-    current_role: &str,
-) -> Result<usize, MembershipWriteError> {
-    if staff_identity_externally_managed(current_role) {
-        return Err(MembershipWriteError::ExternallyManaged);
-    }
-    remove_membership(conn, workspace_id, user_uuid).map_err(MembershipWriteError::Db)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::sync::actor::ActorContext;
     use crate::sync::session::with_actor_bypass_context;
-    use crate::test_helpers::setup_test_pool;
+    use crate::test_helpers::{setup_test_pool, TestFixtures};
 
     /// Workspaces lifecycle writes require the `nosdesk_admin`
     /// BYPASSRLS role; `nosdesk_app` only has SELECT on the
@@ -953,50 +958,99 @@ mod tests {
     }
 
     #[test]
-    fn gated_membership_wrappers_refuse_staff_in_hosted() {
-        // The gate fires on the role predicate BEFORE any DB lookup, so no rows
-        // are needed for the refusal branch; the pass-through branch hits the
-        // raw op, which returns NotFound / 0 for a non-existent row.
+    fn membership_writes_gate_product_staff_in_hosted() {
         static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
         let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let prev = std::env::var("NOSDESK_DEPLOYMENT_MODE").ok();
 
         let pool = setup_test_pool();
         let mut conn = pool.get().expect("conn");
-        let ws = 999_999;
-        let uuid = Uuid::now_v7();
+        let ws = fresh_workspace(&mut conn, "gatews");
+        let staff = TestFixtures::create_user(&mut conn, "gate-staff", "user");
+        let requester = TestFixtures::create_user(&mut conn, "gate-req", "user");
+        as_admin(&mut conn, |c| {
+            add_membership(
+                c,
+                ws.id,
+                staff.uuid,
+                "agent",
+                SeatWriteAuthority::ControlPlane,
+            )?;
+            add_membership(
+                c,
+                ws.id,
+                requester.uuid,
+                "member",
+                SeatWriteAuthority::ControlPlane,
+            )?;
+            Ok::<(), diesel::result::Error>(())
+        })
+        .expect("seed memberships");
 
         std::env::set_var("NOSDESK_DEPLOYMENT_MODE", "hosted");
-        // Current role is staff -> refused (demote of a CP-owned seat).
-        assert!(matches!(
-            update_membership_role_gated(&mut conn, ws, uuid, "agent", "member"),
-            Err(MembershipWriteError::ExternallyManaged)
-        ));
-        // Promoting a requester INTO a staff seat -> refused.
-        assert!(matches!(
-            update_membership_role_gated(&mut conn, ws, uuid, "member", "admin"),
-            Err(MembershipWriteError::ExternallyManaged)
-        ));
-        assert!(matches!(
-            remove_membership_gated(&mut conn, ws, uuid, "owner"),
-            Err(MembershipWriteError::ExternallyManaged)
-        ));
-        // Requester (member) stays locally writable: passes the gate.
-        assert!(matches!(
-            update_membership_role_gated(&mut conn, ws, uuid, "member", "member"),
-            Ok(UpdateMembershipRoleResult::NotFound)
-        ));
-        assert_eq!(
-            remove_membership_gated(&mut conn, ws, uuid, "member").unwrap(),
-            0
-        );
+        as_admin(&mut conn, |c| {
+            // Product: re-roling a staff seat, promoting a requester INTO one,
+            // and removing a staff seat are all refused.
+            assert!(matches!(
+                update_membership_role(
+                    c,
+                    ws.id,
+                    staff.uuid,
+                    "member",
+                    SeatWriteAuthority::Product
+                )?,
+                UpdateMembershipRoleResult::ExternallyManaged
+            ));
+            assert!(matches!(
+                update_membership_role(
+                    c,
+                    ws.id,
+                    requester.uuid,
+                    "agent",
+                    SeatWriteAuthority::Product
+                )?,
+                UpdateMembershipRoleResult::ExternallyManaged
+            ));
+            assert!(matches!(
+                remove_membership(c, ws.id, staff.uuid, SeatWriteAuthority::Product)?,
+                RemoveMembershipOutcome::ExternallyManaged
+            ));
+            // Product: a requester stays locally writable (member -> member).
+            assert!(matches!(
+                update_membership_role(
+                    c,
+                    ws.id,
+                    requester.uuid,
+                    "member",
+                    SeatWriteAuthority::Product
+                )?,
+                UpdateMembershipRoleResult::Updated(_)
+            ));
+            // ControlPlane bypasses the gate: the same staff re-role applies.
+            assert!(matches!(
+                update_membership_role(
+                    c,
+                    ws.id,
+                    staff.uuid,
+                    "admin",
+                    SeatWriteAuthority::ControlPlane
+                )?,
+                UpdateMembershipRoleResult::Updated(_)
+            ));
+            Ok::<(), diesel::result::Error>(())
+        })
+        .expect("hosted gate assertions");
 
-        // Self-hosted: even a staff role passes the gate.
+        // Self-hosted: Product may mutate a staff seat locally.
         std::env::remove_var("NOSDESK_DEPLOYMENT_MODE");
-        assert!(matches!(
-            update_membership_role_gated(&mut conn, ws, uuid, "agent", "owner"),
-            Ok(UpdateMembershipRoleResult::NotFound)
-        ));
+        as_admin(&mut conn, |c| {
+            assert!(matches!(
+                update_membership_role(c, ws.id, staff.uuid, "agent", SeatWriteAuthority::Product)?,
+                UpdateMembershipRoleResult::Updated(_)
+            ));
+            Ok::<(), diesel::result::Error>(())
+        })
+        .expect("self-hosted assertions");
 
         match prev {
             Some(v) => std::env::set_var("NOSDESK_DEPLOYMENT_MODE", v),
@@ -1264,10 +1318,22 @@ mod tests {
         let ws_b = fresh_workspace(&mut conn, "memship-b");
         let archived = fresh_workspace(&mut conn, "memship-archived");
 
-        as_admin(&mut conn, |c| add_membership(c, ws_a.id, user, "admin")).expect("add a");
-        as_admin(&mut conn, |c| add_membership(c, ws_b.id, user, "agent")).expect("add b");
         as_admin(&mut conn, |c| {
-            add_membership(c, archived.id, user, "member")
+            add_membership(c, ws_a.id, user, "admin", SeatWriteAuthority::ControlPlane)
+        })
+        .expect("add a");
+        as_admin(&mut conn, |c| {
+            add_membership(c, ws_b.id, user, "agent", SeatWriteAuthority::ControlPlane)
+        })
+        .expect("add b");
+        as_admin(&mut conn, |c| {
+            add_membership(
+                c,
+                archived.id,
+                user,
+                "member",
+                SeatWriteAuthority::ControlPlane,
+            )
         })
         .expect("add archived");
         as_admin(&mut conn, |c| archive_workspace(c, archived.id)).expect("archive");
@@ -1335,12 +1401,18 @@ mod tests {
         let u1 = fresh_user(&mut conn, "owner1");
         let u2 = fresh_user(&mut conn, "owner2");
 
-        as_admin(&mut conn, |c| add_membership(c, ws.id, u1, "owner")).expect("add owner");
+        as_admin(&mut conn, |c| {
+            add_membership(c, ws.id, u1, "owner", SeatWriteAuthority::ControlPlane)
+        })
+        .expect("add owner");
         assert_eq!(
             as_admin(&mut conn, |c| count_workspace_owners(c, ws.id)).expect("count"),
             1
         );
-        as_admin(&mut conn, |c| add_membership(c, ws.id, u2, "owner")).expect("add 2nd owner");
+        as_admin(&mut conn, |c| {
+            add_membership(c, ws.id, u2, "owner", SeatWriteAuthority::ControlPlane)
+        })
+        .expect("add 2nd owner");
         assert_eq!(
             as_admin(&mut conn, |c| count_workspace_owners(c, ws.id)).expect("count"),
             2
@@ -1353,10 +1425,19 @@ mod tests {
         let mut conn = pool.get().expect("conn");
         let ws = fresh_workspace(&mut conn, "lastowner");
         let owner = fresh_user(&mut conn, "soleowner");
-        as_admin(&mut conn, |c| add_membership(c, ws.id, owner, "owner")).expect("add owner");
+        as_admin(&mut conn, |c| {
+            add_membership(c, ws.id, owner, "owner", SeatWriteAuthority::ControlPlane)
+        })
+        .expect("add owner");
 
-        let n = as_admin(&mut conn, |c| remove_membership(c, ws.id, owner)).expect("remove");
-        assert_eq!(n, 0, "must refuse to remove last owner");
+        let outcome = as_admin(&mut conn, |c| {
+            remove_membership(c, ws.id, owner, SeatWriteAuthority::ControlPlane)
+        })
+        .expect("remove");
+        assert!(
+            matches!(outcome, RemoveMembershipOutcome::NotRemoved),
+            "must refuse to remove last owner"
+        );
         assert!(membership(&mut conn, ws.id, owner)
             .expect("probe")
             .is_some());
@@ -1369,11 +1450,20 @@ mod tests {
         let ws = fresh_workspace(&mut conn, "twoowners");
         let owner_a = fresh_user(&mut conn, "ownera");
         let owner_b = fresh_user(&mut conn, "ownerb");
-        as_admin(&mut conn, |c| add_membership(c, ws.id, owner_a, "owner")).expect("add a");
-        as_admin(&mut conn, |c| add_membership(c, ws.id, owner_b, "owner")).expect("add b");
+        as_admin(&mut conn, |c| {
+            add_membership(c, ws.id, owner_a, "owner", SeatWriteAuthority::ControlPlane)
+        })
+        .expect("add a");
+        as_admin(&mut conn, |c| {
+            add_membership(c, ws.id, owner_b, "owner", SeatWriteAuthority::ControlPlane)
+        })
+        .expect("add b");
 
-        let n = as_admin(&mut conn, |c| remove_membership(c, ws.id, owner_a)).expect("remove");
-        assert_eq!(n, 1);
+        let outcome = as_admin(&mut conn, |c| {
+            remove_membership(c, ws.id, owner_a, SeatWriteAuthority::ControlPlane)
+        })
+        .expect("remove");
+        assert!(matches!(outcome, RemoveMembershipOutcome::Removed));
         assert!(membership(&mut conn, ws.id, owner_a)
             .expect("probe")
             .is_none());
@@ -1386,8 +1476,11 @@ mod tests {
         let ws = fresh_workspace(&mut conn, "noop-remove");
         let ghost = Uuid::new_v4();
 
-        let n = as_admin(&mut conn, |c| remove_membership(c, ws.id, ghost)).expect("remove ghost");
-        assert_eq!(n, 0);
+        let outcome = as_admin(&mut conn, |c| {
+            remove_membership(c, ws.id, ghost, SeatWriteAuthority::ControlPlane)
+        })
+        .expect("remove ghost");
+        assert!(matches!(outcome, RemoveMembershipOutcome::NotRemoved));
     }
 
     #[test]
@@ -1396,10 +1489,13 @@ mod tests {
         let mut conn = pool.get().expect("conn");
         let ws = fresh_workspace(&mut conn, "demote-lastowner");
         let owner = fresh_user(&mut conn, "soledemote");
-        as_admin(&mut conn, |c| add_membership(c, ws.id, owner, "owner")).expect("add");
+        as_admin(&mut conn, |c| {
+            add_membership(c, ws.id, owner, "owner", SeatWriteAuthority::ControlPlane)
+        })
+        .expect("add");
 
         let outcome = as_admin(&mut conn, |c| {
-            update_membership_role(c, ws.id, owner, "admin")
+            update_membership_role(c, ws.id, owner, "admin", SeatWriteAuthority::ControlPlane)
         })
         .expect("update");
         assert!(matches!(outcome, UpdateMembershipRoleResult::LastOwner));
@@ -1412,11 +1508,19 @@ mod tests {
         let ws = fresh_workspace(&mut conn, "demote-ok");
         let a = fresh_user(&mut conn, "co-owner-a");
         let b = fresh_user(&mut conn, "co-owner-b");
-        as_admin(&mut conn, |c| add_membership(c, ws.id, a, "owner")).expect("add a");
-        as_admin(&mut conn, |c| add_membership(c, ws.id, b, "owner")).expect("add b");
+        as_admin(&mut conn, |c| {
+            add_membership(c, ws.id, a, "owner", SeatWriteAuthority::ControlPlane)
+        })
+        .expect("add a");
+        as_admin(&mut conn, |c| {
+            add_membership(c, ws.id, b, "owner", SeatWriteAuthority::ControlPlane)
+        })
+        .expect("add b");
 
-        let outcome =
-            as_admin(&mut conn, |c| update_membership_role(c, ws.id, a, "admin")).expect("update");
+        let outcome = as_admin(&mut conn, |c| {
+            update_membership_role(c, ws.id, a, "admin", SeatWriteAuthority::ControlPlane)
+        })
+        .expect("update");
         match outcome {
             UpdateMembershipRoleResult::Updated(m) => assert_eq!(m.role, "admin"),
             other => panic!("expected Updated, got {other:?}"),
@@ -1431,7 +1535,7 @@ mod tests {
         let ghost = Uuid::new_v4();
 
         let outcome = as_admin(&mut conn, |c| {
-            update_membership_role(c, ws.id, ghost, "member")
+            update_membership_role(c, ws.id, ghost, "member", SeatWriteAuthority::ControlPlane)
         })
         .expect("update ghost");
         assert!(matches!(outcome, UpdateMembershipRoleResult::NotFound));
@@ -1453,9 +1557,9 @@ mod tests {
         // capture one audit_log row per mutation.
         let act = ActorContext::user_at_workspace(actor, ws);
         with_actor_bypass_context::<_, diesel::result::Error>(&mut conn, &act, |c| {
-            add_membership(c, ws, target, "member")?;
-            update_membership_role(c, ws, target, "admin")?;
-            remove_membership(c, ws, target)?;
+            add_membership(c, ws, target, "member", SeatWriteAuthority::ControlPlane)?;
+            update_membership_role(c, ws, target, "admin", SeatWriteAuthority::ControlPlane)?;
+            remove_membership(c, ws, target, SeatWriteAuthority::ControlPlane)?;
             Ok(())
         })
         .expect("membership mutations");
@@ -1522,19 +1626,30 @@ mod tests {
         let m1 = fresh_user(&mut conn, "seat-m1");
 
         // Two staff fit the cap of 2.
-        as_admin(&mut conn, |c| add_membership(c, ws.id, s1, "owner")).expect("owner");
-        as_admin(&mut conn, |c| add_membership(c, ws.id, s2, "agent")).expect("agent");
+        as_admin(&mut conn, |c| {
+            add_membership(c, ws.id, s1, "owner", SeatWriteAuthority::ControlPlane)
+        })
+        .expect("owner");
+        as_admin(&mut conn, |c| {
+            add_membership(c, ws.id, s2, "agent", SeatWriteAuthority::ControlPlane)
+        })
+        .expect("agent");
         assert_eq!(
             as_admin(&mut conn, |c| count_staff_members(c, ws.id)).unwrap(),
             2
         );
 
         // End-user members don't count against the cap.
-        as_admin(&mut conn, |c| add_membership(c, ws.id, m1, "member"))
-            .expect("member is uncapped");
+        as_admin(&mut conn, |c| {
+            add_membership(c, ws.id, m1, "member", SeatWriteAuthority::ControlPlane)
+        })
+        .expect("member is uncapped");
 
         // The third staff member trips the trigger.
-        let err = as_admin(&mut conn, |c| add_membership(c, ws.id, s3, "agent")).unwrap_err();
+        let err = as_admin(&mut conn, |c| {
+            add_membership(c, ws.id, s3, "agent", SeatWriteAuthority::ControlPlane)
+        })
+        .unwrap_err();
         assert!(
             is_seat_limit_violation(&err),
             "expected seat-limit, got {err:?}"
@@ -1548,7 +1663,10 @@ mod tests {
         let ws = fresh_workspace(&mut conn, "uncapped"); // seat_limit None
         for i in 0..6 {
             let u = fresh_user(&mut conn, &format!("unc-{i}"));
-            as_admin(&mut conn, |c| add_membership(c, ws.id, u, "agent")).expect("uncapped add");
+            as_admin(&mut conn, |c| {
+                add_membership(c, ws.id, u, "agent", SeatWriteAuthority::ControlPlane)
+            })
+            .expect("uncapped add");
         }
         assert_eq!(
             as_admin(&mut conn, |c| count_staff_members(c, ws.id)).unwrap(),
@@ -1564,12 +1682,18 @@ mod tests {
         as_admin(&mut conn, |c| set_seat_limit(c, &ws.slug, Some(1))).expect("set cap");
         let owner = fresh_user(&mut conn, "promo-owner");
         let member = fresh_user(&mut conn, "promo-member");
-        as_admin(&mut conn, |c| add_membership(c, ws.id, owner, "owner")).expect("owner"); // 1 staff
-        as_admin(&mut conn, |c| add_membership(c, ws.id, member, "member")).expect("member");
+        as_admin(&mut conn, |c| {
+            add_membership(c, ws.id, owner, "owner", SeatWriteAuthority::ControlPlane)
+        })
+        .expect("owner"); // 1 staff
+        as_admin(&mut conn, |c| {
+            add_membership(c, ws.id, member, "member", SeatWriteAuthority::ControlPlane)
+        })
+        .expect("member");
 
         // Promoting the member to a staff role would exceed the cap of 1.
         let err = as_admin(&mut conn, |c| {
-            update_membership_role(c, ws.id, member, "agent")
+            update_membership_role(c, ws.id, member, "agent", SeatWriteAuthority::ControlPlane)
         })
         .unwrap_err();
         assert!(

@@ -200,23 +200,22 @@ pub async fn update_member_role(
             if !can_manage(caller_role, WorkspaceRole::from_db(&existing.role)) {
                 return Ok(ManageOutcome::Forbidden);
             }
-            // Gated write: in hosted mode a staff seat (or a promotion into one)
-            // is owned by the control plane and refused here, so the product
-            // can't desync the projection.
-            match workspaces::update_membership_role_gated(
+            // Product-authority write: the repo refuses a staff seat (or a
+            // promotion into one) in hosted, so the product can't desync the
+            // projection.
+            match workspaces::update_membership_role(
                 conn,
                 ctx.workspace_id,
                 target,
-                &existing.role,
                 new_role.as_str(),
-            ) {
-                Ok(UpdateMembershipRoleResult::Updated(m)) => Ok(ManageOutcome::UpdatedRole(m)),
-                Ok(UpdateMembershipRoleResult::NotFound) => Ok(ManageOutcome::NotFound),
-                Ok(UpdateMembershipRoleResult::LastOwner) => Ok(ManageOutcome::LastOwner),
-                Err(workspaces::MembershipWriteError::ExternallyManaged) => {
+                workspaces::SeatWriteAuthority::Product,
+            )? {
+                UpdateMembershipRoleResult::Updated(m) => Ok(ManageOutcome::UpdatedRole(m)),
+                UpdateMembershipRoleResult::NotFound => Ok(ManageOutcome::NotFound),
+                UpdateMembershipRoleResult::LastOwner => Ok(ManageOutcome::LastOwner),
+                UpdateMembershipRoleResult::ExternallyManaged => {
                     Ok(ManageOutcome::ExternallyManaged)
                 }
-                Err(workspaces::MembershipWriteError::Db(e)) => Err(e),
             }
         });
 
@@ -285,23 +284,20 @@ pub async fn remove_member(
             if !can_manage(caller_role, WorkspaceRole::from_db(&existing.role)) {
                 return Ok(ManageOutcome::Forbidden);
             }
-            // Gated write: in hosted mode a staff seat is control-plane-owned
-            // and refused here (the CP revokes seats through its own path).
-            // remove_membership returns 0 both for "not found" (excluded above)
-            // and "would orphan the last owner"; since the row exists, 0 here
-            // means the last-owner guard fired.
-            match workspaces::remove_membership_gated(
+            // Product-authority write: the repo refuses a staff seat in hosted
+            // (the CP revokes seats through its own path). Since the row exists
+            // (checked above), NotRemoved here means the last-owner guard fired.
+            match workspaces::remove_membership(
                 conn,
                 ctx.workspace_id,
                 target,
-                &existing.role,
-            ) {
-                Ok(1) => Ok(ManageOutcome::Removed),
-                Ok(_) => Ok(ManageOutcome::LastOwner),
-                Err(workspaces::MembershipWriteError::ExternallyManaged) => {
+                workspaces::SeatWriteAuthority::Product,
+            )? {
+                workspaces::RemoveMembershipOutcome::Removed => Ok(ManageOutcome::Removed),
+                workspaces::RemoveMembershipOutcome::NotRemoved => Ok(ManageOutcome::LastOwner),
+                workspaces::RemoveMembershipOutcome::ExternallyManaged => {
                     Ok(ManageOutcome::ExternallyManaged)
                 }
-                Err(workspaces::MembershipWriteError::Db(e)) => Err(e),
             }
         });
 

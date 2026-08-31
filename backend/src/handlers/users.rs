@@ -2308,28 +2308,8 @@ pub async fn update_user_by_uuid(
             // inside the actor + workspace-scoped transaction.
             let ws_id = tc.workspace_id().unwrap_or_default();
 
-            // In hosted, a staff seat is control-plane-owned. Refuse a role
-            // change that touches one (the current OR the new role is a staff
-            // seat) and hand off to the control plane, matching the tenant gate.
-            let current_ws_role = tc.run(|conn| {
-                repository::workspaces::get_membership_role(conn, ws_id, user_uuid_parsed)
-            });
-            match current_ws_role {
-                Ok(current) => {
-                    let current = current.unwrap_or_default();
-                    if repository::workspaces::staff_change_externally_managed(
-                        &current,
-                        workspace_role,
-                    ) {
-                        return errors::externally_managed();
-                    }
-                }
-                Err(e) => {
-                    error!(error = ?e, user_uuid = %user_uuid_parsed, "Failed to read current role for staff gate");
-                    return errors::internal("Error updating user role");
-                }
-            }
-
+            // Product authority: set_user_roles refuses a role change touching a
+            // control-plane-owned staff seat in hosted (current OR new is staff).
             let role_result = tc.run(|conn| {
                 repository::users::set_user_roles(
                     conn,
@@ -2337,11 +2317,18 @@ pub async fn update_user_by_uuid(
                     user_uuid_parsed,
                     platform_role,
                     workspace_role,
+                    repository::workspaces::SeatWriteAuthority::Product,
                 )
             });
-            if let Err(e) = role_result {
-                error!(error = ?e, user_uuid = %user_uuid_parsed, "Failed to update user role");
-                return errors::internal("Error updating user role");
+            match role_result {
+                Ok(repository::users::SetUserRolesOutcome::Applied) => {}
+                Ok(repository::users::SetUserRolesOutcome::ExternallyManaged) => {
+                    return errors::externally_managed();
+                }
+                Err(e) => {
+                    error!(error = ?e, user_uuid = %user_uuid_parsed, "Failed to update user role");
+                    return errors::internal("Error updating user role");
+                }
             }
         }
     }
@@ -3101,14 +3088,6 @@ pub async fn bulk_users(
             let workspace_role = workspace_role_enum.as_str();
             let platform_role = platform_role_enum.as_str();
 
-            // In hosted, promoting anyone into a staff seat is the control
-            // plane's job, so a bulk assignment of a staff role is refused
-            // outright; demotions of existing staff seats are skipped per-target
-            // in the loop below.
-            if repository::workspaces::staff_identity_externally_managed(workspace_role) {
-                return errors::externally_managed();
-            }
-
             // Same actor-context wrapping as the "delete" branch above:
             // the platform_role write hits the audited `users` table, so
             // it needs `app.workspace_id` pinned. The actor's workspace
@@ -3125,43 +3104,30 @@ pub async fn bulk_users(
                     Err(_) => continue,
                 };
 
-                // Skip a target that currently holds a control-plane-owned staff
-                // seat: demoting it locally would desync the projection. (Not
-                // reachable from the UI, which disables bulk selection on the
-                // Team population in hosted, but the API must still fail closed.)
-                let current_role = match crate::sync::session::with_actor_context::<
-                    _,
-                    diesel::result::Error,
-                >(&mut conn, &actor, |c| {
-                    repository::workspaces::get_membership_role(c, ws_id, uuid)
-                }) {
-                    Ok(role) => role.unwrap_or_default(),
-                    // A read error must NOT be read as "not staff" (that would
-                    // let a demote through). Skip the target, fail closed.
-                    Err(e) => {
-                        error!(user_id = %id, error = ?e, "bulk set-role: role read failed; skipping (fail closed)");
-                        skipped_staff += 1;
-                        continue;
+                // set_user_roles (Product authority) rewrites workspace_members.role
+                // + platform_role, and refuses a change touching a control-plane-
+                // owned staff seat in hosted; those are counted as skipped.
+                match crate::sync::session::with_actor_context::<_, diesel::result::Error>(
+                    &mut conn,
+                    &actor,
+                    |c| {
+                        repository::users::set_user_roles(
+                            c,
+                            ws_id,
+                            uuid,
+                            platform_role,
+                            workspace_role,
+                            repository::workspaces::SeatWriteAuthority::Product,
+                        )
+                    },
+                ) {
+                    Ok(repository::users::SetUserRolesOutcome::Applied) => updated += 1,
+                    Ok(repository::users::SetUserRolesOutcome::ExternallyManaged) => {
+                        skipped_staff += 1
                     }
-                };
-                if repository::workspaces::staff_identity_externally_managed(&current_role) {
-                    skipped_staff += 1;
-                    continue;
-                }
-
-                // Post-W2: bulk role change rewrites
-                // workspace_members.role and platform_role (mapped from
-                // the request role string by `parse_roles`).
-                let role_update_ok = crate::sync::session::with_actor_context::<
-                    _,
-                    diesel::result::Error,
-                >(&mut conn, &actor, |c| {
-                    repository::users::set_user_roles(c, ws_id, uuid, platform_role, workspace_role)
-                })
-                .is_ok();
-
-                if role_update_ok {
-                    updated += 1;
+                    Err(e) => {
+                        error!(user_id = %id, error = ?e, "bulk set-role: update failed; skipping");
+                    }
                 }
             }
 

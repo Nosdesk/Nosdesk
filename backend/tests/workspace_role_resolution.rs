@@ -12,7 +12,7 @@
 
 use backend::models::WorkspaceRole;
 use backend::repository::user_helpers::workspace_role;
-use backend::repository::workspaces::add_membership;
+use backend::repository::workspaces::{add_membership, SeatWriteAuthority};
 use backend::sync::actor::ActorContext;
 use backend::sync::session::with_actor_context;
 
@@ -51,7 +51,7 @@ fn workspace_role_resolves_in_scoped_workspace_and_isolates() {
         let mut conn = pool.get().expect("conn");
         let actor = ActorContext::user(user_uuid, None).with_workspace(ws2);
         with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |c| {
-            add_membership(c, ws2, user_uuid, "admin")?;
+            add_membership(c, ws2, user_uuid, "admin", SeatWriteAuthority::ControlPlane)?;
             Ok(())
         })
         .expect("add ws2 membership");

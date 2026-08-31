@@ -409,11 +409,41 @@ mod tests {
                 ])),
             )
             .execute(c)?;
-            add_membership(c, ws_a, admin.uuid, "admin")?;
-            add_membership(c, ws_a, solo.uuid, "member")?;
-            add_membership(c, ws_a, shared.uuid, "member")?;
-            add_membership(c, ws_b, shared.uuid, "member")?; // also in B
-            add_membership(c, ws_b, outsider.uuid, "member")?; // only in B
+            add_membership(
+                c,
+                ws_a,
+                admin.uuid,
+                "admin",
+                crate::repository::workspaces::SeatWriteAuthority::ControlPlane,
+            )?;
+            add_membership(
+                c,
+                ws_a,
+                solo.uuid,
+                "member",
+                crate::repository::workspaces::SeatWriteAuthority::ControlPlane,
+            )?;
+            add_membership(
+                c,
+                ws_a,
+                shared.uuid,
+                "member",
+                crate::repository::workspaces::SeatWriteAuthority::ControlPlane,
+            )?;
+            add_membership(
+                c,
+                ws_b,
+                shared.uuid,
+                "member",
+                crate::repository::workspaces::SeatWriteAuthority::ControlPlane,
+            )?; // also in B
+            add_membership(
+                c,
+                ws_b,
+                outsider.uuid,
+                "member",
+                crate::repository::workspaces::SeatWriteAuthority::ControlPlane,
+            )?; // only in B
             Ok::<(), diesel::result::Error>(())
         })
         .expect("seed memberships");

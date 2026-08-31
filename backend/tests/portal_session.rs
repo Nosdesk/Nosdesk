@@ -19,7 +19,7 @@ use backend::extractors::WorkspaceContext;
 use backend::handlers::portal::{authorize_portal_request, establish_portal_session};
 use backend::middleware::cookie_auth::PORTAL_SCOPE;
 use backend::models::Claims;
-use backend::repository::workspaces::{add_membership, find_by_id};
+use backend::repository::workspaces::{add_membership, find_by_id, SeatWriteAuthority};
 use backend::sync::actor::ActorContext;
 use backend::sync::session::with_actor_context;
 
@@ -79,7 +79,13 @@ fn portal_session_establishment_and_gate() {
         let mut conn = pool.get().expect("conn");
         let actor = ActorContext::user(customer.uuid, None).with_workspace(acme_id);
         with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |c| {
-            add_membership(c, acme_id, customer.uuid, "member")?;
+            add_membership(
+                c,
+                acme_id,
+                customer.uuid,
+                "member",
+                SeatWriteAuthority::ControlPlane,
+            )?;
             Ok(())
         })
         .expect("add acme membership");

@@ -119,6 +119,7 @@ async fn workspace_provisioning_full_contract() {
         workspace_id,
         owner.uuid,
         "owner",
+        backend::repository::workspaces::SeatWriteAuthority::ControlPlane,
     )
     .expect("add owner membership");
 

@@ -19,7 +19,7 @@
 #![allow(clippy::expect_used)]
 
 use backend::middleware::cookie_auth::require_workspace_membership;
-use backend::repository::workspaces::add_membership;
+use backend::repository::workspaces::{add_membership, SeatWriteAuthority};
 use backend::sync::actor::ActorContext;
 use backend::sync::session::with_actor_context;
 
@@ -49,7 +49,13 @@ fn member_passes_non_member_gets_403() {
         let mut conn = pool.get().expect("conn");
         let actor = ActorContext::user(member_uuid, None).with_workspace(ws);
         with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |c| {
-            add_membership(c, ws, member_uuid, "member")?;
+            add_membership(
+                c,
+                ws,
+                member_uuid,
+                "member",
+                SeatWriteAuthority::ControlPlane,
+            )?;
             Ok(())
         })
         .expect("add membership");
@@ -95,7 +101,13 @@ fn member_of_another_workspace_is_denied() {
         let mut conn = pool.get().expect("conn");
         let actor = ActorContext::user(user_uuid, None).with_workspace(ws_a);
         with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |c| {
-            add_membership(c, ws_a, user_uuid, "member")?;
+            add_membership(
+                c,
+                ws_a,
+                user_uuid,
+                "member",
+                SeatWriteAuthority::ControlPlane,
+            )?;
             Ok(())
         })
         .expect("add ws_a membership");

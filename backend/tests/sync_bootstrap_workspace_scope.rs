@@ -20,7 +20,7 @@ use diesel::prelude::*;
 use backend::middleware::api_token::dual_auth_middleware;
 use backend::middleware::{DeploymentMode, WorkspaceContextConfig, WorkspaceContextMiddleware};
 use backend::models::{NewActiveSession, NewTicket};
-use backend::repository::workspaces::add_membership;
+use backend::repository::workspaces::{add_membership, SeatWriteAuthority};
 use backend::sync::actor::ActorContext;
 use backend::sync::session::with_actor_context;
 use backend::utils::jwt::JwtUtils;
@@ -90,7 +90,7 @@ async fn bootstrap_streams_tickets_for_a_non_default_workspace() {
 
         let tenant_actor = ActorContext::user(agent.uuid, None).with_workspace(ws);
         with_actor_context::<_, diesel::result::Error>(&mut conn, &tenant_actor, |c| {
-            add_membership(c, ws, agent.uuid, "admin")?;
+            add_membership(c, ws, agent.uuid, "admin", SeatWriteAuthority::ControlPlane)?;
             Ok(())
         })
         .expect("add membership");

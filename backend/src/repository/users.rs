@@ -851,13 +851,33 @@ pub fn set_password_changed_at(
 /// SQL in `handlers::users` — same two updates, but scoped by an
 /// explicit `workspace_id` argument instead of the `app.workspace_id`
 /// GUC read.
+/// Outcome of [`set_user_roles`].
+#[derive(Debug, PartialEq, Eq)]
+pub enum SetUserRolesOutcome {
+    /// Both the platform role and the workspace membership role were written.
+    Applied,
+    /// A product-initiated change touching a control-plane-owned staff seat in
+    /// hosted; refused, nothing written. Hand off to the control plane.
+    ExternallyManaged,
+}
+
 pub fn set_user_roles(
     conn: &mut DbConnection,
     workspace_id: i32,
     user_uuid: Uuid,
     platform_role: &str,
     workspace_role: &str,
-) -> Result<(), Error> {
+    authority: crate::repository::workspaces::SeatWriteAuthority,
+) -> Result<SetUserRolesOutcome, Error> {
+    // Gate BEFORE any write: a product-initiated change touching a
+    // control-plane-owned staff seat (current OR new role is staff) in hosted
+    // is refused, matching update_membership_role.
+    let current =
+        crate::repository::workspaces::get_membership_role(conn, workspace_id, user_uuid)?
+            .unwrap_or_default();
+    if authority.refuses_change(&current, workspace_role) {
+        return Ok(SetUserRolesOutcome::ExternallyManaged);
+    }
     diesel::update(users::table.find(user_uuid))
         .set((
             users::platform_role.eq(platform_role),
@@ -871,7 +891,7 @@ pub fn set_user_roles(
     )
     .set(workspace_members::role.eq(workspace_role))
     .execute(conn)?;
-    Ok(())
+    Ok(SetUserRolesOutcome::Applied)
 }
 
 #[cfg(test)]
