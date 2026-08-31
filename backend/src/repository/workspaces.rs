@@ -279,6 +279,17 @@ pub fn membership(
         .optional()
 }
 
+/// Outcome of [`add_membership`].
+#[derive(Debug, PartialEq, Eq)]
+pub enum AddMembershipOutcome {
+    /// The grant ran: `1` row inserted, or `0` when the membership already
+    /// existed (`ON CONFLICT DO NOTHING`).
+    Added(usize),
+    /// A product-initiated attempt to grant a control-plane-owned staff seat in
+    /// hosted; refused. Hand off to the control plane.
+    ExternallyManaged,
+}
+
 // sync-audit-only: membership changes are recorded by the tr_audit_workspace_members audit_log trigger (P1.4); no sync_actions aggregate, since workspace_members isn't on the tenant live-sync stream
 /// Add a user to the given workspace. Called from every user-
 /// creation flow (admin invite, guest portal, channels ingest,
@@ -297,17 +308,6 @@ pub fn membership(
 /// `workspace_id` is passed explicitly rather than read from the
 /// GUC because some callers (bootstrap admin setup) run before
 /// any workspace context has been threaded through.
-/// Outcome of [`add_membership`].
-#[derive(Debug, PartialEq, Eq)]
-pub enum AddMembershipOutcome {
-    /// The grant ran: `1` row inserted, or `0` when the membership already
-    /// existed (`ON CONFLICT DO NOTHING`).
-    Added(usize),
-    /// A product-initiated attempt to grant a control-plane-owned staff seat in
-    /// hosted; refused. Hand off to the control plane.
-    ExternallyManaged,
-}
-
 pub fn add_membership(
     conn: &mut DbConnection,
     workspace_id: i32,
