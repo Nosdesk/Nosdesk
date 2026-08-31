@@ -53,6 +53,13 @@ export function effectiveRole(u: {
   }
 }
 
+/** The workspace roles that are billed staff seats (owner/admin/agent). In
+ * hosted (Model C) these are owned by the control plane; `member` (a requester)
+ * is always tenant-local. Mirrors the backend `STAFF_ROLES`. */
+export function isStaffWorkspaceRole(role?: WorkspaceRole | null): boolean {
+  return role === 'owner' || role === 'admin' || role === 'agent';
+}
+
 /** Persisted shape of a user's customised dashboard. Widget order is
  * the array order; `visible: false` hides the widget without removing
  * it from the stored ordering so "Add widget" can restore it in place.

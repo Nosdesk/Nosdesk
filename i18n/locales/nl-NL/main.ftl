@@ -2290,6 +2290,8 @@ user-profile-document-title = Profiel van { $name } | Nosdesk
 user-profile-back-to-users = Terug naar gebruikers
 user-profile-action-profile-settings = Profielinstellingen
 user-profile-action-user-settings = Gebruikersinstellingen
+# user-profile-action-manage-in-control-plane (machine, door een moedertaalspreker na te kijken).
+user-profile-action-manage-in-control-plane = Beheren in het control plane
 user-profile-create-title = Nieuwe gebruiker aanmaken
 user-profile-create-subtitle = Voeg een nieuwe gebruiker toe aan je organisatie
 user-profile-section-basic-info = Basisgegevens

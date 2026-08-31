@@ -7,7 +7,7 @@ import { useDelayedFlag } from '@/composables/useDelayedFlag';
 import { useFluent } from 'fluent-vue';
 import { useAuthStore } from "@/stores/auth";
 import { useToastStore } from '@nosdesk/core/stores/toast';
-import { isHostedDeployment } from '@nosdesk/core/services/instanceConfig';
+import { isHostedDeployment, isIdentityExternallyManaged } from '@nosdesk/core/services/instanceConfig';
 import { controlPlaneSeatsUrl } from '@/services/activeWorkspace';
 import { openExternalUrl } from '@/platform';
 import BackButton from "@/components/common/BackButton.vue";
@@ -154,6 +154,15 @@ const targetIsRequester = computed(() => {
 const canEditContact = computed(
     () => canEdit.value || (authStore.isTechnician && targetIsRequester.value),
 );
+
+// In hosted, a staff member's identity is control-plane-owned, so the product
+// hands management off to the control plane instead of exposing the in-product
+// settings surface. Requesters and self-hosted stay locally managed.
+const targetExternallyManaged = computed(() => isIdentityExternallyManaged(userProfile.value));
+const manageInControlPlane = () => {
+    const url = controlPlaneSeatsUrl();
+    if (url) void openExternalUrl(url);
+};
 
 // Update document title when user profile changes
 watch(userProfile, (newProfile) => {
@@ -356,15 +365,30 @@ watch(
                         {{ $t('user-profile-action-profile-settings') }}
                     </RouterLink>
 
-                    <!-- Admin: Manage User Settings Button -->
+                    <!-- Admin: Manage User Settings Button. Hidden for a staff
+                         member whose identity is control-plane-owned (hosted);
+                         the hand-off below takes its place. -->
                     <RouterLink
-                        v-else-if="canEditRole && userProfile && !isOwnProfile"
+                        v-else-if="canEditRole && userProfile && !isOwnProfile && !targetExternallyManaged"
                         :to="`/users/${userProfile.uuid}/settings`"
                         class="px-4 py-2 bg-accent text-on-accent rounded-lg hover:bg-accent-hover transition-colors text-sm font-medium flex items-center gap-2"
                     >
                         <Icon name="settings" />
                         {{ $t('user-profile-action-user-settings') }}
                     </RouterLink>
+
+                    <!-- Hosted staff: identity lives in the control plane, so
+                         hand off to Instances -> Seats instead of the in-product
+                         settings surface (which can't manage a projected seat). -->
+                    <button
+                        v-else-if="canEditRole && userProfile && !isOwnProfile && targetExternallyManaged"
+                        type="button"
+                        @click="manageInControlPlane"
+                        class="px-4 py-2 bg-surface-alt text-secondary border border-default rounded-lg hover:text-primary hover:border-strong transition-colors text-sm font-medium flex items-center gap-2"
+                    >
+                        <Icon name="openExternal" />
+                        {{ $t('user-profile-action-manage-in-control-plane') }}
+                    </button>
                 </div>
             </div>
 

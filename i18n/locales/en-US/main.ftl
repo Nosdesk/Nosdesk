@@ -2424,6 +2424,7 @@ user-profile-document-title = { $name }'s Profile | Nosdesk
 user-profile-back-to-users = Back to Users
 user-profile-action-profile-settings = Profile Settings
 user-profile-action-user-settings = User Settings
+user-profile-action-manage-in-control-plane = Manage in control plane
 user-profile-create-title = Create New User
 user-profile-create-subtitle = Add a new user to your organization
 user-profile-section-basic-info = Basic Information

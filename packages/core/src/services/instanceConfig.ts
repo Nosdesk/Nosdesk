@@ -5,9 +5,11 @@
  * the URL before it wires up routing. Instance-global (identical for every
  * workspace); per-workspace config lives behind auth.
  */
-import { readonly, ref, type Ref } from 'vue';
+import { computed, readonly, ref, type Ref } from 'vue';
 import apiClient from '../apiClient';
 import { logger } from '../utils/logger';
+import { isStaffWorkspaceRole } from '../types/user';
+import type { WorkspaceRole } from '../types/workspace';
 
 /** Where the selected workspace lives in the URL. */
 export type WorkspaceRouting = 'host' | 'path';
@@ -129,6 +131,29 @@ export function getDeploymentMode(): DeploymentMode {
 /** True on the managed hosted SaaS. Use to hide operator/infra-only admin UI. */
 export function isHostedDeployment(): boolean {
   return deploymentMode === 'hosted';
+}
+
+/** Reactive form of {@link isHostedDeployment}. Recomputes when the config
+ *  fetch settles or resets, so a component built before `/api/config` resolves
+ *  still updates (the plain getter reads a module `let` and won't re-evaluate). */
+export const isHostedDeploymentRef = computed<boolean>(() => {
+  // Depend on the resolved latch so this re-runs when deploymentMode is set
+  // (assigned in the same step that flips the latch) or on reset.
+  void configResolved.value;
+  return deploymentMode === 'hosted';
+});
+
+/** Whether this user's identity is externally managed (control-plane-owned) in
+ *  this deployment, so the product must hand staff management off to the control
+ *  plane rather than expose local controls. True only for a billed staff seat
+ *  (owner/admin/agent) on a hosted instance; requesters and self-hosted are
+ *  always locally managed. The single client-side reflection of the server's
+ *  `staff_identity_externally_managed` boundary. Reactive: read it inside a
+ *  computed. */
+export function isIdentityExternallyManaged(
+  user?: { workspace_role?: WorkspaceRole | null } | null,
+): boolean {
+  return !!user && isHostedDeploymentRef.value && isStaffWorkspaceRole(user.workspace_role);
 }
 
 /** True when forwarding-based inbound email is available on this instance. */
