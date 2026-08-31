@@ -7,8 +7,7 @@ import { extractErrorMessage } from '@/utils/errors'
 import { formatDate } from '@nosdesk/core/utils/dateUtils'
 import { useToastStore } from '@nosdesk/core/stores/toast'
 import { isHostedDeployment, isHostedDeploymentRef } from '@nosdesk/core/services/instanceConfig'
-import { controlPlaneSeatsUrl } from '@/services/activeWorkspace'
-import { openExternalUrl } from '@/platform'
+import { openControlPlaneSeats } from '@/services/activeWorkspace'
 
 import DataTable from '@/components/common/DataTable.vue'
 import PaginationControls from '@/components/common/PaginationControls.vue'
@@ -64,11 +63,9 @@ const navigateToCreateUser = () => {
   // can't sign in. Hand off to the control-plane dashboard (Instances -> Seats)
   // rather than open a create form that produces a dead account.
   if (isHostedDeployment()) {
-    // Deep-link to THIS workspace's seats, not the generic instances list.
-    // openExternalUrl uses the system browser in the native shell so the
-    // hand-off doesn't strand the user inside the app's webview.
-    const url = controlPlaneSeatsUrl()
-    if (url) void openExternalUrl(url)
+    // Staff identity is control-plane-owned in hosted; hand off to this
+    // workspace's seats (system browser on native) rather than open a form.
+    void openControlPlaneSeats()
     toast.info(t('user-mgmt-hosted-add-in-control-plane'))
     return
   }

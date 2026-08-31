@@ -32,8 +32,7 @@ import userService from '@/services/userService';
 import type { User } from '@/services/userService';
 import { effectiveRole, rolesFromTier, type UserRole } from '@nosdesk/core/types/user';
 import { isIdentityExternallyManaged } from '@nosdesk/core/services/instanceConfig';
-import { controlPlaneSeatsUrl } from '@/services/activeWorkspace';
-import { openExternalUrl } from '@/platform';
+import { openControlPlaneSeats } from '@/services/activeWorkspace';
 import { groupService } from '@nosdesk/core/services/groupService';
 import type { Group } from '@nosdesk/core/types/group';
 import apiClient from '@nosdesk/core/apiClient';
@@ -142,10 +141,7 @@ const loadingTargetUser = computed(
 const managedTargetExternallyManaged = computed(
   () => isManagingOtherUser.value && isIdentityExternallyManaged(targetUser.value),
 );
-const manageInControlPlane = () => {
-  const url = controlPlaneSeatsUrl();
-  if (url) void openExternalUrl(url);
-};
+const manageInControlPlane = () => void openControlPlaneSeats();
 const updatingRole = ref(false);
 
 // Get the current user being edited (either targetUser for admin or authStore.user for self)

@@ -50,10 +50,11 @@ import {
   type WorkspaceRole,
 } from '@nosdesk/core/types/workspace';
 import type { User } from '@nosdesk/core/types/user';
-import { isStaffWorkspaceRole } from '@nosdesk/core/types/user';
-import { isHostedDeploymentRef } from '@nosdesk/core/services/instanceConfig';
-import { controlPlaneSeatsUrl } from '@/services/activeWorkspace';
-import { openExternalUrl } from '@/platform';
+import {
+  isHostedDeploymentRef,
+  isRoleExternallyManaged,
+} from '@nosdesk/core/services/instanceConfig';
+import { openControlPlaneSeats } from '@/services/activeWorkspace';
 import { extractErrorMessage } from '@/utils/errors';
 import * as syncPool from '@nosdesk/core/sync/pool';
 
@@ -164,9 +165,7 @@ const rows = computed<WorkspaceMemberRow[]>(() =>
       // the roster is read-only for those rows; the control-plane hand-off
       // (the header "one door") takes the place of the in-product controls.
       editable:
-        canManage(member.role) &&
-        !isSoleOwner &&
-        !(isHostedDeploymentRef.value && isStaffWorkspaceRole(member.role)),
+        canManage(member.role) && !isSoleOwner && !isRoleExternallyManaged(member.role),
       lockedHint: isSoleOwner ? t('admin-workspace-members-last-owner-hint') : '',
     };
   }),
@@ -357,8 +356,7 @@ function openProfile(member: WorkspaceMemberRow) {
 // In hosted, staff seats are managed in the control plane; this is the single
 // "door" to Instances -> Seats that replaces the in-product staff controls.
 function manageTeamInControlPlane() {
-  const url = controlPlaneSeatsUrl();
-  if (url) void openExternalUrl(url);
+  void openControlPlaneSeats();
 }
 </script>
 

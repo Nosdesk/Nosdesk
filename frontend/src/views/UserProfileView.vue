@@ -8,8 +8,7 @@ import { useFluent } from 'fluent-vue';
 import { useAuthStore } from "@/stores/auth";
 import { useToastStore } from '@nosdesk/core/stores/toast';
 import { isHostedDeployment, isIdentityExternallyManaged } from '@nosdesk/core/services/instanceConfig';
-import { controlPlaneSeatsUrl } from '@/services/activeWorkspace';
-import { openExternalUrl } from '@/platform';
+import { openControlPlaneSeats } from '@/services/activeWorkspace';
 import BackButton from "@/components/common/BackButton.vue";
 import UserProfileCard from "@/components/settings/UserProfileCard.vue";
 import UserEmailsCard from "@/components/settings/UserEmailsCard.vue";
@@ -62,10 +61,9 @@ const toast = useToastStore();
 // account (identity is control-plane owned), so hand off to the control plane
 // like the Users-list create action rather than render the form.
 if (isCreationMode.value && isHostedDeployment()) {
-  // Deep-link to this workspace's seats and open it in the system browser (not
-  // the app webview), matching the Users-list hand-off.
-  const url = controlPlaneSeatsUrl();
-  if (url) void openExternalUrl(url);
+  // Deep-link to this workspace's seats (system browser on native), matching
+  // the Users-list hand-off.
+  void openControlPlaneSeats();
   toast.info(t('user-mgmt-hosted-add-in-control-plane'));
   void router.replace('/users');
 }
@@ -159,10 +157,7 @@ const canEditContact = computed(
 // hands management off to the control plane instead of exposing the in-product
 // settings surface. Requesters and self-hosted stay locally managed.
 const targetExternallyManaged = computed(() => isIdentityExternallyManaged(userProfile.value));
-const manageInControlPlane = () => {
-    const url = controlPlaneSeatsUrl();
-    if (url) void openExternalUrl(url);
-};
+const manageInControlPlane = () => void openControlPlaneSeats();
 
 // Update document title when user profile changes
 watch(userProfile, (newProfile) => {

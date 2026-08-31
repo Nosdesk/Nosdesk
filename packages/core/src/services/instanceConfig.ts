@@ -136,24 +136,29 @@ export function isHostedDeployment(): boolean {
 /** Reactive form of {@link isHostedDeployment}. Recomputes when the config
  *  fetch settles or resets, so a component built before `/api/config` resolves
  *  still updates (the plain getter reads a module `let` and won't re-evaluate). */
-export const isHostedDeploymentRef = computed<boolean>(() => {
-  // Depend on the resolved latch so this re-runs when deploymentMode is set
-  // (assigned in the same step that flips the latch) or on reset.
-  void configResolved.value;
-  return deploymentMode === 'hosted';
-});
+export const isHostedDeploymentRef = computed<boolean>(
+  // `deploymentMode` is only ever 'hosted' after the latch flips (and reset
+  // clears both), so gating on the latch gives the same result while making
+  // the reactive dependency explicit.
+  () => configResolved.value && deploymentMode === 'hosted',
+);
 
-/** Whether this user's identity is externally managed (control-plane-owned) in
- *  this deployment, so the product must hand staff management off to the control
- *  plane rather than expose local controls. True only for a billed staff seat
- *  (owner/admin/agent) on a hosted instance; requesters and self-hosted are
- *  always locally managed. The single client-side reflection of the server's
- *  `staff_identity_externally_managed` boundary. Reactive: read it inside a
+/** Whether a workspace ROLE is externally managed (control-plane-owned) in this
+ *  deployment: a billed staff seat (owner/admin/agent) on a hosted instance.
+ *  The single client-side reflection of the server's
+ *  `staff_identity_externally_managed` boundary. Reactive: read inside a
  *  computed. */
+export function isRoleExternallyManaged(role?: WorkspaceRole | null): boolean {
+  return isHostedDeploymentRef.value && isStaffWorkspaceRole(role);
+}
+
+/** As {@link isRoleExternallyManaged}, keyed on a user object, so the product
+ *  hands staff management off to the control plane instead of exposing local
+ *  controls. Requesters and self-hosted are always locally managed. */
 export function isIdentityExternallyManaged(
   user?: { workspace_role?: WorkspaceRole | null } | null,
 ): boolean {
-  return !!user && isHostedDeploymentRef.value && isStaffWorkspaceRole(user.workspace_role);
+  return !!user && isRoleExternallyManaged(user.workspace_role);
 }
 
 /** True when forwarding-based inbound email is available on this instance. */
