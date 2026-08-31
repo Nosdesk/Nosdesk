@@ -22,6 +22,45 @@ use crate::schema::{retired_slugs, site_settings, workspace_members, workspaces}
 /// SQL filter and the enforcement trigger.
 const STAFF_ROLES: [&str; 3] = ["owner", "admin", "agent"];
 
+/// Whether a staff seat (owner/admin/agent) is owned by the control plane in
+/// this deployment, so the product must not create, re-role, or remove it
+/// locally and should hand the caller off to the control plane instead.
+/// Requesters (`member`) are always tenant-local, so this is false for them.
+///
+/// Reads `DeploymentMode::from_env()` (fresh, not cached) so it matches
+/// [`crate::middleware::workspace_context::local_credentials_permitted`] and
+/// unit tests can flip `NOSDESK_DEPLOYMENT_MODE` within one process.
+pub fn staff_identity_externally_managed(role: &str) -> bool {
+    use crate::middleware::workspace_context::DeploymentMode;
+    DeploymentMode::from_env() == DeploymentMode::Hosted && STAFF_ROLES.contains(&role)
+}
+
+/// Error from a membership write the product may not perform locally. Distinct
+/// from a DB error so a caller can tell "this seat is control-plane managed"
+/// apart from a query failure. Mirrors
+/// [`crate::repository::user_auth_identities::LocalCredentialError`].
+#[derive(Debug)]
+pub enum MembershipWriteError {
+    /// The write targets a control-plane-owned staff seat in hosted mode. Hand
+    /// off to the control plane (Instances -> Seats).
+    ExternallyManaged,
+    Db(DieselError),
+}
+
+impl std::fmt::Display for MembershipWriteError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ExternallyManaged => write!(
+                f,
+                "staff membership is managed by the control plane in hosted mode"
+            ),
+            Self::Db(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl std::error::Error for MembershipWriteError {}
+
 /// Returned by [`create_workspace`] so the caller can distinguish a
 /// slug-collision from other DB failures without parsing error
 /// strings.
@@ -780,6 +819,47 @@ pub fn update_membership_role(
     Ok(UpdateMembershipRoleResult::Updated(updated))
 }
 
+/// Gated entry for a **product-initiated** role change (tenant admin console or
+/// operator console). Refuses when the change touches a control-plane-owned
+/// staff seat in hosted mode, either because the member currently holds a staff
+/// role or the new role is a staff role, so the product can't desync the
+/// projection. The control plane's own `set_member_role` applies the
+/// authoritative change through the raw [`update_membership_role`].
+/// `current_role` is the member's existing role, which callers already load to
+/// authorize the change.
+pub fn update_membership_role_gated(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    user_uuid: Uuid,
+    current_role: &str,
+    new_role: &str,
+) -> Result<UpdateMembershipRoleResult, MembershipWriteError> {
+    if staff_identity_externally_managed(current_role)
+        || staff_identity_externally_managed(new_role)
+    {
+        return Err(MembershipWriteError::ExternallyManaged);
+    }
+    update_membership_role(conn, workspace_id, user_uuid, new_role)
+        .map_err(MembershipWriteError::Db)
+}
+
+/// Gated entry for a **product-initiated** membership removal. Refuses to remove
+/// a control-plane-owned staff seat in hosted mode; the control plane revokes
+/// seats through its own deprovision path (which demotes to `member`). Removing
+/// a requester (`member`) is always allowed. `current_role` is the member's
+/// existing role, which callers already load to authorize the removal.
+pub fn remove_membership_gated(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    user_uuid: Uuid,
+    current_role: &str,
+) -> Result<usize, MembershipWriteError> {
+    if staff_identity_externally_managed(current_role) {
+        return Err(MembershipWriteError::ExternallyManaged);
+    }
+    remove_membership(conn, workspace_id, user_uuid).map_err(MembershipWriteError::Db)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -812,6 +892,42 @@ mod tests {
             seat_limit: None,
         };
         as_admin(conn, |c| create_workspace(c, &record)).expect("create workspace")
+    }
+
+    #[test]
+    fn staff_identity_externally_managed_gates_on_hosted_and_role() {
+        // Pure predicate: in hosted, a staff role (owner/admin/agent) is
+        // control-plane-owned, so the product must hand off; requesters
+        // (member) and everything self-hosted stay locally writable. Mirrors
+        // the env-flip pattern used for the local-credential gate.
+        static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let prev = std::env::var("NOSDESK_DEPLOYMENT_MODE").ok();
+
+        std::env::set_var("NOSDESK_DEPLOYMENT_MODE", "hosted");
+        for role in STAFF_ROLES {
+            assert!(
+                staff_identity_externally_managed(role),
+                "{role} should be externally managed in hosted"
+            );
+        }
+        assert!(
+            !staff_identity_externally_managed("member"),
+            "requesters are tenant-local even in hosted"
+        );
+
+        std::env::remove_var("NOSDESK_DEPLOYMENT_MODE");
+        for role in ["owner", "admin", "agent", "member"] {
+            assert!(
+                !staff_identity_externally_managed(role),
+                "self-hosted owns all identity locally"
+            );
+        }
+
+        match prev {
+            Some(v) => std::env::set_var("NOSDESK_DEPLOYMENT_MODE", v),
+            None => std::env::remove_var("NOSDESK_DEPLOYMENT_MODE"),
+        }
     }
 
     #[test]

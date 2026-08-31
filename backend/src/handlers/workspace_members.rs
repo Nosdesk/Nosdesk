@@ -96,6 +96,16 @@ fn forbidden_tier() -> HttpResponse {
     )
 }
 
+/// The 409 for a staff-seat mutation refused because the control plane owns the
+/// seat in hosted mode. Carries a stable `error` code the SPA keys off to swap
+/// in the "manage in the control plane" hand-off.
+fn externally_managed_response() -> HttpResponse {
+    HttpResponse::Conflict().json(serde_json::json!({
+        "error": "externally_managed",
+        "message": "Team members are managed in the Nosdesk control plane. Add, re-role, or remove seats there.",
+    }))
+}
+
 /// Actor context for a membership write, attributed to the calling
 /// admin + their workspace. The `tr_audit_workspace_members` trigger
 /// reads `app.actor_uuid` from this, so the audit_log row records WHO
@@ -154,6 +164,9 @@ enum ManageOutcome {
     LastOwner,
     UpdatedRole(WorkspaceMember),
     Removed,
+    /// The target is a control-plane-owned staff seat in hosted mode; the
+    /// product must not mutate it locally. Hand off to the control plane.
+    ExternallyManaged,
 }
 
 /// `PATCH /api/workspace/members/{user_uuid}` — change a member's role.
@@ -197,18 +210,24 @@ pub async fn update_member_role(
             if !can_manage(caller_role, WorkspaceRole::from_db(&existing.role)) {
                 return Ok(ManageOutcome::Forbidden);
             }
-            Ok(
-                match workspaces::update_membership_role(
-                    conn,
-                    ctx.workspace_id,
-                    target,
-                    new_role.as_str(),
-                )? {
-                    UpdateMembershipRoleResult::Updated(m) => ManageOutcome::UpdatedRole(m),
-                    UpdateMembershipRoleResult::NotFound => ManageOutcome::NotFound,
-                    UpdateMembershipRoleResult::LastOwner => ManageOutcome::LastOwner,
-                },
-            )
+            // Gated write: in hosted mode a staff seat (or a promotion into one)
+            // is owned by the control plane and refused here, so the product
+            // can't desync the projection.
+            match workspaces::update_membership_role_gated(
+                conn,
+                ctx.workspace_id,
+                target,
+                &existing.role,
+                new_role.as_str(),
+            ) {
+                Ok(UpdateMembershipRoleResult::Updated(m)) => Ok(ManageOutcome::UpdatedRole(m)),
+                Ok(UpdateMembershipRoleResult::NotFound) => Ok(ManageOutcome::NotFound),
+                Ok(UpdateMembershipRoleResult::LastOwner) => Ok(ManageOutcome::LastOwner),
+                Err(workspaces::MembershipWriteError::ExternallyManaged) => {
+                    Ok(ManageOutcome::ExternallyManaged)
+                }
+                Err(workspaces::MembershipWriteError::Db(e)) => Err(e),
+            }
         });
 
     match outcome {
@@ -224,6 +243,7 @@ pub async fn update_member_role(
             "error": "last_owner",
             "message": "cannot demote the only owner; promote another member first",
         })),
+        Ok(ManageOutcome::ExternallyManaged) => externally_managed_response(),
         Ok(ManageOutcome::Removed) => {
             // Unreachable in the update path.
             errors::internal("Inconsistent membership state")
@@ -275,12 +295,23 @@ pub async fn remove_member(
             if !can_manage(caller_role, WorkspaceRole::from_db(&existing.role)) {
                 return Ok(ManageOutcome::Forbidden);
             }
-            // remove_membership returns 0 both for "not found" (excluded
-            // above) and "would orphan the last owner"; since the row exists,
-            // 0 here means the last-owner guard fired.
-            match workspaces::remove_membership(conn, ctx.workspace_id, target)? {
-                1 => Ok(ManageOutcome::Removed),
-                _ => Ok(ManageOutcome::LastOwner),
+            // Gated write: in hosted mode a staff seat is control-plane-owned
+            // and refused here (the CP revokes seats through its own path).
+            // remove_membership returns 0 both for "not found" (excluded above)
+            // and "would orphan the last owner"; since the row exists, 0 here
+            // means the last-owner guard fired.
+            match workspaces::remove_membership_gated(
+                conn,
+                ctx.workspace_id,
+                target,
+                &existing.role,
+            ) {
+                Ok(1) => Ok(ManageOutcome::Removed),
+                Ok(_) => Ok(ManageOutcome::LastOwner),
+                Err(workspaces::MembershipWriteError::ExternallyManaged) => {
+                    Ok(ManageOutcome::ExternallyManaged)
+                }
+                Err(workspaces::MembershipWriteError::Db(e)) => Err(e),
             }
         });
 
@@ -300,6 +331,7 @@ pub async fn remove_member(
             "error": "last_owner",
             "message": "cannot remove the only owner; promote another member first",
         })),
+        Ok(ManageOutcome::ExternallyManaged) => externally_managed_response(),
         Ok(ManageOutcome::UpdatedRole(_)) => {
             // Unreachable in the remove path.
             errors::internal("Inconsistent membership state")
