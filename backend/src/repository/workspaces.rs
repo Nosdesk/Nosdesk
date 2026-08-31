@@ -35,6 +35,30 @@ pub fn staff_identity_externally_managed(role: &str) -> bool {
     DeploymentMode::from_env() == DeploymentMode::Hosted && STAFF_ROLES.contains(&role)
 }
 
+/// Whether a role CHANGE touches a control-plane-owned staff seat in hosted:
+/// true when the current OR the new role is a staff seat. The single check
+/// shared by the tenant gated wrapper and the operator role-change gate, so the
+/// two can't drift.
+pub fn staff_change_externally_managed(current_role: &str, new_role: &str) -> bool {
+    staff_identity_externally_managed(current_role) || staff_identity_externally_managed(new_role)
+}
+
+/// Whether the user holds a staff seat (owner/admin/agent) in ANY workspace.
+/// `workspace_members` is RLS-scoped, so the CALLER must run this under a
+/// BYPASSRLS context (`with_actor_bypass_context`) to see every workspace;
+/// otherwise it only sees the pinned one. Used to gate GLOBAL lifecycle ops
+/// (delete/purge/restore), where a per-workspace check would miss a seat held
+/// in another workspace.
+pub fn user_is_staff_anywhere(conn: &mut DbConnection, user_uuid: Uuid) -> QueryResult<bool> {
+    use diesel::dsl::count_star;
+    let n: i64 = workspace_members::table
+        .filter(workspace_members::user_uuid.eq(user_uuid))
+        .filter(workspace_members::role.eq_any(STAFF_ROLES))
+        .select(count_star())
+        .get_result(conn)?;
+    Ok(n > 0)
+}
+
 /// Error from a membership write the product may not perform locally. Distinct
 /// from a DB error so a caller can tell "this seat is control-plane managed"
 /// apart from a query failure. Mirrors
@@ -834,9 +858,7 @@ pub fn update_membership_role_gated(
     current_role: &str,
     new_role: &str,
 ) -> Result<UpdateMembershipRoleResult, MembershipWriteError> {
-    if staff_identity_externally_managed(current_role)
-        || staff_identity_externally_managed(new_role)
-    {
+    if staff_change_externally_managed(current_role, new_role) {
         return Err(MembershipWriteError::ExternallyManaged);
     }
     update_membership_role(conn, workspace_id, user_uuid, new_role)
@@ -923,6 +945,58 @@ mod tests {
                 "self-hosted owns all identity locally"
             );
         }
+
+        match prev {
+            Some(v) => std::env::set_var("NOSDESK_DEPLOYMENT_MODE", v),
+            None => std::env::remove_var("NOSDESK_DEPLOYMENT_MODE"),
+        }
+    }
+
+    #[test]
+    fn gated_membership_wrappers_refuse_staff_in_hosted() {
+        // The gate fires on the role predicate BEFORE any DB lookup, so no rows
+        // are needed for the refusal branch; the pass-through branch hits the
+        // raw op, which returns NotFound / 0 for a non-existent row.
+        static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _env = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let prev = std::env::var("NOSDESK_DEPLOYMENT_MODE").ok();
+
+        let pool = setup_test_pool();
+        let mut conn = pool.get().expect("conn");
+        let ws = 999_999;
+        let uuid = Uuid::now_v7();
+
+        std::env::set_var("NOSDESK_DEPLOYMENT_MODE", "hosted");
+        // Current role is staff -> refused (demote of a CP-owned seat).
+        assert!(matches!(
+            update_membership_role_gated(&mut conn, ws, uuid, "agent", "member"),
+            Err(MembershipWriteError::ExternallyManaged)
+        ));
+        // Promoting a requester INTO a staff seat -> refused.
+        assert!(matches!(
+            update_membership_role_gated(&mut conn, ws, uuid, "member", "admin"),
+            Err(MembershipWriteError::ExternallyManaged)
+        ));
+        assert!(matches!(
+            remove_membership_gated(&mut conn, ws, uuid, "owner"),
+            Err(MembershipWriteError::ExternallyManaged)
+        ));
+        // Requester (member) stays locally writable: passes the gate.
+        assert!(matches!(
+            update_membership_role_gated(&mut conn, ws, uuid, "member", "member"),
+            Ok(UpdateMembershipRoleResult::NotFound)
+        ));
+        assert_eq!(
+            remove_membership_gated(&mut conn, ws, uuid, "member").unwrap(),
+            0
+        );
+
+        // Self-hosted: even a staff role passes the gate.
+        std::env::remove_var("NOSDESK_DEPLOYMENT_MODE");
+        assert!(matches!(
+            update_membership_role_gated(&mut conn, ws, uuid, "agent", "owner"),
+            Ok(UpdateMembershipRoleResult::NotFound)
+        ));
 
         match prev {
             Some(v) => std::env::set_var("NOSDESK_DEPLOYMENT_MODE", v),

@@ -81,6 +81,27 @@ pub fn pin_workspace(conn: &mut DbConnection, workspace_id: i32) {
         .execute(conn);
 }
 
+/// True when the target is a control-plane-owned staff seat (owner/admin/agent
+/// in ANY workspace) under hosted, so a GLOBAL lifecycle op (delete/purge/
+/// restore) must hand off to the control plane rather than mutate it locally.
+/// Reads across workspaces under BYPASSRLS (a per-workspace check would miss a
+/// seat held elsewhere) and fails CLOSED: a read error returns `true`, so a DB
+/// blip never lets a projected seat be deleted locally. Cheap in self-hosted:
+/// short-circuits before any query.
+pub fn target_is_externally_managed_staff(
+    conn: &mut DbConnection,
+    actor: &ActorContext,
+    target_uuid: Uuid,
+) -> bool {
+    if !crate::middleware::workspace_context::is_hosted() {
+        return false;
+    }
+    crate::sync::session::with_actor_bypass_context::<_, diesel::result::Error>(conn, actor, |c| {
+        repository::workspaces::user_is_staff_anywhere(c, target_uuid)
+    })
+    .unwrap_or(true)
+}
+
 /// Extract claims + user UUID + DB connection from a request.
 /// Combines the three most common boilerplate blocks into one call.
 ///

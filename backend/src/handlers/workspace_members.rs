@@ -96,13 +96,6 @@ fn forbidden_tier() -> HttpResponse {
     )
 }
 
-/// The 409 for a staff-seat mutation refused because the control plane owns the
-/// seat in hosted mode. Shared with the operator handlers via `errors` so every
-/// refusal carries the same `externally_managed` code.
-fn externally_managed_response() -> HttpResponse {
-    errors::externally_managed()
-}
-
 /// Actor context for a membership write, attributed to the calling
 /// admin + their workspace. The `tr_audit_workspace_members` trigger
 /// reads `app.actor_uuid` from this, so the audit_log row records WHO
@@ -240,7 +233,7 @@ pub async fn update_member_role(
             "error": "last_owner",
             "message": "cannot demote the only owner; promote another member first",
         })),
-        Ok(ManageOutcome::ExternallyManaged) => externally_managed_response(),
+        Ok(ManageOutcome::ExternallyManaged) => errors::externally_managed(),
         Ok(ManageOutcome::Removed) => {
             // Unreachable in the update path.
             errors::internal("Inconsistent membership state")
@@ -328,7 +321,7 @@ pub async fn remove_member(
             "error": "last_owner",
             "message": "cannot remove the only owner; promote another member first",
         })),
-        Ok(ManageOutcome::ExternallyManaged) => externally_managed_response(),
+        Ok(ManageOutcome::ExternallyManaged) => errors::externally_managed(),
         Ok(ManageOutcome::UpdatedRole(_)) => {
             // Unreachable in the remove path.
             errors::internal("Inconsistent membership state")

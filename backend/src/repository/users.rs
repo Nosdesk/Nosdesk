@@ -752,22 +752,31 @@ pub fn get_user_map_by_uuids(
         .collect())
 }
 
-/// Like [`get_user_map_by_uuids`] but overlays each user's PER-WORKSPACE
-/// display-name override (O7) onto `User.name`, so callers that render users in
-/// the active workspace show the persona name (e.g. "Warehouse Labourer at
-/// Foodcare") rather than the global control-plane name. RLS scopes the
-/// override to the active workspace; users without a persona keep their global
-/// name. Use this for display surfaces (assignee / author / roster); use the
-/// plain map when you need the canonical global name (audit, notifications).
+/// Like [`get_user_map_by_uuids`] but overlays each user's PER-WORKSPACE persona
+/// override (O7) onto `User.name` AND `User.avatar_url`, so callers that render
+/// users in the active workspace show the persona name and avatar (e.g.
+/// "Warehouse Labourer at Foodcare") rather than the global control-plane
+/// record. RLS scopes the override to the active workspace; users without a
+/// persona keep their global values. Use this for display surfaces (assignee /
+/// author / roster); use the plain map when you need the canonical global
+/// record (audit, notifications).
 pub fn get_user_map_by_uuids_with_persona(
     uuids: &[Uuid],
     conn: &mut DbConnection,
 ) -> Result<std::collections::HashMap<Uuid, User>, Error> {
     let mut map = get_user_map_by_uuids(uuids, conn)?;
-    let overrides = crate::repository::user_contact::display_name_overrides(conn, uuids)?;
+    let overrides = crate::repository::user_contact::persona_overrides(conn, uuids)?;
     for (uuid, persona) in overrides {
         if let Some(user) = map.get_mut(&uuid) {
-            user.name = persona;
+            if let Some(name) = persona.display_name {
+                user.name = name;
+            }
+            if let Some(avatar) = persona.avatar_url {
+                user.avatar_url = Some(avatar);
+                // No per-workspace thumbnail; clear the global one so the UI
+                // uses the full override image.
+                user.avatar_thumb = None;
+            }
         }
     }
     Ok(map)

@@ -873,10 +873,8 @@ pub async fn create_user(
             Err(resp) => return resp,
         };
         if !crate::middleware::workspace_context::local_credentials_permitted() {
-            return errors::forbidden(
-                "In hosted deployments, team members are added from the Nosdesk control \
-                 plane (Instances -> Seats). Only requesters can be added directly.",
-            );
+            // Same boundary + code as the other staff-mutation refusals.
+            return errors::externally_managed();
         }
         claims
     };
@@ -1216,18 +1214,16 @@ pub async fn delete_user(
             "Administrator accounts cannot be deleted for security reasons",
         );
     }
-    // In hosted, a staff seat is control-plane-owned; the CP owns the account
-    // lifecycle (revoke demotes to member). Refuse a local delete and hand off.
-    if crate::middleware::workspace_context::is_hosted()
-        && crate::repository::user_helpers::user_is_staff(&mut conn, &target_user)
-    {
+    let actor = helpers::actor_for(&req, "users_admin");
+    // In hosted, a staff seat is control-plane-owned in ANY workspace (the CP
+    // owns the account lifecycle). Refuse a local delete and hand off.
+    if helpers::target_is_externally_managed_staff(&mut conn, &actor, target_user.uuid) {
         return errors::externally_managed();
     }
     if target_user.deleted_at.is_some() {
         return errors::conflict("User is already soft-deleted");
     }
 
-    let actor = helpers::actor_for(&req, "users_admin");
     let soft_deleted = match crate::sync::session::with_actor_context::<_, diesel::result::Error>(
         &mut conn,
         &actor,
@@ -1278,10 +1274,6 @@ pub async fn restore_user(
         Err(e) => return e,
     };
 
-    // Pin the request workspace so user_is_staff below resolves the target's
-    // role through RLS (otherwise it reads None and the gate fails open).
-    helpers::pin_request_workspace(&req, &mut conn);
-
     let (_claims, user_uuid_parsed, target) =
         match require_admin_target(&req, &mut conn, uuid.as_str()) {
             Ok(t) => t,
@@ -1290,15 +1282,13 @@ pub async fn restore_user(
     if target.deleted_at.is_none() {
         return errors::conflict("User is not soft-deleted");
     }
-    // In hosted, re-activating a control-plane-owned staff seat locally would
-    // diverge from the projection; hand off to the control plane.
-    if crate::middleware::workspace_context::is_hosted()
-        && crate::repository::user_helpers::user_is_staff(&mut conn, &target)
-    {
+    let actor = helpers::actor_for(&req, "users_admin");
+    // In hosted, re-activating a control-plane-owned staff seat (in any
+    // workspace) locally would diverge from the projection; hand off.
+    if helpers::target_is_externally_managed_staff(&mut conn, &actor, target.uuid) {
         return errors::externally_managed();
     }
 
-    let actor = helpers::actor_for(&req, "users_admin");
     let restored = match crate::sync::session::with_actor_context::<_, diesel::result::Error>(
         &mut conn,
         &actor,
@@ -1361,11 +1351,10 @@ pub async fn purge_user_now(
             "Administrator accounts cannot be deleted for security reasons",
         );
     }
-    // In hosted, a staff seat is control-plane-owned; erasure of a projected
-    // staff account is a control-plane concern. Refuse and hand off.
-    if crate::middleware::workspace_context::is_hosted()
-        && crate::repository::user_helpers::user_is_staff(&mut conn, &target)
-    {
+    let actor = helpers::actor_for(&req, "users_admin");
+    // In hosted, a staff seat is control-plane-owned in ANY workspace; erasure
+    // of a projected staff account is a control-plane concern. Refuse.
+    if helpers::target_is_externally_managed_staff(&mut conn, &actor, target.uuid) {
         return errors::externally_managed();
     }
 
@@ -1376,7 +1365,6 @@ pub async fn purge_user_now(
     // FK violation. with_actor_bypass_context (nosdesk_admin,
     // BYPASSRLS) is the correct shape — same as the scheduler-
     // driven purge_soft_deleted_users path.
-    let actor = helpers::actor_for(&req, "users_admin");
     let result = crate::sync::session::with_actor_bypass_context::<_, diesel::result::Error>(
         &mut conn,
         &actor,
@@ -2329,9 +2317,10 @@ pub async fn update_user_by_uuid(
             match current_ws_role {
                 Ok(current) => {
                     let current = current.unwrap_or_default();
-                    if repository::workspaces::staff_identity_externally_managed(&current)
-                        || repository::workspaces::staff_identity_externally_managed(workspace_role)
-                    {
+                    if repository::workspaces::staff_change_externally_managed(
+                        &current,
+                        workspace_role,
+                    ) {
                         return errors::externally_managed();
                     }
                 }
@@ -3026,6 +3015,10 @@ pub async fn bulk_users(
         Ok(c) => c,
         Err(e) => return e,
     };
+    // Pin the request workspace so the per-target `user_is_admin` guard resolves
+    // the target's role through RLS; on an unpinned conn it reads None and the
+    // admin-protection guard fails OPEN.
+    helpers::pin_request_workspace(&req, &mut conn);
 
     let action = body.action.as_str();
     let ids = &body.ids;
@@ -3048,6 +3041,7 @@ pub async fn bulk_users(
             let actor = helpers::actor_for(&req, "users_admin");
             let mut deleted = 0;
             let mut skipped_admin = 0;
+            let mut skipped_staff = 0;
             for id in ids {
                 let uuid = match Uuid::parse_str(id) {
                     Ok(u) => u,
@@ -3059,6 +3053,13 @@ pub async fn bulk_users(
                 };
                 if crate::repository::user_helpers::user_is_admin(&mut conn, &target) {
                     skipped_admin += 1;
+                    continue;
+                }
+                // In hosted, a staff seat (in any workspace) is control-plane-
+                // owned; soft-deleting it would desync the projection. Fails
+                // closed on a read error (see the helper).
+                if helpers::target_is_externally_managed_staff(&mut conn, &actor, uuid) {
+                    skipped_staff += 1;
                     continue;
                 }
                 if target.deleted_at.is_some() {
@@ -3083,6 +3084,7 @@ pub async fn bulk_users(
             HttpResponse::Ok().json(json!({
                 "affected": deleted,
                 "skipped_admin": skipped_admin,
+                "skipped_staff": skipped_staff,
             }))
         }
 
@@ -3127,15 +3129,21 @@ pub async fn bulk_users(
                 // seat: demoting it locally would desync the projection. (Not
                 // reachable from the UI, which disables bulk selection on the
                 // Team population in hosted, but the API must still fail closed.)
-                let current_role = crate::sync::session::with_actor_context::<
+                let current_role = match crate::sync::session::with_actor_context::<
                     _,
                     diesel::result::Error,
                 >(&mut conn, &actor, |c| {
                     repository::workspaces::get_membership_role(c, ws_id, uuid)
-                })
-                .ok()
-                .flatten()
-                .unwrap_or_default();
+                }) {
+                    Ok(role) => role.unwrap_or_default(),
+                    // A read error must NOT be read as "not staff" (that would
+                    // let a demote through). Skip the target, fail closed.
+                    Err(e) => {
+                        error!(user_id = %id, error = ?e, "bulk set-role: role read failed; skipping (fail closed)");
+                        skipped_staff += 1;
+                        continue;
+                    }
+                };
                 if repository::workspaces::staff_identity_externally_managed(&current_role) {
                     skipped_staff += 1;
                     continue;

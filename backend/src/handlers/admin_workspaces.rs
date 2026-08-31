@@ -652,6 +652,22 @@ pub async fn update_member_role(
         }
     };
 
+    // In hosted, a role change that touches a control-plane-owned staff seat
+    // (the current or the new role is staff) is the control plane's job. Refuse
+    // and hand off. Requesters (member <-> member) pass through.
+    match pc.run(|conn| workspaces::get_membership_role(conn, workspace_id, user_uuid)) {
+        Ok(Some(current))
+            if workspaces::staff_change_externally_managed(&current, parsed_role.as_str()) =>
+        {
+            return errors::externally_managed();
+        }
+        Ok(_) => {}
+        Err(e) => {
+            error!(error = ?e, workspace_id, %user_uuid, "admin/workspaces update_member_role role read failed");
+            return errors::internal("Failed to update member role");
+        }
+    }
+
     match pc.run(|conn| {
         workspaces::update_membership_role(conn, workspace_id, user_uuid, parsed_role.as_str())
     }) {
@@ -686,6 +702,20 @@ pub async fn remove_member(
         return resp;
     }
     let (workspace_id, user_uuid) = path.into_inner();
+
+    // In hosted, removing a control-plane-owned staff seat is the control
+    // plane's job (it revokes seats, demoting to member). Refuse and hand off;
+    // requesters (member) can still be removed directly.
+    match pc.run(|conn| workspaces::get_membership_role(conn, workspace_id, user_uuid)) {
+        Ok(Some(role)) if workspaces::staff_identity_externally_managed(&role) => {
+            return errors::externally_managed();
+        }
+        Ok(_) => {}
+        Err(e) => {
+            error!(error = ?e, workspace_id, %user_uuid, "admin/workspaces remove_member role read failed");
+            return errors::internal("Failed to remove member");
+        }
+    }
 
     match pc.run(|conn| workspaces::remove_membership(conn, workspace_id, user_uuid)) {
         Ok(1) => {

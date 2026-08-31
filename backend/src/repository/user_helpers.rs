@@ -77,15 +77,6 @@ pub fn user_is_admin(conn: &mut DbConnection, user: &User) -> bool {
         || workspace_role(conn, user.uuid).is_some_and(|r| r.meets(WorkspaceRole::Admin))
 }
 
-/// True when the user holds a staff seat (owner/admin/agent) in the pinned
-/// workspace, i.e. a control-plane-owned seat under hosted. Reads
-/// `workspace_role` through the pinned GUC, like [`user_is_admin`]; callers
-/// pair it with `workspace_context::is_hosted()` to gate local mutation of a
-/// projected seat.
-pub fn user_is_staff(conn: &mut DbConnection, user: &User) -> bool {
-    workspace_role(conn, user.uuid).is_some_and(|r| r.is_staff())
-}
-
 /// Observer fired after a user record is successfully committed to the
 /// database. Implementors react to user creation (e.g. the search
 /// service maintains its index, audit logs append a row). The
@@ -437,20 +428,17 @@ pub fn get_user_with_primary_email(
     let primary_email = get_primary_email(&user.uuid, conn);
     let prefs = crate::repository::user_preferences::get(conn, user.uuid).ok();
     let workspace_role = workspace_role(conn, user.uuid);
-    // O7: render the per-workspace persona name when set (RLS-scoped to the
-    // active workspace), else the global control-plane name.
-    let display_name = crate::repository::user_contact::display_name_overrides(conn, &[user.uuid])
+    // O7: render the per-workspace persona (name + avatar) when set (RLS-scoped
+    // to the active workspace), else the global control-plane record. Loaded in
+    // one pass so name and avatar stay together. When the avatar is overridden
+    // there is no per-workspace thumbnail, so clear the thumb and let the UI
+    // fall back to the full avatar_url.
+    let persona = crate::repository::user_contact::persona_overrides(conn, &[user.uuid])
         .ok()
         .and_then(|mut m| m.remove(&user.uuid))
-        .unwrap_or(user.name);
-
-    // Per-workspace avatar override, else the global (control-plane) avatar.
-    // When overridden there is no per-workspace thumbnail, so clear the thumb
-    // and let the UI fall back to the full avatar_url.
-    let avatar_override = crate::repository::user_contact::avatar_url_overrides(conn, &[user.uuid])
-        .ok()
-        .and_then(|mut m| m.remove(&user.uuid));
-    let (avatar_url, avatar_thumb) = match avatar_override {
+        .unwrap_or_default();
+    let display_name = persona.display_name.unwrap_or(user.name);
+    let (avatar_url, avatar_thumb) = match persona.avatar_url {
         Some(url) => (Some(url), None),
         None => (user.avatar_url, user.avatar_thumb),
     };
@@ -538,9 +526,9 @@ pub fn get_users_with_primary_emails(
     };
 
     // O7: per-workspace persona overrides (RLS-scoped), applied over the global
-    // name so rosters/pickers show the workspace persona when set.
-    let persona_map = crate::repository::user_contact::display_name_overrides(conn, &user_uuids)
-        .unwrap_or_default();
+    // name AND avatar so rosters/pickers show the workspace persona when set.
+    let persona_map =
+        crate::repository::user_contact::persona_overrides(conn, &user_uuids).unwrap_or_default();
 
     users
         .into_iter()
@@ -550,16 +538,26 @@ pub fn get_users_with_primary_emails(
             let workspace_role = workspace_role_map
                 .get(&user.uuid)
                 .map(|r| WorkspaceRole::from_db(r));
+            let persona = persona_map.get(&user.uuid);
+            let name = persona
+                .and_then(|p| p.display_name.clone())
+                .unwrap_or(user.name);
+            // Override avatar -> clear the (global) thumb so the UI uses the
+            // full per-workspace image, mirroring the single-record funnel.
+            let (avatar_url, avatar_thumb) = match persona.and_then(|p| p.avatar_url.clone()) {
+                Some(url) => (Some(url), None),
+                None => (user.avatar_url, user.avatar_thumb),
+            };
             crate::models::UserResponse {
                 uuid: user.uuid,
-                name: persona_map.get(&user.uuid).cloned().unwrap_or(user.name),
+                name,
                 email,
                 platform_role: PlatformRole::from_db(&user.platform_role),
                 workspace_role,
                 pronouns: user.pronouns,
-                avatar_url: user.avatar_url,
+                avatar_url,
                 banner_url: user.banner_url,
-                avatar_thumb: user.avatar_thumb,
+                avatar_thumb,
                 theme: prefs.and_then(|p| p.theme.clone()),
                 microsoft_uuid: user.microsoft_uuid,
                 created_at: user.created_at,
