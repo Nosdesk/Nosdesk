@@ -435,6 +435,17 @@ pub fn get_user_with_primary_email(
         .and_then(|mut m| m.remove(&user.uuid))
         .unwrap_or(user.name);
 
+    // Per-workspace avatar override, else the global (control-plane) avatar.
+    // When overridden there is no per-workspace thumbnail, so clear the thumb
+    // and let the UI fall back to the full avatar_url.
+    let avatar_override = crate::repository::user_contact::avatar_url_overrides(conn, &[user.uuid])
+        .ok()
+        .and_then(|mut m| m.remove(&user.uuid));
+    let (avatar_url, avatar_thumb) = match avatar_override {
+        Some(url) => (Some(url), None),
+        None => (user.avatar_url, user.avatar_thumb),
+    };
+
     crate::models::UserResponse {
         uuid: user.uuid,
         name: display_name,
@@ -442,9 +453,9 @@ pub fn get_user_with_primary_email(
         platform_role: PlatformRole::from_db(&user.platform_role),
         workspace_role,
         pronouns: user.pronouns,
-        avatar_url: user.avatar_url,
+        avatar_url,
         banner_url: user.banner_url,
-        avatar_thumb: user.avatar_thumb,
+        avatar_thumb,
         theme: prefs.as_ref().and_then(|p| p.theme.clone()),
         microsoft_uuid: user.microsoft_uuid,
         created_at: user.created_at,

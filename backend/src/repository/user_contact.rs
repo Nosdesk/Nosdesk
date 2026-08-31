@@ -110,6 +110,33 @@ pub fn display_name_overrides(
         .collect())
 }
 
+/// Batch-load the per-workspace avatar overrides for these users in the ACTIVE
+/// workspace. Same RLS-scoped, override-else-global shape as
+/// [`display_name_overrides`]: a missing/blank workspace GUC yields no
+/// overrides (fall back to the global `users.avatar_url`), and only non-empty
+/// values are returned.
+pub fn avatar_url_overrides(
+    conn: &mut DbConnection,
+    user_uuids: &[Uuid],
+) -> QueryResult<std::collections::HashMap<Uuid, String>> {
+    use crate::schema::user_profiles::dsl as up;
+    use diesel::prelude::*;
+    if user_uuids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let rows: Vec<(Uuid, Option<String>)> = up::user_profiles
+        .filter(up::user_uuid.eq_any(user_uuids))
+        .select((up::user_uuid, up::avatar_url))
+        .load(conn)?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|(uuid, url)| {
+            let u = url?.trim().to_string();
+            (!u.is_empty()).then_some((uuid, u))
+        })
+        .collect())
+}
+
 // sync-audit-only: user profile is per-(user,workspace) contact data (audited); contact fields fold into the user sync payload in a later phase
 /// Upsert the manual side of a user's profile. `directory_synced` is never
 /// changed here (Graph owns it); the caller preserves synced standard columns.
@@ -129,6 +156,7 @@ pub fn upsert_profile(
             directory_synced: false,
             created_by: actor,
             display_name: input.display_name.clone(),
+            avatar_url: input.avatar_url.clone(),
         })
         .on_conflict((user_profiles::workspace_id, user_profiles::user_uuid))
         .do_update()
@@ -138,6 +166,7 @@ pub fn upsert_profile(
             user_profiles::department.eq(input.department.clone()),
             user_profiles::custom_fields.eq(input.custom_fields.clone()),
             user_profiles::display_name.eq(input.display_name.clone()),
+            user_profiles::avatar_url.eq(input.avatar_url.clone()),
         ))
         .get_result(conn)
 }
@@ -348,9 +377,11 @@ pub fn apply_directory_contact(
                 custom_fields: cf.clone(),
                 directory_synced: true,
                 created_by: actor,
-                // Directory sync doesn't own the persona override; on an
-                // existing row the do_update below leaves display_name intact.
+                // Directory sync doesn't own the persona overrides; on an
+                // existing row the do_update below leaves display_name and
+                // avatar_url intact.
                 display_name: None,
+                avatar_url: None,
             })
             .on_conflict((user_profiles::workspace_id, user_profiles::user_uuid))
             .do_update()

@@ -1903,6 +1903,8 @@ diesel::table! {
         created_by -> Nullable<Uuid>,
         #[max_length = 255]
         display_name -> Nullable<Varchar>,
+        #[max_length = 2048]
+        avatar_url -> Nullable<Varchar>,
     }
 }
 
