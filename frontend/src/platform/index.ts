@@ -36,3 +36,20 @@ export async function configurePlatform(): Promise<void> {
   if (isTauriRuntime()) await setupTauriPlatform()
   else await setupWebPlatform()
 }
+
+/**
+ * Open a URL in the user's real browser. In the Tauri shell a plain
+ * `window.open('_blank')` opens inside the webview (or no-ops), which strands
+ * the user in a half-loaded web dashboard; the native branch hands the URL to
+ * the system browser instead. Web keeps the new-tab behaviour. Best-effort: a
+ * failed hand-off must not throw. The `@nosdesk/mobile` import stays dynamic so
+ * the web bundle never pulls the native chunk.
+ */
+export async function openExternalUrl(url: string): Promise<void> {
+  if (isTauriRuntime()) {
+    const { openInBrowser } = await import('@nosdesk/mobile')
+    await openInBrowser(url)
+  } else {
+    window.open(url, '_blank', 'noopener')
+  }
+}
