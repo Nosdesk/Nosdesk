@@ -20,11 +20,39 @@ use crate::models::{
 use crate::repository::user_contact as repo;
 use crate::services::custom_fields::schema as field_schema;
 
-/// Self-or-admin gate shared by the contact mutation handlers. Returns the
-/// forbidden response to early-return, or None when the caller is authorized.
-fn guard_self_or_admin(auth: &AuthContext, user_uuid: Uuid) -> Option<HttpResponse> {
-    (auth.user_uuid != user_uuid && !auth.is_workspace_admin())
-        .then(|| errors::forbidden("You can only edit your own contact details"))
+/// Contact-mutation gate shared by the handlers: self, workspace-admin, OR an
+/// agent editing a REQUESTER (a `member`) of this workspace. Agents log and
+/// manage customers, but never edit another staff member's contact (that stays
+/// self-or-admin). Returns the forbidden response to early-return, or None when
+/// authorized.
+fn guard_contact_edit(
+    auth: &AuthContext,
+    tc: &mut TenantConn,
+    user_uuid: Uuid,
+) -> Option<HttpResponse> {
+    if auth.user_uuid == user_uuid || auth.is_workspace_admin() {
+        return None;
+    }
+    // Agent-or-above may edit a requester (member) of their own workspace. The
+    // membership read is RLS-scoped to the pinned workspace, so it can only see
+    // the caller's own tenant; a staff target (agent/admin) is not a requester
+    // and falls through to forbidden.
+    if auth.can_handle_tickets() {
+        if let Some(ws_id) = tc.workspace_id() {
+            if let Ok(Some(m)) =
+                tc.run(|conn| crate::repository::workspaces::membership(conn, ws_id, user_uuid))
+            {
+                if crate::models::WorkspaceRole::from_db(&m.role)
+                    == crate::models::WorkspaceRole::Member
+                {
+                    return None;
+                }
+            }
+        }
+    }
+    Some(errors::forbidden(
+        "You can only edit your own contact details, or a requester in your workspace.",
+    ))
 }
 
 /// A satellite contact row carrying ownership + sync provenance.
@@ -278,7 +306,7 @@ pub async fn add_user_phone(
     auth: AuthContext,
 ) -> impl Responder {
     let user_uuid = params.into_inner();
-    if let Some(resp) = guard_self_or_admin(&auth, user_uuid) {
+    if let Some(resp) = guard_contact_edit(&auth, &mut tc, user_uuid) {
         return resp;
     }
     let input = body.into_inner();
@@ -298,7 +326,7 @@ pub async fn update_user_phone(
     auth: AuthContext,
 ) -> impl Responder {
     let (user_uuid, id) = params.into_inner();
-    if let Some(resp) = guard_self_or_admin(&auth, user_uuid) {
+    if let Some(resp) = guard_contact_edit(&auth, &mut tc, user_uuid) {
         return resp;
     }
     let input = body.into_inner();
@@ -322,7 +350,7 @@ pub async fn delete_user_phone(
     auth: AuthContext,
 ) -> impl Responder {
     let (user_uuid, id) = params.into_inner();
-    if let Some(resp) = guard_self_or_admin(&auth, user_uuid) {
+    if let Some(resp) = guard_contact_edit(&auth, &mut tc, user_uuid) {
         return resp;
     }
     let result = tc.run(|conn| {
@@ -364,7 +392,7 @@ pub async fn add_user_address(
     auth: AuthContext,
 ) -> impl Responder {
     let user_uuid = params.into_inner();
-    if let Some(resp) = guard_self_or_admin(&auth, user_uuid) {
+    if let Some(resp) = guard_contact_edit(&auth, &mut tc, user_uuid) {
         return resp;
     }
     let input = body.into_inner();
@@ -384,7 +412,7 @@ pub async fn update_user_address(
     auth: AuthContext,
 ) -> impl Responder {
     let (user_uuid, id) = params.into_inner();
-    if let Some(resp) = guard_self_or_admin(&auth, user_uuid) {
+    if let Some(resp) = guard_contact_edit(&auth, &mut tc, user_uuid) {
         return resp;
     }
     let input = body.into_inner();
@@ -408,7 +436,7 @@ pub async fn delete_user_address(
     auth: AuthContext,
 ) -> impl Responder {
     let (user_uuid, id) = params.into_inner();
-    if let Some(resp) = guard_self_or_admin(&auth, user_uuid) {
+    if let Some(resp) = guard_contact_edit(&auth, &mut tc, user_uuid) {
         return resp;
     }
     let result = tc.run(|conn| {

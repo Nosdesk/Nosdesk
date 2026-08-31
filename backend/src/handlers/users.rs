@@ -832,28 +832,46 @@ pub async fn create_user(
     user_data: web::Json<CreateUserRequest>,
     req: HttpRequest,
 ) -> impl Responder {
-    // Authorization: creating a user (and assigning its role) is a
-    // workspace-admin operation. Without this gate any authenticated
-    // user could POST role:"admin" / "audit_reviewer" plus a password
-    // and mint a privileged account. See security-audit-2026-06.
-    let actor_claims =
-        match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
+    // The intended role decides the gate (roles map to the platform+workspace
+    // split via parse_roles, so we resolve it up front).
+    //
+    // A plain requester (end-user) is a tenant-local `member` with platform
+    // role `user`: not a billed seat and with no control-plane identity. Any
+    // agent-or-above may add one directly, in hosted and self-hosted alike (an
+    // agent logging a phone-in ticket). Staff and platform roles (agent/admin/
+    // audit_reviewer) are seats: workspace-admin, and without this gate any
+    // authenticated user could POST role:"admin" and mint a privileged account
+    // (security-audit-2026-06). In hosted they are control-plane owned, so hand
+    // off there rather than mint a local account that can never sign in.
+    let (platform_role, workspace_role) = match utils::parse_roles(&user_data.role) {
+        Ok(roles) => roles,
+        Err(e) => return e.into(),
+    };
+    let is_requester = platform_role == crate::models::PlatformRole::User
+        && workspace_role == crate::models::WorkspaceRole::Member;
+
+    let actor_claims = if is_requester {
+        match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Agent)
         {
             Ok(c) => c,
             Err(resp) => return resp,
+        }
+    } else {
+        let claims = match crate::utils::rbac::require_workspace_role(
+            &req,
+            crate::models::WorkspaceRole::Admin,
+        ) {
+            Ok(c) => c,
+            Err(resp) => return resp,
         };
-
-    // In hosted mode, user identity is owned by the control plane. Creating a
-    // local user here mints an account that can never sign in (no control-plane
-    // identity, and hosted local login is disabled), so refuse rather than
-    // strand a member, and direct admins to the control-plane seat invite.
-    // Self-hosted keeps the local creation flow below.
-    if !crate::middleware::workspace_context::local_credentials_permitted() {
-        return errors::forbidden(
-            "In hosted deployments, members are added from the Nosdesk control plane \
-             (Instances -> Seats). Direct user creation is only available in self-hosted mode.",
-        );
-    }
+        if !crate::middleware::workspace_context::local_credentials_permitted() {
+            return errors::forbidden(
+                "In hosted deployments, team members are added from the Nosdesk control \
+                 plane (Instances -> Seats). Only requesters can be added directly.",
+            );
+        }
+        claims
+    };
 
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
@@ -920,10 +938,6 @@ pub async fn create_user(
         }));
     }
 
-    // Validate role
-    let _role_enum = user_data.role.as_str();
-    // Role is already validated by the enum type
-
     // Validate optional fields
     if let Some(ref pronouns) = user_data.pronouns {
         if pronouns.len() > 50 {
@@ -958,13 +972,6 @@ pub async fn create_user(
 
     // Use provided UUID or generate a new UUIDv7
     let user_uuid = user_data.uuid.unwrap_or_else(uuid::Uuid::now_v7);
-
-    // Map the requested role string onto the platform + workspace
-    // role split.
-    let (platform_role, workspace_role) = match utils::parse_roles(&user_data.role) {
-        Ok(roles) => roles,
-        Err(e) => return e.into(),
-    };
 
     // Create new user with normalized data using builder
     let (normalized_name, normalized_email) =
