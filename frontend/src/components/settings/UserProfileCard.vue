@@ -545,7 +545,7 @@ const getRoleDisplayName = (role: string) => {
             <RouterLink
                 v-if="enableAvatarNavigation && !isEditable && displayUser?.uuid"
                 :to="`/users/${displayUser.uuid}`"
-                class="block rounded-full overflow-hidden border-4 border-surface shadow-lg hover:ring-2 hover:ring-accent transition-all z-30"
+                class="block rounded-full overflow-hidden border-4 border-surface shadow-lg hover:ring-2 hover:ring-accent transition-all z-10"
                 :class="[
                     avatarSize,
                     showBanner ? `absolute ${avatarOffset} left-3 sm:left-4` : 'mx-auto mt-4'
@@ -564,7 +564,7 @@ const getRoleDisplayName = (role: string) => {
             <!-- Non-clickable avatar for edit mode or when navigation is disabled -->
             <div
                 v-else
-                class="rounded-full overflow-hidden border-4 border-surface shadow-lg z-30 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                class="rounded-full overflow-hidden border-4 border-surface shadow-lg z-10 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 :class="[
                     avatarSize,
                     showBanner ? `absolute ${avatarOffset} left-3 sm:left-4` : 'mx-auto mt-4',
