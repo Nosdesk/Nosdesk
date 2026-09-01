@@ -127,6 +127,14 @@ pub fn local_credentials_permitted() -> bool {
     DeploymentMode::from_env() != DeploymentMode::Hosted
 }
 
+/// Whether this instance is the managed hosted SaaS. Reads `from_env()` (fresh,
+/// not cached) so it matches [`local_credentials_permitted`] and unit tests can
+/// flip `NOSDESK_DEPLOYMENT_MODE` within one process. Use with a staff-role
+/// check to refuse local mutation of a control-plane-owned seat.
+pub fn is_hosted() -> bool {
+    DeploymentMode::from_env() == DeploymentMode::Hosted
+}
+
 /// Resolve a selection-header workspace slug to a [`WorkspaceContext`].
 /// `Ok(None)` for an unknown / soft-archived workspace; the caller maps
 /// that to the same 403 a non-member gets so workspace existence does

@@ -120,6 +120,8 @@ pub fn create_initial_admin(
             BOOTSTRAP_WORKSPACE_ID,
             user.uuid,
             "admin",
+            // First-run bootstrap is an authoritative grant.
+            crate::repository::workspaces::SeatWriteAuthority::ControlPlane,
         )?;
 
         let user_email: UserEmail = diesel::insert_into(crate::schema::user_emails::table)

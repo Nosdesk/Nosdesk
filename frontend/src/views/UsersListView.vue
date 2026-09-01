@@ -6,9 +6,8 @@ import { useFluent } from 'fluent-vue'
 import { extractErrorMessage } from '@/utils/errors'
 import { formatDate } from '@nosdesk/core/utils/dateUtils'
 import { useToastStore } from '@nosdesk/core/stores/toast'
-import { isHostedDeployment } from '@nosdesk/core/services/instanceConfig'
-import { controlPlaneSeatsUrl } from '@/services/activeWorkspace'
-import { openExternalUrl } from '@/platform'
+import { isHostedDeployment, isHostedDeploymentRef } from '@nosdesk/core/services/instanceConfig'
+import { openControlPlaneSeats } from '@/services/activeWorkspace'
 
 import DataTable from '@/components/common/DataTable.vue'
 import PaginationControls from '@/components/common/PaginationControls.vue'
@@ -64,11 +63,9 @@ const navigateToCreateUser = () => {
   // can't sign in. Hand off to the control-plane dashboard (Instances -> Seats)
   // rather than open a create form that produces a dead account.
   if (isHostedDeployment()) {
-    // Deep-link to THIS workspace's seats, not the generic instances list.
-    // openExternalUrl uses the system browser in the native shell so the
-    // hand-off doesn't strand the user inside the app's webview.
-    const url = controlPlaneSeatsUrl()
-    if (url) void openExternalUrl(url)
+    // Staff identity is control-plane-owned in hosted; hand off to this
+    // workspace's seats (system browser on native) rather than open a form.
+    void openControlPlaneSeats()
     toast.info(t('user-mgmt-hosted-add-in-control-plane'))
     return
   }
@@ -266,6 +263,15 @@ const listView = useListView({
 // row selection itself, which is only ever used to reach the bulk
 // actions. This is the UI half of the gate, not the enforcement.
 const isPlatformAdmin = computed(() => auth.user?.platform_role === 'platform_admin')
+
+// Bulk actions are an operator (platform-admin) surface. In hosted the Team
+// population is control-plane-owned, so bulk selection is disabled there;
+// Requesters (tenant-local) stay selectable. The bulk role change is hidden
+// entirely in hosted, since promoting into a staff seat is the control plane's
+// job (see the header hand-off).
+const canBulkSelect = computed(
+  () => isPlatformAdmin.value && !(isHostedDeploymentRef.value && !isRequesters.value),
+)
 
 // Active vs Deleted view. The "deleted" filter lives in the list-view
 // controls; the view tab toggles it so soft-deleted users (with their
@@ -494,7 +500,7 @@ function formatPurgeAt(deletedAt: string): string {
           :data="items"
           :buckets="listView.buckets.value"
           :is-collapsed="listView.grouping.isCollapsed"
-          :selectable="isPlatformAdmin"
+          :selectable="canBulkSelect"
           :selected-items="listView.dt.selectedItems"
           item-id-field="uuid"
           :sort-field="listView.controls.sortField.value"
@@ -622,6 +628,7 @@ function formatPurgeAt(deletedAt: string): string {
 
       <template #bulk-actions="{ selectedCount }">
         <button
+          v-if="!isHostedDeploymentRef"
           type="button"
           class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-full text-secondary hover:text-primary hover:bg-surface-hover transition-colors whitespace-nowrap disabled:opacity-50"
           :disabled="bulkActionMutation.asyncStatus.value === 'loading'"

@@ -154,6 +154,9 @@ enum ManageOutcome {
     LastOwner,
     UpdatedRole(WorkspaceMember),
     Removed,
+    /// The target is a control-plane-owned staff seat in hosted mode; the
+    /// product must not mutate it locally. Hand off to the control plane.
+    ExternallyManaged,
 }
 
 /// `PATCH /api/workspace/members/{user_uuid}` — change a member's role.
@@ -197,18 +200,23 @@ pub async fn update_member_role(
             if !can_manage(caller_role, WorkspaceRole::from_db(&existing.role)) {
                 return Ok(ManageOutcome::Forbidden);
             }
-            Ok(
-                match workspaces::update_membership_role(
-                    conn,
-                    ctx.workspace_id,
-                    target,
-                    new_role.as_str(),
-                )? {
-                    UpdateMembershipRoleResult::Updated(m) => ManageOutcome::UpdatedRole(m),
-                    UpdateMembershipRoleResult::NotFound => ManageOutcome::NotFound,
-                    UpdateMembershipRoleResult::LastOwner => ManageOutcome::LastOwner,
-                },
-            )
+            // Product-authority write: the repo refuses a staff seat (or a
+            // promotion into one) in hosted, so the product can't desync the
+            // projection.
+            match workspaces::update_membership_role(
+                conn,
+                ctx.workspace_id,
+                target,
+                new_role.as_str(),
+                workspaces::SeatWriteAuthority::Product,
+            )? {
+                UpdateMembershipRoleResult::Updated(m) => Ok(ManageOutcome::UpdatedRole(m)),
+                UpdateMembershipRoleResult::NotFound => Ok(ManageOutcome::NotFound),
+                UpdateMembershipRoleResult::LastOwner => Ok(ManageOutcome::LastOwner),
+                UpdateMembershipRoleResult::ExternallyManaged => {
+                    Ok(ManageOutcome::ExternallyManaged)
+                }
+            }
         });
 
     match outcome {
@@ -224,6 +232,7 @@ pub async fn update_member_role(
             "error": "last_owner",
             "message": "cannot demote the only owner; promote another member first",
         })),
+        Ok(ManageOutcome::ExternallyManaged) => errors::externally_managed(),
         Ok(ManageOutcome::Removed) => {
             // Unreachable in the update path.
             errors::internal("Inconsistent membership state")
@@ -275,12 +284,20 @@ pub async fn remove_member(
             if !can_manage(caller_role, WorkspaceRole::from_db(&existing.role)) {
                 return Ok(ManageOutcome::Forbidden);
             }
-            // remove_membership returns 0 both for "not found" (excluded
-            // above) and "would orphan the last owner"; since the row exists,
-            // 0 here means the last-owner guard fired.
-            match workspaces::remove_membership(conn, ctx.workspace_id, target)? {
-                1 => Ok(ManageOutcome::Removed),
-                _ => Ok(ManageOutcome::LastOwner),
+            // Product-authority write: the repo refuses a staff seat in hosted
+            // (the CP revokes seats through its own path). Since the row exists
+            // (checked above), NotRemoved here means the last-owner guard fired.
+            match workspaces::remove_membership(
+                conn,
+                ctx.workspace_id,
+                target,
+                workspaces::SeatWriteAuthority::Product,
+            )? {
+                workspaces::RemoveMembershipOutcome::Removed => Ok(ManageOutcome::Removed),
+                workspaces::RemoveMembershipOutcome::NotRemoved => Ok(ManageOutcome::LastOwner),
+                workspaces::RemoveMembershipOutcome::ExternallyManaged => {
+                    Ok(ManageOutcome::ExternallyManaged)
+                }
             }
         });
 
@@ -300,6 +317,7 @@ pub async fn remove_member(
             "error": "last_owner",
             "message": "cannot remove the only owner; promote another member first",
         })),
+        Ok(ManageOutcome::ExternallyManaged) => errors::externally_managed(),
         Ok(ManageOutcome::UpdatedRole(_)) => {
             // Unreachable in the remove path.
             errors::internal("Inconsistent membership state")

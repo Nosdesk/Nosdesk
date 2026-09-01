@@ -811,7 +811,15 @@ pub async fn set_member_role(
     >(
         &mut conn,
         &actor,
-        |c| match workspaces::update_membership_role(c, workspace.id, user_uuid, &role)? {
+        // ControlPlane authority: this IS the authoritative projection, so the
+        // staff gate is bypassed.
+        |c| match workspaces::update_membership_role(
+            c,
+            workspace.id,
+            user_uuid,
+            &role,
+            workspaces::SeatWriteAuthority::ControlPlane,
+        )? {
             UpdateMembershipRoleResult::Updated(_) => Ok(SetMemberRoleOutcome::Applied),
             UpdateMembershipRoleResult::LastOwner => Ok(SetMemberRoleOutcome::LastOwner),
             UpdateMembershipRoleResult::NotFound => {
@@ -820,6 +828,11 @@ pub async fn set_member_role(
                 // logging "applied" over a phantom membership.
                 workspaces::upsert_membership_role(c, workspace.id, user_uuid, &role)?;
                 Ok(SetMemberRoleOutcome::Applied)
+            }
+            UpdateMembershipRoleResult::ExternallyManaged => {
+                // Unreachable under ControlPlane authority; defensive 500.
+                error!(workspace_id = workspace.id, %user_uuid, "set_member_role: gate refused a control-plane write");
+                Err(diesel::result::Error::RollbackTransaction)
             }
         },
     );

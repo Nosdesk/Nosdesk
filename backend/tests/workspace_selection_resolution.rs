@@ -19,7 +19,7 @@ use backend::extractors::WorkspaceContext;
 use backend::middleware::cookie_auth::enforce_workspace_membership;
 use backend::middleware::workspace_context::WORKSPACE_SELECTION_HEADER;
 use backend::models::Claims;
-use backend::repository::workspaces::{add_membership, find_by_id};
+use backend::repository::workspaces::{add_membership, find_by_id, SeatWriteAuthority};
 use backend::sync::actor::ActorContext;
 use backend::sync::session::with_actor_context;
 
@@ -82,7 +82,13 @@ fn selection_header_resolves_and_gates() {
         let mut conn = pool.get().expect("conn");
         let actor = ActorContext::user(member_uuid, None).with_workspace(acme_id);
         with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |c| {
-            add_membership(c, acme_id, member_uuid, "member")?;
+            add_membership(
+                c,
+                acme_id,
+                member_uuid,
+                "member",
+                SeatWriteAuthority::ControlPlane,
+            )?;
             Ok(())
         })
         .expect("add acme membership");

@@ -196,6 +196,13 @@ pub async fn accept_invitation(
         .ok()
         .flatten();
 
+    // Hosted disables local passwords, so accepting an invitation to set one is
+    // not applicable there (staff are control-plane seats, requesters use the
+    // portal). Fail cleanly rather than 500 inside the credential writes below.
+    if !crate::middleware::workspace_context::local_credentials_permitted() {
+        return errors::local_auth_disabled();
+    }
+
     if existing_identity.is_some() {
         // Update existing local auth identity
         if let Err(e) = repository::user_auth_identities::update_local_password_hash(

@@ -1970,7 +1970,9 @@ mod tests {
             None,
             &mut conn,
             None,
+            crate::repository::workspaces::SeatWriteAuthority::ControlPlane,
         )
+        .and_then(|o| o.into_created())
         .expect("seed admin");
 
         let ch = TestFixtures::create_channel(&mut conn, "email_imap");
@@ -2028,7 +2030,9 @@ mod tests {
             None,
             &mut conn,
             None,
+            crate::repository::workspaces::SeatWriteAuthority::ControlPlane,
         )
+        .and_then(|o| o.into_created())
         .expect("seed admin");
 
         let ch = TestFixtures::create_channel(&mut conn, "email_imap");
@@ -2111,7 +2115,9 @@ mod tests {
             None,
             &mut conn,
             None,
+            crate::repository::workspaces::SeatWriteAuthority::ControlPlane,
         )
+        .and_then(|o| o.into_created())
         .expect("seed tech");
 
         let ch = TestFixtures::create_channel(&mut conn, "email_imap");
@@ -2246,7 +2252,9 @@ My printer is literally on fire.
             None,
             &mut conn,
             None,
+            crate::repository::workspaces::SeatWriteAuthority::ControlPlane,
         )
+        .and_then(|o| o.into_created())
         .expect("seed member");
 
         let ch = TestFixtures::create_channel(&mut conn, "email_imap");

@@ -12,7 +12,9 @@
 
 #![allow(clippy::expect_used)]
 
-use backend::repository::workspaces::{add_membership, primary_workspace_for_user};
+use backend::repository::workspaces::{
+    add_membership, primary_workspace_for_user, SeatWriteAuthority,
+};
 use backend::sync::actor::ActorContext;
 use backend::sync::session::{background_run, with_actor_context};
 
@@ -37,7 +39,13 @@ fn cross_tenant_workspace_lookup_requires_elevation() {
         let mut conn = pool.get().expect("conn");
         let actor = ActorContext::user(user_uuid, None).with_workspace(ws2);
         with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |c| {
-            add_membership(c, ws2, user_uuid, "member")?;
+            add_membership(
+                c,
+                ws2,
+                user_uuid,
+                "member",
+                SeatWriteAuthority::ControlPlane,
+            )?;
             Ok(())
         })
         .expect("add ws2 membership");

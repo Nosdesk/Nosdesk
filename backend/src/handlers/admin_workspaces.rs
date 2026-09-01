@@ -586,10 +586,17 @@ pub async fn add_member(
         }
     }
 
-    match pc
-        .run(|conn| workspaces::add_membership(conn, workspace_id, user_uuid, parsed_role.as_str()))
-    {
-        Ok(n) if n > 0 => {
+    match pc.run(|conn| {
+        workspaces::add_membership(
+            conn,
+            workspace_id,
+            user_uuid,
+            parsed_role.as_str(),
+            workspaces::SeatWriteAuthority::Product,
+        )
+    }) {
+        Ok(workspaces::AddMembershipOutcome::ExternallyManaged) => errors::externally_managed(),
+        Ok(workspaces::AddMembershipOutcome::Added(n)) if n > 0 => {
             info!(workspace_id, %user_uuid, role = %parsed_role.as_str(), "admin/workspaces member added");
             // The user's search doc carries one workspace tag per
             // membership; refresh it so the user becomes searchable in
@@ -645,8 +652,16 @@ pub async fn update_member_role(
         }
     };
 
+    // Product authority: the repo refuses a change touching a control-plane-
+    // owned staff seat in hosted; requesters (member <-> member) pass through.
     match pc.run(|conn| {
-        workspaces::update_membership_role(conn, workspace_id, user_uuid, parsed_role.as_str())
+        workspaces::update_membership_role(
+            conn,
+            workspace_id,
+            user_uuid,
+            parsed_role.as_str(),
+            workspaces::SeatWriteAuthority::Product,
+        )
     }) {
         Ok(UpdateMembershipRoleResult::Updated(m)) => {
             info!(workspace_id, %user_uuid, role = %parsed_role.as_str(), "admin/workspaces member role updated");
@@ -661,6 +676,7 @@ pub async fn update_member_role(
                 "message": "cannot demote the only owner; promote another member first",
             }))
         }
+        Ok(UpdateMembershipRoleResult::ExternallyManaged) => errors::externally_managed(),
         Err(e) => {
             error!(error = ?e, workspace_id, %user_uuid, "admin/workspaces update_member_role failed");
             errors::internal("Failed to update member role")
@@ -680,8 +696,17 @@ pub async fn remove_member(
     }
     let (workspace_id, user_uuid) = path.into_inner();
 
-    match pc.run(|conn| workspaces::remove_membership(conn, workspace_id, user_uuid)) {
-        Ok(1) => {
+    // Product authority: the repo refuses removing a control-plane-owned staff
+    // seat in hosted; requesters (member) can still be removed directly.
+    match pc.run(|conn| {
+        workspaces::remove_membership(
+            conn,
+            workspace_id,
+            user_uuid,
+            workspaces::SeatWriteAuthority::Product,
+        )
+    }) {
+        Ok(workspaces::RemoveMembershipOutcome::Removed) => {
             info!(workspace_id, %user_uuid, "admin/workspaces member removed");
             // Refresh the user's search doc so the now-removed workspace
             // tag drops off and they stop matching searches in it.
@@ -690,10 +715,10 @@ pub async fn remove_member(
             }
             HttpResponse::NoContent().finish()
         }
-        Ok(0) => {
-            // Either the row didn't exist OR removal would have left
-            // the workspace owner-less. Probe the membership table to
-            // distinguish so the response matches the caller's reality.
+        Ok(workspaces::RemoveMembershipOutcome::ExternallyManaged) => errors::externally_managed(),
+        Ok(workspaces::RemoveMembershipOutcome::NotRemoved) => {
+            // The user wasn't a member OR removal would have orphaned the last
+            // owner. Probe to distinguish so the response matches reality.
             let probe = pc.run(|conn| workspaces::membership(conn, workspace_id, user_uuid));
             match probe {
                 Ok(Some(row)) if row.role == "owner" => {
@@ -706,9 +731,8 @@ pub async fn remove_member(
                     "no membership row for user {user_uuid} in workspace {workspace_id}"
                 )),
                 Ok(Some(_)) => {
-                    // Shouldn't happen — non-owner rows can always be
-                    // removed. Log and surface as 500 if it does.
-                    error!(workspace_id, %user_uuid, "admin/workspaces remove_member returned 0 rows but row exists and isn't owner");
+                    // Shouldn't happen — non-owner rows can always be removed.
+                    error!(workspace_id, %user_uuid, "admin/workspaces remove_member NotRemoved but row exists and isn't owner");
                     errors::internal("Inconsistent membership state")
                 }
                 Err(e) => {
@@ -716,11 +740,6 @@ pub async fn remove_member(
                     errors::internal("Failed to remove member")
                 }
             }
-        }
-        Ok(n) => {
-            // Should never happen — composite PK guarantees at most one row.
-            error!(workspace_id, %user_uuid, deleted = n, "admin/workspaces remove_member deleted unexpected row count");
-            errors::internal("Inconsistent membership state")
         }
         Err(e) => {
             error!(error = ?e, workspace_id, %user_uuid, "admin/workspaces remove_member failed");

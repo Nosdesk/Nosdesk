@@ -154,10 +154,22 @@ pub fn apply_role_mappings(
             continue; // already correct; skip the write (no audit churn)
         }
 
-        match workspaces::update_membership_role(conn, workspace_id, user_uuid, target.as_str()) {
+        match workspaces::update_membership_role(
+            conn,
+            workspace_id,
+            user_uuid,
+            target.as_str(),
+            // Product authority: LDAP is a directory-sync feature; in hosted a
+            // staff seat is control-plane-owned, so the gate refuses the write
+            // (LDAP is self-hosted-only by design; this is defense in depth).
+            workspaces::SeatWriteAuthority::Product,
+        ) {
             Ok(UpdateMembershipRoleResult::Updated(_)) => {
                 info!(%user_uuid, role = target.as_str(), "ldap role mapping applied");
                 stats.changed += 1;
+            }
+            Ok(UpdateMembershipRoleResult::ExternallyManaged) => {
+                tracing::debug!(%user_uuid, role = target.as_str(), "ldap role mapping: staff seat is control-plane-managed in hosted, skipping");
             }
             // Not a member (shouldn't happen for a synced user) / would orphan
             // the last owner: leave it, don't fail the run.

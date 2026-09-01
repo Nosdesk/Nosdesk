@@ -141,7 +141,9 @@ mod tests {
             Some("guest_submission".into()),
             conn,
             None,
+            crate::repository::workspaces::SeatWriteAuthority::ControlPlane,
         )
+        .and_then(|o| o.into_created())
         .unwrap();
         let channel = TestFixtures::create_channel(conn, "email_imap");
         let ticket = TestFixtures::create_ticket(conn, "Printer fire", Some(user.uuid), None);

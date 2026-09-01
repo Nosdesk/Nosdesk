@@ -2490,8 +2490,13 @@ pub struct UserProfile {
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub created_by: Option<Uuid>,
     /// Per-workspace display-name override (O7). `None` → render the
-    /// global `users.name`. Last field to match the appended column.
+    /// global `users.name`.
     pub display_name: Option<String>,
+    /// Per-workspace avatar override. `None` → render the global
+    /// `users.avatar_url`. Product-owned, so it stays clear of the control
+    /// plane's re-projection of the global avatar. Last field to match the
+    /// appended column.
+    pub avatar_url: Option<String>,
 }
 
 /// Insert form for a profile row (workspace_id defaults from the GUC).
@@ -2506,6 +2511,7 @@ pub struct NewUserProfile {
     pub directory_synced: bool,
     pub created_by: Option<Uuid>,
     pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
 }
 
 /// Editable profile fields from the user-side (manual surface; directory_synced
@@ -2522,6 +2528,10 @@ pub struct UserProfileInput {
     /// the workspace renders the user's global (control-plane) name. Same
     /// full-replace semantics as the other standard fields on this PUT.
     pub display_name: Option<String>,
+    /// Per-workspace avatar override. Absent/`None` clears it, so the workspace
+    /// renders the user's global avatar. Full-replace, like the other fields.
+    #[serde(default)]
+    pub avatar_url: Option<String>,
 }
 
 // ---- Multi-valued contact: phones + addresses (workspace-scoped) -----------

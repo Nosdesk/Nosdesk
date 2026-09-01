@@ -5,9 +5,11 @@
  * the URL before it wires up routing. Instance-global (identical for every
  * workspace); per-workspace config lives behind auth.
  */
-import { readonly, ref, type Ref } from 'vue';
+import { computed, readonly, ref, type Ref } from 'vue';
 import apiClient from '../apiClient';
 import { logger } from '../utils/logger';
+import { isStaffWorkspaceRole } from '../types/user';
+import type { WorkspaceRole } from '../types/workspace';
 
 /** Where the selected workspace lives in the URL. */
 export type WorkspaceRouting = 'host' | 'path';
@@ -129,6 +131,34 @@ export function getDeploymentMode(): DeploymentMode {
 /** True on the managed hosted SaaS. Use to hide operator/infra-only admin UI. */
 export function isHostedDeployment(): boolean {
   return deploymentMode === 'hosted';
+}
+
+/** Reactive form of {@link isHostedDeployment}. Recomputes when the config
+ *  fetch settles or resets, so a component built before `/api/config` resolves
+ *  still updates (the plain getter reads a module `let` and won't re-evaluate). */
+export const isHostedDeploymentRef = computed<boolean>(
+  // `deploymentMode` is only ever 'hosted' after the latch flips (and reset
+  // clears both), so gating on the latch gives the same result while making
+  // the reactive dependency explicit.
+  () => configResolved.value && deploymentMode === 'hosted',
+);
+
+/** Whether a workspace ROLE is externally managed (control-plane-owned) in this
+ *  deployment: a billed staff seat (owner/admin/agent) on a hosted instance.
+ *  The single client-side reflection of the server's
+ *  `staff_identity_externally_managed` boundary. Reactive: read inside a
+ *  computed. */
+export function isRoleExternallyManaged(role?: WorkspaceRole | null): boolean {
+  return isHostedDeploymentRef.value && isStaffWorkspaceRole(role);
+}
+
+/** As {@link isRoleExternallyManaged}, keyed on a user object, so the product
+ *  hands staff management off to the control plane instead of exposing local
+ *  controls. Requesters and self-hosted are always locally managed. */
+export function isIdentityExternallyManaged(
+  user?: { workspace_role?: WorkspaceRole | null } | null,
+): boolean {
+  return !!user && isRoleExternallyManaged(user.workspace_role);
 }
 
 /** True when forwarding-based inbound email is available on this instance. */

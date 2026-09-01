@@ -50,6 +50,11 @@ import {
   type WorkspaceRole,
 } from '@nosdesk/core/types/workspace';
 import type { User } from '@nosdesk/core/types/user';
+import {
+  isHostedDeploymentRef,
+  isRoleExternallyManaged,
+} from '@nosdesk/core/services/instanceConfig';
+import { openControlPlaneSeats } from '@/services/activeWorkspace';
 import { extractErrorMessage } from '@/utils/errors';
 import * as syncPool from '@nosdesk/core/sync/pool';
 
@@ -156,7 +161,11 @@ const rows = computed<WorkspaceMemberRow[]>(() =>
         status === 'active'
           ? t('workspace-members-status-active')
           : t('admin-workspace-members-accepted-pending'),
-      editable: canManage(member.role) && !isSoleOwner,
+      // A staff seat (owner/admin/agent) is control-plane-owned in hosted, so
+      // the roster is read-only for those rows; the control-plane hand-off
+      // (the header "one door") takes the place of the in-product controls.
+      editable:
+        canManage(member.role) && !isSoleOwner && !isRoleExternallyManaged(member.role),
       lockedHint: isSoleOwner ? t('admin-workspace-members-last-owner-hint') : '',
     };
   }),
@@ -343,6 +352,12 @@ function requestRemove(member: WorkspaceMemberRow) {
 function openProfile(member: WorkspaceMemberRow) {
   void router.push(`/users/${member.user_uuid}`);
 }
+
+// In hosted, staff seats are managed in the control plane; this is the single
+// "door" to Instances -> Seats that replaces the in-product staff controls.
+function manageTeamInControlPlane() {
+  void openControlPlaneSeats();
+}
 </script>
 
 <template>
@@ -364,6 +379,19 @@ function openProfile(member: WorkspaceMemberRow) {
       @update:search-query="searchQuery = $event"
       @retry="refresh"
     >
+      <!-- Hosted: the roster is a read-only projection of control-plane-owned
+           seats; this is the single hand-off to manage the team there. -->
+      <template v-if="isHostedDeploymentRef" #view-tabs>
+        <button
+          type="button"
+          @click="manageTeamInControlPlane"
+          class="inline-flex items-center gap-2 rounded-lg border border-default bg-surface-alt px-3 py-1.5 text-sm font-medium text-secondary transition-colors hover:text-primary hover:border-strong"
+        >
+          <Icon name="openExternal" size="xs" />
+          {{ $t('workspace-members-manage-in-control-plane') }}
+        </button>
+      </template>
+
       <template #empty-state>
         <EmptyState
           icon="users"

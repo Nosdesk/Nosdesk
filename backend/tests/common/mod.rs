@@ -572,7 +572,7 @@ fn insert_plain_user(conn: &mut PgConnection, name: &str) -> Uuid {
 fn seed_one_workspace(conn: &mut TestPooledConn, label: &str) -> WorkspaceSeed {
     use backend::models::{NewPlugin, NewWorkspace, PluginState};
     use backend::repository::webhooks::create_webhook;
-    use backend::repository::workspaces::{add_membership, create_workspace};
+    use backend::repository::workspaces::{add_membership, create_workspace, SeatWriteAuthority};
     use backend::schema::plugins;
     use backend::services::seed::seed_workspace_defaults;
     use backend::sync::actor::ActorContext;
@@ -612,8 +612,20 @@ fn seed_one_workspace(conn: &mut TestPooledConn, label: &str) -> WorkspaceSeed {
             // Usable defaults (workflow states / SLA / categories).
             seed_workspace_defaults(c, Some(admin_uuid))?;
 
-            add_membership(c, ws.id, admin_uuid, "admin")?;
-            add_membership(c, ws.id, member_uuid, "member")?;
+            add_membership(
+                c,
+                ws.id,
+                admin_uuid,
+                "admin",
+                SeatWriteAuthority::ControlPlane,
+            )?;
+            add_membership(
+                c,
+                ws.id,
+                member_uuid,
+                "member",
+                SeatWriteAuthority::ControlPlane,
+            )?;
 
             let webhook = create_webhook(
                 c,

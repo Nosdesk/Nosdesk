@@ -300,6 +300,7 @@ fn seed(
             BOOTSTRAP_WORKSPACE_ID,
             user.uuid,
             membership_role,
+            repository::workspaces::SeatWriteAuthority::ControlPlane,
         )?;
 
         diesel::insert_into(user_emails::table)

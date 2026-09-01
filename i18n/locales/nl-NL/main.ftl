@@ -1034,6 +1034,8 @@ empty-workspace-members-description = Use the form above to add the first member
 route-title-workspace-members = Team
 workspace-members-title = Team
 workspace-members-invite = Teamlid uitnodigen
+# workspace-members-manage-in-control-plane (machine, door een moedertaalspreker na te kijken).
+workspace-members-manage-in-control-plane = Team beheren in het control plane
 workspace-members-empty-description = Nodig teamleden uit om samen te werken in deze werkruimte.
 workspace-members-error-forbidden = Je kunt alleen agents en leden beheren. Het beheren van beheerders of eigenaren vereist de eigenaarsrol.
 workspace-members-you = (jij)
@@ -2290,6 +2292,8 @@ user-profile-document-title = Profiel van { $name } | Nosdesk
 user-profile-back-to-users = Terug naar gebruikers
 user-profile-action-profile-settings = Profielinstellingen
 user-profile-action-user-settings = Gebruikersinstellingen
+# user-profile-action-manage-in-control-plane (machine, door een moedertaalspreker na te kijken).
+user-profile-action-manage-in-control-plane = Beheren in het control plane
 user-profile-create-title = Nieuwe gebruiker aanmaken
 user-profile-create-subtitle = Voeg een nieuwe gebruiker toe aan je organisatie
 user-profile-section-basic-info = Basisgegevens
@@ -6080,6 +6084,9 @@ user-cell-unknown = Onbekend
 user-settings-managing-for = Instellingen beheren voor
 user-settings-groups-title = Groepen
 user-settings-role-management-title = Rolbeheer
+# user-settings-cp-managed-* (machine, door een moedertaalspreker na te kijken).
+user-settings-cp-managed-title = Beheerd in het control plane
+user-settings-cp-managed-body = Het account, de rol en de aanmelding van dit teamlid worden beheerd in het Nosdesk control plane. Open het om hun zetel te wijzigen.
 user-settings-account-setup-title = Accountinstelling
 user-settings-account-setup-pending = In afwachting
 user-settings-invitation-pending = Uitnodiging in afwachting

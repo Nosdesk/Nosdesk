@@ -21,8 +21,11 @@ use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::models::{NewUser, UserUpdate};
-use crate::repository::user_helpers::create_user_with_email;
+use crate::repository::user_helpers::{create_user_with_email, CreateUserWithEmailOutcome};
 use crate::repository::users::update_user;
+use crate::repository::workspaces::{
+    update_membership_role, SeatWriteAuthority, UpdateMembershipRoleResult,
+};
 
 use super::csv_parser::ParsedCsv;
 use super::types::{ImportSummary, ImportedRecords, ImportedUser, Importer, RowError, MAX_ERRORS};
@@ -86,6 +89,10 @@ impl Importer for UserImporter {
         let existing_emails = load_existing_primary_emails(conn)?;
         let mut emails_in_file: HashSet<String> = HashSet::new();
 
+        // The pinned workspace (TenantConn GUC), so role changes route through
+        // the gated update_membership_role.
+        let ws_id = crate::sync::session::current_workspace_id(conn)?.unwrap_or_default();
+
         let mut imported: Vec<ImportedUser> = Vec::new();
         for row in &parsed.rows {
             let mut local = emails_in_file.clone();
@@ -126,7 +133,7 @@ impl Importer for UserImporter {
                     // observer = None: the import handler indexes every
                     // committed entity post-commit, so all three importers
                     // index uniformly without per-importer observer wiring.
-                    let (user, user_email) = create_user_with_email(
+                    match create_user_with_email(
                         new_user,
                         workspace_role_enum,
                         email,
@@ -134,32 +141,45 @@ impl Importer for UserImporter {
                         Some("csv_import".to_string()),
                         conn,
                         None,
-                    )?;
-                    imported.push(ImportedUser {
-                        user,
-                        primary_email: Some(user_email.email),
-                    });
+                        SeatWriteAuthority::Product,
+                    )? {
+                        CreateUserWithEmailOutcome::Created(user, user_email) => {
+                            imported.push(ImportedUser {
+                                user,
+                                primary_email: Some(user_email.email),
+                            });
+                        }
+                        // Refused: a staff seat in hosted is control-plane-owned.
+                        // Validation blocks this upstream, so this is a defensive
+                        // skip rather than an import.
+                        CreateUserWithEmailOutcome::ExternallyManaged => continue,
+                    }
                 }
                 RowAction::Update(uuid) => {
-                    // Role changes are operator-side and intentionally not
-                    // sync-emitted (mirrors the admin bulk-role handler and
-                    // the workspace_members "sync-audit-only" rule): raw-write
-                    // the platform_role and the membership role.
+                    // The membership role change routes through the gated
+                    // update_membership_role (Product authority): a staff seat
+                    // in hosted is control-plane-owned, so it's refused and the
+                    // row skipped (validation blocks it upstream; this is the
+                    // enforcement point). Role changes are operator-side and
+                    // intentionally not sync-emitted.
+                    match update_membership_role(
+                        conn,
+                        ws_id,
+                        uuid,
+                        workspace_role_enum.as_str(),
+                        SeatWriteAuthority::Product,
+                    )? {
+                        UpdateMembershipRoleResult::ExternallyManaged => continue,
+                        // Updated / NotFound (not a member of this workspace) /
+                        // LastOwner: proceed with the profile + platform_role.
+                        _ => {}
+                    }
                     diesel::update(users::table.find(uuid))
                         .set((
                             users::platform_role.eq(platform_role_enum.as_str()),
                             users::updated_at.eq(chrono::Utc::now().naive_utc()),
                         ))
                         .execute(conn)?;
-                    diesel::sql_query(
-                        "UPDATE workspace_members \
-                         SET role = $2 \
-                         WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::int \
-                           AND user_uuid = $1",
-                    )
-                    .bind::<diesel::sql_types::Uuid, _>(uuid)
-                    .bind::<diesel::sql_types::Text, _>(workspace_role_enum.as_str())
-                    .execute(conn)?;
                     // The profile-field change goes through update_user, which
                     // emits user.updated and returns the refreshed model for
                     // indexing.
@@ -262,6 +282,18 @@ fn validate_row(
         errors.push((
             Some("role".into()),
             format!("'{role_raw}' is not a valid role; use admin, technician, or user"),
+        ));
+    } else if crate::utils::parse_roles(&role_raw)
+        .ok()
+        .is_some_and(|(_, ws_role)| {
+            crate::repository::workspaces::staff_identity_externally_managed(ws_role.as_str())
+        })
+    {
+        // In hosted, staff seats are provisioned in the control plane; the
+        // import can only create/update requesters.
+        errors.push((
+            Some("role".into()),
+            "team members (admin, technician) are managed in the Nosdesk control plane; import requesters (user) only".into(),
         ));
     }
 

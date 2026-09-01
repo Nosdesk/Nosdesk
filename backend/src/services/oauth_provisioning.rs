@@ -342,7 +342,10 @@ pub fn find_or_create_projected_user(
                 Some(iss.clone()),
                 conn,
                 None,
+                // Authoritative CP login-time projection.
+                crate::repository::workspaces::SeatWriteAuthority::ControlPlane,
             )
+            .and_then(|o| o.into_created())
             .map_err(|e| format!("create_user: {e:?}"))?;
 
             let new_identity = NewUserAuthIdentity {

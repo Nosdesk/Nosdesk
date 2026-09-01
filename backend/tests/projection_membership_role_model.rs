@@ -106,7 +106,14 @@ fn membership_gate_needs_workspace_scope_to_see_the_row() {
     let ws_id = common::mint_workspace(&mut conn, "gatecheck", "Gate Check");
     let user = common::insert_user(&mut conn, "Member Person");
     // Seed the membership (as superuser; the write path is covered above).
-    workspaces::add_membership(&mut conn, ws_id, user.uuid, "admin").expect("seed membership");
+    workspaces::add_membership(
+        &mut conn,
+        ws_id,
+        user.uuid,
+        "admin",
+        workspaces::SeatWriteAuthority::ControlPlane,
+    )
+    .expect("seed membership");
 
     // Mirror the production runtime: nosdesk_app (RLS-enforced) with no
     // tenant scope established (the gate's raw connection state).

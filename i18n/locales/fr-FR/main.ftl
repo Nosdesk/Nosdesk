@@ -1037,6 +1037,8 @@ empty-workspace-members-description = Use the form above to add the first member
 route-title-workspace-members = Équipe
 workspace-members-title = Équipe
 workspace-members-invite = Inviter un coéquipier
+# workspace-members-manage-in-control-plane (machine, à relire par un locuteur natif).
+workspace-members-manage-in-control-plane = Gérer l'équipe dans le plan de contrôle
 workspace-members-empty-description = Invitez des coéquipiers à collaborer dans cet espace de travail.
 workspace-members-error-forbidden = Vous ne pouvez gérer que les agents et les membres. La gestion des administrateurs ou des propriétaires nécessite le rôle de propriétaire.
 workspace-members-you = (vous)
@@ -2293,6 +2295,8 @@ user-profile-document-title = Profil de { $name } | Nosdesk
 user-profile-back-to-users = Retour aux utilisateurs
 user-profile-action-profile-settings = Paramètres du profil
 user-profile-action-user-settings = Paramètres utilisateur
+# user-profile-action-manage-in-control-plane (machine, à relire par un locuteur natif).
+user-profile-action-manage-in-control-plane = Gérer dans le plan de contrôle
 user-profile-create-title = Créer un nouvel utilisateur
 user-profile-create-subtitle = Ajoutez un nouvel utilisateur à votre organisation
 user-profile-section-basic-info = Informations de base
@@ -6089,6 +6093,9 @@ user-cell-unknown = Inconnu
 user-settings-managing-for = Gestion des paramètres pour
 user-settings-groups-title = Groupes
 user-settings-role-management-title = Gestion des rôles
+# user-settings-cp-managed-* (machine, à relire par un locuteur natif).
+user-settings-cp-managed-title = Géré dans le plan de contrôle
+user-settings-cp-managed-body = Le compte, le rôle et la connexion de ce membre de l'équipe sont gérés dans le plan de contrôle Nosdesk. Ouvrez-le pour modifier son siège.
 user-settings-account-setup-title = Configuration du compte
 user-settings-account-setup-pending = En attente
 user-settings-invitation-pending = Invitation en attente

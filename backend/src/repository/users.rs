@@ -752,22 +752,31 @@ pub fn get_user_map_by_uuids(
         .collect())
 }
 
-/// Like [`get_user_map_by_uuids`] but overlays each user's PER-WORKSPACE
-/// display-name override (O7) onto `User.name`, so callers that render users in
-/// the active workspace show the persona name (e.g. "Warehouse Labourer at
-/// Foodcare") rather than the global control-plane name. RLS scopes the
-/// override to the active workspace; users without a persona keep their global
-/// name. Use this for display surfaces (assignee / author / roster); use the
-/// plain map when you need the canonical global name (audit, notifications).
+/// Like [`get_user_map_by_uuids`] but overlays each user's PER-WORKSPACE persona
+/// override (O7) onto `User.name` AND `User.avatar_url`, so callers that render
+/// users in the active workspace show the persona name and avatar (e.g.
+/// "Warehouse Labourer at Foodcare") rather than the global control-plane
+/// record. RLS scopes the override to the active workspace; users without a
+/// persona keep their global values. Use this for display surfaces (assignee /
+/// author / roster); use the plain map when you need the canonical global
+/// record (audit, notifications).
 pub fn get_user_map_by_uuids_with_persona(
     uuids: &[Uuid],
     conn: &mut DbConnection,
 ) -> Result<std::collections::HashMap<Uuid, User>, Error> {
     let mut map = get_user_map_by_uuids(uuids, conn)?;
-    let overrides = crate::repository::user_contact::display_name_overrides(conn, uuids)?;
+    let overrides = crate::repository::user_contact::persona_overrides(conn, uuids)?;
     for (uuid, persona) in overrides {
         if let Some(user) = map.get_mut(&uuid) {
-            user.name = persona;
+            if let Some(name) = persona.display_name {
+                user.name = name;
+            }
+            if let Some(avatar) = persona.avatar_url {
+                user.avatar_url = Some(avatar);
+                // No per-workspace thumbnail; clear the global one so the UI
+                // uses the full override image.
+                user.avatar_thumb = None;
+            }
         }
     }
     Ok(map)
@@ -833,13 +842,23 @@ pub fn set_password_changed_at(
         .execute(conn)
 }
 
+/// Outcome of [`set_user_roles`].
+#[derive(Debug, PartialEq, Eq)]
+pub enum SetUserRolesOutcome {
+    /// Both the platform role and the workspace membership role were written.
+    Applied,
+    /// A product-initiated change touching a control-plane-owned staff seat in
+    /// hosted; refused, nothing written. Hand off to the control plane.
+    ExternallyManaged,
+}
+
 // sync-audit-only: platform_role + workspace_members role changes are recorded by tr_audit_users and tr_audit_workspace_members; no sync aggregate subscribes to a role change
 /// Rewrite a user's two-axis W2 role: `platform_role` on the audited
 /// `users` row and their `workspace_members.role` for `workspace_id`.
 /// Both writes must run inside actor + workspace context (the audit
 /// trigger reads `app.workspace_id`); the caller supplies the
 /// transaction. Replaces the duplicated inline single/bulk set-role
-/// SQL in `handlers::users` — same two updates, but scoped by an
+/// SQL in `handlers::users`, same two updates, but scoped by an
 /// explicit `workspace_id` argument instead of the `app.workspace_id`
 /// GUC read.
 pub fn set_user_roles(
@@ -848,7 +867,17 @@ pub fn set_user_roles(
     user_uuid: Uuid,
     platform_role: &str,
     workspace_role: &str,
-) -> Result<(), Error> {
+    authority: crate::repository::workspaces::SeatWriteAuthority,
+) -> Result<SetUserRolesOutcome, Error> {
+    // Gate BEFORE any write: a product-initiated change touching a
+    // control-plane-owned staff seat (current OR new role is staff) in hosted
+    // is refused, matching update_membership_role.
+    let current =
+        crate::repository::workspaces::get_membership_role(conn, workspace_id, user_uuid)?
+            .unwrap_or_default();
+    if authority.refuses_change(&current, workspace_role) {
+        return Ok(SetUserRolesOutcome::ExternallyManaged);
+    }
     diesel::update(users::table.find(user_uuid))
         .set((
             users::platform_role.eq(platform_role),
@@ -862,7 +891,7 @@ pub fn set_user_roles(
     )
     .set(workspace_members::role.eq(workspace_role))
     .execute(conn)?;
-    Ok(())
+    Ok(SetUserRolesOutcome::Applied)
 }
 
 #[cfg(test)]

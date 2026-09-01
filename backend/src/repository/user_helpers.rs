@@ -121,19 +121,37 @@ pub fn get_user_by_email(
         .first::<User>(conn)
 }
 
+/// Outcome of [`create_user_with_email`].
+pub enum CreateUserWithEmailOutcome {
+    Created(User, UserEmail),
+    /// A product-initiated attempt to create a control-plane-owned staff seat in
+    /// hosted; refused, nothing created. Hand off to the control plane.
+    ExternallyManaged,
+}
+
+impl CreateUserWithEmailOutcome {
+    /// Unwrap the created `(user, email)`. For callers that pass `ControlPlane`
+    /// authority or a requester (`member`) role and so can never be refused; a
+    /// refusal collapses to a rollback error rather than being handled inline.
+    pub fn into_created(self) -> Result<(User, UserEmail), diesel::result::Error> {
+        match self {
+            Self::Created(u, e) => Ok((u, e)),
+            Self::ExternallyManaged => Err(diesel::result::Error::RollbackTransaction),
+        }
+    }
+}
+
 /// Create a user with their primary email atomically.
-///
-/// `role` is the legacy `UserRole` projection carried on the
-/// emitted `user.created` sync event (the `users.role` column itself
-/// was dropped in the W2 cleanup, so it's event-only now).
 ///
 /// `workspace_role` is the per-workspace membership role written to
 /// `workspace_members`. It's a separate, explicit parameter rather
-/// than being derived from `role` because the two vocabularies don't
-/// line up: `WorkspaceRole::Owner` has no `UserRole` equivalent, so
-/// deriving the membership role from `UserRole` would make it
-/// impossible to provision an owner. Callers that just want the
-/// default mapping pass `WorkspaceRole::from_user_role(role)`.
+/// than being derived from any user-level role because the two
+/// vocabularies don't line up: `WorkspaceRole::Owner` has no `UserRole`
+/// equivalent, so deriving it would make it impossible to provision an owner.
+///
+/// `authority` gates the membership grant: a product-initiated staff seat in
+/// hosted is refused (`ExternallyManaged`); the control plane's own projection
+/// passes `ControlPlane` to bypass.
 pub fn create_user_with_email(
     new_user: crate::models::NewUser,
     workspace_role: WorkspaceRole,
@@ -142,11 +160,18 @@ pub fn create_user_with_email(
     email_source: Option<String>,
     conn: &mut DbConnection,
     observer: Option<&dyn UserCreatedObserver>,
-) -> Result<(User, UserEmail), diesel::result::Error> {
+    authority: crate::repository::workspaces::SeatWriteAuthority,
+) -> Result<CreateUserWithEmailOutcome, diesel::result::Error> {
     use crate::models::{SyncAggregate, SyncOp};
     use crate::sync::emit::{self, SyncEmit};
     use crate::sync::groups;
     use serde_json::json;
+
+    // In hosted, creating a staff seat is the control plane's job; a
+    // product-initiated staff create is refused before any write.
+    if authority.refuses_role(workspace_role.as_str()) {
+        return Ok(CreateUserWithEmailOutcome::ExternallyManaged);
+    }
 
     let result = conn.transaction::<_, diesel::result::Error, _>(|conn| {
         // Create user first
@@ -224,7 +249,7 @@ pub fn create_user_with_email(
         observer.user_created(&result.0, &result.1.email);
     }
 
-    Ok(result)
+    Ok(CreateUserWithEmailOutcome::Created(result.0, result.1))
 }
 
 /// Source tag written to `user_emails.source` when an account is created by
@@ -304,7 +329,12 @@ pub fn find_or_create_guest_user(
             Some(GUEST_EMAIL_SOURCE.to_string()),
             conn,
             observer,
-        ) {
+            // Guest auto-provisioning is a product surface, but always a
+            // requester (member), so the gate never fires.
+            crate::repository::workspaces::SeatWriteAuthority::Product,
+        )
+        .and_then(|o| o.into_created())
+        {
             Ok((user, _)) => Ok(GuestUserResult::Created(user)),
             // Race: a concurrent request created the row between our lookup
             // and our insert. Look it up again under the same transaction.
@@ -428,12 +458,20 @@ pub fn get_user_with_primary_email(
     let primary_email = get_primary_email(&user.uuid, conn);
     let prefs = crate::repository::user_preferences::get(conn, user.uuid).ok();
     let workspace_role = workspace_role(conn, user.uuid);
-    // O7: render the per-workspace persona name when set (RLS-scoped to the
-    // active workspace), else the global control-plane name.
-    let display_name = crate::repository::user_contact::display_name_overrides(conn, &[user.uuid])
+    // O7: render the per-workspace persona (name + avatar) when set (RLS-scoped
+    // to the active workspace), else the global control-plane record. Loaded in
+    // one pass so name and avatar stay together. When the avatar is overridden
+    // there is no per-workspace thumbnail, so clear the thumb and let the UI
+    // fall back to the full avatar_url.
+    let persona = crate::repository::user_contact::persona_overrides(conn, &[user.uuid])
         .ok()
         .and_then(|mut m| m.remove(&user.uuid))
-        .unwrap_or(user.name);
+        .unwrap_or_default();
+    let display_name = persona.display_name.unwrap_or(user.name);
+    let (avatar_url, avatar_thumb) = match persona.avatar_url {
+        Some(url) => (Some(url), None),
+        None => (user.avatar_url, user.avatar_thumb),
+    };
 
     crate::models::UserResponse {
         uuid: user.uuid,
@@ -442,9 +480,9 @@ pub fn get_user_with_primary_email(
         platform_role: PlatformRole::from_db(&user.platform_role),
         workspace_role,
         pronouns: user.pronouns,
-        avatar_url: user.avatar_url,
+        avatar_url,
         banner_url: user.banner_url,
-        avatar_thumb: user.avatar_thumb,
+        avatar_thumb,
         theme: prefs.as_ref().and_then(|p| p.theme.clone()),
         microsoft_uuid: user.microsoft_uuid,
         created_at: user.created_at,
@@ -518,9 +556,9 @@ pub fn get_users_with_primary_emails(
     };
 
     // O7: per-workspace persona overrides (RLS-scoped), applied over the global
-    // name so rosters/pickers show the workspace persona when set.
-    let persona_map = crate::repository::user_contact::display_name_overrides(conn, &user_uuids)
-        .unwrap_or_default();
+    // name AND avatar so rosters/pickers show the workspace persona when set.
+    let persona_map =
+        crate::repository::user_contact::persona_overrides(conn, &user_uuids).unwrap_or_default();
 
     users
         .into_iter()
@@ -530,16 +568,26 @@ pub fn get_users_with_primary_emails(
             let workspace_role = workspace_role_map
                 .get(&user.uuid)
                 .map(|r| WorkspaceRole::from_db(r));
+            let persona = persona_map.get(&user.uuid);
+            let name = persona
+                .and_then(|p| p.display_name.clone())
+                .unwrap_or(user.name);
+            // Override avatar -> clear the (global) thumb so the UI uses the
+            // full per-workspace image, mirroring the single-record funnel.
+            let (avatar_url, avatar_thumb) = match persona.and_then(|p| p.avatar_url.clone()) {
+                Some(url) => (Some(url), None),
+                None => (user.avatar_url, user.avatar_thumb),
+            };
             crate::models::UserResponse {
                 uuid: user.uuid,
-                name: persona_map.get(&user.uuid).cloned().unwrap_or(user.name),
+                name,
                 email,
                 platform_role: PlatformRole::from_db(&user.platform_role),
                 workspace_role,
                 pronouns: user.pronouns,
-                avatar_url: user.avatar_url,
+                avatar_url,
                 banner_url: user.banner_url,
-                avatar_thumb: user.avatar_thumb,
+                avatar_thumb,
                 theme: prefs.and_then(|p| p.theme.clone()),
                 microsoft_uuid: user.microsoft_uuid,
                 created_at: user.created_at,
@@ -627,7 +675,9 @@ mod tests {
             None,
             &mut conn,
             None,
+            crate::repository::workspaces::SeatWriteAuthority::ControlPlane,
         )
+        .and_then(|o| o.into_created())
         .unwrap();
 
         assert_eq!(user.name, "Atomic");

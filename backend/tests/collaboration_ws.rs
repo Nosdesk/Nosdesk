@@ -205,7 +205,13 @@ async fn handshake_broadcast_and_clean_disconnect() {
             &mut conn,
             &actor,
             |c| {
-                backend::repository::workspaces::add_membership(c, 1, user.uuid, "admin")?;
+                backend::repository::workspaces::add_membership(
+                    c,
+                    1,
+                    user.uuid,
+                    "admin",
+                    backend::repository::workspaces::SeatWriteAuthority::ControlPlane,
+                )?;
                 Ok(())
             },
         )
@@ -404,7 +410,13 @@ async fn handshake_resolves_workspace_from_doc_id_without_host_context() {
             &mut conn,
             &actor,
             |c| {
-                backend::repository::workspaces::add_membership(c, 1, member.uuid, "admin")?;
+                backend::repository::workspaces::add_membership(
+                    c,
+                    1,
+                    member.uuid,
+                    "admin",
+                    backend::repository::workspaces::SeatWriteAuthority::ControlPlane,
+                )?;
                 Ok(())
             },
         )

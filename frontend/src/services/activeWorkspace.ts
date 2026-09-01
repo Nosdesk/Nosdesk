@@ -54,6 +54,21 @@ export function controlPlaneSeatsUrl(): string {
   return s ? `${cp}/instances?workspace=${encodeURIComponent(s)}` : `${cp}/instances`;
 }
 
+/**
+ * Open this workspace's control-plane seats page in the user's real browser
+ * (the system browser in the native shell, a new tab on web). No-op when the
+ * control-plane URL is unknown. The single hand-off used by every "manage in
+ * the control plane" affordance; callers add their own toast/redirect.
+ */
+export async function openControlPlaneSeats(): Promise<void> {
+  const url = controlPlaneSeatsUrl();
+  if (!url) return;
+  // Dynamic import keeps this dependency-light module free of a static edge to
+  // the platform layer (which pulls in apiConfig/transport).
+  const { openExternalUrl } = await import('@/platform');
+  await openExternalUrl(url);
+}
+
 /** Reactive read, for UI (the workspace switcher's active-workspace highlight). */
 export const activeWorkspaceSlugRef: Readonly<Ref<string | null>> = readonly(slug);
 

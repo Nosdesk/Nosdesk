@@ -873,10 +873,8 @@ pub async fn create_user(
             Err(resp) => return resp,
         };
         if !crate::middleware::workspace_context::local_credentials_permitted() {
-            return errors::forbidden(
-                "In hosted deployments, team members are added from the Nosdesk control \
-                 plane (Instances -> Seats). Only requesters can be added directly.",
-            );
+            // Same boundary + code as the other staff-mutation refusals.
+            return errors::externally_managed();
         }
         claims
     };
@@ -1023,7 +1021,11 @@ pub async fn create_user(
                 Some("manual".to_string()),
                 c,
                 Some(search_service.get_ref()),
+                // Product surface; staff creation in hosted is already refused
+                // earlier in this handler, so this never gates in practice.
+                repository::workspaces::SeatWriteAuthority::Product,
             )
+            .and_then(|o| o.into_created())
         },
     );
     match create_result {
@@ -1216,11 +1218,16 @@ pub async fn delete_user(
             "Administrator accounts cannot be deleted for security reasons",
         );
     }
+    let actor = helpers::actor_for(&req, "users_admin");
+    // In hosted, a staff seat is control-plane-owned in ANY workspace (the CP
+    // owns the account lifecycle). Refuse a local delete and hand off.
+    if helpers::target_is_externally_managed_staff(&mut conn, &actor, target_user.uuid) {
+        return errors::externally_managed();
+    }
     if target_user.deleted_at.is_some() {
         return errors::conflict("User is already soft-deleted");
     }
 
-    let actor = helpers::actor_for(&req, "users_admin");
     let soft_deleted = match crate::sync::session::with_actor_context::<_, diesel::result::Error>(
         &mut conn,
         &actor,
@@ -1279,8 +1286,13 @@ pub async fn restore_user(
     if target.deleted_at.is_none() {
         return errors::conflict("User is not soft-deleted");
     }
-
     let actor = helpers::actor_for(&req, "users_admin");
+    // In hosted, re-activating a control-plane-owned staff seat (in any
+    // workspace) locally would diverge from the projection; hand off.
+    if helpers::target_is_externally_managed_staff(&mut conn, &actor, target.uuid) {
+        return errors::externally_managed();
+    }
+
     let restored = match crate::sync::session::with_actor_context::<_, diesel::result::Error>(
         &mut conn,
         &actor,
@@ -1343,6 +1355,12 @@ pub async fn purge_user_now(
             "Administrator accounts cannot be deleted for security reasons",
         );
     }
+    let actor = helpers::actor_for(&req, "users_admin");
+    // In hosted, a staff seat is control-plane-owned in ANY workspace; erasure
+    // of a projected staff account is a control-plane concern. Refuse.
+    if helpers::target_is_externally_managed_staff(&mut conn, &actor, target.uuid) {
+        return errors::externally_managed();
+    }
 
     // Purge cascades across every workspace the user belongs to
     // (workspace_members is many-to-many). A workspace-pinned
@@ -1351,7 +1369,6 @@ pub async fn purge_user_now(
     // FK violation. with_actor_bypass_context (nosdesk_admin,
     // BYPASSRLS) is the correct shape — same as the scheduler-
     // driven purge_soft_deleted_users path.
-    let actor = helpers::actor_for(&req, "users_admin");
     let result = crate::sync::session::with_actor_bypass_context::<_, diesel::result::Error>(
         &mut conn,
         &actor,
@@ -2294,6 +2311,9 @@ pub async fn update_user_by_uuid(
             // workspace_members role for the request's workspace, both
             // inside the actor + workspace-scoped transaction.
             let ws_id = tc.workspace_id().unwrap_or_default();
+
+            // Product authority: set_user_roles refuses a role change touching a
+            // control-plane-owned staff seat in hosted (current OR new is staff).
             let role_result = tc.run(|conn| {
                 repository::users::set_user_roles(
                     conn,
@@ -2301,11 +2321,18 @@ pub async fn update_user_by_uuid(
                     user_uuid_parsed,
                     platform_role,
                     workspace_role,
+                    repository::workspaces::SeatWriteAuthority::Product,
                 )
             });
-            if let Err(e) = role_result {
-                error!(error = ?e, user_uuid = %user_uuid_parsed, "Failed to update user role");
-                return errors::internal("Error updating user role");
+            match role_result {
+                Ok(repository::users::SetUserRolesOutcome::Applied) => {}
+                Ok(repository::users::SetUserRolesOutcome::ExternallyManaged) => {
+                    return errors::externally_managed();
+                }
+                Err(e) => {
+                    error!(error = ?e, user_uuid = %user_uuid_parsed, "Failed to update user role");
+                    return errors::internal("Error updating user role");
+                }
             }
         }
     }
@@ -2979,6 +3006,10 @@ pub async fn bulk_users(
         Ok(c) => c,
         Err(e) => return e,
     };
+    // Pin the request workspace so the per-target `user_is_admin` guard resolves
+    // the target's role through RLS; on an unpinned conn it reads None and the
+    // admin-protection guard fails OPEN.
+    helpers::pin_request_workspace(&req, &mut conn);
 
     let action = body.action.as_str();
     let ids = &body.ids;
@@ -3001,6 +3032,7 @@ pub async fn bulk_users(
             let actor = helpers::actor_for(&req, "users_admin");
             let mut deleted = 0;
             let mut skipped_admin = 0;
+            let mut skipped_staff = 0;
             for id in ids {
                 let uuid = match Uuid::parse_str(id) {
                     Ok(u) => u,
@@ -3012,6 +3044,13 @@ pub async fn bulk_users(
                 };
                 if crate::repository::user_helpers::user_is_admin(&mut conn, &target) {
                     skipped_admin += 1;
+                    continue;
+                }
+                // In hosted, a staff seat (in any workspace) is control-plane-
+                // owned; soft-deleting it would desync the projection. Fails
+                // closed on a read error (see the helper).
+                if helpers::target_is_externally_managed_staff(&mut conn, &actor, uuid) {
+                    skipped_staff += 1;
                     continue;
                 }
                 if target.deleted_at.is_some() {
@@ -3036,6 +3075,7 @@ pub async fn bulk_users(
             HttpResponse::Ok().json(json!({
                 "affected": deleted,
                 "skipped_admin": skipped_admin,
+                "skipped_staff": skipped_staff,
             }))
         }
 
@@ -3061,29 +3101,41 @@ pub async fn bulk_users(
             let actor = helpers::actor_for(&req, "users_admin");
             let ws_id = actor.workspace_id.unwrap_or_default();
             let mut updated = 0;
+            let mut skipped_staff = 0;
             for id in ids {
                 let uuid = match Uuid::parse_str(id) {
                     Ok(u) => u,
                     Err(_) => continue,
                 };
 
-                // Post-W2: bulk role change rewrites
-                // workspace_members.role and platform_role (mapped from
-                // the request role string by `parse_roles`).
-                let role_update_ok = crate::sync::session::with_actor_context::<
-                    _,
-                    diesel::result::Error,
-                >(&mut conn, &actor, |c| {
-                    repository::users::set_user_roles(c, ws_id, uuid, platform_role, workspace_role)
-                })
-                .is_ok();
-
-                if role_update_ok {
-                    updated += 1;
+                // set_user_roles (Product authority) rewrites workspace_members.role
+                // + platform_role, and refuses a change touching a control-plane-
+                // owned staff seat in hosted; those are counted as skipped.
+                match crate::sync::session::with_actor_context::<_, diesel::result::Error>(
+                    &mut conn,
+                    &actor,
+                    |c| {
+                        repository::users::set_user_roles(
+                            c,
+                            ws_id,
+                            uuid,
+                            platform_role,
+                            workspace_role,
+                            repository::workspaces::SeatWriteAuthority::Product,
+                        )
+                    },
+                ) {
+                    Ok(repository::users::SetUserRolesOutcome::Applied) => updated += 1,
+                    Ok(repository::users::SetUserRolesOutcome::ExternallyManaged) => {
+                        skipped_staff += 1
+                    }
+                    Err(e) => {
+                        error!(user_id = %id, error = ?e, "bulk set-role: update failed; skipping");
+                    }
                 }
             }
 
-            HttpResponse::Ok().json(json!({ "affected": updated }))
+            HttpResponse::Ok().json(json!({ "affected": updated, "skipped_staff": skipped_staff }))
         }
 
         _ => HttpResponse::BadRequest().json(json!({
@@ -3224,7 +3276,12 @@ pub async fn admin_reset_user_password(
         &mut conn, &user.uuid, &new_hash,
     ) {
         Ok(count) => count,
-        Err(e) => {
+        // Hosted disables local passwords entirely, so this is a clean "not
+        // available here" rather than a server error.
+        Err(repository::user_auth_identities::LocalCredentialError::LocalAuthDisabled) => {
+            return errors::local_auth_disabled()
+        }
+        Err(repository::user_auth_identities::LocalCredentialError::Db(e)) => {
             error!(error = ?e, "Error updating password hash for user");
             return errors::internal("Failed to update password");
         }

@@ -83,29 +83,44 @@ pub fn list_profile_custom_fields(conn: &mut DbConnection) -> QueryResult<Vec<(U
         .load(conn)
 }
 
-/// O7: batch-load the per-workspace display-name overrides for these users in
-/// the ACTIVE workspace. `user_profiles` is RLS-scoped to `app.workspace_id`,
-/// so no workspace arg is needed and a missing/blank workspace GUC simply
-/// yields no overrides (fall back to the global name). Only non-empty overrides
-/// are returned; the map omits users without a persona name.
-pub fn display_name_overrides(
+/// O7: the per-workspace persona overrides for a user in the ACTIVE workspace.
+/// Both fields are `None` unless a non-empty override is set.
+#[derive(Debug, Default, Clone)]
+pub struct PersonaOverride {
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
+}
+
+/// Batch-load the per-workspace persona overrides (display name + avatar)
+/// together in one pass. `user_profiles` is RLS-scoped to `app.workspace_id`,
+/// so no workspace arg is needed and a missing/blank workspace GUC yields no
+/// overrides (fall back to the global user record). Only non-empty values
+/// populate a field; the map omits users with no override at all. Every render
+/// funnel (single and batch) MUST apply both fields so a workspace persona
+/// name and avatar stay together on list/roster/picker surfaces, not just the
+/// single-record profile fetch.
+pub fn persona_overrides(
     conn: &mut DbConnection,
     user_uuids: &[Uuid],
-) -> QueryResult<std::collections::HashMap<Uuid, String>> {
+) -> QueryResult<std::collections::HashMap<Uuid, PersonaOverride>> {
     use crate::schema::user_profiles::dsl as up;
     use diesel::prelude::*;
     if user_uuids.is_empty() {
         return Ok(std::collections::HashMap::new());
     }
-    let rows: Vec<(Uuid, Option<String>)> = up::user_profiles
+    let rows: Vec<(Uuid, Option<String>, Option<String>)> = up::user_profiles
         .filter(up::user_uuid.eq_any(user_uuids))
-        .select((up::user_uuid, up::display_name))
+        .select((up::user_uuid, up::display_name, up::avatar_url))
         .load(conn)?;
+    let clean = |s: Option<String>| s.map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
     Ok(rows
         .into_iter()
-        .filter_map(|(uuid, name)| {
-            let n = name?.trim().to_string();
-            (!n.is_empty()).then_some((uuid, n))
+        .filter_map(|(uuid, name, avatar)| {
+            let o = PersonaOverride {
+                display_name: clean(name),
+                avatar_url: clean(avatar),
+            };
+            (o.display_name.is_some() || o.avatar_url.is_some()).then_some((uuid, o))
         })
         .collect())
 }
@@ -129,6 +144,7 @@ pub fn upsert_profile(
             directory_synced: false,
             created_by: actor,
             display_name: input.display_name.clone(),
+            avatar_url: input.avatar_url.clone(),
         })
         .on_conflict((user_profiles::workspace_id, user_profiles::user_uuid))
         .do_update()
@@ -138,6 +154,7 @@ pub fn upsert_profile(
             user_profiles::department.eq(input.department.clone()),
             user_profiles::custom_fields.eq(input.custom_fields.clone()),
             user_profiles::display_name.eq(input.display_name.clone()),
+            user_profiles::avatar_url.eq(input.avatar_url.clone()),
         ))
         .get_result(conn)
 }
@@ -348,9 +365,11 @@ pub fn apply_directory_contact(
                 custom_fields: cf.clone(),
                 directory_synced: true,
                 created_by: actor,
-                // Directory sync doesn't own the persona override; on an
-                // existing row the do_update below leaves display_name intact.
+                // Directory sync doesn't own the persona overrides; on an
+                // existing row the do_update below leaves display_name and
+                // avatar_url intact.
                 display_name: None,
+                avatar_url: None,
             })
             .on_conflict((user_profiles::workspace_id, user_profiles::user_uuid))
             .do_update()
@@ -440,7 +459,7 @@ mod tests {
         let user = TestFixtures::create_user(&mut conn, "Global Name", "user");
 
         // No profile row -> no override.
-        assert!(display_name_overrides(&mut conn, &[user.uuid])
+        assert!(persona_overrides(&mut conn, &[user.uuid])
             .unwrap()
             .is_empty());
 
@@ -455,13 +474,14 @@ mod tests {
                 department: None,
                 custom_fields: json!({}),
                 display_name: Some("Workspace Persona".into()),
+                avatar_url: None,
             },
             Some(user.uuid),
         )
         .unwrap();
-        let over = display_name_overrides(&mut conn, &[user.uuid]).unwrap();
+        let over = persona_overrides(&mut conn, &[user.uuid]).unwrap();
         assert_eq!(
-            over.get(&user.uuid).map(String::as_str),
+            over.get(&user.uuid).and_then(|p| p.display_name.as_deref()),
             Some("Workspace Persona")
         );
         let map =
@@ -479,17 +499,62 @@ mod tests {
                 department: None,
                 custom_fields: json!({}),
                 display_name: None,
+                avatar_url: None,
             },
             Some(user.uuid),
         )
         .unwrap();
-        assert!(display_name_overrides(&mut conn, &[user.uuid])
+        assert!(persona_overrides(&mut conn, &[user.uuid])
             .unwrap()
             .is_empty());
         let map =
             crate::repository::users::get_user_map_by_uuids_with_persona(&[user.uuid], &mut conn)
                 .unwrap();
         assert_eq!(map.get(&user.uuid).unwrap().name, "Global Name");
+    }
+
+    // Blocker-4 regression: a per-workspace avatar override must reach BOTH the
+    // single-record funnel and the batch/persona map, with the global thumb
+    // cleared, so a persona name and avatar never split across surfaces.
+    #[test]
+    fn avatar_override_applies_on_single_and_batch_paths() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "Avatar User", "user");
+
+        upsert_profile(
+            &mut conn,
+            user.uuid,
+            &UserProfileInput {
+                job_title: None,
+                organization: None,
+                department: None,
+                custom_fields: json!({}),
+                display_name: None,
+                avatar_url: Some("https://cdn/persona.png".into()),
+            },
+            Some(user.uuid),
+        )
+        .unwrap();
+
+        // Single-record funnel.
+        let fresh = crate::repository::users::get_user_by_uuid(&user.uuid, &mut conn).unwrap();
+        let single = crate::repository::user_helpers::get_user_with_primary_email(fresh, &mut conn);
+        assert_eq!(
+            single.avatar_url.as_deref(),
+            Some("https://cdn/persona.png")
+        );
+        assert_eq!(single.avatar_thumb, None, "override must clear the thumb");
+
+        // Batch/persona map.
+        let map =
+            crate::repository::users::get_user_map_by_uuids_with_persona(&[user.uuid], &mut conn)
+                .unwrap();
+        let mapped = map.get(&user.uuid).unwrap();
+        assert_eq!(
+            mapped.avatar_url.as_deref(),
+            Some("https://cdn/persona.png")
+        );
+        assert_eq!(mapped.avatar_thumb, None);
     }
 
     #[test]
@@ -507,6 +572,7 @@ mod tests {
                 department: Some("IT".into()),
                 custom_fields: json!({ "gender": "x" }),
                 display_name: None,
+                avatar_url: None,
             },
             Some(user.uuid),
         )
@@ -523,6 +589,7 @@ mod tests {
                 department: Some("IT".into()),
                 custom_fields: json!({ "gender": "y" }),
                 display_name: None,
+                avatar_url: None,
             },
             Some(user.uuid),
         )
@@ -654,6 +721,7 @@ mod tests {
                 department: None,
                 custom_fields: json!({ "gender": "z" }),
                 display_name: None,
+                avatar_url: None,
             },
             None,
         )
