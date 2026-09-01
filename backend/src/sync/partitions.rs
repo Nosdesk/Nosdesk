@@ -525,8 +525,9 @@ mod tests {
     #[test]
     fn ensure_partitions_is_idempotent() {
         let (_guard, mut conn) = provisioning_conn();
-        // Already-provisioned months from the substrate migration
-        // (May–Aug 2026) should not produce errors on a re-run.
+        // Already-provisioned months (the migration's seed months plus the
+        // current month the test harness provisions) should not error on a
+        // re-run.
         let touched = ensure_partitions(&mut conn, 60).expect("first run");
         // Touched should at least include current month; could
         // include more depending on `now()`. Just assert non-empty.

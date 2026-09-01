@@ -50,6 +50,33 @@ fn ensure_test_db_migrated() {
             })?;
             conn.run_pending_migrations(MIGRATIONS)
                 .map_err(|e| format!("Failed to apply migrations to test DB: {e}"))?;
+
+            // Provision the partitions the current calendar month needs, once,
+            // COMMITTED. Every pool test connection runs inside an uncommitted
+            // test transaction (see `TestTransaction`), so if a data test were
+            // the first to touch a not-yet-provisioned month it would run the
+            // partition ATTACH inside that transaction and hold
+            // `SHARE UPDATE EXCLUSIVE` on the parent for the whole test, which
+            // deadlocks parallel tests (the `sync::partitions::tests`
+            // PARTITION_TEST_LOCK only serialises its own module). Provisioning
+            // here from `Utc::now` keeps `ensure_one_partition`'s `is_attached`
+            // fast path a no-op in every other test, and survives month
+            // rollover instead of relying on the migration's fixed seed months.
+            //
+            // A fresh single-connection pool with no `TestTransaction`
+            // customizer so it commits; `ResettingManager` acquires with
+            // `RESET ROLE`, i.e. the privileged login role the partition DDL
+            // (`ALTER TABLE ... OWNER TO`/`ATTACH`) needs.
+            let provisioning_pool = r2d2::Pool::builder()
+                .max_size(1)
+                .connection_timeout(Duration::from_secs(5))
+                .build(crate::db::ResettingManager::new(url))
+                .map_err(|e| format!("Failed to build partition-provisioning pool: {e}"))?;
+            let mut provisioning_conn = provisioning_pool
+                .get()
+                .map_err(|e| format!("Failed to check out partition-provisioning conn: {e}"))?;
+            crate::sync::partitions::ensure_partitions(&mut provisioning_conn, 35)
+                .map_err(|e| format!("Failed to provision test partitions: {e}"))?;
             Ok(())
         })
         .is_err()
