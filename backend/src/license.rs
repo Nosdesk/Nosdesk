@@ -35,15 +35,26 @@ pub const LICENSE_PREFIX: &str = "nsk_lic_";
 /// Workspace cap applied with no (valid) license.
 pub const COMMUNITY_MAX_WORKSPACES: u32 = 1;
 
+/// Feature keys this binary understands. v1.1 is an empty gate list (O1):
+/// the claim is accepted, stored only for keys in this set, and nothing
+/// is gated on them. Unknown keys are ignored, not rejected.
+pub const KNOWN_FEATURES: &[&str] = &[];
+
 /// JWT claims carried by a license token.
+///
+/// `jti` has no `#[serde(default)]` on purpose: a missing jti must fail
+/// verification. `jsonwebtoken` 11's `required_spec_claims` only checks
+/// `exp`/`sub`/`iss`/`aud`/`nbf` and silently skips anything else, so
+/// listing `jti` there is a no-op — the struct field is the requirement.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LicenseClaims {
     /// Issuer; must equal [`LICENSE_ISSUER`].
     pub iss: String,
-    /// Licensee (organisation/customer the license was issued to).
+    /// Stable opaque customer id (UUID). Constant across reissues.
     pub sub: String,
-    /// License id (jti) for support/revocation bookkeeping.
-    #[serde(default)]
+    /// Display name of the licensee organisation.
+    pub licensee: String,
+    /// Per-issuance license id. Required; never empty.
     pub jti: String,
     /// Expiry (unix seconds). Validated.
     pub exp: i64,
@@ -52,15 +63,25 @@ pub struct LicenseClaims {
     pub iat: i64,
     /// Maximum number of active workspaces this license permits.
     pub max_workspaces: u32,
+    /// Entitlement keys. `#[serde(default)]` so older mental-model tokens
+    /// without the claim still deserialize; unknown keys are dropped.
+    #[serde(default)]
+    pub features: Vec<String>,
 }
 
 /// Verified license details.
 #[derive(Debug, Clone)]
 pub struct LicenseInfo {
+    /// Stable customer id (the JWT `sub`). Survives reissues.
+    pub customer_id: String,
+    /// Display name (the JWT `licensee` claim).
     pub licensee: String,
+    /// Per-issuance id (the JWT `jti`).
     pub license_id: String,
     pub max_workspaces: u32,
     pub expires_at: i64,
+    /// Known feature keys only. Empty in v1.1.
+    pub features: Vec<String>,
 }
 
 /// The deployment's resolved edition.
@@ -97,6 +118,32 @@ impl Edition {
             Edition::Enterprise(info) => Some(info),
         }
     }
+
+    /// Whether this edition carries `feature`. Community is always false.
+    /// v1.1's known-key set is empty, so this is false for every live
+    /// license; the helper is the mechanism, the gate list is policy.
+    pub fn has_feature(&self, feature: &str) -> bool {
+        match self {
+            Edition::Community => false,
+            Edition::Enterprise(info) => info.features.iter().any(|f| f == feature),
+        }
+    }
+}
+
+/// Process-wide [`Edition::has_feature`]. Handlers that already have an
+/// `&Edition` should call the method; this is for the boot-cached current.
+pub fn has_feature(feature: &str) -> bool {
+    current().has_feature(feature)
+}
+
+fn missing_claim(name: &str) -> jsonwebtoken::errors::Error {
+    jsonwebtoken::errors::ErrorKind::MissingRequiredClaim(name.to_string()).into()
+}
+
+fn normalize_features(raw: Vec<String>) -> Vec<String> {
+    raw.into_iter()
+        .filter(|k| KNOWN_FEATURES.iter().any(|known| *known == k.as_str()))
+        .collect()
 }
 
 /// Verify a license token against the given public key (SPKI PEM). Pure and
@@ -116,15 +163,31 @@ pub fn verify_with_key(
     validation.validate_exp = true;
     validation.validate_aud = false;
     validation.set_issuer(&[LICENSE_ISSUER]);
-    validation.set_required_spec_claims(&["exp", "iss"]);
+    // `sub` is a real registered claim so this check works. `jti` is not
+    // — listing it here would be a silent no-op (see LicenseClaims).
+    validation.set_required_spec_claims(&["exp", "iss", "sub"]);
 
     let data = decode::<LicenseClaims>(token, &key, &validation)?;
     let c = data.claims;
+    if c.jti.trim().is_empty() {
+        return Err(missing_claim("jti"));
+    }
+    if c.licensee.trim().is_empty() {
+        return Err(missing_claim("licensee"));
+    }
+    // `sub` is present (set_required_spec_claims enforces that) but must be a
+    // UUID. That is a malformed claim, not a missing one — an operator who
+    // mis-mints sees only a warn line, so the error has to name the real fault.
+    if uuid::Uuid::parse_str(&c.sub).is_err() {
+        return Err(jsonwebtoken::errors::ErrorKind::InvalidSubject.into());
+    }
     Ok(LicenseInfo {
-        licensee: c.sub,
+        customer_id: c.sub,
+        licensee: c.licensee,
         license_id: c.jti,
         max_workspaces: c.max_workspaces,
         expires_at: c.exp,
+        features: normalize_features(c.features),
     })
 }
 
@@ -134,6 +197,7 @@ fn load_from_env() -> Edition {
         Ok(raw) if !raw.trim().is_empty() => match verify_with_key(&raw, LICENSE_PUBLIC_KEY) {
             Ok(info) => {
                 info!(
+                    customer_id = %info.customer_id,
                     licensee = %info.licensee,
                     license_id = %info.license_id,
                     max_workspaces = info.max_workspaces,
@@ -184,24 +248,50 @@ mod tests {
         MCowBQYDK2VwAyEAbQxmQHWB+LZXvtyh54SrZM41ptz/WroW9djdAx1HPZQ=\n\
         -----END PUBLIC KEY-----\n";
 
+    const TEST_CUSTOMER: &str = "550e8400-e29b-41d4-a716-446655440000";
+
     fn mint(iss: &str, max_workspaces: u32, exp_offset: i64) -> String {
+        mint_with(
+            iss,
+            TEST_CUSTOMER,
+            "Acme Corp",
+            "lic_test_1",
+            max_workspaces,
+            exp_offset,
+            vec![],
+        )
+    }
+
+    fn mint_with(
+        iss: &str,
+        sub: &str,
+        licensee: &str,
+        jti: &str,
+        max_workspaces: u32,
+        exp_offset: i64,
+        features: Vec<&str>,
+    ) -> String {
         #[derive(Serialize)]
         struct Mint<'a> {
             iss: &'a str,
             sub: &'a str,
+            licensee: &'a str,
             jti: &'a str,
             iat: i64,
             exp: i64,
             max_workspaces: u32,
+            features: Vec<&'a str>,
         }
         let now = chrono::Utc::now().timestamp();
         let claims = Mint {
             iss,
-            sub: "Acme Corp",
-            jti: "lic_test_1",
+            sub,
+            licensee,
+            jti,
             iat: now,
             exp: now + exp_offset,
             max_workspaces,
+            features,
         };
         encode(
             &Header::new(Algorithm::EdDSA),
@@ -215,8 +305,11 @@ mod tests {
     fn valid_license_verifies() {
         let token = mint(LICENSE_ISSUER, 10, 3600);
         let info = verify_with_key(&token, TEST_PUB).expect("valid license");
+        assert_eq!(info.customer_id, TEST_CUSTOMER);
         assert_eq!(info.licensee, "Acme Corp");
+        assert_eq!(info.license_id, "lic_test_1");
         assert_eq!(info.max_workspaces, 10);
+        assert!(info.features.is_empty());
     }
 
     #[test]
@@ -256,11 +349,93 @@ mod tests {
 
     fn enterprise(max: u32) -> Edition {
         Edition::Enterprise(LicenseInfo {
+            customer_id: TEST_CUSTOMER.into(),
             licensee: "Acme Corp".into(),
             license_id: "lic_test_1".into(),
             max_workspaces: max,
             expires_at: 0,
+            features: vec![],
         })
+    }
+
+    #[test]
+    fn missing_jti_is_rejected() {
+        #[derive(Serialize)]
+        struct NoJti<'a> {
+            iss: &'a str,
+            sub: &'a str,
+            licensee: &'a str,
+            iat: i64,
+            exp: i64,
+            max_workspaces: u32,
+        }
+        let now = chrono::Utc::now().timestamp();
+        let token = encode(
+            &Header::new(Algorithm::EdDSA),
+            &NoJti {
+                iss: LICENSE_ISSUER,
+                sub: TEST_CUSTOMER,
+                licensee: "Acme Corp",
+                iat: now,
+                exp: now + 3600,
+                max_workspaces: 10,
+            },
+            &EncodingKey::from_ed_pem(TEST_PRIV.as_bytes()).expect("encode key"),
+        )
+        .expect("mint");
+        assert!(verify_with_key(&token, TEST_PUB).is_err());
+    }
+
+    #[test]
+    fn empty_jti_is_rejected() {
+        let token = mint_with(
+            LICENSE_ISSUER,
+            TEST_CUSTOMER,
+            "Acme Corp",
+            "",
+            10,
+            3600,
+            vec![],
+        );
+        assert!(verify_with_key(&token, TEST_PUB).is_err());
+    }
+
+    #[test]
+    fn display_name_as_sub_is_rejected() {
+        let token = mint_with(
+            LICENSE_ISSUER,
+            "Acme Corp",
+            "Acme Corp",
+            "lic_test_1",
+            10,
+            3600,
+            vec![],
+        );
+        assert!(verify_with_key(&token, TEST_PUB).is_err());
+    }
+
+    #[test]
+    fn unknown_features_are_dropped() {
+        let token = mint_with(
+            LICENSE_ISSUER,
+            TEST_CUSTOMER,
+            "Acme Corp",
+            "lic_test_1",
+            10,
+            3600,
+            // Deliberately keys that will never enter KNOWN_FEATURES, so this
+            // test does not start failing the day a real feature is added.
+            vec!["not-a-key", "also-not-a-key"],
+        );
+        let info = verify_with_key(&token, TEST_PUB).expect("valid license");
+        assert!(info.features.is_empty());
+        let edition = Edition::Enterprise(info);
+        assert!(!edition.has_feature("not-a-key"));
+    }
+
+    #[test]
+    fn community_has_no_features() {
+        assert!(!Edition::Community.has_feature("scim"));
     }
 
     #[test]

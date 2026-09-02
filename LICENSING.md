@@ -11,12 +11,15 @@ edition limit, `POST /api/admin/workspaces` returns `402 license_required`.
 
 ## How a license works
 
-A license is an EdDSA-signed JWT carrying the licensee, an active-workspace
-cap, and an expiry. The public verification key is compiled into the binary;
-the private signing key is held only by Nosdesk. The server reads
-`NOSDESK_LICENSE_KEY` at boot, verifies it, and lifts the workspace cap to the
-license's `max_workspaces`. An absent, malformed, expired, or wrong-issuer
-license falls back to Community without failing startup.
+A license is an EdDSA-signed JWT carrying a stable customer id (`sub`, a
+UUID that survives reissues), a display name (`licensee`), a per-issuance
+id (`jti`, required), an active-workspace cap, an expiry, and an optional
+`features` list (empty in v1.1 — nothing new is gated on it). The public
+verification key is compiled into the binary; the private signing key is
+held only by Nosdesk. The server reads `NOSDESK_LICENSE_KEY` at boot,
+verifies it, and lifts the workspace cap to the license's `max_workspaces`.
+An absent, malformed, expired, or wrong-issuer license falls back to
+Community without failing startup.
 
 Like any open-source gate, this is bypassable by patching the binary. The
 license is a genuine signed artifact, not an honor-system flag.
@@ -36,10 +39,17 @@ Sign a license:
 ```bash
 nosdesk-cli license sign \
   --key license_private.pem \
+  --customer-id 550e8400-e29b-41d4-a716-446655440000 \
   --licensee "Acme Corp" \
   --max-workspaces 10 \
   --days 365
 ```
+
+`--customer-id` is required and must be a UUID. Reissues of the same
+customer **must** pass the same id; omitting it (or generating a fresh one)
+would split the usage meter. Record issued ids deliberately until
+control-plane issuance exists. `jti` is generated if `--license-id` is
+omitted.
 
 The token (prefixed `nsk_lic_`) is printed to stdout.
 
@@ -52,8 +62,8 @@ NOSDESK_LICENSE_KEY=nsk_lic_...
 ```
 
 The startup log line `Edition resolved edition=enterprise` confirms it
-verified. `GET /api/admin/edition` reports the active edition, cap, and
-current workspace count.
+verified. `GET /api/admin/edition` reports the active edition, cap,
+customer id, features, and current workspace count.
 
 ## Rotating the key
 

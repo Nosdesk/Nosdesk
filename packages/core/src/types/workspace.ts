@@ -86,10 +86,12 @@ export interface EditionInfo {
   active_workspaces: number;
   can_create_workspace: boolean;
   license: {
+    customer_id: string;
     licensee: string;
     license_id: string;
     max_workspaces: number;
     expires_at: number;
+    features: string[];
   } | null;
 }
 

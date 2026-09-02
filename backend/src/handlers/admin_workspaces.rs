@@ -185,10 +185,12 @@ pub async fn get_edition(req: HttpRequest, mut pc: PlatformConn) -> impl Respond
         "active_workspaces": active,
         "can_create_workspace": can_create,
         "license": edition.license().map(|l| serde_json::json!({
+            "customer_id": l.customer_id,
             "licensee": l.licensee,
             "license_id": l.license_id,
             "max_workspaces": l.max_workspaces,
             "expires_at": l.expires_at,
+            "features": l.features,
         })),
     }))
 }
