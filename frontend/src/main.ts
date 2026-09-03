@@ -62,8 +62,13 @@ async function bootstrap() {
   useThemeStore(pinia)
 
   // Fetch instance config (routing topology) in parallel with the initial route
-  // resolution so its value is settled before first paint. The fetch defaults to
-  // 'host' and never rejects, so it can't block or break the mount.
+  // resolution so its value is settled before first paint.
+  //
+  // The fetch defaults to 'host' and never rejects — but never rejecting is not
+  // the same as always settling, and an earlier version of this comment claimed
+  // the stronger property. It is bounded by CONFIG_REQUEST_TIMEOUT_MS in
+  // services/instanceConfig precisely so this await, and the router guard that
+  // shares the same promise, cannot hang the mount on an unreachable server.
   await Promise.all([fetchInstanceConfig(), router.isReady()])
   app.mount('#app')
 

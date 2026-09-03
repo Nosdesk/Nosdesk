@@ -60,16 +60,51 @@ let configPromise: Promise<void> | null = null;
 const configResolved = ref(false);
 
 /**
+ * How long the boot-critical `/config` request may hang before we give up.
+ *
+ * Both `bootstrap()` and the router's workspace guard await this fetch, so a
+ * request that never settles blocks `app.mount()` and the initial navigation
+ * together — the app renders nothing, logs nothing, and never recovers. That is
+ * not hypothetical: a device with broken DNS showed a permanently blank screen
+ * with a clean console, because the request neither resolved nor rejected.
+ *
+ * "Never rejects" is not "always settles". Bounding the wait converts an
+ * unrecoverable hang into an ordinary failure, which the catch below already
+ * handles correctly: the memo clears, the next caller retries, `configResolved`
+ * stays false so workspace gates stay shut, and the app mounts and can show a
+ * real connection error instead of a white rectangle.
+ */
+const CONFIG_REQUEST_TIMEOUT_MS = 5000;
+
+/** Reject after `ms`, clearing the timer when the race is decided. */
+function rejectAfter(ms: number): { promise: Promise<never>; cancel: () => void } {
+  let timer: ReturnType<typeof setTimeout>;
+  const promise = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`instance config request timed out after ${ms}ms`)),
+      ms,
+    );
+  });
+  return { promise, cancel: () => clearTimeout(timer) };
+}
+
+/**
  * Fetch instance config once per server. The endpoint is public, so it's safe
  * before auth. Idempotent: repeat calls share one in-flight/settled promise. A
  * failed fetch clears the memo so the next call retries instead of latching the
  * 'host' default; resetInstanceConfig() re-arms it when the server changes.
+ * Bounded by {@link CONFIG_REQUEST_TIMEOUT_MS} so an unreachable server fails
+ * rather than hanging every awaiting caller.
  */
 export function fetchInstanceConfig(): Promise<void> {
   if (!configPromise) {
     configPromise = (async () => {
       try {
-        const { data } = await apiClient.get<InstanceConfig>('/config');
+        const deadline = rejectAfter(CONFIG_REQUEST_TIMEOUT_MS);
+        const { data } = await Promise.race([
+          apiClient.get<InstanceConfig>('/config'),
+          deadline.promise,
+        ]).finally(deadline.cancel);
         if (data?.workspace_routing === 'path' || data?.workspace_routing === 'host') {
           workspaceRouting = data.workspace_routing;
         }
