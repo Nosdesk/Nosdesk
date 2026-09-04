@@ -7,6 +7,7 @@ pub mod email;
 pub mod in_app;
 pub mod push;
 pub mod push_sender;
+pub mod relay_client;
 
 use async_trait::async_trait;
 use std::fmt;

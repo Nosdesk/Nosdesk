@@ -186,33 +186,45 @@ pub async fn record(
                     let asset_workspace = tc
                         .workspace_id()
                         .unwrap_or(crate::sync::actor::BOOTSTRAP_WORKSPACE_ID);
-                    for recipient_uuid in recipients {
-                        let payload = NotificationPayload::new(
-                            NotificationTypeCode::AssetLowStock,
-                            recipient_uuid,
-                            NotificationActor {
-                                uuid: actor_uuid,
-                                name: actor_name.clone(),
-                                avatar_thumb: None,
-                                kind: crate::sync::ActorKind::User,
-                            },
-                            NotificationEntity::Asset {
-                                id: asset_id,
-                                name: asset_name.clone(),
-                            },
-                            asset_workspace,
-                        )
-                        .with_body(body.clone());
+                    // Spawned, not awaited (plan O2). `notify()` fans out to
+                    // the push channel, which in relay mode makes a network
+                    // call to the control plane; a cold relay costs ~6.7s
+                    // measured, and awaiting that here would hold this
+                    // handler's `TenantConn` for the duration — once per
+                    // recipient. Nine of the eleven other `notify()` call
+                    // sites already spawn; this was one of the two that did
+                    // not. Best-effort by design: a delivery failure must not
+                    // fail the usage write.
+                    let notification_service = notification_service.clone();
+                    tokio::spawn(async move {
+                        for recipient_uuid in recipients {
+                            let payload = NotificationPayload::new(
+                                NotificationTypeCode::AssetLowStock,
+                                recipient_uuid,
+                                NotificationActor {
+                                    uuid: actor_uuid,
+                                    name: actor_name.clone(),
+                                    avatar_thumb: None,
+                                    kind: crate::sync::ActorKind::User,
+                                },
+                                NotificationEntity::Asset {
+                                    id: asset_id,
+                                    name: asset_name.clone(),
+                                },
+                                asset_workspace,
+                            )
+                            .with_body(body.clone());
 
-                        if let Err(e) = notification_service.notify(payload).await {
-                            error!(
-                                asset_id,
-                                recipient = %recipient_uuid,
-                                error = %e,
-                                "Failed to deliver asset_low_stock notification",
-                            );
+                            if let Err(e) = notification_service.notify(payload).await {
+                                error!(
+                                    asset_id,
+                                    recipient = %recipient_uuid,
+                                    error = %e,
+                                    "Failed to deliver asset_low_stock notification",
+                                );
+                            }
                         }
-                    }
+                    });
                 }
             }
             HttpResponse::Created().json(outcome.row)

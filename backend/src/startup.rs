@@ -33,6 +33,11 @@ pub struct AppState {
     pub analytics_cache: web::Data<Option<Arc<crate::utils::analytics_cache::AnalyticsCache>>>,
     pub sse_state: web::Data<crate::handlers::sse::SseState>,
     pub notification_service: web::Data<crate::services::notifications::NotificationService>,
+    /// The live push sender, so `GET /api/admin/edition` can report relay
+    /// status. Held separately because the sender is otherwise buried inside
+    /// the notification service's channel registry.
+    pub push_sender_data:
+        web::Data<Arc<dyn crate::services::notifications::channels::push::PushSender>>,
     pub outbound_resolver_data:
         web::Data<Arc<crate::services::outbound_email::OutboundEmailResolver>>,
     pub webhook_service: web::Data<crate::services::webhooks::WebhookService>,
@@ -187,7 +192,7 @@ pub fn build_state(
     }
 
     // Initialize notification service for in-app and email notifications
-    let notification_service = {
+    let (notification_service, push_sender_data) = {
         use std::collections::HashMap;
         use std::sync::Arc;
         use tokio::sync::RwLock as TokioRwLock;
@@ -222,20 +227,75 @@ pub fn build_state(
             service.register_channel(email_channel);
         }
 
-        // Push channel: provider-agnostic. Use the native APNs/FCM sender when
-        // credentials are configured (NOSDESK_APNS_* / NOSDESK_FCM_*), else keep
-        // the inert no-op sender (is_available=false → push preferences exist and
-        // device registration works, but nothing is delivered). A configured-but-
-        // malformed provider is fatal, so a half-provisioned deploy fails loudly.
+        // Push channel: provider-agnostic, selected by `NOSDESK_PUSH_MODE`.
+        //
+        //   unset   — exactly the historical behaviour: native when
+        //             NOSDESK_APNS_* / NOSDESK_FCM_* are set, else inert. Hosted
+        //             therefore needs no new variable.
+        //   native  — same, stated explicitly.
+        //   relay   — forward through the cloud relay, which holds the
+        //             com.nosdesk.app credentials. Native creds are IGNORED in
+        //             this mode, so a self-hoster cannot accidentally send
+        //             official-app device tokens with their own key.
+        //   off     — inert even when credentials are present.
+        //
+        // Inert means is_available=false: push preferences still exist and
+        // device registration still works, nothing is delivered. A
+        // configured-but-malformed provider is fatal, so a half-provisioned
+        // deploy fails loudly rather than going quiet.
+        let push_mode = std::env::var("NOSDESK_PUSH_MODE")
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase();
         let push_sender: Arc<dyn crate::services::notifications::channels::push::PushSender> =
-            match crate::services::notifications::channels::push_sender::NativePushSender::from_env(
-            ) {
-                Ok(Some(sender)) => sender,
-                Ok(None) => {
-                    Arc::new(crate::services::notifications::channels::push::NoopPushSender)
+            match push_mode.as_str() {
+                "relay" => {
+                    // The licence is the relay credential. Without one there is
+                    // nothing to exchange, so stay inert rather than pretending.
+                    match std::env::var("NOSDESK_LICENSE_KEY")
+                        .ok()
+                        .filter(|s| !s.trim().is_empty())
+                    {
+                        Some(license) => {
+                            // `instance_id` is minted by `initialize_database`,
+                            // which `build_server` runs before this. Empty is
+                            // tolerated: `ensure_instance_id` is warn-only, and
+                            // a shared burst bucket beats refusing to push.
+                            let instance_id = pool
+                                .get()
+                                .ok()
+                                .and_then(|mut c| crate::sync::system_meta::instance_id(&mut c).ok())
+                                .unwrap_or_default();
+                            match crate::services::notifications::channels::relay_client::CloudRelayPushSender::new(
+                                license, instance_id,
+                            ) {
+                                Ok(sender) => Arc::new(sender),
+                                Err(e) => panic!("relay push sender is configured but invalid: {e}"),
+                            }
+                        }
+                        None => {
+                            tracing::warn!(
+                                "NOSDESK_PUSH_MODE=relay but NOSDESK_LICENSE_KEY is unset; push is inert"
+                            );
+                            Arc::new(crate::services::notifications::channels::push::NoopPushSender)
+                        }
+                    }
                 }
-                Err(e) => panic!("push sender is configured but invalid: {e:#}"),
+                "off" => Arc::new(crate::services::notifications::channels::push::NoopPushSender),
+                "" | "native" => {
+                    match crate::services::notifications::channels::push_sender::NativePushSender::from_env() {
+                        Ok(Some(sender)) => sender,
+                        Ok(None) => {
+                            Arc::new(crate::services::notifications::channels::push::NoopPushSender)
+                        }
+                        Err(e) => panic!("push sender is configured but invalid: {e:#}"),
+                    }
+                }
+                other => panic!(
+                    "NOSDESK_PUSH_MODE={other:?} is not recognised (expected relay, native, or off)"
+                ),
             };
+        let push_sender_for_state = push_sender.clone();
         let push_channel = Arc::new(
             crate::services::notifications::channels::push::PushChannel::new(
                 pool.clone(),
@@ -244,7 +304,10 @@ pub fn build_state(
         );
         service.register_channel(push_channel);
 
-        web::Data::new(service)
+        (
+            web::Data::new(service),
+            web::Data::new(push_sender_for_state),
+        )
     };
 
     // Inject the outbound resolver so the comment handler can gate the
@@ -438,6 +501,7 @@ pub fn build_state(
             analytics_cache,
             sse_state,
             notification_service,
+            push_sender_data,
             outbound_resolver_data,
             webhook_service,
             plugin_proxy_service,
@@ -611,6 +675,7 @@ pub fn configure_app(
             .app_data(state.yjs_app_state.clone())
             .app_data(state.sse_state.clone())
             .app_data(state.system_state.clone())
+            .app_data(state.push_sender_data.clone())
             .app_data(state.storage_data.clone())
             .app_data(state.notification_service.clone())
             .app_data(state.outbound_resolver_data.clone())

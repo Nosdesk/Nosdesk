@@ -131,32 +131,42 @@ pub async fn record(
                     let asset_workspace = tc
                         .workspace_id()
                         .unwrap_or(crate::sync::actor::BOOTSTRAP_WORKSPACE_ID);
-                    for recipient_uuid in recipients {
-                        let payload = NotificationPayload::new(
-                            NotificationTypeCode::AssetLowStock,
-                            recipient_uuid,
-                            NotificationActor {
-                                uuid: actor_uuid,
-                                name: actor_name.clone(),
-                                avatar_thumb: None,
-                                kind: crate::sync::ActorKind::User,
-                            },
-                            NotificationEntity::Asset {
-                                id: asset_id,
-                                name: outcome.asset_name.clone(),
-                            },
-                            asset_workspace,
-                        )
-                        .with_body(body_text.clone());
-                        if let Err(e) = notification_service.notify(payload).await {
-                            error!(
-                                asset_id,
-                                recipient = %recipient_uuid,
-                                error = %e,
-                                "Failed to deliver asset_low_stock notification from audit",
-                            );
+                    // Spawned, not awaited (plan O2). See the identical
+                    // comment in `asset_usage::record`: awaiting `notify()`
+                    // here holds this handler's `TenantConn` across a push
+                    // delivery, which in relay mode is a network call to the
+                    // control plane. `outcome` is still needed for the
+                    // response, so the name is cloned out rather than moved.
+                    let asset_name = outcome.asset_name.clone();
+                    let notification_service = notification_service.clone();
+                    tokio::spawn(async move {
+                        for recipient_uuid in recipients {
+                            let payload = NotificationPayload::new(
+                                NotificationTypeCode::AssetLowStock,
+                                recipient_uuid,
+                                NotificationActor {
+                                    uuid: actor_uuid,
+                                    name: actor_name.clone(),
+                                    avatar_thumb: None,
+                                    kind: crate::sync::ActorKind::User,
+                                },
+                                NotificationEntity::Asset {
+                                    id: asset_id,
+                                    name: asset_name.clone(),
+                                },
+                                asset_workspace,
+                            )
+                            .with_body(body_text.clone());
+                            if let Err(e) = notification_service.notify(payload).await {
+                                error!(
+                                    asset_id,
+                                    recipient = %recipient_uuid,
+                                    error = %e,
+                                    "Failed to deliver asset_low_stock notification from audit",
+                                );
+                            }
                         }
-                    }
+                    });
                 }
             }
             HttpResponse::Created().json(outcome.row)
