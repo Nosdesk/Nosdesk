@@ -318,6 +318,63 @@ impl RelayClient {
         self.record(Some("ok"));
         Ok(body.invalid_tokens)
     }
+
+    /// Whether the channel should present itself as configured.
+    ///
+    /// Deliberately not "have we had a successful exchange". `is_configured`
+    /// gates the channel, and the channel is what triggers the first exchange,
+    /// so latching false until success would deadlock: no exchange, so never
+    /// configured, so no exchange. Instead this is false only once the relay
+    /// has told us this licence will *not* work — a bad licence or an
+    /// unaccepted DPA. Transient failures stay usable so the next notification
+    /// retries, which is also the plan's "do not cache configured independently
+    /// of the last exchange".
+    pub fn is_usable(&self) -> bool {
+        !matches!(
+            self.status().last_outcome,
+            Some("invalid_license") | Some("dpa_required")
+        )
+    }
+}
+
+/// [`PushSender`] that forwards through the cloud relay instead of holding
+/// APNs/FCM credentials locally.
+pub struct CloudRelayPushSender {
+    client: RelayClient,
+}
+
+impl CloudRelayPushSender {
+    pub fn new(license: String, instance_id: String) -> reqwest::Result<Self> {
+        Ok(Self {
+            client: RelayClient::new(license, instance_id)?,
+        })
+    }
+
+    /// Snapshot for `GET /api/admin/edition`.
+    pub fn status(&self) -> RelayStatus {
+        self.client.status()
+    }
+}
+
+#[async_trait::async_trait]
+impl super::push::PushSender for CloudRelayPushSender {
+    fn is_configured(&self) -> bool {
+        self.client.is_usable()
+    }
+
+    async fn send(&self, targets: &[PushTarget], payload: &PushPayload) -> Vec<String> {
+        match self.client.send(targets, payload).await {
+            Ok(invalid) => invalid,
+            // Prune nothing on failure. The relay could not tell us which
+            // tokens are bad, and discarding a live registration because the
+            // relay was briefly unreachable would silently stop that device
+            // receiving push with no way back.
+            Err(failure) => {
+                log::warn!("relay push failed: error_kind={}", failure.kind());
+                Vec::new()
+            }
+        }
+    }
 }
 
 fn unix_now() -> u64 {
