@@ -25,7 +25,10 @@ use crate::db::Pool;
 /// is a "who did what" line; in `private` mode `title` is the generic type
 /// label and `body` is `None` ("tap to view"). Either way it carries no comment
 /// text — the same exposure as the notification email.
-#[derive(Debug, Clone)]
+/// `Serialize` is for the cloud relay wire format only (see
+/// `relay_client`), which forwards this struct verbatim. It carries alert text,
+/// so do not serialize it into a log line.
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct PushPayload {
     pub title: String,
     /// Context line ("Alice mentioned you"); `None` in the workspace's private mode.
