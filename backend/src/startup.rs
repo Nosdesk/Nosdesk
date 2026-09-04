@@ -33,6 +33,11 @@ pub struct AppState {
     pub analytics_cache: web::Data<Option<Arc<crate::utils::analytics_cache::AnalyticsCache>>>,
     pub sse_state: web::Data<crate::handlers::sse::SseState>,
     pub notification_service: web::Data<crate::services::notifications::NotificationService>,
+    /// The live push sender, so `GET /api/admin/edition` can report relay
+    /// status. Held separately because the sender is otherwise buried inside
+    /// the notification service's channel registry.
+    pub push_sender_data:
+        web::Data<Arc<dyn crate::services::notifications::channels::push::PushSender>>,
     pub outbound_resolver_data:
         web::Data<Arc<crate::services::outbound_email::OutboundEmailResolver>>,
     pub webhook_service: web::Data<crate::services::webhooks::WebhookService>,
@@ -187,7 +192,7 @@ pub fn build_state(
     }
 
     // Initialize notification service for in-app and email notifications
-    let notification_service = {
+    let (notification_service, push_sender_data) = {
         use std::collections::HashMap;
         use std::sync::Arc;
         use tokio::sync::RwLock as TokioRwLock;
@@ -290,6 +295,7 @@ pub fn build_state(
                     "NOSDESK_PUSH_MODE={other:?} is not recognised (expected relay, native, or off)"
                 ),
             };
+        let push_sender_for_state = push_sender.clone();
         let push_channel = Arc::new(
             crate::services::notifications::channels::push::PushChannel::new(
                 pool.clone(),
@@ -298,7 +304,10 @@ pub fn build_state(
         );
         service.register_channel(push_channel);
 
-        web::Data::new(service)
+        (
+            web::Data::new(service),
+            web::Data::new(push_sender_for_state),
+        )
     };
 
     // Inject the outbound resolver so the comment handler can gate the
@@ -492,6 +501,7 @@ pub fn build_state(
             analytics_cache,
             sse_state,
             notification_service,
+            push_sender_data,
             outbound_resolver_data,
             webhook_service,
             plugin_proxy_service,
@@ -665,6 +675,7 @@ pub fn configure_app(
             .app_data(state.yjs_app_state.clone())
             .app_data(state.sse_state.clone())
             .app_data(state.system_state.clone())
+            .app_data(state.push_sender_data.clone())
             .app_data(state.storage_data.clone())
             .app_data(state.notification_service.clone())
             .app_data(state.outbound_resolver_data.clone())

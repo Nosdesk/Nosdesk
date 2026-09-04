@@ -166,7 +166,13 @@ pub async fn list_workspaces(
 /// (disable Create + show an upgrade note) rather than hard-coding it
 /// client-side. The server gate in `create_workspace` is the real
 /// enforcement; this is purely for display.
-pub async fn get_edition(req: HttpRequest, mut pc: PlatformConn) -> impl Responder {
+pub async fn get_edition(
+    req: HttpRequest,
+    mut pc: PlatformConn,
+    push_sender: web::Data<
+        std::sync::Arc<dyn crate::services::notifications::channels::push::PushSender>,
+    >,
+) -> impl Responder {
     if let Err(resp) = rbac::require_platform_admin(&req) {
         return resp;
     }
@@ -184,6 +190,10 @@ pub async fn get_edition(req: HttpRequest, mut pc: PlatformConn) -> impl Respond
         "max_workspaces": max,
         "active_workspaces": active,
         "can_create_workspace": can_create,
+        // Present only in relay push mode. This is the operator's sole
+        // diagnostic when relayed push stops working, and it distinguishes an
+        // unreachable relay from a refused licence from an unaccepted DPA.
+        "relay": push_sender.relay_status(),
         "license": edition.license().map(|l| serde_json::json!({
             "customer_id": l.customer_id,
             "licensee": l.licensee,

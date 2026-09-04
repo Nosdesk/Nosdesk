@@ -56,6 +56,18 @@ pub trait PushSender: Send + Sync {
     fn is_configured(&self) -> bool;
     /// Send `payload` to each target; return permanently-invalid tokens to revoke.
     async fn send(&self, targets: &[PushTarget], payload: &PushPayload) -> Vec<String>;
+
+    /// Last relay interaction, when this sender forwards through the cloud
+    /// relay. `None` for the native and no-op senders, which have no remote to
+    /// report on.
+    ///
+    /// Surfaced on `GET /api/admin/edition`: it is the only signal a
+    /// self-hoster gets for why relayed push is failing, and it separates
+    /// "cannot reach the relay" from "the relay refused this licence" from
+    /// "the DPA has not been accepted".
+    fn relay_status(&self) -> Option<super::relay_client::RelayStatus> {
+        None
+    }
 }
 
 /// Placeholder sender: not configured, sends nothing. Replaced by APNs/FCM.
