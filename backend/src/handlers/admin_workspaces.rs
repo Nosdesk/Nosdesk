@@ -190,7 +190,7 @@ pub async fn get_edition(
         "max_workspaces": max,
         "active_workspaces": active,
         "can_create_workspace": can_create,
-        // Present only in relay push mode. This is the operator's sole
+        // Null outside relay push mode. This is the operator's sole
         // diagnostic when relayed push stops working, and it distinguishes an
         // unreachable relay from a refused licence from an unaccepted DPA.
         "relay": push_sender.relay_status(),

@@ -85,7 +85,7 @@ export interface EditionInfo {
   max_workspaces: number;
   active_workspaces: number;
   can_create_workspace: boolean;
-  /** Cloud push relay status; present only when NOSDESK_PUSH_MODE=relay. */
+  /** Cloud push relay status. Null unless NOSDESK_PUSH_MODE=relay. */
   relay: {
     /** `ok`, or a static failure kind such as `dpa_required`. */
     last_outcome: string | null;
