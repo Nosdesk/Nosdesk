@@ -103,7 +103,11 @@ enum LicenseCommand {
         /// Path to the Ed25519 private key (PKCS8 PEM).
         #[arg(long)]
         key: PathBuf,
-        /// Licensee (organisation the license is issued to).
+        /// Stable customer id (UUID). Required; reissues MUST pass the same
+        /// id or the usage meter starts over. Never defaulted.
+        #[arg(long)]
+        customer_id: String,
+        /// Display name of the licensee organisation.
         #[arg(long)]
         licensee: String,
         /// Maximum number of active workspaces the license permits.
@@ -115,6 +119,11 @@ enum LicenseCommand {
         /// License id (jti). Defaults to a generated id.
         #[arg(long)]
         license_id: Option<String>,
+        /// Feature keys to stamp (comma-separated). Unknown keys are
+        /// accepted at mint and dropped at verify against the binary's
+        /// known-key set. Empty in v1.1.
+        #[arg(long, value_delimiter = ',')]
+        features: Vec<String>,
     },
 }
 
@@ -335,22 +344,44 @@ fn run_license(cmd: LicenseCommand) -> Result<()> {
     match cmd {
         LicenseCommand::Sign {
             key,
+            customer_id,
             licensee,
             max_workspaces,
             days,
             license_id,
-        } => license_sign(&key, &licensee, max_workspaces, days, license_id),
+            features,
+        } => license_sign(
+            &key,
+            &customer_id,
+            &licensee,
+            max_workspaces,
+            days,
+            license_id,
+            features,
+        ),
     }
 }
 
 fn license_sign(
     key_path: &Path,
+    customer_id: &str,
     licensee: &str,
     max_workspaces: u32,
     days: i64,
     license_id: Option<String>,
+    features: Vec<String>,
 ) -> Result<()> {
     use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+
+    let customer_id = uuid::Uuid::parse_str(customer_id.trim()).with_context(|| {
+        format!(
+            "--customer-id must be a UUID (got {customer_id:?}); \
+             reissues must pass the same id, never omit it"
+        )
+    })?;
+    if licensee.trim().is_empty() {
+        bail!("--licensee must not be empty");
+    }
 
     let pem = fs::read_to_string(key_path)
         .with_context(|| format!("reading private key from {}", key_path.display()))?;
@@ -363,11 +394,13 @@ fn license_sign(
 
     let claims = backend::license::LicenseClaims {
         iss: backend::license::LICENSE_ISSUER.to_string(),
-        sub: licensee.to_string(),
+        sub: customer_id.to_string(),
+        licensee: licensee.trim().to_string(),
         jti,
         iat: now,
         exp,
         max_workspaces,
+        features,
     };
 
     let token = encode(&Header::new(Algorithm::EdDSA), &claims, &enc).context("signing license")?;
@@ -375,7 +408,8 @@ fn license_sign(
     // Stderr carries the human-readable summary; stdout is just the token so
     // it can be piped straight into an env file or secret store.
     eprintln!(
-        "Signed license for {licensee}: max_workspaces={max_workspaces}, expires in {days} day(s)."
+        "Signed license for {licensee} (customer_id={customer_id}): \
+         max_workspaces={max_workspaces}, expires in {days} day(s)."
     );
     println!("{}{token}", backend::license::LICENSE_PREFIX);
     Ok(())
