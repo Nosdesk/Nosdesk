@@ -349,11 +349,6 @@ impl CloudRelayPushSender {
             client: RelayClient::new(license, instance_id)?,
         })
     }
-
-    /// Snapshot for `GET /api/admin/edition`.
-    pub fn status(&self) -> RelayStatus {
-        self.client.status()
-    }
 }
 
 #[async_trait::async_trait]
