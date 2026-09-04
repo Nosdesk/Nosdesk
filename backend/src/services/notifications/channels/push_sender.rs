@@ -42,6 +42,23 @@ enum SendOutcome {
 }
 
 /// Read an env var as a non-empty trimmed string, or `None`.
+/// Total per-request budget for a provider call, and the slice of it a
+/// connection may take. Sends are sequential per target and per channel, so
+/// without an explicit timeout one hung connection stalls the whole
+/// notification: reqwest sets no default. Five seconds is generous for an
+/// HTTP/2 POST to APNs or FCM, which normally answer well inside a second.
+const PROVIDER_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+const PROVIDER_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// HTTP client for a push provider, with the timeouts above applied.
+fn provider_http_client(provider: &str) -> Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .timeout(PROVIDER_REQUEST_TIMEOUT)
+        .connect_timeout(PROVIDER_CONNECT_TIMEOUT)
+        .build()
+        .with_context(|| format!("building the {provider} HTTP client"))
+}
+
 fn env_nonempty(key: &str) -> Option<String> {
     match std::env::var(key) {
         Ok(v) if !v.trim().is_empty() => Some(v),
@@ -121,7 +138,7 @@ impl ApnsClient {
             .context("NOSDESK_APNS_KEY_P8 is not a valid EC private key (.p8 PEM)")?;
 
         Ok(Some(Self {
-            http: reqwest::Client::new(),
+            http: provider_http_client("APNs")?,
             encoding_key,
             key_id,
             team_id,
@@ -162,6 +179,13 @@ impl ApnsClient {
             minted: Instant::now(),
         });
         Ok(token)
+    }
+
+    /// Drop the cached provider JWT so the next send mints a fresh one.
+    /// Without this a bearer rejected by Apple stays cached until the
+    /// 50-minute age check expires, failing every send in between.
+    async fn invalidate_bearer(&self) {
+        *self.jwt.lock().await = None;
     }
 
     async fn send_one(&self, device_token: &str, payload: &PushPayload) -> SendOutcome {
@@ -208,6 +232,18 @@ impl ApnsClient {
                     return SendOutcome::Sent;
                 }
                 let reason = r.text().await.unwrap_or_default();
+                // 403 is ExpiredProviderToken / InvalidProviderToken: the fault
+                // is the cached bearer, not the device token. Drop it so the
+                // next send re-mints rather than repeating the failure.
+                if status.as_u16() == 403 {
+                    self.invalidate_bearer().await;
+                    warn!(
+                        %status,
+                        reason = %reason,
+                        "apns: provider token rejected, dropped the cached bearer"
+                    );
+                    return SendOutcome::Failed;
+                }
                 // 410 = the token is no longer active for this topic; a 400 with
                 // one of these reasons means the token is permanently unusable.
                 if status.as_u16() == 410
@@ -224,7 +260,12 @@ impl ApnsClient {
                 }
             }
             Err(e) => {
-                warn!(error = %e, "apns: request error");
+                // The device token is a path segment of the request URL, and
+                // reqwest's Error Display renders the URL, so logging `e`
+                // directly would print the token. reqwest attaches the URL to
+                // timeout errors too, which is why this guard belongs with the
+                // timeouts configured above, not after them.
+                warn!(error = %e.without_url(), "apns: request error");
                 SendOutcome::Failed
             }
         }
@@ -301,7 +342,7 @@ impl FcmClient {
         let project_id = env_nonempty("NOSDESK_FCM_PROJECT_ID").unwrap_or(sa.project_id);
 
         Ok(Some(Self {
-            http: reqwest::Client::new(),
+            http: provider_http_client("FCM")?,
             encoding_key,
             client_email: sa.client_email,
             token_uri: sa.token_uri,
@@ -515,6 +556,31 @@ mod tests {
         // Cached: a second call returns the same token.
         let second = client.bearer().await.expect("cached");
         assert_eq!(first, second);
+    }
+
+    #[tokio::test]
+    async fn apns_invalidates_the_cached_bearer() {
+        let client = apns_test_client();
+        client.bearer().await.expect("mint");
+        assert!(client.jwt.lock().await.is_some());
+
+        client.invalidate_bearer().await;
+        assert!(
+            client.jwt.lock().await.is_none(),
+            "a bearer Apple rejected with 403 must not stay cached"
+        );
+
+        // The next send re-mints instead of replaying the rejected token.
+        client.bearer().await.expect("re-mint");
+        assert!(client.jwt.lock().await.is_some());
+    }
+
+    #[test]
+    fn provider_client_builds_with_timeouts() {
+        // Guards the builder config itself: an invalid combination would
+        // otherwise only surface as a panic at boot.
+        provider_http_client("APNs").expect("APNs client");
+        provider_http_client("FCM").expect("FCM client");
     }
 
     #[test]
