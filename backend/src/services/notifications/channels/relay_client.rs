@@ -78,6 +78,14 @@ pub enum RelayFailure {
     DpaRequired,
     /// Throttled: either the exchange's per-IP limit or the send burst limit.
     RateLimited,
+    /// The customer is over their metered usage cap for the billing period.
+    ///
+    /// Deliberately NOT folded into `RateLimited` or `DpaRequired`: it is a
+    /// commercial limit, not a rate limit and not a missing contract, and the
+    /// operator's remedy differs in each case. Critically it must not latch the
+    /// channel off (see `is_usable`), because the cap clears on its own at the
+    /// period rollover.
+    OverCap,
     /// The relay is deployed but not configured (missing keys on its side).
     RelayUnavailable,
     /// Could not reach the relay at all, or it timed out.
@@ -92,6 +100,7 @@ impl RelayFailure {
             Self::InvalidLicense => "invalid_license",
             Self::DpaRequired => "dpa_required",
             Self::RateLimited => "rate_limited",
+            Self::OverCap => "usage_cap",
             Self::RelayUnavailable => "relay_unavailable",
             Self::Unreachable => "unreachable",
             Self::Unexpected => "unexpected",
@@ -106,6 +115,7 @@ pub fn classify_status(status: u16) -> Result<(), RelayFailure> {
     match status {
         200..=299 => Ok(()),
         401 => Err(RelayFailure::InvalidLicense),
+        402 => Err(RelayFailure::OverCap),
         403 => Err(RelayFailure::DpaRequired),
         429 => Err(RelayFailure::RateLimited),
         503 => Err(RelayFailure::RelayUnavailable),
@@ -397,6 +407,7 @@ mod tests {
     fn status_mapping_matches_the_relay_contract() {
         assert!(classify_status(200).is_ok());
         assert_eq!(classify_status(401), Err(RelayFailure::InvalidLicense));
+        assert_eq!(classify_status(402), Err(RelayFailure::OverCap));
         assert_eq!(classify_status(403), Err(RelayFailure::DpaRequired));
         assert_eq!(classify_status(429), Err(RelayFailure::RateLimited));
         assert_eq!(classify_status(503), Err(RelayFailure::RelayUnavailable));
@@ -431,6 +442,28 @@ mod tests {
         let mut deduped = sorted.to_vec();
         deduped.dedup();
         assert_eq!(deduped.len(), kinds.len(), "kinds must be distinguishable");
+    }
+
+    #[test]
+    /// Being over the usage cap must NOT latch the channel off.
+    ///
+    /// The cap clears by itself at the period rollover, so latching would leave
+    /// push dead until someone restarted the process. This is why the relay
+    /// answers 402 rather than reusing 403, which does latch.
+    #[test]
+    fn the_usage_cap_does_not_latch_the_channel_off() {
+        let latching = [
+            RelayFailure::InvalidLicense.kind(),
+            RelayFailure::DpaRequired.kind(),
+        ];
+        assert!(
+            !latching.contains(&RelayFailure::OverCap.kind()),
+            "over-cap must stay usable so the next period recovers on its own"
+        );
+        assert!(
+            !latching.contains(&RelayFailure::RateLimited.kind()),
+            "a throttle is transient too"
+        );
     }
 
     #[test]
