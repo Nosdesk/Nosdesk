@@ -138,6 +138,36 @@ if (isTauriRuntime()) {
   })
 }
 
+// Register this device for push whenever a session goes live.
+//
+// This used to hang off the OIDC login button alone, so signing in with a
+// password, MFA, passkey or recovery code registered nothing and the user
+// silently received no push at all. Watching the auth flag instead covers every
+// login path, plus cold start with a restored session — which also picks up
+// APNs/FCM token rotation, since a rotated token otherwise leaves the device
+// permanently silent with no way back.
+//
+// Idempotent server-side (the endpoint upserts), so re-calling costs one
+// request. Best-effort by design: a push-registration failure must never block
+// getting into the app.
+if (isTauriRuntime()) {
+  onMounted(() => {
+    watch(
+      () => authStore.isAuthenticated,
+      async (authed) => {
+        if (!authed) return
+        try {
+          const { registerForPush } = await import('@nosdesk/mobile')
+          await registerForPush()
+        } catch (error) {
+          console.warn('[push] device registration failed', error)
+        }
+      },
+      { immediate: true }
+    )
+  })
+}
+
 // Ticket deep links (iOS Universal Links / Android App Links). Same shape as
 // the push route above: resolve where the tapped/scanned URL goes, waiting for
 // the session on a cold start. v1 rule: a ticket link whose host is the server

@@ -11,6 +11,7 @@
  */
 import { ref, onMounted, onUnmounted } from 'vue'
 import { Z_INDEX } from '@nosdesk/core/constants/zIndex'
+import { createNoncedStyleElement } from '@/utils/cspNonce'
 
 interface CrtEffectOptions {
   theme?: string
@@ -43,8 +44,9 @@ export function useCrtEffect(options: CrtEffectOptions = {}) {
     overlay.className = 'crt-screen-effect'
     overlay.setAttribute('aria-hidden', 'true')
 
-    // Create style element for animations
-    styleElement = document.createElement('style')
+    // Create style element for animations. Nonced for the same reason as the
+    // theme injector: a bare <style> is blocked under Tauri's nonce CSP.
+    styleElement = createNoncedStyleElement()
     styleElement.textContent = `
       .crt-screen-effect {
         position: fixed;

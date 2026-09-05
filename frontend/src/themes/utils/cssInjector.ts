@@ -1,4 +1,5 @@
 import type { Theme } from '../types'
+import { createNoncedStyleElement } from '@/utils/cspNonce'
 
 /**
  * CSS Variable Injector
@@ -99,8 +100,10 @@ ${colors.syntax ? Object.entries(colors.syntax).map(([key, value]) => `
   // Get or create style element
   let styleEl = document.getElementById(STYLE_ID) as HTMLStyleElement | null
   if (!styleEl) {
-    styleEl = document.createElement('style')
-    styleEl.id = STYLE_ID
+    // Nonced: Tauri's runtime CSP nonce makes the browser ignore the
+    // `'unsafe-inline'` we configure, so a bare <style> is blocked and every
+    // token below silently fails to apply. See utils/cspNonce.
+    styleEl = createNoncedStyleElement(STYLE_ID)
     document.head.appendChild(styleEl)
   }
 

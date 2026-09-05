@@ -414,7 +414,7 @@ const handleOidcLoginClick = async () => {
   // then hydrate the auth store from /me and route in. (No-op import on web.)
   if (isTauriRuntime()) {
     try {
-      const { loginWithOidc, registerForPush } = await import('@nosdesk/mobile');
+      const { loginWithOidc } = await import('@nosdesk/mobile');
       await loginWithOidc();
       // Force past the 5s fetch cooldown: a fresh session must load the user
       // even if a pre-sign-out /auth/me attempt is still within the window.
@@ -423,9 +423,9 @@ const handleOidcLoginClick = async () => {
       // fetchUserData is what flips true.
       await authStore.fetchUserData({ force: true });
       authStore.setAuthProvider('oidc');
-      // Session is live — register this device for push (best-effort; never
-      // blocks routing into the app).
-      void registerForPush();
+      // Push registration is not done here: App.vue registers on every
+      // transition to an authenticated session, which covers this path along
+      // with password, MFA, passkey and recovery sign-in.
       // Resolve + set the active workspace before navigating so views mount with
       // the slug (and thus the X-Nosdesk-Workspace header). The brief window
       // between the auth flip above and the slug being set is covered by the
