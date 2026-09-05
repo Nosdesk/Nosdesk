@@ -295,6 +295,20 @@ pub fn build_state(
                     "NOSDESK_PUSH_MODE={other:?} is not recognised (expected relay, native, or off)"
                 ),
             };
+        // Say which sender won, at info. Push has no request the operator can
+        // watch and every skip downstream is quiet, so without this line the
+        // only way to tell relay mode from native mode on a running instance is
+        // to read the process environment.
+        tracing::info!(
+            mode = if push_mode.is_empty() {
+                "unset"
+            } else {
+                push_mode.as_str()
+            },
+            sender = push_sender.name(),
+            configured = push_sender.is_configured(),
+            "Push sender selected"
+        );
         let push_sender_for_state = push_sender.clone();
         let push_channel = Arc::new(
             crate::services::notifications::channels::push::PushChannel::new(

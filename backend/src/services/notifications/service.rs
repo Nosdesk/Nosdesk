@@ -107,6 +107,16 @@ impl NotificationService {
             )
             .await?;
 
+        // The resolved channel set, at debug. Push being absent here is a
+        // preference outcome, not a fault, and it is otherwise indistinguishable
+        // from a push that was attempted and failed.
+        tracing::debug!(
+            recipient = %payload.recipient_uuid,
+            notification_type = ?payload.notification_type,
+            channels = ?enabled_channels,
+            "Resolved delivery channels"
+        );
+
         if enabled_channels.is_empty() {
             tracing::debug!(
                 recipient = %payload.recipient_uuid,
