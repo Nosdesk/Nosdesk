@@ -169,8 +169,12 @@ pub async fn list_workspaces(
 pub async fn get_edition(
     req: HttpRequest,
     mut pc: PlatformConn,
-    push_sender: web::Data<
-        std::sync::Arc<dyn crate::services::notifications::channels::push::PushSender>,
+    // Optional so a slimmer App (tests, and any future partial wiring) still
+    // serves the edition summary instead of 500-ing on a missing extractor.
+    // A sender that is not registered has no relay to report on, which is the
+    // same `null` the native and off modes produce.
+    push_sender: Option<
+        web::Data<std::sync::Arc<dyn crate::services::notifications::channels::push::PushSender>>,
     >,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_platform_admin(&req) {
@@ -193,7 +197,7 @@ pub async fn get_edition(
         // Null outside relay push mode. This is the operator's sole
         // diagnostic when relayed push stops working, and it distinguishes an
         // unreachable relay from a refused licence from an unaccepted DPA.
-        "relay": push_sender.relay_status(),
+        "relay": push_sender.and_then(|p| p.relay_status()),
         "license": edition.license().map(|l| serde_json::json!({
             "customer_id": l.customer_id,
             "licensee": l.licensee,
