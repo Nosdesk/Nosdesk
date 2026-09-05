@@ -499,6 +499,10 @@ impl NativePushSender {
 
 #[async_trait::async_trait]
 impl PushSender for NativePushSender {
+    fn name(&self) -> &'static str {
+        "native"
+    }
+
     fn is_configured(&self) -> bool {
         self.apns.is_some() || self.fcm.is_some()
     }

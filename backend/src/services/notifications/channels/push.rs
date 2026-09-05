@@ -14,7 +14,9 @@
 //! PRIVATE`). Set via `workspaces.settings.notification_push_detail`.
 
 use async_trait::async_trait;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use tracing::{debug, info};
 
 use super::super::types::{DeliverableNotification, NotificationChannel};
 use super::{ChannelError, ChannelResult, NotificationDeliveryChannel};
@@ -68,6 +70,10 @@ pub trait PushSender: Send + Sync {
     fn relay_status(&self) -> Option<super::relay_client::RelayStatus> {
         None
     }
+
+    /// Short static label for logs ("relay", "native", "none"). Lets the boot
+    /// line name the live sender without the caller matching on a concrete type.
+    fn name(&self) -> &'static str;
 }
 
 /// Placeholder sender: not configured, sends nothing. Replaced by APNs/FCM.
@@ -78,6 +84,9 @@ impl PushSender for NoopPushSender {
     fn is_configured(&self) -> bool {
         false
     }
+    fn name(&self) -> &'static str {
+        "none"
+    }
     async fn send(&self, _targets: &[PushTarget], _payload: &PushPayload) -> Vec<String> {
         Vec::new()
     }
@@ -87,11 +96,23 @@ impl PushSender for NoopPushSender {
 pub struct PushChannel {
     pool: Pool,
     sender: Arc<dyn PushSender>,
+    /// Whether the "no registered devices" case has been reported yet.
+    ///
+    /// That exit is the single most common reason push looks broken on a fresh
+    /// install, and it is silent: `deliver` returns `Ok(())` and nothing
+    /// distinguishes it from a delivered push. One line per process makes it
+    /// visible without logging on every notification for a workspace where most
+    /// people have not installed the app.
+    no_devices_reported: AtomicBool,
 }
 
 impl PushChannel {
     pub fn new(pool: Pool, sender: Arc<dyn PushSender>) -> Self {
-        Self { pool, sender }
+        Self {
+            pool,
+            sender,
+            no_devices_reported: AtomicBool::new(false),
+        }
     }
 }
 
@@ -123,6 +144,16 @@ impl NotificationDeliveryChannel for PushChannel {
         .collect();
 
         if targets.is_empty() {
+            // Info once, debug thereafter: enough to diagnose a fresh install,
+            // quiet enough for steady state.
+            if !self.no_devices_reported.swap(true, Ordering::Relaxed) {
+                info!(
+                    recipient = %recipient,
+                    "Push skipped: recipient has no registered devices. Devices register                      on sign-in from the mobile app; this is logged once per process."
+                );
+            } else {
+                debug!(recipient = %recipient, "Push skipped: no registered devices");
+            }
             return Ok(());
         }
 
@@ -175,5 +206,40 @@ impl NotificationDeliveryChannel for PushChannel {
             );
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Pins the once-per-process contract the no-devices notice relies on: the
+    /// first `swap` reports, every later one falls through to debug. A
+    /// workspace where most members have not installed the app would otherwise
+    /// log on nearly every notification it sends.
+    ///
+    /// This exercises the flag, not `deliver` — driving the real path needs a
+    /// pool and a seeded recipient, which is disproportionate for a log line.
+    #[test]
+    fn no_devices_notice_fires_once_per_process() {
+        let flag = AtomicBool::new(false);
+        assert!(
+            !flag.swap(true, Ordering::Relaxed),
+            "first hit reports at info"
+        );
+        for _ in 0..5 {
+            assert!(
+                flag.swap(true, Ordering::Relaxed),
+                "subsequent hits fall through to debug"
+            );
+        }
+    }
+
+    /// Every sender names itself, so the boot line can never print an empty
+    /// label for whichever one was selected.
+    #[test]
+    fn senders_report_a_static_name() {
+        assert_eq!(NoopPushSender.name(), "none");
+        assert!(!NoopPushSender.is_configured());
     }
 }

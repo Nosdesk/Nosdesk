@@ -361,6 +361,10 @@ impl super::push::PushSender for CloudRelayPushSender {
         Some(self.client.status())
     }
 
+    fn name(&self) -> &'static str {
+        "relay"
+    }
+
     async fn send(&self, targets: &[PushTarget], payload: &PushPayload) -> Vec<String> {
         match self.client.send(targets, payload).await {
             Ok(invalid) => invalid,
