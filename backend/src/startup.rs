@@ -307,6 +307,10 @@ pub fn build_state(
             },
             sender = push_sender.name(),
             configured = push_sender.is_configured(),
+            // Same id the edition surface reports, so an operator on a
+            // multi-replica deployment can match a relay status to this
+            // machine's logs.
+            process_id = crate::utils::process_id::process_id(),
             "Push sender selected"
         );
         let push_sender_for_state = push_sender.clone();
