@@ -6,7 +6,7 @@
 
     <div class="flex flex-col gap-6">
       <!-- Header -->
-      <header class="flex flex-col gap-1.5">
+      <header class="flex flex-col gap-1.5 text-center lg:text-left">
         <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight text-primary">
           {{ headerTitle }}
         </h1>
