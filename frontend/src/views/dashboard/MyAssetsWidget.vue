@@ -62,7 +62,7 @@ const errorMessage = computed(() =>
           class="block px-4 py-2 hover:bg-surface-hover transition-colors group"
         >
           <p class="text-sm text-primary truncate group-hover:text-accent transition-colors">{{ d.name }}</p>
-          <p class="mt-0.5 text-[11px] text-tertiary truncate">
+          <p class="mt-0.5 text-2xs text-tertiary truncate">
             {{ d.model || t('dashboard-my-assets-unknown-model') }}<template v-if="d.attributes?.hostname"> · {{ d.attributes.hostname }}</template>
           </p>
         </router-link>

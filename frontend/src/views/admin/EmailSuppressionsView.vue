@@ -217,7 +217,7 @@ function formatDateTime(iso: string): string {
                 class="rounded border border-default bg-surface px-3 py-2 flex items-center gap-3"
             >
                 <span
-                    class="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded"
+                    class="text-3xs font-semibold uppercase tracking-wide px-2 py-0.5 rounded"
                     :class="toneFor(row.reason)"
                 >
                     {{ reasonLabel(row.reason) }}

@@ -431,7 +431,7 @@ defineExpose({ openAddFilter })
       />
       <button
         type="button"
-        class="text-[11px] text-tertiary hover:text-primary px-2 h-6 rounded-md hover:bg-surface-hover transition-colors"
+        class="text-2xs text-tertiary hover:text-primary px-2 h-6 rounded-md hover:bg-surface-hover transition-colors"
         :title="$t('ticket-list-save-view-title')"
         @click="emit('save-as-view')"
       >

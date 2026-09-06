@@ -919,7 +919,7 @@ function affectedDevicesTooltip(card: CardData): string {
             </h3>
           </div>
           <div class="flex items-center gap-1 shrink-0">
-            <span class="text-[10px] text-tertiary tabular-nums leading-none">{{ lane.totalCards }}</span>
+            <span class="text-3xs text-tertiary tabular-nums leading-none">{{ lane.totalCards }}</span>
           </div>
         </header>
         <!-- Bottom pad — scrolls away with the top pad. -->
@@ -938,7 +938,7 @@ function affectedDevicesTooltip(card: CardData): string {
         >
           <header
             v-if="secondaryGroupBy"
-            class="kanban-sublane-header flex items-center justify-between px-2 py-0.5 text-[10px] uppercase tracking-wide font-semibold text-tertiary bg-surface border-b border-subtle sticky z-10 shrink-0"
+            class="kanban-sublane-header flex items-center justify-between px-2 py-0.5 text-3xs uppercase tracking-wide font-semibold text-tertiary bg-surface border-b border-subtle sticky z-10 shrink-0"
           >
             <span class="truncate">{{ sublane.label }}</span>
             <span class="tabular-nums">{{ sublane.cards.length }}</span>
@@ -972,7 +972,7 @@ function affectedDevicesTooltip(card: CardData): string {
                      tooltip — the colour does the talking; full
                      countdown text lives in the detail view. -->
                 <div class="flex items-start justify-between gap-1.5 mb-1">
-                  <h4 class="text-[13px] font-medium text-primary line-clamp-2 flex-1 inline-flex items-baseline gap-1">
+                  <h4 class="text-xs-plus font-medium text-primary line-clamp-2 flex-1 inline-flex items-baseline gap-1">
                     <span
                       v-if="card.recurrence_rule"
                       class="text-tertiary text-xs shrink-0"
@@ -1011,7 +1011,7 @@ function affectedDevicesTooltip(card: CardData): string {
                 >
                   <span
                     v-if="card.kb_gap_signal && card.kb_gap_signal !== 'none'"
-                    class="text-[10px] font-medium rounded px-1.5 py-0.5 inline-flex items-center gap-1"
+                    class="text-3xs font-medium rounded px-1.5 py-0.5 inline-flex items-center gap-1"
                     :class="kbGapClass(card.kb_gap_signal)"
                     :title="`${card.kb_gap_signal} knowledge gap signal`"
                   >
@@ -1020,7 +1020,7 @@ function affectedDevicesTooltip(card: CardData): string {
                   </span>
                   <span
                     v-if="card.affected_devices && card.affected_devices.count > 0"
-                    class="text-[10px] font-medium rounded px-1.5 py-0.5 bg-surface-hover text-secondary inline-flex items-center gap-1"
+                    class="text-3xs font-medium rounded px-1.5 py-0.5 bg-surface-hover text-secondary inline-flex items-center gap-1"
                     :title="affectedDevicesTooltip(card)"
                   >
                     <span aria-hidden="true">▢</span>
@@ -1029,7 +1029,7 @@ function affectedDevicesTooltip(card: CardData): string {
                 </div>
 
                 <!-- Meta row -->
-                <div class="flex items-center justify-between text-[11px] text-tertiary">
+                <div class="flex items-center justify-between text-2xs text-tertiary">
                   <span class="font-mono">#{{ card.id }}</span>
                   <UserAvatar
                     v-if="card.assignee_uuid"
@@ -1046,7 +1046,7 @@ function affectedDevicesTooltip(card: CardData): string {
                      will move on the next drag. -->
                 <span
                   v-if="isSelected(card.id) && selectedIds.size > 1"
-                  class="absolute top-1 right-1 text-[10px] uppercase tracking-wide font-semibold text-accent bg-accent/10 rounded px-1.5 py-0.5"
+                  class="absolute top-1 right-1 text-3xs uppercase tracking-wide font-semibold text-accent bg-accent/10 rounded px-1.5 py-0.5"
                 >
                   {{ selectedIds.size }} selected
                 </span>
@@ -1058,7 +1058,7 @@ function affectedDevicesTooltip(card: CardData): string {
                    accent while a card is dragged over it. -->
               <div
                 v-if="sublane.cards.length === 0"
-                class="flex items-center justify-center text-[11px] italic border-2 rounded-lg min-h-12 transition-colors"
+                class="flex items-center justify-center text-2xs italic border-2 rounded-lg min-h-12 transition-colors"
                 :class="
                   isLaneHovered(sublane.id)
                     ? 'border-accent bg-accent-muted text-accent font-medium'
@@ -1087,7 +1087,7 @@ function affectedDevicesTooltip(card: CardData): string {
                 :ref="(el) => focusQuickAdd(el as Element | null)"
                 v-model="quickAddTitle"
                 type="text"
-                class="w-full text-[13px] rounded-md border border-default bg-surface px-2 py-1 text-primary placeholder:text-tertiary focus:outline-none focus:ring-2 focus:ring-accent"
+                class="w-full text-xs-plus rounded-md border border-default bg-surface px-2 py-1 text-primary placeholder:text-tertiary focus:outline-none focus:ring-2 focus:ring-accent"
                 :placeholder="projectId != null ? t('kanban-composer-placeholder') : t('kanban-quick-add-placeholder')"
                 @keydown.enter.prevent="commitQuickAdd(lane)"
                 @keydown.down.prevent="quickAddNav(1)"
@@ -1106,7 +1106,7 @@ function affectedDevicesTooltip(card: CardData): string {
                 <button
                   v-if="quickAddCanCreate"
                   type="button"
-                  class="w-full flex items-center gap-1.5 px-2 py-1.5 text-left text-[13px] text-primary"
+                  class="w-full flex items-center gap-1.5 px-2 py-1.5 text-left text-xs-plus text-primary"
                   :class="isCreateHighlighted ? 'bg-accent-muted' : 'hover:bg-surface-hover'"
                   @mousedown.prevent="submitQuickAdd(lane)"
                 >
@@ -1116,7 +1116,7 @@ function affectedDevicesTooltip(card: CardData): string {
 
                 <div
                   v-if="quickAddMatches.length > 0"
-                  class="px-2 pt-1 pb-0.5 text-[10px] uppercase tracking-wide text-tertiary border-t border-subtle"
+                  class="px-2 pt-1 pb-0.5 text-3xs uppercase tracking-wide text-tertiary border-t border-subtle"
                 >
                   {{ quickAddTitle.trim() ? t('kanban-composer-existing') : t('kanban-composer-recent') }}
                 </div>
@@ -1124,7 +1124,7 @@ function affectedDevicesTooltip(card: CardData): string {
                   v-for="(match, i) in quickAddMatches"
                   :key="match.id"
                   type="button"
-                  class="w-full flex items-center gap-1.5 px-2 py-1.5 text-left text-[13px]"
+                  class="w-full flex items-center gap-1.5 px-2 py-1.5 text-left text-xs-plus"
                   :class="isMatchHighlighted(i) ? 'bg-accent-muted' : 'hover:bg-surface-hover'"
                   @mousedown.prevent="addExisting(lane, match.id)"
                 >
@@ -1137,7 +1137,7 @@ function affectedDevicesTooltip(card: CardData): string {
             <button
               v-else
               type="button"
-              class="w-full flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] text-tertiary hover:text-primary hover:bg-surface-hover transition-colors"
+              class="w-full flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs-plus text-tertiary hover:text-primary hover:bg-surface-hover transition-colors"
               :aria-label="t('kanban-quick-add-aria', { column: lane.label })"
               @click.stop="openQuickAdd(lane.id)"
             >
@@ -1186,7 +1186,7 @@ function affectedDevicesTooltip(card: CardData): string {
 
           <div
             v-if="quickAddMatches.length > 0"
-            class="px-3 pt-3 pb-1 text-[11px] uppercase tracking-wide text-tertiary"
+            class="px-3 pt-3 pb-1 text-2xs uppercase tracking-wide text-tertiary"
           >
             {{ quickAddTitle.trim() ? t('kanban-composer-existing') : t('kanban-composer-recent') }}
           </div>
@@ -1198,7 +1198,7 @@ function affectedDevicesTooltip(card: CardData): string {
             class="w-full flex items-center gap-2.5 px-3 min-h-[52px] py-2 text-left border-b border-subtle active:bg-surface-hover"
             @click="sheetAddExisting(match.id)"
           >
-            <span class="text-tertiary tabular-nums shrink-0 text-[13px]">#{{ match.id }}</span>
+            <span class="text-tertiary tabular-nums shrink-0 text-xs-plus">#{{ match.id }}</span>
             <span class="flex-1 min-w-0 truncate text-[15px] text-primary">{{ match.title }}</span>
             <PriorityIndicator
               v-if="match.priority && match.priority !== 'none'"

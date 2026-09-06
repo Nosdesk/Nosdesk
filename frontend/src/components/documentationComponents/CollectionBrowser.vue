@@ -169,15 +169,15 @@ onMounted(loadCollections)
        width, so the ledger degrades gracefully in a narrow main column. -->
   <section class="@container bg-surface rounded-xl border border-default overflow-hidden">
     <header class="flex items-center gap-2 px-3 h-9 border-b border-default bg-surface-alt">
-      <h2 class="text-[13px] font-semibold text-primary tracking-tight truncate flex-1">
+      <h2 class="text-xs-plus font-semibold text-primary tracking-tight truncate flex-1">
         {{ $t('docs-index-library-heading') }}
       </h2>
-      <span v-if="collections.length > 0" class="text-[11px] text-tertiary tabular-nums">
+      <span v-if="collections.length > 0" class="text-2xs text-tertiary tabular-nums">
         {{ $t('docs-index-library-count', { count: collections.length }) }}
       </span>
       <button
         type="button"
-        class="text-[11px] font-medium text-accent hover:underline whitespace-nowrap"
+        class="text-2xs font-medium text-accent hover:underline whitespace-nowrap"
         @click="emit('create')"
       >
         {{ $t('docs-collection-browser-new') }}
@@ -232,7 +232,7 @@ onMounted(loadCollections)
             </RouterLink>
             <span
               v-if="!collection.is_public"
-              class="shrink-0 inline-flex items-center gap-1 self-center text-[11px] text-tertiary border border-subtle rounded-md px-1.5 py-px bg-surface-alt"
+              class="shrink-0 inline-flex items-center gap-1 self-center text-2xs text-tertiary border border-subtle rounded-md px-1.5 py-px bg-surface-alt"
             >
               <Icon name="lock" size="xs" class="text-status-warning/80" aria-hidden="true" />
               {{ audienceLabel(collection) }}
@@ -276,7 +276,7 @@ onMounted(loadCollections)
           </div>
         </div>
 
-        <div class="flex flex-col items-end gap-1 shrink-0 text-[11px] text-tertiary whitespace-nowrap">
+        <div class="flex flex-col items-end gap-1 shrink-0 text-2xs text-tertiary whitespace-nowrap">
           <span class="font-medium text-secondary tabular-nums">
             {{ $t('docs-collection-browser-pages', { count: collection.page_count }) }}
           </span>
@@ -287,7 +287,7 @@ onMounted(loadCollections)
       </li>
     </ul>
 
-    <p v-else class="text-[13px] text-tertiary px-4 py-3">
+    <p v-else class="text-xs-plus text-tertiary px-4 py-3">
       {{ $t('docs-collection-browser-empty') }}
     </p>
   </section>

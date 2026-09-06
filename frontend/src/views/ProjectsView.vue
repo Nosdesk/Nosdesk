@@ -425,7 +425,7 @@ function handleProjectContextMenuSelect(actionId: string): void {
           </template>
 
           <template #cell-updated="{ item }">
-            <span v-if="item.updated_at" class="text-[11px] text-tertiary tabular-nums">
+            <span v-if="item.updated_at" class="text-2xs text-tertiary tabular-nums">
               {{ formatCompactRelativeTime(item.updated_at) }}
             </span>
           </template>

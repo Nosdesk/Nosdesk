@@ -413,7 +413,7 @@ onBeforeUnmount(() => {
             {{ tab.label }}
             <span
               v-if="tab.value === 'unread' && unreadCount > 0"
-              class="rounded-full bg-accent/15 px-1.5 py-0.5 text-[11px] font-semibold leading-none text-accent"
+              class="rounded-full bg-accent/15 px-1.5 py-0.5 text-2xs font-semibold leading-none text-accent"
             >
               {{ unreadCount > 99 ? '99+' : unreadCount }}
             </span>
@@ -562,7 +562,7 @@ onBeforeUnmount(() => {
               class="border-b border-default last:border-b-0"
             >
               <h2
-                class="sticky top-0 z-[5] bg-surface/95 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-tertiary backdrop-blur"
+                class="sticky top-0 z-[5] bg-surface/95 px-4 py-1.5 text-2xs font-semibold uppercase tracking-wide text-tertiary backdrop-blur"
               >
                 {{ group.label }}
               </h2>

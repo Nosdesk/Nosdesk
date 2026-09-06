@@ -167,7 +167,7 @@ watch(tooltipVisible, (newValue) => {
               </span>
             </div>
           </div>
-          <div v-if="details.created" class="text-[11px] text-tertiary">
+          <div v-if="details.created" class="text-2xs text-tertiary">
             {{ details.created }}
           </div>
         </div>

@@ -294,7 +294,7 @@ onMounted(() => {
           {{ tab.label }}
           <span
             v-if="tab.value === 'unread' && hasUnread"
-            class="rounded-full bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-accent"
+            class="rounded-full bg-accent/15 px-1.5 py-0.5 text-3xs font-semibold leading-none text-accent"
           >
             {{ displayCount }}
           </span>
@@ -356,7 +356,7 @@ onMounted(() => {
             class="border-b border-default last:border-b-0"
           >
             <h4
-              class="sticky top-0 z-10 bg-surface/95 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-tertiary backdrop-blur"
+              class="sticky top-0 z-10 bg-surface/95 px-4 py-1.5 text-2xs font-semibold uppercase tracking-wide text-tertiary backdrop-blur"
             >
               {{ group.label }}
             </h4>

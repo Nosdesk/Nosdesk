@@ -393,7 +393,7 @@ onScopeDispose(() => restoreScroll?.());
               <button
                 v-if="activeTypes"
                 @click="clearTypes"
-                class="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-medium rounded-md bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 transition-colors flex-shrink-0"
+                class="inline-flex items-center gap-1 px-2 h-6 text-2xs font-medium rounded-md bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 transition-colors flex-shrink-0"
               >
                 {{ scopeLabel(activeTypes) }}
                 <Icon name="close" size="xs" />
@@ -404,7 +404,7 @@ onScopeDispose(() => restoreScroll?.());
               <button
                 v-if="authorFilter"
                 @click="clearAuthor"
-                class="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-medium rounded-md bg-brand-pink/10 text-brand-pink border border-brand-pink/20 hover:bg-brand-pink/20 transition-colors flex-shrink-0 max-w-[10rem]"
+                class="inline-flex items-center gap-1 px-2 h-6 text-2xs font-medium rounded-md bg-brand-pink/10 text-brand-pink border border-brand-pink/20 hover:bg-brand-pink/20 transition-colors flex-shrink-0 max-w-[10rem]"
                 :title="t('search-global-from-chip', { name: authorFilter.name })"
               >
                 <Icon name="user" size="xs" class="flex-shrink-0" />
@@ -459,7 +459,7 @@ onScopeDispose(() => restoreScroll?.());
                  the person chip and drops the token. -->
             <div v-else-if="fromPromptActive" class="py-1 px-1">
               <div class="px-2 pt-2 pb-1">
-                <span class="text-[10px] font-semibold uppercase tracking-wider text-tertiary">
+                <span class="text-3xs font-semibold uppercase tracking-wider text-tertiary">
                   {{ t('search-global-from-heading') }}
                 </span>
               </div>
@@ -481,11 +481,11 @@ onScopeDispose(() => restoreScroll?.());
                 </span>
                 <span class="flex-1 min-w-0">
                   <span class="block text-sm text-primary font-medium truncate">{{ user.title }}</span>
-                  <span v-if="user.preview" class="block text-[11px] text-tertiary truncate">{{ user.preview }}</span>
+                  <span v-if="user.preview" class="block text-2xs text-tertiary truncate">{{ user.preview }}</span>
                 </span>
                 <kbd
                   v-if="index === selectedAuthorIndex"
-                  class="hidden sm:inline-flex items-center justify-center min-w-[1.25rem] h-4 px-1 rounded bg-surface border border-default text-[9px] font-medium text-secondary"
+                  class="hidden sm:inline-flex items-center justify-center min-w-[1.25rem] h-4 px-1 rounded bg-surface border border-default text-4xs font-medium text-secondary"
                 >⏎</kbd>
               </button>
               <!-- Nothing typed yet, or no matches. -->
@@ -503,7 +503,7 @@ onScopeDispose(() => restoreScroll?.());
                  decision is actually made: before the query. -->
             <div v-else-if="scopePromptActive" class="py-1 px-1">
               <div class="px-2 pt-2 pb-1">
-                <span class="text-[10px] font-semibold uppercase tracking-wider text-tertiary">
+                <span class="text-3xs font-semibold uppercase tracking-wider text-tertiary">
                   {{ t('search-global-scope-heading') }}
                 </span>
               </div>
@@ -528,7 +528,7 @@ onScopeDispose(() => restoreScroll?.());
                 </span>
                 <kbd
                   v-if="row.index === selectedScopeIndex"
-                  class="hidden sm:inline-flex items-center justify-center min-w-[1.25rem] h-4 px-1 rounded bg-surface border border-default text-[9px] font-medium text-secondary"
+                  class="hidden sm:inline-flex items-center justify-center min-w-[1.25rem] h-4 px-1 rounded bg-surface border border-default text-4xs font-medium text-secondary"
                 >⇥</kbd>
               </button>
             </div>
@@ -614,24 +614,24 @@ onScopeDispose(() => restoreScroll?.());
                hint, stats aren't worth a bar — so the results list
                takes the height instead. -->
           <div
-            class="hidden sm:flex items-center justify-between gap-3 px-3 h-9 border-t border-default bg-surface-alt/50 text-[11px] text-tertiary flex-shrink-0"
+            class="hidden sm:flex items-center justify-between gap-3 px-3 h-9 border-t border-default bg-surface-alt/50 text-2xs text-tertiary flex-shrink-0"
           >
             <div class="hidden sm:flex items-center gap-3">
               <span class="inline-flex items-center gap-1">
-                <kbd class="inline-flex items-center justify-center w-4 h-4 rounded bg-surface border border-default text-[9px] font-medium text-secondary">↑</kbd>
-                <kbd class="inline-flex items-center justify-center w-4 h-4 rounded bg-surface border border-default text-[9px] font-medium text-secondary">↓</kbd>
+                <kbd class="inline-flex items-center justify-center w-4 h-4 rounded bg-surface border border-default text-4xs font-medium text-secondary">↑</kbd>
+                <kbd class="inline-flex items-center justify-center w-4 h-4 rounded bg-surface border border-default text-4xs font-medium text-secondary">↓</kbd>
                 <span>{{ t('search-global-hint-navigate') }}</span>
               </span>
               <span v-if="scopePromptActive" class="inline-flex items-center gap-1">
-                <kbd class="inline-flex items-center justify-center min-w-[1rem] h-4 px-1 rounded bg-surface border border-default text-[9px] font-medium text-secondary">⇥</kbd>
+                <kbd class="inline-flex items-center justify-center min-w-[1rem] h-4 px-1 rounded bg-surface border border-default text-4xs font-medium text-secondary">⇥</kbd>
                 <span>{{ t('search-global-hint-scope') }}</span>
               </span>
               <span v-if="searchState === 'results'" class="inline-flex items-center gap-1">
-                <kbd class="inline-flex items-center justify-center min-w-[1rem] h-4 px-1 rounded bg-surface border border-default text-[9px] font-medium text-secondary">↵</kbd>
+                <kbd class="inline-flex items-center justify-center min-w-[1rem] h-4 px-1 rounded bg-surface border border-default text-4xs font-medium text-secondary">↵</kbd>
                 <span>{{ t('search-global-hint-open') }}</span>
               </span>
               <span class="inline-flex items-center gap-1">
-                <kbd class="inline-flex items-center justify-center min-w-[1.5rem] h-4 px-1 rounded bg-surface border border-default text-[9px] font-medium text-secondary">esc</kbd>
+                <kbd class="inline-flex items-center justify-center min-w-[1.5rem] h-4 px-1 rounded bg-surface border border-default text-4xs font-medium text-secondary">esc</kbd>
                 <span>{{ t('search-global-hint-close') }}</span>
               </span>
             </div>

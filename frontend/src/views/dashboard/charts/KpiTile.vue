@@ -165,7 +165,7 @@ const drillTo = computed(() => {
     <div
       v-if="deltaSign && deltaPctDisplay"
       :class="[
-        'flex items-center gap-1 text-[11px] font-medium tabular-nums',
+        'flex items-center gap-1 text-2xs font-medium tabular-nums',
         deltaSign === 'up' ? 'text-status-success' : '',
         deltaSign === 'down' ? 'text-status-error' : '',
         deltaSign === 'flat' ? 'text-tertiary' : '',

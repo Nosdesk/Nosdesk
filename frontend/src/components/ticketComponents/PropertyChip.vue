@@ -38,7 +38,7 @@ const removeAriaLabel = computed(() => props.removeTitle || t('ticket-chip-remov
     :is="to ? RouterLink : 'span'"
     :to="to"
     :title="title || label"
-    class="print-chip inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded text-[11px] font-medium bg-surface-alt text-secondary hover:text-primary hover:bg-surface-hover transition-colors max-w-full"
+    class="print-chip inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded text-2xs font-medium bg-surface-alt text-secondary hover:text-primary hover:bg-surface-hover transition-colors max-w-full"
     :class="{ 'opacity-60': loading }"
   >
     <slot name="leading" />

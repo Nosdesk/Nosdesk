@@ -757,7 +757,7 @@ function open(card: CardData): void {
         </div>
         <!-- Secondary band (month / quarter spans). -->
         <div
-          class="relative h-6 text-[11px] uppercase tracking-wide font-semibold text-tertiary border-b border-subtle/60"
+          class="relative h-6 text-2xs uppercase tracking-wide font-semibold text-tertiary border-b border-subtle/60"
         >
           <div
             v-for="b in secondaryBands"
@@ -769,7 +769,7 @@ function open(card: CardData): void {
         <!-- Primary tick row (day / week), with a labelled Today pill
              anchored on the today line. -->
         <div
-          class="relative h-6 text-[11px] tabular-nums text-tertiary"
+          class="relative h-6 text-2xs tabular-nums text-tertiary"
           :class="cycleBands.length > 0 ? 'border-b border-subtle/60' : ''"
         >
           <div
@@ -780,7 +780,7 @@ function open(card: CardData): void {
           >{{ tick.label }}</div>
           <span
             v-if="todayInRange"
-            class="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 z-10 rounded-full bg-accent px-1.5 py-px text-[11px] leading-4 font-semibold text-on-accent whitespace-nowrap pointer-events-none"
+            class="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 z-10 rounded-full bg-accent px-1.5 py-px text-2xs leading-4 font-semibold text-on-accent whitespace-nowrap pointer-events-none"
             :style="{ left: `${todayX}px` }"
           >{{ t('gantt-today') }}</span>
         </div>
@@ -789,7 +789,7 @@ function open(card: CardData): void {
           <div
             v-for="band in cycleBands"
             :key="band.key"
-            class="absolute top-0 bottom-0 flex items-center px-2 border-l border-r text-[11px] font-medium truncate"
+            class="absolute top-0 bottom-0 flex items-center px-2 border-l border-r text-2xs font-medium truncate"
             :class="cycleStripClass(band.state)"
             :style="{ left: `${band.left}px`, width: `${band.width}px` }"
             :title="band.label"
@@ -952,7 +952,7 @@ function open(card: CardData): void {
             }"
           ></div>
           <span
-            class="absolute -translate-x-1/2 rounded-md bg-surface border border-default shadow-sm px-1.5 py-0.5 text-[11px] tabular-nums text-primary whitespace-nowrap pointer-events-none z-20"
+            class="absolute -translate-x-1/2 rounded-md bg-surface border border-default shadow-sm px-1.5 py-0.5 text-2xs tabular-nums text-primary whitespace-nowrap pointer-events-none z-20"
             :style="{
               left: `${dragChrome.chipX}px`,
               top: `${Math.max(0, dragChrome.y - 22)}px`,
@@ -1060,7 +1060,7 @@ function open(card: CardData): void {
             ></span>
             <span
               v-if="row.width >= LABEL_MIN_PX"
-              class="relative z-[1] px-1.5 text-[11px] text-primary truncate"
+              class="relative z-[1] px-1.5 text-2xs text-primary truncate"
             >
               {{ row.card.title }}
             </span>
@@ -1093,7 +1093,7 @@ function open(card: CardData): void {
                instead of truncating into nothing (industry idiom). -->
           <span
             v-if="row.width < LABEL_MIN_PX"
-            class="absolute text-[11px] text-secondary whitespace-nowrap pointer-events-none"
+            class="absolute text-2xs text-secondary whitespace-nowrap pointer-events-none"
             :style="{
               left: `${row.left + Math.max(MIN_BAR_PX, row.width - 4) + 6}px`,
               top: `${row.y + BAR_INSET_Y}px`,

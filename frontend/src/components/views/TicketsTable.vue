@@ -200,7 +200,7 @@ const grouped = computed<boolean>(() => props.buckets.length > 0)
           <th
             v-for="col in visibleColumns"
             :key="col.id"
-            class="relative text-left text-[10px] font-semibold text-tertiary uppercase tracking-wider border-b border-subtle bg-surface select-none p-0"
+            class="relative text-left text-3xs font-semibold text-tertiary uppercase tracking-wider border-b border-subtle bg-surface select-none p-0"
             :class="[
               `col-${col.id}`,
               col.align === 'center' && 'text-center',
@@ -241,7 +241,7 @@ const grouped = computed<boolean>(() => props.buckets.length > 0)
               @dragend="layout.onDragEnd"
             >
               <span>{{ $t(col.labelKey) }}</span>
-              <span v-if="sortField === col.sortKey" class="text-[10px] leading-none" aria-hidden="true">
+              <span v-if="sortField === col.sortKey" class="text-3xs leading-none" aria-hidden="true">
                 {{ sortDir === 'asc' ? '↑' : '↓' }}
               </span>
             </button>
@@ -328,7 +328,7 @@ const grouped = computed<boolean>(() => props.buckets.length > 0)
                     :class="isCollapsed(bucket.key) && '-rotate-90'"
                   />
                   <span class="text-xs font-semibold text-primary">{{ bucket.label }}</span>
-                  <span class="text-[11px] text-tertiary tabular-nums">{{ bucket.cards.length }}</span>
+                  <span class="text-2xs text-tertiary tabular-nums">{{ bucket.cards.length }}</span>
                 </div>
               </td>
             </tr>

@@ -89,7 +89,7 @@ function tooltipDetails(day: ContributionDay) {
 <template>
   <div class="flex flex-1 min-h-0 h-full w-full gap-1.5 px-1 py-1">
     <div
-      class="grid grid-rows-7 shrink-0 w-7 h-full text-[9px] leading-none text-tertiary tabular-nums"
+      class="grid grid-rows-7 shrink-0 w-7 h-full text-4xs leading-none text-tertiary tabular-nums"
       aria-hidden="true"
     >
       <span

@@ -380,7 +380,7 @@ async function onMoveMenuSelect(id: string): Promise<void> {
                      group header, so rows don't repeat it. -->
                 <div class="flex flex-col @container">
                   <div v-for="group in activeCycleGroups" :key="group.category">
-                    <div class="px-3 py-1.5 text-[11px] uppercase tracking-wide font-semibold text-tertiary bg-surface-alt border-b border-subtle/50">
+                    <div class="px-3 py-1.5 text-2xs uppercase tracking-wide font-semibold text-tertiary bg-surface-alt border-b border-subtle/50">
                       {{ group.label }} <span class="text-tertiary">({{ group.tickets.length }})</span>
                     </div>
                     <div
@@ -447,7 +447,7 @@ async function onMoveMenuSelect(id: string): Promise<void> {
               <section v-if="upcomingCycles.length > 0" class="flex flex-col gap-2">
                 <div class="flex items-center gap-2 px-0.5">
                   <h2 class="text-sm font-semibold text-primary">{{ $t('project-cycles-upcoming-title') }}</h2>
-                  <span class="text-[11px] text-tertiary tabular-nums">{{ upcomingCycles.length }}</span>
+                  <span class="text-2xs text-tertiary tabular-nums">{{ upcomingCycles.length }}</span>
                 </div>
                 <div class="hidden sm:flex flex-col @container bg-surface border border-default rounded-lg p-1.5">
                   <CycleListRow
@@ -481,7 +481,7 @@ async function onMoveMenuSelect(id: string): Promise<void> {
               <section v-if="completedCycles.length > 0" class="flex flex-col gap-2">
                 <div class="flex items-center gap-2 px-0.5">
                   <h2 class="text-sm font-semibold text-primary">{{ $t('project-cycles-completed-title') }}</h2>
-                  <span class="text-[11px] text-tertiary tabular-nums">{{ completedCycles.length }}</span>
+                  <span class="text-2xs text-tertiary tabular-nums">{{ completedCycles.length }}</span>
                 </div>
                 <div class="hidden sm:flex flex-col @container bg-surface border border-default rounded-lg p-1.5">
                   <CycleListRow
@@ -513,7 +513,7 @@ async function onMoveMenuSelect(id: string): Promise<void> {
     <!-- Create cycle -->
     <Modal :show="showCreate" :title="$t('project-cycles-create-title')" size="sm" @close="showCreate = false">
       <form class="flex flex-col gap-3" @submit.prevent="createCycle">
-        <p v-if="velocity != null" class="text-[11px] text-tertiary">
+        <p v-if="velocity != null" class="text-2xs text-tertiary">
           {{ $t('project-cycles-velocity-hint', { count: velocity }) }}
         </p>
         <label class="flex flex-col gap-1 text-xs text-secondary">

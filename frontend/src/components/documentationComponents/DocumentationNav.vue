@@ -1246,7 +1246,7 @@ defineExpose({ reloadSidebar });
           <Icon name="star" />
         </span>
         <span class="flex-1 truncate min-w-0 ml-1 font-medium">{{ $t('docs-nav-starred') }}</span>
-        <span class="flex-shrink-0 text-[10px] text-tertiary ml-1">{{ starredPages.length }}</span>
+        <span class="flex-shrink-0 text-3xs text-tertiary ml-1">{{ starredPages.length }}</span>
       </div>
 
       <!-- Starred Pages List (collapsible) -->

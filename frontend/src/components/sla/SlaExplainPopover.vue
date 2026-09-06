@@ -129,7 +129,7 @@ const anchorDescriptor = computed(() => ({
     @close="emit('close')"
   >
     <header class="flex items-center justify-between">
-      <h3 class="text-[11px] uppercase tracking-wider font-semibold text-tertiary">
+      <h3 class="text-2xs uppercase tracking-wider font-semibold text-tertiary">
         {{ t('sla-explain-title') }}
       </h3>
     </header>
@@ -153,7 +153,7 @@ const anchorDescriptor = computed(() => ({
             <span class="font-semibold text-primary truncate">{{ explain.policy.name }}</span>
             <span
               v-if="explain.policy.is_default"
-              class="text-[10px] uppercase tracking-wide font-semibold text-tertiary"
+              class="text-3xs uppercase tracking-wide font-semibold text-tertiary"
             >
               {{ t('sla-explain-default-badge') }}
             </span>
@@ -170,7 +170,7 @@ const anchorDescriptor = computed(() => ({
         </div>
 
         <div v-if="explain.policy.calendar" class="flex flex-col gap-0.5">
-          <span class="text-[10px] uppercase tracking-wider font-semibold text-tertiary">
+          <span class="text-3xs uppercase tracking-wider font-semibold text-tertiary">
             {{ t('sla-explain-calendar-label') }}
           </span>
           <span class="text-secondary">
@@ -180,7 +180,7 @@ const anchorDescriptor = computed(() => ({
         </div>
 
         <div class="flex flex-col gap-0.5">
-          <span class="text-[10px] uppercase tracking-wider font-semibold text-tertiary">
+          <span class="text-3xs uppercase tracking-wider font-semibold text-tertiary">
             {{ t('sla-explain-targets-label') }}
           </span>
           <span class="text-secondary tabular-nums">
@@ -195,7 +195,7 @@ const anchorDescriptor = computed(() => ({
       </template>
 
       <div class="flex flex-col gap-0.5 pt-2 border-t border-subtle">
-        <span class="text-[10px] uppercase tracking-wider font-semibold text-tertiary">
+        <span class="text-3xs uppercase tracking-wider font-semibold text-tertiary">
           {{ t('sla-explain-state-label') }}
         </span>
         <span class="text-secondary">

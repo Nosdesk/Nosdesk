@@ -50,7 +50,7 @@ async function unflag() {
       </p>
       <RouterLink
         :to="`/documentation/gaps/${gap.id}`"
-        class="text-[11px] text-status-warning hover:underline"
+        class="text-2xs text-status-warning hover:underline"
       >
         {{ t('ticket-chip-gap-view-queue') }}
       </RouterLink>
@@ -58,7 +58,7 @@ async function unflag() {
     <button
       type="button"
       :disabled="isWorking"
-      class="flex-shrink-0 text-[11px] text-tertiary hover:text-status-error transition-colors disabled:opacity-50"
+      class="flex-shrink-0 text-2xs text-tertiary hover:text-status-error transition-colors disabled:opacity-50"
       :title="t('ticket-chip-gap-remove-flag')"
       @click="unflag"
     >

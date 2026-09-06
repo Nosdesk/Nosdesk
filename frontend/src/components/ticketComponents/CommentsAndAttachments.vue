@@ -804,14 +804,14 @@ const handlePastedFiles = async (files: File[]) => {
                                         </span>
                                         <span
                                             v-if="comment.is_internal"
-                                            class="inline-flex items-center gap-1 px-1 py-0.5 rounded text-[11px] font-medium bg-status-warning-muted text-status-warning flex-shrink-0"
+                                            class="inline-flex items-center gap-1 px-1 py-0.5 rounded text-2xs font-medium bg-status-warning-muted text-status-warning flex-shrink-0"
                                         >
                                             <Icon name="lock" class="w-3 h-3" />
                                             {{ $t('ticket-comments-badge-internal') }}
                                         </span>
                                         <span
                                             v-if="comment.channel_metadata?.forwarded_by_user_uuid"
-                                            class="inline-flex items-center px-1 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-accent-muted text-accent flex-shrink-0"
+                                            class="inline-flex items-center px-1 py-0.5 rounded text-3xs font-semibold uppercase tracking-wide bg-accent-muted text-accent flex-shrink-0"
                                             :title="$t('ticket-comments-badge-forwarded-title')"
                                         >
                                             {{ $t('ticket-comments-badge-forwarded') }}
@@ -913,7 +913,7 @@ const handlePastedFiles = async (files: File[]) => {
                                             </span>
                                             <span
                                                 v-if="comment.is_internal"
-                                                class="inline-flex items-center gap-1 px-1 py-0.5 rounded text-[11px] font-medium bg-status-warning-muted text-status-warning flex-shrink-0"
+                                                class="inline-flex items-center gap-1 px-1 py-0.5 rounded text-2xs font-medium bg-status-warning-muted text-status-warning flex-shrink-0"
                                             >
                                                 <Icon name="lock" class="w-3 h-3" />
                                                 {{ $t('ticket-comments-badge-internal') }}
@@ -974,7 +974,7 @@ const handlePastedFiles = async (files: File[]) => {
                                              defeats the point of showing it. -->
                                         <span
                                             v-if="comment.channel_metadata?.forwarded_by_user_uuid"
-                                            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-accent-muted text-accent flex-shrink-0"
+                                            class="inline-flex items-center px-1.5 py-0.5 rounded text-3xs font-semibold uppercase tracking-wide bg-accent-muted text-accent flex-shrink-0"
                                             :title="$t('ticket-comments-badge-forwarded-title')"
                                         >
                                             {{ $t('ticket-comments-badge-forwarded') }}

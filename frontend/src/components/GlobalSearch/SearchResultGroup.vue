@@ -46,14 +46,14 @@ const groupLabel = computed(() => {
       class="group/header flex w-full items-baseline gap-2 px-2 pt-2 pb-1 text-left rounded-md transition-colors hover:bg-surface-hover/60"
       @click="emit('scope', props.type)"
     >
-      <span class="text-[10px] font-semibold uppercase tracking-wider text-tertiary">
+      <span class="text-3xs font-semibold uppercase tracking-wider text-tertiary">
         {{ groupLabel }}
       </span>
-      <span class="text-[10px] text-tertiary/60 tabular-nums">
+      <span class="text-3xs text-tertiary/60 tabular-nums">
         {{ results.length }}
       </span>
       <span
-        class="ml-auto text-[10px] text-tertiary/60 opacity-0 group-hover/header:opacity-100 transition-opacity"
+        class="ml-auto text-3xs text-tertiary/60 opacity-0 group-hover/header:opacity-100 transition-opacity"
       >
         {{ t('search-global-group-scope-hint') }}
       </span>

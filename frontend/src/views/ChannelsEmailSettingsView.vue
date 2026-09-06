@@ -299,11 +299,11 @@
             />
             <p class="text-xs text-tertiary">
               {{ $t('admin-channels-email-auto-ack-variables-hint') }}
-              <code class="text-[10px] bg-surface-alt px-1 rounded">&#123;&#123;ticket_id&#125;&#125;</code>,
-              <code class="text-[10px] bg-surface-alt px-1 rounded">&#123;&#123;ticket_title&#125;&#125;</code>,
-              <code class="text-[10px] bg-surface-alt px-1 rounded">&#123;&#123;customer_name&#125;&#125;</code>,
-              <code class="text-[10px] bg-surface-alt px-1 rounded">&#123;&#123;customer_first_name&#125;&#125;</code>,
-              <code class="text-[10px] bg-surface-alt px-1 rounded">&#123;&#123;app_name&#125;&#125;</code>
+              <code class="text-3xs bg-surface-alt px-1 rounded">&#123;&#123;ticket_id&#125;&#125;</code>,
+              <code class="text-3xs bg-surface-alt px-1 rounded">&#123;&#123;ticket_title&#125;&#125;</code>,
+              <code class="text-3xs bg-surface-alt px-1 rounded">&#123;&#123;customer_name&#125;&#125;</code>,
+              <code class="text-3xs bg-surface-alt px-1 rounded">&#123;&#123;customer_first_name&#125;&#125;</code>,
+              <code class="text-3xs bg-surface-alt px-1 rounded">&#123;&#123;app_name&#125;&#125;</code>
             </p>
           </div>
 

@@ -721,8 +721,8 @@ watch(documentObj, (newDocument) => {
                 <!-- Metadata -->
                 <div class="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-tertiary">
                   <!-- Status Badge -->
-                  <span v-if="document.status === 'draft'" class="text-[10px] px-1.5 py-0.5 rounded bg-status-warning-muted text-status-warning font-medium">{{ $t('doc-detail-status-draft') }}</span>
-                  <span v-else-if="document.status === 'archived'" class="text-[10px] px-1.5 py-0.5 rounded bg-surface-alt text-secondary font-medium">{{ $t('doc-detail-status-archived') }}</span>
+                  <span v-if="document.status === 'draft'" class="text-3xs px-1.5 py-0.5 rounded bg-status-warning-muted text-status-warning font-medium">{{ $t('doc-detail-status-draft') }}</span>
+                  <span v-else-if="document.status === 'archived'" class="text-3xs px-1.5 py-0.5 rounded bg-surface-alt text-secondary font-medium">{{ $t('doc-detail-status-archived') }}</span>
 
                   <!--
                     Verification status chip — sits next to the
@@ -738,7 +738,7 @@ watch(documentObj, (newDocument) => {
                   <button
                     v-if="document.created_by && document.requires_verification && !document.verified_at"
                     type="button"
-                    class="text-[10px] px-1.5 py-0.5 rounded font-medium bg-accent/10 text-accent hover:bg-accent/20 transition-colors flex items-center gap-1"
+                    class="text-3xs px-1.5 py-0.5 rounded font-medium bg-accent/10 text-accent hover:bg-accent/20 transition-colors flex items-center gap-1"
                     :title="$t('doc-detail-needs-verification-title')"
                     @click="verificationOpen = true"
                   >
@@ -748,7 +748,7 @@ watch(documentObj, (newDocument) => {
                   <button
                     v-else-if="document.is_stale"
                     type="button"
-                    class="text-[10px] px-1.5 py-0.5 rounded font-medium bg-status-warning-muted text-status-warning hover:bg-status-warning/25 transition-colors flex items-center gap-1 animate-pulse"
+                    class="text-3xs px-1.5 py-0.5 rounded font-medium bg-status-warning-muted text-status-warning hover:bg-status-warning/25 transition-colors flex items-center gap-1 animate-pulse"
                     :title="$t('doc-detail-verification-stale-title')"
                     @click="verificationOpen = true"
                   >

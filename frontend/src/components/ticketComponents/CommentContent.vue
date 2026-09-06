@@ -90,7 +90,7 @@ so a printed ticket carries the full archival record, not the summary.
       :href="rawSourceUrl"
       target="_blank"
       rel="noopener noreferrer"
-      class="self-start text-[11px] text-tertiary hover:text-secondary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info rounded"
+      class="self-start text-2xs text-tertiary hover:text-secondary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-info rounded"
       :title="$t('ticket-comments-show-original-title')"
     >
       {{ $t('ticket-comments-show-original') }}

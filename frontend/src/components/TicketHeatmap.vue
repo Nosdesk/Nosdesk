@@ -232,11 +232,11 @@ onActivated(() => {
                 <span class="inline-block h-2.5 w-28 rounded bg-surface-alt animate-pulse" />
             </div>
             <div v-else class="flex flex-1 min-w-0 items-center justify-between gap-2">
-                <p class="text-[10px] text-tertiary tabular-nums truncate min-w-0">
+                <p class="text-3xs text-tertiary tabular-nums truncate min-w-0">
                     {{ $t('ticket-heatmap-days-with-activity', { count: daysWithActivity }) }}
                 </p>
 
-                <div class="flex items-center gap-1.5 text-[9px] text-tertiary shrink-0">
+                <div class="flex items-center gap-1.5 text-4xs text-tertiary shrink-0">
                     <span class="sr-only">{{ $t('ticket-heatmap-legend-less') }}</span>
                     <div class="flex gap-0.5" aria-hidden="true">
                         <div

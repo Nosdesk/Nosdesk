@@ -81,10 +81,10 @@ function polledLabel(at: string | null | undefined): string {
         />
         <div class="flex-1 min-w-0">
           <p class="text-sm text-primary truncate">{{ c.name }}</p>
-          <p class="mt-0.5 text-[11px] text-tertiary truncate">
+          <p class="mt-0.5 text-2xs text-tertiary truncate">
             {{ c.provider }} · {{ polledLabel(c.last_polled_at) }}
           </p>
-          <p v-if="lastError(c)" class="mt-0.5 text-[11px] text-status-error truncate">
+          <p v-if="lastError(c)" class="mt-0.5 text-2xs text-status-error truncate">
             {{ lastError(c) }}
           </p>
         </div>

@@ -635,7 +635,7 @@ async function exportAssetsCsv(scope?: 'history') {
           </div>
           <button
             type="button"
-            class="inline-flex items-center text-[11px] px-2 h-6 rounded-md border border-default text-secondary hover:text-primary hover:bg-surface-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-secondary"
+            class="inline-flex items-center text-2xs px-2 h-6 rounded-md border border-default text-secondary hover:text-primary hover:bg-surface-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-secondary"
             :title="listView.page.totalItems.value === 0 ? $t('assets-list-export-empty') : $t('assets-list-export-csv')"
             :disabled="listView.page.totalItems.value === 0"
             @click="exportAssetsCsv()"
@@ -644,7 +644,7 @@ async function exportAssetsCsv(scope?: 'history') {
           </button>
           <button
             type="button"
-            class="inline-flex items-center text-[11px] px-2 h-6 rounded-md border border-default text-secondary hover:text-primary hover:bg-surface-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-secondary"
+            class="inline-flex items-center text-2xs px-2 h-6 rounded-md border border-default text-secondary hover:text-primary hover:bg-surface-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-secondary"
             :title="listView.page.totalItems.value === 0 ? $t('assets-list-export-empty') : $t('assets-list-export-history')"
             :disabled="listView.page.totalItems.value === 0"
             @click="exportAssetsCsv('history')"
@@ -713,11 +713,11 @@ async function exportAssetsCsv(scope?: 'history') {
                 :style="{ backgroundColor: group.color || 'var(--color-text-tertiary)' }"
                 :title="group.name"
               />
-              <span v-if="item.groups.length > 3" class="text-[10px] text-tertiary">+{{ item.groups.length - 3 }}</span>
+              <span v-if="item.groups.length > 3" class="text-3xs text-tertiary">+{{ item.groups.length - 3 }}</span>
             </div>
             <span
               v-if="isLowStock(item)"
-              class="text-[10px] px-1.5 py-0.5 rounded-full bg-status-warning/15 text-status-warning whitespace-nowrap font-medium flex-shrink-0"
+              class="text-3xs px-1.5 py-0.5 rounded-full bg-status-warning/15 text-status-warning whitespace-nowrap font-medium flex-shrink-0"
               :title="$t('assets-list-low-stock-tooltip', { quantity: item.quantity ?? '', unit: item.unit ?? '', threshold: item.low_stock_threshold ?? '' })"
             >
               {{ $t('assets-list-low-stock-badge') }}

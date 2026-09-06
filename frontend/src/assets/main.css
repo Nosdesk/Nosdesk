@@ -40,6 +40,30 @@
   --container-8xl: 90rem;
 
   /* ===========================================================
+     Sub-xs type scale.
+     -----------------------------------------------------------
+     These four sizes were previously written as arbitrary values
+     (`text-[11px]` and friends) at ~348 call sites. Arbitrary px
+     bypasses every scaling mechanism there is: it ignores the root
+     font size, so a user who raises their browser or OS text size
+     gets nothing from it (WCAG 1.4.4 asks for text to scale to
+     200%), and it renders far smaller on a high-density tablet
+     than the same markup does on a desktop monitor.
+     Expressed in rem, one root-level change scales all of them
+     coherently. Borders and hairlines stay in px on purpose --
+     those should NOT grow with type.
+     No `--line-height` is defined: the arbitrary values these
+     replace set font-size only, so adding one would change
+     rendering rather than preserve it.
+     ----------------------------------------------------------- */
+  --text-2xs: 0.6875rem; /* 11px */
+  --text-3xs: 0.625rem; /* 10px */
+  --text-4xs: 0.5625rem; /* 9px */
+  /* Sits between Tailwind's xs (12px) and sm (14px); no conventional
+     name exists for that gap, hence the explicit one. */
+  --text-xs-plus: 0.8125rem; /* 13px */
+
+  /* ===========================================================
      Metric type scale (dashboard KPI numerals + embedded stats).
      Distinct from the heading scale so KPI numbers can dominate a
      dashboard while page titles stay supporting; aligned to parent

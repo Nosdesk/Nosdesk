@@ -35,7 +35,7 @@ defineProps<{
             <p class="text-sm text-primary truncate group-hover:text-accent transition-colors">
               {{ d.name }}
             </p>
-            <p class="mt-0.5 text-[11px] text-tertiary truncate">
+            <p class="mt-0.5 text-2xs text-tertiary truncate">
               {{ [d.manufacturer, d.model].filter(Boolean).join(' ') || $t('user-profile-asset-manufacturer-unknown') }}<template v-if="d.asset_tag && d.asset_tag !== d.name"> &middot; {{ d.asset_tag }}</template>
             </p>
           </div>

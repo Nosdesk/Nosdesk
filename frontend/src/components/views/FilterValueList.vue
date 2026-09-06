@@ -206,7 +206,7 @@ watch(
         <span
           v-if="opt.hint"
           :class="[
-            'text-[10px] text-tertiary truncate min-w-0',
+            'text-3xs text-tertiary truncate min-w-0',
             opt.swatchClass ? 'col-start-3' : 'col-start-2',
           ]"
         >{{ opt.hint }}</span>
@@ -218,7 +218,7 @@ watch(
     >
       <button
         type="button"
-        class="text-[11px] text-tertiary hover:text-primary"
+        class="text-2xs text-tertiary hover:text-primary"
         @click="emit('clear')"
       >{{ $t('views-filter-value-clear') }}</button>
     </footer>

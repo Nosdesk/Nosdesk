@@ -148,14 +148,14 @@ function categoryPct(count: number): number {
             class="text-sm font-semibold text-primary truncate"
             :class="to ? 'transition-colors group-hover:text-accent' : ''"
           >{{ cycle.name }}</h3>
-          <p v-if="dateRange" class="text-[11px] text-tertiary tabular-nums mt-0.5">
+          <p v-if="dateRange" class="text-2xs text-tertiary tabular-nums mt-0.5">
             {{ dateRange }}
           </p>
         </div>
         <div class="flex items-center gap-1.5 shrink-0">
           <span
             v-if="isFrozen"
-            class="text-[11px] uppercase tracking-wide font-semibold text-tertiary"
+            class="text-2xs uppercase tracking-wide font-semibold text-tertiary"
           >{{ t('tickets-cycle-burndown-frozen') }}</span>
           <StatusPill v-else-if="health" :tone="health.tone" :label="health.label" />
           <Icon
@@ -173,15 +173,15 @@ function categoryPct(count: number): number {
           <div class="text-2xl font-semibold text-primary tabular-nums">
             {{ stats.completed }}<span class="text-tertiary">/{{ stats.total }}</span>
           </div>
-          <div class="text-[11px] uppercase tracking-wide text-tertiary">{{ t('tickets-cycle-burndown-tickets-done') }}</div>
+          <div class="text-2xs uppercase tracking-wide text-tertiary">{{ t('tickets-cycle-burndown-tickets-done') }}</div>
         </div>
         <div>
           <div class="text-2xl font-semibold text-primary tabular-nums">{{ completionPct }}%</div>
-          <div class="text-[11px] uppercase tracking-wide text-tertiary">{{ t('tickets-cycle-burndown-complete') }}</div>
+          <div class="text-2xs uppercase tracking-wide text-tertiary">{{ t('tickets-cycle-burndown-complete') }}</div>
         </div>
         <div v-if="daysRemaining != null">
           <div class="text-2xl font-semibold text-primary tabular-nums">{{ daysRemaining }}</div>
-          <div class="text-[11px] uppercase tracking-wide text-tertiary">
+          <div class="text-2xs uppercase tracking-wide text-tertiary">
             {{ t('tickets-cycle-burndown-days-remaining', { count: daysRemaining }) }}
           </div>
         </div>
@@ -243,7 +243,7 @@ function categoryPct(count: number): number {
       </div>
 
       <!-- Frozen-snapshot timestamp -->
-      <p v-if="variant === 'full' && isFrozen && stats.frozen_at" class="text-[11px] text-tertiary italic">
+      <p v-if="variant === 'full' && isFrozen && stats.frozen_at" class="text-2xs text-tertiary italic">
         {{ t('tickets-cycle-burndown-snapshot-frozen', { date: formatDateTime(stats.frozen_at) }) }}
       </p>
     </div>

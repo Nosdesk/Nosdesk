@@ -363,7 +363,7 @@ const deleteTypeToConfirmLabel = computed(() => {
                   </td>
                   <td class="px-3 py-2">
                     <span
-                      class="text-[10px] uppercase tracking-wide font-semibold rounded px-1.5 py-0.5"
+                      class="text-3xs uppercase tracking-wide font-semibold rounded px-1.5 py-0.5"
                       :class="
                         ws.archived_at
                           ? 'text-secondary border border-default bg-surface-alt'

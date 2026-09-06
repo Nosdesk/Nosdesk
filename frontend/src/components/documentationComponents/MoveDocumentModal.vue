@@ -154,7 +154,7 @@ onMounted(async () => {
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
             </svg>
             <span class="flex-1">{{ $t('docs-move-root-label') }}</span>
-            <span v-if="isCurrentLocation(null)" class="text-[10px] px-1.5 py-0.5 rounded bg-surface-alt text-tertiary">{{ $t('docs-move-current-badge') }}</span>
+            <span v-if="isCurrentLocation(null)" class="text-3xs px-1.5 py-0.5 rounded bg-surface-alt text-tertiary">{{ $t('docs-move-current-badge') }}</span>
           </button>
 
           <!-- Pages -->
@@ -176,7 +176,7 @@ onMounted(async () => {
           >
             <span class="text-sm flex-shrink-0">{{ fp.icon || '📄' }}</span>
             <span class="flex-1 truncate">{{ fp.title }}</span>
-            <span v-if="isCurrentLocation(fp.id)" class="text-[10px] px-1.5 py-0.5 rounded bg-surface-alt text-tertiary flex-shrink-0">{{ $t('docs-move-current-badge') }}</span>
+            <span v-if="isCurrentLocation(fp.id)" class="text-3xs px-1.5 py-0.5 rounded bg-surface-alt text-tertiary flex-shrink-0">{{ $t('docs-move-current-badge') }}</span>
           </button>
 
           <!-- Empty state -->

@@ -67,7 +67,7 @@ function pick(key: string): void {
       ref="triggerRef"
       type="button"
       :class="[
-        'inline-flex items-center gap-1 text-[11px] px-2 h-6 rounded-md border transition-colors',
+        'inline-flex items-center gap-1 text-2xs px-2 h-6 rounded-md border transition-colors',
         isActive
           ? 'border-accent/40 bg-accent/10 text-accent'
           : 'text-tertiary hover:text-primary border-subtle hover:border-default hover:bg-surface-hover',

@@ -82,7 +82,7 @@ const formattedTime = computed(() => {
     <div class="flex-1 min-w-0">
       <div class="flex items-center gap-2">
         <span
-          class="font-medium text-[13px] truncate"
+          class="font-medium text-xs-plus truncate"
           :class="isSelected ? 'text-primary' : 'text-primary'"
         >
           {{ result.title }}
@@ -93,21 +93,21 @@ const formattedTime = computed(() => {
              current user has staff access. -->
         <span
           v-if="result.is_internal"
-          class="flex-shrink-0 inline-flex items-center px-1.5 h-[15px] rounded text-[9px] font-semibold uppercase tracking-wide bg-status-warning-muted text-status-warning"
+          class="flex-shrink-0 inline-flex items-center px-1.5 h-[15px] rounded text-4xs font-semibold uppercase tracking-wide bg-status-warning-muted text-status-warning"
           :title="t('search-result-item-internal-title')"
         >
           {{ t('search-result-item-internal-badge') }}
         </span>
         <span
           v-if="formattedTime"
-          class="flex-shrink-0 text-[10px] text-tertiary tabular-nums"
+          class="flex-shrink-0 text-3xs text-tertiary tabular-nums"
         >
           {{ formattedTime }}
         </span>
       </div>
       <div
         v-if="result.preview"
-        class="text-[11px] text-secondary truncate mt-0.5"
+        class="text-2xs text-secondary truncate mt-0.5"
       >
         {{ result.preview }}
       </div>
@@ -120,7 +120,7 @@ const formattedTime = computed(() => {
          chrome on a random row. -->
     <kbd
       v-if="isSelected"
-      class="flex-shrink-0 hidden sm:inline-flex items-center justify-center w-5 h-5 rounded border border-default bg-surface text-[10px] font-medium text-secondary"
+      class="flex-shrink-0 hidden sm:inline-flex items-center justify-center w-5 h-5 rounded border border-default bg-surface text-3xs font-medium text-secondary"
     >
       ↵
     </kbd>

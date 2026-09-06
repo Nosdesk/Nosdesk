@@ -206,7 +206,7 @@ watch(() => props.userUuid, () => {
               class="flex-shrink-0"
             />
           </div>
-          <div class="mt-0.5 text-[11px] text-tertiary truncate">
+          <div class="mt-0.5 text-2xs text-tertiary truncate">
             <span class="capitalize">{{ email.email_type || $t('settings-emails-type-personal') }}</span>
             <template v-if="email.source"> &middot; <span class="capitalize">{{ email.source }}</span></template>
           </div>

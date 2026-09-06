@@ -224,14 +224,14 @@ function signalLabel(signal: KnowledgeGapSignal): string {
           <button
             type="button"
             :disabled="detectMutation.asyncStatus.value === 'loading'"
-            class="text-[11px] px-2 py-1 rounded-md bg-surface-alt hover:bg-surface-hover text-secondary hover:text-primary transition-colors disabled:opacity-50 flex items-center gap-1.5"
+            class="text-2xs px-2 py-1 rounded-md bg-surface-alt hover:bg-surface-hover text-secondary hover:text-primary transition-colors disabled:opacity-50 flex items-center gap-1.5"
             @click="runDetection"
           >
             <Icon name="search" size="xs" />
             <span v-if="detectMutation.asyncStatus.value === 'loading'">{{ $t('docs-gaps-refreshing') }}&hellip;</span>
             <span v-else>{{ $t('docs-gaps-refresh') }}</span>
           </button>
-          <span v-if="detectMessage" class="text-[11px] text-tertiary truncate">
+          <span v-if="detectMessage" class="text-2xs text-tertiary truncate">
             {{ detectMessage }}
           </span>
         </div>
@@ -255,13 +255,13 @@ function signalLabel(signal: KnowledgeGapSignal): string {
                   {{ gap.title }}
                 </p>
                 <span
-                  class="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-surface text-tertiary"
+                  class="flex-shrink-0 text-3xs px-1.5 py-0.5 rounded bg-surface text-tertiary"
                   :title="$t('docs-gaps-impact-tooltip', { count: gap.impact_score, label: impactLabel(gap.title) })"
                 >
                   {{ gap.impact_score }}&nbsp;{{ impactLabel(gap.title) }}
                 </span>
               </div>
-              <div class="flex items-center justify-between gap-2 text-[11px] text-tertiary">
+              <div class="flex items-center justify-between gap-2 text-2xs text-tertiary">
                 <span>{{ $t('docs-gaps-signal-count', { count: gap.evidence_count }) }}</span>
                 <span v-if="gap.last_evidence_at">
                   {{ formatRelativeTime(gap.last_evidence_at) }}
@@ -307,7 +307,7 @@ function signalLabel(signal: KnowledgeGapSignal): string {
               <p v-if="selectedGap.description" class="text-sm text-secondary mt-2">
                 {{ selectedGap.description }}
               </p>
-              <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-tertiary">
+              <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-2xs text-tertiary">
                 <span>{{ $t('docs-gaps-status-label') }} <span class="text-secondary">{{ selectedGap.status }}</span></span>
                 <span>
                   <span class="text-secondary">{{ selectedGap.impact_score }}</span>
@@ -342,10 +342,10 @@ function signalLabel(signal: KnowledgeGapSignal): string {
                 <Icon name="ticket" class="flex-shrink-0 mt-0.5 text-tertiary" />
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center justify-between gap-2 mb-1">
-                    <span class="text-[10px] uppercase tracking-wide text-tertiary">
+                    <span class="text-3xs uppercase tracking-wide text-tertiary">
                       {{ signalLabel(signal) }}
                     </span>
-                    <span class="text-[10px] text-tertiary">
+                    <span class="text-3xs text-tertiary">
                       {{ formatRelativeTime(signal.detected_at) }}
                     </span>
                   </div>
@@ -390,7 +390,7 @@ function signalLabel(signal: KnowledgeGapSignal): string {
                     </ul>
                     <p
                       v-if="(clusterPayload(signal).member_count ?? 0) > (clusterPayload(signal).sample_titles?.length ?? 0)"
-                      class="text-[11px] text-tertiary mt-1"
+                      class="text-2xs text-tertiary mt-1"
                     >
                       &hellip; {{ $t('docs-gaps-cluster-more', { count: (clusterPayload(signal).member_count ?? 0) - (clusterPayload(signal).sample_titles?.length ?? 0) }) }}
                     </p>
@@ -408,7 +408,7 @@ function signalLabel(signal: KnowledgeGapSignal): string {
                     >
                       📄 {{ staleDocPayload(signal).page_title ?? $t('docs-gaps-stale-untitled') }}
                     </RouterLink>
-                    <p class="text-[11px] text-tertiary mt-1">
+                    <p class="text-2xs text-tertiary mt-1">
                       <template v-if="staleDocPayload(signal).verified_at">
                         <span class="text-secondary">
                           {{ $t('docs-gaps-stale-verified', { time: formatRelativeTime(staleDocPayload(signal).verified_at!) }) }}
@@ -426,7 +426,7 @@ function signalLabel(signal: KnowledgeGapSignal): string {
                     </p>
                     <p
                       v-if="(staleDocPayload(signal).recent_ticket_ids?.length ?? 0) > 0"
-                      class="text-[11px] text-tertiary mt-1"
+                      class="text-2xs text-tertiary mt-1"
                     >
                       <span class="text-secondary">{{ staleDocPayload(signal).recent_ticket_ids!.length }}</span>
                       {{ $t('docs-gaps-stale-recent-tickets', { count: staleDocPayload(signal).recent_ticket_ids!.length }) }}
@@ -442,7 +442,7 @@ function signalLabel(signal: KnowledgeGapSignal): string {
                         </template>
                       </span>
                     </p>
-                    <p class="text-[11px] text-tertiary mt-1 italic">
+                    <p class="text-2xs text-tertiary mt-1 italic">
                       {{ $t('docs-gaps-stale-auto-dismiss') }}
                     </p>
                   </template>
@@ -454,7 +454,7 @@ function signalLabel(signal: KnowledgeGapSignal): string {
                     <p class="text-sm text-primary">
                       "{{ failedSearchPayload(signal).query_sample ?? signal.source_ref }}"
                     </p>
-                    <p class="text-[11px] text-tertiary mt-1">
+                    <p class="text-2xs text-tertiary mt-1">
                       {{ $t('docs-gaps-failed-search-count', { count: failedSearchPayload(signal).count ?? 0 }) }}
                       <template v-if="failedSearchPayload(signal).first_seen && failedSearchPayload(signal).last_seen">
                         &middot; {{ $t('docs-gaps-failed-search-range', { first: formatRelativeTime(failedSearchPayload(signal).first_seen!), last: formatRelativeTime(failedSearchPayload(signal).last_seen!) }) }}
@@ -486,7 +486,7 @@ function signalLabel(signal: KnowledgeGapSignal): string {
                        provenance, not as the headline. -->
                   <p
                     v-if="signal.detected_by_user"
-                    class="text-[11px] text-tertiary mt-1"
+                    class="text-2xs text-tertiary mt-1"
                   >
                     {{ $t('docs-gaps-flagged-by', { name: signal.detected_by_user.name }) }}
                   </p>

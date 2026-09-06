@@ -58,7 +58,7 @@ render is more useful than a fitting one.
       >
         {{ expanded ? t('tickets-email-html-show-less') : t('tickets-email-html-show-full') }}
       </button>
-      <span v-if="hasOverflowed && !expanded" class="text-[11px] text-tertiary">
+      <span v-if="hasOverflowed && !expanded" class="text-2xs text-tertiary">
         {{ t('tickets-email-html-scaled', { pct: Math.round(activeScale * 100) }) }}
       </span>
     </div>

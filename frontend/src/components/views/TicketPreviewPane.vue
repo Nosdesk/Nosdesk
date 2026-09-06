@@ -198,8 +198,8 @@ async function updateDueDate(iso: string | null): Promise<void> {
       <p class="text-sm font-medium text-secondary mb-2">{{ $t('views-ticket-preview-empty-title') }}</p>
       <p class="text-xs leading-relaxed max-w-[16rem]">
         {{ $t('views-ticket-preview-empty-prefix') }}
-        <kbd class="text-[10px] font-mono px-1.5 py-0.5 bg-surface-hover rounded border border-subtle">↑</kbd>
-        <kbd class="text-[10px] font-mono px-1.5 py-0.5 bg-surface-hover rounded border border-subtle ml-1">↓</kbd>
+        <kbd class="text-3xs font-mono px-1.5 py-0.5 bg-surface-hover rounded border border-subtle">↑</kbd>
+        <kbd class="text-3xs font-mono px-1.5 py-0.5 bg-surface-hover rounded border border-subtle ml-1">↓</kbd>
         {{ $t('views-ticket-preview-empty-suffix') }}
       </p>
     </div>
@@ -213,7 +213,7 @@ async function updateDueDate(iso: string | null): Promise<void> {
         <header
           class="flex items-center gap-2 px-4 h-9 border-b border-subtle/60 shrink-0 min-w-0"
         >
-          <span class="text-tertiary font-mono text-[11px] tabular-nums shrink-0">#{{ card.id }}</span>
+          <span class="text-tertiary font-mono text-2xs tabular-nums shrink-0">#{{ card.id }}</span>
           <span class="text-tertiary/50 shrink-0" aria-hidden="true">·</span>
           <div class="min-w-0 flex-1">
             <CustomDropdown
@@ -228,7 +228,7 @@ async function updateDueDate(iso: string | null): Promise<void> {
           </div>
           <button
             type="button"
-            class="inline-flex items-center gap-1 text-[11px] text-secondary hover:text-primary px-2 h-7 rounded-md hover:bg-surface-hover transition-colors"
+            class="inline-flex items-center gap-1 text-2xs text-secondary hover:text-primary px-2 h-7 rounded-md hover:bg-surface-hover transition-colors"
             @click="onOpen"
           >
             {{ $t('views-ticket-preview-open') }}
@@ -275,7 +275,7 @@ async function updateDueDate(iso: string | null): Promise<void> {
               </span>
               <span
                 v-if="slaState"
-                class="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 h-6 rounded-md border border-subtle transition-colors duration-200"
+                class="inline-flex items-center gap-1 text-3xs font-medium px-1.5 h-6 rounded-md border border-subtle transition-colors duration-200"
                 :class="slaState.toneClass"
               >
                 <Icon name="clock" class="w-3 h-3" />
@@ -283,7 +283,7 @@ async function updateDueDate(iso: string | null): Promise<void> {
               </span>
               <span
                 v-if="card.kb_gap_signal && card.kb_gap_signal !== 'none'"
-                class="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide px-1.5 h-6 rounded-md"
+                class="inline-flex items-center gap-1 text-3xs font-semibold uppercase tracking-wide px-1.5 h-6 rounded-md"
                 :class="card.kb_gap_signal === 'strong'
                   ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
                   : 'bg-surface-hover text-secondary'"
@@ -293,7 +293,7 @@ async function updateDueDate(iso: string | null): Promise<void> {
               </span>
               <span
                 v-if="card.recurrence_rule"
-                class="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide px-1.5 h-6 rounded-md bg-violet-500/12 text-violet-700 dark:text-violet-300"
+                class="inline-flex items-center gap-1 text-3xs font-semibold uppercase tracking-wide px-1.5 h-6 rounded-md bg-violet-500/12 text-violet-700 dark:text-violet-300"
                 :title="card.recurrence_rule"
               >
                 <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" class="w-3 h-3">
@@ -307,7 +307,7 @@ async function updateDueDate(iso: string | null): Promise<void> {
 
           <!-- PROPERTIES -->
           <section class="px-4 pt-3 pb-3 border-t border-subtle/60">
-            <h3 class="text-[10px] uppercase tracking-wider font-semibold text-tertiary mb-2">
+            <h3 class="text-3xs uppercase tracking-wider font-semibold text-tertiary mb-2">
               {{ $t('views-ticket-preview-properties') }}
             </h3>
             <div class="flex flex-col gap-2 text-xs">
@@ -381,7 +381,7 @@ async function updateDueDate(iso: string | null): Promise<void> {
                what it is). The bar gives peripheral urgency; the
                detail line carries the precise time + target. -->
           <section v-if="slaRows.length > 0" class="px-4 pt-3 pb-3 border-t border-subtle/60 flex flex-col gap-2.5">
-            <h3 class="text-[10px] uppercase tracking-wider font-semibold text-tertiary">
+            <h3 class="text-3xs uppercase tracking-wider font-semibold text-tertiary">
               {{ $t('views-ticket-preview-sla') }}
             </h3>
             <div v-for="row in slaRows" :key="row.labelKey ?? 'single'" class="flex flex-col gap-1.5">
@@ -402,7 +402,7 @@ async function updateDueDate(iso: string | null): Promise<void> {
                   :style="{ width: `${row.state.fraction * 100}%` }"
                 />
               </div>
-              <p class="text-[11px] text-tertiary">{{ row.state.detail }}</p>
+              <p class="text-2xs text-tertiary">{{ row.state.detail }}</p>
             </div>
           </section>
 
@@ -414,7 +414,7 @@ async function updateDueDate(iso: string | null): Promise<void> {
                component on both gives them identical rendered
                size, which inline-SVG mixed with Icon does not. -->
           <section class="px-4 pt-3 pb-3 border-t border-subtle/60">
-            <h3 class="text-[10px] uppercase tracking-wider font-semibold text-tertiary mb-2">
+            <h3 class="text-3xs uppercase tracking-wider font-semibold text-tertiary mb-2">
               {{ $t('views-ticket-preview-activity') }}
             </h3>
             <div class="flex flex-col gap-2 text-xs">
@@ -442,7 +442,7 @@ async function updateDueDate(iso: string | null): Promise<void> {
             v-if="card.affected_devices && card.affected_devices.count > 0"
             class="px-4 pt-3 pb-3 border-t border-subtle/60"
           >
-            <h3 class="text-[10px] uppercase tracking-wider font-semibold text-tertiary mb-2">
+            <h3 class="text-3xs uppercase tracking-wider font-semibold text-tertiary mb-2">
               {{ $t('views-ticket-preview-affected-devices') }}
             </h3>
             <div class="text-xs text-secondary flex items-center gap-2">
@@ -452,7 +452,7 @@ async function updateDueDate(iso: string | null): Promise<void> {
               </span>
               <span
                 v-if="card.affected_devices.count > 1"
-                class="text-tertiary text-[11px] tabular-nums shrink-0"
+                class="text-tertiary text-2xs tabular-nums shrink-0"
               >{{ $t('views-ticket-preview-more-devices', { count: card.affected_devices.count - 1 }) }}</span>
             </div>
           </section>

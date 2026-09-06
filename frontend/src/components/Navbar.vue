@@ -495,7 +495,7 @@ const isOverflowRouteActive = computed(() =>
                     class="flex flex-col gap-0.5"
                 >
                     <h3
-                        class="px-2.5 text-[10px] font-semibold text-tertiary tracking-wide uppercase select-none"
+                        class="px-2.5 text-3xs font-semibold text-tertiary tracking-wide uppercase select-none"
                     >
                         {{ $t(group.label) }}
                     </h3>

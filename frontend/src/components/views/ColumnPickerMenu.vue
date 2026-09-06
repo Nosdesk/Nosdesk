@@ -46,7 +46,7 @@ const hiddenCount = computed<number>(
     <button
       ref="triggerRef"
       type="button"
-      class="inline-flex items-center gap-1 text-[11px] px-2 h-6 rounded-md border transition-colors text-tertiary hover:text-primary border-subtle hover:border-default hover:bg-surface-hover"
+      class="inline-flex items-center gap-1 text-2xs px-2 h-6 rounded-md border transition-colors text-tertiary hover:text-primary border-subtle hover:border-default hover:bg-surface-hover"
       :aria-expanded="open"
       aria-haspopup="menu"
       @click="open = !open"
@@ -56,7 +56,7 @@ const hiddenCount = computed<number>(
            glance whether columns are tucked away. -->
       <span
         v-if="hiddenCount > 0"
-        class="text-[10px] text-tertiary"
+        class="text-3xs text-tertiary"
       >{{ hiddenCount }}</span>
       <Icon name="chevronDown" class="w-3 h-3 opacity-70" />
     </button>
@@ -100,7 +100,7 @@ const hiddenCount = computed<number>(
       <footer class="border-t border-subtle px-3 py-1.5 flex items-center justify-end">
         <button
           type="button"
-          class="text-[11px] text-tertiary hover:text-primary"
+          class="text-2xs text-tertiary hover:text-primary"
           @click="emit('reset'); open = false"
         >{{ $t('views-column-picker-reset') }}</button>
       </footer>

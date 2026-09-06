@@ -233,7 +233,7 @@ function recurrenceLabel(rule: string | null | undefined): string {
       :style="colStyle(col)"
     >
       <template v-if="col.id === 'id'">
-        <span class="text-tertiary font-mono text-[11px] tabular-nums">#{{ card.id }}</span>
+        <span class="text-tertiary font-mono text-2xs tabular-nums">#{{ card.id }}</span>
       </template>
 
       <template v-else-if="col.id === 'title'">
@@ -257,12 +257,12 @@ function recurrenceLabel(rule: string | null | undefined): string {
           >↻</span>
           <span
             v-if="card.sla?.breached"
-            class="text-[10px] font-semibold uppercase tracking-wide text-rose-600 dark:text-rose-400 shrink-0"
+            class="text-3xs font-semibold uppercase tracking-wide text-rose-600 dark:text-rose-400 shrink-0"
             :title="$t('views-ticket-row-sla-breached-tooltip')"
           >{{ $t('views-ticket-row-sla-badge') }}</span>
           <span
             v-if="card.spam_suspected"
-            class="text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 shrink-0"
+            class="text-3xs font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 shrink-0"
             :title="$t('views-ticket-row-spam-tooltip')"
           >{{ $t('views-ticket-row-spam-badge') }}</span>
         </div>
@@ -313,7 +313,7 @@ function recurrenceLabel(rule: string | null | undefined): string {
       <template v-else-if="col.id === 'category'">
         <span
           v-if="card.category_id != null"
-          class="text-[11px] text-secondary bg-surface-hover rounded px-1.5 py-0.5"
+          class="text-2xs text-secondary bg-surface-hover rounded px-1.5 py-0.5"
         >#{{ card.category_id }}</span>
         <span v-else class="text-xs text-tertiary">-</span>
       </template>
@@ -321,7 +321,7 @@ function recurrenceLabel(rule: string | null | undefined): string {
       <template v-else-if="col.id === 'cycle'">
         <span
           v-if="card.cycle_id != null"
-          class="text-[11px] text-accent bg-accent/10 rounded px-1.5 py-0.5"
+          class="text-2xs text-accent bg-accent/10 rounded px-1.5 py-0.5"
           :title="$t('views-ticket-row-cycle-tooltip')"
         >{{ $t('views-ticket-row-cycle-label', { id: card.cycle_id }) }}</span>
         <span v-else class="text-xs text-tertiary">-</span>
@@ -329,7 +329,7 @@ function recurrenceLabel(rule: string | null | undefined): string {
 
       <template v-else-if="col.id === 'due_date'">
         <span
-          class="text-[11px] tabular-nums"
+          class="text-2xs tabular-nums"
           :class="card.due_date ? 'text-secondary' : 'text-tertiary'"
           :title="card.due_date ? formatDateTime(card.due_date) : $t('views-ticket-row-no-due-date')"
         >{{ shortDate(card.due_date) }}</span>
@@ -337,14 +337,14 @@ function recurrenceLabel(rule: string | null | undefined): string {
 
       <template v-else-if="col.id === 'last_activity'">
         <span
-          class="text-[11px] text-tertiary tabular-nums"
+          class="text-2xs text-tertiary tabular-nums"
           :title="formatDateTime(card.last_activity_at)"
         >{{ relativeTime(card.last_activity_at) }}</span>
       </template>
 
       <template v-else-if="col.id === 'created_at'">
         <span
-          class="text-[11px] text-tertiary tabular-nums"
+          class="text-2xs text-tertiary tabular-nums"
           :title="formatDateTime(card.created_at)"
         >{{ relativeTime(card.created_at) }}</span>
       </template>
@@ -352,7 +352,7 @@ function recurrenceLabel(rule: string | null | undefined): string {
       <template v-else-if="col.id === 'sla'">
         <span
           v-if="card.sla"
-          class="inline-flex items-center gap-1 text-[11px] tabular-nums transition-colors duration-200"
+          class="inline-flex items-center gap-1 text-2xs tabular-nums transition-colors duration-200"
           :class="slaToneClass(card)"
           :title="slaTitle(card)"
         >
@@ -365,7 +365,7 @@ function recurrenceLabel(rule: string | null | undefined): string {
       <template v-else-if="col.id === 'kb_gap'">
         <span
           v-if="card.kb_gap_signal && card.kb_gap_signal !== 'none'"
-          class="text-[10px] font-semibold uppercase tracking-wide rounded px-1.5 py-0.5"
+          class="text-3xs font-semibold uppercase tracking-wide rounded px-1.5 py-0.5"
           :class="card.kb_gap_signal === 'strong'
             ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
             : 'bg-surface-hover text-secondary'"
@@ -377,7 +377,7 @@ function recurrenceLabel(rule: string | null | undefined): string {
       <template v-else-if="col.id === 'devices'">
         <span
           v-if="card.affected_devices && card.affected_devices.count > 0"
-          class="text-[11px] text-secondary tabular-nums inline-flex items-center gap-1"
+          class="text-2xs text-secondary tabular-nums inline-flex items-center gap-1"
           :title="card.affected_devices.first?.name ?? $t('views-ticket-row-devices-count', { count: card.affected_devices.count })"
         >
           <Icon name="device" class="w-3 h-3" />
@@ -389,7 +389,7 @@ function recurrenceLabel(rule: string | null | undefined): string {
       <template v-else-if="col.id === 'recurrence'">
         <span
           v-if="card.recurrence_rule"
-          class="text-[10px] font-medium rounded px-1.5 py-0.5 bg-violet-500/15 text-violet-700 dark:text-violet-300"
+          class="text-3xs font-medium rounded px-1.5 py-0.5 bg-violet-500/15 text-violet-700 dark:text-violet-300"
           :title="card.recurrence_rule"
         >{{ recurrenceLabel(card.recurrence_rule) }}</span>
         <span v-else class="text-xs text-tertiary">-</span>

@@ -179,7 +179,7 @@ watch(isWatching, (watching) => {
           />
           <span
             v-if="overflowCount > 0"
-            class="inline-flex items-center justify-center h-5 min-w-[1.25rem] px-1 rounded-full bg-surface-alt text-tertiary text-[10px] font-medium"
+            class="inline-flex items-center justify-center h-5 min-w-[1.25rem] px-1 rounded-full bg-surface-alt text-tertiary text-3xs font-medium"
             :title="t('ticket-field-watchers-overflow-title', { count: overflowCount })"
           >+{{ overflowCount }}</span>
         </div>
@@ -195,7 +195,7 @@ watch(isWatching, (watching) => {
              accessibility primitive. -->
         <button
           type="button"
-          class="inline-flex items-center gap-1 px-2 h-6 rounded text-[11px] font-medium transition-colors"
+          class="inline-flex items-center gap-1 px-2 h-6 rounded text-2xs font-medium transition-colors"
           :class="isWatching
             ? 'text-accent hover:bg-accent-muted'
             : 'text-tertiary hover:text-primary hover:bg-surface-hover'"
@@ -249,7 +249,7 @@ watch(isWatching, (watching) => {
         >
           <span class="flex flex-col">
             <span class="text-xs text-primary">{{ t('ticket-field-watchers-notify-internal') }}</span>
-            <span class="text-[10px] text-tertiary">{{ t('ticket-field-watchers-notify-internal-hint') }}</span>
+            <span class="text-3xs text-tertiary">{{ t('ticket-field-watchers-notify-internal-hint') }}</span>
           </span>
           <Icon
             v-if="notifyOnInternalNotes"
@@ -265,7 +265,7 @@ watch(isWatching, (watching) => {
         </button>
         <p
           v-if="prefError"
-          class="px-2 py-1 text-[10px] text-status-error"
+          class="px-2 py-1 text-3xs text-status-error"
           role="alert"
         >
           {{ prefError }}

@@ -255,7 +255,7 @@ onMounted(() => {
             />
             <span
               v-if="state.is_default"
-              class="text-[10px] uppercase tracking-wide font-semibold text-accent border border-accent/40 bg-accent/10 rounded px-1.5 py-0.5"
+              class="text-3xs uppercase tracking-wide font-semibold text-accent border border-accent/40 bg-accent/10 rounded px-1.5 py-0.5"
             >
               {{ $t('admin-workflow-states-default-badge') }}
             </span>

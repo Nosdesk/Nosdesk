@@ -420,14 +420,14 @@ const deleteModalTitle = computed(() =>
               <span
                 v-for="group in override.groups"
                 :key="'g-' + group.id"
-                class="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent flex-shrink-0"
+                class="text-3xs px-1.5 py-0.5 rounded-full bg-accent/10 text-accent flex-shrink-0"
               >
                 {{ group.name }}
               </span>
               <span
                 v-for="user in (override.users || [])"
                 :key="'u-' + user.uuid"
-                class="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 flex-shrink-0"
+                class="text-3xs px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 flex-shrink-0"
               >
                 {{ user.name }}
               </span>

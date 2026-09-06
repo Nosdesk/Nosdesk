@@ -85,7 +85,7 @@ const activeCount = computed(() => {
     />
     <button
       type="button"
-      class="inline-flex items-center text-[11px] px-2 h-6 rounded-md border border-dashed border-subtle text-tertiary hover:text-primary hover:border-default hover:bg-surface-hover transition-colors"
+      class="inline-flex items-center text-2xs px-2 h-6 rounded-md border border-dashed border-subtle text-tertiary hover:text-primary hover:border-default hover:bg-surface-hover transition-colors"
       :title="$t('views-save-trigger')"
       @click="emit('save-as')"
     >
@@ -104,7 +104,7 @@ const activeCount = computed(() => {
     {{ $t('list-mobile-filter-group-title') }}
     <span
       v-if="activeCount > 0"
-      class="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-accent text-on-accent text-[11px] font-semibold tabular-nums"
+      class="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-accent text-on-accent text-2xs font-semibold tabular-nums"
     >
       {{ activeCount }}
     </span>

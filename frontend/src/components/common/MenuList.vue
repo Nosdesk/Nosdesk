@@ -78,7 +78,7 @@ const emit = defineEmits<{
          the items underneath them. -->
     <div
       v-if="item.heading"
-      class="w-full px-3 pt-2 pb-1 flex items-center gap-2 text-[10px] font-semibold tracking-wide text-tertiary uppercase select-none"
+      class="w-full px-3 pt-2 pb-1 flex items-center gap-2 text-3xs font-semibold tracking-wide text-tertiary uppercase select-none"
     >
       <span class="w-3.5 h-3.5 flex-shrink-0" aria-hidden="true"></span>
       <span>{{ item.label }}</span>
@@ -138,7 +138,7 @@ const emit = defineEmits<{
         />
       </span>
       <span class="flex-1 truncate">{{ item.label }}</span>
-      <span v-if="item.trailing" class="ml-auto pl-2 text-[10px] text-tertiary flex-shrink-0">
+      <span v-if="item.trailing" class="ml-auto pl-2 text-3xs text-tertiary flex-shrink-0">
         {{ item.trailing }}
       </span>
     </button>

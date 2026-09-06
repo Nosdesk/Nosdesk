@@ -74,7 +74,7 @@ function signalCount(count: number): string {
           <Icon name="warning" class="text-amber-500 flex-shrink-0 mt-0.5" />
           <div class="flex-1 min-w-0">
             <p class="text-sm text-primary truncate">{{ item.title }}</p>
-            <div class="text-[11px] text-tertiary mt-0.5 flex items-center gap-2">
+            <div class="text-2xs text-tertiary mt-0.5 flex items-center gap-2">
               <span>{{ signalCount(item.evidenceCount) }}</span>
               <span v-if="item.lastEvidenceAt" class="text-subtle">&middot;</span>
               <span v-if="item.lastEvidenceAt">
@@ -83,7 +83,7 @@ function signalCount(count: number): string {
             </div>
           </div>
           <span
-            class="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-surface-alt text-tertiary"
+            class="flex-shrink-0 text-3xs px-1.5 py-0.5 rounded bg-surface-alt text-tertiary"
             :title="impactTooltip(item)"
           >
             {{ impactBadge(item) }}
