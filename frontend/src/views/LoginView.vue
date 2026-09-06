@@ -720,7 +720,7 @@ const handleOidcLogoutClick = async () => {
 
       <!-- Login Form -->
       <form v-else-if="!ssoOnly" @submit.prevent="handleLogin" class="flex flex-col gap-5">
-        <header class="flex flex-col gap-1.5">
+        <header class="flex flex-col gap-1.5 text-center lg:text-left">
           <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight text-primary">
             {{ $t('login-title') }}
           </h1>
@@ -900,7 +900,7 @@ const handleOidcLogoutClick = async () => {
            path. onMounted auto-initiates the redirect; this is the visible
            state during it, with a manual fallback if it was blocked. -->
       <div v-else class="flex flex-col gap-5">
-        <header class="flex flex-col gap-1.5">
+        <header class="flex flex-col gap-1.5 text-center lg:text-left">
           <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight text-primary">
             {{ $t('login-title') }}
           </h1>

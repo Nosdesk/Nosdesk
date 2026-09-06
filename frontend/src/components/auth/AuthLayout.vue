@@ -72,7 +72,12 @@ const heroStyle = computed(() => ({
       <div
         class="mx-auto flex min-h-full w-full max-w-[28rem] flex-col gap-10 px-6 pb-10 pt-[calc(2.5rem+env(safe-area-inset-top))] sm:px-10 lg:max-w-none lg:px-16 lg:pb-14 lg:pt-[calc(3.5rem+env(safe-area-inset-top))]"
       >
-        <div class="w-fit">
+        <!-- The brand follows the column, and the column follows the hero:
+             centred while the column is centred, back in its corner once the
+             hero returns at lg and anchors the panel left. A mark that stays
+             left while the column centres reads as misaligned, because it is
+             two alignment decisions disagreeing on one screen. -->
+        <div class="w-fit self-center lg:self-start">
           <slot name="logo">
             <LogoIcon class="h-9 w-auto text-accent" :aria-label="$t('nav-logo-alt')" />
           </slot>
@@ -84,7 +89,10 @@ const heroStyle = computed(() => ({
           </div>
         </div>
 
-        <p v-if="$slots.footer" class="text-xs leading-relaxed text-tertiary">
+        <p
+          v-if="$slots.footer"
+          class="text-center text-xs leading-relaxed text-tertiary lg:text-left"
+        >
           <slot name="footer" />
         </p>
 
@@ -96,7 +104,7 @@ const heroStyle = computed(() => ({
         <button
           v-if="showSwitchServer"
           type="button"
-          class="w-fit text-sm text-secondary underline underline-offset-2 hover:text-primary pointer-coarse:min-h-11"
+          class="w-fit self-center text-sm text-secondary underline underline-offset-2 hover:text-primary lg:self-start pointer-coarse:min-h-11"
           @click="returnToConnect"
         >
           {{ $t('connect-switch-server') }}

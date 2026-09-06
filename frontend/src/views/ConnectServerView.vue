@@ -64,7 +64,7 @@ async function connectSelfHosted() {
     <template #hero-subtitle>{{ $t('connect-hero-subtitle') }}</template>
 
     <div class="flex flex-col gap-8">
-      <div>
+      <div class="text-center lg:text-left">
         <h1 class="text-2xl font-semibold text-primary">{{ $t('connect-title') }}</h1>
         <p class="mt-2 text-sm text-secondary">{{ $t('connect-subtitle') }}</p>
       </div>
@@ -93,7 +93,7 @@ async function connectSelfHosted() {
         <!-- Someone with no account at all has nothing to type into either
              option above, and the app cannot create one for them. Hand them
              off to the website rather than leaving the screen a dead end. -->
-        <div class="flex flex-col items-center gap-1">
+        <div class="flex flex-col items-center gap-1 lg:items-start">
           <p class="text-sm text-secondary">{{ $t('connect-no-account') }}</p>
           <button
             type="button"

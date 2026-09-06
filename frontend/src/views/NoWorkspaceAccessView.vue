@@ -34,7 +34,7 @@ async function signOut() {
 <template>
   <AuthLayout>
     <div class="flex flex-col gap-6">
-      <div class="flex flex-col gap-2">
+      <div class="flex flex-col gap-2 text-center lg:text-left">
         <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight text-primary">
           {{ $t('no-workspace-access-title') }}
         </h1>
