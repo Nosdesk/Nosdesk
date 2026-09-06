@@ -14,7 +14,8 @@ pub fn run() {
     .plugin(tauri_plugin_opener::init())
     // Keystore/Keychain-backed storage for the auth refresh token.
     .plugin(tauri_plugin_secure_store::init())
-    // APNs/FCM push device-token registration (iOS live, Android stubbed).
+    // APNs/FCM push device-token registration. Both platforms are live: the
+    // Swift plugin registers with APNs, the Kotlin one with FirebaseMessaging.
     .plugin(tauri_plugin_push::init())
     // Haptic feedback for the pull-to-refresh arm tick. iOS/Android only;
     // on desktop the commands error and the JS facade swallows it.
