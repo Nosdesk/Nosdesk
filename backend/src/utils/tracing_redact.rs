@@ -121,6 +121,16 @@ const ALLOWED_FIELDS: &[&str] = &[
     // values cannot leak user content.
     "attempt",
     "build_sha",
+    // Push dispatch accounting: per-platform counts plus the Apple environment.
+    // All bounded -- integers and a two-value enum -- and none of it is tied to
+    // a person. Without these the native sender's dispatch line is as empty as
+    // the boot line was before #312.
+    "environment",
+    "invalid_android",
+    "invalid_ios",
+    "sent_android",
+    "sent_ios",
+    "targets",
     "byte_count",
     "cancelled",
     "code",
