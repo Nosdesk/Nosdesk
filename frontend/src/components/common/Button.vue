@@ -54,9 +54,14 @@ const props = withDefaults(defineProps<Props>(), {
 // Re-emitting would be redundant and risks double-firing.
 
 const sizeClasses: Record<Size, string> = {
-  sm: 'text-xs px-3 py-1.5 gap-1.5',
-  md: 'text-sm px-4 py-2 gap-2',
-  lg: 'text-sm px-4 py-2.5 gap-2',
+  // `pointer-coarse:min-h-11` is a 44px floor on touch input only. Both Apple and
+  // Google put the minimum comfortable target near 9mm; at this tablet's
+  // ~151 CSS px per inch a 37px button is 6.2mm, so the padding-derived
+  // height alone is not enough. A mouse needs no such floor, which is why
+  // this is keyed on the pointer rather than applied everywhere.
+  sm: 'text-xs px-3 py-1.5 gap-1.5 pointer-coarse:min-h-9',
+  md: 'text-sm px-4 py-2 gap-2 pointer-coarse:min-h-11',
+  lg: 'text-sm px-4 py-2.5 gap-2 pointer-coarse:min-h-11',
 };
 
 // `text-on-accent` not `text-white`. The on-accent foreground is

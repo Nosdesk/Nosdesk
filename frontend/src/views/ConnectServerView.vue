@@ -14,6 +14,18 @@ import Button from '@/components/common/Button.vue';
 import FormInput from '@/components/common/FormInput.vue';
 import { selectCloud, connectTo } from '@/platform/serverGate';
 
+/**
+ * Where someone without an account goes. Points at the marketing site rather
+ * than a trial-signup route until that flow exists; the landing page can route
+ * them onward, so this needs no app release when it ships.
+ */
+const SIGN_UP_URL = 'https://nosdesk.com';
+
+async function openSignUp() {
+  const { openInBrowser } = await import('@nosdesk/mobile');
+  await openInBrowser(SIGN_UP_URL);
+}
+
 const mode = ref<'choose' | 'self-hosted'>('choose');
 const serverUrl = ref('');
 const error = ref('');
@@ -23,7 +35,8 @@ async function chooseCloud() {
   busy.value = true;
   error.value = '';
   try {
-    await selectCloud();
+    const result = await selectCloud();
+    if (!result.ok) error.value = result.error ?? 'Could not connect to Nosdesk Cloud';
   } catch {
     error.value = 'Could not connect to Nosdesk Cloud';
   } finally {
@@ -70,19 +83,33 @@ async function connectSelfHosted() {
         </Button>
         <button
           type="button"
-          class="text-sm font-medium text-accent hover:underline disabled:opacity-50"
+          class="inline-flex w-full items-center justify-center text-sm font-medium text-accent hover:underline disabled:opacity-50 pointer-coarse:min-h-11"
           :disabled="busy"
           @click="mode = 'self-hosted'"
         >
           {{ $t('connect-self-hosted') }}
         </button>
+
+        <!-- Someone with no account at all has nothing to type into either
+             option above, and the app cannot create one for them. Hand them
+             off to the website rather than leaving the screen a dead end. -->
+        <div class="flex flex-col items-center gap-1">
+          <p class="text-sm text-secondary">{{ $t('connect-no-account') }}</p>
+          <button
+            type="button"
+            class="inline-flex items-center justify-center px-2 text-sm font-medium text-accent hover:underline pointer-coarse:min-h-11"
+            @click="openSignUp"
+          >
+            {{ $t('connect-no-account-cta') }}
+          </button>
+        </div>
       </div>
 
       <!-- Self-hosted: enter a server URL -->
       <form v-else class="flex flex-col gap-6" @submit.prevent="connectSelfHosted">
         <FormInput
           v-model="serverUrl"
-          type="url"
+          type="text"
           inputmode="url"
           autocapitalize="none"
           autocorrect="off"
@@ -96,7 +123,7 @@ async function connectSelfHosted() {
         </Button>
         <button
           type="button"
-          class="text-sm font-medium text-secondary hover:underline disabled:opacity-50"
+          class="inline-flex w-full items-center justify-center text-sm font-medium text-secondary hover:underline disabled:opacity-50 pointer-coarse:min-h-11"
           :disabled="busy"
           @click="mode = 'choose'; error = ''"
         >

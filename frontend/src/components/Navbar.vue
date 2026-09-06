@@ -367,7 +367,7 @@ const isOverflowRouteActive = computed(() =>
     <!-- Sidebar - Flex item in document flow, hidden on mobile -->
     <nav
         ref="navbarRef"
-        class="h-screen bg-surface border-r border-default flex flex-col flex-shrink-0 print:hidden transition-all duration-300 ease-in-out overflow-hidden"
+        class="h-screen bg-surface border-r border-default flex flex-col flex-shrink-0 print:hidden transition-all duration-300 ease-in-out overflow-hidden pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)]"
         :class="[isCollapsed ? 'w-16' : 'w-64', isMobile ? 'hidden' : '']"
     >
         <!-- Logo - swaps between full logo and icon based on collapsed state -->
