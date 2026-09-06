@@ -22,6 +22,7 @@ pub mod login_timing;
 pub mod markdown_export;
 pub mod mfa;
 pub mod pdf;
+pub mod process_id;
 pub mod rate_limit;
 pub mod rbac;
 pub mod redact;

@@ -64,6 +64,18 @@ pub struct RelayStatus {
     pub last_success_at: Option<i64>,
     /// Unix seconds of the last attempt of any kind.
     pub last_attempt_at: Option<i64>,
+    /// Which process this snapshot describes.
+    ///
+    /// This status is deliberately process-local: each process holds its own
+    /// relay client, token cache and connectivity, so on a deployment running
+    /// several replicas two machines genuinely have different status. Merging
+    /// them into one shared value would flap between a healthy machine and a
+    /// failing one and hide the only thing worth knowing, which is *which*
+    /// machine is failing. Naming the process instead makes an alternating
+    /// answer legible rather than mysterious.
+    ///
+    /// Filled in at snapshot time, not stored, so [`Default`] stays trivial.
+    pub process_id: &'static str,
 }
 
 /// Why a relay call failed. Every variant is a static discriminator safe to log
@@ -191,9 +203,12 @@ impl RelayClient {
         })
     }
 
-    /// Snapshot for the admin edition surface.
+    /// Snapshot for the admin edition surface, stamped with this process's id.
     pub fn status(&self) -> RelayStatus {
-        self.status.read().expect("RwLock poisoned").clone()
+        RelayStatus {
+            process_id: crate::utils::process_id::process_id(),
+            ..self.status.read().expect("RwLock poisoned").clone()
+        }
     }
 
     fn record(&self, outcome: Option<&'static str>) {

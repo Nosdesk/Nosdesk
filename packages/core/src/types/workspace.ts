@@ -85,12 +85,21 @@ export interface EditionInfo {
   max_workspaces: number;
   active_workspaces: number;
   can_create_workspace: boolean;
-  /** Cloud push relay status. Null unless NOSDESK_PUSH_MODE=relay. */
+  /**
+   * Cloud push relay status. Null unless NOSDESK_PUSH_MODE=relay.
+   *
+   * Process-local by design: each backend process holds its own relay client
+   * and connectivity, so a deployment running several replicas will see this
+   * vary between calls. `process_id` says which one answered; two different
+   * ids mean two different machines, not a flapping relay.
+   */
   relay: {
-    /** `ok`, or a static failure kind such as `dpa_required`. */
+    /** `ok`, or a static failure kind such as `dpa_required` or `usage_cap`. */
     last_outcome: string | null;
     last_success_at: number | null;
     last_attempt_at: number | null;
+    /** Short id of the backend process that answered. */
+    process_id: string;
   } | null;
   license: {
     customer_id: string;
