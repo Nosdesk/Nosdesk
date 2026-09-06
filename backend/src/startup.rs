@@ -87,7 +87,17 @@ pub fn build_state(
 
     let redis_cache = match create_redis_cache(&yjs_redis_url) {
         Ok(cache) => {
-            info!(url = %yjs_redis_url, "Redis cache initialized for Yjs documents");
+            // Never the URL: `rediss://:PASSWORD@host` puts the password in
+            // it. The host and the TLS flag are what the comment above is
+            // about, and they carry no credential.
+            info!(
+                redis_host = %url::Url::parse(&yjs_redis_url)
+                    .ok()
+                    .and_then(|u| u.host_str().map(str::to_owned))
+                    .unwrap_or_else(|| "?".to_string()),
+                redis_tls = yjs_redis_url.starts_with("rediss://"),
+                "Redis cache initialized for Yjs documents"
+            );
             cache
         }
         Err(e) => {
@@ -371,7 +381,7 @@ pub fn build_state(
 
         match crate::services::search::SearchService::new(Path::new(&search_index_path), &pool) {
             Ok(service) => {
-                info!(path = %search_index_path, "Search service initialized");
+                info!(search_index_path = %search_index_path, "Search service initialized");
                 web::Data::new(Arc::new(service))
             }
             Err(e) => {
@@ -474,7 +484,7 @@ pub fn build_state(
     };
     let inbound_s3_data = web::Data::new(inbound_s3);
 
-    info!(host = %host, port = %port, environment = %environment, "Server starting");
+    info!(bind_host = %host, bind_port = %port, environment = %environment, "Server starting");
 
     // Boot the channel-worker supervisor. The supervisor owns a
     // `ChannelRegistry` and is the only task that mutates it; handlers
@@ -1272,7 +1282,11 @@ pub async fn build_server(
     }
     match crate::utils::encryption::init_keyring() {
         Ok(kr) => {
-            info!(versions = ?kr.versions(), current = kr.current_version(), "Keyring initialised")
+            info!(
+                key_versions = ?kr.versions(),
+                current_key_version = kr.current_version(),
+                "Keyring initialised"
+            )
         }
         Err(e) => {
             error!(error = %e, "Keyring initialisation failed");
@@ -1450,7 +1464,7 @@ pub async fn build_server(
         match std::fs::create_dir_all(&full_path) {
             Ok(_) => {}
             Err(e) => {
-                error!(path = %full_path, error = %e, "Failed to create directory");
+                error!(upload_dir = %full_path, error = %e, "Failed to create directory");
                 return Err(std::io::Error::other(format!(
                     "Failed to create directory: {full_path}"
                 )));
@@ -1641,7 +1655,7 @@ pub async fn build_server(
     // populates these directories long before the binary starts.
     for static_dir in ["./public/static", "./public/pdfjs"] {
         if let Err(e) = std::fs::create_dir_all(static_dir) {
-            error!(path = %static_dir, error = %e, "Failed to ensure static directory exists");
+            error!(static_dir = %static_dir, error = %e, "Failed to ensure static directory exists");
             return Err(std::io::Error::other(format!(
                 "Failed to ensure static directory {static_dir}: {e}"
             )));

@@ -238,7 +238,6 @@ src/handlers/plugins.rs actor
 src/handlers/plugins.rs actual
 src/handlers/plugins.rs actual_pubkey
 src/handlers/plugins.rs expected
-src/handlers/plugins.rs plugin
 src/handlers/plugins.rs plugin_name
 src/handlers/plugins.rs plugin_uuid
 src/handlers/plugins.rs registry_pubkey
@@ -384,11 +383,6 @@ src/services/msgraph/pipeline.rs permanent
 src/services/msgraph/retry.rs max_attempts
 src/services/notifications/channels/email.rs notification_uuid
 src/services/notifications/channels/email.rs recipient
-src/services/notifications/channels/push.rs recipient
-src/services/notifications/channels/push_sender.rs apns
-src/services/notifications/channels/push_sender.rs fcm
-src/services/notifications/channels/push_sender.rs platform
-src/services/notifications/channels/push_sender.rs reason
 src/services/notifications/service.rs channel
 src/services/notifications/service.rs channels
 src/services/notifications/service.rs notification_id
@@ -401,7 +395,6 @@ src/services/plugins/lifecycle.rs actor
 src/services/plugins/lifecycle.rs plugin_name
 src/services/plugins/lifecycle.rs plugin_uuid
 src/services/plugins/lifecycle.rs prior_state
-src/services/plugins/local_key.rs fingerprint
 src/services/plugins/provisioning.rs dev_mode
 src/services/plugins/provisioning.rs file
 src/services/plugins/provisioning.rs legacy_unsigned
@@ -409,7 +402,6 @@ src/services/plugins/provisioning.rs path
 src/services/plugins/provisioning.rs tiers
 src/services/plugins/proxy.rs body_preview
 src/services/plugins/proxy.rs from
-src/services/plugins/proxy.rs plugin
 src/services/plugins/proxy.rs response_body
 src/services/plugins/proxy.rs to
 src/services/plugins/proxy.rs token_url
@@ -423,10 +415,8 @@ src/services/plugins/registry.rs publishers_version
 src/services/plugins/registry.rs unchanged
 src/services/plugins/registry.rs url
 src/services/plugins/registry.rs would_revoke
-src/services/plugins/signing.rs fingerprint
 src/services/plugins/signing.rs signer_source
 src/services/plugins/trust.rs claimed_source
-src/services/plugins/trust.rs fingerprint
 src/services/scheduled_jobs.rs archived
 src/services/scheduled_jobs.rs archived_at
 src/services/scheduled_jobs.rs cap
@@ -488,18 +478,6 @@ src/services/webhooks/delivery.rs failures
 src/services/webhooks/delivery.rs next_retry
 src/services/webhooks/delivery.rs url
 src/services/webhooks/service.rs delivery_id
-src/startup.rs allow_native_app
-src/startup.rs bootstrap_slug
-src/startup.rs current
-src/startup.rs fingerprint
-src/startup.rs host
-src/startup.rs host_count
-src/startup.rs path
-src/startup.rs plugin
-src/startup.rs port
-src/startup.rs tenant_domain
-src/startup.rs url
-src/startup.rs versions
 src/sync/partitions.rs child
 src/sync/partitions.rs expr
 src/sync/partitions.rs partitions_touched
