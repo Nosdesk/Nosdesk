@@ -189,7 +189,18 @@ pub async fn register_push_device(
             &body.platform,
             token,
             body.app_version.as_deref(),
-        )
+        )?;
+        // First device for this user gets sensible push preferences. Best
+        // effort by intent: a seeding failure must not fail the registration,
+        // since a registered device with no preferences still works once the
+        // user visits notification settings, whereas a failed registration
+        // leaves them with no push at all.
+        if let Err(e) =
+            crate::repository::push_devices::seed_push_defaults(conn, user_uuid, workspace_id)
+        {
+            tracing::warn!(error = %e, "could not seed default push preferences");
+        }
+        Ok::<(), diesel::result::Error>(())
     });
     match res {
         Ok(_) => HttpResponse::Ok().json(serde_json::json!({ "success": true })),
