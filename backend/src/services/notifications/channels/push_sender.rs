@@ -226,6 +226,17 @@ impl ApnsClient {
             Some("false") | Some("0") | Some("no")
         );
 
+        // Name the environment at startup. Which Apple environment we talk to
+        // decides whether a given device token can ever work, and a mismatch
+        // presents as push that works once and then never again: sandbox
+        // answers a production token with BadDeviceToken, which is correctly
+        // classified permanently invalid, so the registration is pruned and the
+        // evidence deletes itself. The relay logs this; the product did not.
+        info!(
+            environment = if production { "production" } else { "sandbox" },
+            "APNs configured"
+        );
+
         let encoding_key = EncodingKey::from_ec_pem(key_pem.as_bytes())
             .context("NOSDESK_APNS_KEY_P8 is not a valid EC private key (.p8 PEM)")?;
 
@@ -595,7 +606,16 @@ impl PushSender for NativePushSender {
 
     async fn send(&self, targets: &[PushTarget], payload: &PushPayload) -> Vec<String> {
         let mut invalid = Vec::new();
+        // Per-platform tallies, matching what the relay reports. Without them a
+        // successful native send logs nothing at all, so "did the iPhone get
+        // it" is unanswerable from the server side -- and an aggregate count
+        // cannot answer it either when one platform works and another does not.
+        // Platform is a closed set, not personal data, so it is safe to log.
+        let (mut sent_ios, mut sent_android) = (0usize, 0usize);
+        let (mut failed, mut invalid_ios, mut invalid_android) = (0usize, 0usize, 0usize);
+
         for target in targets {
+            let is_ios = target.platform == "ios";
             let outcome = match target.platform.as_str() {
                 "ios" => match &self.apns {
                     Some(client) => client.send_one(&target.token, payload).await,
@@ -610,10 +630,30 @@ impl PushSender for NativePushSender {
                     continue;
                 }
             };
-            if let SendOutcome::Invalid = outcome {
-                invalid.push(target.token.clone());
+            match outcome {
+                SendOutcome::Sent if is_ios => sent_ios += 1,
+                SendOutcome::Sent => sent_android += 1,
+                SendOutcome::Failed => failed += 1,
+                SendOutcome::Invalid => {
+                    invalid.push(target.token.clone());
+                    if is_ios {
+                        invalid_ios += 1;
+                    } else {
+                        invalid_android += 1;
+                    }
+                }
             }
         }
+
+        info!(
+            sent_ios,
+            sent_android,
+            failed,
+            invalid_ios,
+            invalid_android,
+            targets = targets.len(),
+            "Push dispatched"
+        );
         invalid
     }
 }
