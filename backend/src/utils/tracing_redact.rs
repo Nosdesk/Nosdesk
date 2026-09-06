@@ -159,6 +159,61 @@ const ALLOWED_FIELDS: &[&str] = &[
     "request_id",
     "span_id",
     "trace_id",
+    // Boot-time operator diagnostics. Every one of these lines exists so that
+    // someone reading a running instance's output can tell how it is
+    // configured, and every one of them shipped empty until now. Same defect as
+    // the push boot line in #312, found by the ratchet in
+    // tests/tracing_field_allowlist_lint.rs.
+    //
+    // Values are operator configuration, not tenant data: a bind address, a
+    // filesystem directory this process created, counts, bools, and the
+    // workspace slug the instance boots into (no more identifying than
+    // `workspace_id`, already allowed).
+    //
+    // The names are qualified on purpose. Bare `path` is an HTTP request path
+    // elsewhere in this codebase and is user-influenced; bare `host` is a
+    // request Host header elsewhere. Allowlisting either would un-redact those
+    // too, which is the blast radius the convention note below warns about.
+    // `redis_host` is the parsed host, never the URL, because
+    // `rediss://:PASS@host` puts a password in the URL.
+    "allow_native_app",
+    "bind_host",
+    "bind_port",
+    "bootstrap_slug",
+    "current_key_version",
+    "host_count",
+    "key_versions",
+    "redis_host",
+    "redis_tls",
+    "search_index_path",
+    "static_dir",
+    "tenant_domain",
+    "upload_dir",
+    // Plugin trust surface. A `fingerprint` here is always an Ed25519 signing
+    // key fingerprint: public material by construction, and the one value that
+    // tells an operator which root key an install trusted. `plugin` is an
+    // installed artifact's name, not user-authored content.
+    "fingerprint",
+    "plugin",
+    // Push dispatch, continued from #317. `apns`/`fcm` are configured-or-not
+    // bools on the native sender's boot line; `platform` is validated to
+    // ios/android/web at registration (handlers/notifications.rs), so it is a
+    // closed set even on the branch that fires when it is not one of them.
+    //
+    // `provider_reason` is the code lifted out of the provider's response and
+    // length- and charset-bounded before it is emitted. The raw body it comes
+    // from stays dropped: an FCM error echoes the device token back inside
+    // `error.message`, so logging the body would ship the credential along with
+    // the diagnosis.
+    //
+    // `recipient_uuid` is a uuid. The email channel's `recipient` is an email
+    // address and is deliberately still dropped, which is why these two are
+    // named apart rather than sharing one field.
+    "apns",
+    "fcm",
+    "platform",
+    "provider_reason",
+    "recipient_uuid",
 ];
 
 // ALLOWED_FIELDS naming convention.

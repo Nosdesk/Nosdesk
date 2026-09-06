@@ -127,6 +127,37 @@ fn classify_apns(status: u16, body: &str) -> SendOutcome {
     SendOutcome::Failed
 }
 
+/// The provider's machine-readable reason code, bounded for logging.
+///
+/// The raw response body must not reach the log pipeline. It is third-party
+/// text of unbounded shape, and an FCM error echoes the device token back
+/// inside `error.message`, so the field that would tell you *why* a send failed
+/// would also ship the credential that identifies the handset. This
+/// lifts just the code (APNs' `reason`, FCM's `error.status`) and only when it
+/// still looks like the enum constant it is meant to be, which keeps the field
+/// a closed set in practice without hardcoding a list that Apple and Google
+/// extend without asking.
+fn provider_reason(body: &str) -> String {
+    let Ok(v) = serde_json::from_str::<Value>(body) else {
+        return "unparsed".to_owned();
+    };
+    let code = v
+        .get("reason")
+        .and_then(Value::as_str)
+        .or_else(|| v.pointer("/error/status").and_then(Value::as_str));
+    match code {
+        Some(c)
+            if !c.is_empty()
+                && c.len() <= 48
+                && c.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') =>
+        {
+            c.to_owned()
+        }
+        Some(_) => "unrecognised".to_owned(),
+        None => "unparsed".to_owned(),
+    }
+}
+
 /// Classify an FCM v1 response.
 ///
 /// FCM returns `INVALID_ARGUMENT` for a bad token **and** for a malformed
@@ -342,7 +373,7 @@ impl ApnsClient {
                     self.invalidate_bearer().await;
                     warn!(
                         %status,
-                        reason = %reason,
+                        provider_reason = %provider_reason(&reason),
                         "apns: provider token rejected, dropped the cached bearer"
                     );
                     return SendOutcome::Failed;
@@ -353,7 +384,7 @@ impl ApnsClient {
                         SendOutcome::Invalid
                     }
                     outcome => {
-                        warn!(%status, reason = %reason, "apns: send failed");
+                        warn!(%status, provider_reason = %provider_reason(&reason), "apns: send failed");
                         outcome
                     }
                 }
@@ -551,7 +582,7 @@ impl FcmClient {
                         SendOutcome::Invalid
                     }
                     outcome => {
-                        warn!(%status, reason = %reason, "fcm: send failed");
+                        warn!(%status, provider_reason = %provider_reason(&reason), "fcm: send failed");
                         outcome
                     }
                 }
@@ -868,5 +899,50 @@ mod classifier_tests {
     fn apns_ignores_a_prunable_word_outside_the_reason_field() {
         let body = r#"{"reason":"PayloadTooLarge","debug":"see BadDeviceToken docs"}"#;
         assert_eq!(classify_apns(400, body), SendOutcome::Failed);
+    }
+
+    #[test]
+    fn provider_reason_lifts_the_code_from_either_provider() {
+        assert_eq!(
+            provider_reason(r#"{"reason":"BadDeviceToken"}"#),
+            "BadDeviceToken"
+        );
+        assert_eq!(
+            provider_reason(r#"{"error":{"status":"NOT_FOUND","message":"x"}}"#),
+            "NOT_FOUND"
+        );
+    }
+
+    /// The point of the helper: what gets logged is the code, never the body.
+    /// An FCM error echoes the device token inside `error.message`, so a field
+    /// carrying the body would ship the credential with the diagnosis.
+    #[test]
+    fn provider_reason_never_carries_the_body_through() {
+        let token = "fT9Zx_secret_device_token_value";
+        let body = format!(
+            r#"{{"error":{{"status":"INVALID_ARGUMENT","message":"The registration token {token} is not valid"}}}}"#
+        );
+        let logged = provider_reason(&body);
+        assert_eq!(logged, "INVALID_ARGUMENT");
+        assert!(
+            !logged.contains(token),
+            "the token must not survive: {logged}"
+        );
+    }
+
+    /// A code that is not an enum constant is reported as such rather than
+    /// emitted, so the field cannot become a hole for free text.
+    #[test]
+    fn provider_reason_rejects_anything_that_is_not_a_constant() {
+        assert_eq!(provider_reason("not json"), "unparsed");
+        assert_eq!(provider_reason(r#"{"nothing":"here"}"#), "unparsed");
+        assert_eq!(
+            provider_reason(r#"{"reason":"user kyle@nosdesk.com failed"}"#),
+            "unrecognised"
+        );
+        assert_eq!(
+            provider_reason(&format!(r#"{{"reason":"{}"}}"#, "A".repeat(49))),
+            "unrecognised"
+        );
     }
 }

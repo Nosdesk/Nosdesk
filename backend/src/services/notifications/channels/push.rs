@@ -148,11 +148,11 @@ impl NotificationDeliveryChannel for PushChannel {
             // quiet enough for steady state.
             if !self.no_devices_reported.swap(true, Ordering::Relaxed) {
                 info!(
-                    recipient = %recipient,
+                    recipient_uuid = %recipient,
                     "Push skipped: recipient has no registered devices. Devices register                      on sign-in from the mobile app; this is logged once per process."
                 );
             } else {
-                debug!(recipient = %recipient, "Push skipped: no registered devices");
+                debug!(recipient_uuid = %recipient, "Push skipped: no registered devices");
             }
             return Ok(());
         }
