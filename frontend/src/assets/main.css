@@ -16,11 +16,21 @@
   font-display: swap;
 }
 
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-  margin: 0;
+/* Unlayered CSS beats anything inside an @layer, regardless of specificity.
+   This reset used to sit outside every layer, so `margin: 0` here silently
+   overrode Tailwind's margin utilities -- which live in @layer utilities --
+   across the whole app. Every m* class was inert: `mt-4` computed to 0px,
+   `mx-auto` never centred anything. It went unnoticed because this codebase
+   reaches for flex + gap rather than margins, and `gap` was unaffected.
+   Tailwind's own preflight does exactly this in @layer base; matching it lets
+   utilities win again. */
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+    margin: 0;
+  }
 }
 
 /* ============================================
