@@ -245,7 +245,7 @@ const dataCellPadding = computed(() =>
         </div>
 
         <!-- Column Headers. Compact uppercase treatment mirroring
-             the tickets table: text-[10px] uppercase + tertiary
+             the tickets table: text-3xs uppercase + tertiary
              text + tracking-wider, with a subtle bottom rule so
              the header row reads as scaffolding rather than
              competing with the data cells. When `columnReorder`
@@ -260,7 +260,7 @@ const dataCellPadding = computed(() =>
           :draggable="columnReorder ? columnReorder.isReorderable(column.field) : false"
           :class="[
             headerCellPadding,
-            'first:pl-4 [&:nth-last-child(2)]:pr-4 flex items-center text-[10px] font-semibold uppercase tracking-wider text-tertiary bg-surface border-b border-subtle sticky top-0 z-10 relative',
+            'first:pl-4 [&:nth-last-child(2)]:pr-4 flex items-center text-3xs font-semibold uppercase tracking-wider text-tertiary bg-surface border-b border-subtle sticky top-0 z-10 relative',
             getColumnVisibility(column),
             column.sortable ? 'cursor-pointer hover:bg-surface-hover hover:text-primary' : '',
             columnReorder?.sourceId.value === column.field ? 'opacity-50' : '',
@@ -392,7 +392,7 @@ const dataCellPadding = computed(() =>
               <path d="M2 4l4 4 4-4z" />
             </svg>
             <span class="text-xs font-medium text-primary">{{ bucket.label }}</span>
-            <span class="text-[10px] text-tertiary tabular-nums">{{ bucket.items.length }}</span>
+            <span class="text-3xs text-tertiary tabular-nums">{{ bucket.items.length }}</span>
           </button>
 
           <template v-if="!isCollapsed?.(bucket.key)">

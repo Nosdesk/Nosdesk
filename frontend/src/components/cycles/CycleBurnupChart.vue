@@ -372,7 +372,7 @@ const readoutLeft = computed(() => xPct(hoverX.value) <= 55)
         <!-- Text + marker overlay. Fixed-size type, dots that stay round,
              all positioned by percentage so they track the geometry at
              any width. Non-interactive so pointer events reach the frame. -->
-        <div class="pointer-events-none absolute inset-0 text-[10px] leading-none">
+        <div class="pointer-events-none absolute inset-0 text-3xs leading-none">
           <!-- Y ticks -->
           <span
             class="absolute -translate-y-1/2 text-tertiary tabular-nums"
@@ -394,7 +394,7 @@ const readoutLeft = computed(() => xPct(hoverX.value) <= 55)
           <!-- Today label -->
           <span
             v-if="hasFuture"
-            class="absolute -translate-x-1/2 text-[9px] uppercase tracking-wide text-tertiary"
+            class="absolute -translate-x-1/2 text-4xs uppercase tracking-wide text-tertiary"
             :style="{ left: `${xPct(todayX)}%`, top: '0' }"
             >{{ t('cycle-burnup-today') }}</span
           >
@@ -463,7 +463,7 @@ const readoutLeft = computed(() => xPct(hoverX.value) <= 55)
       </div>
 
       <!-- Scope-creep callout, promoted from fine print -->
-      <p v-if="scopeAdded > 0" class="text-[11px] text-tertiary">
+      <p v-if="scopeAdded > 0" class="text-2xs text-tertiary">
         {{ t('tickets-cycle-scope-added', { count: scopeAdded }) }}
       </p>
 

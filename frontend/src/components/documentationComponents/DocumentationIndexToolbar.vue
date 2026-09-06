@@ -199,8 +199,8 @@ onMounted(() => {
         @click="openDocSearch"
       >
         <Icon name="search" size="sm" aria-hidden="true" />
-        <span class="text-[13px] truncate flex-1 text-left">{{ $t('docs-index-toolbar-search-placeholder') }}</span>
-        <kbd class="hidden sm:inline-flex items-center text-[11px] px-1.5 py-px rounded border border-default bg-surface text-tertiary">⌘K</kbd>
+        <span class="text-xs-plus truncate flex-1 text-left">{{ $t('docs-index-toolbar-search-placeholder') }}</span>
+        <kbd class="hidden sm:inline-flex items-center text-2xs px-1.5 py-px rounded border border-default bg-surface text-tertiary">⌘K</kbd>
       </button>
 
       <Button

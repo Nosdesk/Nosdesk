@@ -443,7 +443,7 @@ const sectionStarts = computed(() => {
           spellcheck="false"
           :placeholder="placeholder || (type === 'assignee' ? $t('ticket-picker-user-placeholder-assignee') : $t('ticket-picker-user-placeholder-requester'))"
           class="w-full bg-transparent text-secondary placeholder-tertiary focus:outline-none leading-tight"
-          :class="compact ? 'text-[11px] py-0' : 'text-sm py-1'"
+          :class="compact ? 'text-2xs py-0' : 'text-sm py-1'"
           @focus="onFocus"
           @keydown="onKeydown"
         />
@@ -489,7 +489,7 @@ const sectionStarts = computed(() => {
                 <li
                   v-if="sectionStarts[row.id]"
                   role="presentation"
-                  class="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-tertiary select-none"
+                  class="px-3 pt-2 pb-1 text-3xs font-semibold uppercase tracking-wider text-tertiary select-none"
                 >
                   {{ sectionLabel(row.section) }}
                 </li>
@@ -517,11 +517,11 @@ const sectionStarts = computed(() => {
                     :clickable="false"
                   />
                   <div class="flex-1 min-w-0">
-                    <div class="text-[13px] text-primary truncate">
+                    <div class="text-xs-plus text-primary truncate">
                       {{ row.user.name
                       }}<span v-if="row.section === 'you'" class="text-tertiary font-normal"> {{ $t('ticket-picker-user-you-suffix') }}</span>
                     </div>
-                    <div v-if="row.user.email" class="text-[11px] text-tertiary truncate">
+                    <div v-if="row.user.email" class="text-2xs text-tertiary truncate">
                       {{ row.user.email }}
                     </div>
                   </div>
@@ -586,7 +586,7 @@ const sectionStarts = computed(() => {
           <li
             v-if="sectionStarts[row.id]"
             role="presentation"
-            class="px-4 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-tertiary select-none"
+            class="px-4 pt-3 pb-1 text-3xs font-semibold uppercase tracking-wider text-tertiary select-none"
           >
             {{ sectionLabel(row.section) }}
           </li>

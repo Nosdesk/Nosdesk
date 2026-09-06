@@ -619,7 +619,7 @@ const cancelDelete = () => {
               <template #headerActions>
                 <router-link
                   to="/admin/groups"
-                  class="text-[11px] font-medium text-accent hover:underline whitespace-nowrap inline-flex items-center gap-1"
+                  class="text-2xs font-medium text-accent hover:underline whitespace-nowrap inline-flex items-center gap-1"
                 >
                   <Icon name="settings" size="xs" />
                   Manage Groups
@@ -728,7 +728,7 @@ const cancelDelete = () => {
               </template>
               <template #title>{{ t('user-settings-account-setup-title') }}</template>
               <template #headerActions>
-                <span class="text-[11px] px-2 py-0.5 bg-status-warning/20 text-status-warning rounded-full font-medium">{{ t('user-settings-account-setup-pending') }}</span>
+                <span class="text-2xs px-2 py-0.5 bg-status-warning/20 text-status-warning rounded-full font-medium">{{ t('user-settings-account-setup-pending') }}</span>
               </template>
 
               <div>

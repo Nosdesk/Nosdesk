@@ -109,18 +109,18 @@ const stateTone = computed<StatusPillTone>(() =>
       <button
         v-if="cycle.state === 'planned'"
         type="button"
-        class="text-[11px] text-secondary hover:text-primary px-2 py-1 rounded hover:bg-surface-alt focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        class="text-2xs text-secondary hover:text-primary px-2 py-1 rounded hover:bg-surface-alt focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         @click="emit('promote')"
       >{{ t('project-cycles-action-promote') }}</button>
       <button
         v-if="cycle.state === 'active'"
         type="button"
-        class="text-[11px] text-secondary hover:text-primary px-2 py-1 rounded hover:bg-surface-alt focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        class="text-2xs text-secondary hover:text-primary px-2 py-1 rounded hover:bg-surface-alt focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         @click="emit('complete')"
       >{{ t('project-cycles-action-complete') }}</button>
       <button
         type="button"
-        class="text-[11px] text-tertiary hover:text-status-error px-2 py-1 rounded hover:bg-surface-alt focus:outline-none focus-visible:ring-2 focus-visible:ring-status-error"
+        class="text-2xs text-tertiary hover:text-status-error px-2 py-1 rounded hover:bg-surface-alt focus:outline-none focus-visible:ring-2 focus-visible:ring-status-error"
         @click="emit('archive')"
       >{{ t('project-cycles-action-archive') }}</button>
     </div>

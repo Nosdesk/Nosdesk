@@ -93,7 +93,7 @@ function cellAlpha(dow: number, hour: number): number {
         props.viewUuid ? 'transition-colors hover:bg-surface-hover rounded' : '',
       ]"
     >
-      <div class="grid grid-cols-[2rem_repeat(24,minmax(0,1fr))] gap-px text-[9px] text-tertiary">
+      <div class="grid grid-cols-[2rem_repeat(24,minmax(0,1fr))] gap-px text-4xs text-tertiary">
         <span aria-hidden="true" />
         <span
           v-for="h in HOUR_LABELS"
@@ -108,7 +108,7 @@ function cellAlpha(dow: number, hour: number): number {
         :key="`row-${dow}`"
         class="grid grid-cols-[2rem_repeat(24,minmax(0,1fr))] gap-px"
       >
-        <span class="text-[10px] text-tertiary self-center">{{ label }}</span>
+        <span class="text-3xs text-tertiary self-center">{{ label }}</span>
         <span
           v-for="h in HOUR_LABELS"
           :key="`c-${dow}-${h}`"

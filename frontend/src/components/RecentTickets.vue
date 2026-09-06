@@ -286,7 +286,7 @@ onMounted(() => {
           </span>
 
           <!-- Time -->
-          <span class="text-[10px] text-tertiary flex-shrink-0">
+          <span class="text-3xs text-tertiary flex-shrink-0">
             {{ formatCompactRelativeTime(ticket.last_viewed_at) }}
           </span>
         </div>

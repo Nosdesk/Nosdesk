@@ -253,7 +253,7 @@ function runPluginBulkAction(reg: { pluginUuid: string; componentName: string })
         @close="statusOpen = false"
       >
         <div v-for="group in statusGroups" :key="group.label">
-          <div class="px-3 pt-2 pb-1 text-[10px] font-semibold text-tertiary tracking-wide uppercase">
+          <div class="px-3 pt-2 pb-1 text-3xs font-semibold text-tertiary tracking-wide uppercase">
             {{ group.label }}
           </div>
           <button

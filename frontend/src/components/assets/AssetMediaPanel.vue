@@ -301,14 +301,14 @@ useSyncActions(
           <div class="flex items-center gap-1.5 justify-end">
             <button
               type="button"
-              class="text-[10px] px-2 py-0.5 rounded text-white/80 hover:text-white"
+              class="text-3xs px-2 py-0.5 rounded text-white/80 hover:text-white"
               @click="cancelCaptionEdit"
             >
               {{ $t('asset-media-caption-cancel') }}
             </button>
             <button
               type="button"
-              class="text-[10px] px-2 py-0.5 rounded bg-accent text-on-accent"
+              class="text-3xs px-2 py-0.5 rounded bg-accent text-on-accent"
               :disabled="captionSaving"
               @click="saveCaption(item)"
             >

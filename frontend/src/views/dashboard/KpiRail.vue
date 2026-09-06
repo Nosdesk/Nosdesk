@@ -48,7 +48,7 @@ defineProps<{
         </span>
         <span class="flex-1 min-h-0" aria-hidden="true" />
         <span
-          class="shrink-0 text-[10px] font-medium uppercase tracking-wider text-tertiary truncate max-w-full"
+          class="shrink-0 text-3xs font-medium uppercase tracking-wider text-tertiary truncate max-w-full"
         >
           {{ stat.label }}
         </span>

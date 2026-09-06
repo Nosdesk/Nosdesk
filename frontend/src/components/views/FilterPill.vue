@@ -76,7 +76,7 @@ function onRemove(e: MouseEvent): void {
   <div class="inline-flex">
     <div
       ref="triggerRef"
-      class="inline-flex items-center h-6 rounded-md border border-accent/40 bg-accent/10 text-accent text-[11px] overflow-hidden"
+      class="inline-flex items-center h-6 rounded-md border border-accent/40 bg-accent/10 text-accent text-2xs overflow-hidden"
     >
       <button
         type="button"

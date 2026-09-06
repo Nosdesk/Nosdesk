@@ -55,7 +55,7 @@ const hasOverride = computed(() => props.overridePageIds?.has(props.node.id) ?? 
       <!-- Child count badge (on hover) -->
       <span
         v-if="hasChildren"
-        class="flex-shrink-0 text-[10px] text-tertiary ml-1.5 tabular-nums opacity-0 group-hover:opacity-100 transition-opacity"
+        class="flex-shrink-0 text-3xs text-tertiary ml-1.5 tabular-nums opacity-0 group-hover:opacity-100 transition-opacity"
       >
         {{ node.children.length }}
       </span>
@@ -63,7 +63,7 @@ const hasOverride = computed(() => props.overridePageIds?.has(props.node.id) ?? 
       <!-- Draft badge -->
       <span
         v-if="node.status === 'draft'"
-        class="flex-shrink-0 text-[9px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 font-medium ml-1.5"
+        class="flex-shrink-0 text-4xs px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 font-medium ml-1.5"
       >
         {{ $t('docs-collection-tree-item-draft') }}
       </span>

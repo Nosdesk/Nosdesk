@@ -265,7 +265,7 @@ watch(grid, (cells) => {
         <h2 class="text-sm font-semibold text-primary ml-2 tabular-nums">{{ monthLabel }}</h2>
       </div>
       <div class="flex items-center gap-3">
-        <span class="text-[10px] uppercase tracking-wide text-tertiary">{{ t('calendar-anchor-label') }}</span>
+        <span class="text-3xs uppercase tracking-wide text-tertiary">{{ t('calendar-anchor-label') }}</span>
         <BaseDropdown
           :model-value="dateField"
           :options="anchorOptions"
@@ -282,7 +282,7 @@ watch(grid, (cells) => {
     <div class="flex-1 min-h-0 hidden md:grid" style="grid-template-columns: 1fr 12rem">
       <section class="min-h-0 flex flex-col">
         <!-- Weekday header -->
-        <div class="grid grid-cols-7 text-[10px] uppercase tracking-wide font-semibold text-tertiary bg-surface border-b border-subtle">
+        <div class="grid grid-cols-7 text-3xs uppercase tracking-wide font-semibold text-tertiary bg-surface border-b border-subtle">
           <div
             v-for="label in WEEKDAY_LABELS"
             :key="label"
@@ -308,7 +308,7 @@ watch(grid, (cells) => {
                  charge of the cell's vertical space. -->
             <div class="flex items-center justify-between gap-1">
               <span
-                class="text-[11px] font-medium tabular-nums"
+                class="text-2xs font-medium tabular-nums"
                 :class="{
                   'text-on-accent bg-accent rounded-full inline-flex items-center justify-center w-5 h-5': cell.isToday,
                   'text-secondary': !cell.isToday && cell.inMonth,
@@ -328,7 +328,7 @@ watch(grid, (cells) => {
                 />
                 <span
                   v-if="overlaysFor(cell).length > 3"
-                  class="text-[9px] text-tertiary tabular-nums"
+                  class="text-4xs text-tertiary tabular-nums"
                 >+{{ overlaysFor(cell).length - 3 }}</span>
               </div>
             </div>
@@ -336,7 +336,7 @@ watch(grid, (cells) => {
             <article
               v-for="card in cardsFor(cell)"
               :key="card.id"
-              class="bg-surface rounded border border-default hover:border-strong px-1.5 py-1 cursor-pointer text-[11px] flex items-center gap-1.5 truncate"
+              class="bg-surface rounded border border-default hover:border-strong px-1.5 py-1 cursor-pointer text-2xs flex items-center gap-1.5 truncate"
               @click="open(card.id)"
             >
               <PriorityIndicator
@@ -353,7 +353,7 @@ watch(grid, (cells) => {
       <!-- Undated rail -->
       <aside class="border-l border-subtle bg-surface flex flex-col min-h-0">
         <header class="px-3 py-2 border-b border-subtle">
-          <h3 class="text-[10px] uppercase tracking-wide font-semibold text-tertiary">
+          <h3 class="text-3xs uppercase tracking-wide font-semibold text-tertiary">
             No date ({{ undatedCards.length }})
           </h3>
         </header>
@@ -372,11 +372,11 @@ watch(grid, (cells) => {
               />
               <span class="text-primary line-clamp-2 flex-1">{{ card.title }}</span>
             </div>
-            <span class="text-[10px] text-tertiary">#{{ card.id }}</span>
+            <span class="text-3xs text-tertiary">#{{ card.id }}</span>
           </article>
           <p
             v-if="undatedCards.length === 0"
-            class="text-[11px] text-tertiary italic text-center mt-4"
+            class="text-2xs text-tertiary italic text-center mt-4"
           >Every ticket has a date.</p>
         </div>
       </aside>
@@ -388,7 +388,7 @@ watch(grid, (cells) => {
     <div class="flex-1 min-h-0 md:hidden overflow-y-auto flex flex-col">
       <section v-for="day in agendaDays" :key="day.date.toISOString()" class="flex flex-col">
         <h3
-          class="sticky top-0 z-10 bg-app px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide border-b border-subtle"
+          class="sticky top-0 z-10 bg-app px-3 py-1.5 text-2xs font-semibold uppercase tracking-wide border-b border-subtle"
           :class="day.isToday ? 'text-accent' : 'text-tertiary'"
         >{{ agendaDayLabel(day.date) }}</h3>
         <div class="flex flex-col gap-1.5 px-3 py-2">
@@ -404,14 +404,14 @@ watch(grid, (cells) => {
               size="xs"
             />
             <span class="text-primary truncate flex-1">{{ card.title }}</span>
-            <span class="text-[10px] text-tertiary tabular-nums shrink-0">#{{ card.id }}</span>
+            <span class="text-3xs text-tertiary tabular-nums shrink-0">#{{ card.id }}</span>
           </article>
         </div>
       </section>
 
       <!-- Undated bucket -->
       <section v-if="undatedCards.length > 0" class="flex flex-col">
-        <h3 class="sticky top-0 z-10 bg-app px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-tertiary border-b border-subtle">
+        <h3 class="sticky top-0 z-10 bg-app px-3 py-1.5 text-2xs font-semibold uppercase tracking-wide text-tertiary border-b border-subtle">
           No date ({{ undatedCards.length }})
         </h3>
         <div class="flex flex-col gap-1.5 px-3 py-2">
@@ -427,7 +427,7 @@ watch(grid, (cells) => {
               size="xs"
             />
             <span class="text-primary truncate flex-1">{{ card.title }}</span>
-            <span class="text-[10px] text-tertiary tabular-nums shrink-0">#{{ card.id }}</span>
+            <span class="text-3xs text-tertiary tabular-nums shrink-0">#{{ card.id }}</span>
           </article>
         </div>
       </section>

@@ -82,7 +82,7 @@ const statusBadges = computed<Record<string, { text: string; class: string }>>((
             <div class="flex items-center gap-2">
               <h3 class="text-sm font-medium text-primary">{{ $t(item.titleKey) }}</h3>
               <span
-                class="px-1.5 py-0.5 text-[11px] font-medium rounded-full"
+                class="px-1.5 py-0.5 text-2xs font-medium rounded-full"
                 :class="statusBadges[item.status]?.class"
               >
                 {{ statusBadges[item.status]?.text }}

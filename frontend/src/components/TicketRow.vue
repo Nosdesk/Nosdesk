@@ -136,7 +136,7 @@ const ariaLabel = computed(() => {
     <div class="flex items-center gap-2.5 pl-4 pr-3 h-10 min-w-0">
       <TicketStatusIcon :category="statusCategory" :title="statusName || undefined" class="w-3.5 h-3.5" />
 
-      <span class="flex items-center gap-1.5 flex-shrink-0 font-mono text-[11px] text-tertiary tabular-nums">
+      <span class="flex items-center gap-1.5 flex-shrink-0 font-mono text-2xs text-tertiary tabular-nums">
         <span
           v-if="newActivity"
           class="w-1.5 h-1.5 rounded-full bg-accent flex-shrink-0"
@@ -148,7 +148,7 @@ const ariaLabel = computed(() => {
 
       <div class="flex-1 min-w-0 flex items-baseline gap-2">
         <h3
-          class="text-[13px] truncate min-w-0 group-hover:text-accent transition-colors"
+          class="text-xs-plus truncate min-w-0 group-hover:text-accent transition-colors"
           :class="[
             newActivity ? 'font-semibold' : 'font-medium',
             isTerminal ? 'text-tertiary' : 'text-primary',
@@ -158,7 +158,7 @@ const ariaLabel = computed(() => {
         </h3>
         <span
           v-if="requester"
-          class="text-[11px] text-tertiary truncate flex-shrink min-w-0 whitespace-nowrap"
+          class="text-2xs text-tertiary truncate flex-shrink min-w-0 whitespace-nowrap"
           :title="`From ${requester.name}`"
         >
           {{ requester.name }}
@@ -175,7 +175,7 @@ const ariaLabel = computed(() => {
         :title="`From ${requester.name}`"
       />
       <span
-        class="text-[11px] text-tertiary tabular-nums flex-shrink-0 min-w-[1.75rem] text-right"
+        class="text-2xs text-tertiary tabular-nums flex-shrink-0 min-w-[1.75rem] text-right"
         :title="formatDateTime(timestamp)"
       >
         {{ formatCompactRelativeTime(timestamp) }}

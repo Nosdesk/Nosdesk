@@ -335,7 +335,7 @@ const deadTotal = computed(
                the upstream diagnostic so a hover reveals "why". -->
           <span
             v-if="row.bounced_at"
-            class="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded bg-red-500/10 text-red-700 dark:text-red-400"
+            class="text-3xs font-semibold uppercase tracking-wide px-2 py-0.5 rounded bg-red-500/10 text-red-700 dark:text-red-400"
             :title="row.bounce_diagnostic
               ? t('admin-email-queue-bounced-with-diagnostic', { diagnostic: row.bounce_diagnostic })
               : t('admin-email-queue-bounced-no-diagnostic')"

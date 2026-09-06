@@ -218,7 +218,7 @@
             <span class="text-xs text-secondary">
               {{ uploading ? t('guest-submit-attachments-uploading') : t('guest-submit-attachments-pick') }}
             </span>
-            <span class="text-[11px] text-tertiary">
+            <span class="text-2xs text-tertiary">
               {{ t('guest-submit-attachments-hint', { size: MAX_SIZE_MB }) }}
             </span>
           </label>
@@ -235,7 +235,7 @@
               <Icon name="paperclip" class="shrink-0 text-tertiary" />
               <div class="flex-1 min-w-0 flex flex-col">
                 <span class="text-xs text-primary truncate">{{ att.name }}</span>
-                <span class="text-[11px] text-tertiary">{{ formatSize(att.size) }}</span>
+                <span class="text-2xs text-tertiary">{{ formatSize(att.size) }}</span>
               </div>
               <Button
                 variant="ghost-danger"

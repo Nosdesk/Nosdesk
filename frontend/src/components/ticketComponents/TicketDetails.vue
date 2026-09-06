@@ -978,7 +978,7 @@ watchEffect(async () => {
                     v-if="canSelfAssign && !selectedAssignee"
                     @click="toggleSelfAssign"
                     type="button"
-                    class="text-[11px] font-medium px-2 h-6 rounded text-accent hover:bg-accent-muted transition-colors"
+                    class="text-2xs font-medium px-2 h-6 rounded text-accent hover:bg-accent-muted transition-colors"
                     :title="t('ticket-detail-claim-title')"
                   >
                     {{ t('ticket-detail-claim') }}
@@ -1065,7 +1065,7 @@ watchEffect(async () => {
               <!-- Remove SLA for this ticket (revealed on row hover). -->
               <button
                 type="button"
-                class="text-[11px] text-tertiary hover:text-status-error transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                class="text-2xs text-tertiary hover:text-status-error transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
                 :title="t('ticket-detail-sla-remove-title')"
                 @click="emit('update:slaOverride', 'none')"
               >
@@ -1113,7 +1113,7 @@ watchEffect(async () => {
               <span class="text-tertiary italic">{{ t('ticket-detail-sla-removed') }}</span>
               <button
                 type="button"
-                class="text-[11px] text-tertiary hover:text-accent transition-colors"
+                class="text-2xs text-tertiary hover:text-accent transition-colors"
                 @click="emit('update:slaOverride', 'auto')"
               >
                 {{ t('ticket-detail-sla-restore') }}
@@ -1264,7 +1264,7 @@ watchEffect(async () => {
             <span class="text-tertiary font-medium">{{ t('ticket-detail-cycle-label') }}</span>
             <button
               type="button"
-              class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium bg-accent-muted text-accent hover:bg-accent/20 transition-colors"
+              class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-2xs font-medium bg-accent-muted text-accent hover:bg-accent/20 transition-colors"
               :title="t('ticket-detail-cycle-tooltip', { name: ticket.cycle.name, state: ticket.cycle.state })"
               @click="openCycle"
             >
@@ -1374,7 +1374,7 @@ watchEffect(async () => {
                 <button
                   v-if="(props.internalComments?.length ?? 0) > 0"
                   type="button"
-                  class="inline-flex items-center gap-1 px-2 h-6 rounded text-[11px] font-medium text-status-warning hover:bg-status-warning-muted transition-colors"
+                  class="inline-flex items-center gap-1 px-2 h-6 rounded text-2xs font-medium text-status-warning hover:bg-status-warning-muted transition-colors"
                   :title="t('ticket-detail-resolution-draft-from-notes-title', { count: props.internalComments?.length ?? 0 })"
                   @click="draftResolutionFromInternalNotes"
                 >
@@ -1386,7 +1386,7 @@ watchEffect(async () => {
                 </button>
                 <span
                   v-if="isTerminalState"
-                  class="text-[10px] font-semibold text-status-closed"
+                  class="text-3xs font-semibold text-status-closed"
                 >{{ t('ticket-detail-resolution-closed') }}</span>
               </div>
             </div>
@@ -1425,7 +1425,7 @@ watchEffect(async () => {
                  triage; the absolute timestamp lives in the line's
                  `title` for forensic reads on hover. -->
             <div
-              class="flex items-center gap-1.5 text-[11px] text-tertiary whitespace-nowrap"
+              class="flex items-center gap-1.5 text-2xs text-tertiary whitespace-nowrap"
               :title="createdDate"
             >
               <UserAvatar
@@ -1445,7 +1445,7 @@ watchEffect(async () => {
             <!-- Updated row. No actor data available today
                  (would need a `modified_by` column to byline). -->
             <div
-              class="flex items-center gap-1.5 text-[11px] text-tertiary whitespace-nowrap"
+              class="flex items-center gap-1.5 text-2xs text-tertiary whitespace-nowrap"
               :title="modifiedDate"
             >
               <span>{{ t('ticket-detail-audit-modified') }}</span>
@@ -1456,7 +1456,7 @@ watchEffect(async () => {
             <!-- Closed row (only for terminal-state tickets). -->
             <div
               v-if="ticket.closed_at"
-              class="flex items-center gap-1.5 text-[11px] text-tertiary whitespace-nowrap"
+              class="flex items-center gap-1.5 text-2xs text-tertiary whitespace-nowrap"
               :title="closedDateLabel"
             >
               <UserAvatar

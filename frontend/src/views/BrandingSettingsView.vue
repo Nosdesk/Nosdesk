@@ -362,9 +362,9 @@ async function confirmDeleteBrandingImage(): Promise<void> {
               />
               <p class="text-xs text-tertiary">
                 {{ $t('admin-branding-signature-default-variables-hint') }}
-                <code class="text-[10px] bg-surface-alt px-1 rounded">&#123;&#123;tech_name&#125;&#125;</code>,
-                <code class="text-[10px] bg-surface-alt px-1 rounded">&#123;&#123;tech_email&#125;&#125;</code>,
-                <code class="text-[10px] bg-surface-alt px-1 rounded">&#123;&#123;app_name&#125;&#125;</code>
+                <code class="text-3xs bg-surface-alt px-1 rounded">&#123;&#123;tech_name&#125;&#125;</code>,
+                <code class="text-3xs bg-surface-alt px-1 rounded">&#123;&#123;tech_email&#125;&#125;</code>,
+                <code class="text-3xs bg-surface-alt px-1 rounded">&#123;&#123;app_name&#125;&#125;</code>
               </p>
             </div>
 

@@ -131,7 +131,7 @@ function applyCustom(): void {
       <div class="border-t border-default my-1" />
 
       <div class="px-2 py-1 flex flex-col gap-2">
-        <span class="text-[11px] uppercase tracking-wide text-tertiary font-medium">
+        <span class="text-2xs uppercase tracking-wide text-tertiary font-medium">
           {{ t('dashboard-time-range-custom') }}
         </span>
         <DatePicker

@@ -62,7 +62,7 @@ const fullTime = computed(() =>
     >
       {{ glyph || '📄' }}
     </span>
-    <span class="truncate min-w-0 flex-1 text-[13px] leading-snug text-primary group-hover:text-accent transition-colors">
+    <span class="truncate min-w-0 flex-1 text-xs-plus leading-snug text-primary group-hover:text-accent transition-colors">
       {{ label }}
     </span>
 
@@ -84,19 +84,19 @@ const fullTime = computed(() =>
         <span class="sr-only" :class="{ 'sm:hidden': !compact }">{{ author.name }}</span>
         <span
           v-if="!compact"
-          class="hidden sm:inline truncate max-w-[8rem] text-[11px] leading-none text-tertiary"
+          class="hidden sm:inline truncate max-w-[8rem] text-2xs leading-none text-tertiary"
         >
           {{ author.name }}
         </span>
       </template>
       <span
         v-if="!compact && author?.name && fullTime"
-        class="hidden sm:inline text-[11px] text-tertiary/60 shrink-0"
+        class="hidden sm:inline text-2xs text-tertiary/60 shrink-0"
         aria-hidden="true"
       >·</span>
       <span
         v-if="compactTime"
-        class="text-[11px] leading-none text-tertiary whitespace-nowrap tabular-nums shrink-0"
+        class="text-2xs leading-none text-tertiary whitespace-nowrap tabular-nums shrink-0"
         :class="{ 'sm:hidden': !compact }"
         :title="fullTime"
       >
@@ -104,7 +104,7 @@ const fullTime = computed(() =>
       </span>
       <span
         v-if="!compact && fullTime"
-        class="hidden sm:inline text-[11px] leading-none text-tertiary whitespace-nowrap tabular-nums shrink-0"
+        class="hidden sm:inline text-2xs leading-none text-tertiary whitespace-nowrap tabular-nums shrink-0"
       >
         {{ fullTime }}
       </span>
@@ -113,7 +113,7 @@ const fullTime = computed(() =>
     <!-- Plain meta string -->
     <span
       v-else-if="meta"
-      class="shrink-0 text-[11px] leading-none text-tertiary whitespace-nowrap tabular-nums"
+      class="shrink-0 text-2xs leading-none text-tertiary whitespace-nowrap tabular-nums"
     >
       {{ meta }}
     </span>

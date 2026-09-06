@@ -96,10 +96,10 @@ function onContextMenu(id: number, event: MouseEvent): void {
           <!-- Top line: id + title. Title takes whatever width
                remains; truncates on overflow. -->
           <div class="flex items-center gap-2 min-w-0">
-            <span class="text-[11px] font-mono tabular-nums text-tertiary shrink-0">#{{ card.id }}</span>
+            <span class="text-2xs font-mono tabular-nums text-tertiary shrink-0">#{{ card.id }}</span>
             <span
               v-if="inlinePriorityClass(card.priority)"
-              class="text-[11px] leading-none font-bold shrink-0"
+              class="text-2xs leading-none font-bold shrink-0"
               :class="inlinePriorityClass(card.priority)!"
               :title="`Priority: ${card.priority}`"
             >!</span>
@@ -114,7 +114,7 @@ function onContextMenu(id: number, event: MouseEvent): void {
             >{{ card.title }}</span>
             <span
               v-if="card.sla?.breached"
-              class="ml-auto text-[10px] font-semibold uppercase tracking-wide text-rose-600 dark:text-rose-400 shrink-0"
+              class="ml-auto text-3xs font-semibold uppercase tracking-wide text-rose-600 dark:text-rose-400 shrink-0"
               :title="$t('ticket-list-sla-breached-title')"
             >SLA</span>
           </div>

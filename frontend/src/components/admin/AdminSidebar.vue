@@ -76,7 +76,7 @@ const isActive = (itemRoute: string) => isAdminRouteActive(route.path, itemRoute
     <!-- Nav Groups -->
     <nav class="flex-1 px-2 pb-4 flex flex-col gap-4 overflow-y-auto">
       <div v-for="group in filteredGroups" :key="group.labelKey">
-        <h3 class="px-2 mb-1 text-[11px] font-semibold uppercase tracking-wider text-tertiary">
+        <h3 class="px-2 mb-1 text-2xs font-semibold uppercase tracking-wider text-tertiary">
           {{ $t(group.labelKey) }}
         </h3>
         <div class="flex flex-col gap-0.5">

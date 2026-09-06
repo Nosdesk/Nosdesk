@@ -45,7 +45,7 @@ const toneClasses = computed(() => {
 const sizeClasses = computed(() =>
   props.size === 'sm'
     ? 'text-xs px-2 py-0.5 gap-1.5'
-    : 'text-[10px] px-1.5 py-0.5 gap-1',
+    : 'text-3xs px-1.5 py-0.5 gap-1',
 )
 </script>
 

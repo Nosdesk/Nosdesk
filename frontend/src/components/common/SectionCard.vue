@@ -56,7 +56,7 @@ withDefaults(defineProps<Props>(), {
       <!-- Optional leading content (icon, dot indicator). -->
       <slot name="leading" />
 
-      <h2 class="text-[13px] font-semibold text-primary truncate flex-1 tracking-tight">
+      <h2 class="text-xs-plus font-semibold text-primary truncate flex-1 tracking-tight">
         <slot name="title" />
       </h2>
 
@@ -66,7 +66,7 @@ withDefaults(defineProps<Props>(), {
       <router-link
         v-if="actionTo"
         :to="actionTo"
-        class="text-[11px] font-medium text-accent hover:underline whitespace-nowrap"
+        class="text-2xs font-medium text-accent hover:underline whitespace-nowrap"
       >
         {{ actionLabel }} →
       </router-link>

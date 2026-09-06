@@ -390,7 +390,7 @@ const generatePdfThumbnail = async () => {
     />
     <div v-else class="w-full h-full flex flex-col items-center justify-center gap-1 p-1 text-center">
       <Icon :name="attachmentType === 'pdf' ? 'book' : attachmentType === 'video' ? 'eye' : 'paperclip'" class="w-5 h-5 text-tertiary" />
-      <span class="text-[10px] text-tertiary leading-tight line-clamp-2 break-all">{{ getDisplayName(attachment.name) }}</span>
+      <span class="text-3xs text-tertiary leading-tight line-clamp-2 break-all">{{ getDisplayName(attachment.name) }}</span>
     </div>
     <div v-if="isPending" class="absolute inset-0 z-20 flex items-center justify-center bg-surface/40 pointer-events-none">
       <Spinner />

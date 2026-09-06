@@ -36,7 +36,7 @@ const options: { value: SearchSortOrder; labelKey: string }[] = [
       :data-sort-active="opt.value === modelValue"
       :aria-pressed="opt.value === modelValue"
       :class="[
-        'px-2 h-5 rounded text-[11px] font-medium transition-colors',
+        'px-2 h-5 rounded text-2xs font-medium transition-colors',
         opt.value === modelValue
           ? 'bg-surface text-primary shadow-sm'
           : 'text-tertiary hover:text-secondary',

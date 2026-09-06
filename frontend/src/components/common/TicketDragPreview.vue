@@ -99,7 +99,7 @@ const priorityLevel = computed((): 'low' | 'medium' | 'high' | undefined => {
               size="xs"
               class="mt-0.5 shrink-0"
             />
-            <h4 class="text-[13px] font-medium text-primary line-clamp-2 flex-1 min-w-0">
+            <h4 class="text-xs-plus font-medium text-primary line-clamp-2 flex-1 min-w-0">
               {{ ticket.title }}
             </h4>
             <PriorityIndicator
@@ -109,7 +109,7 @@ const priorityLevel = computed((): 'low' | 'medium' | 'high' | undefined => {
               class="shrink-0 mt-0.5"
             />
           </div>
-          <div class="flex items-center justify-between mt-1.5 text-[11px] text-tertiary">
+          <div class="flex items-center justify-between mt-1.5 text-2xs text-tertiary">
             <span class="font-mono">#{{ ticket.id }}</span>
             <UserAvatar
               v-if="ticket.assigneeUuid"
@@ -118,11 +118,11 @@ const priorityLevel = computed((): 'low' | 'medium' | 'high' | undefined => {
               :show-name="false"
               :clickable="false"
             />
-            <span v-else class="italic text-[10px]">{{ $t('filter-assignee-unassigned') }}</span>
+            <span v-else class="italic text-3xs">{{ $t('filter-assignee-unassigned') }}</span>
           </div>
           <div
             v-if="extraCount && extraCount > 0"
-            class="text-[10px] text-tertiary mt-1"
+            class="text-3xs text-tertiary mt-1"
           >
             + {{ extraCount }} more
           </div>

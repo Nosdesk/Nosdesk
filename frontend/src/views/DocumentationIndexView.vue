@@ -196,7 +196,7 @@ usePageCreateAction(handleCreatePage)
               <span class="font-medium text-primary">{{ $t('docs-index-drafts-strip-count', { count: uncollectedCount }) }}</span>
               {{ $t('docs-index-drafts-strip-suffix') }}
             </span>
-            <span class="ml-auto text-[11px] font-medium text-accent group-hover:underline whitespace-nowrap">
+            <span class="ml-auto text-2xs font-medium text-accent group-hover:underline whitespace-nowrap">
               {{ $t('docs-index-drafts-strip-review') }}
             </span>
           </RouterLink>
@@ -209,22 +209,22 @@ usePageCreateAction(handleCreatePage)
             <template #headerActions>
               <span
                 v-if="attentionCount > 0"
-                class="inline-flex items-center h-[18px] px-1.5 rounded-full bg-status-warning-muted text-amber-700 text-[11px] font-semibold tabular-nums"
+                class="inline-flex items-center h-[18px] px-1.5 rounded-full bg-status-warning-muted text-amber-700 text-2xs font-semibold tabular-nums"
               >
                 {{ attentionCount }}
               </span>
             </template>
 
-            <p v-if="gapsLoading && attentionCount === 0" class="px-3 py-2.5 text-[13px] text-tertiary">
+            <p v-if="gapsLoading && attentionCount === 0" class="px-3 py-2.5 text-xs-plus text-tertiary">
               {{ $t('docs-index-gaps-loading') }}
             </p>
-            <p v-else-if="attentionCount === 0" class="px-3 py-2.5 text-[13px] text-tertiary">
+            <p v-else-if="attentionCount === 0" class="px-3 py-2.5 text-xs-plus text-tertiary">
               {{ $t('docs-index-attention-empty') }}
             </p>
 
             <template v-else>
               <template v-if="visibleGaps.length > 0">
-                <p class="px-3 pt-2 pb-1 text-[11px] font-semibold text-tertiary uppercase tracking-wide">
+                <p class="px-3 pt-2 pb-1 text-2xs font-semibold text-tertiary uppercase tracking-wide">
                   {{ $t('docs-index-gaps-heading') }}
                 </p>
                 <ul class="flex flex-col px-1.5">
@@ -234,10 +234,10 @@ usePageCreateAction(handleCreatePage)
                       class="group flex items-center gap-2 py-1.5 px-1.5 rounded hover:bg-surface-hover transition-colors"
                     >
                       <Icon name="warning" size="xs" class="shrink-0 text-status-warning" aria-hidden="true" />
-                      <span class="truncate min-w-0 flex-1 text-[13px] leading-snug text-primary group-hover:text-accent transition-colors">
+                      <span class="truncate min-w-0 flex-1 text-xs-plus leading-snug text-primary group-hover:text-accent transition-colors">
                         {{ gap.title }}
                       </span>
-                      <span class="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-surface-alt text-tertiary tabular-nums whitespace-nowrap">
+                      <span class="shrink-0 text-3xs px-1.5 py-0.5 rounded bg-surface-alt text-tertiary tabular-nums whitespace-nowrap">
                         {{ gapImpactLabel(gap) }}
                       </span>
                     </RouterLink>
@@ -247,7 +247,7 @@ usePageCreateAction(handleCreatePage)
 
               <template v-if="verificationAttention.length > 0">
                 <p
-                  class="px-3 pt-2 pb-1 text-[11px] font-semibold text-tertiary uppercase tracking-wide"
+                  class="px-3 pt-2 pb-1 text-2xs font-semibold text-tertiary uppercase tracking-wide"
                   :class="{ 'border-t border-subtle mt-1': visibleGaps.length > 0 }"
                 >
                   {{ $t('docs-index-attention-verification') }}
@@ -261,10 +261,10 @@ usePageCreateAction(handleCreatePage)
                       <span class="shrink-0 w-4 text-center text-sm leading-none opacity-80" aria-hidden="true">
                         {{ page.icon || '📄' }}
                       </span>
-                      <span class="truncate min-w-0 flex-1 text-[13px] leading-snug text-primary group-hover:text-accent transition-colors">
+                      <span class="truncate min-w-0 flex-1 text-xs-plus leading-snug text-primary group-hover:text-accent transition-colors">
                         {{ page.title }}
                       </span>
-                      <span class="shrink-0 text-[11px] text-amber-700 whitespace-nowrap">
+                      <span class="shrink-0 text-2xs text-amber-700 whitespace-nowrap">
                         {{ verificationMeta(page) }}
                       </span>
                     </RouterLink>
@@ -273,10 +273,10 @@ usePageCreateAction(handleCreatePage)
               </template>
 
               <div class="flex items-center justify-between px-3 py-2 border-t border-default bg-surface-alt/50">
-                <RouterLink to="/documentation/gaps" class="text-[11px] font-medium text-accent hover:underline">
+                <RouterLink to="/documentation/gaps" class="text-2xs font-medium text-accent hover:underline">
                   {{ $t('docs-index-attention-gaps-link') }}
                 </RouterLink>
-                <span class="text-[11px] text-tertiary tabular-nums">
+                <span class="text-2xs text-tertiary tabular-nums">
                   {{ $t('docs-index-attention-totals', { gaps: gapCount, stale: verificationCount }) }}
                 </span>
               </div>
@@ -295,7 +295,7 @@ usePageCreateAction(handleCreatePage)
                 />
               </li>
             </ul>
-            <p v-else class="px-2 py-1.5 text-[13px] text-tertiary">
+            <p v-else class="px-2 py-1.5 text-xs-plus text-tertiary">
               {{ $t('docs-index-no-recent-activity') }}
             </p>
           </SectionCard>
@@ -305,7 +305,7 @@ usePageCreateAction(handleCreatePage)
             <template #headerActions>
               <span
                 v-if="visibleStarred.length > 0"
-                class="text-[11px] text-tertiary tabular-nums font-normal"
+                class="text-2xs text-tertiary tabular-nums font-normal"
               >
                 {{ starredPages.length }}
               </span>
@@ -320,7 +320,7 @@ usePageCreateAction(handleCreatePage)
                 />
               </li>
             </ul>
-            <p v-else class="px-2 py-1.5 text-[13px] text-tertiary">
+            <p v-else class="px-2 py-1.5 text-xs-plus text-tertiary">
               {{ $t('docs-index-starred-hint') }}
             </p>
           </SectionCard>

@@ -504,7 +504,7 @@ function clearFilters() {
           <th
             scope="colgroup"
             colspan="5"
-            class="pt-4 pb-1 pl-2 text-left text-[10px] font-semibold uppercase tracking-wide text-tertiary"
+            class="pt-4 pb-1 pl-2 text-left text-3xs font-semibold uppercase tracking-wide text-tertiary"
           >
             {{ group.label }}
           </th>
@@ -541,7 +541,7 @@ function clearFilters() {
                   {{ entry.severity }}
                 </span>
               </div>
-              <code class="font-mono text-[11px] text-tertiary">{{ entry.event_type }}</code>
+              <code class="font-mono text-2xs text-tertiary">{{ entry.event_type }}</code>
             </td>
 
             <td class="py-2 align-top">

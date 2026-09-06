@@ -415,12 +415,12 @@ function handleSubmit() {
       <!-- Access -->
       <div class="flex flex-col gap-2 pt-1 border-t border-subtle">
         <div class="flex items-center justify-between gap-2 min-h-5">
-          <span class="text-[10px] font-semibold uppercase tracking-wide text-tertiary">
+          <span class="text-3xs font-semibold uppercase tracking-wide text-tertiary">
             {{ $t('docs-create-collection-access-heading') }}
           </span>
           <span
             v-if="isPublic"
-            class="text-[11px] text-status-success shrink-0"
+            class="text-2xs text-status-success shrink-0"
           >
             {{ $t('collection-badge-public') }}
           </span>
@@ -449,7 +449,7 @@ function handleSubmit() {
           >
             {{ $t('docs-edit-collection-hide-titles-label') }}
           </label>
-          <p class="text-[11px] leading-snug text-tertiary">
+          <p class="text-2xs leading-snug text-tertiary">
             {{ $t('docs-edit-collection-hide-titles-help') }}
           </p>
         </div>
@@ -472,7 +472,7 @@ function handleSubmit() {
           >
             {{ $t('docs-edit-collection-require-verification-label') }}
           </label>
-          <p class="text-[11px] leading-snug text-tertiary">
+          <p class="text-2xs leading-snug text-tertiary">
             {{ $t('docs-edit-collection-require-verification-help') }}
           </p>
         </div>

@@ -678,7 +678,7 @@ const clockStartOptions = computed(() => [
           <template #headerActions>
             <button
               type="button"
-              class="inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline"
+              class="inline-flex items-center gap-1 text-2xs font-medium text-accent hover:underline"
               @click="openCreateCalendar"
             >
               <Icon name="add" class="w-3 h-3" />
@@ -708,7 +708,7 @@ const clockStartOptions = computed(() => [
                     <button
                       v-if="cal.is_default"
                       type="button"
-                      class="text-[10px] uppercase tracking-wide font-semibold text-accent border border-accent/40 bg-accent/10 rounded px-1.5 py-0.5 hover:bg-accent/15 transition-colors"
+                      class="text-3xs uppercase tracking-wide font-semibold text-accent border border-accent/40 bg-accent/10 rounded px-1.5 py-0.5 hover:bg-accent/15 transition-colors"
                       @click="toggleCalendarDefault(cal)"
                     >
                       {{ $t('admin-sla-default-badge') }}
@@ -755,7 +755,7 @@ const clockStartOptions = computed(() => [
           <template #headerActions>
             <button
               type="button"
-              class="inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline"
+              class="inline-flex items-center gap-1 text-2xs font-medium text-accent hover:underline"
               @click="openCreatePolicy"
             >
               <Icon name="add" class="w-3 h-3" />
@@ -837,7 +837,7 @@ const clockStartOptions = computed(() => [
                     <button
                       v-if="p.is_default"
                       type="button"
-                      class="text-[10px] uppercase tracking-wide font-semibold text-accent border border-accent/40 bg-accent/10 rounded px-1.5 py-0.5 hover:bg-accent/15 transition-colors"
+                      class="text-3xs uppercase tracking-wide font-semibold text-accent border border-accent/40 bg-accent/10 rounded px-1.5 py-0.5 hover:bg-accent/15 transition-colors"
                       @click="togglePolicyDefault(p)"
                     >
                       {{ $t('admin-sla-default-badge') }}
@@ -938,7 +938,7 @@ const clockStartOptions = computed(() => [
         <div v-if="editingCalendar" class="flex flex-col gap-2 pt-2 border-t border-subtle">
           <div class="flex items-center justify-between gap-3">
             <span :class="FIELD_LABEL_CLASS">{{ $t('admin-sla-field-holidays') }}</span>
-            <div class="flex items-center gap-2 text-[11px] text-tertiary">
+            <div class="flex items-center gap-2 text-2xs text-tertiary">
               <span>{{ $t('admin-sla-holiday-import-label') }}</span>
               <BaseDropdown
                 :model-value="importChoice"
@@ -951,7 +951,7 @@ const clockStartOptions = computed(() => [
           </div>
           <p
             v-if="importSummary"
-            class="text-[11px] text-accent bg-accent/10 border border-accent/30 rounded px-2 py-1"
+            class="text-2xs text-accent bg-accent/10 border border-accent/30 rounded px-2 py-1"
             role="status"
           >
             {{ importSummary }}
@@ -968,7 +968,7 @@ const clockStartOptions = computed(() => [
               <span class="font-mono tabular-nums text-primary">{{ h.date }}</span>
               <span
                 v-if="h.recurrence === 'annual'"
-                class="text-[10px] uppercase tracking-wide font-semibold text-accent border border-accent/40 bg-accent/10 rounded px-1.5 py-0.5"
+                class="text-3xs uppercase tracking-wide font-semibold text-accent border border-accent/40 bg-accent/10 rounded px-1.5 py-0.5"
               >
                 {{ $t('admin-sla-holiday-annual-badge') }}
               </span>
@@ -983,13 +983,13 @@ const clockStartOptions = computed(() => [
               </button>
             </li>
           </ul>
-          <p v-else class="text-[11px] text-tertiary italic">
+          <p v-else class="text-2xs text-tertiary italic">
             {{ $t('admin-sla-holidays-empty-hint') }}
           </p>
           <div class="flex flex-col gap-2">
             <div class="flex flex-wrap items-end gap-2">
               <label class="flex flex-col gap-1">
-                <span class="text-[10px] uppercase tracking-wide font-medium text-tertiary">
+                <span class="text-3xs uppercase tracking-wide font-medium text-tertiary">
                   {{ $t('admin-sla-holiday-date') }}
                 </span>
                 <DatePicker
@@ -999,7 +999,7 @@ const clockStartOptions = computed(() => [
                 />
               </label>
               <label class="flex flex-col gap-1 flex-1 min-w-[12rem]">
-                <span class="text-[10px] uppercase tracking-wide font-medium text-tertiary">
+                <span class="text-3xs uppercase tracking-wide font-medium text-tertiary">
                   {{ $t('admin-sla-holiday-label') }}
                 </span>
                 <input
@@ -1062,7 +1062,7 @@ const clockStartOptions = computed(() => [
         <!-- Conditions: which tickets does this policy match? -->
         <fieldset class="flex flex-col gap-2">
           <legend
-            class="text-[11px] font-medium text-tertiary uppercase tracking-wide mb-1"
+            class="text-2xs font-medium text-tertiary uppercase tracking-wide mb-1"
           >
             {{ $t('admin-sla-form-conditions-heading') }}
           </legend>
@@ -1101,14 +1101,14 @@ const clockStartOptions = computed(() => [
             :label="$t('admin-sla-field-no-sla')"
             @update:model-value="(v: boolean) => (policyDraft.no_sla = v)"
           />
-          <p class="text-[11px] text-tertiary pl-6">{{ $t('admin-sla-field-no-sla-hint') }}</p>
+          <p class="text-2xs text-tertiary pl-6">{{ $t('admin-sla-field-no-sla-hint') }}</p>
         </div>
 
         <!-- Targets: what the engine computes for each match. Irrelevant (and
              hidden) for a No-SLA policy. -->
         <fieldset v-if="!policyDraft.no_sla" class="flex flex-col gap-2">
           <legend
-            class="text-[11px] font-medium text-tertiary uppercase tracking-wide mb-1"
+            class="text-2xs font-medium text-tertiary uppercase tracking-wide mb-1"
           >
             {{ $t('admin-sla-form-targets-heading') }}
           </legend>
@@ -1145,7 +1145,7 @@ const clockStartOptions = computed(() => [
               size="sm"
               @update:model-value="(v) => (policyDraft.clock_start = String(v))"
             />
-            <p class="text-[11px] text-tertiary">{{ $t('admin-sla-field-clock-start-hint') }}</p>
+            <p class="text-2xs text-tertiary">{{ $t('admin-sla-field-clock-start-hint') }}</p>
           </div>
         </fieldset>
 

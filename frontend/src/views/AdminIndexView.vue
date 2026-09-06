@@ -63,7 +63,7 @@ const filteredGroups = computed(() =>
       <!-- Grouped sections -->
       <div class="flex flex-col gap-5">
         <div v-for="group in filteredGroups" :key="group.labelKey">
-          <h2 class="text-[11px] font-semibold uppercase tracking-wider text-tertiary mb-2 px-1">
+          <h2 class="text-2xs font-semibold uppercase tracking-wider text-tertiary mb-2 px-1">
             {{ $t(group.labelKey) }}
           </h2>
           <div class="bg-surface border border-default rounded-xl overflow-hidden divide-y divide-default">

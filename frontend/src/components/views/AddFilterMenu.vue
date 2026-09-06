@@ -194,7 +194,7 @@ const stageMeta = computed<{ label: string; kind: FacetKind } | null>(() => {
     <button
       ref="triggerRef"
       type="button"
-      class="inline-flex items-center gap-1 text-[11px] px-2 h-6 rounded-md border border-dashed transition-colors"
+      class="inline-flex items-center gap-1 text-2xs px-2 h-6 rounded-md border border-dashed transition-colors"
       :class="open
         ? 'border-default bg-surface-hover text-primary'
         : 'text-tertiary hover:text-primary border-subtle hover:border-default hover:bg-surface-hover'"

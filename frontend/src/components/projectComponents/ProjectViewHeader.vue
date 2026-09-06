@@ -110,7 +110,7 @@ async function confirmDelete(): Promise<void> {
          site header (PageHeader), inline-editable there. -->
     <div v-if="project" class="flex items-center gap-2 min-w-0">
       <span
-        class="shrink-0 text-[10px] uppercase tracking-wide font-semibold rounded px-1.5 py-0.5 bg-surface-hover text-tertiary leading-none"
+        class="shrink-0 text-3xs uppercase tracking-wide font-semibold rounded px-1.5 py-0.5 bg-surface-hover text-tertiary leading-none"
       >{{ $t(`project-actions-status-${project.status}`) }}</span>
       <span
         v-if="subtitle"

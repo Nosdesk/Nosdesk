@@ -122,7 +122,7 @@ const groupOptions = computed<ReadonlyArray<{ value: GroupBy; label: string }>>(
       <div class="py-2">
         <!-- Grouping -->
         <section class="px-3 pb-2">
-          <h3 class="text-[10px] uppercase tracking-wide font-semibold text-tertiary mb-1.5">
+          <h3 class="text-3xs uppercase tracking-wide font-semibold text-tertiary mb-1.5">
             {{ $t('views-display-menu-grouping') }}
           </h3>
           <div class="grid grid-cols-3 gap-1">
@@ -130,7 +130,7 @@ const groupOptions = computed<ReadonlyArray<{ value: GroupBy; label: string }>>(
               v-for="opt in groupOptions"
               :key="opt.value"
               type="button"
-              class="text-[11px] px-2 py-1 rounded transition-colors text-center"
+              class="text-2xs px-2 py-1 rounded transition-colors text-center"
               :class="groupBy === opt.value
                 ? 'bg-accent/10 text-accent font-medium'
                 : 'text-secondary hover:bg-surface-hover'"
@@ -142,7 +142,7 @@ const groupOptions = computed<ReadonlyArray<{ value: GroupBy; label: string }>>(
 
         <!-- Density -->
         <section class="px-3 pb-2 border-t border-subtle pt-2">
-          <h3 class="text-[10px] uppercase tracking-wide font-semibold text-tertiary mb-1.5">
+          <h3 class="text-3xs uppercase tracking-wide font-semibold text-tertiary mb-1.5">
             {{ $t('views-display-menu-density') }}
           </h3>
           <div
@@ -154,7 +154,7 @@ const groupOptions = computed<ReadonlyArray<{ value: GroupBy; label: string }>>(
               v-for="opt in densityOptions"
               :key="opt.value"
               type="button"
-              class="flex-1 text-[11px] px-2 py-1 transition-colors"
+              class="flex-1 text-2xs px-2 py-1 transition-colors"
               :class="density === opt.value
                 ? 'bg-accent/10 text-accent font-medium'
                 : 'text-secondary hover:bg-surface-hover'"
@@ -166,7 +166,7 @@ const groupOptions = computed<ReadonlyArray<{ value: GroupBy; label: string }>>(
 
         <!-- Properties -->
         <section class="border-t border-subtle pt-2">
-          <h3 class="text-[10px] uppercase tracking-wide font-semibold text-tertiary px-3 mb-1">
+          <h3 class="text-3xs uppercase tracking-wide font-semibold text-tertiary px-3 mb-1">
             {{ $t('views-display-menu-properties') }}
           </h3>
           <div class="max-h-[20rem] overflow-y-auto">
@@ -194,7 +194,7 @@ const groupOptions = computed<ReadonlyArray<{ value: GroupBy; label: string }>>(
                 <span class="block text-xs text-primary">
                   {{ col.label === '#' ? $t('views-display-menu-column-ticket-id') : $t(col.labelKey) }}
                 </span>
-                <span class="block text-[10px] text-tertiary truncate">
+                <span class="block text-3xs text-tertiary truncate">
                   {{ $t(col.descriptionKey) }}
                 </span>
               </span>
@@ -213,7 +213,7 @@ const groupOptions = computed<ReadonlyArray<{ value: GroupBy; label: string }>>(
              you can find it when you need it. -->
         <button
           type="button"
-          class="inline-flex items-center gap-1 text-[11px] text-tertiary hover:text-primary px-1.5 py-0.5 rounded hover:bg-surface-hover transition-colors"
+          class="inline-flex items-center gap-1 text-2xs text-tertiary hover:text-primary px-1.5 py-0.5 rounded hover:bg-surface-hover transition-colors"
           @click="emit('reset')"
           :title="$t('views-display-menu-reset-tooltip')"
         >
@@ -223,7 +223,7 @@ const groupOptions = computed<ReadonlyArray<{ value: GroupBy; label: string }>>(
         <button
           v-if="canSaveToView"
           type="button"
-          class="text-[11px] font-medium px-2 py-1 rounded bg-accent text-on-accent disabled:opacity-50 disabled:cursor-not-allowed"
+          class="text-2xs font-medium px-2 py-1 rounded bg-accent text-on-accent disabled:opacity-50 disabled:cursor-not-allowed"
           :disabled="!layoutDirty"
           @click="emit('save')"
         >{{ $t('views-display-menu-save-to-view') }}</button>

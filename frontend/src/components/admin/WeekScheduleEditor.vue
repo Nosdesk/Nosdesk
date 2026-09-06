@@ -76,7 +76,7 @@ watch(allRangesValid, (v) => emit('update:valid', v), { immediate: true })
       class="flex items-center gap-3"
     >
       <span
-        class="w-10 flex-shrink-0 text-[11px] font-semibold text-tertiary uppercase tracking-wide"
+        class="w-10 flex-shrink-0 text-2xs font-semibold text-tertiary uppercase tracking-wide"
       >
         {{ $t(day.labelKey) }}
       </span>
@@ -87,7 +87,7 @@ watch(allRangesValid, (v) => emit('update:valid', v), { immediate: true })
         @update:ranges="(ranges: DaySchedule) => setDayRanges(day.key, ranges)"
       />
     </div>
-    <p class="text-[10px] text-tertiary italic mt-1">
+    <p class="text-3xs text-tertiary italic mt-1">
       {{ $t('admin-sla-schedule-timeline-hint') }}
     </p>
   </div>

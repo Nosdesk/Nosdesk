@@ -209,7 +209,7 @@ function chipClass(tag: Tag): string {
       <span
         v-for="tag in attachedTags"
         :key="tag.id"
-        class="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded text-[11px] font-medium"
+        class="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded text-2xs font-medium"
         :class="chipClass(tag)"
         :title="tag.description || tag.name"
       >
@@ -277,7 +277,7 @@ function chipClass(tag: Tag): string {
       </button>
       <button
         type="button"
-        class="text-[11px] text-tertiary hover:text-primary px-2 py-1 self-end"
+        class="text-2xs text-tertiary hover:text-primary px-2 py-1 self-end"
         @click="closePicker"
       >{{ t('ticket-field-tags-done') }}</button>
     </div>

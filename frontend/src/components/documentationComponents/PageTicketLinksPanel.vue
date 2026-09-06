@@ -102,7 +102,7 @@ function categoryLabel(category: WorkflowStateCategory | null | undefined): stri
         <h3 class="text-xs font-semibold uppercase tracking-wide text-tertiary">
           {{ $t('docs-page-tickets-heading') }}
         </h3>
-        <span v-if="hasAny" class="text-[11px] text-tertiary">
+        <span v-if="hasAny" class="text-2xs text-tertiary">
           {{ links.length }}
         </span>
       </div>
@@ -127,7 +127,7 @@ function categoryLabel(category: WorkflowStateCategory | null | undefined): stri
     <template v-else>
       <!-- Resolved group: tickets this doc answered. -->
       <div v-if="grouped.resolves.length > 0" class="flex flex-col gap-1">
-        <p class="text-[10px] uppercase tracking-wide text-tertiary mt-1">
+        <p class="text-3xs uppercase tracking-wide text-tertiary mt-1">
           {{ $t('docs-page-tickets-resolved-heading') }}
         </p>
         <ul class="flex flex-col gap-0.5">
@@ -140,7 +140,7 @@ function categoryLabel(category: WorkflowStateCategory | null | undefined): stri
               <span class="flex-1 truncate">{{ link.ticket_title || $t('docs-page-tickets-fallback-title', { id: link.ticket_id }) }}</span>
               <span
                 v-if="link.ticket_category"
-                class="text-[10px] px-1.5 py-0.5 rounded-full"
+                class="text-3xs px-1.5 py-0.5 rounded-full"
                 :class="categoryClass(link.ticket_category)"
               >
                 {{ categoryLabel(link.ticket_category) }}
@@ -161,7 +161,7 @@ function categoryLabel(category: WorkflowStateCategory | null | undefined): stri
 
       <!-- References group: tickets that just point at this doc. -->
       <div v-if="grouped.references.length > 0" class="flex flex-col gap-1">
-        <p class="text-[10px] uppercase tracking-wide text-tertiary mt-1">
+        <p class="text-3xs uppercase tracking-wide text-tertiary mt-1">
           {{ $t('docs-page-tickets-referenced-heading') }}
         </p>
         <ul class="flex flex-col gap-0.5">
@@ -174,7 +174,7 @@ function categoryLabel(category: WorkflowStateCategory | null | undefined): stri
               <span class="flex-1 truncate">{{ link.ticket_title || $t('docs-page-tickets-fallback-title', { id: link.ticket_id }) }}</span>
               <span
                 v-if="link.ticket_category"
-                class="text-[10px] px-1.5 py-0.5 rounded-full"
+                class="text-3xs px-1.5 py-0.5 rounded-full"
                 :class="categoryClass(link.ticket_category)"
               >
                 {{ categoryLabel(link.ticket_category) }}

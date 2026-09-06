@@ -492,7 +492,7 @@ function onResize(el: HTMLElement | null): void {
           <!-- Pinned: the ruler is the reference for everything on the canvas,
                so panning across concurrency must not take it off-screen. -->
           <span
-            class="sticky left-0 z-20 w-11 shrink-0 pl-1 py-0.5 bg-surface text-[10px] tabular-nums leading-none"
+            class="sticky left-0 z-20 w-11 shrink-0 pl-1 py-0.5 bg-surface text-3xs tabular-nums leading-none"
             :class="tick.strong ? 'text-secondary' : 'text-tertiary'"
           >{{ tick.label }}</span>
           <span
@@ -515,7 +515,7 @@ function onResize(el: HTMLElement | null): void {
           }"
         >
           <span
-            class="sticky left-12 inline-block max-w-full truncate rounded px-1.5 py-0.5 text-[10px] font-medium border"
+            class="sticky left-12 inline-block max-w-full truncate rounded px-1.5 py-0.5 text-3xs font-medium border"
             :class="cycleStripClass(band.state)"
             :title="band.label"
           >{{ band.label }}</span>
@@ -547,7 +547,7 @@ function onResize(el: HTMLElement | null): void {
         <!-- Live date chip while moving. -->
         <div
           v-if="dragGhost"
-          class="absolute z-30 pointer-events-none rounded-full bg-accent px-1.5 py-px text-[10px] font-semibold text-on-accent tabular-nums whitespace-nowrap"
+          class="absolute z-30 pointer-events-none rounded-full bg-accent px-1.5 py-px text-3xs font-semibold text-on-accent tabular-nums whitespace-nowrap"
           :style="{
             top: `${dragGhost.chipTop}px`,
             left: `${dragGhost.chipLeft}px`,
@@ -578,15 +578,15 @@ function onResize(el: HTMLElement | null): void {
           <template v-if="fidelity(blockHeight(p)) === 'full'">
             <div class="px-1.5 py-1 flex flex-col gap-1 h-full">
               <div class="flex items-center gap-1">
-                <span class="text-[10px] tabular-nums text-tertiary">#{{ p.item.card.id }}</span>
+                <span class="text-3xs tabular-nums text-tertiary">#{{ p.item.card.id }}</span>
                 <PriorityIndicator
                   v-if="p.item.card.priority !== 'none'"
                   :priority="(p.item.card.priority === 'urgent' ? 'high' : p.item.card.priority) as 'low' | 'medium' | 'high'"
                   size="xs"
                 />
               </div>
-              <span class="text-[11px] leading-tight text-primary line-clamp-3">{{ p.item.card.title }}</span>
-              <span class="text-[10px] text-tertiary tabular-nums whitespace-nowrap">{{ dateLabel(p.item) }}</span>
+              <span class="text-2xs leading-tight text-primary line-clamp-3">{{ p.item.card.title }}</span>
+              <span class="text-3xs text-tertiary tabular-nums whitespace-nowrap">{{ dateLabel(p.item) }}</span>
               <UserAvatar
                 v-if="p.item.card.assignee_uuid"
                 :uuid="p.item.card.assignee_uuid"
@@ -600,16 +600,16 @@ function onResize(el: HTMLElement | null): void {
 
           <template v-else-if="fidelity(blockHeight(p)) === 'compact'">
             <div class="px-1.5 py-1 h-full flex flex-col gap-0.5">
-              <span class="text-[10px] tabular-nums text-tertiary">#{{ p.item.card.id }}</span>
-              <span class="block text-[11px] leading-tight text-primary line-clamp-4">{{ p.item.card.title }}</span>
-              <span class="mt-auto text-[10px] text-tertiary tabular-nums whitespace-nowrap">{{ dateLabel(p.item) }}</span>
+              <span class="text-3xs tabular-nums text-tertiary">#{{ p.item.card.id }}</span>
+              <span class="block text-2xs leading-tight text-primary line-clamp-4">{{ p.item.card.title }}</span>
+              <span class="mt-auto text-3xs text-tertiary tabular-nums whitespace-nowrap">{{ dateLabel(p.item) }}</span>
             </div>
           </template>
 
           <!-- Mark. Too small in one axis or both to letter, so it carries the
                id only and stays tappable rather than clipping text mid-word. -->
           <template v-else>
-            <span class="flex items-center justify-center w-full h-full bg-accent/15 text-[10px] tabular-nums text-secondary">
+            <span class="flex items-center justify-center w-full h-full bg-accent/15 text-3xs tabular-nums text-secondary">
               #{{ p.item.card.id }}
             </span>
           </template>
@@ -620,7 +620,7 @@ function onResize(el: HTMLElement | null): void {
     <!-- Tickets with no due date have no position on a time axis, so they sit
          outside the canvas rather than being given a fabricated one. -->
     <div v-if="unscheduled.length > 0" class="shrink-0 border-t border-default bg-surface-alt">
-      <div class="px-3 pt-2 pb-1 text-[11px] uppercase tracking-wide text-tertiary">
+      <div class="px-3 pt-2 pb-1 text-2xs uppercase tracking-wide text-tertiary">
         {{ t('gantt-unscheduled', { count: unscheduled.length }) }}
       </div>
       <button
@@ -630,8 +630,8 @@ function onResize(el: HTMLElement | null): void {
         class="w-full flex items-center gap-2 px-3 min-h-[44px] text-left border-t border-subtle active:bg-surface-hover"
         @click="onCardClick?.(card.id)"
       >
-        <span class="text-[11px] tabular-nums text-tertiary shrink-0">#{{ card.id }}</span>
-        <span class="flex-1 min-w-0 truncate text-[13px] text-primary">{{ card.title }}</span>
+        <span class="text-2xs tabular-nums text-tertiary shrink-0">#{{ card.id }}</span>
+        <span class="flex-1 min-w-0 truncate text-xs-plus text-primary">{{ card.title }}</span>
       </button>
     </div>
   </div>

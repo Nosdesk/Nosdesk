@@ -47,14 +47,14 @@ defineProps<{
         </span>
         <span
           v-if="stat.snapshot && stat.snapshotLabel"
-          class="text-[10px] font-medium uppercase tracking-wide text-tertiary truncate"
+          class="text-3xs font-medium uppercase tracking-wide text-tertiary truncate"
         >
           {{ stat.snapshotLabel }}
         </span>
         <span
           v-else-if="stat.deltaSign && stat.deltaPctDisplay"
           :class="[
-            'inline-flex items-center gap-0.5 text-[10px] sm:text-[11px] font-medium tabular-nums truncate',
+            'inline-flex items-center gap-0.5 text-3xs sm:text-2xs font-medium tabular-nums truncate',
             stat.deltaSign === 'up' ? 'text-status-success' : '',
             stat.deltaSign === 'down' ? 'text-status-error' : '',
             stat.deltaSign === 'flat' ? 'text-tertiary' : '',
@@ -78,7 +78,7 @@ defineProps<{
         />
       </div>
 
-      <span class="shrink-0 text-[10px] font-medium uppercase tracking-wider text-tertiary truncate">
+      <span class="shrink-0 text-3xs font-medium uppercase tracking-wider text-tertiary truncate">
         {{ stat.label }}
       </span>
     </router-link>

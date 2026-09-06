@@ -448,7 +448,7 @@ function sizeCodeToSpan(code: string): WidgetSpan | null {
       ]"
       @pointerdown="onHeaderPointerDown"
     >
-      <h2 class="text-[13px] font-semibold text-primary truncate tracking-tight">{{ title }}</h2>
+      <h2 class="text-xs-plus font-semibold text-primary truncate tracking-tight">{{ title }}</h2>
 
       <!-- Optional inline count badge next to the title (e.g. "12"
            assigned tickets). Renders as a pill: h-5, rounded, mono
@@ -465,7 +465,7 @@ function sizeCodeToSpan(code: string): WidgetSpan | null {
       <router-link
         v-if="actionTo && !editMode"
         :to="actionTo"
-        class="text-[11px] font-medium text-accent hover:underline whitespace-nowrap"
+        class="text-2xs font-medium text-accent hover:underline whitespace-nowrap"
       >
         {{ actionLabelText }} →
       </router-link>

@@ -78,11 +78,11 @@ const avatarSrc = computed<string | null>(
       />
       <span
         v-else-if="status === 'resolved'"
-        class="truncate text-[11px] text-secondary"
+        class="truncate text-2xs text-secondary"
       >{{ userName }}</span>
       <span
         v-else
-        class="text-[11px] text-tertiary italic shrink-0"
+        class="text-2xs text-tertiary italic shrink-0"
         :title="t('user-cell-missing-tooltip')"
       >{{ t('user-cell-unknown') }}</span>
     </template>

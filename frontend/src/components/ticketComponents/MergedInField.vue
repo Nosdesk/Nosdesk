@@ -33,7 +33,7 @@ const sourceIds = computed<number[]>(() => {
         v-for="id in sourceIds"
         :key="id"
         :to="`/tickets/${id}`"
-        class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium border border-subtle bg-surface-alt text-secondary hover:text-primary hover:border-default transition-colors"
+        class="inline-flex items-center px-2 py-0.5 rounded text-2xs font-medium border border-subtle bg-surface-alt text-secondary hover:text-primary hover:border-default transition-colors"
       >
         #{{ id }}
       </RouterLink>

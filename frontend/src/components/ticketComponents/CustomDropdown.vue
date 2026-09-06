@@ -140,7 +140,7 @@ const glyphSize = computed(() => (props.compact ? 12 : 14))
         <span
           class="truncate"
           :class="[
-            compact ? 'text-[11px] leading-tight' : 'text-sm',
+            compact ? 'text-2xs leading-tight' : 'text-sm',
             isEmptySelection ? 'text-tertiary' : compact && type === 'priority' ? 'font-medium' : 'text-primary font-medium',
           ]"
         >{{ selectedOption?.label || placeholder || $t('ticket-chip-dropdown-select') }}</span>
@@ -183,7 +183,7 @@ const glyphSize = computed(() => (props.compact ? 12 : 14))
         <template v-for="option in options" :key="option.value">
           <div
             v-if="option.disabled"
-            class="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wide text-tertiary font-semibold select-none"
+            class="px-3 pt-2 pb-1 text-3xs uppercase tracking-wide text-tertiary font-semibold select-none"
           >
             {{ option.label }}
           </div>

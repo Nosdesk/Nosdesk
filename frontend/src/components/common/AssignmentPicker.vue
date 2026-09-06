@@ -191,7 +191,7 @@ onBeforeUnmount(() => {
         <template v-else>
           <!-- Groups section -->
           <div v-if="filteredGroups.length > 0">
-            <div class="px-3 py-1.5 text-[10px] font-semibold text-tertiary uppercase tracking-wider bg-surface-alt">
+            <div class="px-3 py-1.5 text-3xs font-semibold text-tertiary uppercase tracking-wider bg-surface-alt">
               {{ $t('assignment-picker-section-groups') }}
             </div>
             <button
@@ -207,7 +207,7 @@ onBeforeUnmount(() => {
 
           <!-- Users section -->
           <div v-if="filteredUsers.length > 0">
-            <div class="px-3 py-1.5 text-[10px] font-semibold text-tertiary uppercase tracking-wider bg-surface-alt">
+            <div class="px-3 py-1.5 text-3xs font-semibold text-tertiary uppercase tracking-wider bg-surface-alt">
               {{ $t('assignment-picker-section-users') }}
             </div>
             <button
@@ -223,11 +223,11 @@ onBeforeUnmount(() => {
                   :alt="user.name"
                   class="w-full h-full object-cover"
                 />
-                <span v-else class="text-[10px] font-medium text-accent">{{ user.name.charAt(0).toUpperCase() }}</span>
+                <span v-else class="text-3xs font-medium text-accent">{{ user.name.charAt(0).toUpperCase() }}</span>
               </div>
               <div class="flex-1 min-w-0">
                 <div class="text-sm text-primary truncate">{{ user.name }}</div>
-                <div class="text-[11px] text-tertiary truncate">{{ user.email }}</div>
+                <div class="text-2xs text-tertiary truncate">{{ user.email }}</div>
               </div>
             </button>
           </div>

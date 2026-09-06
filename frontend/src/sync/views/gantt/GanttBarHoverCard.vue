@@ -48,7 +48,7 @@ const blockedBy = computed(() => props.card.relation_counts?.blocked_by ?? 0)
 <template>
   <div class="w-64 p-3 flex flex-col gap-2 text-left">
     <div class="flex items-center justify-between gap-2">
-      <span class="font-mono text-[11px] text-tertiary">#{{ card.id }}</span>
+      <span class="font-mono text-2xs text-tertiary">#{{ card.id }}</span>
       <StatusPill :label="card.workflow_state.name" :tone="statusTone" size="xs" />
     </div>
 
@@ -79,7 +79,7 @@ const blockedBy = computed(() => props.card.relation_counts?.blocked_by ?? 0)
       </div>
     </div>
 
-    <p v-if="resizable" class="text-[11px] text-tertiary border-t border-subtle/60 pt-1.5">
+    <p v-if="resizable" class="text-2xs text-tertiary border-t border-subtle/60 pt-1.5">
       {{ t('gantt-hover-reschedule-hint') }}
     </p>
   </div>

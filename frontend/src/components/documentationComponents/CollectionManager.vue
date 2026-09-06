@@ -102,7 +102,7 @@ onMounted(async () => {
         </div>
 
         <!-- System/Restricted badge -->
-        <span v-if="collection.is_system" class="text-[10px] px-1.5 py-0.5 rounded bg-surface-hover text-tertiary flex-shrink-0">
+        <span v-if="collection.is_system" class="text-3xs px-1.5 py-0.5 rounded bg-surface-hover text-tertiary flex-shrink-0">
           {{ $t('docs-collection-manager-system-badge') }}
         </span>
       </button>

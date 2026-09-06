@@ -159,19 +159,19 @@ async function unverify() {
         <span class="text-tertiary">{{ $t('docs-author-badge-verification') }}</span>
         <span
           v-if="state === 'fresh'"
-          class="inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-400"
+          class="inline-flex items-center gap-1 text-3xs font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-400"
         >
           <Icon name="check" size="xs" />
           {{ $t('docs-author-badge-state-verified') }}
         </span>
         <span
           v-else-if="state === 'stale'"
-          class="inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-amber-700 dark:text-amber-400"
+          class="inline-flex items-center gap-1 text-3xs font-medium uppercase tracking-wide text-amber-700 dark:text-amber-400"
         >
           <Icon name="warning" size="xs" />
           {{ $t('docs-author-badge-state-stale') }}
         </span>
-        <span v-else class="text-[10px] uppercase tracking-wide text-tertiary">
+        <span v-else class="text-3xs uppercase tracking-wide text-tertiary">
           {{ $t('docs-author-badge-state-never') }}
         </span>
       </div>
