@@ -24,13 +24,14 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, Context, Result};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
 use super::push::{PushPayload, PushSender, PushTarget};
 
 /// Outcome of a single-device send — drives token pruning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SendOutcome {
     /// Accepted by the provider.
     Sent,
@@ -89,6 +90,97 @@ fn env_material(inline_key: &str, path_key: &str) -> Result<Option<String>> {
 struct CachedJwt {
     token: String,
     minted: Instant,
+}
+
+/// APNs reasons that mean the device token will never work again.
+///
+/// Deliberately a closed set matched against the parsed `reason` field, not a
+/// substring search of the body. Pruning on an unrecognised reason discards a
+/// live registration, and a device that has been silently deregistered has no
+/// way back short of the user reinstalling.
+const APNS_PRUNABLE_REASONS: &[&str] =
+    &["BadDeviceToken", "DeviceTokenNotForTopic", "Unregistered"];
+
+/// Classify an APNs response.
+///
+/// 410 means the token is no longer active for this topic. A 400 is prunable
+/// only when the reason names the token; a 400 for a malformed payload must not
+/// cost the recipient their registration. 403 is handled by the caller, which
+/// re-mints the bearer: it indicts our credentials, not the device.
+fn classify_apns(status: u16, body: &str) -> SendOutcome {
+    if (200..300).contains(&status) {
+        return SendOutcome::Sent;
+    }
+    if status == 410 {
+        return SendOutcome::Invalid;
+    }
+    if status == 400 {
+        let reason = serde_json::from_str::<Value>(body)
+            .ok()
+            .and_then(|v| v.get("reason").and_then(Value::as_str).map(str::to_owned));
+        if let Some(reason) = reason {
+            if APNS_PRUNABLE_REASONS.contains(&reason.as_str()) {
+                return SendOutcome::Invalid;
+            }
+        }
+    }
+    SendOutcome::Failed
+}
+
+/// Classify an FCM v1 response.
+///
+/// FCM returns `INVALID_ARGUMENT` for a bad token **and** for a malformed
+/// message, so the previous substring search for that string anywhere in the
+/// body pruned good tokens whenever our own payload was wrong — and because
+/// device tokens load across workspaces, one payload bug silently deregistered
+/// every device that recipient owned.
+///
+/// A 404 means the registration is gone. A 400 is prunable only when the error
+/// explicitly names the token: an `UNREGISTERED` detail, a `NOT_FOUND` status,
+/// or a field violation on the token field.
+fn classify_fcm(status: u16, body: &str) -> SendOutcome {
+    if (200..300).contains(&status) {
+        return SendOutcome::Sent;
+    }
+    if status == 404 {
+        return SendOutcome::Invalid;
+    }
+    if status == 400 && fcm_error_blames_token(body) {
+        return SendOutcome::Invalid;
+    }
+    SendOutcome::Failed
+}
+
+/// Whether an FCM error body attributes the failure to the device token itself.
+fn fcm_error_blames_token(body: &str) -> bool {
+    let Ok(v) = serde_json::from_str::<Value>(body) else {
+        return false;
+    };
+    let Some(error) = v.get("error") else {
+        return false;
+    };
+
+    if error.get("status").and_then(Value::as_str) == Some("NOT_FOUND") {
+        return true;
+    }
+
+    let Some(details) = error.get("details").and_then(Value::as_array) else {
+        return false;
+    };
+    details.iter().any(|d| {
+        if d.get("errorCode").and_then(Value::as_str) == Some("UNREGISTERED") {
+            return true;
+        }
+        d.get("fieldViolations")
+            .and_then(Value::as_array)
+            .is_some_and(|violations| {
+                violations.iter().any(|fv| {
+                    fv.get("field")
+                        .and_then(Value::as_str)
+                        .is_some_and(|f| f.ends_with("token"))
+                })
+            })
+    })
 }
 
 /// APNs token-based sender. One JWT (ES256, signed by the `.p8` auth key) is
@@ -244,19 +336,15 @@ impl ApnsClient {
                     );
                     return SendOutcome::Failed;
                 }
-                // 410 = the token is no longer active for this topic; a 400 with
-                // one of these reasons means the token is permanently unusable.
-                if status.as_u16() == 410
-                    || (status.as_u16() == 400
-                        && (reason.contains("BadDeviceToken")
-                            || reason.contains("DeviceTokenNotForTopic")
-                            || reason.contains("Unregistered")))
-                {
-                    debug!(%status, "apns: pruning invalid device token");
-                    SendOutcome::Invalid
-                } else {
-                    warn!(%status, reason = %reason, "apns: send failed");
-                    SendOutcome::Failed
+                match classify_apns(status.as_u16(), &reason) {
+                    SendOutcome::Invalid => {
+                        debug!(%status, "apns: pruning invalid device token");
+                        SendOutcome::Invalid
+                    }
+                    outcome => {
+                        warn!(%status, reason = %reason, "apns: send failed");
+                        outcome
+                    }
                 }
             }
             Err(e) => {
@@ -446,17 +534,15 @@ impl FcmClient {
                     return SendOutcome::Sent;
                 }
                 let reason = r.text().await.unwrap_or_default();
-                // 404 = token unregistered; a 400 UNREGISTERED/INVALID_ARGUMENT on
-                // the token means it's permanently unusable.
-                if status.as_u16() == 404
-                    || (status.as_u16() == 400
-                        && (reason.contains("UNREGISTERED") || reason.contains("INVALID_ARGUMENT")))
-                {
-                    debug!(%status, "fcm: pruning invalid device token");
-                    SendOutcome::Invalid
-                } else {
-                    warn!(%status, reason = %reason, "fcm: send failed");
-                    SendOutcome::Failed
+                match classify_fcm(status.as_u16(), &reason) {
+                    SendOutcome::Invalid => {
+                        debug!(%status, "fcm: pruning invalid device token");
+                        SendOutcome::Invalid
+                    }
+                    outcome => {
+                        warn!(%status, reason = %reason, "fcm: send failed");
+                        outcome
+                    }
                 }
             }
             Err(e) => {
@@ -630,5 +716,117 @@ mod tests {
         };
         // No provider for the platform → skipped, no panic, nothing pruned.
         assert!(sender.send(&targets, &payload).await.is_empty());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Classifier tests (D5)
+//
+// The whole reason these live in pure functions: the decision to permanently
+// deregister someone's device is the highest-consequence branch in this file,
+// and it was previously reachable only through a network call.
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod classifier_tests {
+    use super::*;
+
+    #[test]
+    fn fcm_success_is_sent() {
+        assert_eq!(classify_fcm(200, "{}"), SendOutcome::Sent);
+    }
+
+    #[test]
+    fn fcm_404_prunes() {
+        assert_eq!(classify_fcm(404, "{}"), SendOutcome::Invalid);
+    }
+
+    /// The D5 defect. FCM returns INVALID_ARGUMENT for a malformed *message*
+    /// as well as for a bad token, so the old substring match deregistered
+    /// every device the recipient owned whenever our own payload was wrong.
+    #[test]
+    fn fcm_does_not_prune_when_the_message_is_malformed() {
+        let body = r#"{"error":{"code":400,"status":"INVALID_ARGUMENT",
+             "message":"Invalid JSON payload received. Unknown name \"titel\" at 'message.notification'",
+             "details":[{"fieldViolations":[
+               {"field":"message.notification","description":"Invalid JSON payload"}]}]}}"#;
+        assert_eq!(
+            classify_fcm(400, body),
+            SendOutcome::Failed,
+            "a payload bug must never cost the recipient their registrations"
+        );
+    }
+
+    #[test]
+    fn fcm_prunes_on_an_unregistered_detail() {
+        let body = r#"{"error":{"code":400,"status":"INVALID_ARGUMENT","details":[
+             {"@type":"type.googleapis.com/google.firebase.fcm.v1.FcmError",
+              "errorCode":"UNREGISTERED"}]}}"#;
+        assert_eq!(classify_fcm(400, body), SendOutcome::Invalid);
+    }
+
+    #[test]
+    fn fcm_prunes_when_a_field_violation_names_the_token() {
+        let body = r#"{"error":{"code":400,"status":"INVALID_ARGUMENT","details":[
+             {"fieldViolations":[
+               {"field":"message.token","description":"Invalid registration token"}]}]}}"#;
+        assert_eq!(classify_fcm(400, body), SendOutcome::Invalid);
+    }
+
+    #[test]
+    fn fcm_prunes_on_a_not_found_status() {
+        let body = r#"{"error":{"code":404,"status":"NOT_FOUND"}}"#;
+        assert_eq!(classify_fcm(400, body), SendOutcome::Invalid);
+    }
+
+    /// A body that is not JSON at all (a proxy error page, a truncated
+    /// response) must not be read as permission to prune.
+    #[test]
+    fn fcm_keeps_the_token_when_the_body_is_not_json() {
+        assert_eq!(
+            classify_fcm(400, "<html>502 Bad Gateway</html>"),
+            SendOutcome::Failed
+        );
+        assert_eq!(classify_fcm(500, ""), SendOutcome::Failed);
+    }
+
+    #[test]
+    fn apns_410_prunes_and_success_sends() {
+        assert_eq!(classify_apns(200, ""), SendOutcome::Sent);
+        assert_eq!(classify_apns(410, ""), SendOutcome::Invalid);
+    }
+
+    #[test]
+    fn apns_prunes_only_on_a_reason_that_names_the_token() {
+        for reason in ["BadDeviceToken", "DeviceTokenNotForTopic", "Unregistered"] {
+            let body = format!(r#"{{"reason":"{reason}"}}"#);
+            assert_eq!(classify_apns(400, &body), SendOutcome::Invalid, "{reason}");
+        }
+    }
+
+    /// PayloadTooLarge is our fault, not the device's.
+    #[test]
+    fn apns_does_not_prune_on_a_payload_fault() {
+        let body = r#"{"reason":"PayloadTooLarge"}"#;
+        assert_eq!(classify_apns(400, body), SendOutcome::Failed);
+    }
+
+    /// An unrecognised reason is kept, not guessed at: pruning wrongly costs a
+    /// user their push with no way back short of reinstalling.
+    #[test]
+    fn apns_keeps_the_token_on_an_unknown_reason_or_bad_body() {
+        assert_eq!(
+            classify_apns(400, r#"{"reason":"SomeNewAppleReason"}"#),
+            SendOutcome::Failed
+        );
+        assert_eq!(classify_apns(400, "not json"), SendOutcome::Failed);
+    }
+
+    /// A reason string appearing somewhere other than the `reason` field must
+    /// not trigger a prune. This is what the old substring match got wrong.
+    #[test]
+    fn apns_ignores_a_prunable_word_outside_the_reason_field() {
+        let body = r#"{"reason":"PayloadTooLarge","debug":"see BadDeviceToken docs"}"#;
+        assert_eq!(classify_apns(400, body), SendOutcome::Failed);
     }
 }
