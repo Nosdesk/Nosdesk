@@ -70,7 +70,7 @@ const heroStyle = computed(() => ({
       :class="wide ? 'lg:max-w-[760px] lg:basis-[55%]' : 'lg:max-w-[560px] lg:basis-[45%]'"
     >
       <div
-        class="flex min-h-full flex-col gap-10 px-6 pb-10 pt-[calc(2.5rem+env(safe-area-inset-top))] sm:px-10 lg:px-16 lg:pb-14 lg:pt-[calc(3.5rem+env(safe-area-inset-top))]"
+        class="mx-auto flex min-h-full w-full max-w-[28rem] flex-col gap-10 px-6 pb-10 pt-[calc(2.5rem+env(safe-area-inset-top))] sm:px-10 lg:max-w-none lg:px-16 lg:pb-14 lg:pt-[calc(3.5rem+env(safe-area-inset-top))]"
       >
         <div class="w-fit">
           <slot name="logo">
@@ -88,10 +88,15 @@ const heroStyle = computed(() => ({
           <slot name="footer" />
         </p>
 
+        <!-- The only way out if the wrong server was chosen, so it has to be
+             findable. It was `text-xs text-tertiary`, which measured 74x15px
+             on a tablet: present, but small and low-contrast enough that users
+             reported no way back at all. Secondary text and a touch-sized
+             target make it an affordance rather than a footnote. -->
         <button
           v-if="showSwitchServer"
           type="button"
-          class="w-fit text-xs text-tertiary hover:text-secondary hover:underline"
+          class="w-fit text-sm text-secondary underline underline-offset-2 hover:text-primary pointer-coarse:min-h-11"
           @click="returnToConnect"
         >
           {{ $t('connect-switch-server') }}

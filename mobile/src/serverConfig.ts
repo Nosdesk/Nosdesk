@@ -56,10 +56,20 @@ export interface ServerValidation {
 export async function validateServer(input: string): Promise<ServerValidation> {
   let origin: string
   try {
+    // A bare host is the expected input: the connect screen asks for a server
+    // address, not a URL, so `help.example.com` is normalised here rather than
+    // being pushed onto the user. An explicit scheme is still honoured so a
+    // pasted URL works, and http is rejected below.
     const withScheme = /^https?:\/\//i.test(input) ? input : `https://${input.trim()}`
     const url = new URL(withScheme)
     if (url.protocol !== 'https:') {
-      return { ok: false, error: 'The server URL must use https://' }
+      // Say why, not just what. The app carries a bearer token and ticket
+      // content, so this is a refusal on the user's behalf rather than a
+      // formatting rule they got wrong.
+      return {
+        ok: false,
+        error: 'Nosdesk connects over https only, so your tickets and sign-in stay encrypted.',
+      }
     }
     origin = url.origin
   } catch {

@@ -20,10 +20,18 @@ export async function initServerGate(): Promise<void> {
 }
 
 /** Connect to the official cloud and dismiss the gate. */
-export async function selectCloud(): Promise<void> {
-  const { setServer, DEFAULT_SERVER } = await import('@nosdesk/mobile')
-  await setServer(DEFAULT_SERVER)
+export async function selectCloud(): Promise<{ ok: boolean; error?: string }> {
+  const { validateServer, setServer, DEFAULT_SERVER } = await import('@nosdesk/mobile')
+  // Validate before committing, exactly as `connectTo` does. This used to set
+  // the server unconditionally, so if the cloud host was unreachable or not yet
+  // a configured Nosdesk instance the gate still dismissed and the user landed
+  // on whatever that host served -- with no obvious way back. Picking the
+  // official option should not be the one path that can strand you.
+  const result = await validateServer(DEFAULT_SERVER)
+  if (!result.ok || !result.origin) return { ok: false, error: result.error }
+  await setServer(result.origin)
   needsServerSelection.value = false
+  return { ok: true }
 }
 
 /**

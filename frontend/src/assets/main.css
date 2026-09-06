@@ -192,6 +192,46 @@
 }
 
 /* ============================================
+   Root type scale on touch devices
+   ============================================
+   A tablet renders CSS pixels far denser than a monitor does: the
+   reference device reports 936 CSS px across a ~6.2in panel, about
+   151 CSS px per inch against a desktop's 96. Identical markup is
+   therefore ~1.6x physically smaller there, which is what makes the
+   desktop layout feel cramped rather than any layout bug.
+
+   Raising the root size scales the whole rem-based system together --
+   type, spacing, and any rem-sized control -- while borders and
+   hairlines stay in px, which is correct: those should not grow.
+
+   Three deliberate choices:
+
+   1. `calc(100% * factor)`, not a px value. 100% is the user's own
+      default, so someone who has already enlarged their browser text
+      keeps that preference and gets this on top. A fixed px root would
+      silently discard it, trading one accessibility failure for
+      another.
+
+   2. Keyed on `pointer: coarse` plus width, not on platform. Any touch
+      device at tablet size qualifies -- iPad, Android, a tablet browser
+      -- and a desktop window narrowed to the same width does not, since
+      a mouse at desk distance needs no help. Phones are excluded by the
+      width floor; their layouts are already tuned for close viewing.
+
+   3. Media-query `rem` resolves against the initial 16px, not the
+      document root, so no breakpoint moves when this applies. The
+      viewport stays 936px and the desktop-style layout is preserved,
+      which is the intent -- this changes size, not structure.
+
+   The factor is a token so it can be tuned in one place after looking
+   at it on real hardware. */
+@media (pointer: coarse) and (width >= 48rem) {
+  :root {
+    font-size: calc(100% * var(--root-scale-touch, 1.125));
+  }
+}
+
+/* ============================================
    THEME VARIABLES - Light/Dark switching
    These are the default values that get overwritten
    by the theme system's CSS injector
