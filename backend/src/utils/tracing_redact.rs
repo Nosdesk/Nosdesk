@@ -93,13 +93,25 @@ const ALLOWED_FIELDS: &[&str] = &[
     "aggregate",
     "category",
     "classification",
+    // Push sender selection, logged once at boot: `mode` and `sender` are
+    // closed sets ("relay" / "native" / "off" / "unset"), `configured` is a
+    // bool. Without these the boot line reads "Push sender selected" and names
+    // nothing, which defeats the one signal an operator has for telling relay
+    // mode from native on a running instance.
+    "configured",
     "entity",
     "event_type",
     "kind",
+    "mode",
     "op",
     "priority",
     "recurrence",
     "role",
+    // Which backend process answered. A random per-process id, not tied to a
+    // user, a tenant or a machine address; it exists so two replicas can be
+    // told apart in logs and on the edition surface.
+    "process_id",
+    "sender",
     "status",
     // External (third-party-provider) stable identifiers. Like the
     // intra-tenant uuids above, these are stable IDs assigned by
@@ -433,6 +445,13 @@ mod tests {
             "event_type",
             "op",
             "aggregate",
+            // Push boot line. Regression guard: these were added after the line
+            // shipped logging "Push sender selected" with redacted:4 and naming
+            // nothing at all.
+            "mode",
+            "sender",
+            "configured",
+            "process_id",
             "status",
             "priority",
             "role",
