@@ -70,7 +70,7 @@ const heroStyle = computed(() => ({
       :class="wide ? 'lg:max-w-[760px] lg:basis-[55%]' : 'lg:max-w-[560px] lg:basis-[45%]'"
     >
       <div
-        class="mx-auto flex min-h-full w-full max-w-[28rem] flex-col gap-10 px-6 pb-10 pt-[calc(2.5rem+env(safe-area-inset-top))] sm:px-10 lg:max-w-none lg:px-16 lg:pb-14 lg:pt-[calc(3.5rem+env(safe-area-inset-top))]"
+        class="ml-auto mr-auto flex min-h-full w-full max-w-[28rem] flex-col gap-10 px-6 pb-10 pt-[calc(2.5rem+env(safe-area-inset-top))] sm:px-10 lg:max-w-none lg:px-16 lg:pb-14 lg:pt-[calc(3.5rem+env(safe-area-inset-top))]"
       >
         <div class="w-fit">
           <slot name="logo">
