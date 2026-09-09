@@ -922,6 +922,43 @@ pub fn set_page_visibility(
     })
 }
 
+/// Who a page render is for, so the ACL can travel with a recursion.
+///
+/// The markdown exporter follows `embedded_document` nodes, and a page the
+/// caller may read can embed one they may not. Checking only the top-level
+/// page therefore checks the wrong thing. Carrying the audience down the
+/// recursion means every page the output contains is checked, once, by the
+/// same predicate the ordinary page read uses.
+///
+/// The comment-side analogue is `ticket_visibility::CommentAudience`.
+#[derive(Clone, Copy)]
+pub enum PageAudience {
+    /// A specific caller. Every page is filtered by [`can_user_access_page`].
+    User {
+        user_uuid: uuid::Uuid,
+        is_admin: bool,
+    },
+    /// No filtering, for callers that have already established authority over
+    /// the whole export (nothing uses this yet; it exists so a future system
+    /// exporter has to say so rather than pass a borrowed user).
+    Unrestricted,
+}
+
+impl PageAudience {
+    /// Fails closed: a lookup error reads as "not accessible", matching the
+    /// handlers, which turn a visibility-check failure into a refusal rather
+    /// than falling through to the content.
+    pub fn can_read(&self, conn: &mut DbConnection, page_id: i32) -> bool {
+        match self {
+            PageAudience::Unrestricted => true,
+            PageAudience::User {
+                user_uuid,
+                is_admin,
+            } => can_user_access_page(conn, page_id, user_uuid, *is_admin).unwrap_or(false),
+        }
+    }
+}
+
 /// Check whether a single user can access a page.
 /// Logic: admin → true; page has override → check page groups + user;
 ///        else inherit from collections (no collections = public,
