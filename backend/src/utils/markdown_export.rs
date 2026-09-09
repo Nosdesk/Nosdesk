@@ -9,6 +9,7 @@ use yrs::{
 
 use crate::db::DbConnection;
 use crate::repository;
+use crate::repository::PageAudience;
 use crate::utils::i18n;
 
 const MAX_EMBED_DEPTH: usize = 10;
@@ -58,10 +59,34 @@ pub fn yjs_to_markdown(yjs_document: &[u8]) -> Option<String> {
     }
 }
 
+/// Everything needed to follow an `embedded_document` node: the connection to
+/// read the embedded page with, and who the export is for.
+///
+/// They are bundled rather than passed separately because they must not be
+/// separable. A page the caller may read can embed one they may not, so an
+/// exporter holding a connection but no audience would silently render content
+/// past the ACL. Requiring both to resolve an embed makes that a type error
+/// rather than a discipline.
+pub struct EmbedResolver<'a> {
+    pub conn: &'a mut DbConnection,
+    pub audience: PageAudience,
+}
+
+impl EmbedResolver<'_> {
+    /// Reborrow for a recursive call. `Option<&mut _>` is not `Copy`, and
+    /// `as_deref_mut` does not apply to a plain struct.
+    fn reborrow(&mut self) -> EmbedResolver<'_> {
+        EmbedResolver {
+            conn: self.conn,
+            audience: self.audience,
+        }
+    }
+}
+
 /// Convert a Yjs document to Markdown with recursive embed resolution
 pub fn yjs_to_markdown_with_embeds(
     yjs_document: &[u8],
-    conn: &mut DbConnection,
+    resolver: &mut EmbedResolver<'_>,
     visited: &mut HashSet<Uuid>,
     current_uuid: Option<Uuid>,
     depth: usize,
@@ -112,7 +137,7 @@ pub fn yjs_to_markdown_with_embeds(
 
     let mut output = String::new();
     for child in fragment.children(&txn) {
-        let block = node_to_markdown_with_embeds(&child, &txn, 0, conn, visited, depth, locale);
+        let block = node_to_markdown_with_embeds(&child, &txn, 0, resolver, visited, depth, locale);
         if !block.is_empty() {
             output.push_str(&block);
             output.push('\n');
@@ -159,7 +184,7 @@ fn node_to_markdown_with_embeds(
     node: &XmlOut,
     txn: &yrs::Transaction,
     list_depth: usize,
-    conn: &mut DbConnection,
+    resolver: &mut EmbedResolver<'_>,
     visited: &mut HashSet<Uuid>,
     embed_depth: usize,
     locale: &LanguageIdentifier,
@@ -173,7 +198,7 @@ fn node_to_markdown_with_embeds(
                 elem,
                 txn,
                 list_depth,
-                Some(conn),
+                Some(resolver.reborrow()),
                 visited,
                 embed_depth,
                 Some(locale),
@@ -186,7 +211,7 @@ fn node_to_markdown_with_embeds(
                     &child,
                     txn,
                     list_depth,
-                    conn,
+                    resolver,
                     visited,
                     embed_depth,
                     locale,
@@ -207,7 +232,7 @@ fn element_to_markdown(
     elem: &yrs::XmlElementRef,
     txn: &yrs::Transaction,
     list_depth: usize,
-    mut conn: Option<&mut DbConnection>,
+    mut resolver: Option<EmbedResolver<'_>>,
     visited: &mut HashSet<Uuid>,
     embed_depth: usize,
     locale: Option<&LanguageIdentifier>,
@@ -240,7 +265,7 @@ fn element_to_markdown(
                 elem,
                 txn,
                 list_depth,
-                conn.as_deref_mut(),
+                resolver.as_mut().map(EmbedResolver::reborrow),
                 visited,
                 embed_depth,
                 locale,
@@ -262,7 +287,7 @@ fn element_to_markdown(
                             li,
                             txn,
                             list_depth,
-                            conn.as_deref_mut(),
+                            resolver.as_mut().map(EmbedResolver::reborrow),
                             visited,
                             embed_depth,
                             locale,
@@ -284,7 +309,7 @@ fn element_to_markdown(
                             li,
                             txn,
                             list_depth,
-                            conn.as_deref_mut(),
+                            resolver.as_mut().map(EmbedResolver::reborrow),
                             visited,
                             embed_depth,
                             locale,
@@ -340,10 +365,20 @@ fn element_to_markdown(
                 .map(|v| v.to_string(txn))
                 .unwrap_or(untitled_fallback);
 
-            if let Some(conn) = conn {
+            if let Some(mut resolver) = resolver {
                 if let (Ok(uuid), Some(loc)) = (Uuid::parse_str(&doc_uuid_str), locale) {
                     if embed_depth < MAX_EMBED_DEPTH && !visited.contains(&uuid) {
-                        if let Ok(page) = repository::get_documentation_page_by_uuid(&uuid, conn) {
+                        let conn = &mut *resolver.conn;
+                        // An embedded page carries its own ACL. Read it only if
+                        // this export's audience may read it; otherwise fall
+                        // through to the reference fallback below, which prints
+                        // the title the embedding document already contains and
+                        // none of the embedded content.
+                        let readable = repository::get_documentation_page_by_uuid(&uuid, conn)
+                            .ok()
+                            .filter(|page| resolver.audience.can_read(resolver.conn, page.id));
+                        if let Some(page) = readable {
+                            let conn = &mut *resolver.conn;
                             let yjs_doc = page.yjs_document.as_ref()
                                 .cloned()
                                 .or_else(|| {
@@ -357,7 +392,7 @@ fn element_to_markdown(
                             if let Some(doc_bytes) = yjs_doc {
                                 if let Some(content) = yjs_to_markdown_with_embeds(
                                     &doc_bytes,
-                                    conn,
+                                    &mut resolver,
                                     visited,
                                     Some(uuid),
                                     embed_depth + 1,
@@ -514,7 +549,7 @@ fn collect_block_children(
     elem: &yrs::XmlElementRef,
     txn: &yrs::Transaction,
     list_depth: usize,
-    mut conn: Option<&mut DbConnection>,
+    mut resolver: Option<EmbedResolver<'_>>,
     visited: &mut HashSet<Uuid>,
     embed_depth: usize,
     locale: Option<&LanguageIdentifier>,
@@ -529,7 +564,7 @@ fn collect_block_children(
                     child_elem,
                     txn,
                     list_depth,
-                    conn.as_deref_mut(),
+                    resolver.as_mut().map(EmbedResolver::reborrow),
                     visited,
                     embed_depth,
                     locale,
@@ -555,7 +590,7 @@ fn collect_list_item_content(
     li: &yrs::XmlElementRef,
     txn: &yrs::Transaction,
     list_depth: usize,
-    mut conn: Option<&mut DbConnection>,
+    mut resolver: Option<EmbedResolver<'_>>,
     visited: &mut HashSet<Uuid>,
     embed_depth: usize,
     locale: Option<&LanguageIdentifier>,
@@ -575,7 +610,7 @@ fn collect_list_item_content(
                     child_elem,
                     txn,
                     list_depth + 1,
-                    conn.as_deref_mut(),
+                    resolver.as_mut().map(EmbedResolver::reborrow),
                     visited,
                     embed_depth,
                     locale,
@@ -586,7 +621,7 @@ fn collect_list_item_content(
                     child_elem,
                     txn,
                     list_depth,
-                    conn.as_deref_mut(),
+                    resolver.as_mut().map(EmbedResolver::reborrow),
                     visited,
                     embed_depth,
                     locale,

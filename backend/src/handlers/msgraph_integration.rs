@@ -680,11 +680,18 @@ pub async fn get_sync_progress_endpoint(
         Ok(c) => c,
         Err(e) => return e,
     };
-    // Extract claims from cookie auth middleware
-    let _claims = match req.extensions().get::<crate::models::Claims>() {
-        Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Authentication required"),
-    };
+    // The Entra/Intune integration runs on the org's own app credentials, so
+    // its state, its configuration and its running sync sessions are workspace-
+    // admin only, matching `trigger_sync` below and the Graph proxy in
+    // `microsoft_graph.rs`. Being a member of the workspace was the whole check
+    // here before, which let any member read the connection's configuration,
+    // probe the live connection, and cancel an admin's directory sync.
+    let _claims =
+        match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
+        {
+            Ok(c) => c,
+            Err(resp) => return resp,
+        };
 
     let session_id = path.into_inner();
 
@@ -703,11 +710,18 @@ pub async fn get_active_syncs(
         Ok(c) => c,
         Err(e) => return e,
     };
-    // Extract claims from cookie auth middleware
-    let _claims = match req.extensions().get::<crate::models::Claims>() {
-        Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Authentication required"),
-    };
+    // The Entra/Intune integration runs on the org's own app credentials, so
+    // its state, its configuration and its running sync sessions are workspace-
+    // admin only, matching `trigger_sync` below and the Graph proxy in
+    // `microsoft_graph.rs`. Being a member of the workspace was the whole check
+    // here before, which let any member read the connection's configuration,
+    // probe the live connection, and cancel an admin's directory sync.
+    let _claims =
+        match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
+        {
+            Ok(c) => c,
+            Err(resp) => return resp,
+        };
 
     if let Ok(progress_map) = SYNC_PROGRESS.lock() {
         let active_syncs: Vec<SyncProgressState> = progress_map
@@ -739,11 +753,18 @@ pub async fn get_last_sync(
         Ok(c) => c,
         Err(e) => return e,
     };
-    // Extract claims from cookie auth middleware
-    let _claims = match req.extensions().get::<crate::models::Claims>() {
-        Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Authentication required"),
-    };
+    // The Entra/Intune integration runs on the org's own app credentials, so
+    // its state, its configuration and its running sync sessions are workspace-
+    // admin only, matching `trigger_sync` below and the Graph proxy in
+    // `microsoft_graph.rs`. Being a member of the workspace was the whole check
+    // here before, which let any member read the connection's configuration,
+    // probe the live connection, and cancel an admin's directory sync.
+    let _claims =
+        match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
+        {
+            Ok(c) => c,
+            Err(resp) => return resp,
+        };
 
     // Try to get from database first (persistent storage)
     match sync_history_repo::get_last_completed_sync(&mut conn) {
@@ -802,11 +823,18 @@ pub async fn cancel_sync_session(
         Ok(c) => c,
         Err(e) => return e,
     };
-    // Extract claims from cookie auth middleware
-    let _claims = match req.extensions().get::<crate::models::Claims>() {
-        Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Authentication required"),
-    };
+    // The Entra/Intune integration runs on the org's own app credentials, so
+    // its state, its configuration and its running sync sessions are workspace-
+    // admin only, matching `trigger_sync` below and the Graph proxy in
+    // `microsoft_graph.rs`. Being a member of the workspace was the whole check
+    // here before, which let any member read the connection's configuration,
+    // probe the live connection, and cancel an admin's directory sync.
+    let _claims =
+        match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
+        {
+            Ok(c) => c,
+            Err(resp) => return resp,
+        };
 
     let session_id = path.into_inner();
 
@@ -839,11 +867,18 @@ pub async fn cancel_sync_session(
 
 /// Validate Microsoft Graph configuration
 pub async fn get_config_validation(req: actix_web::HttpRequest) -> impl Responder {
-    // Extract claims from cookie auth middleware
-    let _claims = match req.extensions().get::<crate::models::Claims>() {
-        Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Authentication required"),
-    };
+    // The Entra/Intune integration runs on the org's own app credentials, so
+    // its state, its configuration and its running sync sessions are workspace-
+    // admin only, matching `trigger_sync` below and the Graph proxy in
+    // `microsoft_graph.rs`. Being a member of the workspace was the whole check
+    // here before, which let any member read the connection's configuration,
+    // probe the live connection, and cancel an admin's directory sync.
+    let _claims =
+        match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
+        {
+            Ok(c) => c,
+            Err(resp) => return resp,
+        };
 
     let mut missing_fields = Vec::new();
 
@@ -898,11 +933,18 @@ pub async fn get_connection_status(
         Ok(c) => c,
         Err(e) => return e,
     };
-    // Extract claims from cookie auth middleware
-    let _claims = match req.extensions().get::<crate::models::Claims>() {
-        Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Authentication required"),
-    };
+    // The Entra/Intune integration runs on the org's own app credentials, so
+    // its state, its configuration and its running sync sessions are workspace-
+    // admin only, matching `trigger_sync` below and the Graph proxy in
+    // `microsoft_graph.rs`. Being a member of the workspace was the whole check
+    // here before, which let any member read the connection's configuration,
+    // probe the live connection, and cancel an admin's directory sync.
+    let _claims =
+        match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
+        {
+            Ok(c) => c,
+            Err(resp) => return resp,
+        };
 
     // Check if Microsoft is configured via environment variables
     let microsoft_configured = config_utils::get_microsoft_client_id().is_ok()
@@ -965,11 +1007,18 @@ pub async fn get_connection_status(
 
 /// Test Microsoft Graph connection
 pub async fn test_connection(req: actix_web::HttpRequest) -> impl Responder {
-    // Extract claims from cookie auth middleware
-    let _claims = match req.extensions().get::<crate::models::Claims>() {
-        Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Authentication required"),
-    };
+    // The Entra/Intune integration runs on the org's own app credentials, so
+    // its state, its configuration and its running sync sessions are workspace-
+    // admin only, matching `trigger_sync` below and the Graph proxy in
+    // `microsoft_graph.rs`. Being a member of the workspace was the whole check
+    // here before, which let any member read the connection's configuration,
+    // probe the live connection, and cancel an admin's directory sync.
+    let _claims =
+        match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
+        {
+            Ok(c) => c,
+            Err(resp) => return resp,
+        };
 
     tracing::info!("🔬 Testing Microsoft Graph connection");
 
@@ -4880,11 +4929,18 @@ pub async fn get_entra_object_id(
         Ok(c) => c,
         Err(e) => return e,
     };
-    // Extract claims from cookie auth middleware
-    let _claims = match req.extensions().get::<crate::models::Claims>() {
-        Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Authentication required"),
-    };
+    // The Entra/Intune integration runs on the org's own app credentials, so
+    // its state, its configuration and its running sync sessions are workspace-
+    // admin only, matching `trigger_sync` below and the Graph proxy in
+    // `microsoft_graph.rs`. Being a member of the workspace was the whole check
+    // here before, which let any member read the connection's configuration,
+    // probe the live connection, and cancel an admin's directory sync.
+    let _claims =
+        match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
+        {
+            Ok(c) => c,
+            Err(resp) => return resp,
+        };
 
     // Get Microsoft provider
     let provider = match get_default_microsoft_provider() {

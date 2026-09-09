@@ -257,37 +257,56 @@ fn to_page_response(
 /// Mirrors the standalone list_page_tickets handler so callers can
 /// choose between embed (one round trip) and a separate fetch
 /// (cheaper for views that don't always want it).
+/// Title + workflow category for each linked ticket the caller may actually see.
+///
+/// Both the page-response embed and the links endpoint hydrate the same rows,
+/// and both used to hydrate every linked ticket regardless of whether the
+/// caller could open it, so a documentation page could name and categorise
+/// tickets outside the caller's visibility. Filtering through
+/// `visible_tickets_query` here means neither caller can forget it, and an
+/// invisible ticket resolves to `None` and renders untitled, which is the
+/// shape both call sites already handled for an unhydratable id.
+fn linked_ticket_meta(
+    conn: &mut DbConnection,
+    ticket_ids: &[i32],
+    ctx: &crate::repository::ticket_visibility::VisibilityContext,
+) -> Result<
+    std::collections::HashMap<i32, (String, crate::models::WorkflowStateCategory)>,
+    diesel::result::Error,
+> {
+    use crate::schema::tickets;
+    use diesel::prelude::*;
+    if ticket_ids.is_empty() {
+        return Ok(Default::default());
+    }
+    let rows: Vec<(i32, String, i32)> =
+        crate::repository::ticket_visibility::visible_tickets_query(ctx)
+            .filter(tickets::id.eq_any(ticket_ids))
+            .select((tickets::id, tickets::title, tickets::workflow_state_id))
+            .load(conn)?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, title, ws_id)| {
+            let cat = crate::repository::workflow_states::category_of(conn, ws_id)
+                .ok()
+                .flatten()
+                .unwrap_or(crate::models::WorkflowStateCategory::Backlog);
+            (id, (title, cat))
+        })
+        .collect())
+}
+
 fn embed_page_tickets(
     response: &mut DocumentationPageResponse,
     conn: &mut DbConnection,
+    ctx: &crate::repository::ticket_visibility::VisibilityContext,
 ) -> Result<(), String> {
     let links = repository::documentation_page_tickets::links_for_page(conn, response.id)
         .map_err(|e| format!("Failed to load page<->ticket links: {e:?}"))?;
 
-    use crate::schema::tickets;
-    use diesel::prelude::*;
     let ticket_ids: Vec<i32> = links.iter().map(|l| l.ticket_id).collect();
-    let tickets_meta: std::collections::HashMap<
-        i32,
-        (String, crate::models::WorkflowStateCategory),
-    > = if ticket_ids.is_empty() {
-        Default::default()
-    } else {
-        let rows: Vec<(i32, String, i32)> = tickets::table
-            .filter(tickets::id.eq_any(&ticket_ids))
-            .select((tickets::id, tickets::title, tickets::workflow_state_id))
-            .load(conn)
-            .map_err(|e| format!("Failed to hydrate tickets: {e:?}"))?;
-        rows.into_iter()
-            .map(|(id, title, ws_id)| {
-                let cat = crate::repository::workflow_states::category_of(conn, ws_id)
-                    .ok()
-                    .flatten()
-                    .unwrap_or(crate::models::WorkflowStateCategory::Backlog);
-                (id, (title, cat))
-            })
-            .collect()
-    };
+    let tickets_meta = linked_ticket_meta(conn, &ticket_ids, ctx)
+        .map_err(|e| format!("Failed to hydrate tickets: {e:?}"))?;
 
     let embed: Vec<DocumentationPageTicketEmbed> = links
         .into_iter()
@@ -375,6 +394,7 @@ pub async fn get_documentation_page(
     let want_tickets = embed_includes(&query.embed, "tickets");
     let is_admin_user = auth.is_workspace_admin();
     let user_uuid = auth.user_uuid;
+    let ticket_ctx = crate::repository::ticket_visibility::VisibilityContext::from_auth(&auth);
 
     let outcome = tc.run(|conn| {
         let page = match repository::get_documentation_page(page_id, conn) {
@@ -393,7 +413,7 @@ pub async fn get_documentation_page(
         response.requires_verification =
             repository::page_requires_verification(conn, response.id).unwrap_or(false);
         if want_tickets {
-            if let Err(e) = embed_page_tickets(&mut response, conn) {
+            if let Err(e) = embed_page_tickets(&mut response, conn, &ticket_ctx) {
                 return Ok(PageLoadOutcome::EmbedFailed(e));
             }
         }
@@ -425,6 +445,7 @@ pub async fn get_documentation_page_by_slug(
     let want_tickets = embed_includes(&query.embed, "tickets");
     let is_admin_user = auth.is_workspace_admin();
     let user_uuid = auth.user_uuid;
+    let ticket_ctx = crate::repository::ticket_visibility::VisibilityContext::from_auth(&auth);
 
     let outcome = tc.run(|conn| {
         let page = match repository::get_documentation_page_by_slug(&page_slug, conn) {
@@ -443,7 +464,7 @@ pub async fn get_documentation_page_by_slug(
         response.requires_verification =
             repository::page_requires_verification(conn, response.id).unwrap_or(false);
         if want_tickets {
-            if let Err(e) = embed_page_tickets(&mut response, conn) {
+            if let Err(e) = embed_page_tickets(&mut response, conn, &ticket_ctx) {
                 return Ok(PageLoadOutcome::EmbedFailed(e));
             }
         }
@@ -1345,23 +1366,37 @@ enum MarkdownOutcome {
 // Export a single documentation page as Markdown
 pub async fn export_page_as_markdown(
     req: actix_web::HttpRequest,
+    auth: AuthContext,
     mut tc: TenantConn,
     page_id: web::Path<i32>,
 ) -> impl Responder {
     let id = page_id.into_inner();
     let locale = crate::utils::locale::request_locale(&req);
+    // The same audience gates the page itself and every page it embeds. Reading
+    // a page through the export used to skip the ACL that `get_documentation_page`
+    // applies, on the page and on its embeds alike.
+    let audience = repository::PageAudience::User {
+        user_uuid: auth.user_uuid,
+        is_admin: auth.is_workspace_admin(),
+    };
 
     let outcome = tc.run(|conn| {
         let page = match repository::get_documentation_page(id, conn) {
             Ok(p) => p,
             Err(_) => return Ok(MarkdownOutcome::NotFound),
         };
+        if !audience.can_read(conn, page.id) {
+            // Same shape as the page read: an inaccessible page is absent, not
+            // forbidden, so the export does not confirm that the id exists.
+            return Ok(MarkdownOutcome::NotFound);
+        }
         let markdown = match resolve_yjs_document(&page, conn) {
             Some(doc_bytes) => {
                 let mut visited = std::collections::HashSet::new();
+                let mut resolver = utils::markdown_export::EmbedResolver { conn, audience };
                 utils::markdown_export::yjs_to_markdown_with_embeds(
                     &doc_bytes,
-                    conn,
+                    &mut resolver,
                     &mut visited,
                     Some(page.uuid),
                     0,
@@ -1958,38 +1993,28 @@ pub struct CreatePageTicketLinkRequest {
 pub async fn list_page_tickets(
     mut tc: TenantConn,
     path: web::Path<i32>,
-    _auth: AuthContext,
+    auth: AuthContext,
 ) -> impl Responder {
     let page_id = path.into_inner();
+    // The links belong to the page, so the page's own ACL decides who may read
+    // them; `auth` was taken and then ignored here, which let any member list
+    // the tickets attached to a page they cannot open.
+    let audience = repository::PageAudience::User {
+        user_uuid: auth.user_uuid,
+        is_admin: auth.is_workspace_admin(),
+    };
+    let ticket_ctx = crate::repository::ticket_visibility::VisibilityContext::from_auth(&auth);
 
     let result = tc.run(|conn| {
+        if !audience.can_read(conn, page_id) {
+            return Ok(Vec::new());
+        }
         let links = repository::documentation_page_tickets::links_for_page(conn, page_id)?;
 
-        // Hydrate ticket title + status in one query rather than N+1.
-        use crate::schema::tickets;
-        use diesel::prelude::*;
+        // Hydrate ticket title + status in one query rather than N+1, filtered
+        // to the tickets this caller may see.
         let ticket_ids: Vec<i32> = links.iter().map(|l| l.ticket_id).collect();
-        let tickets_meta: std::collections::HashMap<
-            i32,
-            (String, crate::models::WorkflowStateCategory),
-        > = if ticket_ids.is_empty() {
-            Default::default()
-        } else {
-            let rows: Vec<(i32, String, i32)> = tickets::table
-                .filter(tickets::id.eq_any(&ticket_ids))
-                .select((tickets::id, tickets::title, tickets::workflow_state_id))
-                .load(conn)
-                .unwrap_or_default();
-            rows.into_iter()
-                .map(|(id, title, ws_id)| {
-                    let cat = crate::repository::workflow_states::category_of(conn, ws_id)
-                        .ok()
-                        .flatten()
-                        .unwrap_or(crate::models::WorkflowStateCategory::Backlog);
-                    (id, (title, cat))
-                })
-                .collect()
-        };
+        let tickets_meta = linked_ticket_meta(conn, &ticket_ids, &ticket_ctx)?;
 
         let responses: Vec<PageTicketLinkResponse> = links
             .into_iter()
