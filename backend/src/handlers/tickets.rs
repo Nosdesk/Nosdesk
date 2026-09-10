@@ -589,15 +589,65 @@ pub async fn create_ticket(
     }
 }
 
-// Update a ticket. The extractor gates visibility; this body
-// only runs for callers who can see the ticket.
+/// Refuse a move into a category the caller cannot see.
+///
+/// Shared by PUT and PATCH. It was only on PATCH, which is how PUT came to
+/// accept a category move that PATCH refused for the same caller.
+fn refuse_unseeable_category(
+    tc: &mut TenantConn,
+    auth: &AuthContext,
+    category_id: i32,
+) -> Option<HttpResponse> {
+    let user_uuid = auth.user_uuid;
+    let is_admin = auth.is_workspace_admin();
+    match tc.run(|conn| {
+        crate::repository::categories::can_user_see_category(
+            conn,
+            &user_uuid,
+            category_id,
+            is_admin,
+        )
+    }) {
+        Ok(true) => None,
+        Ok(false) => Some(errors::forbidden(
+            "Forbidden: You do not have access to the specified category",
+        )),
+        Err(_) => Some(errors::internal("Failed to check category visibility")),
+    }
+}
+
+// Update a ticket. `TicketAccess` gates visibility only, so the body decides
+// which of the submitted columns this caller may actually set.
 pub async fn update_ticket(
     mut tc: TenantConn,
     access: TicketAccess,
+    auth: AuthContext,
     ticket: web::Json<NewTicket>,
 ) -> impl Responder {
     let ticket_id = access.ticket_id;
-    let new_ticket = ticket.into_inner();
+    let submitted = ticket.into_inner();
+
+    // A whole-row overwrite behind a read-only gate. Take the staff-controlled
+    // columns from the row as it stands unless the caller is staff, so a
+    // requester who can see the ticket cannot close it, reassign it, or hand it
+    // to somebody else.
+    let existing = match tc.run(|conn| repository::get_ticket_by_id(conn, ticket_id)) {
+        Ok(t) => t,
+        Err(_) => return errors::not_found_msg("Ticket not found"),
+    };
+    let new_ticket = submitted.redact_for(auth.can_handle_tickets(), &existing);
+
+    // A category move needs a visibility lookup rather than a comparison, so it
+    // is checked here rather than in `redact_for`, with the same helper PATCH
+    // uses. Only reached when the value actually changed, so an unchanged
+    // category on a ticket whose category the caller cannot see still saves.
+    if let Some(category_id) = new_ticket.category_id {
+        if existing.category_id != Some(category_id) {
+            if let Some(resp) = refuse_unseeable_category(&mut tc, &auth, category_id) {
+                return resp;
+            }
+        }
+    }
 
     // Validate assignee role if assignee is set
     if let Some(assignee_uuid) = new_ticket.assignee_uuid {
@@ -1028,28 +1078,8 @@ pub async fn update_ticket_partial(
 
     // Validate category visibility if category_id is being changed
     if let Some(Some(new_category_id)) = ticket_update.category_id {
-        let user_uuid = match crate::utils::parse_uuid(&user_info.sub) {
-            Ok(uuid) => uuid,
-            Err(_) => return errors::bad_request("Invalid user UUID in token"),
-        };
-        let is_admin = auth.is_workspace_admin();
-        match tc.run(|conn| {
-            crate::repository::categories::can_user_see_category(
-                conn,
-                &user_uuid,
-                new_category_id,
-                is_admin,
-            )
-        }) {
-            Ok(true) => {}
-            Ok(false) => {
-                return errors::forbidden(
-                    "Forbidden: You do not have access to the specified category",
-                );
-            }
-            Err(_) => {
-                return errors::internal("Failed to check category visibility");
-            }
+        if let Some(resp) = refuse_unseeable_category(&mut tc, &auth, new_category_id) {
+            return resp;
         }
     }
 
