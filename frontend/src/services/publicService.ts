@@ -23,8 +23,9 @@ export interface SubmitGuestTicketRequest {
   title: string;
   description: string;
   priority?: 'low' | 'medium' | 'high';
-  /** Attachment IDs returned from POST /api/public/files/temp. Max 5. */
-  attachment_ids?: number[];
+  /** Claim tokens returned from POST /api/public/files/temp, one per
+   *  pending upload. Max 5. */
+  attachment_tokens?: string[];
   /**
    * Honeypot field. Always sent as an empty string by the real form.
    * If anything non-empty arrives, the server rejects it — naive bots
@@ -36,6 +37,10 @@ export interface SubmitGuestTicketRequest {
 /** Response from POST /api/public/files/temp. Id is echoed on submission. */
 export interface GuestAttachmentUpload {
   id: number;
+  /** Signed capability for this upload, returned only to whoever made it.
+   *  Submit sends these rather than raw ids: ids are sequential, so naming a
+   *  neighbouring one used to reparent another guest's pending upload. */
+  claim_token: string;
   name: string;
   size: number;
   mime_type: string;

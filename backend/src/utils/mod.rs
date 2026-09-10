@@ -14,6 +14,7 @@ pub mod encryption;
 pub mod error_response;
 pub mod file_validation;
 pub mod geoip;
+pub mod guest_attachment_token;
 pub mod i18n;
 pub mod image;
 pub mod jwt;

@@ -398,7 +398,7 @@ async function submit() {
       title: form.title.trim(),
       description: form.description.trim(),
       website: form.website,
-      attachment_ids: attachments.value.map((a) => a.id)
+      attachment_tokens: attachments.value.map((a) => a.claim_token)
     });
     submittedEmail.value = form.email.trim();
     success.value = response;
