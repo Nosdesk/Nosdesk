@@ -82,11 +82,17 @@ pub struct SubmitGuestTicketRequest {
     pub title: String,
     pub description: String,
     pub priority: Option<String>,
-    /// Client-supplied list of temp attachment IDs from
-    /// `POST /api/public/files/temp`. The submit handler validates that
-    /// each ID is unclaimed and recent before binding it to the ticket.
+    /// Claim tokens returned by `POST /api/public/files/temp`, one per
+    /// pending upload.
+    ///
+    /// These used to be the raw `attachments` row ids, which are sequential
+    /// and therefore guessable, and the claim checked only that a row was
+    /// unclaimed and recent. Naming a neighbouring id reparented somebody
+    /// else's pending upload into your own ticket. A guest has no session to
+    /// bind an upload to, so the capability itself is signed instead; see
+    /// `utils::guest_attachment_token`.
     #[serde(default)]
-    pub attachment_ids: Vec<i32>,
+    pub attachment_tokens: Vec<String>,
     /// Honeypot field — a decoy input that's hidden via CSS/`sr-only` on
     /// the real form. Humans never fill it; naive spam bots auto-fill any
     /// input they find. Non-empty value → silently reject.
@@ -543,12 +549,17 @@ pub async fn submit_guest_ticket(
     // Claim any referenced attachments. Cap at GUEST_MAX_FILES_PER_TICKET —
     // silently truncate extras rather than rejecting the submission.
     if let Some(comment_id) = first_comment_id {
-        if !body.attachment_ids.is_empty() && settings.guest_ticket_attachments_enabled {
+        if !body.attachment_tokens.is_empty() && settings.guest_ticket_attachments_enabled {
+            // A token that does not verify is dropped rather than rejected, the
+            // same treatment an expired or already-claimed id has always had:
+            // one stale attachment should not cost the submitter their ticket.
             let ids: Vec<i32> = body
-                .attachment_ids
+                .attachment_tokens
                 .iter()
-                .copied()
                 .take(GUEST_MAX_FILES_PER_TICKET)
+                .filter_map(|token| {
+                    crate::utils::guest_attachment_token::verify(ws.workspace_id, token)
+                })
                 .collect();
             // Scope storage to this workspace so the temp->ticket move
             // stays under the ws/{id}/ prefix.
@@ -1101,8 +1112,19 @@ pub async fn upload_guest_attachment(
                 mime = %detected_mime,
                 "Guest upload stored"
             );
+            // The token IS the capability now; the id is returned only so the
+            // client can key its own list and offer a remove button.
+            let claim_token =
+                match crate::utils::guest_attachment_token::sign(ws.workspace_id, att.id) {
+                    Some(t) => t,
+                    None => {
+                        error!("JWT_SECRET unset; cannot issue a guest attachment claim token");
+                        return errors::internal("Failed to save attachment");
+                    }
+                };
             HttpResponse::Created().json(json!({
                 "id": att.id,
+                "claim_token": claim_token,
                 "name": sanitized_filename,
                 "size": total_size,
                 "mime_type": detected_mime,
@@ -1143,7 +1165,10 @@ async fn claim_guest_attachments(
 
     // Load + filter in one query: only rows that are still eligible to be
     // claimed. The IN list is already capped by the caller at
-    // GUEST_MAX_FILES_PER_TICKET, so this scales fine.
+    // GUEST_MAX_FILES_PER_TICKET, so this scales fine. Every id here came out
+    // of a verified claim token, so these filters answer "is it still
+    // claimable", not "is it yours" — that question was settled by the
+    // signature.
     let candidates: Vec<crate::models::Attachment> =
         match session::with_actor_context(conn, actor, |c| {
             attachments::table
