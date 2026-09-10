@@ -1010,6 +1010,57 @@ pub struct NewTicket {
     pub resolution_notes: Option<String>,
 }
 
+impl NewTicket {
+    /// Keep only what a non-staff caller is allowed to set, taking every other
+    /// column from the ticket as it stands.
+    ///
+    /// `PUT /api/tickets/{id}` overwrites the whole row: `NewTicket` is an
+    /// `AsChangeset`, so every field in the body lands. Its only gate is
+    /// `TicketAccess`, which is a *read* gate by its own module doc, so a
+    /// requester or watcher who can merely see a ticket could set the columns
+    /// that belong to staff — close or reopen it via `workflow_state_id`,
+    /// assign it, change its priority or category, flip `triage_state`,
+    /// `verification_state` or `spam_suspected`, hand it to someone else via
+    /// `requester_uuid`, or mint a `guest_lookup_token`.
+    ///
+    /// Staff are unaffected. For everyone else the answer is "you may retitle
+    /// your own ticket", which is deliberately narrow: this endpoint has no
+    /// client (the apps use PATCH), so the cost of being strict is close to
+    /// zero, and widening it later is a decision someone can make on purpose.
+    ///
+    /// Category is not handled here even though it is staff-controlled, because
+    /// it needs a visibility lookup rather than a comparison; the handler runs
+    /// the same `can_user_see_category` check its PATCH sibling already does.
+    #[must_use]
+    pub fn redact_for(self, can_handle_tickets: bool, existing: &Ticket) -> Self {
+        if can_handle_tickets {
+            return self;
+        }
+        Self {
+            // The one field a requester owns.
+            title: self.title,
+            // Everything else is whatever it already was. Written field by
+            // field rather than with `..existing` so that adding a column to
+            // `NewTicket` fails to compile here, forcing a decision about who
+            // may set it instead of defaulting it open.
+            workflow_state_id: existing.workflow_state_id,
+            priority: existing.priority,
+            requester_uuid: existing.requester_uuid,
+            assignee_uuid: existing.assignee_uuid,
+            category_id: existing.category_id,
+            submitted_via: existing.submitted_via.clone(),
+            guest_lookup_token: existing.guest_lookup_token,
+            verification_state: existing.verification_state.clone(),
+            origin_channel_id: existing.origin_channel_id,
+            triage_state: existing.triage_state.clone(),
+            due_date: existing.due_date,
+            recurrence_rule: existing.recurrence_rule.clone(),
+            recurrence_template_id: existing.recurrence_template_id,
+            resolution_notes: existing.resolution_notes.clone(),
+        }
+    }
+}
+
 // Add a new struct for partial ticket updates
 #[derive(Debug, Default, Serialize, Deserialize, AsChangeset)]
 #[diesel(table_name = crate::schema::tickets)]
@@ -7406,4 +7457,161 @@ pub struct TicketRuleRun {
     pub ticket_id: i32,
     pub rule_id: i32,
     pub fired_at: DateTime<Utc>,
+}
+
+#[cfg(test)]
+mod new_ticket_redaction_tests {
+    use super::*;
+
+    /// A ticket with every staff-controlled column set to a recognisable
+    /// value, so a field that leaks through redaction shows up as the
+    /// attacker's value rather than this one.
+    fn existing_ticket() -> Ticket {
+        let now = chrono::NaiveDateTime::UNIX_EPOCH;
+        Ticket {
+            id: 1,
+            title: "As filed".into(),
+            priority: TicketPriority::Low,
+            requester_uuid: Some(Uuid::from_u128(1)),
+            assignee_uuid: Some(Uuid::from_u128(2)),
+            created_at: now,
+            updated_at: now,
+            created_by: Some(Uuid::from_u128(1)),
+            closed_at: None,
+            closed_by: None,
+            category_id: Some(10),
+            submitted_via: Some("email".into()),
+            guest_lookup_token: Some(Uuid::from_u128(3)),
+            verification_state: Some("verified".into()),
+            origin_channel_id: Some(20),
+            workflow_state_id: 30,
+            triage_state: Some("triaged".into()),
+            due_date: Some(now),
+            recurrence_rule: Some("FREQ=DAILY".into()),
+            recurrence_template_id: Some(40),
+            resolution_notes: Some("resolved by staff".into()),
+            workspace_id: 1,
+            first_response_at: None,
+            sla_response_target_at: None,
+            sla_response_breached_at: None,
+            sla_resolution_target_at: None,
+            sla_resolution_breached_at: None,
+            uuid: Uuid::from_u128(4),
+            merged_into_ticket_id: None,
+            merged_at: None,
+            merged_by_user_uuid: None,
+            merge_reason: None,
+        }
+    }
+
+    /// What a requester might PUT to take over their own ticket: every
+    /// staff-controlled column set to something of their choosing.
+    fn hostile_body() -> NewTicket {
+        NewTicket {
+            title: "Retitled by the requester".into(),
+            workflow_state_id: 99,
+            priority: TicketPriority::High,
+            requester_uuid: Some(Uuid::from_u128(999)),
+            assignee_uuid: Some(Uuid::from_u128(998)),
+            category_id: Some(997),
+            submitted_via: Some("forged".into()),
+            guest_lookup_token: Some(Uuid::from_u128(996)),
+            verification_state: Some("forged".into()),
+            origin_channel_id: Some(995),
+            triage_state: Some("forged".into()),
+            due_date: None,
+            recurrence_rule: Some("FREQ=HOURLY".into()),
+            recurrence_template_id: Some(994),
+            resolution_notes: Some("forged".into()),
+        }
+    }
+
+    #[test]
+    fn a_requester_may_retitle_and_nothing_else() {
+        let existing = existing_ticket();
+        let out = hostile_body().redact_for(false, &existing);
+
+        assert_eq!(
+            out.title, "Retitled by the requester",
+            "the one field a requester owns"
+        );
+
+        // Everything a requester could otherwise have seized. Listed one by one
+        // rather than compared structurally, so a failure names the column.
+        assert_eq!(
+            out.workflow_state_id, existing.workflow_state_id,
+            "cannot close or reopen"
+        );
+        assert_eq!(out.priority, existing.priority, "cannot re-prioritise");
+        assert_eq!(
+            out.requester_uuid, existing.requester_uuid,
+            "cannot hand the ticket away"
+        );
+        assert_eq!(out.assignee_uuid, existing.assignee_uuid, "cannot assign");
+        assert_eq!(
+            out.category_id, existing.category_id,
+            "cannot move category"
+        );
+        assert_eq!(out.submitted_via, existing.submitted_via);
+        assert_eq!(
+            out.guest_lookup_token, existing.guest_lookup_token,
+            "cannot mint an unauthenticated lookup handle"
+        );
+        assert_eq!(out.verification_state, existing.verification_state);
+        assert_eq!(out.origin_channel_id, existing.origin_channel_id);
+        assert_eq!(
+            out.triage_state, existing.triage_state,
+            "cannot self-triage"
+        );
+        assert_eq!(out.due_date, existing.due_date);
+        assert_eq!(out.recurrence_rule, existing.recurrence_rule);
+        assert_eq!(out.recurrence_template_id, existing.recurrence_template_id);
+        assert_eq!(out.resolution_notes, existing.resolution_notes);
+    }
+
+    #[test]
+    fn staff_are_unaffected() {
+        let existing = existing_ticket();
+        let submitted = hostile_body();
+        let expected = hostile_body();
+        let out = submitted.redact_for(true, &existing);
+
+        // Staff get exactly what they sent; this is the ordinary edit path and
+        // redaction must not narrow it.
+        assert_eq!(out.title, expected.title);
+        assert_eq!(out.workflow_state_id, expected.workflow_state_id);
+        assert_eq!(out.assignee_uuid, expected.assignee_uuid);
+        assert_eq!(out.requester_uuid, expected.requester_uuid);
+        assert_eq!(out.priority, expected.priority);
+        assert_eq!(out.guest_lookup_token, expected.guest_lookup_token);
+    }
+
+    /// A requester resubmitting the row they were shown must not be refused;
+    /// redaction has to be idempotent on an unchanged body, or the endpoint
+    /// silently rejects legitimate retitles.
+    #[test]
+    fn resubmitting_the_current_values_changes_nothing() {
+        let existing = existing_ticket();
+        let faithful = NewTicket {
+            title: existing.title.clone(),
+            workflow_state_id: existing.workflow_state_id,
+            priority: existing.priority,
+            requester_uuid: existing.requester_uuid,
+            assignee_uuid: existing.assignee_uuid,
+            category_id: existing.category_id,
+            submitted_via: existing.submitted_via.clone(),
+            guest_lookup_token: existing.guest_lookup_token,
+            verification_state: existing.verification_state.clone(),
+            origin_channel_id: existing.origin_channel_id,
+            triage_state: existing.triage_state.clone(),
+            due_date: existing.due_date,
+            recurrence_rule: existing.recurrence_rule.clone(),
+            recurrence_template_id: existing.recurrence_template_id,
+            resolution_notes: existing.resolution_notes.clone(),
+        };
+        let out = faithful.redact_for(false, &existing);
+        assert_eq!(out.title, existing.title);
+        assert_eq!(out.workflow_state_id, existing.workflow_state_id);
+        assert_eq!(out.category_id, existing.category_id);
+    }
 }
