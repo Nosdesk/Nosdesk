@@ -5,7 +5,7 @@ use tracing::error;
 use urlencoding;
 
 use crate::db::Pool;
-use crate::handlers::errors;
+use crate::handlers::errors::ApiError;
 use crate::handlers::helpers;
 // Auth providers are now configured via environment variables
 use crate::config_utils;
@@ -185,7 +185,7 @@ pub async fn process_graph_request(
     db_pool: web::Data<Pool>,
     req: HttpRequest,
     request_data: web::Json<MicrosoftGraphRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     // Get database connection
     let _conn = helpers::db_conn(&db_pool)?;
 
@@ -204,12 +204,14 @@ pub async fn process_graph_request(
                 Ok(provider_id) => provider_id,
                 Err(e) => {
                     if let diesel::result::Error::NotFound = e {
-                        return Ok(errors::not_found_msg(
-                            "No Microsoft authentication provider configured",
+                        return Err(ApiError::NotFoundMsg(
+                            "No Microsoft authentication provider configured".into(),
                         ));
                     } else {
                         error!(error = ?e, "Error getting default Microsoft provider");
-                        return Ok(errors::internal("Failed to retrieve Microsoft provider"));
+                        return Err(ApiError::Internal(
+                            "Failed to retrieve Microsoft provider".into(),
+                        ));
                     }
                 }
             }
@@ -220,19 +222,21 @@ pub async fn process_graph_request(
     let provider = match get_provider_by_id(provider_id_val) {
         Ok(p) => {
             if p.provider_type != "microsoft" {
-                return Ok(errors::bad_request(
-                    "This endpoint only supports Microsoft Graph API requests",
+                return Err(ApiError::BadRequest(
+                    "This endpoint only supports Microsoft Graph API requests".into(),
                 ));
             }
             p
         }
         Err(e) => {
             if let diesel::result::Error::NotFound = e {
-                return Ok(errors::not_found_msg("Authentication provider not found"));
+                return Err(ApiError::NotFoundMsg(
+                    "Authentication provider not found".into(),
+                ));
             } else {
                 error!(provider_id = provider_id_val, error = ?e, "Error getting auth provider");
-                return Ok(errors::internal(
-                    "Failed to retrieve authentication provider",
+                return Err(ApiError::Internal(
+                    "Failed to retrieve authentication provider".into(),
                 ));
             }
         }
@@ -240,8 +244,8 @@ pub async fn process_graph_request(
 
     // Check if the provider is enabled
     if !provider.enabled {
-        return Ok(errors::bad_request(
-            "The Microsoft authentication provider is not enabled",
+        return Err(ApiError::BadRequest(
+            "The Microsoft authentication provider is not enabled".into(),
         ));
     }
 
@@ -249,7 +253,7 @@ pub async fn process_graph_request(
     let client_id = match config_utils::get_microsoft_client_id() {
         Ok(val) => val,
         Err(e) => {
-            return Ok(errors::internal(format!(
+            return Err(ApiError::Internal(format!(
                 "Microsoft configuration error: {}",
                 e
             )))
@@ -259,7 +263,7 @@ pub async fn process_graph_request(
     let tenant_id = match config_utils::get_microsoft_tenant_id() {
         Ok(val) => val,
         Err(e) => {
-            return Ok(errors::internal(format!(
+            return Err(ApiError::Internal(format!(
                 "Microsoft configuration error: {}",
                 e
             )))
@@ -269,7 +273,7 @@ pub async fn process_graph_request(
     let client_secret = match config_utils::get_microsoft_client_secret() {
         Ok(val) => val,
         Err(e) => {
-            return Ok(errors::internal(format!(
+            return Err(ApiError::Internal(format!(
                 "Microsoft configuration error: {}",
                 e
             )))
@@ -307,14 +311,16 @@ pub async fn process_graph_request(
             }
             Err(e) => {
                 error!(error = ?e, "Error parsing token response");
-                return Ok(errors::internal(
-                    "Failed to parse Microsoft authentication response",
+                return Err(ApiError::Internal(
+                    "Failed to parse Microsoft authentication response".into(),
                 ));
             }
         },
         Err(e) => {
             error!(error = ?e, "Error getting Microsoft access token");
-            return Ok(errors::internal("Failed to get Microsoft access token"));
+            return Err(ApiError::Internal(
+                "Failed to get Microsoft access token".into(),
+            ));
         }
     };
 
@@ -365,7 +371,7 @@ pub async fn process_graph_request(
         "DELETE" => client.delete(&url),
         "PATCH" => client.patch(&url),
         _ => {
-            return Ok(errors::bad_request(format!(
+            return Err(ApiError::BadRequest(format!(
                 "Unsupported HTTP method: {}",
                 method
             )));
@@ -467,13 +473,17 @@ pub async fn process_graph_request(
                 }
                 Err(e) => {
                     error!(error = ?e, "Error parsing Microsoft Graph response");
-                    Ok(errors::internal("Failed to parse Microsoft Graph response"))
+                    Err(ApiError::Internal(
+                        "Failed to parse Microsoft Graph response".into(),
+                    ))
                 }
             }
         }
         Err(e) => {
             error!(error = ?e, "Error sending Microsoft Graph request");
-            Ok(errors::internal("Failed to send Microsoft Graph request"))
+            Err(ApiError::Internal(
+                "Failed to send Microsoft Graph request".into(),
+            ))
         }
     }
 }

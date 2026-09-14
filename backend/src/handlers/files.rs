@@ -1,6 +1,6 @@
 use actix_web::{web, HttpMessage, HttpResponse};
 
-use crate::handlers::errors;
+use crate::handlers::errors::ApiError;
 use actix_multipart::Multipart;
 use futures::{StreamExt, TryStreamExt};
 use serde_json::json;
@@ -552,16 +552,16 @@ pub async fn serve_ticket_note_image(
 
 /// Clean up temp files older than 24 hours (admin endpoint)
 /// Should be called via cron job or scheduled task
-pub async fn cleanup_temp_files(req: actix_web::HttpRequest) -> actix_web::Result<HttpResponse> {
+pub async fn cleanup_temp_files(req: actix_web::HttpRequest) -> Result<HttpResponse, ApiError> {
     // Verify admin access
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return Ok(errors::unauthorized("Authentication required")),
+        None => return Err(ApiError::Unauthorized("Authentication required".into())),
     };
 
     if !crate::utils::rbac::is_platform_admin(&claims) {
-        return Ok(errors::forbidden(
-            "Only administrators can cleanup temp files",
+        return Err(ApiError::Forbidden(
+            "Only administrators can cleanup temp files".into(),
         ));
     }
 

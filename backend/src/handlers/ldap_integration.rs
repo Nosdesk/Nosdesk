@@ -12,7 +12,8 @@ use serde_json::json;
 use tracing::error;
 
 use crate::extractors::{AuthContext, TenantConn};
-use crate::handlers::{errors, helpers};
+use crate::handlers::errors::{self, ApiError};
+use crate::handlers::helpers;
 use crate::models::UpsertWorkspaceLdapSettings;
 use crate::repository::workspace_ldap_settings as repo;
 use crate::services::ldap::auth::{self as ldap_auth, LdapAuthError};
@@ -318,12 +319,16 @@ pub async fn run_ldap_sync(
     db_pool: web::Data<crate::db::Pool>,
     request: HttpRequest,
     auth: AuthContext,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     if !auth.is_workspace_admin() {
-        return Ok(errors::forbidden("Only admins can run an LDAP sync"));
+        return Err(ApiError::Forbidden(
+            "Only admins can run an LDAP sync".into(),
+        ));
     }
     let Some(workspace_id) = helpers::request_workspace_id(&request) else {
-        return Ok(errors::forbidden("A resolved workspace is required"));
+        return Err(ApiError::Forbidden(
+            "A resolved workspace is required".into(),
+        ));
     };
     let mut conn = helpers::db_conn(&db_pool)?;
     helpers::pin_request_workspace(&request, &mut conn);
@@ -337,7 +342,7 @@ pub async fn run_ldap_sync(
         }
         Err(e) => {
             error!(error = %e, "load ldap settings for sync failed");
-            return Ok(errors::internal("Failed to load LDAP settings"));
+            return Err(ApiError::Internal("Failed to load LDAP settings".into()));
         }
     };
     let bind_password = repo::decrypt_bind_password(&settings)
@@ -360,7 +365,9 @@ pub async fn run_ldap_sync(
         }))),
         Err(e) => {
             error!(error = %e, workspace_id, "ldap sync failed");
-            Ok(errors::internal("LDAP sync failed; see server logs"))
+            Err(ApiError::Internal(
+                "LDAP sync failed; see server logs".into(),
+            ))
         }
     }
 }

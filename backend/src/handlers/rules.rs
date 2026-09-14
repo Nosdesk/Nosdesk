@@ -22,7 +22,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::db::Pool;
-use crate::handlers::errors;
+use crate::handlers::errors::{self, ApiError};
 use crate::middleware::request_context::RequestContext;
 use crate::models::{
     NewRule, Rule, RuleApplicationStatus, RuleState, RuleTriggerKind, RuleUpdate, RuleVersion,
@@ -370,10 +370,10 @@ pub async fn create_rule(
     req: HttpRequest,
     body: web::Json<CreateRuleRequest>,
     pool: web::Data<Pool>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let Some(workspace_id) = actor_workspace_id(&req) else {
-        return Ok(errors::unauthorized("Authentication required"));
+        return Err(ApiError::Unauthorized("Authentication required".into()));
     };
     let mut conn = errors::db_conn(&pool)?;
     let CreateRuleRequest {
@@ -438,7 +438,7 @@ pub async fn create_rule(
         Ok(rule) => Ok(HttpResponse::Created().json(RuleDto::from(rule))),
         Err(e) => {
             tracing::error!(error = ?e, "create_rule: repo error");
-            Ok(errors::db_error(&e))
+            Err(ApiError::Database(e))
         }
     }
 }
@@ -448,7 +448,7 @@ pub async fn list_rules(
     req: HttpRequest,
     query: web::Query<ListRulesQuery>,
     pool: web::Data<Pool>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let mut conn = errors::db_conn(&pool)?;
     let q = query.into_inner();
@@ -462,7 +462,7 @@ pub async fn list_rules(
         Ok(rs) => {
             Ok(HttpResponse::Ok().json(rs.into_iter().map(RuleDto::from).collect::<Vec<_>>()))
         }
-        Err(e) => Ok(errors::db_error(&e)),
+        Err(e) => Err(ApiError::Database(e)),
     }
 }
 
@@ -471,14 +471,14 @@ pub async fn get_rule(
     req: HttpRequest,
     path: web::Path<i32>,
     pool: web::Data<Pool>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let id = path.into_inner();
     let mut conn = errors::db_conn(&pool)?;
     match rules::find(&mut conn, id) {
         Ok(Some(rule)) => Ok(HttpResponse::Ok().json(RuleDto::from(rule))),
-        Ok(None) => Ok(errors::not_found_msg(format!("rule {id} not found"))),
-        Err(e) => Ok(errors::db_error(&e)),
+        Ok(None) => Err(ApiError::NotFoundMsg(format!("rule {id} not found"))),
+        Err(e) => Err(ApiError::Database(e)),
     }
 }
 
@@ -491,7 +491,7 @@ pub async fn update_rule(
     path: web::Path<i32>,
     body: web::Json<UpdateRuleRequest>,
     pool: web::Data<Pool>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let id = path.into_inner();
     let mut conn = errors::db_conn(&pool)?;
@@ -525,8 +525,8 @@ pub async fn update_rule(
     // pattern the merge handler uses for optimistic-lock fetches.
     let existing = match rules::find(&mut conn, id) {
         Ok(Some(r)) => r,
-        Ok(None) => return Ok(errors::not_found_msg(format!("rule {id} not found"))),
-        Err(e) => return Ok(errors::db_error(&e)),
+        Ok(None) => return Err(ApiError::NotFoundMsg(format!("rule {id} not found"))),
+        Err(e) => return Err(ApiError::Database(e)),
     };
     let effective_conditions = conditions.clone().unwrap_or(existing.conditions);
     let effective_actions = actions.clone().unwrap_or(existing.actions);
@@ -570,13 +570,15 @@ pub async fn update_rule(
     match rules::update(&mut conn, id, change) {
         Ok(rule) => Ok(HttpResponse::Ok().json(RuleDto::from(rule))),
         Err(rules::WriteError::NotFound(_)) => {
-            Ok(errors::not_found_msg(format!("rule {id} not found")))
+            Err(ApiError::NotFoundMsg(format!("rule {id} not found")))
         }
-        Err(rules::WriteError::Db(e)) => Ok(errors::db_error(&e)),
+        Err(rules::WriteError::Db(e)) => Err(ApiError::Database(e)),
         Err(rules::WriteError::NotArchived(_)) => {
             // Not reachable from update(); only hard_delete returns
             // NotArchived. Defensive 500 if it ever leaks.
-            Ok(errors::internal("unexpected NotArchived from update"))
+            Err(ApiError::Internal(
+                "unexpected NotArchived from update".into(),
+            ))
         }
     }
 }
@@ -589,7 +591,7 @@ pub async fn transition_state(
     path: web::Path<i32>,
     body: web::Json<StateTransitionRequest>,
     pool: web::Data<Pool>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let id = path.into_inner();
     let mut conn = errors::db_conn(&pool)?;
@@ -597,8 +599,8 @@ pub async fn transition_state(
 
     let existing = match rules::find(&mut conn, id) {
         Ok(Some(r)) => r,
-        Ok(None) => return Ok(errors::not_found_msg(format!("rule {id} not found"))),
-        Err(e) => return Ok(errors::db_error(&e)),
+        Ok(None) => return Err(ApiError::NotFoundMsg(format!("rule {id} not found"))),
+        Err(e) => return Err(ApiError::Database(e)),
     };
     if existing.state == target {
         return Ok(HttpResponse::Ok().json(RuleDto::from(existing)));
@@ -629,11 +631,11 @@ pub async fn transition_state(
     match rules::update(&mut conn, id, change) {
         Ok(rule) => Ok(HttpResponse::Ok().json(RuleDto::from(rule))),
         Err(rules::WriteError::NotFound(_)) => {
-            Ok(errors::not_found_msg(format!("rule {id} not found")))
+            Err(ApiError::NotFoundMsg(format!("rule {id} not found")))
         }
-        Err(rules::WriteError::Db(e)) => Ok(errors::db_error(&e)),
-        Err(rules::WriteError::NotArchived(_)) => Ok(errors::internal(
-            "unexpected NotArchived from state transition",
+        Err(rules::WriteError::Db(e)) => Err(ApiError::Database(e)),
+        Err(rules::WriteError::NotArchived(_)) => Err(ApiError::Internal(
+            "unexpected NotArchived from state transition".into(),
         )),
     }
 }
@@ -647,7 +649,7 @@ pub async fn delete_rule(
     path: web::Path<i32>,
     query: web::Query<DeleteRuleQuery>,
     pool: web::Data<Pool>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let id = path.into_inner();
     let mut conn = errors::db_conn(&pool)?;
@@ -655,24 +657,24 @@ pub async fn delete_rule(
         match rules::hard_delete(&mut conn, id) {
             Ok(()) => Ok(HttpResponse::NoContent().finish()),
             Err(rules::WriteError::NotFound(_)) => {
-                Ok(errors::not_found_msg(format!("rule {id} not found")))
+                Err(ApiError::NotFoundMsg(format!("rule {id} not found")))
             }
             Err(rules::WriteError::NotArchived(_)) => Ok(errors::conflict_with_code(
                 "rule must be archived before hard delete",
                 "RULE_NOT_ARCHIVED",
             )),
-            Err(rules::WriteError::Db(e)) => Ok(errors::db_error(&e)),
+            Err(rules::WriteError::Db(e)) => Err(ApiError::Database(e)),
         }
     } else {
         match rules::archive(&mut conn, id, Utc::now()) {
             Ok(rule) => Ok(HttpResponse::Ok().json(RuleDto::from(rule))),
             Err(rules::WriteError::NotFound(_)) => {
-                Ok(errors::not_found_msg(format!("rule {id} not found")))
+                Err(ApiError::NotFoundMsg(format!("rule {id} not found")))
             }
-            Err(rules::WriteError::Db(e)) => Ok(errors::db_error(&e)),
-            Err(rules::WriteError::NotArchived(_)) => {
-                Ok(errors::internal("unexpected NotArchived from archive"))
-            }
+            Err(rules::WriteError::Db(e)) => Err(ApiError::Database(e)),
+            Err(rules::WriteError::NotArchived(_)) => Err(ApiError::Internal(
+                "unexpected NotArchived from archive".into(),
+            )),
         }
     }
 }
@@ -684,7 +686,7 @@ pub async fn list_rule_versions(
     req: HttpRequest,
     path: web::Path<i32>,
     pool: web::Data<Pool>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let rule_id = path.into_inner();
     let mut conn = errors::db_conn(&pool)?;
@@ -693,7 +695,7 @@ pub async fn list_rule_versions(
             Ok(HttpResponse::Ok()
                 .json(rs.into_iter().map(RuleVersionDto::from).collect::<Vec<_>>()))
         }
-        Err(e) => Ok(errors::db_error(&e)),
+        Err(e) => Err(ApiError::Database(e)),
     }
 }
 
@@ -703,16 +705,16 @@ pub async fn get_rule_version(
     req: HttpRequest,
     path: web::Path<(i32, i32)>,
     pool: web::Data<Pool>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let (rule_id, version) = path.into_inner();
     let mut conn = errors::db_conn(&pool)?;
     match rules::find_version(&mut conn, rule_id, version) {
         Ok(Some(v)) => Ok(HttpResponse::Ok().json(RuleVersionDto::from(v))),
-        Ok(None) => Ok(errors::not_found_msg(format!(
+        Ok(None) => Err(ApiError::NotFoundMsg(format!(
             "rule {rule_id} version {version} not found"
         ))),
-        Err(e) => Ok(errors::db_error(&e)),
+        Err(e) => Err(ApiError::Database(e)),
     }
 }
 
@@ -727,7 +729,7 @@ pub async fn list_rule_applications(
     req: HttpRequest,
     query: web::Query<ListApplicationsQuery>,
     pool: web::Data<Pool>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let mut conn = errors::db_conn(&pool)?;
     let q = query.into_inner();
@@ -742,7 +744,7 @@ pub async fn list_rule_applications(
     };
     match rules::list_applications(&mut conn, filter) {
         Ok(rows) => Ok(HttpResponse::Ok().json(rows)),
-        Err(e) => Ok(errors::db_error(&e)),
+        Err(e) => Err(ApiError::Database(e)),
     }
 }
 
@@ -753,16 +755,16 @@ pub async fn get_rule_application(
     req: HttpRequest,
     path: web::Path<i64>,
     pool: web::Data<Pool>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let id = path.into_inner();
     let mut conn = errors::db_conn(&pool)?;
     match rules::find_application(&mut conn, id) {
         Ok(Some(row)) => Ok(HttpResponse::Ok().json(row)),
-        Ok(None) => Ok(errors::not_found_msg(format!(
+        Ok(None) => Err(ApiError::NotFoundMsg(format!(
             "rule_application {id} not found"
         ))),
-        Err(e) => Ok(errors::db_error(&e)),
+        Err(e) => Err(ApiError::Database(e)),
     }
 }
 
@@ -775,13 +777,13 @@ pub async fn list_ticket_rule_applications(
     req: HttpRequest,
     path: web::Path<i32>,
     pool: web::Data<Pool>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Agent)?;
     let ticket_id = path.into_inner();
     let mut conn = errors::db_conn(&pool)?;
     match rules::list_applications_for_ticket(&mut conn, ticket_id) {
         Ok(rows) => Ok(HttpResponse::Ok().json(rows)),
-        Err(e) => Ok(errors::db_error(&e)),
+        Err(e) => Err(ApiError::Database(e)),
     }
 }
 
@@ -828,14 +830,14 @@ pub async fn apply_rule(
     path: web::Path<i32>,
     body: web::Json<ApplyRuleRequest>,
     pool: web::Data<Pool>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Agent)?;
     let Some(actor) = req
         .extensions()
         .get::<RequestContext>()
         .map(|c| c.actor.clone())
     else {
-        return Ok(errors::unauthorized("Authentication required"));
+        return Err(ApiError::Unauthorized("Authentication required".into()));
     };
     let rule_id = path.into_inner();
     let mut conn = errors::db_conn(&pool)?;
@@ -983,7 +985,7 @@ pub struct StarterRuleDto {
 /// localised catalog the rules-page "Browse starters" affordance
 /// renders. Locale comes from `Accept-Language`; falls back to
 /// English when the requested locale isn't represented.
-pub async fn list_starter_catalog(req: HttpRequest) -> actix_web::Result<HttpResponse> {
+pub async fn list_starter_catalog(req: HttpRequest) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let locale = req
         .headers()
@@ -1021,14 +1023,14 @@ pub async fn list_applicable_actions(
     req: HttpRequest,
     _path: web::Path<i32>,
     pool: web::Data<Pool>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Agent)?;
     let mut conn = errors::db_conn(&pool)?;
     match rules::list_pickable_manual(&mut conn) {
         Ok(rs) => {
             Ok(HttpResponse::Ok().json(rs.into_iter().map(RuleDto::from).collect::<Vec<_>>()))
         }
-        Err(e) => Ok(errors::db_error(&e)),
+        Err(e) => Err(ApiError::Database(e)),
     }
 }
 

@@ -17,7 +17,8 @@ use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::db::Pool;
-use crate::handlers::{errors, helpers};
+use crate::handlers::errors::ApiError;
+use crate::handlers::helpers;
 use crate::models::Claims;
 use crate::repository::feature_flags as repo;
 
@@ -57,7 +58,7 @@ pub struct ReplaceFlagsBody {
 pub async fn get_my_flags(
     pool: web::Data<Pool>,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let (_claims, user_uuid, mut conn) = helpers::auth_conn(&req, &pool)?;
 
     // Scope the read to the request's workspace: site_settings is
@@ -71,7 +72,7 @@ pub async fn get_my_flags(
         Ok(flags) => Ok(HttpResponse::Ok().json(flags)),
         Err(e) => {
             error!(error = %e, user = %user_uuid, "failed to resolve feature flags");
-            Ok(errors::internal("Failed to resolve feature flags"))
+            Err(ApiError::Internal("Failed to resolve feature flags".into()))
         }
     }
 }
@@ -81,11 +82,11 @@ pub async fn patch_workspace_flag(
     pool: web::Data<Pool>,
     body: web::Json<PatchFlagBody>,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::admin_conn(&req, &pool)?;
 
     if body.flag.trim().is_empty() {
-        return Ok(errors::bad_request("Flag name is required"));
+        return Err(ApiError::BadRequest("Flag name is required".into()));
     }
 
     let actor_uuid = req
@@ -109,7 +110,7 @@ pub async fn patch_workspace_flag(
         }
         Err(e) => {
             error!(error = %e, flag = %body.flag, "failed to set workspace feature flag");
-            Ok(errors::internal("Failed to update feature flag"))
+            Err(ApiError::Internal("Failed to update feature flag".into()))
         }
     }
 }
@@ -119,11 +120,11 @@ pub async fn put_workspace_flags(
     pool: web::Data<Pool>,
     body: web::Json<ReplaceFlagsBody>,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::admin_conn(&req, &pool)?;
 
     if !body.flags.is_object() {
-        return Ok(errors::bad_request("flags must be a JSON object"));
+        return Err(ApiError::BadRequest("flags must be a JSON object".into()));
     }
 
     let actor_uuid = req
@@ -142,7 +143,7 @@ pub async fn put_workspace_flags(
         }
         Err(e) => {
             error!(error = %e, "failed to replace workspace feature flags");
-            Ok(errors::internal("Failed to update feature flags"))
+            Err(ApiError::Internal("Failed to update feature flags".into()))
         }
     }
 }
@@ -153,7 +154,7 @@ pub async fn patch_user_override(
     path: web::Path<String>,
     body: web::Json<PatchFlagBody>,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let target_uuid_str = path.into_inner();
 
     // `admin_conn` proves the caller is an admin, but says nothing about WHOSE
@@ -166,7 +167,7 @@ pub async fn patch_user_override(
     let target_uuid = target.uuid;
 
     if body.flag.trim().is_empty() {
-        return Ok(errors::bad_request("Flag name is required"));
+        return Err(ApiError::BadRequest("Flag name is required".into()));
     }
 
     let actor_uuid = Uuid::parse_str(&claims.sub).ok();
@@ -182,11 +183,11 @@ pub async fn patch_user_override(
             );
             Ok(HttpResponse::Ok().json(overrides))
         }
-        Err(diesel::result::Error::NotFound) => Ok(errors::not_found_msg("User not found")),
+        Err(diesel::result::Error::NotFound) => Err(ApiError::NotFoundMsg("User not found".into())),
         Err(e) => {
             error!(error = %e, target = %target_uuid, "failed to set user feature flag override");
-            Ok(errors::internal(
-                "Failed to update user feature flag override",
+            Err(ApiError::Internal(
+                "Failed to update user feature flag override".into(),
             ))
         }
     }

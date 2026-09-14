@@ -177,7 +177,7 @@ pub fn establish_portal_session(
     workspace_uuid: Uuid,
     request: &HttpRequest,
     conn: &mut DbConnection,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let session = mint_portal_session(user, workspace_uuid, request, conn)?;
     Ok(HttpResponse::Ok()
         .cookie(session.access)
@@ -208,12 +208,12 @@ pub fn establish_portal_session(
 pub async fn refresh_portal_session(
     db_pool: web::Data<crate::db::Pool>,
     request: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     // Read from extensions rather than via the extractor, matching
     // `magic_link_callback` in this same origin-resolved scope: an unknown
     // origin is a 400, not a 500.
     let Some(ctx) = request.extensions().get::<WorkspaceContext>().cloned() else {
-        return Ok(errors::bad_request("No workspace for this origin"));
+        return Err(ApiError::BadRequest("No workspace for this origin".into()));
     };
 
     let Some(refresh_raw) = request
@@ -221,14 +221,14 @@ pub async fn refresh_portal_session(
         .map(|c| c.value().to_string())
         .filter(|t| !t.is_empty())
     else {
-        return Ok(errors::unauthorized("Refresh token not found"));
+        return Err(ApiError::Unauthorized("Refresh token not found".into()));
     };
 
     let mut conn = crate::handlers::helpers::db_conn(&db_pool)?;
 
     let workspace_uuid = ctx.workspace_uuid;
     let workspace_id = ctx.workspace_id;
-    let rotated = match crate::handlers::auth::rotate_refresh_family(
+    let rotated = crate::handlers::auth::rotate_refresh_family(
         &mut conn,
         &request,
         &refresh_raw,
@@ -251,10 +251,7 @@ pub async fn refresh_portal_session(
             crate::utils::jwt::JwtUtils::create_portal_token(user, workspace_uuid, session_id)
                 .map_err(|_| ApiError::Internal("Failed to create access token".into()))
         },
-    ) {
-        Ok(r) => r,
-        Err(resp) => return Err(resp.into()),
-    };
+    )?;
 
     // Portal clients are browsers, so the rotated tokens go back as cookies
     // only; there is no bearer mode to serve here.
@@ -423,13 +420,13 @@ pub async fn magic_link_callback(
     req: HttpRequest,
     query: web::Query<MagicLinkCallbackQuery>,
     pool: web::Data<Pool>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let Some(ctx) = req.extensions().get::<WorkspaceContext>().cloned() else {
-        return Ok(errors::bad_request("No workspace for this origin"));
+        return Err(ApiError::BadRequest("No workspace for this origin".into()));
     };
     let mut conn = match pool.get() {
         Ok(c) => c,
-        Err(_) => return Ok(errors::internal("Database connection failed")),
+        Err(_) => return Err(ApiError::Internal("Database connection failed".into())),
     };
 
     // Single-use: the token is claimed (marked used) atomically here.

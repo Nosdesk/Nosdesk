@@ -4,7 +4,7 @@ use serde::Deserialize;
 use tracing::debug;
 
 use crate::extractors::TenantConn;
-use crate::handlers::errors;
+use crate::handlers::errors::{self, ApiError};
 use crate::models::{NewProject, ProjectUpdate, WorkspaceRole};
 use crate::repository;
 use crate::services::search::SearchService;
@@ -110,7 +110,7 @@ pub async fn create_project(
     mut tc: TenantConn,
     project: web::Json<NewProject>,
     search_service: Option<web::Data<Arc<SearchService>>>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Agent)?;
 
     let observer = search_service
@@ -118,7 +118,7 @@ pub async fn create_project(
         .map(|d| d.get_ref() as &dyn repository::projects::ProjectIndexedObserver);
     match tc.run(|conn| repository::create_project(conn, project.into_inner(), observer)) {
         Ok(project) => Ok(HttpResponse::Created().json(project)),
-        Err(_) => Ok(errors::internal("Failed to create project")),
+        Err(_) => Err(ApiError::Internal("Failed to create project".into())),
     }
 }
 
@@ -129,7 +129,7 @@ pub async fn update_project(
     path: web::Path<i32>,
     project_update: web::Json<ProjectUpdate>,
     search_service: Option<web::Data<Arc<SearchService>>>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Agent)?;
 
     let observer = search_service
@@ -141,8 +141,8 @@ pub async fn update_project(
     }) {
         Ok(project) => Ok(HttpResponse::Ok().json(project)),
         Err(e) => match e {
-            Error::NotFound => Ok(errors::not_found_msg("Project not found")),
-            _ => Ok(errors::internal("Failed to update project")),
+            Error::NotFound => Err(ApiError::NotFoundMsg("Project not found".into())),
+            _ => Err(ApiError::Internal("Failed to update project".into())),
         },
     }
 }
@@ -153,7 +153,7 @@ pub async fn delete_project(
     mut tc: TenantConn,
     path: web::Path<i32>,
     search_service: Option<web::Data<Arc<SearchService>>>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let observer = search_service
@@ -161,9 +161,9 @@ pub async fn delete_project(
         .map(|d| d.get_ref() as &dyn repository::projects::ProjectDeletedObserver);
     let project_id = path.into_inner();
     match tc.run(|conn| repository::delete_project(conn, project_id, observer)) {
-        Ok(0) => Ok(errors::not_found_msg("Project not found")),
+        Ok(0) => Err(ApiError::NotFoundMsg("Project not found".into())),
         Ok(_) => Ok(HttpResponse::NoContent().finish()),
-        Err(_) => Ok(errors::internal("Failed to delete project")),
+        Err(_) => Err(ApiError::Internal("Failed to delete project".into())),
     }
 }
 
@@ -208,14 +208,14 @@ pub async fn add_ticket_to_project(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<(i32, i32)>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Agent)?;
 
     let (project_id, ticket_id) = path.into_inner();
 
     match tc.run(|conn| repository::add_ticket_to_project(conn, project_id, ticket_id)) {
         Ok(association) => Ok(HttpResponse::Created().json(association)),
-        Err(_) => Ok(errors::internal("Failed to add ticket to project")),
+        Err(_) => Err(ApiError::Internal("Failed to add ticket to project".into())),
     }
 }
 
@@ -236,14 +236,14 @@ pub async fn create_ticket_in_project(
     mut tc: TenantConn,
     path: web::Path<i32>,
     body: web::Json<QuickAddTicket>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Agent)?;
 
     let project_id = path.into_inner();
     let body = body.into_inner();
     let title = body.title.trim();
     if title.is_empty() {
-        return Ok(errors::bad_request("Title must not be empty"));
+        return Err(ApiError::BadRequest("Title must not be empty".into()));
     }
 
     let requester_uuid = req
@@ -260,8 +260,10 @@ pub async fn create_ticket_in_project(
 
     match tc.run(|conn| repository::create_ticket_in_project(conn, new_ticket, project_id)) {
         Ok(ticket) => Ok(HttpResponse::Created().json(ticket)),
-        Err(Error::NotFound) => Ok(errors::not_found_msg("Project not found")),
-        Err(_) => Ok(errors::internal("Failed to create ticket in project")),
+        Err(Error::NotFound) => Err(ApiError::NotFoundMsg("Project not found".into())),
+        Err(_) => Err(ApiError::Internal(
+            "Failed to create ticket in project".into(),
+        )),
     }
 }
 
@@ -272,15 +274,17 @@ pub async fn remove_ticket_from_project(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<(i32, i32)>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Agent)?;
 
     let (project_id, ticket_id) = path.into_inner();
 
     match tc.run(|conn| repository::remove_ticket_from_project(conn, project_id, ticket_id)) {
-        Ok(0) => Ok(errors::not_found_msg("Association not found")),
+        Ok(0) => Err(ApiError::NotFoundMsg("Association not found".into())),
         Ok(_) => Ok(HttpResponse::NoContent().finish()),
-        Err(_) => Ok(errors::internal("Failed to remove ticket from project")),
+        Err(_) => Err(ApiError::Internal(
+            "Failed to remove ticket from project".into(),
+        )),
     }
 }
 
@@ -297,7 +301,7 @@ pub async fn update_ticket_order(
     mut tc: TenantConn,
     path: web::Path<i32>,
     body: web::Json<UpdateTicketOrderRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Agent)?;
 
     let project_id = path.into_inner();
@@ -314,7 +318,7 @@ pub async fn update_ticket_order(
 
     match tc.run(|conn| repository::update_project_ticket_orders(conn, project_id, orders)) {
         Ok(_) => Ok(HttpResponse::Ok().json(serde_json::json!({"success": true}))),
-        Err(_) => Ok(errors::internal("Failed to update ticket order")),
+        Err(_) => Err(ApiError::Internal("Failed to update ticket order".into())),
     }
 }
 

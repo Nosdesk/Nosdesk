@@ -13,7 +13,7 @@ use uuid::Uuid;
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::db::{DbConnection, Pool};
-use crate::handlers::errors;
+use crate::handlers::errors::ApiError;
 use crate::handlers::helpers;
 // Auth providers are now configured via environment variables
 use crate::config_utils;
@@ -707,7 +707,7 @@ pub async fn get_sync_progress_endpoint(
     req: actix_web::HttpRequest,
     db_pool: web::Data<Pool>,
     path: web::Path<String>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let _conn = helpers::db_conn(&db_pool)?;
     // The Entra/Intune integration runs on the org's own app credentials, so
     // its state, its configuration and its running sync sessions are workspace-
@@ -722,7 +722,7 @@ pub async fn get_sync_progress_endpoint(
 
     match get_sync_progress(&session_id) {
         Some(progress) => Ok(HttpResponse::Ok().json(progress)),
-        None => Ok(errors::not_found_msg("Sync session not found")),
+        None => Err(ApiError::NotFoundMsg("Sync session not found".into())),
     }
 }
 
@@ -730,7 +730,7 @@ pub async fn get_sync_progress_endpoint(
 pub async fn get_active_syncs(
     req: actix_web::HttpRequest,
     db_pool: web::Data<Pool>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let _conn = helpers::db_conn(&db_pool)?;
     // The Entra/Intune integration runs on the org's own app credentials, so
     // its state, its configuration and its running sync sessions are workspace-
@@ -758,7 +758,7 @@ pub async fn get_active_syncs(
             "count": active_syncs.len()
         })))
     } else {
-        Ok(errors::internal("Failed to access sync progress"))
+        Err(ApiError::Internal("Failed to access sync progress".into()))
     }
 }
 
@@ -766,7 +766,7 @@ pub async fn get_active_syncs(
 pub async fn get_last_sync(
     req: actix_web::HttpRequest,
     db_pool: web::Data<Pool>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&db_pool)?;
     // The Entra/Intune integration runs on the org's own app credentials, so
     // its state, its configuration and its running sync sessions are workspace-
@@ -818,7 +818,7 @@ pub async fn get_last_sync(
                     None => Ok(HttpResponse::Ok().json(json!(null))),
                 }
             } else {
-                Ok(errors::internal("Failed to access sync progress"))
+                Err(ApiError::Internal("Failed to access sync progress".into()))
             }
         }
     }
@@ -829,7 +829,7 @@ pub async fn cancel_sync_session(
     req: actix_web::HttpRequest,
     db_pool: web::Data<Pool>,
     path: web::Path<String>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let _conn = helpers::db_conn(&db_pool)?;
     // The Entra/Intune integration runs on the org's own app credentials, so
     // its state, its configuration and its running sync sessions are workspace-
@@ -862,15 +862,15 @@ pub async fn cancel_sync_session(
                 "message": "Sync cancellation requested"
             })))
         } else {
-            Ok(errors::bad_request("Sync is not running"))
+            Err(ApiError::BadRequest("Sync is not running".into()))
         }
     } else {
-        Ok(errors::not_found_msg("Sync session not found"))
+        Err(ApiError::NotFoundMsg("Sync session not found".into()))
     }
 }
 
 /// Validate Microsoft Graph configuration
-pub async fn get_config_validation(req: actix_web::HttpRequest) -> actix_web::Result<HttpResponse> {
+pub async fn get_config_validation(req: actix_web::HttpRequest) -> Result<HttpResponse, ApiError> {
     // The Entra/Intune integration runs on the org's own app credentials, so
     // its state, its configuration and its running sync sessions are workspace-
     // admin only, matching `trigger_sync` below and the Graph proxy in
@@ -928,7 +928,7 @@ pub async fn get_config_validation(req: actix_web::HttpRequest) -> actix_web::Re
 pub async fn get_connection_status(
     req: actix_web::HttpRequest,
     db_pool: web::Data<Pool>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let _conn = helpers::db_conn(&db_pool)?;
     // The Entra/Intune integration runs on the org's own app credentials, so
     // its state, its configuration and its running sync sessions are workspace-
@@ -1014,7 +1014,7 @@ pub async fn get_connection_status(
 }
 
 /// Test Microsoft Graph connection
-pub async fn test_connection(req: actix_web::HttpRequest) -> actix_web::Result<HttpResponse> {
+pub async fn test_connection(req: actix_web::HttpRequest) -> Result<HttpResponse, ApiError> {
     // The Entra/Intune integration runs on the org's own app credentials, so
     // its state, its configuration and its running sync sessions are workspace-
     // admin only, matching `trigger_sync` below and the Graph proxy in
@@ -1029,7 +1029,11 @@ pub async fn test_connection(req: actix_web::HttpRequest) -> actix_web::Result<H
     // Get Microsoft provider
     let provider = match get_default_microsoft_provider() {
         Ok(provider) => provider,
-        Err(_) => return Ok(errors::bad_request("Microsoft auth provider not found")),
+        Err(_) => {
+            return Err(ApiError::BadRequest(
+                "Microsoft auth provider not found".into(),
+            ))
+        }
     };
 
     // Test the connection by making a simple Graph API call
@@ -1050,7 +1054,7 @@ pub async fn sync_data(
     db_pool: web::Data<Pool>,
     ws: crate::extractors::WorkspaceContext,
     request: web::Json<SyncDataRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&db_pool)?;
     // Triggering a full Entra/Intune directory sync (mass record
     // create/update via the integration's credentials) is workspace-
@@ -1061,12 +1065,16 @@ pub async fn sync_data(
     // Get Microsoft provider
     let provider = match get_default_microsoft_provider() {
         Ok(provider) => provider,
-        Err(_) => return Ok(errors::bad_request("Microsoft auth provider not found")),
+        Err(_) => {
+            return Err(ApiError::BadRequest(
+                "Microsoft auth provider not found".into(),
+            ))
+        }
     };
 
     // Validate configuration before spawning background task
     if let Err(e) = check_microsoft_config() {
-        return Ok(errors::bad_request(format!(
+        return Err(ApiError::BadRequest(format!(
             "Microsoft Graph configuration invalid: {e}"
         )));
     }
@@ -1113,7 +1121,9 @@ pub async fn sync_data(
         Ok(history) => history,
         Err(e) => {
             error!("Failed to create sync history record: {:?}", e);
-            return Ok(errors::internal("Failed to create sync history record"));
+            return Err(ApiError::Internal(
+                "Failed to create sync history record".into(),
+            ));
         }
     };
 
@@ -5060,7 +5070,7 @@ pub async fn get_entra_object_id(
     req: actix_web::HttpRequest,
     db_pool: web::Data<Pool>,
     path: web::Path<String>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let _conn = helpers::db_conn(&db_pool)?;
     // The Entra/Intune integration runs on the org's own app credentials, so
     // its state, its configuration and its running sync sessions are workspace-
@@ -5074,7 +5084,11 @@ pub async fn get_entra_object_id(
     // Get Microsoft provider
     let provider = match get_default_microsoft_provider() {
         Ok(provider) => provider,
-        Err(_) => return Ok(errors::bad_request("Microsoft auth provider not found")),
+        Err(_) => {
+            return Err(ApiError::BadRequest(
+                "Microsoft auth provider not found".into(),
+            ))
+        }
     };
 
     let azure_ad_device_id = path.into_inner();
@@ -5087,7 +5101,7 @@ pub async fn get_entra_object_id(
             "object_id": object_id,
             "entra_url": format!("https://entra.microsoft.com/#view/Microsoft_AAD_Devices/DeviceDetailsMenuBlade/~/Properties/objectId/{}", object_id)
         }))),
-        Err(error) => Ok(errors::bad_request(format!("Failed to fetch Object ID: {}", error)))
+        Err(error) => Err(ApiError::BadRequest(format!("Failed to fetch Object ID: {}", error)))
     }
 }
 

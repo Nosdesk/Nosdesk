@@ -3,7 +3,7 @@ use diesel::result::Error;
 use serde::Deserialize;
 
 use crate::extractors::{AuthContext, TenantConn};
-use crate::handlers::errors;
+use crate::handlers::errors::{self, ApiError};
 use crate::models::{NewTicketCategory, TicketCategoryUpdate, WorkspaceRole};
 use crate::repository;
 use crate::utils::rbac::require_workspace_role;
@@ -69,12 +69,12 @@ pub async fn get_categories(mut tc: TenantConn, auth: AuthContext) -> impl Respo
 pub async fn get_all_categories_admin(
     req: HttpRequest,
     mut tc: TenantConn,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     match tc.run(repository::categories::get_all_categories_with_visibility) {
         Ok(categories) => Ok(HttpResponse::Ok().json(categories)),
-        Err(_) => Ok(errors::internal("Failed to get categories")),
+        Err(_) => Err(ApiError::Internal("Failed to get categories".into())),
     }
 }
 
@@ -83,15 +83,15 @@ pub async fn get_category_admin(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<i32>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let category_id = path.into_inner();
     match tc.run(|conn| repository::categories::get_category_with_visibility(conn, category_id)) {
         Ok(category) => Ok(HttpResponse::Ok().json(category)),
         Err(e) => match e {
-            Error::NotFound => Ok(errors::not_found_msg("Category not found")),
-            _ => Ok(errors::internal("Failed to get category")),
+            Error::NotFound => Err(ApiError::NotFoundMsg("Category not found".into())),
+            _ => Err(ApiError::Internal("Failed to get category".into())),
         },
     }
 }
@@ -112,7 +112,7 @@ pub async fn create_category(
     mut tc: TenantConn,
     auth: AuthContext,
     body: web::Json<CreateCategoryRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let created_by = Some(auth.user_uuid);
@@ -155,7 +155,9 @@ pub async fn create_category(
                             category_id = category.id,
                             "Failed to set category visibility on create",
                         );
-                        return Ok(errors::internal("Failed to set category visibility"));
+                        return Err(ApiError::Internal(
+                            "Failed to set category visibility".into(),
+                        ));
                     }
                 }
             }
@@ -180,7 +182,7 @@ pub async fn create_category(
         }
         Err(e) => {
             tracing::error!(error = ?e, "Failed to create category");
-            Ok(errors::internal("Failed to create category"))
+            Err(ApiError::Internal("Failed to create category".into()))
         }
     }
 }
@@ -203,7 +205,7 @@ pub async fn update_category(
     auth: AuthContext,
     path: web::Path<i32>,
     body: web::Json<UpdateCategoryRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let updated_by = Some(auth.user_uuid);
@@ -240,7 +242,9 @@ pub async fn update_category(
                         category_id,
                         "Failed to update category visibility",
                     );
-                    return Ok(errors::internal("Failed to update category visibility"));
+                    return Err(ApiError::Internal(
+                        "Failed to update category visibility".into(),
+                    ));
                 }
             }
 
@@ -255,15 +259,15 @@ pub async fn update_category(
                         category_id,
                         "Failed to read updated category with visibility",
                     );
-                    Ok(errors::internal("Failed to get updated category"))
+                    Err(ApiError::Internal("Failed to get updated category".into()))
                 }
             }
         }
         Err(e) => match e {
-            Error::NotFound => Ok(errors::not_found_msg("Category not found")),
+            Error::NotFound => Err(ApiError::NotFoundMsg("Category not found".into())),
             _ => {
                 tracing::error!(error = ?e, category_id, "Failed to update category");
-                Ok(errors::internal("Failed to update category"))
+                Err(ApiError::Internal("Failed to update category".into()))
             }
         },
     }
@@ -274,15 +278,15 @@ pub async fn delete_category(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<i32>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let category_id = path.into_inner();
     match tc.run(|conn| repository::categories::delete_category(conn, category_id)) {
         Ok(_) => Ok(HttpResponse::NoContent().finish()),
         Err(e) => match e {
-            Error::NotFound => Ok(errors::not_found_msg("Category not found")),
-            _ => Ok(errors::internal("Failed to delete category")),
+            Error::NotFound => Err(ApiError::NotFoundMsg("Category not found".into())),
+            _ => Err(ApiError::Internal("Failed to delete category".into())),
         },
     }
 }
@@ -308,7 +312,7 @@ pub async fn reorder_categories(
     req: HttpRequest,
     mut tc: TenantConn,
     body: web::Json<ReorderCategoriesRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let orders: Vec<(i32, i32)> = body
@@ -322,10 +326,12 @@ pub async fn reorder_categories(
             // Return all categories with updated order
             match tc.run(repository::categories::get_all_categories_with_visibility) {
                 Ok(categories) => Ok(HttpResponse::Ok().json(categories)),
-                Err(_) => Ok(errors::internal("Failed to get updated categories")),
+                Err(_) => Err(ApiError::Internal(
+                    "Failed to get updated categories".into(),
+                )),
             }
         }
-        Err(_) => Ok(errors::internal("Failed to reorder categories")),
+        Err(_) => Err(ApiError::Internal("Failed to reorder categories".into())),
     }
 }
 
@@ -346,7 +352,7 @@ pub async fn set_category_visibility(
     auth: AuthContext,
     path: web::Path<i32>,
     body: web::Json<SetCategoryVisibilityRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let created_by = Some(auth.user_uuid);
@@ -362,10 +368,12 @@ pub async fn set_category_visibility(
                 .run(|conn| repository::categories::get_category_with_visibility(conn, category_id))
             {
                 Ok(category) => Ok(HttpResponse::Ok().json(category)),
-                Err(_) => Ok(errors::internal("Failed to get updated category")),
+                Err(_) => Err(ApiError::Internal("Failed to get updated category".into())),
             }
         }
-        Err(_) => Ok(errors::internal("Failed to set category visibility")),
+        Err(_) => Err(ApiError::Internal(
+            "Failed to set category visibility".into(),
+        )),
     }
 }
 

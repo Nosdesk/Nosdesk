@@ -157,7 +157,7 @@ pub async fn create_workspace(
     _: PlatformAuth,
     pool: web::Data<Pool>,
     body: web::Json<CreateWorkspaceRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     // Enforce the Idempotency-Key contract here even though the
     // middleware will also see it. The middleware's "no header =
     // pass through" semantics is fine for non-critical routes but
@@ -177,10 +177,10 @@ pub async fn create_workspace(
     } = body.into_inner();
 
     if let Err(e) = validate_slug(&slug) {
-        return Ok(errors::bad_request(e.as_message()));
+        return Err(ApiError::BadRequest(e.as_message().into()));
     }
     if name.trim().is_empty() {
-        return Ok(errors::bad_request("name must not be empty"));
+        return Err(ApiError::BadRequest("name must not be empty".into()));
     }
 
     let mut conn = pool_conn(&pool, "workspaces/create")?;
@@ -268,13 +268,13 @@ pub async fn create_workspace(
                 }
                 Err(e) => {
                     error!(error = ?e, slug = %slug, "workspaces/create: find_by_slug after SlugTaken failed");
-                    Ok(errors::internal("Failed to create workspace"))
+                    Err(ApiError::Internal("Failed to create workspace".into()))
                 }
             }
         }
         Err(CreateWorkspaceError::Db(e)) => {
             error!(error = ?e, "workspaces/create: db insert failed");
-            Ok(errors::internal("Failed to create workspace"))
+            Err(ApiError::Internal("Failed to create workspace".into()))
         }
     }
 }
@@ -310,7 +310,7 @@ pub async fn deprovision_workspace(
     _: PlatformAuth,
     pool: web::Data<Pool>,
     path: web::Path<String>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let slug = path.into_inner();
     let mut conn = pool_conn(&pool, "workspaces/deprovision")?;
 
@@ -318,13 +318,13 @@ pub async fn deprovision_workspace(
         Ok(Some(ws)) => ws,
         Ok(None) => {
             warn!(slug = %slug, "workspaces/deprovision: slug not found");
-            return Ok(errors::not_found_msg(format!(
+            return Err(ApiError::NotFoundMsg(format!(
                 "workspace '{slug}' not found"
             )));
         }
         Err(e) => {
             error!(error = ?e, slug = %slug, "workspaces/deprovision: lookup failed");
-            return Ok(errors::internal("Workspace lookup failed"));
+            return Err(ApiError::Internal("Workspace lookup failed".into()));
         }
     };
 
@@ -351,13 +351,13 @@ pub async fn deprovision_workspace(
         }
         Ok(None) => {
             warn!(slug = %slug, "workspaces/deprovision: row vanished mid-archive");
-            Ok(errors::not_found_msg(format!(
+            Err(ApiError::NotFoundMsg(format!(
                 "workspace '{slug}' not found"
             )))
         }
         Err(e) => {
             error!(error = ?e, slug = %slug, "workspaces/deprovision: archive failed");
-            Ok(errors::internal("Failed to deprovision workspace"))
+            Err(ApiError::Internal("Failed to deprovision workspace".into()))
         }
     }
 }
@@ -372,7 +372,7 @@ pub async fn restore_workspace(
     _: PlatformAuth,
     pool: web::Data<Pool>,
     path: web::Path<String>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let slug = path.into_inner();
     let mut conn = pool_conn(&pool, "workspaces/restore")?;
 
@@ -380,13 +380,13 @@ pub async fn restore_workspace(
         Ok(Some(ws)) => ws,
         Ok(None) => {
             warn!(slug = %slug, "workspaces/restore: slug not found");
-            return Ok(errors::not_found_msg(format!(
+            return Err(ApiError::NotFoundMsg(format!(
                 "workspace '{slug}' not found"
             )));
         }
         Err(e) => {
             error!(error = ?e, slug = %slug, "workspaces/restore: lookup failed");
-            return Ok(errors::internal("Workspace lookup failed"));
+            return Err(ApiError::Internal("Workspace lookup failed".into()));
         }
     };
 
@@ -409,13 +409,13 @@ pub async fn restore_workspace(
         }
         Ok(None) => {
             warn!(slug = %slug, "workspaces/restore: row vanished mid-restore");
-            Ok(errors::not_found_msg(format!(
+            Err(ApiError::NotFoundMsg(format!(
                 "workspace '{slug}' not found"
             )))
         }
         Err(e) => {
             error!(error = ?e, slug = %slug, "workspaces/restore: restore failed");
-            Ok(errors::internal("Failed to restore workspace"))
+            Err(ApiError::Internal("Failed to restore workspace".into()))
         }
     }
 }
@@ -437,7 +437,7 @@ pub async fn set_seat_limit(
     pool: web::Data<Pool>,
     path: web::Path<String>,
     body: web::Json<SetSeatLimitRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let slug = path.into_inner();
     let seat_limit = body.into_inner().seat_limit;
 
@@ -466,7 +466,7 @@ pub async fn set_seat_limit(
         }
         Err(e) => {
             error!(error = ?e, slug = %slug, "workspaces/seat_limit: update failed");
-            Ok(errors::internal("Failed to update seat limit"))
+            Err(ApiError::Internal("Failed to update seat limit".into()))
         }
     }
 }
@@ -553,7 +553,7 @@ pub async fn upsert_projected_user(
     search_service: Option<web::Data<Arc<SearchService>>>,
     path: web::Path<String>,
     body: web::Json<UpsertProjectedUserRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     if let Some(resp) = require_idempotency_key(&req) {
         return Ok(resp);
     }
@@ -571,14 +571,16 @@ pub async fn upsert_projected_user(
     } = body.into_inner();
 
     if iss.trim().is_empty() || sub.trim().is_empty() {
-        return Ok(errors::bad_request("iss and sub must both be non-empty"));
+        return Err(ApiError::BadRequest(
+            "iss and sub must both be non-empty".into(),
+        ));
     }
     if email.trim().is_empty() {
-        return Ok(errors::bad_request("email must be non-empty"));
+        return Err(ApiError::BadRequest("email must be non-empty".into()));
     }
     if !valid_role(&role) {
-        return Ok(errors::bad_request(
-            "role must be one of: owner, admin, agent, member",
+        return Err(ApiError::BadRequest(
+            "role must be one of: owner, admin, agent, member".into(),
         ));
     }
 
@@ -693,7 +695,7 @@ pub async fn upsert_projected_user(
         }
         Err(e) => {
             error!(error = %e, slug = %slug, "upsert_projected_user: provisioning failed");
-            Ok(errors::internal("Failed to project user"))
+            Err(ApiError::Internal("Failed to project user".into()))
         }
     }
 }
@@ -747,16 +749,18 @@ pub async fn set_member_role(
     pool: web::Data<Pool>,
     path: web::Path<String>,
     body: web::Json<SetMemberRoleRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let slug = path.into_inner();
     let SetMemberRoleRequest { iss, sub, role } = body.into_inner();
 
     if iss.trim().is_empty() || sub.trim().is_empty() {
-        return Ok(errors::bad_request("iss and sub must both be non-empty"));
+        return Err(ApiError::BadRequest(
+            "iss and sub must both be non-empty".into(),
+        ));
     }
     if !valid_settable_role(&role) {
-        return Ok(errors::bad_request(
-            "role must be one of: admin, agent, member",
+        return Err(ApiError::BadRequest(
+            "role must be one of: admin, agent, member".into(),
         ));
     }
 
@@ -773,11 +777,11 @@ pub async fn set_member_role(
             Ok(Some(u)) => u,
             Ok(None) => {
                 warn!(slug = %slug, "set_member_role: no user for (iss, sub)");
-                return Ok(errors::not_found_msg("member not found"));
+                return Err(ApiError::NotFoundMsg("member not found".into()));
             }
             Err(e) => {
                 error!(error = ?e, slug = %slug, "set_member_role: identity lookup failed");
-                return Ok(errors::internal("Failed to resolve member"));
+                return Err(ApiError::Internal("Failed to resolve member".into()));
             }
         };
 
@@ -847,7 +851,7 @@ pub async fn set_member_role(
         }
         Err(e) => {
             error!(error = ?e, workspace_id = workspace.id, %user_uuid, "set_member_role: update failed");
-            Ok(errors::internal("Failed to update member role"))
+            Err(ApiError::Internal("Failed to update member role".into()))
         }
     }
 }
@@ -908,7 +912,7 @@ pub async fn set_custom_domain(
     pool: web::Data<Pool>,
     path: web::Path<String>,
     body: web::Json<CustomDomainRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     if let Some(resp) = require_idempotency_key(&req) {
         return Ok(resp);
     }
@@ -920,8 +924,8 @@ pub async fn set_custom_domain(
             if trimmed.is_empty() {
                 None
             } else if !looks_like_fqdn(&trimmed) {
-                return Ok(errors::bad_request(
-                    "hostname must be a lowercase ASCII FQDN (e.g. support.acme.com)",
+                return Err(ApiError::BadRequest(
+                    "hostname must be a lowercase ASCII FQDN (e.g. support.acme.com)".into(),
                 ));
             } else {
                 Some(trimmed)
@@ -944,7 +948,7 @@ pub async fn set_custom_domain(
         Ok(Some(ws)) => ws,
         Ok(None) => {
             // Shouldn't happen — we just looked up by the same slug.
-            return Ok(errors::not_found_msg(format!(
+            return Err(ApiError::NotFoundMsg(format!(
                 "workspace '{slug}' not found"
             )));
         }
@@ -960,7 +964,7 @@ pub async fn set_custom_domain(
         }
         Err(e) => {
             error!(error = ?e, slug = %slug, "custom_domain: update failed");
-            return Ok(errors::internal("Failed to update custom domain"));
+            return Err(ApiError::Internal("Failed to update custom domain".into()));
         }
     };
 
@@ -1027,7 +1031,7 @@ pub async fn workspace_provisioning(
     _: PlatformAuth,
     pool: web::Data<Pool>,
     path: web::Path<String>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let slug = path.into_inner();
     let mut conn = pool_conn(&pool, "workspace_provisioning")?;
     let workspace = resolve_workspace_or_respond(&mut conn, &slug, "workspace_provisioning")?;
@@ -1064,7 +1068,9 @@ pub async fn workspace_provisioning(
         Ok(c) => c,
         Err(e) => {
             error!(error = ?e, slug = %slug, "workspace_provisioning: seeded-defaults count failed");
-            return Ok(errors::internal("Workspace provisioning check failed"));
+            return Err(ApiError::Internal(
+                "Workspace provisioning check failed".into(),
+            ));
         }
     };
 

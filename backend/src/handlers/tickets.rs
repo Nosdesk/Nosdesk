@@ -630,7 +630,7 @@ pub async fn create_ticket(
     auth: AuthContext,
     ticket: web::Json<NewTicket>,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let new_ticket = ticket.into_inner();
 
     // Validate category visibility if category_id is set
@@ -645,12 +645,14 @@ pub async fn create_ticket(
         }) {
             Ok(true) => {}
             Ok(false) => {
-                return Ok(errors::forbidden(
-                    "Forbidden: You do not have access to the specified category",
+                return Err(ApiError::Forbidden(
+                    "Forbidden: You do not have access to the specified category".into(),
                 ));
             }
             Err(_) => {
-                return Ok(errors::internal("Failed to check category visibility"));
+                return Err(ApiError::Internal(
+                    "Failed to check category visibility".into(),
+                ));
             }
         }
     }
@@ -661,8 +663,8 @@ pub async fn create_ticket(
             tc.run(|conn| Ok(validate_assignee_role(&assignee_uuid, conn)));
         match validation {
             Ok(Ok(())) => {}
-            Ok(Err(e)) => return Err(e.into()),
-            Err(_) => return Ok(errors::internal("Failed to validate assignee")),
+            Ok(Err(e)) => return Err(e),
+            Err(_) => return Err(ApiError::Internal("Failed to validate assignee".into())),
         }
     }
 
@@ -727,7 +729,7 @@ pub async fn create_ticket(
             record_canonical(&req, "outcome", "created");
             Ok(HttpResponse::Created().json(ticket))
         }
-        Err(_) => Ok(errors::internal("Failed to create ticket")),
+        Err(_) => Err(ApiError::Internal("Failed to create ticket".into())),
     }
 }
 
@@ -766,7 +768,7 @@ pub async fn update_ticket(
     auth: AuthContext,
     ticket: web::Json<NewTicket>,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let ticket_id = access.ticket_id;
     let submitted = ticket.into_inner();
 
@@ -776,7 +778,7 @@ pub async fn update_ticket(
     // to somebody else.
     let existing = match tc.run(|conn| repository::get_ticket_by_id(conn, ticket_id)) {
         Ok(t) => t,
-        Err(_) => return Ok(errors::not_found_msg("Ticket not found")),
+        Err(_) => return Err(ApiError::NotFoundMsg("Ticket not found".into())),
     };
     let new_ticket = submitted.redact_for(auth.can_handle_tickets(), &existing);
 
@@ -798,8 +800,8 @@ pub async fn update_ticket(
             tc.run(|conn| Ok(validate_assignee_role(&assignee_uuid, conn)));
         match validation {
             Ok(Ok(())) => {}
-            Ok(Err(e)) => return Err(e.into()),
-            Err(_) => return Ok(errors::internal("Failed to validate assignee")),
+            Ok(Err(e)) => return Err(e),
+            Err(_) => return Err(ApiError::Internal("Failed to validate assignee".into())),
         }
     }
 
@@ -809,7 +811,7 @@ pub async fn update_ticket(
             record_canonical(&req, "outcome", "updated");
             Ok(HttpResponse::Ok().json(ticket))
         }
-        Err(e) => Ok(errors::internal(format!("Failed to update ticket: {e}"))),
+        Err(e) => Err(ApiError::Internal(format!("Failed to update ticket: {e}"))),
     }
 }
 
@@ -1066,7 +1068,7 @@ pub async fn update_ticket_partial(
     auth: AuthContext,
     access: TicketAccess,
     body: web::Json<Value>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let ticket_id = access.ticket_id;
 
     // Parse JSON and build TicketUpdate with user lookups
@@ -1142,8 +1144,8 @@ pub async fn update_ticket_partial(
                 tc.run(|conn| Ok(parse_and_validate_assignee_string(assignee_str, conn)));
             match resolved {
                 Ok(Ok(uuid)) => ticket_update.assignee_uuid = Some(Some(uuid)),
-                Ok(Err(e)) => return Err(e.into()),
-                Err(_) => return Ok(errors::internal("Failed to resolve assignee")),
+                Ok(Err(e)) => return Err(e),
+                Err(_) => return Err(ApiError::Internal("Failed to resolve assignee".into())),
             }
         }
     }
@@ -1156,12 +1158,20 @@ pub async fn update_ticket_partial(
                 Ok(dt) => {
                     ticket_update.due_date = Some(Some(dt.naive_utc()));
                 }
-                Err(_) => return Ok(errors::bad_request("due_date must be RFC3339 or null")),
+                Err(_) => {
+                    return Err(ApiError::BadRequest(
+                        "due_date must be RFC3339 or null".into(),
+                    ))
+                }
             },
             Some(Value::Null) => {
                 ticket_update.due_date = Some(None);
             }
-            _ => return Ok(errors::bad_request("due_date must be a string or null")),
+            _ => {
+                return Err(ApiError::BadRequest(
+                    "due_date must be a string or null".into(),
+                ))
+            }
         }
     }
 
@@ -1173,12 +1183,20 @@ pub async fn update_ticket_partial(
                 Ok(dt) => {
                     ticket_update.start_date = Some(Some(dt.naive_utc()));
                 }
-                Err(_) => return Ok(errors::bad_request("start_date must be RFC3339 or null")),
+                Err(_) => {
+                    return Err(ApiError::BadRequest(
+                        "start_date must be RFC3339 or null".into(),
+                    ))
+                }
             },
             Some(Value::Null) => {
                 ticket_update.start_date = Some(None);
             }
-            _ => return Ok(errors::bad_request("start_date must be a string or null")),
+            _ => {
+                return Err(ApiError::BadRequest(
+                    "start_date must be a string or null".into(),
+                ))
+            }
         }
     }
 
@@ -1199,8 +1217,8 @@ pub async fn update_ticket_partial(
                 ticket_update.recurrence_rule = Some(None);
             }
             _ => {
-                return Ok(errors::bad_request(
-                    "recurrence_rule must be a string or null",
+                return Err(ApiError::BadRequest(
+                    "recurrence_rule must be a string or null".into(),
                 ))
             }
         }
@@ -1394,7 +1412,7 @@ pub async fn update_ticket_partial(
                 )
             }) {
                 Ok(ticket) => ticket,
-                Err(_) => return Ok(errors::internal("Failed to fetch updated ticket")),
+                Err(_) => return Err(ApiError::Internal("Failed to fetch updated ticket".into())),
             };
 
             // Assignment and status-change notifications derive from the
@@ -1416,7 +1434,7 @@ pub async fn update_ticket_partial(
         }
         Err(e) => {
             error!(error = ?e, "Failed to update ticket");
-            Ok(errors::internal("Failed to update ticket"))
+            Err(ApiError::Internal("Failed to update ticket".into()))
         }
     }
 }

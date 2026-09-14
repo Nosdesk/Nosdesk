@@ -32,7 +32,7 @@ use serde::Serialize;
 use tracing::error;
 
 use crate::extractors::{AuthContext, TenantConn};
-use crate::handlers::errors;
+use crate::handlers::errors::{self, ApiError};
 use crate::models::{SlaPolicy, Ticket, WorkflowState, WorkspaceRole};
 use crate::repository::sla_admin::{
     self, SlaPolicyBody, WorkingCalendarBody, WorkingCalendarHolidayBody,
@@ -116,14 +116,14 @@ pub async fn create_policy(
     body: web::Json<SlaPolicyBody>,
     auth: AuthContext,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let actor_uuid = auth.user_uuid;
     match tc.run(|conn| sla_admin::create_policy(conn, body.into_inner(), Some(actor_uuid))) {
         Ok(policy) => Ok(HttpResponse::Created().json(policy)),
         Err(e) => {
             error!(error = %e, "create sla policy failed");
-            Ok(errors::internal("Failed to create SLA policy"))
+            Err(ApiError::Internal("Failed to create SLA policy".into()))
         }
     }
 }
@@ -134,14 +134,14 @@ pub async fn update_policy(
     body: web::Json<SlaPolicyBody>,
     _auth: AuthContext,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let id = path.into_inner();
     match tc.run(|conn| sla_admin::update_policy(conn, id, body.into_inner())) {
         Ok(policy) => Ok(HttpResponse::Ok().json(policy)),
         Err(e) => {
             error!(error = %e, id, "update sla policy failed");
-            Ok(errors::internal("Failed to update SLA policy"))
+            Err(ApiError::Internal("Failed to update SLA policy".into()))
         }
     }
 }
@@ -151,14 +151,14 @@ pub async fn delete_policy(
     path: web::Path<i32>,
     _auth: AuthContext,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let id = path.into_inner();
     match tc.run(|conn| sla_admin::delete_policy(conn, id)) {
         Ok(_) => Ok(HttpResponse::NoContent().finish()),
         Err(e) => {
             error!(error = %e, id, "delete sla policy failed");
-            Ok(errors::internal("Failed to delete SLA policy"))
+            Err(ApiError::Internal("Failed to delete SLA policy".into()))
         }
     }
 }
@@ -180,14 +180,16 @@ pub async fn create_calendar(
     body: web::Json<WorkingCalendarBody>,
     auth: AuthContext,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let actor_uuid = auth.user_uuid;
     match tc.run(|conn| sla_admin::create_calendar(conn, body.into_inner(), Some(actor_uuid))) {
         Ok(cal) => Ok(HttpResponse::Created().json(cal)),
         Err(e) => {
             error!(error = %e, "create calendar failed");
-            Ok(errors::internal("Failed to create working calendar"))
+            Err(ApiError::Internal(
+                "Failed to create working calendar".into(),
+            ))
         }
     }
 }
@@ -198,14 +200,16 @@ pub async fn update_calendar(
     body: web::Json<WorkingCalendarBody>,
     _auth: AuthContext,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let id = path.into_inner();
     match tc.run(|conn| sla_admin::update_calendar(conn, id, body.into_inner())) {
         Ok(cal) => Ok(HttpResponse::Ok().json(cal)),
         Err(e) => {
             error!(error = %e, id, "update calendar failed");
-            Ok(errors::internal("Failed to update working calendar"))
+            Err(ApiError::Internal(
+                "Failed to update working calendar".into(),
+            ))
         }
     }
 }
@@ -215,14 +219,16 @@ pub async fn delete_calendar(
     path: web::Path<i32>,
     _auth: AuthContext,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let id = path.into_inner();
     match tc.run(|conn| sla_admin::delete_calendar(conn, id)) {
         Ok(_) => Ok(HttpResponse::NoContent().finish()),
         Err(e) => {
             error!(error = %e, id, "delete calendar failed");
-            Ok(errors::internal("Failed to delete working calendar"))
+            Err(ApiError::Internal(
+                "Failed to delete working calendar".into(),
+            ))
         }
     }
 }
@@ -250,7 +256,7 @@ pub async fn create_holiday(
     body: web::Json<WorkingCalendarHolidayBody>,
     _auth: AuthContext,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let calendar_id = path.into_inner();
     match tc.run(|conn| sla_admin::create_holiday(conn, calendar_id, body.into_inner())) {
@@ -258,10 +264,12 @@ pub async fn create_holiday(
         Err(diesel::result::Error::DatabaseError(
             diesel::result::DatabaseErrorKind::UniqueViolation,
             _,
-        )) => Ok(errors::bad_request("Holiday already exists for that date")),
+        )) => Err(ApiError::BadRequest(
+            "Holiday already exists for that date".into(),
+        )),
         Err(e) => {
             error!(error = %e, calendar_id, "create holiday failed");
-            Ok(errors::internal("Failed to create holiday"))
+            Err(ApiError::Internal("Failed to create holiday".into()))
         }
     }
 }
@@ -271,14 +279,14 @@ pub async fn delete_holiday(
     path: web::Path<i32>,
     _auth: AuthContext,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let id = path.into_inner();
     match tc.run(|conn| sla_admin::delete_holiday(conn, id)) {
         Ok(_) => Ok(HttpResponse::NoContent().finish()),
         Err(e) => {
             error!(error = %e, id, "delete holiday failed");
-            Ok(errors::internal("Failed to delete holiday"))
+            Err(ApiError::Internal("Failed to delete holiday".into()))
         }
     }
 }
@@ -316,7 +324,7 @@ pub async fn workspace_summary(
     mut tc: TenantConn,
     _auth: AuthContext,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Agent)?;
     let result = tc
         .run(|conn| crate::services::sla::scan_open_ticket_buckets(conn, POLICY_MATCH_SCAN_LIMIT));
@@ -324,7 +332,9 @@ pub async fn workspace_summary(
         Ok(scan) => Ok(HttpResponse::Ok().json(scan.workspace_total)),
         Err(e) => {
             error!(error = %e, "sla workspace summary failed");
-            Ok(errors::internal("Failed to compute SLA workspace summary"))
+            Err(ApiError::Internal(
+                "Failed to compute SLA workspace summary".into(),
+            ))
         }
     }
 }

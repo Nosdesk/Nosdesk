@@ -12,7 +12,7 @@
 //! what filter and how many rows came back.
 
 use crate::extractors::TenantConn;
-use crate::handlers::errors;
+use crate::handlers::errors::ApiError;
 use crate::models::{SyncAggregate, SyncOp};
 use crate::repository::audit as repo;
 use crate::sync::{emit, groups};
@@ -104,14 +104,14 @@ pub async fn list(
     req: HttpRequest,
     mut tc: TenantConn,
     query: web::Query<ListQuery>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     rbac::require_audit_read(&req)?;
 
     let cursor = match query.cursor.as_deref().map(decode_cursor) {
         Some(Ok(c)) => Some(c),
         Some(Err(_)) => {
-            return Ok(errors::bad_request(
-                "Invalid cursor; pass the next_cursor from the previous response verbatim",
+            return Err(ApiError::BadRequest(
+                "Invalid cursor; pass the next_cursor from the previous response verbatim".into(),
             ))
         }
         None => None,
@@ -131,7 +131,7 @@ pub async fn list(
         Ok(p) => p,
         Err(e) => {
             warn!(error = ?e, "unified audit list failed");
-            return Ok(errors::internal("Failed to read the audit log"));
+            return Err(ApiError::Internal("Failed to read the audit log".into()));
         }
     };
 
@@ -147,7 +147,7 @@ pub async fn export(
     req: HttpRequest,
     mut tc: TenantConn,
     query: web::Query<ListQuery>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     rbac::require_audit_read(&req)?;
 
     let filter = build_filter(&query);
@@ -173,7 +173,7 @@ pub async fn export(
         Ok(e) => e,
         Err(e) => {
             warn!(error = ?e, "unified audit export failed");
-            return Ok(errors::internal("Failed to export the audit log"));
+            return Err(ApiError::Internal("Failed to export the audit log".into()));
         }
     };
 

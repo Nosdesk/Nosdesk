@@ -25,7 +25,7 @@
 use crate::extractors::{PlatformConn, TenantConn};
 #[allow(unused_imports)]
 use crate::handlers; // keep helpers reachable for tests
-use crate::handlers::errors;
+use crate::handlers::errors::ApiError;
 use crate::models::{Claims, NewCspReport, WorkspaceRole};
 use crate::repository::csp_reports as repo;
 use crate::utils::rbac;
@@ -296,14 +296,14 @@ pub async fn report_violation(
 pub async fn list_violations(
     req: HttpRequest,
     mut tc: TenantConn,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     rbac::require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     match tc.run(|conn| repo::list_recent(conn, 200)) {
         Ok(rows) => Ok(HttpResponse::Ok().json(rows)),
         Err(e) => {
             warn!(error = ?e, "Failed to list CSP reports");
-            Ok(errors::internal("Failed to list CSP reports"))
+            Err(ApiError::Internal("Failed to list CSP reports".into()))
         }
     }
 }

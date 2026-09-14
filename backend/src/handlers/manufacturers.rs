@@ -69,10 +69,10 @@ pub async fn create(
     mut tc: TenantConn,
     body: web::Json<UpsertBody>,
     auth: AuthContext,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     if !auth.can_handle_tickets() {
-        return Ok(errors::forbidden(
-            "Forbidden: technicians and administrators only",
+        return Err(ApiError::Forbidden(
+            "Forbidden: technicians and administrators only".into(),
         ));
     }
     let name = validate_name(&body.name)?;
@@ -87,7 +87,7 @@ pub async fn create(
         ),
         Err(e) => {
             error!(error = %e, "failed to create manufacturer");
-            Ok(errors::internal("Failed to create manufacturer"))
+            Err(ApiError::Internal("Failed to create manufacturer".into()))
         }
     }
 }
@@ -97,10 +97,10 @@ pub async fn update(
     path: web::Path<i32>,
     body: web::Json<UpsertBody>,
     auth: AuthContext,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     if !auth.can_handle_tickets() {
-        return Ok(errors::forbidden(
-            "Forbidden: technicians and administrators only",
+        return Err(ApiError::Forbidden(
+            "Forbidden: technicians and administrators only".into(),
         ));
     }
     let id = path.into_inner();
@@ -111,7 +111,7 @@ pub async fn update(
     };
     match tc.run(|conn| repo::update(conn, id, change)) {
         Ok(row) => Ok(HttpResponse::Ok().json(row)),
-        Err(DieselError::NotFound) => Ok(errors::not_found_msg(format!(
+        Err(DieselError::NotFound) => Err(ApiError::NotFoundMsg(format!(
             "Manufacturer {id} not found"
         ))),
         Err(DieselError::DatabaseError(DatabaseErrorKind::UniqueViolation, _)) => Ok(
@@ -119,7 +119,7 @@ pub async fn update(
         ),
         Err(e) => {
             error!(id, error = %e, "failed to update manufacturer");
-            Ok(errors::internal("Failed to update manufacturer"))
+            Err(ApiError::Internal("Failed to update manufacturer".into()))
         }
     }
 }

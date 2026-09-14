@@ -1,6 +1,6 @@
-use actix_web::{web, HttpRequest, HttpResponse, Result as ActixResult};
+use actix_web::{web, HttpRequest, HttpResponse};
 
-use crate::handlers::errors;
+use crate::handlers::errors::{self, ApiError};
 use dashmap::DashMap;
 use futures::stream::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -694,12 +694,12 @@ pub async fn sse_events_stream(
     pool: web::Data<crate::db::Pool>,
     state: web::Data<SseState>,
     query: web::Query<SseEventsQuery>,
-) -> ActixResult<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     // Get database connection
     let mut conn = match pool.get() {
         Ok(conn) => conn,
         Err(_) => {
-            return Ok(errors::internal("Database connection error"));
+            return Err(ApiError::Internal("Database connection error".into()));
         }
     };
     // Validate the SSE token first; the selected workspace is bound into it
@@ -708,7 +708,7 @@ pub async fn sse_events_stream(
     let token = match query.sse_token.as_ref() {
         Some(t) => t.as_str(),
         None => {
-            return Ok(errors::unauthorized("Missing SSE token"));
+            return Err(ApiError::Unauthorized("Missing SSE token".into()));
         }
     };
     use crate::utils::jwt::JwtUtils;
@@ -725,7 +725,9 @@ pub async fn sse_events_stream(
     // scope split is what keeps a portal principal (or any non-agent token) off
     // the agent event feed even when it is a valid member token.
     if user_info.scope != "sse" {
-        return Ok(errors::forbidden("Token not valid for the event stream"));
+        return Err(ApiError::Forbidden(
+            "Token not valid for the event stream".into(),
+        ));
     }
 
     // Resolve + pin + membership-gate the stream's workspace through the shared
@@ -796,7 +798,7 @@ pub async fn sse_events_stream(
         Ok(groups) => Arc::new(groups.into_iter().collect::<HashSet<String>>()),
         Err(e) => {
             tracing::error!(error = %e, "SSE: failed to resolve granted groups");
-            return Ok(errors::internal("Failed to open event stream"));
+            return Err(ApiError::Internal("Failed to open event stream".into()));
         }
     };
 

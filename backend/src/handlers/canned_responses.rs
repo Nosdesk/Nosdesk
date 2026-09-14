@@ -14,7 +14,7 @@ use serde::Deserialize;
 use tracing::{error, info};
 
 use crate::extractors::TenantConn;
-use crate::handlers::errors;
+use crate::handlers::errors::{self, ApiError};
 use crate::models::{
     CannedResponse, CannedResponseStarter, CannedResponseUpdate, NewCannedResponse,
     NewCannedResponseInsertion, WorkspaceRole,
@@ -119,7 +119,7 @@ pub async fn create_canned(
     mut tc: TenantConn,
     body: web::Json<CreateRequest>,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let creator = req
         .extensions()
@@ -167,7 +167,7 @@ pub async fn update_canned(
     path: web::Path<i32>,
     body: web::Json<UpdateRequest>,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let id = path.into_inner();
 
@@ -215,7 +215,7 @@ pub async fn delete_canned(
     mut tc: TenantConn,
     path: web::Path<i32>,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let id = path.into_inner();
     match tc.run(|conn| repo::delete(conn, id)) {
@@ -287,7 +287,7 @@ pub async fn record_insertion(
 /// on its own path (not nested under `/admin/canned-responses/`)
 /// to avoid being shadowed by the sibling `{id}` route under
 /// Actix's `.route()` chain ordering.
-pub async fn starter_catalog(req: HttpRequest) -> actix_web::Result<HttpResponse> {
+pub async fn starter_catalog(req: HttpRequest) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     Ok(HttpResponse::Ok().json(starters::CATALOG))
 }

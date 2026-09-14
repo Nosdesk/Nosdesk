@@ -9,7 +9,7 @@
 //! frontend doesn't need to know the trigger schema.
 
 use crate::extractors::TenantConn;
-use crate::handlers::errors;
+use crate::handlers::errors::ApiError;
 use crate::models::WorkspaceRole;
 use crate::repository::audit_log as repo;
 use crate::utils::rbac;
@@ -55,14 +55,14 @@ pub async fn list(
     req: HttpRequest,
     mut tc: TenantConn,
     query: web::Query<ListQuery>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     rbac::require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let cursor = match query.cursor.as_deref().map(decode_cursor) {
         Some(Ok(c)) => Some(c),
         Some(Err(_)) => {
-            return Ok(errors::bad_request(
-                "Invalid cursor; pass the next_cursor from the previous response verbatim",
+            return Err(ApiError::BadRequest(
+                "Invalid cursor; pass the next_cursor from the previous response verbatim".into(),
             ));
         }
         None => None,
@@ -88,7 +88,7 @@ pub async fn list(
         Ok(p) => p,
         Err(e) => {
             warn!(error = ?e, "Failed to list audit log");
-            return Ok(errors::internal("Failed to list audit log"));
+            return Err(ApiError::Internal("Failed to list audit log".into()));
         }
     };
 

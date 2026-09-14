@@ -12,6 +12,7 @@ use actix_web::error::{ErrorBadRequest, ErrorInternalServerError};
 use actix_web::{web, HttpResponse};
 use serde::Deserialize;
 
+use crate::handlers::errors::ApiError;
 use crate::services::notifications::NotificationService;
 use crate::utils::unsubscribe_token;
 
@@ -45,7 +46,7 @@ async fn apply(
 pub async fn one_click(
     query: web::Query<UnsubscribeQuery>,
     notification_service: web::Data<NotificationService>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     apply(&query.token, &notification_service).await?;
     Ok(HttpResponse::Ok().finish())
 }
@@ -55,7 +56,7 @@ pub async fn one_click(
 pub async fn landing(
     query: web::Query<UnsubscribeQuery>,
     notification_service: web::Data<NotificationService>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     apply(&query.token, &notification_service).await?;
     Ok(HttpResponse::Ok()
         .content_type("text/html; charset=utf-8")
