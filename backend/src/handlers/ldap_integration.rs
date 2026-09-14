@@ -6,7 +6,7 @@
 //! config shape, upsert the settings, then set/clear the bind password
 //! separately so editing settings never disturbs a stored secret.
 
-use actix_web::{web, HttpRequest, HttpResponse, Responder, ResponseError};
+use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use serde::Deserialize;
 use serde_json::json;
 use tracing::error;
@@ -318,25 +318,26 @@ pub async fn run_ldap_sync(
     db_pool: web::Data<crate::db::Pool>,
     request: HttpRequest,
     auth: AuthContext,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     if !auth.is_workspace_admin() {
-        return errors::forbidden("Only admins can run an LDAP sync");
+        return Ok(errors::forbidden("Only admins can run an LDAP sync"));
     }
     let Some(workspace_id) = helpers::request_workspace_id(&request) else {
-        return errors::forbidden("A resolved workspace is required");
+        return Ok(errors::forbidden("A resolved workspace is required"));
     };
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+    let mut conn = helpers::db_conn(&db_pool)?;
     helpers::pin_request_workspace(&request, &mut conn);
 
     let settings = match repo::get_for_workspace(&mut conn, workspace_id) {
         Ok(Some(s)) if s.enabled => s,
-        Ok(_) => return errors::unprocessable_entity("Enable LDAP before running a sync"),
+        Ok(_) => {
+            return Ok(errors::unprocessable_entity(
+                "Enable LDAP before running a sync",
+            ))
+        }
         Err(e) => {
             error!(error = %e, "load ldap settings for sync failed");
-            return errors::internal("Failed to load LDAP settings");
+            return Ok(errors::internal("Failed to load LDAP settings"));
         }
     };
     let bind_password = repo::decrypt_bind_password(&settings)
@@ -353,13 +354,13 @@ pub async fn run_ldap_sync(
     )
     .await
     {
-        Ok(rec) => HttpResponse::Ok().json(json!({
+        Ok(rec) => Ok(HttpResponse::Ok().json(json!({
             "session_id": rec.history_id,
             "stats": rec.stats,
-        })),
+        }))),
         Err(e) => {
             error!(error = %e, workspace_id, "ldap sync failed");
-            errors::internal("LDAP sync failed; see server logs")
+            Ok(errors::internal("LDAP sync failed; see server logs"))
         }
     }
 }

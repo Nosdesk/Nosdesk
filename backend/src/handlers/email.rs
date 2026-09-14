@@ -1,4 +1,4 @@
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -54,16 +54,12 @@ pub async fn get_email_config(
     mut tc: TenantConn,
     req: HttpRequest,
     resolver: web::Data<std::sync::Arc<crate::services::outbound_email::OutboundEmailResolver>>,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     // Per-workspace email config: a workspace admin owns it. Was platform-admin,
     // which broke the Setup tab's own bootstrap read for tenant admins. TenantConn
     // scopes the read; the hosted branch below redacts the platform relay and
     // reports the workspace's effective sending identity.
-    if let Err(resp) =
-        crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
-    {
-        return resp.error_response();
-    }
+    crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)?;
 
     // SMTP transport. EmailService::from_env reports is_configured for the
     // active transport.
@@ -120,7 +116,7 @@ pub async fn get_email_config(
                     // Unresolvable (deferring) workspace: no sending identity.
                     None => (String::new(), String::new(), false),
                 };
-                return HttpResponse::Ok().json(json!({
+                return Ok(HttpResponse::Ok().json(json!({
                     "managed": true,
                     "mode": mode,
                     "provider": service.provider_name(),
@@ -128,13 +124,13 @@ pub async fn get_email_config(
                     "from_email": from_email,
                     "enabled": config.enabled,
                     "is_configured": service.is_configured() && configured,
-                }));
+                })));
             }
             // Self-host: the operator configured this relay; show what it points
             // at (host/port/from) so they can verify it. Never echo `smtp_username`
             // back, it's a credential identifier and adds no value over the
             // configured/host fields.
-            HttpResponse::Ok().json(json!({
+            Ok(HttpResponse::Ok().json(json!({
                 "managed": false,
                 "provider": service.provider_name(),
                 "from_name": config.from_name,
@@ -144,13 +140,13 @@ pub async fn get_email_config(
                 "smtp_host": config.smtp_host,
                 "smtp_port": config.smtp_port,
                 "smtp_password_configured": !config.smtp_password.is_empty(),
-            }))
+            })))
         }
-        Err(e) => HttpResponse::Ok().json(json!({
+        Err(e) => Ok(HttpResponse::Ok().json(json!({
             "enabled": false,
             "is_configured": false,
             "error": e
-        })),
+        }))),
     }
 }
 
@@ -159,19 +155,20 @@ pub async fn send_test_email(
     mut tc: TenantConn,
     req: HttpRequest,
     request: web::Json<TestEmailRequest>,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     // Per-workspace test send (targets this workspace's identity). A workspace
     // admin owns it, matching the sibling outbound endpoints. Was platform-admin.
-    if let Err(resp) =
-        crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
-    {
-        return resp.error_response();
-    }
+    crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)?;
 
     // Create email service
     let email_service = match EmailService::from_env() {
         Ok(service) => service,
-        Err(e) => return errors::bad_request(format!("Email is not configured: {}", e)),
+        Err(e) => {
+            return Ok(errors::bad_request(format!(
+                "Email is not configured: {}",
+                e
+            )))
+        }
     };
 
     // Get branding for test email. site_settings is workspace-scoped,
@@ -187,15 +184,23 @@ pub async fn send_test_email(
     let branding =
         match tc.run(|conn| Ok::<_, diesel::result::Error>(get_email_branding(conn, &base_url))) {
             Ok(b) => b,
-            Err(e) => return errors::internal(format!("Failed to load email branding: {}", e)),
+            Err(e) => {
+                return Ok(errors::internal(format!(
+                    "Failed to load email branding: {}",
+                    e
+                )))
+            }
         };
 
     // Send test email
     match email_service.send_test_email(&request.to, &branding).await {
-        Ok(_) => HttpResponse::Ok().json(json!({
+        Ok(_) => Ok(HttpResponse::Ok().json(json!({
             "status": "success",
             "message": format!("Test email sent successfully to {}", request.to)
-        })),
-        Err(e) => errors::internal(format!("Failed to send test email: {}", e)),
+        }))),
+        Err(e) => Ok(errors::internal(format!(
+            "Failed to send test email: {}",
+            e
+        ))),
     }
 }

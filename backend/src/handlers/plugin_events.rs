@@ -18,7 +18,7 @@
 //! is free-form per call. (The architecture doc § 6 references this
 //! constraint as part of the manifest design.)
 
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder, ResponseError};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 use serde::Deserialize;
 use serde_json::Value;
 use tracing::{error, info, warn};
@@ -87,12 +87,12 @@ pub async fn emit_plugin_event(
     path: web::Path<Uuid>,
     body: web::Json<PluginEventBody>,
     req: HttpRequest,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     let plugin_uuid = path.into_inner();
 
     let body = body.into_inner();
     if let Err(msg) = validate_event_body(&body) {
-        return errors::bad_request(msg);
+        return Ok(errors::bad_request(msg));
     }
 
     // Caller must be authenticated (plugins run inside the user's
@@ -100,10 +100,7 @@ pub async fn emit_plugin_event(
     // recorded on the row is the plugin, not the user — but the
     // user's UUID flows through actor_ref so an audit can answer
     // "who triggered the plugin?".
-    let (claims, _user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
-        Ok(v) => v,
-        Err(e) => return e.error_response(),
-    };
+    let (claims, _user_uuid, mut conn) = helpers::auth_conn(&req, &pool)?;
 
     // Plugin must exist before we accept its events. `plugins` is
     // RLS-isolated; the read is scoped because `auth_conn` above pinned
@@ -112,11 +109,11 @@ pub async fn emit_plugin_event(
     let plugin = match plugin_repo::get_plugin_by_uuid(&mut conn, plugin_uuid) {
         Ok(p) => p,
         Err(diesel::result::Error::NotFound) => {
-            return errors::not_found_msg("Plugin not found");
+            return Ok(errors::not_found_msg("Plugin not found"));
         }
         Err(e) => {
             error!(error = %e, plugin_uuid = %plugin_uuid, "failed to look up plugin");
-            return errors::internal("Failed to look up plugin");
+            return Ok(errors::internal("Failed to look up plugin"));
         }
     };
 
@@ -129,7 +126,7 @@ pub async fn emit_plugin_event(
             state = ?plugin.state,
             "rejected event from a non-active plugin"
         );
-        return errors::forbidden("Plugin is not active");
+        return Ok(errors::forbidden("Plugin is not active"));
     }
 
     // The event_type must be one the plugin's manifest declares. The manifest
@@ -144,12 +141,14 @@ pub async fn emit_plugin_event(
                     event_type = %body.event_type,
                     "rejected undeclared plugin event type"
                 );
-                return errors::forbidden("event_type is not declared in the plugin manifest");
+                return Ok(errors::forbidden(
+                    "event_type is not declared in the plugin manifest",
+                ));
             }
         }
         Err(e) => {
             error!(error = %e, plugin_uuid = %plugin_uuid, "plugin manifest failed to parse");
-            return errors::internal("Plugin manifest is invalid");
+            return Ok(errors::internal("Plugin manifest is invalid"));
         }
     }
 
@@ -184,10 +183,10 @@ pub async fn emit_plugin_event(
             Ok(true) => {}
             Ok(false) => {
                 warn!(plugin_uuid = %plugin_uuid, "plugin event rate limit exceeded");
-                return errors::too_many_requests(
+                return Ok(errors::too_many_requests(
                     "Too many plugin events",
                     PLUGIN_EVENT_RATE_WINDOW_SECS,
-                );
+                ));
             }
             Err(e) => warn!(error = %e, "plugin event rate limiter unavailable; allowing"),
         }
@@ -246,7 +245,7 @@ pub async fn emit_plugin_event(
                 sync_id,
                 "plugin emitted event"
             );
-            HttpResponse::Created().json(serde_json::json!({ "sync_id": sync_id }))
+            Ok(HttpResponse::Created().json(serde_json::json!({ "sync_id": sync_id })))
         }
         Err(e) => {
             warn!(
@@ -255,7 +254,7 @@ pub async fn emit_plugin_event(
                 event_type = %event_type_owned,
                 "failed to record plugin event"
             );
-            errors::internal("Failed to record plugin event")
+            Ok(errors::internal("Failed to record plugin event"))
         }
     }
 }

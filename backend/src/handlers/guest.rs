@@ -6,7 +6,7 @@
 //! closes its public surface.
 
 use actix_multipart::Multipart;
-use actix_web::{web, HttpRequest, HttpResponse, Responder, ResponseError};
+use actix_web::{web, HttpRequest, HttpResponse};
 use chrono::Utc;
 use diesel::prelude::*;
 use futures::{StreamExt, TryStreamExt};
@@ -286,18 +286,18 @@ fn log_guest_event(
 // ---------- Public settings ----------
 
 /// GET /api/public/settings — branding + which guest features are enabled.
-pub async fn get_public_settings(pool: web::Data<Pool>, ws: WorkspaceContext) -> impl Responder {
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+pub async fn get_public_settings(
+    pool: web::Data<Pool>,
+    ws: WorkspaceContext,
+) -> actix_web::Result<HttpResponse> {
+    let mut conn = helpers::db_conn(&pool)?;
 
     let actor = guest_actor(&ws, "guest:public_settings");
     match session::with_actor_context(&mut conn, &actor, site_settings::get_site_settings) {
-        Ok(s) => HttpResponse::Ok().json(PublicSiteSettings::from(&s)),
+        Ok(s) => Ok(HttpResponse::Ok().json(PublicSiteSettings::from(&s))),
         Err(e) => {
             warn!(error = ?e, "Failed to load site_settings for public endpoint");
-            HttpResponse::Ok().json(json!({
+            Ok(HttpResponse::Ok().json(json!({
                 "app_name": "Nosdesk",
                 "logo_url": null,
                 "logo_light_url": null,
@@ -308,7 +308,7 @@ pub async fn get_public_settings(pool: web::Data<Pool>, ws: WorkspaceContext) ->
                 "guest_kb_search_enabled": false,
                 "guest_ticket_lookup_enabled": false,
                 "guest_help_page_enabled": false,
-            }))
+            })))
         }
     }
 }
@@ -323,11 +323,8 @@ pub async fn submit_guest_ticket(
     req: HttpRequest,
     ws: WorkspaceContext,
     body: web::Json<SubmitGuestTicketRequest>,
-) -> impl Responder {
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    let mut conn = helpers::db_conn(&pool)?;
 
     // Workspace-pinned actor: every subsequent DB call goes through
     // `with_actor_context` so RLS-protected tenant tables
@@ -341,12 +338,12 @@ pub async fn submit_guest_ticket(
     }) {
         Ok(Some(s)) => s,
         Ok(None) | Err(_) => {
-            return errors::service_unavailable("Settings unavailable");
+            return Ok(errors::service_unavailable("Settings unavailable"));
         }
     };
 
     if !settings.guest_tickets_enabled {
-        return errors::forbidden("Guest ticket submission is disabled");
+        return Ok(errors::forbidden("Guest ticket submission is disabled"));
     }
 
     // Honeypot: a non-empty `website` field means a bot filled a hidden
@@ -359,7 +356,7 @@ pub async fn submit_guest_ticket(
         .is_some_and(|s| !s.is_empty())
     {
         debug!(ip = ?client_ip(&req), "Guest ticket submission tripped honeypot");
-        return errors::bad_request("Invalid submission");
+        return Ok(errors::bad_request("Invalid submission"));
     }
 
     // Basic input validation
@@ -369,10 +366,10 @@ pub async fn submit_guest_ticket(
     let description = body.description.trim();
 
     if name.is_empty() || name.len() > GUEST_MAX_NAME_LENGTH {
-        return errors::bad_request("Invalid name");
+        return Ok(errors::bad_request("Invalid name"));
     }
     if !valid_email(email) {
-        return errors::bad_request("Invalid email");
+        return Ok(errors::bad_request("Invalid email"));
     }
     // MX pre-check: reject addresses whose domain has no mail servers. This
     // is a cheap filter that catches `random@madeupdomain.tld` garbage
@@ -380,13 +377,15 @@ pub async fn submit_guest_ticket(
     // that will just hard-bounce. The check fails open on resolver errors
     // so flaky upstream DNS doesn't break legitimate submissions.
     if !email_domain_has_mx(email).await {
-        return errors::bad_request("We can't deliver mail to that address.");
+        return Ok(errors::bad_request(
+            "We can't deliver mail to that address.",
+        ));
     }
     if title.is_empty() || title.len() > 255 {
-        return errors::bad_request("Invalid title");
+        return Ok(errors::bad_request("Invalid title"));
     }
     if description.is_empty() || description.len() > GUEST_MAX_DESCRIPTION_LENGTH {
-        return errors::bad_request("Invalid description");
+        return Ok(errors::bad_request("Invalid description"));
     }
 
     // Resolve priority early so we can 400 on bad client input before touching
@@ -401,7 +400,7 @@ pub async fn submit_guest_ticket(
         match resolved {
             Some(p) => p,
             None => {
-                return errors::bad_request("Invalid priority");
+                return Ok(errors::bad_request("Invalid priority"));
             }
         }
     };
@@ -420,10 +419,10 @@ pub async fn submit_guest_ticket(
         match RateLimiter::check_rate_limit(&redis_url, &key, max, 3600).await {
             Ok(true) => { /* allowed */ }
             Ok(false) => {
-                return errors::too_many_requests(
+                return Ok(errors::too_many_requests(
                     "Too many submissions from your network. Please try again later.",
                     3600,
-                );
+                ));
             }
             Err(e) => {
                 warn!(error = %e, "Guest-ticket rate limiter unavailable; allowing request");
@@ -558,10 +557,12 @@ pub async fn submit_guest_ticket(
     let (user, is_new_guest, ticket, first_comment_id) = match create_result {
         Ok(t) => t,
         Err(CreateError::EmailClaimed) => {
-            return errors::conflict("Please sign in to submit a ticket with this email address.");
+            return Ok(errors::conflict(
+                "Please sign in to submit a ticket with this email address.",
+            ));
         }
         Err(CreateError::Internal) => {
-            return errors::internal("Failed to create ticket");
+            return Ok(errors::internal("Failed to create ticket"));
         }
     };
 
@@ -661,18 +662,18 @@ pub async fn submit_guest_ticket(
         // Don't disclose the ticket id or lookup token yet — the Zendesk-
         // style UX treats a pending ticket as "not yet submitted" from the
         // requester's perspective. They get both once they verify.
-        HttpResponse::Accepted().json(json!({
+        Ok(HttpResponse::Accepted().json(json!({
             "verification_required": true,
             "email_sent": email_sent,
-        }))
+        })))
     } else {
-        HttpResponse::Created().json(json!({
+        Ok(HttpResponse::Created().json(json!({
             "verification_required": false,
             "ticket_id": ticket.id,
             "lookup_token": lookup_token.to_string(),
             "status_url": format!("/ticket-status/{}", lookup_token),
             "email_sent": email_sent,
-        }))
+        })))
     }
 }
 
@@ -683,17 +684,14 @@ pub async fn get_guest_ticket_status(
     pool: web::Data<Pool>,
     ws: WorkspaceContext,
     path: web::Path<String>,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     let token_str = path.into_inner();
     let token = match Uuid::parse_str(&token_str) {
         Ok(t) => t,
-        Err(_) => return HttpResponse::NotFound().finish(),
+        Err(_) => return Ok(HttpResponse::NotFound().finish()),
     };
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+    let mut conn = helpers::db_conn(&pool)?;
 
     // Workspace-pinned actor: the lookup token is a UUID generated
     // per ticket, but RLS confines the find_by_lookup_token query
@@ -723,7 +721,7 @@ pub async fn get_guest_ticket_status(
     });
 
     match outcome {
-        Ok(LookupOutcome::Found(t, cat)) => HttpResponse::Ok().json(json!({
+        Ok(LookupOutcome::Found(t, cat)) => Ok(HttpResponse::Ok().json(json!({
             "ticket_id": t.id,
             "title": t.title,
             "category": cat,
@@ -731,13 +729,15 @@ pub async fn get_guest_ticket_status(
             "created_at": t.created_at,
             "updated_at": t.updated_at,
             "closed_at": t.closed_at,
-        })),
-        Ok(LookupOutcome::NotFound) => HttpResponse::NotFound().finish(),
-        Ok(LookupOutcome::Disabled) => errors::forbidden("Guest ticket status lookup is disabled"),
-        Ok(LookupOutcome::SettingsUnavailable) => HttpResponse::ServiceUnavailable().finish(),
+        }))),
+        Ok(LookupOutcome::NotFound) => Ok(HttpResponse::NotFound().finish()),
+        Ok(LookupOutcome::Disabled) => {
+            Ok(errors::forbidden("Guest ticket status lookup is disabled"))
+        }
+        Ok(LookupOutcome::SettingsUnavailable) => Ok(HttpResponse::ServiceUnavailable().finish()),
         Err(e) => {
             error!(error = %e, "Error looking up guest ticket");
-            HttpResponse::InternalServerError().finish()
+            Ok(HttpResponse::InternalServerError().finish())
         }
     }
 }
@@ -752,11 +752,11 @@ enum LookupOutcome {
 // ---------- Public documentation ----------
 
 /// GET /api/public/docs
-pub async fn list_public_docs(pool: web::Data<Pool>, ws: WorkspaceContext) -> impl Responder {
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+pub async fn list_public_docs(
+    pool: web::Data<Pool>,
+    ws: WorkspaceContext,
+) -> actix_web::Result<HttpResponse> {
+    let mut conn = helpers::db_conn(&pool)?;
 
     let actor = guest_actor(&ws, "guest:public_docs");
     let result = session::with_actor_context(&mut conn, &actor, |conn| {
@@ -799,13 +799,13 @@ pub async fn list_public_docs(pool: web::Data<Pool>, ws: WorkspaceContext) -> im
                     })
                 })
                 .collect();
-            HttpResponse::Ok().json(items)
+            Ok(HttpResponse::Ok().json(items))
         }
-        Ok(Err("unavailable")) => HttpResponse::ServiceUnavailable().finish(),
-        Ok(Err(_)) => errors::forbidden("Public documentation is disabled"),
+        Ok(Err("unavailable")) => Ok(HttpResponse::ServiceUnavailable().finish()),
+        Ok(Err(_)) => Ok(errors::forbidden("Public documentation is disabled")),
         Err(e) => {
             error!(error = %e, "Failed to list public docs");
-            HttpResponse::InternalServerError().finish()
+            Ok(HttpResponse::InternalServerError().finish())
         }
     }
 }
@@ -815,12 +815,9 @@ pub async fn get_public_doc(
     pool: web::Data<Pool>,
     ws: WorkspaceContext,
     path: web::Path<String>,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     let slug_param = path.into_inner();
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+    let mut conn = helpers::db_conn(&pool)?;
 
     let actor = guest_actor(&ws, "guest:public_doc");
     let result = session::with_actor_context(&mut conn, &actor, |conn| {
@@ -852,7 +849,7 @@ pub async fn get_public_doc(
     });
 
     match result {
-        Ok(Ok(Some((pid, puuid, ptitle, pslug, picon, pdoc, pupdated)))) => HttpResponse::Ok()
+        Ok(Ok(Some((pid, puuid, ptitle, pslug, picon, pdoc, pupdated)))) => Ok(HttpResponse::Ok()
             .json(json!({
                 "id": pid,
                 "uuid": puuid,
@@ -861,13 +858,13 @@ pub async fn get_public_doc(
                 "icon": picon,
                 "yjs_document": pdoc,
                 "updated_at": pupdated,
-            })),
-        Ok(Ok(None)) => HttpResponse::NotFound().finish(),
-        Ok(Err("unavailable")) => HttpResponse::ServiceUnavailable().finish(),
-        Ok(Err(_)) => errors::forbidden("Public documentation is disabled"),
+            }))),
+        Ok(Ok(None)) => Ok(HttpResponse::NotFound().finish()),
+        Ok(Err("unavailable")) => Ok(HttpResponse::ServiceUnavailable().finish()),
+        Ok(Err(_)) => Ok(errors::forbidden("Public documentation is disabled")),
         Err(e) => {
             error!(error = %e, "Failed to load public doc");
-            HttpResponse::InternalServerError().finish()
+            Ok(HttpResponse::InternalServerError().finish())
         }
     }
 }
@@ -883,16 +880,13 @@ pub async fn search_public_docs(
     pool: web::Data<Pool>,
     ws: WorkspaceContext,
     query: web::Query<PublicDocsSearchQuery>,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     let q = query.q.trim().to_string();
     if q.is_empty() || q.len() > GUEST_DOC_SEARCH_MAX_QUERY_LENGTH {
-        return errors::bad_request("Invalid query");
+        return Ok(errors::bad_request("Invalid query"));
     }
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+    let mut conn = helpers::db_conn(&pool)?;
 
     let actor = guest_actor(&ws, "guest:public_docs_search");
     let result = session::with_actor_context(&mut conn, &actor, |conn| {
@@ -939,13 +933,13 @@ pub async fn search_public_docs(
                 })
                 .collect();
             debug!(count = items.len(), q = %q, "Public doc search");
-            HttpResponse::Ok().json(items)
+            Ok(HttpResponse::Ok().json(items))
         }
-        Ok(Err("unavailable")) => HttpResponse::ServiceUnavailable().finish(),
-        Ok(Err(_)) => errors::forbidden("Public documentation search is disabled"),
+        Ok(Err("unavailable")) => Ok(HttpResponse::ServiceUnavailable().finish()),
+        Ok(Err(_)) => Ok(errors::forbidden("Public documentation search is disabled")),
         Err(e) => {
             error!(error = %e, "Public doc search failed");
-            HttpResponse::InternalServerError().finish()
+            Ok(HttpResponse::InternalServerError().finish())
         }
     }
 }
@@ -977,11 +971,8 @@ pub async fn upload_guest_attachment(
     ws: WorkspaceContext,
     req: HttpRequest,
     mut payload: Multipart,
-) -> impl Responder {
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    let mut conn = helpers::db_conn(&pool)?;
 
     // Scope the settings read to the workspace (RLS), matching every other
     // guest handler; a bare conn reads zero rows under hosted mode.
@@ -991,12 +982,12 @@ pub async fn upload_guest_attachment(
     }) {
         Ok(Some(s)) => s,
         Ok(None) | Err(_) => {
-            return errors::service_unavailable("Settings unavailable");
+            return Ok(errors::service_unavailable("Settings unavailable"));
         }
     };
 
     if !settings.guest_tickets_enabled || !settings.guest_ticket_attachments_enabled {
-        return errors::forbidden("Attachments are not accepted");
+        return Ok(errors::forbidden("Attachments are not accepted"));
     }
 
     // Dedicated per-IP rate limiter for uploads. Keeping it distinct from
@@ -1008,10 +999,10 @@ pub async fn upload_guest_attachment(
         match RateLimiter::check_rate_limit(&redis_url, &key, GUEST_UPLOADS_PER_HOUR, 3600).await {
             Ok(true) => { /* allowed */ }
             Ok(false) => {
-                return errors::too_many_requests(
+                return Ok(errors::too_many_requests(
                     "Too many uploads from your network. Please try again later.",
                     3600,
-                );
+                ));
             }
             Err(e) => {
                 warn!(error = %e, "Guest upload rate limiter unavailable; allowing request");
@@ -1025,16 +1016,16 @@ pub async fn upload_guest_attachment(
     let mut field = match payload.try_next().await {
         Ok(Some(f)) => f,
         Ok(None) => {
-            return errors::bad_request("No file in request");
+            return Ok(errors::bad_request("No file in request"));
         }
         Err(e) => {
             debug!(error = %e, "Multipart parse error");
-            return errors::bad_request("Could not read upload");
+            return Ok(errors::bad_request("Could not read upload"));
         }
     };
 
     if field.name() != "file" {
-        return errors::bad_request("Expected field 'file'");
+        return Ok(errors::bad_request("Expected field 'file'"));
     }
 
     let original_filename = match field
@@ -1044,14 +1035,14 @@ pub async fn upload_guest_attachment(
     {
         Some(n) if !n.is_empty() => n,
         _ => {
-            return errors::bad_request("Filename is required");
+            return Ok(errors::bad_request("Filename is required"));
         }
     };
 
     let sanitized_filename = match FileValidator::sanitize_filename(&original_filename) {
         Ok(n) => n,
         Err(e) => {
-            return HttpResponse::BadRequest().json(json!({"error": e.to_string()}));
+            return Ok(HttpResponse::BadRequest().json(json!({"error": e.to_string()})));
         }
     };
 
@@ -1063,13 +1054,13 @@ pub async fn upload_guest_attachment(
             Ok(d) => d,
             Err(e) => {
                 debug!(error = %e, "Read chunk error");
-                return errors::bad_request("Upload interrupted");
+                return Ok(errors::bad_request("Upload interrupted"));
             }
         };
         if file_data.len() + data.len() > max_bytes {
-            return HttpResponse::PayloadTooLarge().json(json!({
+            return Ok(HttpResponse::PayloadTooLarge().json(json!({
                 "error": format!("File exceeds {GUEST_MAX_FILE_SIZE_MB}MB limit")
-            }));
+            })));
         }
         file_data.extend_from_slice(&data);
     }
@@ -1079,7 +1070,7 @@ pub async fn upload_guest_attachment(
         Ok(m) => m,
         Err(e) => {
             debug!(error = ?e, filename = %sanitized_filename, "Guest upload rejected");
-            return HttpResponse::BadRequest().json(json!({"error": e.to_string()}));
+            return Ok(HttpResponse::BadRequest().json(json!({"error": e.to_string()})));
         }
     };
 
@@ -1101,7 +1092,7 @@ pub async fn upload_guest_attachment(
         Ok(sf) => sf,
         Err(e) => {
             error!(error = ?e, "Failed to store guest upload");
-            return errors::internal("Failed to store file");
+            return Ok(errors::internal("Failed to store file"));
         }
     };
 
@@ -1138,23 +1129,23 @@ pub async fn upload_guest_attachment(
                     Some(t) => t,
                     None => {
                         error!("JWT_SECRET unset; cannot issue a guest attachment claim token");
-                        return errors::internal("Failed to save attachment");
+                        return Ok(errors::internal("Failed to save attachment"));
                     }
                 };
-            HttpResponse::Created().json(json!({
+            Ok(HttpResponse::Created().json(json!({
                 "id": att.id,
                 "claim_token": claim_token,
                 "name": sanitized_filename,
                 "size": total_size,
                 "mime_type": detected_mime,
-            }))
+            })))
         }
         Err(e) => {
             // Best-effort cleanup of the orphaned file. If this fails,
             // the daily temp-cleanup job will pick it up.
             let _ = storage.0.delete_file(&stored_file.path).await;
             error!(error = ?e, "Failed to record guest upload");
-            errors::internal("Failed to save attachment")
+            Ok(errors::internal("Failed to save attachment"))
         }
     }
 }

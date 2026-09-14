@@ -424,10 +424,12 @@ fn a_portal_refresh_cookie_is_refused_at_another_tenants_origin() {
         .to_http_request();
     request.extensions_mut().insert(foreign_ctx);
 
-    let response = actix_web::rt::System::new().block_on(refresh_portal_session(
-        actix_web::web::Data::new(pool.clone()),
-        request,
-    ));
+    let response = actix_web::rt::System::new()
+        .block_on(refresh_portal_session(
+            actix_web::web::Data::new(pool.clone()),
+            request,
+        ))
+        .unwrap_or_else(|e| e.error_response());
     assert_eq!(
         response.status().as_u16(),
         401,

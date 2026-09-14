@@ -2,7 +2,7 @@
 //!
 //! Admin endpoints for managing webhooks for external integrations.
 
-use actix_web::{web, HttpRequest, HttpResponse, Responder, ResponseError};
+use actix_web::{web, HttpRequest, HttpResponse};
 use diesel::result::Error as DieselError;
 use serde::Deserialize;
 use tracing::{error, info};
@@ -99,19 +99,20 @@ fn validate_events(events: &[String]) -> Result<(), ApiError> {
 // =============================================================================
 
 /// List all webhooks (admin only)
-pub async fn list_webhooks(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+pub async fn list_webhooks(
+    req: HttpRequest,
+    mut tc: TenantConn,
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     match tc.run(webhook_repo::list_all_webhooks) {
         Ok(webhooks) => {
             let response: Vec<WebhookResponse> = webhooks.into_iter().map(Into::into).collect();
-            HttpResponse::Ok().json(response)
+            Ok(HttpResponse::Ok().json(response))
         }
         Err(e) => {
             error!("Failed to list webhooks: {}", e);
-            errors::internal("Failed to list webhooks")
+            Ok(errors::internal("Failed to list webhooks"))
         }
     }
 }
@@ -122,24 +123,15 @@ pub async fn create_webhook(
     mut tc: TenantConn,
     auth: AuthContext,
     body: web::Json<CreateWebhookRequest>,
-) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let created_by = Some(auth.user_uuid);
 
     // Validate inputs
-    let name = match validate_name(&body.name) {
-        Ok(n) => n,
-        Err(e) => return e.error_response(),
-    };
-    if let Err(e) = validate_url(&body.url) {
-        return e.error_response();
-    }
-    if let Err(e) = validate_events(&body.events) {
-        return e.error_response();
-    }
+    let name = validate_name(&body.name)?;
+    validate_url(&body.url)?;
+    validate_events(&body.events)?;
 
     let secret = generate_secret();
     let url = body.url.clone();
@@ -163,28 +155,26 @@ pub async fn create_webhook(
                 "Webhook created: {} ({}) by {:?}",
                 webhook.uuid, webhook.name, created_by
             );
-            HttpResponse::Created().json(WebhookCreatedResponse {
+            Ok(HttpResponse::Created().json(WebhookCreatedResponse {
                 uuid: webhook.uuid,
                 name: webhook.name,
                 url: webhook.url,
                 secret, // Only shown once!
                 events: body.events.clone(),
-            })
+            }))
         }
         Err(e) => {
             error!("Failed to create webhook: {}", e);
-            errors::internal("Failed to create webhook")
+            Ok(errors::internal("Failed to create webhook"))
         }
     }
 }
 
 /// Get available event types
-pub async fn get_event_types(req: HttpRequest) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+pub async fn get_event_types(req: HttpRequest) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
 
-    HttpResponse::Ok().json(WebhookEventType::all())
+    Ok(HttpResponse::Ok().json(WebhookEventType::all()))
 }
 
 /// Get a single webhook by UUID (admin only)
@@ -192,19 +182,17 @@ pub async fn get_webhook(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<Uuid>,
-) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let webhook_uuid = path.into_inner();
 
     match tc.run(|conn| webhook_repo::get_webhook_by_uuid(conn, webhook_uuid)) {
-        Ok(webhook) => HttpResponse::Ok().json(WebhookResponse::from(webhook)),
-        Err(DieselError::NotFound) => errors::not_found_msg("Webhook not found"),
+        Ok(webhook) => Ok(HttpResponse::Ok().json(WebhookResponse::from(webhook))),
+        Err(DieselError::NotFound) => Ok(errors::not_found_msg("Webhook not found")),
         Err(e) => {
             error!("Failed to get webhook: {}", e);
-            errors::internal("Failed to get webhook")
+            Ok(errors::internal("Failed to get webhook"))
         }
     }
 }
@@ -215,10 +203,8 @@ pub async fn update_webhook(
     mut tc: TenantConn,
     path: web::Path<Uuid>,
     body: web::Json<UpdateWebhookRequest>,
-) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let webhook_uuid = path.into_inner();
 
@@ -226,22 +212,18 @@ pub async fn update_webhook(
     let validated_name = if let Some(ref name) = body.name {
         match validate_name(name) {
             Ok(n) => Some(n),
-            Err(e) => return e.error_response(),
+            Err(e) => return Err(e.into()),
         }
     } else {
         None
     };
 
     if let Some(ref url) = body.url {
-        if let Err(e) = validate_url(url) {
-            return e.error_response();
-        }
+        validate_url(url)?;
     }
 
     if let Some(ref events) = body.events {
-        if let Err(e) = validate_events(events) {
-            return e.error_response();
-        }
+        validate_events(events)?;
     }
 
     // Build update
@@ -269,12 +251,12 @@ pub async fn update_webhook(
     match tc.run(|conn| webhook_repo::update_webhook_by_uuid(conn, webhook_uuid, update)) {
         Ok(webhook) => {
             info!("Webhook updated: {} ({})", webhook.uuid, webhook.name);
-            HttpResponse::Ok().json(WebhookResponse::from(webhook))
+            Ok(HttpResponse::Ok().json(WebhookResponse::from(webhook)))
         }
-        Err(DieselError::NotFound) => errors::not_found_msg("Webhook not found"),
+        Err(DieselError::NotFound) => Ok(errors::not_found_msg("Webhook not found")),
         Err(e) => {
             error!("Failed to update webhook: {}", e);
-            errors::internal("Failed to update webhook")
+            Ok(errors::internal("Failed to update webhook"))
         }
     }
 }
@@ -284,22 +266,20 @@ pub async fn delete_webhook(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<Uuid>,
-) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let webhook_uuid = path.into_inner();
 
     match tc.run(|conn| webhook_repo::delete_webhook_by_uuid(conn, webhook_uuid)) {
         Ok(count) if count > 0 => {
             info!("Webhook deleted: {}", webhook_uuid);
-            HttpResponse::NoContent().finish()
+            Ok(HttpResponse::NoContent().finish())
         }
-        Ok(_) => errors::not_found_msg("Webhook not found"),
+        Ok(_) => Ok(errors::not_found_msg("Webhook not found")),
         Err(e) => {
             error!("Failed to delete webhook: {}", e);
-            errors::internal("Failed to delete webhook")
+            Ok(errors::internal("Failed to delete webhook"))
         }
     }
 }
@@ -316,10 +296,8 @@ pub async fn get_deliveries(
     mut tc: TenantConn,
     path: web::Path<Uuid>,
     query: web::Query<PaginationQuery>,
-) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let webhook_uuid = path.into_inner();
     let limit = helpers::clamp_limit(query.limit);
@@ -350,12 +328,12 @@ pub async fn get_deliveries(
                     attempt_number: d.attempt_number,
                 })
                 .collect();
-            HttpResponse::Ok().json(response)
+            Ok(HttpResponse::Ok().json(response))
         }
-        Ok(DeliveriesOutcome::NotFound) => errors::not_found_msg("Webhook not found"),
+        Ok(DeliveriesOutcome::NotFound) => Ok(errors::not_found_msg("Webhook not found")),
         Err(e) => {
             error!("Failed to get deliveries: {}", e);
-            errors::internal("Failed to get deliveries")
+            Ok(errors::internal("Failed to get deliveries"))
         }
     }
 }
@@ -372,10 +350,8 @@ pub async fn test_webhook(
     mut tc: TenantConn,
     webhook_service: web::Data<WebhookService>,
     path: web::Path<Uuid>,
-) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let webhook_uuid = path.into_inner();
 
@@ -389,10 +365,10 @@ pub async fn test_webhook(
 
     let webhook = match lookup {
         Ok(TestLookupOutcome::Ok(w)) => w,
-        Ok(TestLookupOutcome::NotFound) => return errors::not_found_msg("Webhook not found"),
+        Ok(TestLookupOutcome::NotFound) => return Ok(errors::not_found_msg("Webhook not found")),
         Err(e) => {
             error!("Failed to get webhook: {}", e);
-            return errors::internal("Failed to get webhook");
+            return Ok(errors::internal("Failed to get webhook"));
         }
     };
 
@@ -402,13 +378,13 @@ pub async fn test_webhook(
                 "Test event sent to webhook: {} ({})",
                 webhook.uuid, webhook.name
             );
-            HttpResponse::Ok().json(serde_json::json!({
+            Ok(HttpResponse::Ok().json(serde_json::json!({
                 "message": "Test event queued for delivery"
-            }))
+            })))
         }
         Err(e) => {
             error!("Failed to send test event: {}", e);
-            errors::internal(format!("Failed to send test event: {e}"))
+            Ok(errors::internal(format!("Failed to send test event: {e}")))
         }
     }
 }

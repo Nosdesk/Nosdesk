@@ -110,17 +110,15 @@ pub async fn create_project(
     mut tc: TenantConn,
     project: web::Json<NewProject>,
     search_service: Option<web::Data<Arc<SearchService>>>,
-) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Agent)?;
 
     let observer = search_service
         .as_ref()
         .map(|d| d.get_ref() as &dyn repository::projects::ProjectIndexedObserver);
     match tc.run(|conn| repository::create_project(conn, project.into_inner(), observer)) {
-        Ok(project) => HttpResponse::Created().json(project),
-        Err(_) => errors::internal("Failed to create project"),
+        Ok(project) => Ok(HttpResponse::Created().json(project)),
+        Err(_) => Ok(errors::internal("Failed to create project")),
     }
 }
 
@@ -131,10 +129,8 @@ pub async fn update_project(
     path: web::Path<i32>,
     project_update: web::Json<ProjectUpdate>,
     search_service: Option<web::Data<Arc<SearchService>>>,
-) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Agent)?;
 
     let observer = search_service
         .as_ref()
@@ -143,10 +139,10 @@ pub async fn update_project(
     match tc.run(|conn| {
         repository::update_project(conn, project_id, project_update.into_inner(), observer)
     }) {
-        Ok(project) => HttpResponse::Ok().json(project),
+        Ok(project) => Ok(HttpResponse::Ok().json(project)),
         Err(e) => match e {
-            Error::NotFound => errors::not_found_msg("Project not found"),
-            _ => errors::internal("Failed to update project"),
+            Error::NotFound => Ok(errors::not_found_msg("Project not found")),
+            _ => Ok(errors::internal("Failed to update project")),
         },
     }
 }
@@ -157,19 +153,17 @@ pub async fn delete_project(
     mut tc: TenantConn,
     path: web::Path<i32>,
     search_service: Option<web::Data<Arc<SearchService>>>,
-) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let observer = search_service
         .as_ref()
         .map(|d| d.get_ref() as &dyn repository::projects::ProjectDeletedObserver);
     let project_id = path.into_inner();
     match tc.run(|conn| repository::delete_project(conn, project_id, observer)) {
-        Ok(0) => errors::not_found_msg("Project not found"),
-        Ok(_) => HttpResponse::NoContent().finish(),
-        Err(_) => errors::internal("Failed to delete project"),
+        Ok(0) => Ok(errors::not_found_msg("Project not found")),
+        Ok(_) => Ok(HttpResponse::NoContent().finish()),
+        Err(_) => Ok(errors::internal("Failed to delete project")),
     }
 }
 
@@ -214,16 +208,14 @@ pub async fn add_ticket_to_project(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<(i32, i32)>,
-) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Agent)?;
 
     let (project_id, ticket_id) = path.into_inner();
 
     match tc.run(|conn| repository::add_ticket_to_project(conn, project_id, ticket_id)) {
-        Ok(association) => HttpResponse::Created().json(association),
-        Err(_) => errors::internal("Failed to add ticket to project"),
+        Ok(association) => Ok(HttpResponse::Created().json(association)),
+        Err(_) => Ok(errors::internal("Failed to add ticket to project")),
     }
 }
 
@@ -244,16 +236,14 @@ pub async fn create_ticket_in_project(
     mut tc: TenantConn,
     path: web::Path<i32>,
     body: web::Json<QuickAddTicket>,
-) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Agent)?;
 
     let project_id = path.into_inner();
     let body = body.into_inner();
     let title = body.title.trim();
     if title.is_empty() {
-        return errors::bad_request("Title must not be empty");
+        return Ok(errors::bad_request("Title must not be empty"));
     }
 
     let requester_uuid = req
@@ -269,9 +259,9 @@ pub async fn create_ticket_in_project(
     };
 
     match tc.run(|conn| repository::create_ticket_in_project(conn, new_ticket, project_id)) {
-        Ok(ticket) => HttpResponse::Created().json(ticket),
-        Err(Error::NotFound) => errors::not_found_msg("Project not found"),
-        Err(_) => errors::internal("Failed to create ticket in project"),
+        Ok(ticket) => Ok(HttpResponse::Created().json(ticket)),
+        Err(Error::NotFound) => Ok(errors::not_found_msg("Project not found")),
+        Err(_) => Ok(errors::internal("Failed to create ticket in project")),
     }
 }
 
@@ -282,17 +272,15 @@ pub async fn remove_ticket_from_project(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<(i32, i32)>,
-) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Agent)?;
 
     let (project_id, ticket_id) = path.into_inner();
 
     match tc.run(|conn| repository::remove_ticket_from_project(conn, project_id, ticket_id)) {
-        Ok(0) => errors::not_found_msg("Association not found"),
-        Ok(_) => HttpResponse::NoContent().finish(),
-        Err(_) => errors::internal("Failed to remove ticket from project"),
+        Ok(0) => Ok(errors::not_found_msg("Association not found")),
+        Ok(_) => Ok(HttpResponse::NoContent().finish()),
+        Err(_) => Ok(errors::internal("Failed to remove ticket from project")),
     }
 }
 
@@ -309,10 +297,8 @@ pub async fn update_ticket_order(
     mut tc: TenantConn,
     path: web::Path<i32>,
     body: web::Json<UpdateTicketOrderRequest>,
-) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Agent)?;
 
     let project_id = path.into_inner();
 
@@ -327,8 +313,8 @@ pub async fn update_ticket_order(
     debug!(project_id, count = orders.len(), "Updating ticket order");
 
     match tc.run(|conn| repository::update_project_ticket_orders(conn, project_id, orders)) {
-        Ok(_) => HttpResponse::Ok().json(serde_json::json!({"success": true})),
-        Err(_) => errors::internal("Failed to update ticket order"),
+        Ok(_) => Ok(HttpResponse::Ok().json(serde_json::json!({"success": true}))),
+        Err(_) => Ok(errors::internal("Failed to update ticket order")),
     }
 }
 

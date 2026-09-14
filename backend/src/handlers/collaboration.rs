@@ -1,4 +1,4 @@
-use actix_web::{web, Error, HttpRequest, HttpResponse, Responder, ResponseError};
+use actix_web::{web, Error, HttpRequest, HttpResponse, Responder};
 use actix_ws::{AggregatedMessage, CloseReason};
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
@@ -3387,11 +3387,9 @@ pub async fn get_ticket_revisions(
     ticket_id: web::Path<i32>,
     mut tc: TenantConn,
     auth: AuthContext,
-) -> HttpResponse {
+) -> actix_web::Result<HttpResponse> {
     let ticket_id = ticket_id.into_inner();
-    if let Err(resp) = gate_ticket(&mut tc, &auth, ticket_id) {
-        return resp.error_response();
-    }
+    gate_ticket(&mut tc, &auth, ticket_id)?;
 
     // A ticket with no saved collaborative content yet simply has no
     // revisions: return an empty list so the version-history panel shows
@@ -3399,10 +3397,10 @@ pub async fn get_ticket_revisions(
     let article_content = match ticket_article_content(&mut tc, ticket_id) {
         Ok(Some(content)) => content,
         Ok(None) => {
-            return HttpResponse::Ok()
-                .json(Vec::<crate::models::ArticleContentRevisionResponse>::new());
+            return Ok(HttpResponse::Ok()
+                .json(Vec::<crate::models::ArticleContentRevisionResponse>::new()));
         }
-        Err(resp) => return resp.error_response(),
+        Err(resp) => return Err(resp.into()),
     };
 
     // Get all revisions
@@ -3412,9 +3410,9 @@ pub async fn get_ticket_revisions(
         Ok(revisions) => {
             let responses: Vec<crate::models::ArticleContentRevisionResponse> =
                 revisions.into_iter().map(Into::into).collect();
-            HttpResponse::Ok().json(responses)
+            Ok(HttpResponse::Ok().json(responses))
         }
-        Err(_) => errors::internal("Error retrieving revisions"),
+        Err(_) => Ok(errors::internal("Error retrieving revisions")),
     }
 }
 
@@ -3423,17 +3421,15 @@ pub async fn get_ticket_revision(
     path: web::Path<(i32, i32)>,
     mut tc: TenantConn,
     auth: AuthContext,
-) -> HttpResponse {
+) -> actix_web::Result<HttpResponse> {
     let (ticket_id, revision_number) = path.into_inner();
-    if let Err(resp) = gate_ticket(&mut tc, &auth, ticket_id) {
-        return resp.error_response();
-    }
+    gate_ticket(&mut tc, &auth, ticket_id)?;
 
     // No saved content means this revision can't exist.
     let article_content = match ticket_article_content(&mut tc, ticket_id) {
         Ok(Some(content)) => content,
-        Ok(None) => return errors::not_found_msg("Revision not found"),
-        Err(resp) => return resp.error_response(),
+        Ok(None) => return Ok(errors::not_found_msg("Revision not found")),
+        Err(resp) => return Err(resp.into()),
     };
 
     // Get the specific revision
@@ -3448,16 +3444,16 @@ pub async fn get_ticket_revision(
             // Encode the Yjs document content as base64 for frontend
             let content_base64 = general_purpose::STANDARD.encode(&revision.yjs_document_content);
 
-            HttpResponse::Ok().json(serde_json::json!({
+            Ok(HttpResponse::Ok().json(serde_json::json!({
                 "id": revision.id,
                 "article_content_id": revision.article_content_id,
                 "revision_number": revision.revision_number,
                 "yjs_document_content": content_base64,
                 "contributed_by": revision.contributed_by,
                 "created_at": revision.created_at,
-            }))
+            })))
         }
-        Err(_) => errors::not_found_msg("Revision not found"),
+        Err(_) => Ok(errors::not_found_msg("Revision not found")),
     }
 }
 
@@ -3466,17 +3462,15 @@ pub async fn restore_ticket_revision(
     path: web::Path<(i32, i32)>,
     mut tc: TenantConn,
     auth: AuthContext,
-) -> HttpResponse {
+) -> actix_web::Result<HttpResponse> {
     let (ticket_id, revision_number) = path.into_inner();
-    if let Err(resp) = gate_ticket(&mut tc, &auth, ticket_id) {
-        return resp.error_response();
-    }
+    gate_ticket(&mut tc, &auth, ticket_id)?;
 
     // No saved content means this revision can't exist.
     let article_content = match ticket_article_content(&mut tc, ticket_id) {
         Ok(Some(content)) => content,
-        Ok(None) => return errors::not_found_msg("Revision not found"),
-        Err(resp) => return resp.error_response(),
+        Ok(None) => return Ok(errors::not_found_msg("Revision not found")),
+        Err(resp) => return Err(resp.into()),
     };
 
     // Get the revision to restore
@@ -3488,7 +3482,7 @@ pub async fn restore_ticket_revision(
         )
     }) {
         Ok(rev) => rev,
-        Err(_) => return errors::not_found_msg("Revision not found"),
+        Err(_) => return Ok(errors::not_found_msg("Revision not found")),
     };
 
     if let Err(resp) = validate_revision_snapshot(&revision.yjs_document_content) {
@@ -3496,7 +3490,7 @@ pub async fn restore_ticket_revision(
             ticket_id,
             revision_number, "Revision snapshot failed to decode"
         );
-        return resp.error_response();
+        return Err(resp.into());
     }
 
     // The client applies the revert; this endpoint only authorised it, so it
@@ -3505,10 +3499,10 @@ pub async fn restore_ticket_revision(
         ticket_id,
         revision_number, "Authorised ticket revision restore"
     );
-    HttpResponse::Ok().json(json!({
+    Ok(HttpResponse::Ok().json(json!({
         "success": true,
         "message": format!("Restored to revision {revision_number}"),
-    }))
+    })))
 }
 
 // ============= Documentation Revision History API Endpoints =============
@@ -3518,17 +3512,15 @@ pub async fn get_doc_revisions(
     doc_id: web::Path<i32>,
     mut tc: TenantConn,
     auth: AuthContext,
-) -> HttpResponse {
+) -> actix_web::Result<HttpResponse> {
     let doc_id = doc_id.into_inner();
-    if let Err(resp) = gate_doc_page(&mut tc, &auth, doc_id) {
-        return resp.error_response();
-    }
+    gate_doc_page(&mut tc, &auth, doc_id)?;
 
     // Get all revisions
     match tc.run(|conn| crate::repository::documentation::get_documentation_revisions(conn, doc_id))
     {
-        Ok(revisions) => HttpResponse::Ok().json(revisions),
-        Err(_) => errors::internal("Error retrieving revisions"),
+        Ok(revisions) => Ok(HttpResponse::Ok().json(revisions)),
+        Err(_) => Ok(errors::internal("Error retrieving revisions")),
     }
 }
 
@@ -3537,11 +3529,9 @@ pub async fn get_doc_revision(
     path: web::Path<(i32, i32)>,
     mut tc: TenantConn,
     auth: AuthContext,
-) -> HttpResponse {
+) -> actix_web::Result<HttpResponse> {
     let (doc_id, revision_number) = path.into_inner();
-    if let Err(resp) = gate_doc_page(&mut tc, &auth, doc_id) {
-        return resp.error_response();
-    }
+    gate_doc_page(&mut tc, &auth, doc_id)?;
 
     // Get the specific revision
     match tc.run(|conn| {
@@ -3551,7 +3541,7 @@ pub async fn get_doc_revision(
             // Encode the Yjs document snapshot as base64 for frontend
             let content_base64 = general_purpose::STANDARD.encode(&revision.yjs_document_snapshot);
 
-            HttpResponse::Ok().json(serde_json::json!({
+            Ok(HttpResponse::Ok().json(serde_json::json!({
                 "id": revision.id,
                 "page_id": revision.page_id,
                 "revision_number": revision.revision_number,
@@ -3560,9 +3550,9 @@ pub async fn get_doc_revision(
                 "created_by": revision.created_by,
                 "created_at": revision.created_at,
                 "change_summary": revision.change_summary,
-            }))
+            })))
         }
-        Err(_) => errors::not_found_msg("Revision not found"),
+        Err(_) => Ok(errors::not_found_msg("Revision not found")),
     }
 }
 
@@ -3571,18 +3561,16 @@ pub async fn restore_doc_revision(
     path: web::Path<(i32, i32)>,
     mut tc: TenantConn,
     auth: AuthContext,
-) -> HttpResponse {
+) -> actix_web::Result<HttpResponse> {
     let (doc_id, revision_number) = path.into_inner();
-    if let Err(resp) = gate_doc_page(&mut tc, &auth, doc_id) {
-        return resp.error_response();
-    }
+    gate_doc_page(&mut tc, &auth, doc_id)?;
 
     // Get the revision to restore
     let revision = match tc.run(|conn| {
         crate::repository::documentation::get_documentation_revision(conn, doc_id, revision_number)
     }) {
         Ok(rev) => rev,
-        Err(_) => return errors::not_found_msg("Revision not found"),
+        Err(_) => return Ok(errors::not_found_msg("Revision not found")),
     };
 
     if let Err(resp) = validate_revision_snapshot(&revision.yjs_document_snapshot) {
@@ -3590,17 +3578,17 @@ pub async fn restore_doc_revision(
             doc_id,
             revision_number, "Revision snapshot failed to decode"
         );
-        return resp.error_response();
+        return Err(resp.into());
     }
 
     info!(
         doc_id,
         revision_number, "Authorised documentation revision restore"
     );
-    HttpResponse::Ok().json(json!({
+    Ok(HttpResponse::Ok().json(json!({
         "success": true,
         "message": format!("Restored to revision {revision_number}"),
-    }))
+    })))
 }
 
 /// Collab handshake: resolve the WebSocket URL a client should connect

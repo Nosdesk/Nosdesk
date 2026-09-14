@@ -1,4 +1,4 @@
-use actix_web::{web, HttpRequest, HttpResponse, Responder, ResponseError};
+use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use serde::Deserialize;
 use serde_json::json;
 use tracing::error;
@@ -185,22 +185,15 @@ pub async fn process_graph_request(
     db_pool: web::Data<Pool>,
     req: HttpRequest,
     request_data: web::Json<MicrosoftGraphRequest>,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     // Get database connection
-    let _conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+    let _conn = helpers::db_conn(&db_pool)?;
 
     // Proxying arbitrary Microsoft Graph requests runs through the
     // org's privileged app credentials, so restrict to workspace
     // admins. See security-audit-2026-06.
     let _claims =
-        match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
-        {
-            Ok(c) => c,
-            Err(resp) => return resp.error_response(),
-        };
+        crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)?;
 
     // Get the provider_id from the request or use the default Microsoft provider
     let provider_id_val = match request_data.provider_id {
@@ -211,12 +204,12 @@ pub async fn process_graph_request(
                 Ok(provider_id) => provider_id,
                 Err(e) => {
                     if let diesel::result::Error::NotFound = e {
-                        return errors::not_found_msg(
+                        return Ok(errors::not_found_msg(
                             "No Microsoft authentication provider configured",
-                        );
+                        ));
                     } else {
                         error!(error = ?e, "Error getting default Microsoft provider");
-                        return errors::internal("Failed to retrieve Microsoft provider");
+                        return Ok(errors::internal("Failed to retrieve Microsoft provider"));
                     }
                 }
             }
@@ -227,41 +220,60 @@ pub async fn process_graph_request(
     let provider = match get_provider_by_id(provider_id_val) {
         Ok(p) => {
             if p.provider_type != "microsoft" {
-                return errors::bad_request(
+                return Ok(errors::bad_request(
                     "This endpoint only supports Microsoft Graph API requests",
-                );
+                ));
             }
             p
         }
         Err(e) => {
             if let diesel::result::Error::NotFound = e {
-                return errors::not_found_msg("Authentication provider not found");
+                return Ok(errors::not_found_msg("Authentication provider not found"));
             } else {
                 error!(provider_id = provider_id_val, error = ?e, "Error getting auth provider");
-                return errors::internal("Failed to retrieve authentication provider");
+                return Ok(errors::internal(
+                    "Failed to retrieve authentication provider",
+                ));
             }
         }
     };
 
     // Check if the provider is enabled
     if !provider.enabled {
-        return errors::bad_request("The Microsoft authentication provider is not enabled");
+        return Ok(errors::bad_request(
+            "The Microsoft authentication provider is not enabled",
+        ));
     }
 
     // Get required configuration values from environment variables
     let client_id = match config_utils::get_microsoft_client_id() {
         Ok(val) => val,
-        Err(e) => return errors::internal(format!("Microsoft configuration error: {}", e)),
+        Err(e) => {
+            return Ok(errors::internal(format!(
+                "Microsoft configuration error: {}",
+                e
+            )))
+        }
     };
 
     let tenant_id = match config_utils::get_microsoft_tenant_id() {
         Ok(val) => val,
-        Err(e) => return errors::internal(format!("Microsoft configuration error: {}", e)),
+        Err(e) => {
+            return Ok(errors::internal(format!(
+                "Microsoft configuration error: {}",
+                e
+            )))
+        }
     };
 
     let client_secret = match config_utils::get_microsoft_client_secret() {
         Ok(val) => val,
-        Err(e) => return errors::internal(format!("Microsoft configuration error: {}", e)),
+        Err(e) => {
+            return Ok(errors::internal(format!(
+                "Microsoft configuration error: {}",
+                e
+            )))
+        }
     };
 
     // Get an access token
@@ -285,22 +297,24 @@ pub async fn process_graph_request(
         Ok(response) => match response.json::<serde_json::Value>().await {
             Ok(token_data) => {
                 if token_data.get("access_token").is_none() {
-                    return HttpResponse::BadRequest().json(json!({
+                    return Ok(HttpResponse::BadRequest().json(json!({
                             "status": "error",
                             "message": "Failed to obtain access token",
                             "details": token_data.get("error_description").and_then(|v| v.as_str()).unwrap_or("Unknown error")
-                        }));
+                        })));
                 }
                 token_data
             }
             Err(e) => {
                 error!(error = ?e, "Error parsing token response");
-                return errors::internal("Failed to parse Microsoft authentication response");
+                return Ok(errors::internal(
+                    "Failed to parse Microsoft authentication response",
+                ));
             }
         },
         Err(e) => {
             error!(error = ?e, "Error getting Microsoft access token");
-            return errors::internal("Failed to get Microsoft access token");
+            return Ok(errors::internal("Failed to get Microsoft access token"));
         }
     };
 
@@ -351,7 +365,10 @@ pub async fn process_graph_request(
         "DELETE" => client.delete(&url),
         "PATCH" => client.patch(&url),
         _ => {
-            return errors::bad_request(format!("Unsupported HTTP method: {}", method));
+            return Ok(errors::bad_request(format!(
+                "Unsupported HTTP method: {}",
+                method
+            )));
         }
     };
 
@@ -406,21 +423,21 @@ pub async fn process_graph_request(
                         // Provide helpful permission guidance based on the endpoint
                         let permission_help = get_permission_help_message(endpoint);
 
-                        return HttpResponse::Forbidden().json(json!({
+                        return Ok(HttpResponse::Forbidden().json(json!({
                             "status": "error",
                             "message": error_msg,
                             "error_code": error_code,
                             "permission_help": permission_help,
                             "documentation": "https://learn.microsoft.com/en-us/graph/permissions-reference"
-                        }));
+                        })));
                     }
                     Err(_) => {
-                        return HttpResponse::Forbidden().json(json!({
+                        return Ok(HttpResponse::Forbidden().json(json!({
                             "status": "error",
                             "message": "Insufficient permissions to access Microsoft Graph API",
                             "permission_help": get_permission_help_message(endpoint),
                             "documentation": "https://learn.microsoft.com/en-us/graph/permissions-reference"
-                        }));
+                        })));
                     }
                 }
             }
@@ -429,10 +446,10 @@ pub async fn process_graph_request(
             match response.json::<serde_json::Value>().await {
                 Ok(data) => {
                     if status.is_success() {
-                        HttpResponse::build(status).json(json!({
+                        Ok(HttpResponse::build(status).json(json!({
                             "status": "success",
                             "data": data
-                        }))
+                        })))
                     } else {
                         // Include error details for non-success responses
                         let error_msg = data
@@ -441,22 +458,22 @@ pub async fn process_graph_request(
                             .and_then(|msg| msg.as_str())
                             .unwrap_or("Microsoft Graph API error");
 
-                        HttpResponse::build(status).json(json!({
+                        Ok(HttpResponse::build(status).json(json!({
                             "status": "error",
                             "message": error_msg,
                             "data": data
-                        }))
+                        })))
                     }
                 }
                 Err(e) => {
                     error!(error = ?e, "Error parsing Microsoft Graph response");
-                    errors::internal("Failed to parse Microsoft Graph response")
+                    Ok(errors::internal("Failed to parse Microsoft Graph response"))
                 }
             }
         }
         Err(e) => {
             error!(error = ?e, "Error sending Microsoft Graph request");
-            errors::internal("Failed to send Microsoft Graph request")
+            Ok(errors::internal("Failed to send Microsoft Graph request"))
         }
     }
 }

@@ -13,7 +13,7 @@ use crate::handlers::errors;
 use crate::models::WorkspaceRole;
 use crate::repository::audit_log as repo;
 use crate::utils::rbac;
-use actix_web::{web, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpRequest, HttpResponse};
 use base64::Engine;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -55,17 +55,15 @@ pub async fn list(
     req: HttpRequest,
     mut tc: TenantConn,
     query: web::Query<ListQuery>,
-) -> impl Responder {
-    if let Err(resp) = rbac::require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    rbac::require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let cursor = match query.cursor.as_deref().map(decode_cursor) {
         Some(Ok(c)) => Some(c),
         Some(Err(_)) => {
-            return errors::bad_request(
+            return Ok(errors::bad_request(
                 "Invalid cursor; pass the next_cursor from the previous response verbatim",
-            );
+            ));
         }
         None => None,
     };
@@ -90,7 +88,7 @@ pub async fn list(
         Ok(p) => p,
         Err(e) => {
             warn!(error = ?e, "Failed to list audit log");
-            return errors::internal("Failed to list audit log");
+            return Ok(errors::internal("Failed to list audit log"));
         }
     };
 
@@ -112,10 +110,10 @@ pub async fn list(
         })
         .collect();
 
-    HttpResponse::Ok().json(ListResponse {
+    Ok(HttpResponse::Ok().json(ListResponse {
         rows,
         next_cursor: page.next_cursor.map(encode_cursor),
-    })
+    }))
 }
 
 fn encode_cursor(c: repo::Cursor) -> String {

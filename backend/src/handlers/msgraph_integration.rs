@@ -1,4 +1,4 @@
-use actix_web::{web, HttpMessage, HttpResponse, Responder, ResponseError};
+use actix_web::{web, HttpMessage, HttpResponse};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use reqwest;
@@ -707,11 +707,8 @@ pub async fn get_sync_progress_endpoint(
     req: actix_web::HttpRequest,
     db_pool: web::Data<Pool>,
     path: web::Path<String>,
-) -> impl Responder {
-    let _conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    let _conn = helpers::db_conn(&db_pool)?;
     // The Entra/Intune integration runs on the org's own app credentials, so
     // its state, its configuration and its running sync sessions are workspace-
     // admin only, matching `trigger_sync` below and the Graph proxy in
@@ -719,17 +716,13 @@ pub async fn get_sync_progress_endpoint(
     // here before, which let any member read the connection's configuration,
     // probe the live connection, and cancel an admin's directory sync.
     let _claims =
-        match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
-        {
-            Ok(c) => c,
-            Err(resp) => return resp.error_response(),
-        };
+        crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)?;
 
     let session_id = path.into_inner();
 
     match get_sync_progress(&session_id) {
-        Some(progress) => HttpResponse::Ok().json(progress),
-        None => errors::not_found_msg("Sync session not found"),
+        Some(progress) => Ok(HttpResponse::Ok().json(progress)),
+        None => Ok(errors::not_found_msg("Sync session not found")),
     }
 }
 
@@ -737,11 +730,8 @@ pub async fn get_sync_progress_endpoint(
 pub async fn get_active_syncs(
     req: actix_web::HttpRequest,
     db_pool: web::Data<Pool>,
-) -> impl Responder {
-    let _conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    let _conn = helpers::db_conn(&db_pool)?;
     // The Entra/Intune integration runs on the org's own app credentials, so
     // its state, its configuration and its running sync sessions are workspace-
     // admin only, matching `trigger_sync` below and the Graph proxy in
@@ -749,11 +739,7 @@ pub async fn get_active_syncs(
     // here before, which let any member read the connection's configuration,
     // probe the live connection, and cancel an admin's directory sync.
     let _claims =
-        match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
-        {
-            Ok(c) => c,
-            Err(resp) => return resp.error_response(),
-        };
+        crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)?;
 
     if let Ok(progress_map) = SYNC_PROGRESS.lock() {
         let active_syncs: Vec<SyncProgressState> = progress_map
@@ -767,12 +753,12 @@ pub async fn get_active_syncs(
             .cloned()
             .collect();
 
-        HttpResponse::Ok().json(json!({
+        Ok(HttpResponse::Ok().json(json!({
             "active_syncs": active_syncs,
             "count": active_syncs.len()
-        }))
+        })))
     } else {
-        errors::internal("Failed to access sync progress")
+        Ok(errors::internal("Failed to access sync progress"))
     }
 }
 
@@ -780,11 +766,8 @@ pub async fn get_active_syncs(
 pub async fn get_last_sync(
     req: actix_web::HttpRequest,
     db_pool: web::Data<Pool>,
-) -> impl Responder {
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    let mut conn = helpers::db_conn(&db_pool)?;
     // The Entra/Intune integration runs on the org's own app credentials, so
     // its state, its configuration and its running sync sessions are workspace-
     // admin only, matching `trigger_sync` below and the Graph proxy in
@@ -792,11 +775,7 @@ pub async fn get_last_sync(
     // here before, which let any member read the connection's configuration,
     // probe the live connection, and cancel an admin's directory sync.
     let _claims =
-        match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
-        {
-            Ok(c) => c,
-            Err(resp) => return resp.error_response(),
-        };
+        crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)?;
 
     // Try to get from database first (persistent storage)
     match sync_history_repo::get_last_completed_sync(&mut conn) {
@@ -820,7 +799,7 @@ pub async fn get_last_sync(
                 is_delta: sync_history.is_delta,
                 completed_items: 0,
             };
-            HttpResponse::Ok().json(response)
+            Ok(HttpResponse::Ok().json(response))
         }
         Err(_) => {
             // Fallback to in-memory storage if database query fails
@@ -835,11 +814,11 @@ pub async fn get_last_sync(
                     .max_by_key(|progress| progress.updated_at);
 
                 match last_sync {
-                    Some(sync) => HttpResponse::Ok().json(sync),
-                    None => HttpResponse::Ok().json(json!(null)),
+                    Some(sync) => Ok(HttpResponse::Ok().json(sync)),
+                    None => Ok(HttpResponse::Ok().json(json!(null))),
                 }
             } else {
-                errors::internal("Failed to access sync progress")
+                Ok(errors::internal("Failed to access sync progress"))
             }
         }
     }
@@ -850,11 +829,8 @@ pub async fn cancel_sync_session(
     req: actix_web::HttpRequest,
     db_pool: web::Data<Pool>,
     path: web::Path<String>,
-) -> impl Responder {
-    let _conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    let _conn = helpers::db_conn(&db_pool)?;
     // The Entra/Intune integration runs on the org's own app credentials, so
     // its state, its configuration and its running sync sessions are workspace-
     // admin only, matching `trigger_sync` below and the Graph proxy in
@@ -862,11 +838,7 @@ pub async fn cancel_sync_session(
     // here before, which let any member read the connection's configuration,
     // probe the live connection, and cancel an admin's directory sync.
     let _claims =
-        match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
-        {
-            Ok(c) => c,
-            Err(resp) => return resp.error_response(),
-        };
+        crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)?;
 
     let session_id = path.into_inner();
 
@@ -885,20 +857,20 @@ pub async fn cancel_sync_session(
                 None,
             );
 
-            HttpResponse::Ok().json(json!({
+            Ok(HttpResponse::Ok().json(json!({
                 "success": true,
                 "message": "Sync cancellation requested"
-            }))
+            })))
         } else {
-            errors::bad_request("Sync is not running")
+            Ok(errors::bad_request("Sync is not running"))
         }
     } else {
-        errors::not_found_msg("Sync session not found")
+        Ok(errors::not_found_msg("Sync session not found"))
     }
 }
 
 /// Validate Microsoft Graph configuration
-pub async fn get_config_validation(req: actix_web::HttpRequest) -> impl Responder {
+pub async fn get_config_validation(req: actix_web::HttpRequest) -> actix_web::Result<HttpResponse> {
     // The Entra/Intune integration runs on the org's own app credentials, so
     // its state, its configuration and its running sync sessions are workspace-
     // admin only, matching `trigger_sync` below and the Graph proxy in
@@ -906,11 +878,7 @@ pub async fn get_config_validation(req: actix_web::HttpRequest) -> impl Responde
     // here before, which let any member read the connection's configuration,
     // probe the live connection, and cancel an admin's directory sync.
     let _claims =
-        match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
-        {
-            Ok(c) => c,
-            Err(resp) => return resp.error_response(),
-        };
+        crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)?;
 
     let mut missing_fields = Vec::new();
 
@@ -934,7 +902,7 @@ pub async fn get_config_validation(req: actix_web::HttpRequest) -> impl Responde
     }
 
     if !missing_fields.is_empty() {
-        return HttpResponse::Ok().json(json!({
+        return Ok(HttpResponse::Ok().json(json!({
             "valid": false,
             "message": format!("Missing required environment variables: {}", missing_fields.join(", ")),
             "missing_fields": missing_fields,
@@ -942,29 +910,26 @@ pub async fn get_config_validation(req: actix_web::HttpRequest) -> impl Responde
             "tenant_id": tenant_id,
             "client_secret_configured": client_secret.is_some(),
             "redirect_uri": redirect_uri
-        }));
+        })));
     }
 
     // All required fields are present
-    HttpResponse::Ok().json(json!({
+    Ok(HttpResponse::Ok().json(json!({
         "valid": true,
         "message": "Microsoft Graph configuration is valid",
         "client_id": client_id,
         "tenant_id": tenant_id,
         "client_secret_configured": client_secret.is_some(),
         "redirect_uri": redirect_uri
-    }))
+    })))
 }
 
 /// Get Microsoft Graph connection status
 pub async fn get_connection_status(
     req: actix_web::HttpRequest,
     db_pool: web::Data<Pool>,
-) -> impl Responder {
-    let _conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    let _conn = helpers::db_conn(&db_pool)?;
     // The Entra/Intune integration runs on the org's own app credentials, so
     // its state, its configuration and its running sync sessions are workspace-
     // admin only, matching `trigger_sync` below and the Graph proxy in
@@ -972,11 +937,7 @@ pub async fn get_connection_status(
     // here before, which let any member read the connection's configuration,
     // probe the live connection, and cancel an admin's directory sync.
     let _claims =
-        match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
-        {
-            Ok(c) => c,
-            Err(resp) => return resp.error_response(),
-        };
+        crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)?;
 
     // Check if Microsoft is configured via environment variables
     let microsoft_configured = config_utils::get_microsoft_client_id().is_ok()
@@ -984,23 +945,23 @@ pub async fn get_connection_status(
         && config_utils::get_microsoft_tenant_id().is_ok();
 
     if !microsoft_configured {
-        return HttpResponse::Ok().json(ConnectionStatus {
+        return Ok(HttpResponse::Ok().json(ConnectionStatus {
             status: "disconnected".to_string(),
             message: "Microsoft auth provider not configured".to_string(),
             last_sync: None,
             available_entities: vec![],
-        });
+        }));
     }
 
     // Check environment configuration
     let config_check = check_microsoft_config();
     if let Err(error_msg) = config_check {
-        return HttpResponse::Ok().json(ConnectionStatus {
+        return Ok(HttpResponse::Ok().json(ConnectionStatus {
             status: "error".to_string(),
             message: format!("Configuration error: {error_msg}"),
             last_sync: None,
             available_entities: vec![],
-        });
+        }));
     }
 
     // Look up the most recent sync_history row to populate the
@@ -1040,7 +1001,7 @@ pub async fn get_connection_status(
         .flatten()
     });
 
-    HttpResponse::Ok().json(ConnectionStatus {
+    Ok(HttpResponse::Ok().json(ConnectionStatus {
         status: "connected".to_string(),
         message: "Microsoft Graph connection is configured and ready".to_string(),
         last_sync,
@@ -1049,11 +1010,11 @@ pub async fn get_connection_status(
             "devices".to_string(),
             "groups".to_string(),
         ],
-    })
+    }))
 }
 
 /// Test Microsoft Graph connection
-pub async fn test_connection(req: actix_web::HttpRequest) -> impl Responder {
+pub async fn test_connection(req: actix_web::HttpRequest) -> actix_web::Result<HttpResponse> {
     // The Entra/Intune integration runs on the org's own app credentials, so
     // its state, its configuration and its running sync sessions are workspace-
     // admin only, matching `trigger_sync` below and the Graph proxy in
@@ -1061,28 +1022,24 @@ pub async fn test_connection(req: actix_web::HttpRequest) -> impl Responder {
     // here before, which let any member read the connection's configuration,
     // probe the live connection, and cancel an admin's directory sync.
     let _claims =
-        match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
-        {
-            Ok(c) => c,
-            Err(resp) => return resp.error_response(),
-        };
+        crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)?;
 
     tracing::info!("🔬 Testing Microsoft Graph connection");
 
     // Get Microsoft provider
     let provider = match get_default_microsoft_provider() {
         Ok(provider) => provider,
-        Err(_) => return errors::bad_request("Microsoft auth provider not found"),
+        Err(_) => return Ok(errors::bad_request("Microsoft auth provider not found")),
     };
 
     // Test the connection by making a simple Graph API call
     match test_graph_connection(provider.id).await {
-        Ok(result) => HttpResponse::Ok().json(result),
-        Err(error) => HttpResponse::Ok().json(json!({
+        Ok(result) => Ok(HttpResponse::Ok().json(result)),
+        Err(error) => Ok(HttpResponse::Ok().json(json!({
             "success": false,
             "status": "error",
             "message": format!("Connection test failed: {}", error)
-        })),
+        }))),
     }
 }
 
@@ -1093,30 +1050,25 @@ pub async fn sync_data(
     db_pool: web::Data<Pool>,
     ws: crate::extractors::WorkspaceContext,
     request: web::Json<SyncDataRequest>,
-) -> impl Responder {
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    let mut conn = helpers::db_conn(&db_pool)?;
     // Triggering a full Entra/Intune directory sync (mass record
     // create/update via the integration's credentials) is workspace-
     // admin only. See security-audit-2026-06.
     let _claims =
-        match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
-        {
-            Ok(c) => c,
-            Err(resp) => return resp.error_response(),
-        };
+        crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)?;
 
     // Get Microsoft provider
     let provider = match get_default_microsoft_provider() {
         Ok(provider) => provider,
-        Err(_) => return errors::bad_request("Microsoft auth provider not found"),
+        Err(_) => return Ok(errors::bad_request("Microsoft auth provider not found")),
     };
 
     // Validate configuration before spawning background task
     if let Err(e) = check_microsoft_config() {
-        return errors::bad_request(format!("Microsoft Graph configuration invalid: {e}"));
+        return Ok(errors::bad_request(format!(
+            "Microsoft Graph configuration invalid: {e}"
+        )));
     }
 
     // Determine the primary sync type based on entities
@@ -1161,7 +1113,7 @@ pub async fn sync_data(
         Ok(history) => history,
         Err(e) => {
             error!("Failed to create sync history record: {:?}", e);
-            return errors::internal("Failed to create sync history record");
+            return Ok(errors::internal("Failed to create sync history record"));
         }
     };
 
@@ -1391,11 +1343,11 @@ pub async fn sync_data(
     });
 
     // Return the session ID immediately
-    HttpResponse::Ok().json(json!({
+    Ok(HttpResponse::Ok().json(json!({
         "success": true,
         "message": "Sync started successfully",
         "session_id": session_id
-    }))
+    })))
 }
 
 /// Check Microsoft configuration
@@ -5108,11 +5060,8 @@ pub async fn get_entra_object_id(
     req: actix_web::HttpRequest,
     db_pool: web::Data<Pool>,
     path: web::Path<String>,
-) -> impl Responder {
-    let _conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    let _conn = helpers::db_conn(&db_pool)?;
     // The Entra/Intune integration runs on the org's own app credentials, so
     // its state, its configuration and its running sync sessions are workspace-
     // admin only, matching `trigger_sync` below and the Graph proxy in
@@ -5120,29 +5069,25 @@ pub async fn get_entra_object_id(
     // here before, which let any member read the connection's configuration,
     // probe the live connection, and cancel an admin's directory sync.
     let _claims =
-        match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
-        {
-            Ok(c) => c,
-            Err(resp) => return resp.error_response(),
-        };
+        crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)?;
 
     // Get Microsoft provider
     let provider = match get_default_microsoft_provider() {
         Ok(provider) => provider,
-        Err(_) => return errors::bad_request("Microsoft auth provider not found"),
+        Err(_) => return Ok(errors::bad_request("Microsoft auth provider not found")),
     };
 
     let azure_ad_device_id = path.into_inner();
 
     // Fetch the Object ID from Microsoft Graph
     match fetch_entra_object_id_from_graph(provider.id, &azure_ad_device_id).await {
-        Ok(object_id) => HttpResponse::Ok().json(json!({
+        Ok(object_id) => Ok(HttpResponse::Ok().json(json!({
             "success": true,
             "azure_ad_device_id": azure_ad_device_id,
             "object_id": object_id,
             "entra_url": format!("https://entra.microsoft.com/#view/Microsoft_AAD_Devices/DeviceDetailsMenuBlade/~/Properties/objectId/{}", object_id)
-        })),
-        Err(error) => errors::bad_request(format!("Failed to fetch Object ID: {}", error))
+        }))),
+        Err(error) => Ok(errors::bad_request(format!("Failed to fetch Object ID: {}", error)))
     }
 }
 

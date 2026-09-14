@@ -50,10 +50,8 @@ const DEFAULT_LIMIT: i64 = 50;
 const MAX_LIMIT: i64 = 200;
 
 /// `GET /api/admin/inbound/dead-letters` — platform-admin only.
-pub async fn list(req: HttpRequest, pool: web::Data<Pool>) -> HttpResponse {
-    if let Err(resp) = rbac::require_platform_admin(&req) {
-        return resp.error_response();
-    }
+pub async fn list(req: HttpRequest, pool: web::Data<Pool>) -> actix_web::Result<HttpResponse> {
+    rbac::require_platform_admin(&req)?;
 
     let since = chrono::Utc::now().naive_utc() - chrono::Duration::days(7);
     // cross-tenant: inbound_dead_letters is an untenanted platform-admin table.
@@ -64,13 +62,13 @@ pub async fn list(req: HttpRequest, pool: web::Data<Pool>) -> HttpResponse {
     });
 
     match result {
-        Ok((rows, count_7d)) => HttpResponse::Ok().json(ListResponse {
+        Ok((rows, count_7d)) => Ok(HttpResponse::Ok().json(ListResponse {
             rows: rows.into_iter().map(DeadLetterRow::from).collect(),
             count_7d,
-        }),
+        })),
         Err(e) => {
             error!(error = %e, "failed to list inbound dead-letters");
-            errors::internal("Failed to list unrouted inbound mail")
+            Ok(errors::internal("Failed to list unrouted inbound mail"))
         }
     }
 }

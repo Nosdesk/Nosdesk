@@ -1,5 +1,5 @@
 use actix_multipart::Multipart;
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder, ResponseError};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use bcrypt::DEFAULT_COST;
 use diesel::prelude::*;
 use futures::{StreamExt, TryStreamExt};
@@ -519,11 +519,11 @@ pub struct PaginatedResponse<T> {
 }
 
 // User handlers
-pub async fn get_users(pool: web::Data<crate::db::Pool>, ws: WorkspaceContext) -> impl Responder {
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+pub async fn get_users(
+    pool: web::Data<crate::db::Pool>,
+    ws: WorkspaceContext,
+) -> actix_web::Result<HttpResponse> {
+    let mut conn = helpers::db_conn(&pool)?;
     // Pin the resolved workspace so the users read and per-row workspace_role
     // lookup are visible under RLS (both tables are workspace-isolated).
     helpers::pin_workspace(&mut conn, ws.workspace_id);
@@ -536,11 +536,11 @@ pub async fn get_users(pool: web::Data<crate::db::Pool>, ws: WorkspaceContext) -
                 &mut conn,
                 ws.workspace_id,
             );
-            HttpResponse::Ok().json(user_responses)
+            Ok(HttpResponse::Ok().json(user_responses))
         }
         Err(e) => {
             error!(error = ?e, "Error fetching users");
-            errors::internal("Failed to fetch users")
+            Ok(errors::internal("Failed to fetch users"))
         }
     }
 }
@@ -551,11 +551,8 @@ pub async fn get_paginated_users(
     query: web::Query<PaginationParams>,
     req: HttpRequest,
     ws: WorkspaceContext,
-) -> impl Responder {
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    let mut conn = helpers::db_conn(&pool)?;
     // Pin the resolved workspace so the users read and per-row workspace_role
     // lookup are visible under RLS (both tables are workspace-isolated).
     helpers::pin_workspace(&mut conn, ws.workspace_id);
@@ -679,11 +676,11 @@ pub async fn get_paginated_users(
                 total_pages,
             };
 
-            HttpResponse::Ok().json(response)
+            Ok(HttpResponse::Ok().json(response))
         }
         Err(e) => {
             error!(error = ?e, "Error fetching paginated users");
-            errors::internal("Failed to get paginated users")
+            Ok(errors::internal("Failed to get paginated users"))
         }
     }
 }
@@ -741,19 +738,16 @@ pub async fn get_user_by_uuid(
     pool: web::Data<crate::db::Pool>,
     ws: WorkspaceContext,
     req: HttpRequest,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     let uuid_str = uuid_path.into_inner();
 
     // Parse the UUID string into a proper UUID type
     let user_uuid_parsed = match utils::parse_uuid(&uuid_str) {
         Ok(uuid) => uuid,
-        Err(_) => return errors::bad_request("Invalid UUID format"),
+        Err(_) => return Ok(errors::bad_request("Invalid UUID format")),
     };
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+    let mut conn = helpers::db_conn(&pool)?;
     // Pin the request's workspace so the returned user's workspace_role
     // resolves under RLS (workspace_members is workspace-isolated).
     helpers::pin_request_workspace(&req, &mut conn);
@@ -768,12 +762,12 @@ pub async fn get_user_by_uuid(
             // Use helper function to fetch primary email from user_emails table
             let user_response =
                 repository::user_helpers::get_user_with_primary_email(user, &mut conn);
-            HttpResponse::Ok().json(user_response)
+            Ok(HttpResponse::Ok().json(user_response))
         }
         // A stranger is indistinguishable from a missing row, so this does not
         // become an oracle for which uuids exist in other workspaces.
-        Ok(None) => errors::not_found_msg("User not found"),
-        Err(_) => errors::not_found_msg("User not found"),
+        Ok(None) => Ok(errors::not_found_msg("User not found")),
+        Err(_) => Ok(errors::not_found_msg("User not found")),
     }
 }
 
@@ -787,11 +781,8 @@ pub async fn get_users_batch(
     batch_request: web::Json<BatchUsersRequest>,
     pool: web::Data<crate::db::Pool>,
     ws: WorkspaceContext,
-) -> impl Responder {
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    let mut conn = helpers::db_conn(&pool)?;
     // Pin the resolved workspace so the users read and per-row workspace_role
     // lookup are visible under RLS (both tables are workspace-isolated).
     helpers::pin_workspace(&mut conn, ws.workspace_id);
@@ -805,7 +796,7 @@ pub async fn get_users_batch(
     }
 
     if valid_uuids.is_empty() {
-        return errors::bad_request("No valid UUIDs provided");
+        return Ok(errors::bad_request("No valid UUIDs provided"));
     }
 
     // Convert to Vec for the repository function
@@ -822,11 +813,11 @@ pub async fn get_users_batch(
                 &mut conn,
                 ws.workspace_id,
             );
-            HttpResponse::Ok().json(user_responses)
+            Ok(HttpResponse::Ok().json(user_responses))
         }
         Err(e) => {
             error!(error = ?e, "Error fetching users batch");
-            errors::internal("Failed to get users")
+            Ok(errors::internal("Failed to get users"))
         }
     }
 }
@@ -860,7 +851,7 @@ pub async fn create_user(
     search_service: web::Data<Arc<SearchService>>,
     user_data: web::Json<CreateUserRequest>,
     req: HttpRequest,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     // The intended role decides the gate (roles map to the platform+workspace
     // split via parse_roles, so we resolve it up front).
     //
@@ -874,36 +865,24 @@ pub async fn create_user(
     // off there rather than mint a local account that can never sign in.
     let (platform_role, workspace_role) = match utils::parse_roles(&user_data.role) {
         Ok(roles) => roles,
-        Err(e) => return e.into(),
+        Err(e) => return Ok(e.into()),
     };
     let is_requester = platform_role == crate::models::PlatformRole::User
         && workspace_role == crate::models::WorkspaceRole::Member;
 
     let actor_claims = if is_requester {
-        match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Agent)
-        {
-            Ok(c) => c,
-            Err(resp) => return resp.error_response(),
-        }
+        crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Agent)?
     } else {
-        let claims = match crate::utils::rbac::require_workspace_role(
-            &req,
-            crate::models::WorkspaceRole::Admin,
-        ) {
-            Ok(c) => c,
-            Err(resp) => return resp.error_response(),
-        };
+        let claims =
+            crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)?;
         if !crate::middleware::workspace_context::local_credentials_permitted() {
             // Same boundary + code as the other staff-mutation refusals.
-            return errors::externally_managed();
+            return Ok(errors::externally_managed());
         }
         claims
     };
 
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+    let mut conn = helpers::db_conn(&db_pool)?;
     // Pin the request's workspace at the session level so the new user's
     // workspace_role resolves under RLS when the response is built after
     // the creation transaction (with_actor_context's SET LOCAL reverts to
@@ -958,11 +937,11 @@ pub async fn create_user(
     }
 
     if !validation_errors.is_empty() {
-        return HttpResponse::BadRequest().json(json!({
+        return Ok(HttpResponse::BadRequest().json(json!({
             "status": "error",
             "message": "Validation failed",
             "errors": validation_errors
-        }));
+        })));
     }
 
     // Validate optional fields
@@ -994,7 +973,7 @@ pub async fn create_user(
 
     // Check if user with this email already exists
     if repository::get_user_by_email(&user_data.email, &mut conn).is_ok() {
-        return errors::bad_request("User with this email already exists");
+        return Ok(errors::bad_request("User with this email already exists"));
     }
 
     // Use provided UUID or generate a new UUIDv7
@@ -1061,7 +1040,7 @@ pub async fn create_user(
                     Ok(h) => h,
                     Err(e) => {
                         error!(error = ?e, "Error hashing password");
-                        return errors::internal("Error setting password");
+                        return Ok(errors::internal("Error setting password"));
                     }
                 };
                 (Some(hash), false)
@@ -1082,11 +1061,11 @@ pub async fn create_user(
                     }
                     SendInvitationResult::TokenStorageError(e) => {
                         error!(error = %e, "Error storing invitation token");
-                        return errors::internal("Error creating invitation");
+                        return Ok(errors::internal("Error creating invitation"));
                     }
                     SendInvitationResult::EmailServiceError(e) => {
                         error!(error = %e, "Error initializing email service");
-                        return errors::internal("Error sending invitation email");
+                        return Ok(errors::internal("Error sending invitation email"));
                     }
                     SendInvitationResult::EmailSendError(e) => {
                         error!(error = %e, "Error sending invitation email");
@@ -1098,7 +1077,9 @@ pub async fn create_user(
                 (None, true) // No password hash - user will set via invitation
             } else {
                 // No password and no SMTP - this should have been caught in validation
-                return errors::bad_request("Password is required when email is not configured");
+                return Ok(errors::bad_request(
+                    "Password is required when email is not configured",
+                ));
             };
 
             debug!(user_uuid = %user.uuid, "Created user");
@@ -1140,16 +1121,16 @@ pub async fn create_user(
                             "invitation_sent".to_string(),
                             serde_json::Value::Bool(invitation_sent),
                         );
-                        return HttpResponse::Created().json(map);
+                        return Ok(HttpResponse::Created().json(map));
                     }
-                    HttpResponse::Created().json(response)
+                    Ok(HttpResponse::Created().json(response))
                 }
                 Err(e) => {
                     error!(error = ?e, "Error creating auth identity");
                     // If identity creation fails, still return the user (with primary email)
                     let user_response =
                         repository::user_helpers::get_user_with_primary_email(user, &mut conn);
-                    HttpResponse::Created().json(user_response)
+                    Ok(HttpResponse::Created().json(user_response))
                 }
             }
         }
@@ -1170,10 +1151,10 @@ pub async fn create_user(
                     "Error creating user"
                 };
 
-            HttpResponse::InternalServerError().json(json!({
+            Ok(HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": error_message
-            }))
+            })))
         }
     }
 }
@@ -1214,11 +1195,8 @@ pub async fn delete_user(
     uuid: web::Path<String>,
     pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
-) -> impl Responder {
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    let mut conn = helpers::db_conn(&pool)?;
     // Pin the request's workspace so the admin-protection guard below
     // (`user_is_admin` reads RLS-isolated workspace_members) resolves the
     // target's role. On an unpinned conn the role reads as None and the guard
@@ -1226,27 +1204,26 @@ pub async fn delete_user(
     helpers::pin_request_workspace(&req, &mut conn);
 
     let (claims, user_uuid_parsed, target_user) =
-        match require_admin_target(&req, &mut conn, uuid.as_str()) {
-            Ok(t) => t,
-            Err(resp) => return resp.error_response(),
-        };
+        require_admin_target(&req, &mut conn, uuid.as_str())?;
 
     if claims.sub == uuid.as_str() {
-        return errors::bad_request("You cannot delete your own account while logged in");
+        return Ok(errors::bad_request(
+            "You cannot delete your own account while logged in",
+        ));
     }
     if crate::repository::user_helpers::user_is_admin(&mut conn, &target_user) {
-        return errors::bad_request(
+        return Ok(errors::bad_request(
             "Administrator accounts cannot be deleted for security reasons",
-        );
+        ));
     }
     let actor = helpers::actor_for(&req, "users_admin");
     // In hosted, a staff seat is control-plane-owned in ANY workspace (the CP
     // owns the account lifecycle). Refuse a local delete and hand off.
     if helpers::target_is_externally_managed_staff(&mut conn, &actor, target_user.uuid) {
-        return errors::externally_managed();
+        return Ok(errors::externally_managed());
     }
     if target_user.deleted_at.is_some() {
-        return errors::conflict("User is already soft-deleted");
+        return Ok(errors::conflict("User is already soft-deleted"));
     }
 
     let soft_deleted = match crate::sync::session::with_actor_context::<_, diesel::result::Error>(
@@ -1262,7 +1239,7 @@ pub async fn delete_user(
                 error = ?e,
                 "Failed to soft-delete user"
             );
-            return errors::internal("Failed to delete user");
+            return Ok(errors::internal("Failed to delete user"));
         }
     };
 
@@ -1277,11 +1254,11 @@ pub async fn delete_user(
         "User soft-deleted"
     );
 
-    HttpResponse::Ok().json(json!({
+    Ok(HttpResponse::Ok().json(json!({
         "uuid": soft_deleted.uuid,
         "deleted_at": soft_deleted.deleted_at,
         "purge_at": purge_at,
-    }))
+    })))
 }
 
 /// Restore a soft-deleted user. Clears `deleted_at`, emits
@@ -1293,25 +1270,18 @@ pub async fn restore_user(
     uuid: web::Path<String>,
     pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
-) -> impl Responder {
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    let mut conn = helpers::db_conn(&pool)?;
 
-    let (_claims, user_uuid_parsed, target) =
-        match require_admin_target(&req, &mut conn, uuid.as_str()) {
-            Ok(t) => t,
-            Err(resp) => return resp.error_response(),
-        };
+    let (_claims, user_uuid_parsed, target) = require_admin_target(&req, &mut conn, uuid.as_str())?;
     if target.deleted_at.is_none() {
-        return errors::conflict("User is not soft-deleted");
+        return Ok(errors::conflict("User is not soft-deleted"));
     }
     let actor = helpers::actor_for(&req, "users_admin");
     // In hosted, re-activating a control-plane-owned staff seat (in any
     // workspace) locally would diverge from the projection; hand off.
     if helpers::target_is_externally_managed_staff(&mut conn, &actor, target.uuid) {
-        return errors::externally_managed();
+        return Ok(errors::externally_managed());
     }
 
     let restored = match crate::sync::session::with_actor_context::<_, diesel::result::Error>(
@@ -1322,16 +1292,16 @@ pub async fn restore_user(
         Ok(u) => u,
         Err(e) => {
             error!(user_uuid = %user_uuid_parsed, error = ?e, "Failed to restore user");
-            return errors::internal("Failed to restore user");
+            return Ok(errors::internal("Failed to restore user"));
         }
     };
 
     info!(user_uuid = %restored.uuid, name = %restored.name, "User restored");
 
-    HttpResponse::Ok().json(json!({
+    Ok(HttpResponse::Ok().json(json!({
         "uuid": restored.uuid,
         "deleted_at": restored.deleted_at,
-    }))
+    })))
 }
 
 /// Permanently delete a soft-deleted user. The "right to be
@@ -1348,39 +1318,34 @@ pub async fn purge_user_now(
     pool: web::Data<crate::db::Pool>,
     search_service: web::Data<Arc<SearchService>>,
     req: HttpRequest,
-) -> impl Responder {
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    let mut conn = helpers::db_conn(&pool)?;
     // Pin the request's workspace so the admin-protection guard below
     // (`user_is_admin` reads RLS-isolated workspace_members) resolves the
     // target's role; otherwise it reads None and the guard fails OPEN.
     helpers::pin_request_workspace(&req, &mut conn);
 
-    let (claims, user_uuid_parsed, target) =
-        match require_admin_target(&req, &mut conn, uuid.as_str()) {
-            Ok(t) => t,
-            Err(resp) => return resp.error_response(),
-        };
+    let (claims, user_uuid_parsed, target) = require_admin_target(&req, &mut conn, uuid.as_str())?;
     if target.deleted_at.is_none() {
-        return errors::conflict(
+        return Ok(errors::conflict(
             "User must be soft-deleted before permanent deletion. Use DELETE /admin/users/{uuid} first.",
-        );
+        ));
     }
     if claims.sub == uuid.as_str() {
-        return errors::bad_request("You cannot permanently delete your own account");
+        return Ok(errors::bad_request(
+            "You cannot permanently delete your own account",
+        ));
     }
     if crate::repository::user_helpers::user_is_admin(&mut conn, &target) {
-        return errors::bad_request(
+        return Ok(errors::bad_request(
             "Administrator accounts cannot be deleted for security reasons",
-        );
+        ));
     }
     let actor = helpers::actor_for(&req, "users_admin");
     // In hosted, a staff seat is control-plane-owned in ANY workspace; erasure
     // of a projected staff account is a control-plane concern. Refuse.
     if helpers::target_is_externally_managed_staff(&mut conn, &actor, target.uuid) {
-        return errors::externally_managed();
+        return Ok(errors::externally_managed());
     }
 
     // Purge cascades across every workspace the user belongs to
@@ -1404,12 +1369,12 @@ pub async fn purge_user_now(
                 user_uuid = %target.uuid,
                 "User permanently deleted by admin (skipped retention window)"
             );
-            HttpResponse::NoContent().finish()
+            Ok(HttpResponse::NoContent().finish())
         }
-        Ok(_) => errors::not_found_msg("User not found"),
+        Ok(_) => Ok(errors::not_found_msg("User not found")),
         Err(e) => {
             error!(user_uuid = %user_uuid_parsed, error = ?e, "Failed to permanently delete user");
-            errors::internal("Failed to permanently delete user")
+            Ok(errors::internal("Failed to permanently delete user"))
         }
     }
 }
@@ -1418,41 +1383,38 @@ pub async fn purge_user_now(
 pub async fn get_user_auth_identities(
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     // Get database connection
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+    let mut conn = helpers::db_conn(&db_pool)?;
 
     // Extract claims from cookie auth middleware
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
         None => {
-            return errors::unauthorized("Authentication required");
+            return Ok(errors::unauthorized("Authentication required"));
         }
     };
 
     // Get the user ID
     let user_uuid_parsed = match utils::parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return errors::bad_request("Invalid UUID in token"),
+        Err(_) => return Ok(errors::bad_request("Invalid UUID in token")),
     };
 
     let user = match repository::get_user_by_uuid(&user_uuid_parsed, &mut conn) {
         Ok(user) => user,
         Err(e) => {
             error!(error = ?e, "Error getting user by UUID");
-            return errors::not_found_msg("User not found");
+            return Ok(errors::not_found_msg("User not found"));
         }
     };
 
     // Get auth identities for the user
     match repository::user_auth_identities::get_user_identities_display(&user.uuid, &mut conn) {
-        Ok(identities) => HttpResponse::Ok().json(identities),
+        Ok(identities) => Ok(HttpResponse::Ok().json(identities)),
         Err(e) => {
             error!(error = ?e, "Error fetching auth identities");
-            errors::internal("Failed to retrieve auth identities")
+            Ok(errors::internal("Failed to retrieve auth identities"))
         }
     }
 }
@@ -1462,12 +1424,9 @@ pub async fn get_user_auth_identities_by_uuid(
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
     path: web::Path<String>, // User UUID
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     // Get database connection
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+    let mut conn = helpers::db_conn(&db_pool)?;
 
     let user_uuid = path.into_inner();
 
@@ -1475,30 +1434,32 @@ pub async fn get_user_auth_identities_by_uuid(
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
         None => {
-            return errors::unauthorized("Authentication required");
+            return Ok(errors::unauthorized("Authentication required"));
         }
     };
 
     // Ensure the user is authorized (either accessing their own identities or is an admin)
     if claims.sub != user_uuid && !is_platform_admin(&claims) {
         warn!(requesting_user = %claims.sub, target_user = %user_uuid, "Authorization failed: user tried to access identities of another user");
-        return errors::forbidden("Not authorized to access this resource");
+        return Ok(errors::forbidden("Not authorized to access this resource"));
     }
 
     // Get auth identities for the user by UUID
     let user_uuid_parsed = match utils::parse_uuid(&user_uuid) {
         Ok(uuid) => uuid,
-        Err(_) => return errors::bad_request("Invalid UUID format"),
+        Err(_) => return Ok(errors::bad_request("Invalid UUID format")),
     };
 
     match repository::user_auth_identities::get_user_identities_display(
         &user_uuid_parsed,
         &mut conn,
     ) {
-        Ok(identities) => HttpResponse::Ok().json(identities),
+        Ok(identities) => Ok(HttpResponse::Ok().json(identities)),
         Err(e) => {
             error!(user_uuid = %user_uuid, error = ?e, "Error fetching auth identities for UUID");
-            errors::not_found_msg("User not found or no auth identities")
+            Ok(errors::not_found_msg(
+                "User not found or no auth identities",
+            ))
         }
     }
 }
@@ -1508,30 +1469,27 @@ pub async fn delete_user_auth_identity(
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
     path: web::Path<i32>, // Auth identity ID
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     let identity_id = path.into_inner();
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+    let mut conn = helpers::db_conn(&db_pool)?;
 
     // Extract claims from cookie auth middleware
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Authentication required"),
+        None => return Ok(errors::unauthorized("Authentication required")),
     };
 
     // Get the user ID
     let user_uuid_parsed = match utils::parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return errors::bad_request("Invalid UUID in token"),
+        Err(_) => return Ok(errors::bad_request("Invalid UUID in token")),
     };
 
     let user = match repository::get_user_by_uuid(&user_uuid_parsed, &mut conn) {
         Ok(user) => user,
         Err(e) => {
             error!(error = ?e, "Error getting user by UUID");
-            return errors::internal("Failed to get user data");
+            return Ok(errors::internal("Failed to get user data"));
         }
     };
 
@@ -1542,31 +1500,33 @@ pub async fn delete_user_auth_identity(
             Ok(identities) => identities,
             Err(e) => {
                 error!(error = ?e, "Error getting user auth identities");
-                return errors::internal("Failed to get authentication identities");
+                return Ok(errors::internal("Failed to get authentication identities"));
             }
         };
 
     if identities.len() <= 1 {
-        return errors::bad_request(
+        return Ok(errors::bad_request(
             "Cannot delete the only authentication method. Add another method first.",
-        );
+        ));
     }
 
     // Delete the identity
     match repository::user_auth_identities::delete_identity(identity_id, &user.uuid, &mut conn) {
         Ok(count) => {
             if count == 0 {
-                errors::not_found_msg("Authentication identity not found or doesn't belong to you")
+                Ok(errors::not_found_msg(
+                    "Authentication identity not found or doesn't belong to you",
+                ))
             } else {
-                HttpResponse::Ok().json(json!({
+                Ok(HttpResponse::Ok().json(json!({
                     "status": "success",
                     "message": "Authentication identity deleted successfully"
-                }))
+                })))
             }
         }
         Err(e) => {
             error!(error = ?e, "Error deleting user auth identity");
-            errors::internal("Failed to delete authentication identity")
+            Ok(errors::internal("Failed to delete authentication identity"))
         }
     }
 }
@@ -1576,29 +1536,26 @@ pub async fn delete_user_auth_identity_by_uuid(
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
     path: web::Path<(String, i32)>, // (User UUID, Auth identity ID)
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     let (user_uuid, identity_id) = path.into_inner();
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+    let mut conn = helpers::db_conn(&db_pool)?;
 
     // Extract claims from cookie auth middleware
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Authentication required"),
+        None => return Ok(errors::unauthorized("Authentication required")),
     };
 
     // Ensure the user is authorized (either accessing their own identities or is an admin)
     if claims.sub != user_uuid && !is_platform_admin(&claims) {
-        return errors::forbidden("Not authorized to access this resource");
+        return Ok(errors::forbidden("Not authorized to access this resource"));
     }
 
     // Ensure the user has at least one other auth method before deleting
     // (to prevent locking themselves out)
     let user_uuid_parsed = match utils::parse_uuid(&user_uuid) {
         Ok(uuid) => uuid,
-        Err(_) => return errors::bad_request("Invalid UUID format"),
+        Err(_) => return Ok(errors::bad_request("Invalid UUID format")),
     };
 
     let identities =
@@ -1606,14 +1563,14 @@ pub async fn delete_user_auth_identity_by_uuid(
             Ok(identities) => identities,
             Err(e) => {
                 error!(error = ?e, "Error getting user auth identities");
-                return errors::not_found_msg("User not found");
+                return Ok(errors::not_found_msg("User not found"));
             }
         };
 
     if identities.len() <= 1 {
-        return errors::bad_request(
+        return Ok(errors::bad_request(
             "Cannot delete the only authentication method. Add another method first.",
-        );
+        ));
     }
 
     // Delete the identity
@@ -1624,19 +1581,19 @@ pub async fn delete_user_auth_identity_by_uuid(
     ) {
         Ok(count) => {
             if count == 0 {
-                errors::not_found_msg(
+                Ok(errors::not_found_msg(
                     "Authentication identity not found or doesn't belong to this user",
-                )
+                ))
             } else {
-                HttpResponse::Ok().json(json!({
+                Ok(HttpResponse::Ok().json(json!({
                     "status": "success",
                     "message": "Authentication identity deleted successfully"
-                }))
+                })))
             }
         }
         Err(e) => {
             error!(error = ?e, "Error deleting user auth identity");
-            errors::internal("Failed to delete authentication identity")
+            Ok(errors::internal("Failed to delete authentication identity"))
         }
     }
 }
@@ -1862,20 +1819,19 @@ pub struct UserImageTypeQuery {
 pub async fn cleanup_stale_images(
     req: HttpRequest,
     db_pool: web::Data<crate::db::Pool>,
-) -> impl Responder {
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    let mut conn = helpers::db_conn(&db_pool)?;
 
     // Extract claims from cookie auth middleware
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Authentication required"),
+        None => return Ok(errors::unauthorized("Authentication required")),
     };
 
     if !is_platform_admin(&claims) {
-        return errors::forbidden("Only administrators can cleanup stale images");
+        return Ok(errors::forbidden(
+            "Only administrators can cleanup stale images",
+        ));
     }
 
     // Get all users to know which files should exist
@@ -1883,7 +1839,7 @@ pub async fn cleanup_stale_images(
         Ok(users) => users,
         Err(e) => {
             error!(error = ?e, "Error fetching users");
-            return errors::internal("Failed to fetch users");
+            return Ok(errors::internal("Failed to fetch users"));
         }
     };
 
@@ -1937,7 +1893,7 @@ pub async fn cleanup_stale_images(
             .push(format!("Thumbnail cleanup error: {e}"));
     }
 
-    HttpResponse::Ok().json(json!({
+    Ok(HttpResponse::Ok().json(json!({
         "status": "success",
         "message": "Stale image cleanup completed",
         "stats": {
@@ -1947,7 +1903,7 @@ pub async fn cleanup_stale_images(
             "total_files_checked": cleanup_stats.total_files_checked,
             "errors": cleanup_stats.errors
         }
-    }))
+    })))
 }
 
 /// POST /users/regenerate-thumbnails — admin maintenance action that
@@ -1958,19 +1914,18 @@ pub async fn cleanup_stale_images(
 pub async fn regenerate_avatar_thumbnails(
     req: HttpRequest,
     db_pool: web::Data<crate::db::Pool>,
-) -> impl Responder {
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    let mut conn = helpers::db_conn(&db_pool)?;
 
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Authentication required"),
+        None => return Ok(errors::unauthorized("Authentication required")),
     };
 
     if !is_platform_admin(&claims) {
-        return errors::forbidden("Only administrators can regenerate thumbnails");
+        return Ok(errors::forbidden(
+            "Only administrators can regenerate thumbnails",
+        ));
     }
 
     let stats = crate::services::avatar_thumbnails::backfill_thumbnails(
@@ -1980,14 +1935,14 @@ pub async fn regenerate_avatar_thumbnails(
     )
     .await;
 
-    HttpResponse::Ok().json(json!({
+    Ok(HttpResponse::Ok().json(json!({
         "success": true,
         "stats": {
             "checked": stats.checked,
             "regenerated": stats.regenerated,
             "failed": stats.failed,
         }
-    }))
+    })))
 }
 
 #[derive(Debug)]
@@ -2472,44 +2427,41 @@ pub async fn get_user_emails(
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
     path: web::Path<String>, // User UUID
-) -> impl Responder {
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    let mut conn = helpers::db_conn(&db_pool)?;
 
     let user_uuid = path.into_inner();
 
     let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
         Ok(claims) => claims,
-        Err(_) => return errors::unauthorized("Authentication required"),
+        Err(_) => return Ok(errors::unauthorized("Authentication required")),
     };
 
     // Check authorization (user can access their own emails, admins can access any)
     if claims.sub != user_uuid && !is_platform_admin(&claims) {
-        return errors::forbidden("Not authorized to access this resource");
+        return Ok(errors::forbidden("Not authorized to access this resource"));
     }
 
     // Get user emails
     let uuid_parsed = match utils::parse_uuid(&user_uuid) {
         Ok(uuid) => uuid,
-        Err(_) => return errors::bad_request("Invalid UUID format"),
+        Err(_) => return Ok(errors::bad_request("Invalid UUID format")),
     };
 
     // Get user first to ensure they exist
     let _user = match repository::get_user_by_uuid(&uuid_parsed, &mut conn) {
         Ok(user) => user,
-        Err(_) => return errors::not_found_msg("User not found"),
+        Err(_) => return Ok(errors::not_found_msg("User not found")),
     };
 
     // Get emails from user_emails table (single source of truth)
     let emails = user_emails_repo::get_user_emails_by_uuid(&mut conn, &uuid_parsed)
         .unwrap_or_else(|_| Vec::new());
 
-    HttpResponse::Ok().json(json!({
+    Ok(HttpResponse::Ok().json(json!({
         "status": "success",
         "emails": emails
-    }))
+    })))
 }
 
 /// Add a new email address for a user
@@ -2519,48 +2471,45 @@ pub async fn add_user_email(
     ws: WorkspaceContext,
     path: web::Path<String>,
     email_data: web::Json<serde_json::Value>,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     let user_uuid = path.into_inner();
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+    let mut conn = helpers::db_conn(&db_pool)?;
 
     let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
         Ok(claims) => claims,
-        Err(_) => return errors::unauthorized("Authentication required"),
+        Err(_) => return Ok(errors::unauthorized("Authentication required")),
     };
 
     // Authorization: Users can only add emails to their own account, admins can add to anyone
     if claims.sub != user_uuid && !is_platform_admin(&claims) {
-        return errors::forbidden("Not authorized");
+        return Ok(errors::forbidden("Not authorized"));
     }
 
     // Extract email from request
     let email = match email_data.get("email").and_then(|e| e.as_str()) {
         Some(e) => e.trim().to_lowercase(),
-        None => return errors::bad_request("Email is required"),
+        None => return Ok(errors::bad_request("Email is required")),
     };
 
     // Validate email format
     if !email.contains('@') || !email.contains('.') {
-        return errors::bad_request("Invalid email format");
+        return Ok(errors::bad_request("Invalid email format"));
     }
 
     // Get user ID
     let uuid_parsed = match utils::parse_uuid(&user_uuid) {
         Ok(uuid) => uuid,
-        Err(_) => return errors::bad_request("Invalid UUID format"),
+        Err(_) => return Ok(errors::bad_request("Invalid UUID format")),
     };
 
     let user = match repository::get_user_by_uuid(&uuid_parsed, &mut conn) {
         Ok(user) => user,
-        Err(_) => return errors::not_found_msg("User not found"),
+        Err(_) => return Ok(errors::not_found_msg("User not found")),
     };
 
     // Check if email already exists
     if user_emails_repo::find_user_by_any_email(&mut conn, &email).is_ok() {
-        return errors::bad_request("Email address already in use");
+        return Ok(errors::bad_request("Email address already in use"));
     }
 
     // Create new email
@@ -2591,15 +2540,15 @@ pub async fn add_user_email(
                     .get(actix_web::http::header::USER_AGENT)
                     .and_then(|v| v.to_str().ok()),
             );
-            HttpResponse::Created().json(json!({
+            Ok(HttpResponse::Created().json(json!({
                 "status": "success",
                 "message": "Email added successfully",
                 "email": created_email
-            }))
+            })))
         }
         Err(e) => {
             error!(error = ?e, "Error adding email");
-            errors::internal("Failed to add email")
+            Ok(errors::internal("Failed to add email"))
         }
     }
 }
@@ -2610,32 +2559,29 @@ pub async fn update_user_email(
     req: HttpRequest,
     path: web::Path<(String, i32)>,
     update_data: web::Json<serde_json::Value>,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     let (user_uuid, email_id) = path.into_inner();
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+    let mut conn = helpers::db_conn(&db_pool)?;
 
     let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
         Ok(claims) => claims,
-        Err(_) => return errors::unauthorized("Authentication required"),
+        Err(_) => return Ok(errors::unauthorized("Authentication required")),
     };
 
     // Authorization
     if claims.sub != user_uuid && !is_platform_admin(&claims) {
-        return errors::forbidden("Not authorized");
+        return Ok(errors::forbidden("Not authorized"));
     }
 
     // Get user
     let uuid_parsed = match utils::parse_uuid(&user_uuid) {
         Ok(uuid) => uuid,
-        Err(_) => return errors::bad_request("Invalid UUID format"),
+        Err(_) => return Ok(errors::bad_request("Invalid UUID format")),
     };
 
     let user = match repository::get_user_by_uuid(&uuid_parsed, &mut conn) {
         Ok(user) => user,
-        Err(_) => return errors::not_found_msg("User not found"),
+        Err(_) => return Ok(errors::not_found_msg("User not found")),
     };
 
     // If setting as primary, unset other primary emails first
@@ -2667,14 +2613,14 @@ pub async fn update_user_email(
     };
 
     match user_emails_repo::update_email(&mut conn, email_id, &email_update) {
-        Ok(updated_email) => HttpResponse::Ok().json(json!({
+        Ok(updated_email) => Ok(HttpResponse::Ok().json(json!({
             "status": "success",
             "message": "Email updated successfully",
             "email": updated_email
-        })),
+        }))),
         Err(e) => {
             error!(error = ?e, "Error updating email");
-            errors::internal("Failed to update email")
+            Ok(errors::internal("Failed to update email"))
         }
     }
 }
@@ -2695,43 +2641,40 @@ pub async fn resend_user_email_verification(
     req: HttpRequest,
     ws: WorkspaceContext,
     path: web::Path<(String, i32)>,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     let (user_uuid, email_id) = path.into_inner();
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+    let mut conn = helpers::db_conn(&db_pool)?;
 
     let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
         Ok(claims) => claims,
-        Err(_) => return errors::unauthorized("Authentication required"),
+        Err(_) => return Ok(errors::unauthorized("Authentication required")),
     };
     if claims.sub != user_uuid && !is_platform_admin(&claims) {
-        return errors::forbidden("Not authorized");
+        return Ok(errors::forbidden("Not authorized"));
     }
 
     let uuid_parsed = match utils::parse_uuid(&user_uuid) {
         Ok(uuid) => uuid,
-        Err(_) => return errors::bad_request("Invalid UUID format"),
+        Err(_) => return Ok(errors::bad_request("Invalid UUID format")),
     };
     let user = match repository::get_user_by_uuid(&uuid_parsed, &mut conn) {
         Ok(user) => user,
-        Err(_) => return errors::not_found_msg("User not found"),
+        Err(_) => return Ok(errors::not_found_msg("User not found")),
     };
 
     let email = match user_emails_repo::get_user_emails_by_uuid(&mut conn, &uuid_parsed) {
         Ok(rows) => match rows.into_iter().find(|e| e.id == email_id) {
             Some(e) => e,
-            None => return errors::not_found_msg("Email not found"),
+            None => return Ok(errors::not_found_msg("Email not found")),
         },
         Err(e) => {
             error!(error = ?e, "Error loading emails for resend");
-            return errors::internal("Failed to load email");
+            return Ok(errors::internal("Failed to load email"));
         }
     };
 
     if email.is_verified {
-        return errors::bad_request("That address is already confirmed");
+        return Ok(errors::bad_request("That address is already confirmed"));
     }
 
     // Same window and ceiling as password reset, for the same reason.
@@ -2745,7 +2688,7 @@ pub async fn resend_user_email_verification(
         Ok(n) => n,
         Err(e) => {
             error!(error = ?e, "Error counting recent verification tokens");
-            return errors::internal("Failed to send confirmation");
+            return Ok(errors::internal("Failed to send confirmation"));
         }
     };
     if recent >= MAX_VERIFICATION_RESENDS_PER_HOUR {
@@ -2753,10 +2696,10 @@ pub async fn resend_user_email_verification(
             user_uuid = %uuid_parsed,
             "Rate limit exceeded for email verification resend"
         );
-        return HttpResponse::Ok().json(json!({
+        return Ok(HttpResponse::Ok().json(json!({
             "status": "success",
             "message": "Confirmation email sent"
-        }));
+        })));
     }
 
     // Every outstanding link for this user is superseded. Without this, an
@@ -2768,7 +2711,7 @@ pub async fn resend_user_email_verification(
         crate::utils::reset_tokens::TokenType::EmailVerification.as_str(),
     ) {
         error!(error = ?e, "Error invalidating prior verification tokens");
-        return errors::internal("Failed to send confirmation");
+        return Ok(errors::internal("Failed to send confirmation"));
     }
 
     crate::services::email_verification::send_verification(
@@ -2784,10 +2727,10 @@ pub async fn resend_user_email_verification(
             .and_then(|v| v.to_str().ok()),
     );
 
-    HttpResponse::Ok().json(json!({
+    Ok(HttpResponse::Ok().json(json!({
         "status": "success",
         "message": "Confirmation email sent"
-    }))
+    })))
 }
 
 /// Delete an email address
@@ -2795,58 +2738,55 @@ pub async fn delete_user_email(
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
     path: web::Path<(String, i32)>,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     let (user_uuid, email_id) = path.into_inner();
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+    let mut conn = helpers::db_conn(&db_pool)?;
 
     let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
         Ok(claims) => claims,
-        Err(_) => return errors::unauthorized("Authentication required"),
+        Err(_) => return Ok(errors::unauthorized("Authentication required")),
     };
 
     // Authorization
     if claims.sub != user_uuid && !is_platform_admin(&claims) {
-        return errors::forbidden("Not authorized");
+        return Ok(errors::forbidden("Not authorized"));
     }
 
     // Get user and verify email belongs to them
     let uuid_parsed = match utils::parse_uuid(&user_uuid) {
         Ok(uuid) => uuid,
-        Err(_) => return errors::bad_request("Invalid UUID format"),
+        Err(_) => return Ok(errors::bad_request("Invalid UUID format")),
     };
 
     let user = match repository::get_user_by_uuid(&uuid_parsed, &mut conn) {
         Ok(user) => user,
-        Err(_) => return errors::not_found_msg("User not found"),
+        Err(_) => return Ok(errors::not_found_msg("User not found")),
     };
 
     // Check if email is primary
     let email: crate::models::UserEmail =
         match user_emails_repo::get_email_by_id(&mut conn, email_id) {
             Ok(email) => email,
-            Err(_) => return errors::not_found_msg("Email not found"),
+            Err(_) => return Ok(errors::not_found_msg("Email not found")),
         };
 
     if email.user_uuid != user.uuid {
-        return errors::forbidden("Email does not belong to this user");
+        return Ok(errors::forbidden("Email does not belong to this user"));
     }
 
     if email.is_primary {
-        return errors::bad_request("Cannot delete primary email address");
+        return Ok(errors::bad_request("Cannot delete primary email address"));
     }
 
     // Delete the email
     match user_emails_repo::delete_email(&mut conn, email_id) {
-        Ok(_) => HttpResponse::Ok().json(json!({
+        Ok(_) => Ok(HttpResponse::Ok().json(json!({
             "status": "success",
             "message": "Email deleted successfully"
-        })),
+        }))),
         Err(e) => {
             error!(error = ?e, "Error deleting email");
-            errors::internal("Failed to delete email")
+            Ok(errors::internal("Failed to delete email"))
         }
     }
 }
@@ -2856,12 +2796,9 @@ pub async fn resend_invitation(
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
     path: web::Path<String>, // User UUID
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     let user_uuid = path.into_inner();
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+    let mut conn = helpers::db_conn(&db_pool)?;
     // Pin the request's workspace so the branding read and invitation-email
     // enqueue (both RLS-isolated) are scoped; the pool clears app.workspace_id
     // on checkout, so an unpinned enqueue fails the NOT NULL workspace default.
@@ -2870,7 +2807,7 @@ pub async fn resend_invitation(
     // Extract claims from cookie auth middleware
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Authentication required"),
+        None => return Ok(errors::unauthorized("Authentication required")),
     };
 
     // Only admins can resend invitations
@@ -2881,13 +2818,15 @@ pub async fn resend_invitation(
         .unwrap_or(false);
 
     if !smtp_configured {
-        return errors::bad_request("Email is not configured. Cannot send invitation.");
+        return Ok(errors::bad_request(
+            "Email is not configured. Cannot send invitation.",
+        ));
     }
 
     // Get the user
     let uuid_parsed = match utils::parse_uuid(&user_uuid) {
         Ok(uuid) => uuid,
-        Err(_) => return errors::bad_request("Invalid UUID format"),
+        Err(_) => return Ok(errors::bad_request("Invalid UUID format")),
     };
 
     // Was platform-admin-only and looked up any global uuid, then invalidated
@@ -2895,15 +2834,11 @@ pub async fn resend_invitation(
     // resend only for a member of their OWN workspace (the isolation boundary);
     // hosted invites are control-plane seats, so this is self-hosted only.
     // (Token invalidation remains account-wide; per-workspace scoping is deferred.)
-    if let Err(resp) =
-        helpers::authorize_target_user_action(&req, &db_pool, &claims, uuid_parsed, false)
-    {
-        return resp.error_response();
-    }
+    helpers::authorize_target_user_action(&req, &db_pool, &claims, uuid_parsed, false)?;
 
     let user = match repository::get_user_by_uuid(&uuid_parsed, &mut conn) {
         Ok(user) => user,
-        Err(_) => return errors::not_found_msg("User not found"),
+        Err(_) => return Ok(errors::not_found_msg("User not found")),
     };
 
     // Check if user already has a password set (completed setup)
@@ -2916,15 +2851,15 @@ pub async fn resend_invitation(
         .any(|identity| identity.provider_type == "local" && identity.password_hash.is_some());
 
     if has_password {
-        return errors::bad_request(
+        return Ok(errors::bad_request(
             "User has already completed account setup. Cannot resend invitation.",
-        );
+        ));
     }
 
     // Get user's primary email - try to find one marked as primary first
     let emails = match user_emails_repo::get_user_emails_by_uuid(&mut conn, &user.uuid) {
         Ok(emails) if !emails.is_empty() => emails,
-        _ => return errors::bad_request("User has no email address"),
+        _ => return Ok(errors::bad_request("User has no email address")),
     };
 
     // Find primary email or use first one
@@ -2937,7 +2872,7 @@ pub async fn resend_invitation(
     // Get the admin user's name for the invitation email
     let admin_uuid = match utils::parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return errors::internal("Invalid admin UUID"),
+        Err(_) => return Ok(errors::internal("Invalid admin UUID")),
     };
 
     let admin_name = match repository::get_user_by_uuid(&admin_uuid, &mut conn) {
@@ -2966,23 +2901,23 @@ pub async fn resend_invitation(
     {
         SendInvitationResult::Success => {
             info!(email = %user_email, user_name = %user.name, "Invitation email resent");
-            HttpResponse::Ok().json(json!({
+            Ok(HttpResponse::Ok().json(json!({
                 "status": "success",
                 "message": "Invitation email sent successfully",
                 "email": user_email
-            }))
+            })))
         }
         SendInvitationResult::TokenStorageError(e) => {
             error!(error = %e, "Error storing invitation token");
-            errors::internal("Error creating invitation")
+            Ok(errors::internal("Error creating invitation"))
         }
         SendInvitationResult::EmailServiceError(e) => {
             error!(error = %e, "Error initializing email service");
-            errors::internal("Error sending invitation email")
+            Ok(errors::internal("Error sending invitation email"))
         }
         SendInvitationResult::EmailSendError(e) => {
             error!(error = %e, "Error sending invitation email");
-            errors::internal("Failed to send invitation email")
+            Ok(errors::internal("Failed to send invitation email"))
         }
     }
 }
@@ -2992,11 +2927,8 @@ pub async fn get_user_with_emails(
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
     path: web::Path<String>, // User UUID
-) -> impl Responder {
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    let mut conn = helpers::db_conn(&db_pool)?;
 
     // Pin the request's workspace so the returned user's workspace_role
     // resolves under RLS (workspace_members is workspace-isolated).
@@ -3006,23 +2938,23 @@ pub async fn get_user_with_emails(
 
     let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
         Ok(claims) => claims,
-        Err(_) => return errors::unauthorized("Authentication required"),
+        Err(_) => return Ok(errors::unauthorized("Authentication required")),
     };
 
     // Check authorization
     if claims.sub != user_uuid && !is_platform_admin(&claims) {
-        return errors::forbidden("Not authorized to access this resource");
+        return Ok(errors::forbidden("Not authorized to access this resource"));
     }
 
     // Get user
     let uuid_parsed = match utils::parse_uuid(&user_uuid) {
         Ok(uuid) => uuid,
-        Err(_) => return errors::bad_request("Invalid UUID format"),
+        Err(_) => return Ok(errors::bad_request("Invalid UUID format")),
     };
 
     let user = match repository::get_user_by_uuid(&uuid_parsed, &mut conn) {
         Ok(user) => user,
-        Err(_) => return errors::not_found_msg("User not found"),
+        Err(_) => return Ok(errors::not_found_msg("User not found")),
     };
 
     // Get user emails
@@ -3042,7 +2974,7 @@ pub async fn get_user_with_emails(
         emails,
     };
 
-    HttpResponse::Ok().json(user_with_emails)
+    Ok(HttpResponse::Ok().json(user_with_emails))
 }
 
 #[derive(Deserialize)]
@@ -3062,21 +2994,18 @@ pub async fn get_user_profile_bundle(
     query: web::Query<ProfileQuery>,
     auth: crate::extractors::AuthContext,
     req: HttpRequest,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     let uuid_str = path.into_inner();
     let user_uuid_parsed = match utils::parse_uuid(&uuid_str) {
         Ok(uuid) => uuid,
-        Err(_) => return errors::bad_request("Invalid UUID format"),
+        Err(_) => return Ok(errors::bad_request("Invalid UUID format")),
     };
 
     if user_uuid_parsed != auth.user_uuid && !auth.is_workspace_admin() {
-        return errors::forbidden("Not authorized to view this profile");
+        return Ok(errors::forbidden("Not authorized to view this profile"));
     }
 
-    let mut groups = match parse_profile_include(query.include.as_deref()) {
-        Ok(g) => g,
-        Err(resp) => return resp.error_response(),
-    };
+    let mut groups = parse_profile_include(query.include.as_deref())?;
 
     // Privacy (identity orchestration O6): the full verified email set is
     // self / platform-admin only. A WORKSPACE admin viewing another member's
@@ -3089,20 +3018,17 @@ pub async fn get_user_profile_bundle(
         groups.remove(&crate::repository::user_profile::ProfileGroup::Emails);
     }
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+    let mut conn = helpers::db_conn(&pool)?;
     // Pin the request's workspace so the bundle's workspace_role (and other
     // RLS-scoped reads) resolve to the caller's workspace.
     helpers::pin_request_workspace(&req, &mut conn);
 
     match crate::repository::user_profile::compute(&mut conn, &user_uuid_parsed, &groups) {
-        Ok(Some(bundle)) => HttpResponse::Ok().json(bundle),
-        Ok(None) => errors::not_found_msg("User not found"),
+        Ok(Some(bundle)) => Ok(HttpResponse::Ok().json(bundle)),
+        Ok(None) => Ok(errors::not_found_msg("User not found")),
         Err(e) => {
             error!(user_uuid = %user_uuid_parsed, error = ?e, "Failed to compute profile bundle");
-            errors::internal("Failed to load profile")
+            Ok(errors::internal("Failed to load profile"))
         }
     }
 }
@@ -3153,24 +3079,25 @@ pub async fn bulk_users(
     pool: web::Data<crate::db::Pool>,
     _search_service: web::Data<Arc<SearchService>>,
     body: web::Json<BulkUserActionRequest>,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     // Extract claims and check authentication
     let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
         Ok(claims) => claims,
-        Err(_) => return errors::unauthorized("Unauthorized: Authentication required"),
+        Err(_) => {
+            return Ok(errors::unauthorized(
+                "Unauthorized: Authentication required",
+            ))
+        }
     };
 
     // Only admins can perform bulk operations
     if !is_platform_admin(&claims) {
-        return errors::forbidden(
+        return Ok(errors::forbidden(
             "Forbidden: Only administrators can perform bulk user operations",
-        );
+        ));
     }
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+    let mut conn = helpers::db_conn(&pool)?;
     // Pin the request workspace so the per-target `user_is_admin` guard resolves
     // the target's role through RLS; on an unpinned conn it reads None and the
     // admin-protection guard fails OPEN.
@@ -3180,14 +3107,14 @@ pub async fn bulk_users(
     let ids = &body.ids;
 
     if ids.is_empty() {
-        return errors::bad_request("Bad Request: No user IDs provided");
+        return Ok(errors::bad_request("Bad Request: No user IDs provided"));
     }
 
     // Prevent self-deletion/modification
     if ids.contains(&claims.sub) {
-        return errors::bad_request(
+        return Ok(errors::bad_request(
             "Bad Request: Cannot perform bulk operations on your own account",
-        );
+        ));
     }
 
     match action {
@@ -3237,22 +3164,22 @@ pub async fn bulk_users(
                 }
             }
 
-            HttpResponse::Ok().json(json!({
+            Ok(HttpResponse::Ok().json(json!({
                 "affected": deleted,
                 "skipped_admin": skipped_admin,
                 "skipped_staff": skipped_staff,
-            }))
+            })))
         }
 
         "set-role" => {
             let role_str = match &body.value {
                 Some(v) => v.as_str(),
-                None => return errors::bad_request("Bad Request: Role value required"),
+                None => return Ok(errors::bad_request("Bad Request: Role value required")),
             };
 
             let (platform_role_enum, workspace_role_enum) = match utils::parse_roles(role_str) {
                 Ok(roles) => roles,
-                Err(_) => return errors::bad_request("Bad Request: Invalid role value"),
+                Err(_) => return Ok(errors::bad_request("Bad Request: Invalid role value")),
             };
             let workspace_role = workspace_role_enum.as_str();
             let platform_role = platform_role_enum.as_str();
@@ -3300,14 +3227,15 @@ pub async fn bulk_users(
                 }
             }
 
-            HttpResponse::Ok().json(json!({ "affected": updated, "skipped_staff": skipped_staff }))
+            Ok(HttpResponse::Ok()
+                .json(json!({ "affected": updated, "skipped_staff": skipped_staff })))
         }
 
-        _ => HttpResponse::BadRequest().json(json!({
+        _ => Ok(HttpResponse::BadRequest().json(json!({
             "error": i18n::tr(&request_locale(&req), "backend-error-bad-request"),
             "code": "backend-error-bad-request",
             "message": format!("Unknown action: {}", action)
-        })),
+        }))),
     }
 }
 
@@ -3317,17 +3245,14 @@ pub async fn get_user_security_info(
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
     path: web::Path<String>,
-) -> impl Responder {
-    let (claims, _caller_uuid, mut conn) = match helpers::auth_conn(&req, &db_pool) {
-        Ok(v) => v,
-        Err(e) => return e.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    let (claims, _caller_uuid, mut conn) = helpers::auth_conn(&req, &db_pool)?;
 
     let target_uuid_str = path.into_inner();
 
     let target_uuid = match utils::parse_uuid(&target_uuid_str) {
         Ok(uuid) => uuid,
-        Err(_) => return errors::bad_request("Invalid UUID format"),
+        Err(_) => return Ok(errors::bad_request("Invalid UUID format")),
     };
 
     // Self, or a workspace admin of the target's own workspace (single-workspace
@@ -3335,16 +3260,12 @@ pub async fn get_user_security_info(
     // admins pass. Was self-or-platform, which dead-ended tenant admins trying
     // to load a member's security panel.
     if claims.sub != target_uuid_str {
-        if let Err(resp) =
-            helpers::authorize_target_user_action(&req, &db_pool, &claims, target_uuid, true)
-        {
-            return resp.error_response();
-        }
+        helpers::authorize_target_user_action(&req, &db_pool, &claims, target_uuid, true)?;
     }
 
     let user = match repository::get_user_by_uuid(&target_uuid, &mut conn) {
         Ok(user) => user,
-        Err(_) => return errors::not_found_msg("User not found"),
+        Err(_) => return Ok(errors::not_found_msg("User not found")),
     };
 
     // MFA status. Indexed unused-codes count via
@@ -3359,7 +3280,7 @@ pub async fn get_user_security_info(
         Ok(data) => data,
         Err(e) => {
             error!(error = ?e, "Failed to load passkeys for user");
-            return errors::internal("Failed to load passkeys");
+            return Ok(errors::internal("Failed to load passkeys"));
         }
     };
     let passkeys: Vec<serde_json::Value> = passkey_data
@@ -3394,13 +3315,13 @@ pub async fn get_user_security_info(
         })
         .collect();
 
-    HttpResponse::Ok().json(json!({
+    Ok(HttpResponse::Ok().json(json!({
         "mfa_enabled": mfa_enabled,
         "has_backup_codes": has_backup_codes,
         "passkey_count": passkeys.len(),
         "passkeys": passkeys,
         "auth_identities": identities_json,
-    }))
+    })))
 }
 
 /// Admin-only: reset a user's password
@@ -3414,26 +3335,22 @@ pub async fn admin_reset_user_password(
     req: HttpRequest,
     path: web::Path<String>,
     body: web::Json<AdminResetPasswordRequest>,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     let target_uuid_str = path.into_inner();
-    let (claims, user, mut conn) = match helpers::admin_user_conn(&req, &db_pool, &target_uuid_str)
-    {
-        Ok(v) => v,
-        Err(e) => return e.error_response(),
-    };
+    let (claims, user, mut conn) = helpers::admin_user_conn(&req, &db_pool, &target_uuid_str)?;
 
     // Validate password meets requirements
     let validation = utils::auth::validate_password(&body.new_password);
     if !validation.valid {
-        return errors::bad_request(format!(
+        return Ok(errors::bad_request(format!(
             "Password validation failed: {}",
             validation.errors.join(", ")
-        ));
+        )));
     }
 
     let new_hash = match utils::auth::hash_password(&body.new_password) {
         Ok(hash) => hash,
-        Err(e) => return e.into(),
+        Err(e) => return Ok(e.into()),
     };
 
     // Update password hash on the local auth identity
@@ -3444,16 +3361,16 @@ pub async fn admin_reset_user_password(
         // Hosted disables local passwords entirely, so this is a clean "not
         // available here" rather than a server error.
         Err(repository::user_auth_identities::LocalCredentialError::LocalAuthDisabled) => {
-            return errors::local_auth_disabled()
+            return Ok(errors::local_auth_disabled())
         }
         Err(repository::user_auth_identities::LocalCredentialError::Db(e)) => {
             error!(error = ?e, "Error updating password hash for user");
-            return errors::internal("Failed to update password");
+            return Ok(errors::internal("Failed to update password"));
         }
     };
 
     if rows_updated == 0 {
-        return errors::bad_request("User does not have a local password identity. Cannot reset password for OAuth-only accounts.");
+        return Ok(errors::bad_request("User does not have a local password identity. Cannot reset password for OAuth-only accounts."));
     }
 
     // Update password_changed_at on the audited `users` row. The
@@ -3475,10 +3392,10 @@ pub async fn admin_reset_user_password(
 
     info!(admin = %claims.sub, target_user = %target_uuid_str, user_name = %user.name, "Admin reset user password");
 
-    HttpResponse::Ok().json(json!({
+    Ok(HttpResponse::Ok().json(json!({
         "status": "success",
         "message": "Password has been reset"
-    }))
+    })))
 }
 
 /// Admin-only: disable MFA for a user
@@ -3486,23 +3403,19 @@ pub async fn admin_disable_user_mfa(
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
     path: web::Path<String>,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     let target_uuid_str = path.into_inner();
-    let (claims, user, mut conn) = match helpers::admin_user_conn(&req, &db_pool, &target_uuid_str)
-    {
-        Ok(v) => v,
-        Err(e) => return e.error_response(),
-    };
+    let (claims, user, mut conn) = helpers::admin_user_conn(&req, &db_pool, &target_uuid_str)?;
 
     if !user.mfa_enabled {
-        return errors::bad_request("MFA is not enabled for this user");
+        return Ok(errors::bad_request("MFA is not enabled for this user"));
     }
 
     // Codes-first to avoid a window where MFA is off but recovery
     // codes still exist; see `mfa_disable` in handlers/auth.rs.
     if let Err(e) = repository::user_recovery_codes::delete_all_for_user(&mut conn, &user.uuid) {
         error!(error = ?e, "Error clearing recovery codes during admin MFA disable");
-        return errors::internal("Failed to disable MFA");
+        return Ok(errors::internal("Failed to disable MFA"));
     }
     // Clear both columns: the CHECK constraint requires
     // (mfa_secret IS NULL) = (mfa_secret_kek_id IS NULL).
@@ -3515,15 +3428,15 @@ pub async fn admin_disable_user_mfa(
 
     if let Err(e) = repository::update_user_mfa(&user.uuid, mfa_update, &mut conn) {
         error!(error = ?e, "Error disabling MFA for user");
-        return errors::internal("Failed to disable MFA");
+        return Ok(errors::internal("Failed to disable MFA"));
     }
 
     info!(admin = %claims.sub, target_user = %target_uuid_str, user_name = %user.name, "Admin disabled MFA for user");
 
-    HttpResponse::Ok().json(json!({
+    Ok(HttpResponse::Ok().json(json!({
         "status": "success",
         "message": "Two-factor authentication has been disabled"
-    }))
+    })))
 }
 
 /// Admin-only: delete a passkey for a user
@@ -3531,27 +3444,23 @@ pub async fn admin_delete_user_passkey(
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
     path: web::Path<(String, String)>, // (user_uuid, credential_id)
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     let (target_uuid_str, credential_id) = path.into_inner();
-    let (claims, user, mut conn) = match helpers::admin_user_conn(&req, &db_pool, &target_uuid_str)
-    {
-        Ok(v) => v,
-        Err(e) => return e.error_response(),
-    };
+    let (claims, user, mut conn) = helpers::admin_user_conn(&req, &db_pool, &target_uuid_str)?;
 
     match crate::utils::webauthn::delete_credential(&mut conn, &user.uuid, &credential_id) {
         Ok(true) => {}
-        Ok(false) => return errors::not_found_msg("Passkey not found"),
+        Ok(false) => return Ok(errors::not_found_msg("Passkey not found")),
         Err(e) => {
             error!(error = ?e, "Error deleting passkey");
-            return errors::internal("Failed to delete passkey");
+            return Ok(errors::internal("Failed to delete passkey"));
         }
     }
 
     info!(admin = %claims.sub, target_user = %target_uuid_str, credential_id = %credential_id, "Admin deleted passkey for user");
 
-    HttpResponse::Ok().json(json!({
+    Ok(HttpResponse::Ok().json(json!({
         "status": "success",
         "message": "Passkey has been deleted"
-    }))
+    })))
 }

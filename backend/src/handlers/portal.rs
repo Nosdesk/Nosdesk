@@ -24,9 +24,7 @@ use actix_web::body::MessageBody;
 use actix_web::cookie::Cookie;
 use actix_web::dev::{Payload, ServiceRequest, ServiceResponse};
 use actix_web::middleware::Next;
-use actix_web::{
-    web, Error, FromRequest, HttpMessage, HttpRequest, HttpResponse, Responder, ResponseError,
-};
+use actix_web::{web, Error, FromRequest, HttpMessage, HttpRequest, HttpResponse, Responder};
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -210,12 +208,12 @@ pub fn establish_portal_session(
 pub async fn refresh_portal_session(
     db_pool: web::Data<crate::db::Pool>,
     request: HttpRequest,
-) -> HttpResponse {
+) -> actix_web::Result<HttpResponse> {
     // Read from extensions rather than via the extractor, matching
     // `magic_link_callback` in this same origin-resolved scope: an unknown
     // origin is a 400, not a 500.
     let Some(ctx) = request.extensions().get::<WorkspaceContext>().cloned() else {
-        return errors::bad_request("No workspace for this origin");
+        return Ok(errors::bad_request("No workspace for this origin"));
     };
 
     let Some(refresh_raw) = request
@@ -223,13 +221,10 @@ pub async fn refresh_portal_session(
         .map(|c| c.value().to_string())
         .filter(|t| !t.is_empty())
     else {
-        return errors::unauthorized("Refresh token not found");
+        return Ok(errors::unauthorized("Refresh token not found"));
     };
 
-    let mut conn = match crate::handlers::helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+    let mut conn = crate::handlers::helpers::db_conn(&db_pool)?;
 
     let workspace_uuid = ctx.workspace_uuid;
     let workspace_id = ctx.workspace_id;
@@ -258,13 +253,13 @@ pub async fn refresh_portal_session(
         },
     ) {
         Ok(r) => r,
-        Err(resp) => return resp.error_response(),
+        Err(resp) => return Err(resp.into()),
     };
 
     // Portal clients are browsers, so the rotated tokens go back as cookies
     // only; there is no bearer mode to serve here.
     let csrf_token = crate::utils::csrf::generate_csrf_token();
-    HttpResponse::Ok()
+    Ok(HttpResponse::Ok()
         .cookie(crate::utils::cookies::create_portal_access_cookie(
             &rotated.access_token,
         ))
@@ -278,7 +273,7 @@ pub async fn refresh_portal_session(
             "success": true,
             "csrf_token": csrf_token,
             "workspace_uuid": workspace_uuid,
-        }))
+        })))
 }
 
 // --- Magic-link sign-in ---
@@ -428,13 +423,13 @@ pub async fn magic_link_callback(
     req: HttpRequest,
     query: web::Query<MagicLinkCallbackQuery>,
     pool: web::Data<Pool>,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     let Some(ctx) = req.extensions().get::<WorkspaceContext>().cloned() else {
-        return errors::bad_request("No workspace for this origin");
+        return Ok(errors::bad_request("No workspace for this origin"));
     };
     let mut conn = match pool.get() {
         Ok(c) => c,
-        Err(_) => return errors::internal("Database connection failed"),
+        Err(_) => return Ok(errors::internal("Database connection failed")),
     };
 
     // Single-use: the token is claimed (marked used) atomically here.
@@ -444,7 +439,7 @@ pub async fn magic_link_callback(
         TokenType::PortalMagicLink.as_str(),
     ) {
         Ok(uuid) => uuid,
-        Err(_) => return sign_in_error_redirect(),
+        Err(_) => return Ok(sign_in_error_redirect()),
     };
 
     // The link is workspace-agnostic, so confirm the subject actually belongs
@@ -453,23 +448,21 @@ pub async fn magic_link_callback(
         crate::repository::workspaces::membership(&mut conn, ctx.workspace_id, user_uuid),
         Ok(Some(_))
     ) {
-        return sign_in_error_redirect();
+        return Ok(sign_in_error_redirect());
     }
 
     let user = match crate::repository::users::find_active_by_uuid(&user_uuid, &mut conn) {
         Ok(u) => u,
-        Err(_) => return sign_in_error_redirect(),
+        Err(_) => return Ok(sign_in_error_redirect()),
     };
 
-    match mint_portal_session(&user, ctx.workspace_uuid, &req, &mut conn) {
-        Ok(session) => HttpResponse::Found()
-            .cookie(session.access)
-            .cookie(session.refresh)
-            .cookie(session.csrf)
-            .append_header(("Location", "/"))
-            .finish(),
-        Err(e) => e.error_response(),
-    }
+    let session = mint_portal_session(&user, ctx.workspace_uuid, &req, &mut conn)?;
+    Ok(HttpResponse::Found()
+        .cookie(session.access)
+        .cookie(session.refresh)
+        .cookie(session.csrf)
+        .append_header(("Location", "/"))
+        .finish())
 }
 
 /// Bounce a failed sign-in back to the portal with a generic error flag (a bad,

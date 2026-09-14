@@ -2,7 +2,7 @@
 //!
 //! Endpoints for managing user notifications and preferences.
 
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, ResponseError};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 use chrono::{DateTime, Utc};
 
 use crate::handlers::{errors, helpers};
@@ -156,30 +156,30 @@ pub async fn register_push_device(
     pool: web::Data<Pool>,
     notification_service: web::Data<NotificationService>,
     body: web::Json<RegisterDeviceRequest>,
-) -> HttpResponse {
+) -> actix_web::Result<HttpResponse> {
     let claims = match req.extensions().get::<Claims>() {
         Some(c) => c.clone(),
-        None => return HttpResponse::Unauthorized().finish(),
+        None => return Ok(HttpResponse::Unauthorized().finish()),
     };
     let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
         Ok(u) => u,
-        Err(_) => return errors::bad_request("Invalid user UUID"),
+        Err(_) => return Ok(errors::bad_request("Invalid user UUID")),
     };
     let Some(workspace_id) = actor_workspace_id(&req) else {
-        return errors::unauthorized("Authentication required");
+        return Ok(errors::unauthorized("Authentication required"));
     };
     if !matches!(body.platform.as_str(), "ios" | "android" | "web") {
-        return errors::bad_request(format!("Invalid platform: {}", body.platform));
+        return Ok(errors::bad_request(format!(
+            "Invalid platform: {}",
+            body.platform
+        )));
     }
     let token = body.token.trim();
     if token.is_empty() {
-        return errors::bad_request("Missing device token");
+        return Ok(errors::bad_request("Missing device token"));
     }
 
-    let mut conn = match errors::db_conn(&pool) {
-        Ok(c) => c,
-        Err(resp) => return resp.error_response(),
-    };
+    let mut conn = errors::db_conn(&pool)?;
     let actor =
         crate::sync::actor::ActorContext::user(user_uuid, None).with_workspace(workspace_id);
     let res = crate::sync::session::with_actor_bypass_context(&mut conn, &actor, |conn| {
@@ -201,10 +201,11 @@ pub async fn register_push_device(
                 .preferences()
                 .invalidate_for_device_change()
                 .await;
-            HttpResponse::Ok().json(serde_json::json!({ "success": true }))
+            Ok(HttpResponse::Ok().json(serde_json::json!({ "success": true })))
         }
         Err(e) => {
-            HttpResponse::InternalServerError().json(serde_json::json!({ "error": e.to_string() }))
+            Ok(HttpResponse::InternalServerError()
+                .json(serde_json::json!({ "error": e.to_string() })))
         }
     }
 }
@@ -215,24 +216,21 @@ pub async fn unregister_push_device(
     pool: web::Data<Pool>,
     notification_service: web::Data<NotificationService>,
     path: web::Path<String>,
-) -> HttpResponse {
+) -> actix_web::Result<HttpResponse> {
     let claims = match req.extensions().get::<Claims>() {
         Some(c) => c.clone(),
-        None => return HttpResponse::Unauthorized().finish(),
+        None => return Ok(HttpResponse::Unauthorized().finish()),
     };
     let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
         Ok(u) => u,
-        Err(_) => return errors::bad_request("Invalid user UUID"),
+        Err(_) => return Ok(errors::bad_request("Invalid user UUID")),
     };
     let Some(workspace_id) = actor_workspace_id(&req) else {
-        return errors::unauthorized("Authentication required");
+        return Ok(errors::unauthorized("Authentication required"));
     };
     let token = path.into_inner();
 
-    let mut conn = match errors::db_conn(&pool) {
-        Ok(c) => c,
-        Err(resp) => return resp.error_response(),
-    };
+    let mut conn = errors::db_conn(&pool)?;
     let actor =
         crate::sync::actor::ActorContext::user(user_uuid, None).with_workspace(workspace_id);
     let res = crate::sync::session::with_actor_bypass_context(&mut conn, &actor, |conn| {
@@ -245,10 +243,11 @@ pub async fn unregister_push_device(
                 .preferences()
                 .invalidate_for_device_change()
                 .await;
-            HttpResponse::Ok().json(serde_json::json!({ "success": true }))
+            Ok(HttpResponse::Ok().json(serde_json::json!({ "success": true })))
         }
         Err(e) => {
-            HttpResponse::InternalServerError().json(serde_json::json!({ "error": e.to_string() }))
+            Ok(HttpResponse::InternalServerError()
+                .json(serde_json::json!({ "error": e.to_string() })))
         }
     }
 }
@@ -276,12 +275,10 @@ pub struct UpdateWorkspaceDefaultRequest {
 pub async fn get_workspace_notification_defaults(
     req: HttpRequest,
     notification_service: web::Data<NotificationService>,
-) -> HttpResponse {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
     let Some(workspace_id) = actor_workspace_id(&req) else {
-        return errors::unauthorized("Authentication required");
+        return Ok(errors::unauthorized("Authentication required"));
     };
 
     match notification_service
@@ -289,8 +286,8 @@ pub async fn get_workspace_notification_defaults(
         .get_workspace_defaults(workspace_id)
         .await
     {
-        Ok(defaults) => HttpResponse::Ok().json(defaults),
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({ "error": e })),
+        Ok(defaults) => Ok(HttpResponse::Ok().json(defaults)),
+        Err(e) => Ok(HttpResponse::InternalServerError().json(serde_json::json!({ "error": e }))),
     }
 }
 
@@ -300,30 +297,38 @@ pub async fn update_workspace_notification_default(
     req: HttpRequest,
     notification_service: web::Data<NotificationService>,
     body: web::Json<UpdateWorkspaceDefaultRequest>,
-) -> HttpResponse {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
     let Some(workspace_id) = actor_workspace_id(&req) else {
-        return errors::unauthorized("Authentication required");
+        return Ok(errors::unauthorized("Authentication required"));
     };
 
     let notification_type = match NotificationTypeCode::from_str(&body.notification_type) {
         Some(t) => t,
         None => {
-            return errors::bad_request(format!(
+            return Ok(errors::bad_request(format!(
                 "Invalid notification type: {}",
                 body.notification_type
-            ))
+            )))
         }
     };
     let channel = match NotificationChannel::from_str(&body.channel) {
         Some(c) => c,
-        None => return errors::bad_request(format!("Invalid channel: {}", body.channel)),
+        None => {
+            return Ok(errors::bad_request(format!(
+                "Invalid channel: {}",
+                body.channel
+            )))
+        }
     };
     let frequency = match NotificationFrequency::from_str(&body.frequency) {
         Some(f) => f,
-        None => return errors::bad_request(format!("Invalid frequency: {}", body.frequency)),
+        None => {
+            return Ok(errors::bad_request(format!(
+                "Invalid frequency: {}",
+                body.frequency
+            )))
+        }
     };
 
     match notification_service
@@ -337,8 +342,8 @@ pub async fn update_workspace_notification_default(
         )
         .await
     {
-        Ok(_) => HttpResponse::Ok().json(serde_json::json!({ "success": true })),
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({ "error": e })),
+        Ok(_) => Ok(HttpResponse::Ok().json(serde_json::json!({ "success": true }))),
+        Err(e) => Ok(HttpResponse::InternalServerError().json(serde_json::json!({ "error": e }))),
     }
 }
 
@@ -354,23 +359,19 @@ pub struct UpdateContentLevelRequest {
 pub async fn get_notification_content_level(
     req: HttpRequest,
     pool: web::Data<Pool>,
-) -> HttpResponse {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
     let Some(workspace_id) = actor_workspace_id(&req) else {
-        return errors::unauthorized("Authentication required");
+        return Ok(errors::unauthorized("Authentication required"));
     };
-    let mut conn = match errors::db_conn(&pool) {
-        Ok(c) => c,
-        Err(resp) => return resp.error_response(),
-    };
+    let mut conn = errors::db_conn(&pool)?;
     match crate::repository::workspaces::get_notification_push_detail(&mut conn, workspace_id) {
-        Ok(detailed) => HttpResponse::Ok().json(serde_json::json!({
+        Ok(detailed) => Ok(HttpResponse::Ok().json(serde_json::json!({
             "detail": if detailed { "detailed" } else { "private" }
-        })),
+        }))),
         Err(e) => {
-            HttpResponse::InternalServerError().json(serde_json::json!({ "error": e.to_string() }))
+            Ok(HttpResponse::InternalServerError()
+                .json(serde_json::json!({ "error": e.to_string() })))
         }
     }
 }
@@ -381,39 +382,35 @@ pub async fn set_notification_content_level(
     req: HttpRequest,
     pool: web::Data<Pool>,
     body: web::Json<UpdateContentLevelRequest>,
-) -> HttpResponse {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
     let detailed = match body.detail.as_str() {
         "detailed" => true,
         "private" => false,
-        other => return errors::bad_request(format!("Invalid detail: {other}")),
+        other => return Ok(errors::bad_request(format!("Invalid detail: {other}"))),
     };
     let claims = match req.extensions().get::<Claims>() {
         Some(c) => c.clone(),
-        None => return HttpResponse::Unauthorized().finish(),
+        None => return Ok(HttpResponse::Unauthorized().finish()),
     };
     let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
         Ok(u) => u,
-        Err(_) => return errors::bad_request("Invalid user UUID"),
+        Err(_) => return Ok(errors::bad_request("Invalid user UUID")),
     };
     let Some(workspace_id) = actor_workspace_id(&req) else {
-        return errors::unauthorized("Authentication required");
+        return Ok(errors::unauthorized("Authentication required"));
     };
-    let mut conn = match errors::db_conn(&pool) {
-        Ok(c) => c,
-        Err(resp) => return resp.error_response(),
-    };
+    let mut conn = errors::db_conn(&pool)?;
     let actor =
         crate::sync::actor::ActorContext::user(user_uuid, None).with_workspace(workspace_id);
     let res = crate::sync::session::with_actor_bypass_context(&mut conn, &actor, |conn| {
         crate::repository::workspaces::set_notification_push_detail(conn, workspace_id, detailed)
     });
     match res {
-        Ok(_) => HttpResponse::Ok().json(serde_json::json!({ "success": true })),
+        Ok(_) => Ok(HttpResponse::Ok().json(serde_json::json!({ "success": true }))),
         Err(e) => {
-            HttpResponse::InternalServerError().json(serde_json::json!({ "error": e.to_string() }))
+            Ok(HttpResponse::InternalServerError()
+                .json(serde_json::json!({ "error": e.to_string() })))
         }
     }
 }

@@ -1,4 +1,4 @@
-use actix_web::{web, HttpRequest, HttpResponse, Responder, ResponseError};
+use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use chrono::{Duration, Utc};
 use serde_json::json;
 use tracing::{error, info, warn};
@@ -242,25 +242,28 @@ pub async fn reset_password_with_token(
     db_pool: web::Data<crate::db::Pool>,
     request_data: web::Json<PasswordResetCompleteRequest>,
     http_request: HttpRequest,
-) -> impl Responder {
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    let mut conn = helpers::db_conn(&db_pool)?;
 
     // Hosted deployments disable local password auth, so refuse to write a local
     // credential even if a (pre-switch or forged) token is presented. Requesting
     // a reset is already a no-op in hosted mode, so a valid token should not
     // exist here.
     if crate::handlers::auth::hosted_local_auth_disabled() {
-        return errors::bad_request("Password authentication is not available for this account");
+        return Ok(errors::bad_request(
+            "Password authentication is not available for this account",
+        ));
     }
 
     // Validate new password
     if request_data.new_password.len() < 8 {
-        return errors::bad_request("Password must be at least 8 characters long");
+        return Ok(errors::bad_request(
+            "Password must be at least 8 characters long",
+        ));
     } else if request_data.new_password.len() > 128 {
-        return errors::bad_request("Password must be less than 128 characters");
+        return Ok(errors::bad_request(
+            "Password must be less than 128 characters",
+        ));
     }
 
     // Validate and consume the token
@@ -272,10 +275,10 @@ pub async fn reset_password_with_token(
         Ok(uuid) => uuid,
         Err(e) => {
             warn!("Invalid password reset token: {}", e);
-            return HttpResponse::BadRequest().json(json!({
+            return Ok(HttpResponse::BadRequest().json(json!({
                 "status": "error",
                 "message": e
-            }));
+            })));
         }
     };
 
@@ -291,7 +294,7 @@ pub async fn reset_password_with_token(
                 "User not found for password reset: user_uuid={}, error={}",
                 user_uuid, e
             );
-            return errors::bad_request("Invalid or expired token");
+            return Ok(errors::bad_request("Invalid or expired token"));
         }
     };
 
@@ -300,7 +303,7 @@ pub async fn reset_password_with_token(
         Ok(hash) => hash,
         Err(e) => {
             error!("Failed to hash new password: {}", e);
-            return errors::internal("Error processing new password");
+            return Ok(errors::internal("Error processing new password"));
         }
     };
 
@@ -314,7 +317,7 @@ pub async fn reset_password_with_token(
         &new_password_hash,
     ) {
         error!("Failed to update password hash: {:?}", e);
-        return errors::internal("Error updating password");
+        return Ok(errors::internal("Error updating password"));
     }
 
     // Update password_changed_at timestamp in the audited users
@@ -328,7 +331,7 @@ pub async fn reset_password_with_token(
                     "Failed to resolve primary workspace for password reset: {:?}",
                     e
                 );
-                return errors::internal("Error updating password");
+                return Ok(errors::internal("Error updating password"));
             }
         };
     let actor = crate::sync::actor::ActorContext::user_at_workspace(user.uuid, workspace_id);
@@ -366,14 +369,14 @@ pub async fn reset_password_with_token(
                 }
             }
 
-            HttpResponse::Ok().json(json!({
+            Ok(HttpResponse::Ok().json(json!({
                 "status": "success",
                 "message": "Password reset successfully. Please log in with your new password."
-            }))
+            })))
         }
         Err(e) => {
             error!("Failed to update password: {:?}", e);
-            errors::internal("Error updating password")
+            Ok(errors::internal("Error updating password"))
         }
     }
 }

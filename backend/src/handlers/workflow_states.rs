@@ -103,17 +103,15 @@ pub async fn create(
     mut tc: TenantConn,
     body: web::Json<CreateBody>,
     req: HttpRequest,
-) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let trimmed = body.name.trim();
     if trimmed.is_empty() || trimmed.len() > 64 {
-        return errors::bad_request("Name must be 1 to 64 characters");
+        return Ok(errors::bad_request("Name must be 1 to 64 characters"));
     }
     if body.color.trim().is_empty() {
-        return errors::bad_request("Color is required");
+        return Ok(errors::bad_request("Color is required"));
     }
 
     let actor = actor_uuid(&req);
@@ -130,7 +128,7 @@ pub async fn create(
             .unwrap_or(0),
         Err(e) => {
             error!(error = %e, "failed to list workflow states for position calc");
-            return errors::internal("Failed to create workflow state");
+            return Ok(errors::internal("Failed to create workflow state"));
         }
     };
 
@@ -162,11 +160,11 @@ pub async fn create(
                 category = %state.category.as_str(),
                 "workflow state created"
             );
-            HttpResponse::Created().json(state)
+            Ok(HttpResponse::Created().json(state))
         }
         Err(e) => {
             error!(error = %e, "failed to create workflow state");
-            errors::internal("Failed to create workflow state")
+            Ok(errors::internal("Failed to create workflow state"))
         }
     }
 }
@@ -177,22 +175,20 @@ pub async fn patch(
     path: web::Path<i32>,
     body: web::Json<PatchBody>,
     req: HttpRequest,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     let id = path.into_inner();
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     if let Some(ref n) = body.name {
         let t = n.trim();
         if t.is_empty() || t.len() > 64 {
-            return errors::bad_request("Name must be 1 to 64 characters");
+            return Ok(errors::bad_request("Name must be 1 to 64 characters"));
         }
     }
     if matches!(body.is_default, Some(false)) {
-        return errors::bad_request(
+        return Ok(errors::bad_request(
             "Setting is_default to false directly is not allowed; promote a different state instead",
-        );
+        ));
     }
 
     let actor = actor_uuid(&req);
@@ -225,36 +221,40 @@ pub async fn patch(
                 state_id = state.id,
                 "workflow state updated"
             );
-            HttpResponse::Ok().json(state)
+            Ok(HttpResponse::Ok().json(state))
         }
-        Err(diesel::result::Error::NotFound) => errors::not_found_msg("Workflow state not found"),
+        Err(diesel::result::Error::NotFound) => {
+            Ok(errors::not_found_msg("Workflow state not found"))
+        }
         Err(e) => {
             error!(error = %e, state_id = id, "failed to update workflow state");
-            errors::internal("Failed to update workflow state")
+            Ok(errors::internal("Failed to update workflow state"))
         }
     }
 }
 
 /// DELETE /api/admin/workflow-states/{id}
-pub async fn archive(mut tc: TenantConn, path: web::Path<i32>, req: HttpRequest) -> impl Responder {
+pub async fn archive(
+    mut tc: TenantConn,
+    path: web::Path<i32>,
+    req: HttpRequest,
+) -> actix_web::Result<HttpResponse> {
     let id = path.into_inner();
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     // Refuse to archive the workspace default — a default must always
     // exist for new tickets to land somewhere sensible.
     match tc.run(|conn| repo::find_by_id(conn, id)) {
         Ok(Some(s)) if s.is_default => {
-            return errors::bad_request(
+            return Ok(errors::bad_request(
                 "Cannot archive the default state; promote a different state first",
-            );
+            ));
         }
         Ok(Some(_)) => {}
-        Ok(None) => return errors::not_found_msg("Workflow state not found"),
+        Ok(None) => return Ok(errors::not_found_msg("Workflow state not found")),
         Err(e) => {
             error!(error = %e, state_id = id, "failed to look up workflow state for archive");
-            return errors::internal("Failed to archive workflow state");
+            return Ok(errors::internal("Failed to archive workflow state"));
         }
     }
 
@@ -263,11 +263,11 @@ pub async fn archive(mut tc: TenantConn, path: web::Path<i32>, req: HttpRequest)
     match archived {
         Ok(state) => {
             info!(actor = ?actor, state_id = state.id, "workflow state archived");
-            HttpResponse::Ok().json(state)
+            Ok(HttpResponse::Ok().json(state))
         }
         Err(e) => {
             error!(error = %e, state_id = id, "failed to archive workflow state");
-            errors::internal("Failed to archive workflow state")
+            Ok(errors::internal("Failed to archive workflow state"))
         }
     }
 }

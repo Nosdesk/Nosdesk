@@ -10,7 +10,7 @@
 //! - `PUT    /api/manufacturers/{id}`   rename
 //! - `DELETE /api/manufacturers/{id}`   delete (refused while models reference it)
 
-use actix_web::{web, HttpResponse, Responder, ResponseError};
+use actix_web::{web, HttpResponse, Responder};
 use diesel::result::{DatabaseErrorKind, Error as DieselError};
 use serde::Deserialize;
 use tracing::error;
@@ -69,26 +69,25 @@ pub async fn create(
     mut tc: TenantConn,
     body: web::Json<UpsertBody>,
     auth: AuthContext,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     if !auth.can_handle_tickets() {
-        return errors::forbidden("Forbidden: technicians and administrators only");
+        return Ok(errors::forbidden(
+            "Forbidden: technicians and administrators only",
+        ));
     }
-    let name = match validate_name(&body.name) {
-        Ok(n) => n,
-        Err(resp) => return resp.error_response(),
-    };
+    let name = validate_name(&body.name)?;
     let new = NewManufacturer {
         name,
         created_by: Some(auth.user_uuid),
     };
     match tc.run(|conn| repo::create(conn, new)) {
-        Ok(row) => HttpResponse::Created().json(row),
-        Err(DieselError::DatabaseError(DatabaseErrorKind::UniqueViolation, _)) => {
-            errors::bad_request("A manufacturer with that name already exists")
-        }
+        Ok(row) => Ok(HttpResponse::Created().json(row)),
+        Err(DieselError::DatabaseError(DatabaseErrorKind::UniqueViolation, _)) => Ok(
+            errors::bad_request("A manufacturer with that name already exists"),
+        ),
         Err(e) => {
             error!(error = %e, "failed to create manufacturer");
-            errors::internal("Failed to create manufacturer")
+            Ok(errors::internal("Failed to create manufacturer"))
         }
     }
 }
@@ -98,28 +97,29 @@ pub async fn update(
     path: web::Path<i32>,
     body: web::Json<UpsertBody>,
     auth: AuthContext,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     if !auth.can_handle_tickets() {
-        return errors::forbidden("Forbidden: technicians and administrators only");
+        return Ok(errors::forbidden(
+            "Forbidden: technicians and administrators only",
+        ));
     }
     let id = path.into_inner();
-    let name = match validate_name(&body.name) {
-        Ok(n) => n,
-        Err(resp) => return resp.error_response(),
-    };
+    let name = validate_name(&body.name)?;
     let change = ManufacturerChange {
         name: Some(name),
         updated_at: None,
     };
     match tc.run(|conn| repo::update(conn, id, change)) {
-        Ok(row) => HttpResponse::Ok().json(row),
-        Err(DieselError::NotFound) => errors::not_found_msg(format!("Manufacturer {id} not found")),
-        Err(DieselError::DatabaseError(DatabaseErrorKind::UniqueViolation, _)) => {
-            errors::bad_request("A manufacturer with that name already exists")
-        }
+        Ok(row) => Ok(HttpResponse::Ok().json(row)),
+        Err(DieselError::NotFound) => Ok(errors::not_found_msg(format!(
+            "Manufacturer {id} not found"
+        ))),
+        Err(DieselError::DatabaseError(DatabaseErrorKind::UniqueViolation, _)) => Ok(
+            errors::bad_request("A manufacturer with that name already exists"),
+        ),
         Err(e) => {
             error!(id, error = %e, "failed to update manufacturer");
-            errors::internal("Failed to update manufacturer")
+            Ok(errors::internal("Failed to update manufacturer"))
         }
     }
 }

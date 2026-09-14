@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use actix_web::{web, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpRequest, HttpResponse};
 use serde::{Deserialize, Serialize};
 
 use crate::db::Pool;
@@ -77,10 +77,8 @@ impl OutboundSettingsResponse {
 }
 
 /// GET /admin/email/outbound
-pub async fn get_outbound(mut tc: TenantConn, req: HttpRequest) -> impl Responder {
-    if let Err(resp) = require_admin(&req) {
-        return resp.error_response();
-    }
+pub async fn get_outbound(mut tc: TenantConn, req: HttpRequest) -> actix_web::Result<HttpResponse> {
+    require_admin(&req)?;
     let loaded = tc.run(|conn| {
         let row = ws_settings::get(conn)?;
         let record = match &row {
@@ -92,10 +90,10 @@ pub async fn get_outbound(mut tc: TenantConn, req: HttpRequest) -> impl Responde
     });
     match loaded {
         Ok((Some(row), record)) => {
-            HttpResponse::Ok().json(OutboundSettingsResponse::from_row(&row, record))
+            Ok(HttpResponse::Ok().json(OutboundSettingsResponse::from_row(&row, record)))
         }
-        Ok((None, _)) => HttpResponse::Ok().json(OutboundSettingsResponse::unconfigured()),
-        Err(e) => errors::internal(format!("load outbound settings: {e}")),
+        Ok((None, _)) => Ok(HttpResponse::Ok().json(OutboundSettingsResponse::unconfigured())),
+        Err(e) => Ok(errors::internal(format!("load outbound settings: {e}"))),
     }
 }
 
@@ -168,18 +166,18 @@ pub async fn set_domain(
     req: HttpRequest,
     pool: web::Data<Pool>,
     body: web::Json<SetDomainRequest>,
-) -> impl Responder {
-    if let Err(resp) = require_admin(&req) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_admin(&req)?;
     let Some(workspace_id) = tc.workspace_id() else {
-        return errors::bad_request("no workspace context");
+        return Ok(errors::bad_request("no workspace context"));
     };
 
     let from_email = body.from_email.trim().to_string();
     let parts: Vec<&str> = from_email.split('@').collect();
     if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() || !parts[1].contains('.') {
-        return errors::bad_request("from_email is not a valid email address");
+        return Ok(errors::bad_request(
+            "from_email is not a valid email address",
+        ));
     }
     let domain = parts[1].to_ascii_lowercase();
 
@@ -196,9 +194,9 @@ pub async fn set_domain(
     for owned in platform_owned.iter().flatten() {
         let owned = owned.to_ascii_lowercase();
         if domain == owned || domain.ends_with(&format!(".{owned}")) {
-            return errors::bad_request(
+            return Ok(errors::bad_request(
                 "This domain is managed by the platform and cannot be used as a sending domain",
-            );
+            ));
         }
     }
 
@@ -233,8 +231,8 @@ pub async fn set_domain(
 
     let record = match provision {
         Ok(Ok(r)) => r,
-        Ok(Err(e)) => return errors::internal(format!("provision DKIM: {e}")),
-        Err(e) => return errors::internal(format!("provision task: {e}")),
+        Ok(Err(e)) => return Ok(errors::internal(format!("provision DKIM: {e}"))),
+        Err(e) => return Ok(errors::internal(format!("provision task: {e}"))),
     };
 
     // Hosted: authorise the From domain in SES so sends from it aren't rejected.
@@ -244,13 +242,13 @@ pub async fn set_domain(
     // status can advance.
     // set_domain just (re)generated the DKIM key, so push it (update_existing).
     if let Err(e) = ensure_ses_registration(pool.get_ref(), workspace_id, true).await {
-        return errors::internal(format!("register {domain} with SES: {e}"));
+        return Ok(errors::internal(format!("register {domain} with SES: {e}")));
     }
 
-    HttpResponse::Ok().json(serde_json::json!({
+    Ok(HttpResponse::Ok().json(serde_json::json!({
         "dkim_record": { "name": record.name, "txt_value": record.txt_value },
         "verification_status": workspace_email_verification_status::PENDING,
-    }))
+    })))
 }
 
 /// POST /admin/email/outbound/verify — check the published DKIM record.
@@ -258,12 +256,10 @@ pub async fn verify_domain(
     tc: TenantConn,
     req: HttpRequest,
     pool: web::Data<Pool>,
-) -> impl Responder {
-    if let Err(resp) = require_admin(&req) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_admin(&req)?;
     let Some(workspace_id) = tc.workspace_id() else {
-        return errors::bad_request("no workspace context");
+        return Ok(errors::bad_request("no workspace context"));
     };
 
     // Re-ensure SES knows this domain before the DNS check can flip us to
@@ -274,25 +270,25 @@ pub async fn verify_domain(
     // re-apply an unchanged key, or every customer "Verify" click makes SES email
     // a "DKIM setup successful" notice. The key is only changed via set_domain.
     if let Err(e) = ensure_ses_registration(pool.get_ref(), workspace_id, false).await {
-        return errors::internal(format!("ensure SES registration: {e}"));
+        return Ok(errors::internal(format!("ensure SES registration: {e}")));
     }
 
     match dkim_verification::verify_dkim_domain(pool.get_ref(), workspace_id).await {
-        Ok(status) => HttpResponse::Ok().json(serde_json::json!({ "verification_status": status })),
-        Err(dkim_verification::VerifyError::NotProvisioned) => {
-            errors::bad_request("no verified domain configured")
+        Ok(status) => {
+            Ok(HttpResponse::Ok().json(serde_json::json!({ "verification_status": status })))
         }
-        Err(e) => errors::internal(format!("verify domain: {e}")),
+        Err(dkim_verification::VerifyError::NotProvisioned) => {
+            Ok(errors::bad_request("no verified domain configured"))
+        }
+        Err(e) => Ok(errors::internal(format!("verify domain: {e}"))),
     }
 }
 
 /// GET /admin/email/outbound/dns-check — live SPF/DKIM/DMARC/MX readout for the
 /// workspace's sending domain, so the admin can self-diagnose deliverability.
 /// Read-only; does not change verification status.
-pub async fn dns_check(mut tc: TenantConn, req: HttpRequest) -> impl Responder {
-    if let Err(resp) = require_admin(&req) {
-        return resp.error_response();
-    }
+pub async fn dns_check(mut tc: TenantConn, req: HttpRequest) -> actix_web::Result<HttpResponse> {
+    require_admin(&req)?;
 
     let loaded = tc.run(|conn| {
         let row = ws_settings::get(conn)?;
@@ -305,14 +301,14 @@ pub async fn dns_check(mut tc: TenantConn, req: HttpRequest) -> impl Responder {
     });
     let (row, record) = match loaded {
         Ok(v) => v,
-        Err(e) => return errors::internal(format!("load sending domain: {e}")),
+        Err(e) => return Ok(errors::internal(format!("load sending domain: {e}"))),
     };
 
     let (Some(row), Some(record)) = (row, record) else {
-        return errors::bad_request("no sending domain configured");
+        return Ok(errors::bad_request("no sending domain configured"));
     };
     let Some(domain) = row.sending_domain else {
-        return errors::bad_request("no sending domain configured");
+        return Ok(errors::bad_request("no sending domain configured"));
     };
 
     let report = crate::services::dns_diagnostics::check_email_auth(
@@ -321,7 +317,7 @@ pub async fn dns_check(mut tc: TenantConn, req: HttpRequest) -> impl Responder {
         &record.public_b64,
     )
     .await;
-    HttpResponse::Ok().json(report)
+    Ok(HttpResponse::Ok().json(report))
 }
 
 /// POST /admin/email/outbound/test — send a test email from the verified
@@ -330,17 +326,14 @@ pub async fn test_send(
     mut tc: TenantConn,
     req: HttpRequest,
     resolver: web::Data<Arc<OutboundEmailResolver>>,
-) -> impl Responder {
-    let claims = match require_admin(&req) {
-        Ok(c) => c,
-        Err(resp) => return resp.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    let claims = require_admin(&req)?;
     let Some(workspace_id) = tc.workspace_id() else {
-        return errors::bad_request("no workspace context");
+        return Ok(errors::bad_request("no workspace context"));
     };
     let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
         Ok(u) => u,
-        Err(_) => return errors::bad_request("invalid user id"),
+        Err(_) => return Ok(errors::bad_request("invalid user id")),
     };
 
     let prep = tc.run(|conn| {
@@ -350,37 +343,39 @@ pub async fn test_send(
     });
     let (row, recipient) = match prep {
         Ok(v) => v,
-        Err(e) => return errors::internal(format!("test prep: {e}")),
+        Err(e) => return Ok(errors::internal(format!("test prep: {e}"))),
     };
     let Some(recipient) = recipient else {
-        return errors::bad_request("your account has no email address");
+        return Ok(errors::bad_request("your account has no email address"));
     };
 
     let verified = matches!(&row, Some(r)
         if r.sending_mode == workspace_email_sending_mode::VERIFIED_DOMAIN
             && r.verification_status == workspace_email_verification_status::VERIFIED);
     if !verified {
-        return errors::bad_request("verify your sending domain before sending a test");
+        return Ok(errors::bad_request(
+            "verify your sending domain before sending a test",
+        ));
     }
 
     let svc = match resolver.resolve_owned(workspace_id) {
         Ok(s) => s,
-        Err(e) => return errors::internal(format!("resolve sender: {e}")),
+        Err(e) => return Ok(errors::internal(format!("resolve sender: {e}"))),
     };
     let branding = crate::utils::email::EmailBranding::default();
     match svc.send_test_email(&recipient, &branding).await {
-        Ok(_) => HttpResponse::Ok().json(serde_json::json!({ "status": "sent", "to": recipient })),
-        Err(e) => errors::internal(format!("send test: {e}")),
+        Ok(_) => {
+            Ok(HttpResponse::Ok().json(serde_json::json!({ "status": "sent", "to": recipient })))
+        }
+        Err(e) => Ok(errors::internal(format!("send test: {e}"))),
     }
 }
 
 /// DELETE /admin/email/outbound — revert to the instance fallback identity.
-pub async fn reset(mut tc: TenantConn, req: HttpRequest) -> impl Responder {
-    if let Err(resp) = require_admin(&req) {
-        return resp.error_response();
-    }
+pub async fn reset(mut tc: TenantConn, req: HttpRequest) -> actix_web::Result<HttpResponse> {
+    require_admin(&req)?;
     let Some(workspace_id) = tc.workspace_id() else {
-        return errors::bad_request("no workspace context");
+        return Ok(errors::bad_request("no workspace context"));
     };
 
     // Read the domain before clearing it, so we can deregister the SES identity.
@@ -391,7 +386,7 @@ pub async fn reset(mut tc: TenantConn, req: HttpRequest) -> impl Responder {
     });
     let domain = match cleared {
         Ok(d) => d,
-        Err(e) => return errors::internal(format!("reset: {e}")),
+        Err(e) => return Ok(errors::internal(format!("reset: {e}"))),
     };
 
     // Best-effort SES cleanup: the workspace is already back on fallback, so a
@@ -408,5 +403,5 @@ pub async fn reset(mut tc: TenantConn, req: HttpRequest) -> impl Responder {
         }
     }
 
-    HttpResponse::Ok().json(serde_json::json!({ "status": "reset" }))
+    Ok(HttpResponse::Ok().json(serde_json::json!({ "status": "reset" })))
 }

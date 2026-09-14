@@ -6,7 +6,7 @@
 //! address can never confirm a second one. Possession of the token is the
 //! proof; nothing here reveals anything to someone who does not hold one.
 
-use actix_web::{web, HttpRequest, HttpResponse, Responder, ResponseError};
+use actix_web::{web, HttpRequest, HttpResponse};
 use serde::Deserialize;
 use serde_json::json;
 use tracing::{info, warn};
@@ -33,11 +33,8 @@ pub async fn verify_email(
     db_pool: web::Data<crate::db::Pool>,
     _req: HttpRequest,
     body: web::Json<VerifyEmailRequest>,
-) -> impl Responder {
-    let mut conn = match helpers::db_conn(&db_pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    let mut conn = helpers::db_conn(&db_pool)?;
 
     let (user_uuid, metadata) =
         match crate::repository::reset_tokens::validate_and_consume_token_with_metadata(
@@ -50,7 +47,9 @@ pub async fn verify_email(
                 // Expired, already used, wrong type, or never existed. One message
                 // for all of them: telling them apart tells a token-guesser which
                 // of their guesses was once real.
-                return errors::bad_request("This confirmation link is invalid or has expired");
+                return Ok(errors::bad_request(
+                    "This confirmation link is invalid or has expired",
+                ));
             }
         };
 
@@ -60,7 +59,9 @@ pub async fn verify_email(
         .and_then(serde_json::Value::as_i64)
     else {
         warn!(%user_uuid, "email verification: token carries no user_email_id");
-        return errors::bad_request("This confirmation link is invalid or has expired");
+        return Ok(errors::bad_request(
+            "This confirmation link is invalid or has expired",
+        ));
     };
     let Some(address) = metadata
         .as_ref()
@@ -69,7 +70,9 @@ pub async fn verify_email(
         .map(str::to_owned)
     else {
         warn!(%user_uuid, "email verification: token carries no address");
-        return errors::bad_request("This confirmation link is invalid or has expired");
+        return Ok(errors::bad_request(
+            "This confirmation link is invalid or has expired",
+        ));
     };
 
     match crate::repository::user_emails::mark_verified_if_matches(
@@ -80,7 +83,7 @@ pub async fn verify_email(
     ) {
         Ok(1) => {
             info!(%user_uuid, email_id, "Email address confirmed");
-            HttpResponse::Ok().json(json!({ "status": "verified", "email": address }))
+            Ok(HttpResponse::Ok().json(json!({ "status": "verified", "email": address })))
         }
         // The row was deleted, reassigned, or now holds a different address.
         // The token was still spent, which is correct: it was valid once and a
@@ -88,11 +91,13 @@ pub async fn verify_email(
         // becomes.
         Ok(_) => {
             warn!(%user_uuid, email_id, "email verification: row no longer matches the token");
-            errors::bad_request("That address is no longer on this account")
+            Ok(errors::bad_request(
+                "That address is no longer on this account",
+            ))
         }
         Err(e) => {
             warn!(%user_uuid, email_id, error = ?e, "email verification: update failed");
-            errors::internal("Could not confirm this address")
+            Ok(errors::internal("Could not confirm this address"))
         }
     }
 }

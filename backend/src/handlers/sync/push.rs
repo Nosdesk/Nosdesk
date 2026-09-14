@@ -12,7 +12,7 @@
 //! through. Adding a new aggregate is one match arm + one
 //! `apply_<aggregate>` helper.
 
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder, ResponseError};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 use diesel::prelude::*;
 use diesel::Connection;
 use serde::{Deserialize, Serialize};
@@ -69,10 +69,12 @@ pub async fn push(
     pool: web::Data<Pool>,
     body: web::Json<Vec<PushTransaction>>,
     ctx: SyncContext,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     let body = body.into_inner();
     if body.len() > MAX_BATCH {
-        return errors::bad_request(format!("Batch exceeds the {MAX_BATCH}-transaction limit"));
+        return Ok(errors::bad_request(format!(
+            "Batch exceeds the {MAX_BATCH}-transaction limit"
+        )));
     }
 
     // Pull the workspace pin from RequestContext (populated by the
@@ -87,10 +89,7 @@ pub async fn push(
         .get::<RequestContext>()
         .and_then(|rc| rc.actor.workspace_id);
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+    let mut conn = helpers::db_conn(&pool)?;
     // Pin the request's workspace so the per-transaction idempotency
     // short-circuit (`lookup_existing` reads the RLS-isolated sync_actions)
     // is visible; the per-write actor context below re-pins it transactionally.
@@ -156,11 +155,11 @@ pub async fn push(
     // background jobs, and any future write site uniformly — no
     // per-handler SSE plumbing required.
 
-    HttpResponse::Ok().json(PushResponse {
+    Ok(HttpResponse::Ok().json(PushResponse {
         applied,
         rejected,
         last_sync_id,
-    })
+    }))
 }
 
 struct TxReject(&'static str, String);

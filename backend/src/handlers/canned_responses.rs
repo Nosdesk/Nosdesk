@@ -119,10 +119,8 @@ pub async fn create_canned(
     mut tc: TenantConn,
     body: web::Json<CreateRequest>,
     req: HttpRequest,
-) -> HttpResponse {
-    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
     let creator = req
         .extensions()
         .get::<crate::models::Claims>()
@@ -131,18 +129,18 @@ pub async fn create_canned(
     let title = body.title.trim();
     let content = body.body.trim();
     if title.is_empty() {
-        return bad_request("Title is required");
+        return Ok(bad_request("Title is required"));
     }
     if content.is_empty() {
-        return bad_request("Body is required");
+        return Ok(bad_request("Body is required"));
     }
     let unknown = unknown_variables(content, CANNED_RESPONSE_VARIABLES);
     if !unknown.is_empty() {
-        return bad_request(format!(
+        return Ok(bad_request(format!(
             "Unknown template variables: {}. Supported: {}.",
             unknown.join(", "),
             CANNED_RESPONSE_VARIABLES.join(", ")
-        ));
+        )));
     }
 
     let new = NewCannedResponse {
@@ -154,11 +152,11 @@ pub async fn create_canned(
     match tc.run(|conn| repo::create(conn, new)) {
         Ok(created) => {
             info!(id = created.id, "canned response created");
-            HttpResponse::Created().json(created)
+            Ok(HttpResponse::Created().json(created))
         }
         Err(e) => {
             error!(error = %e, "failed to create canned_response");
-            server_error("Failed to create canned response")
+            Ok(server_error("Failed to create canned response"))
         }
     }
 }
@@ -169,29 +167,27 @@ pub async fn update_canned(
     path: web::Path<i32>,
     body: web::Json<UpdateRequest>,
     req: HttpRequest,
-) -> HttpResponse {
-    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
     let id = path.into_inner();
 
     if let Some(t) = body.title.as_deref() {
         if t.trim().is_empty() {
-            return bad_request("Title must not be empty");
+            return Ok(bad_request("Title must not be empty"));
         }
     }
     if let Some(b) = body.body.as_deref() {
         let trimmed = b.trim();
         if trimmed.is_empty() {
-            return bad_request("Body must not be empty");
+            return Ok(bad_request("Body must not be empty"));
         }
         let unknown = unknown_variables(trimmed, CANNED_RESPONSE_VARIABLES);
         if !unknown.is_empty() {
-            return bad_request(format!(
+            return Ok(bad_request(format!(
                 "Unknown template variables: {}. Supported: {}.",
                 unknown.join(", "),
                 CANNED_RESPONSE_VARIABLES.join(", ")
-            ));
+            )));
         }
     }
 
@@ -204,12 +200,12 @@ pub async fn update_canned(
     match tc.run(|conn| repo::update(conn, id, change)) {
         Ok(updated) => {
             let updated: CannedResponse = updated;
-            HttpResponse::Ok().json(updated)
+            Ok(HttpResponse::Ok().json(updated))
         }
-        Err(diesel::result::Error::NotFound) => HttpResponse::NotFound().finish(),
+        Err(diesel::result::Error::NotFound) => Ok(HttpResponse::NotFound().finish()),
         Err(e) => {
             error!(error = %e, "failed to update canned_response");
-            server_error("Failed to update canned response")
+            Ok(server_error("Failed to update canned response"))
         }
     }
 }
@@ -219,20 +215,18 @@ pub async fn delete_canned(
     mut tc: TenantConn,
     path: web::Path<i32>,
     req: HttpRequest,
-) -> HttpResponse {
-    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
     let id = path.into_inner();
     match tc.run(|conn| repo::delete(conn, id)) {
-        Ok(0) => HttpResponse::NotFound().finish(),
+        Ok(0) => Ok(HttpResponse::NotFound().finish()),
         Ok(_) => {
             info!(id, "canned response deleted");
-            HttpResponse::NoContent().finish()
+            Ok(HttpResponse::NoContent().finish())
         }
         Err(e) => {
             error!(error = %e, "failed to delete canned_response");
-            server_error("Failed to delete canned response")
+            Ok(server_error("Failed to delete canned response"))
         }
     }
 }
@@ -293,11 +287,9 @@ pub async fn record_insertion(
 /// on its own path (not nested under `/admin/canned-responses/`)
 /// to avoid being shadowed by the sibling `{id}` route under
 /// Actix's `.route()` chain ordering.
-pub async fn starter_catalog(req: HttpRequest) -> HttpResponse {
-    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp.error_response();
-    }
-    HttpResponse::Ok().json(starters::CATALOG)
+pub async fn starter_catalog(req: HttpRequest) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
+    Ok(HttpResponse::Ok().json(starters::CATALOG))
 }
 
 /// Curated starter templates served by `starter_catalog`. The

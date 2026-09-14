@@ -2,7 +2,7 @@ use crate::extractors::TenantConn;
 use crate::handlers::errors;
 use crate::handlers::helpers;
 use actix_multipart::Multipart;
-use actix_web::{web, HttpMessage, HttpResponse, Responder, ResponseError};
+use actix_web::{web, HttpMessage, HttpResponse, Responder};
 use futures::StreamExt;
 use serde_json::json;
 use std::io::Write;
@@ -450,36 +450,36 @@ pub async fn execute_restore(
     path: web::Path<String>,
     req: actix_web::HttpRequest,
     body: web::Json<ExecuteRestoreRequest>,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     // Get authenticated admin user
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Authentication required"),
+        None => return Ok(errors::unauthorized("Authentication required")),
     };
 
     // Check if user is admin
     if !is_platform_admin(&claims) {
-        return errors::forbidden("Admin access required");
+        return Ok(errors::forbidden("Admin access required"));
     }
 
     let job_id = match Uuid::parse_str(&path.into_inner()) {
         Ok(uuid) => uuid,
-        Err(_) => return errors::bad_request("Invalid job ID"),
+        Err(_) => return Ok(errors::bad_request("Invalid job ID")),
     };
 
     let job = match tc.run(|conn| backup_repo::get_backup_job(conn, job_id)) {
         Ok(job) => job,
-        Err(diesel::result::Error::NotFound) => return errors::not_found_msg("Job not found"),
-        Err(e) => return errors::internal(format!("Failed to get job: {}", e)),
+        Err(diesel::result::Error::NotFound) => return Ok(errors::not_found_msg("Job not found")),
+        Err(e) => return Ok(errors::internal(format!("Failed to get job: {}", e))),
     };
 
     if job.job_type != "restore" {
-        return errors::bad_request("Job is not a restore job");
+        return Ok(errors::bad_request("Job is not a restore job"));
     }
 
     let file_path = match job.file_path {
         Some(path) => std::path::PathBuf::from(path),
-        None => return errors::bad_request("No backup file available"),
+        None => return Ok(errors::bad_request("No backup file available")),
     };
 
     // Preview now drives password verification too — a
@@ -488,7 +488,7 @@ pub async fn execute_restore(
     // "password required" error; wrong-password backups fail
     // with a decryption error.
     if let Err(e) = backup_service::preview_restore(&file_path, body.password.as_deref()) {
-        return errors::bad_request(format!("Preview failed: {}", e));
+        return Ok(errors::bad_request(format!("Preview failed: {}", e)));
     }
 
     // Update job status
@@ -511,10 +511,7 @@ pub async fn execute_restore(
     // so it can't run inside a single tenant-scoped tx. Phase 3g
     // owns bridging this through `unscoped_run` or a dedicated
     // cross-tenant entrypoint.
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+    let mut conn = helpers::db_conn(&pool)?;
 
     // Restore database first, then files. Mirrors the onboarding-only
     // `setup_restore_execute` flow below — the two paths now share the
@@ -546,7 +543,7 @@ pub async fn execute_restore(
                     },
                 )
             });
-            return errors::internal(format!("Database restore failed: {e}"));
+            return Ok(errors::internal(format!("Database restore failed: {e}")));
         }
     };
 
@@ -585,13 +582,13 @@ pub async fn execute_restore(
         )
     });
 
-    HttpResponse::Ok().json(json!({
+    Ok(HttpResponse::Ok().json(json!({
         "success": true,
         "tables_restored": stats.tables_restored,
         "records_restored": stats.records_restored,
         "files_restored": files_restored,
         "thumbnails_regenerated": thumbnails_regenerated,
-    }))
+    })))
 }
 
 /// Delete a backup job and its associated file

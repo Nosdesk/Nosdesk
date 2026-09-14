@@ -3,7 +3,7 @@
 //! Admin endpoints for managing plugins, settings, storage, and activity.
 
 use actix_multipart::Multipart;
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder, ResponseError};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use diesel::result::Error as DieselError;
 use futures::StreamExt;
 use serde::Deserialize;
@@ -279,10 +279,8 @@ fn workspace_pinned_actor(req: &HttpRequest, system_ref: &'static str) -> ActorC
 // =============================================================================
 
 /// List all plugins (admin only)
-pub async fn list_plugins(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+pub async fn list_plugins(req: HttpRequest, mut tc: TenantConn) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let result = tc.run(|conn| {
         let plugins = plugin_repo::list_all_plugins(conn)?;
@@ -313,10 +311,10 @@ pub async fn list_plugins(req: HttpRequest, mut tc: TenantConn) -> impl Responde
     });
 
     match result {
-        Ok(response) => HttpResponse::Ok().json(response),
+        Ok(response) => Ok(HttpResponse::Ok().json(response)),
         Err(e) => {
             error!("Failed to list plugins: {}", e);
-            errors::internal("Failed to list plugins")
+            Ok(errors::internal("Failed to list plugins"))
         }
     }
 }
@@ -348,10 +346,8 @@ pub async fn get_plugin(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<Uuid>,
-) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let plugin_uuid = path.into_inner();
 
@@ -380,17 +376,17 @@ pub async fn get_plugin(
         Ok(GetOutcome::Ok(plugin, revoked_at)) => match PluginResponse::try_from(plugin) {
             Ok(mut response) => {
                 response.signer_revoked_at = revoked_at;
-                HttpResponse::Ok().json(response)
+                Ok(HttpResponse::Ok().json(response))
             }
             Err(e) => {
                 error!("Failed to parse plugin manifest: {}", e);
-                errors::internal("Invalid plugin manifest")
+                Ok(errors::internal("Invalid plugin manifest"))
             }
         },
-        Ok(GetOutcome::NotFound) => errors::not_found_msg("Plugin not found"),
+        Ok(GetOutcome::NotFound) => Ok(errors::not_found_msg("Plugin not found")),
         Err(e) => {
             error!("Failed to get plugin: {}", e);
-            errors::internal("Failed to get plugin")
+            Ok(errors::internal("Failed to get plugin"))
         }
     }
 }
@@ -402,14 +398,12 @@ pub async fn update_plugin(
     mut tc: TenantConn,
     path: web::Path<Uuid>,
     body: web::Json<UpdatePluginRequest>,
-) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Authentication required"),
+        None => return Ok(errors::unauthorized("Authentication required")),
     };
 
     let user_uuid = Uuid::parse_str(&claims.sub).ok();
@@ -427,10 +421,10 @@ pub async fn update_plugin(
     );
     match exists {
         Ok(true) => {}
-        Ok(false) => return errors::not_found_msg("Plugin not found"),
+        Ok(false) => return Ok(errors::not_found_msg("Plugin not found")),
         Err(e) => {
             error!("Failed to look up plugin: {}", e);
-            return errors::internal("Failed to load plugin");
+            return Ok(errors::internal("Failed to load plugin"));
         }
     }
 
@@ -451,10 +445,7 @@ pub async fn update_plugin(
             crate::services::plugins::lifecycle::PluginAction::Disable
         };
         let actor = workspace_pinned_actor(&req, "plugins_admin");
-        let mut conn = match helpers::db_conn(&pool) {
-            Ok(c) => c,
-            Err(e) => return e.error_response(),
-        };
+        let mut conn = helpers::db_conn(&pool)?;
         let result = actor_session::with_actor_context::<
             _,
             crate::services::plugins::lifecycle::ActionError,
@@ -464,17 +455,19 @@ pub async fn update_plugin(
         match result {
             Ok(_) => {}
             Err(crate::services::plugins::lifecycle::ActionError::NoSuchPlugin) => {
-                return errors::not_found_msg("Plugin not found");
+                return Ok(errors::not_found_msg("Plugin not found"));
             }
             Err(crate::services::plugins::lifecycle::ActionError::InvalidTransition {
                 from,
                 action,
             }) => {
-                return errors::conflict(format!("Cannot {action} a plugin in state {from}"));
+                return Ok(errors::conflict(format!(
+                    "Cannot {action} a plugin in state {from}"
+                )));
             }
             Err(e) => {
                 error!("Failed to toggle plugin state: {}", e);
-                return errors::internal("Failed to toggle plugin");
+                return Ok(errors::internal("Failed to toggle plugin"));
             }
         }
     }
@@ -486,18 +479,18 @@ pub async fn update_plugin(
     // re-verify end-to-end.
     let updated_plugin = match tc.run(|conn| plugin_repo::get_plugin_by_uuid(conn, plugin_uuid)) {
         Ok(p) => p,
-        Err(DieselError::NotFound) => return errors::not_found_msg("Plugin not found"),
+        Err(DieselError::NotFound) => return Ok(errors::not_found_msg("Plugin not found")),
         Err(e) => {
             error!("Failed to re-fetch plugin: {}", e);
-            return errors::internal("Failed to load plugin");
+            return Ok(errors::internal("Failed to load plugin"));
         }
     };
 
     match PluginResponse::try_from(updated_plugin) {
-        Ok(response) => HttpResponse::Ok().json(response),
+        Ok(response) => Ok(HttpResponse::Ok().json(response)),
         Err(e) => {
             error!("Failed to serialize plugin response: {}", e);
-            errors::internal("Plugin updated but response failed")
+            Ok(errors::internal("Plugin updated but response failed"))
         }
     }
 }
@@ -515,23 +508,18 @@ pub async fn consent_to_plugin(
     req: HttpRequest,
     pool: web::Data<Pool>,
     path: web::Path<Uuid>,
-) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
     let claims = match req.extensions().get::<Claims>() {
         Some(c) => c.clone(),
-        None => return errors::unauthorized("Authentication required"),
+        None => return Ok(errors::unauthorized("Authentication required")),
     };
     let Some(user_uuid) = Uuid::parse_str(&claims.sub).ok() else {
-        return errors::unauthorized("Authentication required");
+        return Ok(errors::unauthorized("Authentication required"));
     };
     let plugin_uuid = path.into_inner();
     let actor = workspace_pinned_actor(&req, "plugins_admin");
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+    let mut conn = helpers::db_conn(&pool)?;
 
     let result = actor_session::with_actor_context::<_, DieselError>(&mut conn, &actor, |conn| {
         let plugin = plugin_repo::get_plugin_by_uuid(conn, plugin_uuid)?;
@@ -549,19 +537,19 @@ pub async fn consent_to_plugin(
 
     match result {
         Ok(ConsentResult::Consented(plugin)) => match PluginResponse::try_from(*plugin) {
-            Ok(response) => HttpResponse::Ok().json(response),
+            Ok(response) => Ok(HttpResponse::Ok().json(response)),
             Err(e) => {
                 error!("Failed to serialize consented plugin: {}", e);
-                errors::internal("Consented but response failed")
+                Ok(errors::internal("Consented but response failed"))
             }
         },
-        Ok(ConsentResult::NotPending(state)) => {
-            errors::conflict(format!("Plugin is not awaiting consent (state: {state})"))
-        }
-        Err(DieselError::NotFound) => errors::not_found_msg("Plugin not found"),
+        Ok(ConsentResult::NotPending(state)) => Ok(errors::conflict(format!(
+            "Plugin is not awaiting consent (state: {state})"
+        ))),
+        Err(DieselError::NotFound) => Ok(errors::not_found_msg("Plugin not found")),
         Err(e) => {
             error!("Failed to consent to plugin: {}", e);
-            errors::internal("Failed to consent to plugin")
+            Ok(errors::internal("Failed to consent to plugin"))
         }
     }
 }
@@ -587,24 +575,19 @@ pub async fn uninstall_plugin(
     pool: web::Data<Pool>,
     mut tc: TenantConn,
     path: web::Path<Uuid>,
-) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
-    let claims = match require_auth(&req) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
+    let claims = require_auth(&req)?;
     let actor = Uuid::parse_str(&claims.sub).ok();
 
     let plugin_uuid = path.into_inner();
 
     let plugin = match tc.run(|conn| plugin_repo::get_plugin_by_uuid(conn, plugin_uuid)) {
         Ok(p) => p,
-        Err(DieselError::NotFound) => return errors::not_found_msg("Plugin not found"),
+        Err(DieselError::NotFound) => return Ok(errors::not_found_msg("Plugin not found")),
         Err(e) => {
             error!("Failed to get plugin: {}", e);
-            return errors::internal("Failed to get plugin");
+            return Ok(errors::internal("Failed to get plugin"));
         }
     };
 
@@ -634,10 +617,7 @@ pub async fn uninstall_plugin(
     // on a freshly checked-out connection rather than tc.run. The
     // workspace pin comes from the RequestContext-derived actor.
     let actor_ctx = workspace_pinned_actor(&req, "plugins_admin");
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+    let mut conn = helpers::db_conn(&pool)?;
     let outcome_result = actor_session::with_actor_context::<
         _,
         crate::services::plugins::lifecycle::ActionError,
@@ -661,18 +641,20 @@ pub async fn uninstall_plugin(
                     );
                 }
             }
-            HttpResponse::NoContent().finish()
+            Ok(HttpResponse::NoContent().finish())
         }
         Err(crate::services::plugins::lifecycle::ActionError::NoSuchPlugin) => {
-            errors::not_found_msg("Plugin not found")
+            Ok(errors::not_found_msg("Plugin not found"))
         }
         Err(crate::services::plugins::lifecycle::ActionError::InvalidTransition {
             from,
             action,
-        }) => errors::conflict(format!("Cannot {action} a plugin in state {from}")),
+        }) => Ok(errors::conflict(format!(
+            "Cannot {action} a plugin in state {from}"
+        ))),
         Err(e) => {
             error!("Failed to uninstall plugin: {}", e);
-            errors::internal("Failed to uninstall plugin")
+            Ok(errors::internal("Failed to uninstall plugin"))
         }
     }
 }
@@ -686,10 +668,8 @@ pub async fn get_plugin_settings(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<Uuid>,
-) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let plugin_uuid = path.into_inner();
 
@@ -712,12 +692,12 @@ pub async fn get_plugin_settings(
         Ok(SettingsOutcome::Ok(settings)) => {
             let response: Vec<PluginSettingResponse> =
                 settings.into_iter().map(Into::into).collect();
-            HttpResponse::Ok().json(response)
+            Ok(HttpResponse::Ok().json(response))
         }
-        Ok(SettingsOutcome::NotFound) => errors::not_found_msg("Plugin not found"),
+        Ok(SettingsOutcome::NotFound) => Ok(errors::not_found_msg("Plugin not found")),
         Err(e) => {
             error!("Failed to get plugin settings: {}", e);
-            errors::internal("Failed to get settings")
+            Ok(errors::internal("Failed to get settings"))
         }
     }
 }
@@ -728,10 +708,8 @@ pub async fn set_plugin_setting(
     mut tc: TenantConn,
     path: web::Path<Uuid>,
     body: web::Json<SetPluginDataRequest>,
-) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let plugin_uuid = path.into_inner();
     let body = body.into_inner();
@@ -794,16 +772,16 @@ pub async fn set_plugin_setting(
     match outcome {
         Ok(SetOutcome::Ok(setting, plugin_name)) => {
             info!("Plugin setting updated: {} / {}", plugin_name, body.key);
-            HttpResponse::Ok().json(PluginSettingResponse::from(setting))
+            Ok(HttpResponse::Ok().json(PluginSettingResponse::from(setting)))
         }
-        Ok(SetOutcome::NotFound) => errors::not_found_msg("Plugin not found"),
-        Ok(SetOutcome::EncryptionFailed) => errors::internal("Failed to encrypt plugin secret"),
+        Ok(SetOutcome::NotFound) => Ok(errors::not_found_msg("Plugin not found")),
+        Ok(SetOutcome::EncryptionFailed) => Ok(errors::internal("Failed to encrypt plugin secret")),
         Ok(SetOutcome::NonStringSecret) => {
-            errors::bad_request("Secret settings must be string values")
+            Ok(errors::bad_request("Secret settings must be string values"))
         }
         Err(e) => {
             error!("Failed to set plugin setting: {}", e);
-            errors::internal("Failed to set setting")
+            Ok(errors::internal("Failed to set setting"))
         }
     }
 }
@@ -813,10 +791,8 @@ pub async fn delete_plugin_setting(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<(Uuid, String)>,
-) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let (plugin_uuid, key) = path.into_inner();
 
@@ -839,12 +815,12 @@ pub async fn delete_plugin_setting(
     });
 
     match outcome {
-        Ok(DeleteOutcome::Deleted) => HttpResponse::NoContent().finish(),
-        Ok(DeleteOutcome::PluginNotFound) => errors::not_found_msg("Plugin not found"),
-        Ok(DeleteOutcome::SettingNotFound) => errors::not_found_msg("Setting not found"),
+        Ok(DeleteOutcome::Deleted) => Ok(HttpResponse::NoContent().finish()),
+        Ok(DeleteOutcome::PluginNotFound) => Ok(errors::not_found_msg("Plugin not found")),
+        Ok(DeleteOutcome::SettingNotFound) => Ok(errors::not_found_msg("Setting not found")),
         Err(e) => {
             error!("Failed to delete plugin setting: {}", e);
-            errors::internal("Failed to delete setting")
+            Ok(errors::internal("Failed to delete setting"))
         }
     }
 }
@@ -1093,10 +1069,8 @@ pub async fn get_plugin_activity(
     mut tc: TenantConn,
     path: web::Path<Uuid>,
     query: web::Query<PaginationQuery>,
-) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let plugin_uuid = path.into_inner();
     let limit = helpers::clamp_limit(query.limit);
@@ -1121,12 +1095,12 @@ pub async fn get_plugin_activity(
         Ok(ActivityOutcome::Ok(activity)) => {
             let response: Vec<PluginActivityResponse> =
                 activity.into_iter().map(Into::into).collect();
-            HttpResponse::Ok().json(response)
+            Ok(HttpResponse::Ok().json(response))
         }
-        Ok(ActivityOutcome::NotFound) => errors::not_found_msg("Plugin not found"),
+        Ok(ActivityOutcome::NotFound) => Ok(errors::not_found_msg("Plugin not found")),
         Err(e) => {
             error!("Failed to get plugin activity: {}", e);
-            errors::internal("Failed to get activity")
+            Ok(errors::internal("Failed to get activity"))
         }
     }
 }
@@ -1440,27 +1414,22 @@ pub async fn install_plugin_from_zip(
     req: HttpRequest,
     pool: web::Data<Pool>,
     mut payload: Multipart,
-) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
     if !web_sideload_enabled() {
         warn!("Web sideload attempt while disabled; set NOSDESK_ALLOW_WEB_SIDELOAD=1 to enable");
-        return errors::forbidden(
+        return Ok(errors::forbidden(
             "Web sideload is disabled on this instance. Use the CLI \
              (`nosdesk-cli plugin install`) or set NOSDESK_ALLOW_WEB_SIDELOAD=1 to enable.",
-        );
+        ));
     }
 
     let claims = match req.extensions().get::<Claims>().cloned() {
         Some(c) => c,
-        None => return errors::unauthorized("Authentication required"),
+        None => return Ok(errors::unauthorized("Authentication required")),
     };
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+    let mut conn = helpers::db_conn(&pool)?;
 
     // Read the zip file from multipart
     let mut zip_data = Vec::new();
@@ -1470,7 +1439,7 @@ pub async fn install_plugin_from_zip(
             Ok(f) => f,
             Err(e) => {
                 error!("Multipart field error: {}", e);
-                return errors::bad_request("Invalid multipart data");
+                return Ok(errors::bad_request("Invalid multipart data"));
             }
         };
 
@@ -1488,15 +1457,15 @@ pub async fn install_plugin_from_zip(
                 Ok(d) => d,
                 Err(e) => {
                     error!("Failed to read multipart chunk: {}", e);
-                    return errors::bad_request("Failed to read upload");
+                    return Ok(errors::bad_request("Failed to read upload"));
                 }
             };
 
             if zip_data.len() + data.len() > signing::MAX_ARCHIVE_SIZE {
-                return errors::bad_request(format!(
+                return Ok(errors::bad_request(format!(
                     "Zip file too large. Maximum size is {} MB",
                     signing::MAX_ARCHIVE_SIZE / (1024 * 1024)
-                ));
+                )));
             }
 
             zip_data.extend_from_slice(&data);
@@ -1504,7 +1473,7 @@ pub async fn install_plugin_from_zip(
     }
 
     if zip_data.is_empty() {
-        return errors::bad_request("No zip file received");
+        return Ok(errors::bad_request("No zip file received"));
     }
 
     // Verify plugin signature. Web uploads must resolve to a public-
@@ -1515,11 +1484,13 @@ pub async fn install_plugin_from_zip(
     let verified = match signing::verify_archive(&zip_data) {
         Ok(v) => v,
         Err(signing::SigningError::MissingSignature) => {
-            return errors::bad_request("This plugin isn't signed. Unsigned plugins must be installed via the nosdesk-plugin CLI.");
+            return Ok(errors::bad_request("This plugin isn't signed. Unsigned plugins must be installed via the nosdesk-plugin CLI."));
         }
         Err(e) => {
             warn!("Plugin zip signature rejected: {}", e);
-            return errors::bad_request(format!("Plugin signature rejected: {e}"));
+            return Ok(errors::bad_request(format!(
+                "Plugin signature rejected: {e}"
+            )));
         }
     };
 
@@ -1527,12 +1498,14 @@ pub async fn install_plugin_from_zip(
         Ok(t) => t,
         Err(e) => {
             warn!("Plugin publisher not trusted: {}", e);
-            return errors::bad_request(format!("Plugin publisher not trusted: {e}"));
+            return Ok(errors::bad_request(format!(
+                "Plugin publisher not trusted: {e}"
+            )));
         }
     };
 
     if matches!(resolved_tier, trust::ResolvedTier::Local) {
-        return errors::bad_request("Locally-signed plugins must be installed via the nosdesk-plugin CLI, not the admin upload form.");
+        return Ok(errors::bad_request("Locally-signed plugins must be installed via the nosdesk-plugin CLI, not the admin upload form."));
     }
 
     let signer = trust::PluginSignerFields::from_verified(&verified, &resolved_tier);
@@ -1556,7 +1529,7 @@ pub async fn install_plugin_from_zip(
         |conn| install::install_verified(conn, &verified.files, signer, resolved_tier, options),
     ) {
         Ok(o) => o,
-        Err(e) => return install_error_to_response(e),
+        Err(e) => return Ok(install_error_to_response(e)),
     };
 
     let was_create = matches!(outcome, install::InstallOutcome::Created(_));
@@ -1573,14 +1546,14 @@ pub async fn install_plugin_from_zip(
     match PluginResponse::try_from(plugin) {
         Ok(response) => {
             if was_create {
-                HttpResponse::Created().json(response)
+                Ok(HttpResponse::Created().json(response))
             } else {
-                HttpResponse::Ok().json(response)
+                Ok(HttpResponse::Ok().json(response))
             }
         }
         Err(e) => {
             error!("Failed to create plugin response: {}", e);
-            errors::internal("Plugin created but response failed")
+            Ok(errors::internal("Plugin created but response failed"))
         }
     }
 }
@@ -1623,14 +1596,12 @@ fn install_error_to_response(err: install::InstallError) -> HttpResponse {
 /// render the right surface without trial-and-erroring against
 /// each gated endpoint. Admin-only because the flags hint at the
 /// instance's threat-model posture.
-pub async fn get_admin_config(req: HttpRequest) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
-    HttpResponse::Ok().json(serde_json::json!({
+pub async fn get_admin_config(req: HttpRequest) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
+    Ok(HttpResponse::Ok().json(serde_json::json!({
         "web_sideload_enabled": web_sideload_enabled(),
         "registry_enabled": registry::configured_url().is_some(),
-    }))
+    })))
 }
 
 /// Aggregate trust-state inventory of installed plugins for the
@@ -1638,16 +1609,17 @@ pub async fn get_admin_config(req: HttpRequest) -> impl Responder {
 /// production red flag), legacy unsigned rows (migration straggler
 /// detector), and the top-5 publishers by install count for
 /// revocation-blast-radius visibility.
-pub async fn get_signing_overview(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+pub async fn get_signing_overview(
+    req: HttpRequest,
+    mut tc: TenantConn,
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     match tc.run(plugin_repo::signing_overview) {
-        Ok(overview) => HttpResponse::Ok().json(overview),
+        Ok(overview) => Ok(HttpResponse::Ok().json(overview)),
         Err(e) => {
             error!("Failed to compute plugin signing overview: {}", e);
-            errors::internal("Failed to compute signing overview")
+            Ok(errors::internal("Failed to compute signing overview"))
         }
     }
 }
@@ -1668,31 +1640,29 @@ pub async fn get_signing_overview(req: HttpRequest, mut tc: TenantConn) -> impl 
 pub async fn get_registry(
     req: HttpRequest,
     cache: web::Data<registry::SharedCache>,
-) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
     if registry::configured_url().is_none() {
-        return HttpResponse::Ok().json(serde_json::json!({ "status": "disabled" }));
+        return Ok(HttpResponse::Ok().json(serde_json::json!({ "status": "disabled" })));
     }
     let guard = cache.read().await;
     if let Some(snapshot) = &guard.snapshot {
-        return HttpResponse::Ok().json(serde_json::json!({
+        return Ok(HttpResponse::Ok().json(serde_json::json!({
             "status": "available",
             "snapshot": {
                 "fetched_at": snapshot.fetched_at,
                 "publishers": snapshot.publishers,
                 "index": snapshot.index,
             },
-        }));
+        })));
     }
     if let Some(reason) = &guard.last_error {
-        return HttpResponse::Ok().json(serde_json::json!({
+        return Ok(HttpResponse::Ok().json(serde_json::json!({
             "status": "failed",
             "reason": reason,
-        }));
+        })));
     }
-    HttpResponse::Ok().json(serde_json::json!({ "status": "pending" }))
+    Ok(HttpResponse::Ok().json(serde_json::json!({ "status": "pending" })))
 }
 
 /// Force an immediate registry sync and return the resulting state.
@@ -1703,29 +1673,27 @@ pub async fn refresh_registry(
     req: HttpRequest,
     pool: web::Data<Pool>,
     cache: web::Data<registry::SharedCache>,
-) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
     let base_url = match registry::configured_url() {
         Some(u) => u,
-        None => return HttpResponse::Ok().json(serde_json::json!({ "status": "disabled" })),
+        None => return Ok(HttpResponse::Ok().json(serde_json::json!({ "status": "disabled" }))),
     };
     let http = match registry::build_http_client() {
         Ok(c) => c,
         Err(e) => {
             error!("HTTP client build failed: {}", e);
-            return errors::internal("HTTP client unavailable");
+            return Ok(errors::internal("HTTP client unavailable"));
         }
     };
     if let Err(e) = registry::sync_once(&http, &base_url, pool.get_ref(), cache.get_ref()).await {
         let msg = e.to_string();
         warn!(error = %msg, "Manual registry refresh failed");
         cache.write().await.last_error = Some(msg.clone());
-        return HttpResponse::Ok().json(serde_json::json!({
+        return Ok(HttpResponse::Ok().json(serde_json::json!({
             "status": "failed",
             "reason": msg,
-        }));
+        })));
     }
     // sync_once writes snapshot=Some on success unconditionally, so
     // a successful refresh always has a snapshot to render.
@@ -1734,14 +1702,14 @@ pub async fn refresh_registry(
         .snapshot
         .as_ref()
         .expect("sync_once Ok but cache snapshot is None");
-    HttpResponse::Ok().json(serde_json::json!({
+    Ok(HttpResponse::Ok().json(serde_json::json!({
         "status": "available",
         "snapshot": {
             "fetched_at": snapshot.fetched_at,
             "publishers": snapshot.publishers,
             "index": snapshot.index,
         },
-    }))
+    })))
 }
 
 #[derive(Deserialize)]
@@ -1759,13 +1727,11 @@ pub async fn install_from_registry(
     pool: web::Data<Pool>,
     cache: web::Data<registry::SharedCache>,
     body: web::Json<InstallFromRegistryRequest>,
-) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
     let claims = match req.extensions().get::<Claims>().cloned() {
         Some(c) => c,
-        None => return errors::unauthorized("Authentication required"),
+        None => return Ok(errors::unauthorized("Authentication required")),
     };
 
     // Snapshot the registry entry we intend to install so we can
@@ -1777,27 +1743,27 @@ pub async fn install_from_registry(
         let snapshot = match guard.snapshot.as_ref() {
             Some(s) => s,
             None => {
-                return errors::service_unavailable(
+                return Ok(errors::service_unavailable(
                     "Registry snapshot not available yet; wait for background sync",
-                );
+                ));
             }
         };
         let entry = match snapshot.find_plugin(&body.plugin_name) {
             Some(e) => e,
             None => {
-                return errors::not_found_msg(format!(
+                return Ok(errors::not_found_msg(format!(
                     "plugin {:?} not in registry",
                     body.plugin_name
-                ));
+                )));
             }
         };
         let version = match entry.resolve_version(body.version.as_deref()) {
             Some(v) => v,
             None => {
-                return errors::not_found_msg(format!(
+                return Ok(errors::not_found_msg(format!(
                     "plugin {:?} has no version {:?}",
                     body.plugin_name, body.version
-                ));
+                )));
             }
         };
         (
@@ -1812,13 +1778,13 @@ pub async fn install_from_registry(
         Ok(c) => c,
         Err(e) => {
             error!("HTTP client build failed: {}", e);
-            return errors::internal("HTTP client unavailable");
+            return Ok(errors::internal("HTTP client unavailable"));
         }
     };
 
     let bytes = match download_bundle(&http, &download_url).await {
         Ok(b) => b,
-        Err(e) => return HttpResponse::BadGateway().json(format!("download failed: {e}")),
+        Err(e) => return Ok(HttpResponse::BadGateway().json(format!("download failed: {e}"))),
     };
 
     // Independent content check BEFORE the signature verifier
@@ -1833,14 +1799,14 @@ pub async fn install_from_registry(
             actual = %actual_sha,
             "Registry SHA-256 mismatch",
         );
-        return HttpResponse::BadGateway()
-            .json("downloaded bundle does not match registry-published sha256");
+        return Ok(HttpResponse::BadGateway()
+            .json("downloaded bundle does not match registry-published sha256"));
     }
 
     let verified = match signing::verify_archive(&bytes) {
         Ok(v) => v,
         Err(e) => {
-            return errors::bad_request(format!("signature rejected: {e}"));
+            return Ok(errors::bad_request(format!("signature rejected: {e}")));
         }
     };
 
@@ -1859,19 +1825,16 @@ pub async fn install_from_registry(
             actual_pubkey = %verified.envelope.signer_pubkey,
             "Registry / zip publisher mismatch",
         );
-        return errors::bad_request(
+        return Ok(errors::bad_request(
             "zip signer does not match the publisher the registry advertised",
-        );
+        ));
     }
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+    let mut conn = helpers::db_conn(&pool)?;
     let tier = match trust::resolve(&mut conn, &verified.envelope) {
         Ok(t) => t,
         Err(e) => {
-            return errors::bad_request(format!("publisher not trusted: {e}"));
+            return Ok(errors::bad_request(format!("publisher not trusted: {e}")));
         }
     };
     if tier.trust_level() != claimed_tier.as_str() {
@@ -1881,9 +1844,9 @@ pub async fn install_from_registry(
             resolved_tier = tier.trust_level(),
             "Registry / resolved-tier mismatch",
         );
-        return errors::bad_request(
+        return Ok(errors::bad_request(
             "zip's resolved trust tier does not match the tier the registry advertised",
-        );
+        ));
     }
 
     // Verify the zip's manifest.name matches the registry key
@@ -1901,9 +1864,9 @@ pub async fn install_from_registry(
                     zip_name,
                     "Registry / manifest name mismatch",
                 );
-                return errors::bad_request(
+                return Ok(errors::bad_request(
                     "zip manifest name does not match the plugin the registry advertised",
-                );
+                ));
             }
         }
     }
@@ -1927,7 +1890,7 @@ pub async fn install_from_registry(
         |conn| install::install_verified(conn, &verified.files, signer, tier, options),
     ) {
         Ok(o) => o,
-        Err(e) => return install_error_to_response(e),
+        Err(e) => return Ok(install_error_to_response(e)),
     };
 
     let was_create = matches!(outcome, install::InstallOutcome::Created(_));
@@ -1944,14 +1907,14 @@ pub async fn install_from_registry(
     match PluginResponse::try_from(plugin) {
         Ok(response) => {
             if was_create {
-                HttpResponse::Created().json(response)
+                Ok(HttpResponse::Created().json(response))
             } else {
-                HttpResponse::Ok().json(response)
+                Ok(HttpResponse::Ok().json(response))
             }
         }
         Err(e) => {
             error!("Failed to build plugin response: {}", e);
-            errors::internal("Plugin installed but response failed")
+            Ok(errors::internal("Plugin installed but response failed"))
         }
     }
 }

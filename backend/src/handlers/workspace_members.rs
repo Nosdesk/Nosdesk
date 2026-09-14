@@ -24,7 +24,7 @@
 
 use std::sync::Arc;
 
-use actix_web::{web, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpRequest, HttpResponse};
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -113,15 +113,13 @@ pub async fn list_members(
     req: HttpRequest,
     pool: web::Data<Pool>,
     ctx: WorkspaceContext,
-) -> impl Responder {
-    if let Err(resp) = rbac::require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    rbac::require_workspace_role(&req, WorkspaceRole::Admin)?;
     let mut conn = match pool.get() {
         Ok(c) => c,
         Err(e) => {
             error!(error = ?e, "workspace members: pool exhausted");
-            return errors::internal("Database connection failed");
+            return Ok(errors::internal("Database connection failed"));
         }
     };
     let actor = ActorContext::system("workspace:members:list").with_workspace(ctx.workspace_id);
@@ -131,11 +129,11 @@ pub async fn list_members(
     match result {
         Ok(rows) => {
             let body: Vec<MemberView> = rows.into_iter().map(Into::into).collect();
-            HttpResponse::Ok().json(body)
+            Ok(HttpResponse::Ok().json(body))
         }
         Err(e) => {
             error!(error = ?e, workspace_id = ctx.workspace_id, "workspace members list failed");
-            errors::internal("Failed to list members")
+            Ok(errors::internal("Failed to list members"))
         }
     }
 }
@@ -166,29 +164,27 @@ pub async fn update_member_role(
     ctx: WorkspaceContext,
     path: web::Path<Uuid>,
     body: web::Json<UpdateRoleRequest>,
-) -> impl Responder {
-    let (caller, caller_role) =
-        match rbac::require_workspace_role_detailed(&req, WorkspaceRole::Admin) {
-            Ok(v) => v,
-            Err(resp) => return resp.error_response(),
-        };
+) -> actix_web::Result<HttpResponse> {
+    let (caller, caller_role) = rbac::require_workspace_role_detailed(&req, WorkspaceRole::Admin)?;
     let target = path.into_inner();
     let Some(new_role) = parse_role(&body.into_inner().role) else {
-        return errors::bad_request("role must be one of: owner, admin, agent, member");
+        return Ok(errors::bad_request(
+            "role must be one of: owner, admin, agent, member",
+        ));
     };
 
     // Reject an assignment the caller's tier can't grant before touching
     // the DB (also re-checked against the target's current role inside
     // the transaction so the two checks can't race).
     if !can_assign(caller_role, new_role) {
-        return forbidden_tier();
+        return Ok(forbidden_tier());
     }
 
     let mut conn = match pool.get() {
         Ok(c) => c,
         Err(e) => {
             error!(error = ?e, "workspace members: pool exhausted");
-            return errors::internal("Database connection failed");
+            return Ok(errors::internal("Database connection failed"));
         }
     };
     let actor = caller_actor(&caller, ctx.workspace_id);
@@ -222,31 +218,31 @@ pub async fn update_member_role(
     match outcome {
         Ok(ManageOutcome::UpdatedRole(m)) => {
             info!(workspace_id = ctx.workspace_id, %target, role = %new_role.as_str(), "workspace member role updated");
-            HttpResponse::Ok().json(MemberView::from(m))
+            Ok(HttpResponse::Ok().json(MemberView::from(m)))
         }
-        Ok(ManageOutcome::Forbidden) => forbidden_tier(),
-        Ok(ManageOutcome::NotFound) => {
-            errors::not_found_msg(format!("user {target} is not a member of this workspace"))
-        }
-        Ok(ManageOutcome::LastOwner) => HttpResponse::Conflict().json(serde_json::json!({
+        Ok(ManageOutcome::Forbidden) => Ok(forbidden_tier()),
+        Ok(ManageOutcome::NotFound) => Ok(errors::not_found_msg(format!(
+            "user {target} is not a member of this workspace"
+        ))),
+        Ok(ManageOutcome::LastOwner) => Ok(HttpResponse::Conflict().json(serde_json::json!({
             "error": "last_owner",
             "message": "cannot demote the only owner; promote another member first",
-        })),
-        Ok(ManageOutcome::ExternallyManaged) => errors::externally_managed(),
+        }))),
+        Ok(ManageOutcome::ExternallyManaged) => Ok(errors::externally_managed()),
         Ok(ManageOutcome::Removed) => {
             // Unreachable in the update path.
-            errors::internal("Inconsistent membership state")
+            Ok(errors::internal("Inconsistent membership state"))
         }
         Err(e) if workspaces::is_seat_limit_violation(&e) => {
             warn!(workspace_id = ctx.workspace_id, %target, "promotion blocked by workspace seat limit");
-            HttpResponse::Forbidden().json(serde_json::json!({
+            Ok(HttpResponse::Forbidden().json(serde_json::json!({
                 "error": "seat_limit_reached",
                 "message": "This workspace has reached its seat limit. Contact support to add more seats.",
-            }))
+            })))
         }
         Err(e) => {
             error!(error = ?e, workspace_id = ctx.workspace_id, %target, "workspace member role update failed");
-            errors::internal("Failed to update member role")
+            Ok(errors::internal("Failed to update member role"))
         }
     }
 }
@@ -260,19 +256,15 @@ pub async fn remove_member(
     // Best-effort search reindex so the removed workspace tag drops off
     // the user's search doc; optional so tests need not wire it.
     search_service: Option<web::Data<Arc<SearchService>>>,
-) -> impl Responder {
-    let (caller, caller_role) =
-        match rbac::require_workspace_role_detailed(&req, WorkspaceRole::Admin) {
-            Ok(v) => v,
-            Err(resp) => return resp.error_response(),
-        };
+) -> actix_web::Result<HttpResponse> {
+    let (caller, caller_role) = rbac::require_workspace_role_detailed(&req, WorkspaceRole::Admin)?;
     let target = path.into_inner();
 
     let mut conn = match pool.get() {
         Ok(c) => c,
         Err(e) => {
             error!(error = ?e, "workspace members: pool exhausted");
-            return errors::internal("Database connection failed");
+            return Ok(errors::internal("Database connection failed"));
         }
     };
     let actor = caller_actor(&caller, ctx.workspace_id);
@@ -307,24 +299,24 @@ pub async fn remove_member(
             if let Some(search_service) = &search_service {
                 indexing_tasks::spawn_reindex_user(search_service.get_ref().clone(), target);
             }
-            HttpResponse::NoContent().finish()
+            Ok(HttpResponse::NoContent().finish())
         }
-        Ok(ManageOutcome::Forbidden) => forbidden_tier(),
-        Ok(ManageOutcome::NotFound) => {
-            errors::not_found_msg(format!("user {target} is not a member of this workspace"))
-        }
-        Ok(ManageOutcome::LastOwner) => HttpResponse::Conflict().json(serde_json::json!({
+        Ok(ManageOutcome::Forbidden) => Ok(forbidden_tier()),
+        Ok(ManageOutcome::NotFound) => Ok(errors::not_found_msg(format!(
+            "user {target} is not a member of this workspace"
+        ))),
+        Ok(ManageOutcome::LastOwner) => Ok(HttpResponse::Conflict().json(serde_json::json!({
             "error": "last_owner",
             "message": "cannot remove the only owner; promote another member first",
-        })),
-        Ok(ManageOutcome::ExternallyManaged) => errors::externally_managed(),
+        }))),
+        Ok(ManageOutcome::ExternallyManaged) => Ok(errors::externally_managed()),
         Ok(ManageOutcome::UpdatedRole(_)) => {
             // Unreachable in the remove path.
-            errors::internal("Inconsistent membership state")
+            Ok(errors::internal("Inconsistent membership state"))
         }
         Err(e) => {
             error!(error = ?e, workspace_id = ctx.workspace_id, %target, "workspace member removal failed");
-            errors::internal("Failed to remove member")
+            Ok(errors::internal("Failed to remove member"))
         }
     }
 }

@@ -1,6 +1,6 @@
 //! Search API handlers
 
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder, ResponseError};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use serde_json::json;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
@@ -35,11 +35,11 @@ pub async fn search(
     auth: AuthContext,
     ws: WorkspaceContext,
     req: HttpRequest,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     // Verify authentication
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Authentication required"),
+        None => return Ok(errors::unauthorized("Authentication required")),
     };
 
     debug!(
@@ -53,11 +53,13 @@ pub async fn search(
     // Validate query
     let query_str = query.q.trim();
     if query_str.is_empty() {
-        return errors::bad_request("Search query cannot be empty");
+        return Ok(errors::bad_request("Search query cannot be empty"));
     }
 
     if query_str.len() > 500 {
-        return errors::bad_request("Search query too long (max 500 characters)");
+        return Ok(errors::bad_request(
+            "Search query too long (max 500 characters)",
+        ));
     }
 
     let query = query.into_inner();
@@ -103,10 +105,7 @@ pub async fn search(
                     .collect();
 
                 if let (Some(vis), false) = (vis_opt, candidate_ids.is_empty()) {
-                    let mut conn = match helpers::db_conn(&pool) {
-                        Ok(c) => c,
-                        Err(e) => return e.error_response(),
-                    };
+                    let mut conn = helpers::db_conn(&pool)?;
                     // Pin the request's workspace: the visibility query
                     // runs under RLS, and an unpinned connection (the
                     // pool scrubs the GUC on checkout) resolves ZERO
@@ -131,7 +130,7 @@ pub async fn search(
                         }
                         Err(e) => {
                             error!(error = ?e, "search visibility filter failed");
-                            return errors::internal("Search failed");
+                            return Ok(errors::internal("Search failed"));
                         }
                     }
                 }
@@ -185,15 +184,15 @@ pub async fn search(
                 });
             }
 
-            HttpResponse::Ok().json(response)
+            Ok(HttpResponse::Ok().json(response))
         }
         Err(e) => {
             error!(error = ?e, "Search failed");
-            HttpResponse::InternalServerError().json(json!({
+            Ok(HttpResponse::InternalServerError().json(json!({
                 "error": i18n::tr(&request_locale(&req), "backend-error-search-failed"),
                 "code": "backend-error-search-failed",
                 "details": e.to_string()
-            }))
+            })))
         }
     }
 }
@@ -205,30 +204,27 @@ pub async fn rebuild_index(
     pool: web::Data<crate::db::Pool>,
     search_service: web::Data<Arc<SearchService>>,
     req: HttpRequest,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     // Verify authentication and admin role
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Authentication required"),
+        None => return Ok(errors::unauthorized("Authentication required")),
     };
 
     if !is_platform_admin(&claims) {
         warn!(user = %claims.sub, "Non-admin user attempted to rebuild search index");
-        return errors::forbidden("Admin access required");
+        return Ok(errors::forbidden("Admin access required"));
     }
 
     // Check if already rebuilding
     if search_service.is_rebuilding() {
-        return errors::conflict("Index rebuild already in progress");
+        return Ok(errors::conflict("Index rebuild already in progress"));
     }
 
     info!(user = %claims.sub, "Starting search index rebuild");
 
     // Get database connection
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+    let mut conn = helpers::db_conn(&pool)?;
 
     // Rebuild index
     match search_service.rebuild_index(&mut conn) {
@@ -250,7 +246,7 @@ pub async fn rebuild_index(
                 warn!(error = ?e, "Failed to commit index changes");
             }
 
-            HttpResponse::Ok().json(json!({
+            Ok(HttpResponse::Ok().json(json!({
                 "success": true,
                 "message": "Index rebuilt successfully",
                 "stats": {
@@ -263,15 +259,15 @@ pub async fn rebuild_index(
                     "projects": stats.projects,
                     "total": stats.total()
                 }
-            }))
+            })))
         }
         Err(e) => {
             error!(error = ?e, "Index rebuild failed");
-            HttpResponse::InternalServerError().json(json!({
+            Ok(HttpResponse::InternalServerError().json(json!({
                 "error": i18n::tr(&request_locale(&req), "backend-error-search-rebuild-failed"),
                 "code": "backend-error-search-rebuild-failed",
                 "details": e.to_string()
-            }))
+            })))
         }
     }
 }

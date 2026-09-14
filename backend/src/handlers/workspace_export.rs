@@ -9,7 +9,7 @@
 
 use actix_multipart::Multipart;
 use actix_web::http::header;
-use actix_web::{web, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpRequest, HttpResponse};
 use futures::StreamExt;
 use serde::Deserialize;
 
@@ -43,10 +43,8 @@ pub async fn export_workspace(
     mut pc: PlatformConn,
     path: web::Path<i32>,
     body: web::Json<WorkspaceExportRequest>,
-) -> impl Responder {
-    if let Err(resp) = rbac::require_platform_admin(&req) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    rbac::require_platform_admin(&req)?;
     let workspace_id = path.into_inner();
     let password = body.into_inner().password;
     let include_sensitive = password.is_some();
@@ -61,7 +59,7 @@ pub async fn export_workspace(
         .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))
     }) {
         Ok(v) => v,
-        Err(e) => return errors::db_error(&e),
+        Err(e) => return Ok(errors::db_error(&e)),
     };
 
     // 2. Read the workspace's files through the storage abstraction (local or
@@ -69,13 +67,17 @@ pub async fn export_workspace(
     let scoped = WorkspaceScopedStorage::arc(process_storage(), workspace_id);
     let paths = match scoped.list_prefix("").await {
         Ok(p) => p,
-        Err(e) => return errors::internal(format!("listing workspace files: {e:?}")),
+        Err(e) => return Ok(errors::internal(format!("listing workspace files: {e:?}"))),
     };
     let mut files: Vec<(String, Vec<u8>)> = Vec::with_capacity(paths.len());
     for p in paths {
         match scoped.get_file(&p).await {
             Ok(bytes) => files.push((p, bytes)),
-            Err(e) => return errors::internal(format!("reading workspace file {p}: {e:?}")),
+            Err(e) => {
+                return Ok(errors::internal(format!(
+                    "reading workspace file {p}: {e:?}"
+                )))
+            }
         }
     }
 
@@ -87,14 +89,14 @@ pub async fn export_workspace(
         &files,
         password.as_deref(),
     ) {
-        Ok(bytes) => HttpResponse::Ok()
+        Ok(bytes) => Ok(HttpResponse::Ok()
             .content_type("application/octet-stream")
             .insert_header((
                 header::CONTENT_DISPOSITION,
                 format!("attachment; filename=\"workspace-{workspace_id}.nosdesk\""),
             ))
-            .body(bytes),
-        Err(e) => errors::internal(format!("assembling archive: {e}")),
+            .body(bytes)),
+        Err(e) => Ok(errors::internal(format!("assembling archive: {e}"))),
     }
 }
 
@@ -109,10 +111,8 @@ pub async fn import_workspace(
     req: HttpRequest,
     mut pc: PlatformConn,
     mut payload: Multipart,
-) -> impl Responder {
-    if let Err(resp) = rbac::require_platform_admin(&req) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    rbac::require_platform_admin(&req)?;
 
     let mut archive: Vec<u8> = Vec::new();
     let mut password: Option<String> = None;
@@ -135,7 +135,7 @@ pub async fn import_workspace(
     while let Some(item) = payload.next().await {
         let mut field = match item {
             Ok(f) => f,
-            Err(e) => return errors::bad_request(format!("upload error: {e}")),
+            Err(e) => return Ok(errors::bad_request(format!("upload error: {e}"))),
         };
         let name = field
             .content_disposition()
@@ -148,13 +148,13 @@ pub async fn import_workspace(
                 Ok(d) => {
                     buf.extend_from_slice(&d);
                     if name == "archive" && buf.len() as u64 > max_archive_bytes {
-                        return errors::bad_request(format!(
+                        return Ok(errors::bad_request(format!(
                             "archive exceeds the {max_archive_bytes}-byte limit \
                              (raise NOSDESK_MAX_IMPORT_BYTES)"
-                        ));
+                        )));
                     }
                 }
-                Err(e) => return errors::bad_request(format!("upload error: {e}")),
+                Err(e) => return Ok(errors::bad_request(format!("upload error: {e}"))),
             }
         }
         match name.as_str() {
@@ -179,14 +179,16 @@ pub async fn import_workspace(
     }
 
     if archive.is_empty() {
-        return errors::bad_request("no archive uploaded (multipart field 'archive')");
+        return Ok(errors::bad_request(
+            "no archive uploaded (multipart field 'archive')",
+        ));
     }
 
     // Read + verify the archive (sync, no DB).
     let contents =
         match crate::services::workspace_import::read_archive(&archive, password.as_deref()) {
             Ok(c) => c,
-            Err(e) => return errors::bad_request(format!("invalid archive: {e}")),
+            Err(e) => return Ok(errors::bad_request(format!("invalid archive: {e}"))),
         };
 
     let opts = crate::services::workspace_import::ImportOptions {
@@ -201,7 +203,7 @@ pub async fn import_workspace(
             .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))
     }) {
         Ok(r) => r,
-        Err(e) => return errors::db_error(&e),
+        Err(e) => return Ok(errors::db_error(&e)),
     };
 
     // 2. Restore files through the storage abstraction into the NEW workspace
@@ -225,25 +227,25 @@ pub async fn import_workspace(
             .put_file(bytes, logical, content_type_for(logical))
             .await
         {
-            return HttpResponse::InternalServerError().json(serde_json::json!({
+            return Ok(HttpResponse::InternalServerError().json(serde_json::json!({
                 "error": format!("file restore failed after {files_restored} files: {e:?}"),
                 "partial": true,
                 "workspace_id": result.workspace_id,
                 "rows_imported": result.rows_imported,
                 "files_restored": files_restored,
-            }));
+            })));
         }
         files_restored += 1;
     }
 
-    HttpResponse::Ok().json(serde_json::json!({
+    Ok(HttpResponse::Ok().json(serde_json::json!({
         "workspace_id": result.workspace_id,
         "slug": result.slug,
         "tables_imported": result.tables_imported,
         "rows_imported": result.rows_imported,
         "files_restored": files_restored,
         "files_skipped": files_skipped,
-    }))
+    })))
 }
 
 /// Best-effort content type from a file extension, so restored images serve with

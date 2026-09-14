@@ -2,7 +2,7 @@
 //!
 //! Admin endpoints for managing API tokens for programmatic access.
 
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 use diesel::result::Error;
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -33,10 +33,11 @@ pub fn config(cfg: &mut web::ServiceConfig) {
 }
 
 /// List all API tokens (admin only)
-pub async fn list_api_tokens(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+pub async fn list_api_tokens(
+    req: HttpRequest,
+    mut tc: TenantConn,
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let result = tc.run(|conn| {
         let tokens = api_tokens::list_all_api_tokens(conn)?;
@@ -44,10 +45,10 @@ pub async fn list_api_tokens(req: HttpRequest, mut tc: TenantConn) -> impl Respo
     });
 
     match result {
-        Ok(enriched) => HttpResponse::Ok().json(enriched),
+        Ok(enriched) => Ok(HttpResponse::Ok().json(enriched)),
         Err(e) => {
             error!("Failed to list tokens: {}", e);
-            errors::internal("Failed to list tokens")
+            Ok(errors::internal("Failed to list tokens"))
         }
     }
 }
@@ -57,28 +58,28 @@ pub async fn create_api_token(
     req: HttpRequest,
     mut tc: TenantConn,
     body: web::Json<CreateApiTokenRequest>,
-) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Authentication required"),
+        None => return Ok(errors::unauthorized("Authentication required")),
     };
 
     let created_by = match Uuid::parse_str(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return errors::bad_request("Invalid user UUID"),
+        Err(_) => return Ok(errors::bad_request("Invalid user UUID")),
     };
 
     // Validate token name
     if body.name.trim().is_empty() {
-        return errors::bad_request("Token name is required");
+        return Ok(errors::bad_request("Token name is required"));
     }
 
     if body.name.len() > 255 {
-        return errors::bad_request("Token name must be 255 characters or less");
+        return Ok(errors::bad_request(
+            "Token name must be 255 characters or less",
+        ));
     }
 
     // Reject unknown scopes at mint time so a typo can't silently
@@ -88,7 +89,7 @@ pub async fn create_api_token(
             .iter()
             .find(|s| !crate::utils::rbac::is_valid_token_scope(s))
         {
-            return errors::bad_request(format!("Unknown token scope: {bad}"));
+            return Ok(errors::bad_request(format!("Unknown token scope: {bad}")));
         }
     }
 
@@ -144,19 +145,21 @@ pub async fn create_api_token(
                 "API token created: {} for user {} by admin {}",
                 created.uuid, body.user_uuid, created_by
             );
-            HttpResponse::Created().json(created)
+            Ok(HttpResponse::Created().json(created))
         }
-        Ok(Outcome::TargetUserNotFound) => errors::not_found_msg("Target user not found"),
+        Ok(Outcome::TargetUserNotFound) => Ok(errors::not_found_msg("Target user not found")),
         Ok(Outcome::TargetRoleExceedsCaller) => {
             warn!(
                 "refused API token: {} tried to mint for a higher-privileged user {}",
                 created_by, body.user_uuid
             );
-            errors::forbidden("Cannot mint a token for a user with a higher role than your own")
+            Ok(errors::forbidden(
+                "Cannot mint a token for a user with a higher role than your own",
+            ))
         }
         Err(e) => {
             error!("Failed to create token: {}", e);
-            errors::internal("Failed to create token")
+            Ok(errors::internal("Failed to create token"))
         }
     }
 }
@@ -166,10 +169,8 @@ pub async fn get_api_token(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<Uuid>,
-) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let token_uuid = path.into_inner();
 
@@ -192,11 +193,11 @@ pub async fn get_api_token(
     });
 
     match result {
-        Ok(Outcome::Found(info)) => HttpResponse::Ok().json(info),
-        Ok(Outcome::NotFound) => errors::not_found_msg("Token not found"),
+        Ok(Outcome::Found(info)) => Ok(HttpResponse::Ok().json(info)),
+        Ok(Outcome::NotFound) => Ok(errors::not_found_msg("Token not found")),
         Err(e) => {
             error!("Failed to get token: {}", e);
-            errors::internal("Failed to get token")
+            Ok(errors::internal("Failed to get token"))
         }
     }
 }
@@ -206,14 +207,12 @@ pub async fn revoke_api_token(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<Uuid>,
-) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Authentication required"),
+        None => return Ok(errors::unauthorized("Authentication required")),
     };
 
     let admin_uuid = Uuid::parse_str(&claims.sub).ok();
@@ -247,13 +246,13 @@ pub async fn revoke_api_token(
     match result {
         Ok(Outcome::Revoked) => {
             info!("API token {} revoked by admin {:?}", token_uuid, admin_uuid);
-            HttpResponse::NoContent().finish()
+            Ok(HttpResponse::NoContent().finish())
         }
-        Ok(Outcome::AlreadyRevoked) => errors::bad_request("Token is already revoked"),
-        Ok(Outcome::NotFound) => errors::not_found_msg("Token not found"),
+        Ok(Outcome::AlreadyRevoked) => Ok(errors::bad_request("Token is already revoked")),
+        Ok(Outcome::NotFound) => Ok(errors::not_found_msg("Token not found")),
         Err(e) => {
             error!("Failed to revoke token: {}", e);
-            errors::internal("Failed to revoke token")
+            Ok(errors::internal("Failed to revoke token"))
         }
     }
 }
