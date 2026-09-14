@@ -2,14 +2,14 @@
 //!
 //! Admin endpoints for managing webhooks for external integrations.
 
-use actix_web::{web, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpRequest, HttpResponse, Responder, ResponseError};
 use diesel::result::Error as DieselError;
 use serde::Deserialize;
 use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::extractors::{AuthContext, TenantConn};
-use crate::handlers::errors;
+use crate::handlers::errors::{self, ApiError};
 use crate::handlers::helpers;
 use crate::models::{
     CreateWebhookRequest, UpdateWebhookRequest, Webhook, WebhookCreatedResponse,
@@ -55,37 +55,39 @@ pub struct PaginationQuery {
 // =============================================================================
 
 /// Validate webhook name
-fn validate_name(name: &str) -> Result<String, HttpResponse> {
+fn validate_name(name: &str) -> Result<String, ApiError> {
     let trimmed = name.trim();
     if trimmed.is_empty() {
-        return Err(errors::bad_request("Webhook name is required"));
+        return Err(ApiError::BadRequest("Webhook name is required".into()));
     }
     if trimmed.len() > 255 {
-        return Err(errors::bad_request(
-            "Webhook name must be 255 characters or less",
+        return Err(ApiError::BadRequest(
+            "Webhook name must be 255 characters or less".into(),
         ));
     }
     Ok(trimmed.to_string())
 }
 
 /// Validate webhook URL
-fn validate_url(url: &str) -> Result<(), HttpResponse> {
+fn validate_url(url: &str) -> Result<(), ApiError> {
     if !url.starts_with("http://") && !url.starts_with("https://") {
-        return Err(errors::bad_request(
-            "URL must start with http:// or https://",
+        return Err(ApiError::BadRequest(
+            "URL must start with http:// or https://".into(),
         ));
     }
     Ok(())
 }
 
 /// Validate event types
-fn validate_events(events: &[String]) -> Result<(), HttpResponse> {
+fn validate_events(events: &[String]) -> Result<(), ApiError> {
     if events.is_empty() {
-        return Err(errors::bad_request("At least one event type is required"));
+        return Err(ApiError::BadRequest(
+            "At least one event type is required".into(),
+        ));
     }
     let valid_events = WebhookEventType::all();
     if let Some(invalid) = events.iter().find(|e| !valid_events.contains(&e.as_str())) {
-        return Err(errors::bad_request(format!(
+        return Err(ApiError::BadRequest(format!(
             "Invalid event type: {invalid}"
         )));
     }
@@ -99,7 +101,7 @@ fn validate_events(events: &[String]) -> Result<(), HttpResponse> {
 /// List all webhooks (admin only)
 pub async fn list_webhooks(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     match tc.run(webhook_repo::list_all_webhooks) {
@@ -122,7 +124,7 @@ pub async fn create_webhook(
     body: web::Json<CreateWebhookRequest>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let created_by = Some(auth.user_uuid);
@@ -130,13 +132,13 @@ pub async fn create_webhook(
     // Validate inputs
     let name = match validate_name(&body.name) {
         Ok(n) => n,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
     if let Err(e) = validate_url(&body.url) {
-        return e;
+        return e.error_response();
     }
     if let Err(e) = validate_events(&body.events) {
-        return e;
+        return e.error_response();
     }
 
     let secret = generate_secret();
@@ -179,7 +181,7 @@ pub async fn create_webhook(
 /// Get available event types
 pub async fn get_event_types(req: HttpRequest) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     HttpResponse::Ok().json(WebhookEventType::all())
@@ -192,7 +194,7 @@ pub async fn get_webhook(
     path: web::Path<Uuid>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let webhook_uuid = path.into_inner();
@@ -215,7 +217,7 @@ pub async fn update_webhook(
     body: web::Json<UpdateWebhookRequest>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let webhook_uuid = path.into_inner();
@@ -224,7 +226,7 @@ pub async fn update_webhook(
     let validated_name = if let Some(ref name) = body.name {
         match validate_name(name) {
             Ok(n) => Some(n),
-            Err(e) => return e,
+            Err(e) => return e.error_response(),
         }
     } else {
         None
@@ -232,13 +234,13 @@ pub async fn update_webhook(
 
     if let Some(ref url) = body.url {
         if let Err(e) = validate_url(url) {
-            return e;
+            return e.error_response();
         }
     }
 
     if let Some(ref events) = body.events {
         if let Err(e) = validate_events(events) {
-            return e;
+            return e.error_response();
         }
     }
 
@@ -284,7 +286,7 @@ pub async fn delete_webhook(
     path: web::Path<Uuid>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let webhook_uuid = path.into_inner();
@@ -316,7 +318,7 @@ pub async fn get_deliveries(
     query: web::Query<PaginationQuery>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let webhook_uuid = path.into_inner();
@@ -372,7 +374,7 @@ pub async fn test_webhook(
     path: web::Path<Uuid>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let webhook_uuid = path.into_inner();

@@ -35,7 +35,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
 /// List all API tokens (admin only)
 pub async fn list_api_tokens(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let result = tc.run(|conn| {
@@ -59,7 +59,7 @@ pub async fn create_api_token(
     body: web::Json<CreateApiTokenRequest>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let claims = match req.extensions().get::<Claims>() {
@@ -168,7 +168,7 @@ pub async fn get_api_token(
     path: web::Path<Uuid>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let token_uuid = path.into_inner();
@@ -208,7 +208,7 @@ pub async fn revoke_api_token(
     path: web::Path<Uuid>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let claims = match req.extensions().get::<Claims>() {

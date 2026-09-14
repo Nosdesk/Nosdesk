@@ -8,7 +8,7 @@
 
 use std::collections::HashSet;
 
-use actix_web::{web, HttpResponse, Responder};
+use actix_web::{web, HttpResponse, Responder, ResponseError};
 use serde::Deserialize;
 use serde_json::json;
 use tracing::error;
@@ -31,7 +31,7 @@ pub struct StatsQuery {
 }
 
 impl StatsQuery {
-    fn parse_include(&self) -> Result<HashSet<StatsGroup>, HttpResponse> {
+    fn parse_include(&self) -> actix_web::Result<HashSet<StatsGroup>> {
         let Some(raw) = self.include.as_deref() else {
             return Ok(StatsGroup::all());
         };
@@ -42,11 +42,12 @@ impl StatsQuery {
                     set.insert(g);
                 }
                 None => {
-                    return Err(HttpResponse::BadRequest().json(json!({
+                    let resp = HttpResponse::BadRequest().json(json!({
                         "error": "unknown include key",
                         "key": token,
                         "allowed": StatsGroup::all_keys(),
-                    })));
+                    }));
+                    return Err(errors::from_response("unknown include key", resp));
                 }
             }
         }
@@ -68,7 +69,7 @@ pub async fn get_stats(
 
     let groups = match query.parse_include() {
         Ok(g) => g,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     if groups.is_empty() {
@@ -80,7 +81,7 @@ pub async fn get_stats(
 
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
     // Pin the resolved workspace so the stats queries (tickets and related
     // RLS-isolated tables) are visible; the pool clears app.workspace_id on

@@ -57,7 +57,7 @@ pub async fn list(
     query: web::Query<ListQuery>,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp;
+        return resp.error_response();
     }
 
     let cursor = match query.cursor.as_deref().map(decode_cursor) {

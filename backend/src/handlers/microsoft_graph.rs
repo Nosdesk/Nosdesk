@@ -1,4 +1,4 @@
-use actix_web::{web, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpRequest, HttpResponse, Responder, ResponseError};
 use serde::Deserialize;
 use serde_json::json;
 use tracing::error;
@@ -189,7 +189,7 @@ pub async fn process_graph_request(
     // Get database connection
     let _conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     // Proxying arbitrary Microsoft Graph requests runs through the
@@ -199,7 +199,7 @@ pub async fn process_graph_request(
         match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
         {
             Ok(c) => c,
-            Err(resp) => return resp,
+            Err(resp) => return resp.error_response(),
         };
 
     // Get the provider_id from the request or use the default Microsoft provider

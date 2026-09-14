@@ -15,7 +15,7 @@
 //! to its queries; the session GUC the cookie-auth + workspace
 //! middleware sets up handles that uniformly.
 
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder, ResponseError};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -372,14 +372,14 @@ pub async fn create_rule(
     pool: web::Data<Pool>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
     let Some(workspace_id) = actor_workspace_id(&req) else {
         return errors::unauthorized("Authentication required");
     };
     let mut conn = match errors::db_conn(&pool) {
         Ok(c) => c,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
     let CreateRuleRequest {
         name,
@@ -452,11 +452,11 @@ pub async fn list_rules(
     pool: web::Data<Pool>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
     let mut conn = match errors::db_conn(&pool) {
         Ok(c) => c,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
     let q = query.into_inner();
     let filter = rules::ListFilter {
@@ -478,12 +478,12 @@ pub async fn get_rule(
     pool: web::Data<Pool>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
     let id = path.into_inner();
     let mut conn = match errors::db_conn(&pool) {
         Ok(c) => c,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
     match rules::find(&mut conn, id) {
         Ok(Some(rule)) => HttpResponse::Ok().json(RuleDto::from(rule)),
@@ -503,12 +503,12 @@ pub async fn update_rule(
     pool: web::Data<Pool>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
     let id = path.into_inner();
     let mut conn = match errors::db_conn(&pool) {
         Ok(c) => c,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
     let UpdateRuleRequest {
         name,
@@ -603,12 +603,12 @@ pub async fn transition_state(
     pool: web::Data<Pool>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
     let id = path.into_inner();
     let mut conn = match errors::db_conn(&pool) {
         Ok(c) => c,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
     let target = body.into_inner().state;
 
@@ -666,12 +666,12 @@ pub async fn delete_rule(
     pool: web::Data<Pool>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
     let id = path.into_inner();
     let mut conn = match errors::db_conn(&pool) {
         Ok(c) => c,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
     if query.hard {
         match rules::hard_delete(&mut conn, id) {
@@ -708,12 +708,12 @@ pub async fn list_rule_versions(
     pool: web::Data<Pool>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
     let rule_id = path.into_inner();
     let mut conn = match errors::db_conn(&pool) {
         Ok(c) => c,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
     match rules::list_versions(&mut conn, rule_id) {
         Ok(rs) => {
@@ -731,12 +731,12 @@ pub async fn get_rule_version(
     pool: web::Data<Pool>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
     let (rule_id, version) = path.into_inner();
     let mut conn = match errors::db_conn(&pool) {
         Ok(c) => c,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
     match rules::find_version(&mut conn, rule_id, version) {
         Ok(Some(v)) => HttpResponse::Ok().json(RuleVersionDto::from(v)),
@@ -758,11 +758,11 @@ pub async fn list_rule_applications(
     pool: web::Data<Pool>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
     let mut conn = match errors::db_conn(&pool) {
         Ok(c) => c,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
     let q = query.into_inner();
     let filter = rules::ApplicationFilter {
@@ -789,12 +789,12 @@ pub async fn get_rule_application(
     pool: web::Data<Pool>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
     let id = path.into_inner();
     let mut conn = match errors::db_conn(&pool) {
         Ok(c) => c,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
     match rules::find_application(&mut conn, id) {
         Ok(Some(row)) => HttpResponse::Ok().json(row),
@@ -814,12 +814,12 @@ pub async fn list_ticket_rule_applications(
     pool: web::Data<Pool>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
-        return e;
+        return e.error_response();
     }
     let ticket_id = path.into_inner();
     let mut conn = match errors::db_conn(&pool) {
         Ok(c) => c,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
     match rules::list_applications_for_ticket(&mut conn, ticket_id) {
         Ok(rows) => HttpResponse::Ok().json(rows),
@@ -872,7 +872,7 @@ pub async fn apply_rule(
     pool: web::Data<Pool>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
-        return e;
+        return e.error_response();
     }
     let Some(actor) = req
         .extensions()
@@ -884,7 +884,7 @@ pub async fn apply_rule(
     let rule_id = path.into_inner();
     let mut conn = match errors::db_conn(&pool) {
         Ok(c) => c,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
     let body = body.into_inner();
     let ticket_id = body.ticket_id;
@@ -1032,7 +1032,7 @@ pub struct StarterRuleDto {
 /// English when the requested locale isn't represented.
 pub async fn list_starter_catalog(req: HttpRequest) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
     let locale = req
         .headers()
@@ -1072,11 +1072,11 @@ pub async fn list_applicable_actions(
     pool: web::Data<Pool>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
-        return e;
+        return e.error_response();
     }
     let mut conn = match errors::db_conn(&pool) {
         Ok(c) => c,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
     match rules::list_pickable_manual(&mut conn) {
         Ok(rs) => HttpResponse::Ok().json(rs.into_iter().map(RuleDto::from).collect::<Vec<_>>()),

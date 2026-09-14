@@ -71,7 +71,7 @@ pub async fn list(
     query: web::Query<ListQuery>,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp;
+        return resp.error_response();
     }
     let limit = query.limit.unwrap_or(50).clamp(1, 200);
     let before = query.before;
@@ -122,7 +122,7 @@ pub async fn create(
     body: web::Json<CreateBody>,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp;
+        return resp.error_response();
     }
     let email = body.email.trim().to_string();
     if email.is_empty() || !email.contains('@') {
@@ -152,7 +152,7 @@ pub async fn delete(
     path: web::Path<String>,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp;
+        return resp.error_response();
     }
     let email = path.into_inner();
     let Some(workspace_id) = tc.workspace_id() else {

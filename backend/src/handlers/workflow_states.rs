@@ -105,7 +105,7 @@ pub async fn create(
     req: HttpRequest,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let trimmed = body.name.trim();
@@ -180,7 +180,7 @@ pub async fn patch(
 ) -> impl Responder {
     let id = path.into_inner();
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     if let Some(ref n) = body.name {
@@ -239,7 +239,7 @@ pub async fn patch(
 pub async fn archive(mut tc: TenantConn, path: web::Path<i32>, req: HttpRequest) -> impl Responder {
     let id = path.into_inner();
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     // Refuse to archive the workspace default — a default must always

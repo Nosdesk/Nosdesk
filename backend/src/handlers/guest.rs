@@ -6,7 +6,7 @@
 //! closes its public surface.
 
 use actix_multipart::Multipart;
-use actix_web::{web, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpRequest, HttpResponse, Responder, ResponseError};
 use chrono::Utc;
 use diesel::prelude::*;
 use futures::{StreamExt, TryStreamExt};
@@ -289,7 +289,7 @@ fn log_guest_event(
 pub async fn get_public_settings(pool: web::Data<Pool>, ws: WorkspaceContext) -> impl Responder {
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let actor = guest_actor(&ws, "guest:public_settings");
@@ -326,7 +326,7 @@ pub async fn submit_guest_ticket(
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     // Workspace-pinned actor: every subsequent DB call goes through
@@ -692,7 +692,7 @@ pub async fn get_guest_ticket_status(
 
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     // Workspace-pinned actor: the lookup token is a UUID generated
@@ -755,7 +755,7 @@ enum LookupOutcome {
 pub async fn list_public_docs(pool: web::Data<Pool>, ws: WorkspaceContext) -> impl Responder {
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let actor = guest_actor(&ws, "guest:public_docs");
@@ -819,7 +819,7 @@ pub async fn get_public_doc(
     let slug_param = path.into_inner();
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let actor = guest_actor(&ws, "guest:public_doc");
@@ -891,7 +891,7 @@ pub async fn search_public_docs(
 
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let actor = guest_actor(&ws, "guest:public_docs_search");
@@ -980,7 +980,7 @@ pub async fn upload_guest_attachment(
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     // Scope the settings read to the workspace (RLS), matching every other

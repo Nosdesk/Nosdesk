@@ -47,6 +47,12 @@
 //! free functions internally, so clients can't tell which the
 //! handler used.
 //!
+//! Fallible helpers return `Result<T, ApiError>`, or `actix_web::Result<T>`
+//! when the failure is a bespoke response (see [`from_response`]); never
+//! `Result<T, HttpResponse>`, which is too large an error type for `?`
+//! (clippy `result_large_err`). An `impl Responder` handler renders either
+//! with `e.error_response()`.
+//!
 //! # Error-code naming
 //!
 //! `SCREAMING_SNAKE_CASE`, domain-prefixed where useful
@@ -293,11 +299,16 @@ pub fn db_error(err: &diesel::result::Error) -> HttpResponse {
 /// `pool.get().unwrap()` pattern that's scattered through the
 /// older handlers, pool exhaustion is a normal runtime condition
 /// under load, not a programming error.
-pub fn db_conn(pool: &web::Data<Pool>) -> Result<DbConnection, HttpResponse> {
-    pool.get().map_err(|e| {
-        error!(error = ?e, "DB pool acquire failed");
-        service_unavailable("Database connection unavailable, please retry")
-    })
+pub fn db_conn(pool: &web::Data<Pool>) -> Result<DbConnection, ApiError> {
+    Ok(pool.get()?)
+}
+
+/// Carry a fully built response (bespoke body, headers, a redirect) as an
+/// `actix_web::Error`, for helpers whose failure isn't one of the plain
+/// [`ApiError`] shapes. `cause` is what logs see, so keep it a fixed
+/// literal, never request content.
+pub fn from_response(cause: &'static str, resp: HttpResponse) -> actix_web::Error {
+    actix_web::error::InternalError::from_response(cause, resp).into()
 }
 
 // =================================================================
@@ -325,6 +336,11 @@ pub enum ApiError {
     /// Body renders as `{entity} not found`.
     #[error("{0} not found")]
     NotFound(String),
+
+    /// 404 with the message verbatim, for copy the entity template
+    /// doesn't fit (see [`not_found_msg`]).
+    #[error("{0}")]
+    NotFoundMsg(String),
 
     #[error("{0}")]
     Conflict(String),
@@ -360,7 +376,7 @@ impl ApiError {
             ApiError::BadRequest(_) => "bad_request",
             ApiError::Unauthorized(_) => "unauthorized",
             ApiError::Forbidden(_) => "forbidden",
-            ApiError::NotFound(_) => "not_found",
+            ApiError::NotFound(_) | ApiError::NotFoundMsg(_) => "not_found",
             ApiError::Conflict(_) => "conflict",
             ApiError::Internal(_) => "internal",
             ApiError::ServiceUnavailable(_) => "service_unavailable",
@@ -387,7 +403,7 @@ impl ResponseError for ApiError {
             ApiError::BadRequest(_) => StatusCode::BAD_REQUEST,
             ApiError::Unauthorized(_) => StatusCode::UNAUTHORIZED,
             ApiError::Forbidden(_) => StatusCode::FORBIDDEN,
-            ApiError::NotFound(_) => StatusCode::NOT_FOUND,
+            ApiError::NotFound(_) | ApiError::NotFoundMsg(_) => StatusCode::NOT_FOUND,
             ApiError::Conflict(_) => StatusCode::CONFLICT,
             ApiError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
             ApiError::ServiceUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
@@ -413,6 +429,7 @@ impl ResponseError for ApiError {
             ApiError::Unauthorized(m) => unauthorized(m.clone()),
             ApiError::Forbidden(m) => forbidden(m.clone()),
             ApiError::NotFound(entity) => not_found(entity.clone()),
+            ApiError::NotFoundMsg(m) => not_found_msg(m.clone()),
             ApiError::Conflict(m) => conflict(m.clone()),
             ApiError::Internal(m) => internal(m.clone()),
             ApiError::ServiceUnavailable(m) => service_unavailable(m.clone()),

@@ -2,13 +2,13 @@
 //!
 //! API endpoints for plugin typed collections CRUD operations.
 
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder, ResponseError};
 use diesel::result::Error as DieselError;
 use tracing::error;
 use uuid::Uuid;
 
 use crate::extractors::TenantConn;
-use crate::handlers::errors;
+use crate::handlers::errors::{self, ApiError};
 use crate::handlers::helpers;
 use crate::handlers::plugins::{authorize_plugin_data_request, PluginGate};
 use crate::models::{
@@ -44,11 +44,11 @@ const MAX_ROWS_PER_COLLECTION: i64 = 50_000;
 // Helpers
 // =============================================================================
 
-fn get_claims(req: &HttpRequest) -> Result<Claims, HttpResponse> {
+fn get_claims(req: &HttpRequest) -> Result<Claims, ApiError> {
     req.extensions()
         .get::<Claims>()
         .cloned()
-        .ok_or_else(|| errors::unauthorized("Authentication required"))
+        .ok_or_else(|| ApiError::Unauthorized("Authentication required".into()))
 }
 
 /// In-closure outcome for schema lookup so the tc.run boundary can
@@ -72,7 +72,7 @@ pub async fn list_collections(
 ) -> impl Responder {
     let _claims = match get_claims(&req) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let plugin_uuid = path.into_inner();
@@ -130,7 +130,7 @@ pub async fn get_collection_schema(
 ) -> impl Responder {
     let _claims = match get_claims(&req) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let path = path.into_inner();
@@ -191,7 +191,7 @@ pub async fn list_collection_rows(
 ) -> impl Responder {
     let _claims = match get_claims(&req) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let path = path.into_inner();
@@ -262,7 +262,7 @@ pub async fn create_collection_row(
 ) -> impl Responder {
     let claims = match get_claims(&req) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let path = path.into_inner();
@@ -350,7 +350,7 @@ pub async fn get_collection_row(
 ) -> impl Responder {
     let _claims = match get_claims(&req) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let path = path.into_inner();
@@ -407,7 +407,7 @@ pub async fn update_collection_row(
 ) -> impl Responder {
     let _claims = match get_claims(&req) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let path = path.into_inner();
@@ -485,7 +485,7 @@ pub async fn delete_collection_row(
 ) -> impl Responder {
     let _claims = match get_claims(&req) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let path = path.into_inner();

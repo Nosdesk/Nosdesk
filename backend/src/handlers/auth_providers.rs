@@ -1,4 +1,4 @@
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder, ResponseError};
 // Removed unused import: use diesel::prelude::*;
 use querystring;
 use reqwest;
@@ -9,7 +9,7 @@ use tracing::{error, info, warn};
 use urlencoding;
 
 use crate::db::{DbConnection, Pool};
-use crate::handlers::errors;
+use crate::handlers::errors::{self, ApiError};
 use crate::handlers::helpers;
 use crate::models::{AuthProvider, OAuthExchangeRequest, OAuthRequest, OAuthState};
 use crate::utils::jwt::JWT_SECRET;
@@ -170,7 +170,7 @@ pub async fn get_auth_providers(db_pool: web::Data<Pool>, req: HttpRequest) -> i
     // Get database connection
     let _conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     // Extract claims from cookie auth middleware
@@ -273,7 +273,7 @@ pub async fn oauth_authorize(
     // Get database connection
     let _conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     // Check if this is a user connection request
@@ -487,7 +487,7 @@ pub async fn oauth_callback(
     // Get database connection
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     // Verify state parameter is present
@@ -761,7 +761,7 @@ pub async fn oauth_callback(
                             .await
                         {
                             Ok(user) => user,
-                            Err(resp) => return resp,
+                            Err(resp) => return resp.error_response(),
                         };
                     info!(user_uuid = %user.uuid, "OAuth: Completing login");
                     // OAuth provisioning mints users with no search observer, so
@@ -930,7 +930,7 @@ pub async fn oauth_callback(
                         .await
                     {
                         Ok(user) => user,
-                        Err(resp) => return resp,
+                        Err(resp) => return resp.error_response(),
                     };
                     info!(user_uuid = %user.uuid, "OIDC: Completing login");
                     // Index / refresh the user's search doc with current
@@ -971,7 +971,7 @@ pub async fn oauth_logout(
     // Get database connection
     let _conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let provider_type = &logout_request.provider_type;
@@ -1340,10 +1340,11 @@ fn callback_redirect_for(
 /// given, so an attacker-initiated flow would carry a validly signed hostile
 /// URL and this redirect would be an open redirector (RFC 9700 section 4.11).
 /// A denial always lands on the login page, so no return path is needed.
-fn auth_error_redirect(code: &str) -> HttpResponse {
-    HttpResponse::Found()
+fn auth_error_redirect(code: &str) -> actix_web::Error {
+    let resp = HttpResponse::Found()
         .append_header(("Location", format!("/login?auth_error={code}")))
-        .finish()
+        .finish();
+    errors::from_response("auth_error_redirect", resp)
 }
 
 /// The resolved identity holds no seat; provisioning happens upstream.
@@ -1469,7 +1470,7 @@ pub async fn native_oidc_login(
 
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let iss = oidc_identity_issuer();
@@ -1512,7 +1513,7 @@ pub async fn native_oidc_login(
         Ok((response, tokens)) => {
             crate::handlers::auth::build_auth_response(&request, response, &tokens)
         }
-        Err(resp) => resp,
+        Err(e) => e.error_response(),
     }
 }
 
@@ -1551,13 +1552,13 @@ fn issuer_for_identity(
 ///   a hosted deployment, unsupported since per-tenant federation was retired
 ///   (hosted login is Model C). Fail closed.
 ///
-/// Returns the resolved user, or an `HttpResponse` (auth-error redirect / 500)
-/// the caller should return directly.
+/// Returns the resolved user, or the error (auth-error redirect / 500) the
+/// caller should return directly.
 async fn resolve_login_user(
     claims: &OAuthLoginClaims,
     iss: &str,
     conn: &mut DbConnection,
-) -> Result<crate::models::User, HttpResponse> {
+) -> actix_web::Result<crate::models::User> {
     if crate::middleware::workspace_context::selection_resolution_enabled() {
         return resolve_existing_seat_user(claims, iss, conn);
     }
@@ -1565,14 +1566,14 @@ async fn resolve_login_user(
         crate::middleware::DeploymentMode::SelfHosted => crate::sync::actor::BOOTSTRAP_WORKSPACE_ID,
         crate::middleware::DeploymentMode::Hosted => {
             error!("hosted OAuth login reached without selection mode; per-tenant federation is retired");
-            return Err(errors::internal("Authentication is misconfigured"));
+            return Err(ApiError::Internal("Authentication is misconfigured".into()).into());
         }
     };
     find_or_create_oauth_user(claims, iss, conn, workspace_id)
         .await
         .map_err(|e| {
             error!(error = ?e, "Failed to find or create user during login");
-            errors::internal("Failed to authenticate user")
+            ApiError::Internal("Failed to authenticate user".into()).into()
         })
 }
 
@@ -1582,7 +1583,7 @@ fn resolve_existing_seat_user(
     claims: &OAuthLoginClaims,
     iss: &str,
     conn: &mut DbConnection,
-) -> Result<crate::models::User, HttpResponse> {
+) -> actix_web::Result<crate::models::User> {
     let email = claims.require_email().map_err(|e| {
         error!(error = %e, "Central-origin login: cannot read email from user_info");
         auth_error_redirect(AUTH_ERROR_NO_EMAIL)
@@ -1615,7 +1616,7 @@ fn resolve_existing_seat_user(
         }
         Err(e) => {
             error!(error = %e, "Seat resolution failed during central-origin login");
-            Err(errors::internal("Failed to authenticate user"))
+            Err(ApiError::Internal("Failed to authenticate user".into()).into())
         }
     }
 }
@@ -1796,7 +1797,7 @@ pub async fn oauth_connect(
     // Get database connection
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     // Extract claims from cookie auth middleware
@@ -2106,7 +2107,7 @@ mod login_claims_tests {
 
     #[test]
     fn auth_error_redirect_is_fixed_target_with_code() {
-        let resp = auth_error_redirect(super::AUTH_ERROR_NO_SEAT);
+        let resp = auth_error_redirect(super::AUTH_ERROR_NO_SEAT).error_response();
         assert_eq!(resp.status(), actix_web::http::StatusCode::FOUND);
         let loc = resp.headers().get("location").unwrap().to_str().unwrap();
         assert_eq!(loc, "/login?auth_error=no_seat");

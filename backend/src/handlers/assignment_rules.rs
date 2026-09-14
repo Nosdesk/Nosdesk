@@ -55,7 +55,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
 /// Get all assignment rules with details (admin only)
 pub async fn get_all_rules(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     match tc.run(repository::assignment_rules::get_all_rules_with_details) {
@@ -75,7 +75,7 @@ pub async fn get_rule(
     path: web::Path<i32>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let rule_id = path.into_inner();
@@ -124,7 +124,7 @@ pub async fn create_rule(
     body: web::Json<CreateAssignmentRuleRequest>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let created_by = Some(auth.user_uuid);
@@ -247,7 +247,7 @@ pub async fn update_rule(
     body: web::Json<UpdateAssignmentRuleRequest>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let rule_id = path.into_inner();
@@ -343,7 +343,7 @@ pub async fn delete_rule(
     path: web::Path<i32>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let rule_id = path.into_inner();
@@ -377,7 +377,7 @@ pub async fn reorder_rules(
     body: web::Json<ReorderRulesRequest>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let orders: Vec<(i32, i32)> = body.orders.iter().map(|o| (o.id, o.priority)).collect();
@@ -429,7 +429,7 @@ pub async fn preview_assignment(
     body: web::Json<PreviewAssignmentRequest>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     // Parse trigger
@@ -501,7 +501,7 @@ pub async fn preview_assignment(
 /// Get recent assignment logs (admin only)
 pub async fn get_assignment_logs(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     match tc.run(|conn| repository::assignment_rules::get_recent_logs(conn, 100)) {

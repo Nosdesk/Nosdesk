@@ -512,6 +512,16 @@ impl From<JwtError> for HttpResponse {
 pub mod helpers {
     use super::*;
 
+    /// Token issuance failures keep the `{status, message}` shape the login
+    /// responses have always used, carried as an actix error.
+    fn issuance_failed(message: &'static str) -> actix_web::Error {
+        let resp = HttpResponse::InternalServerError().json(json!({
+            "status": "error",
+            "message": message
+        }));
+        actix_web::error::InternalError::from_response("token_issuance_failed", resp).into()
+    }
+
     /// Struct containing login tokens for cookie setting
     pub struct LoginTokens {
         pub access_token: String,
@@ -525,13 +535,9 @@ pub mod helpers {
         session_id: &uuid::Uuid,
         family_id: &uuid::Uuid,
         conn: &mut DbConnection,
-    ) -> Result<LoginTokens, HttpResponse> {
-        let access_token = JwtUtils::create_token(user, session_id).map_err(|_| {
-            HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Error generating token"
-            }))
-        })?;
+    ) -> actix_web::Result<LoginTokens> {
+        let access_token = JwtUtils::create_token(user, session_id)
+            .map_err(|_| issuance_failed("Error generating token"))?;
 
         let refresh_token = JwtUtils::generate_refresh_token();
         let refresh_token_hash = JwtUtils::hash_refresh_token(&refresh_token);
@@ -551,10 +557,7 @@ pub mod helpers {
         )
         .map_err(|e| {
             tracing::error!("Failed to store refresh token: {}", e);
-            HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to create refresh token"
-            }))
+            issuance_failed("Failed to create refresh token")
         })?;
 
         let csrf_token = crate::utils::csrf::generate_csrf_token();
@@ -576,14 +579,9 @@ pub mod helpers {
         session_id: &uuid::Uuid,
         family_id: &uuid::Uuid,
         conn: &mut DbConnection,
-    ) -> Result<LoginTokens, HttpResponse> {
+    ) -> actix_web::Result<LoginTokens> {
         let access_token = JwtUtils::create_portal_token(user, workspace_uuid, session_id)
-            .map_err(|_| {
-                HttpResponse::InternalServerError().json(json!({
-                    "status": "error",
-                    "message": "Error generating token"
-                }))
-            })?;
+            .map_err(|_| issuance_failed("Error generating token"))?;
 
         let refresh_token = JwtUtils::generate_refresh_token();
         let refresh_token_hash = JwtUtils::hash_refresh_token(&refresh_token);
@@ -602,10 +600,7 @@ pub mod helpers {
         )
         .map_err(|e| {
             tracing::error!("Failed to store portal refresh token: {}", e);
-            HttpResponse::InternalServerError().json(json!({
-                "status": "error",
-                "message": "Failed to create refresh token"
-            }))
+            issuance_failed("Failed to create refresh token")
         })?;
 
         let csrf_token = crate::utils::csrf::generate_csrf_token();
@@ -623,7 +618,7 @@ pub mod helpers {
         session_id: &uuid::Uuid,
         family_id: &uuid::Uuid,
         conn: &mut DbConnection,
-    ) -> Result<(crate::models::LoginResponse, LoginTokens), HttpResponse> {
+    ) -> actix_web::Result<(crate::models::LoginResponse, LoginTokens)> {
         let tokens = create_tokens(&user, session_id, family_id, conn)?;
 
         let response = crate::models::LoginResponse {
@@ -722,7 +717,7 @@ pub mod helpers {
         session_id: &uuid::Uuid,
         family_id: &uuid::Uuid,
         conn: &mut DbConnection,
-    ) -> Result<(crate::models::LoginResponse, LoginTokens), HttpResponse> {
+    ) -> actix_web::Result<(crate::models::LoginResponse, LoginTokens)> {
         let tokens = create_tokens(&user, session_id, family_id, conn)?;
 
         let message = if backup_code_used && requires_regeneration {

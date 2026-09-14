@@ -1,4 +1,4 @@
-use actix_web::{web, Error, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, Error, HttpRequest, HttpResponse, Responder, ResponseError};
 use actix_ws::{AggregatedMessage, CloseReason};
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
@@ -17,7 +17,7 @@ use yrs::updates::encoder::Encode;
 use yrs::{Doc, GetString, ReadTxn, StateVector, Transact, Update, WriteTxn, XmlFragment};
 
 use crate::extractors::{AuthContext, TenantConn};
-use crate::handlers::errors;
+use crate::handlers::errors::{self, ApiError};
 use crate::repository;
 use crate::sync::actor::ActorContext as DbActor;
 use crate::sync::session;
@@ -110,8 +110,9 @@ fn new_server_doc(doc_id: &str) -> Doc {
 ///
 /// So this endpoint stays the permission gate and the audit point: it proves
 /// the revision decodes before reporting success, and does nothing else.
-fn validate_revision_snapshot(snapshot: &[u8]) -> Result<(), HttpResponse> {
-    Update::decode_v1(snapshot).map_err(|_| errors::internal("Error decoding revision"))?;
+fn validate_revision_snapshot(snapshot: &[u8]) -> Result<(), ApiError> {
+    Update::decode_v1(snapshot)
+        .map_err(|_| ApiError::Internal("Error decoding revision".into()))?;
     Ok(())
 }
 
@@ -681,36 +682,28 @@ pub(crate) fn can_access_document(
 /// Gate a ticket-scoped REST handler on visibility: `Ok(())` when the
 /// caller may read the ticket, else a ready 404 (404 not 403 so we
 /// don't leak existence), or 500 on a check failure.
-fn gate_ticket(
-    tc: &mut TenantConn,
-    auth: &AuthContext,
-    ticket_id: i32,
-) -> Result<(), HttpResponse> {
+fn gate_ticket(tc: &mut TenantConn, auth: &AuthContext, ticket_id: i32) -> Result<(), ApiError> {
     let accessor = DocAccessor::from_auth(auth);
     match tc.run(|conn| can_access_document(conn, &accessor, &DocumentType::Ticket(ticket_id))) {
         Ok(true) => Ok(()),
-        Ok(false) => Err(errors::not_found_msg("Ticket not found")),
+        Ok(false) => Err(ApiError::NotFoundMsg("Ticket not found".into())),
         Err(e) => {
             error!(ticket_id, error = ?e, "ticket access check failed");
-            Err(errors::internal("Failed to check ticket access"))
+            Err(ApiError::Internal("Failed to check ticket access".into()))
         }
     }
 }
 
 /// Documentation-page equivalent of [`gate_ticket`].
-fn gate_doc_page(
-    tc: &mut TenantConn,
-    auth: &AuthContext,
-    page_id: i32,
-) -> Result<(), HttpResponse> {
+fn gate_doc_page(tc: &mut TenantConn, auth: &AuthContext, page_id: i32) -> Result<(), ApiError> {
     let accessor = DocAccessor::from_auth(auth);
     match tc.run(|conn| can_access_document(conn, &accessor, &DocumentType::Documentation(page_id)))
     {
         Ok(true) => Ok(()),
-        Ok(false) => Err(errors::not_found_msg("Page not found")),
+        Ok(false) => Err(ApiError::NotFoundMsg("Page not found".into())),
         Err(e) => {
             error!(page_id, error = ?e, "page access check failed");
-            Err(errors::internal("Failed to check page access"))
+            Err(ApiError::Internal("Failed to check page access".into()))
         }
     }
 }
@@ -3376,7 +3369,7 @@ async fn process_inbound_binary(
 fn ticket_article_content(
     tc: &mut TenantConn,
     ticket_id: i32,
-) -> Result<Option<crate::models::ArticleContent>, HttpResponse> {
+) -> Result<Option<crate::models::ArticleContent>, ApiError> {
     match tc.run(|conn| {
         crate::repository::article_content::get_article_content_by_ticket_id(conn, ticket_id)
     }) {
@@ -3384,7 +3377,7 @@ fn ticket_article_content(
         Err(diesel::result::Error::NotFound) => Ok(None),
         Err(e) => {
             error!(ticket_id, error = ?e, "Error loading article content");
-            Err(errors::internal("Error retrieving revisions"))
+            Err(ApiError::Internal("Error retrieving revisions".into()))
         }
     }
 }
@@ -3397,7 +3390,7 @@ pub async fn get_ticket_revisions(
 ) -> HttpResponse {
     let ticket_id = ticket_id.into_inner();
     if let Err(resp) = gate_ticket(&mut tc, &auth, ticket_id) {
-        return resp;
+        return resp.error_response();
     }
 
     // A ticket with no saved collaborative content yet simply has no
@@ -3409,7 +3402,7 @@ pub async fn get_ticket_revisions(
             return HttpResponse::Ok()
                 .json(Vec::<crate::models::ArticleContentRevisionResponse>::new());
         }
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
 
     // Get all revisions
@@ -3433,14 +3426,14 @@ pub async fn get_ticket_revision(
 ) -> HttpResponse {
     let (ticket_id, revision_number) = path.into_inner();
     if let Err(resp) = gate_ticket(&mut tc, &auth, ticket_id) {
-        return resp;
+        return resp.error_response();
     }
 
     // No saved content means this revision can't exist.
     let article_content = match ticket_article_content(&mut tc, ticket_id) {
         Ok(Some(content)) => content,
         Ok(None) => return errors::not_found_msg("Revision not found"),
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
 
     // Get the specific revision
@@ -3476,14 +3469,14 @@ pub async fn restore_ticket_revision(
 ) -> HttpResponse {
     let (ticket_id, revision_number) = path.into_inner();
     if let Err(resp) = gate_ticket(&mut tc, &auth, ticket_id) {
-        return resp;
+        return resp.error_response();
     }
 
     // No saved content means this revision can't exist.
     let article_content = match ticket_article_content(&mut tc, ticket_id) {
         Ok(Some(content)) => content,
         Ok(None) => return errors::not_found_msg("Revision not found"),
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
 
     // Get the revision to restore
@@ -3503,7 +3496,7 @@ pub async fn restore_ticket_revision(
             ticket_id,
             revision_number, "Revision snapshot failed to decode"
         );
-        return resp;
+        return resp.error_response();
     }
 
     // The client applies the revert; this endpoint only authorised it, so it
@@ -3528,7 +3521,7 @@ pub async fn get_doc_revisions(
 ) -> HttpResponse {
     let doc_id = doc_id.into_inner();
     if let Err(resp) = gate_doc_page(&mut tc, &auth, doc_id) {
-        return resp;
+        return resp.error_response();
     }
 
     // Get all revisions
@@ -3547,7 +3540,7 @@ pub async fn get_doc_revision(
 ) -> HttpResponse {
     let (doc_id, revision_number) = path.into_inner();
     if let Err(resp) = gate_doc_page(&mut tc, &auth, doc_id) {
-        return resp;
+        return resp.error_response();
     }
 
     // Get the specific revision
@@ -3581,7 +3574,7 @@ pub async fn restore_doc_revision(
 ) -> HttpResponse {
     let (doc_id, revision_number) = path.into_inner();
     if let Err(resp) = gate_doc_page(&mut tc, &auth, doc_id) {
-        return resp;
+        return resp.error_response();
     }
 
     // Get the revision to restore
@@ -3597,7 +3590,7 @@ pub async fn restore_doc_revision(
             doc_id,
             revision_number, "Revision snapshot failed to decode"
         );
-        return resp;
+        return resp.error_response();
     }
 
     info!(

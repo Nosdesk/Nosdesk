@@ -104,7 +104,7 @@ pub async fn get_group_details(
 /// Get all groups with member counts
 pub async fn get_all_groups(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     match tc.run(repository::groups::get_groups_with_member_counts) {
@@ -120,7 +120,7 @@ pub async fn get_group(
     path: web::Path<i32>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let group_id = path.into_inner();
@@ -149,7 +149,7 @@ pub async fn create_group(
     body: web::Json<CreateGroupRequest>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let claims = match req.extensions().get::<Claims>() {
@@ -184,7 +184,7 @@ pub async fn update_group(
     body: web::Json<GroupUpdate>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let group_id = path.into_inner();
@@ -206,7 +206,7 @@ pub async fn delete_group(
     path: web::Path<i32>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let group_id = path.into_inner();
@@ -232,7 +232,7 @@ pub async fn unmanage_group(
     path: web::Path<i32>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let group_id = path.into_inner();
@@ -288,7 +288,7 @@ pub async fn set_group_members(
     body: web::Json<SetGroupMembersRequest>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let claims = match req.extensions().get::<Claims>() {
@@ -373,7 +373,7 @@ pub async fn set_user_groups(
     body: web::Json<SetUserGroupsRequest>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let claims = match req.extensions().get::<Claims>() {
@@ -416,7 +416,7 @@ pub async fn get_group_includes(
     path: web::Path<i32>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let group_id = path.into_inner();
@@ -451,7 +451,7 @@ pub async fn set_group_includes(
     body: web::Json<SetGroupIncludesRequest>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let claims = match req.extensions().get::<Claims>() {
@@ -528,7 +528,7 @@ pub async fn set_group_devices(
     body: web::Json<SetGroupDevicesRequest>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let claims = match req.extensions().get::<Claims>() {

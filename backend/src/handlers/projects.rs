@@ -112,7 +112,7 @@ pub async fn create_project(
     search_service: Option<web::Data<Arc<SearchService>>>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
-        return e;
+        return e.error_response();
     }
 
     let observer = search_service
@@ -133,7 +133,7 @@ pub async fn update_project(
     search_service: Option<web::Data<Arc<SearchService>>>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
-        return e;
+        return e.error_response();
     }
 
     let observer = search_service
@@ -159,7 +159,7 @@ pub async fn delete_project(
     search_service: Option<web::Data<Arc<SearchService>>>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let observer = search_service
@@ -216,7 +216,7 @@ pub async fn add_ticket_to_project(
     path: web::Path<(i32, i32)>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
-        return e;
+        return e.error_response();
     }
 
     let (project_id, ticket_id) = path.into_inner();
@@ -246,7 +246,7 @@ pub async fn create_ticket_in_project(
     body: web::Json<QuickAddTicket>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
-        return e;
+        return e.error_response();
     }
 
     let project_id = path.into_inner();
@@ -284,7 +284,7 @@ pub async fn remove_ticket_from_project(
     path: web::Path<(i32, i32)>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
-        return e;
+        return e.error_response();
     }
 
     let (project_id, ticket_id) = path.into_inner();
@@ -311,7 +311,7 @@ pub async fn update_ticket_order(
     body: web::Json<UpdateTicketOrderRequest>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
-        return e;
+        return e.error_response();
     }
 
     let project_id = path.into_inner();

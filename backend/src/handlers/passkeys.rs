@@ -2,7 +2,7 @@
 //!
 //! Endpoints for passkey registration, authentication, and management.
 
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder, ResponseError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing::{debug, error, info, warn};
@@ -134,7 +134,7 @@ pub async fn start_passkey_registration(
 
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     // Get user from database
@@ -267,7 +267,7 @@ pub async fn finish_passkey_registration(
 
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     if repository::users::find_active_by_uuid(&user_uuid, &mut conn).is_err() {
@@ -502,7 +502,7 @@ pub async fn finish_passkey_login(
 
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     // Parse the credential ID to find the user
@@ -691,7 +691,7 @@ pub async fn finish_passkey_login(
                 &tokens,
             )
         }
-        Err(error_response) => error_response,
+        Err(e) => e.error_response(),
     }
 }
 
@@ -743,7 +743,7 @@ pub async fn list_passkeys(req: HttpRequest, pool: web::Data<Pool>) -> impl Resp
 
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     if repository::users::find_active_by_uuid(&user_uuid, &mut conn).is_err() {
@@ -803,7 +803,7 @@ pub async fn rename_passkey(
 
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     if repository::users::find_active_by_uuid(&user_uuid, &mut conn).is_err() {
@@ -851,7 +851,7 @@ pub async fn delete_passkey(
 
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     if repository::users::find_active_by_uuid(&user_uuid, &mut conn).is_err() {
@@ -974,7 +974,7 @@ pub async fn start_passkey_setup_login(
 
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
     // Pin the request's workspace so the MFA policy gate resolves the
     // caller's role under RLS (the pool clears app.workspace_id on checkout).
@@ -1160,7 +1160,7 @@ pub async fn finish_passkey_setup_login(
 
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
     // Pin the request's workspace so the MFA policy gate resolves the
     // caller's role under RLS (the pool clears app.workspace_id on checkout).
@@ -1361,6 +1361,6 @@ pub async fn finish_passkey_setup_login(
 
             super::auth::build_auth_response(&req, response_json, &tokens)
         }
-        Err(error_response) => error_response,
+        Err(e) => e.error_response(),
     }
 }

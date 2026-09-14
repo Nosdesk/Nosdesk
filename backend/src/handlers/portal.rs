@@ -24,7 +24,9 @@ use actix_web::body::MessageBody;
 use actix_web::cookie::Cookie;
 use actix_web::dev::{Payload, ServiceRequest, ServiceResponse};
 use actix_web::middleware::Next;
-use actix_web::{web, Error, FromRequest, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{
+    web, Error, FromRequest, HttpMessage, HttpRequest, HttpResponse, Responder, ResponseError,
+};
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -32,7 +34,7 @@ use uuid::Uuid;
 
 use crate::db::{DbConnection, Pool};
 use crate::extractors::{TenantConn, WorkspaceContext};
-use crate::handlers::errors;
+use crate::handlers::errors::{self, ApiError};
 use crate::middleware::cookie_auth::{require_workspace_membership, PORTAL_SCOPE};
 use crate::models::{Claims, ContentFormat, NewComment, NewTicket, Ticket, TicketPriority, User};
 use crate::repository::ticket_visibility::{
@@ -142,14 +144,15 @@ fn mint_portal_session(
     workspace_uuid: Uuid,
     request: &HttpRequest,
     conn: &mut DbConnection,
-) -> Result<PortalSessionCookies, HttpResponse> {
+) -> actix_web::Result<PortalSessionCookies> {
     let session = crate::handlers::auth::create_session_record(&user.uuid, request, conn, None)
         .map_err(|e| {
             tracing::error!(error = ?e, "portal session: failed to create session record");
-            HttpResponse::InternalServerError().json(json!({
+            let resp = HttpResponse::InternalServerError().json(json!({
                 "status": "error",
                 "message": "Failed to establish session"
-            }))
+            }));
+            errors::from_response("portal session failed", resp)
         })?;
 
     let family_id = Uuid::new_v4();
@@ -176,7 +179,7 @@ pub fn establish_portal_session(
     workspace_uuid: Uuid,
     request: &HttpRequest,
     conn: &mut DbConnection,
-) -> Result<HttpResponse, HttpResponse> {
+) -> actix_web::Result<HttpResponse> {
     let session = mint_portal_session(user, workspace_uuid, request, conn)?;
     Ok(HttpResponse::Ok()
         .cookie(session.access)
@@ -225,7 +228,7 @@ pub async fn refresh_portal_session(
 
     let mut conn = match crate::handlers::helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let workspace_uuid = ctx.workspace_uuid;
@@ -249,13 +252,13 @@ pub async fn refresh_portal_session(
             // membership was removed, and burning their family adds nothing
             // once the refresh is already refused.
             require_workspace_membership(conn, workspace_id, user.uuid)
-                .map_err(|_| errors::unauthorized("Invalid or expired refresh token"))?;
+                .map_err(|_| ApiError::Unauthorized("Invalid or expired refresh token".into()))?;
             crate::utils::jwt::JwtUtils::create_portal_token(user, workspace_uuid, session_id)
-                .map_err(|_| errors::internal("Failed to create access token"))
+                .map_err(|_| ApiError::Internal("Failed to create access token".into()))
         },
     ) {
         Ok(r) => r,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
 
     // Portal clients are browsers, so the rotated tokens go back as cookies
@@ -465,7 +468,7 @@ pub async fn magic_link_callback(
             .cookie(session.csrf)
             .append_header(("Location", "/"))
             .finish(),
-        Err(resp) => resp,
+        Err(e) => e.error_response(),
     }
 }
 

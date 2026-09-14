@@ -130,7 +130,7 @@ pub async fn get_system_info(
     if let Err(resp) =
         crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
     {
-        return resp;
+        return resp.error_response();
     }
     let current_version = get_current_version();
     let uptime = system_state.start_time.elapsed();
@@ -157,7 +157,7 @@ pub async fn check_system_updates(req: HttpRequest) -> impl Responder {
     if let Err(resp) =
         crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
     {
-        return resp;
+        return resp.error_response();
     }
     let current_version = get_current_version();
 

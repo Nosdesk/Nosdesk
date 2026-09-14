@@ -1,4 +1,4 @@
-use actix_web::{web, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpRequest, HttpResponse, Responder, ResponseError};
 use chrono::{Duration, Utc};
 use serde_json::json;
 use tracing::{error, info, warn};
@@ -245,7 +245,7 @@ pub async fn reset_password_with_token(
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     // Hosted deployments disable local password auth, so refuse to write a local

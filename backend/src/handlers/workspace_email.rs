@@ -25,7 +25,7 @@ use crate::services::ses_identity;
 use crate::sync::session::run_in_workspace;
 use crate::utils::rbac;
 
-fn require_admin(req: &HttpRequest) -> Result<Claims, HttpResponse> {
+fn require_admin(req: &HttpRequest) -> actix_web::Result<Claims> {
     rbac::require_workspace_role(req, WorkspaceRole::Admin)
 }
 
@@ -79,7 +79,7 @@ impl OutboundSettingsResponse {
 /// GET /admin/email/outbound
 pub async fn get_outbound(mut tc: TenantConn, req: HttpRequest) -> impl Responder {
     if let Err(resp) = require_admin(&req) {
-        return resp;
+        return resp.error_response();
     }
     let loaded = tc.run(|conn| {
         let row = ws_settings::get(conn)?;
@@ -170,7 +170,7 @@ pub async fn set_domain(
     body: web::Json<SetDomainRequest>,
 ) -> impl Responder {
     if let Err(resp) = require_admin(&req) {
-        return resp;
+        return resp.error_response();
     }
     let Some(workspace_id) = tc.workspace_id() else {
         return errors::bad_request("no workspace context");
@@ -260,7 +260,7 @@ pub async fn verify_domain(
     pool: web::Data<Pool>,
 ) -> impl Responder {
     if let Err(resp) = require_admin(&req) {
-        return resp;
+        return resp.error_response();
     }
     let Some(workspace_id) = tc.workspace_id() else {
         return errors::bad_request("no workspace context");
@@ -291,7 +291,7 @@ pub async fn verify_domain(
 /// Read-only; does not change verification status.
 pub async fn dns_check(mut tc: TenantConn, req: HttpRequest) -> impl Responder {
     if let Err(resp) = require_admin(&req) {
-        return resp;
+        return resp.error_response();
     }
 
     let loaded = tc.run(|conn| {
@@ -333,7 +333,7 @@ pub async fn test_send(
 ) -> impl Responder {
     let claims = match require_admin(&req) {
         Ok(c) => c,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
     let Some(workspace_id) = tc.workspace_id() else {
         return errors::bad_request("no workspace context");
@@ -377,7 +377,7 @@ pub async fn test_send(
 /// DELETE /admin/email/outbound — revert to the instance fallback identity.
 pub async fn reset(mut tc: TenantConn, req: HttpRequest) -> impl Responder {
     if let Err(resp) = require_admin(&req) {
-        return resp;
+        return resp.error_response();
     }
     let Some(workspace_id) = tc.workspace_id() else {
         return errors::bad_request("no workspace context");

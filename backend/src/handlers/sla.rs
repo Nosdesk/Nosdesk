@@ -118,7 +118,7 @@ pub async fn create_policy(
     req: HttpRequest,
 ) -> impl Responder {
     if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp;
+        return resp.error_response();
     }
     let actor_uuid = auth.user_uuid;
     match tc.run(|conn| sla_admin::create_policy(conn, body.into_inner(), Some(actor_uuid))) {
@@ -138,7 +138,7 @@ pub async fn update_policy(
     req: HttpRequest,
 ) -> impl Responder {
     if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp;
+        return resp.error_response();
     }
     let id = path.into_inner();
     match tc.run(|conn| sla_admin::update_policy(conn, id, body.into_inner())) {
@@ -157,7 +157,7 @@ pub async fn delete_policy(
     req: HttpRequest,
 ) -> impl Responder {
     if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp;
+        return resp.error_response();
     }
     let id = path.into_inner();
     match tc.run(|conn| sla_admin::delete_policy(conn, id)) {
@@ -188,7 +188,7 @@ pub async fn create_calendar(
     req: HttpRequest,
 ) -> impl Responder {
     if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp;
+        return resp.error_response();
     }
     let actor_uuid = auth.user_uuid;
     match tc.run(|conn| sla_admin::create_calendar(conn, body.into_inner(), Some(actor_uuid))) {
@@ -208,7 +208,7 @@ pub async fn update_calendar(
     req: HttpRequest,
 ) -> impl Responder {
     if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp;
+        return resp.error_response();
     }
     let id = path.into_inner();
     match tc.run(|conn| sla_admin::update_calendar(conn, id, body.into_inner())) {
@@ -227,7 +227,7 @@ pub async fn delete_calendar(
     req: HttpRequest,
 ) -> impl Responder {
     if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp;
+        return resp.error_response();
     }
     let id = path.into_inner();
     match tc.run(|conn| sla_admin::delete_calendar(conn, id)) {
@@ -264,7 +264,7 @@ pub async fn create_holiday(
     req: HttpRequest,
 ) -> impl Responder {
     if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp;
+        return resp.error_response();
     }
     let calendar_id = path.into_inner();
     match tc.run(|conn| sla_admin::create_holiday(conn, calendar_id, body.into_inner())) {
@@ -287,7 +287,7 @@ pub async fn delete_holiday(
     req: HttpRequest,
 ) -> impl Responder {
     if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp;
+        return resp.error_response();
     }
     let id = path.into_inner();
     match tc.run(|conn| sla_admin::delete_holiday(conn, id)) {
@@ -334,7 +334,7 @@ pub async fn workspace_summary(
     req: HttpRequest,
 ) -> impl Responder {
     if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Agent) {
-        return resp;
+        return resp.error_response();
     }
     let result = tc
         .run(|conn| crate::services::sla::scan_open_ticket_buckets(conn, POLICY_MATCH_SCAN_LIMIT));

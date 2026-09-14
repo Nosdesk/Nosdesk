@@ -138,7 +138,7 @@ pub async fn list(
     query: web::Query<ListQuery>,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp;
+        return resp.error_response();
     }
 
     let cursor = match query.cursor.as_deref().map(decode_cursor) {
@@ -202,7 +202,7 @@ pub struct StatusCount {
 /// `GET /api/admin/email-queue/stats` — top stats card data.
 pub async fn stats(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
     if let Err(resp) = rbac::require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp;
+        return resp.error_response();
     }
     // Fold both counts into one tc.run so they ride a single RLS
     // transaction; the second call won't observe writes that landed
@@ -237,7 +237,7 @@ pub async fn retry_now(
     path: web::Path<i64>,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp;
+        return resp.error_response();
     }
     let id = path.into_inner();
     match tc.run(|conn| repo::retry_now(conn, id)) {
@@ -253,7 +253,7 @@ pub async fn retry_now(
 /// `POST /api/admin/email-queue/{id}/cancel` — mark suppressed.
 pub async fn cancel(req: HttpRequest, mut tc: TenantConn, path: web::Path<i64>) -> impl Responder {
     if let Err(resp) = rbac::require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp;
+        return resp.error_response();
     }
     let id = path.into_inner();
     match tc.run(|conn| repo::cancel(conn, id)) {

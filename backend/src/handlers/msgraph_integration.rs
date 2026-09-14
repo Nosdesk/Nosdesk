@@ -1,4 +1,4 @@
-use actix_web::{web, HttpMessage, HttpResponse, Responder};
+use actix_web::{web, HttpMessage, HttpResponse, Responder, ResponseError};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use reqwest;
@@ -710,7 +710,7 @@ pub async fn get_sync_progress_endpoint(
 ) -> impl Responder {
     let _conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
     // The Entra/Intune integration runs on the org's own app credentials, so
     // its state, its configuration and its running sync sessions are workspace-
@@ -722,7 +722,7 @@ pub async fn get_sync_progress_endpoint(
         match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
         {
             Ok(c) => c,
-            Err(resp) => return resp,
+            Err(resp) => return resp.error_response(),
         };
 
     let session_id = path.into_inner();
@@ -740,7 +740,7 @@ pub async fn get_active_syncs(
 ) -> impl Responder {
     let _conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
     // The Entra/Intune integration runs on the org's own app credentials, so
     // its state, its configuration and its running sync sessions are workspace-
@@ -752,7 +752,7 @@ pub async fn get_active_syncs(
         match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
         {
             Ok(c) => c,
-            Err(resp) => return resp,
+            Err(resp) => return resp.error_response(),
         };
 
     if let Ok(progress_map) = SYNC_PROGRESS.lock() {
@@ -783,7 +783,7 @@ pub async fn get_last_sync(
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
     // The Entra/Intune integration runs on the org's own app credentials, so
     // its state, its configuration and its running sync sessions are workspace-
@@ -795,7 +795,7 @@ pub async fn get_last_sync(
         match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
         {
             Ok(c) => c,
-            Err(resp) => return resp,
+            Err(resp) => return resp.error_response(),
         };
 
     // Try to get from database first (persistent storage)
@@ -853,7 +853,7 @@ pub async fn cancel_sync_session(
 ) -> impl Responder {
     let _conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
     // The Entra/Intune integration runs on the org's own app credentials, so
     // its state, its configuration and its running sync sessions are workspace-
@@ -865,7 +865,7 @@ pub async fn cancel_sync_session(
         match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
         {
             Ok(c) => c,
-            Err(resp) => return resp,
+            Err(resp) => return resp.error_response(),
         };
 
     let session_id = path.into_inner();
@@ -909,7 +909,7 @@ pub async fn get_config_validation(req: actix_web::HttpRequest) -> impl Responde
         match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
         {
             Ok(c) => c,
-            Err(resp) => return resp,
+            Err(resp) => return resp.error_response(),
         };
 
     let mut missing_fields = Vec::new();
@@ -963,7 +963,7 @@ pub async fn get_connection_status(
 ) -> impl Responder {
     let _conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
     // The Entra/Intune integration runs on the org's own app credentials, so
     // its state, its configuration and its running sync sessions are workspace-
@@ -975,7 +975,7 @@ pub async fn get_connection_status(
         match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
         {
             Ok(c) => c,
-            Err(resp) => return resp,
+            Err(resp) => return resp.error_response(),
         };
 
     // Check if Microsoft is configured via environment variables
@@ -1064,7 +1064,7 @@ pub async fn test_connection(req: actix_web::HttpRequest) -> impl Responder {
         match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
         {
             Ok(c) => c,
-            Err(resp) => return resp,
+            Err(resp) => return resp.error_response(),
         };
 
     tracing::info!("🔬 Testing Microsoft Graph connection");
@@ -1096,7 +1096,7 @@ pub async fn sync_data(
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
     // Triggering a full Entra/Intune directory sync (mass record
     // create/update via the integration's credentials) is workspace-
@@ -1105,7 +1105,7 @@ pub async fn sync_data(
         match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
         {
             Ok(c) => c,
-            Err(resp) => return resp,
+            Err(resp) => return resp.error_response(),
         };
 
     // Get Microsoft provider
@@ -5111,7 +5111,7 @@ pub async fn get_entra_object_id(
 ) -> impl Responder {
     let _conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
     // The Entra/Intune integration runs on the org's own app credentials, so
     // its state, its configuration and its running sync sessions are workspace-
@@ -5123,7 +5123,7 @@ pub async fn get_entra_object_id(
         match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
         {
             Ok(c) => c,
-            Err(resp) => return resp,
+            Err(resp) => return resp.error_response(),
         };
 
     // Get Microsoft provider

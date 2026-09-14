@@ -2,7 +2,7 @@
 //!
 //! Endpoints for managing user notifications and preferences.
 
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, ResponseError};
 use chrono::{DateTime, Utc};
 
 use crate::handlers::{errors, helpers};
@@ -178,7 +178,7 @@ pub async fn register_push_device(
 
     let mut conn = match errors::db_conn(&pool) {
         Ok(c) => c,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
     let actor =
         crate::sync::actor::ActorContext::user(user_uuid, None).with_workspace(workspace_id);
@@ -231,7 +231,7 @@ pub async fn unregister_push_device(
 
     let mut conn = match errors::db_conn(&pool) {
         Ok(c) => c,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
     let actor =
         crate::sync::actor::ActorContext::user(user_uuid, None).with_workspace(workspace_id);
@@ -278,7 +278,7 @@ pub async fn get_workspace_notification_defaults(
     notification_service: web::Data<NotificationService>,
 ) -> HttpResponse {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
     let Some(workspace_id) = actor_workspace_id(&req) else {
         return errors::unauthorized("Authentication required");
@@ -302,7 +302,7 @@ pub async fn update_workspace_notification_default(
     body: web::Json<UpdateWorkspaceDefaultRequest>,
 ) -> HttpResponse {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
     let Some(workspace_id) = actor_workspace_id(&req) else {
         return errors::unauthorized("Authentication required");
@@ -356,14 +356,14 @@ pub async fn get_notification_content_level(
     pool: web::Data<Pool>,
 ) -> HttpResponse {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
     let Some(workspace_id) = actor_workspace_id(&req) else {
         return errors::unauthorized("Authentication required");
     };
     let mut conn = match errors::db_conn(&pool) {
         Ok(c) => c,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
     match crate::repository::workspaces::get_notification_push_detail(&mut conn, workspace_id) {
         Ok(detailed) => HttpResponse::Ok().json(serde_json::json!({
@@ -383,7 +383,7 @@ pub async fn set_notification_content_level(
     body: web::Json<UpdateContentLevelRequest>,
 ) -> HttpResponse {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
     let detailed = match body.detail.as_str() {
         "detailed" => true,
@@ -403,7 +403,7 @@ pub async fn set_notification_content_level(
     };
     let mut conn = match errors::db_conn(&pool) {
         Ok(c) => c,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
     let actor =
         crate::sync::actor::ActorContext::user(user_uuid, None).with_workspace(workspace_id);
