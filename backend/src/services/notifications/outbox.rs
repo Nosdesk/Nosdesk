@@ -21,11 +21,8 @@
 //! [`POLL_SECS`] regardless, so a missed wake costs latency, never a
 //! notification.
 //!
-//! `NOSDESK_NOTIFY_FROM_SYNC` selects the mode: `on` delivers, `dry-run`
-//! derives and logs a redaction-safe summary without delivering (the staging
-//! step that proves the deriver against the handler path before the handlers
-//! are removed), `off` leaves the rows in place. Unset means `dry-run` until
-//! the handler emissions are deleted.
+//! This is the only path for assignment, status and comment notifications;
+//! there is no switch, on a single instance or many.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -38,7 +35,7 @@ use tokio_postgres::{AsyncMessage, NoTls};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-use super::deriver::{derive, resolve, Intent, SyncActionRow};
+use super::deriver::{derive, resolve, SyncActionRow};
 use super::service::NotificationService;
 use crate::db::Pool;
 
@@ -53,36 +50,6 @@ const MAX_AGE_SECS: i64 = 600;
 /// Concurrent `notify()` calls per batch. Each does its own pool work and,
 /// for push, a relay round-trip.
 const DELIVERY_CONCURRENCY: usize = 8;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Mode {
-    Off,
-    DryRun,
-    On,
-}
-
-impl Mode {
-    pub fn from_env() -> Self {
-        match std::env::var("NOSDESK_NOTIFY_FROM_SYNC")
-            .unwrap_or_default()
-            .trim()
-            .to_ascii_lowercase()
-            .as_str()
-        {
-            "on" | "1" | "true" => Mode::On,
-            "off" | "0" | "false" => Mode::Off,
-            _ => Mode::DryRun,
-        }
-    }
-
-    fn as_str(self) -> &'static str {
-        match self {
-            Mode::Off => "off",
-            Mode::DryRun => "dry-run",
-            Mode::On => "on",
-        }
-    }
-}
 
 /// Backoff after the `attempts`-th failure.
 fn backoff_secs(attempts: i16) -> i64 {
@@ -187,7 +154,6 @@ struct Failed {
 pub struct Dispatcher {
     pool: Pool,
     service: Arc<NotificationService>,
-    mode: Mode,
 }
 
 impl Dispatcher {
@@ -197,21 +163,9 @@ impl Dispatcher {
         database_url: Option<String>,
         shutdown: tokio_util::sync::CancellationToken,
     ) -> tokio::task::JoinHandle<()> {
-        let mode = Mode::from_env();
-        let this = Dispatcher {
-            pool,
-            service,
-            mode,
-        };
+        let this = Dispatcher { pool, service };
         tokio::spawn(async move {
-            if mode == Mode::Off {
-                info!("notification outbox dispatcher: off (NOSDESK_NOTIFY_FROM_SYNC=off)");
-                return;
-            }
-            info!(
-                mode = mode.as_str(),
-                "notification outbox dispatcher started"
-            );
+            info!("notification outbox dispatcher started");
             tokio::select! {
                 _ = shutdown.cancelled() => info!("notification outbox dispatcher: shutting down"),
                 _ = this.run(database_url) => {}
@@ -334,31 +288,21 @@ impl Dispatcher {
                 }
             };
 
-            match self.mode {
-                Mode::DryRun => {
-                    // Identifiers and counts only: this line has to survive
-                    // the redacting JSON layer to be useful on staging.
-                    info!(
-                        sync_id = row.sync_id,
-                        event_type = %row.event_type,
-                        intents = intents.len(),
-                        assigned = intents.iter().filter(|i| matches!(i, Intent::Assigned { .. })).count(),
-                        status_changed = intents.iter().filter(|i| matches!(i, Intent::StatusChanged { .. })).count(),
-                        commented = intents.iter().filter(|i| matches!(i, Intent::Commented { .. })).count(),
-                        recipients = payloads.len(),
-                        "notification outbox dry-run: would deliver"
-                    );
-                    done.push(row.sync_id);
-                }
-                Mode::On => {
-                    for p in payloads {
-                        deliveries.push((row.sync_id, c.attempts, p));
-                    }
-                    if deliveries.iter().all(|(id, _, _)| *id != row.sync_id) {
-                        done.push(row.sync_id);
-                    }
-                }
-                Mode::Off => unreachable!("dispatcher does not run when off"),
+            if payloads.is_empty() {
+                // Nothing to send (a status move within one category, a
+                // comment whose only participant is its author).
+                done.push(row.sync_id);
+                continue;
+            }
+            debug!(
+                sync_id = row.sync_id,
+                event_type = %row.event_type,
+                intents = intents.len(),
+                recipients = payloads.len(),
+                "notification outbox: delivering"
+            );
+            for p in payloads {
+                deliveries.push((row.sync_id, c.attempts, p));
             }
         }
 
