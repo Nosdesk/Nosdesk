@@ -28,7 +28,7 @@ use std::collections::{HashMap, HashSet};
 use diesel::pg::Pg;
 
 use crate::db::DbConnection;
-use crate::models::{PlatformRole, SyncAggregate, User};
+use crate::models::{PlatformRole, SyncAggregate, SyncOp, User};
 use crate::repository::ticket_visibility::{self, VisibilityContext};
 use crate::repository::{comments, documentation, user_helpers};
 use crate::schema::tickets;
@@ -81,6 +81,31 @@ pub struct ActionView {
     pub is_internal: Option<bool>,
     /// `data.comment_id` when present (attachment.created).
     pub comment_id: Option<i32>,
+}
+
+impl ActionView {
+    /// Lower a `sync_actions` row's columns into a view. One place, so the
+    /// delta, the SSE bridge and the activity endpoint read the same keys.
+    pub fn from_row(
+        aggregate: SyncAggregate,
+        op: SyncOp,
+        aggregate_id: &str,
+        data: &serde_json::Value,
+    ) -> Self {
+        let i32_at = |key: &str| {
+            data.get(key)
+                .and_then(|v| v.as_i64())
+                .and_then(|n| i32::try_from(n).ok())
+        };
+        Self {
+            aggregate: Some(aggregate),
+            is_delete: matches!(op, SyncOp::Delete),
+            aggregate_id: aggregate_id.parse().ok(),
+            ticket_id: i32_at("ticket_id"),
+            is_internal: data.get("is_internal").and_then(|v| v.as_bool()),
+            comment_id: i32_at("comment_id"),
+        }
+    }
 }
 
 /// True when this aggregate's visibility is governed by ticket access.
