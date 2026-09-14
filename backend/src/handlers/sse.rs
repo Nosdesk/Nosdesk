@@ -5,7 +5,7 @@ use dashmap::DashMap;
 use futures::stream::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -363,6 +363,14 @@ pub struct SseStream {
     /// once at connect, matching the structural-at-connect topic-auth
     /// model.
     viewer: crate::sync::visibility::SyncViewer,
+    /// The groups this connection is granted (`groups::allowed_for_user`),
+    /// resolved once at connect like `viewer`. The live feed rides the
+    /// workspace topic, so every row of the workspace reaches this stream;
+    /// rows are kept only where their `groups` overlap this set, the same
+    /// `groups && allowed` predicate the delta endpoint applies. This is
+    /// what keeps a `user:<uuid>` row (a notification) on its recipient's
+    /// wire and nobody else's.
+    allowed_groups: Arc<HashSet<String>>,
     /// In-flight filter for a `SyncActions` batch that needs per-viewer
     /// visibility filtering. Held across polls because the visibility
     /// check is a blocking DB call run off-thread via `web::block`.
@@ -382,6 +390,7 @@ impl SseStream {
         state: web::Data<SseState>,
         pool: web::Data<crate::db::Pool>,
         viewer: crate::sync::visibility::SyncViewer,
+        allowed_groups: Arc<HashSet<String>>,
         conn_guard: crate::services::connection_registry::ConnGuard,
     ) -> Self {
         // 15-second heartbeat. EventSource auto-reconnects when the
@@ -404,10 +413,34 @@ impl SseStream {
             state,
             pool,
             viewer,
+            allowed_groups,
             pending: None,
             _conn_guard: conn_guard,
         }
     }
+}
+
+/// Drop the rows of a `SyncActions` envelope whose `groups` do not overlap
+/// `allowed`. A row without a `groups` array is dropped too (fail closed).
+/// Other envelope kinds pass through untouched.
+fn retain_granted_rows(mut env: Envelope, allowed: &HashSet<String>) -> Envelope {
+    if let SseEvent::SyncActions {
+        actions: serde_json::Value::Array(rows),
+        ..
+    } = &mut env.event
+    {
+        rows.retain(|row| {
+            row.get("groups")
+                .and_then(|g| g.as_array())
+                .is_some_and(|groups| {
+                    groups
+                        .iter()
+                        .filter_map(|g| g.as_str())
+                        .any(|g| allowed.contains(g))
+                })
+        });
+    }
+    env
 }
 
 /// Does this `SyncActions` envelope contain any row that needs a
@@ -610,10 +643,12 @@ impl Stream for SseStream {
                 }
             };
 
-            // 3. A SyncActions batch with rows this viewer needs
-            //    visibility-checked is filtered per subscriber off-thread;
-            //    everything else frames immediately. Looping back drives
-            //    the future.
+            // 3. Group scoping first (synchronous, no I/O): only rows this
+            //    connection is granted survive. Then a batch with rows this
+            //    viewer needs visibility-checked is filtered per subscriber
+            //    off-thread; everything else frames immediately. Looping
+            //    back drives the future.
+            let env = retain_granted_rows(env, &this.allowed_groups);
             if batch_needs_filtering(&env, &this.viewer) {
                 this.pending = Some(Box::pin(filter_sync_actions_frame(
                     this.pool.clone(),
@@ -754,6 +789,16 @@ pub async fn sse_events_stream(
     // live SyncActions stream. Resolved once at connect (structural, like
     // topic auth); cached for the connection's lifetime.
     let viewer = crate::sync::visibility::SyncViewer::resolve(&mut conn, &user);
+    // The connection's granted groups, on the workspace-pinned connection so
+    // the workspace grant matches the pin above. Refuse the stream rather
+    // than open one that would drop every row.
+    let allowed_groups = match crate::sync::groups::allowed_for_user(&mut conn, &user) {
+        Ok(groups) => Arc::new(groups.into_iter().collect::<HashSet<String>>()),
+        Err(e) => {
+            tracing::error!(error = %e, "SSE: failed to resolve granted groups");
+            return Ok(errors::internal("Failed to open event stream"));
+        }
+    };
 
     // Reserve a slot in the shared connection cap (per user+workspace). A
     // capped principal is refused pre-stream with 429 + Retry-After so the
@@ -777,6 +822,7 @@ pub async fn sse_events_stream(
         state.clone(),
         pool.clone(),
         viewer,
+        allowed_groups,
         conn_guard,
     );
 
@@ -1019,6 +1065,45 @@ mod tests {
             ),
             is_doc_admin: false,
         }
+    }
+
+    fn kept_ids(env: &Envelope) -> Vec<i64> {
+        let SseEvent::SyncActions { actions, .. } = &env.event else {
+            panic!("sync actions");
+        };
+        actions
+            .as_array()
+            .expect("array")
+            .iter()
+            .filter_map(|r| r.get("sync_id").and_then(|v| v.as_i64()))
+            .collect()
+    }
+
+    #[test]
+    fn granted_rows_keep_only_overlapping_groups() {
+        let me = "user:0192aaaa-0000-7000-8000-00000000000a";
+        let allowed: HashSet<String> = ["workspace:2".to_string(), me.to_string()]
+            .into_iter()
+            .collect();
+        let env = sync_actions_env(json!([
+            { "sync_id": 1, "aggregate": "ticket", "groups": ["workspace:2", "ticket:3"] },
+            { "sync_id": 2, "aggregate": "notification", "groups": [me] },
+            { "sync_id": 3, "aggregate": "notification",
+              "groups": ["user:0192aaaa-0000-7000-8000-00000000000b"] },
+            { "sync_id": 4, "aggregate": "ticket", "groups": ["workspace:9"] },
+            { "sync_id": 5, "aggregate": "ticket" },
+        ]));
+        let kept = retain_granted_rows(env, &allowed);
+        assert_eq!(
+            kept_ids(&kept),
+            vec![1, 2],
+            "another user's notification, another workspace, and a row with no groups are dropped"
+        );
+        // The batch cursor survives an emptied batch.
+        let SseEvent::SyncActions { last_sync_id, .. } = kept.event else {
+            panic!("sync actions");
+        };
+        assert_eq!(last_sync_id, 1);
     }
 
     #[test]
