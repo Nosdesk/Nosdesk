@@ -8,10 +8,10 @@
 //!
 //! ## 1. Free-function helpers (`errors::forbidden(...)` etc.)
 //!
-//! Returns an `HttpResponse` directly. Use when the handler signature
-//! is `impl Responder` and explicit early-return reads cleaner than
-//! threading through a `?`. This is the dominant pattern in the
-//! existing codebase post-migration.
+//! Returns an `HttpResponse` directly. For handlers that stay
+//! `impl Responder` because nothing in them is fallible, and for the
+//! bespoke shapes the enum doesn't cover (`*_with_code`,
+//! `too_many_requests`, `externally_managed`, ...).
 //!
 //! ```ignore
 //! pub async fn flag(req: HttpRequest) -> impl Responder {
@@ -27,8 +27,11 @@
 //! Implements [`actix_web::ResponseError`], so handlers returning
 //! `Result<HttpResponse, ApiError>` get the `?` operator and
 //! automatic conversion from common error types (`diesel::Error`,
-//! `r2d2::Error`). Use this for new handlers where the call chain
-//! is mostly fallible operations.
+//! `r2d2::Error`, `actix_web::Error`). This is the shape of every
+//! handler that calls a fallible helper, and the one new handlers
+//! should take. An `Err(ApiError)` also carries the `error_kind` the
+//! canonical request event reports; a bare `Ok(errors::x(..))` does
+//! not.
 //!
 //! ```ignore
 //! pub async fn flag(req: HttpRequest, pool: web::Data<Pool>)
@@ -50,8 +53,8 @@
 //! Fallible helpers return `Result<T, ApiError>`, or `actix_web::Result<T>`
 //! when the failure is a bespoke response (see [`from_response`]); never
 //! `Result<T, HttpResponse>`, which is too large an error type for `?`
-//! (clippy `result_large_err`). An `impl Responder` handler renders either
-//! with `e.error_response()`.
+//! (clippy `result_large_err`). Both propagate with `?` from a
+//! `Result<HttpResponse, ApiError>` handler.
 //!
 //! # Error-code naming
 //!
@@ -358,6 +361,14 @@ pub enum ApiError {
     /// Pool acquire failure, renders as 503.
     #[error(transparent)]
     Pool(#[from] r2d2::Error),
+
+    /// A ready actix error (a bespoke response from [`from_response`], or
+    /// an `actix_web::Result` helper), passed through as is. Renders and
+    /// stamps whatever it already carries; nothing is added here. This
+    /// makes `ApiError` `!Send`: it is the handler-side type, so don't
+    /// return it from `web::block` or a spawned task.
+    #[error(transparent)]
+    Actix(#[from] actix_web::Error),
 }
 
 /// Stable, low-cardinality machine code for an [`ApiError`], attached to the
@@ -393,6 +404,9 @@ impl ApiError {
             }
             ApiError::Database(_) => "db_error",
             ApiError::Pool(_) => "pool_unavailable",
+            // Agree with what `error_response` will stamp: a wrapped
+            // `ApiError` keeps its own kind, anything else is unclassified.
+            ApiError::Actix(e) => e.as_error::<ApiError>().map_or("other", ApiError::kind),
         }
     }
 }
@@ -420,11 +434,13 @@ impl ResponseError for ApiError {
             }
             ApiError::Database(_) => StatusCode::INTERNAL_SERVER_ERROR,
             ApiError::Pool(_) => StatusCode::SERVICE_UNAVAILABLE,
+            ApiError::Actix(e) => e.as_response_error().status_code(),
         }
     }
 
     fn error_response(&self) -> HttpResponse {
         let mut resp = match self {
+            ApiError::Actix(e) => return e.error_response(),
             ApiError::BadRequest(m) => bad_request(m.clone()),
             ApiError::Unauthorized(m) => unauthorized(m.clone()),
             ApiError::Forbidden(m) => forbidden(m.clone()),
@@ -445,5 +461,40 @@ impl ResponseError for ApiError {
         // the ApiError path is the systematic one.)
         resp.extensions_mut().insert(ErrorKind(self.kind()));
         resp
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use actix_web::body::to_bytes;
+
+    /// A handler's `Err(ApiError)` must render the same body as the
+    /// free-function builder it delegates to, plus the `ErrorKind` stamp
+    /// the canonical event reads.
+    #[actix_web::test]
+    async fn api_error_renders_the_builder_body_and_stamps_the_kind() {
+        let rendered = HttpResponse::from_error(ApiError::Forbidden("Admin required".into()));
+        assert_eq!(rendered.status(), StatusCode::FORBIDDEN);
+        assert_eq!(
+            rendered.extensions().get::<ErrorKind>().map(|k| k.0),
+            Some("forbidden")
+        );
+
+        let expected = to_bytes(forbidden("Admin required").into_body())
+            .await
+            .unwrap();
+        let actual = to_bytes(rendered.into_body()).await.unwrap();
+        assert_eq!(actual, expected);
+    }
+
+    /// A wrapped actix error keeps its own response and adds no stamp.
+    #[actix_web::test]
+    async fn actix_variant_passes_the_response_through() {
+        let inner = from_response("unit", HttpResponse::ImATeapot().body("brew"));
+        let rendered = HttpResponse::from_error(ApiError::Actix(inner));
+        assert_eq!(rendered.status(), StatusCode::IM_A_TEAPOT);
+        assert!(rendered.extensions().get::<ErrorKind>().is_none());
+        assert_eq!(to_bytes(rendered.into_body()).await.unwrap(), "brew");
     }
 }
