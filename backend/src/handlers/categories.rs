@@ -68,7 +68,7 @@ pub async fn get_categories(mut tc: TenantConn, auth: AuthContext) -> impl Respo
 /// Get all categories with visibility info (admin only)
 pub async fn get_all_categories_admin(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     match tc.run(repository::categories::get_all_categories_with_visibility) {
@@ -84,7 +84,7 @@ pub async fn get_category_admin(
     path: web::Path<i32>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let category_id = path.into_inner();
@@ -115,7 +115,7 @@ pub async fn create_category(
     body: web::Json<CreateCategoryRequest>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let created_by = Some(auth.user_uuid);
@@ -208,7 +208,7 @@ pub async fn update_category(
     body: web::Json<UpdateCategoryRequest>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let updated_by = Some(auth.user_uuid);
@@ -281,7 +281,7 @@ pub async fn delete_category(
     path: web::Path<i32>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let category_id = path.into_inner();
@@ -317,7 +317,7 @@ pub async fn reorder_categories(
     body: web::Json<ReorderCategoriesRequest>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let orders: Vec<(i32, i32)> = body
@@ -357,7 +357,7 @@ pub async fn set_category_visibility(
     body: web::Json<SetCategoryVisibilityRequest>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let created_by = Some(auth.user_uuid);

@@ -45,7 +45,7 @@ pub async fn export_workspace(
     body: web::Json<WorkspaceExportRequest>,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_platform_admin(&req) {
-        return resp;
+        return resp.error_response();
     }
     let workspace_id = path.into_inner();
     let password = body.into_inner().password;
@@ -111,7 +111,7 @@ pub async fn import_workspace(
     mut payload: Multipart,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_platform_admin(&req) {
-        return resp;
+        return resp.error_response();
     }
 
     let mut archive: Vec<u8> = Vec::new();

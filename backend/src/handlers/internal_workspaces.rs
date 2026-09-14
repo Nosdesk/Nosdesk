@@ -13,7 +13,7 @@
 //! (enforced via an explicit check, not relying on middleware
 //! semantics, so the contract is clear from the handler signature).
 
-use actix_web::{web, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpRequest, HttpResponse, Responder, ResponseError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing::{error, info, warn};
@@ -21,7 +21,7 @@ use uuid::Uuid;
 
 use crate::db::{DbConnection, Pool};
 use crate::extractors::PlatformAuth;
-use crate::handlers::errors;
+use crate::handlers::errors::{self, ApiError};
 use crate::models::{NewWorkspace, Workspace};
 use crate::repository::workspaces::{self, CreateWorkspaceError, UpdateMembershipRoleResult};
 use crate::services::oauth_provisioning::{find_or_create_projected_user, ProjectedUserInput};
@@ -87,10 +87,10 @@ fn require_idempotency_key(req: &HttpRequest) -> Option<HttpResponse> {
 /// Pull a connection from the pool, mapping exhaustion to a 500
 /// with a consistent error log. `context` is the operation tag used
 /// in the log message.
-fn pool_conn(pool: &web::Data<Pool>, context: &str) -> Result<DbConnection, HttpResponse> {
+fn pool_conn(pool: &web::Data<Pool>, context: &str) -> Result<DbConnection, ApiError> {
     pool.get().map_err(|e| {
         error!(error = ?e, context = context, "db pool exhausted");
-        errors::internal("Database connection failed")
+        ApiError::Internal("Database connection failed".into())
     })
 }
 
@@ -101,18 +101,18 @@ fn resolve_workspace_or_respond(
     conn: &mut DbConnection,
     slug: &str,
     context: &str,
-) -> Result<Workspace, HttpResponse> {
+) -> Result<Workspace, ApiError> {
     match workspaces::find_by_slug(conn, slug) {
         Ok(Some(ws)) => Ok(ws),
         Ok(None) => {
             warn!(slug = %slug, context = context, "workspace not found");
-            Err(errors::not_found_msg(format!(
+            Err(ApiError::NotFoundMsg(format!(
                 "workspace '{slug}' not found"
             )))
         }
         Err(e) => {
             error!(error = ?e, slug = %slug, context = context, "workspace lookup failed");
-            Err(errors::internal("Workspace lookup failed"))
+            Err(ApiError::Internal("Workspace lookup failed".into()))
         }
     }
 }
@@ -185,7 +185,7 @@ pub async fn create_workspace(
 
     let mut conn = match pool_conn(&pool, "workspaces/create") {
         Ok(c) => c,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
 
     // Pre-mint the UUID so the response (and the eventual
@@ -317,7 +317,7 @@ pub async fn deprovision_workspace(
     let slug = path.into_inner();
     let mut conn = match pool_conn(&pool, "workspaces/deprovision") {
         Ok(c) => c,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
 
     let ws = match workspaces::find_by_slug_any_state(&mut conn, &slug) {
@@ -378,7 +378,7 @@ pub async fn restore_workspace(
     let slug = path.into_inner();
     let mut conn = match pool_conn(&pool, "workspaces/restore") {
         Ok(c) => c,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
 
     let ws = match workspaces::find_by_slug_any_state(&mut conn, &slug) {
@@ -444,7 +444,7 @@ pub async fn set_seat_limit(
 
     let mut conn = match pool_conn(&pool, "workspaces/seat_limit") {
         Ok(c) => c,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
 
     // `workspaces` is BYPASSRLS-only (`nosdesk_app` has SELECT only), so the
@@ -586,7 +586,7 @@ pub async fn upsert_projected_user(
 
     let mut conn = match pool_conn(&pool, "upsert_projected_user") {
         Ok(c) => c,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
 
     // Resolve workspace by slug. Done first so the 404 path is
@@ -594,7 +594,7 @@ pub async fn upsert_projected_user(
     // handoff's "unknown workspace returns 404" acceptance.
     let workspace = match resolve_workspace_or_respond(&mut conn, &slug, "upsert_projected_user") {
         Ok(ws) => ws,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
 
     let input = ProjectedUserInput {
@@ -768,12 +768,12 @@ pub async fn set_member_role(
 
     let mut conn = match pool_conn(&pool, "set_member_role") {
         Ok(c) => c,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
 
     let workspace = match resolve_workspace_or_respond(&mut conn, &slug, "set_member_role") {
         Ok(ws) => ws,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
 
     // Resolve the member from (iss, sub). A miss is a 404, same as an
@@ -944,14 +944,14 @@ pub async fn set_custom_domain(
 
     let mut conn = match pool_conn(&pool, "custom_domain") {
         Ok(c) => c,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
 
     // Capture the previous value so we can invalidate its cache key
     // even when the operator is clearing or changing the hostname.
     let previous = match resolve_workspace_or_respond(&mut conn, &slug, "custom_domain") {
         Ok(ws) => ws,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
 
     let updated = match workspaces::update_custom_domain(
@@ -1047,11 +1047,11 @@ pub async fn workspace_provisioning(
     let slug = path.into_inner();
     let mut conn = match pool_conn(&pool, "workspace_provisioning") {
         Ok(c) => c,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
     let workspace = match resolve_workspace_or_respond(&mut conn, &slug, "workspace_provisioning") {
         Ok(ws) => ws,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
 
     // Owner membership: workspace_members is a meta-table (no RLS), so a

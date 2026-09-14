@@ -10,13 +10,13 @@
 //! - `PUT    /api/manufacturers/{id}`   rename
 //! - `DELETE /api/manufacturers/{id}`   delete (refused while models reference it)
 
-use actix_web::{web, HttpResponse, Responder};
+use actix_web::{web, HttpResponse, Responder, ResponseError};
 use diesel::result::{DatabaseErrorKind, Error as DieselError};
 use serde::Deserialize;
 use tracing::error;
 
 use crate::extractors::{AuthContext, TenantConn};
-use crate::handlers::errors;
+use crate::handlers::errors::{self, ApiError};
 use crate::models::{ManufacturerChange, NewManufacturer};
 use crate::repository::manufacturers as repo;
 
@@ -27,10 +27,10 @@ pub struct UpsertBody {
     pub name: String,
 }
 
-fn validate_name(name: &str) -> Result<String, HttpResponse> {
+fn validate_name(name: &str) -> Result<String, ApiError> {
     let trimmed = name.trim().to_string();
     if trimmed.is_empty() || trimmed.len() > NAME_MAX_LEN {
-        return Err(errors::bad_request(format!(
+        return Err(ApiError::BadRequest(format!(
             "name must be 1 to {NAME_MAX_LEN} characters"
         )));
     }
@@ -75,7 +75,7 @@ pub async fn create(
     }
     let name = match validate_name(&body.name) {
         Ok(n) => n,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
     let new = NewManufacturer {
         name,
@@ -105,7 +105,7 @@ pub async fn update(
     let id = path.into_inner();
     let name = match validate_name(&body.name) {
         Ok(n) => n,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
     let change = ManufacturerChange {
         name: Some(name),

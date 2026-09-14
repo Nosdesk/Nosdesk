@@ -1,11 +1,11 @@
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder, ResponseError};
 use bcrypt::verify;
 use serde_json::json;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::db::DbConnection;
-use crate::handlers::errors;
+use crate::handlers::errors::{self, ApiError};
 use crate::handlers::helpers;
 use crate::middleware::request_context::record_canonical;
 use crate::models::{LoginRequest, PasswordChangeRequest};
@@ -395,7 +395,7 @@ pub(crate) fn complete_login(
     // Local / password logins carry no OIDC id_token.
     match establish_login_session(user, request, conn, None) {
         Ok((response, tokens)) => build_auth_response(request, response, &tokens),
-        Err(error_response) => error_response,
+        Err(e) => e.error_response(),
     }
 }
 
@@ -415,7 +415,7 @@ pub(crate) fn complete_login_redirect(
 ) -> HttpResponse {
     match establish_login_session(user, request, conn, oidc_id_token) {
         Ok((_response, tokens)) => build_auth_cookie_redirect(&tokens, location),
-        Err(error_response) => error_response,
+        Err(e) => e.error_response(),
     }
 }
 
@@ -426,7 +426,7 @@ pub(crate) fn establish_login_session(
     request: &HttpRequest,
     conn: &mut DbConnection,
     oidc_id_token: Option<&str>,
-) -> Result<(crate::models::LoginResponse, jwt_helpers::LoginTokens), HttpResponse> {
+) -> actix_web::Result<(crate::models::LoginResponse, jwt_helpers::LoginTokens)> {
     let user_uuid = user.uuid;
 
     // Pin the request's workspace so the login response's workspace_role
@@ -437,7 +437,9 @@ pub(crate) fn establish_login_session(
         Ok(s) => s,
         Err(e) => {
             tracing::error!("Failed to create session for user {}: {}", user_uuid, e);
-            return Err(errors::internal("Failed to create authentication session"));
+            return Err(
+                ApiError::Internal("Failed to create authentication session".into()).into(),
+            );
         }
     };
     let family_id = Uuid::new_v4();
@@ -505,7 +507,7 @@ fn complete_mfa_login(
         conn,
     ) {
         Ok((response, tokens)) => build_auth_response(request, response, &tokens),
-        Err(error_response) => error_response,
+        Err(e) => e.error_response(),
     }
 }
 
@@ -753,7 +755,7 @@ pub async fn login(
 
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
     // Pin the request's workspace up front so every role-dependent check on
     // this connection (the MFA policy gate below, the login response builder)
@@ -889,7 +891,7 @@ pub async fn mfa_login(
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let user = match crate::utils::login_timing::verify_credentials(
@@ -995,7 +997,7 @@ pub async fn recovery_login(
 
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let user = match crate::utils::login_timing::verify_credentials(
@@ -1172,7 +1174,7 @@ pub async fn change_password(
     // Get database connection
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     // Extract claims from cookie auth middleware
@@ -1288,7 +1290,7 @@ pub async fn get_current_user(
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let claims = match JwtUtils::extract_claims(&req) {
@@ -1364,7 +1366,7 @@ pub async fn check_setup_status(
 
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     match repository::count_users(&mut conn) {
@@ -1467,7 +1469,7 @@ pub async fn setup_initial_admin(
 
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let mut validation_errors = Vec::new();
@@ -1602,7 +1604,7 @@ pub async fn setup_initial_admin(
 pub async fn mfa_setup(db_pool: web::Data<crate::db::Pool>, req: HttpRequest) -> impl Responder {
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let claims = match req.extensions().get::<crate::models::Claims>() {
@@ -1674,7 +1676,7 @@ pub async fn mfa_verify_setup(
 ) -> impl Responder {
     let _conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let claims = match req.extensions().get::<crate::models::Claims>() {
@@ -1707,7 +1709,7 @@ pub async fn mfa_enable(
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let claims = match req.extensions().get::<crate::models::Claims>() {
@@ -1830,7 +1832,7 @@ pub async fn mfa_disable(
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let claims = match req.extensions().get::<crate::models::Claims>() {
@@ -1918,7 +1920,7 @@ pub async fn mfa_regenerate_backup_codes(
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let claims = match req.extensions().get::<crate::models::Claims>() {
@@ -1984,7 +1986,7 @@ pub async fn mfa_regenerate_backup_codes(
 pub async fn mfa_status(db_pool: web::Data<crate::db::Pool>, req: HttpRequest) -> impl Responder {
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let claims = match JwtUtils::extract_claims(&req) {
@@ -2050,7 +2052,7 @@ pub async fn mfa_setup_login(
 
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     // Pin the request's workspace so the MFA policy gate resolves the
@@ -2172,7 +2174,7 @@ pub async fn mfa_enable_login(
 
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
     // Pin the request's workspace so the MFA policy gate resolves the
     // caller's role under RLS (the pool clears app.workspace_id on checkout).
@@ -2347,7 +2349,7 @@ pub async fn mfa_enable_login(
                     response.backup_codes = Some((*backup_codes_plaintext).clone());
                     build_auth_response(&http_request, response, &tokens)
                 }
-                Err(error_response) => error_response,
+                Err(e) => e.error_response(),
             }
         }
         Err(e) => {
@@ -2366,7 +2368,7 @@ pub async fn get_user_sessions(
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let claims = match JwtUtils::extract_claims(&req) {
@@ -2436,7 +2438,7 @@ pub async fn revoke_session(
 
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let claims = match JwtUtils::extract_claims(&req) {
@@ -2499,7 +2501,7 @@ pub async fn revoke_all_other_sessions(
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let claims = match JwtUtils::extract_claims(&req) {
@@ -2626,20 +2628,24 @@ pub(crate) fn rotate_refresh_family<F>(
     refresh_raw: &str,
     expected_audience: &str,
     mint_access: F,
-) -> Result<RotatedSession, HttpResponse>
+) -> Result<RotatedSession, ApiError>
 where
     F: FnOnce(
         &mut crate::db::DbConnection,
         &crate::models::User,
         &uuid::Uuid,
-    ) -> Result<String, HttpResponse>,
+    ) -> Result<String, ApiError>,
 {
     let token_hash = JwtUtils::hash_refresh_token(refresh_raw);
 
     let old_token =
         match crate::repository::refresh_tokens::get_refresh_token_by_hash(conn, &token_hash) {
             Ok(token) => token,
-            Err(_) => return Err(errors::unauthorized("Invalid or expired refresh token")),
+            Err(_) => {
+                return Err(ApiError::Unauthorized(
+                    "Invalid or expired refresh token".into(),
+                ))
+            }
         };
 
     // 1b. Realm check. Each endpoint mints a session for exactly one realm, so
@@ -2656,7 +2662,9 @@ where
         // escalation attempt or a client bug, and neither should keep a
         // live token afterwards.
         let _ = crate::repository::refresh_tokens::revoke_token_family(conn, &old_token.family_id);
-        return Err(errors::unauthorized("Invalid or expired refresh token"));
+        return Err(ApiError::Unauthorized(
+            "Invalid or expired refresh token".into(),
+        ));
     }
 
     // 2. Check if revoked
@@ -2665,7 +2673,9 @@ where
             "Revoked refresh token presented, family={}",
             old_token.family_id
         );
-        return Err(errors::unauthorized("Refresh token has been revoked"));
+        return Err(ApiError::Unauthorized(
+            "Refresh token has been revoked".into(),
+        ));
     }
 
     // 3. Reuse detection
@@ -2684,8 +2694,8 @@ where
             if let Some(sid) = old_token.session_id {
                 let _ = crate::repository::active_sessions::revoke_session_by_uuid(conn, &sid);
             }
-            return Err(errors::unauthorized(
-                "Token reuse detected — session revoked for security",
+            return Err(ApiError::Unauthorized(
+                "Token reuse detected — session revoked for security".into(),
             ));
         }
         // Within grace period — allow (concurrent tab scenario)
@@ -2699,7 +2709,7 @@ where
     let user = match repository::get_user_by_uuid(&old_token.user_uuid, conn) {
         Ok(user) => user,
         Err(_) => {
-            return Err(errors::unauthorized("User not found"));
+            return Err(ApiError::Unauthorized("User not found".into()));
         }
     };
 
@@ -2711,7 +2721,7 @@ where
                 // The session is gone (revoked, evicted at the cap, or pruned
                 // as expired). The refresh token outlives it only in the window
                 // before the cascade lands, so treat it as revoked.
-                Err(_) => return Err(errors::unauthorized("Session no longer active")),
+                Err(_) => return Err(ApiError::Unauthorized("Session no longer active".into())),
             }
         }
         None => {
@@ -2720,7 +2730,7 @@ where
                 Ok(session) => (session.session_id, session.created_at),
                 Err(e) => {
                     tracing::error!("Failed to create session during refresh: {}", e);
-                    return Err(errors::internal("Failed to create session"));
+                    return Err(ApiError::Internal("Failed to create session".into()));
                 }
             }
         }
@@ -2749,8 +2759,8 @@ where
                 request: Some(request),
             },
         );
-        return Err(errors::unauthorized(
-            "Session expired, please sign in again",
+        return Err(ApiError::Unauthorized(
+            "Session expired, please sign in again".into(),
         ));
     }
 
@@ -2797,7 +2807,7 @@ where
         crate::repository::refresh_tokens::create_refresh_token(conn, new_refresh_record)
     {
         tracing::error!("Failed to store new refresh token: {}", e);
-        return Err(errors::internal("Failed to create refresh token"));
+        return Err(ApiError::Internal("Failed to create refresh token".into()));
     }
 
     // 10. Update session activity. The sliding window is clamped to the
@@ -2829,7 +2839,7 @@ pub async fn refresh_token(
 
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     // 1. Source the refresh token: native clients send it in the body, web
@@ -2859,11 +2869,11 @@ pub async fn refresh_token(
         crate::models::REFRESH_AUDIENCE_AGENT,
         |_conn, user, session_id| {
             JwtUtils::create_token(user, session_id)
-                .map_err(|_| errors::internal("Failed to create access token"))
+                .map_err(|_| ApiError::Internal("Failed to create access token".into()))
         },
     ) {
         Ok(r) => r,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
     let new_access_token = rotated.access_token;
     let new_refresh_raw = rotated.refresh_token;
@@ -3097,7 +3107,7 @@ mod tests {
         _conn: &mut crate::db::DbConnection,
         _user: &crate::models::User,
         _sid: &uuid::Uuid,
-    ) -> Result<String, HttpResponse> {
+    ) -> Result<String, ApiError> {
         Ok("access".to_string())
     }
 
@@ -3179,7 +3189,7 @@ mod tests {
             &request,
             &raw,
             crate::models::REFRESH_AUDIENCE_AGENT,
-            |_, _, _| Err(errors::internal("mint failed")),
+            |_, _, _| Err(ApiError::Internal("mint failed".into())),
         );
         assert!(result.is_err());
 

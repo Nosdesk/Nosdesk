@@ -5,7 +5,7 @@
 //! checking "is the MS Graph sync actually running" without digging
 //! through container logs.
 
-use actix_web::{web, HttpRequest, HttpResponse};
+use actix_web::{web, HttpRequest, HttpResponse, ResponseError};
 use serde::Serialize;
 
 use crate::db::Pool;
@@ -39,7 +39,7 @@ pub async fn get_status(
     // connection purely for the guard — scheduler status is in-memory
     // so no DB work happens downstream.
     if let Err(resp) = helpers::admin_conn(&req, &pool) {
-        return resp;
+        return resp.error_response();
     }
 
     let Ok(map) = statuses.read() else {

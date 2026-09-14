@@ -62,7 +62,7 @@ pub async fn get_email_config(
     if let Err(resp) =
         crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
     {
-        return resp;
+        return resp.error_response();
     }
 
     // SMTP transport. EmailService::from_env reports is_configured for the
@@ -165,7 +165,7 @@ pub async fn send_test_email(
     if let Err(resp) =
         crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
     {
-        return resp;
+        return resp.error_response();
     }
 
     // Create email service

@@ -1,4 +1,4 @@
-use actix_web::{web, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpRequest, HttpResponse, Responder, ResponseError};
 use chrono::Utc;
 use serde_json::json;
 use std::sync::Arc;
@@ -25,7 +25,7 @@ pub async fn validate_invitation(
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     // Hash the token to look it up
@@ -128,7 +128,7 @@ pub async fn accept_invitation(
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     // Password-based invitation acceptance writes a local credential, which

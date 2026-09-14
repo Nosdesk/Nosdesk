@@ -1,4 +1,4 @@
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder, ResponseError};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -9,7 +9,7 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::extractors::{AuthContext, TenantConn, TicketAccess};
-use crate::handlers::errors;
+use crate::handlers::errors::{self, ApiError};
 use crate::middleware::request_context::record_canonical;
 use crate::models::{
     AssignmentTrigger, Claims, NewTicket, TicketUpdate, TicketsJson, WorkflowStateCategory,
@@ -192,17 +192,17 @@ pub fn config(cfg: &mut web::ServiceConfig) {
 fn validate_assignee_role(
     assignee_uuid: &Uuid,
     conn: &mut crate::db::DbConnection,
-) -> Result<(), HttpResponse> {
+) -> Result<(), ApiError> {
     match crate::repository::users::get_user_by_uuid(assignee_uuid, conn) {
         Ok(user) => {
             if !crate::repository::user_helpers::user_can_handle_tickets(conn, &user) {
-                Err(errors::bad_request("Invalid assignee: Only technicians and administrators can be assigned to tickets"))
+                Err(ApiError::BadRequest("Invalid assignee: Only technicians and administrators can be assigned to tickets".into()))
             } else {
                 Ok(())
             }
         }
-        Err(_) => Err(errors::bad_request(
-            "User not found: The specified assignee does not exist",
+        Err(_) => Err(ApiError::BadRequest(
+            "User not found: The specified assignee does not exist".into(),
         )),
     }
 }
@@ -211,20 +211,20 @@ fn validate_assignee_role(
 fn parse_and_validate_assignee_string(
     assignee_str: &str,
     conn: &mut crate::db::DbConnection,
-) -> Result<Uuid, HttpResponse> {
+) -> Result<Uuid, ApiError> {
     // Try to parse as UUID first
     if let Ok(uuid) = Uuid::parse_str(assignee_str) {
         // Use the same validation logic but adapted for the update context
         match crate::repository::users::get_user_by_uuid(&uuid, conn) {
             Ok(user) => {
                 if !crate::repository::user_helpers::user_can_handle_tickets(conn, &user) {
-                    Err(errors::bad_request("Invalid assignee: Only technicians and administrators can be assigned to tickets"))
+                    Err(ApiError::BadRequest("Invalid assignee: Only technicians and administrators can be assigned to tickets".into()))
                 } else {
                     Ok(uuid)
                 }
             }
-            Err(_) => Err(errors::bad_request(
-                "User not found: The specified assignee does not exist",
+            Err(_) => Err(ApiError::BadRequest(
+                "User not found: The specified assignee does not exist".into(),
             )),
         }
     } else {
@@ -232,13 +232,13 @@ fn parse_and_validate_assignee_string(
         match crate::repository::users::get_user_by_name(assignee_str, conn) {
             Ok(user) => {
                 if !crate::repository::user_helpers::user_can_handle_tickets(conn, &user) {
-                    Err(errors::bad_request("Invalid assignee: Only technicians and administrators can be assigned to tickets"))
+                    Err(ApiError::BadRequest("Invalid assignee: Only technicians and administrators can be assigned to tickets".into()))
                 } else {
                     Ok(user.uuid)
                 }
             }
-            Err(_) => Err(errors::bad_request(
-                "User not found: The specified assignee does not exist",
+            Err(_) => Err(ApiError::BadRequest(
+                "User not found: The specified assignee does not exist".into(),
             )),
         }
     }
@@ -657,11 +657,11 @@ pub async fn create_ticket(
 
     // Validate assignee role if assignee is set
     if let Some(assignee_uuid) = new_ticket.assignee_uuid {
-        let validation: Result<Result<(), HttpResponse>, diesel::result::Error> =
+        let validation: Result<Result<(), ApiError>, diesel::result::Error> =
             tc.run(|conn| Ok(validate_assignee_role(&assignee_uuid, conn)));
         match validation {
             Ok(Ok(())) => {}
-            Ok(Err(resp)) => return resp,
+            Ok(Err(e)) => return e.error_response(),
             Err(_) => return errors::internal("Failed to validate assignee"),
         }
     }
@@ -794,11 +794,11 @@ pub async fn update_ticket(
 
     // Validate assignee role if assignee is set
     if let Some(assignee_uuid) = new_ticket.assignee_uuid {
-        let validation: Result<Result<(), HttpResponse>, diesel::result::Error> =
+        let validation: Result<Result<(), ApiError>, diesel::result::Error> =
             tc.run(|conn| Ok(validate_assignee_role(&assignee_uuid, conn)));
         match validation {
             Ok(Ok(())) => {}
-            Ok(Err(resp)) => return resp,
+            Ok(Err(e)) => return e.error_response(),
             Err(_) => return errors::internal("Failed to validate assignee"),
         }
     }
@@ -1138,11 +1138,11 @@ pub async fn update_ticket_partial(
             ticket_update.assignee_uuid = Some(None);
         } else {
             // Parse and validate assignee
-            let resolved: Result<Result<Uuid, HttpResponse>, diesel::result::Error> =
+            let resolved: Result<Result<Uuid, ApiError>, diesel::result::Error> =
                 tc.run(|conn| Ok(parse_and_validate_assignee_string(assignee_str, conn)));
             match resolved {
                 Ok(Ok(uuid)) => ticket_update.assignee_uuid = Some(Some(uuid)),
-                Ok(Err(response)) => return response,
+                Ok(Err(e)) => return e.error_response(),
                 Err(_) => return errors::internal("Failed to resolve assignee"),
             }
         }

@@ -12,7 +12,7 @@
 //! through. Adding a new aggregate is one match arm + one
 //! `apply_<aggregate>` helper.
 
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder, ResponseError};
 use diesel::prelude::*;
 use diesel::Connection;
 use serde::{Deserialize, Serialize};
@@ -89,7 +89,7 @@ pub async fn push(
 
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
     // Pin the request's workspace so the per-transaction idempotency
     // short-circuit (`lookup_existing` reads the RLS-isolated sync_actions)

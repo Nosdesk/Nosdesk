@@ -52,7 +52,7 @@ const MAX_LIMIT: i64 = 200;
 /// `GET /api/admin/inbound/dead-letters` — platform-admin only.
 pub async fn list(req: HttpRequest, pool: web::Data<Pool>) -> HttpResponse {
     if let Err(resp) = rbac::require_platform_admin(&req) {
-        return resp;
+        return resp.error_response();
     }
 
     let since = chrono::Utc::now().naive_utc() - chrono::Duration::days(7);

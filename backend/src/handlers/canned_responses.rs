@@ -121,7 +121,7 @@ pub async fn create_canned(
     req: HttpRequest,
 ) -> HttpResponse {
     if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp;
+        return resp.error_response();
     }
     let creator = req
         .extensions()
@@ -171,7 +171,7 @@ pub async fn update_canned(
     req: HttpRequest,
 ) -> HttpResponse {
     if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp;
+        return resp.error_response();
     }
     let id = path.into_inner();
 
@@ -221,7 +221,7 @@ pub async fn delete_canned(
     req: HttpRequest,
 ) -> HttpResponse {
     if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp;
+        return resp.error_response();
     }
     let id = path.into_inner();
     match tc.run(|conn| repo::delete(conn, id)) {
@@ -295,7 +295,7 @@ pub async fn record_insertion(
 /// Actix's `.route()` chain ordering.
 pub async fn starter_catalog(req: HttpRequest) -> HttpResponse {
     if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp;
+        return resp.error_response();
     }
     HttpResponse::Ok().json(starters::CATALOG)
 }

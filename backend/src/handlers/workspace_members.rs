@@ -115,7 +115,7 @@ pub async fn list_members(
     ctx: WorkspaceContext,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp;
+        return resp.error_response();
     }
     let mut conn = match pool.get() {
         Ok(c) => c,
@@ -170,7 +170,7 @@ pub async fn update_member_role(
     let (caller, caller_role) =
         match rbac::require_workspace_role_detailed(&req, WorkspaceRole::Admin) {
             Ok(v) => v,
-            Err(resp) => return resp,
+            Err(resp) => return resp.error_response(),
         };
     let target = path.into_inner();
     let Some(new_role) = parse_role(&body.into_inner().role) else {
@@ -264,7 +264,7 @@ pub async fn remove_member(
     let (caller, caller_role) =
         match rbac::require_workspace_role_detailed(&req, WorkspaceRole::Admin) {
             Ok(v) => v,
-            Err(resp) => return resp,
+            Err(resp) => return resp.error_response(),
         };
     let target = path.into_inner();
 

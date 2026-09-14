@@ -3,7 +3,7 @@
 //! Admin endpoints for managing plugins, settings, storage, and activity.
 
 use actix_multipart::Multipart;
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder, ResponseError};
 use diesel::result::Error as DieselError;
 use futures::StreamExt;
 use serde::Deserialize;
@@ -281,7 +281,7 @@ fn workspace_pinned_actor(req: &HttpRequest, system_ref: &'static str) -> ActorC
 /// List all plugins (admin only)
 pub async fn list_plugins(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let result = tc.run(|conn| {
@@ -350,7 +350,7 @@ pub async fn get_plugin(
     path: web::Path<Uuid>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let plugin_uuid = path.into_inner();
@@ -404,7 +404,7 @@ pub async fn update_plugin(
     body: web::Json<UpdatePluginRequest>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let claims = match req.extensions().get::<Claims>() {
@@ -453,7 +453,7 @@ pub async fn update_plugin(
         let actor = workspace_pinned_actor(&req, "plugins_admin");
         let mut conn = match helpers::db_conn(&pool) {
             Ok(c) => c,
-            Err(e) => return e,
+            Err(e) => return e.error_response(),
         };
         let result = actor_session::with_actor_context::<
             _,
@@ -517,7 +517,7 @@ pub async fn consent_to_plugin(
     path: web::Path<Uuid>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
     let claims = match req.extensions().get::<Claims>() {
         Some(c) => c.clone(),
@@ -530,7 +530,7 @@ pub async fn consent_to_plugin(
     let actor = workspace_pinned_actor(&req, "plugins_admin");
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let result = actor_session::with_actor_context::<_, DieselError>(&mut conn, &actor, |conn| {
@@ -589,11 +589,11 @@ pub async fn uninstall_plugin(
     path: web::Path<Uuid>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
     let claims = match require_auth(&req) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
     let actor = Uuid::parse_str(&claims.sub).ok();
 
@@ -636,7 +636,7 @@ pub async fn uninstall_plugin(
     let actor_ctx = workspace_pinned_actor(&req, "plugins_admin");
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
     let outcome_result = actor_session::with_actor_context::<
         _,
@@ -688,7 +688,7 @@ pub async fn get_plugin_settings(
     path: web::Path<Uuid>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let plugin_uuid = path.into_inner();
@@ -730,7 +730,7 @@ pub async fn set_plugin_setting(
     body: web::Json<SetPluginDataRequest>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let plugin_uuid = path.into_inner();
@@ -815,7 +815,7 @@ pub async fn delete_plugin_setting(
     path: web::Path<(Uuid, String)>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let (plugin_uuid, key) = path.into_inner();
@@ -1095,7 +1095,7 @@ pub async fn get_plugin_activity(
     query: web::Query<PaginationQuery>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     let plugin_uuid = path.into_inner();
@@ -1442,7 +1442,7 @@ pub async fn install_plugin_from_zip(
     mut payload: Multipart,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
     if !web_sideload_enabled() {
         warn!("Web sideload attempt while disabled; set NOSDESK_ALLOW_WEB_SIDELOAD=1 to enable");
@@ -1459,7 +1459,7 @@ pub async fn install_plugin_from_zip(
 
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     // Read the zip file from multipart
@@ -1625,7 +1625,7 @@ fn install_error_to_response(err: install::InstallError) -> HttpResponse {
 /// instance's threat-model posture.
 pub async fn get_admin_config(req: HttpRequest) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
     HttpResponse::Ok().json(serde_json::json!({
         "web_sideload_enabled": web_sideload_enabled(),
@@ -1640,7 +1640,7 @@ pub async fn get_admin_config(req: HttpRequest) -> impl Responder {
 /// revocation-blast-radius visibility.
 pub async fn get_signing_overview(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
 
     match tc.run(plugin_repo::signing_overview) {
@@ -1670,7 +1670,7 @@ pub async fn get_registry(
     cache: web::Data<registry::SharedCache>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
     if registry::configured_url().is_none() {
         return HttpResponse::Ok().json(serde_json::json!({ "status": "disabled" }));
@@ -1705,7 +1705,7 @@ pub async fn refresh_registry(
     cache: web::Data<registry::SharedCache>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
     let base_url = match registry::configured_url() {
         Some(u) => u,
@@ -1761,7 +1761,7 @@ pub async fn install_from_registry(
     body: web::Json<InstallFromRegistryRequest>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
     let claims = match req.extensions().get::<Claims>().cloned() {
         Some(c) => c,
@@ -1866,7 +1866,7 @@ pub async fn install_from_registry(
 
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
     let tier = match trust::resolve(&mut conn, &verified.envelope) {
         Ok(t) => t,

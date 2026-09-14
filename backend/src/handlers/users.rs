@@ -1,5 +1,5 @@
 use actix_multipart::Multipart;
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder, ResponseError};
 use bcrypt::DEFAULT_COST;
 use diesel::prelude::*;
 use futures::{StreamExt, TryStreamExt};
@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::db::DbConnection;
 use crate::extractors::{TenantConn, WorkspaceContext};
-use crate::handlers::errors;
+use crate::handlers::errors::{self, ApiError};
 use crate::handlers::helpers;
 use crate::models::{UserResponse, UserUpdate, UserUpdateWithPassword};
 use crate::repository;
@@ -522,7 +522,7 @@ pub struct PaginatedResponse<T> {
 pub async fn get_users(pool: web::Data<crate::db::Pool>, ws: WorkspaceContext) -> impl Responder {
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
     // Pin the resolved workspace so the users read and per-row workspace_role
     // lookup are visible under RLS (both tables are workspace-isolated).
@@ -554,7 +554,7 @@ pub async fn get_paginated_users(
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
     // Pin the resolved workspace so the users read and per-row workspace_role
     // lookup are visible under RLS (both tables are workspace-isolated).
@@ -752,7 +752,7 @@ pub async fn get_user_by_uuid(
 
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
     // Pin the request's workspace so the returned user's workspace_role
     // resolves under RLS (workspace_members is workspace-isolated).
@@ -790,7 +790,7 @@ pub async fn get_users_batch(
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
     // Pin the resolved workspace so the users read and per-row workspace_role
     // lookup are visible under RLS (both tables are workspace-isolated).
@@ -883,7 +883,7 @@ pub async fn create_user(
         match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Agent)
         {
             Ok(c) => c,
-            Err(resp) => return resp,
+            Err(resp) => return resp.error_response(),
         }
     } else {
         let claims = match crate::utils::rbac::require_workspace_role(
@@ -891,7 +891,7 @@ pub async fn create_user(
             crate::models::WorkspaceRole::Admin,
         ) {
             Ok(c) => c,
-            Err(resp) => return resp,
+            Err(resp) => return resp.error_response(),
         };
         if !crate::middleware::workspace_context::local_credentials_permitted() {
             // Same boundary + code as the other staff-mutation refusals.
@@ -902,7 +902,7 @@ pub async fn create_user(
 
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
     // Pin the request's workspace at the session level so the new user's
     // workspace_role resolves under RLS when the response is built after
@@ -1182,26 +1182,26 @@ pub async fn create_user(
 /// (`delete_user`, `restore_user`, `purge_user_now`): pull
 /// claims, require admin role, parse the path UUID, and fetch
 /// the target row. Returns `(claims, uuid, target_user)` on the
-/// happy path or the formed `HttpResponse` to short-circuit on.
+/// happy path or the error to short-circuit on.
 fn require_admin_target(
     req: &HttpRequest,
     conn: &mut DbConnection,
     raw_uuid: &str,
-) -> Result<(crate::models::Claims, Uuid, crate::models::User), HttpResponse> {
+) -> Result<(crate::models::Claims, Uuid, crate::models::User), ApiError> {
     let claims = req
         .extensions()
         .get::<crate::models::Claims>()
         .cloned()
-        .ok_or_else(|| errors::unauthorized("Authentication required"))?;
+        .ok_or_else(|| ApiError::Unauthorized("Authentication required".into()))?;
     if !is_platform_admin(&claims) {
-        return Err(errors::forbidden(
-            "Only administrators can perform this action",
+        return Err(ApiError::Forbidden(
+            "Only administrators can perform this action".into(),
         ));
     }
-    let user_uuid =
-        utils::parse_uuid(raw_uuid).map_err(|_| errors::bad_request("Invalid UUID format"))?;
+    let user_uuid = utils::parse_uuid(raw_uuid)
+        .map_err(|_| ApiError::BadRequest("Invalid UUID format".into()))?;
     let target = repository::get_user_by_uuid(&user_uuid, conn)
-        .map_err(|_| errors::not_found_msg("User not found"))?;
+        .map_err(|_| ApiError::NotFoundMsg("User not found".into()))?;
     Ok((claims, user_uuid, target))
 }
 
@@ -1217,7 +1217,7 @@ pub async fn delete_user(
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
     // Pin the request's workspace so the admin-protection guard below
     // (`user_is_admin` reads RLS-isolated workspace_members) resolves the
@@ -1228,7 +1228,7 @@ pub async fn delete_user(
     let (claims, user_uuid_parsed, target_user) =
         match require_admin_target(&req, &mut conn, uuid.as_str()) {
             Ok(t) => t,
-            Err(resp) => return resp,
+            Err(resp) => return resp.error_response(),
         };
 
     if claims.sub == uuid.as_str() {
@@ -1296,13 +1296,13 @@ pub async fn restore_user(
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let (_claims, user_uuid_parsed, target) =
         match require_admin_target(&req, &mut conn, uuid.as_str()) {
             Ok(t) => t,
-            Err(resp) => return resp,
+            Err(resp) => return resp.error_response(),
         };
     if target.deleted_at.is_none() {
         return errors::conflict("User is not soft-deleted");
@@ -1351,7 +1351,7 @@ pub async fn purge_user_now(
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
     // Pin the request's workspace so the admin-protection guard below
     // (`user_is_admin` reads RLS-isolated workspace_members) resolves the
@@ -1361,7 +1361,7 @@ pub async fn purge_user_now(
     let (claims, user_uuid_parsed, target) =
         match require_admin_target(&req, &mut conn, uuid.as_str()) {
             Ok(t) => t,
-            Err(resp) => return resp,
+            Err(resp) => return resp.error_response(),
         };
     if target.deleted_at.is_none() {
         return errors::conflict(
@@ -1422,7 +1422,7 @@ pub async fn get_user_auth_identities(
     // Get database connection
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     // Extract claims from cookie auth middleware
@@ -1466,7 +1466,7 @@ pub async fn get_user_auth_identities_by_uuid(
     // Get database connection
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let user_uuid = path.into_inner();
@@ -1512,7 +1512,7 @@ pub async fn delete_user_auth_identity(
     let identity_id = path.into_inner();
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     // Extract claims from cookie auth middleware
@@ -1580,7 +1580,7 @@ pub async fn delete_user_auth_identity_by_uuid(
     let (user_uuid, identity_id) = path.into_inner();
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     // Extract claims from cookie auth middleware
@@ -1865,7 +1865,7 @@ pub async fn cleanup_stale_images(
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     // Extract claims from cookie auth middleware
@@ -1961,7 +1961,7 @@ pub async fn regenerate_avatar_thumbnails(
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let claims = match req.extensions().get::<crate::models::Claims>() {
@@ -2475,7 +2475,7 @@ pub async fn get_user_emails(
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let user_uuid = path.into_inner();
@@ -2523,7 +2523,7 @@ pub async fn add_user_email(
     let user_uuid = path.into_inner();
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
@@ -2614,7 +2614,7 @@ pub async fn update_user_email(
     let (user_uuid, email_id) = path.into_inner();
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
@@ -2699,7 +2699,7 @@ pub async fn resend_user_email_verification(
     let (user_uuid, email_id) = path.into_inner();
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
@@ -2799,7 +2799,7 @@ pub async fn delete_user_email(
     let (user_uuid, email_id) = path.into_inner();
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let claims = match crate::utils::jwt::JwtUtils::extract_claims(&req) {
@@ -2860,7 +2860,7 @@ pub async fn resend_invitation(
     let user_uuid = path.into_inner();
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
     // Pin the request's workspace so the branding read and invitation-email
     // enqueue (both RLS-isolated) are scoped; the pool clears app.workspace_id
@@ -2898,7 +2898,7 @@ pub async fn resend_invitation(
     if let Err(resp) =
         helpers::authorize_target_user_action(&req, &db_pool, &claims, uuid_parsed, false)
     {
-        return resp;
+        return resp.error_response();
     }
 
     let user = match repository::get_user_by_uuid(&uuid_parsed, &mut conn) {
@@ -2995,7 +2995,7 @@ pub async fn get_user_with_emails(
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     // Pin the request's workspace so the returned user's workspace_role
@@ -3075,7 +3075,7 @@ pub async fn get_user_profile_bundle(
 
     let mut groups = match parse_profile_include(query.include.as_deref()) {
         Ok(g) => g,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
 
     // Privacy (identity orchestration O6): the full verified email set is
@@ -3091,7 +3091,7 @@ pub async fn get_user_profile_bundle(
 
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
     // Pin the request's workspace so the bundle's workspace_role (and other
     // RLS-scoped reads) resolve to the caller's workspace.
@@ -3112,7 +3112,7 @@ pub async fn get_user_profile_bundle(
 /// instead of silently dropping data.
 fn parse_profile_include(
     raw: Option<&str>,
-) -> Result<HashSet<crate::repository::user_profile::ProfileGroup>, HttpResponse> {
+) -> Result<HashSet<crate::repository::user_profile::ProfileGroup>, ApiError> {
     use crate::repository::user_profile::ProfileGroup;
     let Some(raw) = raw else {
         return Ok(ProfileGroup::all());
@@ -3128,7 +3128,7 @@ fn parse_profile_include(
                 out.insert(g);
             }
             None => {
-                return Err(errors::bad_request(format!(
+                return Err(ApiError::BadRequest(format!(
                     "Unknown include key '{}'. Valid: {:?}",
                     token,
                     ProfileGroup::all_keys()
@@ -3169,7 +3169,7 @@ pub async fn bulk_users(
 
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
     // Pin the request workspace so the per-target `user_is_admin` guard resolves
     // the target's role through RLS; on an unpinned conn it reads None and the
@@ -3320,7 +3320,7 @@ pub async fn get_user_security_info(
 ) -> impl Responder {
     let (claims, _caller_uuid, mut conn) = match helpers::auth_conn(&req, &db_pool) {
         Ok(v) => v,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let target_uuid_str = path.into_inner();
@@ -3338,7 +3338,7 @@ pub async fn get_user_security_info(
         if let Err(resp) =
             helpers::authorize_target_user_action(&req, &db_pool, &claims, target_uuid, true)
         {
-            return resp;
+            return resp.error_response();
         }
     }
 
@@ -3419,7 +3419,7 @@ pub async fn admin_reset_user_password(
     let (claims, user, mut conn) = match helpers::admin_user_conn(&req, &db_pool, &target_uuid_str)
     {
         Ok(v) => v,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     // Validate password meets requirements
@@ -3491,7 +3491,7 @@ pub async fn admin_disable_user_mfa(
     let (claims, user, mut conn) = match helpers::admin_user_conn(&req, &db_pool, &target_uuid_str)
     {
         Ok(v) => v,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     if !user.mfa_enabled {
@@ -3536,7 +3536,7 @@ pub async fn admin_delete_user_passkey(
     let (claims, user, mut conn) = match helpers::admin_user_conn(&req, &db_pool, &target_uuid_str)
     {
         Ok(v) => v,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     match crate::utils::webauthn::delete_credential(&mut conn, &user.uuid, &credential_id) {

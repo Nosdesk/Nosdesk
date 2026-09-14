@@ -94,7 +94,7 @@ pub async fn list_bug_reports(
     query: web::Query<ListBugReportsQuery>,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_platform_admin(&req) {
-        return resp;
+        return resp.error_response();
     }
     let limit = query.limit.unwrap_or(50).clamp(1, 200);
     let offset = query.offset.unwrap_or(0).max(0);

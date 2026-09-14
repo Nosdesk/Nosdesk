@@ -6,7 +6,7 @@
 //! address can never confirm a second one. Possession of the token is the
 //! proof; nothing here reveals anything to someone who does not hold one.
 
-use actix_web::{web, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpRequest, HttpResponse, Responder, ResponseError};
 use serde::Deserialize;
 use serde_json::json;
 use tracing::{info, warn};
@@ -36,7 +36,7 @@ pub async fn verify_email(
 ) -> impl Responder {
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     let (user_uuid, metadata) =

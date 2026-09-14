@@ -6,7 +6,7 @@
 //! config shape, upsert the settings, then set/clear the bind password
 //! separately so editing settings never disturbs a stored secret.
 
-use actix_web::{web, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpRequest, HttpResponse, Responder, ResponseError};
 use serde::Deserialize;
 use serde_json::json;
 use tracing::error;
@@ -327,7 +327,7 @@ pub async fn run_ldap_sync(
     };
     let mut conn = match helpers::db_conn(&db_pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
     helpers::pin_request_workspace(&request, &mut conn);
 

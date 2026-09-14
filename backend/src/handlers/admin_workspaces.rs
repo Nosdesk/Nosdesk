@@ -147,7 +147,7 @@ pub async fn list_workspaces(
     query: web::Query<ListWorkspacesQuery>,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_platform_admin(&req) {
-        return resp;
+        return resp.error_response();
     }
     match pc.run(|conn| workspaces::list_workspaces(conn, query.include_archived)) {
         Ok(rows) => {
@@ -178,7 +178,7 @@ pub async fn get_edition(
     >,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_platform_admin(&req) {
-        return resp;
+        return resp.error_response();
     }
     let edition = crate::license::current();
     let self_hosted = crate::middleware::DeploymentMode::current()
@@ -221,7 +221,7 @@ pub async fn create_workspace(
     body: web::Json<CreateWorkspaceRequest>,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_platform_admin(&req) {
-        return resp;
+        return resp.error_response();
     }
     let CreateWorkspaceRequest { slug, name } = body.into_inner();
 
@@ -340,7 +340,7 @@ pub async fn rename_workspace(
     body: web::Json<RenameWorkspaceRequest>,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_platform_admin(&req) {
-        return resp;
+        return resp.error_response();
     }
     let id = path.into_inner();
     let name = body.into_inner().name;
@@ -367,7 +367,7 @@ pub async fn archive_workspace(
     path: web::Path<i32>,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_platform_admin(&req) {
-        return resp;
+        return resp.error_response();
     }
     let id = path.into_inner();
     match pc.run(|conn| workspaces::archive_workspace(conn, id)) {
@@ -389,7 +389,7 @@ pub async fn restore_workspace(
     path: web::Path<i32>,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_platform_admin(&req) {
-        return resp;
+        return resp.error_response();
     }
     let id = path.into_inner();
     match pc.run(|conn| workspaces::restore_workspace(conn, id)) {
@@ -421,7 +421,7 @@ pub async fn hard_delete_workspace(
     query: web::Query<HardDeleteQuery>,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_platform_admin(&req) {
-        return resp;
+        return resp.error_response();
     }
     let id = path.into_inner();
     let confirm = query.into_inner().confirm;
@@ -513,7 +513,7 @@ pub async fn list_members(
     path: web::Path<i32>,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_platform_admin(&req) {
-        return resp;
+        return resp.error_response();
     }
     let workspace_id = path.into_inner();
     match pc.run(|conn| workspaces::list_workspace_members(conn, workspace_id)) {
@@ -554,7 +554,7 @@ pub async fn add_member(
     search_service: Option<web::Data<Arc<SearchService>>>,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_platform_admin(&req) {
-        return resp;
+        return resp.error_response();
     }
     let workspace_id = path.into_inner();
     let AddMemberRequest { user_uuid, role } = body.into_inner();
@@ -656,7 +656,7 @@ pub async fn update_member_role(
     body: web::Json<UpdateMemberRoleRequest>,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_platform_admin(&req) {
-        return resp;
+        return resp.error_response();
     }
     let (workspace_id, user_uuid) = path.into_inner();
     let new_role = body.into_inner().role;
@@ -708,7 +708,7 @@ pub async fn remove_member(
     search_service: Option<web::Data<Arc<SearchService>>>,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_platform_admin(&req) {
-        return resp;
+        return resp.error_response();
     }
     let (workspace_id, user_uuid) = path.into_inner();
 
@@ -787,7 +787,7 @@ struct MyWorkspaceEntry {
 pub async fn list_my_workspaces(req: HttpRequest, mut pc: PlatformConn) -> impl Responder {
     let claims = match rbac::require_auth(&req) {
         Ok(c) => c,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
     let user_uuid = match Uuid::parse_str(&claims.sub) {
         Ok(u) => u,

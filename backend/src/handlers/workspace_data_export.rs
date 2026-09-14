@@ -82,7 +82,7 @@ pub async fn request_export(
     body: web::Json<RequestExportBody>,
 ) -> impl Responder {
     if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Owner) {
-        return resp;
+        return resp.error_response();
     }
     let workspace_id = ws.workspace_id;
     let requested_by = req
@@ -141,7 +141,7 @@ pub async fn list_latest_export(
     req: HttpRequest,
 ) -> impl Responder {
     if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Owner) {
-        return resp;
+        return resp.error_response();
     }
     match tc.run(|conn| export_repo::latest_for_workspace(conn, ws.workspace_id)) {
         Ok(Some(job)) => HttpResponse::Ok().json(job_view(&job)),
@@ -158,7 +158,7 @@ pub async fn get_export_status(
     path: web::Path<Uuid>,
 ) -> impl Responder {
     if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Owner) {
-        return resp;
+        return resp.error_response();
     }
     let id = path.into_inner();
     match tc.run(|conn| export_repo::get_owned(conn, id, ws.workspace_id)) {
@@ -177,7 +177,7 @@ pub async fn download_export(
     path: web::Path<Uuid>,
 ) -> impl Responder {
     if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Owner) {
-        return resp;
+        return resp.error_response();
     }
     let id = path.into_inner();
     let job = match tc.run(|conn| export_repo::get_owned(conn, id, ws.workspace_id)) {

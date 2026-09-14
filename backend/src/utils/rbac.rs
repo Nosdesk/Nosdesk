@@ -3,6 +3,7 @@
 //! This module provides centralised role checking functions and response helpers
 //! for implementing consistent authorization across all API handlers.
 
+use actix_web::http::StatusCode;
 use actix_web::{HttpMessage, HttpRequest, HttpResponse};
 use serde_json::json;
 
@@ -13,6 +14,17 @@ use crate::utils::scopes::{Action, Domain, ScopeSet};
 // `utils::scopes`. Re-exported here so existing `rbac::` call sites
 // (e.g. mint-time validation in handlers/api_tokens.rs) keep resolving.
 pub use crate::utils::scopes::{is_valid_token_scope, VALID_TOKEN_SCOPES};
+
+/// The gate responses here predate `errors::ApiError` and clients read
+/// their `message` field, so the shape is kept verbatim and carried as an
+/// actix error rather than mapped onto the shared builders.
+fn deny(status: StatusCode, error: &'static str, message: impl Into<String>) -> actix_web::Error {
+    let resp = HttpResponse::build(status).json(json!({
+        "error": error,
+        "message": message.into(),
+    }));
+    actix_web::error::InternalError::from_response(error, resp).into()
+}
 
 /// Whether the principal's *platform role* may read the audit
 /// surface: `platform_admin` (full operator) or `audit_reviewer` (the
@@ -28,28 +40,30 @@ pub fn role_can_read_audit(claims: &Claims) -> bool {
 /// This lets a SIEM pull use an `audit:read`-only token bound to an
 /// AuditReviewer service account without holding broader privileges,
 /// while a `full` admin session works unchanged.
-pub fn require_audit_read(req: &HttpRequest) -> Result<Claims, HttpResponse> {
+pub fn require_audit_read(req: &HttpRequest) -> actix_web::Result<Claims> {
     let claims = require_auth(req)?;
 
     let scope_ok = ScopeSet::parse(&claims.scope).grants(Domain::Audit, Action::Read);
     if !(role_can_read_audit(&claims) && scope_ok) {
-        return Err(HttpResponse::Forbidden().json(json!({
-            "error": "Forbidden",
-            "message": "This action requires the audit:read scope and an admin or audit-reviewer role"
-        })));
+        return Err(deny(
+            StatusCode::FORBIDDEN,
+            "Forbidden",
+            "This action requires the audit:read scope and an admin or audit-reviewer role",
+        ));
     }
 
     Ok(claims)
 }
 
 /// Extract claims from request and check if user is authenticated
-/// Returns Ok(Claims) if authenticated, Err(HttpResponse) with 401 if not
-pub fn require_auth(req: &HttpRequest) -> Result<Claims, HttpResponse> {
+/// Returns Ok(Claims) if authenticated, a 401 error if not
+pub fn require_auth(req: &HttpRequest) -> actix_web::Result<Claims> {
     req.extensions().get::<Claims>().cloned().ok_or_else(|| {
-        HttpResponse::Unauthorized().json(json!({
-            "error": "Unauthorized",
-            "message": "Authentication required"
-        }))
+        deny(
+            StatusCode::UNAUTHORIZED,
+            "Unauthorized",
+            "Authentication required",
+        )
     })
 }
 
@@ -69,14 +83,15 @@ pub fn is_platform_admin(claims: &Claims) -> bool {
 /// cross-tenant operator tools, and instance-wide settings. For
 /// workspace-scoped admin/agent gating use
 /// [`require_workspace_role`] instead.
-pub fn require_platform_admin(req: &HttpRequest) -> Result<Claims, HttpResponse> {
+pub fn require_platform_admin(req: &HttpRequest) -> actix_web::Result<Claims> {
     let claims = require_auth(req)?;
 
     if !is_platform_admin(&claims) {
-        return Err(HttpResponse::Forbidden().json(json!({
-            "error": "Forbidden",
-            "message": "This action requires platform-admin privileges"
-        })));
+        return Err(deny(
+            StatusCode::FORBIDDEN,
+            "Forbidden",
+            "This action requires platform-admin privileges",
+        ));
     }
 
     Ok(claims)
@@ -103,7 +118,7 @@ pub fn require_platform_admin(req: &HttpRequest) -> Result<Claims, HttpResponse>
 pub fn require_workspace_role(
     req: &HttpRequest,
     min: crate::models::WorkspaceRole,
-) -> Result<Claims, HttpResponse> {
+) -> actix_web::Result<Claims> {
     require_workspace_role_detailed(req, min).map(|(claims, _)| claims)
 }
 
@@ -114,7 +129,7 @@ pub fn require_workspace_role(
 pub fn require_workspace_role_detailed(
     req: &HttpRequest,
     min: crate::models::WorkspaceRole,
-) -> Result<(Claims, crate::models::WorkspaceRole), HttpResponse> {
+) -> actix_web::Result<(Claims, crate::models::WorkspaceRole)> {
     use actix_web::web;
     use diesel::result::Error as DieselError;
     use uuid::Uuid;
@@ -123,10 +138,11 @@ pub fn require_workspace_role_detailed(
     let user_uuid = match Uuid::parse_str(&claims.sub) {
         Ok(u) => u,
         Err(_) => {
-            return Err(HttpResponse::Unauthorized().json(json!({
-                "error": "Unauthorized",
-                "message": "Token subject is not a valid user identifier"
-            })));
+            return Err(deny(
+                StatusCode::UNAUTHORIZED,
+                "Unauthorized",
+                "Token subject is not a valid user identifier",
+            ));
         }
     };
 
@@ -150,10 +166,11 @@ pub fn require_workspace_role_detailed(
             }
             #[cfg(not(test))]
             {
-                return Err(HttpResponse::InternalServerError().json(json!({
-                    "error": "Internal server error",
-                    "message": "WorkspaceContext missing — route is mis-wired"
-                })));
+                return Err(deny(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error",
+                    "WorkspaceContext missing — route is mis-wired",
+                ));
             }
         }
     };
@@ -161,19 +178,21 @@ pub fn require_workspace_role_detailed(
     let pool = match req.app_data::<web::Data<crate::db::Pool>>() {
         Some(p) => p,
         None => {
-            return Err(HttpResponse::InternalServerError().json(json!({
-                "error": "Internal server error",
-                "message": "Database pool not in app data"
-            })));
+            return Err(deny(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Internal server error",
+                "Database pool not in app data",
+            ));
         }
     };
     let mut conn = match pool.get() {
         Ok(c) => c,
         Err(_) => {
-            return Err(HttpResponse::InternalServerError().json(json!({
-                "error": "Internal server error",
-                "message": "Database connection failed"
-            })));
+            return Err(deny(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Internal server error",
+                "Database connection failed",
+            ));
         }
     };
 
@@ -190,10 +209,11 @@ pub fn require_workspace_role_detailed(
                 .execute(&mut conn)
         {
             tracing::error!(error = %e, "failed to pin workspace for role gate");
-            return Err(HttpResponse::InternalServerError().json(json!({
-                "error": "Internal server error",
-                "message": "Workspace membership lookup failed"
-            })));
+            return Err(deny(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Internal server error",
+                "Workspace membership lookup failed",
+            ));
         }
     }
 
@@ -201,34 +221,38 @@ pub fn require_workspace_role_detailed(
         match crate::repository::workspaces::membership(&mut conn, workspace_id, user_uuid) {
             Ok(Some(m)) => m,
             Ok(None) => {
-                return Err(HttpResponse::Forbidden().json(json!({
-                    "error": "Forbidden",
-                    "message": "You are not a member of this workspace"
-                })));
+                return Err(deny(
+                    StatusCode::FORBIDDEN,
+                    "Forbidden",
+                    "You are not a member of this workspace",
+                ));
             }
             Err(DieselError::NotFound) => {
-                return Err(HttpResponse::Forbidden().json(json!({
-                    "error": "Forbidden",
-                    "message": "You are not a member of this workspace"
-                })));
+                return Err(deny(
+                    StatusCode::FORBIDDEN,
+                    "Forbidden",
+                    "You are not a member of this workspace",
+                ));
             }
             Err(_) => {
-                return Err(HttpResponse::InternalServerError().json(json!({
-                    "error": "Internal server error",
-                    "message": "Workspace membership lookup failed"
-                })));
+                return Err(deny(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error",
+                    "Workspace membership lookup failed",
+                ));
             }
         };
 
     let actual = crate::models::WorkspaceRole::from_db(&membership.role);
     if !actual.meets(min) {
-        return Err(HttpResponse::Forbidden().json(json!({
-            "error": "Forbidden",
-            "message": format!(
+        return Err(deny(
+            StatusCode::FORBIDDEN,
+            "Forbidden",
+            format!(
                 "This action requires {} privileges or higher in this workspace",
                 min.as_str()
-            )
-        })));
+            ),
+        ));
     }
 
     Ok((claims, actual))
@@ -276,7 +300,10 @@ mod tests {
     fn require_auth_returns_401_without_claims() {
         let req = req_with_claims(None);
         let err = require_auth(&req).expect_err("no claims should error");
-        assert_eq!(err.status(), actix_web::http::StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            err.as_response_error().status_code(),
+            actix_web::http::StatusCode::UNAUTHORIZED
+        );
     }
 
     #[test]
@@ -290,7 +317,10 @@ mod tests {
     fn require_platform_admin_rejects_non_admin_with_403() {
         let req = req_with_claims(Some(create_test_claims("user")));
         let err = require_platform_admin(&req).expect_err("non-admin should be forbidden");
-        assert_eq!(err.status(), actix_web::http::StatusCode::FORBIDDEN);
+        assert_eq!(
+            err.as_response_error().status_code(),
+            actix_web::http::StatusCode::FORBIDDEN
+        );
     }
 
     #[test]
@@ -306,7 +336,10 @@ mod tests {
         // login on 401 but shows an error toast on 403.
         let req = req_with_claims(None);
         let err = require_platform_admin(&req).expect_err("no claims should error");
-        assert_eq!(err.status(), actix_web::http::StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            err.as_response_error().status_code(),
+            actix_web::http::StatusCode::UNAUTHORIZED
+        );
     }
 
     /// Build claims with an explicit role + scope for audit-gate tests.
@@ -343,7 +376,10 @@ mod tests {
     fn require_audit_read_rejects_technician() {
         let req = req_with_claims(Some(claims_role_scope("technician", "full")));
         let err = require_audit_read(&req).expect_err("technician forbidden");
-        assert_eq!(err.status(), actix_web::http::StatusCode::FORBIDDEN);
+        assert_eq!(
+            err.as_response_error().status_code(),
+            actix_web::http::StatusCode::FORBIDDEN
+        );
     }
 
     #[test]
@@ -352,13 +388,19 @@ mod tests {
         // reach the audit surface: authorisation is role AND scope.
         let req = req_with_claims(Some(claims_role_scope("admin", "tickets:read")));
         let err = require_audit_read(&req).expect_err("missing scope forbidden");
-        assert_eq!(err.status(), actix_web::http::StatusCode::FORBIDDEN);
+        assert_eq!(
+            err.as_response_error().status_code(),
+            actix_web::http::StatusCode::FORBIDDEN
+        );
     }
 
     #[test]
     fn require_audit_read_returns_401_without_claims() {
         let req = req_with_claims(None);
         let err = require_audit_read(&req).expect_err("no claims should error");
-        assert_eq!(err.status(), actix_web::http::StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            err.as_response_error().status_code(),
+            actix_web::http::StatusCode::UNAUTHORIZED
+        );
     }
 }

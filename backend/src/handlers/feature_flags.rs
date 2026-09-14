@@ -10,7 +10,7 @@
 //! refetch. Bus wiring is a Phase 2 concern; v1 callers refresh on
 //! navigation.
 
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder, ResponseError};
 use serde::Deserialize;
 use serde_json::Value;
 use tracing::{error, info};
@@ -57,7 +57,7 @@ pub struct ReplaceFlagsBody {
 pub async fn get_my_flags(pool: web::Data<Pool>, req: HttpRequest) -> impl Responder {
     let (_claims, user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     // Scope the read to the request's workspace: site_settings is
@@ -84,7 +84,7 @@ pub async fn patch_workspace_flag(
 ) -> impl Responder {
     let mut conn = match helpers::admin_conn(&req, &pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     if body.flag.trim().is_empty() {
@@ -125,7 +125,7 @@ pub async fn put_workspace_flags(
 ) -> impl Responder {
     let mut conn = match helpers::admin_conn(&req, &pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     if !body.flags.is_object() {
@@ -170,7 +170,7 @@ pub async fn patch_user_override(
     // the same helper the MFA and passkey recovery routes already use.
     let (claims, target, mut conn) = match helpers::admin_user_conn(&req, &pool, &target_uuid_str) {
         Ok(v) => v,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
     let target_uuid = target.uuid;
 

@@ -1,8 +1,8 @@
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
+use actix_web::{web, HttpMessage, HttpRequest};
 use uuid::Uuid;
 
 use crate::db::{DbConnection, Pool};
-use crate::handlers::errors;
+use crate::handlers::errors::{self, ApiError};
 use crate::models::{Claims, User};
 use crate::repository;
 use crate::sync::actor::ActorContext;
@@ -34,7 +34,7 @@ pub fn clamp_offset(offset: Option<i64>) -> i64 {
 /// sites keep working — pool exhaustion now returns a 503 with a
 /// structured error body and a Retry-After header instead of a
 /// generic 500.
-pub fn db_conn(pool: &web::Data<Pool>) -> Result<DbConnection, HttpResponse> {
+pub fn db_conn(pool: &web::Data<Pool>) -> Result<DbConnection, ApiError> {
     errors::db_conn(pool)
 }
 
@@ -111,15 +111,15 @@ pub fn target_is_externally_managed_staff(
 pub fn auth_conn(
     req: &HttpRequest,
     pool: &web::Data<Pool>,
-) -> Result<(Claims, Uuid, DbConnection), HttpResponse> {
+) -> Result<(Claims, Uuid, DbConnection), ApiError> {
     let claims = req
         .extensions()
         .get::<Claims>()
         .cloned()
-        .ok_or_else(|| errors::unauthorized("Authentication required"))?;
+        .ok_or_else(|| ApiError::Unauthorized("Authentication required".into()))?;
     let mut conn = db_conn(pool)?;
     let user_uuid =
-        Uuid::parse_str(&claims.sub).map_err(|_| errors::internal("Invalid user UUID"))?;
+        Uuid::parse_str(&claims.sub).map_err(|_| ApiError::Internal("Invalid user UUID".into()))?;
     pin_request_workspace(req, &mut conn);
     Ok((claims, user_uuid, conn))
 }
@@ -129,12 +129,12 @@ pub fn auth_conn(
 /// act on *singletons* (site_settings, channels, etc.) rather than a
 /// specific target user — the target-user variant [`admin_user_conn`]
 /// is for endpoints like "admin updates user X's role."
-pub fn admin_conn(req: &HttpRequest, pool: &web::Data<Pool>) -> Result<DbConnection, HttpResponse> {
+pub fn admin_conn(req: &HttpRequest, pool: &web::Data<Pool>) -> Result<DbConnection, ApiError> {
     let claims = req
         .extensions()
         .get::<Claims>()
         .cloned()
-        .ok_or_else(|| errors::unauthorized("Authentication required"))?;
+        .ok_or_else(|| ApiError::Unauthorized("Authentication required".into()))?;
     let mut conn = db_conn(pool)?;
     // Pin the request's workspace so the membership lookup below is
     // RLS-scoped to the workspace the caller is acting in, not collapsed
@@ -150,7 +150,7 @@ pub fn admin_conn(req: &HttpRequest, pool: &web::Data<Pool>) -> Result<DbConnect
             .and_then(|uuid| crate::repository::user_helpers::workspace_role(&mut conn, uuid))
             .is_some_and(|r| r.meets(crate::models::WorkspaceRole::Admin));
     if !is_admin {
-        return Err(errors::forbidden("Admin required"));
+        return Err(ApiError::Forbidden("Admin required".into()));
     }
     Ok(conn)
 }
@@ -161,11 +161,11 @@ pub fn admin_user_conn(
     req: &HttpRequest,
     pool: &web::Data<Pool>,
     target_uuid_str: &str,
-) -> Result<(Claims, User, DbConnection), HttpResponse> {
+) -> Result<(Claims, User, DbConnection), ApiError> {
     let (claims, _caller_uuid, mut conn) = auth_conn(req, pool)?;
 
     let target_uuid = utils::parse_uuid(target_uuid_str)
-        .map_err(|_| errors::bad_request("Invalid UUID format"))?;
+        .map_err(|_| ApiError::BadRequest("Invalid UUID format".into()))?;
 
     // Was platform-admin-only. Now a workspace admin may recover a member of
     // their OWN workspace (self-hosted), bounded to accounts they wholly own.
@@ -173,7 +173,7 @@ pub fn admin_user_conn(
     authorize_target_user_action(req, pool, &claims, target_uuid, true)?;
 
     let user = repository::get_user_by_uuid(&target_uuid, &mut conn)
-        .map_err(|_| errors::not_found("User"))?;
+        .map_err(|_| ApiError::NotFound("User".into()))?;
 
     Ok((claims, user, conn))
 }
@@ -262,21 +262,22 @@ pub fn authorize_target_user_action(
     claims: &Claims,
     target_uuid: Uuid,
     require_sole_workspace: bool,
-) -> Result<(), HttpResponse> {
+) -> Result<(), ApiError> {
     if crate::utils::rbac::is_platform_admin(claims) {
         return Ok(());
     }
     if !crate::middleware::workspace_context::local_credentials_permitted() {
-        return Err(errors::forbidden(
+        return Err(ApiError::Forbidden(
             "In hosted deployments, member account recovery is handled from the \
-             Nosdesk control plane; it is only available in self-hosted mode.",
+             Nosdesk control plane; it is only available in self-hosted mode."
+                .into(),
         ));
     }
-    let caller_uuid =
-        utils::parse_uuid(&claims.sub).map_err(|_| errors::bad_request("Invalid caller"))?;
+    let caller_uuid = utils::parse_uuid(&claims.sub)
+        .map_err(|_| ApiError::BadRequest("Invalid caller".into()))?;
     let ws_id = match request_workspace_id(req) {
         Some(id) => id,
-        None => return Err(errors::internal("Workspace context missing")),
+        None => return Err(ApiError::Internal("Workspace context missing".into())),
     };
     let mut conn = db_conn(pool)?;
     let actor = actor_for(req, "member_recovery_gate");
@@ -289,15 +290,16 @@ pub fn authorize_target_user_action(
         &actor,
     ) {
         Ok(()) => Ok(()),
-        Err(TargetActionDenied::NotWorkspaceAdmin) => Err(errors::forbidden(
-            "This action requires workspace admin privileges.",
+        Err(TargetActionDenied::NotWorkspaceAdmin) => Err(ApiError::Forbidden(
+            "This action requires workspace admin privileges.".into(),
         )),
-        Err(TargetActionDenied::TargetNotInWorkspace) => Err(errors::forbidden(
-            "This user is not a member of your workspace.",
+        Err(TargetActionDenied::TargetNotInWorkspace) => Err(ApiError::Forbidden(
+            "This user is not a member of your workspace.".into(),
         )),
-        Err(TargetActionDenied::TargetInOtherWorkspaces) => Err(errors::forbidden(
+        Err(TargetActionDenied::TargetInOtherWorkspaces) => Err(ApiError::Forbidden(
             "This member belongs to other workspaces; account recovery must go through \
-             an instance administrator.",
+             an instance administrator."
+                .into(),
         )),
     }
 }

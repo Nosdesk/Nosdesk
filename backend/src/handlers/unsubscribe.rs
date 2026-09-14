@@ -8,7 +8,8 @@
 //! type for that user; transactional mail (password reset, invitation) is
 //! unaffected.
 
-use actix_web::{web, HttpResponse, Responder};
+use actix_web::error::{ErrorBadRequest, ErrorInternalServerError};
+use actix_web::{web, HttpResponse};
 use serde::Deserialize;
 
 use crate::services::notifications::NotificationService;
@@ -19,23 +20,22 @@ pub struct UnsubscribeQuery {
     pub token: String,
 }
 
-/// Verify the token and apply the opt-out, or return the response to send.
+/// Verify the token and apply the opt-out, or return the error to send.
 async fn apply(
     token: &str,
     notification_service: &web::Data<NotificationService>,
-) -> Result<(), HttpResponse> {
+) -> actix_web::Result<()> {
     // Don't distinguish "bad signature" from "unknown user": a public endpoint
     // shouldn't confirm whether a given token or user is valid.
-    let user_uuid = unsubscribe_token::verify(token).ok_or_else(|| {
-        HttpResponse::BadRequest().body("This unsubscribe link is invalid or has expired.")
-    })?;
+    let user_uuid = unsubscribe_token::verify(token)
+        .ok_or_else(|| ErrorBadRequest("This unsubscribe link is invalid or has expired."))?;
     notification_service
         .preferences()
         .disable_all_email(&user_uuid)
         .await
         .map_err(|e| {
             tracing::error!(error = %e, "unsubscribe: failed to disable email notifications");
-            HttpResponse::InternalServerError().body("Could not process the unsubscribe request.")
+            ErrorInternalServerError("Could not process the unsubscribe request.")
         })?;
     Ok(())
 }
@@ -45,11 +45,9 @@ async fn apply(
 pub async fn one_click(
     query: web::Query<UnsubscribeQuery>,
     notification_service: web::Data<NotificationService>,
-) -> impl Responder {
-    match apply(&query.token, &notification_service).await {
-        Ok(()) => HttpResponse::Ok().finish(),
-        Err(resp) => resp,
-    }
+) -> actix_web::Result<HttpResponse> {
+    apply(&query.token, &notification_service).await?;
+    Ok(HttpResponse::Ok().finish())
 }
 
 /// Human-facing GET: someone followed the link in their mail client. Same
@@ -57,13 +55,11 @@ pub async fn one_click(
 pub async fn landing(
     query: web::Query<UnsubscribeQuery>,
     notification_service: web::Data<NotificationService>,
-) -> impl Responder {
-    match apply(&query.token, &notification_service).await {
-        Ok(()) => HttpResponse::Ok()
-            .content_type("text/html; charset=utf-8")
-            .body(CONFIRM_HTML),
-        Err(resp) => resp,
-    }
+) -> actix_web::Result<HttpResponse> {
+    apply(&query.token, &notification_service).await?;
+    Ok(HttpResponse::Ok()
+        .content_type("text/html; charset=utf-8")
+        .body(CONFIRM_HTML))
 }
 
 const CONFIRM_HTML: &str = "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\

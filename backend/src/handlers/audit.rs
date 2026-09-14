@@ -106,7 +106,7 @@ pub async fn list(
     query: web::Query<ListQuery>,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_audit_read(&req) {
-        return resp;
+        return resp.error_response();
     }
 
     let cursor = match query.cursor.as_deref().map(decode_cursor) {
@@ -151,7 +151,7 @@ pub async fn export(
     query: web::Query<ListQuery>,
 ) -> impl Responder {
     if let Err(resp) = rbac::require_audit_read(&req) {
-        return resp;
+        return resp.error_response();
     }
 
     let filter = build_filter(&query);

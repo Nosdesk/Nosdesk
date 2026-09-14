@@ -1,5 +1,5 @@
 use actix_multipart::Multipart;
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder, ResponseError};
 use futures::{StreamExt, TryStreamExt};
 use serde::Deserialize;
 use serde_json::json;
@@ -108,7 +108,7 @@ pub struct UpdateBrandingRequest {
 pub async fn get_branding_config(req: HttpRequest, pool: web::Data<Pool>) -> impl Responder {
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     // site_settings is RLS-isolated by workspace; scope the read to the
@@ -156,7 +156,7 @@ pub async fn update_branding_config(
 ) -> impl Responder {
     // Branding is workspace-wide configuration: only an admin may change it.
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
     // Get authenticated user from request
     let claims = match req.extensions().get::<crate::models::Claims>() {
@@ -301,7 +301,7 @@ pub async fn upload_branding_image(
     type_query: web::Query<BrandingImageTypeQuery>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
     let image_type = &type_query.type_;
 
@@ -482,7 +482,7 @@ pub async fn delete_branding_image(
     type_query: web::Query<BrandingImageTypeQuery>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return e;
+        return e.error_response();
     }
     let image_type = &type_query.type_;
 
@@ -622,7 +622,7 @@ pub async fn serve_workspace_branding_file(
 
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
     // `workspaces` is the resolution table and reads without a pinned GUC. An
     // unknown uuid is a plain 404: this is a public image route, so there is

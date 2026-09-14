@@ -240,7 +240,7 @@ fn validate_config(provider: &str, config: &JsonValue) -> Result<(), String> {
 /// GET /api/admin/channels
 pub async fn list_channels(mut tc: TenantConn, req: HttpRequest) -> HttpResponse {
     if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp;
+        return resp.error_response();
     }
     // Fold list + per-row credential probe into one transaction so
     // every read goes through the same RLS-scoped session.
@@ -266,7 +266,7 @@ pub async fn get_channel(
     req: HttpRequest,
 ) -> HttpResponse {
     if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp;
+        return resp.error_response();
     }
     let id = path.into_inner();
     let result: diesel::QueryResult<Option<ChannelResponse>> =
@@ -293,7 +293,7 @@ pub async fn create_channel(
     req: HttpRequest,
 ) -> HttpResponse {
     if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp;
+        return resp.error_response();
     }
 
     if body.name.trim().is_empty() {
@@ -380,7 +380,7 @@ pub async fn update_channel(
     req: HttpRequest,
 ) -> HttpResponse {
     if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp;
+        return resp.error_response();
     }
     let channel_id = path.into_inner();
 
@@ -464,7 +464,7 @@ pub async fn delete_channel(
     req: HttpRequest,
 ) -> HttpResponse {
     if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp;
+        return resp.error_response();
     }
     let channel_id = path.into_inner();
     let rows = match tc.run(|conn| channels_repo::delete(conn, channel_id)) {
@@ -493,7 +493,7 @@ pub async fn clear_credential(
     req: HttpRequest,
 ) -> HttpResponse {
     if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp;
+        return resp.error_response();
     }
     let channel_id = path.into_inner();
     if let Err(e) =
@@ -532,7 +532,7 @@ pub async fn test_connection(
     req: HttpRequest,
 ) -> HttpResponse {
     if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp;
+        return resp.error_response();
     }
     let channel_id = path.into_inner();
     let candidate = body

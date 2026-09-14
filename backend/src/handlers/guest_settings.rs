@@ -47,7 +47,7 @@ pub async fn get_guest_settings(mut tc: TenantConn, req: HttpRequest) -> impl Re
     if let Err(resp) =
         crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
     {
-        return resp;
+        return resp.error_response();
     }
     match tc.run(site_settings::get_site_settings) {
         Ok(settings) => {
@@ -72,7 +72,7 @@ pub async fn update_guest_settings(
         match crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)
         {
             Ok(c) => c,
-            Err(resp) => return resp,
+            Err(resp) => return resp.error_response(),
         };
 
     let user_uuid = match utils::parse_uuid(&claims.sub) {

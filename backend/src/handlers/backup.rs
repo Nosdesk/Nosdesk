@@ -2,7 +2,7 @@ use crate::extractors::TenantConn;
 use crate::handlers::errors;
 use crate::handlers::helpers;
 use actix_multipart::Multipart;
-use actix_web::{web, HttpMessage, HttpResponse, Responder};
+use actix_web::{web, HttpMessage, HttpResponse, Responder, ResponseError};
 use futures::StreamExt;
 use serde_json::json;
 use std::io::Write;
@@ -513,7 +513,7 @@ pub async fn execute_restore(
     // cross-tenant entrypoint.
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     // Restore database first, then files. Mirrors the onboarding-only

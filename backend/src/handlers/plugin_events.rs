@@ -18,7 +18,7 @@
 //! is free-form per call. (The architecture doc § 6 references this
 //! constraint as part of the manifest design.)
 
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder, ResponseError};
 use serde::Deserialize;
 use serde_json::Value;
 use tracing::{error, info, warn};
@@ -102,7 +102,7 @@ pub async fn emit_plugin_event(
     // "who triggered the plugin?".
     let (claims, _user_uuid, mut conn) = match helpers::auth_conn(&req, &pool) {
         Ok(v) => v,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     // Plugin must exist before we accept its events. `plugins` is

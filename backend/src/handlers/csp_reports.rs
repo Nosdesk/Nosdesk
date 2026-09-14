@@ -295,7 +295,7 @@ pub async fn report_violation(
 /// Admin: list recent aggregated violations.
 pub async fn list_violations(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
     if let Err(resp) = rbac::require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp;
+        return resp.error_response();
     }
 
     match tc.run(|conn| repo::list_recent(conn, 200)) {

@@ -1,6 +1,6 @@
 //! Search API handlers
 
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder, ResponseError};
 use serde_json::json;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
@@ -105,7 +105,7 @@ pub async fn search(
                 if let (Some(vis), false) = (vis_opt, candidate_ids.is_empty()) {
                     let mut conn = match helpers::db_conn(&pool) {
                         Ok(c) => c,
-                        Err(e) => return e,
+                        Err(e) => return e.error_response(),
                     };
                     // Pin the request's workspace: the visibility query
                     // runs under RLS, and an unpinned connection (the
@@ -227,7 +227,7 @@ pub async fn rebuild_index(
     // Get database connection
     let mut conn = match helpers::db_conn(&pool) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.error_response(),
     };
 
     // Rebuild index

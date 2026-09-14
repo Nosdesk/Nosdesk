@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder, ResponseError};
 use serde::Deserialize;
 
 use crate::db::Pool;
@@ -56,7 +56,7 @@ pub async fn merge_tickets(
     search_service: web::Data<Arc<SearchService>>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
-        return e;
+        return e.error_response();
     }
     let actor = match actor_from(&req) {
         Some(a) => a,
@@ -64,7 +64,7 @@ pub async fn merge_tickets(
     };
     let mut conn = match errors::db_conn(&pool) {
         Ok(c) => c,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
 
     let body = body.into_inner();
@@ -138,7 +138,7 @@ pub async fn get_merge_history(
     pool: web::Data<Pool>,
 ) -> impl Responder {
     if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
-        return e;
+        return e.error_response();
     }
     let actor = match actor_from(&req) {
         Some(a) => a,
@@ -147,7 +147,7 @@ pub async fn get_merge_history(
     let ticket_id = path.into_inner();
     let mut conn = match errors::db_conn(&pool) {
         Ok(c) => c,
-        Err(resp) => return resp,
+        Err(resp) => return resp.error_response(),
     };
 
     // Read under the actor context so RLS scopes the query to the
