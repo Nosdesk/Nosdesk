@@ -315,22 +315,12 @@ pub async fn delta(
 
 /// Lower an `ActionRow` into the visibility layer's `ActionView`.
 fn action_row_to_view(row: &ActionRow) -> crate::sync::visibility::ActionView {
-    crate::sync::visibility::ActionView {
-        aggregate: Some(row.aggregate),
-        is_delete: matches!(row.op, crate::models::SyncOp::Delete),
-        aggregate_id: row.aggregate_id.parse().ok(),
-        ticket_id: row
-            .data
-            .get("ticket_id")
-            .and_then(|v| v.as_i64())
-            .map(|n| n as i32),
-        is_internal: row.data.get("is_internal").and_then(|v| v.as_bool()),
-        comment_id: row
-            .data
-            .get("comment_id")
-            .and_then(|v| v.as_i64())
-            .map(|n| n as i32),
-    }
+    crate::sync::visibility::ActionView::from_row(
+        row.aggregate,
+        row.op,
+        &row.aggregate_id,
+        &row.data,
+    )
 }
 
 /// Intersect the comma-separated client-requested groups with the

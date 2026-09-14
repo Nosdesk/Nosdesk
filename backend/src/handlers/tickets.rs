@@ -411,7 +411,9 @@ pub async fn get_ticket_activity(
     access: TicketAccess,
     query: web::Query<TicketActivityQuery>,
 ) -> impl Responder {
+    use crate::repository::ticket_visibility::VisibilityContext;
     use crate::schema::sync_actions;
+    use crate::sync::visibility::{filter_actions, ActionView, SyncViewer};
 
     let ticket_id = access.ticket_id;
     let limit = query
@@ -463,6 +465,32 @@ pub async fn get_ticket_activity(
             return errors::internal("Failed to load ticket activity");
         }
     };
+
+    // Ticket-level access says the viewer may see the ticket, not every
+    // row on its timeline: an internal note's `comment.created` carries
+    // the note's content, and staff-only aggregates (ticket references)
+    // ride the same group. Restricted viewers get the same keep-mask the
+    // sync delta applies; staff skip the lookup entirely.
+    let viewer = SyncViewer {
+        ctx: VisibilityContext::from_auth(&access.auth),
+        is_doc_admin: access.auth.is_workspace_admin(),
+    };
+    if !viewer.ctx.sees_all() {
+        let keep = tc.run(|conn| {
+            Ok::<_, diesel::result::Error>(filter_actions(conn, &viewer, &events, |r| {
+                ActionView::from_row(r.aggregate, r.op, &r.aggregate_id, &r.data)
+            }))
+        });
+        let keep = match keep {
+            Ok(k) => k,
+            Err(e) => {
+                error!(error = %e, ticket_id, "ticket activity visibility failed");
+                return errors::internal("Failed to load ticket activity");
+            }
+        };
+        let mut it = keep.into_iter();
+        events.retain(|_| it.next().unwrap_or(false));
+    }
 
     let next_cursor = if events.len() > limit as usize {
         events.truncate(limit as usize);
