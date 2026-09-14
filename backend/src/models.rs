@@ -5649,6 +5649,11 @@ pub struct Notification {
     /// send time; the send path counts recent `interrupts = true` rows to
     /// cap interrupt bursts.
     pub interrupts: bool,
+    /// The `sync_actions` row this was derived from, or null for a
+    /// notification a handler raised directly. With `(user_uuid,
+    /// notification_type_id)` it is unique, which is what makes a
+    /// redelivery of the same event insert nothing.
+    pub source_sync_id: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]
@@ -5664,6 +5669,7 @@ pub struct NewNotification {
     pub metadata: Option<serde_json::Value>,
     pub channels_delivered: serde_json::Value,
     pub interrupts: bool,
+    pub source_sync_id: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]

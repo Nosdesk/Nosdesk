@@ -53,20 +53,23 @@ const RESOLVED_CHANNELS: [NotificationChannel; 3] = [
 /// always wins and the settings UI can tell the two apart.
 const PUSH_DEFAULT_TYPES: &[&str] = &["ticket_assigned", "mentioned"];
 
+/// How long a cached resolution is trusted. The cache is per process and the
+/// writers that invalidate it (a preference change, a device registering) only
+/// clear the process that took the request; on more than one machine the
+/// others would otherwise serve the old answer until restart. Sixty seconds
+/// bounds that, and the same-machine case still invalidates instantly.
+const CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+
+type Resolved = Vec<(NotificationChannel, NotificationFrequency)>;
+
 /// Manages notification preferences + workspace defaults with caching.
 pub struct PreferenceService {
     pool: Pool,
     /// Cache keyed by (user, workspace) → type code → the channels that resolve
-    /// to `instant` (i.e. deliver now). Workspace is part of the key because a
-    /// user's effective delivery depends on the workspace's admin defaults.
-    cache: Arc<
-        RwLock<
-            HashMap<
-                (Uuid, i32),
-                HashMap<String, Vec<(NotificationChannel, NotificationFrequency)>>,
-            >,
-        >,
-    >,
+    /// to `instant` (i.e. deliver now), stamped with when it was loaded.
+    /// Workspace is part of the key because a user's effective delivery
+    /// depends on the workspace's admin defaults.
+    cache: Arc<RwLock<HashMap<(Uuid, i32), HashMap<String, (std::time::Instant, Resolved)>>>>,
 }
 
 impl PreferenceService {
@@ -97,8 +100,10 @@ impl PreferenceService {
         {
             let cache = self.cache.read().await;
             if let Some(user_prefs) = cache.get(&key) {
-                if let Some(pairs) = user_prefs.get(&type_code) {
-                    return Ok(pairs.clone());
+                if let Some((loaded_at, pairs)) = user_prefs.get(&type_code) {
+                    if loaded_at.elapsed() < CACHE_TTL {
+                        return Ok(pairs.clone());
+                    }
                 }
             }
         }
@@ -112,7 +117,7 @@ impl PreferenceService {
             cache
                 .entry(key)
                 .or_default()
-                .insert(type_code, pairs.clone());
+                .insert(type_code, (std::time::Instant::now(), pairs.clone()));
         }
 
         Ok(pairs)

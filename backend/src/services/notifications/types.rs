@@ -322,6 +322,11 @@ pub struct NotificationPayload {
     pub metadata: serde_json::Value,
     #[serde(default = "Utc::now")]
     pub created_at: DateTime<Utc>,
+    /// The `sync_actions` row this was derived from. Makes the persist
+    /// idempotent per (event, recipient, type); handler-raised payloads
+    /// leave it unset.
+    #[serde(default)]
+    pub source_sync_id: Option<i64>,
 }
 
 impl NotificationPayload {
@@ -343,7 +348,13 @@ impl NotificationPayload {
             body: None,
             metadata: serde_json::json!({}),
             created_at: Utc::now(),
+            source_sync_id: None,
         }
+    }
+
+    pub fn from_sync_action(mut self, sync_id: i64) -> Self {
+        self.source_sync_id = Some(sync_id);
+        self
     }
 
     #[allow(dead_code)]
