@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { formatDate, formatDateTime } from '@nosdesk/core/utils/dateUtils';
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { useFluent } from 'fluent-vue';
 import UserAvatar from "@/components/UserAvatar.vue";
 import VoiceRecorder from "@/components/ticketComponents/VoiceRecorder.vue";
@@ -8,6 +8,9 @@ import AttachmentPreview from "@/components/ticketComponents/AttachmentPreview.v
 import SectionCard from "@/components/common/SectionCard.vue";
 import Icon from "@/components/common/Icon.vue";
 import SimpleEditor from "@/components/common/SimpleEditor.vue";
+import { referencedTicketIds } from "@/components/editor/ticketLinkPlugin";
+import * as pool from "@nosdesk/core/sync/pool";
+import type { SyncTicket } from "@/sync/stores/tickets";
 import MarkdownRenderer from "@/components/common/MarkdownRenderer.vue";
 import CommentContent from "@/components/ticketComponents/CommentContent.vue";
 import { sanitiseHtml } from "@/composables/useSanitise";
@@ -38,6 +41,9 @@ const props = defineProps<{
     /** When true the composer is disabled (merged tickets are
      *  terminal and read-only). Existing comments still render. */
     readonly?: boolean;
+    /** Tickets already linked to this one. A posted comment that mentions
+     *  another ticket offers to link it unless it is already here. */
+    linkedTicketIds?: number[];
     /** Optional template context for the canned-response picker —
         `{{ticket_id}}`, `{{customer_name}}` etc. substitute at
         insert time. Omit when the composer isn't on a ticket. */
@@ -128,6 +134,8 @@ const emit = defineEmits<{
         value: { commentId: number; attachmentIndex: number },
     ): void;
     (e: "deleteComment", value: number): void;
+    /** Accept a link suggestion: relate the mentioned ticket to this one. */
+    (e: "linkTicket", value: number): void;
 }>();
 
 /**
@@ -192,6 +200,34 @@ const canSubmit = computed<boolean>(
     () => hasTextContent(newCommentContent.value) || newAttachments.value.length > 0,
 );
 
+// Link suggestions: tickets the last posted comment mentioned that are
+// not yet linked to this one. A mention is often "see #123 for context",
+// so linking stays a click away rather than automatic. Dismissals last
+// for this composer's lifetime.
+const linkSuggestions = ref<number[]>([]);
+const dismissedSuggestions = new Set<number>();
+const suggestionLabel = (id: number): string => {
+    const title = pool.get<SyncTicket>("ticket", id)?.title;
+    return title ? t("ticket-chip-linked-ticket-title", { id, title }) : t("ticket-chip-linked-ticket-fallback", { id });
+};
+const acceptSuggestion = (id: number) => {
+    dismissSuggestion(id);
+    emit("linkTicket", id);
+};
+const dismissSuggestion = (id: number) => {
+    dismissedSuggestions.add(id);
+    linkSuggestions.value = linkSuggestions.value.filter((s) => s !== id);
+};
+// A link made elsewhere (the Linked tickets field, another client)
+// answers the suggestion too.
+watch(
+    () => props.linkedTicketIds,
+    (linked) => {
+        if (!linked) return;
+        linkSuggestions.value = linkSuggestions.value.filter((s) => !linked.includes(s));
+    },
+);
+
 const addComment = () => {
     if (!hasTextContent(newCommentContent.value) && newAttachments.value.length === 0)
         return;
@@ -202,6 +238,13 @@ const addComment = () => {
         files: newAttachments.value,
         is_internal: isInternal.value,
     });
+
+    if (props.ticketId !== undefined) {
+        const linked = props.linkedTicketIds ?? [];
+        linkSuggestions.value = referencedTicketIds(newCommentContent.value).filter(
+            (id) => id !== props.ticketId && !linked.includes(id) && !dismissedSuggestions.has(id),
+        );
+    }
 
     // Reset form — including the internal flag, so the next reply
     // defaults back to public and a tech has to opt in each time.
@@ -709,6 +752,32 @@ const handlePastedFiles = async (files: File[]) => {
                             </button>
                         </div>
                     </form>
+
+                    <!-- Link suggestions for tickets the last comment mentioned -->
+                    <div
+                        v-for="id in linkSuggestions"
+                        :key="id"
+                        class="flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg bg-surface-alt text-xs text-secondary"
+                    >
+                        <Icon name="link" size="sm" class="text-tertiary shrink-0" />
+                        <span class="flex-1 min-w-0 truncate">
+                            {{ $t('ticket-comments-link-suggestion', { ticket: suggestionLabel(id) }) }}
+                        </span>
+                        <button
+                            type="button"
+                            class="font-medium text-accent hover:underline"
+                            @click="acceptSuggestion(id)"
+                        >
+                            {{ $t('ticket-comments-link-suggestion-accept') }}
+                        </button>
+                        <button
+                            type="button"
+                            class="text-tertiary hover:text-primary"
+                            @click="dismissSuggestion(id)"
+                        >
+                            {{ $t('ticket-comments-link-suggestion-dismiss') }}
+                        </button>
+                    </div>
                 </div>
 
                 <!-- List of Comments - Screen layout -->

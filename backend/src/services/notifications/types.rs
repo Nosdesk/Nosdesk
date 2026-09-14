@@ -17,6 +17,10 @@ pub enum NotificationTypeCode {
     TicketStatusChanged,
     CommentAdded,
     Mentioned,
+    /// A ticket the recipient is assigned to was mentioned in a comment on
+    /// another ticket. Information, not a request for action: in-app +
+    /// email by default, never push.
+    TicketReferenced,
     TicketCreatedRequester,
     DocPageUpdated,
     AssetLowStock,
@@ -32,6 +36,7 @@ impl NotificationTypeCode {
             Self::TicketStatusChanged => "ticket_status_changed",
             Self::CommentAdded => "comment_added",
             Self::Mentioned => "mentioned",
+            Self::TicketReferenced => "ticket_referenced",
             Self::TicketCreatedRequester => "ticket_created_requester",
             Self::DocPageUpdated => "doc_page_updated",
             Self::AssetLowStock => "asset_low_stock",
@@ -47,6 +52,7 @@ impl NotificationTypeCode {
             "ticket_status_changed" => Some(Self::TicketStatusChanged),
             "comment_added" => Some(Self::CommentAdded),
             "mentioned" => Some(Self::Mentioned),
+            "ticket_referenced" => Some(Self::TicketReferenced),
             "ticket_created_requester" => Some(Self::TicketCreatedRequester),
             "doc_page_updated" => Some(Self::DocPageUpdated),
             "asset_low_stock" => Some(Self::AssetLowStock),
@@ -64,6 +70,7 @@ impl NotificationTypeCode {
             Self::TicketStatusChanged => "Ticket Status Changed",
             Self::CommentAdded => "New Comment",
             Self::Mentioned => "Mentioned",
+            Self::TicketReferenced => "Ticket Mentioned",
             Self::TicketCreatedRequester => "Ticket Created",
             Self::DocPageUpdated => "Documentation Page Updated",
             Self::AssetLowStock => "Low Stock Alert",
@@ -94,6 +101,10 @@ impl NotificationTypeCode {
             Self::Mentioned => match who {
                 Some(a) => format!("{a} mentioned you"),
                 None => "You were mentioned".to_string(),
+            },
+            Self::TicketReferenced => match who {
+                Some(a) => format!("{a} mentioned your ticket"),
+                None => "Your ticket was mentioned".to_string(),
             },
             Self::TicketStatusChanged => match who {
                 Some(a) => format!("Status changed by {a}"),
@@ -322,6 +333,11 @@ pub struct NotificationPayload {
     pub metadata: serde_json::Value,
     #[serde(default = "Utc::now")]
     pub created_at: DateTime<Utc>,
+    /// The `sync_actions` row this was derived from. Makes the persist
+    /// idempotent per (event, recipient, type); handler-raised payloads
+    /// leave it unset.
+    #[serde(default)]
+    pub source_sync_id: Option<i64>,
 }
 
 impl NotificationPayload {
@@ -343,7 +359,13 @@ impl NotificationPayload {
             body: None,
             metadata: serde_json::json!({}),
             created_at: Utc::now(),
+            source_sync_id: None,
         }
+    }
+
+    pub fn from_sync_action(mut self, sync_id: i64) -> Self {
+        self.source_sync_id = Some(sync_id);
+        self
     }
 
     #[allow(dead_code)]

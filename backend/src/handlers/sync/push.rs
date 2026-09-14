@@ -217,6 +217,7 @@ fn apply_transaction(
         | SyncAggregate::Notification
         | SyncAggregate::TicketAsset
         | SyncAggregate::LinkedTicket
+        | SyncAggregate::TicketReference
         | SyncAggregate::AssetUsage
         | SyncAggregate::AssetAudit
         | SyncAggregate::AssetLoan => Err(TxReject(

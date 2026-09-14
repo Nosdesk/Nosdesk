@@ -17,10 +17,6 @@ use crate::models::{
 use crate::repository;
 use crate::repository::ticket_query::TicketQuery;
 use crate::services::assignment::AssignmentEngine;
-use crate::services::notifications::{
-    types::{NotificationActor, NotificationEntity, NotificationPayload, NotificationTypeCode},
-    NotificationService,
-};
 use crate::services::search::indexing_tasks;
 use crate::services::search::SearchService;
 use crate::utils::i18n;
@@ -415,7 +411,9 @@ pub async fn get_ticket_activity(
     access: TicketAccess,
     query: web::Query<TicketActivityQuery>,
 ) -> impl Responder {
+    use crate::repository::ticket_visibility::VisibilityContext;
     use crate::schema::sync_actions;
+    use crate::sync::visibility::{filter_actions, ActionView, SyncViewer};
 
     let ticket_id = access.ticket_id;
     let limit = query
@@ -467,6 +465,32 @@ pub async fn get_ticket_activity(
             return errors::internal("Failed to load ticket activity");
         }
     };
+
+    // Ticket-level access says the viewer may see the ticket, not every
+    // row on its timeline: an internal note's `comment.created` carries
+    // the note's content, and staff-only aggregates (ticket references)
+    // ride the same group. Restricted viewers get the same keep-mask the
+    // sync delta applies; staff skip the lookup entirely.
+    let viewer = SyncViewer {
+        ctx: VisibilityContext::from_auth(&access.auth),
+        is_doc_admin: access.auth.is_workspace_admin(),
+    };
+    if !viewer.ctx.sees_all() {
+        let keep = tc.run(|conn| {
+            Ok::<_, diesel::result::Error>(filter_actions(conn, &viewer, &events, |r| {
+                ActionView::from_row(r.aggregate, r.op, &r.aggregate_id, &r.data)
+            }))
+        });
+        let keep = match keep {
+            Ok(k) => k,
+            Err(e) => {
+                error!(error = %e, ticket_id, "ticket activity visibility failed");
+                return errors::internal("Failed to load ticket activity");
+            }
+        };
+        let mut it = keep.into_iter();
+        events.retain(|_| it.next().unwrap_or(false));
+    }
 
     let next_cursor = if events.len() > limit as usize {
         events.truncate(limit as usize);
@@ -602,7 +626,6 @@ pub async fn get_ticket(mut tc: TenantConn, access: TicketAccess) -> impl Respon
 // Create a new ticket
 pub async fn create_ticket(
     mut tc: TenantConn,
-    notification_service: web::Data<NotificationService>,
     search_service: web::Data<Arc<SearchService>>,
     auth: AuthContext,
     ticket: web::Json<NewTicket>,
@@ -682,41 +705,9 @@ pub async fn create_ticket(
                                 "Auto-assigned new ticket via create_ticket"
                             );
 
-                            // Send notification to the auto-assigned user, unless the
-                            // rule assigned the ticket to the user who just created it
-                            // (never notify someone about their own action).
-                            if assigned_uuid != auth.user_uuid {
-                                let notification_service = notification_service.clone();
-                                let ticket_id = ticket.id;
-                                let ticket_title = ticket.title.clone();
-                                let ticket_workspace = ticket.workspace_id;
-                                let rule_name = result.rule_name.clone();
-
-                                tokio::spawn(async move {
-                                    let payload = NotificationPayload::new(
-                                        NotificationTypeCode::TicketAssigned,
-                                        assigned_uuid,
-                                        NotificationActor {
-                                            uuid: Uuid::nil(),
-                                            name: "System".to_string(),
-                                            avatar_thumb: None,
-                                            kind: crate::sync::ActorKind::System,
-                                        },
-                                        NotificationEntity::Ticket {
-                                            id: ticket_id,
-                                            title: ticket_title,
-                                        },
-                                        ticket_workspace,
-                                    )
-                                    .with_body(format!(
-                                        "You have been auto-assigned to ticket #{ticket_id} (Rule: {rule_name})"
-                                    ));
-
-                                    if let Err(e) = notification_service.notify(payload).await {
-                                        warn!(error = %e, "Failed to send auto-assignment notification");
-                                    }
-                                });
-                            }
+                            // The assignment notification derives from the
+                            // ticket.assignee_changed sync action this write
+                            // emitted (services/notifications/deriver.rs).
                         }
                     }
                 }
@@ -943,7 +934,6 @@ pub async fn import_tickets_from_json_string(
 // Create an empty ticket with default values
 pub async fn create_empty_ticket(
     mut tc: TenantConn,
-    notification_service: web::Data<NotificationService>,
     search_service: web::Data<Arc<SearchService>>,
     req: HttpRequest,
 ) -> impl Responder {
@@ -1021,41 +1011,8 @@ pub async fn create_empty_ticket(
                         "Auto-assigned new ticket"
                     );
 
-                    // Send notification to the auto-assigned user, unless the rule
-                    // assigned the ticket to the user who just created it (never
-                    // notify someone about their own action).
-                    if assigned_uuid != user_uuid {
-                        let notification_service = notification_service.clone();
-                        let ticket_id = ticket.id;
-                        let ticket_title = ticket.title.clone();
-                        let ticket_workspace = ticket.workspace_id;
-                        let rule_name = result.rule_name.clone();
-
-                        tokio::spawn(async move {
-                            let payload = NotificationPayload::new(
-                                NotificationTypeCode::TicketAssigned,
-                                assigned_uuid,
-                                NotificationActor {
-                                    uuid: Uuid::nil(), // System actor
-                                    name: "System".to_string(),
-                                    avatar_thumb: None,
-                                    kind: crate::sync::ActorKind::System,
-                                },
-                                NotificationEntity::Ticket {
-                                    id: ticket_id,
-                                    title: ticket_title,
-                                },
-                                ticket_workspace,
-                            )
-                            .with_body(format!(
-                                "You have been auto-assigned to ticket #{ticket_id} (Rule: {rule_name})"
-                            ));
-
-                            if let Err(e) = notification_service.notify(payload).await {
-                                warn!(error = %e, "Failed to send auto-assignment notification");
-                            }
-                        });
-                    }
+                    // The assignment notification derives from the
+                    // ticket.assignee_changed sync action this write emitted.
                 }
             }
         }
@@ -1105,28 +1062,12 @@ pub async fn create_empty_ticket(
 // Update ticket partially
 pub async fn update_ticket_partial(
     mut tc: TenantConn,
-    notification_service: web::Data<NotificationService>,
     search_service: web::Data<Arc<SearchService>>,
-    req: HttpRequest,
     auth: AuthContext,
     access: TicketAccess,
     body: web::Json<Value>,
 ) -> impl Responder {
     let ticket_id = access.ticket_id;
-
-    // Notification dispatch downstream wants the raw `Claims`
-    // for actor logging; pull from extensions, which the JWT
-    // middleware populates (the extractor already verified
-    // these claims map to a real user).
-    let user_info = match req.extensions().get::<crate::models::Claims>() {
-        Some(claims) => claims.clone(),
-        None => return errors::unauthorized("Authentication required"),
-    };
-
-    // Get the current ticket state for detecting changes (for notifications)
-    let old_ticket = tc
-        .run(|conn| repository::get_ticket_by_id(conn, ticket_id))
-        .ok();
 
     // Parse JSON and build TicketUpdate with user lookups
     let mut ticket_update = TicketUpdate {
@@ -1387,12 +1328,6 @@ pub async fn update_ticket_partial(
                 }
             }
 
-            // Track a category-change auto-assignment so the field-diff
-            // notifier below doesn't fire a second (real-actor) assignment
-            // notification on top of the richer System "auto-assigned
-            // (Rule: X)" one.
-            let mut auto_assigned_uuid: Option<Uuid> = None;
-
             // Run automatic assignment rules if category changed and no assignee
             if category_changed && updated_ticket.assignee_uuid.is_none() {
                 let rules_result = tc
@@ -1433,52 +1368,9 @@ pub async fn update_ticket_partial(
                             );
 
                             // Auto-assignment reaches clients through the
-                            // sync pool (the assignee change emits a
-                            // ticket.assignee_changed sync action).
-                            let assignee_user = tc
-                                .run(|conn| repository::get_user_by_uuid(&assigned_uuid, conn))
-                                .ok();
-
-                            // Send notification to the auto-assigned user
-                            if let Some(ref assignee) = assignee_user {
-                                // Remember the auto-assigned user so the field-diff
-                                // notifier below skips a duplicate assignment ping.
-                                auto_assigned_uuid = Some(assignee.uuid);
-                                // Skip when the rule assigned the ticket to the user
-                                // who triggered the category change (own action).
-                                if assignee.uuid != auth.user_uuid {
-                                    let notification_service = notification_service.clone();
-                                    let ticket_title = updated_ticket.title.clone();
-                                    let ticket_workspace = updated_ticket.workspace_id;
-                                    let assignee_uuid = assignee.uuid;
-                                    let rule_name = result.rule_name.clone();
-
-                                    tokio::spawn(async move {
-                                        let payload = NotificationPayload::new(
-                                            NotificationTypeCode::TicketAssigned,
-                                            assignee_uuid,
-                                            NotificationActor {
-                                                uuid: Uuid::nil(), // System actor
-                                                name: "System".to_string(),
-                                                avatar_thumb: None,
-                                                kind: crate::sync::ActorKind::System,
-                                            },
-                                            NotificationEntity::Ticket {
-                                                id: ticket_id,
-                                                title: ticket_title,
-                                            },
-                                            ticket_workspace,
-                                        )
-                                        .with_body(format!(
-                                            "You have been auto-assigned to ticket #{ticket_id} (Rule: {rule_name})"
-                                        ));
-
-                                        if let Err(e) = notification_service.notify(payload).await {
-                                            warn!(error = %e, "Failed to send auto-assignment notification");
-                                        }
-                                    });
-                                }
-                            }
+                            // sync pool, and the assignee's notification
+                            // derives from the same ticket.assignee_changed
+                            // sync action.
                         }
                     }
                 }
@@ -1501,105 +1393,8 @@ pub async fn update_ticket_partial(
                 Err(_) => return errors::internal("Failed to fetch updated ticket"),
             };
 
-            // Trigger notifications for relevant changes (runs async, doesn't block response)
-            if let Some(ref old) = old_ticket {
-                // Get actor info for notifications
-                let actor_uuid = Uuid::parse_str(&user_info.sub).ok();
-                let actor = actor_uuid.and_then(|uuid| {
-                    tc.run(|conn| repository::get_user_by_uuid(&uuid, conn))
-                        .ok()
-                        .map(|user| NotificationActor {
-                            uuid: user.uuid,
-                            name: user.name.clone(),
-                            avatar_thumb: user.avatar_thumb.clone(),
-                            kind: crate::sync::ActorKind::User,
-                        })
-                });
-
-                if let Some(actor) = actor {
-                    let notification_service = notification_service.clone();
-                    let ticket_title = updated_ticket.ticket.title.clone();
-                    let new_assignee = updated_ticket.ticket.assignee_uuid;
-                    let old_assignee = old.assignee_uuid;
-                    // Compare the workflow-state category of new vs old, so the
-                    // "status changed" notification fires on a category
-                    // transition (e.g. backlog -> active), not on every
-                    // same-category state move.
-                    let new_status_workflow_id = updated_ticket.ticket.workflow_state_id;
-                    let old_status_workflow_id = old.workflow_state_id;
-                    let new_status = tc
-                        .run(|conn| {
-                            repository::workflow_states::category_of(conn, new_status_workflow_id)
-                        })
-                        .ok()
-                        .flatten()
-                        .map(|c| c.as_str())
-                        .unwrap_or("backlog");
-                    let old_status = tc
-                        .run(|conn| {
-                            repository::workflow_states::category_of(conn, old_status_workflow_id)
-                        })
-                        .ok()
-                        .flatten()
-                        .map(|c| c.as_str())
-                        .unwrap_or("backlog");
-                    let requester_uuid = updated_ticket.ticket.requester_uuid;
-                    let ticket_workspace = updated_ticket.ticket.workspace_id;
-                    let actor_clone = actor.clone();
-
-                    // Spawn async task for notifications to not block response
-                    tokio::spawn(async move {
-                        // Notify new assignee if assignment changed, unless this was
-                        // a category-change auto-assignment (already notified above
-                        // with the richer System "auto-assigned" copy).
-                        if new_assignee != old_assignee && new_assignee != auto_assigned_uuid {
-                            if let Some(assignee_uuid) = new_assignee {
-                                let payload = NotificationPayload::new(
-                                    NotificationTypeCode::TicketAssigned,
-                                    assignee_uuid,
-                                    actor_clone.clone(),
-                                    NotificationEntity::Ticket {
-                                        id: ticket_id,
-                                        title: ticket_title.clone(),
-                                    },
-                                    ticket_workspace,
-                                )
-                                .with_body(format!(
-                                    "You have been assigned to ticket #{ticket_id}"
-                                ));
-
-                                if let Err(e) = notification_service.notify(payload).await {
-                                    warn!(error = %e, "Failed to send assignment notification");
-                                }
-                            }
-                        }
-
-                        // Notify requester if status changed to closed
-                        if new_status != old_status {
-                            if let Some(requester) = requester_uuid {
-                                let payload = NotificationPayload::new(
-                                    NotificationTypeCode::TicketStatusChanged,
-                                    requester,
-                                    actor_clone.clone(),
-                                    NotificationEntity::Ticket {
-                                        id: ticket_id,
-                                        title: ticket_title.clone(),
-                                    },
-                                    ticket_workspace,
-                                )
-                                .with_body(format!(
-                                    "Ticket #{} status changed to {}",
-                                    ticket_id, new_status
-                                ));
-
-                                if let Err(e) = notification_service.notify(payload).await {
-                                    warn!(error = %e, "Failed to send status change notification");
-                                }
-                            }
-                        }
-                    });
-                }
-            }
+            // Assignment and status-change notifications derive from the
+            // sync actions the repository write emitted.
 
             // Re-index the updated ticket in search
             // Fetch the article content if it exists for indexing
@@ -1828,7 +1623,6 @@ pub async fn bulk_tickets(
     mut tc: TenantConn,
     storage: crate::extractors::ScopedStorage,
     search_service: web::Data<Arc<SearchService>>,
-    notification_service: web::Data<NotificationService>,
     body: web::Json<BulkActionRequest>,
 ) -> impl Responder {
     // Authentication guard.
@@ -1959,88 +1753,36 @@ pub async fn bulk_tickets(
             };
 
             // One connection/transaction for the batch, each id in its own
-            // savepoint. update_ticket_partial emits ticket.assignee_changed;
-            // the pool delivers the pill. No discrete SSE. Collect the tickets
-            // whose assignee actually changed so we can fire the same
-            // TicketAssigned notification the single-item PATCH path fires
-            // (`update_ticket_partial` handler) — bulk assign was silently
-            // skipping it.
-            let mut assigned: Vec<(i32, String, i32, Uuid)> = Vec::new();
+            // savepoint. update_ticket_partial emits ticket.assignee_changed,
+            // which delivers the pill through the pool and the assignee's
+            // notification through the outbox; a no-op re-assignment emits
+            // an unchanged pair and derives nothing.
             let updated = tc
                 .run(|conn| {
                     let mut n = 0;
                     for id in ids {
-                        let old_assignee = repository::get_ticket_by_id(conn, *id)
-                            .ok()
-                            .and_then(|t| t.assignee_uuid);
                         let update = TicketUpdate {
                             assignee_uuid: Some(assignee_uuid),
                             updated_at: Some(chrono::Utc::now().naive_utc()),
                             ..Default::default()
                         };
-                        if let Ok(t) = conn.transaction(|conn| {
-                            repository::update_ticket_partial(
-                                conn,
-                                *id,
-                                update,
-                                Some(search_service.get_ref()),
-                            )
-                        }) {
+                        if conn
+                            .transaction(|conn| {
+                                repository::update_ticket_partial(
+                                    conn,
+                                    *id,
+                                    update,
+                                    Some(search_service.get_ref()),
+                                )
+                            })
+                            .is_ok()
+                        {
                             n += 1;
-                            // Notify only on a real change (skip no-op
-                            // re-assignments), mirroring the single-item guard.
-                            if let Some(new_assignee) = t.assignee_uuid {
-                                if Some(new_assignee) != old_assignee {
-                                    assigned.push((
-                                        t.id,
-                                        t.title.clone(),
-                                        t.workspace_id,
-                                        new_assignee,
-                                    ));
-                                }
-                            }
                         }
                     }
                     Ok(n)
                 })
                 .unwrap_or(0);
-
-            // Notify each newly-assigned user off the response path, the same
-            // TicketAssigned notification a single assign fires. A large batch
-            // to one assignee is tamed by the interrupt burst-cap (they land in
-            // the bell past the toast threshold), so no coalescing here.
-            if !assigned.is_empty() {
-                let actor = tc
-                    .run(|conn| repository::get_user_by_uuid(&auth.user_uuid, conn))
-                    .ok()
-                    .map(|user| NotificationActor {
-                        uuid: user.uuid,
-                        name: user.name.clone(),
-                        avatar_thumb: user.avatar_thumb.clone(),
-                        kind: crate::sync::ActorKind::User,
-                    });
-                if let Some(actor) = actor {
-                    let notification_service = notification_service.clone();
-                    tokio::spawn(async move {
-                        for (ticket_id, title, workspace_id, recipient) in assigned {
-                            let payload = NotificationPayload::new(
-                                NotificationTypeCode::TicketAssigned,
-                                recipient,
-                                actor.clone(),
-                                NotificationEntity::Ticket {
-                                    id: ticket_id,
-                                    title,
-                                },
-                                workspace_id,
-                            )
-                            .with_body(format!("You have been assigned to ticket #{ticket_id}"));
-                            if let Err(e) = notification_service.notify(payload).await {
-                                warn!(error = %e, "Failed to send bulk assignment notification");
-                            }
-                        }
-                    });
-                }
-            }
 
             HttpResponse::Ok().json(json!({ "affected": updated }))
         }

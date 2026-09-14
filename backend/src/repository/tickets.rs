@@ -248,6 +248,11 @@ pub fn create_ticket_with_annotation(
                     "priority": ticket.priority.as_str(),
                     "requester_uuid": ticket.requester_uuid,
                     "assignee_uuid": ticket.assignee_uuid,
+                    // A ticket created with an assignee is an assignment;
+                    // the null previous value is what lets the deriver
+                    // see it without a special case. Status is not: a
+                    // fresh ticket's state is nobody's change.
+                    "previous_assignee_uuid": null,
                     "category_id": ticket.category_id,
                     "triage_state": ticket.triage_state,
                     "spam_suspected": ticket.spam_suspected,
@@ -417,6 +422,16 @@ pub fn update_ticket_partial(
     }
 
     let result = conn.transaction::<Ticket, diesel::result::Error, _>(|conn| {
+        // The notification deriver decides "actually changed" from the
+        // before/after pair in `data`, so a write that can change the
+        // assignee or workflow state records what it was. Reading the row
+        // first is one indexed lookup inside the same transaction.
+        let previous =
+            if ticket_update.assignee_uuid.is_some() || ticket_update.workflow_state_id.is_some() {
+                Some(get_ticket_by_id(conn, ticket_id)?)
+            } else {
+                None
+            };
         let result: Ticket = diesel::update(tickets::table.find(ticket_id))
             .set(&ticket_update)
             .get_result(conn)?;
@@ -487,6 +502,16 @@ pub fn update_ticket_partial(
             "origin_channel_id": result.origin_channel_id,
             "sla_override": result.sla_override,
         });
+        if let (Some(previous), Some(obj)) = (previous, data.as_object_mut()) {
+            obj.insert(
+                "previous_assignee_uuid".into(),
+                json!(previous.assignee_uuid),
+            );
+            obj.insert(
+                "previous_workflow_state_id".into(),
+                json!(previous.workflow_state_id),
+            );
+        }
         if pill_affecting {
             if let Some(obj) = data.as_object_mut() {
                 obj.insert(

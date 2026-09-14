@@ -256,40 +256,45 @@ impl NotificationService {
                 .collect()
         };
 
+        // A redelivery of the same event (the outbox retrying) finds the
+        // notification it already made; only the channels still pending
+        // are attempted again.
+        let still_pending: Vec<NotificationChannel> = crate::sync::session::run_in_workspace(
+            &self.pool,
+            "background:notification_pending_channels",
+            deliverable.payload.workspace_id,
+            |conn| super::deliveries::pending_channels(conn, notification_id),
+        )
+        .unwrap_or_else(|_| deliverable_channels.clone());
+
         for (channel_type, channel) in channels_to_deliver {
-            match channel.deliver(&deliverable).await {
-                Ok(_) => {
-                    tracing::debug!(
-                        channel = ?channel_type,
-                        notification_id,
-                        "Delivered notification"
-                    );
-                    // Mark channel as delivered
-                    if let Err(e) = self
-                        .mark_channel_delivered(
-                            notification_id,
-                            deliverable.payload.workspace_id,
-                            channel_type,
-                        )
-                        .await
-                    {
-                        tracing::warn!(error = %e, "Failed to mark channel as delivered");
-                    }
-                }
-                Err(ChannelError::RateLimited) => {
-                    tracing::debug!(
-                        channel = ?channel_type,
-                        "Rate limited during delivery"
-                    );
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        channel = ?channel_type,
-                        error = ?e,
-                        "Failed to deliver notification"
-                    );
-                }
+            if !still_pending.contains(&channel_type) {
+                continue;
             }
+            let outcome = channel.deliver(&deliverable).await;
+            match &outcome {
+                Ok(_) => tracing::debug!(
+                    channel = ?channel_type,
+                    notification_id,
+                    "Delivered notification"
+                ),
+                Err(ChannelError::RateLimited) => tracing::debug!(
+                    channel = ?channel_type,
+                    "Rate limited during delivery"
+                ),
+                Err(e) => tracing::warn!(
+                    channel = ?channel_type,
+                    error = ?e,
+                    "Failed to deliver notification"
+                ),
+            }
+            self.record_delivery_outcome(
+                notification_id,
+                deliverable.payload.workspace_id,
+                channel_type,
+                outcome.as_ref().err(),
+            )
+            .await;
         }
 
         Ok(())
@@ -477,6 +482,7 @@ impl NotificationService {
             metadata: Some(metadata),
             channels_delivered: serde_json::json!([]),
             interrupts,
+            source_sync_id: payload.source_sync_id,
         };
 
         // The notification sync emit IS the in-app delivery, so gate it
@@ -501,11 +507,35 @@ impl NotificationService {
             "background:notification_persist",
             payload.workspace_id,
             |conn| {
-                let notification: Notification = diesel::insert_into(notifications::table)
-                    .values(&new_notification)
-                    .get_result(conn)?;
+                // A derived notification is unique per (event, recipient,
+                // type); a redelivery of the same event finds the row it
+                // already made and continues from there. Handler-raised
+                // payloads have no source and always insert.
+                let (notification, fresh): (Notification, bool) =
+                    match diesel::insert_into(notifications::table)
+                        .values(&new_notification)
+                        .on_conflict_do_nothing()
+                        .get_result::<Notification>(conn)
+                        .optional()?
+                    {
+                        Some(inserted) => (inserted, true),
+                        None => (
+                            notifications::table
+                                .filter(notifications::workspace_id.eq(payload.workspace_id))
+                                .filter(notifications::user_uuid.eq(new_notification.user_uuid))
+                                .filter(notifications::notification_type_id.eq(type_id))
+                                .filter(
+                                    notifications::source_sync_id
+                                        .eq(new_notification.source_sync_id),
+                                )
+                                .first(conn)?,
+                            false,
+                        ),
+                    };
 
-                if emit_in_app {
+                // The toast is the in-app delivery; a row that already
+                // existed has already been shown.
+                if emit_in_app && fresh {
                     // Emit a sync_actions row in the same transaction so the
                     // notification reaches the recipient's clients on every
                     // backend machine (cross-machine via Postgres NOTIFY),
@@ -545,12 +575,81 @@ impl NotificationService {
                     )?;
                 }
 
+                // One delivery row per channel. In-app is satisfied by the
+                // emit above, so it is recorded delivered; the rest start
+                // pending and the channel loop records what happens.
+                let delivered_now: Vec<NotificationChannel> = if emit_in_app {
+                    vec![NotificationChannel::InApp]
+                } else {
+                    Vec::new()
+                };
+                super::deliveries::insert_for(
+                    conn,
+                    notification.id,
+                    payload.workspace_id,
+                    payload,
+                    channels,
+                    &delivered_now,
+                )?;
+
                 Ok(notification)
             },
         )
         .map_err(|e| format!("Failed to persist notification: {e}"))?;
 
         Ok(notification.id)
+    }
+
+    /// The registered handler for a channel, for the retry worker.
+    pub fn channel(
+        &self,
+        channel: NotificationChannel,
+    ) -> Option<Arc<dyn NotificationDeliveryChannel>> {
+        self.channels
+            .read()
+            .expect("RwLock poisoned")
+            .get(&channel)
+            .cloned()
+    }
+
+    /// Record one channel attempt: delivered, or rescheduled / failed with
+    /// the error kind. Also keeps `channels_delivered` in step.
+    pub async fn record_delivery_outcome(
+        &self,
+        notification_id: i32,
+        workspace_id: i32,
+        channel: NotificationChannel,
+        error: Option<&ChannelError>,
+    ) {
+        match error {
+            None => {
+                if let Err(e) = self
+                    .mark_channel_delivered(notification_id, workspace_id, channel)
+                    .await
+                {
+                    tracing::warn!(error = %e, "Failed to mark channel as delivered");
+                }
+            }
+            Some(e) => {
+                let kind = super::deliveries::error_kind(e);
+                let r = crate::sync::session::run_in_workspace(
+                    &self.pool,
+                    "background:notification_delivery_failed",
+                    workspace_id,
+                    |conn| {
+                        super::deliveries::mark_attempt_failed(
+                            conn,
+                            notification_id,
+                            channel,
+                            &kind,
+                        )
+                    },
+                );
+                if let Err(e) = r {
+                    tracing::warn!(error = %e, "Failed to record delivery failure");
+                }
+            }
+        }
     }
 
     /// Mark a channel as having delivered the notification
@@ -589,6 +688,7 @@ impl NotificationService {
                 diesel::update(notifications.find(notification_id))
                     .set(channels_delivered.eq(serde_json::json!(delivered)))
                     .execute(conn)?;
+                super::deliveries::mark_delivered(conn, notification_id, channel)?;
                 Ok::<_, diesel::result::Error>(())
             },
         )

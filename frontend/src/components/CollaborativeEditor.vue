@@ -289,6 +289,7 @@ const editorWrapper = ref<HTMLElement | null>(null);
 const mentionDropdownRef = ref<HTMLElement | null>(null);
 const mentionState = ref<MentionState>({
     active: false,
+    trigger: '@',
     query: '',
     from: 0,
     to: 0,

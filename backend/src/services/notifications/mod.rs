@@ -44,6 +44,10 @@
 //! ```
 
 pub mod channels;
+pub mod deliveries;
+pub mod deriver;
+pub mod mentions;
+pub mod outbox;
 pub mod preferences;
 pub mod service;
 pub mod types;

@@ -5,7 +5,7 @@
  * Features:
  * - Markdown-like formatting (bold, italic, code, lists, etc.)
  * - Twemoji rendering
- * - @mention support with user search
+ * - @mention support with user search, #ticket references from the pool
  * - Ticket reference support (paste URLs or drag tickets)
  * - v-model binding
  */
@@ -26,12 +26,17 @@ import { createPlaceholderPlugin } from '@/plugins/prosemirror-placeholder';
 import {
   createMentionPlugins,
   insertMention,
+  insertTicketReference,
   closeMention,
+  type MentionKey,
   type MentionState,
   type MentionUser,
 } from '@/plugins/prosemirror-mentions';
 import { createMentionViewPlugin } from '@/plugins/prosemirror-mention-view';
-import { createTicketLinkPlugin } from '@/components/editor/ticketLinkPlugin';
+import {
+  createTicketLinkPlugin,
+  createTicketNumberInputRule,
+} from '@/components/editor/ticketLinkPlugin';
 import { createTicketDropIndicatorPlugin } from '@/components/editor/ticketDropIndicatorPlugin';
 import {
   inputRules,
@@ -43,7 +48,12 @@ import {
 } from 'prosemirror-inputrules';
 import { DOMSerializer, DOMParser } from 'prosemirror-model';
 import { useUserMentionSearch } from '@/composables/useUserMentionSearch';
+import { useTicketReferenceSearch } from '@/composables/useTicketReferenceSearch';
+import { useWorkflowStatesStore } from '@nosdesk/core/stores/workflowStates';
+import { shareableRouteUrl } from '@/utils/shareUrl';
+import type { SyncTicket } from '@/sync/stores/tickets';
 import UserAvatar from '@/components/UserAvatar.vue';
+import StatusBadge from '@/components/StatusBadge.vue';
 
 const props = withDefaults(defineProps<{
   modelValue: string;
@@ -52,7 +62,7 @@ const props = withDefaults(defineProps<{
   minHeight?: string;
   maxHeight?: string;
 }>(), {
-  placeholder: 'Type your message... (supports @mentions and **markdown**)',
+  placeholder: 'Type your message... (supports @mentions, #tickets and **markdown**)',
   disabled: false,
   minHeight: '80px',
   maxHeight: '300px',
@@ -105,27 +115,37 @@ const editorWrapper = ref<HTMLElement | null>(null);
 const dropdownRef = ref<HTMLElement | null>(null);
 let view: EditorView | null = null;
 
-// Mention state
+// Picker state: one plugin tracks both triggers, `trigger` says which.
 const mentionState = ref<MentionState>({
   active: false,
+  trigger: '@',
   query: '',
   from: 0,
   to: 0,
   position: null,
 });
 const selectedIndex = ref(0);
+const pickingTickets = computed(() => mentionState.value.active && mentionState.value.trigger === '#');
 
 // Reactive query: empty while no `@` mention is active, otherwise the
 // running query the ProseMirror plugin tracks. The composable watches
 // this ref and runs (with debounce + AbortController cancellation)
 // only when the value changes, so an idle dropdown costs nothing.
 const mentionQuery = computed(() =>
-  mentionState.value.active ? mentionState.value.query : '',
+  mentionState.value.active && mentionState.value.trigger === '@' ? mentionState.value.query : '',
 );
 const { users, isLoading: isSearching } = useUserMentionSearch(mentionQuery, {
   limit: 8,
 });
-watch(users, () => {
+// `#` searches the workspace pool synchronously; nothing to await.
+const tickets = useTicketReferenceSearch(() =>
+  pickingTickets.value ? mentionState.value.query : '',
+);
+const workflowStates = useWorkflowStatesStore();
+const resultCount = computed(() =>
+  pickingTickets.value ? tickets.value.length : users.value.length,
+);
+watch([users, tickets], () => {
   selectedIndex.value = 0;
 });
 
@@ -170,14 +190,37 @@ const selectUser = (user: MentionUser) => {
   insertMention(view, user, schema.nodes.mention);
 };
 
+// Select a ticket: the same `ticket_link` node paste and drop insert.
+const selectTicket = (ticket: SyncTicket) => {
+  if (!view) return;
+  insertTicketReference(
+    view,
+    { id: ticket.id, href: shareableRouteUrl('ticket-view', { id: String(ticket.id) }) },
+    schema.nodes.ticket_link,
+  );
+};
+
+const selectCurrent = (): boolean => {
+  if (pickingTickets.value) {
+    const ticket = tickets.value[selectedIndex.value];
+    if (!ticket) return false;
+    selectTicket(ticket);
+    return true;
+  }
+  const user = users.value[selectedIndex.value];
+  if (!user) return false;
+  selectUser(user);
+  return true;
+};
+
 // Handle keyboard navigation in dropdown (called by ProseMirror plugin)
 // Returns true if the key was handled to prevent default ProseMirror behavior
-const handleMentionKeyDown = (key: 'ArrowUp' | 'ArrowDown' | 'Enter' | 'Tab' | 'Escape'): boolean => {
+const handleMentionKeyDown = (key: MentionKey): boolean => {
   if (!mentionState.value.active || !view) return false;
 
   switch (key) {
     case 'ArrowDown':
-      selectedIndex.value = Math.min(selectedIndex.value + 1, users.value.length - 1);
+      selectedIndex.value = Math.max(0, Math.min(selectedIndex.value + 1, resultCount.value - 1));
       scrollToSelected();
       return true;
     case 'ArrowUp':
@@ -186,11 +229,7 @@ const handleMentionKeyDown = (key: 'ArrowUp' | 'ArrowDown' | 'Enter' | 'Tab' | '
       return true;
     case 'Enter':
     case 'Tab':
-      if (users.value.length > 0) {
-        selectUser(users.value[selectedIndex.value]);
-        return true;
-      }
-      return false;
+      return selectCurrent();
     case 'Escape':
       closeMention(view);
       return true;
@@ -234,6 +273,8 @@ function buildInputRules() {
     textblockTypeInputRule(/^(#{1,6})\s$/, schema.nodes.heading, match => ({
       level: match[1].length
     })),
+    // #123 followed by a space, when the pool knows the ticket
+    createTicketNumberInputRule(schema),
   ];
   return inputRules({ rules });
 }
@@ -279,6 +320,7 @@ onMounted(() => {
       ...createMentionPlugins({
         onStateChange: handleMentionStateChange,
         onKeyDown: handleMentionKeyDown,
+        triggers: ['@', '#'],
       }),
       keymap(baseKeymap),
       history(),
@@ -408,8 +450,38 @@ defineExpose({ focus, clear });
             Searching for "<span class="text-primary font-medium">{{ mentionState.query }}</span>"
           </div>
 
+          <!-- Ticket list (`#`): from the workspace pool, so never loading -->
+          <template v-if="pickingTickets">
+            <div v-if="!mentionState.query" class="px-3 py-4 text-center text-sm text-tertiary">
+              {{ t('editor-ticket-picker-prompt') }}
+            </div>
+            <div v-else-if="tickets.length > 0" class="max-h-48 overflow-y-auto">
+              <button
+                v-for="(ticket, index) in tickets"
+                :key="ticket.id"
+                type="button"
+                @click="selectTicket(ticket)"
+                @mouseenter="selectedIndex = index"
+                class="w-full px-3 py-2 flex items-center gap-3 text-left hover:bg-surface-alt transition-colors"
+                :class="{ 'bg-surface-alt selected': index === selectedIndex }"
+              >
+                <span class="text-xs text-tertiary tabular-nums shrink-0">#{{ ticket.id }}</span>
+                <span class="flex-1 min-w-0 text-sm font-medium text-primary truncate">{{ ticket.title }}</span>
+                <StatusBadge
+                  type="status"
+                  :workflow-state="workflowStates.findById(ticket.workflow_state_id) ?? null"
+                  custom-classes="text-xs px-1.5 py-0.5 rounded border whitespace-nowrap"
+                  :compact="true"
+                />
+              </button>
+            </div>
+            <div v-else class="px-3 py-4 text-center text-sm text-tertiary">
+              {{ t('editor-ticket-picker-empty') }}
+            </div>
+          </template>
+
           <!-- Loading -->
-          <div v-if="isSearching" class="px-3 py-4 flex items-center justify-center text-accent">
+          <div v-else-if="isSearching" class="px-3 py-4 flex items-center justify-center text-accent">
             <Spinner />
           </div>
 
@@ -573,175 +645,6 @@ defineExpose({ focus, clear });
   text-decoration: underline;
 }
 
-/* Mention chip styles */
-.simple-editor :deep(.mention-chip) {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.1875rem;
-  padding: 0.0625em 0.375em 0.0625em 0.1875em;
-  margin: 0 0.0625em;
-  border-radius: 9999px;
-  background-color: color-mix(in srgb, var(--color-accent) 12%, transparent);
-  color: var(--color-accent);
-  font-weight: 500;
-  font-size: inherit;
-  line-height: 1;
-  vertical-align: text-bottom;
-  cursor: pointer;
-  user-select: none;
-  transition: background-color 0.15s ease;
-}
-
-.simple-editor :deep(.mention-chip:hover) {
-  background-color: color-mix(in srgb, var(--color-accent) 20%, transparent);
-}
-
-.simple-editor :deep(.mention-avatar) {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1em;
-  height: 1em;
-  border-radius: 9999px;
-  overflow: hidden;
-  flex-shrink: 0;
-}
-
-.simple-editor :deep(.mention-avatar-img) {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.simple-editor :deep(.mention-avatar-fallback) {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  font-size: 0.5em;
-  font-weight: 600;
-}
-
-.simple-editor :deep(.mention-name) {
-  white-space: nowrap;
-}
-
-/* Compact inline ticket card */
-.simple-editor :deep(.ticket-link-card) {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 10px;
-  margin: 2px 0;
-  background: var(--color-surface-alt);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: 4px;
-  font-size: 12px;
-  line-height: 1.3;
-  cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease;
-  max-width: 100%;
-  vertical-align: middle;
-}
-
-.simple-editor :deep(.ticket-link-card:hover) {
-  border-color: var(--color-accent);
-  background: var(--color-surface-hover);
-}
-
-.simple-editor :deep(.ticket-link-loading) {
-  opacity: 0.6;
-}
-
-.simple-editor :deep(.ticket-link-error) {
-  border-color: var(--color-status-error);
-}
-
-.simple-editor :deep(.ticket-link-id) {
-  font-weight: 600;
-  color: var(--color-text-tertiary, #888);
-  font-family: var(--font-mono, monospace);
-  font-size: 11px;
-  flex-shrink: 0;
-}
-
-.simple-editor :deep(.ticket-link-title) {
-  color: var(--color-text-primary, #fff);
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
-
-.simple-editor :deep(.ticket-link-status),
-.simple-editor :deep(.ticket-link-priority) {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  font-weight: 500;
-  text-transform: capitalize;
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-
-.simple-editor :deep(.ticket-link-dot) {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  background: currentColor;
-}
-
-.simple-editor :deep(.ticket-link-status-open) {
-  background: var(--color-status-open-muted, rgba(59, 130, 246, 0.15));
-  color: var(--color-status-open, #3b82f6);
-}
-
-.simple-editor :deep(.ticket-link-status-in-progress) {
-  background: var(--color-status-in-progress-muted, rgba(245, 158, 11, 0.15));
-  color: var(--color-status-in-progress, #f59e0b);
-}
-
-.simple-editor :deep(.ticket-link-status-closed) {
-  background: var(--color-status-closed-muted, rgba(34, 197, 94, 0.15));
-  color: var(--color-status-closed, #22c55e);
-}
-
-.simple-editor :deep(.ticket-link-priority-high) {
-  background: var(--color-priority-high-muted, rgba(239, 68, 68, 0.15));
-  color: var(--color-priority-high, #ef4444);
-}
-
-.simple-editor :deep(.ticket-link-priority-medium) {
-  background: var(--color-priority-medium-muted, rgba(245, 158, 11, 0.15));
-  color: var(--color-priority-medium, #f59e0b);
-}
-
-.simple-editor :deep(.ticket-link-priority-low) {
-  background: var(--color-priority-low-muted, rgba(34, 197, 94, 0.15));
-  color: var(--color-priority-low, #22c55e);
-}
-
-.simple-editor :deep(.ticket-link-loader) {
-  width: 10px;
-  height: 10px;
-  border: 1.5px solid var(--color-border-default, #333);
-  border-top-color: var(--color-accent);
-  border-radius: 50%;
-  animation: ticket-link-spin 0.8s linear infinite;
-}
-
-@keyframes ticket-link-spin {
-  to { transform: rotate(360deg); }
-}
-
-/* Ticket Drop Preview - shows ticket preview when dragging over editor */
 .simple-editor :deep(.ticket-drop-preview) {
   display: flex;
   flex-direction: column;

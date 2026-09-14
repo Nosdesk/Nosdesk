@@ -28,7 +28,7 @@ use serde_json::{json, Value};
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
-use super::push::{PushPayload, PushSender, PushTarget};
+use super::push::{PushOutcome, PushPayload, PushSender, PushTarget};
 
 /// Outcome of a single-device send — drives token pruning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -635,7 +635,7 @@ impl PushSender for NativePushSender {
         self.apns.is_some() || self.fcm.is_some()
     }
 
-    async fn send(&self, targets: &[PushTarget], payload: &PushPayload) -> Vec<String> {
+    async fn send(&self, targets: &[PushTarget], payload: &PushPayload) -> PushOutcome {
         let mut invalid = Vec::new();
         // Per-platform tallies, matching what the relay reports. Without them a
         // successful native send logs nothing at all, so "did the iPhone get
@@ -685,7 +685,12 @@ impl PushSender for NativePushSender {
             targets = targets.len(),
             "Push dispatched"
         );
-        invalid
+        PushOutcome {
+            sent: sent_ios + sent_android,
+            failed,
+            invalid,
+            error_kind: None,
+        }
     }
 }
 
@@ -786,7 +791,7 @@ mod tests {
             ticket_id: 1,
         };
         // No provider for the platform → skipped, no panic, nothing pruned.
-        assert!(sender.send(&targets, &payload).await.is_empty());
+        assert!(sender.send(&targets, &payload).await.invalid.is_empty());
     }
 }
 

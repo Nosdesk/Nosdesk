@@ -15,6 +15,7 @@ export type SyncAggregate =
   | 'project_ticket'
   | 'ticket_asset'
   | 'linked_ticket'
+  | 'ticket_reference'
   | 'cycle_ticket'
   | 'workflow_state'
   | 'comment'

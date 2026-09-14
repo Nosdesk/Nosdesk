@@ -1,17 +1,17 @@
 /**
  * ProseMirror Mentions Plugin
  *
- * Provides @mention functionality:
- * - Detects @ trigger and tracks query text
+ * Provides trigger-character pickers (`@` for people, `#` for tickets):
+ * - Detects the trigger and tracks query text
  * - Provides position info for dropdown placement
  * - Handles keyboard navigation (must be before baseKeymap)
- * - Inserts mention nodes when user is selected
+ * - Replaces the typed trigger + query with the chosen node
  */
 import { Plugin, PluginKey } from 'prosemirror-state';
 import { Decoration, DecorationSet } from 'prosemirror-view';
 import { keymap } from 'prosemirror-keymap';
 import type { EditorView } from 'prosemirror-view';
-import type { NodeType } from 'prosemirror-model';
+import type { Node as ProseMirrorNode, NodeType } from 'prosemirror-model';
 import type { Command } from 'prosemirror-state';
 
 export interface MentionUser {
@@ -22,13 +22,19 @@ export interface MentionUser {
   avatar_thumb?: string | null;
 }
 
+/** `@` opens the people picker, `#` the ticket picker. */
+export type MentionTrigger = '@' | '#';
+
 export interface MentionState {
   active: boolean;
+  trigger: MentionTrigger;
   query: string;
   from: number;
   to: number;
   position: { top: number; left: number } | null;
 }
+
+const INACTIVE: MentionState = { active: false, trigger: '@', query: '', from: 0, to: 0, position: null };
 
 export type MentionKey = 'ArrowUp' | 'ArrowDown' | 'Enter' | 'Tab' | 'Escape';
 
@@ -37,36 +43,47 @@ export interface MentionPluginOptions {
   onStateChange?: (state: MentionState) => void;
   /** Called when a navigation key is pressed. Return true if handled. */
   onKeyDown?: (key: MentionKey) => boolean;
+  /** Which triggers open a picker. Defaults to `@` only. */
+  triggers?: MentionTrigger[];
 }
 
 export const mentionPluginKey = new PluginKey<MentionState>('mentions');
 
 /**
- * Find the @ trigger position before cursor
+ * Find the nearest trigger before the cursor. A trigger counts only at
+ * the start of the block or after whitespace, so `a@b.c` and `/#anchor`
+ * never open a picker.
  */
 function findMentionTrigger(
   text: string,
-  cursorPos: number
-): { start: number; query: string } | null {
+  cursorPos: number,
+  triggers: MentionTrigger[]
+): { start: number; query: string; trigger: MentionTrigger } | null {
   const textBeforeCursor = text.slice(0, cursorPos);
-  const lastAtIndex = textBeforeCursor.lastIndexOf('@');
+  let start = -1;
+  let trigger: MentionTrigger = '@';
+  for (const candidate of triggers) {
+    const idx = textBeforeCursor.lastIndexOf(candidate);
+    if (idx > start) {
+      start = idx;
+      trigger = candidate;
+    }
+  }
+  if (start === -1) return null;
 
-  if (lastAtIndex === -1) return null;
-
-  // Check if @ is at start or preceded by whitespace
-  const charBefore = lastAtIndex > 0 ? textBeforeCursor[lastAtIndex - 1] : ' ';
-  if (charBefore !== ' ' && charBefore !== '\n' && lastAtIndex !== 0) {
+  const charBefore = start > 0 ? textBeforeCursor[start - 1] : ' ';
+  if (charBefore !== ' ' && charBefore !== '\n' && start !== 0) {
     return null;
   }
 
-  const query = textBeforeCursor.slice(lastAtIndex + 1);
+  const query = textBeforeCursor.slice(start + 1);
 
   // Query should be a single word (no spaces) and reasonable length
   if (query.includes(' ') || query.length > 50) {
     return null;
   }
 
-  return { start: lastAtIndex, query };
+  return { start, query, trigger };
 }
 
 /**
@@ -85,18 +102,19 @@ function getCursorPosition(view: EditorView, pos: number): { top: number; left: 
  * Create the mention state tracking plugin
  */
 function createMentionStatePlugin(options: MentionPluginOptions): Plugin {
+  const triggers = options.triggers ?? ['@'];
   return new Plugin<MentionState>({
     key: mentionPluginKey,
 
     state: {
       init(): MentionState {
-        return { active: false, query: '', from: 0, to: 0, position: null };
+        return INACTIVE;
       },
 
       apply(tr, prev, _oldState, newState): MentionState {
         // Check if this is a mention close action
         if (tr.getMeta(mentionPluginKey)?.type === 'close') {
-          return { active: false, query: '', from: 0, to: 0, position: null };
+          return INACTIVE;
         }
 
         // Only check for mentions if document or selection changed
@@ -109,25 +127,22 @@ function createMentionStatePlugin(options: MentionPluginOptions): Plugin {
 
         // Only handle cursor (not range) selections in text nodes
         if (!selection.empty || !$from.parent.isTextblock) {
-          return prev.active
-            ? { active: false, query: '', from: 0, to: 0, position: null }
-            : prev;
+          return prev.active ? INACTIVE : prev;
         }
 
-        // Get text content up to cursor and find @ trigger
+        // Get text content up to cursor and find the trigger
         const textBefore = $from.parent.textBetween(0, $from.parentOffset, undefined, '\ufffc');
-        const trigger = findMentionTrigger(textBefore, $from.parentOffset);
+        const trigger = findMentionTrigger(textBefore, $from.parentOffset, triggers);
 
         if (!trigger) {
-          return prev.active
-            ? { active: false, query: '', from: 0, to: 0, position: null }
-            : prev;
+          return prev.active ? INACTIVE : prev;
         }
 
         // Calculate absolute positions
         const blockStart = $from.start();
         return {
           active: true,
+          trigger: trigger.trigger,
           query: trigger.query,
           from: blockStart + trigger.start,
           to: $from.pos,
@@ -145,7 +160,7 @@ function createMentionStatePlugin(options: MentionPluginOptions): Plugin {
           if (!prev || !next) return;
 
           // Notify on state change
-          if (prev.active !== next.active || prev.query !== next.query) {
+          if (prev.active !== next.active || prev.query !== next.query || prev.trigger !== next.trigger) {
             const position = next.active ? getCursorPosition(view, next.to) : null;
             options.onStateChange?.({ ...next, position });
           }
@@ -213,6 +228,24 @@ export function createMentionPlugins(options: MentionPluginOptions = {}): Plugin
 export const createMentionsPlugin = createMentionStatePlugin;
 
 /**
+ * Replace the active trigger + query with `node`, followed by a space,
+ * and close the picker.
+ */
+function replaceActiveTrigger(view: EditorView, node: ProseMirrorNode): void {
+  const state = mentionPluginKey.getState(view.state);
+  if (!state?.active) return;
+
+  const { from, to } = state;
+  let tr = view.state.tr;
+  tr = tr.replaceWith(from, to, node);
+  tr = tr.insertText(' ', from + 1);
+  tr = tr.setMeta(mentionPluginKey, { type: 'close' });
+
+  view.dispatch(tr);
+  view.focus();
+}
+
+/**
  * Insert a mention into the editor
  */
 export function insertMention(
@@ -220,23 +253,28 @@ export function insertMention(
   user: MentionUser,
   mentionNodeType: NodeType
 ): void {
-  const state = mentionPluginKey.getState(view.state);
-  if (!state?.active) return;
+  replaceActiveTrigger(
+    view,
+    mentionNodeType.create({
+      uuid: user.uuid,
+      name: user.name,
+      avatarUrl: user.avatar_thumb || user.avatar_url || null,
+    })
+  );
+}
 
-  const { from, to } = state;
-  const mentionNode = mentionNodeType.create({
-    uuid: user.uuid,
-    name: user.name,
-    avatarUrl: user.avatar_thumb || user.avatar_url || null,
-  });
-
-  let tr = view.state.tr;
-  tr = tr.replaceWith(from, to, mentionNode);
-  tr = tr.insertText(' ', from + 1);
-  tr = tr.setMeta(mentionPluginKey, { type: 'close' });
-
-  view.dispatch(tr);
-  view.focus();
+/**
+ * Insert a ticket reference (a `ticket_link` node) in place of the `#` query.
+ */
+export function insertTicketReference(
+  view: EditorView,
+  ticket: { id: number; href: string },
+  ticketLinkNodeType: NodeType
+): void {
+  replaceActiveTrigger(
+    view,
+    ticketLinkNodeType.create({ ticketId: String(ticket.id), href: ticket.href })
+  );
 }
 
 /**

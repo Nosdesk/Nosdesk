@@ -576,6 +576,15 @@ diesel::table! {
 }
 
 diesel::table! {
+    comment_ticket_references (comment_id, referenced_ticket_id) {
+        comment_id -> Int4,
+        referenced_ticket_id -> Int4,
+        workspace_id -> Int4,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     comments (id) {
         id -> Int4,
         content -> Text,
@@ -990,6 +999,35 @@ diesel::table! {
 }
 
 diesel::table! {
+    notification_deliveries (notification_id, channel) {
+        notification_id -> Int4,
+        #[max_length = 16]
+        channel -> Varchar,
+        #[max_length = 16]
+        status -> Varchar,
+        attempts -> Int2,
+        next_attempt_at -> Nullable<Timestamptz>,
+        last_error -> Nullable<Text>,
+        delivered_at -> Nullable<Timestamptz>,
+        payload -> Jsonb,
+        workspace_id -> Int4,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    notification_outbox (sync_id) {
+        sync_id -> Int8,
+        enqueued_at -> Timestamptz,
+        attempts -> Int2,
+        claimed_at -> Nullable<Timestamptz>,
+        next_attempt_at -> Timestamptz,
+        last_error -> Nullable<Text>,
+        dead_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
     notification_preferences (id) {
         id -> Int4,
         user_uuid -> Uuid,
@@ -1054,6 +1092,7 @@ diesel::table! {
         archived_at -> Nullable<Timestamptz>,
         snoozed_until -> Nullable<Timestamptz>,
         interrupts -> Bool,
+        source_sync_id -> Nullable<Int8>,
     }
 }
 
@@ -2307,6 +2346,9 @@ diesel::joinable!(channel_messages -> tickets (ticket_id));
 diesel::joinable!(channel_messages -> users (author_user_uuid));
 diesel::joinable!(channel_messages -> workspaces (workspace_id));
 diesel::joinable!(channels -> workspaces (workspace_id));
+diesel::joinable!(comment_ticket_references -> comments (comment_id));
+diesel::joinable!(comment_ticket_references -> tickets (referenced_ticket_id));
+diesel::joinable!(comment_ticket_references -> workspaces (workspace_id));
 diesel::joinable!(comments -> tickets (ticket_id));
 diesel::joinable!(comments -> users (user_uuid));
 diesel::joinable!(comments -> workspaces (workspace_id));
@@ -2363,6 +2405,8 @@ diesel::joinable!(linked_tickets -> users (created_by));
 diesel::joinable!(linked_tickets -> workspaces (workspace_id));
 diesel::joinable!(manufacturers -> users (created_by));
 diesel::joinable!(manufacturers -> workspaces (workspace_id));
+diesel::joinable!(notification_deliveries -> notifications (notification_id));
+diesel::joinable!(notification_deliveries -> workspaces (workspace_id));
 diesel::joinable!(notification_preferences -> notification_types (notification_type_id));
 diesel::joinable!(notification_preferences -> users (user_uuid));
 diesel::joinable!(notification_preferences -> workspaces (workspace_id));
@@ -2505,6 +2549,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     channel_credentials,
     channel_messages,
     channels,
+    comment_ticket_references,
     comments,
     csp_reports,
     cycle_tickets,
@@ -2530,6 +2575,8 @@ diesel::allow_tables_to_appear_in_same_query!(
     knowledge_gaps,
     linked_tickets,
     manufacturers,
+    notification_deliveries,
+    notification_outbox,
     notification_preferences,
     notification_rate_limits,
     notification_types,

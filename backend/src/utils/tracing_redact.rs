@@ -153,6 +153,9 @@ const ALLOWED_FIELDS: &[&str] = &[
     "cancelled",
     "code",
     "count",
+    // notification outbox: per-row intent and recipient counts.
+    "intents",
+    "recipients",
     "elapsed_ms",
     "error",
     "error_kind",

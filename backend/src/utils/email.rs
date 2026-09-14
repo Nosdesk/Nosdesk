@@ -312,13 +312,18 @@ impl<'a> EmailTemplate<'a> {
         Self { branding }
     }
 
-    /// Resolve the logo URL against `base_url` (relative paths get the
-    /// base prefix; absolute `http(s)` URLs pass through).
+    /// Resolve the logo URL: absolute `http(s)` URLs pass through; a
+    /// relative path is joined to the **origin** of `base_url`, not to
+    /// `base_url` itself. On hosted, an agent's link base carries the
+    /// workspace slug in its path (`https://app.example/acme`), while
+    /// `/uploads/branding/...` is served at the origin root; joining to the
+    /// full base produced a URL the SPA answered with `index.html`, and mail
+    /// clients showed the alt text in place of the logo.
     fn logo_full_url(&self, logo_url: &str) -> String {
         if logo_url.starts_with("http") {
             logo_url.to_string()
         } else {
-            format!("{}{}", self.branding.base_url, logo_url)
+            format!("{}{}", origin_of(&self.branding.base_url), logo_url)
         }
     }
 
@@ -1971,8 +1976,45 @@ pub struct OutboundEmailMessage<'a> {
     pub list_unsubscribe: Option<&'a str>,
 }
 
+/// `scheme://host[:port]` of a URL, with any path dropped. A base without a
+/// scheme is returned unchanged.
+fn origin_of(base_url: &str) -> String {
+    let base = base_url.trim_end_matches('/');
+    match base.find("://") {
+        Some(i) => match base[i + 3..].find('/') {
+            Some(j) => base[..i + 3 + j].to_string(),
+            None => base.to_string(),
+        },
+        None => base.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn logo_resolves_against_the_origin_not_the_slug_base() {
+        let mut branding = super::EmailBranding::default();
+        branding.logo_url = Some("/uploads/branding/ws/logo.png".into());
+        branding.base_url = "https://app.nosdesk.example/acme".into();
+        let html = super::EmailTemplate::new(&branding).build_logo_section();
+        assert!(
+            html.contains(r#"src="https://app.nosdesk.example/uploads/branding/ws/logo.png""#),
+            "{html}"
+        );
+
+        let mut branding = super::EmailBranding::default();
+        branding.logo_url = Some("/uploads/branding/ws/logo.png".into());
+        branding.base_url = "https://acme.nosdesk.example/".into();
+        let html = super::EmailTemplate::new(&branding).build_logo_section();
+        assert!(html.contains(r#"src="https://acme.nosdesk.example/uploads/branding/ws/logo.png""#));
+
+        let mut branding = super::EmailBranding::default();
+        branding.logo_url = Some("https://cdn.example/logo.png".into());
+        branding.base_url = "https://app.nosdesk.example/acme".into();
+        let html = super::EmailTemplate::new(&branding).build_logo_section();
+        assert!(html.contains(r#"src="https://cdn.example/logo.png""#));
+    }
+
     use super::*;
 
     #[test]

@@ -23,6 +23,11 @@ const DEFAULT_CONFIG: Config = {
     'href', 'target', 'rel', 'title', 'alt', 'src',
     'class', 'id',
     'colspan', 'rowspan',
+    // Mention chips and ticket links as the composer stores them. Inert
+    // data attributes; enhanceMentions() / enhanceTicketLinks() read them
+    // after render.
+    'data-uuid', 'data-mention', 'data-name', 'data-avatar-url',
+    'data-ticket-link', 'data-ticket-id', 'data-href',
   ],
   ALLOW_DATA_ATTR: false,
   ADD_ATTR: ['target'],
