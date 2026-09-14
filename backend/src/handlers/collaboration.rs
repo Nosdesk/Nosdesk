@@ -3387,20 +3387,19 @@ pub async fn get_ticket_revisions(
     ticket_id: web::Path<i32>,
     mut tc: TenantConn,
     auth: AuthContext,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let ticket_id = ticket_id.into_inner();
     gate_ticket(&mut tc, &auth, ticket_id)?;
 
     // A ticket with no saved collaborative content yet simply has no
     // revisions: return an empty list so the version-history panel shows
     // its empty state instead of erroring.
-    let article_content = match ticket_article_content(&mut tc, ticket_id) {
-        Ok(Some(content)) => content,
-        Ok(None) => {
+    let article_content = match ticket_article_content(&mut tc, ticket_id)? {
+        Some(content) => content,
+        None => {
             return Ok(HttpResponse::Ok()
                 .json(Vec::<crate::models::ArticleContentRevisionResponse>::new()));
         }
-        Err(resp) => return Err(resp.into()),
     };
 
     // Get all revisions
@@ -3412,7 +3411,7 @@ pub async fn get_ticket_revisions(
                 revisions.into_iter().map(Into::into).collect();
             Ok(HttpResponse::Ok().json(responses))
         }
-        Err(_) => Ok(errors::internal("Error retrieving revisions")),
+        Err(_) => Err(ApiError::Internal("Error retrieving revisions".into())),
     }
 }
 
@@ -3421,16 +3420,13 @@ pub async fn get_ticket_revision(
     path: web::Path<(i32, i32)>,
     mut tc: TenantConn,
     auth: AuthContext,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let (ticket_id, revision_number) = path.into_inner();
     gate_ticket(&mut tc, &auth, ticket_id)?;
 
     // No saved content means this revision can't exist.
-    let article_content = match ticket_article_content(&mut tc, ticket_id) {
-        Ok(Some(content)) => content,
-        Ok(None) => return Ok(errors::not_found_msg("Revision not found")),
-        Err(resp) => return Err(resp.into()),
-    };
+    let article_content = ticket_article_content(&mut tc, ticket_id)?
+        .ok_or_else(|| ApiError::NotFoundMsg("Revision not found".into()))?;
 
     // Get the specific revision
     match tc.run(|conn| {
@@ -3453,7 +3449,7 @@ pub async fn get_ticket_revision(
                 "created_at": revision.created_at,
             })))
         }
-        Err(_) => Ok(errors::not_found_msg("Revision not found")),
+        Err(_) => Err(ApiError::NotFoundMsg("Revision not found".into())),
     }
 }
 
@@ -3462,15 +3458,14 @@ pub async fn restore_ticket_revision(
     path: web::Path<(i32, i32)>,
     mut tc: TenantConn,
     auth: AuthContext,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let (ticket_id, revision_number) = path.into_inner();
     gate_ticket(&mut tc, &auth, ticket_id)?;
 
     // No saved content means this revision can't exist.
-    let article_content = match ticket_article_content(&mut tc, ticket_id) {
-        Ok(Some(content)) => content,
-        Ok(None) => return Ok(errors::not_found_msg("Revision not found")),
-        Err(resp) => return Err(resp.into()),
+    let article_content = match ticket_article_content(&mut tc, ticket_id)? {
+        Some(content) => content,
+        None => return Err(ApiError::NotFoundMsg("Revision not found".into())),
     };
 
     // Get the revision to restore
@@ -3482,16 +3477,15 @@ pub async fn restore_ticket_revision(
         )
     }) {
         Ok(rev) => rev,
-        Err(_) => return Ok(errors::not_found_msg("Revision not found")),
+        Err(_) => return Err(ApiError::NotFoundMsg("Revision not found".into())),
     };
 
-    if let Err(resp) = validate_revision_snapshot(&revision.yjs_document_content) {
+    validate_revision_snapshot(&revision.yjs_document_content).inspect_err(|_| {
         error!(
             ticket_id,
             revision_number, "Revision snapshot failed to decode"
-        );
-        return Err(resp.into());
-    }
+        )
+    })?;
 
     // The client applies the revert; this endpoint only authorised it, so it
     // cannot report whether the revert landed.
@@ -3512,7 +3506,7 @@ pub async fn get_doc_revisions(
     doc_id: web::Path<i32>,
     mut tc: TenantConn,
     auth: AuthContext,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let doc_id = doc_id.into_inner();
     gate_doc_page(&mut tc, &auth, doc_id)?;
 
@@ -3520,7 +3514,7 @@ pub async fn get_doc_revisions(
     match tc.run(|conn| crate::repository::documentation::get_documentation_revisions(conn, doc_id))
     {
         Ok(revisions) => Ok(HttpResponse::Ok().json(revisions)),
-        Err(_) => Ok(errors::internal("Error retrieving revisions")),
+        Err(_) => Err(ApiError::Internal("Error retrieving revisions".into())),
     }
 }
 
@@ -3529,7 +3523,7 @@ pub async fn get_doc_revision(
     path: web::Path<(i32, i32)>,
     mut tc: TenantConn,
     auth: AuthContext,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let (doc_id, revision_number) = path.into_inner();
     gate_doc_page(&mut tc, &auth, doc_id)?;
 
@@ -3552,7 +3546,7 @@ pub async fn get_doc_revision(
                 "change_summary": revision.change_summary,
             })))
         }
-        Err(_) => Ok(errors::not_found_msg("Revision not found")),
+        Err(_) => Err(ApiError::NotFoundMsg("Revision not found".into())),
     }
 }
 
@@ -3561,7 +3555,7 @@ pub async fn restore_doc_revision(
     path: web::Path<(i32, i32)>,
     mut tc: TenantConn,
     auth: AuthContext,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let (doc_id, revision_number) = path.into_inner();
     gate_doc_page(&mut tc, &auth, doc_id)?;
 
@@ -3570,16 +3564,15 @@ pub async fn restore_doc_revision(
         crate::repository::documentation::get_documentation_revision(conn, doc_id, revision_number)
     }) {
         Ok(rev) => rev,
-        Err(_) => return Ok(errors::not_found_msg("Revision not found")),
+        Err(_) => return Err(ApiError::NotFoundMsg("Revision not found".into())),
     };
 
-    if let Err(resp) = validate_revision_snapshot(&revision.yjs_document_snapshot) {
+    validate_revision_snapshot(&revision.yjs_document_snapshot).inspect_err(|_| {
         error!(
             doc_id,
             revision_number, "Revision snapshot failed to decode"
-        );
-        return Err(resp.into());
-    }
+        )
+    })?;
 
     info!(
         doc_id,

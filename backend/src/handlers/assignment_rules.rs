@@ -5,7 +5,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::extractors::{AuthContext, TenantConn};
-use crate::handlers::errors;
+use crate::handlers::errors::ApiError;
 use crate::models::{
     AssignmentMethod, AssignmentRuleUpdate, AssignmentTrigger, NewAssignmentRule, WorkspaceRole,
 };
@@ -53,15 +53,12 @@ pub fn config(cfg: &mut web::ServiceConfig) {
 // ============================================================================
 
 /// Get all assignment rules with details (admin only)
-pub async fn get_all_rules(
-    req: HttpRequest,
-    mut tc: TenantConn,
-) -> actix_web::Result<HttpResponse> {
+pub async fn get_all_rules(req: HttpRequest, mut tc: TenantConn) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     match tc.run(repository::assignment_rules::get_all_rules_with_details) {
         Ok(rules) => Ok(HttpResponse::Ok().json(rules)),
-        Err(_) => Ok(errors::internal("Failed to get assignment rules")),
+        Err(_) => Err(ApiError::Internal("Failed to get assignment rules".into())),
     }
 }
 
@@ -74,15 +71,15 @@ pub async fn get_rule(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<i32>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let rule_id = path.into_inner();
     match tc.run(|conn| repository::assignment_rules::get_rule_with_details(conn, rule_id)) {
         Ok(rule) => Ok(HttpResponse::Ok().json(rule)),
         Err(e) => match e {
-            Error::NotFound => Ok(errors::not_found_msg("Assignment rule not found")),
-            _ => Ok(errors::internal("Failed to get assignment rule")),
+            Error::NotFound => Err(ApiError::NotFoundMsg("Assignment rule not found".into())),
+            _ => Err(ApiError::Internal("Failed to get assignment rule".into())),
         },
     }
 }
@@ -121,7 +118,7 @@ pub async fn create_rule(
     mut tc: TenantConn,
     auth: AuthContext,
     body: web::Json<CreateAssignmentRuleRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let created_by = Some(auth.user_uuid);
@@ -132,15 +129,15 @@ pub async fn create_rule(
         "group_round_robin" => AssignmentMethod::GroupRoundRobin,
         "group_random" => AssignmentMethod::GroupRandom,
         "group_queue" => AssignmentMethod::GroupQueue,
-        _ => return Ok(errors::bad_request("Invalid assignment method")),
+        _ => return Err(ApiError::BadRequest("Invalid assignment method".into())),
     };
 
     // Validate method requirements
     match method {
         AssignmentMethod::DirectUser => {
             if body.target_user_uuid.is_none() {
-                return Ok(errors::bad_request(
-                    "target_user_uuid is required for direct_user method",
+                return Err(ApiError::BadRequest(
+                    "target_user_uuid is required for direct_user method".into(),
                 ));
             }
         }
@@ -148,8 +145,8 @@ pub async fn create_rule(
         | AssignmentMethod::GroupRandom
         | AssignmentMethod::GroupQueue => {
             if body.target_group_id.is_none() {
-                return Ok(errors::bad_request(
-                    "target_group_id is required for group-based methods",
+                return Err(ApiError::BadRequest(
+                    "target_group_id is required for group-based methods".into(),
                 ));
             }
         }
@@ -159,12 +156,16 @@ pub async fn create_rule(
     if let Some(ref conditions) = body.conditions {
         let json_str = conditions.to_string();
         if json_str.len() > 10_000 {
-            return Ok(errors::bad_request("Conditions JSON too large (max 10KB)"));
+            return Err(ApiError::BadRequest(
+                "Conditions JSON too large (max 10KB)".into(),
+            ));
         }
         // Check nesting depth (simple heuristic: count brackets)
         let depth = json_str.chars().filter(|c| *c == '{' || *c == '[').count();
         if depth > 20 {
-            return Ok(errors::bad_request("Conditions JSON too deeply nested"));
+            return Err(ApiError::BadRequest(
+                "Conditions JSON too deeply nested".into(),
+            ));
         }
     }
 
@@ -208,8 +209,12 @@ pub async fn create_rule(
 
     match result {
         Ok(CreateOutcome::Created(body)) => Ok(HttpResponse::Created().json(body)),
-        Ok(CreateOutcome::Conflict) => Ok(errors::conflict("A rule with this name already exists")),
-        Err(_) => Ok(errors::internal("Failed to create assignment rule")),
+        Ok(CreateOutcome::Conflict) => Err(ApiError::Conflict(
+            "A rule with this name already exists".into(),
+        )),
+        Err(_) => Err(ApiError::Internal(
+            "Failed to create assignment rule".into(),
+        )),
     }
 }
 
@@ -246,7 +251,7 @@ pub async fn update_rule(
     mut tc: TenantConn,
     path: web::Path<i32>,
     body: web::Json<UpdateAssignmentRuleRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let rule_id = path.into_inner();
@@ -258,7 +263,7 @@ pub async fn update_rule(
             "group_round_robin" => Some(AssignmentMethod::GroupRoundRobin),
             "group_random" => Some(AssignmentMethod::GroupRandom),
             "group_queue" => Some(AssignmentMethod::GroupQueue),
-            _ => return Ok(errors::bad_request("Invalid assignment method")),
+            _ => return Err(ApiError::BadRequest("Invalid assignment method".into())),
         },
         None => None,
     };
@@ -267,11 +272,15 @@ pub async fn update_rule(
     if let Some(ref conditions) = body.conditions {
         let json_str = conditions.to_string();
         if json_str.len() > 10_000 {
-            return Ok(errors::bad_request("Conditions JSON too large (max 10KB)"));
+            return Err(ApiError::BadRequest(
+                "Conditions JSON too large (max 10KB)".into(),
+            ));
         }
         let depth = json_str.chars().filter(|c| *c == '{' || *c == '[').count();
         if depth > 20 {
-            return Ok(errors::bad_request("Conditions JSON too deeply nested"));
+            return Err(ApiError::BadRequest(
+                "Conditions JSON too deeply nested".into(),
+            ));
         }
     }
 
@@ -325,9 +334,15 @@ pub async fn update_rule(
 
     match result {
         Ok(UpdateOutcome::Ok(body)) => Ok(HttpResponse::Ok().json(body)),
-        Ok(UpdateOutcome::NotFound) => Ok(errors::not_found_msg("Assignment rule not found")),
-        Ok(UpdateOutcome::Conflict) => Ok(errors::conflict("A rule with this name already exists")),
-        Err(_) => Ok(errors::internal("Failed to update assignment rule")),
+        Ok(UpdateOutcome::NotFound) => {
+            Err(ApiError::NotFoundMsg("Assignment rule not found".into()))
+        }
+        Ok(UpdateOutcome::Conflict) => Err(ApiError::Conflict(
+            "A rule with this name already exists".into(),
+        )),
+        Err(_) => Err(ApiError::Internal(
+            "Failed to update assignment rule".into(),
+        )),
     }
 }
 
@@ -340,14 +355,16 @@ pub async fn delete_rule(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<i32>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let rule_id = path.into_inner();
     match tc.run(|conn| repository::assignment_rules::delete_rule(conn, rule_id)) {
-        Ok(0) => Ok(errors::not_found_msg("Assignment rule not found")),
+        Ok(0) => Err(ApiError::NotFoundMsg("Assignment rule not found".into())),
         Ok(_) => Ok(HttpResponse::NoContent().finish()),
-        Err(_) => Ok(errors::internal("Failed to delete assignment rule")),
+        Err(_) => Err(ApiError::Internal(
+            "Failed to delete assignment rule".into(),
+        )),
     }
 }
 
@@ -372,7 +389,7 @@ pub async fn reorder_rules(
     req: HttpRequest,
     mut tc: TenantConn,
     body: web::Json<ReorderRulesRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let orders: Vec<(i32, i32)> = body.orders.iter().map(|o| (o.id, o.priority)).collect();
@@ -383,7 +400,7 @@ pub async fn reorder_rules(
     });
     match result {
         Ok(rules) => Ok(HttpResponse::Ok().json(rules)),
-        Err(_) => Ok(errors::internal("Failed to reorder rules")),
+        Err(_) => Err(ApiError::Internal("Failed to reorder rules".into())),
     }
 }
 
@@ -422,14 +439,14 @@ pub async fn preview_assignment(
     req: HttpRequest,
     mut tc: TenantConn,
     body: web::Json<PreviewAssignmentRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     // Parse trigger
     let trigger = match body.trigger.as_str() {
         "ticket_created" => AssignmentTrigger::TicketCreated,
         "category_changed" => AssignmentTrigger::CategoryChanged,
-        _ => return Ok(errors::bad_request("Invalid trigger type")),
+        _ => return Err(ApiError::BadRequest("Invalid trigger type".into())),
     };
 
     let ticket_id = body.ticket_id;
@@ -484,8 +501,8 @@ pub async fn preview_assignment(
                 message: "Ticket already has an assignee".to_string(),
             }))
         }
-        Ok(PreviewOutcome::TicketNotFound) => Ok(errors::not_found_msg("Ticket not found")),
-        Err(_) => Ok(errors::internal("Failed to preview assignment")),
+        Ok(PreviewOutcome::TicketNotFound) => Err(ApiError::NotFoundMsg("Ticket not found".into())),
+        Err(_) => Err(ApiError::Internal("Failed to preview assignment".into())),
     }
 }
 
@@ -497,12 +514,12 @@ pub async fn preview_assignment(
 pub async fn get_assignment_logs(
     req: HttpRequest,
     mut tc: TenantConn,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     match tc.run(|conn| repository::assignment_rules::get_recent_logs(conn, 100)) {
         Ok(logs) => Ok(HttpResponse::Ok().json(logs)),
-        Err(_) => Ok(errors::internal("Failed to get assignment logs")),
+        Err(_) => Err(ApiError::Internal("Failed to get assignment logs".into())),
     }
 }
 

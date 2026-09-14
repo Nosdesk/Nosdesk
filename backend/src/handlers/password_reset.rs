@@ -4,7 +4,7 @@ use serde_json::json;
 use tracing::{error, info, warn};
 
 use crate::db::DbConnection;
-use crate::handlers::errors;
+use crate::handlers::errors::{self, ApiError};
 use crate::handlers::helpers;
 use crate::models::{PasswordResetCompleteRequest, PasswordResetRequest, PasswordResetResponse};
 use crate::repository;
@@ -242,7 +242,7 @@ pub async fn reset_password_with_token(
     db_pool: web::Data<crate::db::Pool>,
     request_data: web::Json<PasswordResetCompleteRequest>,
     http_request: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&db_pool)?;
 
     // Hosted deployments disable local password auth, so refuse to write a local
@@ -250,19 +250,19 @@ pub async fn reset_password_with_token(
     // a reset is already a no-op in hosted mode, so a valid token should not
     // exist here.
     if crate::handlers::auth::hosted_local_auth_disabled() {
-        return Ok(errors::bad_request(
-            "Password authentication is not available for this account",
+        return Err(ApiError::BadRequest(
+            "Password authentication is not available for this account".into(),
         ));
     }
 
     // Validate new password
     if request_data.new_password.len() < 8 {
-        return Ok(errors::bad_request(
-            "Password must be at least 8 characters long",
+        return Err(ApiError::BadRequest(
+            "Password must be at least 8 characters long".into(),
         ));
     } else if request_data.new_password.len() > 128 {
-        return Ok(errors::bad_request(
-            "Password must be less than 128 characters",
+        return Err(ApiError::BadRequest(
+            "Password must be less than 128 characters".into(),
         ));
     }
 
@@ -294,7 +294,7 @@ pub async fn reset_password_with_token(
                 "User not found for password reset: user_uuid={}, error={}",
                 user_uuid, e
             );
-            return Ok(errors::bad_request("Invalid or expired token"));
+            return Err(ApiError::BadRequest("Invalid or expired token".into()));
         }
     };
 
@@ -303,7 +303,7 @@ pub async fn reset_password_with_token(
         Ok(hash) => hash,
         Err(e) => {
             error!("Failed to hash new password: {}", e);
-            return Ok(errors::internal("Error processing new password"));
+            return Err(ApiError::Internal("Error processing new password".into()));
         }
     };
 
@@ -317,7 +317,7 @@ pub async fn reset_password_with_token(
         &new_password_hash,
     ) {
         error!("Failed to update password hash: {:?}", e);
-        return Ok(errors::internal("Error updating password"));
+        return Err(ApiError::Internal("Error updating password".into()));
     }
 
     // Update password_changed_at timestamp in the audited users
@@ -331,7 +331,7 @@ pub async fn reset_password_with_token(
                     "Failed to resolve primary workspace for password reset: {:?}",
                     e
                 );
-                return Ok(errors::internal("Error updating password"));
+                return Err(ApiError::Internal("Error updating password".into()));
             }
         };
     let actor = crate::sync::actor::ActorContext::user_at_workspace(user.uuid, workspace_id);
@@ -376,7 +376,7 @@ pub async fn reset_password_with_token(
         }
         Err(e) => {
             error!("Failed to update password: {:?}", e);
-            Ok(errors::internal("Error updating password"))
+            Err(ApiError::Internal("Error updating password".into()))
         }
     }
 }

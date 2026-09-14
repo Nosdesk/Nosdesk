@@ -15,7 +15,7 @@ use tracing::error;
 use uuid::Uuid;
 
 use crate::extractors::{AuthContext, WorkspaceContext};
-use crate::handlers::errors;
+use crate::handlers::errors::{self, ApiError};
 use crate::handlers::helpers;
 use crate::repository::dashboard_stats::{self, StatsGroup};
 
@@ -60,11 +60,11 @@ pub async fn get_stats(
     query: web::Query<StatsQuery>,
     auth: AuthContext,
     ws: WorkspaceContext,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let target_user = query.user.unwrap_or(auth.user_uuid);
 
     if target_user != auth.user_uuid && !auth.can_handle_tickets() {
-        return Ok(errors::forbidden("forbidden"));
+        return Err(ApiError::Forbidden("forbidden".into()));
     }
 
     let groups = query.parse_include()?;
@@ -86,7 +86,7 @@ pub async fn get_stats(
         Ok(bundle) => Ok(HttpResponse::Ok().json(bundle)),
         Err(e) => {
             error!(error = ?e, "dashboard stats computation failed");
-            Ok(errors::internal("stats unavailable"))
+            Err(ApiError::Internal("stats unavailable".into()))
         }
     }
 }

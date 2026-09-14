@@ -12,7 +12,7 @@ use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 use serde::Deserialize;
 
 use crate::db::Pool;
-use crate::handlers::errors;
+use crate::handlers::errors::{self, ApiError};
 use crate::middleware::request_context::RequestContext;
 use crate::models::WorkspaceRole;
 use crate::repository::ticket_merge::{self, ExpectedState, MergeError, MergeInput};
@@ -54,11 +54,11 @@ pub async fn merge_tickets(
     body: web::Json<MergeRequest>,
     pool: web::Data<Pool>,
     search_service: web::Data<Arc<SearchService>>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Agent)?;
     let actor = match actor_from(&req) {
         Some(a) => a,
-        None => return Ok(errors::unauthorized("Authentication required")),
+        None => return Err(ApiError::Unauthorized("Authentication required".into())),
     };
     let mut conn = errors::db_conn(&pool)?;
 
@@ -131,11 +131,11 @@ pub async fn get_merge_history(
     req: HttpRequest,
     path: web::Path<i32>,
     pool: web::Data<Pool>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Agent)?;
     let actor = match actor_from(&req) {
         Some(a) => a,
-        None => return Ok(errors::unauthorized("Authentication required")),
+        None => return Err(ApiError::Unauthorized("Authentication required".into())),
     };
     let ticket_id = path.into_inner();
     let mut conn = errors::db_conn(&pool)?;
@@ -147,7 +147,7 @@ pub async fn get_merge_history(
     });
     match result {
         Ok(history) => Ok(HttpResponse::Ok().json(history)),
-        Err(e) => Ok(errors::db_error(&e)),
+        Err(e) => Err(ApiError::Database(e)),
     }
 }
 

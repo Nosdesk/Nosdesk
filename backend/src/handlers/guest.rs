@@ -19,7 +19,7 @@ use uuid::Uuid;
 
 use crate::db::{DbConnection, Pool};
 use crate::extractors::WorkspaceContext;
-use crate::handlers::errors;
+use crate::handlers::errors::{self, ApiError};
 use crate::handlers::helpers;
 use crate::models::{
     NewAttachment, NewTicket, PublicSiteSettings, SiteSettings, TicketPriority,
@@ -289,7 +289,7 @@ fn log_guest_event(
 pub async fn get_public_settings(
     pool: web::Data<Pool>,
     ws: WorkspaceContext,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&pool)?;
 
     let actor = guest_actor(&ws, "guest:public_settings");
@@ -323,7 +323,7 @@ pub async fn submit_guest_ticket(
     req: HttpRequest,
     ws: WorkspaceContext,
     body: web::Json<SubmitGuestTicketRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&pool)?;
 
     // Workspace-pinned actor: every subsequent DB call goes through
@@ -338,12 +338,14 @@ pub async fn submit_guest_ticket(
     }) {
         Ok(Some(s)) => s,
         Ok(None) | Err(_) => {
-            return Ok(errors::service_unavailable("Settings unavailable"));
+            return Err(ApiError::ServiceUnavailable("Settings unavailable".into()));
         }
     };
 
     if !settings.guest_tickets_enabled {
-        return Ok(errors::forbidden("Guest ticket submission is disabled"));
+        return Err(ApiError::Forbidden(
+            "Guest ticket submission is disabled".into(),
+        ));
     }
 
     // Honeypot: a non-empty `website` field means a bot filled a hidden
@@ -356,7 +358,7 @@ pub async fn submit_guest_ticket(
         .is_some_and(|s| !s.is_empty())
     {
         debug!(ip = ?client_ip(&req), "Guest ticket submission tripped honeypot");
-        return Ok(errors::bad_request("Invalid submission"));
+        return Err(ApiError::BadRequest("Invalid submission".into()));
     }
 
     // Basic input validation
@@ -366,10 +368,10 @@ pub async fn submit_guest_ticket(
     let description = body.description.trim();
 
     if name.is_empty() || name.len() > GUEST_MAX_NAME_LENGTH {
-        return Ok(errors::bad_request("Invalid name"));
+        return Err(ApiError::BadRequest("Invalid name".into()));
     }
     if !valid_email(email) {
-        return Ok(errors::bad_request("Invalid email"));
+        return Err(ApiError::BadRequest("Invalid email".into()));
     }
     // MX pre-check: reject addresses whose domain has no mail servers. This
     // is a cheap filter that catches `random@madeupdomain.tld` garbage
@@ -377,15 +379,15 @@ pub async fn submit_guest_ticket(
     // that will just hard-bounce. The check fails open on resolver errors
     // so flaky upstream DNS doesn't break legitimate submissions.
     if !email_domain_has_mx(email).await {
-        return Ok(errors::bad_request(
-            "We can't deliver mail to that address.",
+        return Err(ApiError::BadRequest(
+            "We can't deliver mail to that address.".into(),
         ));
     }
     if title.is_empty() || title.len() > 255 {
-        return Ok(errors::bad_request("Invalid title"));
+        return Err(ApiError::BadRequest("Invalid title".into()));
     }
     if description.is_empty() || description.len() > GUEST_MAX_DESCRIPTION_LENGTH {
-        return Ok(errors::bad_request("Invalid description"));
+        return Err(ApiError::BadRequest("Invalid description".into()));
     }
 
     // Resolve priority early so we can 400 on bad client input before touching
@@ -400,7 +402,7 @@ pub async fn submit_guest_ticket(
         match resolved {
             Some(p) => p,
             None => {
-                return Ok(errors::bad_request("Invalid priority"));
+                return Err(ApiError::BadRequest("Invalid priority".into()));
             }
         }
     };
@@ -557,12 +559,12 @@ pub async fn submit_guest_ticket(
     let (user, is_new_guest, ticket, first_comment_id) = match create_result {
         Ok(t) => t,
         Err(CreateError::EmailClaimed) => {
-            return Ok(errors::conflict(
-                "Please sign in to submit a ticket with this email address.",
+            return Err(ApiError::Conflict(
+                "Please sign in to submit a ticket with this email address.".into(),
             ));
         }
         Err(CreateError::Internal) => {
-            return Ok(errors::internal("Failed to create ticket"));
+            return Err(ApiError::Internal("Failed to create ticket".into()));
         }
     };
 
@@ -684,7 +686,7 @@ pub async fn get_guest_ticket_status(
     pool: web::Data<Pool>,
     ws: WorkspaceContext,
     path: web::Path<String>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let token_str = path.into_inner();
     let token = match Uuid::parse_str(&token_str) {
         Ok(t) => t,
@@ -731,9 +733,9 @@ pub async fn get_guest_ticket_status(
             "closed_at": t.closed_at,
         }))),
         Ok(LookupOutcome::NotFound) => Ok(HttpResponse::NotFound().finish()),
-        Ok(LookupOutcome::Disabled) => {
-            Ok(errors::forbidden("Guest ticket status lookup is disabled"))
-        }
+        Ok(LookupOutcome::Disabled) => Err(ApiError::Forbidden(
+            "Guest ticket status lookup is disabled".into(),
+        )),
         Ok(LookupOutcome::SettingsUnavailable) => Ok(HttpResponse::ServiceUnavailable().finish()),
         Err(e) => {
             error!(error = %e, "Error looking up guest ticket");
@@ -755,7 +757,7 @@ enum LookupOutcome {
 pub async fn list_public_docs(
     pool: web::Data<Pool>,
     ws: WorkspaceContext,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&pool)?;
 
     let actor = guest_actor(&ws, "guest:public_docs");
@@ -802,7 +804,9 @@ pub async fn list_public_docs(
             Ok(HttpResponse::Ok().json(items))
         }
         Ok(Err("unavailable")) => Ok(HttpResponse::ServiceUnavailable().finish()),
-        Ok(Err(_)) => Ok(errors::forbidden("Public documentation is disabled")),
+        Ok(Err(_)) => Err(ApiError::Forbidden(
+            "Public documentation is disabled".into(),
+        )),
         Err(e) => {
             error!(error = %e, "Failed to list public docs");
             Ok(HttpResponse::InternalServerError().finish())
@@ -815,7 +819,7 @@ pub async fn get_public_doc(
     pool: web::Data<Pool>,
     ws: WorkspaceContext,
     path: web::Path<String>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let slug_param = path.into_inner();
     let mut conn = helpers::db_conn(&pool)?;
 
@@ -861,7 +865,9 @@ pub async fn get_public_doc(
             }))),
         Ok(Ok(None)) => Ok(HttpResponse::NotFound().finish()),
         Ok(Err("unavailable")) => Ok(HttpResponse::ServiceUnavailable().finish()),
-        Ok(Err(_)) => Ok(errors::forbidden("Public documentation is disabled")),
+        Ok(Err(_)) => Err(ApiError::Forbidden(
+            "Public documentation is disabled".into(),
+        )),
         Err(e) => {
             error!(error = %e, "Failed to load public doc");
             Ok(HttpResponse::InternalServerError().finish())
@@ -880,10 +886,10 @@ pub async fn search_public_docs(
     pool: web::Data<Pool>,
     ws: WorkspaceContext,
     query: web::Query<PublicDocsSearchQuery>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let q = query.q.trim().to_string();
     if q.is_empty() || q.len() > GUEST_DOC_SEARCH_MAX_QUERY_LENGTH {
-        return Ok(errors::bad_request("Invalid query"));
+        return Err(ApiError::BadRequest("Invalid query".into()));
     }
 
     let mut conn = helpers::db_conn(&pool)?;
@@ -936,7 +942,9 @@ pub async fn search_public_docs(
             Ok(HttpResponse::Ok().json(items))
         }
         Ok(Err("unavailable")) => Ok(HttpResponse::ServiceUnavailable().finish()),
-        Ok(Err(_)) => Ok(errors::forbidden("Public documentation search is disabled")),
+        Ok(Err(_)) => Err(ApiError::Forbidden(
+            "Public documentation search is disabled".into(),
+        )),
         Err(e) => {
             error!(error = %e, "Public doc search failed");
             Ok(HttpResponse::InternalServerError().finish())
@@ -971,7 +979,7 @@ pub async fn upload_guest_attachment(
     ws: WorkspaceContext,
     req: HttpRequest,
     mut payload: Multipart,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&pool)?;
 
     // Scope the settings read to the workspace (RLS), matching every other
@@ -982,12 +990,12 @@ pub async fn upload_guest_attachment(
     }) {
         Ok(Some(s)) => s,
         Ok(None) | Err(_) => {
-            return Ok(errors::service_unavailable("Settings unavailable"));
+            return Err(ApiError::ServiceUnavailable("Settings unavailable".into()));
         }
     };
 
     if !settings.guest_tickets_enabled || !settings.guest_ticket_attachments_enabled {
-        return Ok(errors::forbidden("Attachments are not accepted"));
+        return Err(ApiError::Forbidden("Attachments are not accepted".into()));
     }
 
     // Dedicated per-IP rate limiter for uploads. Keeping it distinct from
@@ -1016,16 +1024,16 @@ pub async fn upload_guest_attachment(
     let mut field = match payload.try_next().await {
         Ok(Some(f)) => f,
         Ok(None) => {
-            return Ok(errors::bad_request("No file in request"));
+            return Err(ApiError::BadRequest("No file in request".into()));
         }
         Err(e) => {
             debug!(error = %e, "Multipart parse error");
-            return Ok(errors::bad_request("Could not read upload"));
+            return Err(ApiError::BadRequest("Could not read upload".into()));
         }
     };
 
     if field.name() != "file" {
-        return Ok(errors::bad_request("Expected field 'file'"));
+        return Err(ApiError::BadRequest("Expected field 'file'".into()));
     }
 
     let original_filename = match field
@@ -1035,7 +1043,7 @@ pub async fn upload_guest_attachment(
     {
         Some(n) if !n.is_empty() => n,
         _ => {
-            return Ok(errors::bad_request("Filename is required"));
+            return Err(ApiError::BadRequest("Filename is required".into()));
         }
     };
 
@@ -1054,7 +1062,7 @@ pub async fn upload_guest_attachment(
             Ok(d) => d,
             Err(e) => {
                 debug!(error = %e, "Read chunk error");
-                return Ok(errors::bad_request("Upload interrupted"));
+                return Err(ApiError::BadRequest("Upload interrupted".into()));
             }
         };
         if file_data.len() + data.len() > max_bytes {
@@ -1092,7 +1100,7 @@ pub async fn upload_guest_attachment(
         Ok(sf) => sf,
         Err(e) => {
             error!(error = ?e, "Failed to store guest upload");
-            return Ok(errors::internal("Failed to store file"));
+            return Err(ApiError::Internal("Failed to store file".into()));
         }
     };
 
@@ -1129,7 +1137,7 @@ pub async fn upload_guest_attachment(
                     Some(t) => t,
                     None => {
                         error!("JWT_SECRET unset; cannot issue a guest attachment claim token");
-                        return Ok(errors::internal("Failed to save attachment"));
+                        return Err(ApiError::Internal("Failed to save attachment".into()));
                     }
                 };
             Ok(HttpResponse::Created().json(json!({
@@ -1145,7 +1153,7 @@ pub async fn upload_guest_attachment(
             // the daily temp-cleanup job will pick it up.
             let _ = storage.0.delete_file(&stored_file.path).await;
             error!(error = ?e, "Failed to record guest upload");
-            Ok(errors::internal("Failed to save attachment"))
+            Err(ApiError::Internal("Failed to save attachment".into()))
         }
     }
 }

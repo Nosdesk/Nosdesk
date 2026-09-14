@@ -8,7 +8,7 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::extractors::TenantConn;
-use crate::handlers::errors;
+use crate::handlers::errors::ApiError;
 use crate::models::{Claims, CreateApiTokenRequest, WorkspaceRole};
 use crate::repository::api_tokens;
 use crate::utils::rbac::require_workspace_role;
@@ -36,7 +36,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
 pub async fn list_api_tokens(
     req: HttpRequest,
     mut tc: TenantConn,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let result = tc.run(|conn| {
@@ -48,7 +48,7 @@ pub async fn list_api_tokens(
         Ok(enriched) => Ok(HttpResponse::Ok().json(enriched)),
         Err(e) => {
             error!("Failed to list tokens: {}", e);
-            Ok(errors::internal("Failed to list tokens"))
+            Err(ApiError::Internal("Failed to list tokens".into()))
         }
     }
 }
@@ -58,27 +58,27 @@ pub async fn create_api_token(
     req: HttpRequest,
     mut tc: TenantConn,
     body: web::Json<CreateApiTokenRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return Ok(errors::unauthorized("Authentication required")),
+        None => return Err(ApiError::Unauthorized("Authentication required".into())),
     };
 
     let created_by = match Uuid::parse_str(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return Ok(errors::bad_request("Invalid user UUID")),
+        Err(_) => return Err(ApiError::BadRequest("Invalid user UUID".into())),
     };
 
     // Validate token name
     if body.name.trim().is_empty() {
-        return Ok(errors::bad_request("Token name is required"));
+        return Err(ApiError::BadRequest("Token name is required".into()));
     }
 
     if body.name.len() > 255 {
-        return Ok(errors::bad_request(
-            "Token name must be 255 characters or less",
+        return Err(ApiError::BadRequest(
+            "Token name must be 255 characters or less".into(),
         ));
     }
 
@@ -89,7 +89,7 @@ pub async fn create_api_token(
             .iter()
             .find(|s| !crate::utils::rbac::is_valid_token_scope(s))
         {
-            return Ok(errors::bad_request(format!("Unknown token scope: {bad}")));
+            return Err(ApiError::BadRequest(format!("Unknown token scope: {bad}")));
         }
     }
 
@@ -147,19 +147,21 @@ pub async fn create_api_token(
             );
             Ok(HttpResponse::Created().json(created))
         }
-        Ok(Outcome::TargetUserNotFound) => Ok(errors::not_found_msg("Target user not found")),
+        Ok(Outcome::TargetUserNotFound) => {
+            Err(ApiError::NotFoundMsg("Target user not found".into()))
+        }
         Ok(Outcome::TargetRoleExceedsCaller) => {
             warn!(
                 "refused API token: {} tried to mint for a higher-privileged user {}",
                 created_by, body.user_uuid
             );
-            Ok(errors::forbidden(
-                "Cannot mint a token for a user with a higher role than your own",
+            Err(ApiError::Forbidden(
+                "Cannot mint a token for a user with a higher role than your own".into(),
             ))
         }
         Err(e) => {
             error!("Failed to create token: {}", e);
-            Ok(errors::internal("Failed to create token"))
+            Err(ApiError::Internal("Failed to create token".into()))
         }
     }
 }
@@ -169,7 +171,7 @@ pub async fn get_api_token(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<Uuid>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let token_uuid = path.into_inner();
@@ -194,10 +196,10 @@ pub async fn get_api_token(
 
     match result {
         Ok(Outcome::Found(info)) => Ok(HttpResponse::Ok().json(info)),
-        Ok(Outcome::NotFound) => Ok(errors::not_found_msg("Token not found")),
+        Ok(Outcome::NotFound) => Err(ApiError::NotFoundMsg("Token not found".into())),
         Err(e) => {
             error!("Failed to get token: {}", e);
-            Ok(errors::internal("Failed to get token"))
+            Err(ApiError::Internal("Failed to get token".into()))
         }
     }
 }
@@ -207,12 +209,12 @@ pub async fn revoke_api_token(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<Uuid>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return Ok(errors::unauthorized("Authentication required")),
+        None => return Err(ApiError::Unauthorized("Authentication required".into())),
     };
 
     let admin_uuid = Uuid::parse_str(&claims.sub).ok();
@@ -248,11 +250,11 @@ pub async fn revoke_api_token(
             info!("API token {} revoked by admin {:?}", token_uuid, admin_uuid);
             Ok(HttpResponse::NoContent().finish())
         }
-        Ok(Outcome::AlreadyRevoked) => Ok(errors::bad_request("Token is already revoked")),
-        Ok(Outcome::NotFound) => Ok(errors::not_found_msg("Token not found")),
+        Ok(Outcome::AlreadyRevoked) => Err(ApiError::BadRequest("Token is already revoked".into())),
+        Ok(Outcome::NotFound) => Err(ApiError::NotFoundMsg("Token not found".into())),
         Err(e) => {
             error!("Failed to revoke token: {}", e);
-            Ok(errors::internal("Failed to revoke token"))
+            Err(ApiError::Internal("Failed to revoke token".into()))
         }
     }
 }

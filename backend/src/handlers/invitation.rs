@@ -5,7 +5,7 @@ use std::sync::Arc;
 use tracing::{error, info, warn};
 
 use crate::db::DbConnection;
-use crate::handlers::errors;
+use crate::handlers::errors::{self, ApiError};
 use crate::handlers::helpers;
 use crate::models::{
     AcceptInvitationRequest, AcceptInvitationResponse, ValidateInvitationRequest,
@@ -22,7 +22,7 @@ use crate::utils::reset_tokens::TokenType;
 pub async fn validate_invitation(
     db_pool: web::Data<crate::db::Pool>,
     request_data: web::Json<ValidateInvitationRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&db_pool)?;
 
     // Hash the token to look it up
@@ -122,26 +122,26 @@ pub async fn accept_invitation(
     search_service: web::Data<Arc<SearchService>>,
     request_data: web::Json<AcceptInvitationRequest>,
     http_request: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&db_pool)?;
 
     // Password-based invitation acceptance writes a local credential, which
     // hosted deployments disable in favour of SSO onboarding. Refuse before
     // consuming the token so it stays valid for the SSO path.
     if crate::handlers::auth::hosted_local_auth_disabled() {
-        return Ok(errors::bad_request(
-            "Password-based sign-up is not available for this deployment",
+        return Err(ApiError::BadRequest(
+            "Password-based sign-up is not available for this deployment".into(),
         ));
     }
 
     // Validate password
     if request_data.password.len() < 8 {
-        return Ok(errors::bad_request(
-            "Password must be at least 8 characters long",
+        return Err(ApiError::BadRequest(
+            "Password must be at least 8 characters long".into(),
         ));
     } else if request_data.password.len() > 128 {
-        return Ok(errors::bad_request(
-            "Password must be less than 128 characters",
+        return Err(ApiError::BadRequest(
+            "Password must be less than 128 characters".into(),
         ));
     }
 
@@ -169,7 +169,7 @@ pub async fn accept_invitation(
                 "User not found for invitation acceptance: user_uuid={}, error={}",
                 user_uuid, e
             );
-            return Ok(errors::bad_request("Invalid or expired invitation"));
+            return Err(ApiError::BadRequest("Invalid or expired invitation".into()));
         }
     };
 
@@ -178,7 +178,7 @@ pub async fn accept_invitation(
         Ok(hash) => hash,
         Err(e) => {
             error!("Failed to hash password: {}", e);
-            return Ok(errors::internal("Error processing password"));
+            return Err(ApiError::Internal("Error processing password".into()));
         }
     };
 
@@ -211,7 +211,7 @@ pub async fn accept_invitation(
             &password_hash,
         ) {
             error!("Failed to update password hash for invitation: {:?}", e);
-            return Ok(errors::internal("Error setting password"));
+            return Err(ApiError::Internal("Error setting password".into()));
         }
     } else {
         // Create new local auth identity
@@ -232,7 +232,7 @@ pub async fn accept_invitation(
             repository::user_auth_identities::create_local_identity(auth_identity, &mut conn)
         {
             error!("Failed to create auth identity for invitation: {:?}", e);
-            return Ok(errors::internal("Error setting password"));
+            return Err(ApiError::Internal("Error setting password".into()));
         }
     }
 
@@ -255,7 +255,7 @@ pub async fn accept_invitation(
                     error = ?e,
                     "Failed to resolve primary workspace for invitation accept"
                 );
-                return Ok(errors::internal("Failed to complete invitation"));
+                return Err(ApiError::Internal("Failed to complete invitation".into()));
             }
         };
     let actor = crate::sync::actor::ActorContext::user_at_workspace(user.uuid, workspace_id);

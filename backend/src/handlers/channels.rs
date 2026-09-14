@@ -18,7 +18,7 @@ use tracing::{error, info, warn};
 
 use crate::db::DbConnection;
 use crate::extractors::TenantConn;
-use crate::handlers::errors;
+use crate::handlers::errors::{self, ApiError};
 use crate::models::{
     Channel, ChannelUpdate, NewChannel, WorkspaceRole, CHANNEL_PROVIDER_EMAIL_FORWARD,
     CRED_TYPE_IMAP_PASSWORD, INBOUND_ADDRESS_STATUS_ACTIVE,
@@ -238,10 +238,7 @@ fn validate_config(provider: &str, config: &JsonValue) -> Result<(), String> {
 // ---------- Routes ----------
 
 /// GET /api/admin/channels
-pub async fn list_channels(
-    mut tc: TenantConn,
-    req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+pub async fn list_channels(mut tc: TenantConn, req: HttpRequest) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     // Fold list + per-row credential probe into one transaction so
     // every read goes through the same RLS-scoped session.
@@ -265,7 +262,7 @@ pub async fn get_channel(
     mut tc: TenantConn,
     path: web::Path<i32>,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let id = path.into_inner();
     let result: diesel::QueryResult<Option<ChannelResponse>> =
@@ -290,7 +287,7 @@ pub async fn create_channel(
     body: web::Json<CreateChannelRequest>,
     control: web::Data<ChannelControl>,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     if body.name.trim().is_empty() {
@@ -375,7 +372,7 @@ pub async fn update_channel(
     body: web::Json<UpdateChannelRequest>,
     control: web::Data<ChannelControl>,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let channel_id = path.into_inner();
 
@@ -459,7 +456,7 @@ pub async fn delete_channel(
     path: web::Path<i32>,
     control: web::Data<ChannelControl>,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let channel_id = path.into_inner();
     let rows = match tc.run(|conn| channels_repo::delete(conn, channel_id)) {
@@ -486,7 +483,7 @@ pub async fn clear_credential(
     path: web::Path<i32>,
     control: web::Data<ChannelControl>,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let channel_id = path.into_inner();
     if let Err(e) =
@@ -523,7 +520,7 @@ pub async fn test_connection(
     path: web::Path<i32>,
     body: web::Json<TestConnectionRequest>,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let channel_id = path.into_inner();
     let candidate = body

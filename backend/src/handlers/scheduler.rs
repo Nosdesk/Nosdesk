@@ -9,7 +9,7 @@ use actix_web::{web, HttpRequest, HttpResponse};
 use serde::Serialize;
 
 use crate::db::Pool;
-use crate::handlers::errors;
+use crate::handlers::errors::ApiError;
 use crate::handlers::helpers;
 use crate::services::scheduler::{PeriodicStatus, StatusRegistry};
 
@@ -34,14 +34,14 @@ pub async fn get_status(
     pool: web::Data<Pool>,
     statuses: web::Data<StatusRegistry>,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     // Same admin-guard helper the channels endpoints use. We grab a
     // connection purely for the guard — scheduler status is in-memory
     // so no DB work happens downstream.
     helpers::admin_conn(&req, &pool)?;
 
     let Ok(map) = statuses.read() else {
-        return Ok(errors::internal("scheduler status lock poisoned"));
+        return Err(ApiError::Internal("scheduler status lock poisoned".into()));
     };
 
     // Stable alphabetical order so the UI doesn't reshuffle rows on

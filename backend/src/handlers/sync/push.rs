@@ -21,7 +21,8 @@ use tracing::{info, warn};
 
 use crate::db::{DbConnection, Pool};
 use crate::extractors::SyncContext;
-use crate::handlers::{errors, helpers};
+use crate::handlers::errors::ApiError;
+use crate::handlers::helpers;
 use crate::middleware::RequestContext;
 use crate::models::{Project, ProjectUpdate, SyncAggregate, SyncOp, TicketUpdate};
 use crate::sync::actor::{ActorContext, ActorKind};
@@ -69,10 +70,10 @@ pub async fn push(
     pool: web::Data<Pool>,
     body: web::Json<Vec<PushTransaction>>,
     ctx: SyncContext,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let body = body.into_inner();
     if body.len() > MAX_BATCH {
-        return Ok(errors::bad_request(format!(
+        return Err(ApiError::BadRequest(format!(
             "Batch exceeds the {MAX_BATCH}-transaction limit"
         )));
     }

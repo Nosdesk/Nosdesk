@@ -31,7 +31,7 @@ use uuid::Uuid;
 
 use crate::db::Pool;
 use crate::extractors::WorkspaceContext;
-use crate::handlers::errors;
+use crate::handlers::errors::{self, ApiError};
 use crate::models::{Claims, WorkspaceMember, WorkspaceRole};
 use crate::repository::workspaces::{self, UpdateMembershipRoleResult};
 use crate::services::search::{indexing_tasks, SearchService};
@@ -113,13 +113,13 @@ pub async fn list_members(
     req: HttpRequest,
     pool: web::Data<Pool>,
     ctx: WorkspaceContext,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     rbac::require_workspace_role(&req, WorkspaceRole::Admin)?;
     let mut conn = match pool.get() {
         Ok(c) => c,
         Err(e) => {
             error!(error = ?e, "workspace members: pool exhausted");
-            return Ok(errors::internal("Database connection failed"));
+            return Err(ApiError::Internal("Database connection failed".into()));
         }
     };
     let actor = ActorContext::system("workspace:members:list").with_workspace(ctx.workspace_id);
@@ -133,7 +133,7 @@ pub async fn list_members(
         }
         Err(e) => {
             error!(error = ?e, workspace_id = ctx.workspace_id, "workspace members list failed");
-            Ok(errors::internal("Failed to list members"))
+            Err(ApiError::Internal("Failed to list members".into()))
         }
     }
 }
@@ -164,12 +164,12 @@ pub async fn update_member_role(
     ctx: WorkspaceContext,
     path: web::Path<Uuid>,
     body: web::Json<UpdateRoleRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let (caller, caller_role) = rbac::require_workspace_role_detailed(&req, WorkspaceRole::Admin)?;
     let target = path.into_inner();
     let Some(new_role) = parse_role(&body.into_inner().role) else {
-        return Ok(errors::bad_request(
-            "role must be one of: owner, admin, agent, member",
+        return Err(ApiError::BadRequest(
+            "role must be one of: owner, admin, agent, member".into(),
         ));
     };
 
@@ -184,7 +184,7 @@ pub async fn update_member_role(
         Ok(c) => c,
         Err(e) => {
             error!(error = ?e, "workspace members: pool exhausted");
-            return Ok(errors::internal("Database connection failed"));
+            return Err(ApiError::Internal("Database connection failed".into()));
         }
     };
     let actor = caller_actor(&caller, ctx.workspace_id);
@@ -221,7 +221,7 @@ pub async fn update_member_role(
             Ok(HttpResponse::Ok().json(MemberView::from(m)))
         }
         Ok(ManageOutcome::Forbidden) => Ok(forbidden_tier()),
-        Ok(ManageOutcome::NotFound) => Ok(errors::not_found_msg(format!(
+        Ok(ManageOutcome::NotFound) => Err(ApiError::NotFoundMsg(format!(
             "user {target} is not a member of this workspace"
         ))),
         Ok(ManageOutcome::LastOwner) => Ok(HttpResponse::Conflict().json(serde_json::json!({
@@ -231,7 +231,7 @@ pub async fn update_member_role(
         Ok(ManageOutcome::ExternallyManaged) => Ok(errors::externally_managed()),
         Ok(ManageOutcome::Removed) => {
             // Unreachable in the update path.
-            Ok(errors::internal("Inconsistent membership state"))
+            Err(ApiError::Internal("Inconsistent membership state".into()))
         }
         Err(e) if workspaces::is_seat_limit_violation(&e) => {
             warn!(workspace_id = ctx.workspace_id, %target, "promotion blocked by workspace seat limit");
@@ -242,7 +242,7 @@ pub async fn update_member_role(
         }
         Err(e) => {
             error!(error = ?e, workspace_id = ctx.workspace_id, %target, "workspace member role update failed");
-            Ok(errors::internal("Failed to update member role"))
+            Err(ApiError::Internal("Failed to update member role".into()))
         }
     }
 }
@@ -256,7 +256,7 @@ pub async fn remove_member(
     // Best-effort search reindex so the removed workspace tag drops off
     // the user's search doc; optional so tests need not wire it.
     search_service: Option<web::Data<Arc<SearchService>>>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let (caller, caller_role) = rbac::require_workspace_role_detailed(&req, WorkspaceRole::Admin)?;
     let target = path.into_inner();
 
@@ -264,7 +264,7 @@ pub async fn remove_member(
         Ok(c) => c,
         Err(e) => {
             error!(error = ?e, "workspace members: pool exhausted");
-            return Ok(errors::internal("Database connection failed"));
+            return Err(ApiError::Internal("Database connection failed".into()));
         }
     };
     let actor = caller_actor(&caller, ctx.workspace_id);
@@ -302,7 +302,7 @@ pub async fn remove_member(
             Ok(HttpResponse::NoContent().finish())
         }
         Ok(ManageOutcome::Forbidden) => Ok(forbidden_tier()),
-        Ok(ManageOutcome::NotFound) => Ok(errors::not_found_msg(format!(
+        Ok(ManageOutcome::NotFound) => Err(ApiError::NotFoundMsg(format!(
             "user {target} is not a member of this workspace"
         ))),
         Ok(ManageOutcome::LastOwner) => Ok(HttpResponse::Conflict().json(serde_json::json!({
@@ -312,11 +312,11 @@ pub async fn remove_member(
         Ok(ManageOutcome::ExternallyManaged) => Ok(errors::externally_managed()),
         Ok(ManageOutcome::UpdatedRole(_)) => {
             // Unreachable in the remove path.
-            Ok(errors::internal("Inconsistent membership state"))
+            Err(ApiError::Internal("Inconsistent membership state".into()))
         }
         Err(e) => {
             error!(error = ?e, workspace_id = ctx.workspace_id, %target, "workspace member removal failed");
-            Ok(errors::internal("Failed to remove member"))
+            Err(ApiError::Internal("Failed to remove member".into()))
         }
     }
 }

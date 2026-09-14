@@ -13,7 +13,7 @@ use serde_json::json;
 use tracing::{debug, error, warn};
 
 use crate::extractors::{AuthContext, ScopedStorage, TenantConn};
-use crate::handlers::errors;
+use crate::handlers::errors::{self, ApiError};
 use crate::models::{AssetMediaUpdate, NewAssetMedia};
 use crate::repository::{asset_media as repo, assets as assets_repo};
 use crate::utils::file_validation::FileValidator;
@@ -56,9 +56,10 @@ pub async fn upload_for_asset(
     storage: ScopedStorage,
 ) -> Result<HttpResponse, actix_web::Error> {
     if !auth.can_handle_tickets() {
-        return Ok(errors::forbidden(
-            "Forbidden: Only technicians and administrators can upload asset media",
-        ));
+        return Err(ApiError::Forbidden(
+            "Forbidden: Only technicians and administrators can upload asset media".into(),
+        )
+        .into());
     }
 
     let asset_id = path.into_inner();

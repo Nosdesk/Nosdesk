@@ -1,5 +1,5 @@
 use crate::extractors::TenantConn;
-use crate::handlers::errors;
+use crate::handlers::errors::{self, ApiError};
 use crate::handlers::helpers;
 use actix_multipart::Multipart;
 use actix_web::{web, HttpMessage, HttpResponse, Responder};
@@ -450,36 +450,38 @@ pub async fn execute_restore(
     path: web::Path<String>,
     req: actix_web::HttpRequest,
     body: web::Json<ExecuteRestoreRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     // Get authenticated admin user
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return Ok(errors::unauthorized("Authentication required")),
+        None => return Err(ApiError::Unauthorized("Authentication required".into())),
     };
 
     // Check if user is admin
     if !is_platform_admin(&claims) {
-        return Ok(errors::forbidden("Admin access required"));
+        return Err(ApiError::Forbidden("Admin access required".into()));
     }
 
     let job_id = match Uuid::parse_str(&path.into_inner()) {
         Ok(uuid) => uuid,
-        Err(_) => return Ok(errors::bad_request("Invalid job ID")),
+        Err(_) => return Err(ApiError::BadRequest("Invalid job ID".into())),
     };
 
     let job = match tc.run(|conn| backup_repo::get_backup_job(conn, job_id)) {
         Ok(job) => job,
-        Err(diesel::result::Error::NotFound) => return Ok(errors::not_found_msg("Job not found")),
-        Err(e) => return Ok(errors::internal(format!("Failed to get job: {}", e))),
+        Err(diesel::result::Error::NotFound) => {
+            return Err(ApiError::NotFoundMsg("Job not found".into()))
+        }
+        Err(e) => return Err(ApiError::Internal(format!("Failed to get job: {}", e))),
     };
 
     if job.job_type != "restore" {
-        return Ok(errors::bad_request("Job is not a restore job"));
+        return Err(ApiError::BadRequest("Job is not a restore job".into()));
     }
 
     let file_path = match job.file_path {
         Some(path) => std::path::PathBuf::from(path),
-        None => return Ok(errors::bad_request("No backup file available")),
+        None => return Err(ApiError::BadRequest("No backup file available".into())),
     };
 
     // Preview now drives password verification too — a
@@ -488,7 +490,7 @@ pub async fn execute_restore(
     // "password required" error; wrong-password backups fail
     // with a decryption error.
     if let Err(e) = backup_service::preview_restore(&file_path, body.password.as_deref()) {
-        return Ok(errors::bad_request(format!("Preview failed: {}", e)));
+        return Err(ApiError::BadRequest(format!("Preview failed: {}", e)));
     }
 
     // Update job status
@@ -543,7 +545,7 @@ pub async fn execute_restore(
                     },
                 )
             });
-            return Ok(errors::internal(format!("Database restore failed: {e}")));
+            return Err(ApiError::Internal(format!("Database restore failed: {e}")));
         }
     };
 

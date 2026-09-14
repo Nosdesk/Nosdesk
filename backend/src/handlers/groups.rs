@@ -4,7 +4,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::extractors::TenantConn;
-use crate::handlers::errors;
+use crate::handlers::errors::{self, ApiError};
 use crate::models::{Claims, GroupUpdate, NewGroup, WorkspaceRole};
 use crate::repository;
 use crate::utils::i18n;
@@ -105,12 +105,12 @@ pub async fn get_group_details(
 pub async fn get_all_groups(
     req: HttpRequest,
     mut tc: TenantConn,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     match tc.run(repository::groups::get_groups_with_member_counts) {
         Ok(groups) => Ok(HttpResponse::Ok().json(groups)),
-        Err(_) => Ok(errors::internal("Failed to get groups")),
+        Err(_) => Err(ApiError::Internal("Failed to get groups".into())),
     }
 }
 
@@ -119,7 +119,7 @@ pub async fn get_group(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<i32>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let group_id = path.into_inner();
@@ -127,8 +127,8 @@ pub async fn get_group(
     match tc.run(|conn| repository::groups::get_group_with_members(conn, group_id)) {
         Ok(group) => Ok(HttpResponse::Ok().json(group)),
         Err(e) => match e {
-            Error::NotFound => Ok(errors::not_found_msg("Group not found")),
-            _ => Ok(errors::internal("Failed to get group")),
+            Error::NotFound => Err(ApiError::NotFoundMsg("Group not found".into())),
+            _ => Err(ApiError::Internal("Failed to get group".into())),
         },
     }
 }
@@ -146,16 +146,16 @@ pub async fn create_group(
     req: HttpRequest,
     mut tc: TenantConn,
     body: web::Json<CreateGroupRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let claims = match req.extensions().get::<Claims>() {
         Some(c) => c.clone(),
-        None => return Ok(errors::unauthorized("Authentication required")),
+        None => return Err(ApiError::Unauthorized("Authentication required".into())),
     };
     let user_uuid = match Uuid::parse_str(&claims.sub) {
         Ok(u) => u,
-        Err(_) => return Ok(errors::internal("Invalid user UUID")),
+        Err(_) => return Err(ApiError::Internal("Invalid user UUID".into())),
     };
 
     let created_by = Some(user_uuid);
@@ -169,7 +169,7 @@ pub async fn create_group(
 
     match tc.run(|conn| repository::groups::create_group(conn, new_group)) {
         Ok(group) => Ok(HttpResponse::Created().json(group)),
-        Err(_) => Ok(errors::internal("Failed to create group")),
+        Err(_) => Err(ApiError::Internal("Failed to create group".into())),
     }
 }
 
@@ -179,7 +179,7 @@ pub async fn update_group(
     mut tc: TenantConn,
     path: web::Path<i32>,
     body: web::Json<GroupUpdate>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let group_id = path.into_inner();
@@ -188,8 +188,8 @@ pub async fn update_group(
     match tc.run(|conn| repository::groups::update_group(conn, group_id, update)) {
         Ok(group) => Ok(HttpResponse::Ok().json(group)),
         Err(e) => match e {
-            Error::NotFound => Ok(errors::not_found_msg("Group not found")),
-            _ => Ok(errors::internal("Failed to update group")),
+            Error::NotFound => Err(ApiError::NotFoundMsg("Group not found".into())),
+            _ => Err(ApiError::Internal("Failed to update group".into())),
         },
     }
 }
@@ -199,15 +199,15 @@ pub async fn delete_group(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<i32>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let group_id = path.into_inner();
 
     match tc.run(|conn| repository::groups::delete_group(conn, group_id)) {
-        Ok(0) => Ok(errors::not_found_msg("Group not found")),
+        Ok(0) => Err(ApiError::NotFoundMsg("Group not found".into())),
         Ok(_) => Ok(HttpResponse::NoContent().finish()),
-        Err(_) => Ok(errors::internal("Failed to delete group")),
+        Err(_) => Err(ApiError::Internal("Failed to delete group".into())),
     }
 }
 
@@ -223,7 +223,7 @@ pub async fn unmanage_group(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<i32>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let group_id = path.into_inner();
@@ -245,11 +245,9 @@ pub async fn unmanage_group(
 
     match outcome {
         Ok(UnmanageOutcome::Updated(g)) => Ok(HttpResponse::Ok().json(g)),
-        Ok(UnmanageOutcome::NotFound) => Ok(errors::not_found_msg("Group not found")),
-        Ok(UnmanageOutcome::NotExternallyManaged) => Ok(errors::bad_request(
-            "Group is not externally managed: This group is already manually managed and doesn't need to be unmanaged.",
-        )),
-        Err(_) => Ok(errors::internal("Failed to unmanage group")),
+        Ok(UnmanageOutcome::NotFound) => Err(ApiError::NotFoundMsg("Group not found".into())),
+        Ok(UnmanageOutcome::NotExternallyManaged) => Err(ApiError::BadRequest("Group is not externally managed: This group is already manually managed and doesn't need to be unmanaged.".into())),
+        Err(_) => Err(ApiError::Internal("Failed to unmanage group".into())),
     }
 }
 
@@ -277,16 +275,16 @@ pub async fn set_group_members(
     mut tc: TenantConn,
     path: web::Path<i32>,
     body: web::Json<SetGroupMembersRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let claims = match req.extensions().get::<Claims>() {
         Some(c) => c.clone(),
-        None => return Ok(errors::unauthorized("Authentication required")),
+        None => return Err(ApiError::Unauthorized("Authentication required".into())),
     };
     let user_uuid = match Uuid::parse_str(&claims.sub) {
         Ok(u) => u,
-        Err(_) => return Ok(errors::internal("Invalid user UUID")),
+        Err(_) => return Err(ApiError::Internal("Invalid user UUID".into())),
     };
 
     let created_by = Some(user_uuid);
@@ -311,11 +309,9 @@ pub async fn set_group_members(
 
     match outcome {
         Ok(SetMembersOutcome::Ok(g)) => Ok(HttpResponse::Ok().json(g)),
-        Ok(SetMembersOutcome::NotFound) => Ok(errors::not_found_msg("Group not found")),
-        Ok(SetMembersOutcome::ExternallyManaged) => Ok(errors::bad_request(
-            "Cannot modify membership: This group is synced from an external source. Membership is managed externally and updated during sync.",
-        )),
-        Err(_) => Ok(errors::internal("Failed to set group members")),
+        Ok(SetMembersOutcome::NotFound) => Err(ApiError::NotFoundMsg("Group not found".into())),
+        Ok(SetMembersOutcome::ExternallyManaged) => Err(ApiError::BadRequest("Cannot modify membership: This group is synced from an external source. Membership is managed externally and updated during sync.".into())),
+        Err(_) => Err(ApiError::Internal("Failed to set group members".into())),
     }
 }
 
@@ -360,22 +356,22 @@ pub async fn set_user_groups(
     mut tc: TenantConn,
     path: web::Path<String>,
     body: web::Json<SetUserGroupsRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let claims = match req.extensions().get::<Claims>() {
         Some(c) => c.clone(),
-        None => return Ok(errors::unauthorized("Authentication required")),
+        None => return Err(ApiError::Unauthorized("Authentication required".into())),
     };
     let actor_uuid = match Uuid::parse_str(&claims.sub) {
         Ok(u) => u,
-        Err(_) => return Ok(errors::internal("Invalid user UUID")),
+        Err(_) => return Err(ApiError::Internal("Invalid user UUID".into())),
     };
 
     let created_by = Some(actor_uuid);
     let user_uuid = match Uuid::parse_str(&path.into_inner()) {
         Ok(uuid) => uuid,
-        Err(_) => return Ok(errors::bad_request("Invalid user UUID")),
+        Err(_) => return Err(ApiError::BadRequest("Invalid user UUID".into())),
     };
 
     let group_ids = body.group_ids.clone();
@@ -388,7 +384,7 @@ pub async fn set_user_groups(
 
     match result {
         Ok(groups) => Ok(HttpResponse::Ok().json(groups)),
-        Err(_) => Ok(errors::internal("Failed to set user groups")),
+        Err(_) => Err(ApiError::Internal("Failed to set user groups".into())),
     }
 }
 
@@ -401,7 +397,7 @@ pub async fn get_group_includes(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<i32>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let group_id = path.into_inner();
@@ -409,8 +405,8 @@ pub async fn get_group_includes(
     match tc.run(|conn| repository::groups::get_included_groups(conn, group_id)) {
         Ok(groups) => Ok(HttpResponse::Ok().json(groups)),
         Err(e) => match e {
-            Error::NotFound => Ok(errors::not_found_msg("Group not found")),
-            _ => Ok(errors::internal("Failed to get group includes")),
+            Error::NotFound => Err(ApiError::NotFoundMsg("Group not found".into())),
+            _ => Err(ApiError::Internal("Failed to get group includes".into())),
         },
     }
 }
@@ -434,16 +430,16 @@ pub async fn set_group_includes(
     mut tc: TenantConn,
     path: web::Path<i32>,
     body: web::Json<SetGroupIncludesRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let claims = match req.extensions().get::<Claims>() {
         Some(c) => c.clone(),
-        None => return Ok(errors::unauthorized("Authentication required")),
+        None => return Err(ApiError::Unauthorized("Authentication required".into())),
     };
     let user_uuid = match Uuid::parse_str(&claims.sub) {
         Ok(u) => u,
-        Err(_) => return Ok(errors::internal("Invalid user UUID")),
+        Err(_) => return Err(ApiError::Internal("Invalid user UUID".into())),
     };
 
     let created_by = Some(user_uuid);
@@ -473,7 +469,7 @@ pub async fn set_group_includes(
 
     match outcome {
         Ok(SetIncludesOutcome::Ok(d)) => Ok(HttpResponse::Ok().json(d)),
-        Ok(SetIncludesOutcome::NotFound) => Ok(errors::not_found_msg("Group not found")),
+        Ok(SetIncludesOutcome::NotFound) => Err(ApiError::NotFoundMsg("Group not found".into())),
         Ok(SetIncludesOutcome::CheckViolation(msg)) => {
             Ok(HttpResponse::BadRequest().json(serde_json::json!({
                 "error": i18n::tr(&request_locale(&req), "backend-error-validation"),
@@ -481,7 +477,7 @@ pub async fn set_group_includes(
                 "message": msg,
             })))
         }
-        Err(_) => Ok(errors::internal("Failed to set group includes")),
+        Err(_) => Err(ApiError::Internal("Failed to set group includes".into())),
     }
 }
 
@@ -509,16 +505,16 @@ pub async fn set_group_devices(
     mut tc: TenantConn,
     path: web::Path<i32>,
     body: web::Json<SetGroupDevicesRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let claims = match req.extensions().get::<Claims>() {
         Some(c) => c.clone(),
-        None => return Ok(errors::unauthorized("Authentication required")),
+        None => return Err(ApiError::Unauthorized("Authentication required".into())),
     };
     let user_uuid = match Uuid::parse_str(&claims.sub) {
         Ok(u) => u,
-        Err(_) => return Ok(errors::internal("Invalid user UUID")),
+        Err(_) => return Err(ApiError::Internal("Invalid user UUID".into())),
     };
 
     let created_by = Some(user_uuid);
@@ -543,11 +539,9 @@ pub async fn set_group_devices(
 
     match outcome {
         Ok(SetDevicesOutcome::Ok(d)) => Ok(HttpResponse::Ok().json(d)),
-        Ok(SetDevicesOutcome::NotFound) => Ok(errors::not_found_msg("Group not found")),
-        Ok(SetDevicesOutcome::ExternallyManaged) => Ok(errors::bad_request(
-            "Cannot modify membership: This group is synced from an external source. Asset membership is managed externally and updated during sync.",
-        )),
-        Err(_) => Ok(errors::internal("Failed to set group devices")),
+        Ok(SetDevicesOutcome::NotFound) => Err(ApiError::NotFoundMsg("Group not found".into())),
+        Ok(SetDevicesOutcome::ExternallyManaged) => Err(ApiError::BadRequest("Cannot modify membership: This group is synced from an external source. Asset membership is managed externally and updated during sync.".into())),
+        Err(_) => Err(ApiError::Internal("Failed to set group devices".into())),
     }
 }
 

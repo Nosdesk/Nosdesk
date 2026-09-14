@@ -25,7 +25,8 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::db::Pool;
-use crate::handlers::{errors, helpers};
+use crate::handlers::errors::{self, ApiError};
+use crate::handlers::helpers;
 use crate::middleware::RequestContext;
 use crate::models::{SyncAggregate, SyncOp};
 use crate::repository::plugins as plugin_repo;
@@ -87,12 +88,12 @@ pub async fn emit_plugin_event(
     path: web::Path<Uuid>,
     body: web::Json<PluginEventBody>,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let plugin_uuid = path.into_inner();
 
     let body = body.into_inner();
     if let Err(msg) = validate_event_body(&body) {
-        return Ok(errors::bad_request(msg));
+        return Err(ApiError::BadRequest(msg.into()));
     }
 
     // Caller must be authenticated (plugins run inside the user's
@@ -109,11 +110,11 @@ pub async fn emit_plugin_event(
     let plugin = match plugin_repo::get_plugin_by_uuid(&mut conn, plugin_uuid) {
         Ok(p) => p,
         Err(diesel::result::Error::NotFound) => {
-            return Ok(errors::not_found_msg("Plugin not found"));
+            return Err(ApiError::NotFoundMsg("Plugin not found".into()));
         }
         Err(e) => {
             error!(error = %e, plugin_uuid = %plugin_uuid, "failed to look up plugin");
-            return Ok(errors::internal("Failed to look up plugin"));
+            return Err(ApiError::Internal("Failed to look up plugin".into()));
         }
     };
 
@@ -126,7 +127,7 @@ pub async fn emit_plugin_event(
             state = ?plugin.state,
             "rejected event from a non-active plugin"
         );
-        return Ok(errors::forbidden("Plugin is not active"));
+        return Err(ApiError::Forbidden("Plugin is not active".into()));
     }
 
     // The event_type must be one the plugin's manifest declares. The manifest
@@ -141,14 +142,14 @@ pub async fn emit_plugin_event(
                     event_type = %body.event_type,
                     "rejected undeclared plugin event type"
                 );
-                return Ok(errors::forbidden(
-                    "event_type is not declared in the plugin manifest",
+                return Err(ApiError::Forbidden(
+                    "event_type is not declared in the plugin manifest".into(),
                 ));
             }
         }
         Err(e) => {
             error!(error = %e, plugin_uuid = %plugin_uuid, "plugin manifest failed to parse");
-            return Ok(errors::internal("Plugin manifest is invalid"));
+            return Err(ApiError::Internal("Plugin manifest is invalid".into()));
         }
     }
 
@@ -254,7 +255,7 @@ pub async fn emit_plugin_event(
                 event_type = %event_type_owned,
                 "failed to record plugin event"
             );
-            Ok(errors::internal("Failed to record plugin event"))
+            Err(ApiError::Internal("Failed to record plugin event".into()))
         }
     }
 }

@@ -12,7 +12,7 @@ use serde::Serialize;
 use tracing::error;
 
 use crate::db::Pool;
-use crate::handlers::errors;
+use crate::handlers::errors::ApiError;
 use crate::models::InboundDeadLetter;
 use crate::repository::inbound_dead_letters as repo;
 use crate::utils::rbac;
@@ -50,7 +50,7 @@ const DEFAULT_LIMIT: i64 = 50;
 const MAX_LIMIT: i64 = 200;
 
 /// `GET /api/admin/inbound/dead-letters` — platform-admin only.
-pub async fn list(req: HttpRequest, pool: web::Data<Pool>) -> actix_web::Result<HttpResponse> {
+pub async fn list(req: HttpRequest, pool: web::Data<Pool>) -> Result<HttpResponse, ApiError> {
     rbac::require_platform_admin(&req)?;
 
     let since = chrono::Utc::now().naive_utc() - chrono::Duration::days(7);
@@ -68,7 +68,9 @@ pub async fn list(req: HttpRequest, pool: web::Data<Pool>) -> actix_web::Result<
         })),
         Err(e) => {
             error!(error = %e, "failed to list inbound dead-letters");
-            Ok(errors::internal("Failed to list unrouted inbound mail"))
+            Err(ApiError::Internal(
+                "Failed to list unrouted inbound mail".into(),
+            ))
         }
     }
 }

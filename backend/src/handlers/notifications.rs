@@ -5,7 +5,8 @@
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 use chrono::{DateTime, Utc};
 
-use crate::handlers::{errors, helpers};
+use crate::handlers::errors::{self, ApiError};
+use crate::handlers::helpers;
 use serde::Deserialize;
 
 use crate::db::Pool;
@@ -156,27 +157,27 @@ pub async fn register_push_device(
     pool: web::Data<Pool>,
     notification_service: web::Data<NotificationService>,
     body: web::Json<RegisterDeviceRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let claims = match req.extensions().get::<Claims>() {
         Some(c) => c.clone(),
         None => return Ok(HttpResponse::Unauthorized().finish()),
     };
     let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
         Ok(u) => u,
-        Err(_) => return Ok(errors::bad_request("Invalid user UUID")),
+        Err(_) => return Err(ApiError::BadRequest("Invalid user UUID".into())),
     };
     let Some(workspace_id) = actor_workspace_id(&req) else {
-        return Ok(errors::unauthorized("Authentication required"));
+        return Err(ApiError::Unauthorized("Authentication required".into()));
     };
     if !matches!(body.platform.as_str(), "ios" | "android" | "web") {
-        return Ok(errors::bad_request(format!(
+        return Err(ApiError::BadRequest(format!(
             "Invalid platform: {}",
             body.platform
         )));
     }
     let token = body.token.trim();
     if token.is_empty() {
-        return Ok(errors::bad_request("Missing device token"));
+        return Err(ApiError::BadRequest("Missing device token".into()));
     }
 
     let mut conn = errors::db_conn(&pool)?;
@@ -216,17 +217,17 @@ pub async fn unregister_push_device(
     pool: web::Data<Pool>,
     notification_service: web::Data<NotificationService>,
     path: web::Path<String>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let claims = match req.extensions().get::<Claims>() {
         Some(c) => c.clone(),
         None => return Ok(HttpResponse::Unauthorized().finish()),
     };
     let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
         Ok(u) => u,
-        Err(_) => return Ok(errors::bad_request("Invalid user UUID")),
+        Err(_) => return Err(ApiError::BadRequest("Invalid user UUID".into())),
     };
     let Some(workspace_id) = actor_workspace_id(&req) else {
-        return Ok(errors::unauthorized("Authentication required"));
+        return Err(ApiError::Unauthorized("Authentication required".into()));
     };
     let token = path.into_inner();
 
@@ -275,10 +276,10 @@ pub struct UpdateWorkspaceDefaultRequest {
 pub async fn get_workspace_notification_defaults(
     req: HttpRequest,
     notification_service: web::Data<NotificationService>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let Some(workspace_id) = actor_workspace_id(&req) else {
-        return Ok(errors::unauthorized("Authentication required"));
+        return Err(ApiError::Unauthorized("Authentication required".into()));
     };
 
     match notification_service
@@ -297,16 +298,16 @@ pub async fn update_workspace_notification_default(
     req: HttpRequest,
     notification_service: web::Data<NotificationService>,
     body: web::Json<UpdateWorkspaceDefaultRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let Some(workspace_id) = actor_workspace_id(&req) else {
-        return Ok(errors::unauthorized("Authentication required"));
+        return Err(ApiError::Unauthorized("Authentication required".into()));
     };
 
     let notification_type = match NotificationTypeCode::from_str(&body.notification_type) {
         Some(t) => t,
         None => {
-            return Ok(errors::bad_request(format!(
+            return Err(ApiError::BadRequest(format!(
                 "Invalid notification type: {}",
                 body.notification_type
             )))
@@ -315,7 +316,7 @@ pub async fn update_workspace_notification_default(
     let channel = match NotificationChannel::from_str(&body.channel) {
         Some(c) => c,
         None => {
-            return Ok(errors::bad_request(format!(
+            return Err(ApiError::BadRequest(format!(
                 "Invalid channel: {}",
                 body.channel
             )))
@@ -324,7 +325,7 @@ pub async fn update_workspace_notification_default(
     let frequency = match NotificationFrequency::from_str(&body.frequency) {
         Some(f) => f,
         None => {
-            return Ok(errors::bad_request(format!(
+            return Err(ApiError::BadRequest(format!(
                 "Invalid frequency: {}",
                 body.frequency
             )))
@@ -359,10 +360,10 @@ pub struct UpdateContentLevelRequest {
 pub async fn get_notification_content_level(
     req: HttpRequest,
     pool: web::Data<Pool>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let Some(workspace_id) = actor_workspace_id(&req) else {
-        return Ok(errors::unauthorized("Authentication required"));
+        return Err(ApiError::Unauthorized("Authentication required".into()));
     };
     let mut conn = errors::db_conn(&pool)?;
     match crate::repository::workspaces::get_notification_push_detail(&mut conn, workspace_id) {
@@ -382,12 +383,12 @@ pub async fn set_notification_content_level(
     req: HttpRequest,
     pool: web::Data<Pool>,
     body: web::Json<UpdateContentLevelRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
     let detailed = match body.detail.as_str() {
         "detailed" => true,
         "private" => false,
-        other => return Ok(errors::bad_request(format!("Invalid detail: {other}"))),
+        other => return Err(ApiError::BadRequest(format!("Invalid detail: {other}"))),
     };
     let claims = match req.extensions().get::<Claims>() {
         Some(c) => c.clone(),
@@ -395,10 +396,10 @@ pub async fn set_notification_content_level(
     };
     let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
         Ok(u) => u,
-        Err(_) => return Ok(errors::bad_request("Invalid user UUID")),
+        Err(_) => return Err(ApiError::BadRequest("Invalid user UUID".into())),
     };
     let Some(workspace_id) = actor_workspace_id(&req) else {
-        return Ok(errors::unauthorized("Authentication required"));
+        return Err(ApiError::Unauthorized("Authentication required".into()));
     };
     let mut conn = errors::db_conn(&pool)?;
     let actor =

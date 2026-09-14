@@ -8,7 +8,7 @@ use tracing::{debug, error, info, warn};
 use crate::db::Pool;
 use crate::extractors::AuthContext;
 use crate::extractors::WorkspaceContext;
-use crate::handlers::errors;
+use crate::handlers::errors::{self, ApiError};
 use crate::handlers::helpers;
 use crate::models::Claims;
 use crate::repository::search_query_log;
@@ -35,11 +35,11 @@ pub async fn search(
     auth: AuthContext,
     ws: WorkspaceContext,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     // Verify authentication
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return Ok(errors::unauthorized("Authentication required")),
+        None => return Err(ApiError::Unauthorized("Authentication required".into())),
     };
 
     debug!(
@@ -53,12 +53,12 @@ pub async fn search(
     // Validate query
     let query_str = query.q.trim();
     if query_str.is_empty() {
-        return Ok(errors::bad_request("Search query cannot be empty"));
+        return Err(ApiError::BadRequest("Search query cannot be empty".into()));
     }
 
     if query_str.len() > 500 {
-        return Ok(errors::bad_request(
-            "Search query too long (max 500 characters)",
+        return Err(ApiError::BadRequest(
+            "Search query too long (max 500 characters)".into(),
         ));
     }
 
@@ -130,7 +130,7 @@ pub async fn search(
                         }
                         Err(e) => {
                             error!(error = ?e, "search visibility filter failed");
-                            return Ok(errors::internal("Search failed"));
+                            return Err(ApiError::Internal("Search failed".into()));
                         }
                     }
                 }
@@ -204,21 +204,23 @@ pub async fn rebuild_index(
     pool: web::Data<crate::db::Pool>,
     search_service: web::Data<Arc<SearchService>>,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     // Verify authentication and admin role
     let claims = match req.extensions().get::<Claims>() {
         Some(claims) => claims.clone(),
-        None => return Ok(errors::unauthorized("Authentication required")),
+        None => return Err(ApiError::Unauthorized("Authentication required".into())),
     };
 
     if !is_platform_admin(&claims) {
         warn!(user = %claims.sub, "Non-admin user attempted to rebuild search index");
-        return Ok(errors::forbidden("Admin access required"));
+        return Err(ApiError::Forbidden("Admin access required".into()));
     }
 
     // Check if already rebuilding
     if search_service.is_rebuilding() {
-        return Ok(errors::conflict("Index rebuild already in progress"));
+        return Err(ApiError::Conflict(
+            "Index rebuild already in progress".into(),
+        ));
     }
 
     info!(user = %claims.sub, "Starting search index rebuild");

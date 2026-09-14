@@ -1,4 +1,6 @@
 use actix_web::{web, HttpRequest, HttpResponse};
+
+use crate::handlers::errors::ApiError;
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 
@@ -123,7 +125,7 @@ async fn check_for_updates() -> Option<(String, String)> {
 pub async fn get_system_info(
     req: HttpRequest,
     system_state: web::Data<SystemState>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     // Version / environment / uptime is operator info: useful for
     // fingerprinting against known CVEs, so gate it to admins. See
     // security-audit-2026-06.
@@ -147,7 +149,7 @@ pub async fn get_system_info(
 }
 
 // GET /api/admin/system/updates
-pub async fn check_system_updates(req: HttpRequest) -> actix_web::Result<HttpResponse> {
+pub async fn check_system_updates(req: HttpRequest) -> Result<HttpResponse, ApiError> {
     // Admin-only: this triggers an outbound GitHub request and reveals
     // the running version. See security-audit-2026-06.
     crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)?;

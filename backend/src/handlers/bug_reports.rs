@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::extractors::{PlatformConn, TenantConn};
-use crate::handlers::errors;
+use crate::handlers::errors::{self, ApiError};
 use crate::middleware::request_context::RequestContext;
 use crate::models::NewBugReport;
 use crate::repository::bug_reports as repo;
@@ -92,13 +92,13 @@ pub async fn list_bug_reports(
     req: HttpRequest,
     mut pc: PlatformConn,
     query: web::Query<ListBugReportsQuery>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     rbac::require_platform_admin(&req)?;
     let limit = query.limit.unwrap_or(50).clamp(1, 200);
     let offset = query.offset.unwrap_or(0).max(0);
     match pc.run(|conn| repo::list_recent(conn, limit, offset)) {
         Ok(reports) => Ok(HttpResponse::Ok().json(reports)),
-        Err(e) => Ok(errors::db_error(&e)),
+        Err(e) => Err(ApiError::Database(e)),
     }
 }
 

@@ -9,7 +9,7 @@ use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::extractors::{AuthContext, TenantConn};
-use crate::handlers::errors::{self, ApiError};
+use crate::handlers::errors::ApiError;
 use crate::handlers::helpers;
 use crate::models::{
     CreateWebhookRequest, UpdateWebhookRequest, Webhook, WebhookCreatedResponse,
@@ -99,10 +99,7 @@ fn validate_events(events: &[String]) -> Result<(), ApiError> {
 // =============================================================================
 
 /// List all webhooks (admin only)
-pub async fn list_webhooks(
-    req: HttpRequest,
-    mut tc: TenantConn,
-) -> actix_web::Result<HttpResponse> {
+pub async fn list_webhooks(req: HttpRequest, mut tc: TenantConn) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     match tc.run(webhook_repo::list_all_webhooks) {
@@ -112,7 +109,7 @@ pub async fn list_webhooks(
         }
         Err(e) => {
             error!("Failed to list webhooks: {}", e);
-            Ok(errors::internal("Failed to list webhooks"))
+            Err(ApiError::Internal("Failed to list webhooks".into()))
         }
     }
 }
@@ -123,7 +120,7 @@ pub async fn create_webhook(
     mut tc: TenantConn,
     auth: AuthContext,
     body: web::Json<CreateWebhookRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let created_by = Some(auth.user_uuid);
@@ -165,13 +162,13 @@ pub async fn create_webhook(
         }
         Err(e) => {
             error!("Failed to create webhook: {}", e);
-            Ok(errors::internal("Failed to create webhook"))
+            Err(ApiError::Internal("Failed to create webhook".into()))
         }
     }
 }
 
 /// Get available event types
-pub async fn get_event_types(req: HttpRequest) -> actix_web::Result<HttpResponse> {
+pub async fn get_event_types(req: HttpRequest) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     Ok(HttpResponse::Ok().json(WebhookEventType::all()))
@@ -182,17 +179,17 @@ pub async fn get_webhook(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<Uuid>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let webhook_uuid = path.into_inner();
 
     match tc.run(|conn| webhook_repo::get_webhook_by_uuid(conn, webhook_uuid)) {
         Ok(webhook) => Ok(HttpResponse::Ok().json(WebhookResponse::from(webhook))),
-        Err(DieselError::NotFound) => Ok(errors::not_found_msg("Webhook not found")),
+        Err(DieselError::NotFound) => Err(ApiError::NotFoundMsg("Webhook not found".into())),
         Err(e) => {
             error!("Failed to get webhook: {}", e);
-            Ok(errors::internal("Failed to get webhook"))
+            Err(ApiError::Internal("Failed to get webhook".into()))
         }
     }
 }
@@ -203,19 +200,15 @@ pub async fn update_webhook(
     mut tc: TenantConn,
     path: web::Path<Uuid>,
     body: web::Json<UpdateWebhookRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let webhook_uuid = path.into_inner();
 
     // Validate optional fields if provided
-    let validated_name = if let Some(ref name) = body.name {
-        match validate_name(name) {
-            Ok(n) => Some(n),
-            Err(e) => return Err(e.into()),
-        }
-    } else {
-        None
+    let validated_name = match body.name {
+        Some(ref name) => Some(validate_name(name)?),
+        None => None,
     };
 
     if let Some(ref url) = body.url {
@@ -253,10 +246,10 @@ pub async fn update_webhook(
             info!("Webhook updated: {} ({})", webhook.uuid, webhook.name);
             Ok(HttpResponse::Ok().json(WebhookResponse::from(webhook)))
         }
-        Err(DieselError::NotFound) => Ok(errors::not_found_msg("Webhook not found")),
+        Err(DieselError::NotFound) => Err(ApiError::NotFoundMsg("Webhook not found".into())),
         Err(e) => {
             error!("Failed to update webhook: {}", e);
-            Ok(errors::internal("Failed to update webhook"))
+            Err(ApiError::Internal("Failed to update webhook".into()))
         }
     }
 }
@@ -266,7 +259,7 @@ pub async fn delete_webhook(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<Uuid>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let webhook_uuid = path.into_inner();
@@ -276,10 +269,10 @@ pub async fn delete_webhook(
             info!("Webhook deleted: {}", webhook_uuid);
             Ok(HttpResponse::NoContent().finish())
         }
-        Ok(_) => Ok(errors::not_found_msg("Webhook not found")),
+        Ok(_) => Err(ApiError::NotFoundMsg("Webhook not found".into())),
         Err(e) => {
             error!("Failed to delete webhook: {}", e);
-            Ok(errors::internal("Failed to delete webhook"))
+            Err(ApiError::Internal("Failed to delete webhook".into()))
         }
     }
 }
@@ -296,7 +289,7 @@ pub async fn get_deliveries(
     mut tc: TenantConn,
     path: web::Path<Uuid>,
     query: web::Query<PaginationQuery>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let webhook_uuid = path.into_inner();
@@ -330,10 +323,10 @@ pub async fn get_deliveries(
                 .collect();
             Ok(HttpResponse::Ok().json(response))
         }
-        Ok(DeliveriesOutcome::NotFound) => Ok(errors::not_found_msg("Webhook not found")),
+        Ok(DeliveriesOutcome::NotFound) => Err(ApiError::NotFoundMsg("Webhook not found".into())),
         Err(e) => {
             error!("Failed to get deliveries: {}", e);
-            Ok(errors::internal("Failed to get deliveries"))
+            Err(ApiError::Internal("Failed to get deliveries".into()))
         }
     }
 }
@@ -350,7 +343,7 @@ pub async fn test_webhook(
     mut tc: TenantConn,
     webhook_service: web::Data<WebhookService>,
     path: web::Path<Uuid>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let webhook_uuid = path.into_inner();
@@ -365,10 +358,12 @@ pub async fn test_webhook(
 
     let webhook = match lookup {
         Ok(TestLookupOutcome::Ok(w)) => w,
-        Ok(TestLookupOutcome::NotFound) => return Ok(errors::not_found_msg("Webhook not found")),
+        Ok(TestLookupOutcome::NotFound) => {
+            return Err(ApiError::NotFoundMsg("Webhook not found".into()))
+        }
         Err(e) => {
             error!("Failed to get webhook: {}", e);
-            return Ok(errors::internal("Failed to get webhook"));
+            return Err(ApiError::Internal("Failed to get webhook".into()));
         }
     };
 
@@ -384,7 +379,9 @@ pub async fn test_webhook(
         }
         Err(e) => {
             error!("Failed to send test event: {}", e);
-            Ok(errors::internal(format!("Failed to send test event: {e}")))
+            Err(ApiError::Internal(format!(
+                "Failed to send test event: {e}"
+            )))
         }
     }
 }

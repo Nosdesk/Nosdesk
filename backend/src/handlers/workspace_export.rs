@@ -14,7 +14,7 @@ use futures::StreamExt;
 use serde::Deserialize;
 
 use crate::extractors::PlatformConn;
-use crate::handlers::errors;
+use crate::handlers::errors::ApiError;
 use crate::utils::rbac;
 use crate::utils::storage::{process_storage, WorkspaceScopedStorage};
 
@@ -43,7 +43,7 @@ pub async fn export_workspace(
     mut pc: PlatformConn,
     path: web::Path<i32>,
     body: web::Json<WorkspaceExportRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     rbac::require_platform_admin(&req)?;
     let workspace_id = path.into_inner();
     let password = body.into_inner().password;
@@ -59,7 +59,7 @@ pub async fn export_workspace(
         .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))
     }) {
         Ok(v) => v,
-        Err(e) => return Ok(errors::db_error(&e)),
+        Err(e) => return Err(ApiError::Database(e)),
     };
 
     // 2. Read the workspace's files through the storage abstraction (local or
@@ -67,14 +67,18 @@ pub async fn export_workspace(
     let scoped = WorkspaceScopedStorage::arc(process_storage(), workspace_id);
     let paths = match scoped.list_prefix("").await {
         Ok(p) => p,
-        Err(e) => return Ok(errors::internal(format!("listing workspace files: {e:?}"))),
+        Err(e) => {
+            return Err(ApiError::Internal(format!(
+                "listing workspace files: {e:?}"
+            )))
+        }
     };
     let mut files: Vec<(String, Vec<u8>)> = Vec::with_capacity(paths.len());
     for p in paths {
         match scoped.get_file(&p).await {
             Ok(bytes) => files.push((p, bytes)),
             Err(e) => {
-                return Ok(errors::internal(format!(
+                return Err(ApiError::Internal(format!(
                     "reading workspace file {p}: {e:?}"
                 )))
             }
@@ -96,7 +100,7 @@ pub async fn export_workspace(
                 format!("attachment; filename=\"workspace-{workspace_id}.nosdesk\""),
             ))
             .body(bytes)),
-        Err(e) => Ok(errors::internal(format!("assembling archive: {e}"))),
+        Err(e) => Err(ApiError::Internal(format!("assembling archive: {e}"))),
     }
 }
 
@@ -111,7 +115,7 @@ pub async fn import_workspace(
     req: HttpRequest,
     mut pc: PlatformConn,
     mut payload: Multipart,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     rbac::require_platform_admin(&req)?;
 
     let mut archive: Vec<u8> = Vec::new();
@@ -135,7 +139,7 @@ pub async fn import_workspace(
     while let Some(item) = payload.next().await {
         let mut field = match item {
             Ok(f) => f,
-            Err(e) => return Ok(errors::bad_request(format!("upload error: {e}"))),
+            Err(e) => return Err(ApiError::BadRequest(format!("upload error: {e}"))),
         };
         let name = field
             .content_disposition()
@@ -148,13 +152,13 @@ pub async fn import_workspace(
                 Ok(d) => {
                     buf.extend_from_slice(&d);
                     if name == "archive" && buf.len() as u64 > max_archive_bytes {
-                        return Ok(errors::bad_request(format!(
+                        return Err(ApiError::BadRequest(format!(
                             "archive exceeds the {max_archive_bytes}-byte limit \
                              (raise NOSDESK_MAX_IMPORT_BYTES)"
                         )));
                     }
                 }
-                Err(e) => return Ok(errors::bad_request(format!("upload error: {e}"))),
+                Err(e) => return Err(ApiError::BadRequest(format!("upload error: {e}"))),
             }
         }
         match name.as_str() {
@@ -179,8 +183,8 @@ pub async fn import_workspace(
     }
 
     if archive.is_empty() {
-        return Ok(errors::bad_request(
-            "no archive uploaded (multipart field 'archive')",
+        return Err(ApiError::BadRequest(
+            "no archive uploaded (multipart field 'archive')".into(),
         ));
     }
 
@@ -188,7 +192,7 @@ pub async fn import_workspace(
     let contents =
         match crate::services::workspace_import::read_archive(&archive, password.as_deref()) {
             Ok(c) => c,
-            Err(e) => return Ok(errors::bad_request(format!("invalid archive: {e}"))),
+            Err(e) => return Err(ApiError::BadRequest(format!("invalid archive: {e}"))),
         };
 
     let opts = crate::services::workspace_import::ImportOptions {
@@ -203,7 +207,7 @@ pub async fn import_workspace(
             .map_err(|e| diesel::result::Error::QueryBuilderError(e.to_string().into()))
     }) {
         Ok(r) => r,
-        Err(e) => return Ok(errors::db_error(&e)),
+        Err(e) => return Err(ApiError::Database(e)),
     };
 
     // 2. Restore files through the storage abstraction into the NEW workspace

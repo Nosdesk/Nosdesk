@@ -11,7 +11,7 @@ use serde::Deserialize;
 use serde_json::json;
 use tracing::{info, warn};
 
-use crate::handlers::errors;
+use crate::handlers::errors::ApiError;
 use crate::handlers::helpers;
 use crate::utils::reset_tokens::TokenType;
 
@@ -33,7 +33,7 @@ pub async fn verify_email(
     db_pool: web::Data<crate::db::Pool>,
     _req: HttpRequest,
     body: web::Json<VerifyEmailRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&db_pool)?;
 
     let (user_uuid, metadata) =
@@ -47,8 +47,8 @@ pub async fn verify_email(
                 // Expired, already used, wrong type, or never existed. One message
                 // for all of them: telling them apart tells a token-guesser which
                 // of their guesses was once real.
-                return Ok(errors::bad_request(
-                    "This confirmation link is invalid or has expired",
+                return Err(ApiError::BadRequest(
+                    "This confirmation link is invalid or has expired".into(),
                 ));
             }
         };
@@ -59,8 +59,8 @@ pub async fn verify_email(
         .and_then(serde_json::Value::as_i64)
     else {
         warn!(%user_uuid, "email verification: token carries no user_email_id");
-        return Ok(errors::bad_request(
-            "This confirmation link is invalid or has expired",
+        return Err(ApiError::BadRequest(
+            "This confirmation link is invalid or has expired".into(),
         ));
     };
     let Some(address) = metadata
@@ -70,8 +70,8 @@ pub async fn verify_email(
         .map(str::to_owned)
     else {
         warn!(%user_uuid, "email verification: token carries no address");
-        return Ok(errors::bad_request(
-            "This confirmation link is invalid or has expired",
+        return Err(ApiError::BadRequest(
+            "This confirmation link is invalid or has expired".into(),
         ));
     };
 
@@ -91,13 +91,13 @@ pub async fn verify_email(
         // becomes.
         Ok(_) => {
             warn!(%user_uuid, email_id, "email verification: row no longer matches the token");
-            Ok(errors::bad_request(
-                "That address is no longer on this account",
+            Err(ApiError::BadRequest(
+                "That address is no longer on this account".into(),
             ))
         }
         Err(e) => {
             warn!(%user_uuid, email_id, error = ?e, "email verification: update failed");
-            Ok(errors::internal("Could not confirm this address"))
+            Err(ApiError::Internal("Could not confirm this address".into()))
         }
     }
 }

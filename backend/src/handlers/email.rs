@@ -3,7 +3,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::extractors::TenantConn;
-use crate::handlers::errors;
+use crate::handlers::errors::ApiError;
 use crate::utils::email::EmailService;
 use crate::utils::email_branding::get_email_branding;
 
@@ -54,7 +54,7 @@ pub async fn get_email_config(
     mut tc: TenantConn,
     req: HttpRequest,
     resolver: web::Data<std::sync::Arc<crate::services::outbound_email::OutboundEmailResolver>>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     // Per-workspace email config: a workspace admin owns it. Was platform-admin,
     // which broke the Setup tab's own bootstrap read for tenant admins. TenantConn
     // scopes the read; the hosted branch below redacts the platform relay and
@@ -155,7 +155,7 @@ pub async fn send_test_email(
     mut tc: TenantConn,
     req: HttpRequest,
     request: web::Json<TestEmailRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     // Per-workspace test send (targets this workspace's identity). A workspace
     // admin owns it, matching the sibling outbound endpoints. Was platform-admin.
     crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)?;
@@ -164,7 +164,7 @@ pub async fn send_test_email(
     let email_service = match EmailService::from_env() {
         Ok(service) => service,
         Err(e) => {
-            return Ok(errors::bad_request(format!(
+            return Err(ApiError::BadRequest(format!(
                 "Email is not configured: {}",
                 e
             )))
@@ -185,7 +185,7 @@ pub async fn send_test_email(
         match tc.run(|conn| Ok::<_, diesel::result::Error>(get_email_branding(conn, &base_url))) {
             Ok(b) => b,
             Err(e) => {
-                return Ok(errors::internal(format!(
+                return Err(ApiError::Internal(format!(
                     "Failed to load email branding: {}",
                     e
                 )))
@@ -198,7 +198,7 @@ pub async fn send_test_email(
             "status": "success",
             "message": format!("Test email sent successfully to {}", request.to)
         }))),
-        Err(e) => Ok(errors::internal(format!(
+        Err(e) => Err(ApiError::Internal(format!(
             "Failed to send test email: {}",
             e
         ))),

@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 use crate::extractors::TenantConn;
-use crate::handlers::errors;
+use crate::handlers::errors::ApiError;
 use crate::models::{
     email_suppression_reason, EmailSuppression, NewEmailSuppression, WorkspaceRole,
 };
@@ -69,12 +69,14 @@ pub async fn list(
     req: HttpRequest,
     mut tc: TenantConn,
     query: web::Query<ListQuery>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     rbac::require_workspace_role(&req, WorkspaceRole::Admin)?;
     let limit = query.limit.unwrap_or(50).clamp(1, 200);
     let before = query.before;
     let Some(workspace_id) = tc.workspace_id() else {
-        return Ok(errors::forbidden("A resolved workspace is required"));
+        return Err(ApiError::Forbidden(
+            "A resolved workspace is required".into(),
+        ));
     };
     // Both queries filter on the workspace explicitly. The table now carries
     // RLS too, but the filter is what makes the query correct on its face;
@@ -88,7 +90,9 @@ pub async fn list(
         Ok(t) => t,
         Err(e) => {
             warn!(error = ?e, "Failed to read email suppressions");
-            return Ok(errors::internal("Failed to read email suppressions"));
+            return Err(ApiError::Internal(
+                "Failed to read email suppressions".into(),
+            ));
         }
     };
     // The next cursor is the created_at of the last row returned;
@@ -118,14 +122,18 @@ pub async fn create(
     req: HttpRequest,
     mut tc: TenantConn,
     body: web::Json<CreateBody>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     rbac::require_workspace_role(&req, WorkspaceRole::Admin)?;
     let email = body.email.trim().to_string();
     if email.is_empty() || !email.contains('@') {
-        return Ok(errors::bad_request("Email must look like an address"));
+        return Err(ApiError::BadRequest(
+            "Email must look like an address".into(),
+        ));
     }
     let Some(workspace_id) = tc.workspace_id() else {
-        return Ok(errors::forbidden("A resolved workspace is required"));
+        return Err(ApiError::Forbidden(
+            "A resolved workspace is required".into(),
+        ));
     };
     let new = NewEmailSuppression {
         email,
@@ -137,7 +145,7 @@ pub async fn create(
         Ok(row) => Ok(HttpResponse::Ok().json(RowResponse::from(row))),
         Err(e) => {
             warn!(error = ?e, "Failed to add email suppression");
-            Ok(errors::internal("Failed to add email suppression"))
+            Err(ApiError::Internal("Failed to add email suppression".into()))
         }
     }
 }
@@ -146,22 +154,26 @@ pub async fn delete(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<String>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     rbac::require_workspace_role(&req, WorkspaceRole::Admin)?;
     let email = path.into_inner();
     let Some(workspace_id) = tc.workspace_id() else {
-        return Ok(errors::forbidden("A resolved workspace is required"));
+        return Err(ApiError::Forbidden(
+            "A resolved workspace is required".into(),
+        ));
     };
     // A peer tenant's entry is now indistinguishable from an address that was
     // never on the list, which is the right shape: no cross-tenant oracle.
     match tc.run(|conn| repo::remove(conn, workspace_id, &email)) {
-        Ok(0) => Ok(errors::not_found_msg(
-            "Address is not on the suppression list",
+        Ok(0) => Err(ApiError::NotFoundMsg(
+            "Address is not on the suppression list".into(),
         )),
         Ok(_) => Ok(HttpResponse::NoContent().finish()),
         Err(e) => {
             warn!(error = ?e, "Failed to remove email suppression");
-            Ok(errors::internal("Failed to remove email suppression"))
+            Err(ApiError::Internal(
+                "Failed to remove email suppression".into(),
+            ))
         }
     }
 }

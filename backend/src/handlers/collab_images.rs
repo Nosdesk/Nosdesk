@@ -27,7 +27,7 @@ use crate::extractors::{AuthContext, ScopedStorage, TenantConn};
 use crate::handlers::collaboration::{
     can_access_document, DocAccessor, DocKind, DocumentType, ParsedDocId,
 };
-use crate::handlers::errors;
+use crate::handlers::errors::ApiError;
 use crate::handlers::files::serve_or_not_found;
 use crate::sync::actor::ActorContext;
 use crate::sync::session;
@@ -73,9 +73,10 @@ pub async fn upload_collab_document_image(
         Ok(p) => p,
         Err(e) => {
             warn!(doc_id = %doc_id, error = ?e, "Invalid document ID format on image upload");
-            return Ok(errors::bad_request(
-                "doc_id must be in the workspace-namespaced format ws-{uuid}_{kind}-{uuid}",
-            ));
+            return Err(ApiError::BadRequest(
+                "doc_id must be in the workspace-namespaced format ws-{uuid}_{kind}-{uuid}".into(),
+            )
+            .into());
         }
     };
 

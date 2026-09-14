@@ -391,7 +391,7 @@ pub(crate) fn complete_login(
     user: crate::models::User,
     request: &HttpRequest,
     conn: &mut DbConnection,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     // Local / password logins carry no OIDC id_token.
     let (response, tokens) = establish_login_session(user, request, conn, None)?;
     Ok(build_auth_response(request, response, &tokens))
@@ -410,7 +410,7 @@ pub(crate) fn complete_login_redirect(
     conn: &mut DbConnection,
     location: &str,
     oidc_id_token: Option<&str>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let (_response, tokens) = establish_login_session(user, request, conn, oidc_id_token)?;
     Ok(build_auth_cookie_redirect(&tokens, location))
 }
@@ -465,7 +465,7 @@ fn complete_mfa_login(
     requires_regeneration: bool,
     request: &HttpRequest,
     conn: &mut DbConnection,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let user_uuid = user.uuid;
 
     // Pin the request's workspace so the login response's workspace_role
@@ -476,7 +476,9 @@ fn complete_mfa_login(
         Ok(s) => s,
         Err(e) => {
             tracing::error!("Failed to create session for user {}: {}", user_uuid, e);
-            return Ok(errors::internal("Failed to create authentication session"));
+            return Err(ApiError::Internal(
+                "Failed to create authentication session".into(),
+            ));
         }
     };
     let family_id = Uuid::new_v4();
@@ -704,13 +706,13 @@ pub async fn login(
     db_pool: web::Data<crate::db::Pool>,
     login_data: web::Json<LoginRequest>,
     request: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     // Hosted mode authenticates tenant users exclusively through the
     // platform OIDC; there is no local product password. Reject local
     // sign-in even if the endpoint is reached directly.
     if hosted_local_auth_disabled() {
-        return Ok(errors::forbidden(
-            "Password sign-in is disabled. Sign in with your organisation account.",
+        return Err(ApiError::Forbidden(
+            "Password sign-in is disabled. Sign in with your organisation account.".into(),
         ));
     }
 
@@ -739,8 +741,8 @@ pub async fn login(
             error!(error = %e, "Redis error checking account lockout");
             if is_production {
                 // Fail closed in production - deny login if we can't verify lockout status
-                return Ok(errors::service_unavailable(
-                    "Authentication service temporarily unavailable. Please try again.",
+                return Err(ApiError::ServiceUnavailable(
+                    "Authentication service temporarily unavailable. Please try again.".into(),
                 ));
             }
             // Fail open in development for convenience
@@ -828,7 +830,7 @@ pub async fn login(
                 ));
             }
             record_canonical(&request, "outcome", "invalid_credentials");
-            return Ok(errors::unauthorized("Invalid email or password"));
+            return Err(ApiError::Unauthorized("Invalid email or password".into()));
         }
     };
 
@@ -858,7 +860,9 @@ pub async fn login(
         Ok(false) => {}
         Err(e) => {
             error!(error = ?e, user_uuid = %user.uuid, "Failed to check passkey registration during login");
-            return Ok(errors::internal("Login could not complete; please retry"));
+            return Err(ApiError::Internal(
+                "Login could not complete; please retry".into(),
+            ));
         }
     }
 
@@ -879,7 +883,7 @@ pub async fn mfa_login(
     db_pool: web::Data<crate::db::Pool>,
     login_data: web::Json<crate::models::MfaLoginRequest>,
     request: actix_web::HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&db_pool)?;
 
     let user = match crate::utils::login_timing::verify_credentials(
@@ -888,12 +892,14 @@ pub async fn mfa_login(
         &login_data.password,
     ) {
         Some(u) => u,
-        None => return Ok(errors::unauthorized("Invalid email or password")),
+        None => return Err(ApiError::Unauthorized("Invalid email or password".into())),
     };
 
     // Check that user actually has MFA enabled
     if !mfa::user_has_mfa_enabled(&user) {
-        return Ok(errors::bad_request("MFA is not enabled for this account"));
+        return Err(ApiError::BadRequest(
+            "MFA is not enabled for this account".into(),
+        ));
     }
 
     // Check rate limiting for MFA attempts
@@ -928,7 +934,7 @@ pub async fn mfa_login(
         Err(e) => {
             mfa::log_mfa_attempt(&user.uuid, false, "login", &request).await;
             record_mfa(&mut conn, false);
-            return Ok(errors::bad_request(format!(
+            return Err(ApiError::BadRequest(format!(
                 "MFA verification failed: {}",
                 e
             )));
@@ -938,7 +944,7 @@ pub async fn mfa_login(
     if !mfa_result.is_valid {
         mfa::log_mfa_attempt(&user.uuid, false, "login", &request).await;
         record_mfa(&mut conn, false);
-        return Ok(errors::bad_request("Invalid MFA token"));
+        return Err(ApiError::BadRequest("Invalid MFA token".into()));
     }
 
     // Log successful MFA attempt
@@ -960,7 +966,7 @@ pub async fn recovery_login(
     db_pool: web::Data<crate::db::Pool>,
     login_data: web::Json<crate::models::RecoveryLoginRequest>,
     request: actix_web::HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let redis_url = get_redis_url();
     let client_ip = crate::utils::client_ip::from_http_request(&request);
     let lockout_key = RateLimiter::login_attempt_key(&login_data.email, client_ip);
@@ -982,8 +988,8 @@ pub async fn recovery_login(
             error!(error = %e, "Redis error checking account lockout for recovery login");
             let is_production = crate::config_utils::assume_production();
             if is_production {
-                return Ok(errors::service_unavailable(
-                    "Authentication service temporarily unavailable. Please try again.",
+                return Err(ApiError::ServiceUnavailable(
+                    "Authentication service temporarily unavailable. Please try again.".into(),
                 ));
             }
         }
@@ -1004,7 +1010,7 @@ pub async fn recovery_login(
                 LOCKOUT_DURATION_SECONDS,
             )
             .await;
-            return Ok(errors::unauthorized("Invalid email or password"));
+            return Err(ApiError::Unauthorized("Invalid email or password".into()));
         }
     };
 
@@ -1021,13 +1027,15 @@ pub async fn recovery_login(
         Ok(b) => b,
         Err(e) => {
             error!(error = ?e, user_uuid = %user.uuid, "Failed to check passkey registration during recovery login");
-            return Ok(errors::internal(
-                "Recovery could not complete; please retry",
+            return Err(ApiError::Internal(
+                "Recovery could not complete; please retry".into(),
             ));
         }
     };
     if !has_passkeys && !mfa::user_has_mfa_enabled(&user) {
-        return Ok(errors::bad_request("No MFA configured for this account"));
+        return Err(ApiError::BadRequest(
+            "No MFA configured for this account".into(),
+        ));
     }
 
     // Check rate limiting for MFA/recovery attempts
@@ -1045,13 +1053,13 @@ pub async fn recovery_login(
             Ok(result) => result,
             Err(_) => {
                 mfa::log_mfa_attempt(&user.uuid, false, "recovery_login", &request).await;
-                return Ok(errors::bad_request("Invalid recovery code"));
+                return Err(ApiError::BadRequest("Invalid recovery code".into()));
             }
         };
 
     if !result.is_valid {
         mfa::log_mfa_attempt(&user.uuid, false, "recovery_login", &request).await;
-        return Ok(errors::bad_request("Invalid recovery code"));
+        return Err(ApiError::BadRequest("Invalid recovery code".into()));
     }
 
     // Log successful recovery
@@ -1152,15 +1160,15 @@ pub async fn change_password(
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
     password_data: web::Json<PasswordChangeRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     // Validate new password first
     if password_data.new_password.len() < 8 {
-        return Ok(errors::bad_request(
-            "New password validation failed: Password must be at least 8 characters long",
+        return Err(ApiError::BadRequest(
+            "New password validation failed: Password must be at least 8 characters long".into(),
         ));
     } else if password_data.new_password.len() > 128 {
-        return Ok(errors::bad_request(
-            "New password validation failed: Password must be less than 128 characters",
+        return Err(ApiError::BadRequest(
+            "New password validation failed: Password must be less than 128 characters".into(),
         ));
     }
 
@@ -1170,13 +1178,13 @@ pub async fn change_password(
     // Extract claims from cookie auth middleware
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return Ok(errors::unauthorized("Authentication required")),
+        None => return Err(ApiError::Unauthorized("Authentication required".into())),
     };
 
     // Parse UUID from claims
     let user_uuid = match parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return Ok(errors::bad_request("Invalid user UUID in token")),
+        Err(_) => return Err(ApiError::BadRequest("Invalid user UUID in token".into())),
     };
 
     match repository::get_user_by_uuid(&user_uuid, &mut conn) {
@@ -1186,7 +1194,9 @@ pub async fn change_password(
                 Ok(hash) => hash,
                 Err(_) => {
                     warn!(user_uuid = %user.uuid, "No local password found for user");
-                    return Ok(errors::bad_request("No local password found for this user"));
+                    return Err(ApiError::BadRequest(
+                        "No local password found for this user".into(),
+                    ));
                 }
             };
 
@@ -1196,25 +1206,27 @@ pub async fn change_password(
                     Ok(matches) => matches,
                     Err(_) => {
                         error!("Error verifying current password during password change");
-                        return Ok(errors::internal("Error verifying password"));
+                        return Err(ApiError::Internal("Error verifying password".into()));
                     }
                 };
 
             if !password_matches {
-                return Ok(errors::unauthorized("Current password is incorrect"));
+                return Err(ApiError::Unauthorized(
+                    "Current password is incorrect".into(),
+                ));
             }
 
             // Check if new password is the same as current password
             if verify(&password_data.new_password, &current_password_hash).unwrap_or(false) {
-                return Ok(errors::bad_request(
-                    "New password must be different from current password",
+                return Err(ApiError::BadRequest(
+                    "New password must be different from current password".into(),
                 ));
             }
 
             // Hash the new password
             let new_password_hash = match hash_password(&password_data.new_password) {
                 Ok(hash) => hash,
-                Err(_) => return Ok(errors::internal("Error hashing new password")),
+                Err(_) => return Err(ApiError::Internal("Error hashing new password".into())),
             };
 
             // Update the user's password hash in user_auth_identities and password_changed_at timestamp in users
@@ -1227,7 +1239,7 @@ pub async fn change_password(
                 &new_password_hash,
             ) {
                 error!(error = ?e, "Error updating password hash");
-                return Ok(errors::internal("Error updating password"));
+                return Err(ApiError::Internal("Error updating password".into()));
             }
 
             // Update password_changed_at timestamp in the audited
@@ -1267,11 +1279,11 @@ pub async fn change_password(
                 }
                 Err(e) => {
                     error!(error = ?e, "Error updating password");
-                    Ok(errors::internal("Error updating password"))
+                    Err(ApiError::Internal("Error updating password".into()))
                 }
             }
         }
-        Err(_) => Ok(errors::not_found_msg("User not found")),
+        Err(_) => Err(ApiError::NotFoundMsg("User not found".into())),
     }
 }
 
@@ -1279,18 +1291,18 @@ pub async fn change_password(
 pub async fn get_current_user(
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&db_pool)?;
 
     let claims = match JwtUtils::extract_claims(&req) {
         Ok(claims) => claims,
-        Err(_) => return Ok(errors::unauthorized("Authentication required")),
+        Err(_) => return Err(ApiError::Unauthorized("Authentication required".into())),
     };
 
     // Parse UUID from claims
     let user_uuid = match uuid::Uuid::parse_str(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return Ok(errors::bad_request("Invalid user UUID")),
+        Err(_) => return Err(ApiError::BadRequest("Invalid user UUID".into())),
     };
 
     // Pin the request's workspace so the user's workspace_role resolves
@@ -1301,7 +1313,7 @@ pub async fn get_current_user(
     // Get user from database using claims
     let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
         Ok(user) => user,
-        Err(_) => return Ok(errors::not_found_msg("User not found")),
+        Err(_) => return Err(ApiError::NotFoundMsg("User not found".into())),
     };
 
     // Flatten user_preferences + primary_email into the response so
@@ -1345,7 +1357,7 @@ pub async fn get_current_user(
 pub async fn check_setup_status(
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     // Log access for audit purposes
     let client_ip = crate::utils::client_ip::from_http_request(&req)
         .map(|ip| ip.to_string())
@@ -1393,7 +1405,7 @@ pub async fn check_setup_status(
         }
         Err(e) => {
             error!("Error counting users: {:?}", e);
-            Ok(errors::internal("Failed to check setup status"))
+            Err(ApiError::Internal("Failed to check setup status".into()))
         }
     }
 }
@@ -1403,14 +1415,14 @@ pub async fn setup_initial_admin(
     db_pool: web::Data<crate::db::Pool>,
     search_service: web::Data<std::sync::Arc<crate::services::search::SearchService>>,
     admin_data: web::Json<crate::models::AdminSetupRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     // Bootstrap writes a local admin credential via a raw insert that bypasses
     // the repository gate, so refuse here in hosted mode. This is defensive:
     // hosted mints no bootstrap token (bootstrap_token::reconcile), so the
     // token gate below already blocks it.
     if hosted_local_auth_disabled() {
-        return Ok(errors::forbidden(
-            "Initial admin setup is not available in hosted mode",
+        return Err(ApiError::Forbidden(
+            "Initial admin setup is not available in hosted mode".into(),
         ));
     }
 
@@ -1492,7 +1504,7 @@ pub async fn setup_initial_admin(
         Ok(hash) => hash,
         Err(e) => {
             error!(error = ?e, "Error hashing password");
-            return Ok(errors::internal("Error processing password"));
+            return Err(ApiError::Internal("Error processing password".into()));
         }
     };
 
@@ -1598,22 +1610,22 @@ pub async fn setup_initial_admin(
 pub async fn mfa_setup(
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&db_pool)?;
 
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return Ok(errors::unauthorized("Authentication required")),
+        None => return Err(ApiError::Unauthorized("Authentication required".into())),
     };
 
     let user_uuid = match parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return Ok(errors::bad_request("Invalid user UUID")),
+        Err(_) => return Err(ApiError::BadRequest("Invalid user UUID".into())),
     };
 
     let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
         Ok(user) => user,
-        Err(_) => return Ok(errors::not_found_msg("User not found")),
+        Err(_) => return Err(ApiError::NotFoundMsg("User not found".into())),
     };
 
     // (Encryption-key configuration is now a boot-time invariant —
@@ -1629,7 +1641,7 @@ pub async fn mfa_setup(
     // own TOTP secret + matching code).
     if let Err(e) = mfa::stash_setup_secret(&user.uuid, secret.as_str()).await {
         tracing::error!(user_uuid = %user.uuid, error = %e, "Failed to stash MFA setup secret");
-        return Ok(errors::internal("Failed to initialise MFA setup"));
+        return Err(ApiError::Internal("Failed to initialise MFA setup".into()));
     }
 
     // Get user's primary email for QR code
@@ -1641,7 +1653,7 @@ pub async fn mfa_setup(
         Ok(result) => result,
         Err(e) => {
             tracing::error!("Failed to generate QR code: {}", e);
-            return Ok(errors::internal("Failed to generate QR code"));
+            return Err(ApiError::Internal("Failed to generate QR code".into()));
         }
     };
 
@@ -1667,18 +1679,18 @@ pub async fn mfa_verify_setup(
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
     request: web::Json<crate::models::MfaVerifySetupRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let _conn = helpers::db_conn(&db_pool)?;
 
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return Ok(errors::unauthorized("Authentication required")),
+        None => return Err(ApiError::Unauthorized("Authentication required".into())),
     };
 
     // Verify the TOTP token (timing-safe verification)
     if !mfa::verify_totp_token(&request.secret, &request.token) {
         tracing::warn!("MFA setup verification failed for user: {}", claims.sub);
-        return Ok(errors::bad_request("Invalid verification code"));
+        return Err(ApiError::BadRequest("Invalid verification code".into()));
     }
 
     tracing::info!("MFA setup verification successful for user: {}", claims.sub);
@@ -1697,18 +1709,18 @@ pub async fn mfa_enable(
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
     request: web::Json<crate::models::MfaEnableRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&db_pool)?;
 
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return Ok(errors::unauthorized("Authentication required")),
+        None => return Err(ApiError::Unauthorized("Authentication required".into())),
     };
 
     // Parse UUID from claims
     let user_uuid = match parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return Ok(errors::bad_request("Invalid user UUID in token")),
+        Err(_) => return Err(ApiError::BadRequest("Invalid user UUID in token".into())),
     };
 
     tracing::info!("Enabling MFA for user: {}", user_uuid);
@@ -1721,8 +1733,8 @@ pub async fn mfa_enable(
     let stashed_secret = match mfa::fetch_setup_secret(&user_uuid).await {
         Some(s) => s,
         None => {
-            return Ok(errors::bad_request(
-                "MFA setup expired or was not initiated. Please start setup again.",
+            return Err(ApiError::BadRequest(
+                "MFA setup expired or was not initiated. Please start setup again.".into(),
             ))
         }
     };
@@ -1744,7 +1756,7 @@ pub async fn mfa_enable(
     // Final TOTP verification before enabling
     if !mfa::verify_totp_token(mfa_secret, &request.token) {
         tracing::warn!("MFA enable verification failed for user: {}", user_uuid);
-        return Ok(errors::bad_request("Invalid verification code"));
+        return Err(ApiError::BadRequest("Invalid verification code".into()));
     }
 
     // Encrypt the MFA secret before storage. Returns the framed blob
@@ -1753,7 +1765,7 @@ pub async fn mfa_enable(
         Ok(pair) => pair,
         Err(e) => {
             tracing::error!("Failed to encrypt MFA secret: {}", e);
-            return Ok(errors::internal("Failed to secure MFA data"));
+            return Err(ApiError::Internal("Failed to secure MFA data".into()));
         }
     };
 
@@ -1810,7 +1822,7 @@ pub async fn mfa_enable(
         }
         Err(e) => {
             tracing::error!("Failed to enable MFA in database: {:?}", e);
-            Ok(errors::internal("Failed to enable MFA"))
+            Err(ApiError::Internal("Failed to enable MFA".into()))
         }
     }
 }
@@ -1820,40 +1832,42 @@ pub async fn mfa_disable(
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
     request: web::Json<crate::models::MfaDisableRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&db_pool)?;
 
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return Ok(errors::unauthorized("Authentication required")),
+        None => return Err(ApiError::Unauthorized("Authentication required".into())),
     };
 
     // Verify scope - must be "full" (MFA disable requires being fully authenticated)
     if claims.scope != "full" {
-        return Ok(errors::forbidden("This action requires a full session"));
+        return Err(ApiError::Forbidden(
+            "This action requires a full session".into(),
+        ));
     }
 
     // Parse UUID from claims
     let user_uuid = match parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return Ok(errors::bad_request("Invalid user UUID in token")),
+        Err(_) => return Err(ApiError::BadRequest("Invalid user UUID in token".into())),
     };
 
     // Get user
     let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
         Ok(user) => user,
-        Err(_) => return Ok(errors::not_found_msg("User not found")),
+        Err(_) => return Err(ApiError::NotFoundMsg("User not found".into())),
     };
 
     // Always verify password for MFA disable (even with recovery token)
     // This prevents account takeover if recovery email is compromised
     let password_hash_str = match get_local_password_hash(&user.uuid, &mut conn) {
         Ok(hash) => hash,
-        Err(_) => return Ok(errors::internal("Error reading password hash")),
+        Err(_) => return Err(ApiError::Internal("Error reading password hash".into())),
     };
 
     if !verify(&request.password, &password_hash_str).unwrap_or(false) {
-        return Ok(errors::bad_request("Invalid password"));
+        return Err(ApiError::BadRequest("Invalid password".into()));
     }
 
     // Both columns are cleared together; the CHECK constraint
@@ -1895,7 +1909,7 @@ pub async fn mfa_disable(
         }
         Err(e) => {
             error!(error = ?e, "Error disabling MFA");
-            Ok(errors::internal("Failed to disable MFA"))
+            Err(ApiError::Internal("Failed to disable MFA".into()))
         }
     }
 }
@@ -1905,34 +1919,34 @@ pub async fn mfa_regenerate_backup_codes(
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
     request: web::Json<crate::models::MfaRegenerateBackupCodesRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&db_pool)?;
 
     let claims = match req.extensions().get::<crate::models::Claims>() {
         Some(claims) => claims.clone(),
-        None => return Ok(errors::unauthorized("Authentication required")),
+        None => return Err(ApiError::Unauthorized("Authentication required".into())),
     };
 
     // Parse UUID from claims
     let user_uuid = match parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return Ok(errors::bad_request("Invalid user UUID in token")),
+        Err(_) => return Err(ApiError::BadRequest("Invalid user UUID in token".into())),
     };
 
     // Get user to verify password
     let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
         Ok(user) => user,
-        Err(_) => return Ok(errors::not_found_msg("User not found")),
+        Err(_) => return Err(ApiError::NotFoundMsg("User not found".into())),
     };
 
     // Verify password
     let password_hash_str = match get_local_password_hash(&user.uuid, &mut conn) {
         Ok(hash) => hash,
-        Err(_) => return Ok(errors::internal("Error reading password hash")),
+        Err(_) => return Err(ApiError::Internal("Error reading password hash".into())),
     };
 
     if !verify(&request.password, &password_hash_str).unwrap_or(false) {
-        return Ok(errors::bad_request("Invalid password"));
+        return Err(ApiError::BadRequest("Invalid password".into()));
     }
 
     // Generate new backup codes. The replace_all repo call is
@@ -1962,7 +1976,9 @@ pub async fn mfa_regenerate_backup_codes(
         }
         Err(e) => {
             error!(error = ?e, "Error regenerating backup codes");
-            Ok(errors::internal("Failed to regenerate backup codes"))
+            Err(ApiError::Internal(
+                "Failed to regenerate backup codes".into(),
+            ))
         }
     }
 }
@@ -1971,24 +1987,24 @@ pub async fn mfa_regenerate_backup_codes(
 pub async fn mfa_status(
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&db_pool)?;
 
     let claims = match JwtUtils::extract_claims(&req) {
         Ok(claims) => claims,
-        Err(_) => return Ok(errors::unauthorized("Authentication required")),
+        Err(_) => return Err(ApiError::Unauthorized("Authentication required".into())),
     };
 
     // Parse UUID from claims
     let user_uuid = match parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return Ok(errors::bad_request("Invalid user UUID in token")),
+        Err(_) => return Err(ApiError::BadRequest("Invalid user UUID in token".into())),
     };
 
     // Get user MFA status
     let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
         Ok(user) => user,
-        Err(_) => return Ok(errors::not_found_msg("User not found")),
+        Err(_) => return Err(ApiError::NotFoundMsg("User not found".into())),
     };
 
     // Check if user has any unused recovery codes left. Indexed
@@ -2011,7 +2027,7 @@ pub async fn mfa_setup_login(
     db_pool: web::Data<crate::db::Pool>,
     body: web::Json<crate::models::MfaSetupLoginRequest>,
     http_request: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let redis_url = get_redis_url();
     let email_lower = body.email.to_lowercase();
     let client_ip = crate::utils::client_ip::from_http_request(&http_request);
@@ -2063,7 +2079,7 @@ pub async fn mfa_setup_login(
                 }
                 Err(e) => warn!("Failed to record failed attempt: {:?}", e),
             }
-            return Ok(errors::unauthorized("Invalid email or password"));
+            return Err(ApiError::Unauthorized("Invalid email or password".into()));
         }
     };
 
@@ -2073,14 +2089,16 @@ pub async fn mfa_setup_login(
 
     // Verify that user actually needs MFA setup (security check)
     if mfa::user_has_mfa_enabled(&user) {
-        return Ok(errors::bad_request(
-            "MFA is already enabled for this account",
+        return Err(ApiError::BadRequest(
+            "MFA is already enabled for this account".into(),
         ));
     }
 
     // Verify that MFA is required for this user
     if mfa::validate_mfa_policy(&user, &mut conn).await.is_ok() {
-        return Ok(errors::bad_request("MFA is not required for this account"));
+        return Err(ApiError::BadRequest(
+            "MFA is not required for this account".into(),
+        ));
     }
 
     // Encryption-key configuration is a boot-time invariant; nothing to
@@ -2096,7 +2114,7 @@ pub async fn mfa_setup_login(
     // see, closing the attacker-with-password substitution vector.
     if let Err(e) = mfa::stash_setup_secret(&user.uuid, secret.as_str()).await {
         tracing::error!(user_uuid = %user.uuid, error = %e, "Failed to stash MFA setup secret");
-        return Ok(errors::internal("Failed to initialise MFA setup"));
+        return Err(ApiError::Internal("Failed to initialise MFA setup".into()));
     }
 
     // Get user's primary email for QR code
@@ -2108,7 +2126,7 @@ pub async fn mfa_setup_login(
         Ok(result) => result,
         Err(e) => {
             tracing::error!("Failed to generate QR code: {}", e);
-            return Ok(errors::internal("Failed to generate QR code"));
+            return Err(ApiError::Internal("Failed to generate QR code".into()));
         }
     };
 
@@ -2132,7 +2150,7 @@ pub async fn mfa_enable_login(
     db_pool: web::Data<crate::db::Pool>,
     request: web::Json<crate::models::MfaEnableLoginRequest>,
     http_request: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let redis_url = get_redis_url();
     let email_lower = request.email.to_lowercase();
     let client_ip = crate::utils::client_ip::from_http_request(&http_request);
@@ -2183,7 +2201,7 @@ pub async fn mfa_enable_login(
                 }
                 Err(e) => warn!("Failed to record failed attempt: {:?}", e),
             }
-            return Ok(errors::unauthorized("Invalid email or password"));
+            return Err(ApiError::Unauthorized("Invalid email or password".into()));
         }
     };
 
@@ -2193,13 +2211,15 @@ pub async fn mfa_enable_login(
 
     // Security checks - same as setup
     if mfa::user_has_mfa_enabled(&user) {
-        return Ok(errors::bad_request(
-            "MFA is already enabled for this account",
+        return Err(ApiError::BadRequest(
+            "MFA is already enabled for this account".into(),
         ));
     }
 
     if mfa::validate_mfa_policy(&user, &mut conn).await.is_ok() {
-        return Ok(errors::bad_request("MFA is not required for this account"));
+        return Err(ApiError::BadRequest(
+            "MFA is not required for this account".into(),
+        ));
     }
 
     // Pull the secret from the server-side setup cache, NOT from
@@ -2212,8 +2232,8 @@ pub async fn mfa_enable_login(
     let stashed_secret = match mfa::fetch_setup_secret(&user.uuid).await {
         Some(s) => s,
         None => {
-            return Ok(errors::bad_request(
-                "MFA setup expired or was not initiated. Please start setup again.",
+            return Err(ApiError::BadRequest(
+                "MFA setup expired or was not initiated. Please start setup again.".into(),
             ))
         }
     };
@@ -2237,7 +2257,7 @@ pub async fn mfa_enable_login(
             "MFA enable verification failed for user during login: {}",
             user.uuid
         );
-        return Ok(errors::bad_request("Invalid verification code"));
+        return Err(ApiError::BadRequest("Invalid verification code".into()));
     }
 
     // Encrypt the MFA secret before storage
@@ -2245,7 +2265,7 @@ pub async fn mfa_enable_login(
         Ok(pair) => pair,
         Err(e) => {
             tracing::error!("Failed to encrypt MFA secret: {}", e);
-            return Ok(errors::internal("Failed to secure MFA data"));
+            return Err(ApiError::Internal("Failed to secure MFA data".into()));
         }
     };
 
@@ -2273,7 +2293,7 @@ pub async fn mfa_enable_login(
                     "Failed to resolve primary workspace for MFA enable: {:?}",
                     e
                 );
-                return Ok(errors::internal("Failed to enable MFA"));
+                return Err(ApiError::Internal("Failed to enable MFA".into()));
             }
         };
     let actor = crate::sync::actor::ActorContext::user_at_workspace(user_uuid, workspace_id);
@@ -2314,7 +2334,9 @@ pub async fn mfa_enable_login(
                         user_uuid,
                         e
                     );
-                    return Ok(errors::internal("Failed to create authentication session"));
+                    return Err(ApiError::Internal(
+                        "Failed to create authentication session".into(),
+                    ));
                 }
             };
             let family_id = Uuid::new_v4();
@@ -2336,7 +2358,7 @@ pub async fn mfa_enable_login(
         }
         Err(e) => {
             tracing::error!("Failed to enable MFA in database: {:?}", e);
-            Ok(errors::internal("Failed to enable MFA"))
+            Err(ApiError::Internal("Failed to enable MFA".into()))
         }
     }
 }
@@ -2347,18 +2369,18 @@ pub async fn mfa_enable_login(
 pub async fn get_user_sessions(
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&db_pool)?;
 
     let claims = match JwtUtils::extract_claims(&req) {
         Ok(claims) => claims,
-        Err(_) => return Ok(errors::unauthorized("Authentication required")),
+        Err(_) => return Err(ApiError::Unauthorized("Authentication required".into())),
     };
 
     // Parse UUID from claims
     let user_uuid = match parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return Ok(errors::bad_request("Invalid user UUID in token")),
+        Err(_) => return Err(ApiError::BadRequest("Invalid user UUID in token".into())),
     };
 
     let current_sid = claims.session_uuid();
@@ -2369,7 +2391,7 @@ pub async fn get_user_sessions(
             Ok(sessions) => sessions,
             Err(e) => {
                 tracing::error!("Failed to get user sessions: {}", e);
-                return Ok(errors::internal("Failed to retrieve sessions"));
+                return Err(ApiError::Internal("Failed to retrieve sessions".into()));
             }
         };
 
@@ -2412,20 +2434,20 @@ pub async fn revoke_session(
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
     path: web::Path<Uuid>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let target_sid = path.into_inner();
 
     let mut conn = helpers::db_conn(&db_pool)?;
 
     let claims = match JwtUtils::extract_claims(&req) {
         Ok(claims) => claims,
-        Err(_) => return Ok(errors::unauthorized("Authentication required")),
+        Err(_) => return Err(ApiError::Unauthorized("Authentication required".into())),
     };
 
     // Parse UUID from claims
     let user_uuid = match parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return Ok(errors::bad_request("Invalid user UUID in token")),
+        Err(_) => return Err(ApiError::BadRequest("Invalid user UUID in token".into())),
     };
 
     // Verify the session belongs to this user before revoking. Return
@@ -2435,7 +2457,7 @@ pub async fn revoke_session(
         Ok(session) if session.user_uuid == user_uuid => {
             // Session belongs to user, proceed with revocation
         }
-        _ => return Ok(errors::not_found_msg("Session not found")),
+        _ => return Err(ApiError::NotFoundMsg("Session not found".into())),
     }
 
     // Revoke the session. A count of 0 means it was already gone (e.g. a
@@ -2464,7 +2486,7 @@ pub async fn revoke_session(
         }
         Err(e) => {
             tracing::error!("Failed to revoke session: {}", e);
-            Ok(errors::internal("Failed to revoke session"))
+            Err(ApiError::Internal("Failed to revoke session".into()))
         }
     }
 }
@@ -2474,30 +2496,32 @@ pub async fn revoke_all_other_sessions(
     db_pool: web::Data<crate::db::Pool>,
     req: HttpRequest,
     body: web::Json<crate::models::RevokeOtherSessionsRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let mut conn = helpers::db_conn(&db_pool)?;
 
     let claims = match JwtUtils::extract_claims(&req) {
         Ok(claims) => claims,
-        Err(_) => return Ok(errors::unauthorized("Authentication required")),
+        Err(_) => return Err(ApiError::Unauthorized("Authentication required".into())),
     };
 
     // Parse UUID from claims
     let user_uuid = match parse_uuid(&claims.sub) {
         Ok(uuid) => uuid,
-        Err(_) => return Ok(errors::bad_request("Invalid user UUID in token")),
+        Err(_) => return Err(ApiError::BadRequest("Invalid user UUID in token".into())),
     };
 
     // Step-up re-auth. Signing out every other device is a high-blast-
     // radius, classic post-compromise action, so require a full (non-MFA-
     // pending) session plus a fresh credential, mirroring mfa_disable.
     if claims.scope != "full" {
-        return Ok(errors::forbidden("This action requires a full session"));
+        return Err(ApiError::Forbidden(
+            "This action requires a full session".into(),
+        ));
     }
 
     let user = match repository::get_user_by_uuid(&user_uuid, &mut conn) {
         Ok(u) => u,
-        Err(_) => return Ok(errors::not_found_msg("User not found")),
+        Err(_) => return Err(ApiError::NotFoundMsg("User not found".into())),
     };
     // Fetch the local password hash once (Err for OAuth-only accounts).
     let local_hash = get_local_password_hash(&user.uuid, &mut conn).ok();
@@ -2528,8 +2552,8 @@ pub async fn revoke_all_other_sessions(
     };
 
     if !reauthenticated {
-        return Ok(errors::bad_request(
-            "Re-authentication required to sign out all other sessions",
+        return Err(ApiError::BadRequest(
+            "Re-authentication required to sign out all other sessions".into(),
         ));
     }
 
@@ -2569,7 +2593,7 @@ pub async fn revoke_all_other_sessions(
         }
         Err(e) => {
             tracing::error!("Failed to revoke other sessions: {}", e);
-            Ok(errors::internal("Failed to revoke sessions"))
+            Err(ApiError::Internal("Failed to revoke sessions".into()))
         }
     }
 }
@@ -2809,7 +2833,7 @@ pub async fn refresh_token(
     // token in the httpOnly cookie, still bind.
     body: Option<web::Json<crate::models::RefreshRequest>>,
     request: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     use crate::utils::auth_mode::{auth_mode_from_request, AuthMode};
 
     let mut conn = helpers::db_conn(&db_pool)?;
@@ -2830,11 +2854,11 @@ pub async fn refresh_token(
     }) {
         Some(token) => token,
         None => {
-            return Ok(errors::unauthorized("Refresh token not found"));
+            return Err(ApiError::Unauthorized("Refresh token not found".into()));
         }
     };
 
-    let rotated = match rotate_refresh_family(
+    let rotated = rotate_refresh_family(
         &mut conn,
         &request,
         &refresh_raw,
@@ -2843,10 +2867,7 @@ pub async fn refresh_token(
             JwtUtils::create_token(user, session_id)
                 .map_err(|_| ApiError::Internal("Failed to create access token".into()))
         },
-    ) {
-        Ok(r) => r,
-        Err(resp) => return Err(resp.into()),
-    };
+    )?;
     let new_access_token = rotated.access_token;
     let new_refresh_raw = rotated.refresh_token;
 

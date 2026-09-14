@@ -24,7 +24,7 @@ use std::sync::Arc;
 
 use crate::db::Pool;
 use crate::extractors::PlatformConn;
-use crate::handlers::errors;
+use crate::handlers::errors::{self, ApiError};
 use crate::models::{NewWorkspace, Workspace, WorkspaceMember, WorkspaceRole};
 use crate::repository::workspaces::{self, CreateWorkspaceError, UpdateMembershipRoleResult};
 use crate::services::search::{indexing_tasks, SearchService};
@@ -145,7 +145,7 @@ pub async fn list_workspaces(
     req: HttpRequest,
     mut pc: PlatformConn,
     query: web::Query<ListWorkspacesQuery>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     rbac::require_platform_admin(&req)?;
     match pc.run(|conn| workspaces::list_workspaces(conn, query.include_archived)) {
         Ok(rows) => {
@@ -154,7 +154,7 @@ pub async fn list_workspaces(
         }
         Err(e) => {
             error!(error = ?e, "admin/workspaces list failed");
-            Ok(errors::internal("Failed to list workspaces"))
+            Err(ApiError::Internal("Failed to list workspaces".into()))
         }
     }
 }
@@ -174,7 +174,7 @@ pub async fn get_edition(
     push_sender: Option<
         web::Data<std::sync::Arc<dyn crate::services::notifications::channels::push::PushSender>>,
     >,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     rbac::require_platform_admin(&req)?;
     let edition = crate::license::current();
     let self_hosted = crate::middleware::DeploymentMode::current()
@@ -215,22 +215,22 @@ pub async fn create_workspace(
     req: HttpRequest,
     pool: web::Data<Pool>,
     body: web::Json<CreateWorkspaceRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     rbac::require_platform_admin(&req)?;
     let CreateWorkspaceRequest { slug, name } = body.into_inner();
 
     if let Err(e) = validate_slug(&slug) {
-        return Ok(errors::bad_request(e.as_message()));
+        return Err(ApiError::BadRequest(e.as_message().into()));
     }
     if name.trim().is_empty() {
-        return Ok(errors::bad_request("name must not be empty"));
+        return Err(ApiError::BadRequest("name must not be empty".into()));
     }
 
     let mut conn = match pool.get() {
         Ok(c) => c,
         Err(e) => {
             error!(error = ?e, "admin/workspaces pool checkout failed");
-            return Ok(errors::internal("Failed to create workspace"));
+            return Err(ApiError::Internal("Failed to create workspace".into()));
         }
     };
 
@@ -247,7 +247,7 @@ pub async fn create_workspace(
         Ok(n) => n,
         Err(e) => {
             error!(error = ?e, "admin/workspaces license-gate count failed");
-            return Ok(errors::internal("Failed to create workspace"));
+            return Err(ApiError::Internal("Failed to create workspace".into()));
         }
     };
     if !crate::license::workspace_creation_allowed(edition, active as u64) {
@@ -317,7 +317,7 @@ pub async fn create_workspace(
         }
         Err(CreateWorkspaceError::Db(e)) => {
             error!(error = ?e, slug = %slug, "admin/workspaces create failed");
-            Ok(errors::internal("Failed to create workspace"))
+            Err(ApiError::Internal("Failed to create workspace".into()))
         }
     }
 }
@@ -332,12 +332,12 @@ pub async fn rename_workspace(
     mut pc: PlatformConn,
     path: web::Path<i32>,
     body: web::Json<RenameWorkspaceRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     rbac::require_platform_admin(&req)?;
     let id = path.into_inner();
     let name = body.into_inner().name;
     if name.trim().is_empty() {
-        return Ok(errors::bad_request("name must not be empty"));
+        return Err(ApiError::BadRequest("name must not be empty".into()));
     }
 
     match pc.run(|conn| workspaces::rename_workspace(conn, id, &name)) {
@@ -345,12 +345,12 @@ pub async fn rename_workspace(
             info!(workspace_id = ws.id, name = %name, "admin/workspaces renamed");
             Ok(HttpResponse::Ok().json(WorkspaceSummary::from(ws)))
         }
-        Ok(None) => Ok(errors::not_found_msg(format!(
+        Ok(None) => Err(ApiError::NotFoundMsg(format!(
             "workspace id={id} not found"
         ))),
         Err(e) => {
             error!(error = ?e, workspace_id = id, "admin/workspaces rename failed");
-            Ok(errors::internal("Failed to rename workspace"))
+            Err(ApiError::Internal("Failed to rename workspace".into()))
         }
     }
 }
@@ -359,7 +359,7 @@ pub async fn archive_workspace(
     req: HttpRequest,
     mut pc: PlatformConn,
     path: web::Path<i32>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     rbac::require_platform_admin(&req)?;
     let id = path.into_inner();
     match pc.run(|conn| workspaces::archive_workspace(conn, id)) {
@@ -367,12 +367,12 @@ pub async fn archive_workspace(
             info!(workspace_id = ws.id, slug = %ws.slug, "admin/workspaces archived");
             Ok(HttpResponse::Ok().json(WorkspaceSummary::from(ws)))
         }
-        Ok(None) => Ok(errors::not_found_msg(format!(
+        Ok(None) => Err(ApiError::NotFoundMsg(format!(
             "workspace id={id} not found"
         ))),
         Err(e) => {
             error!(error = ?e, workspace_id = id, "admin/workspaces archive failed");
-            Ok(errors::internal("Failed to archive workspace"))
+            Err(ApiError::Internal("Failed to archive workspace".into()))
         }
     }
 }
@@ -381,7 +381,7 @@ pub async fn restore_workspace(
     req: HttpRequest,
     mut pc: PlatformConn,
     path: web::Path<i32>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     rbac::require_platform_admin(&req)?;
     let id = path.into_inner();
     match pc.run(|conn| workspaces::restore_workspace(conn, id)) {
@@ -389,12 +389,12 @@ pub async fn restore_workspace(
             info!(workspace_id = ws.id, slug = %ws.slug, "admin/workspaces restored");
             Ok(HttpResponse::Ok().json(WorkspaceSummary::from(ws)))
         }
-        Ok(None) => Ok(errors::not_found_msg(format!(
+        Ok(None) => Err(ApiError::NotFoundMsg(format!(
             "workspace id={id} not found"
         ))),
         Err(e) => {
             error!(error = ?e, workspace_id = id, "admin/workspaces restore failed");
-            Ok(errors::internal("Failed to restore workspace"))
+            Err(ApiError::Internal("Failed to restore workspace".into()))
         }
     }
 }
@@ -413,7 +413,7 @@ pub async fn hard_delete_workspace(
     mut pc: PlatformConn,
     path: web::Path<i32>,
     query: web::Query<HardDeleteQuery>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     rbac::require_platform_admin(&req)?;
     let id = path.into_inner();
     let confirm = query.into_inner().confirm;
@@ -428,20 +428,20 @@ pub async fn hard_delete_workspace(
         Ok(rows) => match rows.into_iter().find(|w| w.id == id) {
             Some(w) => w,
             None => {
-                return Ok(errors::not_found_msg(format!(
+                return Err(ApiError::NotFoundMsg(format!(
                     "workspace id={id} not found"
                 )))
             }
         },
         Err(e) => {
             error!(error = ?e, workspace_id = id, "admin/workspaces hard_delete lookup failed");
-            return Ok(errors::internal("Workspace lookup failed"));
+            return Err(ApiError::Internal("Workspace lookup failed".into()));
         }
     };
 
     if confirm != ws.slug {
-        return Ok(errors::bad_request(
-            "confirm query parameter must match the workspace's slug exactly",
+        return Err(ApiError::BadRequest(
+            "confirm query parameter must match the workspace's slug exactly".into(),
         ));
     }
     if ws.archived_at.is_none() {
@@ -468,7 +468,7 @@ pub async fn hard_delete_workspace(
         }
         Err(e) => {
             error!(error = ?e, workspace_id = id, "admin/workspaces hard_delete failed");
-            Ok(errors::internal("Failed to hard-delete workspace"))
+            Err(ApiError::Internal("Failed to hard-delete workspace".into()))
         }
     }
 }
@@ -507,7 +507,7 @@ pub async fn list_members(
     req: HttpRequest,
     mut pc: PlatformConn,
     path: web::Path<i32>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     rbac::require_platform_admin(&req)?;
     let workspace_id = path.into_inner();
     match pc.run(|conn| workspaces::list_workspace_members(conn, workspace_id)) {
@@ -517,7 +517,7 @@ pub async fn list_members(
         }
         Err(e) => {
             error!(error = ?e, workspace_id, "admin/workspaces members list failed");
-            Ok(errors::internal("Failed to list members"))
+            Err(ApiError::Internal("Failed to list members".into()))
         }
     }
 }
@@ -546,7 +546,7 @@ pub async fn add_member(
     // Best-effort search reindex: optional so the membership op doesn't
     // hard-depend on the search subsystem (and test apps need not wire it).
     search_service: Option<web::Data<Arc<SearchService>>>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     rbac::require_platform_admin(&req)?;
     let workspace_id = path.into_inner();
     let AddMemberRequest { user_uuid, role } = body.into_inner();
@@ -554,8 +554,8 @@ pub async fn add_member(
     let parsed_role = match validate_workspace_role(&role) {
         Some(r) => r,
         None => {
-            return Ok(errors::bad_request(
-                "role must be one of: owner, admin, agent, member",
+            return Err(ApiError::BadRequest(
+                "role must be one of: owner, admin, agent, member".into(),
             ));
         }
     };
@@ -576,11 +576,11 @@ pub async fn add_member(
     match user_exists {
         Ok(true) => {}
         Ok(false) => {
-            return Ok(errors::not_found_msg(format!("user {user_uuid} not found")));
+            return Err(ApiError::NotFoundMsg(format!("user {user_uuid} not found")));
         }
         Err(e) => {
             error!(error = ?e, %user_uuid, "admin/workspaces add_member user lookup failed");
-            return Ok(errors::internal("User lookup failed"));
+            return Err(ApiError::Internal("User lookup failed".into()));
         }
     }
 
@@ -590,13 +590,13 @@ pub async fn add_member(
     match ws_lookup {
         Ok(Some(_)) => {}
         Ok(None) => {
-            return Ok(errors::not_found_msg(format!(
+            return Err(ApiError::NotFoundMsg(format!(
                 "workspace id={workspace_id} not found"
             )))
         }
         Err(e) => {
             error!(error = ?e, workspace_id, "admin/workspaces add_member workspace lookup failed");
-            return Ok(errors::internal("Workspace lookup failed"));
+            return Err(ApiError::Internal("Workspace lookup failed".into()));
         }
     }
 
@@ -637,7 +637,7 @@ pub async fn add_member(
         }
         Err(e) => {
             error!(error = ?e, workspace_id, %user_uuid, "admin/workspaces add_member failed");
-            Ok(errors::internal("Failed to add member"))
+            Err(ApiError::Internal("Failed to add member".into()))
         }
     }
 }
@@ -652,7 +652,7 @@ pub async fn update_member_role(
     mut pc: PlatformConn,
     path: web::Path<(i32, Uuid)>,
     body: web::Json<UpdateMemberRoleRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     rbac::require_platform_admin(&req)?;
     let (workspace_id, user_uuid) = path.into_inner();
     let new_role = body.into_inner().role;
@@ -660,8 +660,8 @@ pub async fn update_member_role(
     let parsed_role = match validate_workspace_role(&new_role) {
         Some(r) => r,
         None => {
-            return Ok(errors::bad_request(
-                "role must be one of: owner, admin, agent, member",
+            return Err(ApiError::BadRequest(
+                "role must be one of: owner, admin, agent, member".into(),
             ));
         }
     };
@@ -681,7 +681,7 @@ pub async fn update_member_role(
             info!(workspace_id, %user_uuid, role = %parsed_role.as_str(), "admin/workspaces member role updated");
             Ok(HttpResponse::Ok().json(MemberSummary::from(m)))
         }
-        Ok(UpdateMembershipRoleResult::NotFound) => Ok(errors::not_found_msg(format!(
+        Ok(UpdateMembershipRoleResult::NotFound) => Err(ApiError::NotFoundMsg(format!(
             "no membership row for user {user_uuid} in workspace {workspace_id}"
         ))),
         Ok(UpdateMembershipRoleResult::LastOwner) => {
@@ -693,7 +693,7 @@ pub async fn update_member_role(
         Ok(UpdateMembershipRoleResult::ExternallyManaged) => Ok(errors::externally_managed()),
         Err(e) => {
             error!(error = ?e, workspace_id, %user_uuid, "admin/workspaces update_member_role failed");
-            Ok(errors::internal("Failed to update member role"))
+            Err(ApiError::Internal("Failed to update member role".into()))
         }
     }
 }
@@ -704,7 +704,7 @@ pub async fn remove_member(
     path: web::Path<(i32, Uuid)>,
     // Best-effort search reindex (see add_member).
     search_service: Option<web::Data<Arc<SearchService>>>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     rbac::require_platform_admin(&req)?;
     let (workspace_id, user_uuid) = path.into_inner();
 
@@ -741,23 +741,23 @@ pub async fn remove_member(
                         "message": "cannot remove the only owner; promote another member first",
                     })))
                 }
-                Ok(None) => Ok(errors::not_found_msg(format!(
+                Ok(None) => Err(ApiError::NotFoundMsg(format!(
                     "no membership row for user {user_uuid} in workspace {workspace_id}"
                 ))),
                 Ok(Some(_)) => {
                     // Shouldn't happen — non-owner rows can always be removed.
                     error!(workspace_id, %user_uuid, "admin/workspaces remove_member NotRemoved but row exists and isn't owner");
-                    Ok(errors::internal("Inconsistent membership state"))
+                    Err(ApiError::Internal("Inconsistent membership state".into()))
                 }
                 Err(e) => {
                     error!(error = ?e, workspace_id, %user_uuid, "admin/workspaces remove_member probe failed");
-                    Ok(errors::internal("Failed to remove member"))
+                    Err(ApiError::Internal("Failed to remove member".into()))
                 }
             }
         }
         Err(e) => {
             error!(error = ?e, workspace_id, %user_uuid, "admin/workspaces remove_member failed");
-            Ok(errors::internal("Failed to remove member"))
+            Err(ApiError::Internal("Failed to remove member".into()))
         }
     }
 }
@@ -785,13 +785,13 @@ struct MyWorkspaceEntry {
 pub async fn list_my_workspaces(
     req: HttpRequest,
     mut pc: PlatformConn,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     let claims = rbac::require_auth(&req)?;
     let user_uuid = match Uuid::parse_str(&claims.sub) {
         Ok(u) => u,
         Err(_) => {
-            return Ok(errors::bad_request(
-                "token subject is not a valid user identifier",
+            return Err(ApiError::BadRequest(
+                "token subject is not a valid user identifier".into(),
             ));
         }
     };
@@ -804,7 +804,7 @@ pub async fn list_my_workspaces(
         Ok(rows) => rows,
         Err(e) => {
             error!(error = ?e, %user_uuid, "me/workspaces list failed");
-            return Ok(errors::internal("Failed to load memberships"));
+            return Err(ApiError::Internal("Failed to load memberships".into()));
         }
     };
 

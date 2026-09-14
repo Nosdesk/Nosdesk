@@ -6,7 +6,7 @@ use serde::Deserialize;
 use tracing::error;
 
 use crate::extractors::TenantConn;
-use crate::handlers::errors;
+use crate::handlers::errors::ApiError;
 use crate::models::{SiteSettingsResponse, UpdateSiteSettings};
 use crate::repository::site_settings;
 use crate::utils;
@@ -42,7 +42,7 @@ pub struct UpdateGuestSettingsRequest {
 pub async fn get_guest_settings(
     mut tc: TenantConn,
     req: HttpRequest,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     // Per-workspace guest config (site_settings, RLS-isolated via TenantConn),
     // so a workspace admin owns it. The read was ungated while the write
     // demanded platform-admin; both are now workspace-admin. The public portal
@@ -55,7 +55,7 @@ pub async fn get_guest_settings(
         }
         Err(e) => {
             error!(error = ?e, "Failed to load site_settings for guest admin view");
-            Ok(errors::internal("Failed to load settings"))
+            Err(ApiError::Internal("Failed to load settings".into()))
         }
     }
 }
@@ -64,7 +64,7 @@ pub async fn update_guest_settings(
     mut tc: TenantConn,
     req: HttpRequest,
     body: web::Json<UpdateGuestSettingsRequest>,
-) -> actix_web::Result<HttpResponse> {
+) -> Result<HttpResponse, ApiError> {
     // Per-workspace guest config, so a workspace admin owns it. Was
     // platform-admin, which dead-ended every tenant admin on save.
     let claims =
@@ -77,12 +77,14 @@ pub async fn update_guest_settings(
 
     if let Some(n) = body.guest_ticket_rate_limit_per_hour {
         if !(1..=1000).contains(&n) {
-            return Ok(errors::bad_request("Rate limit must be between 1 and 1000"));
+            return Err(ApiError::BadRequest(
+                "Rate limit must be between 1 and 1000".into(),
+            ));
         }
     }
     if let Some(Some(ref p)) = body.guest_ticket_default_priority {
         if !["low", "medium", "high"].contains(&p.as_str()) {
-            return Ok(errors::bad_request("Invalid default priority"));
+            return Err(ApiError::BadRequest("Invalid default priority".into()));
         }
     }
 
@@ -92,8 +94,8 @@ pub async fn update_guest_settings(
     // (that happens at render time).
     if let Some(Some(ref m)) = body.guest_ticket_intro_message {
         if m.chars().count() > 500 {
-            return Ok(errors::bad_request(
-                "Intro message must be 500 characters or fewer",
+            return Err(ApiError::BadRequest(
+                "Intro message must be 500 characters or fewer".into(),
             ));
         }
     }
@@ -133,7 +135,7 @@ pub async fn update_guest_settings(
         }
         Err(e) => {
             error!(error = ?e, "Failed to update guest settings");
-            Ok(errors::internal("Failed to update settings"))
+            Err(ApiError::Internal("Failed to update settings".into()))
         }
     }
 }
