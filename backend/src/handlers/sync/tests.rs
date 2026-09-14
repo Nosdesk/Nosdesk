@@ -190,3 +190,106 @@ fn push_ticket_applies_tag_ids_and_rejects_watchers() {
         .expect_err("watcher_uuids must be refused on the sync-push path");
     assert_eq!(reason, "unsupported_field");
 }
+
+/// The regression behind the notification outbox: an assignment made through
+/// the sync push path used to notify nobody, because `TicketAssigned` was
+/// raised only by the REST handler. The emitted row now carries the
+/// before/after pair, the trigger enqueues it, and the deriver turns it into a
+/// `TicketAssigned` payload for the assignee.
+#[test]
+fn push_assignment_reaches_the_notification_outbox() {
+    use super::push::PushTransaction;
+    use crate::schema::notification_outbox;
+    use crate::services::notifications::deriver::{derive, resolve, Intent, SyncActionRow};
+    use crate::services::notifications::types::NotificationTypeCode;
+
+    let mut conn = setup_test_connection();
+    let admin = TestFixtures::create_user(&mut conn, "sync_push_assign_actor", "admin");
+    let agent = TestFixtures::create_user(&mut conn, "sync_push_assign_agent", "agent");
+    let actor = ActorContext::user(admin.uuid, None).with_workspace(1);
+    let ticket_id = conn
+        .transaction::<_, diesel::result::Error, _>(|conn| {
+            session::set_actor(conn, &actor)?;
+            Ok(TestFixtures::create_ticket(conn, "assign me", Some(admin.uuid), None).id)
+        })
+        .unwrap();
+
+    let tx = PushTransaction {
+        tx_id: Uuid::now_v7().to_string(),
+        aggregate: SyncAggregate::Ticket,
+        model_id: ticket_id.to_string(),
+        op: SyncOp::Update,
+        patch: json!({ "assignee_uuid": agent.uuid.to_string() }),
+        base_sync_id: None,
+    };
+    let sync_id = super::push::apply_transaction_for_test(&mut conn, &tx, &actor)
+        .expect("assignment patch should apply");
+
+    // The trigger enqueued it.
+    let enqueued: i64 = notification_outbox::table
+        .filter(notification_outbox::sync_id.eq(sync_id))
+        .count()
+        .get_result(&mut conn)
+        .unwrap();
+    assert_eq!(enqueued, 1, "the assignment row is in the outbox");
+
+    // And the row derives to exactly one assignment for the agent, by the admin.
+    let (workspace_id, event_type, data, actor_uuid, actor_kind, occurred_at) = sync_actions::table
+        .filter(sync_actions::sync_id.eq(sync_id))
+        .select((
+            sync_actions::workspace_id,
+            sync_actions::event_type,
+            sync_actions::data,
+            sync_actions::actor_uuid,
+            sync_actions::actor_kind,
+            sync_actions::occurred_at,
+        ))
+        .first::<(
+            i32,
+            String,
+            serde_json::Value,
+            Option<Uuid>,
+            String,
+            chrono::DateTime<chrono::Utc>,
+        )>(&mut conn)
+        .unwrap();
+    let row = SyncActionRow {
+        sync_id,
+        workspace_id,
+        event_type,
+        data,
+        actor_uuid,
+        actor_kind,
+        occurred_at,
+    };
+    let intents = derive(&row);
+    assert_eq!(intents.len(), 1);
+    assert!(matches!(intents[0], Intent::Assigned { assignee, .. } if assignee == agent.uuid));
+
+    let payloads = resolve(&mut conn, &row, intents[0].clone()).unwrap();
+    assert_eq!(payloads.len(), 1);
+    assert_eq!(
+        payloads[0].notification_type,
+        NotificationTypeCode::TicketAssigned
+    );
+    assert_eq!(payloads[0].recipient_uuid, agent.uuid);
+    assert_eq!(payloads[0].actor.uuid, admin.uuid);
+    assert_eq!(payloads[0].source_sync_id, Some(sync_id));
+
+    // Re-pushing the same assignee is a no-op for notifications.
+    let again = PushTransaction {
+        tx_id: Uuid::now_v7().to_string(),
+        aggregate: SyncAggregate::Ticket,
+        model_id: ticket_id.to_string(),
+        op: SyncOp::Update,
+        patch: json!({ "assignee_uuid": agent.uuid.to_string() }),
+        base_sync_id: None,
+    };
+    let again_id = super::push::apply_transaction_for_test(&mut conn, &again, &actor).unwrap();
+    let enqueued_again: i64 = notification_outbox::table
+        .filter(notification_outbox::sync_id.eq(again_id))
+        .count()
+        .get_result(&mut conn)
+        .unwrap();
+    assert_eq!(enqueued_again, 0, "an unchanged assignee enqueues nothing");
+}
