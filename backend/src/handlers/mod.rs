@@ -145,17 +145,8 @@ use crate::utils::error_response::json_error;
 use crate::utils::locale::request_locale;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
-use uuid::Uuid;
 
-use crate::services::notifications::{
-    types::{NotificationActor, NotificationEntity, NotificationPayload, NotificationTypeCode},
-    NotificationService,
-};
 use crate::services::search::SearchService;
-
-use crate::services::notifications::mentions::{
-    parse_mentions, strip_html_for_preview, truncate_preview,
-};
 
 // Placeholders for handlers that haven't been implemented in dedicated modules yet
 
@@ -233,7 +224,6 @@ pub async fn add_comment_to_ticket(
     pool: web::Data<crate::db::Pool>,
     mut tc: crate::extractors::TenantConn,
     storage: crate::extractors::ScopedStorage,
-    notification_service: web::Data<NotificationService>,
     search_service: web::Data<Arc<SearchService>>,
     outbound_resolver: web::Data<Arc<crate::services::outbound_email::OutboundEmailResolver>>,
     req: actix_web::HttpRequest,
@@ -617,200 +607,8 @@ pub async fn add_comment_to_ticket(
             // Search index update is fired by the CommentCreatedObserver
             // inside `create_comment`, so no manual spawn needed.
 
-            // Send notifications to ticket participants (requester, assignee, and @mentioned users)
-            if let Some(ref ticket_info) = ticket {
-                let commenter_uuid = commenter_user.uuid;
-                let commenter_name = commenter_user.name.clone();
-                let commenter_avatar = commenter_user.avatar_thumb.clone();
-                let ticket_title = ticket_info.title.clone();
-                let ticket_requester = ticket_info.requester_uuid;
-                let ticket_assignee = ticket_info.assignee_uuid;
-                let ticket_workspace = ticket_info.workspace_id;
-                let comment_id = comment.id;
-                let comment_is_internal = comment.is_internal;
-                // Strip HTML and clean up mentions for notification preview
-                let comment_preview =
-                    truncate_preview(&strip_html_for_preview(&comment_data.content), 100);
-
-                // Parse @mentions from comment content (now extracts UUIDs directly)
-                let mentioned_users: Vec<Uuid> = parse_mentions(&comment_data.content)
-                    .into_iter()
-                    .filter(|uuid| *uuid != commenter_uuid)
-                    .collect();
-                debug!(mentioned_users = ?mentioned_users, "Parsed @mentions from comment");
-
-                let notification_service = notification_service.clone();
-
-                // Collect recipients for CommentAdded.
-                // Three sources, deduped + filtered to exclude the
-                // commenter and anyone already getting a Mention
-                // notification from this same comment:
-                //   1. Requester  — original ticket reporter.
-                //   2. Assignee   — currently responsible.
-                //   3. Watchers   — explicit subscribers via the
-                //      bell toggle, plus any past commenter who
-                //      was auto-watched.
-                // Watchers ship in Phase C4 — this is the
-                // notification fan-out that closes the feature
-                // loop ("subscribe and get notified").
-                let mut comment_recipients = Vec::new();
-                if let Some(requester) = ticket_requester {
-                    if requester != commenter_uuid && !mentioned_users.contains(&requester) {
-                        comment_recipients.push(requester);
-                    }
-                }
-                if let Some(assignee) = ticket_assignee {
-                    if assignee != commenter_uuid
-                        && !comment_recipients.contains(&assignee)
-                        && !mentioned_users.contains(&assignee)
-                    {
-                        comment_recipients.push(assignee);
-                    }
-                }
-                // Watcher fan-out source depends on the comment's
-                // visibility. For an internal note we use the
-                // notify-on-internal-only variant so per-watch
-                // mute-internal preferences are honoured.
-                //
-                // Resolve the watcher list synchronously inside the
-                // request's TenantConn so the workspace GUC scopes the
-                // query — RLS on `ticket_watchers` would otherwise
-                // return zero rows in a spawned task that has no
-                // workspace context. Failure downgrades to "no watcher
-                // notifications this round" rather than blocking the
-                // comment.
-                let watchers: Vec<Uuid> = tc
-                    .run(|conn| {
-                        if comment_is_internal {
-                            crate::repository::ticket_watchers::watcher_uuids_for_internal_notify(
-                                conn, ticket_id,
-                            )
-                        } else {
-                            crate::repository::ticket_watchers::watcher_uuids(conn, ticket_id)
-                        }
-                    })
-                    .unwrap_or_default();
-                for watcher in watchers {
-                    if watcher == commenter_uuid {
-                        continue;
-                    }
-                    if comment_recipients.contains(&watcher) {
-                        continue;
-                    }
-                    if mentioned_users.contains(&watcher) {
-                        continue;
-                    }
-                    comment_recipients.push(watcher);
-                }
-
-                // Strip non-staff recipients from internal-note
-                // notifications. Without this gate a requester
-                // mentioned in an internal note would receive a
-                // notification (and email) about a comment they
-                // can't view, leaking the existence of the note
-                // and confusing the recipient. The relay layer
-                // already drops the outbound email body, but the
-                // notification fan-out runs independently.
-                let mut mentioned_users = mentioned_users;
-                if comment_is_internal {
-                    let mut all_candidates: Vec<Uuid> = comment_recipients
-                        .iter()
-                        .chain(mentioned_users.iter())
-                        .copied()
-                        .collect();
-                    all_candidates.sort();
-                    all_candidates.dedup();
-
-                    // Staff = platform admin OR workspace owner/admin/agent
-                    // in THIS ticket's workspace. (Was hardcoded to
-                    // workspace 1 for single-tenant OSS, which stripped every
-                    // internal-note recipient in any other workspace under
-                    // hosted multi-tenancy.)
-                    let staff_uuids: std::collections::HashSet<Uuid> = tc
-                        .run(|conn| {
-                            use crate::schema::{users, workspace_members};
-                            use diesel::prelude::*;
-                            users::table
-                                .filter(users::uuid.eq_any(&all_candidates))
-                                .filter(
-                                    users::platform_role.eq("platform_admin").or(
-                                        diesel::dsl::exists(
-                                            workspace_members::table
-                                                .filter(
-                                                    workspace_members::user_uuid.eq(users::uuid),
-                                                )
-                                                .filter(
-                                                    workspace_members::workspace_id
-                                                        .eq(ticket_workspace),
-                                                )
-                                                .filter(
-                                                    workspace_members::role
-                                                        .eq_any(vec!["owner", "admin", "agent"]),
-                                                )
-                                                .filter(workspace_members::removed_at.is_null()),
-                                        ),
-                                    ),
-                                )
-                                .select(users::uuid)
-                                .load::<Uuid>(conn)
-                        })
-                        .unwrap_or_default()
-                        .into_iter()
-                        .collect();
-
-                    comment_recipients.retain(|u| staff_uuids.contains(u));
-                    mentioned_users.retain(|u| staff_uuids.contains(u));
-                }
-
-                tokio::spawn(async move {
-                    let actor = NotificationActor {
-                        uuid: commenter_uuid,
-                        name: commenter_name,
-                        avatar_thumb: commenter_avatar,
-                        kind: crate::sync::ActorKind::User,
-                    };
-
-                    // Send CommentAdded notification to requester/assignee
-                    for recipient in comment_recipients {
-                        let payload = NotificationPayload::new(
-                            NotificationTypeCode::CommentAdded,
-                            recipient,
-                            actor.clone(),
-                            NotificationEntity::Comment {
-                                id: comment_id,
-                                ticket_id,
-                                ticket_title: ticket_title.clone(),
-                            },
-                            ticket_workspace,
-                        )
-                        .with_body(&comment_preview);
-
-                        if let Err(e) = notification_service.notify(payload).await {
-                            warn!(error = %e, recipient = %recipient, "Failed to send comment notification");
-                        }
-                    }
-
-                    // Send Mentioned notification to @mentioned users
-                    for mentioned_uuid in mentioned_users {
-                        let payload = NotificationPayload::new(
-                            NotificationTypeCode::Mentioned,
-                            mentioned_uuid,
-                            actor.clone(),
-                            NotificationEntity::Comment {
-                                id: comment_id,
-                                ticket_id,
-                                ticket_title: ticket_title.clone(),
-                            },
-                            ticket_workspace,
-                        )
-                        .with_body(&comment_preview);
-
-                        if let Err(e) = notification_service.notify(payload).await {
-                            warn!(error = %e, recipient = %mentioned_uuid, "Failed to send mention notification");
-                        }
-                    }
-                });
-            }
+            // Participant and mention notifications derive from the
+            // comment.created sync action (services/notifications/deriver.rs).
 
             info!(
                 ticket_id,

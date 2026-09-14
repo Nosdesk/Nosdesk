@@ -180,9 +180,7 @@ src/handlers/mod.rs errors
 src/handlers/mod.rs file
 src/handlers/mod.rs filename
 src/handlers/mod.rs from
-src/handlers/mod.rs mentioned_users
 src/handlers/mod.rs path
-src/handlers/mod.rs recipient
 src/handlers/mod.rs response
 src/handlers/mod.rs storage_path
 src/handlers/mod.rs to
