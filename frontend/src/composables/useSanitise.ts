@@ -23,6 +23,9 @@ const DEFAULT_CONFIG: Config = {
     'href', 'target', 'rel', 'title', 'alt', 'src',
     'class', 'id',
     'colspan', 'rowspan',
+    // Mention chips as the composer stores them. Inert data attributes;
+    // enhanceMentions() reads them after render.
+    'data-uuid', 'data-mention', 'data-name', 'data-avatar-url',
   ],
   ALLOW_DATA_ATTR: false,
   ADD_ATTR: ['target'],
