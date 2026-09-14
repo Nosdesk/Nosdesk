@@ -238,10 +238,11 @@ fn validate_config(provider: &str, config: &JsonValue) -> Result<(), String> {
 // ---------- Routes ----------
 
 /// GET /api/admin/channels
-pub async fn list_channels(mut tc: TenantConn, req: HttpRequest) -> HttpResponse {
-    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp.error_response();
-    }
+pub async fn list_channels(
+    mut tc: TenantConn,
+    req: HttpRequest,
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
     // Fold list + per-row credential probe into one transaction so
     // every read goes through the same RLS-scoped session.
     let result: diesel::QueryResult<Vec<ChannelResponse>> = tc.run(|conn| {
@@ -251,10 +252,10 @@ pub async fn list_channels(mut tc: TenantConn, req: HttpRequest) -> HttpResponse
             .collect()
     });
     match result {
-        Ok(out) => HttpResponse::Ok().json(out),
+        Ok(out) => Ok(HttpResponse::Ok().json(out)),
         Err(e) => {
             error!(error = %e, "failed to list channels");
-            server_error("Failed to list channels")
+            Ok(server_error("Failed to list channels"))
         }
     }
 }
@@ -264,10 +265,8 @@ pub async fn get_channel(
     mut tc: TenantConn,
     path: web::Path<i32>,
     req: HttpRequest,
-) -> HttpResponse {
-    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
     let id = path.into_inner();
     let result: diesel::QueryResult<Option<ChannelResponse>> =
         tc.run(|conn| match channels_repo::find(conn, id) {
@@ -276,11 +275,11 @@ pub async fn get_channel(
             Err(e) => Err(e),
         });
     match result {
-        Ok(Some(body)) => HttpResponse::Ok().json(body),
-        Ok(None) => HttpResponse::NotFound().finish(),
+        Ok(Some(body)) => Ok(HttpResponse::Ok().json(body)),
+        Ok(None) => Ok(HttpResponse::NotFound().finish()),
         Err(e) => {
             error!(error = %e, "failed to load channel");
-            server_error("Failed to load channel")
+            Ok(server_error("Failed to load channel"))
         }
     }
 }
@@ -291,19 +290,17 @@ pub async fn create_channel(
     body: web::Json<CreateChannelRequest>,
     control: web::Data<ChannelControl>,
     req: HttpRequest,
-) -> HttpResponse {
-    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     if body.name.trim().is_empty() {
-        return bad_request("Name is required");
+        return Ok(bad_request("Name is required"));
     }
     if let Err(msg) = validate_config(&body.provider, &body.config) {
-        return bad_request(msg);
+        return Ok(bad_request(msg));
     }
     if matches!(body.password.as_deref(), Some("")) {
-        return bad_request("Password, if provided, must not be empty");
+        return Ok(bad_request("Password, if provided, must not be empty"));
     }
 
     let provider = body.provider.clone();
@@ -353,11 +350,11 @@ pub async fn create_channel(
             if response.channel.provider != CHANNEL_PROVIDER_EMAIL_FORWARD {
                 control.upsert(channel_id).await;
             }
-            HttpResponse::Created().json(response)
+            Ok(HttpResponse::Created().json(response))
         }
         Err(e) => {
             error!(error = %e, "failed to create channel");
-            server_error("Failed to create channel")
+            Ok(server_error("Failed to create channel"))
         }
     }
 }
@@ -378,20 +375,20 @@ pub async fn update_channel(
     body: web::Json<UpdateChannelRequest>,
     control: web::Data<ChannelControl>,
     req: HttpRequest,
-) -> HttpResponse {
-    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
     let channel_id = path.into_inner();
 
     // Cheap pre-DB validations.
     if let Some(ref name) = body.name {
         if name.trim().is_empty() {
-            return bad_request("Name must not be empty");
+            return Ok(bad_request("Name must not be empty"));
         }
     }
     if matches!(body.password.as_deref(), Some("")) {
-        return bad_request("Password must not be empty — use DELETE credentials to clear");
+        return Ok(bad_request(
+            "Password must not be empty — use DELETE credentials to clear",
+        ));
     }
 
     let name = body.name.clone().map(|n| n.trim().to_string());
@@ -440,13 +437,13 @@ pub async fn update_channel(
             // cleanly — the supervisor stops the worker and leaves it
             // stopped.
             control.upsert(channel_id).await;
-            HttpResponse::Ok().json(response)
+            Ok(HttpResponse::Ok().json(response))
         }
-        Ok(UpdateOutcome::NotFound) => HttpResponse::NotFound().finish(),
-        Ok(UpdateOutcome::Validation(resp)) => resp,
+        Ok(UpdateOutcome::NotFound) => Ok(HttpResponse::NotFound().finish()),
+        Ok(UpdateOutcome::Validation(resp)) => Ok(resp),
         Err(e) => {
             error!(error = %e, "failed to update channel");
-            server_error("Failed to update channel")
+            Ok(server_error("Failed to update channel"))
         }
     }
 }
@@ -462,27 +459,25 @@ pub async fn delete_channel(
     path: web::Path<i32>,
     control: web::Data<ChannelControl>,
     req: HttpRequest,
-) -> HttpResponse {
-    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
     let channel_id = path.into_inner();
     let rows = match tc.run(|conn| channels_repo::delete(conn, channel_id)) {
         Ok(n) => n,
         Err(e) => {
             error!(error = %e, "failed to delete channel");
-            return server_error("Failed to delete channel");
+            return Ok(server_error("Failed to delete channel"));
         }
     };
     if rows == 0 {
-        return HttpResponse::NotFound().finish();
+        return Ok(HttpResponse::NotFound().finish());
     }
     // Tell the supervisor to stop the worker. Delete is idempotent,
     // so ordering with the DB commit doesn't matter — in the worst
     // case the worker gets told to stop twice.
     control.delete(channel_id).await;
     info!(channel_id, "channel deleted");
-    HttpResponse::NoContent().finish()
+    Ok(HttpResponse::NoContent().finish())
 }
 
 /// DELETE /api/admin/channels/{id}/credentials
@@ -491,23 +486,21 @@ pub async fn clear_credential(
     path: web::Path<i32>,
     control: web::Data<ChannelControl>,
     req: HttpRequest,
-) -> HttpResponse {
-    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
     let channel_id = path.into_inner();
     if let Err(e) =
         tc.run(|conn| channels_repo::delete_credential(conn, channel_id, CRED_TYPE_IMAP_PASSWORD))
     {
         error!(error = %e, "failed to clear channel credential");
-        return server_error("Failed to clear credential");
+        return Ok(server_error("Failed to clear credential"));
     }
     // Reconcile so the running worker (if any) observes the missing
     // credential on its next start attempt; it'll fail with a
     // Configuration error and settle into a stopped state rather than
     // continuing to hit auth failures with the cached password.
     control.upsert(channel_id).await;
-    HttpResponse::NoContent().finish()
+    Ok(HttpResponse::NoContent().finish())
 }
 
 /// Possible outcomes when preparing a test-connection: load the
@@ -530,10 +523,8 @@ pub async fn test_connection(
     path: web::Path<i32>,
     body: web::Json<TestConnectionRequest>,
     req: HttpRequest,
-) -> HttpResponse {
-    if let Err(resp) = require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Admin)?;
     let channel_id = path.into_inner();
     let candidate = body
         .password
@@ -582,22 +573,22 @@ pub async fn test_connection(
 
     let (config, password) = match result {
         Ok(TestPrep::Ready(c, p)) => (c, p),
-        Ok(TestPrep::NotFound) => return HttpResponse::NotFound().finish(),
-        Ok(TestPrep::Validation(resp)) => return resp,
+        Ok(TestPrep::NotFound) => return Ok(HttpResponse::NotFound().finish()),
+        Ok(TestPrep::Validation(resp)) => return Ok(resp),
         Err(e) => {
             error!(error = %e, "failed to load channel for test-connection");
-            return server_error("Failed to load channel");
+            return Ok(server_error("Failed to load channel"));
         }
     };
 
     match test_imap_connection(&config, &password).await {
         Ok(()) => {
             info!(channel_id, "test-connection succeeded");
-            HttpResponse::Ok().json(json!({ "ok": true }))
+            Ok(HttpResponse::Ok().json(json!({ "ok": true })))
         }
         Err(e) => {
             warn!(channel_id, error = %e, "test-connection failed");
-            HttpResponse::Ok().json(json!({ "ok": false, "error": e }))
+            Ok(HttpResponse::Ok().json(json!({ "ok": false, "error": e })))
         }
     }
 }

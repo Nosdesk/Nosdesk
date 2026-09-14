@@ -2,7 +2,7 @@
 //!
 //! API endpoints for plugin typed collections CRUD operations.
 
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder, ResponseError};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 use diesel::result::Error as DieselError;
 use tracing::error;
 use uuid::Uuid;
@@ -69,11 +69,8 @@ pub async fn list_collections(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<Uuid>,
-) -> impl Responder {
-    let _claims = match get_claims(&req) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    let _claims = get_claims(&req)?;
 
     let plugin_uuid = path.into_inner();
 
@@ -113,11 +110,11 @@ pub async fn list_collections(
     });
 
     match outcome {
-        Ok(ListOutcome::Ok(resp)) => HttpResponse::Ok().json(resp),
-        Ok(ListOutcome::Gate(gate)) => gate.into_response(),
+        Ok(ListOutcome::Ok(resp)) => Ok(HttpResponse::Ok().json(resp)),
+        Ok(ListOutcome::Gate(gate)) => Ok(gate.into_response()),
         Err(e) => {
             error!("Failed to list collections: {}", e);
-            errors::internal("Failed to get collections")
+            Ok(errors::internal("Failed to get collections"))
         }
     }
 }
@@ -127,11 +124,8 @@ pub async fn get_collection_schema(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<CollectionPath>,
-) -> impl Responder {
-    let _claims = match get_claims(&req) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    let _claims = get_claims(&req)?;
 
     let path = path.into_inner();
 
@@ -161,19 +155,19 @@ pub async fn get_collection_schema(
             let row_count = tc
                 .run(|conn| collection_repo::count_rows_by_schema(conn, schema.id))
                 .unwrap_or(0);
-            HttpResponse::Ok().json(CollectionSchemaResponse {
+            Ok(HttpResponse::Ok().json(CollectionSchemaResponse {
                 uuid: schema.uuid,
                 collection_name: schema.collection_name,
                 schema: schema.schema,
                 version: schema.version,
                 row_count,
-            })
+            }))
         }
-        Ok(SchemaLookup::Gate(gate)) => gate.into_response(),
-        Ok(SchemaLookup::CollectionNotFound) => errors::not_found_msg("Collection not found"),
+        Ok(SchemaLookup::Gate(gate)) => Ok(gate.into_response()),
+        Ok(SchemaLookup::CollectionNotFound) => Ok(errors::not_found_msg("Collection not found")),
         Err(e) => {
             error!("Failed to get collection schema: {}", e);
-            errors::internal("Failed to get collection")
+            Ok(errors::internal("Failed to get collection"))
         }
     }
 }
@@ -188,11 +182,8 @@ pub async fn list_collection_rows(
     mut tc: TenantConn,
     path: web::Path<CollectionPath>,
     query: web::Query<CollectionQueryParams>,
-) -> impl Responder {
-    let _claims = match get_claims(&req) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    let _claims = get_claims(&req)?;
 
     let path = path.into_inner();
     let limit = helpers::clamp_limit(query.limit);
@@ -240,15 +231,15 @@ pub async fn list_collection_rows(
     });
 
     match outcome {
-        Ok(RowsOutcome::Ok(rows, total)) => HttpResponse::Ok().json(CollectionListResponse {
+        Ok(RowsOutcome::Ok(rows, total)) => Ok(HttpResponse::Ok().json(CollectionListResponse {
             rows: rows.into_iter().map(CollectionRowResponse::from).collect(),
             total,
-        }),
-        Ok(RowsOutcome::Gate(gate)) => gate.into_response(),
-        Ok(RowsOutcome::CollectionNotFound) => errors::not_found_msg("Collection not found"),
+        })),
+        Ok(RowsOutcome::Gate(gate)) => Ok(gate.into_response()),
+        Ok(RowsOutcome::CollectionNotFound) => Ok(errors::not_found_msg("Collection not found")),
         Err(e) => {
             error!("Failed to list collection rows: {}", e);
-            errors::internal("Failed to list rows")
+            Ok(errors::internal("Failed to list rows"))
         }
     }
 }
@@ -259,11 +250,8 @@ pub async fn create_collection_row(
     mut tc: TenantConn,
     path: web::Path<CollectionPath>,
     body: web::Json<CreateCollectionRowRequest>,
-) -> impl Responder {
-    let claims = match get_claims(&req) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    let claims = get_claims(&req)?;
 
     let path = path.into_inner();
     let user_uuid = Uuid::parse_str(&claims.sub).ok();
@@ -321,23 +309,23 @@ pub async fn create_collection_row(
 
     match outcome {
         Ok(CreateOutcome::Ok(row)) => {
-            HttpResponse::Created().json(CollectionRowResponse::from(row))
+            Ok(HttpResponse::Created().json(CollectionRowResponse::from(row)))
         }
-        Ok(CreateOutcome::Gate(gate)) => gate.into_response(),
-        Ok(CreateOutcome::CollectionNotFound) => errors::not_found_msg("Collection not found"),
-        Ok(CreateOutcome::RowLimitExceeded) => errors::bad_request(format!(
+        Ok(CreateOutcome::Gate(gate)) => Ok(gate.into_response()),
+        Ok(CreateOutcome::CollectionNotFound) => Ok(errors::not_found_msg("Collection not found")),
+        Ok(CreateOutcome::RowLimitExceeded) => Ok(errors::bad_request(format!(
             "collection row limit exceeded (max {MAX_ROWS_PER_COLLECTION} rows)"
-        )),
+        ))),
         Ok(CreateOutcome::ValidationError(msg)) => {
-            HttpResponse::BadRequest().json(serde_json::json!({
+            Ok(HttpResponse::BadRequest().json(serde_json::json!({
                 "error": i18n::tr(&locale, "backend-error-validation"),
                 "code": "backend-error-validation",
                 "message": msg
-            }))
+            })))
         }
         Err(e) => {
             error!("Failed to create collection row: {}", e);
-            errors::internal("Failed to create row")
+            Ok(errors::internal("Failed to create row"))
         }
     }
 }
@@ -347,11 +335,8 @@ pub async fn get_collection_row(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<CollectionRowPath>,
-) -> impl Responder {
-    let _claims = match get_claims(&req) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    let _claims = get_claims(&req)?;
 
     let path = path.into_inner();
 
@@ -387,13 +372,13 @@ pub async fn get_collection_row(
     });
 
     match outcome {
-        Ok(GetOutcome::Ok(row)) => HttpResponse::Ok().json(CollectionRowResponse::from(row)),
-        Ok(GetOutcome::Gate(gate)) => gate.into_response(),
-        Ok(GetOutcome::CollectionNotFound) => errors::not_found_msg("Collection not found"),
-        Ok(GetOutcome::RowNotFound) => errors::not_found_msg("Row not found"),
+        Ok(GetOutcome::Ok(row)) => Ok(HttpResponse::Ok().json(CollectionRowResponse::from(row))),
+        Ok(GetOutcome::Gate(gate)) => Ok(gate.into_response()),
+        Ok(GetOutcome::CollectionNotFound) => Ok(errors::not_found_msg("Collection not found")),
+        Ok(GetOutcome::RowNotFound) => Ok(errors::not_found_msg("Row not found")),
         Err(e) => {
             error!("Failed to get collection row: {}", e);
-            errors::internal("Failed to get row")
+            Ok(errors::internal("Failed to get row"))
         }
     }
 }
@@ -404,11 +389,8 @@ pub async fn update_collection_row(
     mut tc: TenantConn,
     path: web::Path<CollectionRowPath>,
     body: web::Json<UpdateCollectionRowRequest>,
-) -> impl Responder {
-    let _claims = match get_claims(&req) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    let _claims = get_claims(&req)?;
 
     let path = path.into_inner();
     let body_data = body.data.clone();
@@ -459,20 +441,20 @@ pub async fn update_collection_row(
     });
 
     match outcome {
-        Ok(UpdateOutcome::Ok(row)) => HttpResponse::Ok().json(CollectionRowResponse::from(row)),
-        Ok(UpdateOutcome::Gate(gate)) => gate.into_response(),
-        Ok(UpdateOutcome::CollectionNotFound) => errors::not_found_msg("Collection not found"),
-        Ok(UpdateOutcome::RowNotFound) => errors::not_found_msg("Row not found"),
+        Ok(UpdateOutcome::Ok(row)) => Ok(HttpResponse::Ok().json(CollectionRowResponse::from(row))),
+        Ok(UpdateOutcome::Gate(gate)) => Ok(gate.into_response()),
+        Ok(UpdateOutcome::CollectionNotFound) => Ok(errors::not_found_msg("Collection not found")),
+        Ok(UpdateOutcome::RowNotFound) => Ok(errors::not_found_msg("Row not found")),
         Ok(UpdateOutcome::ValidationError(msg)) => {
-            HttpResponse::BadRequest().json(serde_json::json!({
+            Ok(HttpResponse::BadRequest().json(serde_json::json!({
                 "error": i18n::tr(&locale, "backend-error-validation"),
                 "code": "backend-error-validation",
                 "message": msg
-            }))
+            })))
         }
         Err(e) => {
             error!("Failed to update collection row: {}", e);
-            errors::internal("Failed to update row")
+            Ok(errors::internal("Failed to update row"))
         }
     }
 }
@@ -482,11 +464,8 @@ pub async fn delete_collection_row(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<CollectionRowPath>,
-) -> impl Responder {
-    let _claims = match get_claims(&req) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+) -> actix_web::Result<HttpResponse> {
+    let _claims = get_claims(&req)?;
 
     let path = path.into_inner();
 
@@ -521,13 +500,13 @@ pub async fn delete_collection_row(
     });
 
     match outcome {
-        Ok(DeleteOutcome::Deleted) => HttpResponse::NoContent().finish(),
-        Ok(DeleteOutcome::Gate(gate)) => gate.into_response(),
-        Ok(DeleteOutcome::CollectionNotFound) => errors::not_found_msg("Collection not found"),
-        Ok(DeleteOutcome::RowNotFound) => errors::not_found_msg("Row not found"),
+        Ok(DeleteOutcome::Deleted) => Ok(HttpResponse::NoContent().finish()),
+        Ok(DeleteOutcome::Gate(gate)) => Ok(gate.into_response()),
+        Ok(DeleteOutcome::CollectionNotFound) => Ok(errors::not_found_msg("Collection not found")),
+        Ok(DeleteOutcome::RowNotFound) => Ok(errors::not_found_msg("Row not found")),
         Err(e) => {
             error!("Failed to delete collection row: {}", e);
-            errors::internal("Failed to delete row")
+            Ok(errors::internal("Failed to delete row"))
         }
     }
 }

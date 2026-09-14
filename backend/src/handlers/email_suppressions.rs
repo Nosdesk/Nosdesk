@@ -12,7 +12,7 @@
 //! less than an agent does, and deleting a peer's manual entry would resume
 //! mail to someone who asked them to stop.
 
-use actix_web::{web, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpRequest, HttpResponse};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tracing::warn;
@@ -69,14 +69,12 @@ pub async fn list(
     req: HttpRequest,
     mut tc: TenantConn,
     query: web::Query<ListQuery>,
-) -> impl Responder {
-    if let Err(resp) = rbac::require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    rbac::require_workspace_role(&req, WorkspaceRole::Admin)?;
     let limit = query.limit.unwrap_or(50).clamp(1, 200);
     let before = query.before;
     let Some(workspace_id) = tc.workspace_id() else {
-        return errors::forbidden("A resolved workspace is required");
+        return Ok(errors::forbidden("A resolved workspace is required"));
     };
     // Both queries filter on the workspace explicitly. The table now carries
     // RLS too, but the filter is what makes the query correct on its face;
@@ -90,7 +88,7 @@ pub async fn list(
         Ok(t) => t,
         Err(e) => {
             warn!(error = ?e, "Failed to read email suppressions");
-            return errors::internal("Failed to read email suppressions");
+            return Ok(errors::internal("Failed to read email suppressions"));
         }
     };
     // The next cursor is the created_at of the last row returned;
@@ -101,11 +99,11 @@ pub async fn list(
     } else {
         None
     };
-    HttpResponse::Ok().json(ListResponse {
+    Ok(HttpResponse::Ok().json(ListResponse {
         rows: rows.into_iter().map(Into::into).collect(),
         total,
         next_cursor,
-    })
+    }))
 }
 
 #[derive(Debug, Deserialize)]
@@ -120,16 +118,14 @@ pub async fn create(
     req: HttpRequest,
     mut tc: TenantConn,
     body: web::Json<CreateBody>,
-) -> impl Responder {
-    if let Err(resp) = rbac::require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    rbac::require_workspace_role(&req, WorkspaceRole::Admin)?;
     let email = body.email.trim().to_string();
     if email.is_empty() || !email.contains('@') {
-        return errors::bad_request("Email must look like an address");
+        return Ok(errors::bad_request("Email must look like an address"));
     }
     let Some(workspace_id) = tc.workspace_id() else {
-        return errors::forbidden("A resolved workspace is required");
+        return Ok(errors::forbidden("A resolved workspace is required"));
     };
     let new = NewEmailSuppression {
         email,
@@ -138,10 +134,10 @@ pub async fn create(
         workspace_id,
     };
     match tc.run(|conn| repo::upsert(conn, new)) {
-        Ok(row) => HttpResponse::Ok().json(RowResponse::from(row)),
+        Ok(row) => Ok(HttpResponse::Ok().json(RowResponse::from(row))),
         Err(e) => {
             warn!(error = ?e, "Failed to add email suppression");
-            errors::internal("Failed to add email suppression")
+            Ok(errors::internal("Failed to add email suppression"))
         }
     }
 }
@@ -150,22 +146,22 @@ pub async fn delete(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<String>,
-) -> impl Responder {
-    if let Err(resp) = rbac::require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    rbac::require_workspace_role(&req, WorkspaceRole::Admin)?;
     let email = path.into_inner();
     let Some(workspace_id) = tc.workspace_id() else {
-        return errors::forbidden("A resolved workspace is required");
+        return Ok(errors::forbidden("A resolved workspace is required"));
     };
     // A peer tenant's entry is now indistinguishable from an address that was
     // never on the list, which is the right shape: no cross-tenant oracle.
     match tc.run(|conn| repo::remove(conn, workspace_id, &email)) {
-        Ok(0) => errors::not_found_msg("Address is not on the suppression list"),
-        Ok(_) => HttpResponse::NoContent().finish(),
+        Ok(0) => Ok(errors::not_found_msg(
+            "Address is not on the suppression list",
+        )),
+        Ok(_) => Ok(HttpResponse::NoContent().finish()),
         Err(e) => {
             warn!(error = ?e, "Failed to remove email suppression");
-            errors::internal("Failed to remove email suppression")
+            Ok(errors::internal("Failed to remove email suppression"))
         }
     }
 }

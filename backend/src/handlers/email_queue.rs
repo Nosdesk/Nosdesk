@@ -15,7 +15,7 @@ use crate::handlers::errors;
 use crate::models::WorkspaceRole;
 use crate::repository::outbound_emails as repo;
 use crate::utils::rbac;
-use actix_web::{web, HttpRequest, HttpResponse, Responder};
+use actix_web::{web, HttpRequest, HttpResponse};
 use base64::Engine;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -136,17 +136,15 @@ pub async fn list(
     req: HttpRequest,
     mut tc: TenantConn,
     query: web::Query<ListQuery>,
-) -> impl Responder {
-    if let Err(resp) = rbac::require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    rbac::require_workspace_role(&req, WorkspaceRole::Admin)?;
 
     let cursor = match query.cursor.as_deref().map(decode_cursor) {
         Some(Ok(c)) => Some(c),
         Some(Err(_)) => {
-            return errors::bad_request(
+            return Ok(errors::bad_request(
                 "Invalid cursor; pass the next_cursor from the previous response verbatim",
-            );
+            ));
         }
         None => None,
     };
@@ -172,14 +170,14 @@ pub async fn list(
         Ok(p) => p,
         Err(e) => {
             warn!(error = ?e, "Failed to list outbound email queue");
-            return errors::internal("Failed to list outbound email queue");
+            return Ok(errors::internal("Failed to list outbound email queue"));
         }
     };
 
-    HttpResponse::Ok().json(ListResponse {
+    Ok(HttpResponse::Ok().json(ListResponse {
         rows: page.rows.into_iter().map(Into::into).collect(),
         next_cursor: page.next_cursor.map(encode_cursor),
-    })
+    }))
 }
 
 #[derive(Debug, Serialize)]
@@ -200,10 +198,8 @@ pub struct StatusCount {
 }
 
 /// `GET /api/admin/email-queue/stats` — top stats card data.
-pub async fn stats(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
-    if let Err(resp) = rbac::require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp.error_response();
-    }
+pub async fn stats(req: HttpRequest, mut tc: TenantConn) -> actix_web::Result<HttpResponse> {
+    rbac::require_workspace_role(&req, WorkspaceRole::Admin)?;
     // Fold both counts into one tc.run so they ride a single RLS
     // transaction; the second call won't observe writes that landed
     // between them.
@@ -216,17 +212,17 @@ pub async fn stats(req: HttpRequest, mut tc: TenantConn) -> impl Responder {
         Ok(t) => t,
         Err(e) => {
             warn!(error = ?e, "Failed to count outbound email queue by status");
-            return errors::internal("Failed to count queue rows");
+            return Ok(errors::internal("Failed to count queue rows"));
         }
     };
-    HttpResponse::Ok().json(StatsResponse {
+    Ok(HttpResponse::Ok().json(StatsResponse {
         by_status: by_status
             .into_iter()
             .map(|(status, count)| StatusCount { status, count })
             .collect(),
         pending_total,
         oldest_pending_age_seconds: oldest_age,
-    })
+    }))
 }
 
 /// `POST /api/admin/email-queue/{id}/retry` — bump back to pending,
@@ -235,33 +231,35 @@ pub async fn retry_now(
     req: HttpRequest,
     mut tc: TenantConn,
     path: web::Path<i64>,
-) -> impl Responder {
-    if let Err(resp) = rbac::require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    rbac::require_workspace_role(&req, WorkspaceRole::Admin)?;
     let id = path.into_inner();
     match tc.run(|conn| repo::retry_now(conn, id)) {
-        Ok(0) => errors::not_found_msg("queue row not found, or not in a retryable state"),
-        Ok(_) => HttpResponse::NoContent().finish(),
+        Ok(0) => Ok(errors::not_found_msg(
+            "queue row not found, or not in a retryable state",
+        )),
+        Ok(_) => Ok(HttpResponse::NoContent().finish()),
         Err(e) => {
             warn!(error = ?e, queue_id = id, "Failed to retry queue row");
-            errors::internal("Failed to retry queue row")
+            Ok(errors::internal("Failed to retry queue row"))
         }
     }
 }
 
 /// `POST /api/admin/email-queue/{id}/cancel` — mark suppressed.
-pub async fn cancel(req: HttpRequest, mut tc: TenantConn, path: web::Path<i64>) -> impl Responder {
-    if let Err(resp) = rbac::require_workspace_role(&req, WorkspaceRole::Admin) {
-        return resp.error_response();
-    }
+pub async fn cancel(
+    req: HttpRequest,
+    mut tc: TenantConn,
+    path: web::Path<i64>,
+) -> actix_web::Result<HttpResponse> {
+    rbac::require_workspace_role(&req, WorkspaceRole::Admin)?;
     let id = path.into_inner();
     match tc.run(|conn| repo::cancel(conn, id)) {
-        Ok(0) => errors::not_found_msg("queue row not found"),
-        Ok(_) => HttpResponse::NoContent().finish(),
+        Ok(0) => Ok(errors::not_found_msg("queue row not found")),
+        Ok(_) => Ok(HttpResponse::NoContent().finish()),
         Err(e) => {
             warn!(error = ?e, queue_id = id, "Failed to cancel queue row");
-            errors::internal("Failed to cancel queue row")
+            Ok(errors::internal("Failed to cancel queue row"))
         }
     }
 }
