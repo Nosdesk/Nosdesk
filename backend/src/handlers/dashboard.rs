@@ -8,7 +8,7 @@
 
 use std::collections::HashSet;
 
-use actix_web::{web, HttpResponse, Responder, ResponseError};
+use actix_web::{web, HttpResponse};
 use serde::Deserialize;
 use serde_json::json;
 use tracing::error;
@@ -60,39 +60,33 @@ pub async fn get_stats(
     query: web::Query<StatsQuery>,
     auth: AuthContext,
     ws: WorkspaceContext,
-) -> impl Responder {
+) -> actix_web::Result<HttpResponse> {
     let target_user = query.user.unwrap_or(auth.user_uuid);
 
     if target_user != auth.user_uuid && !auth.can_handle_tickets() {
-        return errors::forbidden("forbidden");
+        return Ok(errors::forbidden("forbidden"));
     }
 
-    let groups = match query.parse_include() {
-        Ok(g) => g,
-        Err(e) => return e.error_response(),
-    };
+    let groups = query.parse_include()?;
 
     if groups.is_empty() {
         // Empty `include=` (e.g., `?include=`) is a request for
         // nothing; return an empty bundle rather than computing
         // everything by accident.
-        return HttpResponse::Ok().json(dashboard_stats::StatsBundle::default());
+        return Ok(HttpResponse::Ok().json(dashboard_stats::StatsBundle::default()));
     }
 
-    let mut conn = match helpers::db_conn(&pool) {
-        Ok(c) => c,
-        Err(e) => return e.error_response(),
-    };
+    let mut conn = helpers::db_conn(&pool)?;
     // Pin the resolved workspace so the stats queries (tickets and related
     // RLS-isolated tables) are visible; the pool clears app.workspace_id on
     // checkout, so an unpinned conn computes empty stats in hosted mode.
     helpers::pin_workspace(&mut conn, ws.workspace_id);
 
     match dashboard_stats::compute(&mut conn, &target_user, &groups) {
-        Ok(bundle) => HttpResponse::Ok().json(bundle),
+        Ok(bundle) => Ok(HttpResponse::Ok().json(bundle)),
         Err(e) => {
             error!(error = ?e, "dashboard stats computation failed");
-            errors::internal("stats unavailable")
+            Ok(errors::internal("stats unavailable"))
         }
     }
 }

@@ -92,15 +92,13 @@ pub async fn list_bug_reports(
     req: HttpRequest,
     mut pc: PlatformConn,
     query: web::Query<ListBugReportsQuery>,
-) -> impl Responder {
-    if let Err(resp) = rbac::require_platform_admin(&req) {
-        return resp.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    rbac::require_platform_admin(&req)?;
     let limit = query.limit.unwrap_or(50).clamp(1, 200);
     let offset = query.offset.unwrap_or(0).max(0);
     match pc.run(|conn| repo::list_recent(conn, limit, offset)) {
-        Ok(reports) => HttpResponse::Ok().json(reports),
-        Err(e) => errors::db_error(&e),
+        Ok(reports) => Ok(HttpResponse::Ok().json(reports)),
+        Err(e) => Ok(errors::db_error(&e)),
     }
 }
 

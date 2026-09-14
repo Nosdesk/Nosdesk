@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use actix_web::{web, HttpMessage, HttpRequest, HttpResponse, Responder, ResponseError};
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 use serde::Deserialize;
 
 use crate::db::Pool;
@@ -54,18 +54,13 @@ pub async fn merge_tickets(
     body: web::Json<MergeRequest>,
     pool: web::Data<Pool>,
     search_service: web::Data<Arc<SearchService>>,
-) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Agent)?;
     let actor = match actor_from(&req) {
         Some(a) => a,
-        None => return errors::unauthorized("Authentication required"),
+        None => return Ok(errors::unauthorized("Authentication required")),
     };
-    let mut conn = match errors::db_conn(&pool) {
-        Ok(c) => c,
-        Err(resp) => return resp.error_response(),
-    };
+    let mut conn = errors::db_conn(&pool)?;
 
     let body = body.into_inner();
     let notify_customer = body.notify_customer;
@@ -87,7 +82,7 @@ pub async fn merge_tickets(
 
     let outcome = match ticket_merge::execute_merge(&mut conn, input, &actor) {
         Ok(o) => o,
-        Err(e) => return map_merge_error(e),
+        Err(e) => return Ok(map_merge_error(e)),
     };
 
     // Post-commit, best-effort. None of this rolls back the merge.
@@ -120,7 +115,7 @@ pub async fn merge_tickets(
         }
     }
 
-    HttpResponse::Ok().json(serde_json::json!({
+    Ok(HttpResponse::Ok().json(serde_json::json!({
         "merge_event_id": outcome.merge_event_id,
         "destination_ticket": outcome.destination,
         "merged_sources": outcome.merged_sources,
@@ -128,7 +123,7 @@ pub async fn merge_tickets(
         "channel_messages_rerouted": outcome.channel_messages_rerouted,
         "watchers_added_to_destination": outcome.watchers_added_to_destination,
         "merge_marker_comment_id": outcome.merge_marker_comment_id,
-    }))
+    })))
 }
 
 /// `GET /api/tickets/{id}/merge-history`. Agent role or higher.
@@ -136,19 +131,14 @@ pub async fn get_merge_history(
     req: HttpRequest,
     path: web::Path<i32>,
     pool: web::Data<Pool>,
-) -> impl Responder {
-    if let Err(e) = require_workspace_role(&req, WorkspaceRole::Agent) {
-        return e.error_response();
-    }
+) -> actix_web::Result<HttpResponse> {
+    require_workspace_role(&req, WorkspaceRole::Agent)?;
     let actor = match actor_from(&req) {
         Some(a) => a,
-        None => return errors::unauthorized("Authentication required"),
+        None => return Ok(errors::unauthorized("Authentication required")),
     };
     let ticket_id = path.into_inner();
-    let mut conn = match errors::db_conn(&pool) {
-        Ok(c) => c,
-        Err(resp) => return resp.error_response(),
-    };
+    let mut conn = errors::db_conn(&pool)?;
 
     // Read under the actor context so RLS scopes the query to the
     // caller's workspace.
@@ -156,8 +146,8 @@ pub async fn get_merge_history(
         ticket_merge::merge_history_for_ticket(c, ticket_id)
     });
     match result {
-        Ok(history) => HttpResponse::Ok().json(history),
-        Err(e) => errors::db_error(&e),
+        Ok(history) => Ok(HttpResponse::Ok().json(history)),
+        Err(e) => Ok(errors::db_error(&e)),
     }
 }
 
