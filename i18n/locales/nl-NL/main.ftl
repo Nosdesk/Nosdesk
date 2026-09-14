@@ -107,6 +107,7 @@ notif-ticket-assigned = [{ $app }] Ticket toegewezen: { $title }
 notif-ticket-status-changed = [{ $app }] Status gewijzigd: { $title }
 notif-comment-added = [{ $app }] Nieuwe reactie: { $title }
 notif-mentioned = [{ $app }] { $actor } heeft u genoemd
+notif-ticket-referenced = [{ $app }] { $actor } heeft uw ticket vermeld
 notif-ticket-created-requester = [{ $app }] Ticket aangemaakt: { $title }
 notif-doc-page-updated = [{ $app }] Pagina bijgewerkt: { $title }
 notif-asset-low-stock = [{ $app }] Low stock: { $title }
@@ -3585,6 +3586,8 @@ settings-notifications-type-comment-added-name = Nieuwe opmerking
 settings-notifications-type-comment-added-description = Wanneer iemand reageert op uw ticket
 settings-notifications-type-mentioned-name = Vermeld
 settings-notifications-type-mentioned-description = Wanneer iemand u in een opmerking vermeldt
+settings-notifications-type-ticket-referenced-name = Ticket vermeld
+settings-notifications-type-ticket-referenced-description = Wanneer een aan u toegewezen ticket in een opmerking wordt vermeld
 settings-notifications-type-ticket-created-requester-name = Ticket aangemaakt
 settings-notifications-type-ticket-created-requester-description = Wanneer een ticket namens u wordt aangemaakt
 settings-notifications-type-doc-page-updated-name = Pagina bijgewerkt
@@ -4171,8 +4174,8 @@ ticket-detail-print-asset-fallback = Naamloze asset
 ticket-comments-section-title = Reacties en bijlagen
 ticket-comments-drop-files = Bestanden hier neerzetten
 ticket-comments-internal-banner = Alleen zichtbaar voor medewerkers. Niet verzonden via het kanaal van het ticket.
-ticket-comments-placeholder-public = Beantwoord de aanvrager...
-ticket-comments-placeholder-internal = Voeg een interne notitie toe...
+ticket-comments-placeholder-public = Beantwoord de aanvrager... (@ om te vermelden, # voor een ticket)
+ticket-comments-placeholder-internal = Voeg een interne notitie toe... (@ om te vermelden, # voor een ticket)
 ticket-comments-record-voice = Spraaknotitie opnemen
 ticket-comments-upload-file = Bestand uploaden
 ticket-comments-visibility-group = Zichtbaarheid van reactie
@@ -4181,6 +4184,10 @@ ticket-comments-public-reply-title = Verzonden naar de aanvrager via het kanaal 
 ticket-comments-internal-note = Intern
 ticket-comments-internal-note-title = Alleen zichtbaar voor agenten; niet doorgestuurd via het kanaal van het ticket
 ticket-comments-submit-reply = Reactie versturen
+# MACHINE TRANSLATION, pending native review
+ticket-comments-link-suggestion = { $ticket } als gerelateerd koppelen?
+ticket-comments-link-suggestion-accept = Koppelen
+ticket-comments-link-suggestion-dismiss = Negeren
 ticket-comments-submit-note = Notitie toevoegen
 ticket-comments-voice-note-filename = Spraaknotitie { $date }
 ticket-comments-filter-group = Filter zichtbaarheid reacties
@@ -4272,6 +4279,8 @@ ticket-activity-phrase-loan-issued = heeft een apparaat uitgeleend aan { $borrow
 ticket-activity-phrase-loan-issued-plain = heeft een apparaat uitgeleend
 # MT: pending native review
 ticket-activity-phrase-loan-returned = heeft een geleend apparaat teruggenomen
+ticket-activity-phrase-referenced = heeft dit ticket vermeld in
+ticket-activity-phrase-referenced-internal = heeft dit ticket vermeld in een interne notitie op
 ticket-activity-phrase-generic = heeft een wijziging aangebracht
 
 # Ticket: labelkiezer (TicketTagsField).
@@ -6191,6 +6200,8 @@ editor-mentions-hint-select = Selecteren
 editor-mentions-hint-close = Sluiten
 editor-mentions-helper-type = Typ
 editor-mentions-helper-suffix = om iemand te vermelden
+editor-ticket-picker-prompt = Typ een ticketnummer of titel
+editor-ticket-picker-empty = Geen tickets gevonden
 
 # R1 auth UX errors
 auth-mfa-check-failed = Kon MFA-status niet controleren

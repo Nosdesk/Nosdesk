@@ -1,0 +1,23 @@
+{
+  "name": "ticket_reference",
+  "schema_version": 1,
+  "fields": {
+    "ticket_id": { "rust": "i32", "ts": "number", "primary": true, "note": "the referenced ticket" },
+    "comment_id": { "rust": "i32", "ts": "number", "primary": true },
+    "source_ticket_id": { "rust": "i32", "ts": "number", "note": "the ticket the comment is on" },
+    "is_internal": { "rust": "bool", "ts": "boolean" },
+    "referenced_assignee_uuid": { "rust": "Option<Uuid>", "ts": "string | null", "note": "assignee of the referenced ticket at write time; the notification deriver's recipient" }
+  },
+  "events": [
+    { "type": "ticket_reference.added", "op": "I", "note": "one per distinct ticket_link in a new comment; ids only, never a title. Not pool-materialised: the referenced ticket's activity feed reads it via useSyncActions" }
+  ],
+  "groups": [
+    "workspace:1",
+    "ticket:<ticket_id>"
+  ],
+  "references": [
+    { "field": "ticket_id", "aggregate": "ticket" },
+    { "field": "source_ticket_id", "aggregate": "ticket" },
+    { "field": "comment_id", "aggregate": "comment" }
+  ]
+}

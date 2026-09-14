@@ -576,6 +576,15 @@ diesel::table! {
 }
 
 diesel::table! {
+    comment_ticket_references (comment_id, referenced_ticket_id) {
+        comment_id -> Int4,
+        referenced_ticket_id -> Int4,
+        workspace_id -> Int4,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     comments (id) {
         id -> Int4,
         content -> Text,
@@ -2337,6 +2346,9 @@ diesel::joinable!(channel_messages -> tickets (ticket_id));
 diesel::joinable!(channel_messages -> users (author_user_uuid));
 diesel::joinable!(channel_messages -> workspaces (workspace_id));
 diesel::joinable!(channels -> workspaces (workspace_id));
+diesel::joinable!(comment_ticket_references -> comments (comment_id));
+diesel::joinable!(comment_ticket_references -> tickets (referenced_ticket_id));
+diesel::joinable!(comment_ticket_references -> workspaces (workspace_id));
 diesel::joinable!(comments -> tickets (ticket_id));
 diesel::joinable!(comments -> users (user_uuid));
 diesel::joinable!(comments -> workspaces (workspace_id));
@@ -2537,6 +2549,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     channel_credentials,
     channel_messages,
     channels,
+    comment_ticket_references,
     comments,
     csp_reports,
     cycle_tickets,
